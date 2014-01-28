@@ -1,0 +1,27 @@
+<html>
+<head>
+
+<script type="text/javascript">
+
+//Because the page will automatically refresh, should mention it on the webpage
+
+	function reFresh() {
+  		location.reload(true)
+	}
+
+	// Set the number below to the amount of delay, in milliseconds,
+	//you want between page reloads: 1 minute = 60000 milliseconds.
+	window.setInterval("reFresh()",300000);
+
+</script>
+
+</head>
+
+<body>
+This page refreshes every 5 minutes.<br><br>
+
+Time right now is: {{time}}<br><br>
+ 
+</body>
+
+</html>

@@ -1,4 +1,4 @@
-fgsearch
+nodepath
 ========
 
 Search API for FreeGraph
