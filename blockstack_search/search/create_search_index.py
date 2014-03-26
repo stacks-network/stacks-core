@@ -7,7 +7,7 @@
 '''
 	functions for building the ES/lucene search index and mappings   
 '''
-import sys
+import sys,json
 from pyes import *
 conn =  ES()
 
@@ -39,26 +39,14 @@ def create_mapping(index_name,index_type):
 						'index': 'analyzed',
 						'store': 'yes',
 						'type': u'string',
-						"term_vector" : "with_positions_offsets"},
-
-				u'bio': {'boost': 1.0,
-						'index': 'analyzed',
-						'store': 'yes',
-						'type': u'string',
-						"term_vector" : "with_positions_offsets"},
-
-				u'data': {'boost': 2.0,
-						'index': 'analyzed',
-						'store': 'yes',
-						'type': u'string',
-						"term_vector" : "with_positions_offsets"},}
+						"term_vector" : "with_positions_offsets"}}
 
 	conn.indices.put_mapping(index_type, {'properties':mapping}, [index_name])
 
 #-------------------------
 def create_people_index(): 
 
-	create_mapping("fg_people_index","fg_people_type")
+	create_mapping("onename_people_index","onename_people_type")
 
 	from pymongo import MongoClient
 	from bson import json_util
@@ -66,11 +54,42 @@ def create_people_index():
 
 	c = MongoClient()
 
-	db = c['freegraph']
+	db = c['onename_search']
 	nodes = db.nodes
 
-	counter = 0 
+	counter = 0
+	#print(json.loads(profile_temp['value']))
 
+	#for profile in nodes.find():
+		#profile_dict = json.loads(profile)
+	profile_temp = nodes.find_one({'name':"u/muneeb"})
+	try:
+			profile_details = json.loads(profile_temp['value'])
+			name_dict = profile_details["name"]
+			name = name_dict['formatted']
+			print(name)
+
+			conn.index({'full_name':name_dict['formatted'],'_boost' : 1,},
+						"onename_people_index",
+						"onename_people_type",
+					bulk=True)
+			counter += 1
+			conn.indices.refresh(["onename_people_index"])
+        
+	except Exception as e:
+			print e
+	conn.indices.refresh(["onename_people_index"])
+		#write in bulk
+	if(counter % BULK_INSERT_LIMIT == 0):
+			print '-' * 5
+			print counter 
+			conn.refresh(["onename_people_index"])
+
+	#conn.indices.force_bulk()
+
+	#print(profile['name'])
+
+	"""
 	for i in nodes.find():
 
 		data = i['data']
@@ -96,9 +115,10 @@ def create_people_index():
 			conn.refresh(["fg_people_index"])
 			
 	conn.indices.force_bulk()
+	"""
 
 #----------------------------------
-def test_query(query,index=['fg_people_index']):
+def test_query(query,index=['onename_people_index']):
 
 	q = StringQuery(query, search_fields = ['full_name', 'bio', 'data'], default_operator = 'and')
 	count = conn.count(query = q)

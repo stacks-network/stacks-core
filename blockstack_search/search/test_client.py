@@ -20,7 +20,7 @@ def search_client(query,server):
  	print "Searching for: " + query
 	print '-' * 10
 
-	url = 'http://localhost:5000/search/people'
+	url = 'http://localhost:5003/search/people'
 
 	if(server == 'remote'):
 		url = 'http://54.200.209.148/search/people'
@@ -40,12 +40,13 @@ def search_client(query,server):
 	print '-' * 10
 
 	print "People: "
+	print temp
+	#for i in temp['name']:
 
-	for i in temp['people']:
-
-		print i
+		#print i
 		#print i['first_name'] + ' ' + i['last_name'] + ' | ' + 'http://www.crunchbase.com/person/' + i['crunchbase_slug']
 
+	"""
 	if(len(temp['companies']) > 0):
 
 		print '-' * 10
@@ -55,6 +56,7 @@ def search_client(query,server):
 			print i
 		
 	print '-' * 10
+	"""
 
 #-------------------------    
 if __name__ == "__main__":
