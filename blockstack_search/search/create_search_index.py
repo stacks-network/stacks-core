@@ -39,10 +39,14 @@ def create_mapping(index_name,index_type):
 						'index': 'analyzed',
 						'store': 'yes',
 						'type': u'string',
+						"term_vector" : "with_positions_offsets"},
+				u'details': {'boost': 1.0,
+						'index': 'analyzed',
+						'store': 'yes',
+						'type': u'string',
 						"term_vector" : "with_positions_offsets"}}
 
 	conn.indices.put_mapping(index_type, {'properties':mapping}, [index_name])
-
 #-------------------------
 def create_people_index(): 
 
@@ -69,63 +73,38 @@ def create_people_index():
 			name = name_dict['formatted']
 			print(name)
 
-			conn.index({'full_name':name_dict['formatted'],'_boost' : 1,},
+			res = conn.index({'full_name':name_dict['formatted'],
+				'details': json.dumps(profile_details, sort_keys=True, default=json_util.default),
+				'_boost' : 1,},
 						"onename_people_index",
 						"onename_people_type",
 					bulk=True)
+			#print(res['ok'])
 			counter += 1
 			conn.indices.refresh(["onename_people_index"])
         
 	except Exception as e:
 			print e
 	conn.indices.refresh(["onename_people_index"])
+
 		#write in bulk
 	if(counter % BULK_INSERT_LIMIT == 0):
 			print '-' * 5
 			print counter 
 			conn.refresh(["onename_people_index"])
 
-	#conn.indices.force_bulk()
-
-	#print(profile['name'])
-
-	"""
-	for i in nodes.find():
-
-		data = i['data']
-
-		print i
-			
-		conn.index({'full_name' : i['data']['name']['full'],
-					'bio' : i['data']['bio'],
-					'data': json.dumps(i['data'], sort_keys=True, default=json_util.default),
-					'_boost' : 1,},
-					"fg_people_index",
-					"fg_people_type",
-					bulk=True)
-
-		counter += 1
-
-		conn.indices.refresh(["fg_people_index"])
-
-		#write in bulk
-		if(counter % BULK_INSERT_LIMIT == 0):
-			print '-' * 5
-			print counter 
-			conn.refresh(["fg_people_index"])
-			
-	conn.indices.force_bulk()
-	"""
+	conn.force_bulk()
+	#test_query("Muneeb Ali")
 
 #----------------------------------
 def test_query(query,index=['onename_people_index']):
 
-	q = StringQuery(query, search_fields = ['full_name', 'bio', 'data'], default_operator = 'and')
+	q = StringQuery(query, search_fields = ['full_name'], default_operator = 'and')
 	count = conn.count(query = q)
 	count = count.count 
 
 	if(count == 0):
-		q = StringQuery(query, search_fields = ['full_name', 'bio', 'data'], default_operator = 'or')
+		q = StringQuery(query, search_fields = ['full_name'], default_operator = 'or')
 	
 	results = conn.search(query = q, size=20, indices=index)
 
@@ -137,13 +116,13 @@ def test_query(query,index=['onename_people_index']):
 		counter += 1
 		print i['full_name']
 
-		temp = json.loads(i['data'])
+		temp = json.loads(i['details'])
 
 		results_list.append(temp)
 
 	#print counter
 
-	#print results_list 
+	print results_list 
 
 #-------------------------    
 if __name__ == "__main__":
