@@ -6,8 +6,8 @@ itsdangerous==0.23
 pyes==0.90.1
 pylibmc==1.2.3
 pymongo==2.6.3
-pytz==2013.9
+pytz==2014.2
 requests==2.2.1
-six==1.5.2
-urllib3==1.7.1
+six==1.6.1
+urllib3==1.8
 wsgiref==0.1.2
