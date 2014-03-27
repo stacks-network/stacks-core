@@ -87,13 +87,13 @@ def query_lucene_index(query,index,limit_results=DEFAULT_LIMIT):
 	from pyes import StringQuery, ES 
 	conn =  ES()
 
-	q = StringQuery(query, search_fields = ['full_name', 'bio', 'data'], default_operator = 'and')
+	q = StringQuery(query, search_fields = ['full_name'], default_operator = 'and')
 	count = conn.count(query = q)
 	count = count.count 
 
 	#having or gives more results but results quality goes down
 	if(count == 0):
-		q = StringQuery(query, search_fields = ['full_name', 'bio', 'data'], default_operator = 'or')
+		q = StringQuery(query, search_fields = ['full_name'], default_operator = 'or')
 
 	results = conn.search(query = q, size=20, indices=[index])
 
@@ -103,7 +103,7 @@ def query_lucene_index(query,index,limit_results=DEFAULT_LIMIT):
 
 	for i in results:
 
-		temp = json.loads(i['data'])
+		temp = json.loads(i['details'])
 
 		results_list.append(temp)
 
@@ -111,7 +111,7 @@ def query_lucene_index(query,index,limit_results=DEFAULT_LIMIT):
 
 		if(counter == limit_results):
 			break
-
+	#print "-----got here----"
 	return results_list 
 
 #----------------------------------
@@ -130,6 +130,7 @@ def test_alphanumeric(query):
 #-----------------------------------
 @app.route('/search/people', methods = ['GET'])
 def get_people():
+	print ("---Got here---")
 
 	query = request.values['query']
 	new_limit = DEFAULT_LIMIT

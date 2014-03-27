@@ -64,11 +64,11 @@ def create_people_index():
 	counter = 0
 	#print(json.loads(profile_temp['value']))
 
-	#for profile in nodes.find():
+	for profile in nodes.find():
 		#profile_dict = json.loads(profile)
-	profile_temp = nodes.find_one({'name':"u/muneeb"})
-	try:
-			profile_details = json.loads(profile_temp['value'])
+	#profile_temp = nodes.find_one({'name':"u/muneeb"})
+		try:
+			profile_details = json.loads(profile['value'])
 			name_dict = profile_details["name"]
 			name = name_dict['formatted']
 			print(name)
@@ -83,9 +83,9 @@ def create_people_index():
 			counter += 1
 			conn.indices.refresh(["onename_people_index"])
         
-	except Exception as e:
+		except Exception as e:
 			print e
-	conn.indices.refresh(["onename_people_index"])
+	#conn.indices.refresh(["onename_people_index"])
 
 		#write in bulk
 	if(counter % BULK_INSERT_LIMIT == 0):
@@ -122,7 +122,7 @@ def test_query(query,index=['onename_people_index']):
 
 	#print counter
 
-	print results_list 
+	print results_list
 
 #-------------------------    
 if __name__ == "__main__":
