@@ -81,7 +81,7 @@ def create_people_index():
 					bulk=True)
 			#print(res['ok'])
 			counter += 1
-			conn.indices.refresh(["onename_people_index"])
+			#conn.indices.refresh(["onename_people_index"])
         
 		except Exception as e:
 			print e

@@ -46,7 +46,7 @@ class QueryThread(threading.Thread):
 		elif(self.query_type == 'company_search'):
 			self.found_exact_match, self.results = query_company_database(self.query)
 		elif(self.query_type == 'lucene_search'):
-			self.results = query_lucene_index(self.query,'fg_people_index', self.limit_results)
+			self.results = query_lucene_index(self.query,'onename_people_index', self.limit_results)
 
 #-------------------------
 def query_people_database(query,limit_results=DEFAULT_LIMIT):
@@ -130,7 +130,6 @@ def test_alphanumeric(query):
 #-----------------------------------
 @app.route('/search/people', methods = ['GET'])
 def get_people():
-	print ("---Got here---")
 
 	query = request.values['query']
 	new_limit = DEFAULT_LIMIT
