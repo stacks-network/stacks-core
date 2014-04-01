@@ -40,6 +40,11 @@ def create_mapping(index_name,index_type):
 						'store': 'yes',
 						'type': u'string',
 						"term_vector" : "with_positions_offsets"},
+				u'twitter': {'boost': 2.0,
+						'index': 'analyzed',
+						'store': 'yes',
+						'type': u'string',
+						"term_vector" : "with_positions_offsets"},
 				u'details': {'boost': 1.0,
 						'index': 'analyzed',
 						'store': 'yes',
@@ -62,39 +67,36 @@ def create_people_index():
 	nodes = db.nodes
 
 	counter = 0
-	#print(json.loads(profile_temp['value']))
 
 	for profile in nodes.find():
-		#profile_dict = json.loads(profile)
-	#profile_temp = nodes.find_one({'name':"u/muneeb"})
 		try:
 			profile_details = json.loads(profile['value'])
+
 			name_dict = profile_details["name"]
-			name = name_dict['formatted']
-			print(name)
+			twitter_dict = profile_details["twitter"]
+
+			twitter = twitter_dict['username']
+			print(twitter)
 
 			res = conn.index({'full_name':name_dict['formatted'],
+				'twitter':twitter_dict['username'],
 				'details': json.dumps(profile_details, sort_keys=True, default=json_util.default),
 				'_boost' : 1,},
 						"onename_people_index",
 						"onename_people_type",
 					bulk=True)
-			#print(res['ok'])
 			counter += 1
-			#conn.indices.refresh(["onename_people_index"])
         
 		except Exception as e:
 			print e
-	#conn.indices.refresh(["onename_people_index"])
 
-		#write in bulk
+	#write/refresj in bulk
 	if(counter % BULK_INSERT_LIMIT == 0):
 			print '-' * 5
 			print counter 
 			conn.refresh(["onename_people_index"])
 
 	conn.force_bulk()
-	#test_query("Muneeb Ali")
 
 #----------------------------------
 def test_query(query,index=['onename_people_index']):

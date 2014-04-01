@@ -76,7 +76,6 @@ def query_people_database(query,limit_results=DEFAULT_LIMIT):
 			#the reply is a cursor and need to load actual results first
 			for i in reply:
 				results.append(i['data'])
-	
 
 	temp = json.dumps(results, default=json_util.default)
 	return json.loads(temp)
@@ -87,13 +86,13 @@ def query_lucene_index(query,index,limit_results=DEFAULT_LIMIT):
 	from pyes import StringQuery, ES 
 	conn =  ES()
 
-	q = StringQuery(query, search_fields = ['full_name'], default_operator = 'and')
+	q = StringQuery(query, search_fields = ['full_name','twitter'], default_operator = 'and')
 	count = conn.count(query = q)
 	count = count.count 
 
 	#having or gives more results but results quality goes down
 	if(count == 0):
-		q = StringQuery(query, search_fields = ['full_name'], default_operator = 'or')
+		q = StringQuery(query, search_fields = ['full_name','twitter'], default_operator = 'or')
 
 	results = conn.search(query = q, size=20, indices=[index])
 
@@ -111,7 +110,7 @@ def query_lucene_index(query,index,limit_results=DEFAULT_LIMIT):
 
 		if(counter == limit_results):
 			break
-	#print "-----got here----"
+
 	return results_list 
 
 #----------------------------------
@@ -139,14 +138,6 @@ def get_people():
 	except:
 		pass
 
-	'''
-	cache_key = str('scopesearch_cache_' + query.lower())
-	cache_reply = mc.get(cache_key)
-
-	#if a cache hit, respond straight away
-	if(cache_reply != None):
-		return jsonify(cache_reply)
-	'''
 
 	results_people = []
 
@@ -156,12 +147,8 @@ def get_people():
 
 		threads = [] 
 
-		t1 = QueryThread(query,'people_search',new_limit)
-		#t2 = QueryThread(query,'company_search',new_limit)
 		t3 = QueryThread(query,'lucene_search',new_limit)
 
-		threads.append(t1)
-		#threads.append(t2)
 		threads.append(t3)
 
 		#start all threads
@@ -172,40 +159,10 @@ def get_people():
 
 		#at this point all threads have finished and all queries have been performed
 		
-		
-		#first, check people names
-		people_first_source = t1.results
-		#people_first_source = []
-
-		results_people += people_first_source
-
-		'''
-		#second, check company names
-		found_exact_match, results_second_source = t2.found_exact_match, t2.results 
-
-		#if found exact match then results are people working in that company
-		if(found_exact_match):
-			results_people += results_second_source
-		#else results are list of possible companies
-		else:
-			results_companies = results_second_source 
-
-		'''
-
-		#third, component is lucene results
 		results_lucene = t3.results 
 
-		#lucene results are people 
 		results_people += results_lucene
 
-		'''
-		#dedup all results before sending out
-		from substring_search import dedup_search_results
-		results_people = dedup_search_results(results_people)
-
-		from substring_search import fix_search_order
-		results_people = fix_search_order(query,results_people)
-		'''
 
 	results = {'people':results_people[:new_limit]}
 
