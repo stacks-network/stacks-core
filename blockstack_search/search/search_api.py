@@ -21,11 +21,11 @@ DEFAULT_LIMIT = 30
 from pymongo import MongoClient
 c = MongoClient()
 
-import pylibmc
-mc = pylibmc.Client(["127.0.0.1:11211"],binary=True,
+#import pylibmc
+"""mc = pylibmc.Client(["127.0.0.1:11211"],binary=True,
 					behaviors={'tcp_nodelay':True,
 								'connect_timeout':100,
-								'no_block':True})
+								'no_block':True})"""
 
 import threading
 
@@ -87,23 +87,20 @@ def query_lucene_index(query,index,limit_results=DEFAULT_LIMIT):
 	conn =  ES()
 
 	q = StringQuery(query, search_fields = ['full_name','twitter'], default_operator = 'and')
-	count = conn.count(query = q)
-	count = count.count 
+	results = conn.search(query = q, size=20, indices=[index])
+	count = results.total
 
 	#having or gives more results but results quality goes down
 	if(count == 0):
 		q = StringQuery(query, search_fields = ['full_name','twitter'], default_operator = 'or')
-
-	results = conn.search(query = q, size=20, indices=[index])
-
+		results = conn.search(query = q, size=20, indices=[index])		
+		
 	results_list = []
-
 	counter = 0
 
 	for i in results:
 
 		temp = json.loads(i['details'])
-
 		results_list.append(temp)
 
 		counter += 1
