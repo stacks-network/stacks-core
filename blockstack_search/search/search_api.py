@@ -5,12 +5,10 @@
 #-----------------------
 
 '''
-	a simple Flask based API for FreeGraph 
+	a simple Flask based API for OneName 
 '''
 
 from flask import request, jsonify, Flask
-
-app = Flask(__name__)
 
 import json
 from bson import json_util
@@ -124,17 +122,15 @@ def test_alphanumeric(query):
 	return True 
 
 #-----------------------------------
-@app.route('/search/people', methods = ['GET'])
-def get_people():
+#@app.route('/search/people', methods = ['GET'])
+def get_people(query):
 
-	query = request.values['query']
 	new_limit = DEFAULT_LIMIT
 
 	try:
 		new_limit = int(request.values['limit_results'])
 	except:
 		pass
-
 
 	results_people = []
 
@@ -173,6 +169,4 @@ def debug(query):
 	return
 
 #------------------
-if __name__ == '__main__':
 
-	app.run(debug=True, port=5003)

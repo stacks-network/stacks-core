@@ -20,14 +20,14 @@ def search_client(query,server):
  	print "Searching for: " + query
 	print '-' * 10
 
-	url = 'http://localhost:5003/search/people'
+	url = 'http://localhost:5003/v1/people-search'
 
 	if(server == 'remote'):
-		url = 'http://54.200.209.148/search/people'
+		url = 'http://54.200.209.148/v1/people-search'
 	
 	print url 
 
-	data = {'query': query, 'limit_results': 35}
+	data = {'keywords': query, 'limit_results': 35}
 	
 	headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
 
