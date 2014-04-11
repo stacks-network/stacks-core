@@ -73,6 +73,8 @@ def save_user(username, account_type):
     user['api_quota'] = MAX_QUOTA
 
     nodes.save(user)
+
+    return user['api_key']
 #--------------------------------------
 
 #Test

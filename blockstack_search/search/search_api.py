@@ -39,14 +39,15 @@ class QueryThread(threading.Thread):
 		self.found_exact_match = False
 
 	def run(self):
-		if(self.query_type == 'people_search'):
-			self.results = query_people_database(self.query, self.limit_results)
-		elif(self.query_type == 'company_search'):
-			self.found_exact_match, self.results = query_company_database(self.query)
-		elif(self.query_type == 'lucene_search'):
+		#if(self.query_type == 'people_search'):
+			#self.results = query_people_database(self.query, self.limit_results)
+		#elif(self.query_type == 'company_search'):
+			#self.found_exact_match, self.results = query_company_database(self.query)
+		if(self.query_type == 'lucene_search'):
 			self.results = query_lucene_index(self.query,'onename_people_index', self.limit_results)
 
 #-------------------------
+"""
 def query_people_database(query,limit_results=DEFAULT_LIMIT):
 
 	'''
@@ -66,10 +67,10 @@ def query_people_database(query,limit_results=DEFAULT_LIMIT):
 		if(len(people) == 0):
 			return results 
 		else:
-			db = c['freegraph']
+			db = c['onename_search']
 
 			#the $in query is much faster but messes up intended results order
-			reply = db.nodes.find({"full_name":{'$in':people}})
+			reply = db.nodes.find({"details":{'$in':people}})
 
 			#the reply is a cursor and need to load actual results first
 			for i in reply:
@@ -78,6 +79,7 @@ def query_people_database(query,limit_results=DEFAULT_LIMIT):
 	temp = json.dumps(results, default=json_util.default)
 	return json.loads(temp)
 
+"""
 #-----------------------------------
 def query_lucene_index(query,index,limit_results=DEFAULT_LIMIT):
 
@@ -122,7 +124,6 @@ def test_alphanumeric(query):
 	return True 
 
 #-----------------------------------
-#@app.route('/search/people', methods = ['GET'])
 def get_people(query):
 
 	new_limit = DEFAULT_LIMIT
