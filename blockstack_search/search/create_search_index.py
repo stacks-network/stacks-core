@@ -45,6 +45,11 @@ def create_mapping(index_name,index_type):
 						'store': 'yes',
 						'type': u'string',
 						"term_vector" : "with_positions_offsets"},
+				u'bitcoin': {'boost': 1.0,
+						'index': 'analyzed',
+						'store': 'yes',
+						'type': u'string',
+						"term_vector" : "with_positions_offsets"},
 				u'details': {'boost': 1.0,
 						'index': 'analyzed',
 						'store': 'yes',
@@ -74,12 +79,14 @@ def create_people_index():
 
 			name_dict = profile_details["name"]
 			twitter_dict = profile_details["twitter"]
+			btc_dict = profile_details["bitcoin"]
 
 			twitter = twitter_dict['username']
 			print(twitter)
 
 			res = conn.index({'full_name':name_dict['formatted'],
 				'twitter':twitter_dict['username'],
+				'bitcoin':btc_dict['address'],
 				'details': json.dumps(profile_details, sort_keys=True, default=json_util.default),
 				'_boost' : 1,},
 						"onename_people_index",

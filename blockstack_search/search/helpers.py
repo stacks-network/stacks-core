@@ -6,7 +6,7 @@ c = MongoClient()
 db = c['developers']
 nodes = db.nodes
 
-MAX_QUOTA = 1000
+MAX_QUOTA = 5000
 
 #-------------------------------------------------------------
 def generate_key(username):

@@ -86,13 +86,13 @@ def query_lucene_index(query,index,limit_results=DEFAULT_LIMIT):
 	from pyes import StringQuery, ES 
 	conn =  ES()
 
-	q = StringQuery(query, search_fields = ['full_name','twitter'], default_operator = 'and')
+	q = StringQuery(query, search_fields = ['full_name','twitter','bitcoin'], default_operator = 'and')
 	results = conn.search(query = q, size=20, indices=[index])
 	count = results.total
 
 	#having or gives more results but results quality goes down
 	if(count == 0):
-		q = StringQuery(query, search_fields = ['full_name','twitter'], default_operator = 'or')
+		q = StringQuery(query, search_fields = ['full_name','twitter','bitcoin'], default_operator = 'or')
 		results = conn.search(query = q, size=20, indices=[index])		
 		
 	results_list = []
