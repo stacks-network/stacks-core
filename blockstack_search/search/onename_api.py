@@ -11,7 +11,7 @@
 
 from flask import request, jsonify, Flask
 from search_api import get_people
-from flask import make_response
+from flask import make_response,Response
 import json
 from bson import json_util
 from helpers import *
@@ -73,7 +73,14 @@ def search_people(developer_id,access_token):
 #---------------------------------------------
 @app.route('/v1/people/id=<onename_id>', methods = ['GET'])
 def get_onename_profile(onename_id):
-	return json.dumps(query_people_database(onename_id))
+	
+	profile = query_people_database(onename_id)
+	
+	if profile is not None:
+		return json.dumps(profile)
+
+	else:
+		return make_response(jsonify( { 'error': 'profile not found' } ), 401)
 
 #----------------------untested--not working----------------------
 @app.route('/v1/people/url=<onename_profile_url>', methods = ['GET'])
@@ -89,13 +96,15 @@ def query_people_database(onename_id,limit_results=DEFAULT_LIMIT):
 	nodes = db.nodes
 
 	onename_profile = nodes.find_one({"name": 'u/' + onename_id})
-
 	#onename_profile = nodes.find({'value': {"$elemMatch": {"website":"http://muneebali.com"} }})
+	if onename_profile is None:
+		return None
 	
-	profile_details = json.loads(onename_profile['value'])
+	else:
+		profile_details = json.loads(onename_profile['value'])
 	
 	#TODO: add error handling
-	return onename_profile
+	return profile_details
 
 #custom error handling to return JSON error msgs
 #----------------------------------------------

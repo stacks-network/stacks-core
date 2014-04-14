@@ -53,3 +53,67 @@ the current version we're using is *0.90.2*. Download from:
 > python scopesearch/create_search_index.py --create_company_index
 
 We'll simplify these steps in an upcoming release. We assume that both MongoDB and Elastic Search is running on the server. 
+
+-----------------------------------------------------------------------------------------------------
+
+Notes: 14, April, 2014:
+
+Project dependecies:
+
+requirements.txt files has been updated and contains all the project requriements.
+
+Notes:
+before installing pylimbmc make sure libmemcache is installed:
+
+
+      brew install libmemcached
+      pip install pylibmc 
+
+----------------------------------------------
+
+Create Index: python create_search_index.py --create_index
+
+
+Note: Make sure mongodb and elastic search are running before creating index
+
+
+----------------------------------------------
+API usage:
+----------------------------------------------
+
+1) Generate Developer key:
+
+
+syntax: <machine_ip:port>/v1/gen_developer_key/<developer_id>
+
+Example: curl -i http://localhost:5003/v1/gen_developer_key/asjad
+
+
+----------------------------------------------
+2) Search API 
+----------------------------------------------
+
+syntax: <machine_ip>/v1/people-search/<developer_id>/<access_token>?keywords='<keywords>'
+e.g:
+http://localhost:5003/v1/people-search/asjad/a0fe2f40415f7451c4ba2eae7da963d5?keywords=ryan
+
+
+http://localhost:5003/v1/people-search/asjad/a0fe2f40415f7451c4ba2eae7da963d5?keywords=1G6pazv8zjWKBWouXVgHHvgmRmSm7JmH3S 
+keywords can accept username, twitter handle and btc
+
+* Experimental *:
+http://localhost:5003/v1/people-search/asjad/a0fe2f40415f7451c4ba2eae7da963d5?twitter = muneeb
+http://localhost:5003/v1/people-search/asjad/a0fe2f40415f7451c4ba2eae7da963d5?btc = muneeb
+
+----------------------------------------------
+3) Profile API
+----------------------------------------------
+
+Syntax: <machine_ip>/v1/people/id=<onename_id>
+e.g
+curl -i http://localhost:5003/v1/people/id=muneeb
+
+
+//-----------------------------------------------------------------------------------------------------
+
+
