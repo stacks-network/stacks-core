@@ -72,7 +72,19 @@
                         </div>
                       <div class="panel-body">
                         GET: http://api.onename.com/v1/people/id=muneeb
+                        <br><br>
+                        Response:
+                        <pre>
+{
+  website: "http://muneebali.com",
+  bio: "CTO at HalfmoonLabs. PhD candidate at Princeton. Interested in distributed systems and cryptocurrencies (like Bitcoin)",
+  github: {
+  username: "muneeb-ali"
+  },
+  .....
+}
 
+                        </pre>
                      </div>  
                     </div>
 
@@ -142,7 +154,32 @@
 
                              <br>http://api.onename.com/v1/people-search?keywords=Tim%20O%5CReilly
 
-  
+                              <br><br>
+                             Response:
+
+                             <pre>
+
+people: [
+  {
+    bitcoin: {
+      address: "12iGYi795jJ7Lw6JEda52KadXDZJLGLWRw"
+    },
+    cover: {
+      url: "https://s3.amazonaws.com/97p/half-moon.jpg"
+    },
+    name: {
+      formatted: "John"
+    },
+    twitter: {
+      username: "jstracq88"
+    },
+    v: "0.2"
+  },
+
+  {
+  .....
+]  
+                             </pre>
                       </div>
                     </div>
                       <div class="panel panel-default">
@@ -163,7 +200,8 @@
               
                 <h2 id="sec2">Usage:</h2>
                 <p>
-                      You must use an access token to make an <a href="#">authenticated </a> call on behalf of a user
+                      You must use an access token to make an <a href="#">authenticated </a> call on behalf of a user. <br>
+
                 </p>
 
                 <hr>
