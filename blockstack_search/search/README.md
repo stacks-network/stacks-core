@@ -51,6 +51,8 @@ API usage:
 
 ### Generate Developer key:
 
+Note: This is method is temporary, and will be replaced by proper auth. mechanism. 
+
 Request parameters:
 
 Developer ID needs to be passed
