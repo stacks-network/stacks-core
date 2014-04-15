@@ -1,5 +1,7 @@
 # OneName Search
 
+### Requirements:
+
 ### Elastic Search
 
 Elastic Search library is not in github and resides at
@@ -10,10 +12,7 @@ the current version we're using is *0.90.2*. Download from:
 
 > wget https://download.elasticsearch.org/elasticsearch/elasticsearch/elasticsearch-0.90.2.zip
 
-
-### Requirements:
-
-requirements.txt files has been updated and contains all the project requriements.
+#### requirements.txt files has been updated and contains all the project requriements.
 
 Notes:
 before installing pylimbmc make sure libmemcache is installed:
@@ -25,7 +24,8 @@ before installing pylimbmc make sure libmemcache is installed:
 ----------------------------------------------
 
 Create Index: 
-	python create_search_index.py --create_index
+	
+> python create_search_index.py --create_index
 
 
 Note: Make sure mongodb and elastic search are running before creating index
@@ -43,58 +43,111 @@ To test if elastic search is running:
     "snapshot_build" : false,
     "lucene_version" : "4.3.1"
   },
-  "tagline" : "You Know, for Search"
-
 
 
 ----------------------------------------------
 API usage:
 ----------------------------------------------
 
-1) Generate Developer key:
+### Generate Developer key:
+
+Request parameters:
+
+Developer ID needs to be passed
+
+Sample Request: 
+
+> curl -G http://localhost:5003/v1/gen_developer_key/ -d "developer_id=asjad"
+
+Sample Response:
+
+	{
+  	  "access_token": "bba1e70e7af8bba213c52d6d9abe3389", 
+	  "developer_id": "asjad"
+	}
 
 
-syntax: <machine_ip:port>/v1/gen_developer_key/<developer_id>
+### Search API (powered by elastic search)
 
-Example: 
+syntax: 
 
-	curl -i http://localhost:5003/v1/gen_developer_key/asjad
+> {machineip}/v1/people-search/<access_token>?keywords={keywords}
 
-
-----------------------------------------------
-2) Search API (powered by elastic search)
-----------------------------------------------
-
-syntax: <machine_ip>/v1/people-search/<developer_id>/<access_token>?keywords='<keywords>'
-
-EXAMPLE:
+EXAMPLE Usage:
 
 using username:
-	curl -i http://localhost:5003/v1/people-search/asjad/a0fe2f40415f7451c4ba2eae7da963d5?keywords=ryan
+
+> curl -G http://localhost:5003/v1/people-search/a0fe2f40415f7451c4ba2eae7da963d5 -d "keywords=muneeb"
 
 using btc_address:
 
-	curl -i http://localhost:5003/v1/people-search/asjad/a0fe2f40415f7451c4ba2eae7da963d5?keywords=1G6pazv8zjWKBWouXVgHHvgmRmSm7JmH3S 
+> curl -G http://localhost:5003/v1/people-search/a0fe2f40415f7451c4ba2eae7da963d5 -d "keywords=1G6pazv8zjWKBWouXVgHHvgmRmSm7JmH3S"
+
+using twitter handle:
+
+> curl -G http://localhost:5003/v1/people-search/a0fe2f40415f7451c4ba2eae7da963d5 -d "keywords=ryaneshea"
+
+### keywords can accept username, twitter handle and btc
+
+Sample Response:
+
+-------------------------------------------------------
+{
+  "people": [
+    {
+      "avatar": {
+        "url": "http://muneebali.com/static/img/muneebali_thumb.jpg"
+      }, 
+      "bio": "CTO at HalfmoonLabs. PhD candidate at Princeton. Interested in distributed systems and cryptocurrencies (like Bitcoin)", 
+      "bitcoin": {
+        "address": "1G6pazv8zjWKBWouXVgHHvgmRmSm7JmH3S"
+      }, 
+      "cover": {
+        "url": "http://muneebali.com/static/img/ny_skyline.jpg"
+      }, 
+      "github": {
+        "username": "muneeb-ali"
+      }, 
+      "instagram": {
+        "username": "muneeb"
+      }, 
+      "linkedin": {
+        "url": "http://linkedin.com/in/muneebali"
+      }, 
+      "location": {
+        "formatted": "New York"
+      }, 
+      "name": {
+        "formatted": "Muneeb Ali"
+      }, 
+      "twitter": {
+        "username": "muneeb"
+      }, 
+      "v": "0.2", 
+      "website": "http://muneebali.com"
+    }
+  ]
+}
 
 
- > keywords can accept username, twitter handle and btc
+-------------------------------------------------------
 
-* Experimental *:
+** Experimental syntax for search queries ** (using the same backend implementation)
 
-	http://localhost:5003/v1/people-search/asjad/a0fe2f40415f7451c4ba2eae7da963d5?full-name = Muneeb Ali
-	http://localhost:5003/v1/people-search/asjad/a0fe2f40415f7451c4ba2eae7da963d5?twitter = muneeb
-	http://localhost:5003/v1/people-search/asjad/a0fe2f40415f7451c4ba2eae7da963d5?btc = muneeb
+	curl -i http://localhost:5003/v1/people-search/a0fe2f40415f7451c4ba2eae7da963d5?full-name=Muneeb Ali
+	curl -i http://localhost:5003/v1/people-search/a0fe2f40415f7451c4ba2eae7da963d5?twitter=ryaneshea
+	curl -i http://localhost:5003/v1/people-search/a0fe2f40415f7451c4ba2eae7da963d5?btc_address=1G6pazv8zjWKBWouXVgHHvgmRmSm7JmH3S
 
-----------------------------------------------
 3) Profile API (powered by mongodb)
-----------------------------------------------
 
-Syntax:
-	 <machine_ip>/v1/people/id=<onename_id>
+
+Syntax: 
+
+> {machine_ip}/v1/people/id={onename_id}
 
 EXAMPLE:
-
-	curl -i http://localhost:5003/v1/people/id=muneeb
+	
+> curl -G http://localhost:5003/v1/people/id=muneeb
 
 
 
@@ -125,7 +178,7 @@ The API returns a JSON object of the format:
 
 You can test the search API using curl:
 
-> curl http://<server_ip>/<path_to_api_endpoint> -G -d "query=fred%20wilson"
+> curl http://server_ip>/<path_to_api_endpoint> -G -d "query=fred%20wilson"
 
 OR by using the [test_client.py](test_client.py)
 

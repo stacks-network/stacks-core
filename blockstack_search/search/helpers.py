@@ -6,7 +6,7 @@ c = MongoClient()
 db = c['developers']
 nodes = db.nodes
 
-MAX_QUOTA = 5000
+MAX_QUOTA = 1000
 
 #-------------------------------------------------------------
 def generate_key(username):
@@ -18,28 +18,34 @@ def generate_key(username):
     return key 
 
 #-------------------------------------------------------------        
-def is_key_valid(key):
+def validate_token(access_token):
     """Checks if a 'key' is valid"""
 
-    if key == None:
+    if access_token == None:
         return False
 
-    return nodes.find({'api_key' : key}).limit(1).count()
+    return nodes.find({'api_key' : access_token}).limit(1).count()
 
 #-------------------------------------------------------------        
-def is_overquota(username):
-    """Returns True if quota associated with 'username' has expired and False otherwise"""
+def verify_and_decrement_quota(access_token):
+    """Returns False if quota associated with 'username' has expired and Decrements quota otherwise"""
 
-    user = nodes.find_one({'username' : username})
-    return user['api_quota'] < 1
+    user = nodes.find_one({'api_key' : access_token})
+
+    if user['api_quota'] < 1:
+        return False
+    else:
+        decrement_quota(access_token)
+        return True
 
 #--------------------------------------
-def decrement_quota(username):
+def decrement_quota(access_token):
     """Decrement API quota associated with the 'username'"""
     
-    user = nodes.find_one({'username' : username})
+    user = nodes.find_one({'api_key' : access_token})
 
     user['api_quota'] = user['api_quota'] - 1
+    
     nodes.save(user)
 
 #--------------------------------------

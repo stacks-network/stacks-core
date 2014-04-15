@@ -22,13 +22,21 @@ DEFAULT_LIMIT = 35
 
 from pymongo import MongoClient
 c = MongoClient()
+
 #----------------------------------------------
-@app.route('/v1/gen_developer_key/<developer_id>', methods = ['GET'])
-def create_account(developer_id):
+#Create Developer Account
+#saves the user and generates the access_token
+#----------------------------------------------
+@app.route('/v1/gen_developer_key/', methods = ['GET'])
+def create_account():
 	#saves the ID and returns the access token
-	access_token = save_user(developer_id, 'basic')
-	
-	return jsonify({'developer_id':developer_id,
+	request_val = request.values
+	if 'developer_id' in request_val:
+		access_token = save_user(request.values['developer_id'], 'basic')
+	else:
+		return make_response(jsonify( {'error': 'Invalid Request' } ), 400)
+
+	return jsonify({'developer_id':request.values['developer_id'],
 					  'access_token':access_token})
 
 #----------------------------------------------
@@ -36,14 +44,14 @@ def create_account(developer_id):
 #The Search API returns the profiles based on keyword saerches.
 #Results are retrieved through indexed data
 #----------------------------------------------
-@app.route('/v1/people-search/<developer_id>/<access_token>', methods = ['GET'])
-def search_people(developer_id,access_token):
-	#1. verify key
-	if not is_key_valid(access_token):
+@app.route('/v1/people-search/<access_token>', methods = ['GET'])
+def search_people(access_token):
+	#1. verify access_token
+	if not validate_token(access_token):
 		return make_response(jsonify( { 'error': 'Invalid Token' } ), 400)
 
-	#2. verify available quota
-	if is_overquota(developer_id):
+	#2. verify available quota and decrement
+	if not verify_and_decrement_quota(access_token):
 		return make_response(jsonify( { 'error': 'Quota Exceeded' } ), 401)
 	
 	results = ""
