@@ -44,8 +44,17 @@ def create_account():
 #The Search API returns the profiles based on keyword saerches.
 #Results are retrieved through indexed data
 #----------------------------------------------
-@app.route('/v1/people-search/<access_token>', methods = ['GET'])
-def search_people(access_token):
+@app.route('/v1/people-search/', methods = ['GET'])
+def search_people():
+
+	request_val = request.values
+	access_token = ""
+
+	if 'access_token' in request_val:
+		access_token = request.values['access_token']
+	else:
+		return make_response(jsonify( { 'error': 'access token is missing' } ), 400)
+
 	#1. verify access_token
 	if not validate_token(access_token):
 		return make_response(jsonify( { 'error': 'Invalid Token' } ), 400)
@@ -55,9 +64,7 @@ def search_people(access_token):
 		return make_response(jsonify( { 'error': 'Quota Exceeded' } ), 401)
 	
 	results = ""
-	#TODO: Add error handling if keywords is missing
-	request_val = request.values
-
+	
 	#handle keyword search
 	if 'keywords' in request_val:
 		results = get_people(request.values['keywords'])
@@ -67,9 +74,10 @@ def search_people(access_token):
 		results = get_people(request.values['twitter'])
 	elif 'btc_address' in request_val:
 		results = get_people(request.values['btc_address'])
+	else:
+		return make_response(jsonify( { 'error': 'invalid request' } ), 401)
 
-	#TODO: check for errors, check for empty response 
-	if results == "":
+	if results == "" or results == None:
 		return make_response(jsonify( { 'error': 'invalid request' } ), 401)
 	else:
 		return results
@@ -79,14 +87,36 @@ def search_people(access_token):
 #The Profile API returns the public Onename profile based.
 #Results are retrieved from the onename_db
 #---------------------------------------------
-@app.route('/v1/people/id=<onename_id>', methods = ['GET'])
-def get_onename_profile(onename_id):
+@app.route('/v1/people/', methods = ['GET'])
+def get_onename_profile():
+
+	request_val = request.values
+	access_token = ""
+
+	if 'access_token' in request_val:
+		access_token = request.values['access_token']
+	else:
+		return make_response(jsonify({ 'error': 'access token is missing' }), 400)
+
+	#verify access_token
+	if not validate_token(access_token):
+		return make_response(jsonify( { 'error': 'invalid token' } ), 402)
+
+	#verify available quota and decrement if available
+	if not verify_and_decrement_quota(access_token):
+		return make_response(jsonify( { 'error': 'quota exceeded' } ), 401)
+
+	if 'onename_id' in request_val:
+		onename_id = request.values['onename_id']
+		#returns onename_profile
+		profile = query_people_database(onename_id)
+	else:
+		return make_response(jsonify( { 'error': 'onename_id is missing' } ), 400)
+
 	
-	profile = query_people_database(onename_id)
 	
 	if profile is not None:
 		return json.dumps(profile)
-
 	else:
 		return make_response(jsonify( { 'error': 'profile not found' } ), 401)
 
@@ -107,11 +137,9 @@ def query_people_database(onename_id,limit_results=DEFAULT_LIMIT):
 	#onename_profile = nodes.find({'value': {"$elemMatch": {"website":"http://muneebali.com"} }})
 	if onename_profile is None:
 		return None
-	
 	else:
 		profile_details = json.loads(onename_profile['value'])
-	
-	#TODO: add error handling
+
 	return profile_details
 
 #custom error handling to return JSON error msgs
