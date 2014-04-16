@@ -40,29 +40,39 @@
         <div class="well"> 
                 <ul class="nav nav-stacked" id="sidebar">
                   <li><a href="#sec0">OverView</a></li>
-                  <li><a href="#sec1">Profile API</a></li>
-                  <li><a href="#sec2">Search API</a></li>
+                  <li><a href="#sec1">Authentication</a></li>
+                  <li><a href="#sec2">Profile API</a></li>
+                  <li><a href="#sec3">Search API</a></li>
                   <li><a href="#sec4">Sample Code</a></li>
                 </ul>
           </div>
 
           </div>  
           <div class="col-md-9">
+
+                <div>
                 <h2 id="sec0"> API Reference</h2>
                
-                <b> Overview: </b>
-            
-                The Onename API is organized around REST. Our API is designed to have predictable, resource-oriented URLs and to use HTTP response codes to indicate API errors. We use built-in HTTP features, like HTTP authentication and HTTP verbs, which can be understood by off-the-shelf HTTP clients, and we support cross-origin resource sharing to allow you to interact securely with our API from a client-side web application (though you should remember that you should never expose your secret API key in any public website's client-side code). JSON will be returned in all responses from the API, including errors (though if you're using API bindings, we will convert the response to the appropriate language-specific object).
-        
-                 <hr class="col-md-12">
+                  <b> Overview: </b>
+                
+                  </br>
 
-                <h2 id="sec1">Profile API:</h2>
-                <p>
+                 Onename API is organized around REST. Our API is designed to have predictable, resource-oriented URLs and to use HTTP response codes to indicate API errors. JSON will be returned in all responses from the API, including errors.
+        
+                 </div>
+              <br>
+              <br>
+                <div> 
+                  <h2 id="sec1">Onename Profile API:</h2>
+                
+                  <p>
              
                   The Profile API returns the public Onename profile. 
 
                   Return Profile Based on onename ID or onename URL:   
-               </p>
+                  </p>
+                </div>
+               
                 <div class="row">
                   <div class="col-md-12">
                       <div class="panel panel-default">
@@ -72,31 +82,21 @@
                         </div>
                       <div class="panel-body">
                         GET: http://api.onename.com/v1/people/id=muneeb
-                        <br><br>
-                        Response:
-                        <pre>
-{
-  website: "http://muneebali.com",
-  bio: "CTO at HalfmoonLabs. PhD candidate at Princeton. Interested in distributed systems and cryptocurrencies (like Bitcoin)",
-  github: {
-  username: "muneeb-ali"
-  },
-  .....
-}
-
-                        </pre>
-                     </div>  
+                      </div> 
                     </div>
 
-                     <table class="table table-bordered" style="background:white">
+                     <div>
+                      <table class="table table-bordered" style="background:white">
+
+                        <h3> Fields Returned: </h3>
                         <tr>
                           <td> <b>Field </b></td>
                           <td> <b> Parent Node </b> </td> 
                           <td> <b> Details </b> </td>  
                         </tr>
 
-                        <tr><td>Name</td>< <td> People </td> </tr>
-                         <tr><td>avatar</td>< <td> People </td> </tr>
+                        <tr><td>Name</td> <td> People </td> </tr>
+                         <tr><td>avatar</td> <td> People </td> </tr>
                          <tr><td>Location</td> <td> People </td> </tr>
                         <tr><td>Bio</td> <td> People </td> </tr>
                         <tr><td>Cover</td> <td> People </td> </tr>
@@ -108,23 +108,13 @@
                          <tr><td>linkedin</td> <td> People </td> </tr>
                       
                     </table>
-
-
-                      <div class="panel panel-default">
-                      <div class="panel-heading">
-                        <b> Public Profile URL: </b>Using the Public Profile URL will return a profile from inside or outside the logged in member's three degree network. The Public Profile URL must be URL escaped.
-
-                        </div>
-                      <div class="panel-body">
-                       <b> GET: </b>http://api.onename.com/v1/people/url=< public-profile-url]]>   
-                      </div>
-
-                    </div>
+                  </div>
                   </div>  
-                </div>
+                </div> <!--row ends here -->
               
-                <hr>
-  
+               <hr>
+                
+                <div>
                 <h2 id="sec1">People Search API:</h2>
                 <p>
                   <b> Overview: </b>
@@ -133,6 +123,18 @@
 
                   Use the People Search API to find people using keywords, name, Location,twitter handle, BTC public address or other criteria. It returns a list of matching member profiles. Each entry can contain much of the information available on the person's member profile page.      *parameters to be confirmed* 
                </p>
+              </div>
+
+              <div>
+                <h2 id="sec1">Authentication</h2>
+                <p>
+                  <b></b>
+                  Send a request
+                  http://localhost:5003/v1/gen_developer_key/?developer_id=asjad
+               </p>
+              </div>
+
+
                 <div class="row">
                   <div class="col-md-12">
                       <div class="panel panel-default">
@@ -144,43 +146,22 @@
                      
                           </div>
                       <div class="panel-body">
-                        <b> GET:  </b>
-                           <br> http://api.onename.com/v1/people-search?keywords=Princess 
-                            <br>http://api.onename.com/v1/people-search?first-name=Clair
-                            <br>http://api.onename.com/v1/people-search?last-name=Standish
-                            <br>http://api.onename.com/v1/people-search?twitter=Shermer
-
-                            <br> http://api.onename.com/v1/people-search?BTC_address=cxv9d8f9as8f9as8f9a8gagfascvdsb9
-
-                             <br>http://api.onename.com/v1/people-search?keywords=Tim%20O%5CReilly
-
-                              <br><br>
-                             Response:
-
-                             <pre>
-
-people: [
-  {
-    bitcoin: {
-      address: "12iGYi795jJ7Lw6JEda52KadXDZJLGLWRw"
-    },
-    cover: {
-      url: "https://s3.amazonaws.com/97p/half-moon.jpg"
-    },
-    name: {
-      formatted: "John"
-    },
-    twitter: {
-      username: "jstracq88"
-    },
-    v: "0.2"
-  },
-
-  {
-  .....
-]  
-                             </pre>
-                      </div>
+                        <b>GET:</b>
+                        <br> using keywords e.g full-name:
+                        <br>
+                        <br>http://api.onename.com/v1/people-search/?access_token=a0fe2f40415f7451c4ba2eae7da963d5&keywords=muneeb
+                        <br>
+                        <br>using btc_address:
+                        <br>
+                        <br>http://api.onename.com/v1/people-search/?access_token=a0fe2f40415f7451c4ba2eae7da963d5&keywords=1G6pazv8zjWKBWouXVgHHvgmRmSm7JmH3S
+                        <br>
+                        <br>using twitter handle:
+                        <br>
+                        <br>http://api.onename.com/v1/people-search/?access_token=a0fe2f40415f7451c4ba2eae7da963d5&keywords=ryaneshea
+                       </div>
+                    
+                    <br><br>
+                           
                     </div>
                       <div class="panel panel-default">
                       <div class="panel-heading">
@@ -190,11 +171,11 @@ people: [
                       <div class="panel-body">
                         GET: http://api.onename.com/v1/people/url=<public-profile-url]]>
 
-                      Details:    
-                      </div>
-                    </div>
-                  </div>  
-                </div>
+                        Details:    
+                         </div>
+                       </div>
+                      </div>  
+                     </div>  <!-- row ends here -->
               
                 <hr>
               
@@ -229,3 +210,49 @@ people: [
 
 
 {% endblock %}
+
+
+<!--div>
+
+    Response:
+
+                             <pre>
+
+                            people: [
+                              {
+                                bitcoin: {
+                                  address: "12iGYi795jJ7Lw6JEda52KadXDZJLGLWRw"
+                                },
+                                cover: {
+                                  url: "https://s3.amazonaws.com/97p/half-moon.jpg"
+                                },
+                                name: {
+                                  formatted: "John"
+                                },
+                                twitter: {
+                                  username: "jstracq88"
+                                },
+                                v: "0.2"
+                              },
+
+                              {
+                              .....
+                            ]  
+                             </pre>
+</div-->
+
+<!--div>
+                       <br><br>
+                        Response:
+                        <pre>
+                              {
+                              website: "http://muneebali.com",
+                              bio: "CTO at HalfmoonLabs. PhD candidate at Princeton. Interested in distributed systems and cryptocurrencies (like Bitcoin)",
+                              github: {
+                              username: "muneeb-ali"
+                              },
+                              .....
+                              }
+
+                        </pre>
+<div-->
