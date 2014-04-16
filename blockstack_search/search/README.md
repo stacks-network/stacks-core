@@ -51,7 +51,7 @@ API usage:
 
 ### Generate Developer key:
 
-Note: This is method is temporary, and will be replaced by proper auth. mechanism. 
+Note: This method is temporary, and will be replaced by proper auth. mechanism. 
 
 Request parameters:
 
@@ -71,6 +71,10 @@ Sample Response:
 
 ### Search API (powered by elastic search)
 
+Request parameters: 
+
+> access_token and keywords (currently accepts username, twitter handle and btc_address)
+
 syntax: 
 
 > {machineip}/v1/people-search/?access_token={access_token}&keywords={keywords}
@@ -89,7 +93,7 @@ using twitter handle:
 
 > curl -G http://localhost:5003/v1/people-search -d "access_token=a0fe2f40415f7451c4ba2eae7da963d5&keywords=ryaneshea"
 
-### keywords can accept username, twitter handle and btc
+
 
 Sample Response:
 
@@ -142,6 +146,11 @@ Sample Response:
 > curl -i http://localhost:5003/v1/people-search/?access_token=a0fe2f40415f7451c4ba2eae7da963d5&btc_address=1G6pazv8zjWKBWouXVgHHvgmRmSm7JmH3S
 
 ### 3) Profile API (powered by mongodb)
+
+
+Request parameters: 
+
+> access_token and onenameID
 
 Syntax: 
 
