@@ -73,21 +73,21 @@ Sample Response:
 
 syntax: 
 
-> {machineip}/v1/people-search/<access_token>?keywords={keywords}
+> {machineip}/v1/people-search/?access_token={access_token}&keywords={keywords}
 
 EXAMPLE Usage:
 
 using username:
 
-> curl -G http://localhost:5003/v1/people-search/a0fe2f40415f7451c4ba2eae7da963d5 -d "keywords=muneeb"
+> curl -G http://localhost:5003/v1/people-search/ -d "access_token=a0fe2f40415f7451c4ba2eae7da963d5&keywords=muneeb"
 
 using btc_address:
 
-> curl -G http://localhost:5003/v1/people-search/a0fe2f40415f7451c4ba2eae7da963d5 -d "keywords=1G6pazv8zjWKBWouXVgHHvgmRmSm7JmH3S"
+> curl -G http://localhost:5003/v1/people-search/ -d "access_token=a0fe2f40415f7451c4ba2eae7da963d5&keywords=1G6pazv8zjWKBWouXVgHHvgmRmSm7JmH3S"
 
 using twitter handle:
 
-> curl -G http://localhost:5003/v1/people-search/a0fe2f40415f7451c4ba2eae7da963d5 -d "keywords=ryaneshea"
+> curl -G http://localhost:5003/v1/people-search -d "access_token=a0fe2f40415f7451c4ba2eae7da963d5&keywords=ryaneshea"
 
 ### keywords can accept username, twitter handle and btc
 
@@ -136,22 +136,20 @@ Sample Response:
 
 ** Experimental syntax for search queries ** (using the same backend implementation)
 
-	curl -i http://localhost:5003/v1/people-search/a0fe2f40415f7451c4ba2eae7da963d5?full-name=Muneeb Ali
-	curl -i http://localhost:5003/v1/people-search/a0fe2f40415f7451c4ba2eae7da963d5?twitter=ryaneshea
-	curl -i http://localhost:5003/v1/people-search/a0fe2f40415f7451c4ba2eae7da963d5?btc_address=1G6pazv8zjWKBWouXVgHHvgmRmSm7JmH3S
+> curl -i http://localhost:5003/v1/people-search/?access_token=a0fe2f40415f7451c4ba2eae7da963d5&full-name=Muneeb Ali
+> curl -i http://localhost:5003/v1/people-search/?access_token=a0fe2f40415f7451c4ba2eae7da963d5&twitter=ryaneshea
+	
+> curl -i http://localhost:5003/v1/people-search/?access_token=a0fe2f40415f7451c4ba2eae7da963d5&btc_address=1G6pazv8zjWKBWouXVgHHvgmRmSm7JmH3S
 
-3) Profile API (powered by mongodb)
-
+### 3) Profile API (powered by mongodb)
 
 Syntax: 
 
-> {machine_ip}/v1/people/id={onename_id}
+> {machine_ip}/v1/people/?id={onename_id}&access_token={access_token}
 
 EXAMPLE:
 	
-> curl -G http://localhost:5003/v1/people/id=muneeb
-
-
+> curl -G http://localhost:5003/v1/people/ -d "onename_id=muneeb&access_token=a0fe2f40415f7451c4ba2eae7da963d5"
 
 ----------------------------------------------
 old Notes (to be deprecated):
