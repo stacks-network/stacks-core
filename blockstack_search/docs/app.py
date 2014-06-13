@@ -1,3 +1,9 @@
+#!/usr/bin/env python
+#-----------------------
+# Copyright 2014 Halfmoon Labs, Inc.
+# All Rights Reserved
+#-----------------------
+
 import os
 import json
 from flask import Flask
@@ -12,16 +18,8 @@ app.config.update(
 
 # controllers
 @app.route('/')
-def index():
-	return render_template('index.html')
-
-@app.route('/about')
-def about():
-	return render_template('about.html')
-
-@app.route('/documentation')
-def documentation():
-	return render_template('documentation.html')
+def doc_page():
+	return render_template('doc.html')
 
 # special file handlers
 @app.route('/favicon.ico')
