@@ -1,4 +1,4 @@
-fgsearch
+onename-search
 ========
 
-Search API for FreeGraph
+Search API for OneName

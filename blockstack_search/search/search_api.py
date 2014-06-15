@@ -5,19 +5,19 @@
 #-----------------------
 
 '''
-	a simple Flask based API for OneName 
+	OneName Search 
 '''
 
-from flask import request, jsonify, Flask
+from flask import request, jsonify, Flask, make_response
 
+app = Flask(__name__)
+
+from config import DEFAULT_HOST, DEFAULT_PORT, DEBUG
 import json
 from bson import json_util
 
-DEFAULT_LIMIT = 30
-
-#-----------------------------------
-from pymongo import MongoClient
-c = MongoClient()
+import sys
+from config import DEFAULT_LIMIT
 
 #import pylibmc
 """mc = pylibmc.Client(["127.0.0.1:11211"],binary=True,
@@ -39,15 +39,21 @@ class QueryThread(threading.Thread):
 		self.found_exact_match = False
 
 	def run(self):
-		#if(self.query_type == 'people_search'):
-			#self.results = query_people_database(self.query, self.limit_results)
+		if(self.query_type == 'people_search'):
+			self.results = query_people_database(self.query, self.limit_results)
 		#elif(self.query_type == 'company_search'):
 			#self.found_exact_match, self.results = query_company_database(self.query)
-		if(self.query_type == 'lucene_search'):
-			self.results = query_lucene_index(self.query,'onename_people_index', self.limit_results)
+		#if(self.query_type == 'lucene_search'):
+		#	self.results = query_lucene_index(self.query,'onename_people_index', self.limit_results)
+
+#---------------------------------
+def error_reply(msg, code = -1):
+	reply = {}
+	reply['status'] = code
+	reply['message'] = "ERROR: " + msg
+	return jsonify(reply)
 
 #-------------------------
-"""
 def query_people_database(query,limit_results=DEFAULT_LIMIT):
 
 	'''
@@ -55,29 +61,10 @@ def query_people_database(query,limit_results=DEFAULT_LIMIT):
 		else returns False, [list of possible companies]  
 	'''
 
-	from substring_search import search_people_by_name
+	from substring_search import search_people_by_name, fetch_profiles_from_names
 
-	people = search_people_by_name(query, limit_results)
-
-	results = []
-	mongo_query = []
-
-	if people is not None:
-
-		if(len(people) == 0):
-			return results 
-		else:
-			db = c['onename_search']
-
-			#the $in query is much faster but messes up intended results order
-			reply = db.nodes.find({"details":{'$in':people}})
-
-			#the reply is a cursor and need to load actual results first
-			for i in reply:
-				results.append(i['data'])
-
-	temp = json.dumps(results, default=json_util.default)
-	return json.loads(temp)
+	name_search_results = search_people_by_name(query, limit_results)
+	return fetch_profiles_from_names(name_search_results)
 
 """
 #-----------------------------------
@@ -109,6 +96,7 @@ def query_lucene_index(query,index,limit_results=DEFAULT_LIMIT):
 			break
 
 	return results_list 
+"""
 
 #----------------------------------
 def test_alphanumeric(query):
@@ -124,7 +112,13 @@ def test_alphanumeric(query):
 	return True 
 
 #-----------------------------------
-def get_people(query):
+@app.route('/search')
+def get_people():
+
+	query = request.args.get('query')
+
+	if query == None:
+		return error_reply("No query given")
 
 	new_limit = DEFAULT_LIMIT
 
@@ -141,7 +135,7 @@ def get_people(query):
 
 		threads = [] 
 
-		t3 = QueryThread(query,'lucene_search',new_limit)
+		t3 = QueryThread(query,'people_search',new_limit)
 
 		threads.append(t3)
 
@@ -158,16 +152,33 @@ def get_people(query):
 		results_people += results_lucene
 
 
-	results = {'people':results_people[:new_limit]}
+	results = {}
+	results['results'] = results_people[:new_limit]
+
+	#print results
 
 	#mc.set(cache_key,results)
 
 	return jsonify(results)
 
-#-------------------------
-def debug(query):
+#-----------------------------------
+@app.route('/')
+def index():
+	return 'Welcome to the search API server of <a href="http://halfmoonlabs.com">Halfmoon Labs</a>.'
 
-	return
+#-----------------------------------
+@app.errorhandler(500)
+def internal_error(error):
 
-#------------------
+	reply = []
+	return json.dumps(reply)
 
+#-----------------------------------
+@app.errorhandler(404)
+def not_found(error):
+	return make_response(jsonify( { 'error': 'Not found' } ), 404)
+
+#-----------------------------------
+if __name__ == '__main__':
+
+	app.run(host=DEFAULT_HOST, port=DEFAULT_PORT,debug=DEBUG)

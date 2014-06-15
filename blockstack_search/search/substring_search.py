@@ -6,68 +6,86 @@
 
 '''
 	functions for substring search  
+	usage: './substring_search --create_cache --search <query>'
 '''
+
 import sys
+import json
+from common import log 
 
 from pymongo import MongoClient
-c = MongoClient()
+client = MongoClient()
+db = client['onename_user_db']
+local_users = db.users
 
 from config import DEFAULT_LIMIT
 
-INPUT_OPTIONS = '--create_cache --search <query>'
-
 #-------------------------
-def create_dedup_names_cache(): 
+def create_search_index(): 
 	 
 	'''
-		takes people/company names from crunchbase DB and writes deduped names in a 'cache'
+		takes people names from blockchain and writes deduped names in a 'cache'
 	'''
 
-	fg = c['freegraph']
+	#delete any old cache/index
+	client.drop_database('search_db')
+	client.drop_database('search_cache')
 
-	#delete any old cache
-	c.drop_database('fg_search_cache')
+	search_db = client['search_db']
+	search_profiles = search_db.profiles 
 
-	search_cache = c['fg_search_cache']
-	people_cache = search_cache.people_cache
+	search_cache = client['search_cache']
+	people_cache = search_cache.people
 
-	nodes = fg.nodes
-	
 	#------------------------------
-	#for creating people cache 
+	# create people name cache 
 
 	counter = 0
 
 	people_names = [] 
 
-	for i in nodes.find():
+	for user in local_users.find():
+
+		search_profile = {} 
 
 		counter += 1
 
 		if(counter % 1000 == 0):
 			print counter
 
-		try:
-			name = i['data']['name']['first'].lower() + ' ' + i['data']['name']['last'].lower()  
-		except:
-			pass
-		else:
+		profile = json.loads(user['profile'])
+
+		if 'name' in profile: 
+			name = profile['name']
+
+			try:
+				name = name['formatted'].lower()
+			except:
+				name = name.lower()
+
 			people_names.append(name)
 
+			#------------------------------
+			# create index for looking up profiles by people name
 
-	dedup_people_names = list(set(people_names))
+			search_profile['name'] = name
+			search_profile['profile'] = profile
+			search_profile['username'] = user['username']
+			search_profiles.save(search_profile)
 
-	insert_people_names = {'dedup_people_names':dedup_people_names}
+
+	#dedup names
+	people_names = list(set(people_names))
+
+	people_names = {'people':people_names}
 
 	#save final dedup results to mongodb (using it as a cache)
-	people_cache.save(insert_people_names)
+	people_cache.save(people_names)
 
-	#print '-' * 5
-	#log.debug('Created deduped people_cache: %s from %s', len(dedup_people_names), len(people_names))
-	#log.debug('Creating company cache ...')
-
-	#db.posts.ensure_index('full_name')
-	#log.debug('DONE! All set for searching now.')
+	search_cache.people.ensure_index('people')
+	search_db.profiles.ensure_index('name')
+	
+	log.debug('Created people_cache and search_profile index')
 
 #-------------------------
 def anyword_substring_search_inner(query_word,target_words):
@@ -147,20 +165,41 @@ def search_people_by_name(query,limit_results=DEFAULT_LIMIT):
 
 	#---------------------
 	#using mongodb as a cache, load data in people_names
-	search_cache = c['fg_search_cache']
+	search_cache = client['search_cache']
 
 	people_names = []
 
-	for i in search_cache.people_cache.find():
-		people_names = i['dedup_people_names']
+	for i in search_cache.people.find():
+		people_names = i['people']
 	#---------------------
 
 	results = substring_search(query,people_names,limit_results)
 
-	return results
+	return order_search_results(query,results)
 
 #-------------------------
-def fix_search_order(query, search_results):
+def fetch_profiles_from_names(name_search_results):
+
+	search_db = client['search_db']
+	search_profiles = search_db.profiles 
+
+	results = [] 
+
+	for name in name_search_results:
+
+		result = search_profiles.find_one({"name":name})
+		del result['name']
+		del result['_id']
+		results.append(result)
+
+	return results 
+
+#-------------------------
+def order_search_results(query, search_results):
+
+	'''
+		order of results should be a) query in first name, b) query in last name
+	'''
 
 	results = search_results
 
@@ -188,7 +227,7 @@ def fix_search_order(query, search_results):
 	#------------------------
 	for result in results:
 
-		result_list = result['full_name'].split(' ')
+		result_list = result.split(' ')
 
 		try:
 			if(result_list[0].startswith(first_word)):
@@ -201,7 +240,7 @@ def fix_search_order(query, search_results):
 	#------------------------
 	for result in results_second:
 
-		result_list = result['full_name'].split(' ')
+		result_list = result.split(' ')
 
 		try:
 			if(result_list[1].startswith(first_word)):
@@ -247,12 +286,14 @@ if __name__ == "__main__":
 
 		option = sys.argv[1]
 
-		if(option == '--create_cache'):
-			create_dedup_names_cache()
+		if(option == '--create_index'):
+			create_search_index()
 		elif(option == '--search'):
 			query = sys.argv[2]
-			print search_people_by_name(query,DEFAULT_LIMIT)
-
+			name_search_results = search_people_by_name(query,DEFAULT_LIMIT)
+			print name_search_results
+			print '-' * 5
+			print fetch_profiles_from_names(name_search_results)
 		else:
 			print "Usage error"
 

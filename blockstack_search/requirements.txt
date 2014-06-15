@@ -10,4 +10,3 @@ pytz==2014.2
 requests==2.2.1
 six==1.6.1
 urllib3==1.8
-wsgiref==0.1.2

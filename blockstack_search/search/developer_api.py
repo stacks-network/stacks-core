@@ -14,7 +14,7 @@ from search_api import get_people
 from flask import make_response,Response
 import json
 from bson import json_util
-from helpers import *
+from rate_limit import *
 
 app = Flask(__name__)
 
@@ -166,6 +166,7 @@ def not_found(error):
     Returns a jsonified 500 error message instead of a HTTP 404 error.
     '''
     return make_response(jsonify({ 'error': '500 something wrong' }), 500)
+    
 #----------------------------------------------
 if __name__ == '__main__':
 	app.run(debug=True, port=5003)
