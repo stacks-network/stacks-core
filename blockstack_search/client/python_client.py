@@ -1,3 +1,10 @@
+#!/usr/bin/env python
+
+#----------------------------
+# NOTE: outdated client 
+#----------------------------
+
+
 import json
 import requests
 
