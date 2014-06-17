@@ -13,3 +13,8 @@ Setting up a new server
 	python search/copy_user_db.py
 	python search/substring_search.py --create_index
 
+Using search from command line
+---------------------
+
+	python search/substring_search.py --search_name "Fred Wil"
+	python search/substring_search.py --search_twitter fredwil
