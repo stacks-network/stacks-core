@@ -235,19 +235,21 @@ def fetch_profiles(search_results,search_type="name"):
 	for search_result in search_results:
 
 		if search_type == 'name':
-			result = search_profiles.find_one({"name":search_result})
+			response = search_profiles.find({"name":search_result})
 			
 		elif search_type == 'twitter':
-			result = search_profiles.find_one({"twitter_handle":search_result})
+			response = search_profiles.find({"twitter_handle":search_result})
 		
-		try:
-			del result['name']
-			del result['twitter_handle']
-			del result['_id']
-		except:
-			pass 
+		for result in response:
 
-		results.append(result)
+			try:
+				del result['name']
+				del result['twitter_handle']
+				del result['_id']
+			except:
+				pass 
+
+			results.append(result)
 
 	return results 
 
