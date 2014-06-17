@@ -27,6 +27,8 @@ from config import DEFAULT_LIMIT
 
 import threading
 
+from substring_search import search_people_by_name, search_people_by_twitter, fetch_profiles
+
 #-------------------------
 #class for performing multi-threaded search on three search sub-systems
 class QueryThread(threading.Thread):
@@ -41,7 +43,8 @@ class QueryThread(threading.Thread):
 	def run(self):
 		if(self.query_type == 'people_search'):
 			self.results = query_people_database(self.query, self.limit_results)
-		#elif(self.query_type == 'company_search'):
+		elif(self.query_type == 'twitter_search'):
+			self.results = query_twitter_database(self.query, self.limit_results)
 			#self.found_exact_match, self.results = query_company_database(self.query)
 		#if(self.query_type == 'lucene_search'):
 		#	self.results = query_lucene_index(self.query,'onename_people_index', self.limit_results)
@@ -56,15 +59,14 @@ def error_reply(msg, code = -1):
 #-------------------------
 def query_people_database(query,limit_results=DEFAULT_LIMIT):
 
-	'''
-		returns True, {names of employees} if exact match of company name
-		else returns False, [list of possible companies]  
-	'''
-
-	from substring_search import search_people_by_name, fetch_profiles_from_names
-
 	name_search_results = search_people_by_name(query, limit_results)
-	return fetch_profiles_from_names(name_search_results)
+	return fetch_profiles(name_search_results,search_type="name")
+
+#-------------------------
+def query_twitter_database(query,limit_results=DEFAULT_LIMIT):
+
+	twitter_search_results = search_people_by_twitter(query, limit_results)
+	return fetch_profiles(twitter_search_results,search_type="twitter")
 
 """
 #-----------------------------------
@@ -112,8 +114,8 @@ def test_alphanumeric(query):
 	return True 
 
 #-----------------------------------
-@app.route('/search')
-def get_people():
+@app.route('/search/name')
+def search_by_name():
 
 	query = request.args.get('query')
 
@@ -161,6 +163,55 @@ def get_people():
 
 	return jsonify(results)
 
+#-----------------------------------
+@app.route('/search/twitter')
+def search_by_twitter():
+
+	query = request.args.get('query')
+
+	if query == None:
+		return error_reply("No query given")
+
+	new_limit = DEFAULT_LIMIT
+
+	try:
+		new_limit = int(request.values['limit_results'])
+	except:
+		pass
+
+	results_people = []
+
+	if test_alphanumeric(query) is False:
+		pass
+	else:
+
+		threads = [] 
+
+		t3 = QueryThread(query,'twitter_search',new_limit)
+
+		threads.append(t3)
+
+		#start all threads
+		[x.start() for x in threads]
+
+		#wait for all of them to finish
+		[x.join() for x in threads] 
+
+		#at this point all threads have finished and all queries have been performed
+		
+		results_lucene = t3.results 
+
+		results_people += results_lucene
+
+
+	results = {}
+	results['results'] = results_people[:new_limit]
+
+	#print results
+
+	#mc.set(cache_key,results)
+
+	return jsonify(results)
 #-----------------------------------
 @app.route('/')
 def index():

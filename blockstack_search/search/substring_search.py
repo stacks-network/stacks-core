@@ -22,7 +22,7 @@ from config import DEFAULT_LIMIT
 
 #-------------------------
 def create_search_index(): 
-	 
+
 	'''
 		takes people names from blockchain and writes deduped names in a 'cache'
 	'''
@@ -35,17 +35,20 @@ def create_search_index():
 	search_profiles = search_db.profiles 
 
 	search_cache = client['search_cache']
-	people_cache = search_cache.people
+	people_cache = search_cache.people_cache
+	twitter_cache = search_cache.twitter_cache
 
 	#------------------------------
 	# create people name cache 
 
 	counter = 0
 
-	people_names = [] 
+	people_names = []
+	twitter_handles = []
 
 	for user in local_users.find():
 
+		#the profile/info to be inserted
 		search_profile = {} 
 
 		counter += 1
@@ -55,7 +58,7 @@ def create_search_index():
 
 		profile = json.loads(user['profile'])
 
-		if 'name' in profile: 
+		if 'name' in profile:
 			name = profile['name']
 
 			try:
@@ -64,11 +67,31 @@ def create_search_index():
 				name = name.lower()
 
 			people_names.append(name)
-
-			#------------------------------
-			# create index for looking up profiles by people name
-
 			search_profile['name'] = name
+
+		else:
+			search_profile['name'] = None
+
+
+		if 'twitter' in profile:
+			twitter_handle = profile['twitter']
+
+			try:
+				twitter_handle = twitter_handle['username'].lower()
+			except:
+				try:
+					twitter_handle = profile['twitter'].lower()
+				except:
+					continue 
+
+			twitter_handles.append(twitter_handle)
+			search_profile['twitter_handle'] = twitter_handle
+
+		else:
+			search_profile['twitter_handle'] = None
+
+		if 'name' in profile or 'twitter' in profile: 
+
 			search_profile['profile'] = profile
 			search_profile['username'] = user['username']
 			search_profiles.save(search_profile)
@@ -76,16 +99,22 @@ def create_search_index():
 
 	#dedup names
 	people_names = list(set(people_names))
+	people_names = {'name':people_names}
 
-	people_names = {'people':people_names}
+	twitter_handles = list(set(twitter_handles))
+	twitter_handles = {'twitter_handle':twitter_handles}
 
 	#save final dedup results to mongodb (using it as a cache)
 	people_cache.save(people_names)
+	twitter_cache.save(twitter_handles)
 
-	search_cache.people.ensure_index('people')
+	search_cache.people_cache.ensure_index('name')
+	search_cache.twitter_cache.ensure_index('twitter_handle')
+
 	search_db.profiles.ensure_index('name')
+	search_db.profiles.ensure_index('twitter_handle')
 	
-	log.debug('Created people_cache and search_profile index')
+	log.debug('Created name/twitter search index')
 
 #-------------------------
 def anyword_substring_search_inner(query_word,target_words):
@@ -169,27 +198,55 @@ def search_people_by_name(query,limit_results=DEFAULT_LIMIT):
 
 	people_names = []
 
-	for i in search_cache.people.find():
-		people_names = i['people']
-	#---------------------
-
+	for i in search_cache.people_cache.find():
+		people_names = i['name']
+	
 	results = substring_search(query,people_names,limit_results)
 
 	return order_search_results(query,results)
 
 #-------------------------
-def fetch_profiles_from_names(name_search_results):
+def search_people_by_twitter(query,limit_results=DEFAULT_LIMIT):
+
+	query = query.lower()
+
+	#---------------------
+	#using mongodb as a cache, load data 
+	search_cache = client['search_cache']
+
+	twitter_handles = []
+
+	for i in search_cache.twitter_cache.find():
+		twitter_handles = i['twitter_handle']
+	#---------------------
+
+	results = substring_search(query,twitter_handles,limit_results)
+
+	return results
+
+#-------------------------
+def fetch_profiles(search_results,search_type="name"):
 
 	search_db = client['search_db']
 	search_profiles = search_db.profiles 
 
 	results = [] 
 
-	for name in name_search_results:
+	for search_result in search_results:
 
-		result = search_profiles.find_one({"name":name})
-		del result['name']
-		del result['_id']
+		if search_type == 'name':
+			result = search_profiles.find_one({"name":search_result})
+			
+		elif search_type == 'twitter':
+			result = search_profiles.find_one({"twitter_handle":search_result})
+		
+		try:
+			del result['name']
+			del result['twitter_handle']
+			del result['_id']
+		except:
+			pass 
+
 		results.append(result)
 
 	return results 
@@ -288,12 +345,18 @@ if __name__ == "__main__":
 
 		if(option == '--create_index'):
 			create_search_index()
-		elif(option == '--search'):
+		elif(option == '--search_name'):
 			query = sys.argv[2]
 			name_search_results = search_people_by_name(query,DEFAULT_LIMIT)
 			print name_search_results
 			print '-' * 5
-			print fetch_profiles_from_names(name_search_results)
+			print fetch_profiles(name_search_results,search_type="name")
+		elif(option == '--search_twitter'):
+			query = sys.argv[2]
+			twitter_search_results = search_people_by_twitter(query,DEFAULT_LIMIT)
+			print twitter_search_results
+			print '-' * 5
+			print fetch_profiles(twitter_search_results,search_type="twitter")
 		else:
 			print "Usage error"
 
