@@ -3,30 +3,24 @@
 
 SLEEP_INTERVAL = 1
 
+#520 is the real limit
+VALUE_MAX_LIMIT = 512
+
 from time import sleep
-import csv
+
 import requests
 import json
-
-VALUE_MAX_LIMIT = 512
 
 from coinrpc.coinrpc import namecoind_blocks, namecoind_name_new, check_registration
 from coinrpc.coinrpc import namecoind_name_update, namecoind_name_show
 
-from pymongo import Connection
-conn = Connection()
-db = conn['namecoin']
+#-----------------------------------
+from pymongo import MongoClient
+db = MongoClient['namecoin']
 queue = db.queue
 codes = db.codes
-remoteusers = db.remoteusers
 
-from pymongo import MongoClient
-import os 
-
-LOAD_BALANCER = os.environ['LOAD_BALANCER']
-
-MONGODB_URI = os.environ['MONGODB_URI']
-HEROKU_APP = os.environ['HEROKU_APP'] 
+from config import MONGODB_URI, HEROKU_APP
 remote_client = MongoClient(MONGODB_URI)
 users = remote_client[HEROKU_APP].user
 
@@ -335,7 +329,6 @@ def check_new_registrations(IS_LIVE=False):
 					if IS_LIVE:
 						user['dispatched'] = True
 						user['accepted'] = True
-						remoteusers.insert(user)
 						users.save(user)
 			
 				print '-' * 5
