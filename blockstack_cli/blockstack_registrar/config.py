@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 #-----------------------
 # Copyright 2014 Halfmoon Labs, Inc.
 # All Rights Reserved
@@ -17,7 +18,7 @@ except:
 	DEBUG = True
 
 	#--------------------------------------------------
-	NAMECOIND_READONLY = True
+	NAMECOIND_READONLY = False
 
 	NAMECOIND_USE_HTTPS = True
 
@@ -29,8 +30,4 @@ except:
 	#--------------------------------------------------
 
 	MONGODB_URI = os.environ['MONGODB_URI']
-	HEROKU_APP = os.environ['HEROKU_APP']
-
 	LOAD_BALANCER = os.environ['LOAD_BALANCER']
-
-
