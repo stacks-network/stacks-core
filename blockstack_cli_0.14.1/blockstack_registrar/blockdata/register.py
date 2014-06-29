@@ -1,28 +1,34 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
-SLEEP_INTERVAL = 1
+#-----------------------
+# Copyright 2014 Halfmoon Labs, Inc.
+# All Rights Reserved
+#-----------------------
 
 #520 is the real limit
 VALUE_MAX_LIMIT = 512
 
-from time import sleep
-
 import requests
 import json
 
-from coinrpc.coinrpc import namecoind_blocks, namecoind_name_new, check_registration
-from coinrpc.coinrpc import namecoind_name_update, namecoind_name_show
+from coinrpc.namecoin.namecoind_wrapper import namecoind_blocks, namecoind_name_new, check_registration
+from coinrpc.namecoin.namecoind_wrapper import namecoind_name_update, namecoind_name_show
+
+from config import LOAD_BALANCER
 
 #-----------------------------------
 from pymongo import MongoClient
-db = MongoClient['namecoin']
-queue = db.queue
-codes = db.codes
+client = MongoClient() 
 
-from config import MONGODB_URI, HEROKU_APP
+local_db = client['namecoin']
+queue = local_db.queue
+codes = local_db.codes
+
+from config import MONGODB_URI
 remote_client = MongoClient(MONGODB_URI)
-users = remote_client[HEROKU_APP].user
+remote_db = remote_client.get_default_database()
+users = remote_db.user
+registrations = remote_db.user_registration
 
 #-----------------------------------
 def utf8len(s):
@@ -132,7 +138,6 @@ def register_name(key,value):
 	
 	print reply
 	print '---'
-	sleep(SLEEP_INTERVAL)
 
 #-----------------------------------
 def update_name(key,value):
@@ -157,7 +162,6 @@ def update_name(key,value):
 	print reply
 	print info
 	print '---'
-	sleep(SLEEP_INTERVAL)
 
 #----------------------------------
 def get_old_keys(username):
@@ -191,7 +195,7 @@ def get_old_keys(username):
 	return old_keys
 
 #-----------------------------------
-def process_user(username,profile,accesscode=None):
+def process_user(username,profile):
 
 	old_keys = get_old_keys(username) 
 
@@ -206,28 +210,8 @@ def process_user(username,profile,accesscode=None):
 	if check_registration(key1):
 		
 		#if name is registered
-		check_profile = namecoind_name_show(key1)
-
-		try:
-			check_profile = check_profile['value']
-			
-			#if name is reserved, check code
-			if 'status' in check_profile and check_profile['status'] == 'reserved':
-			
-				print "name reserved: " + key1
-				code = codes.find_one({'username':key1})
-				if code['accesscode'] == accesscode:
-					print "code match"
-					update_name(key1,value1)
-			else:
-				#if registered but not reserved
-				print "name update: " + key1
-				update_name(key1,value1)
-
-		except Exception as e:
-			#if registered but not reserved
-			print "name update: " + key1
-			update_name(key1,value1)
+		print "name update: " + key1
+		update_name(key1,value1)
 
 	else: 
 		#if not registered 
@@ -290,31 +274,23 @@ def set_backend_server(DISTRIBUTE=True):
 				print "sending " + i['username'] + " to backend_server " + str(selected_server)
 				
 #-----------------------------------
-def check_new_registrations(IS_LIVE=False):
+def check_new_registrations(LIVE=True):
 
 	registered_counter = 0
 	unregistered_counter = 0
 
 	print '-' * 5
 	print "Checking for new users"
-	for user in users.find():
+	for user in registrations.find():
 
 		if 'dispatched' in user and user['dispatched'] is False:
 
-			if not IS_LIVE:
-				print user['username']
-				print user['email']
-				print '-' * 5
 			unregistered_counter += 1
 
-			accesscode = None
-			if 'accesscode' in user:
-				accesscode = user['accesscode']
-		
 			if ('backend_server' in user) and (user['backend_server'] == int(LOAD_BALANCER)):
-				if IS_LIVE:
+				if LIVE:
 					try:
-						process_user(user['username'],json.loads(user['profile']),accesscode)
+						process_user(user['username'],json.loads(user['profile']))
 						print user['backend_server']
 					except Exception as e:
 						print e
@@ -326,7 +302,7 @@ def check_new_registrations(IS_LIVE=False):
 				local = queue.find_one({'key':username})
 				if local is not None:
 					print "in local DB"
-					if IS_LIVE:
+					if LIVE:
 						user['dispatched'] = True
 						user['accepted'] = True
 						users.save(user)
@@ -342,7 +318,7 @@ def check_new_registrations(IS_LIVE=False):
 #-----------------------------------
 if __name__ == '__main__':
 
-	IS_LIVE = True
+	LIVE = True
 	DISTRIBUTE = False
 	set_backend_server(DISTRIBUTE)
-	check_new_registrations(IS_LIVE)
+	check_new_registrations(LIVE)

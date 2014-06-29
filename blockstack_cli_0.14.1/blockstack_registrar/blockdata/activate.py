@@ -5,7 +5,7 @@ import json
 import requests
 
 from time import sleep
-from coinrpc.coinrpc import namecoind_blocks, namecoind_firstupdate
+from coinrpc.namecoin.namecoind_wrapper import namecoind_blocks, namecoind_firstupdate
 
 blocks = namecoind_blocks()
 
@@ -74,7 +74,6 @@ def do_name_firstupdate():
             
                 output = namecoind_firstupdate(entry['key'],entry['rand'],update_value,entry['longhex'])
 
-                #output = namecoind_firstupdate(entry['key'], entry['rand'], update_value, entry['longhex'])
                 print "Transaction ID ", output
 
                 if 'message' in output and output['message'] == "this name is already active":
@@ -90,7 +89,7 @@ def do_name_firstupdate():
 
                 #sleep(1)
             else:
-                pass
+                print "wait: " + str(entry['wait_till_block'] - current_blocks) + " blocks" 
 
 #-----------------------------------
 if __name__ == '__main__':
