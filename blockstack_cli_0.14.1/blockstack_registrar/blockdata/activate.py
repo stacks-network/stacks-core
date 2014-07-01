@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+#-----------------------
+# Copyright 2014 Halfmoon Labs, Inc.
+# All Rights Reserved
+#-----------------------
 
 import json
 import requests
@@ -89,7 +93,7 @@ def do_name_firstupdate():
 
                 #sleep(1)
             else:
-                print "wait: " + str(entry['wait_till_block'] - current_blocks) + " blocks" 
+                print "wait: " + str(entry['wait_till_block'] - current_blocks) + " blocks for: " + entry['key'] 
 
 #-----------------------------------
 if __name__ == '__main__':

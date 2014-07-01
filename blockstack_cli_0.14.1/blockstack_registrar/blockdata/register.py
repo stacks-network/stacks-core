@@ -113,13 +113,6 @@ def slice_profile(username, profile, old_keys=None):
 		key_counter += 1
 		key = get_key(key_counter)
 
-		if old_keys is not None and key in old_keys:
-			pass
-		else:
-			while check_registration(key):
-				key_counter += 1 
-				key = get_key(key_counter)
-
 		split, remaining = splitter(remaining, username)
 		keys.append(key) 
 		values.append(split)
@@ -189,6 +182,7 @@ def get_old_keys(username):
 	next_key = get_next_key(key1)
 
 	while(next_key is not None):
+
 		old_keys.append(str(next_key))
 		next_key = get_next_key(next_key)
 		
@@ -197,9 +191,9 @@ def get_old_keys(username):
 #-----------------------------------
 def process_user(username,profile):
 
-	old_keys = get_old_keys(username) 
+	#old_keys = get_old_keys(username) 
 
-	keys, values = slice_profile(username,profile,old_keys)
+	keys, values = slice_profile(username,profile)
 
 	index = 0
 	key1 = keys[index]
