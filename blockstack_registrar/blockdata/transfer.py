@@ -1,10 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+#-----------------------
+# Copyright 2014 Halfmoon Labs, Inc.
+# All Rights Reserved
+#-----------------------
 
 import json
 from pymongo import Connection
-from coinrpc.coinrpc import namecoind_transfer, namecoind_name_show, check_registration
-from onename_register import process_user
+from coinrpc.namecoin.namecoind_wrapper import namecoind_transfer, namecoind_name_show, check_registration
+from .register import process_user
 from pymongo import MongoClient
 import os 
 
@@ -84,38 +88,10 @@ def do_name_transfer(username,live=False):
 #-----------------------------------
 if __name__ == '__main__':
 
-	live = True
+	live = False
 
-	username = "grapeape"
+	username = "stormtrooper64"
 
 	user = users.find_one({"username":username})
 
 	do_name_transfer(user['username'],live)
-
-	'''
-
-	MyWbJHsddjgqvzY22Z7Qiupwin3TiEoXkf
-
-	user_list = ['ryanshea','samsmith','leena','saqib','ali','darthvader','ibrahim','mohammed','asjad']
-
-	for user in users.find():
-
-		if 'accepted' in user and user['accepted'] is True:
-
-			if user['username'] in user_list:
-				pass
-			elif user['backend_server'] != int(LOAD_BALANCER):
-				pass
-			elif 'name_transferred' in user and user['name_transferred'] is True:
-				print "already transferred: " + user['username']
-			else:
-				try:
-					#print user
-					do_name_transfer(user['username'],live)
-				except ssl.SSLError:
-					pass 
-				except KeyError:
-					pass
-				print '-' * 5
-
-	'''
