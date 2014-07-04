@@ -23,34 +23,10 @@ import os
 LOAD_BALANCER = os.environ['LOAD_BALANCER']
 
 #-----------------------------------
-def check_name_firstupdate_errors(key):
-
-    reply = queue.find_one({'key':key})
-
-    #all activated entries should have final tx_id
-    try:
-        if(reply['activated'] is True):
-        
-            try: 
-                temp = json.loads(reply['tx_id'])
-                print temp['code']
-                print key + " had error"
-                reply['activated'] = False
-                queue.save(reply)
-            except:
-                pass
-    except Exception as e:
-        print key + " not in DB"
-
-#-----------------------------------
 def do_name_firstupdate():
 
     print "Checking for new activations"
     #print '---'
-
-    #first check for errors of last run and set activated = False
-    #for entry in queue.find():
-    #    check_name_firstupdate_errors(entry['key'])
     
     for entry in queue.find():
 

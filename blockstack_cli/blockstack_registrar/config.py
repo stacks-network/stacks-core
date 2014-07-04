@@ -30,4 +30,5 @@ except:
 	#--------------------------------------------------
 
 	MONGODB_URI = os.environ['MONGODB_URI']
+	OLD_DB = os.environ['OLD_DB']
 	LOAD_BALANCER = os.environ['LOAD_BALANCER']
