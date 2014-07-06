@@ -113,7 +113,7 @@ def register_users():
 				if datetime.datetime.utcnow() - new_user['created_at'] > datetime.timedelta(minutes=90):
 				
 					print "Re-sending after 90 mins: " + user['username']
-					process_profile(user['username'],user['profile'])
+					#process_profile(user['username'],user['profile'])
 			
 		else:
 			print "Random: " + user['username']
@@ -170,13 +170,44 @@ def update_users():
 			print "Update: " + str(user['username'])
 
 #-----------------------------------
+def cleanup_db(): 
+
+	for new_user in updates.find():
+		
+		user_id = new_user['user_id']
+		user = users.find_one({"_id":user_id})
+
+		if profile_on_blockchain(user["username"],user["profile"]):
+			print "cleaning: " + user["username"]
+			updates.remove(new_user)
+	
+	for new_user in transfer.find():
+		
+		user_id = new_user['user_id']
+		user = users.find_one({"_id":user_id})
+
+		if profile_on_blockchain(user["username"],user["profile"]):
+			print "cleaning: " + user["username"]
+			updates.remove(new_user)
+	
+	for new_user in registrations.find():
+		
+		user_id = new_user['user_id']
+		user = users.find_one({"_id":user_id})
+
+		if profile_on_blockchain(user["username"],user["profile"]):
+			print "cleaning: " + user["username"]
+			updates.remove(new_user)
+	
+#-----------------------------------
 if __name__ == '__main__':
 
 	#check_users()
 	#check_transfer()
-	register_users()
+	#register_users()
 	#update_users()
 	
+	cleanup_db()
 
 
 
