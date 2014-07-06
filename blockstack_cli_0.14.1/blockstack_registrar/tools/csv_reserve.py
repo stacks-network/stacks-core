@@ -52,11 +52,11 @@ def main_loop(key, name=None):
         profile = namecoind_name_show(key)['value']
         if 'status' in profile and profile['status'] == 'reserved':
             print "already reserved: " + key
-            #update_name(key,value)
+            update_name(key,value)
         else:
             print "registered but not reserved: " + key
     elif reply is not None:
-        #already in local DB/queue
+        #currently being processed
         pass
     else:
         #not in DB and not registered
@@ -66,7 +66,6 @@ def main_loop(key, name=None):
 #-----------------------------------
 if __name__ == '__main__':
 
-    '''
     with open('tools/data.csv') as csvfile:
         spamreader = csv.reader(csvfile)
         for row in spamreader:
@@ -74,9 +73,8 @@ if __name__ == '__main__':
                 main_loop(row[0], row[1])
             except:
                 main_loop(row[0])
+   
     '''
-
-
     with open('tools/angel_list.txt') as f:
         users = [list(literal_eval(line)) for line in f]
 
@@ -88,3 +86,4 @@ if __name__ == '__main__':
                     print "already in DB"
                 else:
                     main_loop(i) 
+    '''

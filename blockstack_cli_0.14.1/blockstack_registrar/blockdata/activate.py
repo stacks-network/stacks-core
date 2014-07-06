@@ -5,28 +5,30 @@
 # All Rights Reserved
 #-----------------------
 
+import os 
 import json
 import requests
 
 from time import sleep
 from coinrpc.namecoin.namecoind_wrapper import namecoind_blocks, namecoind_firstupdate
 
-blocks = namecoind_blocks()
-
-from pymongo import Connection
-con = Connection()
-db = con['namecoin']
+from pymongo import MongoClient
+client = MongoClient()
+db = client['namecoin']
 queue = db.queue
 
-import os 
-
 LOAD_BALANCER = os.environ['LOAD_BALANCER']
+
+blocks = namecoind_blocks()
 
 #-----------------------------------
 def do_name_firstupdate():
 
+    #remove entries that are already active
+    queue.remove({"activated":True})
+
     print "Checking for new activations"
-    #print '---'
+    print '-' * 5 
     
     for entry in queue.find():
 
@@ -41,8 +43,7 @@ def do_name_firstupdate():
             if current_blocks > entry['wait_till_block'] and entry['backend_server'] == int(LOAD_BALANCER):
                 #lets activate the entry
                 print "Activating: " + entry['key']
-                print '----'
-
+                
                 #check if 'value' is a json or not
                 try:
                     update_value = json.loads(entry['value'])
@@ -67,7 +68,8 @@ def do_name_firstupdate():
                 entry['tx_id'] = output
                 queue.save(entry)
 
-                #sleep(1)
+                print '----'
+
             else:
                 print "wait: " + str(entry['wait_till_block'] - current_blocks) + " blocks for: " + entry['key'] 
 
