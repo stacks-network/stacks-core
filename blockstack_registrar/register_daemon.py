@@ -27,15 +27,38 @@ remote_db = remote_client.get_default_database()
 users = remote_db.user
 registrations = remote_db.user_registration
 updates = remote_db.profile_update
+transfer = remote_db.name_transfer
 
 old_client = MongoClient(OLD_DB)
 old_db = old_client.get_default_database()
-print old_db.collection_names()
 old_users = old_db.user
 
 local_client = MongoClient() 
 local_db = local_client['namecoin']
 queue = local_db.queue
+
+#-----------------------------------
+def process_profile(username,profile):
+
+	#check if already in queue 
+	check_queue = queue.find_one({"key":'u/' + username})
+
+	if check_queue is not None:
+		print "Already in processing queue: " + str(username)
+		return
+
+	#check if load-balancer is correct
+	old_user = old_users.find_one({"username":username})	
+
+	if old_user is not None:
+		if old_user['backend_server'] != int(LOAD_BALANCER):
+			print "Not on this server: " + str(username)
+			return			
+
+	if username == "drmox":
+		return
+
+	process_user(username,profile)
 
 #-----------------------------------
 def profile_on_blockchain(username,DB_profile):
@@ -54,9 +77,7 @@ def profile_on_blockchain(username,DB_profile):
 		return False
 
 #-----------------------------------
-def process_users(): 
-
-	CHECK_BLOCKCHAIN = False
+def register_users(): 
 
 	for new_user in registrations.find():
 
@@ -70,9 +91,12 @@ def process_users():
 	
 			if datetime.datetime.utcnow() - new_user['created_at'] > datetime.timedelta(minutes=15):
 				print "Dispatch: " + user['username']
-				process_user(user['username'],user['profile'])
-				new_user['dispatched'] = True 
-				registrations.save(new_user)
+				if user['username'] == "drmox":
+					pass
+				else:
+					process_profile(user['username'],user['profile'])
+					new_user['dispatched'] = True 
+					registrations.save(new_user)
 			else:
 				print "New user (within 15 mins): " + user['username']
 		
@@ -86,15 +110,17 @@ def process_users():
 			if profile_on_blockchain(user["username"],user["profile"]):
 				registrations.remove(new_user)
 			else:
-				print "Not on blockchain yet: " + user['username']
 				if datetime.datetime.utcnow() - new_user['created_at'] > datetime.timedelta(minutes=90):
 				
-					print "Re-sending"
-					#process_user(user['username'],user['profile'])
+					print "Re-sending after 90 mins: " + user['username']
+					process_profile(user['username'],user['profile'])
 			
 		else:
 			print "Random: " + user['username']
 			#registrations.remove(new_user)
+
+#-----------------------------------
+def check_users(): 
 
 	counter = 0 
 
@@ -108,19 +134,27 @@ def process_users():
 
 		counter += 1
 
-		if CHECK_BLOCKCHAIN:
-			pass
-		else:
-			continue 
-
 		if profile_on_blockchain(user["username"],user["profile"]):
 			#print "Fine: " + user["username"]
 			pass
 		else:
 			print "Problem: " + user["username"]
-			#process_user(user['username'],user['profile'])
+			process_profile(user['username'],user['profile'])
 
 	print "Users: " + str(counter)
+
+#-----------------------------------
+def check_transfer(): 
+
+	for new_user in transfer.find():
+	
+		user_id = new_user['user_id']
+		user = users.find_one({"_id":user_id})
+
+		if profile_on_blockchain(user["username"],user["profile"]):
+			transfer.remove(new_user)
+		else:
+			print "Problem: " + user["username"]
 
 #-----------------------------------
 def update_users(): 
@@ -134,19 +168,14 @@ def update_users():
 			updates.remove(new_user)
 		else:
 			print "Update: " + str(user['username'])
-			old_user = old_users.find_one({"username":user["username"]})
-
-			if old_user is not None:
-				if old_user['backend_server'] == int(LOAD_BALANCER):
-					process_user(user['username'],user['profile'])
 
 #-----------------------------------
 if __name__ == '__main__':
 
-	#queue.remove({"activated":True})
-
-	#process_users()
-	update_users()
+	#check_users()
+	#check_transfer()
+	register_users()
+	#update_users()
 	
 
 
