@@ -37,8 +37,13 @@ local_client = MongoClient()
 local_db = local_client['namecoin']
 queue = local_db.queue
 
+problem_users = ['madmoneymachine', 'drmox']
+
 #-----------------------------------
 def process_profile(username,profile):
+
+	if username in problem_users:
+		return
 
 	#check if already in queue 
 	check_queue = queue.find_one({"key":'u/' + username})
@@ -54,9 +59,6 @@ def process_profile(username,profile):
 		if old_user['backend_server'] != int(LOAD_BALANCER):
 			print "Not on this server: " + str(username)
 			return			
-
-	if username == "drmox":
-		return
 
 	process_user(username,profile)
 
@@ -168,6 +170,7 @@ def update_users():
 			updates.remove(new_user)
 		else:
 			print "Update: " + str(user['username'])
+			process_profile(user['username'],user['profile'])
 
 #-----------------------------------
 def cleanup_db(): 
@@ -188,7 +191,7 @@ def cleanup_db():
 
 		if profile_on_blockchain(user["username"],user["profile"]):
 			print "cleaning: " + user["username"]
-			updates.remove(new_user)
+			transfer.remove(new_user)
 	
 	for new_user in registrations.find():
 		
@@ -197,14 +200,14 @@ def cleanup_db():
 
 		if profile_on_blockchain(user["username"],user["profile"]):
 			print "cleaning: " + user["username"]
-			updates.remove(new_user)
+			registrations.remove(new_user)
 	
 #-----------------------------------
 if __name__ == '__main__':
 
 	#check_users()
 	#check_transfer()
-	#register_users()
+	register_users()
 	#update_users()
 	
 	cleanup_db()
