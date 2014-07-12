@@ -19,10 +19,8 @@ from config import LOAD_BALANCER
 #-----------------------------------
 from pymongo import MongoClient
 client = MongoClient() 
-
 local_db = client['namecoin']
 queue = local_db.queue
-codes = local_db.codes
 
 from config import MONGODB_URI
 remote_client = MongoClient(MONGODB_URI)
@@ -64,7 +62,7 @@ def save_name_new_info(info,key,value):
 		del reply['_id']        #reply[_id] is causing a json encode error
 	
 	except Exception as e:
-		reply['message'] = "ERROR:" + str(e)
+		reply['message'] = "ERROR: " + str(e)
 	
 	return reply 
 
@@ -234,85 +232,3 @@ def process_additional_keys(keys,values):
 			register_name(next_key,next_value)
 			
 		index += 1
-
-#-----------------------------------
-def set_backend_server(DISTRIBUTE=True):
-
-	DEFAULT_SERVER = 2	
-	BACKEND_SERVER_FOR_RESERVER = 1
-	loadbalancer_counter = 0
-
-	for i in users.find():
-
-		if 'dispatched' in i and i['dispatched'] is False:
-
-			loadbalancer_counter += 1
-
-			if(loadbalancer_counter == 8):
-				loadbalancer_counter = 0
-
-			#hardcoded backend_server for reserved names
-			if 'backend_server' not in i:
-				selected_server = DEFAULT_SERVER
-
-				if 'accesscode' in i:
-					print "found reserved user, " + i['username'] + " using backend_server ", BACKEND_SERVER_FOR_RESERVER
-					selected_server = BACKEND_SERVER_FOR_RESERVER
-				else:
-					if DISTRIBUTE:
-						selected_server = loadbalancer_counter
-
-				i['backend_server'] = selected_server
-				users.save(i)
-
-				print "sending " + i['username'] + " to backend_server " + str(selected_server)
-				
-#-----------------------------------
-def check_new_registrations(LIVE=True):
-
-	registered_counter = 0
-	unregistered_counter = 0
-
-	print '-' * 5
-	print "Checking for new users"
-	for user in registrations.find():
-
-		if 'dispatched' in user and user['dispatched'] is False:
-
-			unregistered_counter += 1
-
-			if ('backend_server' in user) and (user['backend_server'] == int(LOAD_BALANCER)):
-				if LIVE:
-					try:
-						process_user(user['username'],json.loads(user['profile']))
-						print user['backend_server']
-					except Exception as e:
-						print e
-						continue 
-				
-				username = 'u/' + user['username'].lower()
-				extended = 'i/' + user['username'].lower() + '-1'
-
-				local = queue.find_one({'key':username})
-				if local is not None:
-					print "in local DB"
-					if LIVE:
-						user['dispatched'] = True
-						user['accepted'] = True
-						users.save(user)
-			
-				print '-' * 5
-		else:
-			registered_counter += 1
-
-
-	print "Registered users: ", registered_counter
-	print "Not registered users: ", unregistered_counter
-
-#-----------------------------------
-if __name__ == '__main__':
-
-	LIVE = True
-	DISTRIBUTE = False
-	set_backend_server(DISTRIBUTE)
-	check_new_registrations(LIVE)
