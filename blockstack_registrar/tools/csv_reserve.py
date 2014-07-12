@@ -55,6 +55,7 @@ def main_loop(key, name=None):
             update_name(key,value)
         else:
             print "registered but not reserved: " + key
+            #update_name(key,value)
     elif reply is not None:
         #currently being processed
         pass

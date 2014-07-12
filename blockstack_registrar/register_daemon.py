@@ -21,6 +21,8 @@ from encrypt.bip38 import bip38_decrypt
 import datetime
 import hashlib
 
+from time import sleep
+
 #-----------------------------------
 remote_client = MongoClient(MONGODB_URI)
 remote_db = remote_client.get_default_database()
@@ -35,9 +37,10 @@ old_users = old_db.user
 
 local_client = MongoClient() 
 local_db = local_client['namecoin']
-queue = local_db.queue
+queue_register = local_db.queue
+queue_update = local_db.queue_update
 
-problem_users = ['madmoneymachine', 'drmox']
+problem_users = ['madmoneymachine', 'drmox', 'emiljohansson','xfaure','megaz28','maxweiss','kh','patrickcines']
 
 #-----------------------------------
 def process_profile(username,profile):
@@ -45,11 +48,18 @@ def process_profile(username,profile):
 	if username in problem_users:
 		return
 
-	#check if already in queue 
-	check_queue = queue.find_one({"key":'u/' + username})
+	#check if already in register queue (name_new) 
+	check_queue = queue_register.find_one({"key":'u/' + username})
 
 	if check_queue is not None:
-		print "Already in processing queue: " + str(username)
+		print "Already in register queue: " + str(username)
+		return
+
+	#check if already in update queue (name_update) 
+	check_queue = queue_update.find_one({"key":'u/' + username})
+
+	if check_queue is not None:
+		print "Already in update queue: " + str(username)
 		return
 
 	#check if load-balancer is correct
@@ -57,7 +67,8 @@ def process_profile(username,profile):
 
 	if old_user is not None:
 		if old_user['backend_server'] != int(LOAD_BALANCER):
-			print "Not on this server: " + str(username)
+			print "Not on this server: " + str(username) 
+			print "Run on server: " + str(old_user['backend_server'])
 			return			
 
 	process_user(username,profile)
@@ -93,12 +104,10 @@ def register_users():
 	
 			if datetime.datetime.utcnow() - new_user['created_at'] > datetime.timedelta(minutes=15):
 				print "Dispatch: " + user['username']
-				if user['username'] == "drmox":
-					pass
-				else:
-					process_profile(user['username'],user['profile'])
-					new_user['dispatched'] = True 
-					registrations.save(new_user)
+				
+				process_profile(user['username'],user['profile'])
+				new_user['dispatched'] = True 
+				registrations.save(new_user)
 			else:
 				print "New user (within 15 mins): " + user['username']
 		
@@ -114,12 +123,15 @@ def register_users():
 			else:
 				if datetime.datetime.utcnow() - new_user['created_at'] > datetime.timedelta(minutes=90):
 				
-					print "Re-sending after 90 mins: " + user['username']
+					print "Problem (90 mins): " + user['username']
+					#print "Re-sending after 180 mins: " + user['username']
 					#process_profile(user['username'],user['profile'])
 			
 		else:
 			print "Random: " + user['username']
 			#registrations.remove(new_user)
+
+		sleep(1)
 
 #-----------------------------------
 def check_users(): 
@@ -141,7 +153,7 @@ def check_users():
 			pass
 		else:
 			print "Problem: " + user["username"]
-			process_profile(user['username'],user['profile'])
+			#process_profile(user['username'],user['profile'])
 
 	print "Users: " + str(counter)
 
@@ -157,6 +169,7 @@ def check_transfer():
 			transfer.remove(new_user)
 		else:
 			print "Problem: " + user["username"]
+			process_profile(user['username'],user['profile'])
 
 #-----------------------------------
 def update_users(): 
@@ -174,6 +187,9 @@ def update_users():
 
 #-----------------------------------
 def cleanup_db(): 
+
+	print "----------"
+	print "Cleaning DB"
 
 	for new_user in updates.find():
 		
@@ -201,20 +217,19 @@ def cleanup_db():
 		if profile_on_blockchain(user["username"],user["profile"]):
 			print "cleaning: " + user["username"]
 			registrations.remove(new_user)
+
+	print "----------"
 	
 #-----------------------------------
 if __name__ == '__main__':
 
 	#check_users()
 	#check_transfer()
-	register_users()
 	#update_users()
 	
+	register_users()
+	
 	cleanup_db()
-
-
-
-
 
 
 
