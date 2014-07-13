@@ -6,66 +6,96 @@
 #-----------------------
 
 #520 is the real limit
+#hardcoded here instead of some config file
 VALUE_MAX_LIMIT = 512
 
-import requests
 import json
 
-from coinrpc.namecoin.namecoind_wrapper import namecoind_blocks, namecoind_name_new, check_registration
-from coinrpc.namecoin.namecoind_wrapper import namecoind_name_update, namecoind_name_show
+from common import utf8len, log
+from common import users, register_queue
 
-from config import LOAD_BALANCER
+from coinrpc.namecoin.namecoind_server import NamecoindServer 
+from blockdata.namecoind_cluster import get_server
 
+from config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, WALLET_PASSPHRASE, NAMECOIND_USE_HTTPS
+from config import MAIN_SERVER, LOAD_SERVERS
+from config import DEFAULT_HOST, MEMCACHED_PORT, MEMCACHED_TIMEOUT
+
+namecoind = NamecoindServer(MAIN_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, WALLET_PASSPHRASE)
+
+import pylibmc
+from time import time
+mc = pylibmc.Client([DEFAULT_HOST + ':' + MEMCACHED_PORT],binary=True)
+ 
 #-----------------------------------
-from pymongo import MongoClient
-client = MongoClient() 
-local_db = client['namecoin']
-queue = local_db.queue
+def register_name(key,value,server=MAIN_SERVER):
 
-from config import MONGODB_URI
-remote_client = MongoClient(MONGODB_URI)
-remote_db = remote_client.get_default_database()
-users = remote_db.user
-registrations = remote_db.user_registration
-
-#-----------------------------------
-def utf8len(s):
-
-	if type(s) == unicode:
-		return len(s)
-	else:
-		return len(s.encode('utf-8'))
-
-#-----------------------------------
-def save_name_new_info(info,key,value):
 	reply = {}
-  
-	try:
+
+	#check if already in register queue (name_new) 
+	check_queue = register_queue.find_one({"key":key})
+
+	if check_queue is not None:
+		reply['message'] = "ERROR: " + "already in register queue: " + str(key)
+	else:
+
+		namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, WALLET_PASSPHRASE)			
+
+		info = namecoind.name_new(key,json.dumps(value))
+
+		try:
 		
-		reply['longhex'] = info[0]
-		reply['rand'] = info[1]
-		reply['key'] = key
-		reply['value'] = value
-		reply['backend_server'] = int(LOAD_BALANCER)
+			reply['longhex'] = info[0]
+			reply['rand'] = info[1]
+			reply['key'] = key
+			reply['value'] = json.dumps(value)
 
-		#get current block...
-		blocks = namecoind_blocks()
+			#get current block...
+			blocks = namecoind.blocks()
 
-		reply['current_block'] = blocks['blocks']
-		reply['wait_till_block'] = blocks['blocks'] + 12
-		reply['activated'] = False
+			reply['current_block'] = blocks['blocks']
+			reply['wait_till_block'] = blocks['blocks'] + 12
+			reply['activated'] = False
+			reply['server'] = server
 		
-		#save this data to Mongodb...
-		queue.insert(reply)
+			#save this data to Mongodb...
+			register_queue.insert(reply)
 
-		reply['message'] = 'Your registration will be completed in roughly two hours'
-		del reply['_id']        #reply[_id] is causing a json encode error
+			#reply[_id] is causing a json encode error
+			del reply['_id']
 	
-	except Exception as e:
-		reply['message'] = "ERROR: " + str(e)
+		except Exception as e:
+			reply['message'] = "ERROR: " + str(e)
 	
+	log.debug(reply)
+	log.debug('-' * 5)
+
 	return reply 
 
+#-----------------------------------
+def update_name(key,value):
+
+	reply = {}
+
+	cache_reply = mc.get("name_update_" + str(key))
+
+	if cache_reply is None: 
+	
+		server = get_server(key)
+		namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, WALLET_PASSPHRASE)
+
+		info = namecoind.name_update(key,json.dumps(value))
+
+		log.debug(value)
+		reply['tx'] = info
+
+		mc.set("name_update_" + str(key),"in_memory",int(time() + MEMCACHED_TIMEOUT))
+	else:
+		reply['message'] = "ERROR: " + "recently sent name_update: " + str(key)
+
+	log.debug(reply)
+	log.debug('-' * 5)
+		
 #-----------------------------------
 def slice_profile(username, profile, old_keys=None):
 
@@ -120,47 +150,13 @@ def slice_profile(username, profile, old_keys=None):
 
 	return keys, values 
 
-#-----------------------------------
-def register_name(key,value):
-
-	info = namecoind_name_new(key,json.dumps(value))
-
-	reply = save_name_new_info(info,key,json.dumps(value))
-	
-	print reply
-	print '---'
-
-#-----------------------------------
-def update_name(key,value):
-
-	reply = {}
-
-	info = namecoind_name_update(key,json.dumps(value))
-
-	reply['key'] = key
-	reply['value'] = value
-	reply['activated'] = True
-	reply['backend_server'] = int(LOAD_BALANCER) 
-
-	#save this data to Mongodb...
-	check = queue.find_one({'key':key})
-
-	if check is None:
-		queue.insert(reply)
-	else:
-		queue.save(reply)
-
-	print reply
-	print info
-	print '---'
-
 #----------------------------------
 def get_old_keys(username):
 
 	#----------------------------------
 	def get_next_key(key): 
 	
-		check_profile = namecoind_name_show(key)
+		check_profile = namecoind.name_show(key)
 
 		try:
 			check_profile = check_profile['value']
@@ -187,7 +183,7 @@ def get_old_keys(username):
 	return old_keys
 
 #-----------------------------------
-def process_user(username,profile):
+def process_user(username,profile,server=MAIN_SERVER):
 
 	#old_keys = get_old_keys(username) 
 
@@ -197,23 +193,23 @@ def process_user(username,profile):
 	key1 = keys[index]
 	value1 = values[index]
 
-	print utf8len(json.dumps(value1))
-
-	if check_registration(key1):
+	if namecoind.check_registration(key1):
 		
 		#if name is registered
-		print "name update: " + key1
+		log.debug("name update: %s", key1)
+		log.debug("size: %s", utf8len(json.dumps(value1)))
 		update_name(key1,value1)
 
 	else: 
 		#if not registered 
-		print "name new: " + key1 
-		register_name(key1,value1)
+		log.debug("name new: %s", key1)
+		log.debug("size: %s", utf8len(json.dumps(value1)))
+		register_name(key1,value1,server)
 
-	process_additional_keys(keys, values)
+	process_additional_keys(keys, values,server)
 
 #-----------------------------------
-def process_additional_keys(keys,values):
+def process_additional_keys(keys,values,server):
 
 	#register/update remaining keys
 	size = len(keys)
@@ -222,13 +218,13 @@ def process_additional_keys(keys,values):
 		next_key = keys[index]
 		next_value = values[index]
 
-		if check_registration(next_key):
-			print "name update: " + next_key
-			print utf8len(json.dumps(next_value))
+		log.debug(utf8len(json.dumps(next_value)))
+
+		if namecoind.check_registration(next_key):
+			log.debug("name update: " + next_key)
 			update_name(next_key,next_value)
 		else: 
-			print "name new: " + next_key
-			print utf8len(json.dumps(next_value))
-			register_name(next_key,next_value)
+			log.debug("name new: " + next_key)
+			register_name(next_key,next_value,server)
 			
 		index += 1

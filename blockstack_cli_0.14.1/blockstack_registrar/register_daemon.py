@@ -37,8 +37,6 @@ old_users = old_db.user
 
 local_client = MongoClient() 
 local_db = local_client['namecoin']
-queue_register = local_db.queue
-queue_update = local_db.queue_update
 
 problem_users = ['madmoneymachine', 'drmox', 'emiljohansson','xfaure','megaz28','maxweiss','kh','patrickcines']
 
@@ -46,20 +44,6 @@ problem_users = ['madmoneymachine', 'drmox', 'emiljohansson','xfaure','megaz28',
 def process_profile(username,profile):
 
 	if username in problem_users:
-		return
-
-	#check if already in register queue (name_new) 
-	check_queue = queue_register.find_one({"key":'u/' + username})
-
-	if check_queue is not None:
-		print "Already in register queue: " + str(username)
-		return
-
-	#check if already in update queue (name_update) 
-	check_queue = queue_update.find_one({"key":'u/' + username})
-
-	if check_queue is not None:
-		print "Already in update queue: " + str(username)
 		return
 
 	#check if load-balancer is correct
