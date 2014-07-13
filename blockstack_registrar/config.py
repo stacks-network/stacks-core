@@ -32,3 +32,7 @@ except:
 	MONGODB_URI = os.environ['MONGODB_URI']
 	OLD_DB = os.environ['OLD_DB']
 	LOAD_BALANCER = os.environ['LOAD_BALANCER']
+
+	DEFAULT_HOST = '127.0.0.1'
+	MEMCACHED_PORT = '11211'
+	MEMCACHED_TIMEOUT = 15 * 60

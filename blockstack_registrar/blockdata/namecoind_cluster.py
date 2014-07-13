@@ -15,13 +15,15 @@ from config import MAIN_SERVER, LOAD_SERVERS
 
 from multiprocessing.pool import ThreadPool 
 
+reply = {}
+reply["registered"] = False
+reply["server"] = None
+reply["ismine"] = False 
+		
 #-----------------------------------
 def check_address(address): 
 
-	reply = {}
-
-	reply['ismine'] = False 
-	reply['server'] = None 
+	reply['registered'] = True
 
 	#--------------------------
 	def check_address_inner(server):
@@ -34,8 +36,8 @@ def check_address(address):
 			return
 
 		if info['ismine'] is True: 
-			reply['ismine'] = True
 			reply['server'] = server 
+			reply['ismine'] = True
 
 	#first check the main server
 	check_address_inner(MAIN_SERVER)
@@ -62,4 +64,4 @@ def get_server(key):
 	if 'namecoin_address' in info:	
 		return check_address(info['namecoin_address'])
 	else:
-		return json.dumps({})
+		return reply
