@@ -5,73 +5,63 @@
 # All Rights Reserved
 #-----------------------
 
-import os 
-import json
-import requests
+from coinrpc.namecoin.namecoind_server import NamecoindServer 
 
-from time import sleep
-from coinrpc.namecoin.namecoind_wrapper import namecoind_blocks, namecoind_firstupdate
+from config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, WALLET_PASSPHRASE, NAMECOIND_USE_HTTPS
+from config import MAIN_SERVER, LOAD_SERVERS
 
-from pymongo import MongoClient
-client = MongoClient()
-db = client['namecoin']
-queue = db.queue
+namecoind = NamecoindServer(MAIN_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, WALLET_PASSPHRASE)
 
-LOAD_BALANCER = os.environ['LOAD_BALANCER']
+from common import log, get_string
+from common import register_queue
 
-blocks = namecoind_blocks()
+blocks = namecoind.blocks()
 
 #-----------------------------------
 def do_name_firstupdate():
 
     #remove entries that are already active
-    queue.remove({"activated":True})
+    register_queue.remove({"activated":True})
 
-    print "Checking for new activations"
-    print '-' * 5 
+    log.debug("Checking for new activations")
+    log.debug('-' * 5)
     
-    for entry in queue.find():
+    for entry in register_queue.find():
 
         #entry is registered; but not activated
         if entry.get('activated') is not None and entry.get('activated') == False:
             
-            #print "Processing: " + entry['key'] 
+            key = entry['key']
 
             #compare the current block with 'wait_till_block'
             current_blocks = blocks['blocks']
 
-            if current_blocks > entry['wait_till_block'] and entry['backend_server'] == int(LOAD_BALANCER):
-                #lets activate the entry
-                print "Activating: " + entry['key']
+            if current_blocks > entry['wait_till_block']:
                 
-                #check if 'value' is a json or not
-                try:
-                    update_value = json.loads(entry['value'])
-                    update_value = json.dumps(update_value)     #no error while parsing; dump into json again
-                except:
-                    update_value = entry['value']    #error: treat it as a string
+                update_value = get_string(entry['value'])
+                
+                log.debug("Activating entry: '%s' to point to '%s'" % (key, update_value))
 
-                print "Activating entry: '%s' to point to '%s'" % (entry['key'], update_value)
-            
-                output = namecoind_firstupdate(entry['key'],entry['rand'],update_value,entry['longhex'])
+                namecoind = NamecoindServer(MAIN_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, WALLET_PASSPHRASE)
 
-                print "Transaction ID ", output
+                output = namecoind.firstupdate(key,entry['rand'],update_value,entry['longhex'])
+                log.debug("tx: %s", output)
 
                 if 'message' in output and output['message'] == "this name is already active":
                     entry['activated'] = True
                 elif 'code' in output:
                     entry['activated'] = False
-                    print "Not activated. Try again."
+                    log.debug("Not activated. Try again.")
                 else:
                     entry['activated'] = True
 
                 entry['tx_id'] = output
-                queue.save(entry)
+                register_queue.save(entry)
 
-                print '----'
+                log.debug('-' * 5)
 
             else:
-                print "wait: " + str(entry['wait_till_block'] - current_blocks) + " blocks for: " + entry['key'] 
+                log.debug("wait: %s block for: %s" % ((entry['wait_till_block'] - current_blocks + 1), entry['key']))
 
 #-----------------------------------
 if __name__ == '__main__':
