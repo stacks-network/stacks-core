@@ -11,10 +11,10 @@
 from opendig import ONS_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, USE_HTTPS
 
 import json
-import rpc
+import namecoinrpc
 
 #currently using namecoind for storing data (but ONS can use any blockchain)
-namecoind = rpc.connect_to_remote(NAMECOIND_USER, NAMECOIND_PASSWD, 
+namecoind = namecoinrpc.connect_to_remote(NAMECOIND_USER, NAMECOIND_PASSWD, 
                                         host=ONS_SERVER, port=NAMECOIND_PORT, 
                                         use_https=USE_HTTPS)
 
