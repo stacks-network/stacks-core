@@ -20,7 +20,7 @@ setup(
     packages=['opendig'],
     scripts=['bin/opendig'],
     zip_safe=False,
-    download_url = 'https://github.com/opennamesystem/opendig/tarball/0.1'
+    download_url = 'https://github.com/opennamesystem/opendig/archive/master.zip'
     install_requires=[
         'cement>=2.2.2',
         'dnspython>=1.11.1'
