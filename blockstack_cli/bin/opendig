@@ -11,11 +11,12 @@
 from cement.core import backend, foundation, controller, handler
 
 import json
+import sys
 
 try:
 	from opendig import dns_resolver, ons_resolver 
 except:
-	print "ERROR: opendig is not installed. Try 'sudo pip install opendig'"
+	sys.stdout.write("ERROR: opendig is not installed. Try 'sudo pip install opendig'" + '\n')
 	exit()
 
 #----------------------------------------
@@ -42,60 +43,60 @@ class OpenDigController(controller.CementBaseController):
 		if self.app.pargs.user:
 		
 			data = ons_resolver('u/' + self.app.pargs.user)
-			print pretty_dump(data)
+			sys.stdout.write(pretty_dump(data))
 
 		elif self.app.pargs.domain:
 
 			data = dns_resolver(self.app.pargs.domain)
 
 			for reply in data.answer:
-				print reply
+				sys.stdout.write(reply.to_text() + '\n')
 		else: 
-			print "Try 'opendig -h' for help"
+			sys.stdout.write("Try 'opendig -h' for help" + '\n')
 
 	#----------------------------------------
 	@controller.expose(help="get the twitter handle of a user")
 	def twitter(self):
 	
 		if self.app.pargs.user:
-			data = get_full_profile('u/' + self.app.pargs.user)
+			data = ons_resolver('u/' + self.app.pargs.user)
 
 			if 'twitter' in data: 
-				print data['twitter']
+				sys.stdout.write(pretty_dump(data['twitter']) + '\n')
 			else:
-				print {}
+				sys.stdout.write(pretty_dump({}) + '\n')
 		else:
-			print "No user given. Try 'opendig twitter -u <username>'"
+			sys.stdout.write("No user given. Try 'opendig twitter -u <username>'" + '\n')
 
 	#----------------------------------------
 	@controller.expose(help="get the github username of a user")
 	def github(self):
 		
 		if self.app.pargs.user:
-			data = get_full_profile('u/' + self.app.pargs.user)
+			data = ons_resolver('u/' + self.app.pargs.user)
 
 			if 'github' in data: 
-				print data['github']
+				sys.stdout.write(pretty_dump(data['github']) + '\n')
 			else:
-				print {}
+				sys.stdout.write(pretty_dump({}) + '\n')
 
 		else:
-			print "No user given. Try 'opendig github -u <username>'"
+			sys.stdout.write("No user given. Try 'opendig github -u <username>'" + '\n')
 
 	#----------------------------------------
 	@controller.expose(aliases=['btc'], help="get the bitcoin address of a user")
 	def bitcoin(self):
 
 		if self.app.pargs.user:
-			data = get_full_profile('u/' + self.app.pargs.user)
+			data = ons_resolver('u/' + self.app.pargs.user)
 
 			if 'bitcoin' in data: 
-				print data['bitcoin']
+				sys.stdout.write(pretty_dump(data['bitcoin']) + '\n')
 			else:
-				print {}
+				sys.stdout.write(pretty_dump({}) + '\n')
 
 		else:
-			print "No user given. Try 'opendig bitcoin -u <username>'"
+			sys.stdout.write("No user given. Try 'opendig bitcoin -u <username>'" + '\n')
 
 #----------------------------------------
 class OpenDigApp(foundation.CementApp):
