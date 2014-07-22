@@ -24,7 +24,7 @@ except:
 class OpenDigController(controller.CementBaseController):
 	class Meta:
 		label = 'base'
-		description = "OpenDig: Command-line client for the Open Name System"
+		description = "OpenDig: Command-line client for ONS (http://OpenNameSystem.org)"
 
 		config_defaults = dict(
 			user = None,
@@ -42,7 +42,7 @@ class OpenDigController(controller.CementBaseController):
 		
 		if self.app.pargs.user:
 		
-			data = ons_resolver('u/' + self.app.pargs.user)
+			data = ons_resolver(self.app.pargs.user)
 			sys.stdout.write(pretty_dump(data))
 
 		elif self.app.pargs.domain:
@@ -59,7 +59,7 @@ class OpenDigController(controller.CementBaseController):
 	def twitter(self):
 	
 		if self.app.pargs.user:
-			data = ons_resolver('u/' + self.app.pargs.user)
+			data = ons_resolver(self.app.pargs.user)
 
 			if 'twitter' in data: 
 				sys.stdout.write(pretty_dump(data['twitter']) + '\n')
@@ -73,7 +73,7 @@ class OpenDigController(controller.CementBaseController):
 	def github(self):
 		
 		if self.app.pargs.user:
-			data = ons_resolver('u/' + self.app.pargs.user)
+			data = ons_resolver(self.app.pargs.user)
 
 			if 'github' in data: 
 				sys.stdout.write(pretty_dump(data['github']) + '\n')
@@ -88,7 +88,7 @@ class OpenDigController(controller.CementBaseController):
 	def bitcoin(self):
 
 		if self.app.pargs.user:
-			data = ons_resolver('u/' + self.app.pargs.user)
+			data = ons_resolver(self.app.pargs.user)
 
 			if 'bitcoin' in data: 
 				sys.stdout.write(pretty_dump(data['bitcoin']) + '\n')
