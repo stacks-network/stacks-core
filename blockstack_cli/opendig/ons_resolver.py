@@ -94,16 +94,24 @@ def ons_resolver(key):
     counter = 0 
 
     server = ONS_SERVERS[counter]
-    namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD)
-    return_data = namecoind.get_full_profile('u/' + key)
+    try:
+        namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD)
+        return_data = namecoind.get_full_profile('u/' + key)
+    except:
+        return error_reply("Couldn't connect to namecoind")
+
     data = json.dumps(return_data,sort_keys=True)
     data_hash = hashlib.md5(data).hexdigest()
  
     while counter < len(ONS_SERVERS) - 1:
         counter += 1
         server = ONS_SERVERS[counter]
-        namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD)
-        check_data = namecoind.get_full_profile('u/' + key)
+        try:
+            namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD)
+            check_data = namecoind.get_full_profile('u/' + key)
+        except:
+            return error_reply("Couldn't connect to namecoind")
+            
         check_data = json.dumps(check_data,sort_keys=True)
 
         if data_hash != hashlib.md5(check_data).hexdigest():
