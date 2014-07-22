@@ -6,7 +6,9 @@ Command-line tool for Open Name System (like dig is for DNS)
 Installation
 =======
 
-> $ sudo pip install opendig
+```
+$ sudo pip install opendig
+```
 
 Command-line Usage
 =======
@@ -32,9 +34,10 @@ Configuration
 
 OpenDig comes with pre-configured default servers 8.8.8.8 (Google) for DNS and 162.243.253.65 (OneName) for ONS. We *strongly* recommend using a local config file, and using servers of your choice:
 
-> touch ~/.opendig
-> vi ~/.opendig
-
+```
+$ touch ~/.opendig
+$ vi ~/.opendig
+```
 A sample config looks like this:
 
 ```
