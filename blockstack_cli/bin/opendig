@@ -12,11 +12,12 @@ from cement.core import backend, foundation, controller, handler
 
 import json
 import sys
+import time
+import datetime
 
 try:
-	from opendig import dns_resolver, ons_resolver 
-except Exception as e:
-	print e
+	from opendig import dns_resolver, ons_resolver, __version__, DNS_SERVERS, ONS_SERVERS
+except:
 	sys.stdout.write("ERROR: opendig is not installed. Try 'sudo pip install opendig'" + '\n')
 	exit()
 
@@ -43,15 +44,34 @@ class OpenDigController(controller.CementBaseController):
 		
 		if self.app.pargs.user:
 		
-			data = ons_resolver(self.app.pargs.user)
+			print_header('-u %s' % self.app.pargs.user)
+			
+			data, elapsed_time = get_ons_data(self.app.pargs.user)
+
 			sys.stdout.write(pretty_dump(data))
+
+			print_ons_footer(elapsed_time)
 
 		elif self.app.pargs.domain:
 
-			data = dns_resolver(self.app.pargs.domain)
+			print_header('-d %s' % self.app.pargs.domain)			
+			start_time = time.time()
 
+			try:
+				data = dns_resolver(self.app.pargs.domain)
+			except:
+				pass
+			else:
+				sys.stdout.write("\n;; Got answer:\n\n")
+
+			elapsed_time = round(time.time() - start_time, 3)
+			elapsed_time = int(1000 * elapsed_time) #msecs
+			
 			for reply in data.answer:
 				sys.stdout.write(reply.to_text() + '\n')
+
+			print_dns_footer(elapsed_time)
+
 		else: 
 			sys.stdout.write("Try 'opendig -h' for help" + '\n')
 
@@ -60,12 +80,16 @@ class OpenDigController(controller.CementBaseController):
 	def twitter(self):
 	
 		if self.app.pargs.user:
-			data = ons_resolver(self.app.pargs.user)
+
+			print_header('twitter -u %s' % self.app.pargs.user)
+			data, elapsed_time = get_ons_data(self.app.pargs.user)
 
 			if 'twitter' in data: 
-				sys.stdout.write(pretty_dump(data['twitter']) + '\n')
+				sys.stdout.write(pretty_dump(data['twitter']))
 			else:
-				sys.stdout.write(pretty_dump({}) + '\n')
+				sys.stdout.write(pretty_dump({}))
+
+			print_ons_footer(elapsed_time)
 		else:
 			sys.stdout.write("No user given. Try 'opendig twitter -u <username>'" + '\n')
 
@@ -74,13 +98,15 @@ class OpenDigController(controller.CementBaseController):
 	def github(self):
 		
 		if self.app.pargs.user:
-			data = ons_resolver(self.app.pargs.user)
+			print_header('github -u %s' % self.app.pargs.user)
+			data, elapsed_time = get_ons_data(self.app.pargs.user)
 
 			if 'github' in data: 
-				sys.stdout.write(pretty_dump(data['github']) + '\n')
+				sys.stdout.write(pretty_dump(data['github']))
 			else:
-				sys.stdout.write(pretty_dump({}) + '\n')
+				sys.stdout.write(pretty_dump({}))
 
+			print_ons_footer(elapsed_time)
 		else:
 			sys.stdout.write("No user given. Try 'opendig github -u <username>'" + '\n')
 
@@ -89,12 +115,15 @@ class OpenDigController(controller.CementBaseController):
 	def bitcoin(self):
 
 		if self.app.pargs.user:
-			data = ons_resolver(self.app.pargs.user)
+			print_header('bitcoin -u %s' % self.app.pargs.user)
+			data, elapsed_time = get_ons_data(self.app.pargs.user)
 
 			if 'bitcoin' in data: 
-				sys.stdout.write(pretty_dump(data['bitcoin']) + '\n')
+				sys.stdout.write(pretty_dump(data['bitcoin']))
 			else:
-				sys.stdout.write(pretty_dump({}) + '\n')
+				sys.stdout.write(pretty_dump({}))
+
+			print_ons_footer(elapsed_time)
 
 		else:
 			sys.stdout.write("No user given. Try 'opendig bitcoin -u <username>'" + '\n')
@@ -114,7 +143,44 @@ def pretty_dump(input):
 
     return json.dumps(input, sort_keys=False, indent=4, separators=(',', ': '))
 
+#-------------------------
+def print_header(query):
+
+	sys.stdout.write("\n;; <<>> OpenDig %s <<>> %s" % (__version__, query))
+
+#-------------------------
+def print_dns_footer(elapsed_time):
+
+	sys.stdout.write("\n;; Query time: %s msec\n" % elapsed_time)
+	sys.stdout.write(";; SERVER: %s \n" % DNS_SERVERS[0])
+	sys.stdout.write(";; WHEN: %s\n\n" % datetime.datetime.now().strftime("%a %b %d %H:%M:%S %Y"))
+
+#-------------------------
+def print_ons_footer(elapsed_time):
+
+	sys.stdout.write("\n\n;; EXECUTION TIME: %s msec\n" % elapsed_time)
+	sys.stdout.write(";; SERVERS CHECKED: ")
+	for server in ONS_SERVERS:
+		sys.stdout.write("%s " % server)
+	sys.stdout.write("\n;; WHEN: %s\n\n" % datetime.datetime.now().strftime("%a %b %d %H:%M:%S %Y"))
+
+#-------------------------
+def get_ons_data(username):
 	
+	start_time = time.time()
+
+	try:
+		data = ons_resolver(username)
+	except:
+		pass
+	else:
+		sys.stdout.write("\n;; Got answer:\n\n")
+
+		elapsed_time = round(time.time() - start_time, 3)
+		elapsed_time = int(1000 * elapsed_time) #msecs
+
+	return data, elapsed_time
+			
 #----------------------------------------
 if __name__ == '__main__':
 
