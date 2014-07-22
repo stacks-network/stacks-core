@@ -15,7 +15,8 @@ import sys
 
 try:
 	from opendig import dns_resolver, ons_resolver 
-except:
+except Exception as e:
+	print e
 	sys.stdout.write("ERROR: opendig is not installed. Try 'sudo pip install opendig'" + '\n')
 	exit()
 

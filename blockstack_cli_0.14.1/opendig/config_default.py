@@ -10,8 +10,8 @@
 #these default options are provided only for the convenience of users
 #users should really specify their own servers in ~/.opendig (in ini format)
 
-DNS_SERVER = '8.8.8.8' #use a Google DNS server as default backup 
-ONS_SERVER = '162.243.253.65' #use a OneName ONS server as default backup 
+DNS_SERVERS = ['8.8.8.8','8.8.4.4'] #use a Google DNS servers as default backup 
+ONS_SERVERS = ['162.243.253.65','107.170.167.141'] #use a OneName ONS servers as default backup 
 NAMECOIND_PORT = 8332
 NAMECOIND_USER = 'opennamesystem'
 NAMECOIND_PASSWD = 'opennamesystem'
