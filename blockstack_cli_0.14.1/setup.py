@@ -1,7 +1,10 @@
+# -*- coding: utf-8 -*-
 """
-OpenDig
-==============
+    OpenDig
+    ~~~~~
 
+    :copyright: (c) 2014 by OpenNameSystem.org
+    :license: MIT, see LICENSE for more details.
 """
 
 from setuptools import setup

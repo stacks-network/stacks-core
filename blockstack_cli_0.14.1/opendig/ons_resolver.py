@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Open Name System
+    OpenDig
     ~~~~~
 
-    :copyright: (c) 2014 by opennamesystem.org
+    :copyright: (c) 2014 by OpenNameSystem.org
     :license: MIT, see LICENSE for more details.
 """
 
