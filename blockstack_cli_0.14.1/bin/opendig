@@ -1,0 +1,128 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+	Open Name System
+	~~~~~
+
+	:copyright: (c) 2014 by opennamesystem.org
+	:license: MIT, see LICENSE for more details.
+"""
+
+from cement.core import backend, foundation, controller, handler
+
+import json
+
+try:
+	from opendig import dns_resolver, ons_resolver 
+except:
+	print "ERROR: opendig is not installed. Try 'sudo pip install opendig'"
+	exit()
+
+#----------------------------------------
+# define an application base controller
+class OpenDigController(controller.CementBaseController):
+	class Meta:
+		label = 'base'
+		description = "OpenDig: Command-line client for the Open Name System"
+
+		config_defaults = dict(
+			user = None,
+			domain = None,
+			)
+
+		arguments = [
+			(['-u', '--user'], dict(action='store', help='get user info')),
+			(['-d', '--domain'], dict(action='store', help='get domain info'))
+			]
+
+	#----------------------------------------
+	@controller.expose(hide=True, aliases=['run'])
+	def default(self):
+		
+		if self.app.pargs.user:
+		
+			data = ons_resolver('u/' + self.app.pargs.user)
+			print pretty_dump(data)
+
+		elif self.app.pargs.domain:
+
+			data = dns_resolver(self.app.pargs.domain)
+
+			for reply in data.answer:
+				print reply
+		else: 
+			print "Try 'opendig -h' for help"
+
+	#----------------------------------------
+	@controller.expose(help="get the twitter handle of a user")
+	def twitter(self):
+	
+		if self.app.pargs.user:
+			data = get_full_profile('u/' + self.app.pargs.user)
+
+			if 'twitter' in data: 
+				print data['twitter']
+			else:
+				print {}
+		else:
+			print "No user given. Try 'opendig twitter -u <username>'"
+
+	#----------------------------------------
+	@controller.expose(help="get the github username of a user")
+	def github(self):
+		
+		if self.app.pargs.user:
+			data = get_full_profile('u/' + self.app.pargs.user)
+
+			if 'github' in data: 
+				print data['github']
+			else:
+				print {}
+
+		else:
+			print "No user given. Try 'opendig github -u <username>'"
+
+	#----------------------------------------
+	@controller.expose(aliases=['btc'], help="get the bitcoin address of a user")
+	def bitcoin(self):
+
+		if self.app.pargs.user:
+			data = get_full_profile('u/' + self.app.pargs.user)
+
+			if 'bitcoin' in data: 
+				print data['bitcoin']
+			else:
+				print {}
+
+		else:
+			print "No user given. Try 'opendig bitcoin -u <username>'"
+
+#----------------------------------------
+class OpenDigApp(foundation.CementApp):
+	class Meta:
+		label = 'OpenDig'
+		base_controller = OpenDigController
+
+#----------------------------------------
+# create the app
+app = OpenDigApp()
+
+#-------------------------
+def pretty_dump(input):
+
+    return json.dumps(input, sort_keys=False, indent=4, separators=(',', ': '))
+
+	
+#----------------------------------------
+if __name__ == '__main__':
+
+
+	try:
+		# setup the application
+		app.setup()
+
+		# run the application
+		app.run()
+	finally:
+		# close the app
+		app.close()
