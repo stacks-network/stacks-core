@@ -21,7 +21,7 @@ Python Package Usage
 =======
 ```
 from opendig import ons_resolver
-print ons_resolver('u/'+'naval')
+print ons_resolver('naval')
 
 from opendig import dns_resolver
 print dns_resolver('startupboy.com')
