@@ -53,7 +53,7 @@ def get_value(input_key):
     return reply
 
 #-----------------------------------
-def ons_resolver(key):
+def get_full_profile(key):
 
     check_profile = get_value(key)
     
@@ -64,7 +64,7 @@ def ons_resolver(key):
                 
     if 'next' in check_profile:
         try:
-            child_data = ons_resolver(check_profile['next'])
+            child_data = get_full_profile(check_profile['next'])
         except:
             return check_profile
 
@@ -76,3 +76,8 @@ def ons_resolver(key):
 
     else:
         return check_profile
+
+#-----------------------------------
+def ons_resolver(key):
+
+    return get_full_profile('u/' + key)
