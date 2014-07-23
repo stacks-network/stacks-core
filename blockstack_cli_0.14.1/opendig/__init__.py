@@ -45,8 +45,6 @@ try:
 	NAMECOIND_PASSWD = config.get('namecoind','passwd')
 	USE_HTTPS = config.get('namecoind','use_https')
 except Exception as e:
-	print "got except: "
-	print e
 	from config_default import * 
 	
 from .dns_resolver import dns_resolver
