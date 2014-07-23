@@ -11,16 +11,15 @@ opendig
 <a name="overview"/>
 ## Overview
 
-opendig is the equivalent of dig for the Open Name System, which extends DNS by supporting the registration and resolution of:
+`opendig` is a command-line tool that extends the functionality of `dig` to be compatible with the Open Name System. Specifically, it adds support for the resolution of blockchain user handles.
 
-1. user handles on the blockchain (deployed)
-1. domains on the blockchain (design phase)
+#### Open Name System
+
+ONS extends DNS by supporting the blockchain-based registration and resolution of user handles (currently supported by opendig) and domains (in the design phase).
 
 #### ONS = ICANN DNS + blockchain handles + blockchain domains
 
 ONS is 100% backwards compatible with ICANN DNS and simply extends the functionality.
-
-Likewise, opendig has 100% of the functionality of dig.
 
 <a name="installation"/>
 ## Installation
