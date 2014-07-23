@@ -42,12 +42,12 @@ A sample config looks like this:
 
 ```
 [dns]
-server1 = 8.8.8.8
-server2 = 8.8.4.4
+servers = 8.8.8.8, 8.8.4.4
 
 [ons]
-server1 = 162.243.253.65
-server2 = 107.170.167.141
+#all these servers are queried and a check is performed that they return the same data
+#to reduce trust on any single party, use your own servers or multiple public servers
+servers = 162.243.253.65, 107.170.167.141
 
 [namecoind]
 port = 8332
