@@ -46,7 +46,13 @@ class OpenDigController(controller.CementBaseController):
 		
 			print_header('-u %s' % self.app.pargs.user)
 			
-			data, elapsed_time = get_ons_data(self.app.pargs.user)
+			try:
+				data, elapsed_time = get_ons_data(self.app.pargs.user)
+			except:
+				pass
+			else:
+				s = "\n;; Got answer:\n\n;; QUESTION SECTION:\n;+%s\n\n;; ANSWER SECTION:\n" % (self.app.pargs.user)
+				sys.stdout.write(s)
 
 			sys.stdout.write(pretty_dump(data))
 
@@ -62,7 +68,8 @@ class OpenDigController(controller.CementBaseController):
 			except:
 				pass
 			else:
-				sys.stdout.write("\n;; Got answer:\n\n")
+				s = "\n;; Got answer:\n\n;; QUESTION SECTION:\n;%s\n\n;; ANSWER SECTION:\n" % (self.app.pargs.domain + ".")
+				sys.stdout.write(s)
 
 			elapsed_time = round(time.time() - start_time, 3)
 			elapsed_time = int(1000 * elapsed_time) #msecs
@@ -158,8 +165,8 @@ def print_dns_footer(elapsed_time):
 #-------------------------
 def print_ons_footer(elapsed_time):
 
-	sys.stdout.write("\n\n;; EXECUTION TIME: %s msec\n" % elapsed_time)
-	sys.stdout.write(";; SERVERS CHECKED: ")
+	sys.stdout.write("\n\n;; Query time: %s msec\n" % elapsed_time)
+	sys.stdout.write(";; SERVERS: ")
 	for server in ONS_SERVERS:
 		sys.stdout.write("%s " % server)
 	sys.stdout.write("\n;; WHEN: %s\n\n" % datetime.datetime.now().strftime("%a %b %d %H:%M:%S %Y"))
@@ -174,8 +181,6 @@ def get_ons_data(username):
 	except:
 		pass
 	else:
-		sys.stdout.write("\n;; Got answer:\n\n")
-
 		elapsed_time = round(time.time() - start_time, 3)
 		elapsed_time = int(1000 * elapsed_time) #msecs
 
