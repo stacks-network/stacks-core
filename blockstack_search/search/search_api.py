@@ -119,8 +119,12 @@ def search_by_name():
 
 	query = request.args.get('query')
 
+	results_people = []
+
 	if query == None:
 		return error_reply("No query given")
+	elif query == '' or query == ' ':
+		return json.dumps({})
 
 	new_limit = DEFAULT_LIMIT
 
@@ -128,8 +132,6 @@ def search_by_name():
 		new_limit = int(request.values['limit_results'])
 	except:
 		pass
-
-	results_people = []
 
 	if test_alphanumeric(query) is False:
 		pass
