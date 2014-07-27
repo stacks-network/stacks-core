@@ -56,7 +56,10 @@ def create_search_index():
 		if(counter % 1000 == 0):
 			print counter
 
-		profile = json.loads(user['profile'])
+		try:
+			profile = json.loads(user['profile'])
+		except:
+			profile = user['profile']
 
 		if 'name' in profile:
 			name = profile['name']
