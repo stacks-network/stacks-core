@@ -17,18 +17,18 @@ from common import users, register_queue
 from coinrpc.namecoin.namecoind_server import NamecoindServer 
 from blockdata.namecoind_cluster import get_server
 
-from config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, WALLET_PASSPHRASE, NAMECOIND_USE_HTTPS
+from config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, WALLET_PASSPHRASE, NAMECOIND_USE_HTTPS, NAMECOIND_SERVER
 from config import MAIN_SERVER, LOAD_SERVERS
 from config import DEFAULT_HOST, MEMCACHED_PORT, MEMCACHED_TIMEOUT
 
-namecoind = NamecoindServer(MAIN_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, WALLET_PASSPHRASE)
+from coinrpc import namecoind
 
 import pylibmc
 from time import time
 mc = pylibmc.Client([DEFAULT_HOST + ':' + MEMCACHED_PORT],binary=True)
  
 #-----------------------------------
-def register_name(key,value,server=MAIN_SERVER):
+def register_name(key,value,server=NAMECOIND_SERVER):
 
 	reply = {}
 
@@ -81,15 +81,20 @@ def update_name(key,value):
 
 	if cache_reply is None: 
 	
-		server = get_server(key)
-		namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, WALLET_PASSPHRASE)
+		#server = get_server(key)
+		#server = server['server']
+		log.debug(value)
+
+		namecoind = NamecoindServer(NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, WALLET_PASSPHRASE)
 
 		info = namecoind.name_update(key,json.dumps(value))
 
-		log.debug(value)
-		reply['tx'] = info
-
-		mc.set("name_update_" + str(key),"in_memory",int(time() + MEMCACHED_TIMEOUT))
+		if 'code' in info: 
+			reply = info 
+		else:
+			reply['tx'] = info
+			mc.set("name_update_" + str(key),"in_memory",int(time() + MEMCACHED_TIMEOUT))
+		
 	else:
 		reply['message'] = "ERROR: " + "recently sent name_update: " + str(key)
 
@@ -183,7 +188,7 @@ def get_old_keys(username):
 	return old_keys
 
 #-----------------------------------
-def process_user(username,profile,server=MAIN_SERVER):
+def process_user(username,profile,server=NAMECOIND_SERVER):
 
 	#old_keys = get_old_keys(username) 
 
