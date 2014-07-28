@@ -10,7 +10,8 @@ import json
 
 from config import MONGODB_URI, LOAD_BALANCER, OLD_DB
 
-from coinrpc.namecoin.namecoind_wrapper import namecoind_name_show, get_full_profile
+from coinrpc import namecoind 
+
 from blockdata.register import process_user
 
 from pymongo import MongoClient
@@ -38,7 +39,10 @@ old_users = old_db.user
 local_client = MongoClient() 
 local_db = local_client['namecoin']
 
-problem_users = ['madmoneymachine', 'drmox', 'emiljohansson','xfaure','megaz28','maxweiss','kh','patrickcines']
+problem_users = ['madmoneymachine', 'drmox', 'emiljohansson','xfaure','megaz28','maxweiss','kh',
+				'patrickcines','marcoduetsch','denisarsenault','reypoullard','rodsherwin','emiljohansson']
+
+banned_users = ['stormtrooper','clone']
 
 #-----------------------------------
 def process_profile(username,profile):
@@ -54,13 +58,15 @@ def process_profile(username,profile):
 			print "Not on this server: " + str(username) 
 			print "Run on server: " + str(old_user['backend_server'])
 			return			
+			#pass 
 
 	process_user(username,profile)
 
 #-----------------------------------
 def profile_on_blockchain(username,DB_profile):
 
-	block_profile = get_full_profile('u/' + username)
+	sleep(3)
+	block_profile = namecoind.get_full_profile('u/' + username)
 	block_profile = json.dumps(block_profile,sort_keys=True)
 	DB_profile = json.dumps(DB_profile,sort_keys=True)
 
@@ -74,6 +80,15 @@ def profile_on_blockchain(username,DB_profile):
 		return False
 
 #-----------------------------------
+def check_banned(username):
+
+	for user in banned_users:
+		if user in username: 
+			return True
+
+	return False 
+
+#-----------------------------------
 def register_users(): 
 
 	for new_user in registrations.find():
@@ -81,7 +96,7 @@ def register_users():
 		user_id = new_user['user_id']
 		user = users.find_one({"_id":user_id})
 
-		if 'stormtrooper' in user['username'] or 'clone' in user['username']:
+		if check_banned(user['username']):
 			continue
 			
 		if 'dispatched' in new_user and new_user['dispatched'] is False: 
@@ -98,9 +113,9 @@ def register_users():
 		elif 'dispatched' in new_user and new_user['dispatched'] is True:
 		
 			try:
-				block_profile = get_full_profile('u/' + user['username'])
+				block_profile = namecoind.get_full_profile('u/' + user['username'])
 			except:
-				print user['username']
+				print "ERROR: getting block profile: " + str(user['username'])
 			
 			if profile_on_blockchain(user["username"],user["profile"]):
 				registrations.remove(new_user)
@@ -109,7 +124,7 @@ def register_users():
 				
 					print "Problem (90 mins): " + user['username']
 					#print "Re-sending after 180 mins: " + user['username']
-					#process_profile(user['username'],user['profile'])
+					process_profile(user['username'],user['profile'])
 			
 		else:
 			print "Random: " + user['username']
@@ -124,13 +139,15 @@ def check_users():
 
 	for user in users.find():
 
-		if 'stormtrooper' in user['username'] or 'clone' in user['username']:
-			continue
+		if check_banned(user['username']):
+					continue
 
 		if 'username_activated' in user and user['username_activated'] is False:
 			continue
 
 		counter += 1
+
+		print user['username']
 
 		if profile_on_blockchain(user["username"],user["profile"]):
 			#print "Fine: " + user["username"]
@@ -149,11 +166,19 @@ def check_transfer():
 		user_id = new_user['user_id']
 		user = users.find_one({"_id":user_id})
 
+		if user is None:
+			print "none user"
+			#transfer.remove(new_user)
+			continue		
+
+		if check_banned(user['username']):
+			continue
+		
 		if profile_on_blockchain(user["username"],user["profile"]):
 			transfer.remove(new_user)
 		else:
 			print "Problem: " + user["username"]
-			process_profile(user['username'],user['profile'])
+			#process_profile(user['username'],user['profile'])
 
 #-----------------------------------
 def update_users(): 
@@ -163,6 +188,14 @@ def update_users():
 		user_id = new_user['user_id']
 		user = users.find_one({"_id":user_id})
 
+		if user is None:
+			print "none user"
+			update.remove(new_user)
+			continue		
+
+		if check_banned(user['username']):
+			continue
+		
 		if profile_on_blockchain(user["username"],user["profile"]):
 			updates.remove(new_user)
 		else:
@@ -180,24 +213,48 @@ def cleanup_db():
 		user_id = new_user['user_id']
 		user = users.find_one({"_id":user_id})
 
+		if user is None:
+			print "none user"
+			update.remove(new_user)
+			continue		
+
+		if check_banned(user['username']):
+			continue
+		
+		#print "checking: " + user['username']
 		if profile_on_blockchain(user["username"],user["profile"]):
 			print "cleaning: " + user["username"]
 			updates.remove(new_user)
 	
+	'''
 	for new_user in transfer.find():
 		
 		user_id = new_user['user_id']
 		user = users.find_one({"_id":user_id})
+		
+		if user is None:
+			print "none user"
+			transfer.remove(new_user)
+			continue		
 
+		if check_banned(user['username']):
+			continue
+
+		#print "checking: " + user['username']
 		if profile_on_blockchain(user["username"],user["profile"]):
 			print "cleaning: " + user["username"]
 			transfer.remove(new_user)
-	
+	'''
+
 	for new_user in registrations.find():
-		
+
 		user_id = new_user['user_id']
 		user = users.find_one({"_id":user_id})
 
+		if check_banned(user['username']):
+			continue		
+
+		#print "checking: " + user['username']
 		if profile_on_blockchain(user["username"],user["profile"]):
 			print "cleaning: " + user["username"]
 			registrations.remove(new_user)
@@ -214,7 +271,3 @@ if __name__ == '__main__':
 	register_users()
 	
 	cleanup_db()
-
-
-
-
