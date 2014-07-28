@@ -48,8 +48,9 @@ def main_loop(key, name=None):
     reply = queue.find_one({'key':key})
 
     if check_registration(key):
-        #print "already registered: " + key
-        profile = namecoind_name_show(key)['value']
+        
+        profile = namecoind_name_show(key)
+        profile = profile['value']
         if 'status' in profile and profile['status'] == 'reserved':
             print "already reserved: " + key
             update_name(key,value)
