@@ -11,10 +11,26 @@ VALUE_MAX_LIMIT = 512
 
 import json
 
-from common import utf8len, log
-from common import users, register_queue
+from commontools import utf8len, setup_logging
 
-from coinrpc.namecoin.namecoind_server import NamecoindServer 
+import logging
+ 
+#-----------------------------------
+from pymongo import MongoClient
+client = MongoClient() 
+local_db = client['namecoin']
+register_queue = local_db.queue
+
+from config import MONGODB_URI
+remote_client = MongoClient(MONGODB_URI)
+remote_db = remote_client.get_default_database()
+users = remote_db.user
+
+import logging
+setup_logging()
+log = logging.getLogger()
+
+from coinrpc import NamecoindServer 
 from blockdata.namecoind_cluster import get_server
 
 from config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, WALLET_PASSPHRASE, NAMECOIND_USE_HTTPS, NAMECOIND_SERVER
