@@ -12,8 +12,18 @@ from config import MAIN_SERVER, LOAD_SERVERS
 
 namecoind = NamecoindServer(NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, WALLET_PASSPHRASE)
 
-from common import log, get_string
-from common import register_queue
+from commontools import get_string
+from commontools import utf8len, setup_logging
+
+import logging
+setup_logging()
+log = logging.getLogger()
+
+#-----------------------------------
+from pymongo import MongoClient
+client = MongoClient() 
+local_db = client['namecoin']
+register_queue = local_db.queue
 
 blocks = namecoind.blocks()
 
