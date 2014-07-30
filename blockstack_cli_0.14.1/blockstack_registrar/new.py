@@ -6,11 +6,15 @@
 #-----------------------
 
 from blockdata.namecoind_cluster import get_server
-from common import log
+from commontools import setup_logging
+
+import logging
+setup_logging()
+log = logging.getLogger()
 
 #-----------------------------------
 if __name__ == '__main__':
 
-	key = 'u/stevenmichaels'
+	key = 'u/thomasmeagher'
 
 	log.debug(get_server(key))
