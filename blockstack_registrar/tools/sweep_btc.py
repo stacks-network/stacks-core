@@ -42,36 +42,27 @@ def sweep_btc(transfer_user):
 	new_btc_address = new_user['bitcoin_address']
 	old_btc_address = json.loads(old_user['profile'])['bitcoin']['address']
 
-	log.debug(new_user['username'])
 	wif_pk = bip38_decrypt(str(transfer_user['encrypted_private_key']),FRONTEND_SECRET)
 
 	keypair = BitcoinKeypair.from_private_key(wif_pk)
 
 	if old_btc_address == keypair.address():
-		log.info("match")
-		process_balance(old_btc_address)
+		balance = fetch_balance(old_btc_address)
 
-	log.info('-' * 5)
+		if balance > float(0):
+			log.debug(new_user['username'])
+			log.debug("final balance: %s", balance) 
+			log.debug('-' * 5)
 
 #-----------------------------------
-def fetch_balance(address):
+def fetch_balance(btc_address):
 
 	try:
-		r = requests.get('http://blockchain.info/address/' + address + '?format=json')
-		return r.json()
-	
+		r = requests.get('http://blockchain.info/address/' + btc_address + '?format=json')
 	except Exception as e:
 		return None
 
-#-----------------------------------
-def process_balance(btc_address):
-
-	result = fetch_balance(btc_address)
-	final_balance = result['final_balance']
-	final_balance = 0.00000001 * final_balance
-
-	log.info("final balance: %s", final_balance) 
-
+	return r.json()['final_balance'] * 0.00000001 #convert to BTC from Satoshis 
 
 #-----------------------------------
 if __name__ == '__main__':
