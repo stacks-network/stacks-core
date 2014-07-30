@@ -11,9 +11,7 @@ VALUE_MAX_LIMIT = 512
 
 import json
 
-from commontools import utf8len, setup_logging
-
-import logging
+from commontools import utf8len, log
  
 #-----------------------------------
 from pymongo import MongoClient
@@ -26,9 +24,6 @@ remote_client = MongoClient(MONGODB_URI)
 remote_db = remote_client.get_default_database()
 users = remote_db.user
 
-import logging
-setup_logging()
-log = logging.getLogger()
 
 from coinrpc import NamecoindServer 
 from blockdata.namecoind_cluster import get_server
