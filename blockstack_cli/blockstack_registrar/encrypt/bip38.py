@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+#-----------------------
+
 """
     BIP 0038
     ~~~~~
@@ -8,18 +10,13 @@
 """
 
 import re, os, random, struct, hashlib, binascii, scrypt
-from binascii import hexlify, unhexlify
 from hashlib import sha256
 from coinkit import BitcoinKeypair, b58check_encode, b58check_decode
 from Crypto.Cipher import AES
 
-#----------------------------
-def get_new_aes(key):
-    return AES.new(key, AES.MODE_ECB)
-
-#----------------------------
+#--------------------------------------------
 def bip38_encrypt(private_key, passphrase, n=16384, r=8, p=8, compressed=False):
-    # determine the flagbyte
+	# determine the flagbyte
     if compressed:
         flagbyte = '\xe0'
     else:
@@ -36,11 +33,17 @@ def bip38_encrypt(private_key, passphrase, n=16384, r=8, p=8, compressed=False):
     derived_half_1 = scrypt_derived_key[0:32]
     derived_half_2 = scrypt_derived_key[32:64]
     # combine parts of the private key and scrypt hash and AES encrypt them
-    aes = get_new_aes(derived_half_2)
-    xor_result_1 = long(hex_private_key[0:32], 16) ^ long(hexlify(derived_half_1[0:16]), 16)
-    xor_result_2 = long(hex_private_key[32:64], 16) ^ long(hexlify(derived_half_1[16:32]), 16)
-    encrypted_half_1 = aes.encrypt(unhexlify('%0.32x' % (xor_result_1)))
-    encrypted_half_2 = aes.encrypt(unhexlify('%0.32x' % (xor_result_2)))
+    aes = AES.new(derived_half_2)
+    encrypted_half_1 = aes.encrypt(
+        binascii.unhexlify(
+            '%0.32x' % (long(hex_private_key[0:32], 16) ^ long(binascii.hexlify(derived_half_1[0:16]), 16))
+        )
+    )
+    encrypted_half_2 = aes.encrypt(
+        binascii.unhexlify(
+            '%0.32x' % (long(hex_private_key[32:64], 16) ^ long(binascii.hexlify(derived_half_1[16:32]), 16))
+        )
+    )
     # build the encrypted private key from the checksum and encrypted parts
     encrypted_private_key = ('\x42' + flagbyte + address_checksum + encrypted_half_1 + encrypted_half_2)
     # base 58 encode the encrypted private key
@@ -48,7 +51,7 @@ def bip38_encrypt(private_key, passphrase, n=16384, r=8, p=8, compressed=False):
     # return the encrypted private key
     return b58check_encrypted_private_key
 
-#----------------------------
+#--------------------------------------------
 def bip38_decrypt(b58check_encrypted_private_key, passphrase, n=16384, r=8, p=8):
     # decode private key from base 58 check to binary
     encrypted_private_key = b58check_decode(b58check_encrypted_private_key)
@@ -63,18 +66,16 @@ def bip38_decrypt(b58check_encrypted_private_key, passphrase, n=16384, r=8, p=8)
     derived_half_1 = scrypt_derived_key[0:32]
     derived_half_2 = scrypt_derived_key[32:64]
     # decrypt the encrypted halves
-    aes = get_new_aes(derived_half_2)
+    aes = AES.new(derived_half_2)
     decrypted_half_1 = aes.decrypt(encrypted_half_1)
     decrypted_half_2 = aes.decrypt(encrypted_half_2)
     # get the original private key from the encrypted halves + the derived half
-    xor_result = long(hexlify(decrypted_half_1 + decrypted_half_2), 16) ^ long(hexlify(derived_half_1), 16)
-    decrypted_private_key = '%064x' % (xor_result)
+    decrypted_private_key = '%064x' % (long(binascii.hexlify(decrypted_half_1 + decrypted_half_2), 16) ^ long(binascii.hexlify(derived_half_1), 16))
     # get the address corresponding to the private key
     k = BitcoinKeypair(decrypted_private_key)
     address = k.address()
-
     # make sure the address matches the checksum in the original encrypted key
     if address_checksum != sha256(sha256(address).digest()).digest()[0:4]:
         raise ValueError('Invalid private key and password combo.')
     # return the decrypted private key
-    return k.wif_pk()
+    return k.private_key()
