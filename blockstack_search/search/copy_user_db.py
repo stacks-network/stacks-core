@@ -84,7 +84,7 @@ def remove_duplicates():
 
 		if temp is not None:
 			print temp['username']
-			#local_users.remove(temp)
+			local_users.remove(temp)
 
 		counter += 1
 
@@ -141,10 +141,12 @@ def get_new_db_users():
 #-----------------------------------
 if __name__ == '__main__':
 
-	#get_old_db_users()
+	drop_db()
+	
+	get_old_db_users()
 
-	#remove_duplicates()
+	remove_duplicates()
 
-	#get_new_db_users()
+	get_new_db_users()
 
 	print "read instructions before running"
