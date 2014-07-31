@@ -19,11 +19,11 @@ from bson import json_util
 import sys
 from config import DEFAULT_LIMIT
 
-#import pylibmc
-"""mc = pylibmc.Client(["127.0.0.1:11211"],binary=True,
+import pylibmc
+mc = pylibmc.Client(["127.0.0.1:11211"],binary=True,
 					behaviors={'tcp_nodelay':True,
 								'connect_timeout':100,
-								'no_block':True})"""
+								'no_block':True})
 
 import threading
 
@@ -134,14 +134,12 @@ def search_by_name():
 	elif query == '' or query == ' ':
 		return json.dumps({})
 
-	'''
 	cache_key = str('onename_cache_' + query.lower())
 	cache_reply = mc.get(cache_key)
 
 	#if a cache hit, respond straight away
 	if(cache_reply != None):
 		return jsonify(cache_reply)
-	'''
 
 	new_limit = DEFAULT_LIMIT
 
@@ -186,7 +184,7 @@ def search_by_name():
 	results['results'] = results_people[:new_limit]
 
 	#print results
-	#mc.set(cache_key,results)
+	mc.set(cache_key,results)
 
 	return jsonify(results)
 
