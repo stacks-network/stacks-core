@@ -27,7 +27,7 @@ from config import DEFAULT_LIMIT
 
 import threading
 
-from substring_search import search_people_by_name, search_people_by_twitter, fetch_profiles
+from substring_search import search_people_by_name, search_people_by_twitter, search_people_by_username, fetch_profiles
 
 #-------------------------
 #class for performing multi-threaded search on three search sub-systems
@@ -45,6 +45,8 @@ class QueryThread(threading.Thread):
 			self.results = query_people_database(self.query, self.limit_results)
 		elif(self.query_type == 'twitter_search'):
 			self.results = query_twitter_database(self.query, self.limit_results)
+		elif(self.query_type == 'username_search'):
+			self.results = query_username_database(self.query, self.limit_results)
 			#self.found_exact_match, self.results = query_company_database(self.query)
 		#if(self.query_type == 'lucene_search'):
 		#	self.results = query_lucene_index(self.query,'onename_people_index', self.limit_results)
@@ -67,6 +69,12 @@ def query_twitter_database(query,limit_results=DEFAULT_LIMIT):
 
 	twitter_search_results = search_people_by_twitter(query, limit_results)
 	return fetch_profiles(twitter_search_results,search_type="twitter")
+
+#-------------------------
+def query_username_database(query,limit_results=DEFAULT_LIMIT):
+
+	username_search_results = search_people_by_username(query, limit_results)
+	return fetch_profiles(username_search_results,search_type="username")
 
 """
 #-----------------------------------
@@ -126,6 +134,15 @@ def search_by_name():
 	elif query == '' or query == ' ':
 		return json.dumps({})
 
+	'''
+	cache_key = str('onename_cache_' + query.lower())
+	cache_reply = mc.get(cache_key)
+
+	#if a cache hit, respond straight away
+	if(cache_reply != None):
+		return jsonify(cache_reply)
+	'''
+
 	new_limit = DEFAULT_LIMIT
 
 	try:
@@ -139,8 +156,12 @@ def search_by_name():
 
 		threads = [] 
 
+		t1 = QueryThread(query,'username_search',new_limit)
+		t2 = QueryThread(query,'twitter_search',new_limit)
 		t3 = QueryThread(query,'people_search',new_limit)
 
+		threads.append(t1)
+		threads.append(t2)
 		threads.append(t3)
 
 		#start all threads
@@ -151,69 +172,24 @@ def search_by_name():
 
 		#at this point all threads have finished and all queries have been performed
 		
-		results_lucene = t3.results 
+		results_username = t1.results
+		results_twitter = t2.results
+		results_people = t3.results 
 
-		results_people += results_lucene
+		results_people += results_username + results_twitter + results_people
 
-
-	results = {}
-	results['results'] = results_people[:new_limit]
-
-	#print results
-
-	#mc.set(cache_key,results)
-
-	return jsonify(results)
-
-#-----------------------------------
-@app.route('/search/twitter')
-def search_by_twitter():
-
-	query = request.args.get('query')
-
-	if query == None:
-		return error_reply("No query given")
-
-	new_limit = DEFAULT_LIMIT
-
-	try:
-		new_limit = int(request.values['limit_results'])
-	except:
-		pass
-
-	results_people = []
-
-	if test_alphanumeric(query) is False:
-		pass
-	else:
-
-		threads = [] 
-
-		t3 = QueryThread(query,'twitter_search',new_limit)
-
-		threads.append(t3)
-
-		#start all threads
-		[x.start() for x in threads]
-
-		#wait for all of them to finish
-		[x.join() for x in threads] 
-
-		#at this point all threads have finished and all queries have been performed
-		
-		results_lucene = t3.results 
-
-		results_people += results_lucene
-
+		#dedup all results before sending out
+		from substring_search import dedup_search_results
+		results_people = dedup_search_results(results_people)
 
 	results = {}
 	results['results'] = results_people[:new_limit]
 
 	#print results
-
 	#mc.set(cache_key,results)
 
 	return jsonify(results)
+
 #-----------------------------------
 @app.route('/')
 def index():
