@@ -37,6 +37,7 @@ def create_search_index():
 	search_cache = client['search_cache']
 	people_cache = search_cache.people_cache
 	twitter_cache = search_cache.twitter_cache
+	username_cache = search_cache.username_cache
 
 	#------------------------------
 	# create people name cache 
@@ -45,12 +46,13 @@ def create_search_index():
 
 	people_names = []
 	twitter_handles = []
+	usernames = []
 
 	for user in local_users.find():
 
 		#the profile/info to be inserted
 		search_profile = {} 
-
+		
 		counter += 1
 
 		if(counter % 1000 == 0):
@@ -93,11 +95,11 @@ def create_search_index():
 		else:
 			search_profile['twitter_handle'] = None
 
-		if 'name' in profile or 'twitter' in profile: 
+		search_profile['username'] = user['username']
+		usernames.append(user['username'])
 
-			search_profile['profile'] = profile
-			search_profile['username'] = user['username']
-			search_profiles.save(search_profile)
+		search_profile['profile'] = profile
+		search_profiles.save(search_profile)
 
 
 	#dedup names
@@ -107,17 +109,23 @@ def create_search_index():
 	twitter_handles = list(set(twitter_handles))
 	twitter_handles = {'twitter_handle':twitter_handles}
 
+	usernames = list(set(usernames))
+	usernames = {'username':usernames}
+
 	#save final dedup results to mongodb (using it as a cache)
 	people_cache.save(people_names)
 	twitter_cache.save(twitter_handles)
+	username_cache.save(usernames)
 
 	search_cache.people_cache.ensure_index('name')
 	search_cache.twitter_cache.ensure_index('twitter_handle')
+	search_cache.username_cache.ensure_index('username')
 
 	search_db.profiles.ensure_index('name')
 	search_db.profiles.ensure_index('twitter_handle')
+	search_db.profiles.ensure_index('username')
 	
-	log.debug('Created name/twitter search index')
+	log.debug('Created name/twitter/username search index')
 
 #-------------------------
 def anyword_substring_search_inner(query_word,target_words):
@@ -202,7 +210,7 @@ def search_people_by_name(query,limit_results=DEFAULT_LIMIT):
 	people_names = []
 
 	for i in search_cache.people_cache.find():
-		people_names = i['name']
+		people_names += i['name']
 	
 	results = substring_search(query,people_names,limit_results)
 
@@ -220,10 +228,29 @@ def search_people_by_twitter(query,limit_results=DEFAULT_LIMIT):
 	twitter_handles = []
 
 	for i in search_cache.twitter_cache.find():
-		twitter_handles = i['twitter_handle']
+		twitter_handles += i['twitter_handle']
 	#---------------------
 
 	results = substring_search(query,twitter_handles,limit_results)
+
+	return results
+
+#-------------------------
+def search_people_by_username(query,limit_results=DEFAULT_LIMIT):
+
+	query = query.lower()
+
+	#---------------------
+	#using mongodb as a cache, load data 
+	search_cache = client['search_cache']
+
+	usernames = []
+
+	for i in search_cache.username_cache.find():
+		usernames += i['username']
+	#---------------------
+
+	results = substring_search(query,usernames,limit_results)
 
 	return results
 
@@ -242,6 +269,9 @@ def fetch_profiles(search_results,search_type="name"):
 			
 		elif search_type == 'twitter':
 			response = search_profiles.find({"twitter_handle":search_result})
+		
+		elif search_type == 'username':
+			response = search_profiles.find({"username":search_result})
 		
 		for result in response:
 
@@ -319,22 +349,22 @@ def order_search_results(query, search_results):
 #-------------------------
 def dedup_search_results(search_results):
 	'''
-		dedup results based on 'slug'
+		dedup results
 	'''
 
-	known_links = set()
+	known = set()
 	deduped_results = []
 
 	for i in search_results:
 
-		link = i['url']
+		username = i['username']
 			
-  		if link in known_links: 
+  		if username in known:
   			continue
   		
   		deduped_results.append(i)
 
-  		known_links.add(link)
+  		known.add(username)
 
 	return deduped_results
 
@@ -362,6 +392,12 @@ if __name__ == "__main__":
 			print twitter_search_results
 			print '-' * 5
 			print fetch_profiles(twitter_search_results,search_type="twitter")
+		elif(option == '--search_username'):
+			query = sys.argv[2]
+			username_search_results = search_people_by_username(query,DEFAULT_LIMIT)
+			print username_search_results
+			print '-' * 5
+			print fetch_profiles(username_search_results,search_type="username")
 		else:
 			print "Usage error"
 
