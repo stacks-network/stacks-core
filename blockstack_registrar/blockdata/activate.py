@@ -7,10 +7,10 @@
 
 from coinrpc.namecoin.namecoind_server import NamecoindServer 
 
-from config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, WALLET_PASSPHRASE, NAMECOIND_USE_HTTPS, NAMECOIND_SERVER
-from config import MAIN_SERVER, LOAD_SERVERS
+from coinrpc.config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_WALLET_PASSPHRASE, NAMECOIND_USE_HTTPS, NAMECOIND_SERVER
+from coinrpc.config import MAIN_SERVER, LOAD_SERVERS
 
-namecoind = NamecoindServer(NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, WALLET_PASSPHRASE)
+namecoind = NamecoindServer(NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, NAMECOIND_WALLET_PASSPHRASE)
 
 from commontools import get_string
 from commontools import utf8len, setup_logging
@@ -52,7 +52,7 @@ def do_name_firstupdate():
                 
                 log.debug("Activating entry: '%s' to point to '%s'" % (key, update_value))
 
-                namecoind = NamecoindServer(NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, WALLET_PASSPHRASE)
+                namecoind = NamecoindServer(NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, NAMECOIND_WALLET_PASSPHRASE)
 
                 output = namecoind.firstupdate(key,entry['rand'],update_value,entry['longhex'])
                 log.debug("tx: %s", output)

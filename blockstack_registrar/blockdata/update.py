@@ -3,18 +3,18 @@
 
 import json
 from pymongo import MongoClient
-from onename_register import process_user, utf8len
-from coinrpc.coinrpc import check_registration
+from register import process_user, utf8len
+from coinrpc import namecoind 
+from config import MONGODB_URI
 
 import os 
 
 LOAD_BALANCER = os.environ['LOAD_BALANCER']
 
-MONGODB_URI = os.environ['MONGODB_URI']
-HEROKU_APP = os.environ['HEROKU_APP'] 
 remote_client = MongoClient(MONGODB_URI)
-users = remote_client[HEROKU_APP].user
-private_key = remote_client[HEROKU_APP].private_key
+remote_db = remote_client.get_default_database()
+users = remote_db.user
+private_key = remote_client.private_key
 
 from datetime import datetime
 
@@ -94,7 +94,7 @@ def process_profile_updates():
 
 		if 'profile_update_pending' in user and user['profile_update_pending']:
 
-			if not check_registration('u/' + user['username']):
+			if not namecoind.check_registration('u/' + user['username']):
 				print "Not registered yet: " + user['username']
 				continue
 			else:
@@ -109,9 +109,9 @@ def process_profile_updates():
 #-----------------------------------
 if __name__ == '__main__':
 
-	#username = 'muneebali'
+	username = 'gordonhall'
 	#user = users.find_one({"username":username})
 	#print user['backend_server'] 
 	#update_profile_from_DB(username)
-	#update_profile_from_file(username)
-	process_profile_updates()
+	update_profile_from_file(username)
+	#process_profile_updates()
