@@ -11,7 +11,7 @@ import json
 from coinrpc.namecoin.namecoind_server import NamecoindServer 
 
 from config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD
-from config import MAIN_SERVER, LOAD_SERVERS
+from config_local import MAIN_SERVER, LOAD_SERVERS
 
 from multiprocessing.pool import ThreadPool 
 

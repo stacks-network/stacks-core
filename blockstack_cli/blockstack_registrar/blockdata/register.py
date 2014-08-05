@@ -28,9 +28,9 @@ users = remote_db.user
 from coinrpc import NamecoindServer 
 from blockdata.namecoind_cluster import get_server
 
-from config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, WALLET_PASSPHRASE, NAMECOIND_USE_HTTPS, NAMECOIND_SERVER
-from config import MAIN_SERVER, LOAD_SERVERS
-from config import DEFAULT_HOST, MEMCACHED_PORT, MEMCACHED_TIMEOUT
+from coinrpc.config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_WALLET_PASSPHRASE, NAMECOIND_USE_HTTPS, NAMECOIND_SERVER
+from coinrpc.config import MAIN_SERVER, LOAD_SERVERS
+from coinrpc.config import DEFAULT_HOST, MEMCACHED_PORT, MEMCACHED_TIMEOUT
 
 from coinrpc import namecoind
 
@@ -50,7 +50,7 @@ def register_name(key,value,server=NAMECOIND_SERVER):
 		reply['message'] = "ERROR: " + "already in register queue: " + str(key)
 	else:
 
-		namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, WALLET_PASSPHRASE)			
+		namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, NAMECOIND_WALLET_PASSPHRASE)			
 
 		info = namecoind.name_new(key,json.dumps(value))
 
@@ -96,7 +96,7 @@ def update_name(key,value):
 		#server = server['server']
 		log.debug(value)
 
-		namecoind = NamecoindServer(NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, WALLET_PASSPHRASE)
+		namecoind = NamecoindServer(NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, NAMECOIND_WALLET_PASSPHRASE)
 
 		info = namecoind.name_update(key,json.dumps(value))
 
