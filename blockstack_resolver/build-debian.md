@@ -12,11 +12,11 @@ Get the Namecoin source
 Get the required packages
 ---------------------
 
-	sudo apt-get install build-essential
-	sudo apt-get install libssl-dev
-	sudo apt-get install libboost-all-dev
-	sudo apt-get install libminiupnpc-dev
-	sudo apt-get install libglib2.0-dev libglibmm-2.4-dev
+	sudo apt-get install -y build-essential
+	sudo apt-get install -y libssl-dev
+	sudo apt-get install -y libboost-all-dev
+	sudo apt-get install -y libminiupnpc-dev
+	sudo apt-get install -y libglib2.0-dev libglibmm-2.4-dev
 	
 Install LibDB
 ---------------------
@@ -32,7 +32,7 @@ To enable the change run
 	
 And now you can install the libdb4.8 packages
 
-	sudo apt-get install libdb4.8-dev libdb4.8++-dev
+	sudo apt-get install -y libdb4.8-dev libdb4.8++-dev
 	
 Compile the source
 ---------------------
