@@ -7,8 +7,8 @@
 
 import csv
 from blockdata.register import register_name, update_name
-from coinrpc.namecoin.namecoind_wrapper import check_registration, namecoind_name_show
-
+from coinrpc import namecoind
+ 
 from pymongo import Connection
 con = Connection()
 db = con['namecoin']
@@ -47,9 +47,9 @@ def main_loop(key, name=None):
 
     reply = queue.find_one({'key':key})
 
-    if check_registration(key):
+    if namecoind.check_registration(key):
         
-        profile = namecoind_name_show(key)
+        profile = namecoind.name_show(key)
         profile = profile['value']
         if 'status' in profile and profile['status'] == 'reserved':
             print "already reserved: " + key
