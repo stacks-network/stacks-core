@@ -9,6 +9,7 @@ import json
 import requests 
 
 from config import MONGODB_URI, OLD_DB, FRONTEND_SECRET
+from config_local import CHAIN_API_KEY
 
 from encrypt import bip38_decrypt
 from coinkit import BitcoinKeypair, NamecoinKeypair
@@ -51,29 +52,35 @@ def sweep_btc(transfer_user):
 	keypair = BitcoinKeypair.from_private_key(wif_pk)
 
 	if old_btc_address == keypair.address():
-		balance = fetch_balance(old_btc_address)
 
-		if balance is None:
-			return True 
+		balance = fetch_balance(old_btc_address)	
+
+		if balance == float(0):
+			return False
+
+		log.debug(new_user['username'])
+		log.debug("old btc address: " + old_btc_address)
+		bitcoind.importprivkey(keypair.wif_pk())
+		log.debug("need to send " + str(balance) + " to " + new_btc_address)
+		
+		#log.debug("sending " + str(balance) + " to " + new_btc_address)
+		#tx = bitcoind.sendtoaddress(new_btc_address,balance)
+		#log.debug(tx)
+		log.debug("final balance: %s", balance) 
+		log.debug('-' * 5)
 			
-		if balance > float(0):
-			log.debug(new_user['username'])
-			log.debug("old btc address: " + old_btc_address)
-			#print bitcoind.unlock_wallet()
-			#print bitcoind.importprivkey(keypair.wif_pk())
-			log.debug("final balance: %s", balance) 
-			log.debug('-' * 5)
-			return True
+		return True
 
 	return False
-		
+
 #-----------------------------------
 def fetch_balance(btc_address):
 
 	try:
-		r = requests.get('http://blockchain.info/address/' + btc_address + '?format=json')
+		r = requests.get('https://api.chain.com/v1/bitcoin/addresses/' + btc_address + '?api-key-id=' + CHAIN_API_KEY)
+		balance = r.json()['balance'] * 0.00000001 #convert to BTC from Satoshis
 	except Exception as e:
 		return None
 
-	return r.json()['final_balance'] * 0.00000001 #convert to BTC from Satoshis 
+	return balance
 
