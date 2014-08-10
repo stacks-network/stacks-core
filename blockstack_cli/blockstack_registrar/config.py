@@ -26,7 +26,7 @@ except:
 	NAMECOIND_SERVER = os.environ['NAMECOIND_SERVER']
 	NAMECOIND_USER = os.environ['NAMECOIND_USER']
 	NAMECOIND_PASSWD = os.environ['NAMECOIND_PASSWD']
-	WALLET_PASSPHRASE = os.environ['WALLET_PASSPHRASE']
+	#WALLET_PASSPHRASE = os.environ['WALLET_PASSPHRASE']
 	#--------------------------------------------------
 
 	MONGODB_URI = os.environ['MONGODB_URI']
