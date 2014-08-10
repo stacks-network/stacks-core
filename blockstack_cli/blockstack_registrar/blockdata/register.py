@@ -24,12 +24,11 @@ remote_client = MongoClient(MONGODB_URI)
 remote_db = remote_client.get_default_database()
 users = remote_db.user
 
-
 from coinrpc import NamecoindServer 
 from blockdata.namecoind_cluster import get_server
 
 from coinrpc.config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_WALLET_PASSPHRASE, NAMECOIND_USE_HTTPS, NAMECOIND_SERVER
-from coinrpc.config import MAIN_SERVER, LOAD_SERVERS
+from coinrpc.config import MAIN_SERVER, LOAD_SERVERS, LOAD_BALANCER
 from coinrpc.config import DEFAULT_HOST, MEMCACHED_PORT, MEMCACHED_TIMEOUT
 
 from coinrpc import namecoind
@@ -92,11 +91,17 @@ def update_name(key,value):
 
 	if cache_reply is None: 
 	
-		#server = get_server(key)
-		#server = server['server']
+		server = NAMECOIND_SERVER
+	
+		serverinfo = get_server(key)
+
+		if 'registered' in serverinfo and serverinfo['registered']:
+			server = serverinfo['server']
+
+		log.debug(server)
 		log.debug(value)
 
-		namecoind = NamecoindServer(NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, NAMECOIND_WALLET_PASSPHRASE)
+		namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, NAMECOIND_WALLET_PASSPHRASE)
 
 		info = namecoind.name_update(key,json.dumps(value))
 
