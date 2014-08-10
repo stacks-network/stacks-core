@@ -14,15 +14,13 @@ from config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD
 from config_local import MAIN_SERVER, LOAD_SERVERS
 
 from multiprocessing.pool import ThreadPool 
-
-reply = {}
-reply["registered"] = False
-reply["server"] = None
-reply["ismine"] = False 
 		
 #-----------------------------------
 def check_address(address): 
 
+	reply = {}
+	reply["server"] = None
+	reply["ismine"] = False
 	reply['registered'] = True
 
 	#--------------------------
@@ -35,7 +33,7 @@ def check_address(address):
 		except:
 			return
 
-		if info['ismine'] is True: 
+		if info['ismine'] is True:
 			reply['server'] = server 
 			reply['ismine'] = True
 
@@ -63,5 +61,9 @@ def get_server(key):
 
 	if 'namecoin_address' in info:	
 		return check_address(info['namecoin_address'])
-	else:
-		return reply
+	
+	response = {}
+	response["registered"] = False
+	response["server"] = None
+	response["ismine"] = False 
+	return resposne
