@@ -30,7 +30,7 @@ old_db = MongoClient(OLD_DB).get_default_database()
 old_users = old_db.user
 
 #-----------------------------------
-def sweep_btc(transfer_user):
+def sweep_btc(transfer_user,LIVE=False):
 
 	user_id = transfer_user['user_id']
 	new_user = new_users.find_one({"_id":user_id})
@@ -61,11 +61,14 @@ def sweep_btc(transfer_user):
 		log.debug(new_user['username'])
 		log.debug("old btc address: " + old_btc_address)
 		bitcoind.importprivkey(keypair.wif_pk())
-		log.debug("need to send " + str(balance) + " to " + new_btc_address)
 		
-		#log.debug("sending " + str(balance) + " to " + new_btc_address)
-		#tx = bitcoind.sendtoaddress(new_btc_address,balance)
-		#log.debug(tx)
+		if LIVE: 
+			log.debug("sending " + str(balance) + " to " + new_btc_address)
+			tx = bitcoind.sendtoaddress(new_btc_address,balance)
+			log.debug(tx)
+		else:
+			log.debug("need to send " + str(balance) + " to " + new_btc_address)
+			
 		log.debug("final balance: %s", balance) 
 		log.debug('-' * 5)
 			
