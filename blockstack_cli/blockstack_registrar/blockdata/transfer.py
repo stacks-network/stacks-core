@@ -6,19 +6,12 @@
 #-----------------------
 
 import json
-from pymongo import Connection
-from coinrpc.namecoin.namecoind_wrapper import namecoind_transfer, namecoind_name_show, check_registration
+from coinrpc import namecoind 
 from .register import process_user
 from pymongo import MongoClient
-import os 
+from config import MONGODB_URI
 
-LOAD_BALANCER = os.environ['LOAD_BALANCER']
-import ssl
-
-MONGODB_URI = os.environ['MONGODB_URI']
-HEROKU_APP = os.environ['HEROKU_APP'] 
-remote_client = MongoClient(MONGODB_URI)
-users = remote_client[HEROKU_APP].user
+users = MongoClient(MONGODB_URI).get_default_database().user
 
 #-----------------------------------
 def test_private_key(passphrase,nmc_address):
@@ -42,56 +35,46 @@ def test_private_key(passphrase,nmc_address):
 def do_name_transfer(username,live=False):
 
 	try:
-		entry = users.find_one({'username':username})
-		nmc_address = entry['namecoin_address']
-		backend_server = entry['backend_server']
-	except:
-		print "no such user in DB"
+		entry = users.find({'username':username})
+		for i in entry:
+			user = i 
+			break
+		nmc_address = user['namecoin_address']
+	except Exception as e:
+		print e
+		print "No such user in DB"
 		return 
 
+	#-----------------------------
+	def name_transfer_inner(key):
+
+		print key, nmc_address
+		if(live):
+			print namecoind.transfer(key,nmc_address)
+	
 	key = 'u/' + username
 
-	if check_registration(key):
+	name_transfer_inner(key)
 
-		value = namecoind_name_show(key)['value']
+	while(1):
+		value = namecoind.name_show(key)['value']
 
 		next_blob = None 
 
 		try:
 			next_blob = value['next']
 		except:
-			pass
-
-		if(live):
-			reply = namecoind_transfer(key,nmc_address)
-			if 'message' in reply:
-				print reply['message']
-			else:
-				print reply
-				entry['name_transferred'] = True
-				users.save(entry)
-		
-		print key, nmc_address
-		print backend_server
-
-		passphrase = ''
-		#test_private_key(passphrase,nmc_address)
+			break
 
 		if next_blob is not None: 
-			print next_blob, nmc_address
-			if(live):
-				print namecoind_transfer(next_blob,nmc_address)	
+			key = next_blob 
+			name_transfer_inner(key)	
 				
-	else:	
-		print "activate the name first"
-
 #-----------------------------------
 if __name__ == '__main__':
 
-	live = False
+	live = True
 
-	username = "stormtrooper64"
+	username = "clone66"
 
-	user = users.find_one({"username":username})
-
-	do_name_transfer(user['username'],live)
+	do_name_transfer(username,live)
