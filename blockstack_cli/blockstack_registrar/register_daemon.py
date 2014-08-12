@@ -26,6 +26,8 @@ from time import sleep
 
 from tools.sweep_btc import sweep_btc
 
+from debug import import_user
+
 #-----------------------------------
 remote_client = MongoClient(MONGODB_URI)
 remote_db = remote_client.get_default_database()
@@ -168,10 +170,10 @@ def check_transfer():
 			continue
 		
 		if profile_on_blockchain(user["username"],user["profile"]):
-			#transfer.remove(new_user)
 			pass
 		else:
 			print "Problem: " + user["username"]
+			#import_user(user["username"])
 			process_profile(user['username'],user['profile'])
 
 #-----------------------------------
@@ -205,12 +207,7 @@ def cleanup_db():
 	
 		user_id = new_user['user_id']
 		user = users.find_one({"_id":user_id})
-
-		try:
-			print "checking: " + user['username']
-		except Exception as e:
-			print e
-		
+	
 		if user is None:
 			old_user = old_users.find_one({"_id":user_id})
 			user = users.find_one({"username":old_user['username']})		
@@ -222,8 +219,6 @@ def cleanup_db():
 			if profile_on_blockchain(user["username"],user["profile"]):
 				print "cleaning: " + user["username"]
 				updates.remove(new_user)
-			else:
-				print "Problem: " + user['username']
 		except:
 			pass
 
@@ -239,13 +234,12 @@ def cleanup_db():
 		if check_banned(user['username']):
 			continue
 
-		#print "checking: " + user['username']
-		if sweep_btc(new_user):
+		if sweep_btc(new_user,LIVE=False):
 			print "Sweep BTC"
 		else:
 			if profile_on_blockchain(user["username"],user["profile"]):
 				print "cleaning: " + user["username"]
-				#transfer.remove(new_user)
+				transfer.remove(new_user)
 
 	for new_user in registrations.find():
 	
@@ -268,10 +262,8 @@ def cleanup_db():
 #-----------------------------------
 if __name__ == '__main__':
 
-	#check_users()
 	check_transfer()
 	update_users()
-	
 	register_users()
 	
 	cleanup_db()
