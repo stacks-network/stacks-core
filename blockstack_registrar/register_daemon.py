@@ -59,7 +59,7 @@ def process_profile(username,profile):
 #-----------------------------------
 def profile_on_blockchain(username,DB_profile):
 
-	sleep(1)
+	sleep(5)
 	try:
 		block_profile = namecoind.get_full_profile('u/' + username)
 	except:
@@ -89,14 +89,23 @@ def check_banned(username):
 #-----------------------------------
 def register_users(): 
 
+	counter = 0 
+
 	for new_user in registrations.find():
 
 		user_id = new_user['user_id']
 		user = users.find_one({"_id":user_id})
 
+		if user is None:
+			continue 
+
 		if check_banned(user['username']):
 			continue
 			
+		print "checking: " + user['username']
+
+		counter += 1
+
 		if 'dispatched' in new_user and new_user['dispatched'] is False: 
 	
 			if datetime.datetime.utcnow() - new_user['created_at'] > datetime.timedelta(minutes=15):
@@ -105,9 +114,10 @@ def register_users():
 				process_profile(user['username'],user['profile'])
 				new_user['dispatched'] = True 
 				registrations.save(new_user)
+				sleep(20)
 			else:
 				print "New user (within 15 mins): " + user['username']
-		
+
 		elif 'dispatched' in new_user and new_user['dispatched'] is True:
 		
 			try:
@@ -127,6 +137,8 @@ def register_users():
 		else:
 			print "Random: " + user['username']
 			#registrations.remove(new_user)
+
+	print counter
 
 #-----------------------------------
 def check_users(): 
@@ -180,6 +192,8 @@ def check_transfer():
 def update_users(): 
 
 	for new_user in updates.find():
+
+		sleep(1)
 		
 		user_id = new_user['user_id']
 		user = users.find_one({"_id":user_id})
@@ -246,9 +260,12 @@ def cleanup_db():
 		user_id = new_user['user_id']
 		user = users.find_one({"_id":user_id})
 
+		if user is None:
+			continue
+
 		if check_banned(user['username']):
 			continue		
-
+		
 		try:
 			if profile_on_blockchain(user["username"],user["profile"]):
 				print "cleaning: " + user["username"]
@@ -262,7 +279,7 @@ def cleanup_db():
 #-----------------------------------
 if __name__ == '__main__':
 
-	check_transfer()
+	#check_transfer()
 	update_users()
 	register_users()
 	
