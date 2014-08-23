@@ -15,6 +15,15 @@ db = con['namecoin']
 queue = db.queue
 
 from ast import literal_eval
+import json 
+
+from config import MONGODB_URI
+
+#-----------------------------------
+from pymongo import MongoClient
+remote_client = MongoClient(MONGODB_URI)
+remote_db = remote_client.get_default_database()
+codes = remote_db.codes 
 
 #-----------------------------------
 def format_key_value(key, name=None):
@@ -53,7 +62,7 @@ def main_loop(key, name=None):
         profile = profile['value']
         if 'status' in profile and profile['status'] == 'reserved':
             print "already reserved: " + key
-            update_name(key,value)
+            #update_name(key,value)
         else:
             print "registered but not reserved: " + key
             #update_name(key,value)
@@ -64,10 +73,23 @@ def main_loop(key, name=None):
         #not in DB and not registered
         print "not registered: " + key
         register_name(key,value)
-        
+
+    print '-' * 5
+
+#-----------------------------------
+from base64 import b64encode
+def get_url(username, access_code):
+    return 'http://onename.io?a=' + b64encode(username + '-' + access_code)
+
+#-----------------------------------
+def get_random_hex(size=10):
+    #every byte of data is converted into the corresponding 2-digit hex representation
+    return binascii.b2a_hex(os.urandom(size))
+
 #-----------------------------------
 if __name__ == '__main__':
 
+    '''
     with open('tools/data.csv') as csvfile:
         spamreader = csv.reader(csvfile)
         for row in spamreader:
@@ -77,15 +99,18 @@ if __name__ == '__main__':
                 main_loop(row[0])
    
     '''
-    with open('tools/angel_list.txt') as f:
-        users = [list(literal_eval(line)) for line in f]
+    with open('tools/email_invites_dataset.txt') as f:
+        users = json.loads(f.read())
 
-        for user in users:
-            for i in user:
-                local = queue.find_one({'key':"u/" + i})
+        counter = 0
+        skip = 881
+        for i in users:
+            counter += 1
 
-                if local is not None:
-                    print "already in DB"
-                else:
-                    main_loop(i) 
-    '''
+            if counter < skip:
+                continue  
+            
+            #print i['twitter_handle'], i['full_name'], i['email']
+            print counter
+            main_loop(i['twitter_handle'],i['full_name']) 
+    

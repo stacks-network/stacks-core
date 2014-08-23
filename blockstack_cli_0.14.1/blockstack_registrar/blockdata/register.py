@@ -158,6 +158,68 @@ def slice_profile(username, profile, old_keys=None):
 	counter = 0 
 
 	while(remaining is not None):
+	
+		key_counter += 1
+		key = get_key(key_counter)
+		
+		while(1):
+
+			if namecoind.check_registration(key):
+				key_counter += 1
+				key = get_key(key_counter)
+			else:
+				break
+
+		split, remaining = splitter(remaining, username)
+		keys.append(key) 
+		values.append(split)
+
+		values[counter]['next'] = key
+		counter += 1
+
+	return keys, values 
+
+#-----------------------------------
+def slice_profile_update(username, profile, old_keys=None):
+
+	keys = []
+	values = [] 
+
+	key = 'u/' + username.lower()
+	keys.append(key)
+
+	def max_size(username):
+		return VALUE_MAX_LIMIT - len('next: i-' + username + '000000')
+
+	#-----------------------------------
+	def splitter(remaining,username):
+
+		split = {} 
+
+		if utf8len(json.dumps(remaining)) < max_size(username):
+			return remaining, None 
+		else:
+			for key in remaining.keys(): 
+				split[key] = remaining[key]
+
+				if utf8len(json.dumps(split)) < max_size(username):
+					del remaining[key]
+				else:
+					del split[key]
+					break 
+			return split, remaining
+
+	#-----------------------------------
+	def get_key(key_counter):
+		return 'i/' + username.lower() + '-' + str(key_counter)
+
+	split, remaining = splitter(profile, username) 
+	values.append(split)
+
+	key_counter = 0
+	counter = 0 
+
+	while(remaining is not None):
 		
 		key_counter += 1
 		key = get_key(key_counter)
@@ -169,7 +231,7 @@ def slice_profile(username, profile, old_keys=None):
 		values[counter]['next'] = key
 		counter += 1
 
-	return keys, values 
+	return keys, values
 
 #----------------------------------
 def get_old_keys(username):
@@ -208,7 +270,12 @@ def process_user(username,profile,server=NAMECOIND_SERVER):
 
 	#old_keys = get_old_keys(username) 
 
-	keys, values = slice_profile(username,profile)
+	master_key = 'u/' + username 
+
+	if namecoind.check_registration(master_key):
+		keys, values = slice_profile_update(username,profile)
+	else:
+		keys, values = slice_profile(username,profile)
 
 	index = 0
 	key1 = keys[index]
