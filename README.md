@@ -1,6 +1,10 @@
 opendig
 =======
 
+[![Latest Version](https://pypip.in/version/opendig/badge.svg)](https://pypi.python.org/pypi/opendig/)
+[![Downloads](https://pypip.in/download/opendig/badge.svg)](https://pypi.python.org/pypi/opendig/)
+[![License](https://pypip.in/license/opendig/badge.svg)](https://pypi.python.org/pypi/opendig>/)
+
 ### Table of Contents
 [Overview](#overview)  
 [Installation](#installation)  
