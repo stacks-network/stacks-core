@@ -63,3 +63,8 @@ Bitcoin DNS Specs + Design
 Name ownership is transferred to the recipient of the first output.
 Name admin rights are given to the recipients of all subsequent outputs.
 
+### Misc.
+
+Example of a transaction with an OP\_RETURN and multiple outputs:
+https://blockchain.info/tx/1ae39745fd3891c16806bba44e6540944d145452ff156cab03076d7c08462e38?show_adv=true
+
