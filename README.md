@@ -27,6 +27,7 @@ Bitcoin DNS Specs + Design
 - salts = 16 bytes (128 bits)
 - 1 byte = 256 values
 - alphanumeric-dash charspace = 37 values
+- alphanumeric-dash-dot charspace = 38 values
 - each byte = 1.536 characters
 
 #### Name encoding lengths
