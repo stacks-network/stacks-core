@@ -31,7 +31,6 @@ PADDING_BYTE = '\x00'
 def gen_salt():
     return os.urandom(LENGTHS['salt'])
 
-B37_CHARS = string.digits + string.lowercase + '-'
 B38_CHARS = string.digits + string.lowercase + '-.'
 B16_CHARS = string.hexdigits[0:16]
 
