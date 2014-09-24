@@ -22,27 +22,31 @@ Bitcoin DNS Specs + Design
 #### Constraints:
 
 - 40 bytes available in OP_RETURN
-- hash160s = 20 bytes
-- name encodings = 19 bytes
-- salts = 16 bytes (128 bits)
 - 1 byte = 256 values
-- alphanumeric-dash charspace = 37 values
 - alphanumeric-dash-dot charspace = 38 values
-- each byte = 1.536 characters
+- 1.5244 name characters can fit in each byte
+
+#### Field lengths
+
+- prefix = 1 byte
+- name hash = 20 bytes
+- previous block hash (truncated) = 19 bytes
+- name = 19 bytes
+- salt = 16 bytes
+- update hash = 20 bytes
 
 #### Name encoding lengths
 
-- 17 bytes = 26.1 characters
-- 18 bytes = 27.6 characters
-- 19 bytes = 29.2 characters
-- 20 bytes = 30.7 characters
-- 21 bytes = 32.2 characters
-- 22 bytes = 33.8 characters
+- 18 bytes = 27.4 characters
+- 19 bytes = 28.9 characters
+- 20 bytes = 30.4 characters
+- 24 bytes = 36.5 characters
 
 ### Name Preorder (reserve)
 
+- prefix (1 bytes)
 - name hash (20 bytes)
-- historical record hash (20 bytes)
+- historical record hash (19 bytes)
 
 ### Name Claim (reveal)
 
@@ -62,7 +66,7 @@ Bitcoin DNS Specs + Design
 - name (19 bytes)
 
 Name ownership is transferred to the recipient of the first output.
-Name admin rights are given to the recipients of all subsequent outputs.
+Name admin rights are given to the recipients of the second output.
 
 ### Misc.
 
