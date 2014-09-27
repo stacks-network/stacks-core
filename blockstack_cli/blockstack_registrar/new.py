@@ -15,6 +15,6 @@ log = logging.getLogger()
 #-----------------------------------
 if __name__ == '__main__':
 
-	key = 'u/clone71'
+	key = 'u/cameron'
 
 	log.debug(get_server(key))

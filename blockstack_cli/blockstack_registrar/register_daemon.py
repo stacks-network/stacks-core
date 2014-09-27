@@ -59,7 +59,7 @@ def process_profile(username,profile):
 #-----------------------------------
 def profile_on_blockchain(username,DB_profile):
 
-	sleep(5)
+	sleep(2)
 	try:
 		block_profile = namecoind.get_full_profile('u/' + username)
 	except:
@@ -108,7 +108,7 @@ def register_users():
 
 		if 'dispatched' in new_user and new_user['dispatched'] is False: 
 	
-			if datetime.datetime.utcnow() - new_user['created_at'] > datetime.timedelta(minutes=15):
+			if datetime.datetime.utcnow() - new_user['created_at'] > datetime.timedelta(minutes=5):
 				print "Dispatch: " + user['username']
 				
 				process_profile(user['username'],user['profile'])
@@ -236,6 +236,7 @@ def cleanup_db():
 		except:
 			pass
 
+	
 	for new_user in transfer.find():
 		
 		user_id = new_user['user_id']
@@ -254,6 +255,7 @@ def cleanup_db():
 			if profile_on_blockchain(user["username"],user["profile"]):
 				print "cleaning: " + user["username"]
 				transfer.remove(new_user)
+
 
 	for new_user in registrations.find():
 	
