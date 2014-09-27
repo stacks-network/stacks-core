@@ -54,8 +54,11 @@ def do_name_firstupdate():
 
                 namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, NAMECOIND_WALLET_PASSPHRASE)
 
-                output = namecoind.firstupdate(key,entry['rand'],update_value,entry['longhex'])
-                log.debug("tx: %s", output)
+                try:
+                    output = namecoind.firstupdate(key,entry['rand'],update_value,entry['longhex'])
+                    log.debug("tx: %s", output)
+                except:
+                    continue
 
                 if 'message' in output and output['message'] == "this name is already active":
                     entry['activated'] = True
