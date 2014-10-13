@@ -1,6 +1,8 @@
 ONS Server
 =======
 
+## Setup Instructions:
+
 Requires memcached:
 
 ```
@@ -21,6 +23,15 @@ For quick deployment:
 pip install -r requirements.txt
 ./runserver 
 ```
+
+Warmup cache and then keep memcached in sync with the blockchain:
+```
+python -m tools.warmup_cache
+python -m tools.sync_cache
+```
+
+## API Calls: 
+
 
 Example API call: 
 ```
