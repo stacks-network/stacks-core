@@ -5,12 +5,11 @@
 # All Rights Reserved
 #-----------------------
 
-from coinrpc.namecoin.namecoind_server import NamecoindServer 
+from coinrpc.namecoind_server import NamecoindServer 
 
-from coinrpc.config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_WALLET_PASSPHRASE, NAMECOIND_USE_HTTPS, NAMECOIND_SERVER
-from coinrpc.config import MAIN_SERVER, LOAD_SERVERS
+from config import MAIN_SERVER, LOAD_SERVERS
 
-namecoind = NamecoindServer(NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, NAMECOIND_WALLET_PASSPHRASE)
+from coinrpc import namecoind
 
 from commontools import get_string
 from commontools import utf8len, log
