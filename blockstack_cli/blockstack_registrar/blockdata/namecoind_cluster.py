@@ -8,7 +8,7 @@
 import os
 import json
 
-from coinrpc.namecoin.namecoind_server import NamecoindServer 
+from coinrpc.namecoind_server import NamecoindServer 
 
 from config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD
 from config_local import MAIN_SERVER, LOAD_SERVERS
