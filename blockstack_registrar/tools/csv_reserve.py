@@ -37,12 +37,12 @@ def format_key_value(key, name=None):
 
     if name is not None and name != '' and name != ' ': 
 
-        value["message"] = "This OneName username is reserved for " + name.lstrip(' ') 
+        value["message"] = "This username is reserved for " + name.lstrip(' ') 
         value["message"] += ". If this is you, please email reservations@onename.io to claim it for free."
 
     else:
 
-        value["message"] = "This OneName username was parked to evade name squatting, but can be made available upon reasonable request"
+        value["message"] = "This username was parked to evade name squatting, but can be made available upon reasonable request"
         value["message"] += " at no charge. If you are interested in this name, please email reservations@onename.io with your twitter"
         value["message"] += " handle and why you would like this particular name."
 
@@ -89,7 +89,6 @@ def get_random_hex(size=10):
 #-----------------------------------
 if __name__ == '__main__':
 
-    '''
     with open('tools/data.csv') as csvfile:
         spamreader = csv.reader(csvfile)
         for row in spamreader:
@@ -113,4 +112,4 @@ if __name__ == '__main__':
             #print i['twitter_handle'], i['full_name'], i['email']
             print counter
             main_loop(i['twitter_handle'],i['full_name']) 
-    
+    '''
