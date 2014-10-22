@@ -14,7 +14,7 @@ from commontools import log
 from .warmup_cache import warmup_cache
 
 #-----------------------------------
-if __name__ == '__main__':
+def sync_cache():
 
 	old_block = namecoind.blocks() - 10
 	new_block = namecoind.blocks()
@@ -27,7 +27,7 @@ if __name__ == '__main__':
 			sleep(30)
 			new_block = namecoind.blocks()
 
-		log.debug('current blcok: %s',new_block)
+		log.debug('current block: %s',new_block)
 		check_blocks = new_block - old_block
 		log.debug('checking last %s block(s)', check_blocks)
 
@@ -35,3 +35,9 @@ if __name__ == '__main__':
 		warmup_cache('i/',check_blocks)
 
 		old_block = new_block
+
+#-----------------------------------
+import daemon
+
+with daemon.DaemonContext():
+    sync_cache()
