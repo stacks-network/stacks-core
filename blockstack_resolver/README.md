@@ -3,14 +3,14 @@ ONS Server
 
 ## Setup Instructions:
 
-Requires memcached:
+ONS-server requires memcached:
 
 ```
-sudo apt-get install memcached libmemcached-dev
+sudo apt-get install memcached libmemcached-dev zlib1g-dev
 sudo apt-get install python2.7-dev
 ```
 
-Before installing pylibmc (listed in requirements.txt)
+Before installing pylibmc (listed in requirements.txt) install the above packages.
 
 Install coinrpc:
 ```
@@ -26,6 +26,7 @@ pip install -r requirements.txt
 
 Warmup cache and then keep memcached in sync with the blockchain:
 ```
+source tools/setup_env.sh
 python -m tools.warmup_cache
 python -m tools.sync_cache
 ```
