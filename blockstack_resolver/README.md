@@ -26,6 +26,7 @@ pip install -r requirements.txt
 
 Warmup cache and then keep memcached in sync with the blockchain:
 ```
+source tools/setup_env.sh
 python -m tools.warmup_cache
 python -m tools.sync_cache
 ```
