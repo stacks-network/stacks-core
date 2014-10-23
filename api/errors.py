@@ -1,5 +1,12 @@
+# -*- coding: utf-8 -*-
+"""
+    Onename API
+    Copyright 2014 Halfmoon Labs, Inc.
+    ~~~~~
+"""
+
 import json
-from flask import render_template, jsonify
+from flask import render_template, jsonify, request
 
 from . import app
 
@@ -31,7 +38,10 @@ def general_api_error_handler(error):
 # 404 Error handler
 @app.errorhandler(404)
 def resource_not_found(e):
-    return jsonify({ 'error': 'Resource not found' }), 404
+    if request.path[1] == 'v':
+        return jsonify({ 'error': 'Resource not found' }), 404
+    else:
+        return render_template('404.html'), 404
 
 # 403 Error handler
 @app.errorhandler(403)
@@ -43,3 +53,14 @@ def unauthorized_access(e):
 def internal_server_error(e):
     return jsonify({ 'error': 'Internal server error' }), 404
 
+class ProfileNotFoundError(APIError):
+    pass
+
+class BadProfileError(APIError):
+    pass
+
+class UsernameTakenError(APIError):
+    pass
+
+class UnauthorizedAccessError(APIError):
+    status_code = 403

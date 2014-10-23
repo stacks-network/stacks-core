@@ -1,6 +1,7 @@
-{% set site_name = 'onenameAPI' %}
-<!DOCTYPE html>
-<html lang="en">
+{% set site_name = 'Onename API' %}
+
+<!doctype html>
+<html class="no-js">
   <head>
 	{% block head %}
 	<title>{% block title %}{{ site_name }}{% endblock %}</title>
@@ -25,51 +26,40 @@
 		  <script src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
 	<![endif]-->
 
+	{% block scripts %}
 	<script src="{{ url_for('static', filename='js/jquery.min.js') }}"></script>
 	<script src="{{ url_for('static', filename='js/bootstrap.min.js') }}"></script>
+	<script src="{{ url_for('static', filename='js/angular.min.js') }}"></script>
+	<script src="{{ url_for('static', filename='js/angular-route.min.js') }}"></script>
+	<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+	{% endblock %}
 	{% endblock %}
   </head>
-
   <body>
+    <div class="navbar navbar-default">
+      <div class="container-fluid">
+        <div class="navbar-header">
+          <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </button>
+          <a class="navbar-brand" href="/">
+            <img src="{{ url_for('static', filename='img/logo.png') }}" style="max-height: 22px;">
+          </a>
+        </div>
+        <div class="navbar-collapse collapse">
+          <ul class="nav navbar-nav navbar-right">
+            <li>
+              <a href="/docs">Docs</a>
+            </li>
+          </ul>
+        </div><!--/.nav-collapse -->
+      </div>
+    </div>
 
-	{% block navbar %}
-	<div class="navbar navbar-static-top">
-		<div class="navbar-inner">
-			<div class="container">
-			  <a class="brand" href="/">{{ site_name }}</a>
-			  <div class="nav-collapse">
-				<ul class="nav">
-				</ul>
-				{% block navbar_right %}
-				<ul class="nav pull-right">
-					<li><a href="/">Home</a></li>
-				</ul>
-				{% endblock %}
-			  </div><!--/.nav-collapse -->
-			</div>
-		  </div>
-	</div>
+    {% block content %}
 	{% endblock %}
 
-	<div class="container page">
-		<div class="content main">
-		  {% block content %}
-		  {% endblock %}
-		</div>
-
-		<hr>
-
-		{% block footer %}
-		<footer id="footer" class="footer">
-			<div class="footer-left">
-				<a href="/about">About</a> |
-				<a href="/">Home</a>
-			</div>
-			<div class="footer-right">
-				<span>&copy; 2013 {{ site_name }}</span>
-			</div>
-		</footer>
-		{% endblock %}
-	</div>
-  </body>
+</body>
 </html>

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<div ng-app="docApp">
+	<div class="container-fluid">
+		<div class="row">
+			<div class="col-md-4">
+				<div class="list-group">
+					<a href="/docs" class="list-group-item" ng-class="{active: activetab == '/docs'}">
+						Getting Started
+					</a>
+					<a href="/docs/auth" class="list-group-item" ng-class="{active: activetab == '/docs/auth'}">
+						Authentication
+					</a>
+					<a href="/docs/opennames" class="list-group-item" ng-class="{active: activetab == '/docs/opennames'}">
+						Openname Lookups
+					</a>
+					<a href="/docs/search" class="list-group-item" ng-class="{active: activetab == '/docs/search'}">
+						Search
+					</a>
+				</div>
+			</div>
+			<div class="col-md-8">
+				<div ng-view=""></div>
+			</div>
+		</div>
+	</div>	
+</div>
+{% endblock %}
+
+{% block head %}
+  {{ super() }}
+  <base href="/">
+{% endblock %}

@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+    Onename API
+    Copyright 2014 Halfmoon Labs, Inc.
+    ~~~~~
+"""
+
 import time, datetime
 from hashlib import md5
 

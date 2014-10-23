@@ -1,12 +1,9 @@
-#!/usr/bin/env python
-#-----------------------
-# Copyright 2014 Halfmoon Labs, Inc.
-# All Rights Reserved
-#-----------------------
-
-'''
-	OneName Developer API  
-'''
+# -*- coding: utf-8 -*-
+"""
+    Onename API
+    Copyright 2014 Halfmoon Labs, Inc.
+    ~~~~~
+"""
 
 import os, json, requests
 from flask import render_template, send_from_directory, Response, url_for, \
@@ -16,21 +13,12 @@ from pymongo import MongoClient
 from . import app
 from .errors import APIError
 from .decorators import access_token_required, parameters_required
-from rate_limit import save_user
+from .crossdomain import crossdomain
 
-@app.route('/v1.0/gen_developer_key/', methods=['GET'])
-@parameters_required(parameters=['developer_id'])
-def create_account():
-	""" creates a new dev. account
-	"""
-	access_token = save_user(request.values['developer_id'], 'basic')
-
-	return jsonify({'developer_id': request.values['developer_id'],
-					'access_token': access_token}), 200
-
-@app.route('/v1.0/search', methods=['GET'])
+@app.route('/v1/search', methods=['GET'])
 @access_token_required
 @parameters_required(parameters=['query'])
+@crossdomain(origin='*')
 def search_people():
 	search_url = 'http://search.halfmoonlabs.com/search/name'
 

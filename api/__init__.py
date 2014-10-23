@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
     Onename API
+    Copyright 2014 Halfmoon Labs, Inc.
     ~~~~~
 """
 
@@ -12,6 +13,9 @@ app = Flask(__name__)
 app.config.from_object('api.settings')
 
 import docs
-import search
+import auth
 import errors
 import decorators
+import search
+import profile
+
