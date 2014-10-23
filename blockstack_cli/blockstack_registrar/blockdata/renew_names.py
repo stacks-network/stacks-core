@@ -5,7 +5,6 @@
 # All Rights Reserved
 #-----------------------
 
-from .namecoind_cluster import get_server
 from .register import update_name
 from commontools import log 
 
@@ -58,6 +57,7 @@ def get_overlap():
 #-----------------------------------
 def get_expiring_names(regrex,expires_in):
 
+	expiring_names = [] 
 	reply = namecoind.name_filter(regrex)
 
 	counter_total = 0
@@ -66,7 +66,7 @@ def get_expiring_names(regrex,expires_in):
 		counter_total += 1 
 		try:
 			if i['expires_in'] < expires_in:
-				#expiring_users.insert(i)
+				expiring_names.append(i)
 				print i['name']
 				print i['expires_in']
 				counter_expiring += 1
@@ -79,9 +79,12 @@ def get_expiring_names(regrex,expires_in):
 	print "Total names: " + str(counter_total)
 	print "Total expiring in " + str(expires_in) + " blocks: " + str(counter_expiring)
 
+	return expiring_names
+
 #-----------------------------------
 def get_expired_names(regrex):
 
+	expired_names = [] 
 	reply = namecoind.name_filter(regrex,check_blocks=0)
 
 	counter_total = 0
@@ -92,36 +95,46 @@ def get_expired_names(regrex):
 		if 'expired' in i and i['expired'] == 1: 
 			print i['name']
 			counter_expired += 1
+
+			expired_names.append(i)
 	
 	print '-' * 5
 	print "Total names: " + str(counter_total)
 	print "Total expired: " + str(counter_expired)
 
+	return expired_names 
+
 #-----------------------------------
 def send_update(expiring_users):
 
-	for i in expiring_users.find():
+	for i in expiring_users:
 		key = i['name']
 		try:
 			value = json.loads(i['value'])
-
-			value['message'] = value['message'].replace('This OneName username','This username')
 		except:
 			value = i['value']
+
+		if 'message' in value:
+			value['message'] = value['message'].replace('This OneName username','This username')
+		
+			#print key
+			#print value 
+			#print '-' * 5
+
+			try:
+				update_name(key,value)
+			except Exception as e:
+
+				if hasattr(e, 'error'):
+					print e.error
+				else:
+					print e 
 			
-		print key
-		print value 
-		print '-' * 5
-
-		try:
-			update_name(key,value)
-		except Exception as e:
-			print e 
-		sleep(5)
-
+			sleep(5)
+			
 #-----------------------------------
 if __name__ == '__main__':
 
-	get_expiring_names('u/',500)
+	expiring_users = get_expiring_names('u/',2000)
 	#get_expired_names('u/')
-	#send_update()
+	#send_update(expiring_users)
