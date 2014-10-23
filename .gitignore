@@ -1,0 +1,4 @@
+*.pyc
+ignore
+.DS_Store
+*secrets.py

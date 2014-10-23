@@ -8,25 +8,19 @@
 	OneName Developer API  
 '''
 
-import os
-import json
-from flask import Flask
-from flask import render_template, send_from_directory, Response, url_for
-from flask import request, jsonify, make_response
-import rate_limit
+import os, json
+from flask import render_template, send_from_directory, Response, url_for, \
+	request, jsonify, make_response
 from pymongo import MongoClient
 
-#---------------------
-app = Flask(__name__)
-app.config.update(
-	DEBUG = True,
-	SECRET_KEY = '9704a57df6f94006888ee82f28a31383d12496b2dc199a4a'
-)
+from . import app
+import rate_limit
 
 #----------------------------------------------
 @app.route('/onename/api/v1.0/gen_developer_key/', methods = ['GET'])
 def create_account():
-	"""creates a new dev. account"""
+	""" creates a new dev. account
+	"""
 	
 	#saves the ID and returns the access token
 	request_val = request.values
@@ -87,11 +81,6 @@ def search_people():
 	else:
 		return results
 
-#-----------------------------------
-@app.route('/about')
-def about():
-	return 'Onename API'
-
 # error handlers
 #-----------------------------------
 @app.errorhandler(404)
@@ -104,8 +93,4 @@ def internal_error(error):
 
 	reply = []
 	return json.dumps(reply)
-#-----------------------------------
-# server launchpad
-if __name__ == '__main__':
-	port = int(os.environ.get('PORT', 5000))
-	app.run(host='0.0.0.0', port=port)
+
