@@ -1,10 +1,8 @@
+import time, datetime
 from hashlib import md5
-import time
-from pymongo import MongoClient
-import datetime
 
-c = MongoClient()
-db = c['onename_api_devs']
+from .db import db
+
 nodes = db.nodes
 
 MAX_QUOTA = 25

@@ -12,4 +12,6 @@ app = Flask(__name__)
 app.config.from_object('api.settings')
 
 import docs
-import search_api
+import search
+import errors
+import decorators
