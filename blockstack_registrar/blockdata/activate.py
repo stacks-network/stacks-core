@@ -41,7 +41,7 @@ def do_name_firstupdate():
             key = entry['key']
 
             #compare the current block with 'wait_till_block'
-            current_blocks = blocks['blocks']
+            current_blocks = blocks
 
             if current_blocks > entry['wait_till_block']:
                 
