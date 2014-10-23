@@ -15,20 +15,13 @@ from commontools import utf8len, log
  
 #-----------------------------------
 from pymongo import MongoClient
-client = MongoClient() 
-local_db = client['namecoin']
+local_db = MongoClient()['namecoin']
 register_queue = local_db.queue
-
-from config import MONGODB_URI
-remote_client = MongoClient(MONGODB_URI)
-remote_db = remote_client.get_default_database()
-users = remote_db.user
 
 from coinrpc.namecoind_server import NamecoindServer 
 from blockdata.namecoind_cluster import get_server
 
 from config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_WALLET_PASSPHRASE, NAMECOIND_USE_HTTPS, NAMECOIND_SERVER
-from config import MAIN_SERVER, LOAD_SERVERS, LOAD_BALANCER
 from config import DEFAULT_HOST, MEMCACHED_PORT, MEMCACHED_TIMEOUT
 
 from coinrpc import namecoind
@@ -53,29 +46,24 @@ def register_name(key,value,server=NAMECOIND_SERVER):
 
 		info = namecoind.name_new(key,json.dumps(value))
 
-		try:
+		reply['longhex'] = info[0]
+		reply['rand'] = info[1]
+		reply['key'] = key
+		reply['value'] = json.dumps(value)
+
+		#get current block...
+		blocks = namecoind.blocks()
+
+		reply['current_block'] = blocks
+		reply['wait_till_block'] = blocks + 12
+		reply['activated'] = False
+		reply['server'] = server
 		
-			reply['longhex'] = info[0]
-			reply['rand'] = info[1]
-			reply['key'] = key
-			reply['value'] = json.dumps(value)
+		#save this data to Mongodb...
+		register_queue.insert(reply)
 
-			#get current block...
-			blocks = namecoind.blocks()
-
-			reply['current_block'] = blocks['blocks']
-			reply['wait_till_block'] = blocks['blocks'] + 12
-			reply['activated'] = False
-			reply['server'] = server
-		
-			#save this data to Mongodb...
-			register_queue.insert(reply)
-
-			#reply[_id] is causing a json encode error
-			del reply['_id']
-	
-		except Exception as e:
-			reply['message'] = "ERROR: " + str(e)
+		#reply[_id] is causing a json encode error
+		#del reply['_id']
 	
 	log.debug(reply)
 	log.debug('-' * 5)
@@ -104,7 +92,7 @@ def update_name(key,value):
 		namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, NAMECOIND_WALLET_PASSPHRASE)
 
 		info = namecoind.name_update(key,json.dumps(value))
-
+		
 		if 'code' in info: 
 			reply = info 
 		else:
