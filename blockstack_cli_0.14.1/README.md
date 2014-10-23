@@ -58,7 +58,7 @@ print dns_resolver('startupboy.com')
 <a name="configuration"/>
 ## Configuration
 
-OpenDig comes with pre-configured default servers 8.8.8.8 (public DNS server by Google) and 162.243.253.65, 107.170.167.141 (public ONS server by OneName). We *strongly* recommend using a local config file, and using servers of your own choice:
+OpenDig comes with pre-configured default servers 8.8.8.8 (public DNS server by Google) and 162.243.253.65, 107.170.167.141 (public ONS server by OneName). We *strongly* recommend using a local config file, and using your own servers. Instructions for setting up your own server can be found [here](https://github.com/opennamesystem/ons-server/blob/master/doc/build-debian.md).
 
 ```
 $ touch ~/.opendig
