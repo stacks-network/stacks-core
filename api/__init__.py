@@ -18,9 +18,10 @@ import views
 
 from .docs import docs
 from .v1 import v1
+from .proofs import v1proofs
 
 blueprints = [
-	docs, v1
+	docs, v1, v1proofs
 ]
 
 for blueprint in blueprints:

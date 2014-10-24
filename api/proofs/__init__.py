@@ -7,9 +7,8 @@
 
 from flask import Blueprint
 
-v1 = Blueprint('v1', __name__, url_prefix='/v1')
+v1proofs = Blueprint('v1proofs', __name__, url_prefix='/v1')
 
-import search
-import profile
-import auth
-import misc
+import views
+
+# Note: need to add memcached back in

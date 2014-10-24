@@ -5,7 +5,7 @@
     ~~~~~
 """
 
-import json
+import json, traceback
 from flask import render_template, jsonify, request
 
 from . import app
@@ -52,6 +52,13 @@ def unauthorized_access(e):
 @app.errorhandler(500)
 def internal_server_error(e):
     return jsonify({ 'error': 'Internal server error' }), 404
+
+# 500 Error handler
+@app.errorhandler(Exception)
+def exception_error(e):
+    traceback.print_exc()
+    return jsonify({ 'error': 'Internal server error' }), 404
+
 
 class ProfileNotFoundError(APIError):
     pass

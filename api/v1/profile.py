@@ -22,9 +22,9 @@ def api_user(username):
     except (ProfileNotFoundError, UsernameTakenError, BadProfileError) as e:
         raise APIError(str(e), status_code=404)
 
-    verifications = get_profile_verifications(username, profile)
-    if not verifications:
-        verifications = {}
+    #verifications = get_profile_verifications(username, profile)
+    #if not verifications:
+    #    verifications = {}
 
-    return jsonify({ "profile": profile, "verifications": verifications }), 200
+    return jsonify({ "profile": profile }), 200
 
