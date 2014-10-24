@@ -1,5 +1,7 @@
-API Usage
+Onename API
 =========
+
+Online at http://api.onename.co/
 
 ### Generate Developer key:
 
