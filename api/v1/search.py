@@ -8,14 +8,13 @@
 import os, json, requests
 from flask import render_template, send_from_directory, Response, url_for, \
 	request, jsonify, make_response
-from pymongo import MongoClient
 
-from . import app
-from .errors import APIError
-from .decorators import access_token_required, parameters_required
-from .crossdomain import crossdomain
+from . import v1
+from ..errors import APIError
+from ..decorators import access_token_required, parameters_required
+from ..crossdomain import crossdomain
 
-@app.route('/v1/search', methods=['GET'])
+@v1.route('/search', methods=['GET'])
 @access_token_required
 @parameters_required(parameters=['query'])
 @crossdomain(origin='*')
@@ -40,4 +39,3 @@ def search_people():
 		results = results['results']
 
 	return jsonify({'results': results}), 200
-

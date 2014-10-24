@@ -1,13 +1,7 @@
-import os, json, requests
-from flask import Flask
-from flask import Response, url_for, request, jsonify
+import os, json, requests, traceback
 
-from . import app
 from .errors import APIError, ProfileNotFoundError, BadProfileError, \
     UsernameTakenError
-from .crossdomain import crossdomain
-from .decorators import access_token_required
-import samples
 
 def get_blockchain_profile(username):
     key = 'u/' + username
@@ -36,17 +30,50 @@ def get_blockchain_profile(username):
 
     return profile
 
-@app.route('/v1/openname/<username>')
-@access_token_required
-@crossdomain(origin='*')
-def api_user(username):
-    if username == 'ryanshea-example':
-        return jsonify(samples.ryanshea)
+def get_profile_verifications(username, profile):
+    if username == 'fredwilson':
+        data = {}
+        return data
+
+    url = "http://proofcheck.halfmoonlabs.com/proofcheck/verifications?username=" + username
+    
+    try:
+        r = requests.get(url, timeout=1, verify=False)
+    except requests.exceptions.ConnectionError:
+        traceback.print_exc()
+        return None
+    except requests.exceptions.Timeout:
+        traceback.print_exc()
+        return None
 
     try:
-        profile = get_blockchain_profile(username)
-    except (ProfileNotFoundError, UsernameTakenError, BadProfileError) as e:
-        raise APIError(str(e), status_code=404)
+        data = r.json()
+    except ValueError:
+        traceback.print_exc()
+        return None
 
-    return jsonify(profile), 200
+    if type(data) is not dict:
+        return None
 
+    try:
+        facebook_proof_url = profile.get('facebook', {}).get('proof', {}).get('url')
+        facebook_username = profile.get('facebook', {}).get('username')
+    except:
+        data['facebook'] = False
+    else:
+        if facebook_proof_url and facebook_username:
+            if facebook_username not in facebook_proof_url:
+                data['facebook'] = False
+            else:
+                data['facebook'] = True
+
+    try:
+        twitter_proof_url = profile.get('twitter', {}).get('proof', {}).get('url')
+        twitter_username = profile.get('twitter', {}).get('username')
+    except:
+        data['twitter'] = False
+    else:
+        if twitter_proof_url and twitter_username and twitter_username not in twitter_proof_url:
+            data['twitter'] = False
+
+    return data
