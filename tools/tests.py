@@ -78,6 +78,6 @@ payload = {
 	"openname": "ryanshea"
 }
 
-r = requests.post("http://localhost:5000/p/verifications", data=json.dumps(payload))
+r = requests.post("http://localhost:5000/v1/verifications", data=json.dumps(payload))
 
 print r.text

@@ -4,10 +4,10 @@ from flask import jsonify, request
 from . import v1proofs
 from .proofs import profile_to_verifications
 from ..errors import APIError
-from ..decorators import parameters_required
+from ..decorators import parameters_required, access_token_required
+from ..crossdomain import crossdomain
 
 @v1proofs.route('/verifications', methods=['POST'])
-@access_token_required
 @parameters_required(parameters=["profile", "openname"])
 @crossdomain(origin='*')
 def verify_profile():
