@@ -1,6 +1,6 @@
 import os, json, requests, traceback
 
-from .errors import APIError, ProfileNotFoundError, BadProfileError, \
+from ..errors import APIError, ProfileNotFoundError, BadProfileError, \
     UsernameTakenError
 
 def get_blockchain_profile(username):

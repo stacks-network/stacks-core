@@ -1,17 +1,10 @@
-# -*- coding: utf-8 -*-
-"""
-    Onename API
-    Copyright 2014 Halfmoon Labs, Inc.
-    ~~~~~
-"""
-
 from flask import request, jsonify
 
-from . import v1
+from . import v1auth
 from ..rate_limit import save_user
 from ..decorators import parameters_required
 
-@v1.route('/gen_developer_key/', methods=['GET'])
+@v1auth.route('/gen_developer_key/', methods=['GET'])
 @parameters_required(parameters=['developer_id'])
 def create_account():
 	""" creates a new dev. account

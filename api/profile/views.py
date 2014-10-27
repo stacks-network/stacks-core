@@ -1,16 +1,15 @@
 import os, json
 from flask import jsonify
 
-from . import v1
+from . import v1profile
+from .profile import get_blockchain_profile, get_profile_verifications
+from .samples import ryanshea
 from ..errors import APIError, ProfileNotFoundError, BadProfileError, \
     UsernameTakenError
 from ..crossdomain import crossdomain
 from ..decorators import access_token_required
-from ..samples import ryanshea
 
-from ..profile import get_blockchain_profile, get_profile_verifications
-
-@v1.route('/openname/<username>')
+@v1profile.route('/openname/<username>')
 @access_token_required
 @crossdomain(origin='*')
 def api_user(username):

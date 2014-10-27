@@ -5,23 +5,26 @@
     ~~~~~
 """
 
-from flask import Flask
+from flask import Flask, Blueprint
 
 # Create app
 app = Flask(__name__)
 
 app.config.from_object('api.settings')
 
-import errors
-import decorators
-import views
+# Import functions
+import errors, decorators, views
 
+# Add in blueprints
 from .docs import docs
-from .v1 import v1
+from .auth import v1auth
+from .profile import v1profile
 from .proofs import v1proofs
+from .search import v1search
 
 blueprints = [
-	docs, v1, v1proofs
+	docs,
+	v1auth, v1profile, v1proofs, v1search
 ]
 
 for blueprint in blueprints:

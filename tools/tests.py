@@ -3,7 +3,6 @@ import json, requests
 payload = {
 	"profile": {
 	  "graph": {
-	    "followee_count": 4, 
 	    "url": "https://s3.amazonaws.com/grph/ryanshea"
 	  }, 
 	  "twitter": {
@@ -21,7 +20,7 @@ payload = {
 	  "website": "http://shea.io", 
 	  "github": {
 	    "proof": {
-	      "url": "https://gist.github.com/rxl/9799732"
+	      "url": "https://gist.githuåb.com/rxl/9799732"
 	    }, 
 	    "username": "rxl"
 	  }, 
