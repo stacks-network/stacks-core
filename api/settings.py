@@ -17,22 +17,14 @@ if 'DYNO' in os.environ:
 		exec(env_variable + " = '" + env_value + "'")
 
 	MONGODB_URI = MONGOLAB_URI
-
 	parts = re.split(':|/|@|mongodb://', MONGOLAB_URI)
 	_, MONGODB_USERNAME, MONGODB_PASSWORD, MONGODB_HOST, MONGODB_PORT, MONGODB_DB = parts
-	print parts
 	
 else:
 	APP_URL = 'localhost:5000'
 
 	# Debugging
 	DEBUG = True
-
-	MONGOLAB_URI = 'mongodb://heroku_app31056693:6murjo28mdlii99edk2hho2h86@ds049130.mongolab.com:49130/heroku_app31056693'
-
-	parts = re.split(':|/|@|mongodb://', MONGOLAB_URI)
-	_, MONGODB_USERNAME, MONGODB_PASSWORD, MONGODB_HOST, MONGODB_PORT, MONGODB_DB = parts
-	print parts
 
 	# Database
 	MONGODB_HOST = 'localhost'
