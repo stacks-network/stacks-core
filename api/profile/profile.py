@@ -4,11 +4,11 @@ from ..errors import APIError, ProfileNotFoundError, BadProfileError, \
     UsernameTakenError
 
 def get_blockchain_profile(username):
-    auth = 'opennamesystem:opennamesystem'
-    BASE_URL = 'http://' + auth + '@ons-server.halfmoonlabs.com/ons/profile?openname='
+    auth = ('opennamesystem', 'opennamesystem')
+    BASE_URL = 'http://ons-server.halfmoonlabs.com/ons/profile?openname='
 
     try:
-        r = requests.get(BASE_URL + username, timeout=1, verify=False)
+        r = requests.get(BASE_URL + username, timeout=1, verify=False, auth=auth)
     except requests.exceptions.ConnectionError:
         raise ProfileNotFoundError("User doesn't seem to exist.")
     except requests.exceptions.Timeout:
