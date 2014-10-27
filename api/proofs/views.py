@@ -4,15 +4,18 @@ from flask import jsonify, request
 from . import v1proofs
 from .proofs import profile_to_verifications
 from ..errors import APIError
-from ..decorators import parameters_required, access_token_required
+from ..decorators import parameters_required
 from ..crossdomain import crossdomain
 from ..profile import get_blockchain_profile
+from ..auth import auth_required
 
-@v1proofs.route('/verifications', methods=['POST'])
-@parameters_required(parameters=["openname"])
+@v1proofs.route('/users/<openname>/verifications')
+@auth_required
 @crossdomain(origin='*')
-def verify_profile():
-	if not (request.data or request.form):
+def verify_profile(openname):
+	profile = get_blockchain_profile(openname)
+
+	"""if not (request.data or request.form):
 		raise APIError('A payload must be included', status_code=400)
 
 	if request.data:
@@ -32,6 +35,7 @@ def verify_profile():
 		profile = data["profile"]
 	else:
 		profile = get_blockchain_profile(openname)
+	"""
 	
 	verifications = profile_to_verifications(profile, openname)
 

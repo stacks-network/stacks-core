@@ -7,10 +7,10 @@ from .samples import ryanshea
 from ..errors import APIError, ProfileNotFoundError, BadProfileError, \
     UsernameTakenError
 from ..crossdomain import crossdomain
-from ..decorators import access_token_required
+from ..auth import auth_required
 
-@v1profile.route('/openname/<username>')
-@access_token_required
+@v1profile.route('/users/<username>')
+@auth_required
 @crossdomain(origin='*')
 def api_user(username):
     if username == 'ryanshea-example':

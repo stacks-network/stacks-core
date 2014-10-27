@@ -40,3 +40,5 @@ else:
 	from .secrets import *
 
 	MONGODB_URI = 'mongodb://' + MONGODB_USERNAME + ':' + MONGODB_PASSWORD  + '@' + MONGODB_HOST + ':' + str(MONGODB_PORT) + '/' + MONGODB_DB
+
+MAIL_USERNAME = 'support@onename.io'

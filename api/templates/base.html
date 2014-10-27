@@ -18,7 +18,8 @@
 	<meta property="og:site_name" content='{{ site_name }}'/>
 	<meta property="og:description" content=""/>
 
-	<link href="{{ url_for('static', filename='css/bootstrap.css') }}" rel="stylesheet">
+	<link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+	<link href="{{ url_for('static', filename='css/docs.min.css') }}" rel="stylesheet">
 	<link href="{{ url_for('static', filename='css/main.css') }}" rel="stylesheet">
 
 	<!-- SUPPORT FOR IE6-8 OF HTML5 ELEMENTS -->
@@ -36,7 +37,7 @@
 	{% endblock %}
   </head>
   <body>
-    <div class="navbar navbar-default navbar-subtle">
+    <div class="navbar navbar-fixed-top navbar-default navbar-subtle">
       <div class="container-fluid">
         <div class="navbar-header">
           <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
@@ -50,6 +51,9 @@
         </div>
         <div class="navbar-collapse collapse">
           <ul class="nav navbar-nav navbar-right">
+	        <li>
+              <a href="/signup">Sign up</a>
+            </li>
             <li>
               <a href="/docs">Docs</a>
             </li>
@@ -58,8 +62,10 @@
       </div>
     </div>
 
+    <div style="margin-top: 60px;">
     {% block content %}
 	{% endblock %}
+	</div>
 
 </body>
 </html>

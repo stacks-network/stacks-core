@@ -7,6 +7,8 @@
 
 from flask import Blueprint
 
-v1auth = Blueprint('v1auth', __name__, url_prefix='/v1')
+v1auth = Blueprint('v1auth', __name__, url_prefix='')
 
 import views
+
+from authentication import auth_required

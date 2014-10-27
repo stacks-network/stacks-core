@@ -11,7 +11,6 @@ from werkzeug.datastructures import Authorization
 from flask import g, request
 
 from . import app
-from .rate_limit import validate_token, decrement_quota
 from .errors import APIError
 
 """
@@ -27,29 +26,6 @@ def per_request_callbacks(response):
         response = func(response)
     return response
 """
-
-def access_token_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        demo_tokens = ['demo-1234']
-        token = request.values.get('token')
-        if request.authorization:
-            auth = request.authorization
-            token = request.authorization.username
-        elif token:
-            auth = Authorization('basic', data={'username':token, 'password':''})
-        else:
-            raise APIError('Access token missing', status_code=400)
-
-        if token not in demo_tokens:
-            if not validate_token(token):
-                raise APIError('Invalid token', status_code=400)
-
-            if not decrement_quota(token):
-                raise APIError('Quota exceeded', status_code=401)
-
-        return f(*args, **kwargs)
-    return decorated_function
 
 def parameters_required(parameters):
     def decorator(f):

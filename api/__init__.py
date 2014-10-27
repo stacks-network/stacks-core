@@ -13,7 +13,7 @@ app = Flask(__name__)
 app.config.from_object('api.settings')
 
 # Import functions
-import errors, decorators, views
+import errors, views
 
 # Add in blueprints
 from .docs import docs

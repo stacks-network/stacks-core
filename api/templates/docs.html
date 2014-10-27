@@ -2,8 +2,9 @@
 {% block content %}
 <div ng-app="docApp">
 	<div class="container-fluid">
-		<div class="row">
-			<div class="col-md-4">
+		<div class="row" style="padding-bottom: 60px;">
+			<div class="col-md-3">
+				<div class="bs-docs-sidebar affix" style="margin-top: 60px;">
 				<div class="list-group">
 					<a href="/docs" class="list-group-item" ng-class="{active: activetab == '/docs'}">
 						Getting Started
@@ -11,8 +12,8 @@
 					<!--<a href="/docs/auth" class="list-group-item" ng-class="{active: activetab == '/docs/auth'}">
 						Authentication
 					</a>-->
-					<a href="/docs/opennames" class="list-group-item" ng-class="{active: activetab == '/docs/opennames'}">
-						Openname Lookups
+					<a href="/docs/profiles" class="list-group-item" ng-class="{active: activetab == '/docs/profiles'}">
+						Profiles
 					</a>
 					<a href="/docs/verifications" class="list-group-item" ng-class="{active: activetab == '/docs/verifications'}">
 						Verifications
@@ -20,6 +21,7 @@
 					<a href="/docs/search" class="list-group-item" ng-class="{active: activetab == '/docs/search'}">
 						Search
 					</a>
+				</div>
 				</div>
 			</div>
 			<div class="col-md-8">
