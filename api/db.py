@@ -16,7 +16,12 @@ from . import app
 from mongoengine import connect
 from flask.ext.mongoengine import MongoEngine
 
-if 'MONGODB_URI' in app.config:
-    MONGODB_DB = app.config['MONGODB_URI'].split('/')[-1]
-    connect(MONGODB_DB, host=app.config['MONGODB_URI'])
+"""if 'MONGODB_URI' in app.config:
+    
+else:
+    MONGODB_URI = 
+"""
+
+#connect(MONGODB_DB, host=app.config['MONGODB_URI'])
+
 db = MongoEngine(app)
