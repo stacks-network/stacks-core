@@ -8,7 +8,7 @@
 import time, datetime
 from hashlib import md5
 
-from .db import db
+from ..db import db
 
 nodes = db.nodes
 
@@ -99,7 +99,3 @@ def reset_quota(user):
     user['api_quota'] = MAX_QUOTA
     
     nodes.save(user)
-
-if __name__ == '__main__':
-    pass 
-    

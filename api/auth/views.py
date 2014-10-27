@@ -1,7 +1,7 @@
 from flask import request, jsonify
 
 from . import v1auth
-from ..rate_limit import save_user
+from .rate_limit import save_user
 from ..decorators import parameters_required
 
 @v1auth.route('/gen_developer_key/', methods=['GET'])
