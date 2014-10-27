@@ -11,12 +11,6 @@ if 'DYNO' in os.environ:
 	# Debugging
 	DEBUG = False
 
-	# Database
-	MONGODB_DB = 'heroku_app30954501'
-	MONGODB_USERNAME = 'heroku_app30954501'
-	MONGODB_HOST = 'ds047930.mongolab.com'
-	MONGODB_PORT = 47930
-
 	# Secret settings
 	for env_variable in os.environ:
 		env_value = os.environ[env_variable]
@@ -31,14 +25,13 @@ else:
 	DEBUG = True
 
 	# Database
-	MONGODB_DB = 'heroku_app30954501'
-	MONGODB_USERNAME = 'heroku_app30954501'
-	MONGODB_HOST = 'ds047930.mongolab.com'
-	MONGODB_PORT = 47930
+	MONGODB_HOST = 'localhost'
+	MONGODB_PORT = 27017
+	MONGODB_DB = 'onename_api'
 
 	# Secret settings
 	from .secrets import *
 
-	MONGODB_URI = 'mongodb://' + MONGODB_USERNAME + ':' + MONGODB_PASSWORD  + '@' + MONGODB_HOST + ':' + str(MONGODB_PORT) + '/' + MONGODB_DB
+	MONGODB_URI = 'mongodb://' + MONGODB_HOST + ':' + str(MONGODB_PORT) + '/' + MONGODB_DB
 
 MAIL_USERNAME = 'support@onename.io'

@@ -13,7 +13,7 @@ app = Flask(__name__)
 app.config.from_object('api.settings')
 
 # Import functions
-import errors, views
+import views
 
 # Add in blueprints
 from .docs import docs
@@ -23,8 +23,8 @@ from .proofs import v1proofs
 from .search import v1search
 
 blueprints = [
-	docs,
-	v1auth, v1profile, v1proofs, v1search
+    docs,
+    v1auth, v1profile, v1proofs, v1search
 ]
 
 for blueprint in blueprints:
