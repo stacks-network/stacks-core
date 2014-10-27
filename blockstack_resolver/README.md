@@ -1,6 +1,10 @@
 ONS Server
 =======
 
+## Overview: 
+
+ONS-server is meant to be a highly scalable server for [Open Name System](http://opennamesystem.org). It is meant to be blockchain-agnostic (currently uses the Namecoin blockchain) and is primarily meant for scaling read-only calls to the underlying blockchain. For achieving high throughput ons-server loads the entire namespace into memcached and then keeps the in-memory copy consistent with the blockchain.  
+
 ## Setup Instructions:
 
 ONS-server requires memcached:
@@ -28,6 +32,7 @@ Warmup cache and then keep memcached in sync with the blockchain:
 ```
 source tools/setup_env.sh
 python -m tools.warmup_cache
+mkdir log
 python -m tools.sync_cache
 ```
 
