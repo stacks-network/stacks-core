@@ -8,7 +8,7 @@
 import json, datetime, binascii
 from utilitybelt import dev_random_entropy, dev_urandom_entropy
 
-from utils import generate_app_id
+from .utils import generate_app_id
 from ..db import db
 
 class User(db.Document):
