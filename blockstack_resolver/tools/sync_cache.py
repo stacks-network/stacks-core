@@ -8,10 +8,23 @@
 	:license: MIT, see LICENSE for more details.
 """
 
+import os 
 from time import sleep
 from coinrpc import namecoind 
 from commontools import log
 from .warmup_cache import warmup_cache
+
+current_dir =  os.path.abspath(os.path.dirname(__file__))
+parent_dir = os.path.abspath(current_dir + "/../")
+
+file_name = parent_dir + "/log/debug_log.txt"
+
+#-----------------------------------
+def log_to_file(message):
+	f = open(file_name, "a")
+	f.write(message)
+	f.write("\n")
+	f.close()
 
 #-----------------------------------
 def sync_cache():
@@ -19,7 +32,8 @@ def sync_cache():
 	old_block = namecoind.blocks() - 10
 	new_block = namecoind.blocks()
 
-	log.debug("starting sync from block: %s", old_block) 
+	message = "starting sync from block: %s" %old_block
+	log_to_file(message)
 
 	while(1):
 		
@@ -27,9 +41,12 @@ def sync_cache():
 			sleep(30)
 			new_block = namecoind.blocks()
 
-		log.debug('current block: %s',new_block)
+		message = 'current block: %s' %new_block
+		log_to_file(message)
+
 		check_blocks = new_block - old_block
-		log.debug('checking last %s block(s)', check_blocks)
+		message = 'checking last %s block(s)' %check_blocks
+		log_to_file(message)
 
 		warmup_cache('u/',check_blocks)
 		warmup_cache('i/',check_blocks)
@@ -40,4 +57,4 @@ def sync_cache():
 import daemon
 
 with daemon.DaemonContext():
-    sync_cache()
+	sync_cache()
