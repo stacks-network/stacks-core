@@ -9,7 +9,7 @@ import os
 
 if 'DYNO' in os.environ:
 	# Debugging
-	DEBUG = False
+	DEBUG = True
 
 	# Secret settings
 	for env_variable in os.environ:
