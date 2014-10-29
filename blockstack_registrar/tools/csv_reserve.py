@@ -17,13 +17,13 @@ queue = db.queue
 from ast import literal_eval
 import json 
 
-from config import MONGODB_URI
+#from config import MONGODB_URI
 
 #-----------------------------------
-from pymongo import MongoClient
-remote_client = MongoClient(MONGODB_URI)
-remote_db = remote_client.get_default_database()
-codes = remote_db.codes 
+#from pymongo import MongoClient
+#remote_client = MongoClient(MONGODB_URI)
+#remote_db = remote_client.get_default_database()
+#codes = remote_db.codes 
 
 #-----------------------------------
 def format_key_value(key, name=None):
@@ -59,7 +59,11 @@ def main_loop(key, name=None):
     if namecoind.check_registration(key):
         
         profile = namecoind.name_show(key)
-        profile = profile['value']
+        try:
+            profile = profile['value']
+        except: 
+            pass 
+            
         if 'status' in profile and profile['status'] == 'reserved':
             print "already reserved: " + key
             #update_name(key,value)
