@@ -44,10 +44,17 @@ def register_name(key,value,server=NAMECOIND_SERVER):
 
 		namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, NAMECOIND_WALLET_PASSPHRASE)			
 
-		info = namecoind.name_new(key,json.dumps(value))
+		try:
+			info = namecoind.name_new(key,json.dumps(value))
 
-		reply['longhex'] = info[0]
-		reply['rand'] = info[1]
+			reply['longhex'] = info[0]
+			reply['rand'] = info[1]
+
+		except:
+			log.debug(info)
+			reply['message'] = info
+			return reply
+
 		reply['key'] = key
 		reply['value'] = json.dumps(value)
 
@@ -59,6 +66,7 @@ def register_name(key,value,server=NAMECOIND_SERVER):
 		reply['activated'] = False
 		reply['server'] = server
 		
+
 		#save this data to Mongodb...
 		register_queue.insert(reply)
 
@@ -92,7 +100,7 @@ def update_name(key,value):
 		namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, NAMECOIND_WALLET_PASSPHRASE)
 
 		info = namecoind.name_update(key,json.dumps(value))
-		
+
 		if 'code' in info: 
 			reply = info 
 		else:
