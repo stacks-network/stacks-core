@@ -16,6 +16,8 @@ from commontools import utf8len, log
 
 from time import sleep
 
+from config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_WALLET_PASSPHRASE, NAMECOIND_USE_HTTPS, NAMECOIND_SERVER
+
 #-----------------------------------
 from pymongo import MongoClient
 client = MongoClient() 
@@ -37,7 +39,7 @@ def do_name_firstupdate():
 
         #entry is registered; but not activated
         if entry.get('activated') is not None and entry.get('activated') == False:
-            
+        
             key = entry['key']
 
             #compare the current block with 'wait_till_block'
@@ -50,16 +52,18 @@ def do_name_firstupdate():
                 log.debug("Activating entry: '%s' to point to '%s'" % (key, update_value))
 
                 server = entry['server']
-
+                log.debug(server)
+                
                 namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, NAMECOIND_WALLET_PASSPHRASE)
 
-                try:
-                    output = namecoind.firstupdate(key,entry['rand'],update_value,entry['longhex'])
-                    log.debug("tx: %s", output)
-                except:
-                    continue
+                output = namecoind.firstupdate(key,entry['rand'],update_value,entry['longhex'])
+                log.debug(output)
+                #except Exception as e:
+                #    log.debug(e)
 
                 if 'message' in output and output['message'] == "this name is already active":
+                    entry['activated'] = True
+                elif 'message' in output and output['message'] == "previous transaction is not in the wallet":
                     entry['activated'] = True
                 elif 'code' in output:
                     entry['activated'] = False
