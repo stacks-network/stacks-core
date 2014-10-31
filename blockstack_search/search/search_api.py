@@ -12,8 +12,9 @@ from flask import request, jsonify, Flask, make_response
 
 app = Flask(__name__)
 
-from config import DEFAULT_HOST, DEFAULT_PORT, DEBUG
+from config import DEFAULT_HOST, DEFAULT_PORT, DEBUG, MEMCACHED_TIMEOUT
 import json
+import time
 from bson import json_util
 
 import sys
@@ -184,7 +185,7 @@ def search_by_name():
 	results['results'] = results_people[:new_limit]
 
 	#print results
-	mc.set(cache_key,results)
+	mc.set(cache_key,results,int(time() + MEMCACHED_TIMEOUT))
 
 	return jsonify(results)
 
