@@ -12,6 +12,7 @@
 import sys
 import json
 from common import log 
+from commontools import get_json
 
 from pymongo import MongoClient
 client = MongoClient()
@@ -19,6 +20,22 @@ db = client['onename_user_db']
 local_users = db.users
 
 from config import DEFAULT_LIMIT
+
+import requests 
+
+#---------------------------------
+def get_namespace():
+
+	url = 'http://ons-server.halfmoonlabs.com/ons/namespace'
+
+	auth_user = 'opennamesystem'
+	auth_passwd = 'opennamesystem'
+
+	headers = {'Content-type': 'application/json'}
+
+	r = requests.get(url, headers=headers, auth=(auth_user,auth_passwd))
+
+	return r.json()['results']
 
 #-------------------------
 def create_search_index(): 
@@ -48,7 +65,7 @@ def create_search_index():
 	twitter_handles = []
 	usernames = []
 
-	for user in local_users.find():
+	for user in get_namespace():
 
 		#the profile/info to be inserted
 		search_profile = {} 
@@ -58,10 +75,7 @@ def create_search_index():
 		if(counter % 1000 == 0):
 			print counter
 
-		try:
-			profile = json.loads(user['profile'])
-		except:
-			profile = user['profile']
+		profile = get_json(user['profile'])
 
 		if 'name' in profile:
 			name = profile['name']
@@ -371,35 +385,31 @@ def dedup_search_results(search_results):
 #-------------------------    
 if __name__ == "__main__":
 
-	try:
+	if(len(sys.argv) < 2): 
+		print "Usage error"
 
-		if(len(sys.argv) < 2): 
-			print "Usage error"
+	option = sys.argv[1]
 
-		option = sys.argv[1]
+	if(option == '--create_index'):
+		create_search_index()
+	elif(option == '--search_name'):
+		query = sys.argv[2]
+		name_search_results = search_people_by_name(query,DEFAULT_LIMIT)
+		print name_search_results
+		print '-' * 5
+		print fetch_profiles(name_search_results,search_type="name")
+	elif(option == '--search_twitter'):
+		query = sys.argv[2]
+		twitter_search_results = search_people_by_twitter(query,DEFAULT_LIMIT)
+		print twitter_search_results
+		print '-' * 5
+		print fetch_profiles(twitter_search_results,search_type="twitter")
+	elif(option == '--search_username'):
+		query = sys.argv[2]
+		username_search_results = search_people_by_username(query,DEFAULT_LIMIT)
+		print username_search_results
+		print '-' * 5
+		print fetch_profiles(username_search_results,search_type="username")
+	else:
+		print "Usage error"
 
-		if(option == '--create_index'):
-			create_search_index()
-		elif(option == '--search_name'):
-			query = sys.argv[2]
-			name_search_results = search_people_by_name(query,DEFAULT_LIMIT)
-			print name_search_results
-			print '-' * 5
-			print fetch_profiles(name_search_results,search_type="name")
-		elif(option == '--search_twitter'):
-			query = sys.argv[2]
-			twitter_search_results = search_people_by_twitter(query,DEFAULT_LIMIT)
-			print twitter_search_results
-			print '-' * 5
-			print fetch_profiles(twitter_search_results,search_type="twitter")
-		elif(option == '--search_username'):
-			query = sys.argv[2]
-			username_search_results = search_people_by_username(query,DEFAULT_LIMIT)
-			print username_search_results
-			print '-' * 5
-			print fetch_profiles(username_search_results,search_type="username")
-		else:
-			print "Usage error"
-
-	except Exception as e:
-		print e 
