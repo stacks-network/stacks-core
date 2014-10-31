@@ -14,7 +14,7 @@ app = Flask(__name__)
 
 from config import DEFAULT_HOST, DEFAULT_PORT, DEBUG, MEMCACHED_TIMEOUT
 import json
-import time
+from time import time
 from bson import json_util
 
 import sys
