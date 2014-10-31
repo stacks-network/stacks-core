@@ -39,11 +39,11 @@ def name_show_mem(key):
 
 			if MEMCACHED_ENABLED:
 				mc.set("name_" + str(key),json.dumps(info['value']),int(time() + MEMCACHED_TIMEOUT))
-				print "cache miss: " + str(key)
+				#print "cache miss: " + str(key)
 		except:
 			info = {}
 	else:
-		print "cache hit: " + str(key)
+		#print "cache hit: " + str(key)
 		info = {}
 		info['value'] = json.loads(cache_reply)
 
@@ -119,9 +119,9 @@ def get_openname_profile():
 
 		if MEMCACHED_ENABLED:
 			mc.set("profile_" + str(key),json.dumps(info),int(time() + MEMCACHED_TIMEOUT))
-			print "cache miss full_profile"
+			#print "cache miss full_profile"
 	else:
-		print "cache hit full_profile"
+		#print "cache hit full_profile"
 		info = json.loads(cache_reply)
 
 	if 'status' in info:
@@ -129,6 +129,68 @@ def get_openname_profile():
 			abort(404)
 			
 	return jsonify(info)
+
+#-----------------------------------
+@app.route('/ons/bulk')
+@requires_auth
+def get_bulk_profiles():
+	
+	usernames = request.args.get('usernames')
+
+	if usernames is None:
+		return jsonify(error_reply("No usernames given"))
+	
+	usernames = usernames.rsplit(',')
+
+	list = [] 
+
+	for username in usernames:
+
+		result = {}
+		result["username"] = username 
+		result["profile"] = full_profile_mem('u/' + username.lower())
+
+		list.append(result)
+			
+	return jsonify(results=list)
+
+#-----------------------------------
+@app.route('/ons/namespace')
+@requires_auth
+def get_namespace():
+
+	from commontools import get_json
+	
+	users = namecoind.name_filter('u/')
+
+	list = [] 
+
+	for user in users:
+		try: 
+			username = user['name'].lstrip('u/').lower()
+			profile = get_json(user['value'])
+
+			if 'status' in profile and profile['status'] == -1:
+				continue
+
+			if 'status' in profile and profile['status'] == 'reserved':
+				continue 
+
+			if profile == {}:
+				continue
+
+			if 'next' in profile:
+				profile = full_profile_mem('u/' + username)
+
+			result = {}
+			result["username"] = username  
+			result["profile"] = profile 
+			list.append(result)
+
+		except Exception as e:
+			continue
+
+	return jsonify(results=list)
 
 #-----------------------------------
 @app.route('/')
