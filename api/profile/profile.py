@@ -3,9 +3,14 @@ import os, json, requests, traceback
 from ..errors import APIError, ProfileNotFoundError, BadProfileError, \
     UsernameTakenError
 
+from .examples import EXAMPLES
+
 def get_blockchain_profile(username):
     auth = ('opennamesystem', 'opennamesystem')
     BASE_URL = 'http://ons-server.halfmoonlabs.com/ons/profile?openname='
+
+    if username == 'example-ryanshea' or username == 'example':
+        return EXAMPLES['ryanshea']
 
     try:
         r = requests.get(BASE_URL + username, timeout=1, verify=False, auth=auth)
