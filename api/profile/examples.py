@@ -32,7 +32,7 @@ EXAMPLES = {
       { 'type': 'namecoin', 'identifier': 'N4izoiyX9XKapXqsts7bSN7c3Bcgnr9aeo' },
       { 'type': 'dogecoin', 'identifier': 'DMHjRxrKN48EQZQDmmoghxZPRRZrvDJeVh' },
       { 'type': 'quarkcoin', 'identifier': '' },
-      { 'type': 'bitcoin-stealth', 'identifier': 'vJmtrr3cRiWJ9dLqov7nDBZKCGDPP88chGfDRmcQ71jiUE2xMh7GqXe7eGVZcLj7SVQiPJAxXvfdAdyD2RW8re8J7pGanvSUk3k3KW' }
+      { 'type': 'bitcoin', 'method': 'stealth', 'identifier': 'vJmtrr3cRiWJ9dLqov7nDBZKCGDPP88chGfDRmcQ71jiUE2xMh7GqXe7eGVZcLj7SVQiPJAxXvfdAdyD2RW8re8J7pGanvSUk3k3KW' }
     ],
     'profiles': [
       { 'type': 'twitter', 'username': 'ryaneshea', 'proofUrl': 'https://twitter.com/ryaneshea/status/486057647808868352' },
