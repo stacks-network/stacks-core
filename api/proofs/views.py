@@ -4,13 +4,14 @@ from flask import jsonify, request
 from . import v1proofs
 from .proofs import profile_to_verifications
 from ..errors import APIError
-from ..decorators import parameters_required
+from ..parameters import parameters_required
 from ..crossdomain import crossdomain
 from ..profile import get_blockchain_profile
 from ..auth import auth_required
 
 @v1proofs.route('/users/<openname>/verifications')
-@auth_required
+@auth_required(exception_paths=['/v1/users/gavin/verifications',
+								'/v1/users/sample/verifications'])
 @crossdomain(origin='*')
 def verify_profile(openname):
 	profile = get_blockchain_profile(openname)

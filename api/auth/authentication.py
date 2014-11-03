@@ -20,23 +20,27 @@ def authenticate_user(app_id, app_secret):
         return True
     return False
 
-def auth_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        app_id = request.values.get('app_id')
-        app_secret = request.values.get('app_secret')
+def auth_required(exception_paths=None, exception_queries=None):
+    def decorator(f):
+        def decorated_function(*args, **kwargs):
+            if request.authorization:
+                auth = request.authorization
+                app_id = request.authorization.username
+                app_secret = request.authorization.password
+            elif 'app-id' in request.values and 'app-secret' in request.values:
+                app_id = request.values.get('app-id')
+                app_secret = request.values.get('app-secret')
+                auth = Authorization('basic', data={'username': app_id, 'password': app_secret})
+            else:
+                raise APIError('API credentials missing', status_code=400)
 
-        if request.authorization:
-            auth = request.authorization
-            app_id = request.authorization.username
-            app_secret = request.authorization.password
-        elif app_id and app_secet:
-            auth = Authorization('basic', data={'username': app_id, 'password': app_secret})
-        else:
-            raise APIError('API credentials missing', status_code=400)
+            if exception_paths and str(request.path) in exception_paths:
+                pass
+            elif exception_queries and request.values.get('query') and request.values.get('query') in exception_queries:
+                pass
+            elif not authenticate_user(app_id, app_secret):
+                raise APIError('Invalid API credentials', status_code=400)
 
-        if not authenticate_user(app_id, app_secret):
-            raise APIError('Invalid API credentials', status_code=400)
-
-        return f(*args, **kwargs)
-    return decorated_function
+            return f(*args, **kwargs)
+        return update_wrapper(decorated_function, f)
+    return decorator

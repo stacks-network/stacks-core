@@ -11,12 +11,12 @@ from flask import render_template, send_from_directory, Response, url_for, \
 
 from . import v1search
 from ..errors import APIError
-from ..decorators import parameters_required
+from ..parameters import parameters_required
 from ..crossdomain import crossdomain
 from ..auth import auth_required
 
 @v1search.route('/search', methods=['GET'])
-@auth_required
+@auth_required(exception_queries=['gavin', 'sample'])
 @parameters_required(parameters=['query'])
 @crossdomain(origin='*')
 def search_people():

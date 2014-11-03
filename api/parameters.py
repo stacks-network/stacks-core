@@ -6,26 +6,10 @@
 """
 
 import json
-from functools import wraps, update_wrapper
-from werkzeug.datastructures import Authorization
-from flask import g, request
+from functools import update_wrapper
+from flask import request
 
-from . import app
 from .errors import APIError
-
-"""
-def after_this_request(func):
-    if not hasattr(g, 'call_after_request'):
-        g.call_after_request = []
-    g.call_after_request.append(func)
-    return func
-
-@app.after_request
-def per_request_callbacks(response):
-    for func in getattr(g, 'call_after_request', ()):
-        response = func(response)
-    return response
-"""
 
 def parameters_required(parameters):
     def decorator(f):

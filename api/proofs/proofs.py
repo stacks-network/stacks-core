@@ -112,7 +112,6 @@ def profile_to_proofs(profile, openname):
                     }
                     if is_valid_proof(proof_site, identifier, openname, proof_url):
                         proof["valid"] = True
-                    print proof
                     proofs.append(proof)
     return proofs
 

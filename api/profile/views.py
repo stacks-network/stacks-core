@@ -10,7 +10,7 @@ from ..crossdomain import crossdomain
 from ..auth import auth_required
 
 @v1profile.route('/users/<username>')
-@auth_required
+@auth_required(exception_paths=['/v1/users/gavin', '/v1/users/sample'])
 @crossdomain(origin='*')
 def api_user(username):
     if username == 'ryanshea-example':
