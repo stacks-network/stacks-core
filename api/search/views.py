@@ -16,7 +16,7 @@ from ..crossdomain import crossdomain
 from ..auth import auth_required
 
 @v1search.route('/search', methods=['GET'])
-@auth_required(exception_queries=['gavin', 'sample'])
+@auth_required(exception_queries=['gavin'])
 @parameters_required(parameters=['query'])
 @crossdomain(origin='*')
 def search_people():

@@ -11,7 +11,7 @@ from ..auth import auth_required
 
 @v1proofs.route('/users/<openname>/verifications')
 @auth_required(exception_paths=['/v1/users/gavin/verifications',
-								'/v1/users/sample/verifications'])
+								'/v1/users/example/verifications'])
 @crossdomain(origin='*')
 def verify_profile(openname):
 	profile = get_blockchain_profile(openname)
