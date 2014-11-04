@@ -22,6 +22,7 @@ local_users = db.users
 from config import DEFAULT_LIMIT
 
 import requests 
+import re
 
 #---------------------------------
 def get_namespace():
@@ -36,6 +37,17 @@ def get_namespace():
 	r = requests.get(url, headers=headers, auth=(auth_user,auth_passwd))
 
 	return r.json()['results']
+
+#-------------------------
+def valid_username(username):
+
+	a = re.compile("^[a-z0-9_]{1,60}$")
+
+	if a.match(username):
+		return True
+	else:
+		return False
+
 
 #-------------------------
 def create_search_index(): 
@@ -74,6 +86,13 @@ def create_search_index():
 
 		if(counter % 1000 == 0):
 			print counter
+
+		if valid_username(user['username']):
+			pass
+		else:
+			#print "ignoring: " + user['username']
+			continue 
+			
 
 		profile = get_json(user['profile'])
 
