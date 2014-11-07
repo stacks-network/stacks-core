@@ -56,7 +56,7 @@ def sync_cache():
 			new_block = namecoind.blocks()
 
 		message = 'current block: %s' %new_block
-		log_to_file(loger, message)
+		log_to_file(logger, message)
 
 		check_blocks = new_block - old_block
 		message = 'checking last %s block(s)' %check_blocks
@@ -72,3 +72,4 @@ import daemon
 
 with daemon.DaemonContext():
 	sync_cache()
+#sync_cache()
