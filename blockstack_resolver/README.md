@@ -3,7 +3,7 @@ ONS Server
 
 ## Overview: 
 
-ONS-server is meant to be a highly scalable server for [Open Name System](http://opennamesystem.org). It is meant to be blockchain-agnostic (currently uses the Namecoin blockchain) and is primarily meant for scaling read-only calls to the underlying blockchain. For achieving high throughput ons-server loads the entire namespace into memcached and then keeps the in-memory copy consistent with the blockchain.  
+ONS-server is meant to be a highly scalable server for [Openname System](https://openname.org). It is meant to be blockchain-agnostic (currently uses the Namecoin blockchain) and is primarily meant for scaling read-only calls to the underlying blockchain. For achieving high throughput ons-server loads the entire namespace into memcached and then keeps the in-memory copy consistent with the blockchain.  
 
 ## Setup Instructions:
 
