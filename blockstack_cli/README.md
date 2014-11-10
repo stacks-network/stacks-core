@@ -15,7 +15,7 @@ opendig
 <a name="overview"/>
 ## Overview
 
-`opendig` is a command-line tool that extends the functionality of `dig` to be compatible with the Open Name System. Specifically, it adds support for the resolution of blockchain user handles.
+`opendig` is a command-line tool that extends the functionality of `dig` to be compatible with the Openname System. Specifically, it adds support for the resolution of blockchain user handles.
 
 ONS extends DNS in a backwards-compatible way by supporting the registration and resolution of:
 
