@@ -12,9 +12,9 @@ echo "Enter OLD_DB:"
 read input
 export OLD_DB=$input
 
-echo "Enter FRONTEND_APP_SECRET:"
+echo "Enter FRONTEND_SECRET:"
 read input
-export FRONTEND_APP_SECRET=$input
+export FRONTEND_SECRET=$input
 
 echo "Enter NAMECOIND_SERVER:"
 read input
