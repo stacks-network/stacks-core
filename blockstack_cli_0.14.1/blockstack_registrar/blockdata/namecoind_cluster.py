@@ -10,11 +10,12 @@ import json
 
 from coinrpc.namecoind_server import NamecoindServer 
 
-from config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD
+from config import NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD
 from config_local import MAIN_SERVER, LOAD_SERVERS
 
 from multiprocessing.pool import ThreadPool 
-		
+from commontools import log 
+
 #-----------------------------------
 def check_address(address): 
 
@@ -30,7 +31,9 @@ def check_address(address):
 			namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD)
 
 			info = json.loads(namecoind.validate_address(address))
-		except:
+		except Exception as e:
+			log.debug("Error in server %s",server)
+			log.debug(e)
 			return
 
 		if info['ismine'] is True:
@@ -55,7 +58,7 @@ def check_address(address):
 #-----------------------------------
 def get_server(key): 
 
-	namecoind = NamecoindServer(MAIN_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD)
+	namecoind = NamecoindServer(NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD)
 
 	info = namecoind.name_show(key)
 

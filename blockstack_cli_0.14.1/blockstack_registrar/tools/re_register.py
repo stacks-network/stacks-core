@@ -25,7 +25,7 @@ users = remote_db.user
 old_db = MongoClient(OLD_DB).get_default_database()
 old_users = old_db.user
 
-MAX_PENDING_TX = 50
+MAX_PENDING_TX = 100
 
 #-----------------------------------
 def pending_transactions(): 
@@ -53,6 +53,11 @@ if __name__ == '__main__':
 	#ignore_users = ['frm','rfd','meng','bjorn']
 	ignore_users = [] 
 
+	count_twitter = 0 
+	count_github = 0
+	count_website = 0 
+	count_bio = 0 
+
 	counter = 0
 	
 	tx_sent = MAX_PENDING_TX
@@ -61,6 +66,7 @@ if __name__ == '__main__':
 
 		if tx_sent >= MAX_PENDING_TX:
 			tx_sent = 0
+			print "check for pending tx"
 			while pending_transactions():
 				print "pending transactions, sleeping ..."
 				sleep(60 * 5)
@@ -74,20 +80,29 @@ if __name__ == '__main__':
 		new_user = users.find_one({'username':username}) 
 		if  new_user is not None:
 			print username + " in new DB"
-			process_user(username,profile)
-			tx_sent += 1
-			print '-' * 5
 			continue 
 
+			#try:
+			#	process_user(username,profile)
+			#except Exception as e:
+			#	print e
+			#tx_sent += 1
+			#print '-' * 5
+			#continue 
+		
 		old_user = old_users.find_one({'username':username})
 		if  old_user is not None:
 			print username + " in old DB"
 			profile = get_json(old_user['profile'])
-			if 'twitter' in profile: 
+			
+			try:
 				process_user(username,profile)
 				tx_sent += 1
-			print '-' * 5
+			except Exception as e:
+				print e
+
 			continue
 
 		print username + " not our user"
 		print '-' * 5	
+

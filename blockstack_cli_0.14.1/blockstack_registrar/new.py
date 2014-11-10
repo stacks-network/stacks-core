@@ -47,7 +47,7 @@ def send_update():
 #-----------------------------------
 if __name__ == '__main__':
 
-	key = 'u/goldmansachs'
+	key = 'u/onename'
 	log.debug(get_server(key))
 	#value = json.loads('{"next":"u/awright"}')
 	#update_name(key,value)
