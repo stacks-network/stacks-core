@@ -4,7 +4,7 @@
 	ONS Server
 	~~~~~
 
-	:copyright: (c) 2014 by OpenNameSystem.org
+	:copyright: (c) 2014 by Openname.org
 	:license: MIT, see LICENSE for more details.
 
 	For testing the API from command line
