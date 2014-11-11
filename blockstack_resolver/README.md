@@ -1,13 +1,13 @@
-ONS Server
+Openname-resolver
 =======
 
 ## Overview: 
 
-ONS-server is meant to be a highly scalable server for [Openname System](https://openname.org). It is meant to be blockchain-agnostic (currently uses the Namecoin blockchain) and is primarily meant for scaling read-only calls to the underlying blockchain. For achieving high throughput ons-server loads the entire namespace into memcached and then keeps the in-memory copy consistent with the blockchain. Read-only calls never hit disk and their scalability is completely decoupled from the scalability properties of the underlying database. 
+Openname-resolver is a highly scalable server for [Openname System](https://openname.org). It resolves opennames (usernames) to profile data. It is blockchain-agnostic (currently uses the Namecoin blockchain) and is primarily meant for scaling read-only calls to the underlying blockchain. For achieving high throughput openname-resolver loads the entire namespace into memcached and then keeps the in-memory copy consistent with the blockchain. Read-only calls never hit disk and their scalability is completely decoupled from the scalability properties of the underlying database. 
 
 ## Setup Instructions:
 
-ONS-server requires memcached:
+Openname-resolver requires memcached:
 
 ```
 sudo apt-get install memcached libmemcached-dev zlib1g-dev
@@ -41,6 +41,6 @@ python -m tools.sync_cache
 
 Example API call: 
 ```
-http://localhost:5000/ons/value?key=u/naval
-http://localhost:5000/ons/profile?openname=naval
+http://localhost:5000/resolver/value?key=u/naval
+http://localhost:5000/resolver/profile?openname=naval
 ```
