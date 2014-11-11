@@ -1,0 +1,9 @@
+*.pyc
+
+#debug files
+######################
+debug.py
+
+#log files
+######################
+log/
