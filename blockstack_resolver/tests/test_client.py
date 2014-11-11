@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-	ONS Server
+	Openname-resolver
 	~~~~~
 
 	:copyright: (c) 2014 by Openname.org
@@ -13,8 +13,8 @@
 import requests
 import json  
 
-REMOTE_SERVER = 'http://ons-pubic1.halfmoonlabs.com'
-API_ENDPOINT = '/ons/value'
+REMOTE_SERVER = 'http://openname-resolver.onename.io'
+API_ENDPOINT = '/resolver/value'
 
 #-------------------------
 def call_api(key,auth_user,auth_passwd,server='local'):

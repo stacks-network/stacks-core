@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-	ONS Server
+	Openname-resolver
 	~~~~~
 
 	:copyright: (c) 2014 by OpenNameSystem.org
@@ -9,7 +9,7 @@
 """
 
 import os
-from server.ons_server import app
+from server.openname_resolver import app
 from server.config import DEFAULT_HOST, DEFAULT_PORT, DEBUG
 
 #------------------------------

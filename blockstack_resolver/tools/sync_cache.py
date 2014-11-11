@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-	ONS Server
+	Openname-resolver
 	~~~~~
 
 	:copyright: (c) 2014 by Openname.org
