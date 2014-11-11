@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-	ONS Server
+	Openname-resolver
 	~~~~~
 
 	:copyright: (c) 2014 by Openname.org
@@ -75,7 +75,7 @@ def full_profile_mem(key):
 		return check_profile
 
 #-----------------------------------
-@app.route('/ons/value')
+@app.route('/resolver/value')
 @requires_auth
 def get_key_value():
 
@@ -94,7 +94,7 @@ def get_key_value():
 
 
 #-----------------------------------
-@app.route('/ons/profile')
+@app.route('/resolver/profile')
 @requires_auth
 def get_openname_profile():
 	
@@ -131,7 +131,7 @@ def get_openname_profile():
 	return jsonify(info)
 
 #-----------------------------------
-@app.route('/ons/bulk')
+@app.route('/resolver/bulk')
 @requires_auth
 def get_bulk_profiles():
 	
@@ -155,7 +155,7 @@ def get_bulk_profiles():
 	return jsonify(results=list)
 
 #-----------------------------------
-@app.route('/ons/namespace')
+@app.route('/resolver/namespace')
 @requires_auth
 def get_namespace():
 
@@ -195,7 +195,7 @@ def get_namespace():
 #-----------------------------------
 @app.route('/')
 def index():
-	return '<hmtl><body>Welcome to ONS server, see <a href="http://github.com/opennamesystem"github page</a> for details.</body></html>'
+	return '<hmtl><body>Welcome to openname-resolver, see <a href="http://github.com/opennamesystem"github page</a> for details.</body></html>'
 
 #-----------------------------------
 @app.errorhandler(500)

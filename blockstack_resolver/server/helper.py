@@ -1,9 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-	ONS Server
-	~~~~~
-
 	:copyright: (c) 2014 by Openname.org
 	:license: MIT, see LICENSE for more details.
 """
