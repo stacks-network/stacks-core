@@ -7,4 +7,4 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
-from server.ons_server import app as application
+from server.openname_resolver import app as application
