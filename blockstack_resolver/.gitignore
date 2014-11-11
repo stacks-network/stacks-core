@@ -6,4 +6,4 @@ debug.py
 
 #log files
 ######################
-log/
+*.txt
