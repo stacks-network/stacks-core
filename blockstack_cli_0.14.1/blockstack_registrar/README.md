@@ -7,7 +7,7 @@ For registering and updating opennames and profiles
 
 Openname currently uses the Namecoind blockchain for storing data. You'll need to compile a Namecoin Daemon (namecoind) to register/update opennames and profiles. You can follow the instructions for [compiling namecoind on Debian](https://github.com/opennamesystem/openname-registrar/blob/master/doc/build-debian.md). 
 
-We've open-sourced a Python RPC client, called [coinrpc](https://github.com/opennamesystem/coinrpc) for easily interacting with namecoind. Coinrpc can be used to register users and update their profiles once you've setup your own namecoind instance. See the README files of coinrpc for details.
+We've developed a Python RPC client, called [coinrpc](https://github.com/opennamesystem/coinrpc) for easily interacting with namecoind. Coinrpc can be used to register users and update their profiles once you've setup your own namecoind instance. See the README files of coinrpc for details.
 
 We're in the process of releasing more tools/software for making this process easier for developers, so stay tuned!
 
