@@ -18,7 +18,7 @@ Before installing pylibmc (listed in requirements.txt) install the above package
 
 Install coinrpc:
 ```
-pip install git+ssh://git@github.com/onenameio/coinrpc.git
+pip install git+ssh://git@github.com/opennamesystem/coinrpc.git
 ```
 
 For quick deployment:
