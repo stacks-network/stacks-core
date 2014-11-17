@@ -18,38 +18,17 @@ log = logging.getLogger()
 from pymongo import MongoClient
 client = MongoClient() 
 local_db = client['temp_db']
-expiring_users = local_db.users
 
 from time import sleep
 
-#-----------------------------------
-def send_update():
-
-	for i in expiring_users.find():
-		key = i['name']
-		try:
-			value = json.loads(i['value'])
-
-			value['message'] = value['message'].replace('This OneName username','This username')
-		except:
-			value = i['value']
-			
-		print key
-		print value 
-		print '-' * 5
-
-		try:
-			update_name(key,value)
-		except Exception as e:
-			print e 
-		sleep(5)
 
 #-----------------------------------
 if __name__ == '__main__':
 
-	key = 'u/onename'
+	key = 'u/ajackson'
 	log.debug(get_server(key))
 	#value = json.loads('{"next":"u/awright"}')
 	#update_name(key,value)
 
+	#expiring_users = 
 	#send_update()
