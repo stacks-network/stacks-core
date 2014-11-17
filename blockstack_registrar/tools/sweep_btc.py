@@ -15,7 +15,9 @@ from encrypt import bip38_decrypt
 from coinkit import BitcoinKeypair, NamecoinKeypair
 
 from commontools import log
-from coinrpc import bitcoind 
+from coinrpc.bitcoind_server import BitcoindServer
+from config import BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER, BITCOIND_PASSWD, BITCOIND_USE_HTTPS, BITCOIND_WALLET_PASSPHRASE 
+bitcoind = BitcoindServer(BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER, BITCOIND_PASSWD, BITCOIND_USE_HTTPS, BITCOIND_WALLET_PASSPHRASE) 
 
 #-----------------------------------
 from pymongo import MongoClient

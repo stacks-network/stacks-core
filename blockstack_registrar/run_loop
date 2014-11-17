@@ -1,7 +1,6 @@
 while true; do 
-	python register_daemon.py;
 	python -m blockdata.activate;
 	echo "sleeping";
 	echo "-------------------------";
-	sleep 1200;
+	sleep 100;
 done
