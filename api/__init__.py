@@ -21,10 +21,11 @@ from .auth import v1auth
 from .profile import v1profile
 from .proofs import v1proofs
 from .search import v1search
+from .misc import v1misc
 
 blueprints = [
     docs,
-    v1auth, v1profile, v1proofs, v1search
+    v1auth, v1profile, v1proofs, v1search, v1misc
 ]
 
 for blueprint in blueprints:
