@@ -17,6 +17,22 @@ from multiprocessing.pool import ThreadPool
 from commontools import log 
 
 #-----------------------------------
+def pending_transactions(server):
+
+	namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD) 
+
+	reply = namecoind.namecoind.listtransactions("",10000)
+
+	counter = 0 
+
+	for i in reply:
+		if i['confirmations'] == 0:
+			counter += 1 
+
+
+	return counter 
+
+#-----------------------------------
 def check_address(address): 
 
 	reply = {}
