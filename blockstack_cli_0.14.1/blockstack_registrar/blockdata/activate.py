@@ -26,6 +26,9 @@ register_queue = local_db.queue
 
 blocks = namecoind.blocks()
 
+from blockdata.namecoind_cluster import pending_transactions
+MAX_PENDING_TX = 50
+
 #-----------------------------------
 def do_name_firstupdate():
 
@@ -34,25 +37,55 @@ def do_name_firstupdate():
 
     log.debug("Checking for new activations")
     log.debug('-' * 5)
-    
+
+    ignore_servers = []
+    counter = 0
+    counter_pending = 0
+
     for entry in register_queue.find():
 
+        counter += 1
+
+        if counter % 10 == 0:
+            for server in ignore_servers:
+                if pending_transactions(server) > MAX_PENDING_TX:
+                    pass
+                else:
+                    ignore_servers.remove(server)
+
+        from coinrpc import namecoind
+        #print entry['key']
+        if not namecoind.check_registration(entry['key']):
+
+            counter_pending += 1
+
         #entry is registered; but not activated
-        if entry.get('activated') is not None and entry.get('activated') == False:
-        
+        #if entry.get('activated') is not None and entry.get('activated') == False:
+
             key = entry['key']
 
             #compare the current block with 'wait_till_block'
             current_blocks = blocks
+            wait_till_block = entry['wait_till_block'] + 8
 
-            if current_blocks > entry['wait_till_block']:
+            if current_blocks > wait_till_block:
+
+                server = entry['server']
+
+                log.debug(server)
+
+                if server in ignore_servers:
+                    continue
+                
+                if pending_transactions(server) > MAX_PENDING_TX:
+                        log.debug("pending tx on server, try again")
+                        ignore_servers.append(server)
+                        continue
+
                 
                 update_value = get_string(entry['value'])
                 
                 log.debug("Activating entry: '%s' to point to '%s'" % (key, update_value))
-
-                server = entry['server']
-                log.debug(server)
                 
                 namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, NAMECOIND_WALLET_PASSPHRASE)
 
@@ -77,9 +110,20 @@ def do_name_firstupdate():
                 log.debug('-' * 5)
 
             else:
-                log.debug("wait: %s block for: %s" % ((entry['wait_till_block'] - current_blocks + 1), entry['key']))
+                log.debug("wait: %s block for: %s" % ((wait_till_block - current_blocks + 1), entry['key']))
+
+        else:
+            log.debug("key %s already active" % (entry['key']))
+            register_queue.remove(entry)
+
+    print "Pending activations: %s" %counter_pending
+    sleep(1 * 60)
 
 #-----------------------------------
 if __name__ == '__main__':
 
-    do_name_firstupdate()
+    while(1):
+        try:
+            do_name_firstupdate()
+        except Exception as e:
+            print e
