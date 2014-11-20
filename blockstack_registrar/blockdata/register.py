@@ -71,7 +71,7 @@ def register_name(key,value,server=NAMECOIND_SERVER):
 		register_queue.insert(reply)
 
 		#reply[_id] is causing a json encode error
-		#del reply['_id']
+		del reply['_id']
 	
 	log.debug(reply)
 	log.debug('-' * 5)
