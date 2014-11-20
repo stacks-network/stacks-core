@@ -25,7 +25,7 @@ users = remote_db.user
 old_db = MongoClient(OLD_DB).get_default_database()
 old_users = old_db.user
 
-MAX_PENDING_TX = 100
+MAX_PENDING_TX = 50
 
 #-----------------------------------
 def pending_transactions(): 

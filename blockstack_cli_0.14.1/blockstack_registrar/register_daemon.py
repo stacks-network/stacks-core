@@ -46,7 +46,7 @@ register_queue = local_db.queue
 
 from config_local import problem_users, banned_users 
 
-load_servers = ['named3','named4','named6','named7','named8']
+load_servers = ['named4','named6','named7','named8']
 
 current_server = 0
 
@@ -326,7 +326,6 @@ if __name__ == '__main__':
 	#check_transfer()
 	#update_users()
 	#register_users()
-	
-	#cleanup_db()
 
-	get_pending_state()
+	get_pending_state()	
+	#cleanup_db()

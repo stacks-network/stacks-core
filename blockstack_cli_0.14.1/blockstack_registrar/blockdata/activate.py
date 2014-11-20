@@ -32,9 +32,6 @@ MAX_PENDING_TX = 50
 #-----------------------------------
 def do_name_firstupdate():
 
-    #remove entries that are already active
-    register_queue.remove({"activated":True})
-
     log.debug("Checking for new activations")
     log.debug('-' * 5)
 
@@ -54,13 +51,9 @@ def do_name_firstupdate():
                     ignore_servers.remove(server)
 
         from coinrpc import namecoind
-        #print entry['key']
         if not namecoind.check_registration(entry['key']):
 
             counter_pending += 1
-
-        #entry is registered; but not activated
-        #if entry.get('activated') is not None and entry.get('activated') == False:
 
             key = entry['key']
 
@@ -95,17 +88,14 @@ def do_name_firstupdate():
                 #    log.debug(e)
 
                 if 'message' in output and output['message'] == "this name is already active":
-                    entry['activated'] = True
+                    register_queue.remove(entry)
                 elif 'message' in output and output['message'] == "previous transaction is not in the wallet":
-                    entry['activated'] = True
+                    register_queue.remove(entry)
                 elif 'code' in output:
-                    entry['activated'] = False
                     log.debug("Not activated. Try again.")
                 else:
-                    entry['activated'] = True
-
-                entry['tx_id'] = output
-                register_queue.save(entry)
+                    entry['tx_id'] = output
+                    register_queue.save(entry)
 
                 log.debug('-' * 5)
 
