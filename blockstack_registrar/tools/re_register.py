@@ -80,11 +80,10 @@ if __name__ == '__main__':
 		new_user = users.find_one({'username':username}) 
 		if  new_user is not None:
 			print username + " in new DB"
-			continue 
-
-			#try:
-			#	process_user(username,profile)
-			#except Exception as e:
+		
+			try:
+				process_user(username,profile)
+			except Exception as e:
 			#	print e
 			#tx_sent += 1
 			#print '-' * 5

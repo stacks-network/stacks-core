@@ -21,7 +21,7 @@ def pending_transactions(server):
 
 	namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD) 
 
-	reply = namecoind.namecoind.listtransactions("",10000)
+	reply = namecoind.listtransactions("",10000)
 
 	counter = 0 
 
@@ -46,7 +46,7 @@ def check_address(address):
 		try:
 			namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD)
 
-			info = json.loads(namecoind.validate_address(address))
+			info = namecoind.validate_address(address)
 		except Exception as e:
 			log.debug("Error in server %s",server)
 			log.debug(e)
@@ -78,11 +78,11 @@ def get_server(key):
 
 	info = namecoind.name_show(key)
 
-	if 'namecoin_address' in info:	
-		return check_address(info['namecoin_address'])
+	if 'address' in info:	
+		return check_address(info['address'])
 	
 	response = {}
 	response["registered"] = False
 	response["server"] = None
 	response["ismine"] = False 
-	return resposne
+	return response
