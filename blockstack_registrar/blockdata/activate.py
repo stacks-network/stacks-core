@@ -9,8 +9,6 @@ from coinrpc.namecoind_server import NamecoindServer
 
 from config import MAIN_SERVER, LOAD_SERVERS
 
-from coinrpc import namecoind
-
 from commontools import get_string
 from commontools import utf8len, log
 
@@ -20,14 +18,32 @@ from config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_W
 
 #-----------------------------------
 from pymongo import MongoClient
-client = MongoClient() 
-local_db = client['namecoin']
+local_db = MongoClient()['namecoin']
 register_queue = local_db.queue
 
-blocks = namecoind.blocks()
+from config import MONGODB_URI
+remote_client = MongoClient(MONGODB_URI)
+remote_db = remote_client.get_default_database()
+users = remote_db.user
 
 from blockdata.namecoind_cluster import pending_transactions
 MAX_PENDING_TX = 50
+
+from blockdata.register import slice_profile
+
+#-----------------------------------
+#get the latest value for key:value being registered
+def refresh_value(entry):
+    username = entry['username']
+    user = users.find_one({"username":username})
+    profile = user['profile']
+    keys, values = slice_profile(username,profile)
+
+    counter = 0 
+    for key in keys:
+        if entry['key'] == key:
+            return values[counter] 
+        counter += 1
 
 #-----------------------------------
 def do_name_firstupdate():
@@ -38,6 +54,9 @@ def do_name_firstupdate():
     ignore_servers = []
     counter = 0
     counter_pending = 0
+
+    from coinrpc import namecoind
+    blocks = namecoind.blocks()
 
     for entry in register_queue.find():
 
@@ -56,36 +75,53 @@ def do_name_firstupdate():
             counter_pending += 1
 
             key = entry['key']
+            server = entry['server']
+            namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, NAMECOIND_WALLET_PASSPHRASE)
 
-            #compare the current block with 'wait_till_block'
-            current_blocks = blocks
-            wait_till_block = entry['wait_till_block'] + 8
+            if 'tx_sent' in entry and entry['tx_sent'] is True:
+                log.debug('Already sent name_firstupdate: %s' % entry['key'])
+                continue
 
-            if current_blocks > wait_till_block:
+            if 'wait_till_block' not in entry: 
 
-                server = entry['server']
+                if 'txid' in entry:
+                    reply = namecoind.gettransaction(entry['txid'])
+                else:
+                    log.debug("remove longhex from code")
+                    reply = namecoind.gettransaction(entry['longhex'])
+                if reply['confirmations'] > 1:
+                    log.debug('Got confirmations on name_firstupdate: %s' % entry['key'])
+                    entry['wait_till_block'] = namecoind.blocks() + (12 - reply['confirmations'])
+                    register_queue.save(entry)
+                else:
+                    log.debug('No confirmations on name_firstupdate: %s' % entry['key'])
+                    continue 
 
-                log.debug(server)
-
+            if entry['wait_till_block'] <= blocks:
+                
                 if server in ignore_servers:
                     continue
                 
                 if pending_transactions(server) > MAX_PENDING_TX:
-                        log.debug("pending tx on server, try again")
+                        log.debug("Pending tx on server, try again")
                         ignore_servers.append(server)
                         continue
 
-                
-                update_value = get_string(entry['value'])
+                if 'username' in entry:
+                    log.debug('refreshing value')
+                    update_value = get_string(refresh_value(entry))
+                else:
+                    update_value = get_string(entry['value'])
                 
                 log.debug("Activating entry: '%s' to point to '%s'" % (key, update_value))
                 
-                namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, NAMECOIND_WALLET_PASSPHRASE)
-
-                output = namecoind.firstupdate(key,entry['rand'],update_value,entry['longhex'])
+                if 'txid' in entry:
+                    output = namecoind.firstupdate(key,entry['rand'],update_value,entry['txid'])
+                else:
+                    log.debug('remove longhex from code')    
+                    output = namecoind.firstupdate(key,entry['rand'],update_value,entry['longhex'])
                 log.debug(output)
-                #except Exception as e:
-                #    log.debug(e)
+                entry['tx_sent'] = True
 
                 if 'message' in output and output['message'] == "this name is already active":
                     register_queue.remove(entry)
@@ -94,23 +130,34 @@ def do_name_firstupdate():
                 elif 'code' in output:
                     log.debug("Not activated. Try again.")
                 else:
-                    entry['tx_id'] = output
+                    entry['tx_sent'] = True
                     register_queue.save(entry)
 
                 log.debug('-' * 5)
 
             else:
-                log.debug("wait: %s block for: %s" % ((wait_till_block - current_blocks + 1), entry['key']))
+                log.debug("wait: %s blocks for: %s" % ((entry['wait_till_block'] - blocks), entry['key']))
 
         else:
             log.debug("key %s already active" % (entry['key']))
             register_queue.remove(entry)
 
     print "Pending activations: %s" %counter_pending
-    sleep(1 * 60)
+    current_block = namecoind.blocks()
+    while(1):
+        new_block = namecoind.blocks()
+
+        if current_block == new_block:
+            log.debug('No new block. Sleeping ... ')
+            sleep(15)
+        else:
+            break
 
 #-----------------------------------
 if __name__ == '__main__':
+
+    do_name_firstupdate()
+    exit(0)
 
     while(1):
         try:
