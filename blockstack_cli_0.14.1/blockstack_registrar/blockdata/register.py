@@ -31,7 +31,7 @@ from time import time
 mc = pylibmc.Client([DEFAULT_HOST + ':' + MEMCACHED_PORT],binary=True)
  
 #-----------------------------------
-def register_name(key,value,server=NAMECOIND_SERVER):
+def register_name(key,value,server=NAMECOIND_SERVER,username=None):
 
 	reply = {}
 
@@ -47,7 +47,7 @@ def register_name(key,value,server=NAMECOIND_SERVER):
 		try:
 			info = namecoind.name_new(key,json.dumps(value))
 
-			reply['longhex'] = info[0]
+			reply['txid'] = info[0]
 			reply['rand'] = info[1]
 
 		except:
@@ -58,13 +58,11 @@ def register_name(key,value,server=NAMECOIND_SERVER):
 		reply['key'] = key
 		reply['value'] = json.dumps(value)
 
-		#get current block...
-		blocks = namecoind.blocks()
-
-		reply['current_block'] = blocks
-		reply['wait_till_block'] = blocks + 12
-		reply['activated'] = False
+		reply['tx_sent'] = False
 		reply['server'] = server
+
+		if username is not None:
+			reply['username'] = username
 		
 
 		#save this data to Mongodb...
@@ -114,6 +112,7 @@ def update_name(key,value):
 	log.debug('-' * 5)
 		
 #-----------------------------------
+#if a next key is already registered, returns next one
 def slice_profile(username, profile, old_keys=None):
 
 	keys = []
@@ -176,6 +175,7 @@ def slice_profile(username, profile, old_keys=None):
 	return keys, values 
 
 #-----------------------------------
+#returns keys without checking if they're already registered
 def slice_profile_update(username, profile, old_keys=None):
 
 	keys = []
@@ -288,12 +288,12 @@ def process_user(username,profile,server=NAMECOIND_SERVER):
 		#if not registered 
 		log.debug("name new: %s", key1)
 		log.debug("size: %s", utf8len(json.dumps(value1)))
-		register_name(key1,value1,server)
+		register_name(key1,value1,server,username)
 
-	process_additional_keys(keys, values,server)
+	process_additional_keys(keys, values,server,username)
 
 #-----------------------------------
-def process_additional_keys(keys,values,server):
+def process_additional_keys(keys,values,server,username):
 
 	#register/update remaining keys
 	size = len(keys)
@@ -309,6 +309,6 @@ def process_additional_keys(keys,values,server):
 			update_name(next_key,next_value)
 		else: 
 			log.debug("name new: " + next_key)
-			register_name(next_key,next_value,server)
+			register_name(next_key,next_value,server,username)
 			
 		index += 1
