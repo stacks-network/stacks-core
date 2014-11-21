@@ -25,7 +25,7 @@ from time import sleep
 #-----------------------------------
 if __name__ == '__main__':
 
-	key = 'u/ajackson'
+	key = 'u/muneeb'
 	log.debug(get_server(key))
 	#value = json.loads('{"next":"u/awright"}')
 	#update_name(key,value)

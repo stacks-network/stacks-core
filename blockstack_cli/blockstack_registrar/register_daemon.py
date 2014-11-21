@@ -16,7 +16,6 @@ from config import NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_P
 from blockdata.register import process_user
 
 from pymongo import MongoClient
-from bson.objectid import ObjectId
 
 from encrypt.bip38 import bip38_decrypt
 
@@ -131,7 +130,7 @@ def register_users():
 
 		if check_banned(user['username']):
 			continue
-			
+
 		print "checking: " + user['username']
 
 		counter += 1
@@ -144,65 +143,23 @@ def register_users():
 
 		if 'dispatched' in new_user and new_user['dispatched'] is False: 
 	
-			if datetime.datetime.utcnow() - new_user['created_at'] > datetime.timedelta(minutes=5):
-				print "Dispatch: " + user['username']
-				
-				process_profile(user['username'],user['profile'])
-				new_user['dispatched'] = True 
-				registrations.save(new_user)
-			else:
-				print "New user (within 15 mins): " + user['username']
+			print "Dispatch: " + user['username']
+			
+			process_profile(user['username'],user['profile'])
+			new_user['dispatched'] = True 
+			registrations.save(new_user)
 
 		elif 'dispatched' in new_user and new_user['dispatched'] is True:
 
-			try:
-				block_profile = namecoind.get_full_profile('u/' + user['username'])
-			except:
-				print "ERROR: getting block profile: " + str(user['username'])
-			
 			if profile_on_blockchain(user["username"],user["profile"]):
 				registrations.remove(new_user)
 			else:
-				if datetime.datetime.utcnow() - new_user['created_at'] > datetime.timedelta(minutes=90):
-				
-					print "Problem (90 mins): " + user['username']
-					#print "Re-sending after 180 mins: " + user['username']
-					process_profile(user['username'],user['profile'])
+				process_profile(user['username'],user['profile'])
 			
-		else:
-			print "Random: " + user['username']
-			#registrations.remove(new_user)
-
 		if counter % 5 == 0:
 			load_balance()
 
 	print counter
-
-#-----------------------------------
-def check_users(): 
-
-	counter = 0 
-
-	for user in users.find():
-
-		if check_banned(user['username']):
-					continue
-
-		if 'username_activated' in user and user['username_activated'] is False:
-			continue
-
-		counter += 1
-
-		print user['username']
-
-		if profile_on_blockchain(user["username"],user["profile"]):
-			#print "Fine: " + user["username"]
-			pass
-		else:
-			print "Problem: " + user["username"]
-			#process_profile(user['username'],user['profile'])
-
-	print "Users: " + str(counter)
 
 #-----------------------------------
 def check_transfer(): 
@@ -323,9 +280,10 @@ def get_pending_state():
 #-----------------------------------
 if __name__ == '__main__':
 
+	cleanup_db()
 	#check_transfer()
 	#update_users()
 	#register_users()
 
 	get_pending_state()	
-	#cleanup_db()
+	
