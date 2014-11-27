@@ -36,3 +36,5 @@ nosetests.xml
 .pydevproject
 
 ignore
+secrets*
+*.txt
