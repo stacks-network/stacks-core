@@ -17,31 +17,6 @@ class Opcode():
     UPDATE = 'U'
     TRANSFER = 'T'
 
-LENGTHS = {
-    'prefix': 1,
-    'name_hash': 20,
-    'prev_block_hash': 19,
-    'name': 19,
-    'salt': 16,
-    'update_hash': 20,
-}
-
-PADDING_BYTE = '\x00'
-
-def gen_salt():
-    return os.urandom(LENGTHS['salt'])
-
-B38_CHARS = string.digits + string.lowercase + '-.'
-B16_CHARS = string.hexdigits[0:16]
-
-def b38_to_bin(s):
-    s_b16 = change_charset(s, B38_CHARS, B16_CHARS)
-    return binascii.unhexlify(s_b16)
-
-def bin_to_b38(s):
-    s_b16 = binascii.hexlify(s)
-    return change_charset(s_b16, B16_CHARS, B38_CHARS)
-
 def parse_nameop(data):
     if is_hex(data) and len(data) <= 80:
         hex_encoding = data

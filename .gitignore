@@ -37,4 +37,4 @@ nosetests.xml
 
 ignore
 secrets*
-*.txt
+data

@@ -37,36 +37,45 @@ Bitcoin DNS Specs + Design
 
 #### Name encoding lengths
 
-- 18 bytes = 27.4 characters
+- 16 bytes = 24 characters
+- 17 bytes = 25.5 characters
+- 18 bytes = 27.0 characters
 - 19 bytes = 28.9 characters
 - 20 bytes = 30.4 characters
 - 24 bytes = 36.5 characters
 
 ### Name Preorder (reserve)
 
-- prefix (1 bytes)
-- name hash (20 bytes)
-- historical record hash (19 bytes)
+- magic byte (2 bytes)
+- operation code (1 byte)
+- name/salt hash (20 bytes)
+- historical record hash (16 bytes)
 
 ### Name Claim (reveal)
 
-- prefix (1 bytes)
-- name (19 bytes)
+- magic byte (2 byte)
+- operation code (1 byte)
+- nameLen (1 byte)
+- name (up to 16 bytes)
 - salt (16 bytes)
 
 ### Name Update
 
-- prefix (1 bytes)
-- name (19 bytes)
+- magic byte (2 byte)
+- operation code (1 byte)
+- nameLen (1 byte)
+- name (up to 16 bytes)
 - update hash (20 bytes)
 
 ### Name Transfer
 
-- prefix (1 bytes)
-- name (19 bytes)
+- magic byte (2 byte)
+- operation code (1 byte)
+- nameLen (1 byte)
+- name (up to 17 bytes)
 
 Name ownership is transferred to the recipient of the first output.
-Name admin rights are given to the recipients of the second output.
+Name admin rights are given to the recipient of the second output.
 
 ### Misc.
 

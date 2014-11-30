@@ -1,0 +1,33 @@
+# Global magic bytes
+MAGIC_BYTES_MAINNET = 'D\xf1'
+MAGIC_BYTES_TESTNET = 'D\xf8'
+
+# Opcodes
+NAME_PREORDER = 'P'
+NAME_CLAIM = 'C'
+NAME_UPDATE = 'U'
+NAME_TRANSFER = 'T'
+
+# Other
+LENGTHS = {
+    'magic_bytes': 2,
+    'opcode': 1,
+    'name_hash': 20,
+    'record_hash': 16,
+    'name': 16,
+    'unencoded_name': 24,
+    'salt': 16,
+    'update_hash': 20,
+}
+
+OP_RETURN_MAX_SIZE = 40
+
+FIRST_BLOCK_MAINNET = 332182
+FIRST_BLOCK_MAINNET_TESTSTORE = 332182
+FIRST_BLOCK_TESTNET = 311517
+FIRST_BLOCK_TESTNET_TESTSTORE = 311517
+
+DEFAULT_REGULAR_DUST_SIZE = 5500
+DEFAULT_MULTISIG_DUST_SIZE = 7800
+DEFAULT_OP_RETURN_VALUE = 0
+DEFAULT_FEE_PER_KB = 10000

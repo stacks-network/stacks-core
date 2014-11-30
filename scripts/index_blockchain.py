@@ -143,13 +143,13 @@ from datetime import datetime
 def main():
     start = datetime.now()
     first_block, num_blocks = 331757, 2
-    bitcoind_client = get_bitcoind_client_from_file('secrets.json')
+    bitcoind_client = get_bitcoind_client_from_file('data/secrets.json')
     if bitcoind_client:
         block_count = bitcoind_client.bitcoind.getblockcount()
         blockchain = Blockchain(bitcoind_client)
         blockchain.index(first_block, first_block+num_blocks-1)
-        blockchain.save_address_txs('address_txs.txt')
-        blockchain.save_nulldata_txs('nulldata_txs.txt')
+        blockchain.save_address_txs('data/address_txs.txt')
+        blockchain.save_nulldata_txs('data/nulldata_txs.txt')
     end = datetime.now()
     delta = end - start
     print "%s seconds" % delta.seconds
