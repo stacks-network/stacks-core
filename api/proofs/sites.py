@@ -6,7 +6,7 @@ SITES = {
         }
     },
     'facebook': {
-        'base_url': 'https://www.facebook.com/',
+        'base_url': 'https://facebook.com/',
         'html_query': {
             'class': 'userContentWrapper _5pcr _3ccb'
         }
