@@ -32,8 +32,20 @@ else:
 	MONGODB_DB = 'onename_api'
 
 	# Secret settings
-	from .secrets import *
+	#from .secrets import *
 
 	MONGODB_URI = 'mongodb://' + MONGODB_HOST + ':' + str(MONGODB_PORT) + '/' + MONGODB_DB
+
+	#URI for remote DB with user info
+	ONENAMEDB_URI = os.environ['ONENAMEDB_URI']
+
+	DEFAULT_PORT =5000
+	DEFAULT_HOST = '0.0.0.0'
+
+	MEMCACHED_ENABLED = True
+	MEMCACHED_PORT = '11211'
+	MEMCACHED_TIMEOUT = 30 * 60
+
+
 
 MAIL_USERNAME = 'support@onename.io'

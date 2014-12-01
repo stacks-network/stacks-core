@@ -2,7 +2,7 @@ import os, json
 from flask import jsonify
 
 from . import v1profile
-from .profile import get_blockchain_profile, get_profile_verifications
+from .profile import get_blockchain_profile
 from ..errors import APIError, ProfileNotFoundError, BadProfileError, \
     UsernameTakenError
 from ..crossdomain import crossdomain
@@ -27,10 +27,6 @@ def api_user(username):
         profile = get_blockchain_profile(username)
     except (ProfileNotFoundError, UsernameTakenError, BadProfileError) as e:
         raise APIError(str(e), status_code=404)
-
-    #verifications = get_profile_verifications(username, profile)
-    #if not verifications:
-    #    verifications = {}
 
     return jsonify({ "profile": profile }), 200
 
