@@ -1,84 +1,60 @@
 import os, json, requests, traceback
 
 from ..errors import APIError, ProfileNotFoundError, BadProfileError, \
-    UsernameTakenError
+	UsernameTakenError
 
 from .examples import EXAMPLES
+from commontools import log, get_json
+from ..settings import ONENAMEDB_URI
 
+#-----------------------------------
+from pymongo import MongoClient
+
+remote_client = MongoClient(ONENAMEDB_URI)
+remote_db = remote_client.get_default_database()
+users = remote_db.user
+
+#-----------------------------------------
 def get_blockchain_profile(username):
-    auth = ('opennamesystem', 'opennamesystem')
-    BASE_URL = 'http://ons-server.halfmoonlabs.com/ons/profile?openname='
 
-    if username == 'example-ryanshea' or username == 'example':
-        return EXAMPLES['ryanshea']
+	auth = ('opennamesystem', 'opennamesystem')
+	BASE_URL = 'http://ons-server.halfmoonlabs.com/ons/profile?openname='
 
-    try:
-        r = requests.get(BASE_URL + username, timeout=1, verify=False, auth=auth)
-    except requests.exceptions.ConnectionError:
-        raise ProfileNotFoundError("User doesn't seem to exist.")
-    except requests.exceptions.Timeout:
-        raise ProfileNotFoundError("User doesn't seem to exist.")
+	if username == 'example-ryanshea' or username == 'example':
+		return EXAMPLES['ryanshea']
 
-    if r.status_code == 404:
-        raise ProfileNotFoundError("User not found.")
-    else:
-        try:
-            profile = json.loads(r.text)
-        except ValueError:
-            raise BadProfileError("User data not properly formatted.")
+	try:
+		r = requests.get(BASE_URL + username, timeout=1, auth=auth)
+	except requests.exceptions.ConnectionError:
+		raise ProfileNotFoundError("User doesn't seem to exist.")
+	except requests.exceptions.Timeout:
+		raise ProfileNotFoundError("User doesn't seem to exist.")
 
-    if not profile:
-        raise BadProfileError("User profile is empty.")
+	if r.status_code == 404:
+		raise ProfileNotFoundError("User not found.")
+	else:
+		try:
+			profile = json.loads(r.text)
+		except ValueError:
+			raise BadProfileError("User data not properly formatted.")
 
-    if 'message' in profile and not ('name' in profile or 'v' in profile):
-        raise UsernameTakenError(profile['message'])
+	if not profile:
+		raise BadProfileError("User profile is empty.")
 
-    return profile
+	if 'message' in profile and not ('name' in profile or 'v' in profile):
+		raise UsernameTakenError(profile['message'])
 
-def get_profile_verifications(username, profile):
-    if username == 'fredwilson':
-        data = {}
-        return data
+	return profile
 
-    url = "http://proofcheck.halfmoonlabs.com/proofcheck/verifications?username=" + username
-    
-    try:
-        r = requests.get(url, timeout=1, verify=False)
-    except requests.exceptions.ConnectionError:
-        traceback.print_exc()
-        return None
-    except requests.exceptions.Timeout:
-        traceback.print_exc()
-        return None
+#-----------------------------------------
+def get_db_profile(username):
 
-    try:
-        data = r.json()
-    except ValueError:
-        traceback.print_exc()
-        return None
+	try: 
+		user = users.find_one({"username":username})
+		profile = get_json(user["profile"])
 
-    if type(data) is not dict:
-        return None
-
-    try:
-        facebook_proof_url = profile.get('facebook', {}).get('proof', {}).get('url')
-        facebook_username = profile.get('facebook', {}).get('username')
-    except:
-        data['facebook'] = False
-    else:
-        if facebook_proof_url and facebook_username:
-            if facebook_username not in facebook_proof_url:
-                data['facebook'] = False
-            else:
-                data['facebook'] = True
-
-    try:
-        twitter_proof_url = profile.get('twitter', {}).get('proof', {}).get('url')
-        twitter_username = profile.get('twitter', {}).get('username')
-    except:
-        data['twitter'] = False
-    else:
-        if twitter_proof_url and twitter_username and twitter_username not in twitter_proof_url:
-            data['twitter'] = False
-
-    return data
+	except Exception as e:
+		profile = None
+		log.error("couldn't connect to database")
+		
+	return profile
