@@ -44,6 +44,12 @@ Bitcoin DNS Specs + Design
 - 20 bytes = 30 characters
 - 24 bytes = 36 characters
 
+### Transaction Senders/Name Owners
+
+Each transaction operation has a "sender". If any pre-orders or name registrations occur as a result of a given transaction, the "sender" is also considered the "owner" of those pre-orders and/or name registrations.
+
+In a transaction, the sender is established as the funder of the first non-OP_RETURN input.
+
 ### Name Preorder (reserve)
 
 - magic bytes (2 bytes)
