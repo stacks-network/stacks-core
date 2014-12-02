@@ -280,10 +280,10 @@ def get_pending_state():
 #-----------------------------------
 if __name__ == '__main__':
 
-	cleanup_db()
-	#check_transfer()
-	#update_users()
-	#register_users()
+	#cleanup_db()
+	check_transfer()
+	update_users()
+	register_users()
 
-	get_pending_state()	
+	#get_pending_state()	
 	
