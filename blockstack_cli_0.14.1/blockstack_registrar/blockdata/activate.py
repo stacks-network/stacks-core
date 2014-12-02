@@ -36,6 +36,10 @@ from blockdata.register import slice_profile
 def refresh_value(entry):
     username = entry['username']
     user = users.find_one({"username":username})
+
+    if user is None:
+        return None 
+
     profile = user['profile']
     keys, values = slice_profile(username,profile)
 
@@ -44,6 +48,14 @@ def refresh_value(entry):
         if entry['key'] == key:
             return values[counter] 
         counter += 1
+
+#-----------------------------------
+def clean_wallet():
+
+    for entry in register_queue.find():
+        if entry['tx_sent'] is True:
+            entry['tx_sent'] = False
+            register_queue.save(entry)
 
 #-----------------------------------
 def do_name_firstupdate():
@@ -84,17 +96,18 @@ def do_name_firstupdate():
 
             if 'wait_till_block' not in entry: 
 
-                if 'txid' in entry:
-                    reply = namecoind.gettransaction(entry['txid'])
-                else:
-                    log.debug("remove longhex from code")
-                    reply = namecoind.gettransaction(entry['longhex'])
+                reply = namecoind.gettransaction(entry['txid'])
+
+                if 'code' in reply:
+                    register_queue.remove(entry)
+                    continue
+                
                 if reply['confirmations'] > 1:
-                    log.debug('Got confirmations on name_firstupdate: %s' % entry['key'])
+                    log.debug('Got confirmations on name_new: %s' % entry['key'])
                     entry['wait_till_block'] = namecoind.blocks() + (12 - reply['confirmations'])
                     register_queue.save(entry)
                 else:
-                    log.debug('No confirmations on name_firstupdate: %s' % entry['key'])
+                    log.debug('No confirmations on name_new: %s' % entry['key'])
                     continue 
 
             if entry['wait_till_block'] <= blocks:
@@ -107,22 +120,19 @@ def do_name_firstupdate():
                         ignore_servers.append(server)
                         continue
 
+                update_value = None
                 if 'username' in entry:
-                    log.debug('refreshing value')
                     update_value = get_string(refresh_value(entry))
-                else:
-                    update_value = get_string(entry['value'])
+
+                if update_value is None:
+                    update_value = get_string(entry['value'])    
                 
                 log.debug("Activating entry: '%s' to point to '%s'" % (key, update_value))
                 
-                if 'txid' in entry:
-                    output = namecoind.firstupdate(key,entry['rand'],update_value,entry['txid'])
-                else:
-                    log.debug('remove longhex from code')    
-                    output = namecoind.firstupdate(key,entry['rand'],update_value,entry['longhex'])
+                output = namecoind.firstupdate(key,entry['rand'],update_value,entry['txid'])
+                
                 log.debug(output)
-                entry['tx_sent'] = True
-
+                
                 if 'message' in output and output['message'] == "this name is already active":
                     register_queue.remove(entry)
                 elif 'message' in output and output['message'] == "previous transaction is not in the wallet":
@@ -156,6 +166,7 @@ def do_name_firstupdate():
 #-----------------------------------
 if __name__ == '__main__':
 
+    #clean_wallet()
     do_name_firstupdate()
     exit(0)
 
