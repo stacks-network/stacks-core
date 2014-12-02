@@ -7,3 +7,4 @@ from scripts import *
 from hashing import *
 from operations import *
 from parsing import *
+from namedb import *

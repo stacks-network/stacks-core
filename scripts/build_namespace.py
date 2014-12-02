@@ -11,21 +11,6 @@ def get_nulldata_txs_from_file(filename):
         return None
     return data
 
-class NameDb():
-    def __init__(self):
-        self.names = {}
-        self.preorders = {}
-
-    def save(self, filename):
-        try:
-            with open(filename, 'w') as f:
-                db_dict = { 'names': self.names, 'preorders': self.preorders }
-                data = f.write(json.dumps(db_dict))
-        except Exception as e:
-            return False
-        else:
-            return True
-
 def has_preordered_name(db, name_hash, sender):
     if name_hash in db.preorders:
         if sender == db.preorders[name_hash]['sender']:
@@ -100,7 +85,7 @@ def main():
             if nameop:
                 record_nameop(db, nameop, mining_fee, senders)
 
-    db.save('data/namespace.txt')
+    db.save_names('data/namespace.txt')
 
 if __name__ == '__main__':
     main()
