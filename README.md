@@ -80,8 +80,7 @@ In a transaction, the sender is established as the funder of the first non-OP_RE
 - nameLen (1 byte)
 - name (up to 16 bytes)
 
-Name ownership is transferred to the recipient of the first output.
-Name admin rights are given to the recipient of the second output.
+In a name transfer, name ownership is transferred to the recipient of the first non-OP_RETURN output, while name admin rights are given to the recipient of the second non-OP_RETURN output.
 
 ### Misc.
 
