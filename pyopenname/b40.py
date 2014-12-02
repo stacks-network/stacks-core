@@ -1,10 +1,10 @@
-from utilitybelt import is_hex, change_charset, charset_to_hex
+from utilitybelt import is_hex, change_charset, charset_to_hex, hex_to_charset
 import re, string
 from binascii import hexlify, unhexlify
 
 B16_CHARS = string.hexdigits[0:16]
-B40_CHARS = string.digits + string.lowercase + '-./_'
-B40_REGEX = '^[a-z0-9\-_./]*$'
+B40_CHARS = string.digits + string.lowercase + '-_.+'
+B40_REGEX = '^[a-z0-9\-_.+]*$'
 
 def is_b40(s):
     return (isinstance(s, str) and re.match(B40_REGEX, s))
@@ -17,4 +17,7 @@ def b40_to_bin(s):
 def bin_to_b40(s):
     if not isinstance(s, str):
         raise ValueError('s must be a string')
-    return change_charset(hexlify(s), B16_CHARS, B40_CHARS)
+    return hex_to_charset(hexlify(s), B40_CHARS)
+
+def b40_to_hex(s):
+    return hexlify(b40_to_bin(s))

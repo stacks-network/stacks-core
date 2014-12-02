@@ -1,5 +1,5 @@
 
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
     name='pyopenname',
@@ -10,13 +10,11 @@ setup(
     author_email='hello@halfmoon.io',
     description='',
     keywords='bitcoin btc cryptocurrency',
-    packages=[
-        'pyopenname'
-    ],
+    packages=find_packages(),
     zip_safe=False,
     install_requires=[
         'coinkit>=0.7.4',
-        'utilitybelt>=0.2.1'
+        'utilitybelt>=0.2.2'
     ],
     classifiers=[
         'Intended Audience :: Developers',
