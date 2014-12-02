@@ -13,8 +13,8 @@ Bitcoin DNS Specs + Design
 - `hash160`: a 20-byte ripemd160 hash
 - `salt`: a random value appended to data in order to prevent reverse-lookups of the hashed data
 - `name hash`: a hash160 of a given name and a random salt
--`name encoding`: a given name converted from base 37 to base 256, then padded with zeros
-- `historical record hash`: a hash of a data string generated from the combined list of the last block's valid names
+-`name encoding`: a given name converted from base 40 to base 256
+- `historical record hash`: a hash of a data string generated from a representation of the namespace
 - `update hash`: a hash of the data to be associated with a given name
 
 ### Data Encoding
@@ -23,8 +23,8 @@ Bitcoin DNS Specs + Design
 
 - 40 bytes available in OP_RETURN
 - 1 byte = 256 values
-- alphanumeric-dash-dot charspace = 38 values
-- 1.5244 name characters can fit in each byte
+- charspace of alphanumerics and a few special chars (-._+) = 40 values
+- 1.5 name characters can fit in each byte
 
 #### Field lengths
 
@@ -40,20 +40,20 @@ Bitcoin DNS Specs + Design
 - 16 bytes = 24 characters
 - 17 bytes = 25.5 characters
 - 18 bytes = 27.0 characters
-- 19 bytes = 28.9 characters
-- 20 bytes = 30.4 characters
-- 24 bytes = 36.5 characters
+- 19 bytes = 28.5 characters
+- 20 bytes = 30 characters
+- 24 bytes = 36 characters
 
 ### Name Preorder (reserve)
 
-- magic byte (2 bytes)
+- magic bytes (2 bytes)
 - operation code (1 byte)
 - name/salt hash (20 bytes)
 - historical record hash (16 bytes)
 
 ### Name Claim (reveal)
 
-- magic byte (2 byte)
+- magic bytes (2 bytes)
 - operation code (1 byte)
 - nameLen (1 byte)
 - name (up to 16 bytes)
@@ -61,7 +61,7 @@ Bitcoin DNS Specs + Design
 
 ### Name Update
 
-- magic byte (2 byte)
+- magic bytes (2 bytes)
 - operation code (1 byte)
 - nameLen (1 byte)
 - name (up to 16 bytes)
@@ -72,7 +72,7 @@ Bitcoin DNS Specs + Design
 - magic byte (2 byte)
 - operation code (1 byte)
 - nameLen (1 byte)
-- name (up to 17 bytes)
+- name (up to 16 bytes)
 
 Name ownership is transferred to the recipient of the first output.
 Name admin rights are given to the recipient of the second output.
