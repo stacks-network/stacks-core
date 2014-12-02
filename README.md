@@ -28,12 +28,13 @@ Bitcoin DNS Specs + Design
 
 #### Field lengths
 
-- prefix = 1 byte
+- magic bytes = 2 bytes
 - name hash = 20 bytes
-- previous block hash (truncated) = 19 bytes
-- name = 19 bytes
+- nameLen = 1 byte
+- name = 1 byte - 16 bytes
 - salt = 16 bytes
 - update hash = 20 bytes
+- historical record hash (truncated) = 16 bytes
 
 #### Name encoding lengths
 
