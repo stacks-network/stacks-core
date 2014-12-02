@@ -30,7 +30,7 @@ MAX_PENDING_TX = 50
 #-----------------------------------
 def pending_transactions(): 
 
-	reply = namecoind.namecoind.listtransactions("",10000)
+	reply = namecoind.listtransactions("",10000)
 
 	counter = 0 
 
@@ -80,14 +80,15 @@ if __name__ == '__main__':
 		new_user = users.find_one({'username':username}) 
 		if  new_user is not None:
 			print username + " in new DB"
-		
+		 
+		 	profile = get_json(new_user['profile'])
 			try:
 				process_user(username,profile)
 			except Exception as e:
-			#	print e
-			#tx_sent += 1
-			#print '-' * 5
-			#continue 
+				print e
+			tx_sent += 1
+			print '-' * 5
+			continue 
 		
 		old_user = old_users.find_one({'username':username})
 		if  old_user is not None:

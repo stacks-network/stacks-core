@@ -73,7 +73,7 @@ def do_name_transfer(username,live=False):
 #-----------------------------------
 if __name__ == '__main__':
 
-	live = True
+	live = False
 
 	username = "clone66"
 
