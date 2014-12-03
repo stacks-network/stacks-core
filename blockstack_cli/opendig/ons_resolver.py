@@ -54,5 +54,6 @@ def ons_resolver(key):
     return return_data
 #-----------------------------------
 
-key = "ibrahim"
-print ons_resolver(key)
+if __name__ == "__main__":
+    key = "ibrahim"
+    print ons_resolver(key)
