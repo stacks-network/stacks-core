@@ -12,7 +12,7 @@ from opendig import ONS_SERVERS, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSW
 
 import json
 import hashlib
-from coinrpc import namecoind
+from coinrpc.namecoind_server import NamecoindServer 
 
 #currently using namecoind for storing data (but ONS can use any blockchain)
 #---------------------------------------
@@ -25,12 +25,13 @@ def error_reply(msg, code = -1):
     return reply 
 
 #-----------------------------------
-def ons_resolver(key):
+def ons_resolver(key): 
 
     counter = 0 
 
     server = ONS_SERVERS[counter]
     try:
+        namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD)
         return_data = namecoind.get_full_profile('u/' + key)
     except:
         return error_reply("Couldn't connect to namecoind")
@@ -42,6 +43,7 @@ def ons_resolver(key):
         counter += 1
         server = ONS_SERVERS[counter]
         try:
+            namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD)
             check_data = namecoind.get_full_profile('u/' + key)
         except:
             return error_reply("Couldn't connect to namecoind")
