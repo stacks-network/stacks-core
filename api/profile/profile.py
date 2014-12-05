@@ -5,12 +5,12 @@ from ..errors import APIError, ProfileNotFoundError, BadProfileError, \
 
 from .examples import EXAMPLES
 from commontools import log, get_json
-from ..settings import ONENAMEDB_URI
+from ..settings import USERDB_URI
 
 #-----------------------------------
 from pymongo import MongoClient
 
-remote_client = MongoClient(ONENAMEDB_URI)
+remote_client = MongoClient(USERDB_URI)
 remote_db = remote_client.get_default_database()
 users = remote_db.user
 
