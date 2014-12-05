@@ -16,3 +16,4 @@ from operations import *
 from parsing import *
 from namedb import *
 from fees import *
+from namespace import *

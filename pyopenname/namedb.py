@@ -1,10 +1,16 @@
 import json
 
+from collections import defaultdict
+
 class NameDb():
     def __init__(self, names_filename=None, content_filename=None):
         self.names = {}
         self.preorders = {}
         self.content = {}
+
+        self.pending_registrations = defaultdict(list)
+        self.pending_updates = defaultdict(list)
+        self.pending_transfers = defaultdict(list)
 
         if names_filename:
             try:

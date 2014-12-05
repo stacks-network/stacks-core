@@ -32,5 +32,6 @@ def calculate_name_price(name):
     return price
 
 def is_mining_fee_sufficient(name, mining_fee):
-    name_price = calculate_name_price(name)
+    name_price = 0
+    #name_price = calculate_name_price(name)
     return (mining_fee >= name_price)

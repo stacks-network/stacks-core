@@ -80,8 +80,13 @@ def analyze_nameop_outputs(nameop, outputs):
         nameop.update({ 'recipient': recipient })
     return nameop
 
-def parse_nameop(data, outputs):
+def parse_nameop(data, outputs, senders=None, fee=None):
     nameop = parse_nameop_data(data)
     if nameop:
         nameop = analyze_nameop_outputs(nameop, outputs)
+        if senders and len(senders) > 0 and 'script_pubkey' in senders[0]:
+            primary_sender = senders[0]['script_pubkey']
+            nameop['sender'] = primary_sender
+        if fee:
+            nameop['fee'] = fee
     return nameop
