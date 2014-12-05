@@ -26,8 +26,6 @@ remote_db = MongoClient(MONGODB_URI).get_default_database()
 new_users = remote_db.user
 transfer = remote_db.name_transfer
 
-local_db = MongoClient()['bitcoin-data'] 
-
 old_db = MongoClient(OLD_DB).get_default_database()
 old_users = old_db.user
 

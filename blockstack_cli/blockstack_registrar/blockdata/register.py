@@ -15,8 +15,9 @@ from commontools import utf8len, log
  
 #-----------------------------------
 from pymongo import MongoClient
-local_db = MongoClient()['namecoin']
-register_queue = local_db.queue
+from config import AWSDB_URI
+aws_db = MongoClient(AWSDB_URI)['blockdata']
+register_queue = aws_db.queue
 
 from coinrpc.namecoind_server import NamecoindServer 
 from blockdata.namecoind_cluster import get_server

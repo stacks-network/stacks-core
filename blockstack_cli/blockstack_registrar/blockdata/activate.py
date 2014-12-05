@@ -18,8 +18,9 @@ from config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_W
 
 #-----------------------------------
 from pymongo import MongoClient
-local_db = MongoClient()['namecoin']
-register_queue = local_db.queue
+from config import AWSDB_URI
+aws_db = MongoClient(AWSDB_URI)['blockdata']
+register_queue = aws_db.queue
 
 from config import MONGODB_URI
 remote_client = MongoClient(MONGODB_URI)
