@@ -8,7 +8,7 @@
 import os
 import json
 
-from config import MONGODB_URI, OLD_DB
+from config import MONGODB_URI, OLD_DB, AWSDB_URI
 
 from coinrpc import namecoind, NamecoindServer
 from config import NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD
@@ -40,8 +40,8 @@ old_client = MongoClient(OLD_DB)
 old_db = old_client.get_default_database()
 old_users = old_db.user
 
-local_db = MongoClient()['namecoin']
-register_queue = local_db.queue
+aws_db = MongoClient(AWSDB_URI)['blockdata']
+register_queue = aws_db.queue
 
 from config_local import problem_users, banned_users 
 
