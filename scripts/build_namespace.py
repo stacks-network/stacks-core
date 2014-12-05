@@ -23,13 +23,6 @@ def is_name_owner(db, name, senders):
             return True
     return False
 
-def name_price_paid(name, mining_fee):
-    #name_registration_price = 100*10**8/(10**len(name))
-    name_registration_price = 0
-    if mining_fee >= name_registration_price:
-        return True
-    return False
-
 def record_nameop(db, nameop, mining_fee, senders):
     primary_sender = senders[0]['script_pubkey']
     opcode = eval(nameop['opcode'])
@@ -48,7 +41,7 @@ def record_nameop(db, nameop, mining_fee, senders):
             name_hash = None
 
         if has_preordered_name(db, name_hash, primary_sender):
-            if name_price_paid(name, mining_fee):
+            if is_mining_fee_sufficient(name, mining_fee):
                 # remove the preorder
                 del db.preorders[name_hash]
                 # register the name under the owner
