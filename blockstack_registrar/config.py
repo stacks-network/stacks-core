@@ -33,6 +33,7 @@ except:
 
 	MONGODB_URI = os.environ['MONGODB_URI']
 	OLD_DB = os.environ['OLD_DB']
+	AWSDB_URI = os.environ['AWSDB_URI']
 	
 	DEFAULT_HOST = '127.0.0.1'
 	MEMCACHED_PORT = '11211'
