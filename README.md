@@ -1,4 +1,4 @@
-Bitcoin DNS Specs + Design
+Openname Data Store Specs + Design
 ==========
 
 ### Operations
