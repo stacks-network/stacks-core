@@ -1,10 +1,13 @@
 import re
 
-def count_non_alphabetics(s):
-    return len(re.findall('[^a-z]', s))
-
 def is_alphabetic(s):
-    return count_non_alphabetics(s) == 0
+    return len(re.findall('[^a-z]', s)) == 0
+
+def has_numerics(s):
+    return len(re.findall('[0-9]', s)) > 0
+
+def has_underscores_or_dashes(s):
+    return len(re.findall('[-_]', s)) > 0
 
 def calculate_name_price(name):
     SATOSHIS_PER_BTC = 10**8
@@ -18,8 +21,8 @@ def calculate_name_price(name):
     # adjust the price by a factor X for every character beyond the first
     price /= PRICE_DROP_PER_LETTER**(len(name)-1)
 
-    if not is_alphabetic(name):
-        # for non-alphabetic names, execute another price reduction
+    if has_numerics(name) or has_underscores_or_dashes(name):
+        # for names with numerics or special chars, reduce the price further
         price /= PRICE_DROP_FOR_NON_ALPHABETIC
     else:
         # for alphabetic names, enforce a price floor
