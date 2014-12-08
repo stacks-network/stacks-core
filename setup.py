@@ -2,19 +2,22 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='pyopenname',
+    name='opennamed',
     version='0.1.0',
-    url='https://github.com/openname/pyopenname',
+    url='https://github.com/openname/opennamed',
     license='MIT',
     author='Onename',
-    author_email='hello@halfmoon.io',
+    author_email='hello@halfmoonlabs.com',
     description='',
     keywords='bitcoin btc cryptocurrency',
     packages=find_packages(),
+    scripts=['bin/opennamed','bin/openname-cli'],
+    download_url = 'https://github.com/openname/opennamed/archive/master.zip',
     zip_safe=False,
     install_requires=[
         'coinkit>=0.7.4',
-        'utilitybelt>=0.2.2'
+        'zerorpc>=0.4.4',
+        'python-daemon>=1.6.1'
     ],
     classifiers=[
         'Intended Audience :: Developers',
