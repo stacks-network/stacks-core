@@ -1,0 +1,8 @@
+gevent==1.0.1
+greenlet==0.4.5
+lockfile==0.10.2
+msgpack-python==0.4.2
+python-bitcoinrpc==0.1
+python-daemon==1.6.1
+pyzmq==13.1.0
+zerorpc==0.4.4
