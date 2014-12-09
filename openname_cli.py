@@ -40,10 +40,12 @@ def run_cli():
 
     parser.add_argument(
         '--opennamed-server',
-        help="""the hostname or IP address of the opennamed RPC server (default: {})""".format(config.OPENNAMED_SERVER))
+        help="""the hostname or IP address of the opennamed RPC server
+                (default: {})""".format(config.OPENNAMED_SERVER))
     parser.add_argument(
         '--opennamed-port', type=int,
-        help="""the opennamed RPC port to connect to (default: {})""".format(config.OPENNAMED_PORT))
+        help="""the opennamed RPC port to connect to
+                (default: {})""".format(config.OPENNAMED_PORT))
     
     subparsers = parser.add_subparsers(
         dest='action', help='the action to be taken')

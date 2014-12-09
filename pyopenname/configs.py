@@ -20,6 +20,8 @@ LENGTHS = {
     'salt': 16,
     'update_hash': 20,
 }
+LENGTHS['name_claim_min'] = LENGTHS['name_min']+LENGTHS['salt']
+LENGTHS['name_update_min'] = LENGTHS['name_min']+LENGTHS['update_hash']
 
 OP_RETURN_MAX_SIZE = 40
 

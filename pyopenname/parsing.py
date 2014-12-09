@@ -23,7 +23,8 @@ def parse_name_update(bin_payload):
     name = bin_payload[1:1+name_len]
     update = bin_payload[1+name_len:1+name_len+LENGTHS['update_hash']]
     return {
-        'opcode': 'NAME_UPDATE', 'name': bin_to_b40(name), 'update': hexlify(update)
+        'opcode': 'NAME_UPDATE', 'name': bin_to_b40(name),
+        'update': hexlify(update)
     }
 
 def parse_name_transfer(bin_payload):
@@ -63,9 +64,9 @@ def parse_nameop_data(data):
 
     if opcode == NAME_PREORDER and len(payload) >= LENGTHS['name_hash']:
         nameop = parse_name_preorder(payload)
-    elif opcode == NAME_CLAIM and len(payload) >= LENGTHS['name_min']+LENGTHS['salt']:
+    elif opcode == NAME_CLAIM and len(payload) >= LENGTHS['name_claim_min']:
         nameop = parse_name_claim(payload)
-    elif opcode == NAME_UPDATE and len(payload) >= LENGTHS['name_min']+LENGTHS['update_hash']:
+    elif opcode == NAME_UPDATE and len(payload) >= LENGTHS['name_update_min']:
         nameop = parse_name_update(payload)
     elif opcode == NAME_TRANSFER:
         nameop = parse_name_transfer(payload)
