@@ -5,10 +5,13 @@ from .fees import is_mining_fee_sufficient
 from .parsing import parse_nameop
 from .configs import *
 
-def name_not_registered(db, name):
+def name_registered(db, name):
     if name in db.names:
-        return False
-    return True
+        return True
+    return False
+
+def name_not_registered(db, name):
+    return (not name_registered(db, name))
 
 def no_pending_higher_priority_registration(db, name, mining_fee):
     if name in db.pending_registrations:
@@ -49,11 +52,17 @@ def is_preorder_hash_unique(db, name_hash):
 
 def log_registration(db, nameop):
     name = nameop['name']
-    if (name_not_registered(db, name) and \
-        has_preordered_name(db, name, nameop['salt'], nameop['sender']) and \
-        is_mining_fee_sufficient(name, nameop['fee'])):
-        # we're good - log it!
+    # check if this registration is a valid one
+    if (name_not_registered(db, name)
+        and has_preordered_name(db, name, nameop['salt'], nameop['sender'])
+        and is_mining_fee_sufficient(name, nameop['fee'])):
+        # we're good - log the registration!
         db.pending_registrations[name].append(nameop)
+    # check if this registration is actually a valid renewal
+    if (name_registered(db, name)
+        and is_name_owner(db, name, nameop['sender'])):
+        # we're good - log the renewal!
+        db.pending_renewals[name].append(nameop)
 
 def log_update(db, nameop):
     name = nameop['name']
@@ -77,9 +86,27 @@ def log_preorder(db, nameop):
 def commit_preorder(db, nameop):
     db.preorders[nameop['hash']] = nameop
 
-def commit_registration(db, nameop):
-    remove_preorder(db, nameop['name'], nameop['salt'])
-    db.names[nameop['name']] = { 'value_hash': None, 'owner': nameop['sender'] }
+def commit_registration(db, nameop, current_block_number):
+    name = nameop['name']
+    remove_preorder(db, name, nameop['salt'])
+    db.names[name] = {
+        'value_hash': None,
+        'owner': str(nameop['sender']),
+        'block_first_registered': current_block_number,
+        'block_last_renewed': current_block_number
+    }
+    db.block_expirations[current_block_number][name] = True
+
+def commit_renewal(db, nameop, current_block_number):
+    name = nameop['name']
+    # grab the block the name was last renewed to find the old expiration timer
+    block_last_renewed = db.names[name]['block_last_renewed']
+    # remove the old expiration timer
+    db.block_expirations[block_last_renewed].pop(name, None)
+    # add in the new expiration timer
+    db.block_expirations[current_block_number][name] = True
+    # update the block that the name was last renewed in the name record
+    db.names[name]['block_last_renewed'] = current_block_number
 
 def commit_update(db, nameop):
     db.names[nameop['name']]['value_hash'] = nameop['update']
@@ -89,25 +116,34 @@ def commit_transfer(db, nameop):
 
 # processing logged registrations, updates, and transfers
 
-def process_pending_nameops_in_block(db):
+def process_pending_nameops_in_block(db, current_block_number):
+    # commit the pending registrations
     for name, nameops in db.pending_registrations.items():
         if len(nameops) == 1:
-            nameop = nameops[0]
-            commit_registration(db, nameop)
-
+            commit_registration(db, nameops[0], current_block_number)
+    # commit the pending updates
     for name, nameops in db.pending_updates.items():
         if len(nameops) == 1:
-            nameop = nameops[0]
-            commit_update(db, nameop)
-
+            commit_update(db, nameops[0])
+    # commit the pending transfers
     for name, nameops in db.pending_transfers.items():
         if len(nameops) == 1:
-            nameop = nameops[0]
-            commit_transfer(db, nameop)
+            commit_transfer(db, nameops[0])
+    # commit the pending renewals
+    for name, nameops in db.pending_renewals.items():
+        if len(nameops) == 1:
+            commit_renewal(db, nameops[0], current_block_number)
 
     db.pending_registrations = defaultdict(list)
     db.pending_updates = defaultdict(list)
     db.pending_transfers = defaultdict(list)
+    db.pending_renewals = defaultdict(list)
+
+def clean_out_expired_names(db, current_block_number):
+    expiring_block_number = current_block_number - EXPIRATION_PERIOD
+    names_expiring = db.block_expirations[expiring_block_number]
+    for name, _ in names_expiring.items():
+        del db.names[name]
 
 def record_nameop(db, nameop):
     opcode = eval(nameop['opcode'])
@@ -120,20 +156,22 @@ def record_nameop(db, nameop):
     elif opcode == NAME_TRANSFER:
         log_transfer(db, nameop)
 
-def build_namespace(db, nulldata_txs):
+def build_namespace(db, nulldata_txs, first_block, last_block):
     block_numbers = sorted(nulldata_txs)
-    for block_number in block_numbers:
-        print "="*20 + str(block_number) + "="*20
-        block = nulldata_txs[block_number]
-        for tx in block:
-            nameop = parse_nameop(str(tx['data']), tx['outputs'],
-                tx['senders'], tx['mining_fee'])
-            print nameop
-            if nameop:
-                try:
-                    record_nameop(db, nameop)
-                except Exception as e:
-                    traceback.print_exc()
-                    continue
-        process_pending_nameops_in_block(db)
+    for block_number in range(first_block, last_block+1):
+        #print "="*20 + str(block_number) + "="*20
+        if str(block_number) in nulldata_txs:
+            block = nulldata_txs[str(block_number)]
+            for tx in block:
+                nameop = parse_nameop(str(tx['data']), tx['outputs'],
+                    tx['senders'], tx['mining_fee'])
+                #print nameop
+                if nameop:
+                    try:
+                        record_nameop(db, nameop)
+                    except Exception as e:
+                        traceback.print_exc()
+                        continue
+            process_pending_nameops_in_block(db, block_number)
+        clean_out_expired_names(db, block_number)
 
