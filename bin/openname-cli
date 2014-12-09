@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-	Opennamed
-	~~~~~
-	:copyright: (c) 2014 by Openname.org
-	:license: MIT, see LICENSE for more details.
+    Opennamed
+    ~~~~~
+    :copyright: (c) 2014 by Openname.org
+    :license: MIT, see LICENSE for more details.
 """
 
 import sys
@@ -18,7 +18,5 @@ sys.path.insert(0, parent_dir)
 
 from openname_cli import run_cli
 
-#-----------------------------------
 if __name__ == '__main__':
-
-	run_cli()
+    run_cli()
