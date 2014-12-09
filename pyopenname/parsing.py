@@ -1,38 +1,10 @@
 from binascii import hexlify, unhexlify
 from utilitybelt import is_hex, hex_to_charset, charset_to_hex
 
-from .configs import *
+from .config import *
 from .b40 import bin_to_b40
-
-def parse_name_preorder(bin_payload):
-    name_hash = bin_payload[0:LENGTHS['name_hash']]
-    return {
-        'opcode': 'NAME_PREORDER', 'hash': hexlify(name_hash)
-    }
-
-def parse_name_claim(bin_payload):
-    name_len = ord(bin_payload[0:1])
-    name = bin_payload[1:1+name_len]
-    salt = bin_payload[1+name_len:1+name_len+LENGTHS['salt']]
-    return {
-        'opcode': 'NAME_CLAIM', 'name': bin_to_b40(name), 'salt': hexlify(salt)
-    }
-
-def parse_name_update(bin_payload):
-    name_len = ord(bin_payload[0:1])
-    name = bin_payload[1:1+name_len]
-    update = bin_payload[1+name_len:1+name_len+LENGTHS['update_hash']]
-    return {
-        'opcode': 'NAME_UPDATE', 'name': bin_to_b40(name),
-        'update': hexlify(update)
-    }
-
-def parse_name_transfer(bin_payload):
-    name_len = ord(bin_payload[0:1])
-    name = bin_payload[1:1+name_len]
-    return {
-        'opcode': 'NAME_TRANSFER', 'name': bin_to_b40(name), 'recipient': None
-    }
+from .operations import parse_name_preorder, parse_name_claim, \
+    parse_name_update, parse_name_transfer
 
 def get_recipient_from_nameop_outputs(outputs):
     for output in outputs:

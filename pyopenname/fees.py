@@ -1,5 +1,7 @@
 import re
 
+from .config import DEFAULT_OP_RETURN_FEE
+
 def is_alphabetic(s):
     return len(re.findall('[^a-z]', s)) == 0
 
@@ -8,6 +10,9 @@ def has_numerics(s):
 
 def has_underscores_or_dashes(s):
     return len(re.findall('[-_]', s)) > 0
+
+def calculate_basic_name_tx_fee():
+    return DEFAULT_OP_RETURN_FEE
 
 def calculate_name_price(name):
     SATOSHIS_PER_BTC = 10**8

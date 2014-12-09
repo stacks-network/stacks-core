@@ -90,7 +90,7 @@ class NameOperationSequenceTest(unittest.TestCase):
         self.salt = resp['salt']
         self.assertTrue('success' in resp)
 
-        resp = claim_name(self.name, self.salt, self.private_keys[0],
+        resp = claim_name(self.name, self.salt, self.private_keys[1],
             blockchain_client=blockchain_client, testspace=True)
         self.assertTrue('success' in resp)
 
@@ -104,8 +104,8 @@ class NameOperationSequenceTest(unittest.TestCase):
 
 def test_main():
     test_support.run_unittest(
-        NamePreorderTest,
-        #NameClaimTest,
+        #NamePreorderTest,
+        NameClaimTest,
         #NameUpdateTest,
         #NameTransferTest,
         #NameOperationSequenceTest

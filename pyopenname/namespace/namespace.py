@@ -1,9 +1,9 @@
 from collections import defaultdict
 
-from .hashing import hash_name
-from .fees import is_mining_fee_sufficient
-from .parsing import parse_nameop
-from .configs import *
+from ..hashing import hash_name
+from ..fees import is_mining_fee_sufficient
+from ..parsing import parse_nameop
+from ..config import *
 
 def name_registered(db, name):
     if name in db.names:
