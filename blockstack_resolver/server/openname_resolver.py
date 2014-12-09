@@ -15,10 +15,10 @@ from commontools import error_reply
 
 app = Flask(__name__)
 
-from .config import DEFAULT_HOST, MEMCACHED_PORT, MEMCACHED_TIMEOUT, MEMCACHED_ENABLED
+from .config import DEFAULT_HOST, MEMCACHED_SERVERS, MEMCACHED_USERNAME, MEMCACHED_PASSWORD, MEMCACHED_TIMEOUT, MEMCACHED_ENABLED
 import pylibmc
 from time import time
-mc = pylibmc.Client([DEFAULT_HOST + ':' + MEMCACHED_PORT],binary=True)
+mc = pylibmc.Client(MEMCACHED_SERVERS,binary=True,username=MEMCACHED_USERNAME,password=MEMCACHED_PASSWORD)
 
 from coinrpc import namecoind 
 

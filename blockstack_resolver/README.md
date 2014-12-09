@@ -1,9 +1,9 @@
 Openname-resolver
 =======
 
-## Overview: 
+## Overview:
 
-Openname-resolver is a highly scalable server for [Openname System](https://openname.org). It resolves opennames (usernames) to profile data. It is blockchain-agnostic (currently uses the Namecoin blockchain) and is primarily meant for scaling read-only calls to the underlying blockchain. For achieving high throughput openname-resolver loads the entire namespace into memcached and then keeps the in-memory copy consistent with the blockchain. Read-only calls never hit disk and their scalability is completely decoupled from the scalability properties of the underlying database. 
+Openname-resolver is a highly scalable server for [Openname System](https://openname.org). It resolves opennames (usernames) to profile data. It is blockchain-agnostic (currently uses the Namecoin blockchain) and is primarily meant for scaling read-only calls to the underlying blockchain. For achieving high throughput openname-resolver loads the entire namespace into memcached and then keeps the in-memory copy consistent with the blockchain. Read-only calls never hit disk and their scalability is completely decoupled from the scalability properties of the underlying database.
 
 ## Setup Instructions:
 
@@ -25,7 +25,7 @@ For quick deployment:
 
 ```
 pip install -r requirements.txt
-./runserver 
+./runserver
 ```
 
 Warmup cache and then keep memcached in sync with the blockchain:
@@ -36,10 +36,18 @@ mkdir log
 python -m tools.sync_cache
 ```
 
-## API Calls: 
+To deploy on Heroku:
+
+```bash
+heroku create
+heroku addons:add memcachedcloud
+git push heroku master
+```
+
+## API Calls:
 
 
-Example API call: 
+Example API call:
 ```
 http://localhost:5000/resolver/value?key=u/naval
 http://localhost:5000/resolver/profile?openname=naval
