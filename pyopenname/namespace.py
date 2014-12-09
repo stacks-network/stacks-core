@@ -60,7 +60,8 @@ def log_registration(db, nameop):
         db.pending_registrations[name].append(nameop)
     # check if this registration is actually a valid renewal
     if (name_registered(db, name)
-        and is_name_owner(db, name, nameop['sender'])):
+        and is_name_owner(db, name, nameop['sender'])
+        and is_mining_fee_sufficient(name, nameop['fee'])):
         # we're good - log the renewal!
         db.pending_renewals[name].append(nameop)
 
