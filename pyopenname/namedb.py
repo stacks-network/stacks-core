@@ -11,6 +11,9 @@ class NameDb():
         self.pending_registrations = defaultdict(list)
         self.pending_updates = defaultdict(list)
         self.pending_transfers = defaultdict(list)
+        self.pending_renewals = defaultdict(list)
+        
+        self.block_expirations = defaultdict(dict)
 
         if names_filename:
             try:
