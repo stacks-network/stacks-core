@@ -56,9 +56,7 @@ def build_claim_name_script(name, salt, testspace=False):
     """ Takes in the name that was preordered, along with the salt used.
     """
     hex_name = b40_to_hex(name)
-    print hex_name
     name_len = len(hex_name)/2
-    print name_len
     if not is_hex(salt):
         salt = hexlify(salt)
 
@@ -98,4 +96,3 @@ def build_transfer_name_script(name, testspace=False):
     packaged_script = add_magic_bytes(hex_script, testspace=testspace)
 
     return packaged_script
-
