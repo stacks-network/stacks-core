@@ -10,7 +10,7 @@ from ..config import *
 from ..scripts import name_script_to_hex, add_magic_bytes
 from ..fees import calculate_basic_name_tx_fee
 
-def build_transfer_name_script(name, testspace=False):
+def build(name, testspace=False):
     """ Takes in a name to transfer.
     """
     hex_name = b40_to_hex(name)
@@ -22,7 +22,7 @@ def build_transfer_name_script(name, testspace=False):
 
     return packaged_script
 
-def make_transfer_name_outputs(
+def make_outputs(
             data, inputs, new_name_owner_address,
             change_address, format='bin', fee=None,
             op_return_amount=DEFAULT_OP_RETURN_VALUE,
@@ -44,15 +44,15 @@ def make_transfer_name_outputs(
           "value": calculate_change_amount(inputs, total_to_send, fee) }
     ]
 
-def transfer_name(name, destination_address, private_key,
+def broadcast(name, destination_address, private_key,
                   blockchain_client=BlockchainInfoClient(), testspace=False):
-    nulldata = build_transfer_name_script(name, testspace=testspace)
+    nulldata = build(name, testspace=testspace)
     # get inputs and from address
     private_key_obj, from_address, inputs = analyze_private_key(
         private_key, blockchain_client)
     # build custom outputs here
-    outputs = make_transfer_name_outputs(nulldata, inputs, destination_address,
-                                         from_address, format='hex')
+    outputs = make_outputs(
+        nulldata, inputs, destination_address, from_address, format='hex')
     # serialize, sign, and broadcast the tx
     response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj,
                                             blockchain_client)
@@ -61,7 +61,7 @@ def transfer_name(name, destination_address, private_key,
     # return the response
     return response
 
-def parse_name_transfer(bin_payload):
+def parse(bin_payload):
     name_len = ord(bin_payload[0:1])
     name = bin_payload[1:1+name_len]
     return {

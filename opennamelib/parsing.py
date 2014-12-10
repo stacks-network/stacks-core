@@ -3,8 +3,8 @@ from utilitybelt import is_hex, hex_to_charset, charset_to_hex
 
 from .config import *
 from .b40 import bin_to_b40
-from .operations import parse_name_preorder, parse_name_claim, \
-    parse_name_update, parse_name_transfer
+from .operations import parse_preorder, parse_registration, parse_update, \
+    parse_transfer
 
 def get_recipient_from_nameop_outputs(outputs):
     for output in outputs:
@@ -34,14 +34,15 @@ def parse_nameop_data(data):
     else:
         return None # Magic bytes don't match - not an openname operation.
 
-    if opcode == NAME_PREORDER and len(payload) >= LENGTHS['name_hash']:
-        nameop = parse_name_preorder(payload)
-    elif opcode == NAME_CLAIM and len(payload) >= LENGTHS['name_claim_min']:
-        nameop = parse_name_claim(payload)
-    elif opcode == NAME_UPDATE and len(payload) >= LENGTHS['name_update_min']:
-        nameop = parse_name_update(payload)
-    elif opcode == NAME_TRANSFER:
-        nameop = parse_name_transfer(payload)
+    if opcode == NAME_PREORDER and len(payload) >= MIN_OP_LENGTHS['preorder']:
+        nameop = parse_preorder(payload)
+    elif (opcode == NAME_REGISTRATION
+            and len(payload) >= MIN_OP_LENGTHS['registration']):
+        nameop = parse_registration(payload)
+    elif opcode == NAME_UPDATE and len(payload) >= MIN_OP_LENGTHS['update']:
+        nameop = parse_update(payload)
+    elif opcode == NAME_TRANSFER and len(payload) >= MIN_OP_LENGTHS['transfer']:
+        nameop = parse_transfer(payload)
     else:
         nameop = None
 

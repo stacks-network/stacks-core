@@ -1,6 +1,6 @@
 import os, json, traceback
 
-from pyopenname import *
+from opennamelib import *
 
 def get_nulldata_txs_from_file(filename):
     try:
@@ -14,7 +14,7 @@ def get_nulldata_txs_from_file(filename):
 def main():
     db = NameDb()
     nulldata_txs = get_nulldata_txs_from_file('data/nulldata_txs.txt')
-    build_namespace(db, nulldata_txs, 332518, 332534)
+    build_namespace(db, nulldata_txs, 333747, 333759)
     db.save_names('data/namespace.txt')
 
 if __name__ == '__main__':

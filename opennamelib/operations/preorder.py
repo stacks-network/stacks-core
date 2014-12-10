@@ -7,7 +7,7 @@ from ..config import *
 from ..scripts import name_script_to_hex, add_magic_bytes
 from ..hashing import hash_name
 
-def build_preorder_name_script(name, salt=None, testspace=False):
+def build(name, salt=None, testspace=False):
     """ Takes in an ascii string as a name and an optional hex salt.
     """
     if salt:
@@ -24,17 +24,16 @@ def build_preorder_name_script(name, salt=None, testspace=False):
 
     return packaged_script, salt
 
-def preorder_name(name, private_key, salt=None,
-                  blockchain_client=BlockchainInfoClient(), testspace=False):
-    nulldata, salt = build_preorder_name_script(name, testspace=testspace,
-        salt=salt)
+def broadcast(name, private_key, salt=None,
+              blockchain_client=BlockchainInfoClient(), testspace=False):
+    nulldata, salt = build(name, testspace=testspace, salt=salt)
     response = embed_data_in_blockchain(
         nulldata, private_key, blockchain_client, format='hex')
     #response = {'success': True }
     response.update({ 'data': nulldata, 'salt': salt })
     return response
 
-def parse_name_preorder(bin_payload):
+def parse(bin_payload):
     name_hash = bin_payload[0:LENGTHS['name_hash']]
     return {
         'opcode': 'NAME_PREORDER', 'hash': hexlify(name_hash)

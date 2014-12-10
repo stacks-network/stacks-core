@@ -150,7 +150,7 @@ def record_nameop(db, nameop):
     opcode = eval(nameop['opcode'])
     if opcode == NAME_PREORDER:
         log_preorder(db, nameop)
-    elif opcode == NAME_CLAIM:
+    elif opcode == NAME_REGISTRATION:
         log_registration(db, nameop)
     elif opcode == NAME_UPDATE:
         log_update(db, nameop)
