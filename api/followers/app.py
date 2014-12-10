@@ -21,7 +21,7 @@ def get_followers(username):
 	followers = []
 
 	if user.get('followers') is None:
-		return []
+		return jsonify({})
 
 	for follower in user.get('followers'):
 		followers.append({'username': follower})
