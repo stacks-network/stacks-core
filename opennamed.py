@@ -41,9 +41,65 @@ class OpennamedRPC(object):
         reply['blocks'] = info['blocks']
         return reply
 
+    def preorder(self, name, privatekey):
+        """ Preorder a name
+        """
+
+        log.debug('preorder <%s, %s>' % (name, privatekey))
+
+        return
+
+    def register(self, name, salt, privatekey):
+        """ Register a name
+        """
+
+        log.debug('register <%s, %s, %s>' % (name, salt, privatekey))
+
+        return
+
+    def update(self, name, data, privatekey):
+        """ Update a name
+        """
+
+        log.debug('update <%s, %s, %s>' % (name, data, privatekey))
+
+        return
+
+    def transfer(self, name, address, privatekey):
+        """ Transfer a name
+        """
+
+        log.debug('transfer <%s, %s, %s>' % (name, address, privatekey))
+
+        return
+
+    def renew(self, name, privatekey):
+        """ Renew a name
+        """
+
+        log.debug('renew <%s, %s>' % (name, privatekey))
+
+        return
+
+    def storedata(self, data):
+        """ Store data in DHT
+        """
+
+        log.debug('storedata <%s>' % data)
+
+        return
+
+    def getdata(self, hash):
+        """ Get data from DHT
+        """
+
+        log.debug('getdata <%s>' % hash)
+
+        return
+
 
 def run_server():
-    """ run the server
+    """ run the opennamed server
     """
     try:
         server = zerorpc.Server(OpennamedRPC())
@@ -52,6 +108,24 @@ def run_server():
     except Exception as e:
         log.debug(e)
         log.info('Exiting opennamed server')
+
+
+def stop_server():
+    """ Stop the opennamed server
+    """
+    # Quick hack to kill a background daemon
+    import subprocess
+    import signal
+    import os
+
+    p = subprocess.Popen(['ps', '-A'], stdout=subprocess.PIPE)
+    out, err = p.communicate()
+
+    for line in out.splitlines():
+        if 'opennamed start' in line:
+            log.info('Stopping opennamed server')
+            pid = int(line.split(None, 1)[0])
+            os.kill(pid, signal.SIGTERM)
 
 
 def run_opennamed():
@@ -100,18 +174,7 @@ def run_opennamed():
             with daemon.DaemonContext():
                 run_server()
     elif args.action == 'stop':
-        log.info('Stopping opennamed server')
-        # Quick hack to kill a background daemon
-        import subprocess
-        import signal
-        import os
-        p = subprocess.Popen(['ps', '-A'], stdout=subprocess.PIPE)
-        out, err = p.communicate()
-
-        for line in out.splitlines():
-            if 'opennamed' in line:
-                pid = int(line.split(None, 1)[0])
-                os.kill(pid, signal.SIGTERM)
+        stop_server()
 
 if __name__ == '__main__':
     run_opennamed()
