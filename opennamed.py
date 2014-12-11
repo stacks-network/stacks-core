@@ -31,6 +31,7 @@ config_options = 'https://' + config.BITCOIND_USER + ':' + \
 
 bitcoind = AuthServiceProxy(config_options)
 
+
 class OpennamedRPC(object):
     """ opennamed rpc
     """
@@ -40,8 +41,65 @@ class OpennamedRPC(object):
         reply['blocks'] = info['blocks']
         return reply
 
+    def preorder(self, name, privatekey):
+        """ Preorder a name
+        """
+
+        log.debug('preorder <%s, %s>' % (name, privatekey))
+
+        return
+
+    def register(self, name, salt, privatekey):
+        """ Register a name
+        """
+
+        log.debug('register <%s, %s, %s>' % (name, salt, privatekey))
+
+        return
+
+    def update(self, name, data, privatekey):
+        """ Update a name
+        """
+
+        log.debug('update <%s, %s, %s>' % (name, data, privatekey))
+
+        return
+
+    def transfer(self, name, address, privatekey):
+        """ Transfer a name
+        """
+
+        log.debug('transfer <%s, %s, %s>' % (name, address, privatekey))
+
+        return
+
+    def renew(self, name, privatekey):
+        """ Renew a name
+        """
+
+        log.debug('renew <%s, %s>' % (name, privatekey))
+
+        return
+
+    def storedata(self, data):
+        """ Store data in DHT
+        """
+
+        log.debug('storedata <%s>' % data)
+
+        return
+
+    def getdata(self, hash):
+        """ Get data from DHT
+        """
+
+        log.debug('getdata <%s>' % hash)
+
+        return
+
+
 def run_server():
-    """ run the server
+    """ run the opennamed server
     """
     try:
         server = zerorpc.Server(OpennamedRPC())
@@ -50,6 +108,25 @@ def run_server():
     except Exception as e:
         log.debug(e)
         log.info('Exiting opennamed server')
+
+
+def stop_server():
+    """ Stop the opennamed server
+    """
+    # Quick hack to kill a background daemon
+    import subprocess
+    import signal
+    import os
+
+    p = subprocess.Popen(['ps', '-A'], stdout=subprocess.PIPE)
+    out, err = p.communicate()
+
+    for line in out.splitlines():
+        if 'opennamed start' in line:
+            log.info('Stopping opennamed server')
+            pid = int(line.split(None, 1)[0])
+            os.kill(pid, signal.SIGTERM)
+
 
 def run_opennamed():
     """ run opennamed
@@ -61,25 +138,28 @@ def run_opennamed():
         '--bitcoind-server',
         help='the hostname or IP address of the bitcoind RPC server')
     parser.add_argument(
-        '--bitcoind-port', type=int, help='the bitcoind RPC port to connect to')
+        '--bitcoind-port', type=int,
+        help='the bitcoind RPC port to connect to')
     parser.add_argument(
-        '--bitcoind-user', help='the username for bitcoind RPC server')
+        '--bitcoind-user',
+        help='the username for bitcoind RPC server')
     parser.add_argument(
-        '--bitcoind-passwd', help='the password for bitcoind RPC server')
-    
+        '--bitcoind-passwd',
+        help='the password for bitcoind RPC server')
     subparsers = parser.add_subparsers(
         dest='action', help='the action to be taken')
-
     parser_server = subparsers.add_parser(
-        'start', help='start the opennamed server')
+        'start',
+        help='start the opennamed server')
     parser_server.add_argument(
         '--foreground', action='store_true',
         help='start the opennamed server in foreground')
     parser_server = subparsers.add_parser(
-        'stop', help='stop the opennamed server')
+        'stop',
+        help='stop the opennamed server')
 
-    #print default help message, if no argument is given
-    if len(sys.argv)==1:
+    # Print default help message, if no argument is given
+    if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
 
@@ -94,17 +174,7 @@ def run_opennamed():
             with daemon.DaemonContext():
                 run_server()
     elif args.action == 'stop':
-        log.info('Stopping opennamed server')
-        #quick hack to kill a background daemon 
-        import subprocess, signal
-        import os
-        p = subprocess.Popen(['ps', '-A'], stdout=subprocess.PIPE)
-        out, err = p.communicate()
-
-        for line in out.splitlines():
-            if 'opennamed' in line:
-                pid = int(line.split(None, 1)[0])
-                os.kill(pid, signal.SIGTERM)
+        stop_server()
 
 if __name__ == '__main__':
     run_opennamed()
