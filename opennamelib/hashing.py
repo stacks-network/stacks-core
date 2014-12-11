@@ -1,6 +1,7 @@
 from utilitybelt import dev_urandom_entropy, is_hex
 from binascii import hexlify, unhexlify
 from coinkit import hex_hash160
+from coinkit.hash import bin_sha256
 
 from .b40 import b40_to_bin
 from .config import LENGTHS
@@ -20,3 +21,18 @@ def hash_name(name, salt, hex_format=True):
     bin_name = b40_to_bin(name)
     salted_name = bin_name + unhexlify(salt)
     return hex_hash160(salted_name)
+
+def double_sha256(bin_s):
+    return bin_sha256(bin_sha256(bin_s))
+
+def hex_to_bytes_reversed(s):
+    return unhexlify(s.encode('utf8'))[::-1]
+
+def bytes_to_hex_reversed(s):
+    return hexlify(s[::-1])
+
+def hex_to_bin_hashes(hex_hashes):
+    bin_hashes = []
+    for h in hex_hashes:
+        bin_hashes.append(hex_to_bytes_reversed(h))
+    return bin_hashes

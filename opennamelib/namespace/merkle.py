@@ -1,30 +1,5 @@
-from coinkit.hash import bin_sha256
-from binascii import hexlify, unhexlify
-
-def sort_name_entries(name_entries):
-    """ sort the name entries according to a clearly defined algorithm
-    """
-    pass
-
-def hash_name_entries(name_entries):
-    """ go through each entry and hash it
-    """
-    pass
-
-def double_sha256(bin_s):
-    return bin_sha256(bin_sha256(bin_s))
-
-def hex_to_bytes_reversed(s):
-    return unhexlify(s.encode('utf8'))[::-1]
-
-def bytes_to_hex_reversed(s):
-    return hexlify(s[::-1])
-
-def hex_to_bin_hashes(hex_hashes):
-    bin_hashes = []
-    for h in hex_hashes:
-        bin_hashes.append(hex_to_bytes_reversed(h))
-    return bin_hashes
+from ..hashing import double_sha256, hex_to_bytes_reversed, \
+    bytes_to_hex_reversed, hex_to_bin_hashes
 
 def calculate_merkle_pairs(bin_hashes, hash_function=double_sha256):
     """ takes in a list of binary hashes, returns a binary hash
