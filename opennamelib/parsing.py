@@ -1,38 +1,10 @@
 from binascii import hexlify, unhexlify
 from utilitybelt import is_hex, hex_to_charset, charset_to_hex
 
-from .configs import *
+from .config import *
 from .b40 import bin_to_b40
-
-def parse_name_preorder(bin_payload):
-    name_hash = bin_payload[0:LENGTHS['name_hash']]
-    return {
-        'opcode': 'NAME_PREORDER', 'hash': hexlify(name_hash)
-    }
-
-def parse_name_claim(bin_payload):
-    name_len = ord(bin_payload[0:1])
-    name = bin_payload[1:1+name_len]
-    salt = bin_payload[1+name_len:1+name_len+LENGTHS['salt']]
-    return {
-        'opcode': 'NAME_CLAIM', 'name': bin_to_b40(name), 'salt': hexlify(salt)
-    }
-
-def parse_name_update(bin_payload):
-    name_len = ord(bin_payload[0:1])
-    name = bin_payload[1:1+name_len]
-    update = bin_payload[1+name_len:1+name_len+LENGTHS['update_hash']]
-    return {
-        'opcode': 'NAME_UPDATE', 'name': bin_to_b40(name),
-        'update': hexlify(update)
-    }
-
-def parse_name_transfer(bin_payload):
-    name_len = ord(bin_payload[0:1])
-    name = bin_payload[1:1+name_len]
-    return {
-        'opcode': 'NAME_TRANSFER', 'name': bin_to_b40(name), 'recipient': None
-    }
+from .operations import parse_preorder, parse_registration, parse_update, \
+    parse_transfer
 
 def get_recipient_from_nameop_outputs(outputs):
     for output in outputs:
@@ -62,14 +34,15 @@ def parse_nameop_data(data):
     else:
         return None # Magic bytes don't match - not an openname operation.
 
-    if opcode == NAME_PREORDER and len(payload) >= LENGTHS['name_hash']:
-        nameop = parse_name_preorder(payload)
-    elif opcode == NAME_CLAIM and len(payload) >= LENGTHS['name_claim_min']:
-        nameop = parse_name_claim(payload)
-    elif opcode == NAME_UPDATE and len(payload) >= LENGTHS['name_update_min']:
-        nameop = parse_name_update(payload)
-    elif opcode == NAME_TRANSFER:
-        nameop = parse_name_transfer(payload)
+    if opcode == NAME_PREORDER and len(payload) >= MIN_OP_LENGTHS['preorder']:
+        nameop = parse_preorder(payload)
+    elif (opcode == NAME_REGISTRATION
+            and len(payload) >= MIN_OP_LENGTHS['registration']):
+        nameop = parse_registration(payload)
+    elif opcode == NAME_UPDATE and len(payload) >= MIN_OP_LENGTHS['update']:
+        nameop = parse_update(payload)
+    elif opcode == NAME_TRANSFER and len(payload) >= MIN_OP_LENGTHS['transfer']:
+        nameop = parse_transfer(payload)
     else:
         nameop = None
 

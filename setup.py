@@ -2,7 +2,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='pyopenname',
+    name='opennamelib',
     version='0.1.0',
     url='https://github.com/openname/opennamed',
     license='MIT',

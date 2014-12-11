@@ -3,7 +3,7 @@ from binascii import hexlify, unhexlify
 from coinkit import hex_hash160
 
 from .b40 import b40_to_bin
-from .configs import LENGTHS
+from .config import LENGTHS
 
 def gen_name_salt(hex_format=False):
     bin_salt = dev_urandom_entropy(LENGTHS['salt'])
