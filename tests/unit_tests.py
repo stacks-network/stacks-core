@@ -107,10 +107,10 @@ class NameTransferTest(unittest.TestCase):
 
 def test_main():
     test_support.run_unittest(
-        #NamePreorderTest,
+        NamePreorderTest,
         #NameRegistrationTest,
         #NameUpdateTest,
-        NameTransferTest,
+        #NameTransferTest,
         #NameOperationSequenceTest
     )
 
