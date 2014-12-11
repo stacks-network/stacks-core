@@ -31,3 +31,11 @@ except:
     BITCOIND_PORT = '8332'
     BITCOIND_USER = 'openname'
     BITCOIND_PASSWD = 'opennamesystem'
+
+# ---------------------------
+# config for DHT
+DHT_PORT = 8468
+DEFAULT_DHT_SERVERS = [('54.173.110.67', DHT_PORT)]
+
+YEAR = 29030400  # seconds
+STORAGE_TTL = 3 * YEAR
