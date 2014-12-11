@@ -36,6 +36,12 @@ def is_name_owner(db, name, senders):
             return True
     return False
 
+def is_name_admin(db, name, senders):
+    if name in db.names and 'admin' in db.names[name]:
+        if db.names[name]['admin'] in senders:
+            return True
+    return False
+
 def remove_preorder(db, name, salt):
     try:
         name_hash = hash_name(name, salt)
