@@ -14,10 +14,10 @@ import json
 import zerorpc
 import config
 
-c = zerorpc.Client(timeout=5)
+c = zerorpc.Client(timeout=config.RPC_TIMEOUT)
 c.connect('tcp://' + config.OPENNAMED_SERVER + ':' + config.OPENNAMED_PORT)
 
-import logging 
+import logging
 
 log = logging.getLogger()
 log.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
@@ -27,10 +27,12 @@ formatter = logging.Formatter('%(message)s')
 console.setFormatter(formatter)
 log.addHandler(console)
 
+
 def pretty_dump(input):
     """ pretty dump
     """
     return json.dumps(input, sort_keys=False, indent=4, separators=(',', ': '))
+
 
 def run_cli():
     """ run cli
@@ -46,17 +48,20 @@ def run_cli():
         '--opennamed-port', type=int,
         help="""the opennamed RPC port to connect to
                 (default: {})""".format(config.OPENNAMED_PORT))
-    
+
     subparsers = parser.add_subparsers(
-        dest='action', help='the action to be taken')
+        dest='action',
+        help='the action to be taken')
 
     parser_cli = subparsers.add_parser(
-        'getinfo', help='get basic info from the opennamed server')
+        'getinfo',
+        help='get basic info from the opennamed server')
     parser_cli = subparsers.add_parser(
-        'name_show', help='<name> display value of a registered name')
+        'name_show',
+        help='<name> display value of a registered name')
 
-    #print default help message, if no argument is given
-    if len(sys.argv)==1:
+    # Print default help message, if no argument is given
+    if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
 
@@ -70,7 +75,7 @@ def run_cli():
             exit(0)
     elif args.action == 'name_show':
         log.info('in name_show')
-        #name_show code here
+        # name_show code here
 
 if __name__ == '__main__':
     run_cli()
