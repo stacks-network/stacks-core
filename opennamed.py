@@ -31,6 +31,7 @@ config_options = 'https://' + config.BITCOIND_USER + ':' + \
 
 bitcoind = AuthServiceProxy(config_options)
 
+
 class OpennamedRPC(object):
     """ opennamed rpc
     """
@@ -39,6 +40,7 @@ class OpennamedRPC(object):
         reply = {}
         reply['blocks'] = info['blocks']
         return reply
+
 
 def run_server():
     """ run the server
@@ -51,6 +53,7 @@ def run_server():
         log.debug(e)
         log.info('Exiting opennamed server')
 
+
 def run_opennamed():
     """ run opennamed
     """
@@ -61,25 +64,28 @@ def run_opennamed():
         '--bitcoind-server',
         help='the hostname or IP address of the bitcoind RPC server')
     parser.add_argument(
-        '--bitcoind-port', type=int, help='the bitcoind RPC port to connect to')
+        '--bitcoind-port', type=int,
+        help='the bitcoind RPC port to connect to')
     parser.add_argument(
-        '--bitcoind-user', help='the username for bitcoind RPC server')
+        '--bitcoind-user',
+        help='the username for bitcoind RPC server')
     parser.add_argument(
-        '--bitcoind-passwd', help='the password for bitcoind RPC server')
-    
+        '--bitcoind-passwd',
+        help='the password for bitcoind RPC server')
     subparsers = parser.add_subparsers(
         dest='action', help='the action to be taken')
-
     parser_server = subparsers.add_parser(
-        'start', help='start the opennamed server')
+        'start',
+        help='start the opennamed server')
     parser_server.add_argument(
         '--foreground', action='store_true',
         help='start the opennamed server in foreground')
     parser_server = subparsers.add_parser(
-        'stop', help='stop the opennamed server')
+        'stop',
+        help='stop the opennamed server')
 
-    #print default help message, if no argument is given
-    if len(sys.argv)==1:
+    # Print default help message, if no argument is given
+    if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
 
@@ -95,8 +101,9 @@ def run_opennamed():
                 run_server()
     elif args.action == 'stop':
         log.info('Stopping opennamed server')
-        #quick hack to kill a background daemon 
-        import subprocess, signal
+        # Quick hack to kill a background daemon
+        import subprocess
+        import signal
         import os
         p = subprocess.Popen(['ps', '-A'], stdout=subprocess.PIPE)
         out, err = p.communicate()
