@@ -14,10 +14,10 @@ import json
 import zerorpc
 import config
 
-c = zerorpc.Client(timeout=5)
-c.connect('tcp://' + config.OPENNAMED_SERVER + ':' + config.OPENNAMED_PORT)
+client = zerorpc.Client(timeout=config.RPC_TIMEOUT)
+client.connect('tcp://' + config.OPENNAMED_SERVER + ':' + config.OPENNAMED_PORT)
 
-import logging 
+import logging
 
 log = logging.getLogger()
 log.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
@@ -27,10 +27,12 @@ formatter = logging.Formatter('%(message)s')
 console.setFormatter(formatter)
 log.addHandler(console)
 
+
 def pretty_dump(input):
     """ pretty dump
     """
     return json.dumps(input, sort_keys=False, indent=4, separators=(',', ': '))
+
 
 def run_cli():
     """ run cli
@@ -46,17 +48,97 @@ def run_cli():
         '--opennamed-port', type=int,
         help="""the opennamed RPC port to connect to
                 (default: {})""".format(config.OPENNAMED_PORT))
-    
+
     subparsers = parser.add_subparsers(
-        dest='action', help='the action to be taken')
+        dest='action',
+        help='the action to be taken')
 
-    parser_cli = subparsers.add_parser(
-        'getinfo', help='get basic info from the opennamed server')
-    parser_cli = subparsers.add_parser(
-        'name_show', help='<name> display value of a registered name')
+    subparser = subparsers.add_parser(
+        'getinfo',
+        help='get basic info from the opennamed server')
 
-    #print default help message, if no argument is given
-    if len(sys.argv)==1:
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'preorder',
+        help='<name> <privatekey> | preorder a name')
+    subparser.add_argument(
+        'name', type=str,
+        help='the name that you want to preorder')
+    subparser.add_argument(
+        'privatekey', type=str,
+        help='the privatekey of the Bitcoin address that will own the name')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'register',
+        help='<name> <salt> <privatekey> | register/claim a name')
+    subparser.add_argument(
+        'name', type=str,
+        help='the name that you want to register/claim')
+    subparser.add_argument(
+        'salt', type=str,
+        help='the salt')
+    subparser.add_argument(
+        'privatekey', type=str,
+        help='the privatekey of the Bitcoin address that will own the name')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'update',
+        help='<name> <data or datahash> <privatekey> | update data')
+    subparser.add_argument(
+        'name', type=str,
+        help='the name that you want to update')
+    subparser.add_argument(
+        'data', type=str,
+        help='data associated with name (value part of key-value) or datahash')
+    subparser.add_argument(
+        'privatekey', type=str,
+        help='the privatekey of the owner Bitcoin address')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'transfer',
+        help='<name> <address> <privatekey> | transfer a name')
+    subparser.add_argument(
+        'name', type=str,
+        help='the name that you want to register/claim')
+    subparser.add_argument(
+        'address', type=str,
+        help='the new owner Bitcoin address')
+    subparser.add_argument(
+        'privatekey', type=str,
+        help='the privatekey of the owner Bitcoin address')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'renew',
+        help='<name> <privatekey> | renew a name')
+    subparser.add_argument(
+        'name', type=str,
+        help='the name that you want to renew')
+    subparser.add_argument(
+        'privatekey', type=str,
+        help='the privatekey of the owner Bitcoin address')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'storedata',
+        help='<data> | data value to store in DHT')
+    subparser.add_argument(
+        'data', type=str,
+        help='the data to store in DHT')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'getdata',
+        help='<hash> | get the data from DHT for given hash')
+    subparser.add_argument(
+        'hash', type=str,
+        help='the hash of the data, used as lookup key for DHT')
+
+    # Print default help message, if no argument is given
+    if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
 
@@ -64,13 +146,45 @@ def run_cli():
 
     if args.action == 'getinfo':
         try:
-            log.info(pretty_dump(c.getinfo()))
+            log.info(pretty_dump(client.getinfo()))
         except Exception as e:
             log.info("Couldn't connect to opennamed server")
             exit(0)
-    elif args.action == 'name_show':
-        log.info('in name_show')
-        #name_show code here
+
+    elif args.action == 'preorder':
+        log.debug('Preordering %s', args.name)
+        log.info(pretty_dump(
+            client.preorder(args.name, args.privatekey)))
+
+    elif args.action == 'register':
+        log.debug('Registering %s', args.name)
+        log.info(pretty_dump(
+            client.register(args.name, args.salt, args.privatekey)))
+
+    elif args.action == 'update':
+        log.debug('Updating %s', args.name)
+        log.info(pretty_dump(
+            client.update(args.name, args.data, args.privatekey)))
+
+    elif args.action == 'transfer':
+        log.debug('Transfering %s', args.name)
+        log.info(pretty_dump(
+            client.transfer(args.name, args.address, args.privatekey)))
+
+    elif args.action == 'renew':
+        log.debug('Renewing %s', args.name)
+        log.info(pretty_dump(
+            client.renew(args.name, args.privatekey)))
+
+    elif args.action == 'storedata':
+        log.debug('Storing %s', args.data)
+        log.info(pretty_dump(
+            client.storedata(args.data)))
+
+    elif args.action == 'getdata':
+        log.debug('Get %s', args.hash)
+        log.info(pretty_dump(
+            client.getdata(args.hash)))
 
 if __name__ == '__main__':
     run_cli()
