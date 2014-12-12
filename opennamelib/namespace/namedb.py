@@ -4,7 +4,7 @@ from collections import defaultdict
 
 class NameDb():
     def __init__(self, names_filename=None, content_filename=None):
-        self.names = {}
+        self.name_records = {}
         self.preorders = {}
         self.content = {}
 
@@ -52,8 +52,8 @@ class NameDb():
         return True
 
 def get_value_hash_for_name(name, db):
-    if name in db.names and 'value_hash' in db.names[name]:
-        value_hash = db.names[name]['value_hash']
+    if name in db.name_records and 'value_hash' in db.name_records[name]:
+        value_hash = db.name_records[name]['value_hash']
         return value_hash
     return None
 

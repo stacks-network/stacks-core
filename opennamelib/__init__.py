@@ -17,6 +17,7 @@ from namedb import *
 from fees import *
 from namespace import *
 from operations import *
+from merkle import *
 
 import operations
 import namespace

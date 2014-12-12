@@ -1,4 +1,4 @@
-from ..hashing import double_sha256, hex_to_bytes_reversed, \
+from .hashing import double_sha256, hex_to_bytes_reversed, \
     bytes_to_hex_reversed, hex_to_bin_hashes
 
 def calculate_merkle_pairs(bin_hashes, hash_function=double_sha256):

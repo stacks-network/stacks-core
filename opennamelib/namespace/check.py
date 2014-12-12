@@ -1,7 +1,7 @@
 from ..hashing import hash_name
 
 def name_registered(db, name):
-    if name in db.names:
+    if name in db.name_records:
         return True
     return False
 
@@ -26,14 +26,14 @@ def has_preordered_name(db, name, salt, sender):
     return False
 
 def is_name_owner(db, name, senders):
-    if name in db.names and 'owner' in db.names[name]:
-        if db.names[name]['owner'] in senders:
+    if name in db.name_records and 'owner' in db.name_records[name]:
+        if db.name_records[name]['owner'] in senders:
             return True
     return False
 
 def is_name_admin(db, name, senders):
-    if name in db.names and 'admin' in db.names[name]:
-        if db.names[name]['admin'] in senders:
+    if name in db.name_records and 'admin' in db.name_records[name]:
+        if db.name_records[name]['admin'] in senders:
             return True
     return False
 

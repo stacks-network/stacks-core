@@ -130,8 +130,8 @@ def test_main():
         MerkleRootTest,
         #NamePreorderTest,
         #NameRegistrationTest,
-        NameUpdateTest,
-        #NameTransferTest,
+        #NameUpdateTest,
+        NameTransferTest,
         #NameOperationSequenceTest
     )
 
