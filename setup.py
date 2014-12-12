@@ -11,13 +11,15 @@ setup(
     description='',
     keywords='bitcoin btc cryptocurrency',
     packages=find_packages(),
-    scripts=['bin/opennamed','bin/openname-cli'],
-    download_url = 'https://github.com/openname/opennamed/archive/master.zip',
+    scripts=['bin/opennamed', 'bin/openname-cli'],
+    download_url='https://github.com/openname/opennamed/archive/master.zip',
     zip_safe=False,
     install_requires=[
         'coinkit>=0.7.4',
-        'zerorpc>=0.4.4',
-        'python-daemon>=1.6.1'
+        'kademlia>=0.2',
+        'python-daemon>=1.6.1',
+        'python-bitcoinrpc>=0.1',
+        'zerorpc>=0.4.4'
     ],
     classifiers=[
         'Intended Audience :: Developers',
