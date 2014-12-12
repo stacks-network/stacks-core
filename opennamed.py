@@ -31,10 +31,13 @@ config_options = 'https://' + config.BITCOIND_USER + ':' + \
 
 bitcoind = AuthServiceProxy(config_options)
 
+import coinkit
+
 
 class OpennamedRPC(object):
     """ opennamed rpc
     """
+
     def getinfo(self):
         info = bitcoind.getinfo()
         reply = {}
@@ -81,26 +84,18 @@ class OpennamedRPC(object):
 
         return
 
-    def storedata(self, data):
-        """ Store data in DHT
-        """
-
-        log.debug('storedata <%s>' % data)
-
-        return
-
-    def getdata(self, hash):
-        """ Get data from DHT
-        """
-
-        log.debug('getdata <%s>' % hash)
-
-        return
-
 
 def run_server():
     """ run the opennamed server
     """
+
+    import subprocess
+    import os
+    file_path = os.path.dirname(__file__) + '/dht/server.tac'
+
+    subprocess.Popen('twistd -noy ' + file_path, shell=True)
+    log.info('Started dht server')
+
     try:
         server = zerorpc.Server(OpennamedRPC())
         server.bind('tcp://' + config.LISTEN_IP + ':' + config.DEFAULT_PORT)
@@ -125,7 +120,7 @@ def stop_server():
         if 'opennamed start' in line:
             log.info('Stopping opennamed server')
             pid = int(line.split(None, 1)[0])
-            os.kill(pid, signal.SIGTERM)
+            os.kill(pid, signal.SIGKILL)
 
 
 def run_opennamed():
