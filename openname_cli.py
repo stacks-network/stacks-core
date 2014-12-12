@@ -17,6 +17,9 @@ import config
 client = zerorpc.Client(timeout=config.RPC_TIMEOUT)
 client.connect('tcp://' + config.OPENNAMED_SERVER + ':' + config.OPENNAMED_PORT)
 
+from dht.node import dht_node
+dht_node = dht_node()
+
 import logging
 
 log = logging.getLogger()
@@ -178,13 +181,18 @@ def run_cli():
 
     elif args.action == 'storedata':
         log.debug('Storing %s', args.data)
-        log.info(pretty_dump(
-            client.storedata(args.data)))
+        key = coinkit.hex_hash160(args.data)
+
+        reply = dht_node.set_key(key, args.data)
+
+        log.info(pretty_dump(reply))
 
     elif args.action == 'getdata':
         log.debug('Get %s', args.hash)
-        log.info(pretty_dump(
-            client.getdata(args.hash)))
+
+        reply = dht_node.get_key(args.hash)
+
+        log.info(pretty_dump(reply))
 
 if __name__ == '__main__':
     run_cli()
