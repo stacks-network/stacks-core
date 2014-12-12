@@ -13,12 +13,13 @@ import json
 
 import zerorpc
 import config
+import coinkit
 
 client = zerorpc.Client(timeout=config.RPC_TIMEOUT)
 client.connect('tcp://' + config.OPENNAMED_SERVER + ':' + config.OPENNAMED_PORT)
 
-from dht.node import dht_node
-dht_node = dht_node()
+from dht.client import dht_client
+dht_client = dht_client()
 
 import logging
 
@@ -183,14 +184,14 @@ def run_cli():
         log.debug('Storing %s', args.data)
         key = coinkit.hex_hash160(args.data)
 
-        reply = dht_node.set_key(key, args.data)
+        reply = dht_client.set_key(key, args.data)
 
         log.info(pretty_dump(reply))
 
     elif args.action == 'getdata':
         log.debug('Get %s', args.hash)
 
-        reply = dht_node.get_key(args.hash)
+        reply = dht_client.get_key(args.hash)
 
         log.info(pretty_dump(reply))
 
