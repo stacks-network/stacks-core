@@ -88,6 +88,14 @@ class OpennamedRPC(object):
 def run_server():
     """ run the opennamed server
     """
+
+    import subprocess
+    import os
+    file_path = os.path.dirname(__file__) + '/dht/server.tac'
+
+    subprocess.Popen('twistd -noy ' + file_path, shell=True)
+    log.info('Started dht server')
+
     try:
         server = zerorpc.Server(OpennamedRPC())
         server.bind('tcp://' + config.LISTEN_IP + ':' + config.DEFAULT_PORT)
