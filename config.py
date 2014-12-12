@@ -34,8 +34,10 @@ except:
 
 # ---------------------------
 # config for DHT
-DHT_PORT = 8468
-DEFAULT_DHT_SERVERS = [('54.173.110.67', DHT_PORT)]
+DHT_SERVER_PORT = 8468
+DHT_CLIENT_PORT = 8467
+DEFAULT_DHT_SERVERS = [('54.173.110.67', DHT_SERVER_PORT),
+                       ('127.0.0.1', DHT_SERVER_PORT)]
 
 YEAR = 29030400  # seconds
 STORAGE_TTL = 3 * YEAR
