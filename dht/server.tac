@@ -21,12 +21,8 @@ from config import DEFAULT_DHT_SERVERS, DHT_SERVER_PORT
 application = service.Application("kademlia")
 application.setComponent(ILogObserver, log.FileLogObserver(sys.stdout, log.INFO).emit)
 
-if os.path.isfile('cache.pickle'):
-    kserver = Server.loadState('cache.pickle')
-else:
-    kserver = Server(storage=OpennameStorage())
-    kserver.bootstrap(DEFAULT_DHT_SERVERS)
-kserver.saveStateRegularly('cache.pickle', 10)
+kserver = Server(storage=OpennameStorage())
+kserver.bootstrap(DEFAULT_DHT_SERVERS)
 
 server = internet.UDPServer(DHT_SERVER_PORT, kserver.protocol)
 server.setServiceParent(application)

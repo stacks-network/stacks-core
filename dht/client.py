@@ -16,6 +16,7 @@ import sys
 import os
 import coinkit
 import json
+import ast
 
 from storage import OpennameStorage
 
@@ -41,7 +42,13 @@ class dht_client(object):
         self.reply['key'] = key
 
         def inner_done(result):
-            self.reply['value'] = result
+            value = json.loads(json.dumps(result))
+            try:
+                value = ast.literal_eval(value)
+            except:
+                pass
+
+            self.reply['value'] = value
             reactor.stop()
 
         def inner_get(found):
@@ -57,7 +64,7 @@ class dht_client(object):
     def set_key(self, key, value):
 
         try:
-            test_value = json.loads(value)
+            test_value = json.loads(json.dumps(value))
         except:
             self.reply['error'] = "value not JSON, not storing"
             return self.reply
@@ -79,6 +86,8 @@ class dht_client(object):
         def inner_set(found):
 
             self.client.set(key, value).addCallback(inner_done)
+
+        self.client.bootstrap(DEFAULT_DHT_SERVERS).addCallback(inner_get)
 
         self.client.bootstrap(DEFAULT_DHT_SERVERS).addCallback(inner_set)
         reactor.run()

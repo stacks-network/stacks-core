@@ -62,7 +62,7 @@ class OpennameStorage(object):
 
         hash = coinkit.hex_hash160(value)
         test_key = digest(hash)
-  
+
         if key != test_key:
             self.log.info("hash(value) doesn't match, not storing")
             return

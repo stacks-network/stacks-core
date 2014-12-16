@@ -22,20 +22,24 @@ from dht.client import dht_client
 dht_client = dht_client()
 
 import logging
+from twisted.python import log
 
-log = logging.getLogger()
-log.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
+# Disable twisted log messages, because it's too noisy
+log.startLoggingWithObserver(log.PythonLoggingObserver, setStdout=0)
+
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
 console = logging.StreamHandler()
 console.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
 formatter = logging.Formatter('%(message)s')
 console.setFormatter(formatter)
-log.addHandler(console)
+logger.addHandler(console)
 
 
 def pretty_dump(input):
     """ pretty dump
     """
-    return json.dumps(input, sort_keys=False, indent=4, separators=(',', ': '))
+    return json.dumps(input, sort_keys=True, indent=4, separators=(',', ': '))
 
 
 def run_cli():
@@ -150,50 +154,60 @@ def run_cli():
 
     if args.action == 'getinfo':
         try:
-            log.info(pretty_dump(client.getinfo()))
+            logger.info(pretty_dump(client.getinfo()))
         except Exception as e:
-            log.info("Couldn't connect to opennamed server")
+            logger.info("Couldn't connect to opennamed server")
             exit(0)
 
     elif args.action == 'preorder':
-        log.debug('Preordering %s', args.name)
-        log.info(pretty_dump(
+        logger.debug('Preordering %s', args.name)
+        logger.info(pretty_dump(
             client.preorder(args.name, args.privatekey)))
 
     elif args.action == 'register':
-        log.debug('Registering %s', args.name)
-        log.info(pretty_dump(
+        logger.debug('Registering %s', args.name)
+        logger.info(pretty_dump(
             client.register(args.name, args.salt, args.privatekey)))
 
     elif args.action == 'update':
-        log.debug('Updating %s', args.name)
-        log.info(pretty_dump(
+        logger.debug('Updating %s', args.name)
+        logger.info(pretty_dump(
             client.update(args.name, args.data, args.privatekey)))
 
     elif args.action == 'transfer':
-        log.debug('Transfering %s', args.name)
-        log.info(pretty_dump(
+        logger.debug('Transfering %s', args.name)
+        logger.info(pretty_dump(
             client.transfer(args.name, args.address, args.privatekey)))
 
     elif args.action == 'renew':
-        log.debug('Renewing %s', args.name)
-        log.info(pretty_dump(
+        logger.debug('Renewing %s', args.name)
+        logger.info(pretty_dump(
             client.renew(args.name, args.privatekey)))
 
     elif args.action == 'storedata':
-        log.debug('Storing %s', args.data)
-        key = coinkit.hex_hash160(args.data)
+        reply = {}
+        value = args.data
 
-        reply = dht_client.set_key(key, args.data)
+        try:
+            value = json.loads(json.dumps(args.data))
+        except:
+            reply['error'] = 'value not JSON, not storing'
+            logger.info(pretty_dump(reply))
+            return
 
-        log.info(pretty_dump(reply))
+        logger.debug('Storing %s', value)
+        key = coinkit.hex_hash160(value)
+
+        reply = dht_client.set_key(key, value)
+
+        logger.info(pretty_dump(reply))
 
     elif args.action == 'getdata':
-        log.debug('Get %s', args.hash)
+        logger.debug('Get %s', args.hash)
 
         reply = dht_client.get_key(args.hash)
 
-        log.info(pretty_dump(reply))
+        logger.info(pretty_dump(reply))
 
 if __name__ == '__main__':
     run_cli()
