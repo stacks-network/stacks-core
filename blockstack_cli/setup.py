@@ -21,7 +21,7 @@ setup(
 	scripts=['bin/opendig'],
 	zip_safe=False,
 	download_url = 'https://github.com/opennamesystem/opendig/archive/master.zip',
-	install_requires=['cement==2.2.2','dnspython==1.11.1'],
+	install_requires=['cement==2.2.2','dnspython==1.11.1','coinrpc==0.1.0'],
 	keywords = ['domain', 'name', 'resolution', 'bitcoin', 'address'],
 	classifiers=[
 		'Intended Audience :: Developers',
