@@ -10,9 +10,10 @@
 import argparse
 import sys
 import json
+import traceback
 
 import zerorpc
-import config
+from opennamelib import config
 import coinkit
 
 client = zerorpc.Client(timeout=config.RPC_TIMEOUT)
@@ -156,6 +157,7 @@ def run_cli():
         try:
             logger.info(pretty_dump(client.getinfo()))
         except Exception as e:
+            traceback.print_exc()
             logger.info("Couldn't connect to opennamed server")
             exit(0)
 

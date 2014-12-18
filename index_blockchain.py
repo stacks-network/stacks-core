@@ -5,8 +5,7 @@ from pprint import pprint
 from decimal import *
 
 from opennamelib import *
-from opennamelib import config as oconfig
-import config
+from opennamelib import config
 
 def get_tx_input_sender(input):
     tx_hash = input['txid']
@@ -214,7 +213,7 @@ def main():
     
     block_count = bitcoind_client.bitcoind.getblockcount()
     blockchain = BlockchainView(bitcoind_client)
-    blockchain.index(oconfig.FIRST_BLOCK)
+    blockchain.index(config.FIRST_BLOCK)
     #blockchain.save_address_txs('data/address_txs.txt')
     blockchain.save_nulldata_txs('data/nulldata_txs.txt')
     

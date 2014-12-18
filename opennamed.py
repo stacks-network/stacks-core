@@ -12,7 +12,7 @@ import zerorpc
 import daemon
 import sys
 
-import config
+from opennamelib import config
 import logging
 
 log = logging.getLogger()
