@@ -16,13 +16,15 @@ from kademlia.network import Server
 from kademlia import log
 
 from storage import OpennameStorage
+from client import hostname_to_ip
 from config import DEFAULT_DHT_SERVERS, DHT_SERVER_PORT
 
 application = service.Application("kademlia")
 application.setComponent(ILogObserver, log.FileLogObserver(sys.stdout, log.INFO).emit)
 
 kserver = Server(storage=OpennameStorage())
-kserver.bootstrap(DEFAULT_DHT_SERVERS)
+bootstrap_servers = hostname_to_ip(DEFAULT_DHT_SERVERS)
+kserver.bootstrap(bootstrap_servers)
 
 server = internet.UDPServer(DHT_SERVER_PORT, kserver.protocol)
 server.setServiceParent(application)
