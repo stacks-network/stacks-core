@@ -5,6 +5,8 @@ from pprint import pprint
 from decimal import *
 
 from opennamelib import *
+from opennamelib import config as oconfig
+import config
 
 def get_tx_input_sender(input):
     tx_hash = input['txid']
@@ -69,7 +71,8 @@ class BlockchainView(object):
                 or len(script_sig_parts[-1]) == 66):
                 public_key_string = script_sig_parts[-1]
                 try:
-                    recipient_address = BitcoinPublicKey(public_key_string, verify=False).address()
+                    recipient_address = BitcoinPublicKey(public_key_string,
+                        verify=False).address()
                 except:
                     print "Error with transaction..."
                     print "Input tx hash: %s" % input_tx_hash
@@ -200,35 +203,20 @@ class BlockchainView(object):
         with open(filename, 'w') as f:
             f.write(json.dumps(self.nulldata_txs, cls=ExtendedJSONEncoder))
 
-def get_bitcoind_client_from_file(filename):
-    try:
-        with open(filename, 'r') as f:
-            SECRETS = json.loads(f.read())
-    except Exception as e:
-        traceback.print_exc()
-        return None
-
-    bitcoind_client = BitcoindClient(SECRETS['rpc_username'], SECRETS['rpc_password'])
-    return bitcoind_client
-
 from datetime import datetime
 
 def main():
     start = datetime.now()
 
-    testnet = True
-    if testnet:
-        first_block = FIRST_BLOCK_MAINNET_TESTSPACE
-    else:
-        first_block = FIRST_BLOCK_MAINNET
+    bitcoind_client = BitcoindClient(
+        config.BITCOIND_USER, config.BITCOIND_PASSWD,
+        server=config.BITCOIND_SERVER, port=config.BITCOIND_PORT)
     
-    bitcoind_client = get_bitcoind_client_from_file('data/secrets.json')
-    if bitcoind_client:
-        block_count = bitcoind_client.bitcoind.getblockcount()
-        blockchain = BlockchainView(bitcoind_client)
-        blockchain.index(first_block)
-        #blockchain.save_address_txs('data/address_txs.txt')
-        blockchain.save_nulldata_txs('data/nulldata_txs.txt')
+    block_count = bitcoind_client.bitcoind.getblockcount()
+    blockchain = BlockchainView(bitcoind_client)
+    blockchain.index(oconfig.FIRST_BLOCK)
+    #blockchain.save_address_txs('data/address_txs.txt')
+    blockchain.save_nulldata_txs('data/nulldata_txs.txt')
     
     end = datetime.now()
     delta = end - start

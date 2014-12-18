@@ -17,7 +17,7 @@ RPC_TIMEOUT = 5  # seconds
 try:
     OPENNAMED_SERVER = os.environ['OPENNAMED_SERVER']
     OPENNAMED_PORT = os.environ['OPENNAMED_PORT']
-except:
+except KeyError:
     OPENNAMED_SERVER = 'localhost'
     OPENNAMED_PORT = DEFAULT_PORT
 
@@ -26,7 +26,7 @@ try:
     BITCOIND_PORT = os.environ['BITCOIND_PORT']
     BITCOIND_USER = os.environ['BITCOIND_USER']
     BITCOIND_PASSWD = os.environ['BITCOIND_PASSWD']
-except:
+except KeyError:
     BITCOIND_SERVER = 'btcd.onename.com'
     BITCOIND_PORT = '8332'
     BITCOIND_USER = 'openname'
@@ -43,3 +43,5 @@ DEFAULT_DHT_SERVERS = [('dht.openname.org', DHT_SERVER_PORT),
 
 YEAR = 29030400  # seconds
 STORAGE_TTL = 3 * YEAR
+
+TESTNET = True

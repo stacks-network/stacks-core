@@ -13,7 +13,6 @@ from config import *
 from scripts import *
 from hashing import *
 from parsing import *
-from namedb import *
 from fees import *
 from nameset import *
 from operations import *
@@ -21,3 +20,4 @@ from merkle import *
 
 import operations
 import nameset
+import config
