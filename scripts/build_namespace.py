@@ -36,7 +36,7 @@ def main():
 
     db = NameDb()
     nulldata_txs = get_nulldata_txs_from_file('data/nulldata_txs.txt')
-    merkle_snapshot = build_namespace(db, nulldata_txs, first_block, last_block)
+    merkle_snapshot = build_nameset(db, nulldata_txs, first_block, last_block)
     print "merkle snapshot: %s" % merkle_snapshot
     db.save_names('data/namespace.txt')
     print "\n"

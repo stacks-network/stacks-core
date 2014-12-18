@@ -133,8 +133,8 @@ def test_main():
     test_support.run_unittest(
         MerkleRootTest,
         #NamePreorderTest,
-        NameRegistrationTest,
-        #NameUpdateTest,
+        #NameRegistrationTest,
+        NameUpdateTest,
         #NameTransferTest,
         #NameOperationSequenceTest
     )

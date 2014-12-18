@@ -10,11 +10,12 @@ Openname Data Store Specs + Design
 
 ### Definitions
 
+- `nameset`: all the names ever registered on all possible namespaces
 - `hash160`: a 20-byte ripemd160 hash
 - `salt`: a random value appended to data in order to prevent reverse-lookups of the hashed data
 - `name hash`: a hash160 of a given name and a random salt
 -`name encoding`: a given name converted from base 40 to base 256
-- `historical record hash`: a hash of a data string generated from a representation of the namespace
+- `historical record hash`: a hash of a data string generated from a representation of the nameset
 - `update hash`: a hash of the data to be associated with a given name
 
 ### Data Encoding
@@ -92,4 +93,4 @@ https://blockchain.info/tx/1ae39745fd3891c16806bba44e6540944d145452ff156cab03076
 
 Historical record hashes (16 bytes) are to potentially be added to name preorders and/or name transfers.
 
-The historical record hash must be a hash of a data string generated from a snapshot of the namespace at some point in the recent past (e.g. the last 12 blocks).
+The historical record hash must be a hash of a data string generated from a snapshot of the nameset at some point in the recent past (e.g. the last 12 blocks).

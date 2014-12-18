@@ -15,9 +15,9 @@ from hashing import *
 from parsing import *
 from namedb import *
 from fees import *
-from namespace import *
+from nameset import *
 from operations import *
 from merkle import *
 
 import operations
-import namespace
+import nameset

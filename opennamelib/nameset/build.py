@@ -33,6 +33,7 @@ def process_pending_nameops_in_block(db, current_block_number):
         if len(nameops) == 1:
             commit_renewal(db, nameops[0], current_block_number)
 
+    # delete all the pending operations
     db.pending_registrations = defaultdict(list)
     db.pending_updates = defaultdict(list)
     db.pending_transfers = defaultdict(list)
@@ -102,8 +103,8 @@ def process_nameops_in_block(db, nulldata_txs, block_number):
             process_tx_for_nameop(db, tx, block_number)
         process_pending_nameops_in_block(db, block_number)
 
-def build_namespace(db, nulldata_txs, first_block, last_block=None):
-    """ build the namespace
+def build_nameset(db, nulldata_txs, first_block, last_block=None):
+    """ build the nameset
     """
     for block_number in range(first_block, last_block+1):
         # process the nameops in the block
