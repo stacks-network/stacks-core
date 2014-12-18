@@ -17,6 +17,7 @@ import os
 import coinkit
 import json
 import ast
+import socket
 
 from storage import OpennameStorage
 
@@ -27,6 +28,19 @@ parent_dir = os.path.abspath(current_dir + "/../")
 sys.path.insert(0, parent_dir)
 
 from config import DHT_CLIENT_PORT, DEFAULT_DHT_SERVERS
+
+
+def hostname_to_ip(servers):
+    """ Given (hostname, port) return (ip_address, port)
+    """
+
+    reply = []
+
+    for server, port in servers:
+        ip_address = socket.gethostbyname(server)
+        reply.append((ip_address, port))
+
+    return reply
 
 
 class dht_client(object):
@@ -55,7 +69,9 @@ class dht_client(object):
 
             self.client.get(key).addCallback(inner_done)
 
-        self.client.bootstrap(DEFAULT_DHT_SERVERS).addCallback(inner_get)
+        servers = hostname_to_ip(DEFAULT_DHT_SERVERS)
+
+        self.client.bootstrap(servers).addCallback(inner_get)
 
         reactor.run()
 
@@ -87,9 +103,9 @@ class dht_client(object):
 
             self.client.set(key, value).addCallback(inner_done)
 
-        self.client.bootstrap(DEFAULT_DHT_SERVERS).addCallback(inner_get)
+        servers = hostname_to_ip(DEFAULT_DHT_SERVERS)
 
-        self.client.bootstrap(DEFAULT_DHT_SERVERS).addCallback(inner_set)
+        self.client.bootstrap(servers).addCallback(inner_set)
         reactor.run()
 
         return self.reply
