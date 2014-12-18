@@ -17,7 +17,7 @@ setup(
 	author='Muneeb Ali (@muneeb), Ryan Shea (@ryaneshea)',
 	author_email='hello@halfmoonlabs.com',
 	description="A command-line tool for the Open Name System (the equivalent of dig for DNS).",
-	packages=['opendig','namecoinrpc'],
+	packages=['opendig'],
 	scripts=['bin/opendig'],
 	zip_safe=False,
 	download_url = 'https://github.com/opennamesystem/opendig/archive/master.zip',
