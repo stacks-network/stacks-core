@@ -17,7 +17,7 @@ from kademlia import log
 
 from storage import OpennameStorage
 from client import hostname_to_ip
-from config import DEFAULT_DHT_SERVERS, DHT_SERVER_PORT
+from opennamelib.config import DEFAULT_DHT_SERVERS, DHT_SERVER_PORT
 
 application = service.Application("kademlia")
 application.setComponent(ILogObserver, log.FileLogObserver(sys.stdout, log.INFO).emit)

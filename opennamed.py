@@ -8,12 +8,16 @@
 """
 
 import argparse
-import zerorpc
+import coinkit
 import daemon
+import logging
+import os
 import sys
+import subprocess
+import signal
+import zerorpc
 
 from opennamelib import config
-import logging
 
 log = logging.getLogger()
 log.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
@@ -30,8 +34,19 @@ config_options = 'https://' + config.BITCOIND_USER + ':' + \
     str(config.BITCOIND_PORT)
 
 bitcoind = AuthServiceProxy(config_options)
+dht_node = None
 
-import coinkit
+
+def signal_handler(signal, frame):
+    """ Handle Ctrl+C for dht node
+    """
+    import signal
+    log.info('\n')
+    log.info('Exiting opennamed server')
+    os.killpg(dht_node.pid, signal.SIGTERM)
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
 
 
 class OpennamedRPC(object):
@@ -89,20 +104,23 @@ def run_server():
     """ run the opennamed server
     """
 
-    import subprocess
-    import os
     file_path = os.path.dirname(__file__) + '/dht/server.tac'
 
-    subprocess.Popen('twistd -noy ' + file_path, shell=True)
+    global dht_node
+    dht_node = subprocess.Popen('twistd -noy ' + file_path,
+                                shell=True, preexec_fn=os.setsid)
     log.info('Started dht server')
 
     try:
         server = zerorpc.Server(OpennamedRPC())
-        server.bind('tcp://' + config.LISTEN_IP + ':' + config.DEFAULT_PORT)
+        server.bind('tcp://' + config.LISTEN_IP + ':' +
+                    config.DEFAULT_OPENNAMED_PORT)
         server.run()
     except Exception as e:
         log.debug(e)
         log.info('Exiting opennamed server')
+        os.killpg(dht_node.pid, signal.SIGTERM)
+        exit(1)
 
 
 def stop_server():
@@ -119,6 +137,11 @@ def stop_server():
     for line in out.splitlines():
         if 'opennamed start' in line:
             log.info('Stopping opennamed server')
+            pid = int(line.split(None, 1)[0])
+            os.kill(pid, signal.SIGKILL)
+
+        elif 'twistd -noy' in line:
+            log.info('Stopping dht node')
             pid = int(line.split(None, 1)[0])
             os.kill(pid, signal.SIGKILL)
 

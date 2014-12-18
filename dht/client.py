@@ -27,7 +27,7 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
-from config import DHT_CLIENT_PORT, DEFAULT_DHT_SERVERS
+from opennamelib.config import DHT_CLIENT_PORT, DEFAULT_DHT_SERVERS
 
 
 def hostname_to_ip(servers):
