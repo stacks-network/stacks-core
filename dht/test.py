@@ -21,7 +21,7 @@ log.startLogging(sys.stdout)
 #key = 'u/muneeb'
 #value = "temp"
 
-value = '{"name": "Muneeb Ali"}'
+value = '{"name": "Muneeb Ali Khan"}'
 key = coinkit.hex_hash160(value)
 
 print key

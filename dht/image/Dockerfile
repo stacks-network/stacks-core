@@ -27,11 +27,12 @@ RUN apt-get install -y python-pip
 RUN apt-get install -y python-dev
 
 # Create the default directory
-RUN mkdir -p /srv/openname-dht
+RUN mkdir -p /srv/
 
 # Clone the app from github and install packages
-RUN git clone https://github.com/openname/opennamed.git /srv/opennamed
+ADD opennamed.tar.gz /srv/
 RUN pip install kademlia
+RUN pip install coinkit 
 
 ##################### INSTALLATION END #####################
 

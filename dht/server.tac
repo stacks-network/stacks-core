@@ -16,17 +16,13 @@ from kademlia.network import Server
 from kademlia import log
 
 from storage import OpennameStorage
-from config import DHT_PORT
+from config import DEFAULT_DHT_SERVERS, DHT_SERVER_PORT
 
 application = service.Application("kademlia")
 application.setComponent(ILogObserver, log.FileLogObserver(sys.stdout, log.INFO).emit)
 
-if os.path.isfile('cache.pickle'):
-    kserver = Server.loadState('cache.pickle')
-else:
-    kserver = Server(storage=OpennameStorage())
-    kserver.bootstrap([("1.2.3.4", DHT_PORT)])
-kserver.saveStateRegularly('cache.pickle', 10)
+kserver = Server(storage=OpennameStorage())
+kserver.bootstrap(DEFAULT_DHT_SERVERS)
 
-server = internet.UDPServer(DHT_PORT, kserver.protocol)
+server = internet.UDPServer(DHT_SERVER_PORT, kserver.protocol)
 server.setServiceParent(application)

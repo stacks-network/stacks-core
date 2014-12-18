@@ -19,6 +19,7 @@ from zope.interface import Interface
 
 from kademlia.storage import IStorage
 from kademlia.log import Logger
+from kademlia.utils import digest
 
 import sys
 import json
@@ -54,14 +55,15 @@ class OpennameStorage(object):
     def __setitem__(self, key, value):
 
         try:
-            value = json.loads(value)
+            test_value = json.loads(value)
         except:
             self.log.info("value not JSON, not storing")
             return
 
-        hash = coinkit.hex_hash160(json.dumps(value))
+        hash = coinkit.hex_hash160(value)
+        test_key = digest(hash)
 
-        if key != hash:
+        if key != test_key:
             self.log.info("hash(value) doesn't match, not storing")
             return
 
@@ -81,7 +83,9 @@ class OpennameStorage(object):
             value = self[key]
             hash = coinkit.hex_hash160(value)
 
-            if key != hash:
+            test_key = digest(hash)
+
+            if key != test_key:
                 self.log.info("hash(value) doesn't match, ignoring value")
                 return default
 
