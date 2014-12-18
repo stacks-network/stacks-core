@@ -1,5 +1,6 @@
 from .check import name_not_registered, has_preordered_name, \
-    is_name_owner, is_preorder_hash_unique, name_registered
+    is_name_owner, is_preorder_hash_unique, name_registered, \
+    is_consensus_hash_valid
 from ..fees import is_mining_fee_sufficient
 from .commit import commit_preorder
 
@@ -30,7 +31,9 @@ def log_transfer(db, nameop):
         # we're good - log it!
         db.pending_transfers[name].append(nameop)
 
-def log_preorder(db, nameop):
-    if is_preorder_hash_unique(db, nameop['hash']):
+def log_preorder(db, nameop, block_number):
+    consensus_hash = nameop['consensus_hash']
+    if (is_preorder_hash_unique(db, nameop['name_hash']) 
+        and is_consensus_hash_valid(db, consensus_hash, block_number)):
         # we're good - log it!
         commit_preorder(db, nameop)

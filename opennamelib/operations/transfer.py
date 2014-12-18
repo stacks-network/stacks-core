@@ -65,5 +65,7 @@ def parse(bin_payload):
     name_len = ord(bin_payload[0:1])
     name = bin_payload[1:1+name_len]
     return {
-        'opcode': 'NAME_TRANSFER', 'name': bin_to_b40(name), 'recipient': None
+        'opcode': 'NAME_TRANSFER',
+        'name': bin_to_b40(name),
+        'recipient': None
     }

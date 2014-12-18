@@ -56,6 +56,7 @@ In a transaction, the sender is established as the funder of the first non-OP_RE
 - magic bytes (2 bytes)
 - operation code (1 byte)
 - name/salt hash (20 bytes)
+- consensus hash (16 bytes)
 
 ### Name Claim (reveal)
 

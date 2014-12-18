@@ -38,6 +38,7 @@ def parse(bin_payload):
     name = bin_payload[1:1+name_len]
     update = bin_payload[1+name_len:1+name_len+LENGTHS['update_hash']]
     return {
-        'opcode': 'NAME_UPDATE', 'name': bin_to_b40(name),
+        'opcode': 'NAME_UPDATE',
+        'name': bin_to_b40(name),
         'update': hexlify(update)
     }

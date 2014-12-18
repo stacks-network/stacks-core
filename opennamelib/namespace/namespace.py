@@ -10,7 +10,7 @@ from .log import log_preorder, log_registration, log_update, log_transfer
 from ..fees import is_mining_fee_sufficient
 from ..parsing import parse_nameop
 from ..config import *
-from ..hashing import double_sha256
+from ..hashing import double_sha256, calculate_consensus_hash128
 from ..merkle import MerkleTree
 
 def process_pending_nameops_in_block(db, current_block_number):
@@ -46,12 +46,12 @@ def clean_out_expired_names(db, current_block_number):
     for name, _ in names_expiring.items():
         del db.name_records[name]
 
-def record_nameop(db, nameop):
+def record_nameop(db, nameop, block_number):
     """ record nameop
     """
     opcode = eval(nameop['opcode'])
     if opcode == NAME_PREORDER:
-        log_preorder(db, nameop)
+        log_preorder(db, nameop, block_number)
     elif opcode == NAME_REGISTRATION:
         log_registration(db, nameop)
     elif opcode == NAME_UPDATE:
@@ -61,6 +61,8 @@ def record_nameop(db, nameop):
 
 def name_record_to_string(name, name_record):
     value_hash = name_record.get('value_hash', '')
+    if value_hash is None:
+        value_hash = ''
     name_string = (name + name_record['owner'] + value_hash).encode('utf8')
     return name_string
 
@@ -71,30 +73,47 @@ def calculate_merkle_snapshot(db):
         name_string = name_record_to_string(name, db.name_records[name])
         name_string_hash = hexlify(double_sha256(name_string))
         hashes.append(name_string_hash)
+    if len(hashes) == 0:
+        hashes.append(hexlify(double_sha256("")))
     merkle_tree = MerkleTree(hashes)
     merkle_root = merkle_tree.root()
     return merkle_root
 
-def build_namespace(db, nulldata_txs, first_block, last_block):
+def record_consensus_hash(db, consensus_hash, block_number):
+    db.consensus_hashes[block_number] = consensus_hash
+
+def process_tx_for_nameop(db, tx, block_number):
+    nameop = parse_nameop(
+        str(tx['data']), tx['outputs'], tx['senders'], tx['mining_fee'])
+    if nameop:
+        try:
+            record_nameop(db, nameop, block_number)
+        except Exception as e:
+            traceback.print_exc()
+        #else:
+        #    print nameop
+
+def process_nameops_in_block(db, nulldata_txs, block_number):
+    #print "="*20 + str(block_number) + "="*20
+    # process all the nulldata transactions in the block
+    if str(block_number) in nulldata_txs:
+        block = nulldata_txs[str(block_number)]
+        for tx in block:
+            process_tx_for_nameop(db, tx, block_number)
+        process_pending_nameops_in_block(db, block_number)
+
+def build_namespace(db, nulldata_txs, first_block, last_block=None):
     """ build the namespace
     """
-    block_numbers = sorted(nulldata_txs)
     for block_number in range(first_block, last_block+1):
-        #print "="*20 + str(block_number) + "="*20
-        if str(block_number) in nulldata_txs:
-            block = nulldata_txs[str(block_number)]
-            for tx in block:
-                nameop = parse_nameop(str(tx['data']), tx['outputs'],
-                    tx['senders'], tx['mining_fee'])
-                #print nameop
-                if nameop:
-                    try:
-                        record_nameop(db, nameop)
-                    except Exception as e:
-                        traceback.print_exc()
-                        continue
-            process_pending_nameops_in_block(db, block_number)
+        # process the nameops in the block
+        process_nameops_in_block(db, nulldata_txs, block_number)
+        # clean out expired names
         clean_out_expired_names(db, block_number)
-    merkle_snapshot = calculate_merkle_snapshot(db)
+        # calculate the merkle consensus hash
+        merkle_snapshot = calculate_merkle_snapshot(db)
+        consensus_hash128 = calculate_consensus_hash128(merkle_snapshot)
+        # record the merkle consensus hash
+        record_consensus_hash(db, consensus_hash128, block_number)
+    db.consensus_hashes['current'] = merkle_snapshot
     return merkle_snapshot
-

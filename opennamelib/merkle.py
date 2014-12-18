@@ -33,6 +33,9 @@ def calculate_merkle_root(hashes, hash_function=double_sha256, hex_format=True):
 
 class MerkleTree():
     def __init__(self, hashes, hex_format=True, hash_function=double_sha256):
+        if not len(hashes) > 0:
+            raise ValueError("At least one hash is required.")
+
         self.rows = []
 
         # if the hashes are in hex format, first convert them to binary

@@ -20,8 +20,11 @@ def get_recipient_from_nameop_outputs(outputs):
 def parse_nameop_data(data):
     if not is_hex(data):
         raise ValueError('Data must be hex')
-    if not len(data) <= OP_RETURN_MAX_SIZE*2:
-        raise ValueError('Payload too large')
+    #if not len(data) <= OP_RETURN_MAX_SIZE*2:
+    #    raise ValueError('Payload too large')
+    if not len(data) % 2 == 0:
+        #raise ValueError('Data must have an even number of bytes')
+        return None
 
     bin_data = unhexlify(data)
 

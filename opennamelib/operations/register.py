@@ -34,5 +34,7 @@ def parse(bin_payload):
     name = bin_payload[1:1+name_len]
     salt = bin_payload[1+name_len:1+name_len+LENGTHS['salt']]
     return {
-        'opcode': 'NAME_REGISTRATION', 'name': bin_to_b40(name), 'salt': hexlify(salt)
+        'opcode': 'NAME_REGISTRATION',
+        'name': bin_to_b40(name),
+        'salt': hexlify(salt)
     }

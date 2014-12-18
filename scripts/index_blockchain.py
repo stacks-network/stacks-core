@@ -4,6 +4,8 @@ from collections import defaultdict
 from pprint import pprint
 from decimal import *
 
+from opennamelib import *
+
 def get_tx_input_sender(input):
     tx_hash = input['txid']
     sig = input['scriptSig']
@@ -47,7 +49,7 @@ class ExtendedJSONEncoder(json.JSONEncoder):
             return float(o)
         return super(ExtendedJSONEncoder, self).default(o)
 
-class Blockchain(object):
+class BlockchainView(object):
     def __init__(self, bitcoind_client):
         self.txs = {}
         self.address_txs = defaultdict(dict)
@@ -173,9 +175,10 @@ class Blockchain(object):
                 self.spend_input(tx_hash, input)
 
     def index(self, first_block=None, last_block=None):
-        if not first_block and last_block:
-            block_count = self.bitcoind.getblockcount()
-            first_block, last_block = 0, block_count
+        if not first_block:
+            first_block = 0
+        if not last_block:
+            last_block = self.bitcoind.getblockcount()
 
         for block_number in range(first_block, last_block+1):
             print "\n%s%s%s" % ("="*10, str(block_number), "="*10)
@@ -212,19 +215,18 @@ from datetime import datetime
 
 def main():
     start = datetime.now()
-    
-    first_block, last_block, num_blocks = 333747, 333759, None
-    if not last_block:
-        if num_blocks:
-            last_block = first_block + num_blocks - 1
-        else:
-            raise Exception('either last_block or num_blocks is required')
+
+    testnet = True
+    if testnet:
+        first_block = FIRST_BLOCK_MAINNET_TESTSPACE
+    else:
+        first_block = FIRST_BLOCK_MAINNET
     
     bitcoind_client = get_bitcoind_client_from_file('data/secrets.json')
     if bitcoind_client:
         block_count = bitcoind_client.bitcoind.getblockcount()
-        blockchain = Blockchain(bitcoind_client)
-        blockchain.index(first_block, last_block)
+        blockchain = BlockchainView(bitcoind_client)
+        blockchain.index(first_block)
         #blockchain.save_address_txs('data/address_txs.txt')
         blockchain.save_nulldata_txs('data/nulldata_txs.txt')
     

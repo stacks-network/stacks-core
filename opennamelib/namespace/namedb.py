@@ -1,4 +1,4 @@
-import json
+import json, traceback
 
 from collections import defaultdict
 
@@ -15,14 +15,18 @@ class NameDb():
         
         self.block_expirations = defaultdict(dict)
 
+        self.consensus_hashes = defaultdict(dict)
+
         if names_filename:
             try:
                 with open(names_filename, 'r') as f:
                     db_dict = json.loads(f.read())
-                    if 'names' in db_dict:
-                        self.names = db_dict['names']
+                    if 'names_records' in db_dict:
+                        self.name_records = db_dict['names']
                     if 'preorders' in db_dict:
                         self.preorders = db_dict['preorders']
+                    if 'consensus_hashes' in db_dict:
+                        self.consensus_hashes = db_dict['consensus_hashes']
             except Exception as e:
                 pass
 
@@ -37,9 +41,14 @@ class NameDb():
     def save_names(self, filename):
         try:
             with open(filename, 'w') as f:
-                db_dict = { 'names': self.names, 'preorders': self.preorders }
+                db_dict = {
+                    'name_records': self.name_records,
+                    'preorders': self.preorders,
+                    'consensus_hashes': self.consensus_hashes
+                }
                 f.write(json.dumps(db_dict))
         except Exception as e:
+            traceback.print_exc()
             return False
         return True
 
@@ -48,6 +57,7 @@ class NameDb():
             with open(filename, 'w') as f:
                 f.write(json.dumps(self.content))
         except Exception as e:
+            traceback.print_exc()
             return False
         return True
 

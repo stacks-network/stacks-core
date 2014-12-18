@@ -1,6 +1,6 @@
 from utilitybelt import dev_urandom_entropy, is_hex
 from binascii import hexlify, unhexlify
-from coinkit import hex_hash160
+from coinkit import hex_hash160, bin_hash160
 from coinkit.hash import bin_sha256
 
 from .b40 import b40_to_bin
@@ -36,3 +36,6 @@ def hex_to_bin_hashes(hex_hashes):
     for h in hex_hashes:
         bin_hashes.append(hex_to_bytes_reversed(h))
     return bin_hashes
+
+def calculate_consensus_hash128(consensus_hash):
+    return hexlify(bin_hash160(consensus_hash, True)[0:16])
