@@ -69,10 +69,13 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
         'preorder',
-        help='<name> <privatekey> | preorder a name')
+        help='<name> <consensushash> <privatekey> | preorder a name')
     subparser.add_argument(
         'name', type=str,
         help='the name that you want to preorder')
+    subparser.add_argument(
+        'consensushash', type=str,
+        help='the current consensus hash of the nameset')
     subparser.add_argument(
         'privatekey', type=str,
         help='the privatekey of the Bitcoin address that will own the name')
@@ -164,7 +167,7 @@ def run_cli():
     elif args.action == 'preorder':
         logger.debug('Preordering %s', args.name)
         logger.info(pretty_dump(
-            client.preorder(args.name, args.privatekey)))
+            client.preorder(args.name, args.consensushash, args.privatekey)))
 
     elif args.action == 'register':
         logger.debug('Registering %s', args.name)

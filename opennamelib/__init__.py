@@ -19,6 +19,7 @@ from merkle import *
 from blockchain import *
 from nameset import *
 from operations import *
+from operations import update_name
 
 import operations
 import nameset

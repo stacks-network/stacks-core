@@ -18,6 +18,7 @@ import signal
 import zerorpc
 
 from opennamelib import config
+from coinkit import BitcoindClient
 
 log = logging.getLogger()
 log.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
@@ -48,6 +49,13 @@ def signal_handler(signal, frame):
 
 signal.signal(signal.SIGINT, signal_handler)
 
+import opennamelib
+from opennamelib import preorder_name, register_name, update_name, \
+    transfer_name
+
+bitcoind_client = BitcoindClient(
+    config.BITCOIND_USER, config.BITCOIND_PASSWD, server=config.BITCOIND_SERVER,
+    port=str(config.BITCOIND_PORT))
 
 class OpennamedRPC(object):
     """ opennamed rpc
@@ -59,37 +67,49 @@ class OpennamedRPC(object):
         reply['blocks'] = info['blocks']
         return reply
 
-    def preorder(self, name, privatekey):
+    def preorder(self, name, consensushash, privatekey):
         """ Preorder a name
         """
 
+        resp = preorder_name(name, consensushash, privatekey,
+                             blockchain_client=bitcoind_client, testspace=True)
+
         log.debug('preorder <%s, %s>' % (name, privatekey))
 
-        return
+        return resp
 
     def register(self, name, salt, privatekey):
         """ Register a name
         """
 
+        resp = register_name(name, salt, privatekey,
+                             blockchain_client=bitcoind_client, testspace=True)
+
         log.debug('register <%s, %s, %s>' % (name, salt, privatekey))
 
-        return
+        return resp
 
     def update(self, name, data, privatekey):
         """ Update a name
         """
 
+        resp = update_name(name, data, privatekey,
+                           blockchain_client=bitcoind_client, testspace=True)
+
         log.debug('update <%s, %s, %s>' % (name, data, privatekey))
 
-        return
+        return resp
 
     def transfer(self, name, address, privatekey):
         """ Transfer a name
         """
 
+        resp = transfer_name(name, address, privatekey,
+                             blockchain_client=bitcoind_client, testspace=True)
+
         log.debug('transfer <%s, %s, %s>' % (name, address, privatekey))
 
-        return
+        return resp
 
     def renew(self, name, privatekey):
         """ Renew a name

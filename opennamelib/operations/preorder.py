@@ -5,7 +5,7 @@ from binascii import hexlify, unhexlify
 from ..b40 import b40_to_hex
 from ..config import *
 from ..scripts import name_script_to_hex, add_magic_bytes
-from ..hashing import hash_name, calculate_consensus_hash128
+from ..hashing import hash_name, calculate_consensus_hash128, gen_name_salt
 
 def build(name, consensus_hash, salt=None, testspace=False):
     """ Takes in an ascii string as a name and an optional hex salt.

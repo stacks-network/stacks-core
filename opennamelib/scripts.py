@@ -4,11 +4,7 @@ from binascii import hexlify, unhexlify
 from .config import *
 
 def add_magic_bytes(hex_script, testspace=False):
-    if not testspace:
-        magic_bytes = MAGIC_BYTES_MAINSPACE
-    else:
-        magic_bytes = MAGIC_BYTES_TESTSPACE
-    return hexlify(magic_bytes) + hex_script
+    return hexlify(MAGIC_BYTES) + hex_script
 
 def name_script_to_hex(script):
     """ Parse the readable version of a name script, return the hex version.
