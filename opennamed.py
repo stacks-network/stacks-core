@@ -104,7 +104,7 @@ def run_server():
     """ run the opennamed server
     """
 
-    file_path = os.path.dirname(__file__) + '/dht/server.tac'
+    file_path = os.path.dirname(__file__) + '/dht/server.py'
 
     global dht_node
     dht_node = subprocess.Popen('twistd -noy ' + file_path,

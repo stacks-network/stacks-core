@@ -12,6 +12,8 @@ setup(
     keywords='bitcoin btc cryptocurrency',
     packages=find_packages(),
     scripts=['bin/opennamed', 'bin/openname-cli'],
+    data_files=['opennamed.py',
+                'openname_cli.py'],  # hack for including files from main dir
     download_url='https://github.com/openname/opennamed/archive/master.zip',
     zip_safe=False,
     install_requires=[
