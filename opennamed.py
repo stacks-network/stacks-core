@@ -18,7 +18,7 @@ import signal
 import zerorpc
 
 from opennamelib import config
-from coinkit import BitcoindClient
+from coinkit import BitcoindClient, ChainComClient
 
 log = logging.getLogger()
 log.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
@@ -57,6 +57,12 @@ bitcoind_client = BitcoindClient(
     config.BITCOIND_USER, config.BITCOIND_PASSWD, server=config.BITCOIND_SERVER,
     port=str(config.BITCOIND_PORT))
 
+try:
+    chain_com_client = ChainComClient(config.CHAIN_COM_API_ID,
+                                      config.CHAIN_COM_API_SECRET)
+except:
+    pass
+
 class OpennamedRPC(object):
     """ opennamed rpc
     """
@@ -71,8 +77,12 @@ class OpennamedRPC(object):
         """ Preorder a name
         """
 
-        resp = preorder_name(name, consensushash, privatekey,
-                             blockchain_client=bitcoind_client, testspace=True)
+        print str(privatekey)
+
+        resp = preorder_name(
+            name, consensushash, str(privatekey),
+            blockchain_client=bitcoind_client,
+            testset=True)
 
         log.debug('preorder <%s, %s>' % (name, privatekey))
 
@@ -83,7 +93,7 @@ class OpennamedRPC(object):
         """
 
         resp = register_name(name, salt, privatekey,
-                             blockchain_client=bitcoind_client, testspace=True)
+                             blockchain_client=bitcoind_client, testset=True)
 
         log.debug('register <%s, %s, %s>' % (name, salt, privatekey))
 
@@ -94,7 +104,7 @@ class OpennamedRPC(object):
         """
 
         resp = update_name(name, data, privatekey,
-                           blockchain_client=bitcoind_client, testspace=True)
+                           blockchain_client=bitcoind_client, testset=True)
 
         log.debug('update <%s, %s, %s>' % (name, data, privatekey))
 
@@ -105,7 +115,7 @@ class OpennamedRPC(object):
         """
 
         resp = transfer_name(name, address, privatekey,
-                             blockchain_client=bitcoind_client, testspace=True)
+                             blockchain_client=bitcoind_client, testset=True)
 
         log.debug('transfer <%s, %s, %s>' % (name, address, privatekey))
 

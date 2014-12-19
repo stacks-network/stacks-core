@@ -6,7 +6,7 @@ from ..b40 import b40_to_hex, bin_to_b40
 from ..config import *
 from ..scripts import name_script_to_hex, add_magic_bytes
 
-def build(name, data_hash=None, data=None, testspace=False):
+def build(name, data_hash=None, data=None, testset=False):
     """ Takes in the name to update the data for and the data update itself.
     """
     hex_name = b40_to_hex(name)
@@ -21,13 +21,13 @@ def build(name, data_hash=None, data=None, testspace=False):
 
     readable_script = 'NAME_UPDATE %i %s %s' % (name_len, hex_name, data_hash)
     hex_script = name_script_to_hex(readable_script)
-    packaged_script = add_magic_bytes(hex_script, testspace=testspace)
+    packaged_script = add_magic_bytes(hex_script, testset=testset)
 
     return packaged_script
 
 def broadcast(name, data, private_key,
-               blockchain_client=BlockchainInfoClient(), testspace=False):
-    nulldata = build(name, data_hash=hex_hash160(data), testspace=testspace)
+               blockchain_client=BlockchainInfoClient(), testset=False):
+    nulldata = build(name, data_hash=hex_hash160(data), testset=testset)
     response = embed_data_in_blockchain(
         nulldata, private_key, blockchain_client, format='hex')
     response.update({ 'data': nulldata })

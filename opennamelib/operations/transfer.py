@@ -10,7 +10,7 @@ from ..config import *
 from ..scripts import name_script_to_hex, add_magic_bytes
 from ..fees import calculate_basic_name_tx_fee
 
-def build(name, testspace=False):
+def build(name, testset=False):
     """ Takes in a name to transfer.
     """
     hex_name = b40_to_hex(name)
@@ -18,7 +18,7 @@ def build(name, testspace=False):
 
     readable_script = 'NAME_TRANSFER %i %s' % (name_len, hex_name)
     hex_script = name_script_to_hex(readable_script)
-    packaged_script = add_magic_bytes(hex_script, testspace=testspace)
+    packaged_script = add_magic_bytes(hex_script, testset=testset)
 
     return packaged_script
 
@@ -45,8 +45,8 @@ def make_outputs(
     ]
 
 def broadcast(name, destination_address, private_key,
-                  blockchain_client=BlockchainInfoClient(), testspace=False):
-    nulldata = build(name, testspace=testspace)
+                  blockchain_client=BlockchainInfoClient(), testset=False):
+    nulldata = build(name, testset=testset)
     # get inputs and from address
     private_key_obj, from_address, inputs = analyze_private_key(
         private_key, blockchain_client)

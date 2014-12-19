@@ -51,6 +51,20 @@ except KeyError:
     BITCOIND_USER = 'openname'
     BITCOIND_PASSWD = 'opennamesystem'
 
+""" api configs
+"""
+
+try:
+    CHAIN_COM_API_ID = os.environ['CHAIN_COM_API_ID']
+    CHAIN_COM_API_SECRET = os.environ['CHAIN_COM_API_SECRET']
+except KeyError:
+    pass
+
+try:
+    BLOCKCHAIN_INFO_API_KEY = os.environ['BLOCKCHAIN_INFO_API_KEY']
+except KeyError:
+    pass
+
 """ DHT configs
 """
 
@@ -66,8 +80,8 @@ STORAGE_TTL = 3 * SECONDS_PER_YEAR
 """ magic bytes configs
 """
 
-MAGIC_BYTES_MAINSET = 'X\x08'
 MAGIC_BYTES_TESTSET = 'X\x88'
+MAGIC_BYTES_MAINSET = 'X\x08'
 
 if TESTSET:
     MAGIC_BYTES = MAGIC_BYTES_TESTSET
