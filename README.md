@@ -94,3 +94,9 @@ https://blockchain.info/tx/1ae39745fd3891c16806bba44e6540944d145452ff156cab03076
 Historical record hashes (16 bytes) are to potentially be added to name preorders and/or name transfers.
 
 The historical record hash must be a hash of a data string generated from a snapshot of the nameset at some point in the recent past (e.g. the last 12 blocks).
+
+### Installation 
+
+On Debian you need to install libzmq-dev
+
+> sudo apt-get install libzmq-dev
