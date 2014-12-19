@@ -14,9 +14,11 @@ from scripts import *
 from hashing import *
 from parsing import *
 from fees import *
+from merkle import *
+
+from blockchain import *
 from nameset import *
 from operations import *
-from merkle import *
 
 import operations
 import nameset

@@ -47,7 +47,7 @@ def clean_out_expired_names(db, current_block_number):
     for name, _ in names_expiring.items():
         del db.name_records[name]
 
-def record_nameop(db, nameop, block_number):
+def log_nameop(db, nameop, block_number):
     """ record nameop
     """
     opcode = eval(nameop['opcode'])
@@ -78,43 +78,62 @@ def calculate_merkle_snapshot(db):
         hashes.append(hexlify(double_sha256("")))
     merkle_tree = MerkleTree(hashes)
     merkle_root = merkle_tree.root()
-    return merkle_root
+    consensus_hash128 = calculate_consensus_hash128(merkle_root)
+    return consensus_hash128
 
 def record_consensus_hash(db, consensus_hash, block_number):
-    db.consensus_hashes[block_number] = consensus_hash
+    db.consensus_hashes[str(block_number)] = consensus_hash
 
-def process_tx_for_nameop(db, tx, block_number):
-    nameop = parse_nameop(
-        str(tx['data']), tx['outputs'], tx['senders'], tx['mining_fee'])
-    if nameop:
-        try:
-            record_nameop(db, nameop, block_number)
-        except Exception as e:
-            traceback.print_exc()
-        #else:
-        #    print nameop
+def build_nameset(db, nameop_sequence):
+    # set the current consensus hash
+    first_block_number = nameop_sequence[0][0]
+    db.consensus_hashes[str(first_block_number)] = calculate_merkle_snapshot(db)
 
-def process_nameops_in_block(db, nulldata_txs, block_number):
-    #print "="*20 + str(block_number) + "="*20
-    # process all the nulldata transactions in the block
-    if str(block_number) in nulldata_txs:
-        block = nulldata_txs[str(block_number)]
-        for tx in block:
-            process_tx_for_nameop(db, tx, block_number)
+    for block_number, nameops in nameop_sequence:
+        # log the pending nameops
+        for nameop in nameops:
+            try:
+                log_nameop(db, nameop, block_number)
+            except Exception as e:
+                traceback.print_exc()
+        # process and tentatively commit the pending nameops
         process_pending_nameops_in_block(db, block_number)
-
-def build_nameset(db, nulldata_txs, first_block, last_block=None):
-    """ build the nameset
-    """
-    for block_number in range(first_block, last_block+1):
-        # process the nameops in the block
-        process_nameops_in_block(db, nulldata_txs, block_number)
-        # clean out expired names
+        # clean out the expired names
         clean_out_expired_names(db, block_number)
-        # calculate the merkle consensus hash
-        merkle_snapshot = calculate_merkle_snapshot(db)
-        consensus_hash128 = calculate_consensus_hash128(merkle_snapshot)
+        # calculate the merkle snapshot consensus hash
+        consensus_hash128 = calculate_merkle_snapshot(db)
         # record the merkle consensus hash
         record_consensus_hash(db, consensus_hash128, block_number)
-    db.consensus_hashes['current'] = merkle_snapshot
-    return merkle_snapshot
+    
+    # set the current consensus hash
+    db.consensus_hashes['current'] = consensus_hash128
+    # return the current consensus hash
+    return consensus_hash128
+
+from ..blockchain import get_nulldata_txs_in_block
+
+def nulldata_txs_to_nameops(txs):
+    nameops = []
+    for tx in txs:
+        nameop = parse_nameop(
+            tx['nulldata'], tx['vout'], tx['senders'], tx['fee'])
+        if nameop:
+            nameops.append(nameop)
+    return nameops
+
+def get_nameops_in_block(bitcoind, block_number):
+    current_nulldata_txs = get_nulldata_txs_in_block(bitcoind, block_number)
+    nameops = nulldata_txs_to_nameops(current_nulldata_txs)
+    return nameops
+
+def get_nameops_in_block_range(bitcoind, first_block=0, last_block=None):
+    nameop_sequence = []
+
+    if not last_block:
+        last_block = bitcoind.getblockcount()
+
+    for block_number in range(first_block, last_block + 1):
+        block_nameops = get_nameops_in_block(bitcoind, block_number)
+        nameop_sequence.append((block_number, block_nameops))
+
+    return nameop_sequence

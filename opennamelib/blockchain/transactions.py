@@ -1,28 +1,5 @@
-from collections import defaultdict
-
 from ..parsing import parse_nameop
-
-def get_nulldata(tx):
-    if not ('vout' in tx):
-        return None        
-    outputs = tx['vout']
-    # go through all the outputs
-    for output in outputs:
-        # make sure the output is valid
-        if not ('scriptPubKey' in output):
-            continue
-        # grab the script pubkey
-        script_pubkey = output['scriptPubKey']
-        # get the script parts and script type
-        script_parts = str(script_pubkey.get('asm')).split(' ')
-        script_type = str(script_pubkey.get('type'))
-        # if we're looking at a nulldata tx, get the nulldata
-        if script_type == 'nulldata' and len(script_parts) == 2:
-            return script_parts[1]
-    return None
-
-def has_nulldata(tx):
-    return (get_nulldata(tx) is not None)
+from .nulldata import get_nulldata, has_nulldata
 
 def get_senders_and_total_in(bitcoind, inputs):
     senders = []
@@ -39,9 +16,9 @@ def get_senders_and_total_in(bitcoind, inputs):
         tx = bitcoind.getrawtransaction(tx_hash, 1)
 
         # make sure the tx is valid
-        if not ('vout' in tx and tx_output_index in tx['vout']):
+        if not ('vout' in tx and tx_output_index < len(tx['vout'])):
             continue
-        
+
         # grab the previous tx output (the current input)
         prev_tx_output = tx['vout'][tx_output_index]
 
@@ -52,14 +29,17 @@ def get_senders_and_total_in(bitcoind, inputs):
         # extract the script pubkey
         script_pubkey = prev_tx_output['scriptPubKey']
         # build and append the sender to the list of senders
+        amount_in = int(prev_tx_output['value']*10**8)
         sender = {
             "script_pubkey": script_pubkey.get('hex'),
-            "amount": int(prev_tx_output['value']*10**8),
+            "amount": amount_in,
             "addresses": script_pubkey.get('addresses')
         }
         senders.append(sender)
         # increment the total amount going in to the transaction
         total_in += amount_in
+    
+    # return the senders and the total in
     return senders, total_in
 
 def get_total_out(bitcoind, outputs):
@@ -83,7 +63,17 @@ def process_nulldata_tx(bitcoind, tx):
     tx['nulldata'] = nulldata
     tx['senders'] = senders
     tx['fee'] = total_in - total_out
+    #print tx['fee']
 
+    return tx
+
+def get_tx(bitcoind, tx_hash):
+    # lookup the raw tx using the tx hash
+    try:
+        tx = bitcoind.getrawtransaction(tx_hash, 1)
+    except:
+        traceback.print_exc()
+        return None
     return tx
 
 def get_nulldata_txs_in_block(bitcoind, block_number):
@@ -97,35 +87,10 @@ def get_nulldata_txs_in_block(bitcoind, block_number):
 
     tx_hashes = block_data['tx']
     for tx_hash in tx_hashes:
-        tx = self.get_tx(tx_hash)
-        #self.process_tx(tx)
-        if has_nulldata(tx):
-            nulldata_tx = process_nulldata_tx(tx)
+        tx = get_tx(bitcoind, tx_hash)
+        if tx and has_nulldata(tx):
+            nulldata_tx = process_nulldata_tx(bitcoind, tx)
             if nulldata_tx:
                 nulldata_txs.append(nulldata_tx)
 
     return nulldata_txs
-
-def nulldata_txs_to_nameops(txs):
-    nameops = []
-
-    for tx in txs:
-        nameop = parse_nameop(
-            tx['nulldata'], tx['vout'], tx['senders'], tx['fee'])
-        nameops.append(nameop)
-
-    return nameops
-
-def get_nameops_in_block_range(bitcoind, first_block=0, last_block=None):
-    nameops = []
-
-    if not last_block:
-        last_block = bitcoind.getblockcount()
-
-    for block_number in range(first_block, last_block + 1):
-        current_nulldata_txs = get_nulldata_txs_in_block(bitcoind, block_number)
-        nameops = nulldata_txs_to_nameops(current_nulldata_txs)
-        print (block_number, nameops)
-        nameops.append((block_number, nameops))
-
-    return nameops

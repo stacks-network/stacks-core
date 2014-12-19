@@ -58,7 +58,7 @@ def parse_nameop(data, outputs, senders=None, fee=None):
     if nameop:
         nameop = analyze_nameop_outputs(nameop, outputs)
         if senders and len(senders) > 0 and 'script_pubkey' in senders[0]:
-            primary_sender = senders[0]['script_pubkey']
+            primary_sender = str(senders[0]['script_pubkey'])
             nameop['sender'] = primary_sender
         if fee:
             nameop['fee'] = fee
