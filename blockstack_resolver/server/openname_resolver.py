@@ -1,210 +1,232 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-	Openname-resolver
-	~~~~~
+    Openname-resolver
+    ~~~~~
 
-	:copyright: (c) 2014 by Openname.org
-	:license: MIT, see LICENSE for more details.
+    :copyright: (c) 2014 by Openname.org
+    :license: MIT, see LICENSE for more details.
 """
 
 from flask import Flask, make_response, jsonify, abort, request
-import json 
-
-from commontools import error_reply
+import json
 
 app = Flask(__name__)
 
-from .config import DEFAULT_HOST, MEMCACHED_SERVERS, MEMCACHED_USERNAME, MEMCACHED_PASSWORD, MEMCACHED_TIMEOUT, MEMCACHED_ENABLED
+from .config import DEBUG
+from .config import DEFAULT_HOST, MEMCACHED_SERVERS, MEMCACHED_USERNAME
+from .config import MEMCACHED_PASSWORD, MEMCACHED_TIMEOUT, MEMCACHED_ENABLED
+
+from commontools import error_reply, log
+import logging
+
+log.setLevel(logging.DEBUG if DEBUG else logging.INFO)
+
 import pylibmc
 from time import time
-mc = pylibmc.Client(MEMCACHED_SERVERS,binary=True,username=MEMCACHED_USERNAME,password=MEMCACHED_PASSWORD)
+mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
+                    username=MEMCACHED_USERNAME, password=MEMCACHED_PASSWORD)
 
-from coinrpc import namecoind 
+from coinrpc import namecoind
 
 from .helper import requires_auth
 
-#-----------------------------------
+
+# -----------------------------------
 def name_show_mem(key):
 
-	if MEMCACHED_ENABLED: 
-		cache_reply = mc.get("name_" + str(key))
-	else:
-		cache_reply = None
-  
-	if cache_reply is None:
-		try: 
-			info = namecoind.name_show(key)
-		
+    if MEMCACHED_ENABLED:
+        cache_reply = mc.get("name_" + str(key))
+    else:
+        cache_reply = None
 
-			if MEMCACHED_ENABLED:
-				mc.set("name_" + str(key),json.dumps(info['value']),int(time() + MEMCACHED_TIMEOUT))
-				#print "cache miss: " + str(key)
-		except:
-			info = {}
-	else:
-		#print "cache hit: " + str(key)
-		info = {}
-		info['value'] = json.loads(cache_reply)
+    if cache_reply is None:
+        try:
+            info = namecoind.name_show(key)
 
-	return info
+            if MEMCACHED_ENABLED:
+                mc.set("name_" + str(key), json.dumps(info['value']),
+                       int(time() + MEMCACHED_TIMEOUT))
+                log.debug("cache miss: " + str(key))
+        except:
+            info = {}
+    else:
+        log.debug("cache hit: " + str(key))
+        info = {}
+        info['value'] = json.loads(cache_reply)
 
-#-----------------------------------
+    return info
+
+
+# -----------------------------------
 def full_profile_mem(key):
 
-	check_profile = name_show_mem(key)
-	
-	try:
-		check_profile = check_profile['value']
-	except:
-		return check_profile
-				
-	if 'next' in check_profile:
-		try:
-			child_data = name_show_mem(check_profile['next'])
-			child_data = child_data['value']
-		except:
-			return check_profile
+    check_profile = name_show_mem(key)
 
-		del check_profile['next']
+    try:
+        check_profile = check_profile['value']
+    except:
+        return check_profile
 
-		merged_data = {key: value for (key, value) in (check_profile.items() + child_data.items())}
-		return merged_data
+    if 'next' in check_profile:
 
-	else:
-		return check_profile
+        child_data = full_profile_mem(check_profile['next'])
 
-#-----------------------------------
+        if 'value' in child_data:
+            child_data = child_data['value']
+
+        del check_profile['next']
+
+        merged_data = {key: value for (key, value) in (check_profile.items() +
+                       child_data.items())}
+        return merged_data
+
+    else:
+        return check_profile
+
+
+# -----------------------------------
 @app.route('/resolver/value')
 @requires_auth
 def get_key_value():
 
-	try:
-		key = request.args.get('key').lower()
-	except:
-		return jsonify(error_reply("No key given"))
+    try:
+        key = request.args.get('key').lower()
+    except:
+        return jsonify(error_reply("No key given"))
 
-	info = name_show_mem(key)
+    info = name_show_mem(key)
 
-	if 'status' in info:
-		if info['status'] == 404:
-			abort(404)
-			
-	return jsonify(info)
+    if 'status' in info:
+        if info['status'] == 404:
+            abort(404)
+
+    return jsonify(info)
 
 
-#-----------------------------------
+# -----------------------------------
 @app.route('/resolver/profile')
 @requires_auth
 def get_openname_profile():
-	
-	try:
-		key = 'u/' + request.args.get('openname').lower()
-	except:
-		return jsonify(error_reply("No openname given"))
-	
-	if MEMCACHED_ENABLED: 
-		cache_reply = mc.get("profile_" + str(key))
-	else:
-		cache_reply = None
-		#print "cache off"
 
-	if cache_reply is None: 
+    try:
+        key = 'u/' + request.args.get('openname').lower()
+    except:
+        return jsonify(error_reply("No openname given"))
 
-		try:
-			info = full_profile_mem(key)
-			jsonify(info)
-		except:
-			return error_reply("Malformed profile")
+    if MEMCACHED_ENABLED:
+        log.debug('cache enabled')
+        cache_reply = mc.get("profile_" + str(key))
+    else:
+        cache_reply = None
+        log.debug("cache off")
 
-		if MEMCACHED_ENABLED:
-			mc.set("profile_" + str(key),json.dumps(info),int(time() + MEMCACHED_TIMEOUT))
-			#print "cache miss full_profile"
-	else:
-		#print "cache hit full_profile"
-		info = json.loads(cache_reply)
+    if cache_reply is None:
 
-	if 'status' in info:
-		if info['status'] == 404:
-			abort(404)
-			
-	return jsonify(info)
+        try:
+            info = full_profile_mem(key)
+            jsonify(info)
+        except:
+            return error_reply("Malformed profile")
 
-#-----------------------------------
+        if MEMCACHED_ENABLED:
+            mc.set("profile_" + str(key), json.dumps(info),
+                   int(time() + MEMCACHED_TIMEOUT))
+            log.debug("cache miss full_profile")
+    else:
+        log.debug("cache hit full_profile")
+        info = json.loads(cache_reply)
+
+    if 'status' in info:
+        if info['status'] == 404:
+            abort(404)
+
+    return jsonify(info)
+
+
+# -----------------------------------
 @app.route('/resolver/bulk')
 @requires_auth
 def get_bulk_profiles():
-	
-	usernames = request.args.get('usernames')
 
-	if usernames is None:
-		return jsonify(error_reply("No usernames given"))
-	
-	usernames = usernames.rsplit(',')
+    usernames = request.args.get('usernames')
 
-	list = [] 
+    if usernames is None:
+        return jsonify(error_reply("No usernames given"))
 
-	for username in usernames:
+    usernames = usernames.rsplit(',')
 
-		result = {}
-		result["username"] = username 
-		result["profile"] = full_profile_mem('u/' + username.lower())
+    list = []
 
-		list.append(result)
-			
-	return jsonify(results=list)
+    for username in usernames:
 
-#-----------------------------------
+        result = {}
+        result["username"] = username
+        result["profile"] = full_profile_mem('u/' + username.lower())
+
+        list.append(result)
+
+    return jsonify(results=list)
+
+
+# -----------------------------------
 @app.route('/resolver/namespace')
 @requires_auth
 def get_namespace():
 
-	from commontools import get_json
-	
-	users = namecoind.name_filter('u/')
+    from commontools import get_json
 
-	list = [] 
+    users = namecoind.name_filter('u/')
 
-	for user in users:
-		try: 
-			username = user['name'].lstrip('u/').lower()
-			profile = get_json(user['value'])
+    list = []
 
-			if 'status' in profile and profile['status'] == -1:
-				continue
+    for user in users:
+        try:
+            username = user['name'].lstrip('u/').lower()
+            profile = get_json(user['value'])
 
-			if 'status' in profile and profile['status'] == 'reserved':
-				continue 
+            if 'status' in profile and profile['status'] == -1:
+                continue
 
-			if profile == {}:
-				continue
+            if 'status' in profile and profile['status'] == 'reserved':
+                continue
 
-			if 'next' in profile:
-				profile = full_profile_mem('u/' + username)
+            if profile == {}:
+                continue
 
-			result = {}
-			result["username"] = username  
-			result["profile"] = profile 
-			list.append(result)
+            if 'next' in profile:
+                profile = full_profile_mem('u/' + username)
 
-		except Exception as e:
-			continue
+            result = {}
+            result["username"] = username
+            result["profile"] = profile
+            list.append(result)
 
-	return jsonify(results=list)
+        except Exception as e:
+            continue
 
-#-----------------------------------
+    return jsonify(results=list)
+
+
+# -----------------------------------
 @app.route('/')
 def index():
-	return '<hmtl><body>Welcome to openname-resolver, see <a href="http://github.com/opennamesystem"github page</a> for details.</body></html>'
+    reply = '<hmtl><body>Welcome to openname-resolver, see \
+            <a href="http://github.com/opennamesystem"github page</a> \
+            for details.</body></html>'
 
-#-----------------------------------
+    return reply
+
+
+# -----------------------------------
 @app.errorhandler(500)
 def internal_error(error):
 
-	reply = []
-	return json.dumps(reply)
+    reply = []
+    return json.dumps(reply)
 
-#-----------------------------------
+
+# -----------------------------------
 @app.errorhandler(404)
 def not_found(error):
-	return make_response(jsonify( { 'error': 'Not found' } ), 404)
+    return make_response(jsonify({'error': 'Not found'}), 404)
