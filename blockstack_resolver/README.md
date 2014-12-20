@@ -5,8 +5,42 @@ Openname-resolver
 
 Openname-resolver is a highly scalable server for [Openname System](https://openname.org). It resolves opennames (usernames) to profile data. It is blockchain-agnostic (currently uses the Namecoin blockchain) and is primarily meant for scaling read-only calls to the underlying blockchain. For achieving high throughput openname-resolver loads the entire namespace into memcached and then keeps the in-memory copy consistent with the blockchain. Read-only calls never hit disk and their scalability is completely decoupled from the scalability properties of the underlying database.
 
-## Setup Instructions:
 
+## API Calls:
+
+Example API call:
+Example API call: 
+
+```
+http://localhost:5000/resolver/value?key=u/naval
+http://localhost:5000/resolver/profile?openname=naval
+```
+
+## For quick deployment:
+
+```
+pip install -r requirements.txt
+./runserver
+```
+
+Warmup cache and then keep memcached in sync with the blockchain:
+
+```
+source tools/setup_env.sh
+python -m tools.warmup_cache
+mkdir log
+python -m tools.sync_cache
+```
+
+To deploy on Heroku:
+
+```bash
+heroku create
+heroku addons:add memcachedcloud
+git push heroku master
+```
+
+## Detailed Instructions:
 
 ###1. Openname-resolver requires memcached:
 
@@ -94,39 +128,6 @@ Note: above command may require sudo access :
 	TODO: Add a non-ssh/HTTPS method as well for installing Coinrpc
 
 ------------------------------------------------------------------
-###5. For quick deployment:
-
-```
-pip install -r requirements.txt
-./runserver
-```
-
-Warmup cache and then keep memcached in sync with the blockchain:
-
-```
-source tools/setup_env.sh
-python -m tools.warmup_cache
-mkdir log
-python -m tools.sync_cache
-```
-
-To deploy on Heroku:
-
-```bash
-heroku create
-heroku addons:add memcachedcloud
-git push heroku master
-```
-
-## API Calls:
-
-
-Example API call:
-Example API call: 
-```
-http://localhost:5000/resolver/value?key=u/naval
-http://localhost:5000/resolver/profile?openname=naval
-```
 
 TODO/Suggestions:
  remove coinrpc from requirements.txt as it was already installed in the previous step. 
