@@ -8,6 +8,8 @@
 	:license: MIT, see LICENSE for more details.
 """
 
+import sys
+
 try:
 	from opendig import dns_resolver, ons_resolver, __version__, DNS_SERVERS, ONS_SERVERS
 	from opendig.opendig_main import run_cli
