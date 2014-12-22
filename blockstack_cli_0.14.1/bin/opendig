@@ -4,24 +4,21 @@
     OpenDig
     ~~~~~
 
-    :copyright: (c) 2014 by OpenNameSystem.org
+    :copyright: (c) 2014 by Openname.org
     :license: MIT, see LICENSE for more details.
 """
 
 import sys
+import os
 
-try:
-    from opendig import dns_resolver, ons_resolver, __version__, DNS_SERVERS, \
-        ONS_SERVERS
-    from opendig.opendig_main import run_cli
-except:
-    sys.stdout.write("ERROR: opendig is not installed. Try \
-        'sudo pip install opendig'" + '\n')
+# Hack around absolute paths
+current_dir = os.path.abspath(os.path.dirname(__file__))
+parent_dir = os.path.abspath(current_dir + "/../")
 
-    exit()
+sys.path.insert(0, parent_dir)
+
+from opendig import run_cli
 
 # ----------------------------------------
-
-
 if __name__ == '__main__':
     run_cli()

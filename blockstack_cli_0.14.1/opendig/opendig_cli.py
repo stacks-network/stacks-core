@@ -14,24 +14,18 @@ import time
 import datetime
 import argparse
 
-try:
-    from opendig import dns_resolver, ons_resolver, __version__, DNS_SERVERS, \
-        ONS_SERVERS
-except:
-    sys.stdout.write("ERROR: opendig is not installed. Try \
-        'sudo pip install opendig'" + '\n')
-    exit()
+from opendig import dns_resolver, ons_resolver
+from .config import VERSION, DNS_SERVERS, ONS_SERVERS
+
 
 # -------------------------
-
-
 def run_cli():
     """ run cli
     """
 
     parser = argparse.ArgumentParser(
-        description='OpenDig: Command-line client for ONS_SERVERS \
-         (http://OpenNameSystem.org)')
+        description='OpenDig: Command-line client for Openname \
+         (http://Openname.org)')
 
     parser.add_argument("options", help="+USERNAME will get the user info, \
         DOMAIN will get domain info", type=str)
@@ -56,7 +50,8 @@ def run_cli():
         except:
             pass
         else:
-            s = "\n;; Got answer:\n\n;; QUESTION SECTION:\n;+%s\n\n;; ANSWER SECTION:\n" % (username)
+            s = "\n;; Got answer:\n\n;; QUESTION SECTION:\n;+%s\n\n;; \
+                ANSWER SECTION:\n" % (username)
             sys.stdout.write(s)
 
         sys.stdout.write(pretty_dump(data))
@@ -73,7 +68,8 @@ def run_cli():
         except:
             pass
         else:
-            s = "\n;; Got answer:\n\n;; QUESTION SECTION:\n;%s\n\n;; ANSWER SECTION:\n" % (domain + ".")
+            s = "\n;; Got answer:\n\n;; QUESTION SECTION:\n;%s\n\n;; \
+                ANSWER SECTION:\n" % (domain + ".")
             sys.stdout.write(s)
 
         elapsed_time = round(time.time() - start_time, 3)
@@ -95,7 +91,7 @@ def pretty_dump(input):
 
 def print_header(query):
 
-    sys.stdout.write("\n;; <<>> OpenDig %s <<>> %s" % (__version__, query))
+    sys.stdout.write("\n;; <<>> OpenDig %s <<>> %s" % (VERSION, query))
 
 # -------------------------
 
