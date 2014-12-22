@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-	OpenDig
-	~~~~~
+    OpenDig
+    ~~~~~
 
-	:copyright: (c) 2014 by OpenNameSystem.org
-	:license: MIT, see LICENSE for more details.
+    :copyright: (c) 2014 by OpenNameSystem.org
+    :license: MIT, see LICENSE for more details.
 """
 
 import socket
@@ -15,37 +15,40 @@ from opendig import DNS_SERVERS
 
 ADDITIONAL_RDCLASS = 65535
 
-#----------------------------------------
+# ----------------------------------------
+
+
 def dns_resolver(domain):
 
-	import dns.name
-	import dns.message
-	import dns.query
-	import dns.flags
+    import dns.name
+    import dns.message
+    import dns.query
+    import dns.flags
 
-	domain = dns.name.from_text(domain)
-	if not domain.is_absolute():
-		domain = domain.concatenate(dns.name.root)
+    domain = dns.name.from_text(domain)
+    if not domain.is_absolute():
+        domain = domain.concatenate(dns.name.root)
 
-	request = dns.message.make_query(domain, dns.rdatatype.ANY)
-	request.flags |= dns.flags.AD
-	request.find_rrset(request.additional, dns.name.root, ADDITIONAL_RDCLASS,
-		dns.rdatatype.OPT, create=True, force_unique=True)
-	
-	data = dns.query.udp(request, DNS_SERVERS[0])
+    request = dns.message.make_query(domain, dns.rdatatype.ANY)
+    request.flags |= dns.flags.AD
+    request.find_rrset(request.additional, dns.name.root, ADDITIONAL_RDCLASS,
+                       dns.rdatatype.OPT, create=True, force_unique=True)
 
-	return data
+    data = dns.query.udp(request, DNS_SERVERS[0])
+    return data
 
-#----------------------------------------
+# ----------------------------------------
+
+
 def json_data(data):
 
-	#there is no real JSON standard for DNS data
-	#it'd be nice to return json data
+    # there is no real JSON standard for DNS data
+    # it'd be nice to return json data
 
-	#for reply in data.answer:
-	#	reply = reply.to_text()
-	#	answers = reply.rsplit('\n')
-	#	for answer in answers: 
-	#		print answer
+    # for reply in data.answer:
+    #   reply = reply.to_text()
+    #   answers = reply.rsplit('\n')
+    #   for answer in answers:
+    #       print answer
 
-	return data
+    return data
