@@ -39,9 +39,8 @@ $ sudo pip install opendig
 ## Command-line Usage
 
 ```
-$ opendig -u naval
-$ opendig bitcoin -u naval
-$ opendig -d startupboy.com
+$ opendig +naval
+$ opendig startupboy.com
 ```
 
 <a name="pythonpackage"/>
