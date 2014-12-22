@@ -4,16 +4,21 @@ from coinkit import BitcoindClient
 from opennamelib import *
 from opennamelib import config
 
+from coinrpc import bitcoind
+
 def main():
     start = datetime.datetime.now()
 
+    '''
     bitcoind_client = BitcoindClient(
         config.BITCOIND_USER, config.BITCOIND_PASSWD,
         server=config.BITCOIND_SERVER, port=config.BITCOIND_PORT)
     bitcoind = bitcoind_client.bitcoind
-    
+    '''
+
     first_block, last_block = 334753, 334756
-    block_count = bitcoind.getblockcount()
+    block_count = bitcoind.blocks()
+    print block_count
     nameop_sequence = get_nameops_in_block_range(bitcoind, first_block, last_block)
     print nameop_sequence
     

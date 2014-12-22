@@ -1,5 +1,6 @@
 from ..parsing import parse_nameop
 from .nulldata import get_nulldata, has_nulldata
+import traceback
 
 def get_senders_and_total_in(bitcoind, inputs):
     senders = []
