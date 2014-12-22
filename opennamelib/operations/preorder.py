@@ -5,9 +5,9 @@ from binascii import hexlify, unhexlify
 from ..b40 import b40_to_hex
 from ..config import *
 from ..scripts import name_script_to_hex, add_magic_bytes
-from ..hashing import hash_name, calculate_consensus_hash128
+from ..hashing import hash_name, calculate_consensus_hash128, gen_name_salt
 
-def build(name, consensus_hash, salt=None, testspace=False):
+def build(name, consensus_hash, salt=None, testset=False):
     """ Takes in an ascii string as a name and an optional hex salt.
     """
     if salt:
@@ -22,13 +22,14 @@ def build(name, consensus_hash, salt=None, testspace=False):
 
     script = 'NAME_PREORDER %s %s' % (name_hash, consensus_hash128)
     hex_script = name_script_to_hex(script)
-    packaged_script = add_magic_bytes(hex_script, testspace=testspace)
+    packaged_script = add_magic_bytes(hex_script, testset=testset)
 
     return packaged_script, salt
 
 def broadcast(name, consensus_hash, private_key, salt=None,
-              blockchain_client=BlockchainInfoClient(), testspace=False):
-    nulldata, salt = build(name, consensus_hash, testspace=testspace, salt=salt)
+              blockchain_client=BlockchainInfoClient(), testset=False):
+    nulldata, salt = build(
+        name, consensus_hash, testset=testset, salt=salt)
     response = embed_data_in_blockchain(
         nulldata, private_key, blockchain_client, format='hex')
     #response = {'success': True }

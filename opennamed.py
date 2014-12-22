@@ -8,12 +8,17 @@
 """
 
 import argparse
-import zerorpc
+import coinkit
 import daemon
-import sys
-
-import config
 import logging
+import os
+import sys
+import subprocess
+import signal
+import zerorpc
+
+from opennamelib import config
+from coinkit import BitcoindClient, ChainComClient
 
 log = logging.getLogger()
 log.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
@@ -30,9 +35,33 @@ config_options = 'https://' + config.BITCOIND_USER + ':' + \
     str(config.BITCOIND_PORT)
 
 bitcoind = AuthServiceProxy(config_options)
+dht_node = None
 
-import coinkit
 
+def signal_handler(signal, frame):
+    """ Handle Ctrl+C for dht node
+    """
+    import signal
+    log.info('\n')
+    log.info('Exiting opennamed server')
+    os.killpg(dht_node.pid, signal.SIGTERM)
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+
+import opennamelib
+from opennamelib import preorder_name, register_name, update_name, \
+    transfer_name
+
+bitcoind_client = BitcoindClient(
+    config.BITCOIND_USER, config.BITCOIND_PASSWD, server=config.BITCOIND_SERVER,
+    port=str(config.BITCOIND_PORT))
+
+try:
+    chain_com_client = ChainComClient(config.CHAIN_COM_API_ID,
+                                      config.CHAIN_COM_API_SECRET)
+except:
+    pass
 
 class OpennamedRPC(object):
     """ opennamed rpc
@@ -44,37 +73,53 @@ class OpennamedRPC(object):
         reply['blocks'] = info['blocks']
         return reply
 
-    def preorder(self, name, privatekey):
+    def preorder(self, name, consensushash, privatekey):
         """ Preorder a name
         """
 
+        print str(privatekey)
+
+        resp = preorder_name(
+            name, consensushash, str(privatekey),
+            blockchain_client=bitcoind_client,
+            testset=True)
+
         log.debug('preorder <%s, %s>' % (name, privatekey))
 
-        return
+        return resp
 
     def register(self, name, salt, privatekey):
         """ Register a name
         """
 
+        resp = register_name(name, salt, privatekey,
+                             blockchain_client=bitcoind_client, testset=True)
+
         log.debug('register <%s, %s, %s>' % (name, salt, privatekey))
 
-        return
+        return resp
 
     def update(self, name, data, privatekey):
         """ Update a name
         """
 
+        resp = update_name(name, data, privatekey,
+                           blockchain_client=bitcoind_client, testset=True)
+
         log.debug('update <%s, %s, %s>' % (name, data, privatekey))
 
-        return
+        return resp
 
     def transfer(self, name, address, privatekey):
         """ Transfer a name
         """
 
+        resp = transfer_name(name, address, privatekey,
+                             blockchain_client=bitcoind_client, testset=True)
+
         log.debug('transfer <%s, %s, %s>' % (name, address, privatekey))
 
-        return
+        return resp
 
     def renew(self, name, privatekey):
         """ Renew a name
@@ -89,20 +134,23 @@ def run_server():
     """ run the opennamed server
     """
 
-    import subprocess
-    import os
-    file_path = os.path.dirname(__file__) + '/dht/server.tac'
+    file_path = os.path.dirname(__file__) + '/dht/server.py'
 
-    subprocess.Popen('twistd -noy ' + file_path, shell=True)
+    global dht_node
+    dht_node = subprocess.Popen('twistd -noy ' + file_path,
+                                shell=True, preexec_fn=os.setsid)
     log.info('Started dht server')
 
     try:
         server = zerorpc.Server(OpennamedRPC())
-        server.bind('tcp://' + config.LISTEN_IP + ':' + config.DEFAULT_PORT)
+        server.bind('tcp://' + config.LISTEN_IP + ':' +
+                    config.DEFAULT_OPENNAMED_PORT)
         server.run()
     except Exception as e:
         log.debug(e)
         log.info('Exiting opennamed server')
+        os.killpg(dht_node.pid, signal.SIGTERM)
+        exit(1)
 
 
 def stop_server():
@@ -119,6 +167,11 @@ def stop_server():
     for line in out.splitlines():
         if 'opennamed start' in line:
             log.info('Stopping opennamed server')
+            pid = int(line.split(None, 1)[0])
+            os.kill(pid, signal.SIGKILL)
+
+        elif 'twistd -noy' in line:
+            log.info('Stopping dht node')
             pid = int(line.split(None, 1)[0])
             os.kill(pid, signal.SIGKILL)
 

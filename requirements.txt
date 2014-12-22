@@ -14,5 +14,6 @@ requests==2.5.0
 rpcudp==1.0
 u-msgpack-python==2.0
 utilitybelt==0.2.2
+wsgiref==0.1.2
 zerorpc==0.4.4
 zope.interface==4.1.1

@@ -13,11 +13,14 @@ from config import *
 from scripts import *
 from hashing import *
 from parsing import *
-from namedb import *
 from fees import *
-from namespace import *
-from operations import *
 from merkle import *
 
+from blockchain import *
+from nameset import *
+from operations import *
+from operations import update_name
+
 import operations
-import namespace
+import nameset
+import config

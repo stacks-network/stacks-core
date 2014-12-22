@@ -30,11 +30,7 @@ def parse_nameop_data(data):
 
     magic_bytes, opcode, payload = bin_data[0:2], bin_data[2:3], bin_data[3:]
 
-    if magic_bytes == MAGIC_BYTES_MAINSPACE:
-        blockchain = 'main'
-    elif magic_bytes == MAGIC_BYTES_TESTSPACE:
-        blockchain = 'test'
-    else:
+    if not magic_bytes == MAGIC_BYTES:
         return None # Magic bytes don't match - not an openname operation.
 
     if opcode == NAME_PREORDER and len(payload) >= MIN_OP_LENGTHS['preorder']:
@@ -62,7 +58,7 @@ def parse_nameop(data, outputs, senders=None, fee=None):
     if nameop:
         nameop = analyze_nameop_outputs(nameop, outputs)
         if senders and len(senders) > 0 and 'script_pubkey' in senders[0]:
-            primary_sender = senders[0]['script_pubkey']
+            primary_sender = str(senders[0]['script_pubkey'])
             nameop['sender'] = primary_sender
         if fee:
             nameop['fee'] = fee

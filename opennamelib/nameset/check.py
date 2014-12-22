@@ -44,7 +44,8 @@ def is_preorder_hash_unique(db, name_hash):
 def is_consensus_hash_valid(db, consensus_hash, current_block_number):
     first_block_to_check = current_block_number - BLOCKS_CONSENSUS_HASH_IS_VALID
     for block_number in range(first_block_to_check, current_block_number):
-        if block_number in db.consensus_hashes:
-            if str(consensus_hash) == str(db.consensus_hashes[block_number]):
-                return True
+        if str(block_number) not in db.consensus_hashes:
+            continue
+        if str(consensus_hash) == str(db.consensus_hashes[str(block_number)]):
+            return True
     return False

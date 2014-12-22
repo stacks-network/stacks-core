@@ -33,7 +33,7 @@ def log_transfer(db, nameop):
 
 def log_preorder(db, nameop, block_number):
     consensus_hash = nameop['consensus_hash']
-    if (is_preorder_hash_unique(db, nameop['name_hash']) 
+    if (is_preorder_hash_unique(db, nameop['name_hash'])
         and is_consensus_hash_valid(db, consensus_hash, block_number)):
         # we're good - log it!
         commit_preorder(db, nameop)

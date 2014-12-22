@@ -28,12 +28,11 @@ class NamePreorderTest(unittest.TestCase):
 
     def test_name_preorder(self):
         consensus_hash = str(self.namedb.consensus_hashes['current'])
-
+        print SECRETS['private_keys'][0]
         resp = preorder_name(
-            self.data['name'], consensus_hash,
-            SECRETS['private_keys'][0],
+            self.data['name'], consensus_hash, SECRETS['private_keys'][0],
             salt=self.data['salt'], blockchain_client=blockchain_client,
-            testspace=True)
+            testset=True)
         print resp
         self.assertTrue('success' in resp)
 
@@ -47,7 +46,7 @@ class NameRegistrationTest(unittest.TestCase):
     def test_name_registration(self):
         resp = register_name(
             self.data['name'], self.data['salt'], SECRETS['private_keys'][0],
-            blockchain_client=blockchain_client, testspace=True)
+            blockchain_client=blockchain_client, testset=True)
         print resp
         self.assertTrue('success' in resp)
 
@@ -61,7 +60,7 @@ class NameUpdateTest(unittest.TestCase):
     def test_name_update(self):
         resp = update_name(
             self.data['name'], self.data['data'], SECRETS['private_keys'][0],
-            blockchain_client=blockchain_client, testspace=True)
+            blockchain_client=blockchain_client, testset=True)
         print resp 
         self.assertTrue('success' in resp)
 
@@ -76,7 +75,7 @@ class NameTransferTest(unittest.TestCase):
         resp = transfer_name(
             self.data['name'], self.data['recipient'],
             SECRETS['private_keys'][0], blockchain_client=blockchain_client,
-            testspace=True)
+            testset=True)
         print resp
         self.assertTrue('success' in resp)
 
@@ -132,8 +131,8 @@ class MerkleRootTest(unittest.TestCase):
 def test_main():
     test_support.run_unittest(
         MerkleRootTest,
-        #NamePreorderTest,
-        NameRegistrationTest,
+        NamePreorderTest,
+        #NameRegistrationTest,
         #NameUpdateTest,
         #NameTransferTest,
         #NameOperationSequenceTest

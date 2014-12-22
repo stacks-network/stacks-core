@@ -3,11 +3,11 @@ from binascii import hexlify, unhexlify
 
 from .config import *
 
-def add_magic_bytes(hex_script, testspace=False):
-    if not testspace:
-        magic_bytes = MAGIC_BYTES_MAINSPACE
+def add_magic_bytes(hex_script, testset=False):
+    if not testset:
+        magic_bytes = MAGIC_BYTES_MAINSET
     else:
-        magic_bytes = MAGIC_BYTES_TESTSPACE
+        magic_bytes = MAGIC_BYTES_TESTSET
     return hexlify(magic_bytes) + hex_script
 
 def name_script_to_hex(script):
