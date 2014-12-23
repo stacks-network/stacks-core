@@ -3,12 +3,14 @@ from binascii import hexlify, unhexlify
 
 from .config import *
 
+
 def add_magic_bytes(hex_script, testset=False):
     if not testset:
         magic_bytes = MAGIC_BYTES_MAINSET
     else:
         magic_bytes = MAGIC_BYTES_TESTSET
     return hexlify(magic_bytes) + hex_script
+
 
 def name_script_to_hex(script):
     """ Parse the readable version of a name script, return the hex version.

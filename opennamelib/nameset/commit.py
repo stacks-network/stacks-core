@@ -1,5 +1,6 @@
 from ..hashing import hash_name
 
+
 def remove_preorder(db, name, salt, script_pubkey):
     try:
         name_hash = hash_name(name, salt, script_pubkey)
@@ -9,8 +10,10 @@ def remove_preorder(db, name, salt, script_pubkey):
         del db.preorders[name_hash]
         return True
 
+
 def commit_preorder(db, nameop):
     db.preorders[nameop['name_hash']] = nameop
+
 
 def commit_registration(db, nameop, current_block_number):
     name = nameop['name']
@@ -23,6 +26,7 @@ def commit_registration(db, nameop, current_block_number):
     }
     db.block_expirations[current_block_number][name] = True
 
+
 def commit_renewal(db, nameop, current_block_number):
     name = nameop['name']
     # grab the block the name was last renewed to find the old expiration timer
@@ -34,8 +38,10 @@ def commit_renewal(db, nameop, current_block_number):
     # update the block that the name was last renewed in the name record
     db.name_records[name]['last_renewed'] = current_block_number
 
+
 def commit_update(db, nameop):
     db.name_records[nameop['name']]['value_hash'] = nameop['update']
+
 
 def commit_transfer(db, nameop):
     db.name_records[nameop['name']]['owner'] = str(nameop['recipient'])

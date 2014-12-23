@@ -1,6 +1,8 @@
-import json, traceback
+import json
+import traceback
 
 from collections import defaultdict
+
 
 class NameDb():
     def __init__(self, names_filename=None, content_filename=None):
@@ -12,7 +14,7 @@ class NameDb():
         self.pending_updates = defaultdict(list)
         self.pending_transfers = defaultdict(list)
         self.pending_renewals = defaultdict(list)
-        
+
         self.block_expirations = defaultdict(dict)
 
         self.consensus_hashes = defaultdict(dict)
@@ -61,15 +63,17 @@ class NameDb():
             return False
         return True
 
+
 def get_value_hash_for_name(name, db):
     if name in db.name_records and 'value_hash' in db.name_records[name]:
         value_hash = db.name_records[name]['value_hash']
         return value_hash
     return None
 
+
 def lookup_name(name, db):
     value_hash = get_value_hash_for_name(name, db)
-    
+
     if value_hash in db.content:
         return db.content[value_hash]
     return None

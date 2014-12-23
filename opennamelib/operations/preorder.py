@@ -8,6 +8,7 @@ from ..config import *
 from ..scripts import name_script_to_hex, add_magic_bytes
 from ..hashing import hash_name, calculate_consensus_hash128, gen_name_salt
 
+
 def build(name, script_pubkey, consensus_hash, salt=None, testset=False):
     """ Takes in an ascii string as a name and an optional hex salt.
     """
@@ -16,7 +17,7 @@ def build(name, script_pubkey, consensus_hash, salt=None, testset=False):
             raise ValueError('Invalid salt')
     else:
         salt = hexlify(gen_name_salt())
-    
+
     name_hash = hash_name(name, salt, script_pubkey)
 
     script = 'NAME_PREORDER %s %s' % (name_hash, consensus_hash)
@@ -24,6 +25,7 @@ def build(name, script_pubkey, consensus_hash, salt=None, testset=False):
     packaged_script = add_magic_bytes(hex_script, testset=testset)
 
     return packaged_script, salt
+
 
 def broadcast(name, consensus_hash, private_key, salt=None,
               blockchain_client=BlockchainInfoClient(), testset=False):
@@ -36,10 +38,11 @@ def broadcast(name, consensus_hash, private_key, salt=None,
         name, script_pubkey, consensus_hash, testset=testset, salt=salt)
     response = embed_data_in_blockchain(
         nulldata, private_key, blockchain_client, format='hex')
-    #response = {'success': True }
+    # response = {'success': True }
     response.update(
-        { 'data': nulldata, 'salt': salt, 'consensus_hash': consensus_hash })
+        {'data': nulldata, 'salt': salt, 'consensus_hash': consensus_hash})
     return response
+
 
 def parse(bin_payload):
     name_hash = bin_payload[0:LENGTHS['name_hash']]

@@ -8,6 +8,7 @@ from opennamelib import config
 
 from coinrpc import bitcoind
 
+
 def main():
     start = datetime.datetime.now()
 

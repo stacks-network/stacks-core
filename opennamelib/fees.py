@@ -3,17 +3,22 @@ import re
 from .config import DEFAULT_OP_RETURN_FEE, PRICE_FOR_1LETTER_NAMES, \
     PRICE_DROP_PER_LETTER, PRICE_DROP_FOR_NON_ALPHABETIC, ALPHABETIC_PRICE_FLOOR
 
+
 def is_alphabetic(s):
     return len(re.findall('[^a-z]', s)) == 0
+
 
 def has_numerics(s):
     return len(re.findall('[0-9]', s)) > 0
 
+
 def has_underscores_or_dashes(s):
     return len(re.findall('[-_]', s)) > 0
 
+
 def calculate_basic_name_tx_fee():
     return DEFAULT_OP_RETURN_FEE
+
 
 def calculate_name_price(name):
     # establish the base price
@@ -31,7 +36,8 @@ def calculate_name_price(name):
 
     return price
 
+
 def is_mining_fee_sufficient(name, mining_fee):
     name_price = 0
-    #name_price = calculate_name_price(name)
+    # name_price = calculate_name_price(name)
     return (mining_fee >= name_price)
