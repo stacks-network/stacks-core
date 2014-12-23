@@ -14,7 +14,7 @@ Openname Data Store Specs + Design
 - `hash160`: a 20-byte ripemd160 hash
 - `salt`: a random value appended to data in order to prevent reverse-lookups of the hashed data
 - `preorder hash`: a hash160 of a given name to preorder, a random salt, and the scriptPubKey of the registrant
--`name encoding`: a given name converted from base 40 to base 256
+- `name encoding`: a given name converted from base 40 to base 256
 - `historical record hash`: a hash of a data string generated from a representation of the nameset
 - `update hash`: a hash of the data to be associated with a given name
 
