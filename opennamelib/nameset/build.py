@@ -10,8 +10,10 @@ from .log import log_preorder, log_registration, log_update, log_transfer
 from ..fees import is_mining_fee_sufficient
 from ..parsing import parse_nameop
 from ..config import *
-from ..hashing import double_sha256, calculate_consensus_hash128
-from ..merkle import MerkleTree
+from ..hashing import bin_double_sha256, calculate_consensus_hash128
+
+from coinkit import MerkleTree
+
 
 def process_pending_nameops_in_block(db, current_block_number):
     """ process logged registrations, updates, and transfers
@@ -39,6 +41,7 @@ def process_pending_nameops_in_block(db, current_block_number):
     db.pending_transfers = defaultdict(list)
     db.pending_renewals = defaultdict(list)
 
+
 def clean_out_expired_names(db, current_block_number):
     """ clean out expired names
     """
@@ -46,6 +49,7 @@ def clean_out_expired_names(db, current_block_number):
     names_expiring = db.block_expirations[expiring_block_number]
     for name, _ in names_expiring.items():
         del db.name_records[name]
+
 
 def log_nameop(db, nameop, block_number):
     """ record nameop
@@ -60,6 +64,7 @@ def log_nameop(db, nameop, block_number):
     elif opcode == NAME_TRANSFER:
         log_transfer(db, nameop)
 
+
 def name_record_to_string(name, name_record):
     value_hash = name_record.get('value_hash', '')
     if value_hash is None:
@@ -67,22 +72,25 @@ def name_record_to_string(name, name_record):
     name_string = (name + name_record['owner'] + value_hash).encode('utf8')
     return name_string
 
+
 def calculate_merkle_snapshot(db):
     names = sorted(db.name_records)
     hashes = []
     for name in names:
         name_string = name_record_to_string(name, db.name_records[name])
-        name_string_hash = hexlify(double_sha256(name_string))
+        name_string_hash = hexlify(bin_double_sha256(name_string))
         hashes.append(name_string_hash)
     if len(hashes) == 0:
-        hashes.append(hexlify(double_sha256("")))
+        hashes.append(hexlify(bin_double_sha256("")))
     merkle_tree = MerkleTree(hashes)
     merkle_root = merkle_tree.root()
     consensus_hash128 = calculate_consensus_hash128(merkle_root)
     return consensus_hash128
 
+
 def record_consensus_hash(db, consensus_hash, block_number):
     db.consensus_hashes[str(block_number)] = consensus_hash
+
 
 def build_nameset(db, nameop_sequence):
     # set the current consensus hash
@@ -104,13 +112,14 @@ def build_nameset(db, nameop_sequence):
         consensus_hash128 = calculate_merkle_snapshot(db)
         # record the merkle consensus hash
         record_consensus_hash(db, consensus_hash128, block_number)
-    
+
     # set the current consensus hash
     db.consensus_hashes['current'] = consensus_hash128
     # return the current consensus hash
     return consensus_hash128
 
 from ..blockchain import get_nulldata_txs_in_block
+
 
 def nulldata_txs_to_nameops(txs):
     nameops = []
@@ -121,10 +130,12 @@ def nulldata_txs_to_nameops(txs):
             nameops.append(nameop)
     return nameops
 
+
 def get_nameops_in_block(bitcoind, block_number):
     current_nulldata_txs = get_nulldata_txs_in_block(bitcoind, block_number)
     nameops = nulldata_txs_to_nameops(current_nulldata_txs)
     return nameops
+
 
 def get_nameops_in_block_range(bitcoind, first_block=0, last_block=None):
     nameop_sequence = []

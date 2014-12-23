@@ -1,4 +1,7 @@
-import json, traceback, unittest, string
+import json
+import traceback
+import unittest
+import string
 from test import test_support
 
 from opennamelib import *
@@ -21,20 +24,21 @@ registration_example_1 = {
     'recipient': '1DuckDmHTXVxSHC7UafaBiUZB81qYhKprF'
 }
 
+
 class NamePreorderTest(unittest.TestCase):
     def setUp(self):
         self.data = registration_example_1
         self.namedb = NameDb('data/namespace.txt')
 
     def test_name_preorder(self):
-        consensus_hash = str(self.namedb.consensus_hashes['current'])
-        print SECRETS['private_keys'][0]
+        consensus_hash128 = str(self.namedb.consensus_hashes['current'])
         resp = preorder_name(
-            self.data['name'], consensus_hash, SECRETS['private_keys'][0],
+            self.data['name'], consensus_hash128, SECRETS['private_keys'][0],
             salt=self.data['salt'], blockchain_client=blockchain_client,
             testset=True)
         print resp
         self.assertTrue('success' in resp)
+
 
 class NameRegistrationTest(unittest.TestCase):
     def setUp(self):
@@ -50,6 +54,7 @@ class NameRegistrationTest(unittest.TestCase):
         print resp
         self.assertTrue('success' in resp)
 
+
 class NameUpdateTest(unittest.TestCase):
     def setUp(self):
         self.data = registration_example_1
@@ -61,8 +66,9 @@ class NameUpdateTest(unittest.TestCase):
         resp = update_name(
             self.data['name'], self.data['data'], SECRETS['private_keys'][0],
             blockchain_client=blockchain_client, testset=True)
-        print resp 
+        print resp
         self.assertTrue('success' in resp)
+
 
 class NameTransferTest(unittest.TestCase):
     def setUp(self):
@@ -79,6 +85,7 @@ class NameTransferTest(unittest.TestCase):
         print resp
         self.assertTrue('success' in resp)
 
+
 class MerkleRootTest(unittest.TestCase):
     def setUp(self):
         self.hashes = [
@@ -86,7 +93,8 @@ class MerkleRootTest(unittest.TestCase):
             '7b5636e9bc6ec910157e88702699bc7892675e8b489632c9166764341a4d4cfe',
             'f8b02b8bf25cb6008e38eb5453a22c502f37e76375a86a0f0cfaa3c301aa1209'
         ]
-        self.merkle_root = '4f4c8c201e85a64a410cc7272c77f443d8b8df3289c67af9dab1e87d9e61985e'
+        self.merkle_root = ("4f4c8c201e85a64a410cc7272c77f443d8b8df3289c67af9"
+                            "dab1e87d9e61985e")
 
     def tearDown(self):
         pass
@@ -98,6 +106,7 @@ class MerkleRootTest(unittest.TestCase):
     def test_calculate_merkle_root(self):
         merkle_root = calculate_merkle_root(self.hashes)
         self.assertEqual(merkle_root, self.merkle_root)
+
 
 """class NameOperationSequenceTest(unittest.TestCase):
     def setUp(self):
@@ -121,21 +130,22 @@ class MerkleRootTest(unittest.TestCase):
         self.assertTrue('success' in resp)
 
         resp = update_name(self.name, self.data, self.private_keys[2],
-            blockchain_client=blockchain_client, testspace=True)        
+            blockchain_client=blockchain_client, testspace=True)
         self.assertTrue('success' in resp)
 
         resp = transfer_name(self.name, self.recipient, self.private_keys[3],
             blockchain_client=blockchain_client, testspace=True)
         self.assertTrue('success' in resp)"""
 
+
 def test_main():
     test_support.run_unittest(
         MerkleRootTest,
-        NamePreorderTest,
-        #NameRegistrationTest,
-        #NameUpdateTest,
-        #NameTransferTest,
-        #NameOperationSequenceTest
+        # NamePreorderTest,
+        # NameRegistrationTest,
+        NameUpdateTest,
+        # NameTransferTest,
+        # NameOperationSequenceTest
     )
 
 if __name__ == '__main__':

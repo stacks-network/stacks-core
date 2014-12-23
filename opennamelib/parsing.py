@@ -6,6 +6,7 @@ from .b40 import bin_to_b40
 from .operations import parse_preorder, parse_registration, parse_update, \
     parse_transfer
 
+
 def get_recipient_from_nameop_outputs(outputs):
     for output in outputs:
         output_script = output['scriptPubKey']
@@ -17,13 +18,14 @@ def get_recipient_from_nameop_outputs(outputs):
             return output_hex
     return None
 
+
 def parse_nameop_data(data):
     if not is_hex(data):
         raise ValueError('Data must be hex')
-    #if not len(data) <= OP_RETURN_MAX_SIZE*2:
+    # if not len(data) <= OP_RETURN_MAX_SIZE*2:
     #    raise ValueError('Payload too large')
     if not len(data) % 2 == 0:
-        #raise ValueError('Data must have an even number of bytes')
+        # raise ValueError('Data must have an even number of bytes')
         return None
 
     bin_data = unhexlify(data)
@@ -31,7 +33,8 @@ def parse_nameop_data(data):
     magic_bytes, opcode, payload = bin_data[0:2], bin_data[2:3], bin_data[3:]
 
     if not magic_bytes == MAGIC_BYTES:
-        return None # Magic bytes don't match - not an openname operation.
+        # Magic bytes don't match - not an openname operation.
+        return None
 
     if opcode == NAME_PREORDER and len(payload) >= MIN_OP_LENGTHS['preorder']:
         nameop = parse_preorder(payload)
@@ -40,18 +43,21 @@ def parse_nameop_data(data):
         nameop = parse_registration(payload)
     elif opcode == NAME_UPDATE and len(payload) >= MIN_OP_LENGTHS['update']:
         nameop = parse_update(payload)
-    elif opcode == NAME_TRANSFER and len(payload) >= MIN_OP_LENGTHS['transfer']:
+    elif (opcode == NAME_TRANSFER
+          and len(payload) >= MIN_OP_LENGTHS['transfer']):
         nameop = parse_transfer(payload)
     else:
         nameop = None
 
     return nameop
 
+
 def analyze_nameop_outputs(nameop, outputs):
     if eval(nameop['opcode']) == NAME_TRANSFER:
         recipient = get_recipient_from_nameop_outputs(outputs)
-        nameop.update({ 'recipient': recipient })
+        nameop.update({'recipient': recipient})
     return nameop
+
 
 def parse_nameop(data, outputs, senders=None, fee=None):
     nameop = parse_nameop_data(data)

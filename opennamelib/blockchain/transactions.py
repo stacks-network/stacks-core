@@ -1,5 +1,7 @@
 from ..parsing import parse_nameop
 from .nulldata import get_nulldata, has_nulldata
+import traceback
+
 
 def get_senders_and_total_in(bitcoind, inputs):
     senders = []
@@ -25,7 +27,7 @@ def get_senders_and_total_in(bitcoind, inputs):
         # make sure the previous tx output is valid
         if not ('scriptPubKey' in prev_tx_output and 'value' in prev_tx_output):
             continue
-        
+
         # extract the script pubkey
         script_pubkey = prev_tx_output['scriptPubKey']
         # build and append the sender to the list of senders
@@ -38,9 +40,10 @@ def get_senders_and_total_in(bitcoind, inputs):
         senders.append(sender)
         # increment the total amount going in to the transaction
         total_in += amount_in
-    
+
     # return the senders and the total in
     return senders, total_in
+
 
 def get_total_out(bitcoind, outputs):
     total_out = 0
@@ -49,6 +52,7 @@ def get_total_out(bitcoind, outputs):
         amount_out = int(output['value']*10**8)
         total_out += amount_out
     return total_out
+
 
 def process_nulldata_tx(bitcoind, tx):
     if not ('vin' in tx and 'vout' in tx and 'txid' in tx):
@@ -63,9 +67,10 @@ def process_nulldata_tx(bitcoind, tx):
     tx['nulldata'] = nulldata
     tx['senders'] = senders
     tx['fee'] = total_in - total_out
-    #print tx['fee']
+    # print tx['fee']
 
     return tx
+
 
 def get_tx(bitcoind, tx_hash):
     # lookup the raw tx using the tx hash
@@ -75,6 +80,7 @@ def get_tx(bitcoind, tx_hash):
         traceback.print_exc()
         return None
     return tx
+
 
 def get_nulldata_txs_in_block(bitcoind, block_number):
     nulldata_txs = []

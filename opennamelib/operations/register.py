@@ -6,6 +6,7 @@ from ..b40 import b40_to_hex, bin_to_b40
 from ..config import *
 from ..scripts import name_script_to_hex, add_magic_bytes
 
+
 def build(name, salt, testset=False):
     """ Takes in the name that was preordered, along with the salt used.
     """
@@ -20,14 +21,16 @@ def build(name, salt, testset=False):
 
     return packaged_script
 
+
 def broadcast(name, salt, private_key,
-               blockchain_client=BlockchainInfoClient(), testset=False):
+              blockchain_client=BlockchainInfoClient(), testset=False):
     nulldata = build(name, salt, testset=testset)
-    #response = {'success': True }
+    # response = {'success': True }
     response = embed_data_in_blockchain(
         nulldata, private_key, blockchain_client, format='hex')
-    response.update({ 'data': nulldata })
+    response.update({'data': nulldata})
     return response
+
 
 def parse(bin_payload):
     name_len = ord(bin_payload[0:1])

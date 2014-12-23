@@ -1,7 +1,7 @@
 
 def get_nulldata(tx):
     if not ('vout' in tx):
-        return None        
+        return None
     outputs = tx['vout']
     # go through all the outputs
     for output in outputs:
@@ -17,6 +17,7 @@ def get_nulldata(tx):
         if script_type == 'nulldata' and len(script_parts) == 2:
             return script_parts[1]
     return None
+
 
 def has_nulldata(tx):
     return (get_nulldata(tx) is not None)
