@@ -15,14 +15,14 @@ def no_pending_higher_priority_registration(db, name, mining_fee):
         return False
     return True
 
-def has_preordered_name(db, name, salt, sender):
+def has_preordered_name(db, name, salt, sender_script_pubkey):
     try:
-        name_hash = hash_name(name, salt)
+        name_hash = hash_name(name, salt, sender_script_pubkey)
     except ValueError:
         return False
 
     if name_hash in db.preorders:
-        if sender == db.preorders[name_hash]['sender']:
+        if sender_script_pubkey == db.preorders[name_hash]['sender']:
             return True
     return False
 

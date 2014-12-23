@@ -17,7 +17,7 @@ setup(
     download_url='https://github.com/openname/opennamed/archive/master.zip',
     zip_safe=False,
     install_requires=[
-        'coinkit>=0.7.4',
+        'coinkit>=0.7.7',
         'kademlia>=0.2',
         'python-daemon>=1.6.1',
         'python-bitcoinrpc>=0.1',

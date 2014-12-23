@@ -1,8 +1,8 @@
 from ..hashing import hash_name
 
-def remove_preorder(db, name, salt):
+def remove_preorder(db, name, salt, script_pubkey):
     try:
-        name_hash = hash_name(name, salt)
+        name_hash = hash_name(name, salt, script_pubkey)
     except ValueError:
         return False
     else:
@@ -14,7 +14,7 @@ def commit_preorder(db, nameop):
 
 def commit_registration(db, nameop, current_block_number):
     name = nameop['name']
-    remove_preorder(db, name, nameop['salt'])
+    remove_preorder(db, name, nameop['salt'], nameop['sender'])
     db.name_records[name] = {
         'value_hash': None,
         'owner': str(nameop['sender']),

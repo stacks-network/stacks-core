@@ -4,7 +4,7 @@ Openname Data Store Specs + Design
 ### Operations
 
 1. name preorder
-2. name claim
+2. name register
 3. name update
 4. name transfer
 
@@ -13,7 +13,7 @@ Openname Data Store Specs + Design
 - `nameset`: all the names ever registered on all possible namespaces
 - `hash160`: a 20-byte ripemd160 hash
 - `salt`: a random value appended to data in order to prevent reverse-lookups of the hashed data
-- `name hash`: a hash160 of a given name and a random salt
+- `preorder hash`: a hash160 of a given name to preorder, a random salt, and the scriptPubKey of the registrant
 -`name encoding`: a given name converted from base 40 to base 256
 - `historical record hash`: a hash of a data string generated from a representation of the nameset
 - `update hash`: a hash of the data to be associated with a given name
@@ -39,12 +39,15 @@ Openname Data Store Specs + Design
 
 #### Name encoding lengths
 
+- 12 bytes = 18 characters
+- 13 bytes = 19.5 characters
+- 14 bytes = 21 characters
+- 15 bytes = 22.5 characters
 - 16 bytes = 24 characters
 - 17 bytes = 25.5 characters
 - 18 bytes = 27.0 characters
 - 19 bytes = 28.5 characters
 - 20 bytes = 30 characters
-- 24 bytes = 36 characters
 
 ### Transaction Senders/Name Owners
 
@@ -56,10 +59,10 @@ In a transaction, the sender is established as the funder of the first non-OP_RE
 
 - magic bytes (2 bytes)
 - operation code (1 byte)
-- name/salt hash (20 bytes)
+- preorder hash (20 bytes)
 - consensus hash (16 bytes)
 
-### Name Claim (reveal)
+### Name Register (claim/reveal)
 
 - magic bytes (2 bytes)
 - operation code (1 byte)

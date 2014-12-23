@@ -27,10 +27,9 @@ class NamePreorderTest(unittest.TestCase):
         self.namedb = NameDb('data/namespace.txt')
 
     def test_name_preorder(self):
-        consensus_hash = str(self.namedb.consensus_hashes['current'])
-        print SECRETS['private_keys'][0]
+        consensus_hash128 = str(self.namedb.consensus_hashes['current'])
         resp = preorder_name(
-            self.data['name'], consensus_hash, SECRETS['private_keys'][0],
+            self.data['name'], consensus_hash128, SECRETS['private_keys'][0],
             salt=self.data['salt'], blockchain_client=blockchain_client,
             testset=True)
         print resp
@@ -131,9 +130,9 @@ class MerkleRootTest(unittest.TestCase):
 def test_main():
     test_support.run_unittest(
         MerkleRootTest,
-        NamePreorderTest,
+        #NamePreorderTest,
         #NameRegistrationTest,
-        #NameUpdateTest,
+        NameUpdateTest,
         #NameTransferTest,
         #NameOperationSequenceTest
     )

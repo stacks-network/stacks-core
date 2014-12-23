@@ -10,8 +10,9 @@ from .log import log_preorder, log_registration, log_update, log_transfer
 from ..fees import is_mining_fee_sufficient
 from ..parsing import parse_nameop
 from ..config import *
-from ..hashing import double_sha256, calculate_consensus_hash128
-from ..merkle import MerkleTree
+from ..hashing import bin_double_sha256, calculate_consensus_hash128
+
+from coinkit import MerkleTree
 
 def process_pending_nameops_in_block(db, current_block_number):
     """ process logged registrations, updates, and transfers
@@ -72,10 +73,10 @@ def calculate_merkle_snapshot(db):
     hashes = []
     for name in names:
         name_string = name_record_to_string(name, db.name_records[name])
-        name_string_hash = hexlify(double_sha256(name_string))
+        name_string_hash = hexlify(bin_double_sha256(name_string))
         hashes.append(name_string_hash)
     if len(hashes) == 0:
-        hashes.append(hexlify(double_sha256("")))
+        hashes.append(hexlify(bin_double_sha256("")))
     merkle_tree = MerkleTree(hashes)
     merkle_root = merkle_tree.root()
     consensus_hash128 = calculate_consensus_hash128(merkle_root)
