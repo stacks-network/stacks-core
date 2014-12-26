@@ -112,7 +112,7 @@ def do_name_firstupdate():
                     continue 
 
             if entry['wait_till_block'] <= blocks:
-                
+
                 if server in ignore_servers:
                     continue
                 
@@ -124,7 +124,7 @@ def do_name_firstupdate():
                 update_value = None
                 if 'username' in entry:
                     update_value = get_string(refresh_value(entry))
-
+                    
                 if update_value is None:
                     update_value = get_string(entry['value'])    
                 
