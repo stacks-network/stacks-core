@@ -8,4 +8,4 @@ Installation
 
 First install coinrpc
 
-> pip install git+ssh://git@github.com/halfmoonlabs/coinrpc.git
+> pip install git+https://github.com/openname/coinrpc.git
