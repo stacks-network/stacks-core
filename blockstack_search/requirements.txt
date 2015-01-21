@@ -1,0 +1,12 @@
+Flask==0.10.1
+Jinja2==2.7.2
+MarkupSafe==0.18
+Werkzeug==0.9.4
+itsdangerous==0.23
+pyes==0.90.1
+pylibmc==1.2.3
+pymongo==2.6.3
+pytz==2014.2
+requests==2.2.1
+six==1.6.1
+urllib3==1.8
