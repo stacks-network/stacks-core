@@ -134,6 +134,9 @@ def slice_profile(username, profile, old_keys=None):
             return remaining, None 
         else:
             for key in remaining.keys(): 
+                if utf8len(json.dumps(remaining[key])) > max_size(username):
+                    remaining[key] = remaining[key][:max_size(username) - 12]  
+   
                 split[key] = remaining[key]
 
                 if utf8len(json.dumps(split)) < max_size(username):
@@ -150,7 +153,7 @@ def slice_profile(username, profile, old_keys=None):
     split, remaining = splitter(profile, username) 
     values.append(split)
 
-    key_counter = 0
+    key_counter = 000000
     counter = 0 
 
     while(remaining is not None):
