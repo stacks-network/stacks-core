@@ -15,7 +15,9 @@ import os
 import sys
 import subprocess
 import signal
-import zerorpc
+from txjsonrpc.web import jsonrpc
+from twisted.web import server
+from twisted.internet import reactor
 
 from opennamelib import config
 from coinkit import BitcoindClient, ChainComClient
@@ -63,17 +65,17 @@ try:
 except:
     pass
 
-class OpennamedRPC(object):
+class OpennamedRPC(jsonrpc.JSONRPC):
     """ opennamed rpc
     """
 
-    def getinfo(self):
+    def jsonrpc_getinfo(self):
         info = bitcoind.getinfo()
         reply = {}
         reply['blocks'] = info['blocks']
         return reply
 
-    def preorder(self, name, consensushash, privatekey):
+    def jsonrpc_preorder(self, name, consensushash, privatekey):
         """ Preorder a name
         """
 
@@ -88,7 +90,7 @@ class OpennamedRPC(object):
 
         return resp
 
-    def register(self, name, salt, privatekey):
+    def jsonrpc_register(self, name, salt, privatekey):
         """ Register a name
         """
 
@@ -99,7 +101,7 @@ class OpennamedRPC(object):
 
         return resp
 
-    def update(self, name, data, privatekey):
+    def jsonrpc_update(self, name, data, privatekey):
         """ Update a name
         """
 
@@ -110,7 +112,7 @@ class OpennamedRPC(object):
 
         return resp
 
-    def transfer(self, name, address, privatekey):
+    def jsonrpc_transfer(self, name, address, privatekey):
         """ Transfer a name
         """
 
@@ -121,7 +123,7 @@ class OpennamedRPC(object):
 
         return resp
 
-    def renew(self, name, privatekey):
+    def jsonrpc_renew(self, name, privatekey):
         """ Renew a name
         """
 
@@ -142,10 +144,9 @@ def run_server():
     log.info('Started dht server')
 
     try:
-        server = zerorpc.Server(OpennamedRPC())
-        server.bind('tcp://' + config.LISTEN_IP + ':' +
-                    config.DEFAULT_OPENNAMED_PORT)
-        server.run()
+        reactor.listenTCP(int(config.DEFAULT_OPENNAMED_PORT), server.Site(OpennamedRPC()))
+        reactor.run()
+
     except Exception as e:
         log.debug(e)
         log.info('Exiting opennamed server')
