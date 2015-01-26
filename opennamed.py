@@ -54,7 +54,8 @@ from opennamelib import preorder_name, register_name, update_name, \
     transfer_name
 
 bitcoind_client = BitcoindClient(
-    config.BITCOIND_USER, config.BITCOIND_PASSWD, server=config.BITCOIND_SERVER,
+    config.BITCOIND_USER, config.BITCOIND_PASSWD,
+    server=config.BITCOIND_SERVER,
     port=str(config.BITCOIND_PORT))
 
 try:
@@ -62,6 +63,7 @@ try:
                                       config.CHAIN_COM_API_SECRET)
 except:
     pass
+
 
 class OpennamedRPC(object):
     """ opennamed rpc

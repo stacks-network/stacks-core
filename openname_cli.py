@@ -17,7 +17,8 @@ from opennamelib import config
 import coinkit
 
 client = zerorpc.Client(timeout=config.RPC_TIMEOUT)
-client.connect('tcp://' + config.OPENNAMED_SERVER + ':' + config.OPENNAMED_PORT)
+client.connect(
+    'tcp://' + config.OPENNAMED_SERVER + ':' + config.OPENNAMED_PORT)
 
 from dht.client import dht_client
 dht_client = dht_client()
