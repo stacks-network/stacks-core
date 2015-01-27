@@ -5,4 +5,4 @@ from . import app
 
 @app.route('/')
 def index():
-    return redirect('/docs')
+    return render_template('index.html')
