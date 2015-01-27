@@ -5,10 +5,13 @@
     ~~~~~
 """
 
-import requests, json, hashlib 
+import requests
+import json
+import hashlib
 from .htmlparsing import *
 
 from .sites import SITES
+
 
 def contains_valid_proof_statement(search_text, username):
     search_text = search_text.lower()
@@ -32,6 +35,7 @@ def contains_valid_proof_statement(search_text, username):
 
     return False
 
+
 def is_valid_proof(site, site_username, openname, proof_url):
     site_username = site_username.lower()
     proof_url = proof_url.lower()
@@ -39,7 +43,7 @@ def is_valid_proof(site, site_username, openname, proof_url):
 
     if not site in SITES and 'base_url' in SITES[site]:
         return False
-    
+
     check_url = SITES[site]['base_url'] + site_username
     if not proof_url.startswith(check_url):
         return False
@@ -55,8 +59,9 @@ def is_valid_proof(site, site_username, openname, proof_url):
         search_text = get_search_text(site, r.text)
     else:
         search_text = ''
-    
+
     return contains_valid_proof_statement(search_text, openname)
+
 
 def site_data_to_proof_url(site_data, identifier):
     proof_url = None
@@ -78,12 +83,14 @@ def site_data_to_proof_url(site_data, identifier):
                 proof_url = "https://gist.github.com/" + username + "/" + proof["id"]
             elif key == "facebook":
                 proof_url = "https://www.facebook.com/" + username + "/posts/" + proof["id"]
-    
+
     return proof_url
+
 
 def profile_to_verifications(profile, openname):
     proofs = profile_to_proofs(profile, openname)
     return proofs
+
 
 def site_data_to_identifier(site_data):
     identifier = None
@@ -94,6 +101,7 @@ def site_data_to_identifier(site_data):
     if "userid" in site_data:
         identifier = site_data["userid"]
     return identifier
+
 
 def profile_to_proofs(profile, openname):
     proofs = []
@@ -110,8 +118,8 @@ def profile_to_proofs(profile, openname):
                         "identifier": identifier,
                         "valid": False
                     }
-                    if is_valid_proof(proof_site, identifier, openname, proof_url):
+                    if is_valid_proof(
+                            proof_site, identifier, openname, proof_url):
                         proof["valid"] = True
                     proofs.append(proof)
     return proofs
-

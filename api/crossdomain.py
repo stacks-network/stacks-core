@@ -9,6 +9,7 @@ X_HEADERS = [
     'Origin', 'Pragma', 'Referer', 'User-Agent', 'If-Match', 'If-None-Match'
 ]
 
+
 def crossdomain(origin='*', methods=None, headers=X_HEADERS,
                 max_age=21600, attach_to_all=True,
                 automatic_options=True):

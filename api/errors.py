@@ -5,10 +5,12 @@
     ~~~~~
 """
 
-import json, traceback
+import json
+import traceback
 from flask import render_template, jsonify, request
 
 from . import app
+
 
 class APIError(Exception):
     status_code = 500
@@ -28,6 +30,7 @@ class APIError(Exception):
     def __str__(self):
         return self.message
 
+
 # API error handler
 @app.errorhandler(APIError)
 def general_api_error_handler(error):
@@ -35,39 +38,46 @@ def general_api_error_handler(error):
     response.status_code = error.status_code
     return response
 
+
 # 404 Error handler
 @app.errorhandler(404)
 def resource_not_found(e):
     if request.path[1] == 'v':
-        return jsonify({ 'error': 'Resource not found' }), 404
+        return jsonify({'error': 'Resource not found'}), 404
     else:
         return render_template('404.html'), 404
+
 
 # 403 Error handler
 @app.errorhandler(403)
 def unauthorized_access(e):
-    return jsonify({ 'error': 'Unauthorized access' }), 404
+    return jsonify({'error': 'Unauthorized access'}), 404
+
 
 # 500 Error handler
 @app.errorhandler(500)
 def internal_server_error(e):
-    return jsonify({ 'error': 'Internal server error' }), 404
+    return jsonify({'error': 'Internal server error'}), 404
+
 
 # 500 Error handler
 @app.errorhandler(Exception)
 def exception_error(e):
     traceback.print_exc()
-    return jsonify({ 'error': 'Internal server error' }), 404
+    return jsonify({'error': 'Internal server error'}), 404
 
 
 class ProfileNotFoundError(APIError):
     pass
 
+
 class BadProfileError(APIError):
     pass
 
+
 class UsernameTakenError(APIError):
     pass
+
 
 class UnauthorizedAccessError(APIError):
     status_code = 403

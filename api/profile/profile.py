@@ -1,9 +1,13 @@
-import os, json, requests, traceback
+import os
+import json
+import requests
+import traceback
 
 from ..errors import APIError, ProfileNotFoundError, BadProfileError, \
     UsernameTakenError
 
 from .examples import EXAMPLES
+
 
 def get_blockchain_profile(username):
     auth = ('opennamesystem', 'opennamesystem')
@@ -13,7 +17,8 @@ def get_blockchain_profile(username):
         return EXAMPLES['ryanshea']
 
     try:
-        r = requests.get(BASE_URL + username, timeout=1, verify=False, auth=auth)
+        r = requests.get(
+            BASE_URL + username, timeout=1, verify=False, auth=auth)
     except requests.exceptions.ConnectionError:
         raise ProfileNotFoundError("User doesn't seem to exist.")
     except requests.exceptions.Timeout:
@@ -35,13 +40,14 @@ def get_blockchain_profile(username):
 
     return profile
 
+
 def get_profile_verifications(username, profile):
     if username == 'fredwilson':
         data = {}
         return data
 
     url = "http://proofcheck.halfmoonlabs.com/proofcheck/verifications?username=" + username
-    
+
     try:
         r = requests.get(url, timeout=1, verify=False)
     except requests.exceptions.ConnectionError:
@@ -78,7 +84,8 @@ def get_profile_verifications(username, profile):
     except:
         data['twitter'] = False
     else:
-        if twitter_proof_url and twitter_username and twitter_username not in twitter_proof_url:
+        if (twitter_proof_url and twitter_username
+                and twitter_username not in twitter_proof_url):
             data['twitter'] = False
 
     return data
