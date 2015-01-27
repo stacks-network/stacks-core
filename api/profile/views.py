@@ -10,8 +10,19 @@ from ..crossdomain import crossdomain
 from ..auth import auth_required
 
 
+@v1profile.route('/users', methods=['GET'])
+@crossdomain(origin='*')
+def user_count():
+    data = {
+        'stats': {
+            'registrations': 23000
+        }
+    }
+    return jsonify(data), 200
+
+
 @v1profile.route('/users/<username>')
-@auth_required(exception_paths=['/v1/users/gavin', '/v1/users/example'])
+@auth_required(exception_paths=['/v1/users/fredwilson', '/v1/users/example'])
 @crossdomain(origin='*')
 def api_user(username):
 

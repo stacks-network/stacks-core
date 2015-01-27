@@ -10,7 +10,6 @@ import datetime
 import binascii
 from utilitybelt import dev_random_entropy, dev_urandom_entropy
 
-from .utils import generate_app_id
 from ..db import db
 
 
@@ -20,8 +19,7 @@ class User(db.Document):
     # account/auth data
     email = db.StringField(max_length=255, unique=True, required=True)
     # api keys
-    app_id = db.StringField(
-        default=generate_app_id(), max_length=255, unique=True, required=True)
+    app_id = db.StringField(max_length=255, unique=True, required=True)
     app_secret = db.StringField(max_length=255, unique=True)
     app_secret_hash = db.StringField(
         max_length=255, unique=True, required=True)

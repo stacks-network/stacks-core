@@ -7,4 +7,4 @@ def generate_app_id():
 
 
 def generate_app_secret():
-    return hexlify(dev_urandom_entropy(16))
+    return hexlify(dev_urandom_entropy(32))
