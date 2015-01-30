@@ -9,14 +9,13 @@
 
 import argparse
 import coinkit
-import daemon
 import logging
 import os
 import sys
 import subprocess
 import signal
-from txjsonrpc.web import jsonrpc
-from twisted.web import server
+
+from txjsonrpc.netstring import jsonrpc
 from twisted.internet import reactor
 
 from opennamelib import config
@@ -37,19 +36,6 @@ config_options = 'https://' + config.BITCOIND_USER + ':' + \
     str(config.BITCOIND_PORT)
 
 bitcoind = AuthServiceProxy(config_options)
-dht_node = None
-
-
-def signal_handler(signal, frame):
-    """ Handle Ctrl+C for dht node
-    """
-    import signal
-    log.info('\n')
-    log.info('Exiting opennamed server')
-    os.killpg(dht_node.pid, signal.SIGTERM)
-    sys.exit(0)
-
-signal.signal(signal.SIGINT, signal_handler)
 
 import opennamelib
 from opennamelib import preorder_name, register_name, update_name, \
@@ -65,14 +51,43 @@ try:
 except:
     pass
 
+
+def signal_handler(signal, frame):
+    """ Handle Ctrl+C for dht node
+    """
+    import signal
+    log.info('\n')
+    log.info('Exiting opennamed server')
+    stop_server()
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+
+
 class OpennamedRPC(jsonrpc.JSONRPC):
     """ opennamed rpc
     """
 
+    def __init__(self, dht_server=None):
+        self.dht_server = dht_server
+
+    def jsonrpc_ping(self):
+        reply = {}
+        reply['status'] = "alive"
+        return reply
+
+    def jsonrpc_get(self, key):
+        return self.dht_server.get(key)
+
+    def jsonrpc_set(self, key, value):
+        return self.dht_server.set(key, value)
+
     def jsonrpc_getinfo(self):
+
         info = bitcoind.getinfo()
         reply = {}
         reply['blocks'] = info['blocks']
+        reply['test'] = "hello"
         return reply
 
     def jsonrpc_preorder(self, name, consensushash, privatekey):
@@ -132,25 +147,32 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         return
 
 
-def run_server():
+def run_server(foreground=False):
     """ run the opennamed server
     """
 
-    file_path = os.path.dirname(__file__) + '/dht/server.py'
+    current_dir = os.path.abspath(os.path.dirname(__file__))
 
-    global dht_node
-    dht_node = subprocess.Popen('twistd -noy ' + file_path,
-                                shell=True, preexec_fn=os.setsid)
-    log.info('Started dht server')
+    tac_file = current_dir + '/opennamed.tac'
+    log_file = current_dir + '/tmp/opennamed.log'
+    pid_file = current_dir + '/tmp/opennamed.pid'
+
+    if foreground:
+        command = 'twistd --pidfile=%s -noy %s' % (pid_file, tac_file)
+    else:
+        command = 'twistd --pidfile=%s --logfile=%s -y %s' % (pid_file,
+                                                              log_file,
+                                                              tac_file)
 
     try:
-        reactor.listenTCP(int(config.DEFAULT_OPENNAMED_PORT), server.Site(OpennamedRPC()))
-        reactor.run()
+            opennamed = subprocess.Popen(command,
+                                         shell=True, preexec_fn=os.setsid)
+            log.info('Opennamed successfully started')
 
     except Exception as e:
         log.debug(e)
         log.info('Exiting opennamed server')
-        os.killpg(dht_node.pid, signal.SIGTERM)
+        os.killpg(opennamed.pid, signal.SIGTERM)
         exit(1)
 
 
@@ -162,19 +184,19 @@ def stop_server():
     import signal
     import os
 
-    p = subprocess.Popen(['ps', '-A'], stdout=subprocess.PIPE)
-    out, err = p.communicate()
+    pid_file = os.path.dirname(__file__) + '/tmp/opennamed.pid'
 
-    for line in out.splitlines():
-        if 'opennamed start' in line:
-            log.info('Stopping opennamed server')
-            pid = int(line.split(None, 1)[0])
-            os.kill(pid, signal.SIGKILL)
+    try:
+        fin = open(pid_file)
+    except:
+        return
+    else:
+        pid_data = fin.read()
+        fin.close()
+        os.remove(pid_file)
 
-        elif 'twistd -noy' in line:
-            log.info('Stopping dht node')
-            pid = int(line.split(None, 1)[0])
-            os.kill(pid, signal.SIGKILL)
+        pid = int(pid_data)
+        os.kill(pid, signal.SIGKILL)
 
 
 def run_opennamed():
@@ -215,13 +237,15 @@ def run_opennamed():
     args = parser.parse_args()
 
     if args.action == 'start':
+        stop_server()
         if args.foreground:
-            log.info('Starting opennamed server in foreground')
-            run_server()
+            log.info('Initializing opennamed server in foreground ...')
+            run_server(foreground=True)
+            while(1):
+                stay_alive = True
         else:
-            log.info('Starting opennamed server')
-            with daemon.DaemonContext():
-                run_server()
+            log.info('Starting opennamed server ...')
+            run_server()
     elif args.action == 'stop':
         stop_server()
 
