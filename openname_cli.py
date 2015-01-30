@@ -12,15 +12,8 @@ import sys
 import json
 import traceback
 
-import zerorpc
 from opennamelib import config
 import coinkit
-
-client = zerorpc.Client(timeout=config.RPC_TIMEOUT)
-client.connect('tcp://' + config.OPENNAMED_SERVER + ':' + config.OPENNAMED_PORT)
-
-from dht.client import dht_client
-dht_client = dht_client()
 
 import logging
 from twisted.python import log
@@ -35,6 +28,23 @@ console.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
 formatter = logging.Formatter('%(message)s')
 console.setFormatter(formatter)
 logger.addHandler(console)
+
+from twisted.internet import reactor
+from txjsonrpc.netstring.jsonrpc import Proxy
+
+proxy = Proxy('127.0.0.1', 6264)
+
+
+def printValue(value):
+    logger.info(pretty_dump(value))
+
+
+def printError(error):
+    print 'error', error
+
+
+def shutDown(data):
+    reactor.stop()
 
 
 def pretty_dump(input):
@@ -65,6 +75,10 @@ def run_cli():
     subparser = subparsers.add_parser(
         'getinfo',
         help='get basic info from the opennamed server')
+
+    subparser = subparsers.add_parser(
+        'ping',
+        help='check if the opennamed server is up')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -164,30 +178,34 @@ def run_cli():
             logger.info("Couldn't connect to opennamed server")
             exit(0)
 
+    elif args.action == 'ping':
+
+        client = proxy.callRemote('ping')
+
     elif args.action == 'preorder':
         logger.debug('Preordering %s', args.name)
-        logger.info(pretty_dump(
-            client.preorder(args.name, args.consensushash, args.privatekey)))
+
+        client = proxy.callRemote('preorder', args.name, args.consensushash,
+                                  args.privatekey)
 
     elif args.action == 'register':
         logger.debug('Registering %s', args.name)
-        logger.info(pretty_dump(
-            client.register(args.name, args.salt, args.privatekey)))
+        client = proxy.callRemote('register', args.name, args.salt,
+                                  args.privatekey)
 
     elif args.action == 'update':
         logger.debug('Updating %s', args.name)
-        logger.info(pretty_dump(
-            client.update(args.name, args.data, args.privatekey)))
+        client = proxy.callRemote('update', args.name, args.data,
+                                  args.privatekey)
 
     elif args.action == 'transfer':
         logger.debug('Transfering %s', args.name)
-        logger.info(pretty_dump(
-            client.transfer(args.name, args.address, args.privatekey)))
+        client = proxy.callRemote('transfer', args.name, args.address,
+                                  args.privatekey)
 
     elif args.action == 'renew':
         logger.debug('Renewing %s', args.name)
-        logger.info(pretty_dump(
-            client.renew(args.name, args.privatekey)))
+        client = proxy.callRemote('renew', args.name, args.privatekey)
 
     elif args.action == 'storedata':
         reply = {}
@@ -203,16 +221,15 @@ def run_cli():
         logger.debug('Storing %s', value)
         key = coinkit.hex_hash160(value)
 
-        reply = dht_client.set_key(key, value)
-
-        logger.info(pretty_dump(reply))
+        client = proxy.callRemote('set', key, value)
 
     elif args.action == 'getdata':
         logger.debug('Get %s', args.hash)
 
-        reply = dht_client.get_key(args.hash)
+        client = proxy.callRemote('get', args.hash)
 
-        logger.info(pretty_dump(reply))
+    client.addCallback(printValue).addErrback(printError).addBoth(shutDown)
+    reactor.run()
 
 if __name__ == '__main__':
     run_cli()
