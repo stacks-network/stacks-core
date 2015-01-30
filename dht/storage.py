@@ -25,6 +25,7 @@ import sys
 import json
 import coinkit
 import os
+import socket
 
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -122,3 +123,17 @@ class OpennameStorage(object):
         ikeys = self.data.iterkeys()
         ivalues = imap(operator.itemgetter(1), self.data.itervalues())
         return izip(ikeys, ivalues)
+
+
+# ---------------------------------
+def hostname_to_ip(servers):
+    """ Given (hostname, port) return (ip_address, port)
+    """
+
+    reply = []
+
+    for server, port in servers:
+        ip_address = socket.gethostbyname(server)
+        reply.append((ip_address, port))
+
+    return reply
