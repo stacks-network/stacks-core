@@ -218,13 +218,6 @@ def run_cli():
         reply = {}
         value = args.data
 
-        try:
-            value = json.loads(json.dumps(args.data))
-        except:
-            reply['error'] = 'value not JSON, not storing'
-            logger.info(pretty_dump(reply))
-            return
-
         logger.debug('Storing %s', value)
         key = coinkit.hex_hash160(value)
 

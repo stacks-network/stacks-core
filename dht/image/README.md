@@ -1,3 +1,3 @@
 For quick deployment:
 
-> sudo docker run -d -p 8468:8468/udp openname/dht
+> sudo docker run -d -p 6265:6265/udp openname/dht

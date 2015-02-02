@@ -37,7 +37,7 @@ RUN pip install coinkit
 ##################### INSTALLATION END #####################
 
 # Expose the default port
-EXPOSE 8468
+EXPOSE 6265
 
 # Set default entry point
 ENTRYPOINT /usr/local/bin/twistd -noy /srv/opennamed/dht/server.tac
