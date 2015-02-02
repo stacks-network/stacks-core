@@ -29,10 +29,11 @@ AVERAGE_BLOCKS_PER_HOUR = MINUTES_PER_HOUR/AVERAGE_MINUTES_PER_BLOCK
 """ opennamed configs
 """
 
-DEFAULT_OPENNAMED_PORT = '8344'
 LISTEN_IP = '0.0.0.0'
 VERSION = 'v0.1-beta'
 RPC_TIMEOUT = 5  # seconds
+
+DEFAULT_OPENNAMED_PORT = 6264  # port 6263 is 'NAME' on a phone keypad
 
 try:
     OPENNAMED_SERVER = os.environ['OPENNAMED_SERVER']
@@ -40,6 +41,18 @@ try:
 except KeyError:
     OPENNAMED_SERVER = 'localhost'
     OPENNAMED_PORT = DEFAULT_OPENNAMED_PORT
+
+""" DHT configs
+"""
+
+DHT_SERVER_PORT = 6265  # opennamed default to port 6264
+
+DEFAULT_DHT_SERVERS = [('dht.openname.org', DHT_SERVER_PORT),
+                       ('dht.onename.com', DHT_SERVER_PORT),
+                       ('dht.halfmoonlabs.com', DHT_SERVER_PORT),
+                       ('127.0.0.1', DHT_SERVER_PORT)]
+
+STORAGE_TTL = 3 * SECONDS_PER_YEAR
 
 try:
     BITCOIND_SERVER = os.environ['BITCOIND_SERVER']
@@ -65,18 +78,6 @@ try:
     BLOCKCHAIN_INFO_API_KEY = os.environ['BLOCKCHAIN_INFO_API_KEY']
 except KeyError:
     pass
-
-""" DHT configs
-"""
-
-DHT_SERVER_PORT = 8468
-DHT_CLIENT_PORT = 8467
-DEFAULT_DHT_SERVERS = [('dht.openname.org', DHT_SERVER_PORT),
-                       ('dht.onename.com', DHT_SERVER_PORT),
-                       ('dht.halfmoonlabs.com', DHT_SERVER_PORT),
-                       ('127.0.0.1', DHT_SERVER_PORT)]
-
-STORAGE_TTL = 3 * SECONDS_PER_YEAR
 
 """ magic bytes configs
 """
