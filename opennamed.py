@@ -80,6 +80,22 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         return self.dht_server.get(key)
 
     def jsonrpc_set(self, key, value):
+
+        reply = {}
+
+        try:
+            test_value = json.loads(json.dumps(value))
+        except:
+            reply['error'] = "value not JSON, not storing"
+            return reply
+
+        hash = coinkit.hex_hash160(value)
+        test_key = hash
+
+        if key != test_key:
+            reply['error'] = "hash(value) doesn't match, not storing"
+            return reply
+
         return self.dht_server.set(key, value)
 
     def jsonrpc_getinfo(self):

@@ -15,8 +15,7 @@ sys.path.insert(0, parent_dir)
 from kademlia.network import Server
 from kademlia import log
 
-from storage import OpennameStorage
-from client import hostname_to_ip
+from storage import OpennameStorage, hostname_to_ip
 from opennamelib.config import DEFAULT_DHT_SERVERS, DHT_SERVER_PORT
 
 application = service.Application("kademlia")
