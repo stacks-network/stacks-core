@@ -17,6 +17,7 @@ import coinkit
 
 import logging
 from twisted.python import log
+from twisted.internet.error import ConnectionRefusedError
 
 # Disable twisted log messages, because it's too noisy
 log.startLoggingWithObserver(log.PythonLoggingObserver, setStdout=0)
@@ -32,7 +33,7 @@ logger.addHandler(console)
 from twisted.internet import reactor
 from txjsonrpc.netstring.jsonrpc import Proxy
 
-proxy = Proxy('127.0.0.1', 6264)
+proxy = Proxy(config.OPENNAMED_SERVER, config.OPENNAMED_PORT)
 
 
 def printValue(value):
@@ -40,7 +41,13 @@ def printValue(value):
 
 
 def printError(error):
-    print 'error', error
+    
+    reply = {}
+    reply['error'] = "Got an error"
+
+    if error.type is ConnectionRefusedError:
+        reply['error'] = "Failed to connect to Opennamed"
+    logger.info(pretty_dump(reply))
 
 
 def shutDown(data):
