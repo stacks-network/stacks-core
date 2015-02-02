@@ -14,6 +14,7 @@ import os
 import sys
 import subprocess
 import signal
+import json
 
 from txjsonrpc.netstring import jsonrpc
 from twisted.internet import reactor
@@ -84,8 +85,9 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         reply = {}
 
         try:
-            test_value = json.loads(json.dumps(value))
-        except:
+            test_value = json.loads(value)
+        except Exception as e:
+            print e
             reply['error'] = "value not JSON, not storing"
             return reply
 
