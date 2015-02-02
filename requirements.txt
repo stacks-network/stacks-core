@@ -1,5 +1,5 @@
 Twisted==14.0.2
-coinkit==0.7.5
+coinkit==0.7.7
 ecdsa==0.11
 gevent==1.0.1
 greenlet==0.4.5
