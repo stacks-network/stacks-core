@@ -28,7 +28,7 @@ from opennamed import OpennamedRPC
 
 application = service.Application("opennamed")
 
-factory_openname = jsonrpc.RPCFactory(OpennamedRPC())
+factory_openname = jsonrpc.RPCFactory(OpennamedRPC(dht_server))
 
 server_openname = internet.TCPServer(OPENNAMED_PORT, factory_openname)
 server_openname.setServiceParent(application)

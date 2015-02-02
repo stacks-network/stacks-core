@@ -40,8 +40,23 @@ def printValue(value):
     logger.info(pretty_dump(value))
 
 
+def getFormat(result):
+    reply = {}
+
+    value = json.loads(json.dumps(result))
+
+    try:
+        value = ast.literal_eval(value)
+    except:
+        pass
+
+    reply['value'] = value
+
+    return reply
+
+
 def printError(error):
-    
+
     reply = {}
     reply['error'] = "Got an error"
 
@@ -218,8 +233,8 @@ def run_cli():
         reply = {}
         value = args.data
 
-        logger.debug('Storing %s', value)
         key = coinkit.hex_hash160(value)
+        logger.debug('Storing %s', value)
 
         client = proxy.callRemote('set', key, value)
 
@@ -227,6 +242,7 @@ def run_cli():
         logger.debug('Get %s', args.hash)
 
         client = proxy.callRemote('get', args.hash)
+        client.addCallback(getFormat)
 
     client.addCallback(printValue).addErrback(printError).addBoth(shutDown)
     reactor.run()
