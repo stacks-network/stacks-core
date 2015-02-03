@@ -1,1 +1,0 @@
-Directory used for storing .pid file etc

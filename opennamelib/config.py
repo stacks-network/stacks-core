@@ -34,6 +34,9 @@ VERSION = 'v0.1-beta'
 RPC_TIMEOUT = 5  # seconds
 
 DEFAULT_OPENNAMED_PORT = 6264  # port 6263 is 'NAME' on a phone keypad
+OPENNAMED_PID_FILE = 'opennamed.pid'
+OPENNAMED_LOG_FILE = 'opennamed.log'
+OPENNAMED_TAC_FILE = 'opennamed.tac'
 
 try:
     OPENNAMED_SERVER = os.environ['OPENNAMED_SERVER']
