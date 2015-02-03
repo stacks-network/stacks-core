@@ -65,6 +65,8 @@ except KeyError:
     BITCOIND_USER = 'openname'
     BITCOIND_PASSWD = 'opennamesystem'
 
+REINDEX_FREQUENCY = 5  # in seconds
+
 """ api configs
 """
 

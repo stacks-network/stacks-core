@@ -165,6 +165,29 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         return
 
 
+old_block = 0
+
+
+def reindex_blockchain():
+
+    global old_block
+
+    try:
+        new_block = bitcoind.getinfo()['blocks']
+    except:
+        new_block = 0
+
+    if old_block == new_block:
+        log.debug('Blockchain: no new blocks')
+    else:
+        # call the reindex func here
+        check_blocks = new_block - old_block
+        message = 'Blockchain: checking last %s block(s)' % check_blocks
+        log.debug(message)
+
+    old_block = new_block
+
+
 def run_server(foreground=False):
     """ run the opennamed server
     """
