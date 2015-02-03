@@ -165,15 +165,57 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         return
 
 
+old_block = 0
+
+
+def reindex_blockchain():
+
+    from twisted.python import log
+    global old_block
+
+    try:
+        new_block = bitcoind.getinfo()['blocks']
+    except:
+        new_block = 0
+
+    if old_block == new_block:
+        log.msg('Blockchain: no new blocks')
+    else:
+        # call the reindex func here
+        check_blocks = new_block - old_block
+        message = 'Blockchain: checking last %s block(s)' % check_blocks
+        log.msg(message)
+
+    old_block = new_block
+
+
+def get_working_dir():
+
+    from os.path import expanduser
+    home = expanduser("~")
+
+    working_dir = os.path.join(home, '.opennamed')
+
+    if not os.path.exists(working_dir):
+        os.makedirs(working_dir)
+
+    return working_dir
+
+
 def run_server(foreground=False):
     """ run the opennamed server
     """
 
+    from opennamelib.config import OPENNAMED_PID_FILE, OPENNAMED_LOG_FILE
+    from opennamelib.config import OPENNAMED_TAC_FILE
+
+    working_dir = get_working_dir()
+
     current_dir = os.path.abspath(os.path.dirname(__file__))
 
-    tac_file = current_dir + '/opennamed.tac'
-    log_file = current_dir + '/tmp/opennamed.log'
-    pid_file = current_dir + '/tmp/opennamed.pid'
+    tac_file = os.path.join(current_dir, OPENNAMED_TAC_FILE)
+    log_file = os.path.join(working_dir, OPENNAMED_LOG_FILE)
+    pid_file = os.path.join(working_dir, OPENNAMED_PID_FILE)
 
     if foreground:
         command = 'twistd --pidfile=%s -noy %s' % (pid_file, tac_file)
@@ -202,7 +244,11 @@ def stop_server():
     import signal
     import os
 
-    pid_file = os.path.dirname(__file__) + '/tmp/opennamed.pid'
+    from opennamelib.config import OPENNAMED_PID_FILE
+
+    working_dir = get_working_dir()
+
+    pid_file = os.path.join(working_dir, OPENNAMED_PID_FILE)
 
     try:
         fin = open(pid_file)
