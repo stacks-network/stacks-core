@@ -2,7 +2,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='opennamelib',
+    name='opennamed',
     version='0.1.0',
     url='https://github.com/openname/opennamed',
     license='MIT',
@@ -12,16 +12,14 @@ setup(
     keywords='bitcoin btc cryptocurrency',
     packages=find_packages(),
     scripts=['bin/opennamed', 'bin/openname-cli'],
-    data_files=['opennamed.py',
-                'openname_cli.py'],  # hack for including files from main dir
     download_url='https://github.com/openname/opennamed/archive/master.zip',
     zip_safe=False,
+    include_package_data=True,
     install_requires=[
         'coinkit>=0.7.7',
         'kademlia>=0.2',
-        'python-daemon>=1.6.1',
         'python-bitcoinrpc>=0.1',
-        'zerorpc>=0.4.4'
+        'txjson-rpc>=0.3'
     ],
     classifiers=[
         'Intended Audience :: Developers',

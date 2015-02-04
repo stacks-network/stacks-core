@@ -7,6 +7,8 @@
     :license: MIT, see LICENSE for more details.
 """
 
+__package__ = 'opennamed'
+
 import argparse
 import coinkit
 import logging
@@ -19,7 +21,7 @@ import json
 from txjsonrpc.netstring import jsonrpc
 from twisted.internet import reactor
 
-from opennamelib import config
+from lib import config
 from coinkit import BitcoindClient, ChainComClient
 
 log = logging.getLogger()
@@ -38,8 +40,7 @@ config_options = 'https://' + config.BITCOIND_USER + ':' + \
 
 bitcoind = AuthServiceProxy(config_options)
 
-import opennamelib
-from opennamelib import preorder_name, register_name, update_name, \
+from lib import preorder_name, register_name, update_name, \
     transfer_name
 
 bitcoind_client = BitcoindClient(
@@ -166,27 +167,39 @@ class OpennamedRPC(jsonrpc.JSONRPC):
 
 
 old_block = 0
+index_initialized = False
 
 
-def reindex_blockchain():
+def reindex_blockchain(start_block):
 
     from twisted.python import log
     global old_block
+    global index_initialized
+    global counter 
 
     try:
-        new_block = bitcoind.getinfo()['blocks']
-    except:
-        new_block = 0
+        current_block = int(bitcoind.getinfo()['blocks'])
+    except Exception as e:
+        log.msg(e)
+        current_block = 0
 
-    if old_block == new_block:
-        log.msg('Blockchain: no new blocks')
+    # initial indexing
+    if not index_initialized:
+        index_initialized = True
+        old_block = start_block
     else:
-        # call the reindex func here
-        check_blocks = new_block - old_block
-        message = 'Blockchain: checking last %s block(s)' % check_blocks
-        log.msg(message)
 
-    old_block = new_block
+        # don't run this part until index is initialized
+
+        if old_block == current_block:
+            log.msg('Blockchain: no new blocks after', current_block)
+        else:
+            check_blocks = current_block - old_block
+            message = 'Blockchain: checking last %s block(s)' % check_blocks
+            log.msg(message)
+
+            # call the reindex func here
+            old_block = current_block
 
 
 def get_working_dir():
@@ -206,8 +219,8 @@ def run_server(foreground=False):
     """ run the opennamed server
     """
 
-    from opennamelib.config import OPENNAMED_PID_FILE, OPENNAMED_LOG_FILE
-    from opennamelib.config import OPENNAMED_TAC_FILE
+    from .lib.config import OPENNAMED_PID_FILE, OPENNAMED_LOG_FILE
+    from .lib.config import OPENNAMED_TAC_FILE
 
     working_dir = get_working_dir()
 
@@ -244,7 +257,7 @@ def stop_server():
     import signal
     import os
 
-    from opennamelib.config import OPENNAMED_PID_FILE
+    from .lib.config import OPENNAMED_PID_FILE
 
     working_dir = get_working_dir()
 

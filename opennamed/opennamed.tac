@@ -18,17 +18,14 @@ from twisted.internet.task import LoopingCall
 from kademlia.network import Server
 
 from dht.storage import OpennameStorage, hostname_to_ip
-from opennamelib.config import DEFAULT_DHT_SERVERS, DHT_SERVER_PORT, OPENNAMED_PORT
+from lib.config import DEFAULT_DHT_SERVERS, DHT_SERVER_PORT, OPENNAMED_PORT
 
 dht_server = Server(storage=OpennameStorage())
 bootstrap_servers = hostname_to_ip(DEFAULT_DHT_SERVERS)
 dht_server.bootstrap(bootstrap_servers)
 
 from opennamed import OpennamedRPC, reindex_blockchain
-from opennamelib.config import REINDEX_FREQUENCY
-
-lc = LoopingCall(reindex_blockchain)
-lc.start(REINDEX_FREQUENCY)
+from lib.config import REINDEX_FREQUENCY, START_BLOCK
 
 application = service.Application("opennamed")
 
@@ -39,3 +36,6 @@ server_openname.setServiceParent(application)
 
 server_dht = internet.UDPServer(DHT_SERVER_PORT, dht_server.protocol)
 server_dht.setServiceParent(application)
+
+lc = LoopingCall(reindex_blockchain,START_BLOCK)
+lc.start(REINDEX_FREQUENCY)

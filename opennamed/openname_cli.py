@@ -12,10 +12,11 @@ import sys
 import json
 import traceback
 
-from opennamelib import config
+from lib import config
 import coinkit
 
 import logging
+
 from twisted.python import log
 from twisted.internet.error import ConnectionRefusedError
 
@@ -28,7 +29,7 @@ console = logging.StreamHandler()
 console.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
 formatter = logging.Formatter('%(message)s')
 console.setFormatter(formatter)
-logger.addHandler(console)
+logger.addHandler(logging.NullHandler())
 
 from twisted.internet import reactor
 from txjsonrpc.netstring.jsonrpc import Proxy
@@ -62,8 +63,8 @@ def printError(error):
 
     if error.type is ConnectionRefusedError:
         reply['error'] = "Failed to connect to Opennamed"
-    logger.info(pretty_dump(reply))
 
+    logger.info(pretty_dump(reply))
 
 def shutDown(data):
     reactor.stop()
@@ -193,12 +194,7 @@ def run_cli():
     args = parser.parse_args()
 
     if args.action == 'getinfo':
-        try:
-            logger.info(pretty_dump(client.getinfo()))
-        except Exception as e:
-            traceback.print_exc()
-            logger.info("Couldn't connect to opennamed server")
-            exit(0)
+        client = proxy.callRemote('getinfo')
 
     elif args.action == 'ping':
 
