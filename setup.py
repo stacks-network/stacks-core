@@ -14,6 +14,7 @@ setup(
     scripts=['bin/opennamed', 'bin/openname-cli'],
     download_url='https://github.com/openname/opennamed/archive/master.zip',
     zip_safe=False,
+    include_package_data=True,
     install_requires=[
         'coinkit>=0.7.7',
         'kademlia>=0.2',
