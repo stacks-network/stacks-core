@@ -37,6 +37,7 @@ DEFAULT_OPENNAMED_PORT = 6264  # port 6263 is 'NAME' on a phone keypad
 OPENNAMED_PID_FILE = 'opennamed.pid'
 OPENNAMED_LOG_FILE = 'opennamed.log'
 OPENNAMED_TAC_FILE = 'opennamed.tac'
+OPENNAMED_WORKING_DIR = '.openname'
 
 try:
     OPENNAMED_SERVER = os.environ['OPENNAMED_SERVER']
