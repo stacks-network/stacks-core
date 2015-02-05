@@ -1,2 +1,2 @@
-include opennamed/opennamed.tac
-include opennamed/dht/server.tac
+include openname/opennamed.tac
+include openname/dht/server.tac

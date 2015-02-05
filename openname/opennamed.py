@@ -7,8 +7,6 @@
     :license: MIT, see LICENSE for more details.
 """
 
-__package__ = 'opennamed'
-
 import argparse
 import coinkit
 import logging
@@ -207,7 +205,8 @@ def get_working_dir():
     from os.path import expanduser
     home = expanduser("~")
 
-    working_dir = os.path.join(home, '.opennamed')
+    from .lib.config import OPENNAMED_WORKING_DIR
+    working_dir = os.path.join(home, OPENNAMED_WORKING_DIR)
 
     if not os.path.exists(working_dir):
         os.makedirs(working_dir)

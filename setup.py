@@ -2,7 +2,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='opennamed',
+    name='openname',
     version='0.1.0',
     url='https://github.com/openname/opennamed',
     license='MIT',
@@ -12,7 +12,7 @@ setup(
     keywords='bitcoin btc cryptocurrency',
     packages=find_packages(),
     scripts=['bin/opennamed', 'bin/openname-cli'],
-    download_url='https://github.com/openname/opennamed/archive/master.zip',
+    download_url='https://github.com/openname/openname/archive/master.zip',
     zip_safe=False,
     include_package_data=True,
     install_requires=[
