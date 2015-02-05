@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='openname',
-    version='0.1.0',
+    version='0.0.1',
     url='https://github.com/openname/opennamed',
     license='MIT',
     author='Onename',
