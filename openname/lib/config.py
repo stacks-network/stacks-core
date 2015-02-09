@@ -38,6 +38,8 @@ OPENNAMED_PID_FILE = 'opennamed.pid'
 OPENNAMED_LOG_FILE = 'opennamed.log'
 OPENNAMED_TAC_FILE = 'opennamed.tac'
 OPENNAMED_WORKING_DIR = '.openname'
+OPENNAMED_NAMESPACE_FILE = 'namespace.txt'
+OPENNAMED_LASTBLOCK_FILE = 'lastblock.txt'
 
 try:
     OPENNAMED_SERVER = os.environ['OPENNAMED_SERVER']
@@ -70,7 +72,7 @@ except KeyError:
     BITCOIND_PASSWD = 'opennamesystem'
 
 REINDEX_FREQUENCY = 5  # in seconds
-START_BLOCK = 340000  # start indexing from this block
+START_BLOCK = 335563  # start indexing from this block
 
 """ api configs
 """
