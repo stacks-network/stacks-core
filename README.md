@@ -113,6 +113,17 @@ Each transaction operation has a "sender". If any pre-orders or name registratio
 
 In a transaction, the sender is established as the funder of the first non-OP_RETURN input.
 
+#### Fields
+
+|Operation|Fields|
+|---|---|
+|---|---|
+|[usernames](usernames.md)|what constitutes a valid openname username|
+|[user profiles v0.2](profiles/profiles-v02.md)|v0.2 (current version) of the profile data format guidelines|
+|[user profiles v0.3](profiles/profiles-v03.md)|v0.3 (future version) of the profile data format guidelines|
+|[resolvers](resolvers.md)|how openname resolvers should behave|
+|[namecoin](blockchain/namecoin.md)|registration on namecoin|
+
 #### Name Preorder (reserve)
 
 - magic bytes (2 bytes)
