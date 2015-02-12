@@ -170,13 +170,6 @@ class OpennamedRPC(jsonrpc.JSONRPC):
 
 def refresh_index(first_block, last_block, initial_index=False):
 
-    if first_block == last_block:
-        if initial_index:
-            log.info('Index in sync ...')
-        else:
-            twisted_log.message('Index in sync ...')
-        return
-
     from twisted.python import log as twisted_log
 
     working_dir = get_working_dir()
@@ -329,7 +322,8 @@ def run_server(foreground=False):
 
     try:
             #refresh_index(335563, 335566, initial_index=True)
-            refresh_index(start_block, current_block, initial_index=True)
+            if start_block != current_block:
+                refresh_index(start_block, current_block, initial_index=True)
             opennamed = subprocess.Popen(command,
                                          shell=True, preexec_fn=os.setsid)
             log.info('Opennamed successfully started')
