@@ -1,5 +1,34 @@
-Openname Data Store Specs + Design
-==========
+# Openname Key-Value Store
+
+__Table of Contents__
+
+- [Intro](<#intro>)
+    - [What this project is](<#project>)
+    - [What this repo contains](<#repo>)
+- [Specs](<#specs>)
+- [Installation](<#installation>)
+
+## Intro
+<a name="intro"/>
+
+### What this project is
+
+A key-value store on the Bitcoin Blockchain.
+
+### What this repo contains
+
++ code for running a node that participates in the KV store network (opennamed)
++ code for issuing commands to openname nodes like name lookups and name registrations (openname-cli and openname python lib)
+
+## Installation
+<a name="installation"/>
+
+On Debian you need to install libzmq-dev
+
+> sudo apt-get install libzmq-dev
+
+## Specs
+<a name="specs"/>
 
 ### Operations
 
@@ -97,9 +126,3 @@ https://blockchain.info/tx/1ae39745fd3891c16806bba44e6540944d145452ff156cab03076
 Historical record hashes (16 bytes) are to potentially be added to name preorders and/or name transfers.
 
 The historical record hash must be a hash of a data string generated from a snapshot of the nameset at some point in the recent past (e.g. the last 12 blocks).
-
-### Installation 
-
-On Debian you need to install libzmq-dev
-
-> sudo apt-get install libzmq-dev
