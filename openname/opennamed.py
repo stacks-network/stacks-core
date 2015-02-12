@@ -197,9 +197,8 @@ def refresh_index(first_block, last_block, initial_index=False):
         else:
             twisted_log.msg('Processing block', block_number)
 
-        #block_nameops = get_nameops_in_block(bitcoind, block_number)
-        block_nameops = []
-
+        block_nameops = get_nameops_in_block(bitcoind, block_number)
+        
         if initial_index:
             log.info('block_nameops %s', block_nameops)
         else:
@@ -251,8 +250,6 @@ def reindex_blockchain():
             log.msg('Blockchain: no new blocks after', current_block)
         else:
             check_blocks = current_block - old_block
-            log.msg(current_block)
-            log.msg(old_block)
             message = 'Blockchain: checking last %s block(s)' % check_blocks
             log.msg(message)
 
