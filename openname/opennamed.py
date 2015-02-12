@@ -419,6 +419,12 @@ def run_opennamed():
 
     if args.action == 'start':
         stop_server()
+
+        if config.BITCOIND_SERVER == 'btcd.onename.com':
+            log.info('Connecting to remote bitcoind server...')
+        else:
+            log.info('Connecting to local bitcoind server...')
+
         if args.foreground:
             log.info('Initializing opennamed server in foreground ...')
             run_server(foreground=True)
