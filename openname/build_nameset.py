@@ -7,6 +7,8 @@ from opennamed import bitcoind
 
 
 def refresh_index(first_block, last_block):
+    """
+    """
 
     start = datetime.datetime.now()
 
@@ -30,7 +32,7 @@ def refresh_index(first_block, last_block):
     print "merkle snapshot: %s\n" % merkle_snapshot
     pprint(db.name_records)
 
-    fout = open('lastblock.txt','w') #to overwrite
+    fout = open('lastblock.txt', 'w')  # to overwrite
     fout.write(str(last_block))
     fout.close()
 

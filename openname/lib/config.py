@@ -133,18 +133,18 @@ LENGTHS = {
     'opcode': 1,
     'name_hash': 20,
     'consensus_hash': 16,
+    'namelen': 1,
     'name_min': 1,
     'name_max': 16,
     'unencoded_name': 24,
-    'salt': 16,
     'update_hash': 20,
 }
 
 MIN_OP_LENGTHS = {
     'preorder': LENGTHS['name_hash'],
-    'registration': LENGTHS['name_min'] + LENGTHS['salt'],
-    'update': LENGTHS['name_min'] + LENGTHS['update_hash'],
-    'transfer': LENGTHS['name_min']
+    'registration': LENGTHS['namelen'] + LENGTHS['name_min'],
+    'update': LENGTHS['namelen'] + LENGTHS['name_min'] + LENGTHS['update_hash'],
+    'transfer': LENGTHS['namelen'] + LENGTHS['name_min']
 }
 
 OP_RETURN_MAX_SIZE = 40

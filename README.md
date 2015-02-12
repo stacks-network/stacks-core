@@ -20,8 +20,6 @@ __Table of Contents__
     - [Constraints](<#constraints>)
 
 
-
-
 ## Intro
 <a name="intro"/>
 
@@ -56,7 +54,7 @@ Install libzmq-dev
 + validated sequence of operations + rules to interpret them = global consensus / agreed upon view of the system
 + data is simply stored in the blockchain in a defined sequence, and nodes read the blockchain and interpret the sequence of events with a set of defined rules. From this, they build a view of the system that should be in sync.
 register names by being the first to include the name in a “registration” operation
-+ to prevent people from stealing your name, first secretly “preorder” the name, but include a salted hash of the name in the blockchain
++ to prevent people from stealing your name, first secretly “preorder” the name, but include a hash of the name in the blockchain
 + to associate data with the name, issue an “update” operation by including a hash of the data and storing the data itself in the DHT
 + to lookup the data associated with a name, issue a request to an opennamed node, which will lookup the name’s entry in the nameset, find the hash associated with the name, then go into the DHT with the hash and get the data associated with it
 + there are many, many possible namespaces
@@ -84,8 +82,7 @@ register names by being the first to include the name in a “registration” op
 
 - `nameset`: all the names ever registered on all possible namespaces
 - `hash160`: a 20-byte ripemd160 hash
-- `salt`: a random value appended to data in order to prevent reverse-lookups of the hashed data
-- `preorder hash`: a hash160 of a given name to preorder, a random salt, and the scriptPubKey of the registrant
+- `preorder hash`: a hash160 of a given name to preorder and the scriptPubKey of the registrant
 - `name encoding`: a given name converted from base 40 to base 256
 - `consensus hash`: a hash of a data string generated from a representation of the nameset (also known as the historical record hash or merkle snapshot)
 - `update hash`: a hash of the data to be associated with a given name

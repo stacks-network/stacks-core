@@ -19,7 +19,6 @@ blockchain_client = ChainComClient(
 
 registration_example_1 = {
     'name': 'ryanshea',
-    'salt': '83675d4f5c112b74e86af99b7ec83cec',
     'data': """{  }""",
     'recipient': '1DuckDmHTXVxSHC7UafaBiUZB81qYhKprF'
 }
@@ -34,7 +33,7 @@ class NamePreorderTest(unittest.TestCase):
         consensus_hash128 = str(self.namedb.consensus_hashes['current'])
         resp = preorder_name(
             self.data['name'], consensus_hash128, SECRETS['private_keys'][0],
-            salt=self.data['salt'], blockchain_client=blockchain_client,
+            blockchain_client=blockchain_client,
             testset=True)
         print resp
         self.assertTrue('success' in resp)
@@ -49,7 +48,7 @@ class NameRegistrationTest(unittest.TestCase):
 
     def test_name_registration(self):
         resp = register_name(
-            self.data['name'], self.data['salt'], SECRETS['private_keys'][0],
+            self.data['name'], SECRETS['private_keys'][0],
             blockchain_client=blockchain_client, testset=True)
         print resp
         self.assertTrue('success' in resp)
@@ -106,36 +105,6 @@ class MerkleRootTest(unittest.TestCase):
     def test_calculate_merkle_root(self):
         merkle_root = calculate_merkle_root(self.hashes)
         self.assertEqual(merkle_root, self.merkle_root)
-
-
-"""class NameOperationSequenceTest(unittest.TestCase):
-    def setUp(self):
-        blockchain_client = ChainComClient(
-            api_key_id=SECRETS['chain_api_id'],
-            api_key_secret=SECRETS['chain_api_secret'])
-        self.private_keys = SECRETS['private_keys']
-        self.data = registration_example_1
-
-    def tearDown(self):
-        pass
-
-    def test_name_preorder(self):
-        resp = preorder_name(self.name, self.private_keys[0],
-            blockchain_client=blockchain_client, testspace=True)
-        self.salt = resp['salt']
-        self.assertTrue('success' in resp)
-
-        resp = register_name(self.name, self.salt, self.private_keys[1],
-            blockchain_client=blockchain_client, testspace=True)
-        self.assertTrue('success' in resp)
-
-        resp = update_name(self.name, self.data, self.private_keys[2],
-            blockchain_client=blockchain_client, testspace=True)
-        self.assertTrue('success' in resp)
-
-        resp = transfer_name(self.name, self.recipient, self.private_keys[3],
-            blockchain_client=blockchain_client, testspace=True)
-        self.assertTrue('success' in resp)"""
 
 
 def test_main():

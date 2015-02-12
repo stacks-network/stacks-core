@@ -19,9 +19,9 @@ def no_pending_higher_priority_registration(db, name, mining_fee):
     return True
 
 
-def has_preordered_name(db, name, salt, sender_script_pubkey):
+def has_preordered_name(db, name, sender_script_pubkey):
     try:
-        name_hash = hash_name(name, salt, sender_script_pubkey)
+        name_hash = hash_name(name, sender_script_pubkey)
     except ValueError:
         return False
 

@@ -107,30 +107,24 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
         'preorder',
-        help='<name> <consensushash> <privatekey> | preorder a name')
+        help='<name> <privatekey> | preorder a name')
     subparser.add_argument(
         'name', type=str,
         help='the name that you want to preorder')
     subparser.add_argument(
-        'consensushash', type=str,
-        help='the current consensus hash of the nameset')
-    subparser.add_argument(
         'privatekey', type=str,
-        help='the privatekey of the Bitcoin address that will own the name')
+        help='the private key of the Bitcoin address that will own the name')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
         'register',
-        help='<name> <salt> <privatekey> | register/claim a name')
+        help='<name> <privatekey> | register/claim a name')
     subparser.add_argument(
         'name', type=str,
         help='the name that you want to register/claim')
     subparser.add_argument(
-        'salt', type=str,
-        help='the salt')
-    subparser.add_argument(
         'privatekey', type=str,
-        help='the privatekey of the Bitcoin address that will own the name')
+        help='the private key of the Bitcoin address that will own the name')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -198,19 +192,16 @@ def run_cli():
         client = proxy.callRemote('getinfo')
 
     elif args.action == 'ping':
-
         client = proxy.callRemote('ping')
 
     elif args.action == 'preorder':
         logger.debug('Preordering %s', args.name)
 
-        client = proxy.callRemote('preorder', args.name, args.consensushash,
-                                  args.privatekey)
+        client = proxy.callRemote('preorder', args.name, args.privatekey)
 
     elif args.action == 'register':
         logger.debug('Registering %s', args.name)
-        client = proxy.callRemote('register', args.name, args.salt,
-                                  args.privatekey)
+        client = proxy.callRemote('register', args.name, args.privatekey)
 
     elif args.action == 'update':
         logger.debug('Updating %s', args.name)

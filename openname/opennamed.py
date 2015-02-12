@@ -84,6 +84,8 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         return self.dht_server.get(key)
 
     def jsonrpc_set(self, key, value):
+        """
+        """
 
         reply = {}
 
@@ -104,6 +106,8 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         return self.dht_server.set(key, value)
 
     def jsonrpc_getinfo(self):
+        """
+        """
 
         info = bitcoind.getinfo()
         reply = {}
@@ -111,29 +115,32 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         reply['test'] = "hello"
         return reply
 
-    def jsonrpc_preorder(self, name, consensushash, privatekey):
+    def jsonrpc_preorder(self, name, privatekey):
         """ Preorder a name
         """
 
-        print str(privatekey)
+        working_dir = get_working_dir()
+        namespace_file = os.path.join(
+            working_dir, config.OPENNAMED_NAMESPACE_FILE)
+        db = NameDb(namespace_file)
+        consensus_hash = db.consensus_hashes.get('current')
 
         resp = preorder_name(
-            name, consensushash, str(privatekey),
-            blockchain_client=bitcoind_client,
-            testset=True)
+            name, consensus_hash, str(privatekey),
+            blockchain_client=bitcoind_client, testset=True)
 
         log.debug('preorder <%s, %s>' % (name, privatekey))
 
         return resp
 
-    def jsonrpc_register(self, name, salt, privatekey):
+    def jsonrpc_register(self, name, privatekey):
         """ Register a name
         """
 
-        resp = register_name(name, salt, privatekey,
+        resp = register_name(name, privatekey,
                              blockchain_client=bitcoind_client, testset=True)
 
-        log.debug('register <%s, %s, %s>' % (name, salt, privatekey))
+        log.debug('register <%s, %s, %s>' % (name, privatekey))
 
         return resp
 
@@ -169,6 +176,8 @@ class OpennamedRPC(jsonrpc.JSONRPC):
 
 
 def refresh_index(first_block, last_block, initial_index=False):
+    """
+    """
 
     from twisted.python import log as twisted_log
 
@@ -222,6 +231,8 @@ index_initialized = False
 
 
 def reindex_blockchain():
+    """
+    """
 
     from twisted.python import log
     global old_block
@@ -252,6 +263,8 @@ def reindex_blockchain():
 
 
 def get_working_dir():
+    """
+    """
 
     from os.path import expanduser
     home = expanduser("~")
@@ -266,6 +279,8 @@ def get_working_dir():
 
 
 def get_index_range(start_block=0):
+    """
+    """
 
     from lib.config import START_BLOCK
 
