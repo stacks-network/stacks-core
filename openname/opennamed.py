@@ -36,11 +36,19 @@ log.addHandler(console)
 
 from bitcoinrpc.authproxy import AuthServiceProxy
 
-config_options = 'https://' + config.BITCOIND_USER + ':' + \
-    config.BITCOIND_PASSWD + '@' + config.BITCOIND_SERVER + ':' + \
-    str(config.BITCOIND_PORT)
 
-bitcoind = AuthServiceProxy(config_options)
+def create_bitcoind_connection(
+        rpc_username=config.BITCOIND_USER, rpc_password=config.BITCOIND_PASSWD,
+        server=config.BITCOIND_SERVER, port=config.BITCOIND_PORT,
+        use_https=True):
+    """ creates an auth service proxy object, to connect to bitcoind
+    """
+    protocol = 'https' if use_https else 'http'
+    authproxy_config_uri = '%s://%s:%s@%s:%s' % (
+        protocol, rpc_username, rpc_password, server, port)
+    return AuthServiceProxy(authproxy_config_uri)
+
+bitcoind = create_bitcoind_connection()
 
 from lib import preorder_name, register_name, update_name, \
     transfer_name
