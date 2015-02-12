@@ -3,8 +3,8 @@
 __Table of Contents__
 
 - [Intro](<#intro>)
-    - [What this project is](<#project>)
-    - [What this repo contains](<#repo>)
+    - [What this project is](#what-this-project-is)
+    - [What this repo contains](#what-this-repo-contains)
 - [Installation](<#installation>)
 - [Design](<#design>)
     - [The stack](<#stack>)
@@ -17,12 +17,10 @@ __Table of Contents__
 <a name="intro"/>
 
 ### What this project is
-<a name="project"/>
 
 A key-value store on the Bitcoin Blockchain.
 
 ### What this repo contains
-<a name="repo"/>
 
 + code for running a node that participates in the KV store network (opennamed)
 + code for issuing commands to openname nodes like name lookups and name registrations (openname-cli and openname python lib)
