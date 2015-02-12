@@ -34,26 +34,8 @@ formatter = logging.Formatter('%(message)s')
 console.setFormatter(formatter)
 log.addHandler(console)
 
-from bitcoinrpc.authproxy import AuthServiceProxy
-
-config_options = 'https://' + config.BITCOIND_USER + ':' + \
-    config.BITCOIND_PASSWD + '@' + config.BITCOIND_SERVER + ':' + \
-    str(config.BITCOIND_PORT)
-
-bitcoind = AuthServiceProxy(config_options)
-
 from lib import preorder_name, register_name, update_name, \
     transfer_name
-
-bitcoind_client = BitcoindClient(
-    config.BITCOIND_USER, config.BITCOIND_PASSWD, server=config.BITCOIND_SERVER,
-    port=str(config.BITCOIND_PORT))
-
-try:
-    chain_com_client = ChainComClient(config.CHAIN_COM_API_ID,
-                                      config.CHAIN_COM_API_SECRET)
-except:
-    pass
 
 
 def signal_handler(signal, frame):
@@ -66,6 +48,90 @@ def signal_handler(signal, frame):
     sys.exit(0)
 
 signal.signal(signal.SIGINT, signal_handler)
+
+
+def create_connection(server=config.BITCOIND_SERVER,
+                      port=config.BITCOIND_PORT,
+                      user=config.BITCOIND_USER,
+                      passwd=config.BITCOIND_PASSWD,
+                      use_https=config.BITCOIND_USE_HTTPS):
+
+    from bitcoinrpc.authproxy import AuthServiceProxy
+
+    if use_https:
+        config_options = 'https://'
+    else:
+        config_options = 'http://'
+
+    config_options += user + ':' + passwd + '@' + server + ':' + str(port)
+
+    return AuthServiceProxy(config_options)
+
+
+def get_working_dir():
+
+    from os.path import expanduser
+    home = expanduser("~")
+
+    from lib.config import OPENNAMED_WORKING_DIR
+    working_dir = os.path.join(home, OPENNAMED_WORKING_DIR)
+
+    if not os.path.exists(working_dir):
+        os.makedirs(working_dir)
+
+    return working_dir
+
+
+def init_bitcoind():
+
+    from ConfigParser import SafeConfigParser
+    working_dir = get_working_dir()
+    config_file = os.path.join(working_dir, config.OPENNAMED_CONFIG_FILE)
+
+    parser = SafeConfigParser()
+
+    if os.path.isfile(config_file):
+
+        parser.read(config_file)
+
+        bitcoind_server = parser.get('bitcoind', 'server')
+        bitcoind_port = parser.get('bitcoind', 'port')
+        bitcoind_user = parser.get('bitcoind', 'user')
+        bitcoind_passwd = parser.get('bitcoind', 'passwd')
+        use_https = parser.get('bitcoind', 'use_https')
+
+        if use_https.lower() == "yes" or use_https.lower() == "y":
+            bitcoind_use_https = True
+        else:
+            bitcoind_use_https = False
+
+        return create_connection(bitcoind_server, bitcoind_port, bitcoind_user,
+                                 bitcoind_passwd, bitcoind_use_https)
+
+    else:
+        user_input = raw_input("Do you have your own bitcoind server? (yes/no): ")
+        if user_input.lower() == "yes" or user_input.lower() == "y":
+            bitcoind_server = raw_input("Enter bitcoind address: ")
+            bitcoind_port = raw_input("Enter bitcoind rpc port: ")
+            bitcoind_user = raw_input("Enter bitcoind rpc user: ")
+            bitcoind_passwd = raw_input("Enter bitcoind rpc password: ")
+            bitcoind_use_https = raw_input("Is ssl enabled on bitcoind? (yes/no): ")
+
+            parser.add_section('bitcoind')
+            parser.set('bitcoind', 'server', bitcoind_server)
+            parser.set('bitcoind', 'port', bitcoind_port)
+            parser.set('bitcoind', 'user', bitcoind_user)
+            parser.set('bitcoind', 'passwd', bitcoind_passwd)
+            parser.set('bitcoind', 'use_https', bitcoind_use_https)
+
+            fout = open(config_file, 'w')
+            parser.write(fout)
+
+        else:
+            log.info("Using default bitcoind server at %s", config.BITCOIND_SERVER)
+            return create_connection()
+
+bitcoind = init_bitcoind()
 
 
 class OpennamedRPC(jsonrpc.JSONRPC):
@@ -119,7 +185,7 @@ class OpennamedRPC(jsonrpc.JSONRPC):
 
         resp = preorder_name(
             name, consensushash, str(privatekey),
-            blockchain_client=bitcoind_client,
+            blockchain_client=bitcoind,
             testset=True)
 
         log.debug('preorder <%s, %s>' % (name, privatekey))
@@ -131,7 +197,7 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         """
 
         resp = register_name(name, salt, privatekey,
-                             blockchain_client=bitcoind_client, testset=True)
+                             blockchain_client=bitcoind, testset=True)
 
         log.debug('register <%s, %s, %s>' % (name, salt, privatekey))
 
@@ -142,7 +208,7 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         """
 
         resp = update_name(name, data, privatekey,
-                           blockchain_client=bitcoind_client, testset=True)
+                           blockchain_client=bitcoind, testset=True)
 
         log.debug('update <%s, %s, %s>' % (name, data, privatekey))
 
@@ -153,7 +219,7 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         """
 
         resp = transfer_name(name, address, privatekey,
-                             blockchain_client=bitcoind_client, testset=True)
+                             blockchain_client=bitcoind, testset=True)
 
         log.debug('transfer <%s, %s, %s>' % (name, address, privatekey))
 
@@ -190,8 +256,14 @@ def refresh_index(first_block, last_block, initial_index=False):
         else:
             twisted_log.msg('Processing block', block_number)
 
-        block_nameops = get_nameops_in_block(bitcoind, block_number)
-        
+        try:
+            block_nameops = get_nameops_in_block(bitcoind, block_number)
+        except Exception as e:
+            if initial_index:
+                log.info(e)
+            else:
+                twisted_log.msg(e)
+
         if initial_index:
             log.info('block_nameops %s', block_nameops)
         else:
@@ -251,20 +323,6 @@ def reindex_blockchain():
             old_block = current_block
 
 
-def get_working_dir():
-
-    from os.path import expanduser
-    home = expanduser("~")
-
-    from lib.config import OPENNAMED_WORKING_DIR
-    working_dir = os.path.join(home, OPENNAMED_WORKING_DIR)
-
-    if not os.path.exists(working_dir):
-        os.makedirs(working_dir)
-
-    return working_dir
-
-
 def get_index_range(start_block=0):
 
     from lib.config import START_BLOCK
@@ -272,7 +330,11 @@ def get_index_range(start_block=0):
     if start_block == 0:
         start_block = START_BLOCK
 
-    current_block = int(bitcoind.getblockcount())
+    try:
+        current_block = int(bitcoind.getblockcount())
+    except:
+        log.info("ERROR: Cannot connect to bitcoind")
+        exit(1)
 
     working_dir = get_working_dir()
     lastblock_file = os.path.join(working_dir, config.OPENNAMED_LASTBLOCK_FILE)

@@ -40,6 +40,7 @@ OPENNAMED_TAC_FILE = 'opennamed.tac'
 OPENNAMED_WORKING_DIR = '.openname'
 OPENNAMED_NAMESPACE_FILE = 'namespace.txt'
 OPENNAMED_LASTBLOCK_FILE = 'lastblock.txt'
+OPENNAMED_CONFIG_FILE = 'openname.ini'
 
 try:
     OPENNAMED_SERVER = os.environ['OPENNAMED_SERVER']
@@ -60,18 +61,14 @@ DEFAULT_DHT_SERVERS = [('dht.openname.org', DHT_SERVER_PORT),
 
 STORAGE_TTL = 3 * SECONDS_PER_YEAR
 
-try:
-    BITCOIND_SERVER = os.environ['BITCOIND_SERVER']
-    BITCOIND_PORT = os.environ['BITCOIND_PORT']
-    BITCOIND_USER = os.environ['BITCOIND_USER']
-    BITCOIND_PASSWD = os.environ['BITCOIND_PASSWD']
-except KeyError:
-    BITCOIND_SERVER = 'btcd.onename.com'
-    BITCOIND_PORT = '8332'
-    BITCOIND_USER = 'openname'
-    BITCOIND_PASSWD = 'opennamesystem'
+# default settings for bitcoind, if openname.ini file is not set
+BITCOIND_SERVER = 'btcd.onename.com'
+BITCOIND_PORT = '8332'
+BITCOIND_USER = 'openname'
+BITCOIND_PASSWD = 'opennamesystem'
+BITCOIND_USE_HTTPS = True
 
-REINDEX_FREQUENCY = 5  # in seconds
+REINDEX_FREQUENCY = 10  # in seconds
 START_BLOCK = 343160  # start indexing from this block
 
 """ api configs
