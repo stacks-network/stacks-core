@@ -6,7 +6,7 @@ Bitcoin is the blockchain with the most users, the largest market cap, the most 
 
 Yes! While we decided to follow our instincts and build our experimental KV store on the Bitcoin blockchain, we are and have been considering other options like alt-coins, sidechains, and even a Namecoin upgrade. If you have a suggestion and some detailed information about why it makes more sense, please open an issue and we'll discuss.
 
-#### How is the openname key-values store different from Namecoin?
+#### How is the openname key-value store different from Namecoin?
 
 This is different from Namecoin in a few fundamental ways:
 
@@ -54,3 +54,15 @@ If we didn't require a step before registration, someone could just see that you
 #### Isn't it essentially free for miners to register names?
 
 With the current code, yes. That said, we have a fix for this (see the issues) and we'll have this taken care of before the system goes live.
+
+#### Is there support for names that don't ever expire?
+
+Yes. Each namespace has it's own settings, so if you'd like to register names that don't expire, simply use a namespace that has a flag set for non-expiration.
+
+#### If my I update my profile daily, my transaction costs will be high. Can I avoid this?
+
+There are a few ways to avoid this. The first method is to put the somewhat consistent profile data in the main blob, then include a pointer to a JSON file that has the extended data. Profile explorers will read the data in the file as an extension of the main blob, so updating the file will let you update the profile data without issuing a new transaction and updating the hash associated with the name. You can learn more in the openname specifications repo.
+
+#### Can a name be owned by a multi-sig address?
+
+Absolutely. In this system, names are owned by scriptPubKeys, so all scriptPubKey types that Bitcoin supports are supported here.
