@@ -46,8 +46,8 @@ from lib import preorder_name, register_name, update_name, \
     transfer_name
 
 bitcoind_client = BitcoindClient(
-    config.BITCOIND_USER, config.BITCOIND_PASSWD, server=config.BITCOIND_SERVER,
-    port=str(config.BITCOIND_PORT))
+    config.BITCOIND_USER, config.BITCOIND_PASSWD,
+    server=config.BITCOIND_SERVER, port=str(config.BITCOIND_PORT))
 
 try:
     chain_com_client = ChainComClient(config.CHAIN_COM_API_ID,
@@ -191,7 +191,7 @@ def refresh_index(first_block, last_block, initial_index=False):
             twisted_log.msg('Processing block', block_number)
 
         block_nameops = get_nameops_in_block(bitcoind, block_number)
-        
+
         if initial_index:
             log.info('block_nameops %s', block_nameops)
         else:
@@ -199,18 +199,18 @@ def refresh_index(first_block, last_block, initial_index=False):
 
         nameop_sequence.append((block_number, block_nameops))
 
-    #log.info(nameop_sequence)
+    # log.info(nameop_sequence)
 
     time_taken = "%s seconds" % (datetime.datetime.now() - start).seconds
-    #log.info(time_taken)
+    # log.info(time_taken)
 
     db = NameDb(namespace_file)
     merkle_snapshot = build_nameset(db, nameop_sequence)
     db.save_names(namespace_file)
 
     merkle_snapshot = "merkle snapshot: %s\n" % merkle_snapshot
-    #log.info(merkle_snapshot)
-    #log.info(db.name_records)
+    # log.info(merkle_snapshot)
+    # log.info(db.name_records)
 
     fout = open(lastblock_file, 'w')  # to overwrite
     fout.write(str(last_block))
@@ -321,7 +321,7 @@ def run_server(foreground=False):
                                                               tac_file)
 
     try:
-            #refresh_index(335563, 335566, initial_index=True)
+            # refresh_index(335563, 335566, initial_index=True)
             if start_block != current_block:
                 refresh_index(start_block, current_block, initial_index=True)
             opennamed = subprocess.Popen(command,
