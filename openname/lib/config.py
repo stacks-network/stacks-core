@@ -72,7 +72,7 @@ except KeyError:
     BITCOIND_PASSWD = 'opennamesystem'
 
 REINDEX_FREQUENCY = 5  # in seconds
-START_BLOCK = 335563  # start indexing from this block
+START_BLOCK = 343160  # start indexing from this block
 
 """ api configs
 """

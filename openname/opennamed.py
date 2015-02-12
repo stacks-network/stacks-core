@@ -170,6 +170,13 @@ class OpennamedRPC(jsonrpc.JSONRPC):
 
 def refresh_index(first_block, last_block, initial_index=False):
 
+    if first_block == last_block:
+        if initial_index:
+            log.info('Index in sync ...')
+        else:
+            twisted_log.message('Index in sync ...')
+        return
+
     from twisted.python import log as twisted_log
 
     working_dir = get_working_dir()
@@ -190,7 +197,8 @@ def refresh_index(first_block, last_block, initial_index=False):
         else:
             twisted_log.msg('Processing block', block_number)
 
-        block_nameops = get_nameops_in_block(bitcoind, block_number)
+        #block_nameops = get_nameops_in_block(bitcoind, block_number)
+        block_nameops = []
 
         if initial_index:
             log.info('block_nameops %s', block_nameops)
@@ -243,11 +251,13 @@ def reindex_blockchain():
             log.msg('Blockchain: no new blocks after', current_block)
         else:
             check_blocks = current_block - old_block
+            log.msg(current_block)
+            log.msg(old_block)
             message = 'Blockchain: checking last %s block(s)' % check_blocks
             log.msg(message)
 
             # call the reindex func here
-            refresh_index(old_block, current_block)
+            refresh_index(old_block + 1, current_block)
             old_block = current_block
 
 
@@ -285,7 +295,11 @@ def get_index_range(start_block=0):
         saved_block = int(saved_block)
         fin.close()
 
-    if saved_block > start_block:
+    if saved_block == 0:
+        pass
+    elif saved_block == current_block:
+        start_block = saved_block
+    elif saved_block < current_block:
         start_block = saved_block + 1
 
     return start_block, current_block
@@ -317,8 +331,8 @@ def run_server(foreground=False):
                                                               tac_file)
 
     try:
-            refresh_index(335563, 335566, initial_index=True)
-            #refresh_index(start_block, current_block, initial_index=True)
+            #refresh_index(335563, 335566, initial_index=True)
+            refresh_index(start_block, current_block, initial_index=True)
             opennamed = subprocess.Popen(command,
                                          shell=True, preexec_fn=os.setsid)
             log.info('Opennamed successfully started')
