@@ -64,11 +64,13 @@ register names by being the first to include the name in a “registration” op
 
 #### The stack
 
-+ Blockchain: bitcoin
-+ Hash storage method: OP_RETURN
-+ Data storage method: Kademlia distributed hash table
-+ Language: Python
-+ Frameworks: Twisted
+|Consideration|Decision|
+|---|---|
+|Blockchain|bitcoin|
+|Hash storage method|OP_RETURN|
+|Data storage method|Kademlia DHT|
+|Language|Python|
+|Frameworks|Twisted|
 
 #### Name operations
 
@@ -90,10 +92,12 @@ register names by being the first to include the name in a “registration” op
 
 #### Data storage comparison
 
-+ nulldata in OP_RETURN output = 40 bytes
-+ nulldata in multi-sig output = 66 bytes
-+ namecoin operation = 520 bytes
-+ hash in nulldata, full data in DHT = unlimited bytes
+|Method|Bytes|
+|---|---|
+|nulldata in OP_RETURN output|40|
+|nulldata in multi-sig output|66|
+|namecoin operation|520|
+|hash in nulldata, full data in DHT|unlimited|
 
 #### Name ownership
 
@@ -123,13 +127,15 @@ All name operations start with the magic bytes and an operation code.
 
 #### Field lengths
 
-- magic bytes = 2 bytes
-- operation code = 1 byte
-- name hash = 20 bytes
-- name length (nameLen) = 1 byte
-- name = 1 byte - 16 bytes
-- update hash = 20 bytes
-- consensus hash (truncated) = 16 bytes
+|Field|Bytes|
+|---|---|
+|magic bytes|2|
+|nameop code|1|
+|name hash|20|
+|name length (nameLen)|1|
+|name|up to 16|
+|update hash|20|
+|consensus hash (truncated)|16|
 
 #### Constraints:
 
