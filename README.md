@@ -6,34 +6,45 @@ __Table of Contents__
     - [What this project is](#what-this-project-is)
     - [What this repo contains](#what-this-repo-contains)
 - [Installation](<#installation>)
+    - [Debian](#debian)
 - [Design](<#design>)
-    - [The stack](<#stack>)
-    - [Name operations](<#operations>)
+    - [Design overview](<#design-overview>)
+    - [The stack](<#the-stack>)
+    - [Name operations](<#name-operations>)
     - [Definitions](<#definitions>)
-    - [Data encoding](<#encoding>)
-    - [Data Storage Comparison](<#datacomparison>)
+    - [Data storage comparison](<#data-storage-comparison>)
+- [Data encoding](<#data-encoding>)
 
 ## Intro
 <a name="intro"/>
 
-### What this project is
+#### What this project is
 
 A key-value store on the Bitcoin Blockchain.
 
-### What this repo contains
+#### What this repo contains
 
-+ code for running a node that participates in the KV store network (opennamed)
-+ code for issuing commands to openname nodes like name lookups and name registrations (openname-cli and openname python lib)
++ code for running a node that participates in the KV store network
+    + opennamed
++ code for issuing commands to openname nodes like name lookups and name registrations
+    + openname-cli
+    + openname python lib
 
 ## Installation
 <a name="installation"/>
 
-On Debian you need to install libzmq-dev
+> pip install openname
+
+#### Debian
+
+Install libzmq-dev
 
 > sudo apt-get install libzmq-dev
 
 ## Design
 <a name="design"/>
+
+#### Design overview
 
 + validated sequence of operations + rules to interpret them = global consensus / agreed upon view of the system
 + data is simply stored in the blockchain in a defined sequence, and nodes read the blockchain and interpret the sequence of events with a set of defined rules. From this, they build a view of the system that should be in sync.
@@ -44,8 +55,7 @@ register names by being the first to include the name in a “registration” op
 + there are many, many possible namespaces
 + each namespace can have a custom pricing scheme
 
-### The Stack
-<a name="project"/>
+#### The stack
 
 + Blockchain: bitcoin
 + Hash storage method: OP_RETURN
@@ -53,8 +63,7 @@ register names by being the first to include the name in a “registration” op
 + Language: Python
 + Frameworks: Twisted
 
-### Name Operations
-<a name="operations"/>
+#### Name operations
 
 1. name preorder
 1. name register
@@ -62,8 +71,7 @@ register names by being the first to include the name in a “registration” op
 1. name transfer
 1. name renew
 
-### Definitions
-<a name="definitions"/>
+#### Definitions
 
 - `nameset`: all the names ever registered on all possible namespaces
 - `hash160`: a 20-byte ripemd160 hash
@@ -73,16 +81,14 @@ register names by being the first to include the name in a “registration” op
 - `historical record hash`: a hash of a data string generated from a representation of the nameset
 - `update hash`: a hash of the data to be associated with a given name
 
-### Data Storage Comparison
-<a name="datacomparison"/>
+#### Data storage comparison
 
 nulldata in OP_RETURN output = 40 bytes
 nulldata in multi-sig output = 66 bytes
 namecoin operation = 520 bytes
 hash in nulldata, full data in DHT = unlimited bytes
 
-### Data Encoding
-<a name="encoding"/>
+## Data encoding
 
 #### Constraints:
 
@@ -101,20 +107,20 @@ hash in nulldata, full data in DHT = unlimited bytes
 - update hash = 20 bytes
 - historical record hash (truncated) = 16 bytes
 
-### Transaction Senders/Name Owners
+#### Transaction Senders/Name Owners
 
 Each transaction operation has a "sender". If any pre-orders or name registrations occur as a result of a given transaction, the "sender" is also considered the "owner" of those pre-orders and/or name registrations.
 
 In a transaction, the sender is established as the funder of the first non-OP_RETURN input.
 
-### Name Preorder (reserve)
+#### Name Preorder (reserve)
 
 - magic bytes (2 bytes)
 - operation code (1 byte)
 - preorder hash (20 bytes)
 - consensus hash (16 bytes)
 
-### Name Register (claim/reveal)
+#### Name Register (claim/reveal)
 
 - magic bytes (2 bytes)
 - operation code (1 byte)
@@ -122,7 +128,7 @@ In a transaction, the sender is established as the funder of the first non-OP_RE
 - name (up to 16 bytes)
 - salt (16 bytes)
 
-### Name Update
+#### Name Update
 
 - magic bytes (2 bytes)
 - operation code (1 byte)
@@ -130,7 +136,7 @@ In a transaction, the sender is established as the funder of the first non-OP_RE
 - name (up to 16 bytes)
 - update hash (20 bytes)
 
-### Name Transfer
+#### Name Transfer
 
 - magic byte (2 byte)
 - operation code (1 byte)
@@ -139,12 +145,12 @@ In a transaction, the sender is established as the funder of the first non-OP_RE
 
 In a name transfer, name ownership is transferred to the recipient of the first non-OP_RETURN output, while name admin rights are given to the recipient of the second non-OP_RETURN output.
 
-### Misc.
+#### Misc.
 
 Example of a transaction with an OP\_RETURN and multiple outputs:
 https://blockchain.info/tx/1ae39745fd3891c16806bba44e6540944d145452ff156cab03076d7c08462e38?show_adv=true
 
-### Historical Record Hashes
+#### Historical Record Hashes
 
 Historical record hashes (16 bytes) are to potentially be added to name preorders and/or name transfers.
 
