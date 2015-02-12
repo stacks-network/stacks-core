@@ -25,7 +25,7 @@ bootstrap_servers = hostname_to_ip(DEFAULT_DHT_SERVERS)
 dht_server.bootstrap(bootstrap_servers)
 
 from opennamed import OpennamedRPC, reindex_blockchain
-from lib.config import REINDEX_FREQUENCY, START_BLOCK
+from lib.config import REINDEX_FREQUENCY
 
 application = service.Application("opennamed")
 
@@ -37,5 +37,5 @@ server_openname.setServiceParent(application)
 server_dht = internet.UDPServer(DHT_SERVER_PORT, dht_server.protocol)
 server_dht.setServiceParent(application)
 
-lc = LoopingCall(reindex_blockchain,START_BLOCK)
+lc = LoopingCall(reindex_blockchain)
 lc.start(REINDEX_FREQUENCY)

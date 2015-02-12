@@ -7,20 +7,22 @@
     :license: MIT, see LICENSE for more details.
 """
 
-__package__ = 'opennamed'
-
 import argparse
 import coinkit
 import logging
 import os
+import os.path
 import sys
 import subprocess
 import signal
 import json
+import datetime
 
 from txjsonrpc.netstring import jsonrpc
 from twisted.internet import reactor
 
+from lib import config
+from lib import get_nameops_in_block, build_nameset, NameDb
 from lib import config
 from coinkit import BitcoindClient, ChainComClient
 
@@ -166,25 +168,78 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         return
 
 
+def refresh_index(first_block, last_block, initial_index=False):
+
+    if first_block == last_block:
+        if initial_index:
+            log.info('Index in sync ...')
+        else:
+            twisted_log.message('Index in sync ...')
+        return
+
+    from twisted.python import log as twisted_log
+
+    working_dir = get_working_dir()
+
+    namespace_file = os.path.join(working_dir, config.OPENNAMED_NAMESPACE_FILE)
+    lastblock_file = os.path.join(working_dir, config.OPENNAMED_LASTBLOCK_FILE)
+
+    start = datetime.datetime.now()
+
+    nameop_sequence = []
+
+    if initial_index:
+        log.info('Creating initial index ...')
+
+    for block_number in range(first_block, last_block + 1):
+        if initial_index:
+            log.info('Processing block %s', block_number)
+        else:
+            twisted_log.msg('Processing block', block_number)
+
+        block_nameops = get_nameops_in_block(bitcoind, block_number)
+        
+        if initial_index:
+            log.info('block_nameops %s', block_nameops)
+        else:
+            twisted_log.msg('block_nameops', block_nameops)
+
+        nameop_sequence.append((block_number, block_nameops))
+
+    #log.info(nameop_sequence)
+
+    time_taken = "%s seconds" % (datetime.datetime.now() - start).seconds
+    #log.info(time_taken)
+
+    db = NameDb(namespace_file)
+    merkle_snapshot = build_nameset(db, nameop_sequence)
+    db.save_names(namespace_file)
+
+    merkle_snapshot = "merkle snapshot: %s\n" % merkle_snapshot
+    #log.info(merkle_snapshot)
+    #log.info(db.name_records)
+
+    fout = open(lastblock_file, 'w')  # to overwrite
+    fout.write(str(last_block))
+    fout.close()
+
+# ------------------------------
 old_block = 0
 index_initialized = False
 
 
-def reindex_blockchain(start_block):
+def reindex_blockchain():
 
     from twisted.python import log
     global old_block
     global index_initialized
-    global counter 
+    global counter
 
-    try:
-        current_block = int(bitcoind.getinfo()['blocks'])
-    except Exception as e:
-        log.msg(e)
-        current_block = 0
+    start_block, current_block = get_index_range()
 
     # initial indexing
     if not index_initialized:
+
         index_initialized = True
         old_block = start_block
     else:
@@ -199,6 +254,7 @@ def reindex_blockchain(start_block):
             log.msg(message)
 
             # call the reindex func here
+            refresh_index(old_block + 1, current_block)
             old_block = current_block
 
 
@@ -207,12 +263,43 @@ def get_working_dir():
     from os.path import expanduser
     home = expanduser("~")
 
-    working_dir = os.path.join(home, '.opennamed')
+    from lib.config import OPENNAMED_WORKING_DIR
+    working_dir = os.path.join(home, OPENNAMED_WORKING_DIR)
 
     if not os.path.exists(working_dir):
         os.makedirs(working_dir)
 
     return working_dir
+
+
+def get_index_range(start_block=0):
+
+    from lib.config import START_BLOCK
+
+    if start_block == 0:
+        start_block = START_BLOCK
+
+    current_block = int(bitcoind.getblockcount())
+
+    working_dir = get_working_dir()
+    lastblock_file = os.path.join(working_dir, config.OPENNAMED_LASTBLOCK_FILE)
+
+    saved_block = 0
+    if os.path.isfile(lastblock_file):
+
+        fin = open(lastblock_file, 'r')
+        saved_block = fin.read()
+        saved_block = int(saved_block)
+        fin.close()
+
+    if saved_block == 0:
+        pass
+    elif saved_block == current_block:
+        start_block = saved_block
+    elif saved_block < current_block:
+        start_block = saved_block + 1
+
+    return start_block, current_block
 
 
 def run_server(foreground=False):
@@ -221,6 +308,7 @@ def run_server(foreground=False):
 
     from .lib.config import OPENNAMED_PID_FILE, OPENNAMED_LOG_FILE
     from .lib.config import OPENNAMED_TAC_FILE
+    from .lib.config import START_BLOCK
 
     working_dir = get_working_dir()
 
@@ -230,6 +318,8 @@ def run_server(foreground=False):
     log_file = os.path.join(working_dir, OPENNAMED_LOG_FILE)
     pid_file = os.path.join(working_dir, OPENNAMED_PID_FILE)
 
+    start_block, current_block = get_index_range()
+
     if foreground:
         command = 'twistd --pidfile=%s -noy %s' % (pid_file, tac_file)
     else:
@@ -238,6 +328,8 @@ def run_server(foreground=False):
                                                               tac_file)
 
     try:
+            #refresh_index(335563, 335566, initial_index=True)
+            refresh_index(start_block, current_block, initial_index=True)
             opennamed = subprocess.Popen(command,
                                          shell=True, preexec_fn=os.setsid)
             log.info('Opennamed successfully started')
@@ -245,7 +337,10 @@ def run_server(foreground=False):
     except Exception as e:
         log.debug(e)
         log.info('Exiting opennamed server')
-        os.killpg(opennamed.pid, signal.SIGTERM)
+        try:
+            os.killpg(opennamed.pid, signal.SIGTERM)
+        except:
+            pass
         exit(1)
 
 

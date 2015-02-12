@@ -77,7 +77,7 @@ def get_tx(bitcoind, tx_hash):
     try:
         tx = bitcoind.getrawtransaction(tx_hash, 1)
     except:
-        traceback.print_exc()
+        # traceback.print_exc()
         return None
     return tx
 
