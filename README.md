@@ -5,17 +5,24 @@ __Table of Contents__
 - [Intro](<#intro>)
     - [What this project is](<#project>)
     - [What this repo contains](<#repo>)
-- [Specs](<#specs>)
 - [Installation](<#installation>)
+- [Design](<#design>)
+    - [The stack](<#stack>)
+    - [Name operations](<#operations>)
+    - [Definitions](<#definitions>)
+    - [Data encoding](<#encoding>)
+    - [Data Storage Comparison](<#datacomparison>)
 
 ## Intro
 <a name="intro"/>
 
 ### What this project is
+<a name="project"/>
 
 A key-value store on the Bitcoin Blockchain.
 
 ### What this repo contains
+<a name="repo"/>
 
 + code for running a node that participates in the KV store network (opennamed)
 + code for issuing commands to openname nodes like name lookups and name registrations (openname-cli and openname python lib)
@@ -27,17 +34,38 @@ On Debian you need to install libzmq-dev
 
 > sudo apt-get install libzmq-dev
 
-## Specs
-<a name="specs"/>
+## Design
+<a name="design"/>
 
-### Operations
++ validated sequence of operations + rules to interpret them = global consensus / agreed upon view of the system
++ data is simply stored in the blockchain in a defined sequence, and nodes read the blockchain and interpret the sequence of events with a set of defined rules. From this, they build a view of the system that should be in sync.
+register names by being the first to include the name in a “registration” operation
++ to prevent people from stealing your name, first secretly “preorder” the name, but include a salted hash of the name in the blockchain
++ to associate data with the name, issue an “update” operation by including a hash of the data and storing the data itself in the DHT
++ to lookup the data associated with a name, issue a request to an opennamed node, which will lookup the name’s entry in the nameset, find the hash associated with the name, then go into the DHT with the hash and get the data associated with it
++ there are many, many possible namespaces
++ each namespace can have a custom pricing scheme
+
+### The Stack
+<a name="project"/>
+
++ Blockchain: bitcoin
++ Hash storage method: OP_RETURN
++ Data storage method: Kademlia distributed hash table
++ Language: Python
++ Frameworks: Twisted
+
+### Name Operations
+<a name="operations"/>
 
 1. name preorder
-2. name register
-3. name update
-4. name transfer
+1. name register
+1. name update
+1. name transfer
+1. name renew
 
 ### Definitions
+<a name="definitions"/>
 
 - `nameset`: all the names ever registered on all possible namespaces
 - `hash160`: a 20-byte ripemd160 hash
@@ -47,7 +75,16 @@ On Debian you need to install libzmq-dev
 - `historical record hash`: a hash of a data string generated from a representation of the nameset
 - `update hash`: a hash of the data to be associated with a given name
 
+### Data Storage Comparison
+<a name="datacomparison"/>
+
+nulldata in OP_RETURN output = 40 bytes
+nulldata in multi-sig output = 66 bytes
+namecoin operation = 520 bytes
+hash in nulldata, full data in DHT = unlimited bytes
+
 ### Data Encoding
+<a name="encoding"/>
 
 #### Constraints:
 
@@ -65,18 +102,6 @@ On Debian you need to install libzmq-dev
 - salt = 16 bytes
 - update hash = 20 bytes
 - historical record hash (truncated) = 16 bytes
-
-#### Name encoding lengths
-
-- 12 bytes = 18 characters
-- 13 bytes = 19.5 characters
-- 14 bytes = 21 characters
-- 15 bytes = 22.5 characters
-- 16 bytes = 24 characters
-- 17 bytes = 25.5 characters
-- 18 bytes = 27.0 characters
-- 19 bytes = 28.5 characters
-- 20 bytes = 30 characters
 
 ### Transaction Senders/Name Owners
 
