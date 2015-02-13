@@ -38,9 +38,11 @@ from bitcoinrpc.authproxy import AuthServiceProxy
 
 
 def create_bitcoind_connection(
-        rpc_username=config.BITCOIND_USER, rpc_password=config.BITCOIND_PASSWD,
-        server=config.BITCOIND_SERVER, port=config.BITCOIND_PORT,
-        use_https=True):
+        rpc_username=config.BITCOIND_USER,
+        rpc_password=config.BITCOIND_PASSWD,
+        server=config.BITCOIND_SERVER,
+        port=config.BITCOIND_PORT,
+        use_https=config.BITCOIND_USE_HTTPS):
     """ creates an auth service proxy object, to connect to bitcoind
     """
     protocol = 'https' if use_https else 'http'
@@ -57,12 +59,6 @@ bitcoind_client = BitcoindClient(
     config.BITCOIND_USER, config.BITCOIND_PASSWD,
     server=config.BITCOIND_SERVER, port=str(config.BITCOIND_PORT),
     use_https=True)
-
-try:
-    chain_com_client = ChainComClient(config.CHAIN_COM_API_ID,
-                                      config.CHAIN_COM_API_SECRET)
-except:
-    pass
 
 
 def signal_handler(signal, frame):
@@ -189,6 +185,20 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         return
 
 
+def get_working_dir():
+
+    from os.path import expanduser
+    home = expanduser("~")
+
+    from lib.config import OPENNAMED_WORKING_DIR
+    working_dir = os.path.join(home, OPENNAMED_WORKING_DIR)
+
+    if not os.path.exists(working_dir):
+        os.makedirs(working_dir)
+
+    return working_dir
+
+
 def refresh_index(first_block, last_block, initial_index=False):
     """
     """
@@ -276,32 +286,20 @@ def reindex_blockchain():
             old_block = current_block
 
 
-def get_working_dir():
-    """
-    """
-
-    from os.path import expanduser
-    home = expanduser("~")
-
-    from lib.config import OPENNAMED_WORKING_DIR
-    working_dir = os.path.join(home, OPENNAMED_WORKING_DIR)
-
-    if not os.path.exists(working_dir):
-        os.makedirs(working_dir)
-
-    return working_dir
-
-
 def get_index_range(start_block=0):
     """
     """
 
-    from lib.config import START_BLOCK
+    from lib.config import FIRST_BLOCK_MAINNET
 
     if start_block == 0:
-        start_block = START_BLOCK
+        start_block = FIRST_BLOCK_MAINNET
 
-    current_block = int(bitcoind.getblockcount())
+    try:
+        current_block = int(bitcoind.getblockcount())
+    except:
+        log.info("ERROR: Cannot connect to bitcoind")
+        exit(1)
 
     working_dir = get_working_dir()
     lastblock_file = os.path.join(working_dir, config.OPENNAMED_LASTBLOCK_FILE)
@@ -324,47 +322,44 @@ def get_index_range(start_block=0):
     return start_block, current_block
 
 
-def run_server(foreground=False):
-    """ run the opennamed server
-    """
+def init_bitcoind():
 
-    from .lib.config import OPENNAMED_PID_FILE, OPENNAMED_LOG_FILE
-    from .lib.config import OPENNAMED_TAC_FILE
-    from .lib.config import START_BLOCK
-
+    from ConfigParser import SafeConfigParser
     working_dir = get_working_dir()
+    config_file = os.path.join(working_dir, config.OPENNAMED_CONFIG_FILE)
 
-    current_dir = os.path.abspath(os.path.dirname(__file__))
+    parser = SafeConfigParser()
 
-    tac_file = os.path.join(current_dir, OPENNAMED_TAC_FILE)
-    log_file = os.path.join(working_dir, OPENNAMED_LOG_FILE)
-    pid_file = os.path.join(working_dir, OPENNAMED_PID_FILE)
+    if os.path.isfile(config_file):
 
-    start_block, current_block = get_index_range()
+        return create_bitcoind_connection()
 
-    if foreground:
-        command = 'twistd --pidfile=%s -noy %s' % (pid_file, tac_file)
     else:
-        command = 'twistd --pidfile=%s --logfile=%s -y %s' % (pid_file,
-                                                              log_file,
-                                                              tac_file)
+        user_input = raw_input("Do you have your own bitcoind server? (yes/no): ")
+        if user_input.lower() == "yes" or user_input.lower() == "y":
+            bitcoind_server = raw_input("Enter bitcoind address: ")
+            bitcoind_port = raw_input("Enter bitcoind rpc port: ")
+            bitcoind_user = raw_input("Enter bitcoind rpc user: ")
+            bitcoind_passwd = raw_input("Enter bitcoind rpc password: ")
+            use_https = raw_input("Is ssl enabled on bitcoind? (yes/no): ")
 
-    try:
-            # refresh_index(335563, 335566, initial_index=True)
-            if start_block != current_block:
-                refresh_index(start_block, current_block, initial_index=True)
-            opennamed = subprocess.Popen(command,
-                                         shell=True, preexec_fn=os.setsid)
-            log.info('Opennamed successfully started')
+            parser.add_section('bitcoind')
+            parser.set('bitcoind', 'server', bitcoind_server)
+            parser.set('bitcoind', 'port', bitcoind_port)
+            parser.set('bitcoind', 'user', bitcoind_user)
+            parser.set('bitcoind', 'passwd', bitcoind_passwd)
+            parser.set('bitcoind', 'use_https', use_https)
 
-    except Exception as e:
-        log.debug(e)
-        log.info('Exiting opennamed server')
-        try:
-            os.killpg(opennamed.pid, signal.SIGTERM)
-        except:
-            pass
-        exit(1)
+            fout = open(config_file, 'w')
+            parser.write(fout)
+
+            return create_bitcoind_connection(bitcoind_user, bitcoind_passwd,
+                                              bitcoind_server, bitcoind_port,
+                                              bitcoind_use_https)
+
+        else:
+            log.info("Using default bitcoind server at %s", config.BITCOIND_SERVER)
+            return create_bitcoind_connection()
 
 
 def stop_server():
@@ -392,6 +387,52 @@ def stop_server():
 
         pid = int(pid_data)
         os.kill(pid, signal.SIGKILL)
+
+
+def run_server(foreground=False):
+    """ run the opennamed server
+    """
+
+    global bitcoind
+    bitcoind = init_bitcoind()
+
+    from .lib.config import OPENNAMED_PID_FILE, OPENNAMED_LOG_FILE
+    from .lib.config import OPENNAMED_TAC_FILE
+    from .lib.config import START_BLOCK
+
+    working_dir = get_working_dir()
+
+    current_dir = os.path.abspath(os.path.dirname(__file__))
+
+    tac_file = os.path.join(current_dir, OPENNAMED_TAC_FILE)
+    log_file = os.path.join(working_dir, OPENNAMED_LOG_FILE)
+    pid_file = os.path.join(working_dir, OPENNAMED_PID_FILE)
+
+    start_block, current_block = get_index_range()
+
+    if foreground:
+        command = 'twistd --pidfile=%s -noy %s' % (pid_file, tac_file)
+    else:
+        command = 'twistd --pidfile=%s --logfile=%s -y %s' % (pid_file,
+                                                              log_file,
+                                                              tac_file)
+
+    try:
+        #refresh_index(335563, 335566, initial_index=True)
+        if start_block != current_block:
+            refresh_index(start_block, current_block, initial_index=True)
+        opennamed = subprocess.Popen(command,
+                                     shell=True, preexec_fn=os.setsid)
+        log.info('Opennamed successfully started')
+
+    except Exception as e:
+        log.debug(e)
+        log.info('Exiting opennamed server')
+        try:
+            os.killpg(opennamed.pid, signal.SIGTERM)
+        except:
+            pass
+        exit(1)
 
 
 def run_opennamed():
@@ -433,12 +474,6 @@ def run_opennamed():
 
     if args.action == 'start':
         stop_server()
-
-        if config.BITCOIND_SERVER == 'btcd.onename.com':
-            log.info('Connecting to remote bitcoind server...')
-        else:
-            log.info('Connecting to local bitcoind server...')
-
         if args.foreground:
             log.info('Initializing opennamed server in foreground ...')
             run_server(foreground=True)
