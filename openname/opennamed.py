@@ -320,14 +320,19 @@ def init_bitcoind():
             bitcoind_port = raw_input("Enter bitcoind rpc port: ")
             bitcoind_user = raw_input("Enter bitcoind rpc user: ")
             bitcoind_passwd = raw_input("Enter bitcoind rpc password: ")
-            bitcoind_use_https = raw_input("Is ssl enabled on bitcoind? (yes/no): ")
+            use_https = raw_input("Is ssl enabled on bitcoind? (yes/no): ")
+
+            if use_https.lower() == "yes" or use_https.lower() == "y":
+                bitcoind_use_https = True
+            else:
+                bitcoind_use_https = False
 
             parser.add_section('bitcoind')
             parser.set('bitcoind', 'server', bitcoind_server)
             parser.set('bitcoind', 'port', bitcoind_port)
             parser.set('bitcoind', 'user', bitcoind_user)
             parser.set('bitcoind', 'passwd', bitcoind_passwd)
-            parser.set('bitcoind', 'use_https', bitcoind_use_https)
+            parser.set('bitcoind', 'use_https', use_https)
 
             fout = open(config_file, 'w')
             parser.write(fout)
