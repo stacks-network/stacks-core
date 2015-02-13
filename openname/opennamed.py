@@ -34,8 +34,31 @@ formatter = logging.Formatter('%(message)s')
 console.setFormatter(formatter)
 log.addHandler(console)
 
+from bitcoinrpc.authproxy import AuthServiceProxy
+
+
+def create_bitcoind_connection(
+        rpc_username=config.BITCOIND_USER,
+        rpc_password=config.BITCOIND_PASSWD,
+        server=config.BITCOIND_SERVER,
+        port=config.BITCOIND_PORT,
+        use_https=config.BITCOIND_USE_HTTPS):
+    """ creates an auth service proxy object, to connect to bitcoind
+    """
+    protocol = 'https' if use_https else 'http'
+    authproxy_config_uri = '%s://%s:%s@%s:%s' % (
+        protocol, rpc_username, rpc_password, server, port)
+    return AuthServiceProxy(authproxy_config_uri)
+
+bitcoind = create_bitcoind_connection()
+
 from lib import preorder_name, register_name, update_name, \
     transfer_name
+
+bitcoind_client = BitcoindClient(
+    config.BITCOIND_USER, config.BITCOIND_PASSWD,
+    server=config.BITCOIND_SERVER, port=str(config.BITCOIND_PORT),
+    use_https=True)
 
 
 def signal_handler(signal, frame):
@@ -48,26 +71,6 @@ def signal_handler(signal, frame):
     sys.exit(0)
 
 signal.signal(signal.SIGINT, signal_handler)
-
-
-def create_connection(server=config.BITCOIND_SERVER,
-                      port=config.BITCOIND_PORT,
-                      user=config.BITCOIND_USER,
-                      passwd=config.BITCOIND_PASSWD,
-                      use_https=config.BITCOIND_USE_HTTPS):
-
-    from bitcoinrpc.authproxy import AuthServiceProxy
-
-    if use_https:
-        config_options = 'https://'
-    else:
-        config_options = 'http://'
-
-    config_options += user + ':' + passwd + '@' + server + ':' + str(port)
-
-    return AuthServiceProxy(config_options)
-
-bitcoind = create_connection()
 
 
 class OpennamedRPC(jsonrpc.JSONRPC):
@@ -86,6 +89,8 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         return self.dht_server.get(key)
 
     def jsonrpc_set(self, key, value):
+        """
+        """
 
         reply = {}
 
@@ -106,6 +111,8 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         return self.dht_server.set(key, value)
 
     def jsonrpc_getinfo(self):
+        """
+        """
 
         info = bitcoind.getinfo()
         reply = {}
@@ -113,29 +120,35 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         reply['test'] = "hello"
         return reply
 
-    def jsonrpc_preorder(self, name, consensushash, privatekey):
+    def jsonrpc_preorder(self, name, privatekey):
         """ Preorder a name
         """
 
-        print str(privatekey)
+        working_dir = get_working_dir()
+        namespace_file = os.path.join(
+            working_dir, config.OPENNAMED_NAMESPACE_FILE)
+        db = NameDb(namespace_file)
+        consensus_hash = db.consensus_hashes.get('current')
 
         resp = preorder_name(
-            name, consensushash, str(privatekey),
-            blockchain_client=bitcoind,
-            testset=True)
+            str(name), str(consensus_hash), str(privatekey),
+            blockchain_client=chain_com_client, testset=True)
 
         log.debug('preorder <%s, %s>' % (name, privatekey))
 
         return resp
 
-    def jsonrpc_register(self, name, salt, privatekey):
+    def jsonrpc_register(self, name, privatekey):
         """ Register a name
         """
 
-        resp = register_name(name, salt, privatekey,
-                             blockchain_client=bitcoind, testset=True)
+        log.info("name: %s" % name)
 
-        log.debug('register <%s, %s, %s>' % (name, salt, privatekey))
+        resp = register_name(
+            str(name), str(privatekey),
+            blockchain_client=chain_com_client, testset=True)
+
+        log.debug('register <%s, %s>' % (name, privatekey))
 
         return resp
 
@@ -143,8 +156,9 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         """ Update a name
         """
 
-        resp = update_name(name, data, privatekey,
-                           blockchain_client=bitcoind, testset=True)
+        resp = update_name(
+            str(name), str(data), str(privatekey),
+            blockchain_client=chain_com_client, testset=True)
 
         log.debug('update <%s, %s, %s>' % (name, data, privatekey))
 
@@ -154,8 +168,9 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         """ Transfer a name
         """
 
-        resp = transfer_name(name, address, privatekey,
-                             blockchain_client=bitcoind, testset=True)
+        resp = transfer_name(
+            str(name), str(address), str(privatekey),
+            blockchain_client=chain_com_client, testset=True)
 
         log.debug('transfer <%s, %s, %s>' % (name, address, privatekey))
 
@@ -185,6 +200,8 @@ def get_working_dir():
 
 
 def refresh_index(first_block, last_block, initial_index=False):
+    """
+    """
 
     from twisted.python import log as twisted_log
 
@@ -215,18 +232,18 @@ def refresh_index(first_block, last_block, initial_index=False):
 
         nameop_sequence.append((block_number, block_nameops))
 
-    #log.info(nameop_sequence)
+    # log.info(nameop_sequence)
 
     time_taken = "%s seconds" % (datetime.datetime.now() - start).seconds
-    #log.info(time_taken)
+    # log.info(time_taken)
 
     db = NameDb(namespace_file)
     merkle_snapshot = build_nameset(db, nameop_sequence)
     db.save_names(namespace_file)
 
     merkle_snapshot = "merkle snapshot: %s\n" % merkle_snapshot
-    #log.info(merkle_snapshot)
-    #log.info(db.name_records)
+    # log.info(merkle_snapshot)
+    # log.info(db.name_records)
 
     fout = open(lastblock_file, 'w')  # to overwrite
     fout.write(str(last_block))
@@ -238,6 +255,8 @@ index_initialized = False
 
 
 def reindex_blockchain():
+    """
+    """
 
     from twisted.python import log
     global old_block
@@ -268,11 +287,13 @@ def reindex_blockchain():
 
 
 def get_index_range(start_block=0):
+    """
+    """
 
-    from lib.config import START_BLOCK
+    from lib.config import FIRST_BLOCK_MAINNET
 
     if start_block == 0:
-        start_block = START_BLOCK
+        start_block = FIRST_BLOCK_MAINNET
 
     try:
         current_block = int(bitcoind.getblockcount())
@@ -311,7 +332,7 @@ def init_bitcoind():
 
     if os.path.isfile(config_file):
 
-        return create_connection()
+        return create_bitcoind_connection()
 
     else:
         user_input = raw_input("Do you have your own bitcoind server? (yes/no): ")
@@ -321,11 +342,6 @@ def init_bitcoind():
             bitcoind_user = raw_input("Enter bitcoind rpc user: ")
             bitcoind_passwd = raw_input("Enter bitcoind rpc password: ")
             use_https = raw_input("Is ssl enabled on bitcoind? (yes/no): ")
-
-            if use_https.lower() == "yes" or use_https.lower() == "y":
-                bitcoind_use_https = True
-            else:
-                bitcoind_use_https = False
 
             parser.add_section('bitcoind')
             parser.set('bitcoind', 'server', bitcoind_server)
@@ -337,13 +353,13 @@ def init_bitcoind():
             fout = open(config_file, 'w')
             parser.write(fout)
 
-            return create_connection(bitcoind_server, bitcoind_port,
-                                     bitcoind_user, bitcoind_passwd,
-                                     bitcoind_use_https)
+            return create_bitcoind_connection(bitcoind_user, bitcoind_passwd,
+                                              bitcoind_server, bitcoind_port,
+                                              bitcoind_use_https)
 
         else:
             log.info("Using default bitcoind server at %s", config.BITCOIND_SERVER)
-            return create_connection()
+            return create_bitcoind_connection()
 
 
 def stop_server():

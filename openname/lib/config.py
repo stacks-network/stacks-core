@@ -93,8 +93,26 @@ else:
     BITCOIND_PASSWD = 'opennamesystem'
     BITCOIND_USE_HTTPS = True
 
+""" block indexing configs
+"""
+
 REINDEX_FREQUENCY = 5  # in seconds
-START_BLOCK = 343300  # start indexing from this block
+
+FIRST_BLOCK_MAINNET = 343180
+FIRST_BLOCK_MAINNET_TESTSET = FIRST_BLOCK_MAINNET
+FIRST_BLOCK_TESTNET = 311517
+FIRST_BLOCK_TESTNET_TESTSET = FIRST_BLOCK_TESTNET
+
+if TESTNET:
+    if TESTSET:
+        START_BLOCK = FIRST_BLOCK_TESTNET_TESTSET
+    else:
+        START_BLOCK = FIRST_BLOCK_TESTNET
+else:
+    if TESTSET:
+        START_BLOCK = FIRST_BLOCK_MAINNET_TESTSET
+    else:
+        START_BLOCK = FIRST_BLOCK_MAINNET
 
 """ api configs
 """
@@ -137,18 +155,19 @@ LENGTHS = {
     'opcode': 1,
     'name_hash': 20,
     'consensus_hash': 16,
+    'namelen': 1,
     'name_min': 1,
     'name_max': 16,
     'unencoded_name': 24,
-    'salt': 16,
     'update_hash': 20,
 }
 
 MIN_OP_LENGTHS = {
     'preorder': LENGTHS['name_hash'],
-    'registration': LENGTHS['name_min'] + LENGTHS['salt'],
-    'update': LENGTHS['name_min'] + LENGTHS['update_hash'],
-    'transfer': LENGTHS['name_min']
+    'registration': LENGTHS['namelen'] + LENGTHS['name_min'],
+    'update': (
+        LENGTHS['namelen'] + LENGTHS['name_min'] + LENGTHS['update_hash']),
+    'transfer': LENGTHS['namelen'] + LENGTHS['name_min']
 }
 
 OP_RETURN_MAX_SIZE = 40
@@ -174,22 +193,3 @@ ALPHABETIC_PRICE_FLOOR = 10**4
 """
 
 BLOCKS_CONSENSUS_HASH_IS_VALID = 4*AVERAGE_BLOCKS_PER_HOUR
-
-""" starting block configs
-"""
-
-FIRST_BLOCK_MAINNET = 334750
-FIRST_BLOCK_MAINNET_TESTSET = 334750
-FIRST_BLOCK_TESTNET = 311517
-FIRST_BLOCK_TESTNET_TESTSET = 311517
-
-if TESTNET:
-    if TESTSET:
-        FIRST_BLOCK = FIRST_BLOCK_TESTNET_TESTSET
-    else:
-        FIRST_BLOCK = FIRST_BLOCK_TESTNET
-else:
-    if TESTSET:
-        FIRST_BLOCK = FIRST_BLOCK_MAINNET_TESTSET
-    else:
-        FIRST_BLOCK = FIRST_BLOCK_MAINNET
