@@ -9,7 +9,7 @@ def log_registration(db, nameop):
     name = nameop['name']
     # check if this registration is a valid one
     if (name_not_registered(db, name)
-            and has_preordered_name(db, name, nameop['salt'], nameop['sender'])
+            and has_preordered_name(db, name, nameop['sender'])
             and is_mining_fee_sufficient(name, nameop['fee'])):
         # we're good - log the registration!
         db.pending_registrations[name].append(nameop)

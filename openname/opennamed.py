@@ -36,18 +36,27 @@ log.addHandler(console)
 
 from bitcoinrpc.authproxy import AuthServiceProxy
 
-config_options = 'https://' + config.BITCOIND_USER + ':' + \
-    config.BITCOIND_PASSWD + '@' + config.BITCOIND_SERVER + ':' + \
-    str(config.BITCOIND_PORT)
 
-bitcoind = AuthServiceProxy(config_options)
+def create_bitcoind_connection(
+        rpc_username=config.BITCOIND_USER, rpc_password=config.BITCOIND_PASSWD,
+        server=config.BITCOIND_SERVER, port=config.BITCOIND_PORT,
+        use_https=True):
+    """ creates an auth service proxy object, to connect to bitcoind
+    """
+    protocol = 'https' if use_https else 'http'
+    authproxy_config_uri = '%s://%s:%s@%s:%s' % (
+        protocol, rpc_username, rpc_password, server, port)
+    return AuthServiceProxy(authproxy_config_uri)
+
+bitcoind = create_bitcoind_connection()
 
 from lib import preorder_name, register_name, update_name, \
     transfer_name
 
 bitcoind_client = BitcoindClient(
-    config.BITCOIND_USER, config.BITCOIND_PASSWD, server=config.BITCOIND_SERVER,
-    port=str(config.BITCOIND_PORT))
+    config.BITCOIND_USER, config.BITCOIND_PASSWD,
+    server=config.BITCOIND_SERVER, port=str(config.BITCOIND_PORT),
+    use_https=True)
 
 try:
     chain_com_client = ChainComClient(config.CHAIN_COM_API_ID,
@@ -84,6 +93,8 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         return self.dht_server.get(key)
 
     def jsonrpc_set(self, key, value):
+        """
+        """
 
         reply = {}
 
@@ -104,6 +115,8 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         return self.dht_server.set(key, value)
 
     def jsonrpc_getinfo(self):
+        """
+        """
 
         info = bitcoind.getinfo()
         reply = {}
@@ -111,29 +124,35 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         reply['test'] = "hello"
         return reply
 
-    def jsonrpc_preorder(self, name, consensushash, privatekey):
+    def jsonrpc_preorder(self, name, privatekey):
         """ Preorder a name
         """
 
-        print str(privatekey)
+        working_dir = get_working_dir()
+        namespace_file = os.path.join(
+            working_dir, config.OPENNAMED_NAMESPACE_FILE)
+        db = NameDb(namespace_file)
+        consensus_hash = db.consensus_hashes.get('current')
 
         resp = preorder_name(
-            name, consensushash, str(privatekey),
-            blockchain_client=bitcoind_client,
-            testset=True)
+            str(name), str(consensus_hash), str(privatekey),
+            blockchain_client=chain_com_client, testset=True)
 
         log.debug('preorder <%s, %s>' % (name, privatekey))
 
         return resp
 
-    def jsonrpc_register(self, name, salt, privatekey):
+    def jsonrpc_register(self, name, privatekey):
         """ Register a name
         """
 
-        resp = register_name(name, salt, privatekey,
-                             blockchain_client=bitcoind_client, testset=True)
+        log.info("name: %s" % name)
 
-        log.debug('register <%s, %s, %s>' % (name, salt, privatekey))
+        resp = register_name(
+            str(name), str(privatekey),
+            blockchain_client=chain_com_client, testset=True)
+
+        log.debug('register <%s, %s>' % (name, privatekey))
 
         return resp
 
@@ -141,8 +160,9 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         """ Update a name
         """
 
-        resp = update_name(name, data, privatekey,
-                           blockchain_client=bitcoind_client, testset=True)
+        resp = update_name(
+            str(name), str(data), str(privatekey),
+            blockchain_client=chain_com_client, testset=True)
 
         log.debug('update <%s, %s, %s>' % (name, data, privatekey))
 
@@ -152,8 +172,9 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         """ Transfer a name
         """
 
-        resp = transfer_name(name, address, privatekey,
-                             blockchain_client=bitcoind_client, testset=True)
+        resp = transfer_name(
+            str(name), str(address), str(privatekey),
+            blockchain_client=chain_com_client, testset=True)
 
         log.debug('transfer <%s, %s, %s>' % (name, address, privatekey))
 
@@ -169,6 +190,8 @@ class OpennamedRPC(jsonrpc.JSONRPC):
 
 
 def refresh_index(first_block, last_block, initial_index=False):
+    """
+    """
 
     from twisted.python import log as twisted_log
 
@@ -191,7 +214,7 @@ def refresh_index(first_block, last_block, initial_index=False):
             twisted_log.msg('Processing block', block_number)
 
         block_nameops = get_nameops_in_block(bitcoind, block_number)
-        
+
         if initial_index:
             log.info('block_nameops %s', block_nameops)
         else:
@@ -199,18 +222,18 @@ def refresh_index(first_block, last_block, initial_index=False):
 
         nameop_sequence.append((block_number, block_nameops))
 
-    #log.info(nameop_sequence)
+    # log.info(nameop_sequence)
 
     time_taken = "%s seconds" % (datetime.datetime.now() - start).seconds
-    #log.info(time_taken)
+    # log.info(time_taken)
 
     db = NameDb(namespace_file)
     merkle_snapshot = build_nameset(db, nameop_sequence)
     db.save_names(namespace_file)
 
     merkle_snapshot = "merkle snapshot: %s\n" % merkle_snapshot
-    #log.info(merkle_snapshot)
-    #log.info(db.name_records)
+    # log.info(merkle_snapshot)
+    # log.info(db.name_records)
 
     fout = open(lastblock_file, 'w')  # to overwrite
     fout.write(str(last_block))
@@ -222,6 +245,8 @@ index_initialized = False
 
 
 def reindex_blockchain():
+    """
+    """
 
     from twisted.python import log
     global old_block
@@ -252,6 +277,8 @@ def reindex_blockchain():
 
 
 def get_working_dir():
+    """
+    """
 
     from os.path import expanduser
     home = expanduser("~")
@@ -266,6 +293,8 @@ def get_working_dir():
 
 
 def get_index_range(start_block=0):
+    """
+    """
 
     from lib.config import START_BLOCK
 
@@ -321,7 +350,7 @@ def run_server(foreground=False):
                                                               tac_file)
 
     try:
-            #refresh_index(335563, 335566, initial_index=True)
+            # refresh_index(335563, 335566, initial_index=True)
             if start_block != current_block:
                 refresh_index(start_block, current_block, initial_index=True)
             opennamed = subprocess.Popen(command,
@@ -404,6 +433,12 @@ def run_opennamed():
 
     if args.action == 'start':
         stop_server()
+
+        if config.BITCOIND_SERVER == 'btcd.onename.com':
+            log.info('Connecting to remote bitcoind server...')
+        else:
+            log.info('Connecting to local bitcoind server...')
+
         if args.foreground:
             log.info('Initializing opennamed server in foreground ...')
             run_server(foreground=True)
