@@ -39,6 +39,7 @@ proxy = Proxy(config.OPENNAMED_SERVER, config.OPENNAMED_PORT)
 
 def printValue(value):
     logger.info(pretty_dump(value))
+    print pretty_dump(value)
 
 
 def getFormat(result):
@@ -57,7 +58,6 @@ def getFormat(result):
 
 
 def printError(error):
-
     reply = {}
     reply['error'] = "Got an error"
 
@@ -196,8 +196,8 @@ def run_cli():
 
     elif args.action == 'preorder':
         logger.debug('Preordering %s', args.name)
-
-        client = proxy.callRemote('preorder', args.name, args.privatekey)
+        client = proxy.callRemote(
+            'preorder', str(args.name), str(args.privatekey))
 
     elif args.action == 'register':
         logger.debug('Registering %s', args.name)

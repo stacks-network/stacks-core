@@ -55,7 +55,8 @@ from lib import preorder_name, register_name, update_name, \
 
 bitcoind_client = BitcoindClient(
     config.BITCOIND_USER, config.BITCOIND_PASSWD,
-    server=config.BITCOIND_SERVER, port=str(config.BITCOIND_PORT))
+    server=config.BITCOIND_SERVER, port=str(config.BITCOIND_PORT),
+    use_https=True)
 
 try:
     chain_com_client = ChainComClient(config.CHAIN_COM_API_ID,
@@ -134,8 +135,8 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         consensus_hash = db.consensus_hashes.get('current')
 
         resp = preorder_name(
-            name, consensus_hash, str(privatekey),
-            blockchain_client=bitcoind_client, testset=True)
+            str(name), str(consensus_hash), str(privatekey),
+            blockchain_client=chain_com_client, testset=True)
 
         log.debug('preorder <%s, %s>' % (name, privatekey))
 
@@ -145,10 +146,13 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         """ Register a name
         """
 
-        resp = register_name(name, privatekey,
-                             blockchain_client=bitcoind_client, testset=True)
+        log.info("name: %s" % name)
 
-        log.debug('register <%s, %s, %s>' % (name, privatekey))
+        resp = register_name(
+            str(name), str(privatekey),
+            blockchain_client=chain_com_client, testset=True)
+
+        log.debug('register <%s, %s>' % (name, privatekey))
 
         return resp
 
@@ -156,8 +160,9 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         """ Update a name
         """
 
-        resp = update_name(name, data, privatekey,
-                           blockchain_client=bitcoind_client, testset=True)
+        resp = update_name(
+            str(name), str(data), str(privatekey),
+            blockchain_client=chain_com_client, testset=True)
 
         log.debug('update <%s, %s, %s>' % (name, data, privatekey))
 
@@ -167,8 +172,9 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         """ Transfer a name
         """
 
-        resp = transfer_name(name, address, privatekey,
-                             blockchain_client=bitcoind_client, testset=True)
+        resp = transfer_name(
+            str(name), str(address), str(privatekey),
+            blockchain_client=chain_com_client, testset=True)
 
         log.debug('transfer <%s, %s, %s>' % (name, address, privatekey))
 
