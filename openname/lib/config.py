@@ -143,7 +143,8 @@ LENGTHS = {
 MIN_OP_LENGTHS = {
     'preorder': LENGTHS['name_hash'],
     'registration': LENGTHS['namelen'] + LENGTHS['name_min'],
-    'update': LENGTHS['namelen'] + LENGTHS['name_min'] + LENGTHS['update_hash'],
+    'update': (
+        LENGTHS['namelen'] + LENGTHS['name_min'] + LENGTHS['update_hash']),
     'transfer': LENGTHS['namelen'] + LENGTHS['name_min']
 }
 

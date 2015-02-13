@@ -10,3 +10,4 @@ __version__ = '0.1.0'
 
 from .opennamed import run_opennamed
 from .openname_cli import run_cli
+from .lib import *
