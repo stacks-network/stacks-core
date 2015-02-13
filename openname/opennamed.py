@@ -67,71 +67,7 @@ def create_connection(server=config.BITCOIND_SERVER,
 
     return AuthServiceProxy(config_options)
 
-
-def get_working_dir():
-
-    from os.path import expanduser
-    home = expanduser("~")
-
-    from lib.config import OPENNAMED_WORKING_DIR
-    working_dir = os.path.join(home, OPENNAMED_WORKING_DIR)
-
-    if not os.path.exists(working_dir):
-        os.makedirs(working_dir)
-
-    return working_dir
-
-
-def init_bitcoind():
-
-    from ConfigParser import SafeConfigParser
-    working_dir = get_working_dir()
-    config_file = os.path.join(working_dir, config.OPENNAMED_CONFIG_FILE)
-
-    parser = SafeConfigParser()
-
-    if os.path.isfile(config_file):
-
-        parser.read(config_file)
-
-        bitcoind_server = parser.get('bitcoind', 'server')
-        bitcoind_port = parser.get('bitcoind', 'port')
-        bitcoind_user = parser.get('bitcoind', 'user')
-        bitcoind_passwd = parser.get('bitcoind', 'passwd')
-        use_https = parser.get('bitcoind', 'use_https')
-
-        if use_https.lower() == "yes" or use_https.lower() == "y":
-            bitcoind_use_https = True
-        else:
-            bitcoind_use_https = False
-
-        return create_connection(bitcoind_server, bitcoind_port, bitcoind_user,
-                                 bitcoind_passwd, bitcoind_use_https)
-
-    else:
-        user_input = raw_input("Do you have your own bitcoind server? (yes/no): ")
-        if user_input.lower() == "yes" or user_input.lower() == "y":
-            bitcoind_server = raw_input("Enter bitcoind address: ")
-            bitcoind_port = raw_input("Enter bitcoind rpc port: ")
-            bitcoind_user = raw_input("Enter bitcoind rpc user: ")
-            bitcoind_passwd = raw_input("Enter bitcoind rpc password: ")
-            bitcoind_use_https = raw_input("Is ssl enabled on bitcoind? (yes/no): ")
-
-            parser.add_section('bitcoind')
-            parser.set('bitcoind', 'server', bitcoind_server)
-            parser.set('bitcoind', 'port', bitcoind_port)
-            parser.set('bitcoind', 'user', bitcoind_user)
-            parser.set('bitcoind', 'passwd', bitcoind_passwd)
-            parser.set('bitcoind', 'use_https', bitcoind_use_https)
-
-            fout = open(config_file, 'w')
-            parser.write(fout)
-
-        else:
-            log.info("Using default bitcoind server at %s", config.BITCOIND_SERVER)
-            return create_connection()
-
-bitcoind = init_bitcoind()
+bitcoind = create_connection()
 
 
 class OpennamedRPC(jsonrpc.JSONRPC):
@@ -234,6 +170,20 @@ class OpennamedRPC(jsonrpc.JSONRPC):
         return
 
 
+def get_working_dir():
+
+    from os.path import expanduser
+    home = expanduser("~")
+
+    from lib.config import OPENNAMED_WORKING_DIR
+    working_dir = os.path.join(home, OPENNAMED_WORKING_DIR)
+
+    if not os.path.exists(working_dir):
+        os.makedirs(working_dir)
+
+    return working_dir
+
+
 def refresh_index(first_block, last_block, initial_index=False):
 
     from twisted.python import log as twisted_log
@@ -256,13 +206,7 @@ def refresh_index(first_block, last_block, initial_index=False):
         else:
             twisted_log.msg('Processing block', block_number)
 
-        try:
-            block_nameops = get_nameops_in_block(bitcoind, block_number)
-        except Exception as e:
-            if initial_index:
-                log.info(e)
-            else:
-                twisted_log.msg(e)
+        block_nameops = get_nameops_in_block(bitcoind, block_number)
 
         if initial_index:
             log.info('block_nameops %s', block_nameops)
@@ -357,47 +301,44 @@ def get_index_range(start_block=0):
     return start_block, current_block
 
 
-def run_server(foreground=False):
-    """ run the opennamed server
-    """
+def init_bitcoind():
 
-    from .lib.config import OPENNAMED_PID_FILE, OPENNAMED_LOG_FILE
-    from .lib.config import OPENNAMED_TAC_FILE
-    from .lib.config import START_BLOCK
-
+    from ConfigParser import SafeConfigParser
     working_dir = get_working_dir()
+    config_file = os.path.join(working_dir, config.OPENNAMED_CONFIG_FILE)
 
-    current_dir = os.path.abspath(os.path.dirname(__file__))
+    parser = SafeConfigParser()
 
-    tac_file = os.path.join(current_dir, OPENNAMED_TAC_FILE)
-    log_file = os.path.join(working_dir, OPENNAMED_LOG_FILE)
-    pid_file = os.path.join(working_dir, OPENNAMED_PID_FILE)
+    if os.path.isfile(config_file):
 
-    start_block, current_block = get_index_range()
+        return create_connection()
 
-    if foreground:
-        command = 'twistd --pidfile=%s -noy %s' % (pid_file, tac_file)
     else:
-        command = 'twistd --pidfile=%s --logfile=%s -y %s' % (pid_file,
-                                                              log_file,
-                                                              tac_file)
+        user_input = raw_input("Do you have your own bitcoind server? (yes/no): ")
+        if user_input.lower() == "yes" or user_input.lower() == "y":
+            bitcoind_server = raw_input("Enter bitcoind address: ")
+            bitcoind_port = raw_input("Enter bitcoind rpc port: ")
+            bitcoind_user = raw_input("Enter bitcoind rpc user: ")
+            bitcoind_passwd = raw_input("Enter bitcoind rpc password: ")
+            bitcoind_use_https = raw_input("Is ssl enabled on bitcoind? (yes/no): ")
 
-    try:
-            #refresh_index(335563, 335566, initial_index=True)
-            if start_block != current_block:
-                refresh_index(start_block, current_block, initial_index=True)
-            opennamed = subprocess.Popen(command,
-                                         shell=True, preexec_fn=os.setsid)
-            log.info('Opennamed successfully started')
+            parser.add_section('bitcoind')
+            parser.set('bitcoind', 'server', bitcoind_server)
+            parser.set('bitcoind', 'port', bitcoind_port)
+            parser.set('bitcoind', 'user', bitcoind_user)
+            parser.set('bitcoind', 'passwd', bitcoind_passwd)
+            parser.set('bitcoind', 'use_https', bitcoind_use_https)
 
-    except Exception as e:
-        log.debug(e)
-        log.info('Exiting opennamed server')
-        try:
-            os.killpg(opennamed.pid, signal.SIGTERM)
-        except:
-            pass
-        exit(1)
+            fout = open(config_file, 'w')
+            parser.write(fout)
+
+            return create_connection(bitcoind_server, bitcoind_port,
+                                     bitcoind_user, bitcoind_passwd,
+                                     bitcoind_use_https)
+
+        else:
+            log.info("Using default bitcoind server at %s", config.BITCOIND_SERVER)
+            return create_connection()
 
 
 def stop_server():
@@ -425,6 +366,52 @@ def stop_server():
 
         pid = int(pid_data)
         os.kill(pid, signal.SIGKILL)
+
+
+def run_server(foreground=False):
+    """ run the opennamed server
+    """
+
+    global bitcoind
+    bitcoind = init_bitcoind()
+
+    from .lib.config import OPENNAMED_PID_FILE, OPENNAMED_LOG_FILE
+    from .lib.config import OPENNAMED_TAC_FILE
+    from .lib.config import START_BLOCK
+
+    working_dir = get_working_dir()
+
+    current_dir = os.path.abspath(os.path.dirname(__file__))
+
+    tac_file = os.path.join(current_dir, OPENNAMED_TAC_FILE)
+    log_file = os.path.join(working_dir, OPENNAMED_LOG_FILE)
+    pid_file = os.path.join(working_dir, OPENNAMED_PID_FILE)
+
+    start_block, current_block = get_index_range()
+
+    if foreground:
+        command = 'twistd --pidfile=%s -noy %s' % (pid_file, tac_file)
+    else:
+        command = 'twistd --pidfile=%s --logfile=%s -y %s' % (pid_file,
+                                                              log_file,
+                                                              tac_file)
+
+    try:
+        #refresh_index(335563, 335566, initial_index=True)
+        if start_block != current_block:
+            refresh_index(start_block, current_block, initial_index=True)
+        opennamed = subprocess.Popen(command,
+                                     shell=True, preexec_fn=os.setsid)
+        log.info('Opennamed successfully started')
+
+    except Exception as e:
+        log.debug(e)
+        log.info('Exiting opennamed server')
+        try:
+            os.killpg(opennamed.pid, signal.SIGTERM)
+        except:
+            pass
+        exit(1)
 
 
 def run_opennamed():

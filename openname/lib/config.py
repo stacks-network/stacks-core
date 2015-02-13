@@ -6,6 +6,7 @@
 """
 
 import os
+from ConfigParser import SafeConfigParser
 
 DEBUG = True
 TESTNET = False
@@ -61,15 +62,39 @@ DEFAULT_DHT_SERVERS = [('dht.openname.org', DHT_SERVER_PORT),
 
 STORAGE_TTL = 3 * SECONDS_PER_YEAR
 
-# default settings for bitcoind, if openname.ini file is not set
-BITCOIND_SERVER = 'btcd.onename.com'
-BITCOIND_PORT = '8332'
-BITCOIND_USER = 'openname'
-BITCOIND_PASSWD = 'opennamesystem'
-BITCOIND_USE_HTTPS = True
 
-REINDEX_FREQUENCY = 10  # in seconds
-START_BLOCK = 343160  # start indexing from this block
+from os.path import expanduser
+home = expanduser("~")
+working_dir = os.path.join(home, OPENNAMED_WORKING_DIR)
+config_file = os.path.join(working_dir, OPENNAMED_CONFIG_FILE)
+
+parser = SafeConfigParser()
+
+if os.path.isfile(config_file):
+
+    parser.read(config_file)
+
+    BITCOIND_SERVER = parser.get('bitcoind', 'server')
+    BITCOIND_PORT = parser.get('bitcoind', 'port')
+    BITCOIND_USER = parser.get('bitcoind', 'user')
+    BITCOIND_PASSWD = parser.get('bitcoind', 'passwd')
+    use_https = parser.get('bitcoind', 'use_https')
+
+    if use_https.lower() == "yes" or use_https.lower() == "y":
+        BITCOIND_USE_HTTPS = True
+    else:
+        BITCOIND_USE_HTTPS = False
+
+else:
+
+    BITCOIND_SERVER = 'btcd.onename.com'
+    BITCOIND_PORT = '8332'
+    BITCOIND_USER = 'openname'
+    BITCOIND_PASSWD = 'opennamesystem'
+    BITCOIND_USE_HTTPS = True
+
+REINDEX_FREQUENCY = 5  # in seconds
+START_BLOCK = 343300  # start indexing from this block
 
 """ api configs
 """

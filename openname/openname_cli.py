@@ -66,6 +66,7 @@ def printError(error):
 
     logger.info(pretty_dump(reply))
 
+
 def shutDown(data):
     reactor.stop()
 
