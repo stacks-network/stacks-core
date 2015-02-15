@@ -1,5 +1,5 @@
 """
-    Opennamed tac (config) file used by Twisted for launching the server
+    Blockstored tac (config) file used by Twisted for launching the server
     ~~~~~
     :copyright: (c) 2014 by Openname.org
     :license: MIT, see LICENSE for more details.
@@ -17,22 +17,22 @@ from twisted.internet.task import LoopingCall
 
 from kademlia.network import Server
 
-from dht.storage import OpennameStorage, hostname_to_ip
-from lib.config import DEFAULT_DHT_SERVERS, DHT_SERVER_PORT, OPENNAMED_PORT
+from dht.storage import BlockStorage, hostname_to_ip
+from lib.config import DEFAULT_DHT_SERVERS, DHT_SERVER_PORT, BLOCKSTORED_PORT
 
-dht_server = Server(storage=OpennameStorage())
+dht_server = Server(storage=BlockStorage())
 bootstrap_servers = hostname_to_ip(DEFAULT_DHT_SERVERS)
 dht_server.bootstrap(bootstrap_servers)
 
-from opennamed import OpennamedRPC, reindex_blockchain
+from blockstored import BlockstoredRPC, reindex_blockchain
 from lib.config import REINDEX_FREQUENCY
 
-application = service.Application("opennamed")
+application = service.Application("blockstored")
 
-factory_openname = jsonrpc.RPCFactory(OpennamedRPC(dht_server))
+factory_blockstore = jsonrpc.RPCFactory(BlockstoredRPC(dht_server))
 
-server_openname = internet.TCPServer(OPENNAMED_PORT, factory_openname)
-server_openname.setServiceParent(application)
+server_blockstore = internet.TCPServer(BLOCKSTORED_PORT, factory_blockstore)
+server_blockstore.setServiceParent(application)
 
 server_dht = internet.UDPServer(DHT_SERVER_PORT, dht_server.protocol)
 server_dht.setServiceParent(application)

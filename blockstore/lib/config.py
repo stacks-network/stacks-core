@@ -1,7 +1,7 @@
 """
-    Opennamed
+    Blockstore
     ~~~~~
-    :copyright: (c) 2014 by Openname.org
+    :copyright: (c) 2015 by Openname.org
     :license: MIT, see LICENSE for more details.
 """
 
@@ -27,33 +27,33 @@ EXPIRATION_PERIOD = BLOCKS_PER_YEAR*1
 # EXPIRATION_PERIOD = 10
 AVERAGE_BLOCKS_PER_HOUR = MINUTES_PER_HOUR/AVERAGE_MINUTES_PER_BLOCK
 
-""" opennamed configs
+""" blockstore configs
 """
 
 LISTEN_IP = '0.0.0.0'
 VERSION = 'v0.1-beta'
 RPC_TIMEOUT = 5  # seconds
 
-DEFAULT_OPENNAMED_PORT = 6264  # port 6263 is 'NAME' on a phone keypad
-OPENNAMED_PID_FILE = 'opennamed.pid'
-OPENNAMED_LOG_FILE = 'opennamed.log'
-OPENNAMED_TAC_FILE = 'opennamed.tac'
-OPENNAMED_WORKING_DIR = '.openname'
-OPENNAMED_NAMESPACE_FILE = 'namespace.txt'
-OPENNAMED_LASTBLOCK_FILE = 'lastblock.txt'
-OPENNAMED_CONFIG_FILE = 'openname.ini'
+DEFAULT_BLOCKSTORED_PORT = 6264  # port 6263 is 'NAME' on a phone keypad
+BLOCKSTORED_PID_FILE = 'blockstored.pid'
+BLOCKSTORED_LOG_FILE = 'blockstored.log'
+BLOCKSTORED_TAC_FILE = 'blockstored.tac'
+BLOCKSTORED_WORKING_DIR = '.blockstore'
+BLOCKSTORED_NAMESPACE_FILE = 'namespace.txt'
+BLOCKSTORED_LASTBLOCK_FILE = 'lastblock.txt'
+BLOCKSTORED_CONFIG_FILE = 'blockstore.ini'
 
 try:
-    OPENNAMED_SERVER = os.environ['OPENNAMED_SERVER']
-    OPENNAMED_PORT = os.environ['OPENNAMED_PORT']
+    BLOCKSTORED_SERVER = os.environ['BLOCKSTORED_SERVER']
+    BLOCKSTORED_PORT = os.environ['BLOCKSTORED_PORT']
 except KeyError:
-    OPENNAMED_SERVER = 'localhost'
-    OPENNAMED_PORT = DEFAULT_OPENNAMED_PORT
+    BLOCKSTORED_SERVER = 'localhost'
+    BLOCKSTORED_PORT = DEFAULT_BLOCKSTORED_PORT
 
 """ DHT configs
 """
 
-DHT_SERVER_PORT = 6265  # opennamed default to port 6264
+DHT_SERVER_PORT = 6265  # blockstored default to port 6264
 
 DEFAULT_DHT_SERVERS = [('dht.openname.org', DHT_SERVER_PORT),
                        ('dht.onename.com', DHT_SERVER_PORT),
@@ -65,8 +65,8 @@ STORAGE_TTL = 3 * SECONDS_PER_YEAR
 
 from os.path import expanduser
 home = expanduser("~")
-working_dir = os.path.join(home, OPENNAMED_WORKING_DIR)
-config_file = os.path.join(working_dir, OPENNAMED_CONFIG_FILE)
+working_dir = os.path.join(home, BLOCKSTORED_WORKING_DIR)
+config_file = os.path.join(working_dir, BLOCKSTORED_CONFIG_FILE)
 
 parser = SafeConfigParser()
 
@@ -96,7 +96,7 @@ else:
 """ block indexing configs
 """
 
-REINDEX_FREQUENCY = 5  # in seconds
+REINDEX_FREQUENCY = 10  # in seconds
 
 FIRST_BLOCK_MAINNET = 343180
 FIRST_BLOCK_MAINNET_TESTSET = FIRST_BLOCK_MAINNET

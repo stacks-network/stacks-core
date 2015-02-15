@@ -30,7 +30,7 @@ RUN apt-get install -y python-dev
 RUN mkdir -p /srv/
 
 # Clone the app from github and install packages
-ADD opennamed.tar.gz /srv/
+ADD blockstore.tar.gz /srv/
 RUN pip install kademlia
 RUN pip install coinkit 
 
@@ -40,4 +40,4 @@ RUN pip install coinkit
 EXPOSE 6265
 
 # Set default entry point
-ENTRYPOINT /usr/local/bin/twistd -noy /srv/opennamed/dht/server.tac
+ENTRYPOINT /usr/local/bin/twistd -noy /srv/blockstore/dht/server.tac

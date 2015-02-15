@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Opennamed
+    Blockstore
     ~~~~~
-    :copyright: (c) 2014 by Openname.org
+    :copyright: (c) 2015 by Openname.org
     :license: MIT, see LICENSE for more details.
 """
 
@@ -29,7 +29,7 @@ print value
 
 hold_display = None
 
-from storage import OpennameStorage
+from storage import BlockStorage
 
 
 def done(result):
@@ -50,7 +50,7 @@ def set_key(found, server):
     hold_display = found
     server.set(key, value).addCallback(get_key, server)
 
-server = Server(storage=OpennameStorage())
+server = Server(storage=BlockStorage())
 server.listen(8467)
 
 server.bootstrap([("127.0.0.1", 8468)]).addCallback(set_key, server)
