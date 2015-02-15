@@ -25,6 +25,7 @@ from lib import config
 from lib import get_nameops_in_block, build_nameset, NameDb
 from lib import config
 from coinkit import BitcoindClient, ChainComClient
+from utilitybelt import is_valid_int
 
 log = logging.getLogger()
 log.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
@@ -46,11 +47,76 @@ def create_bitcoind_connection(
     """ creates an auth service proxy object, to connect to bitcoind
     """
     protocol = 'https' if use_https else 'http'
+    if not server or len(server) < 1:
+        raise Exception('Invalid bitcoind host address.')
+    if not port or not is_valid_int(port):
+        raise Exception('Invalid bitcoind port number.')
     authproxy_config_uri = '%s://%s:%s@%s:%s' % (
         protocol, rpc_username, rpc_password, server, port)
+    print authproxy_config_uri
     return AuthServiceProxy(authproxy_config_uri)
 
-bitcoind = create_bitcoind_connection()
+
+def get_working_dir():
+
+    from os.path import expanduser
+    home = expanduser("~")
+
+    from lib.config import BLOCKSTORED_WORKING_DIR
+    working_dir = os.path.join(home, BLOCKSTORED_WORKING_DIR)
+
+    if not os.path.exists(working_dir):
+        os.makedirs(working_dir)
+
+    return working_dir
+
+
+def get_config_file():
+    working_dir = get_working_dir()
+    return os.path.join(working_dir, config.BLOCKSTORED_CONFIG_FILE)
+
+
+from ConfigParser import SafeConfigParser
+
+
+def prompt_user_for_bitcoind_details():
+    """
+    """
+    config_file = get_config_file()
+    parser = SafeConfigParser()
+
+    bitcoind_server = raw_input(
+        "Enter bitcoind host address (default: 127.0.0.1): "
+        ) or '127.0.0.1'
+    bitcoind_port = raw_input(
+        "Enter bitcoind rpc port (default: 8332): ") or '8332'
+    bitcoind_user = raw_input("Enter bitcoind rpc user/username: ")
+    bitcoind_passwd = raw_input("Enter bitcoind rpc password: ")
+    use_https = raw_input("Is ssl enabled on bitcoind? (yes/no): ")
+
+    parser.add_section('bitcoind')
+    parser.set('bitcoind', 'server', bitcoind_server)
+    parser.set('bitcoind', 'port', bitcoind_port)
+    parser.set('bitcoind', 'user', bitcoind_user)
+    parser.set('bitcoind', 'passwd', bitcoind_passwd)
+    parser.set('bitcoind', 'use_https', use_https)
+
+    fout = open(config_file, 'w')
+    parser.write(fout)
+
+    if use_https.lower() == "yes" or use_https.lower() == "y":
+        bitcoind_use_https = True
+    else:
+        bitcoind_use_https = False
+
+    return create_bitcoind_connection(bitcoind_user, bitcoind_passwd,
+                                      bitcoind_server, bitcoind_port,
+                                      bitcoind_use_https)
+
+try:
+    bitcoind = create_bitcoind_connection()
+except:
+    prompt_user_for_bitcoind_details()
 
 from lib import preorder_name, register_name, update_name, \
     transfer_name
@@ -185,20 +251,6 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         return
 
 
-def get_working_dir():
-
-    from os.path import expanduser
-    home = expanduser("~")
-
-    from lib.config import BLOCKSTORED_WORKING_DIR
-    working_dir = os.path.join(home, BLOCKSTORED_WORKING_DIR)
-
-    if not os.path.exists(working_dir):
-        os.makedirs(working_dir)
-
-    return working_dir
-
-
 def refresh_index(first_block, last_block, initial_index=False):
     """
     """
@@ -207,8 +259,10 @@ def refresh_index(first_block, last_block, initial_index=False):
 
     working_dir = get_working_dir()
 
-    namespace_file = os.path.join(working_dir, config.BLOCKSTORED_NAMESPACE_FILE)
-    lastblock_file = os.path.join(working_dir, config.BLOCKSTORED_LASTBLOCK_FILE)
+    namespace_file = os.path.join(
+        working_dir, config.BLOCKSTORED_NAMESPACE_FILE)
+    lastblock_file = os.path.join(
+        working_dir, config.BLOCKSTORED_LASTBLOCK_FILE)
 
     start = datetime.datetime.now()
 
@@ -298,11 +352,19 @@ def get_index_range(start_block=0):
     try:
         current_block = int(bitcoind.getblockcount())
     except:
-        log.info("ERROR: Cannot connect to bitcoind")
-        exit(1)
+        log.info("ERROR: Cannot connect to bitcoind.")
+        user_input = raw_input(
+            "Do you want to re-enter bitcoind server configs? (yes/no): ")
+        if user_input.lower() == "yes" or user_input.lower() == "y":
+            prompt_user_for_bitcoind_details()
+            log.info("Exiting. Restart blockstored to try the new configs.")
+            exit(1)
+        else:
+            exit(1)
 
     working_dir = get_working_dir()
-    lastblock_file = os.path.join(working_dir, config.BLOCKSTORED_LASTBLOCK_FILE)
+    lastblock_file = os.path.join(
+        working_dir, config.BLOCKSTORED_LASTBLOCK_FILE)
 
     saved_block = 0
     if os.path.isfile(lastblock_file):
@@ -323,47 +385,23 @@ def get_index_range(start_block=0):
 
 
 def init_bitcoind():
-
-    from ConfigParser import SafeConfigParser
-    working_dir = get_working_dir()
-    config_file = os.path.join(working_dir, config.BLOCKSTORED_CONFIG_FILE)
-
-    parser = SafeConfigParser()
-
-    if os.path.isfile(config_file):
-
-        return create_bitcoind_connection()
-
-    else:
-        user_input = raw_input("Do you have your own bitcoind server? (yes/no): ")
-        if user_input.lower() == "yes" or user_input.lower() == "y":
-            bitcoind_server = raw_input("Enter bitcoind address: ")
-            bitcoind_port = raw_input("Enter bitcoind rpc port: ")
-            bitcoind_user = raw_input("Enter bitcoind rpc user: ")
-            bitcoind_passwd = raw_input("Enter bitcoind rpc password: ")
-            use_https = raw_input("Is ssl enabled on bitcoind? (yes/no): ")
-
-            parser.add_section('bitcoind')
-            parser.set('bitcoind', 'server', bitcoind_server)
-            parser.set('bitcoind', 'port', bitcoind_port)
-            parser.set('bitcoind', 'user', bitcoind_user)
-            parser.set('bitcoind', 'passwd', bitcoind_passwd)
-            parser.set('bitcoind', 'use_https', use_https)
-
-            fout = open(config_file, 'w')
-            parser.write(fout)
-
-            if use_https.lower() == "yes" or use_https.lower() == "y":
-                bitcoind_use_https = True
-            else:
-                bitcoind_use_https = False
-
-            return create_bitcoind_connection(bitcoind_user, bitcoind_passwd,
-                                              bitcoind_server, bitcoind_port,
-                                              bitcoind_use_https)
-
+    """
+    """
+    if os.path.isfile(get_config_file()):
+        try:
+            return create_bitcoind_connection()
+        except:
+            return prompt_user_for_bitcoind_details()
         else:
-            log.info("Using default bitcoind server at %s", config.BITCOIND_SERVER)
+            pass
+    else:
+        user_input = raw_input(
+            "Do you have your own bitcoind server? (yes/no): ")
+        if user_input.lower() == "yes" or user_input.lower() == "y":
+            return prompt_user_for_bitcoind_details()
+        else:
+            log.info(
+                "Using default bitcoind server at %s", config.BITCOIND_SERVER)
             return create_bitcoind_connection()
 
 
@@ -423,11 +461,11 @@ def run_server(foreground=False):
                                                               tac_file)
 
     try:
-        #refresh_index(335563, 335566, initial_index=True)
+        # refresh_index(335563, 335566, initial_index=True)
         if start_block != current_block:
             refresh_index(start_block, current_block, initial_index=True)
-        blockstored = subprocess.Popen(command,
-                                     shell=True, preexec_fn=os.setsid)
+        blockstored = subprocess.Popen(
+            command, shell=True, preexec_fn=os.setsid)
         log.info('Blockstored successfully started')
 
     except Exception as e:
