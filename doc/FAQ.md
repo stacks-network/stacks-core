@@ -6,7 +6,7 @@ Bitcoin is the blockchain with the most users, the largest market cap, the most 
 
 Yes! While we decided to follow our instincts and build our experimental KV store on the Bitcoin blockchain, we are and have been considering other options like alt-coins, sidechains, and even a Namecoin upgrade. If you have a suggestion and some detailed information about why it makes more sense, please open an issue and we'll discuss.
 
-#### How is the openname key-value store different from Namecoin?
+#### How is the Blockstore different from Namecoin?
 
 This is different from Namecoin in a few fundamental ways:
 
@@ -33,7 +33,7 @@ Yes, with nodes entering and exiting a DHT (a process known as churn), the routi
 
 #### Is there any incentive to run a node?
 
-Not currently, no. Only that anyone running opennamed is also by default running a full DHT node, so more users should result in more DHT nodes. If you have any ideas about explicit incentives for running DHT nodes, feel free to reach out!
+Not currently, no. Only that anyone running blockstored is also by default running a full DHT node, so more users should result in more DHT nodes. If you have any ideas about explicit incentives for running DHT nodes, feel free to reach out!
 
 #### Is there a layer on top of the DHT that can make it simpler to grab the data?
 

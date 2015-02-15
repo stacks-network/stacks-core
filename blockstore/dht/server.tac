@@ -15,13 +15,13 @@ sys.path.insert(0, parent_dir)
 from kademlia.network import Server
 from kademlia import log
 
-from storage import OpennameStorage, hostname_to_ip
-from opennamelib.config import DEFAULT_DHT_SERVERS, DHT_SERVER_PORT
+from storage import BlockStorage, hostname_to_ip
+from lib.config import DEFAULT_DHT_SERVERS, DHT_SERVER_PORT
 
 application = service.Application("kademlia")
 application.setComponent(ILogObserver, log.FileLogObserver(sys.stdout, log.INFO).emit)
 
-kserver = Server(storage=OpennameStorage())
+kserver = Server(storage=BlockStorage())
 bootstrap_servers = hostname_to_ip(DEFAULT_DHT_SERVERS)
 kserver.bootstrap(bootstrap_servers)
 

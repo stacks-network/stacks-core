@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Opennamed
+    Blockstore
     ~~~~~
-    :copyright: (c) 2014 by Openname.org
+    :copyright: (c) 2015 by Openname.org
     :license: MIT, see LICENSE for more details.
 """
 
@@ -36,10 +36,10 @@ sys.path.insert(0, parent_dir)
 from lib.config import STORAGE_TTL
 
 
-class OpennameStorage(object):
+class BlockStorage(object):
     implements(IStorage)
 
-    """ OpennameStorage has following properties:
+    """ BlockStorage has following properties:
         a) is content-addressable (all keys must be hash(value))
         b) high TTL (effectively the keys don't expire)
         c) stores only valid JSON values

@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Opennamed
+    Blockstore
     ~~~~~
-    :copyright: (c) 2014 by Openname.org
+    :copyright: (c) 2015 by Openname.org
     :license: MIT, see LICENSE for more details.
 """
 
@@ -16,7 +16,7 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
-from openname.opennamed import run_opennamed
+from blockstore.blockstore_cli import run_cli
 
 if __name__ == '__main__':
-    run_opennamed()
+    run_cli()

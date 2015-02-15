@@ -1,2 +1,2 @@
-include openname/opennamed.tac
-include openname/dht/server.tac
+include blockstore/blockstored.tac
+include blockstore/dht/server.tac

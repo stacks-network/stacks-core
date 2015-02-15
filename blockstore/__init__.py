@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-    opennamed
+    Blockstore
     ~~~~~
-
+    :copyright: (c) 2015 by Openname.org
     :license: MIT, see LICENSE for more details.
 """
 

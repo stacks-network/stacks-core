@@ -1,4 +1,4 @@
-# Openname Key-Value Store
+# Blockstore: A Blockchain Key-Value Store
 
 __Table of Contents__
 
@@ -30,21 +30,16 @@ A key-value store on the Bitcoin Blockchain.
 #### What this repo contains
 
 + code for running a node that participates in the KV store network
-    + opennamed
-+ code for issuing commands to openname nodes like name lookups and name registrations
-    + openname-cli
-    + openname python lib
+    + blockstored
++ code for issuing commands to blockstored like name lookups and name registrations
+    + blockstore-cli
+    + blockstore python lib
 
 ## Installation
 <a name="installation"/>
 
-> pip install openname
+> pip install blockstore
 
-#### Debian
-
-Install libzmq-dev
-
-> sudo apt-get install libzmq-dev
 
 ## Design
 <a name="design"/>
@@ -56,7 +51,7 @@ Install libzmq-dev
 register names by being the first to include the name in a “registration” operation
 + to prevent people from stealing your name, first secretly “preorder” the name, but include a hash of the name in the blockchain
 + to associate data with the name, issue an “update” operation by including a hash of the data and storing the data itself in the DHT
-+ to lookup the data associated with a name, issue a request to an opennamed node, which will lookup the name’s entry in the nameset, find the hash associated with the name, then go into the DHT with the hash and get the data associated with it
++ to lookup the data associated with a name, issue a request to an blockstored node, which will lookup the name’s entry in the nameset, find the hash associated with the name, then go into the DHT with the hash and get the data associated with it
 + there are many, many possible namespaces
 + each namespace can have a custom pricing scheme
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Opennamed
+    Blockstore
     ~~~~~
-    :copyright: (c) 2014 by Openname.org
+    :copyright: (c) 2015 by Openname.org
     :license: MIT, see LICENSE for more details.
 """
 
@@ -30,15 +30,16 @@ console.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
 formatter = logging.Formatter('%(message)s')
 console.setFormatter(formatter)
 logger.addHandler(logging.NullHandler())
+#logger.addHandler(console)
 
 from twisted.internet import reactor
 from txjsonrpc.netstring.jsonrpc import Proxy
 
-proxy = Proxy(config.OPENNAMED_SERVER, config.OPENNAMED_PORT)
+proxy = Proxy(config.BLOCKSTORED_SERVER, config.BLOCKSTORED_PORT)
 
 
 def printValue(value):
-    logger.info(pretty_dump(value))
+    #logger.info(pretty_dump(value))
     print pretty_dump(value)
 
 
@@ -62,9 +63,10 @@ def printError(error):
     reply['error'] = "Got an error"
 
     if error.type is ConnectionRefusedError:
-        reply['error'] = "Failed to connect to Opennamed"
+        reply['error'] = "Failed to connect to Blockstored"
 
-    logger.info(pretty_dump(reply))
+    #logger.info(pretty_dump(reply))
+    print pretty_dump(reply)
 
 
 def shutDown(data):
@@ -81,16 +83,16 @@ def run_cli():
     """ run cli
     """
     parser = argparse.ArgumentParser(
-        description='Openname Cli version {}'.format(config.VERSION))
+        description='Blockstore Cli version {}'.format(config.VERSION))
 
     parser.add_argument(
-        '--opennamed-server',
-        help="""the hostname or IP address of the opennamed RPC server
-                (default: {})""".format(config.OPENNAMED_SERVER))
+        '--blockstored-server',
+        help="""the hostname or IP address of the blockstored RPC server
+                (default: {})""".format(config.BLOCKSTORED_SERVER))
     parser.add_argument(
-        '--opennamed-port', type=int,
-        help="""the opennamed RPC port to connect to
-                (default: {})""".format(config.OPENNAMED_PORT))
+        '--blockstored-port', type=int,
+        help="""the blockstored RPC port to connect to
+                (default: {})""".format(config.BLOCKSTORED_PORT))
 
     subparsers = parser.add_subparsers(
         dest='action',
@@ -98,11 +100,11 @@ def run_cli():
 
     subparser = subparsers.add_parser(
         'getinfo',
-        help='get basic info from the opennamed server')
+        help='get basic info from the blockstored server')
 
     subparser = subparsers.add_parser(
         'ping',
-        help='check if the opennamed server is up')
+        help='check if the blockstored server is up')
 
     # ------------------------------------
     subparser = subparsers.add_parser(

@@ -2,17 +2,17 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='openname',
+    name='blockstore',
     version='0.0.1',
-    url='https://github.com/openname/opennamed',
+    url='https://github.com/openname/blockstore',
     license='MIT',
     author='Onename',
     author_email='hello@halfmoonlabs.com',
     description='',
     keywords='bitcoin btc cryptocurrency',
     packages=find_packages(),
-    scripts=['bin/opennamed', 'bin/openname-cli'],
-    download_url='https://github.com/openname/openname/archive/master.zip',
+    scripts=['bin/blockstored', 'bin/blockstore-cli'],
+    download_url='https://github.com/openname/blockstore/archive/master.zip',
     zip_safe=False,
     include_package_data=True,
     install_requires=[

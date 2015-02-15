@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Opennamed
+    Blockstore
     ~~~~~
-    :copyright: (c) 2014 by Openname.org
+    :copyright: (c) 2015 by Openname.org
     :license: MIT, see LICENSE for more details.
 """
 
@@ -66,15 +66,15 @@ def signal_handler(signal, frame):
     """
     import signal
     log.info('\n')
-    log.info('Exiting opennamed server')
+    log.info('Exiting blockstored server')
     stop_server()
     sys.exit(0)
 
 signal.signal(signal.SIGINT, signal_handler)
 
 
-class OpennamedRPC(jsonrpc.JSONRPC):
-    """ opennamed rpc
+class BlockstoredRPC(jsonrpc.JSONRPC):
+    """ blockstored rpc
     """
 
     def __init__(self, dht_server=None):
@@ -126,7 +126,7 @@ class OpennamedRPC(jsonrpc.JSONRPC):
 
         working_dir = get_working_dir()
         namespace_file = os.path.join(
-            working_dir, config.OPENNAMED_NAMESPACE_FILE)
+            working_dir, config.BLOCKSTORED_NAMESPACE_FILE)
         db = NameDb(namespace_file)
         consensus_hash = db.consensus_hashes.get('current')
 
@@ -190,8 +190,8 @@ def get_working_dir():
     from os.path import expanduser
     home = expanduser("~")
 
-    from lib.config import OPENNAMED_WORKING_DIR
-    working_dir = os.path.join(home, OPENNAMED_WORKING_DIR)
+    from lib.config import BLOCKSTORED_WORKING_DIR
+    working_dir = os.path.join(home, BLOCKSTORED_WORKING_DIR)
 
     if not os.path.exists(working_dir):
         os.makedirs(working_dir)
@@ -207,8 +207,8 @@ def refresh_index(first_block, last_block, initial_index=False):
 
     working_dir = get_working_dir()
 
-    namespace_file = os.path.join(working_dir, config.OPENNAMED_NAMESPACE_FILE)
-    lastblock_file = os.path.join(working_dir, config.OPENNAMED_LASTBLOCK_FILE)
+    namespace_file = os.path.join(working_dir, config.BLOCKSTORED_NAMESPACE_FILE)
+    lastblock_file = os.path.join(working_dir, config.BLOCKSTORED_LASTBLOCK_FILE)
 
     start = datetime.datetime.now()
 
@@ -302,7 +302,7 @@ def get_index_range(start_block=0):
         exit(1)
 
     working_dir = get_working_dir()
-    lastblock_file = os.path.join(working_dir, config.OPENNAMED_LASTBLOCK_FILE)
+    lastblock_file = os.path.join(working_dir, config.BLOCKSTORED_LASTBLOCK_FILE)
 
     saved_block = 0
     if os.path.isfile(lastblock_file):
@@ -326,7 +326,7 @@ def init_bitcoind():
 
     from ConfigParser import SafeConfigParser
     working_dir = get_working_dir()
-    config_file = os.path.join(working_dir, config.OPENNAMED_CONFIG_FILE)
+    config_file = os.path.join(working_dir, config.BLOCKSTORED_CONFIG_FILE)
 
     parser = SafeConfigParser()
 
@@ -353,6 +353,11 @@ def init_bitcoind():
             fout = open(config_file, 'w')
             parser.write(fout)
 
+            if use_https.lower() == "yes" or use_https.lower() == "y":
+                bitcoind_use_https = True
+            else:
+                bitcoind_use_https = False
+
             return create_bitcoind_connection(bitcoind_user, bitcoind_passwd,
                                               bitcoind_server, bitcoind_port,
                                               bitcoind_use_https)
@@ -363,18 +368,18 @@ def init_bitcoind():
 
 
 def stop_server():
-    """ Stop the opennamed server
+    """ Stop the blockstored server
     """
     # Quick hack to kill a background daemon
     import subprocess
     import signal
     import os
 
-    from .lib.config import OPENNAMED_PID_FILE
+    from .lib.config import BLOCKSTORED_PID_FILE
 
     working_dir = get_working_dir()
 
-    pid_file = os.path.join(working_dir, OPENNAMED_PID_FILE)
+    pid_file = os.path.join(working_dir, BLOCKSTORED_PID_FILE)
 
     try:
         fin = open(pid_file)
@@ -390,23 +395,23 @@ def stop_server():
 
 
 def run_server(foreground=False):
-    """ run the opennamed server
+    """ run the blockstored server
     """
 
     global bitcoind
     bitcoind = init_bitcoind()
 
-    from .lib.config import OPENNAMED_PID_FILE, OPENNAMED_LOG_FILE
-    from .lib.config import OPENNAMED_TAC_FILE
+    from .lib.config import BLOCKSTORED_PID_FILE, BLOCKSTORED_LOG_FILE
+    from .lib.config import BLOCKSTORED_TAC_FILE
     from .lib.config import START_BLOCK
 
     working_dir = get_working_dir()
 
     current_dir = os.path.abspath(os.path.dirname(__file__))
 
-    tac_file = os.path.join(current_dir, OPENNAMED_TAC_FILE)
-    log_file = os.path.join(working_dir, OPENNAMED_LOG_FILE)
-    pid_file = os.path.join(working_dir, OPENNAMED_PID_FILE)
+    tac_file = os.path.join(current_dir, BLOCKSTORED_TAC_FILE)
+    log_file = os.path.join(working_dir, BLOCKSTORED_LOG_FILE)
+    pid_file = os.path.join(working_dir, BLOCKSTORED_PID_FILE)
 
     start_block, current_block = get_index_range()
 
@@ -421,25 +426,25 @@ def run_server(foreground=False):
         #refresh_index(335563, 335566, initial_index=True)
         if start_block != current_block:
             refresh_index(start_block, current_block, initial_index=True)
-        opennamed = subprocess.Popen(command,
+        blockstored = subprocess.Popen(command,
                                      shell=True, preexec_fn=os.setsid)
-        log.info('Opennamed successfully started')
+        log.info('Blockstored successfully started')
 
     except Exception as e:
         log.debug(e)
-        log.info('Exiting opennamed server')
+        log.info('Exiting blockstored server')
         try:
-            os.killpg(opennamed.pid, signal.SIGTERM)
+            os.killpg(blockstored.pid, signal.SIGTERM)
         except:
             pass
         exit(1)
 
 
-def run_opennamed():
-    """ run opennamed
+def run_blockstored():
+    """ run blockstored
     """
     parser = argparse.ArgumentParser(
-        description='Openname Core Daemon version {}'.format(config.VERSION))
+        description='Blockstore Core Daemon version {}'.format(config.VERSION))
 
     parser.add_argument(
         '--bitcoind-server',
@@ -457,13 +462,13 @@ def run_opennamed():
         dest='action', help='the action to be taken')
     parser_server = subparsers.add_parser(
         'start',
-        help='start the opennamed server')
+        help='start the blockstored server')
     parser_server.add_argument(
         '--foreground', action='store_true',
-        help='start the opennamed server in foreground')
+        help='start the blockstored server in foreground')
     parser_server = subparsers.add_parser(
         'stop',
-        help='stop the opennamed server')
+        help='stop the blockstored server')
 
     # Print default help message, if no argument is given
     if len(sys.argv) == 1:
@@ -475,15 +480,15 @@ def run_opennamed():
     if args.action == 'start':
         stop_server()
         if args.foreground:
-            log.info('Initializing opennamed server in foreground ...')
+            log.info('Initializing blockstored server in foreground ...')
             run_server(foreground=True)
             while(1):
                 stay_alive = True
         else:
-            log.info('Starting opennamed server ...')
+            log.info('Starting blockstored server ...')
             run_server()
     elif args.action == 'stop':
         stop_server()
 
 if __name__ == '__main__':
-    run_opennamed()
+    run_blockstored()
