@@ -125,6 +125,10 @@ bitcoind_client = BitcoindClient(
     server=config.BITCOIND_SERVER, port=str(config.BITCOIND_PORT),
     use_https=True)
 
+remote_bitcoind_client = BitcoindClient(
+    'openname', 'opennamesystem',
+    server='btcd.onename.com', port='8332', use_https=True)
+
 
 def signal_handler(signal, frame):
     """ Handle Ctrl+C for dht node
@@ -197,7 +201,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
 
         resp = preorder_name(
             str(name), str(consensus_hash), str(privatekey),
-            blockchain_client=chain_com_client, testset=True)
+            blockchain_client=remote_bitcoind_client, testset=True)
 
         log.debug('preorder <%s, %s>' % (name, privatekey))
 
@@ -211,7 +215,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
 
         resp = register_name(
             str(name), str(privatekey),
-            blockchain_client=chain_com_client, testset=True)
+            blockchain_client=remote_bitcoind_client, testset=True)
 
         log.debug('register <%s, %s>' % (name, privatekey))
 
@@ -223,7 +227,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
 
         resp = update_name(
             str(name), str(data), str(privatekey),
-            blockchain_client=chain_com_client, testset=True)
+            blockchain_client=remote_bitcoind_client, testset=True)
 
         log.debug('update <%s, %s, %s>' % (name, data, privatekey))
 
@@ -235,7 +239,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
 
         resp = transfer_name(
             str(name), str(address), str(privatekey),
-            blockchain_client=chain_com_client, testset=True)
+            blockchain_client=remote_bitcoind_client, testset=True)
 
         log.debug('transfer <%s, %s, %s>' % (name, address, privatekey))
 
