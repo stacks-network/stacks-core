@@ -34,17 +34,7 @@ def create_mapping(index_name,index_type):
 
 	conn.indices.create_index(index_name)
 
-	mapping = {u'profile_username': {'boost': 2.0,
-						'index': 'analyzed',
-						'store': 'yes',
-						'type': u'string',
-						"term_vector" : "with_positions_offsets"},
-				u'profile_fullname': {'boost': 1.0,
-						'index': 'analyzed',
-						'store': 'yes',
-						'type': u'string',
-						"term_vector" : "with_positions_offsets"},
-				u'profile_bio': {'boost': 3.0,
+	mapping = {u'profile_bio': {'boost': 3.0,
 						'index': 'analyzed',
 						'store': 'yes',
 						'type': u'string',
@@ -76,24 +66,23 @@ def create_people_index():
 
 	for profile in db.profiles.find():
 		profile_data = profile['profile']
-
 		if type(profile_data) is dict:
 			profile_bio = profile_data.get('bio',None)
+
 
 		if profile_bio:	
 			try:
 				res = conn.index({
-					"profile_username": profile_data.get('username',None),
-					"profile_fullname":profile_data.get('name',None),
-					'profile_twitter_handle':profile_data.get('twitter_handle',None),
 				'profile_bio': profile_bio,
+				'username':profile['username'],
 				'_boost' : 3,},
 				"onename_people_index","onename_profiles",bulk=True)
 
 				counter += 1
 
 			except Exception as e:
-				print e
+				pass
+				#print e
 
 		if(counter % BULK_INSERT_LIMIT == 0):
 			print '-' * 5
@@ -101,17 +90,17 @@ def create_people_index():
 			print '-' * 5
 				
 			conn.indices.refresh(["onename_people_index"])
-		conn.force_bulk()
+	conn.indices.flush()
 			
 #----------------------------------
 def test_query(query,index=['onename_people_index']):
 
-	q = QueryStringQuery(query, search_fields = ['profile_bio','profile_username'], default_operator = 'and')
+	q = QueryStringQuery(query, search_fields = ['profile_bio','username'], default_operator = 'and')
 	count = conn.count(query = q)
 	count = count.count 
 
 	if(count == 0):
-		q = QueryStringQuery(query, search_fields = ['profile_bio','profile_username'], default_operator = 'or')
+		q = QueryStringQuery(query, search_fields = ['profile_bio','username'], default_operator = 'or')
 	
 	#q = TermQuery("profile_bio",query)
 	results = conn.search(query = q, size=20, indices=index)
@@ -122,13 +111,8 @@ def test_query(query,index=['onename_people_index']):
 
 	for i in results:
 		counter += 1
-		print i
-
-		#temp = json.loads(i['details'])
-
-		#results_list.append(temp)
-
-	#print counter
+		print 'username: ' + i['username']
+		print 'bio: ' + i['profile_bio']
 
 	print results_list
 
@@ -144,7 +128,7 @@ if __name__ == "__main__":
 	
 		if(option == '--create_index'):
 			create_people_index()
-		elif(option == '--search'):
+		elif(option == '--search_bio'):
 			test_query(query=sys.argv[2])
 		else:
 			print "Usage error"
