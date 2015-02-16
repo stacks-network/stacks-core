@@ -17,6 +17,7 @@ import subprocess
 import signal
 import json
 import datetime
+import traceback
 
 from txjsonrpc.netstring import jsonrpc
 from twisted.internet import reactor
@@ -120,14 +121,19 @@ except:
 from lib import preorder_name, register_name, update_name, \
     transfer_name
 
-bitcoind_client = BitcoindClient(
+
+try:
+    blockchain_client = ChainComClient(config.CHAIN_COM_API_ID,
+                                       config.CHAIN_COM_API_SECRET)
+except:
+    blockchain_client = BitcoindClient(
+        'openname', 'opennamesystem',
+        server='btcd.onename.com', port='8332', use_https=True)
+
+blockchain_client = BitcoindClient(
     config.BITCOIND_USER, config.BITCOIND_PASSWD,
     server=config.BITCOIND_SERVER, port=str(config.BITCOIND_PORT),
     use_https=True)
-
-remote_bitcoind_client = BitcoindClient(
-    'openname', 'opennamesystem',
-    server='btcd.onename.com', port='8332', use_https=True)
 
 
 def signal_handler(signal, frame):
@@ -140,6 +146,14 @@ def signal_handler(signal, frame):
     sys.exit(0)
 
 signal.signal(signal.SIGINT, signal_handler)
+
+
+def json_traceback():
+    exception_data = traceback.format_exc().splitlines()
+    return {
+        "error": exception_data[-1],
+        "traceback": exception_data
+    }
 
 
 class BlockstoredRPC(jsonrpc.JSONRPC):
@@ -199,9 +213,12 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         db = NameDb(namespace_file)
         consensus_hash = db.consensus_hashes.get('current')
 
-        resp = preorder_name(
-            str(name), str(consensus_hash), str(privatekey),
-            blockchain_client=remote_bitcoind_client, testset=True)
+        try:
+            resp = preorder_name(
+                str(name), str(consensus_hash), str(privatekey),
+                blockchain_client=blockchain_client, testset=True)
+        except:
+            return json_traceback()
 
         log.debug('preorder <%s, %s>' % (name, privatekey))
 
@@ -213,9 +230,12 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
 
         log.info("name: %s" % name)
 
-        resp = register_name(
-            str(name), str(privatekey),
-            blockchain_client=remote_bitcoind_client, testset=True)
+        try:
+            resp = register_name(
+                str(name), str(privatekey),
+                blockchain_client=blockchain_client, testset=True)
+        except:
+            return json_traceback()
 
         log.debug('register <%s, %s>' % (name, privatekey))
 
@@ -225,9 +245,12 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         """ Update a name
         """
 
-        resp = update_name(
-            str(name), str(data), str(privatekey),
-            blockchain_client=remote_bitcoind_client, testset=True)
+        try:
+            resp = update_name(
+                str(name), str(data), str(privatekey),
+                blockchain_client=blockchain_client, testset=True)
+        except:
+            return json_traceback()
 
         log.debug('update <%s, %s, %s>' % (name, data, privatekey))
 
@@ -237,9 +260,12 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         """ Transfer a name
         """
 
-        resp = transfer_name(
-            str(name), str(address), str(privatekey),
-            blockchain_client=remote_bitcoind_client, testset=True)
+        try:
+            resp = transfer_name(
+                str(name), str(address), str(privatekey),
+                blockchain_client=blockchain_client, testset=True)
+        except:
+            return json_traceback()
 
         log.debug('transfer <%s, %s, %s>' % (name, address, privatekey))
 
