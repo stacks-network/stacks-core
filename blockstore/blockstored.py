@@ -17,6 +17,7 @@ import subprocess
 import signal
 import json
 import datetime
+import traceback
 
 from txjsonrpc.netstring import jsonrpc
 from twisted.internet import reactor
@@ -25,6 +26,7 @@ from lib import config
 from lib import get_nameops_in_block, build_nameset, NameDb
 from lib import config
 from coinkit import BitcoindClient, ChainComClient
+from utilitybelt import is_valid_int
 
 log = logging.getLogger()
 log.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
@@ -46,17 +48,102 @@ def create_bitcoind_connection(
     """ creates an auth service proxy object, to connect to bitcoind
     """
     protocol = 'https' if use_https else 'http'
+    if not server or len(server) < 1:
+        raise Exception('Invalid bitcoind host address.')
+    if not port or not is_valid_int(port):
+        raise Exception('Invalid bitcoind port number.')
     authproxy_config_uri = '%s://%s:%s@%s:%s' % (
         protocol, rpc_username, rpc_password, server, port)
 
     return AuthServiceProxy(authproxy_config_uri)
 
-bitcoind = create_bitcoind_connection()
+
+def get_working_dir():
+
+    from os.path import expanduser
+    home = expanduser("~")
+
+    from lib.config import BLOCKSTORED_WORKING_DIR
+    working_dir = os.path.join(home, BLOCKSTORED_WORKING_DIR)
+
+    if not os.path.exists(working_dir):
+        os.makedirs(working_dir)
+
+    return working_dir
+
+
+def get_config_file():
+    working_dir = get_working_dir()
+    return os.path.join(working_dir, config.BLOCKSTORED_CONFIG_FILE)
+
+
+from ConfigParser import SafeConfigParser
+
+
+def prompt_user_for_bitcoind_details():
+    """
+    """
+    config_file = get_config_file()
+    parser = SafeConfigParser()
+
+    parser.read(config_file)
+
+    if not parser.has_section('bitcoind'):
+
+        bitcoind_server = raw_input(
+            "Enter bitcoind host address (default: 127.0.0.1): "
+            ) or '127.0.0.1'
+        bitcoind_port = raw_input(
+            "Enter bitcoind rpc port (default: 8332): ") or '8332'
+        bitcoind_user = raw_input("Enter bitcoind rpc user/username: ")
+        bitcoind_passwd = raw_input("Enter bitcoind rpc password: ")
+        use_https = raw_input("Is ssl enabled on bitcoind? (yes/no): ")
+
+        if not parser.has_section('bitcoind'):
+            parser.add_section('bitcoind')
+
+        parser.set('bitcoind', 'server', bitcoind_server)
+        parser.set('bitcoind', 'port', bitcoind_port)
+        parser.set('bitcoind', 'user', bitcoind_user)
+        parser.set('bitcoind', 'passwd', bitcoind_passwd)
+        parser.set('bitcoind', 'use_https', use_https)
+
+        fout = open(config_file, 'w')
+        parser.write(fout)
+
+        if use_https.lower() == "yes" or use_https.lower() == "y":
+            bitcoind_use_https = True
+        else:
+            bitcoind_use_https = False
+
+        return create_bitcoind_connection(bitcoind_user, bitcoind_passwd,
+                                          bitcoind_server, bitcoind_port,
+                                          bitcoind_use_https)
+
+    else:
+        parser.remove_section('bitcoind')
+        fout = open(config_file, 'w')
+        parser.write(fout)
+        return create_bitcoind_connection()
+
+try:
+    bitcoind = create_bitcoind_connection()
+except:
+    bitcoind = prompt_user_for_bitcoind_details()
 
 from lib import preorder_name, register_name, update_name, \
     transfer_name
 
-bitcoind_client = BitcoindClient(
+
+try:
+    blockchain_client = ChainComClient(config.CHAIN_COM_API_ID,
+                                       config.CHAIN_COM_API_SECRET)
+except:
+    blockchain_client = BitcoindClient(
+        'openname', 'opennamesystem',
+        server='btcd.onename.com', port='8332', use_https=True)
+
+blockchain_client = BitcoindClient(
     config.BITCOIND_USER, config.BITCOIND_PASSWD,
     server=config.BITCOIND_SERVER, port=str(config.BITCOIND_PORT),
     use_https=True)
@@ -72,6 +159,14 @@ def signal_handler(signal, frame):
     sys.exit(0)
 
 signal.signal(signal.SIGINT, signal_handler)
+
+
+def json_traceback():
+    exception_data = traceback.format_exc().splitlines()
+    return {
+        "error": exception_data[-1],
+        "traceback": exception_data
+    }
 
 
 class BlockstoredRPC(jsonrpc.JSONRPC):
@@ -131,9 +226,12 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         db = NameDb(namespace_file)
         consensus_hash = db.consensus_hashes.get('current')
 
-        resp = preorder_name(
-            str(name), str(consensus_hash), str(privatekey),
-            blockchain_client=chain_com_client, testset=True)
+        try:
+            resp = preorder_name(
+                str(name), str(consensus_hash), str(privatekey),
+                blockchain_client=blockchain_client, testset=True)
+        except:
+            return json_traceback()
 
         log.debug('preorder <%s, %s>' % (name, privatekey))
 
@@ -145,9 +243,12 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
 
         log.info("name: %s" % name)
 
-        resp = register_name(
-            str(name), str(privatekey),
-            blockchain_client=chain_com_client, testset=True)
+        try:
+            resp = register_name(
+                str(name), str(privatekey),
+                blockchain_client=blockchain_client, testset=True)
+        except:
+            return json_traceback()
 
         log.debug('register <%s, %s>' % (name, privatekey))
 
@@ -157,9 +258,12 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         """ Update a name
         """
 
-        resp = update_name(
-            str(name), str(data), str(privatekey),
-            blockchain_client=chain_com_client, testset=True)
+        try:
+            resp = update_name(
+                str(name), str(data), str(privatekey),
+                blockchain_client=blockchain_client, testset=True)
+        except:
+            return json_traceback()
 
         log.debug('update <%s, %s, %s>' % (name, data, privatekey))
 
@@ -169,9 +273,12 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         """ Transfer a name
         """
 
-        resp = transfer_name(
-            str(name), str(address), str(privatekey),
-            blockchain_client=chain_com_client, testset=True)
+        try:
+            resp = transfer_name(
+                str(name), str(address), str(privatekey),
+                blockchain_client=blockchain_client, testset=True)
+        except:
+            return json_traceback()
 
         log.debug('transfer <%s, %s, %s>' % (name, address, privatekey))
 
@@ -186,20 +293,6 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         return
 
 
-def get_working_dir():
-
-    from os.path import expanduser
-    home = expanduser("~")
-
-    from lib.config import BLOCKSTORED_WORKING_DIR
-    working_dir = os.path.join(home, BLOCKSTORED_WORKING_DIR)
-
-    if not os.path.exists(working_dir):
-        os.makedirs(working_dir)
-
-    return working_dir
-
-
 def refresh_index(first_block, last_block, initial_index=False):
     """
     """
@@ -208,8 +301,10 @@ def refresh_index(first_block, last_block, initial_index=False):
 
     working_dir = get_working_dir()
 
-    namespace_file = os.path.join(working_dir, config.BLOCKSTORED_NAMESPACE_FILE)
-    lastblock_file = os.path.join(working_dir, config.BLOCKSTORED_LASTBLOCK_FILE)
+    namespace_file = os.path.join(
+        working_dir, config.BLOCKSTORED_NAMESPACE_FILE)
+    lastblock_file = os.path.join(
+        working_dir, config.BLOCKSTORED_LASTBLOCK_FILE)
 
     start = datetime.datetime.now()
 
@@ -300,10 +395,18 @@ def get_index_range(start_block=0):
         current_block = int(bitcoind.getblockcount())
     except:
         log.info("ERROR: Cannot connect to bitcoind")
-        exit(1)
+        user_input = raw_input(
+            "Do you want to re-enter bitcoind server configs? (yes/no): ")
+        if user_input.lower() == "yes" or user_input.lower() == "y":
+            prompt_user_for_bitcoind_details()
+            log.info("Exiting. Restart blockstored to try the new configs.")
+            exit(1)
+        else:
+            exit(1)
 
     working_dir = get_working_dir()
-    lastblock_file = os.path.join(working_dir, config.BLOCKSTORED_LASTBLOCK_FILE)
+    lastblock_file = os.path.join(
+        working_dir, config.BLOCKSTORED_LASTBLOCK_FILE)
 
     saved_block = 0
     if os.path.isfile(lastblock_file):
@@ -323,12 +426,12 @@ def get_index_range(start_block=0):
     return start_block, current_block
 
 
-def init_config_file():
-
-    from ConfigParser import SafeConfigParser
-    working_dir = get_working_dir()
-    config_file = os.path.join(working_dir, config.BLOCKSTORED_CONFIG_FILE)
+def prompt_user_for_chaincom_details():
+    """
+    """
+    config_file = get_config_file()
     parser = SafeConfigParser()
+
     parser.read(config_file)
 
     if not parser.has_section('chain_com'):
@@ -355,36 +458,32 @@ def init_config_file():
         config.CHAIN_COM_API_ID = api_key_id
         config.CHAIN_COM_API_SECRET = api_key_secret
 
-    if not parser.has_section('bitcoind'):
 
-        user_input = raw_input("Do you have your own bitcoind server? (yes/no): ")
+def init_bitcoind():
+    """
+    """
+
+    config_file = get_config_file()
+    parser = SafeConfigParser()
+
+    parser.read(config_file)
+
+    if parser.has_section('bitcoind'):
+        try:
+            return create_bitcoind_connection()
+        except:
+            return prompt_user_for_bitcoind_details()
+        else:
+            pass
+    else:
+        user_input = raw_input(
+            "Do you have your own bitcoind server? (yes/no): ")
         if user_input.lower() == "yes" or user_input.lower() == "y":
-            bitcoind_server = raw_input("Enter bitcoind address: ")
-            bitcoind_port = raw_input("Enter bitcoind rpc port: ")
-            bitcoind_user = raw_input("Enter bitcoind rpc user: ")
-            bitcoind_passwd = raw_input("Enter bitcoind rpc password: ")
-            use_https = raw_input("Is ssl enabled on bitcoind? (yes/no): ")
-
-            parser.add_section('bitcoind')
-            parser.set('bitcoind', 'server', bitcoind_server)
-            parser.set('bitcoind', 'port', bitcoind_port)
-            parser.set('bitcoind', 'user', bitcoind_user)
-            parser.set('bitcoind', 'passwd', bitcoind_passwd)
-            parser.set('bitcoind', 'use_https', use_https)
-
-            fout = open(config_file, 'w')
-            parser.write(fout)
-
-            # update in config as well (which was already initialized)
-            config.BITCOIND_SERVER = bitcoind_server
-            config.BITCOIND_PORT = bitcoind_port
-            config.BITCOIND_USER = bitcoind_user
-            config.BITCOIND_PASSWD = bitcoind_passwd
-
-            if use_https.lower() == "yes" or use_https.lower() == "y":
-                config.BITCOIND_USE_HTTPS = True
-            else:
-                config.BITCOIND_USE_HTTPS = False
+            return prompt_user_for_bitcoind_details()
+        else:
+            log.info(
+                "Using default bitcoind server at %s", config.BITCOIND_SERVER)
+            return create_bitcoind_connection()
 
 
 def stop_server():
@@ -419,11 +518,8 @@ def run_server(foreground=False):
     """
 
     global bitcoind
-    init_config_file()
-    bitcoind = create_bitcoind_connection()
-
-    if config.BITCOIND_SERVER == config.DEFAULT_BITCOIND_SERVER:
-        log.info("Using default bitcoind server at %s", config.DEFAULT_BITCOIND_SERVER)
+    prompt_user_for_chaincom_details()
+    bitcoind = init_bitcoind()
 
     from .lib.config import BLOCKSTORED_PID_FILE, BLOCKSTORED_LOG_FILE
     from .lib.config import BLOCKSTORED_TAC_FILE
@@ -447,11 +543,11 @@ def run_server(foreground=False):
                                                               tac_file)
 
     try:
-        #refresh_index(335563, 335566, initial_index=True)
+        # refresh_index(335563, 335566, initial_index=True)
         if start_block != current_block:
             refresh_index(start_block, current_block, initial_index=True)
-        blockstored = subprocess.Popen(command,
-                                     shell=True, preexec_fn=os.setsid)
+        blockstored = subprocess.Popen(
+            command, shell=True, preexec_fn=os.setsid)
         log.info('Blockstored successfully started')
 
     except Exception as e:

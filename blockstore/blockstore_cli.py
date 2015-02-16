@@ -30,7 +30,7 @@ console.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
 formatter = logging.Formatter('%(message)s')
 console.setFormatter(formatter)
 logger.addHandler(logging.NullHandler())
-#logger.addHandler(console)
+# logger.addHandler(console)
 
 from twisted.internet import reactor
 from txjsonrpc.netstring.jsonrpc import Proxy
@@ -39,7 +39,7 @@ proxy = Proxy(config.BLOCKSTORED_SERVER, config.BLOCKSTORED_PORT)
 
 
 def printValue(value):
-    #logger.info(pretty_dump(value))
+    # logger.info(pretty_dump(value))
     print pretty_dump(value)
 
 
@@ -57,15 +57,18 @@ def getFormat(result):
 
     return reply
 
+import traceback
+
 
 def printError(error):
     reply = {}
-    reply['error'] = "Got an error"
+    traceback.print_exc()
+    reply['error'] = "Error"
 
     if error.type is ConnectionRefusedError:
         reply['error'] = "Failed to connect to Blockstored"
 
-    #logger.info(pretty_dump(reply))
+    # logger.info(pretty_dump(reply))
     print pretty_dump(reply)
 
 
