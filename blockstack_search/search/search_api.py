@@ -28,7 +28,7 @@ mc = pylibmc.Client(["127.0.0.1:11211"],binary=True,
 
 import threading
 
-from substring_search import search_people_by_name, search_people_by_twitter, search_people_by_username, fetch_profiles
+from substring_search import search_people_by_name,search_people_by_twitter, search_people_by_username,search_people_by_bio,fetch_profiles
 
 #-------------------------
 #class for performing multi-threaded search on three search sub-systems
@@ -49,8 +49,8 @@ class QueryThread(threading.Thread):
 		elif(self.query_type == 'username_search'):
 			self.results = query_username_database(self.query, self.limit_results)
 			#self.found_exact_match, self.results = query_company_database(self.query)
-		#if(self.query_type == 'lucene_search'):
-		#	self.results = query_lucene_index(self.query,'onename_people_index', self.limit_results)
+		if(self.query_type == 'lucene_search'):
+			self.results = query_lucene_index(self.query, self.limit_results)
 
 #---------------------------------
 def error_reply(msg, code = -1):
@@ -77,37 +77,11 @@ def query_username_database(query,limit_results=DEFAULT_LIMIT):
 	username_search_results = search_people_by_username(query, limit_results)
 	return fetch_profiles(username_search_results,search_type="username")
 
-"""
 #-----------------------------------
 def query_lucene_index(query,index,limit_results=DEFAULT_LIMIT):
 
-	from pyes import StringQuery, ES 
-	conn =  ES()
-
-	q = StringQuery(query, search_fields = ['full_name','twitter','bitcoin'], default_operator = 'and')
-	results = conn.search(query = q, size=20, indices=[index])
-	count = results.total
-
-	#having or gives more results but results quality goes down
-	if(count == 0):
-		q = StringQuery(query, search_fields = ['full_name','twitter','bitcoin'], default_operator = 'or')
-		results = conn.search(query = q, size=20, indices=[index])		
-		
-	results_list = []
-	counter = 0
-
-	for i in results:
-
-		temp = json.loads(i['details'])
-		results_list.append(temp)
-
-		counter += 1
-
-		if(counter == limit_results):
-			break
-
-	return results_list 
-"""
+	username_search_results = search_people_by_bio(query, limit_results)
+	return fetch_profiles(username_search_results,search_type="username")
 
 #----------------------------------
 def test_alphanumeric(query):
@@ -127,7 +101,7 @@ def test_alphanumeric(query):
 def search_by_name():
 
 	query = request.args.get('query')
-
+	
 	results_people = []
 
 	if query == None:
@@ -158,10 +132,12 @@ def search_by_name():
 		t1 = QueryThread(query,'username_search',new_limit)
 		t2 = QueryThread(query,'twitter_search',new_limit)
 		t3 = QueryThread(query,'people_search',new_limit)
+		t4 = QueryThread(query,'lucene_search',new_limit)
 
 		threads.append(t1)
 		threads.append(t2)
 		threads.append(t3)
+		threads.append(t4)
 
 		#start all threads
 		[x.start() for x in threads]
@@ -173,9 +149,10 @@ def search_by_name():
 		
 		results_username = t1.results
 		results_twitter = t2.results
-		results_people = t3.results 
+		results_people = t3.results
+		results_bio = t4.results 
 
-		results_people += results_username + results_twitter + results_people
+		results_people += results_username + results_twitter + results_people + results_bio
 
 		#dedup all results before sending out
 		from substring_search import dedup_search_results
