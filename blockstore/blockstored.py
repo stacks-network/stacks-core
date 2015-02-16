@@ -48,6 +48,7 @@ def create_bitcoind_connection(
     protocol = 'https' if use_https else 'http'
     authproxy_config_uri = '%s://%s:%s@%s:%s' % (
         protocol, rpc_username, rpc_password, server, port)
+
     return AuthServiceProxy(authproxy_config_uri)
 
 bitcoind = create_bitcoind_connection()
@@ -322,19 +323,40 @@ def get_index_range(start_block=0):
     return start_block, current_block
 
 
-def init_bitcoind():
+def init_config_file():
 
     from ConfigParser import SafeConfigParser
     working_dir = get_working_dir()
     config_file = os.path.join(working_dir, config.BLOCKSTORED_CONFIG_FILE)
-
     parser = SafeConfigParser()
+    parser.read(config_file)
 
-    if os.path.isfile(config_file):
+    if not parser.has_section('chain_com'):
 
-        return create_bitcoind_connection()
+        message = '-' * 15 + '\n'
+        message += 'NOTE: Blockstore currently requires API access to chain.com\n'
+        message += 'for getting unspent outputs. We will add support for using\n'
+        message += 'bitcoind and/or other API providers in the next release.\n'
+        message += '-' * 15
+        log.info(message)
 
-    else:
+        api_key_id = raw_input("Enter chain.com API Key ID: ")
+        api_key_secret = raw_input("Enter chain.com API Key Secret: ")
+
+        if api_key_id != '' and api_key_secret != '':
+            parser.add_section('chain_com')
+            parser.set('chain_com', 'api_key_id', api_key_id)
+            parser.set('chain_com', 'api_key_secret', api_key_secret)
+
+            fout = open(config_file, 'w')
+            parser.write(fout)
+
+        # update in config as well (which was already initialized)
+        config.CHAIN_COM_API_ID = api_key_id
+        config.CHAIN_COM_API_SECRET = api_key_secret
+
+    if not parser.has_section('bitcoind'):
+
         user_input = raw_input("Do you have your own bitcoind server? (yes/no): ")
         if user_input.lower() == "yes" or user_input.lower() == "y":
             bitcoind_server = raw_input("Enter bitcoind address: ")
@@ -353,18 +375,16 @@ def init_bitcoind():
             fout = open(config_file, 'w')
             parser.write(fout)
 
+            # update in config as well (which was already initialized)
+            config.BITCOIND_SERVER = bitcoind_server
+            config.BITCOIND_PORT = bitcoind_port
+            config.BITCOIND_USER = bitcoind_user
+            config.BITCOIND_PASSWD = bitcoind_passwd
+
             if use_https.lower() == "yes" or use_https.lower() == "y":
-                bitcoind_use_https = True
+                config.BITCOIND_USE_HTTPS = True
             else:
-                bitcoind_use_https = False
-
-            return create_bitcoind_connection(bitcoind_user, bitcoind_passwd,
-                                              bitcoind_server, bitcoind_port,
-                                              bitcoind_use_https)
-
-        else:
-            log.info("Using default bitcoind server at %s", config.BITCOIND_SERVER)
-            return create_bitcoind_connection()
+                config.BITCOIND_USE_HTTPS = False
 
 
 def stop_server():
@@ -399,7 +419,11 @@ def run_server(foreground=False):
     """
 
     global bitcoind
-    bitcoind = init_bitcoind()
+    init_config_file()
+    bitcoind = create_bitcoind_connection()
+
+    if config.BITCOIND_SERVER == config.DEFAULT_BITCOIND_SERVER:
+        log.info("Using default bitcoind server at %s", config.DEFAULT_BITCOIND_SERVER)
 
     from .lib.config import BLOCKSTORED_PID_FILE, BLOCKSTORED_LOG_FILE
     from .lib.config import BLOCKSTORED_TAC_FILE
