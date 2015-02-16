@@ -268,7 +268,7 @@ def search_people_by_twitter(query,limit_results=DEFAULT_LIMIT):
 
 	return results
 
-#-------------------------
+#-------------------------------------
 def search_people_by_username(query,limit_results=DEFAULT_LIMIT):
 
 	query = query.lower()
@@ -287,6 +287,38 @@ def search_people_by_username(query,limit_results=DEFAULT_LIMIT):
 
 	return results
 
+#---------------------------------------
+def search_people_by_bio(query,limit_results=DEFAULT_LIMIT,index=['onename_people_index']):
+	'''queries lucene index to find a nearest match, output is profile username''' 
+
+	from pyes import QueryStringQuery, ES 
+	conn =  ES()
+
+	q = QueryStringQuery(query, search_fields = ['username','profile_bio'], default_operator = 'and')
+	results = conn.search(query = q, size=20, indices=index)
+	count = conn.count(query = q)
+	count = count.count
+
+	#having or gives more results but results quality goes down
+	if(count == 0):
+		q = QueryStringQuery(query, search_fields = ['username','profile_bio'], default_operator = 'or')
+		results = conn.search(query = q, size=20, indices=index)		
+
+
+	results_list = []
+	counter = 0
+
+	for profile in results:
+
+		username = profile['username']
+		results_list.append(username)
+
+		counter += 1
+
+		if(counter == limit_results):
+			break
+
+	return results_list
 #-------------------------
 def fetch_profiles(search_results,search_type="name"):
 
@@ -429,6 +461,12 @@ if __name__ == "__main__":
 		print username_search_results
 		print '-' * 5
 		print fetch_profiles(username_search_results,search_type="username")
+	elif(option == '--search_bio'):
+		query = sys.argv[2]
+		usernames_list = search_people_by_bio(query,DEFAULT_LIMIT)
+		print usernames_list
+		print '-' * 5
+		print fetch_profiles(usernames_list,search_type="username")
 	else:
 		print "Usage error"
 
