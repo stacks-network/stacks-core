@@ -54,6 +54,7 @@ def create_bitcoind_connection(
         raise Exception('Invalid bitcoind port number.')
     authproxy_config_uri = '%s://%s:%s@%s:%s' % (
         protocol, rpc_username, rpc_password, server, port)
+
     return AuthServiceProxy(authproxy_config_uri)
 
 
@@ -85,38 +86,50 @@ def prompt_user_for_bitcoind_details():
     config_file = get_config_file()
     parser = SafeConfigParser()
 
-    bitcoind_server = raw_input(
-        "Enter bitcoind host address (default: 127.0.0.1): "
-        ) or '127.0.0.1'
-    bitcoind_port = raw_input(
-        "Enter bitcoind rpc port (default: 8332): ") or '8332'
-    bitcoind_user = raw_input("Enter bitcoind rpc user/username: ")
-    bitcoind_passwd = raw_input("Enter bitcoind rpc password: ")
-    use_https = raw_input("Is ssl enabled on bitcoind? (yes/no): ")
+    parser.read(config_file)
 
-    parser.add_section('bitcoind')
-    parser.set('bitcoind', 'server', bitcoind_server)
-    parser.set('bitcoind', 'port', bitcoind_port)
-    parser.set('bitcoind', 'user', bitcoind_user)
-    parser.set('bitcoind', 'passwd', bitcoind_passwd)
-    parser.set('bitcoind', 'use_https', use_https)
+    if not parser.has_section('bitcoind'):
 
-    fout = open(config_file, 'w')
-    parser.write(fout)
+        bitcoind_server = raw_input(
+            "Enter bitcoind host address (default: 127.0.0.1): "
+            ) or '127.0.0.1'
+        bitcoind_port = raw_input(
+            "Enter bitcoind rpc port (default: 8332): ") or '8332'
+        bitcoind_user = raw_input("Enter bitcoind rpc user/username: ")
+        bitcoind_passwd = raw_input("Enter bitcoind rpc password: ")
+        use_https = raw_input("Is ssl enabled on bitcoind? (yes/no): ")
 
-    if use_https.lower() == "yes" or use_https.lower() == "y":
-        bitcoind_use_https = True
+        if not parser.has_section('bitcoind'):
+            parser.add_section('bitcoind')
+
+        parser.set('bitcoind', 'server', bitcoind_server)
+        parser.set('bitcoind', 'port', bitcoind_port)
+        parser.set('bitcoind', 'user', bitcoind_user)
+        parser.set('bitcoind', 'passwd', bitcoind_passwd)
+        parser.set('bitcoind', 'use_https', use_https)
+
+        fout = open(config_file, 'w')
+        parser.write(fout)
+
+        if use_https.lower() == "yes" or use_https.lower() == "y":
+            bitcoind_use_https = True
+        else:
+            bitcoind_use_https = False
+
+        return create_bitcoind_connection(bitcoind_user, bitcoind_passwd,
+                                          bitcoind_server, bitcoind_port,
+                                          bitcoind_use_https)
+
     else:
-        bitcoind_use_https = False
-
-    return create_bitcoind_connection(bitcoind_user, bitcoind_passwd,
-                                      bitcoind_server, bitcoind_port,
-                                      bitcoind_use_https)
+        parser.remove_section('bitcoind')
+        fout = open(config_file, 'w')
+        parser.write(fout)
+        return create_bitcoind_connection()
 
 try:
     bitcoind = create_bitcoind_connection()
 except:
-    prompt_user_for_bitcoind_details()
+    bitcoind = prompt_user_for_bitcoind_details()
 
 from lib import preorder_name, register_name, update_name, \
     transfer_name
@@ -381,7 +394,7 @@ def get_index_range(start_block=0):
     try:
         current_block = int(bitcoind.getblockcount())
     except:
-        log.info("ERROR: Cannot connect to bitcoind.")
+        log.info("ERROR: Cannot connect to bitcoind")
         user_input = raw_input(
             "Do you want to re-enter bitcoind server configs? (yes/no): ")
         if user_input.lower() == "yes" or user_input.lower() == "y":
@@ -413,10 +426,49 @@ def get_index_range(start_block=0):
     return start_block, current_block
 
 
+def prompt_user_for_chaincom_details():
+    """
+    """
+    config_file = get_config_file()
+    parser = SafeConfigParser()
+
+    parser.read(config_file)
+
+    if not parser.has_section('chain_com'):
+
+        message = '-' * 15 + '\n'
+        message += 'NOTE: Blockstore currently requires API access to chain.com\n'
+        message += 'for getting unspent outputs. We will add support for using\n'
+        message += 'bitcoind and/or other API providers in the next release.\n'
+        message += '-' * 15
+        log.info(message)
+
+        api_key_id = raw_input("Enter chain.com API Key ID: ")
+        api_key_secret = raw_input("Enter chain.com API Key Secret: ")
+
+        if api_key_id != '' and api_key_secret != '':
+            parser.add_section('chain_com')
+            parser.set('chain_com', 'api_key_id', api_key_id)
+            parser.set('chain_com', 'api_key_secret', api_key_secret)
+
+            fout = open(config_file, 'w')
+            parser.write(fout)
+
+        # update in config as well (which was already initialized)
+        config.CHAIN_COM_API_ID = api_key_id
+        config.CHAIN_COM_API_SECRET = api_key_secret
+
+
 def init_bitcoind():
     """
     """
-    if os.path.isfile(get_config_file()):
+
+    config_file = get_config_file()
+    parser = SafeConfigParser()
+
+    parser.read(config_file)
+
+    if parser.has_section('bitcoind'):
         try:
             return create_bitcoind_connection()
         except:
@@ -466,6 +518,7 @@ def run_server(foreground=False):
     """
 
     global bitcoind
+    prompt_user_for_chaincom_details()
     bitcoind = init_bitcoind()
 
     from .lib.config import BLOCKSTORED_PID_FILE, BLOCKSTORED_LOG_FILE
