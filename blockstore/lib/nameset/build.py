@@ -124,10 +124,15 @@ from ..blockchain import get_nulldata_txs_in_block
 def nulldata_txs_to_nameops(txs):
     nameops = []
     for tx in txs:
-        nameop = parse_nameop(
-            tx['nulldata'], tx['vout'], tx['senders'], tx['fee'])
-        if nameop:
-            nameops.append(nameop)
+        try:
+            nameop = parse_nameop(
+                tx['nulldata'], tx['vout'], senders=tx['senders'],
+                fee=tx['fee'])
+        except:
+            pass
+        else:
+            if nameop:
+                nameops.append(nameop)
     return nameops
 
 

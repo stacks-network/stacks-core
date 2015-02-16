@@ -28,7 +28,10 @@ def parse_nameop_data(data):
         # raise ValueError('Data must have an even number of bytes')
         return None
 
-    bin_data = unhexlify(data)
+    try:
+        bin_data = unhexlify(data)
+    except:
+        raise Exception('Invalid data supplied: %s' % data)
 
     magic_bytes, opcode, payload = bin_data[0:2], bin_data[2:3], bin_data[3:]
 

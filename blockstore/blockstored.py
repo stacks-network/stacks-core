@@ -53,7 +53,6 @@ def create_bitcoind_connection(
         raise Exception('Invalid bitcoind port number.')
     authproxy_config_uri = '%s://%s:%s@%s:%s' % (
         protocol, rpc_username, rpc_password, server, port)
-    print authproxy_config_uri
     return AuthServiceProxy(authproxy_config_uri)
 
 
