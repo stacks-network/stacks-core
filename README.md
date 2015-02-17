@@ -1,19 +1,6 @@
-# Blockstore: A Blockchain Key-Value Store
+# Blockstore: A Key-Value Store on Bitcoin
 
-__Table of Contents__
-
-- [Intro](<#intro>)
-- [Installation](<#installation>)
-- [Getting Started](<#getting-started>)
-- [Design](<#design>)
-- [Contributions](<#contributions>)
-- [License](<#license>)
-
-## Intro
-
-Blockstore is a generic key-value store on Bitcoin.
-
-You can use it register globally unique names, associate data with those names, and transfer them between Bitcoin addresses.
+Blockstore is a generic key-value store on Bitcoin. You can use it register globally unique names, associate data with those names, and transfer them between Bitcoin addresses.
 
 Then, you or anyone can perform lookups on those names and securely obtain the data associated with them.
 
