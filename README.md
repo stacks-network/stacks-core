@@ -3,13 +3,13 @@
 __Table of Contents__
 
 - [Intro](<#intro>)
-    - [What this project is](#what-this-project-is)
-    - [What this repo contains](#what-this-repo-contains)
 - [Installation](<#installation>)
-    - [Debian](#debian)
+- [Getting Started](<#getting-started>)
+- [Design](<#design>)
+- [Contributions](<#contributions>)
+- [License](<#license>)
 
 ## Intro
-<a name="intro"/>
 
 #### What this project is
 
@@ -24,6 +24,42 @@ A key-value store on the Bitcoin Blockchain.
     + blockstore python lib
 
 ## Installation
-<a name="installation"/>
 
 > pip install blockstore
+
+## Getting Started
+
+First, start blockstored and index the blockchain:
+
+```
+$ blockstored start
+```
+
+Then, perform name lookups:
+
+```
+$ blockstore-cli lookup swiftonsecurity
+{
+    "data": "{\"name\":{\"formatted\": \"Taylor Swift\"}}"
+}
+```
+
+Next, learn how to register names of your own, as well as transfer them and associate data with them:
+
+[Full usage docs](/doc/usage.md)
+
+## Design
+
+[Design overview](/doc/design.md)
+
+[Protocol specifications](/doc/protocol.md)
+
+## Contributions
+
+[Full contributor list](/doc/contributors.md)
+
+## License
+
+[Released under the MIT License](/LICENSE)
+
+Copyright 2015, openname.org
