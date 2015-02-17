@@ -13,8 +13,8 @@
 A lot of people have helped with discussion/feedback on general architecture, design tradeoffs, and security. Below is a partial (and ever-growing) list: 
 
 * [Brian Muller](https://onename.com/bmuller) (OpBandit) - especially for help with his [Kademlia implementation](https://github.com/bmuller/kademlia)
-* [Jude Nelson](http://www.cs.princeton.edu/~jcnelson/) (Princeton)
-* [Lakshmi Subramanian](http://cs.nyu.edu/~lakshmi/Lakshmi/Home.html) (NYU)
+* [Jude Nelson](http://www.cs.princeton.edu/~jcnelson/) (Princeton) -- for weekly design discussions and issues around storage
+* [Lakshmi Subramanian](http://cs.nyu.edu/~lakshmi/Lakshmi/Home.html) (NYU) -- for architecture overview and security discussions
 * [Matt Corallo](https://github.com/thebluematt) (Bitcoin core developer) - for detailed feedback on the protocol design
 * [Peter Todd](https://github.com/petertodd) (Bitcoin core developer) - for discussions around OP_CHECKLOCKTIMEVERIFY and delaying rewards to miners
 * [Chris Pacia](https://onename.com/chrispacia) (bitcoin authenticator)
