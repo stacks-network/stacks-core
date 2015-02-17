@@ -126,14 +126,15 @@ try:
     blockchain_client = ChainComClient(config.CHAIN_COM_API_ID,
                                        config.CHAIN_COM_API_SECRET)
 except:
-    blockchain_client = BitcoindClient(
-        'openname', 'opennamesystem',
-        server='btcd.onename.com', port='8332', use_https=True)
-
-blockchain_client = BitcoindClient(
-    config.BITCOIND_USER, config.BITCOIND_PASSWD,
-    server=config.BITCOIND_SERVER, port=str(config.BITCOIND_PORT),
-    use_https=True)
+    try:
+        blockchain_client = BitcoindClient(
+            config.BITCOIND_USER, config.BITCOIND_PASSWD,
+            server=config.BITCOIND_SERVER, port=str(config.BITCOIND_PORT),
+            use_https=True)
+    except:
+        blockchain_client = BitcoindClient(
+            'openname', 'opennamesystem',
+            server='btcd.onename.com', port='8332', use_https=True)
 
 
 def signal_handler(signal, frame):
@@ -156,6 +157,16 @@ def json_traceback():
     }
 
 
+def get_namedb():
+    working_dir = get_working_dir()
+    namespace_file = os.path.join(
+        working_dir, config.BLOCKSTORED_NAMESPACE_FILE)
+    snapshots_file = os.path.join(
+        working_dir, config.BLOCKSTORED_SNAPSHOTS_FILE)
+    db = NameDb(namespace_file, snapshots_file)
+    return db
+
+
 class BlockstoredRPC(jsonrpc.JSONRPC):
     """ blockstored rpc
     """
@@ -170,6 +181,17 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
 
     def jsonrpc_get(self, key):
         return self.dht_server.get(key)
+
+    def jsonrpc_lookup(self, name):
+        """ Lookup the details for a name.
+        """
+        db = get_namedb()
+        if str(name) in db.name_records:
+            name_record = db.name_records[name]
+        else:
+            return {"error": "Not found."}
+
+        return name_record
 
     def jsonrpc_set(self, key, value):
         """
@@ -200,18 +222,17 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         info = bitcoind.getinfo()
         reply = {}
         reply['blocks'] = info['blocks']
-        reply['test'] = "hello"
         return reply
 
     def jsonrpc_preorder(self, name, privatekey):
         """ Preorder a name
         """
-
-        working_dir = get_working_dir()
-        namespace_file = os.path.join(
-            working_dir, config.BLOCKSTORED_NAMESPACE_FILE)
-        db = NameDb(namespace_file)
+        db = get_namedb()
         consensus_hash = db.consensus_hashes.get('current')
+        if not consensus_hash:
+            return {"error": "Nameset snapshot not found."}
+        if str(name) in db.name_records:
+            return {"error": "Name already registered"}
 
         try:
             resp = preorder_name(
@@ -227,8 +248,10 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
     def jsonrpc_register(self, name, privatekey):
         """ Register a name
         """
-
         log.info("name: %s" % name)
+        db = get_namedb()
+        if str(name) in db.name_records:
+            return {"error": "Name already registered"}
 
         try:
             resp = register_name(
@@ -290,6 +313,8 @@ def refresh_index(first_block, last_block, initial_index=False):
 
     namespace_file = os.path.join(
         working_dir, config.BLOCKSTORED_NAMESPACE_FILE)
+    snapshots_file = os.path.join(
+        working_dir, config.BLOCKSTORED_SNAPSHOTS_FILE)
     lastblock_file = os.path.join(
         working_dir, config.BLOCKSTORED_LASTBLOCK_FILE)
 
@@ -320,9 +345,10 @@ def refresh_index(first_block, last_block, initial_index=False):
     time_taken = "%s seconds" % (datetime.datetime.now() - start).seconds
     # log.info(time_taken)
 
-    db = NameDb(namespace_file)
+    db = get_namedb()
     merkle_snapshot = build_nameset(db, nameop_sequence)
     db.save_names(namespace_file)
+    db.save_snapshots(snapshots_file)
 
     merkle_snapshot = "merkle snapshot: %s\n" % merkle_snapshot
     # log.info(merkle_snapshot)

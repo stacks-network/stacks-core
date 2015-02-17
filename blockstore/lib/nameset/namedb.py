@@ -5,10 +5,9 @@ from collections import defaultdict
 
 
 class NameDb():
-    def __init__(self, names_filename=None, content_filename=None):
+    def __init__(self, names_filename, snapshots_filename):
         self.name_records = {}
         self.preorders = {}
-        self.content = {}
 
         self.pending_registrations = defaultdict(list)
         self.pending_updates = defaultdict(list)
@@ -23,20 +22,19 @@ class NameDb():
             try:
                 with open(names_filename, 'r') as f:
                     db_dict = json.loads(f.read())
-                    if 'names_records' in db_dict:
-                        self.name_records = db_dict['names']
+                    if 'registrations' in db_dict:
+                        self.name_records = db_dict['registrations']
                     if 'preorders' in db_dict:
                         self.preorders = db_dict['preorders']
-                    if 'consensus_hashes' in db_dict:
-                        self.consensus_hashes = db_dict['consensus_hashes']
             except Exception as e:
                 pass
 
-        if content_filename:
+        if snapshots_filename:
             try:
-                with open(content_filename, 'r') as f:
-                    content_dict = json.loads(f.read())
-                    self.content = content_dict
+                with open(snapshots_filename, 'r') as f:
+                    db_dict = json.loads(f.read())
+                    if 'snapshots' in db_dict:
+                        self.consensus_hashes = db_dict['snapshots']
             except Exception as e:
                 pass
 
@@ -44,9 +42,8 @@ class NameDb():
         try:
             with open(filename, 'w') as f:
                 db_dict = {
-                    'name_records': self.name_records,
-                    'preorders': self.preorders,
-                    'consensus_hashes': self.consensus_hashes
+                    'registrations': self.name_records,
+                    'preorders': self.preorders
                 }
                 f.write(json.dumps(db_dict))
         except Exception as e:
@@ -54,10 +51,13 @@ class NameDb():
             return False
         return True
 
-    def save_content(self, filename):
+    def save_snapshots(self, filename):
         try:
             with open(filename, 'w') as f:
-                f.write(json.dumps(self.content))
+                db_dict = {
+                    'snapshots': self.consensus_hashes
+                }
+                f.write(json.dumps(db_dict))
         except Exception as e:
             traceback.print_exc()
             return False

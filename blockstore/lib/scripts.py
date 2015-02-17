@@ -28,7 +28,8 @@ def name_script_to_hex(script):
         elif is_valid_int(part):
             hex_script += '%0.2x' % int(part)
         else:
-            raise Exception('Invalid script: contains invalid characters.')
+            raise ValueError(
+                'Invalid script, contains invalid characters: %s' % script)
     if len(hex_script) % 2 != 0:
         raise ValueError('Invalid script: must have an even number of chars.')
     return hex_script
