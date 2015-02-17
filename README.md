@@ -11,21 +11,19 @@ __Table of Contents__
 
 ## Intro
 
-#### What this project is
+Blockstore is a generic key-value store on Bitcoin.
 
-A key-value store on the Bitcoin Blockchain.
+You can use it register globally unique names, associate data with those names, and transfer them between Bitcoin addresses.
 
-#### What this repo contains
+Then, you or anyone can perform lookups on those names and securely obtain the data associated with them.
 
-+ code for running a node that participates in the KV store network
-    + blockstored
-+ code for issuing commands to blockstored like name lookups and name registrations
-    + blockstore-cli
-    + blockstore python lib
+Blockstore uses the Bitcoin blockchain for storing name operations and data hashes, and the Kademlia distributed hash table for storing the full data files.
 
 ## Installation
 
-> pip install blockstore
+```
+pip install blockstore
+```
 
 ## Getting Started
 

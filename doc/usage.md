@@ -30,3 +30,9 @@ Finally, after the register transaction made it into the block and been accepted
 $ blockstore-cli update swiftonsecurity <data> <privatekey>
 $ blockstore-cli transfer swiftonsecurity <newowner> <privatekey>
 ```
+
+To perform a lookup on a name:
+
+```
+$ blockstore-cli lookup swiftonsecurity
+```
