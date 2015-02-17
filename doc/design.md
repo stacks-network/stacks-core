@@ -31,7 +31,7 @@ Storing large amounts of data in the blockchain can lead to blockchain bloat, so
 
 ### Registration Fees 
 
-Miners provide critical infrastructure for the Bitcoin eco-system and it'll be nice if services built on top of Bitcoin can contribute to mining incentives. Therefore, we decided to pay registration fees to miners instead of other methods like burning money.
+Miners provide critical infrastructure for the Bitcoin eco-system and it is beneficial to the security of the blockchain when services built on top of Bitcoin contribute to mining incentives. Therefore, we decided to pay registration fees to miners in Bitcoins instead of employing other methods like burning money or requiring usage of an altcoin/colored coin.
 
 ### End-to-end Design Principle
 
