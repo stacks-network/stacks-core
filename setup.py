@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='blockstore',
-    version='0.0.1',
+    version='0.0.3',
     url='https://github.com/openname/blockstore',
     license='MIT',
     author='Onename',
