@@ -186,6 +186,13 @@ def run_cli():
         'hash', type=str,
         help='the hash of the data, used as lookup key for DHT')
 
+    subparser = subparsers.add_parser(
+        'lookup',
+        help='<name> | get the record for a given name')
+    subparser.add_argument(
+        'name', type=str,
+        help='the name to look up')
+
     # Print default help message, if no argument is given
     if len(sys.argv) == 1:
         parser.print_help()
@@ -232,10 +239,14 @@ def run_cli():
         client = proxy.callRemote('set', key, value)
 
     elif args.action == 'getdata':
-        logger.debug('Get %s', args.hash)
+        logger.debug('Getting %s', args.hash)
 
         client = proxy.callRemote('get', args.hash)
         client.addCallback(getFormat)
+
+    elif args.action == 'lookup':
+        logger.debug('Looking up %s', args.name)
+        client = proxy.callRemote('lookup', args.name)
 
     client.addCallback(printValue).addErrback(printError).addBoth(shutDown)
     reactor.run()
