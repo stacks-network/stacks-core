@@ -70,10 +70,11 @@ working_dir = os.path.join(home, BLOCKSTORED_WORKING_DIR)
 config_file = os.path.join(working_dir, BLOCKSTORED_CONFIG_FILE)
 
 parser = SafeConfigParser()
+parser.read(config_file)
 
-if os.path.isfile(config_file):
+DEFAULT_BITCOIND_SERVER = 'btcd.onename.com'
 
-    parser.read(config_file)
+if parser.has_section('bitcoind'):
 
     BITCOIND_SERVER = parser.get('bitcoind', 'server')
     BITCOIND_PORT = parser.get('bitcoind', 'port')
@@ -88,7 +89,7 @@ if os.path.isfile(config_file):
 
 else:
 
-    BITCOIND_SERVER = 'btcd.onename.com'
+    BITCOIND_SERVER = DEFAULT_BITCOIND_SERVER
     BITCOIND_PORT = '8332'
     BITCOIND_USER = 'openname'
     BITCOIND_PASSWD = 'opennamesystem'
@@ -118,11 +119,9 @@ else:
 """ api configs
 """
 
-try:
-    CHAIN_COM_API_ID = os.environ['CHAIN_COM_API_ID']
-    CHAIN_COM_API_SECRET = os.environ['CHAIN_COM_API_SECRET']
-except KeyError:
-    pass
+if parser.has_section('chain_com'):
+    CHAIN_COM_API_ID = parser.get('chain_com', 'api_key_id')
+    CHAIN_COM_API_SECRET = parser.get('chain_com', 'api_key_secret')
 
 try:
     BLOCKCHAIN_INFO_API_KEY = os.environ['BLOCKCHAIN_INFO_API_KEY']
