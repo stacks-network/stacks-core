@@ -2,23 +2,20 @@
 
 ### Main Authors
 
-Muneeb Ali
-Ryan Shea
+[Muneeb Ali](https://onename.com/muneeb) (Onename) & [Ryan Shea](https://onename.com/ryanshea) (Onename)
 
 ### Code Contributors
 
-Ibrahim Ahmed
+* [Ibrahim Ahmed](https://onename.com/ibrahim) (Redbrick)
 
 ### Other Contributions
 
-Brian Muller
-Chris Pacia
-Greg Slepak
-Muhammad Asjad
-Ben Doernberg
-Jude Nelson
-Mike Freedman
-Simon Murtha Smith
-Christopher Tse
-Kevin McCoy
-Michael Wawrzoniak
+A lot of people have helped with discussion/feedback on general architecture, design tradeoffs, and security. Below is a partial (and ever-growing) list: 
+
+* [Brian Muller](http://findingscience.com/) (OpBandit) -- especially for help with his [Kademlia implementation](https://github.com/bmuller/kademlia) 
+* [Jude Nelson](http://www.cs.princeton.edu/~jcnelson/) (Princeton) 
+* [Lakshmi Subramanian](http://cs.nyu.edu/~lakshmi/Lakshmi/Home.html) (NYU)
+* [Chris Pacia](https://twitter.com/chrispacia) 
+* [Greg Slepak](https://www.taoeffect.com/) (okTurtles)  
+* [Simon Murtha Smith](https://twitter.com/smurthas) 
+* [Michael Wawrzoniak](http://www.cs.princeton.edu/~mhw) (Princeton / PlanetLab)
