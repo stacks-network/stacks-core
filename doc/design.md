@@ -39,6 +39,8 @@ The [end-to-end design principle](http://en.wikipedia.org/wiki/End-to-end_princi
 
 ## Distributed Hash Table 
 
-The research literature in Distributed Hash Tables (DHTs) is extremeley rich and there are a number of excellent choices available for DHTs. Some of the more popular DHTs include [Chord](http://en.wikipedia.org/wiki/Chord_%28peer-to-peer%29), [Kademlia](http://en.wikipedia.org/wiki/Kademlia), [Pastry](http://en.wikipedia.org/wiki/Pastry_(DHT)) etc. We decided to use Kademlia because of a) relative simplicity of the XOR based routing algorithm and the respective analysis, b) 
+The research literature in Distributed Hash Tables (DHTs) is extremeley rich and there are a number of excellent choices available for DHTs. Some of the more popular DHTs include [Chord](http://en.wikipedia.org/wiki/Chord_%28peer-to-peer%29), [Kademlia](http://en.wikipedia.org/wiki/Kademlia), [Pastry](http://en.wikipedia.org/wiki/Pastry_(DHT)) etc. We decided to use Kademlia because of a) relative simplicity of the XOR based routing algorithm and the respective analysis, b) accelerated lookups and c) availability of implementations that can be easily integrated with blockstored.
 
 ## Virtual Blockchain
+
+We introduce the notion of a virtual blockchain, as operations defined by a higher-layer protocol that are broadcasted in Bitcoin transactions. If you throw away all other data (blocks that have no operations for the higher-layer protocol) and extract the operations, they form a logical chain in a linear fashion just like the underlying blockchain (see figure above). The blockstore protocol is implemented as a virtual blockchain on top of Bitcoin.  
