@@ -10,7 +10,7 @@ Yes! While we decided to follow our instincts and build our experimental KV stor
 
 This is different from Namecoin in a few fundamental ways:
 
-1. It uses the Bitcoin blockchaink, which is the top blockchain. See above.
+1. It uses the Bitcoin blockchain, which is the top blockchain. See above.
 2. Rather than store data directly in the Blockchain, this stores the data outside of the blockchain in a DHT. This reduces blockchain bloat and allows for more data to be conveniently stored.
 3. Each namespace has a different pricing scheme for names. That means you can use a namespace with expensive names in order to avoid squatting (ideal for domains), or you can use a namespace with names that cost almost nothing, in order to save money (ideal for non-fungible tokens like trading cards), or you can go for something in the middle (ideal for usernames).
 4. Fees paid to register names go to miners instead of being burned or essentially wasted. This incentivizes mining and increases the overall security of the network.

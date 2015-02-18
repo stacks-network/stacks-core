@@ -20,7 +20,7 @@ __Table of Contents__
 register names by being the first to include the name in a “registration” operation
 + to prevent people from stealing your name, first secretly “preorder” the name, but include a hash of the name in the blockchain
 + to associate data with the name, issue an “update” operation by including a hash of the data and storing the data itself in the DHT
-+ to lookup the data associated with a name, issue a request to an blockstored node, which will lookup the name’s entry in the nameset, find the hash associated with the name, then go into the DHT with the hash and get the data associated with it
++ to lookup the data associated with a name, issue a request to a blockstored node, which will lookup the name’s entry in the nameset, find the hash associated with the name, then go into the DHT with the hash and get the data associated with it
 + there are many, many possible namespaces
 + each namespace can have a custom pricing scheme
 
