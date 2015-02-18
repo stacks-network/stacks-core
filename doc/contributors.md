@@ -10,14 +10,17 @@
 
 ### Other Contributions
 
-A lot of people have helped with discussion/feedback on general architecture, design tradeoffs, and security. Below is a partial (and ever-growing) list: 
+A lot of people have helped with discussion/feedback on general architecture, design tradeoffs, and security. Below is a partial (and ever-growing) list:
 
-* [Brian Muller](https://onename.com/bmuller) (OpBandit) - especially for help with his [Kademlia implementation](https://github.com/bmuller/kademlia)
-* [Jude Nelson](http://www.cs.princeton.edu/~jcnelson/) (Princeton) -- for weekly design discussions and issues around storage
-* [Lakshmi Subramanian](http://cs.nyu.edu/~lakshmi/Lakshmi/Home.html) (NYU) -- for architecture overview and security discussions
-* [Matt Corallo](https://github.com/thebluematt) (Bitcoin core developer) - for detailed feedback on the protocol design
-* [Peter Todd](https://github.com/petertodd) (Bitcoin core developer) - for discussions around OP_CHECKLOCKTIMEVERIFY and delaying rewards to miners
-* [Chris Pacia](https://onename.com/chrispacia) (bitcoin authenticator)
-* [Greg Slepak](https://onename.com/greg) (okTurtles)
-* [Simon Murtha Smith](https://onename.com/smurthas)
-* [Michael Wawrzoniak](http://www.cs.princeton.edu/~mhw) (Princeton / PlanetLab)
+|Name|Organization|Openname|Contributions|
+|---|---|---|---|
+|Gavin Andresen|[Bitcoin core dev](https://github.com/gavinandresen)|[gavin](https://openname.org/gavin)|for first pushing us to implement a key-value store on top of Bitcoin using a DHT|
+|Brian Muller|OpBandit|[bmuller](https://openname.org/bmuller)|for help with his [Kademlia implementation](https://github.com/bmuller/kademlia)|
+|Jude Nelson|[Princeton](http://www.cs.princeton.edu/~jcnelson/)|-|for weekly design discussions and issues around storage|
+|Lakshmi Subramanian|[NYU](http://cs.nyu.edu/~lakshmi/Lakshmi/Home.html)|-|for architecture reviews and security discussions|
+|Matt Corallo|[Bitcoin core dev](https://github.com/thebluematt)|-|for regular detailed feedback on the protocol design|
+|Peter Todd|[Bitcoin core dev](https://github.com/petertodd)|[petertodd](https://openname.org/petertodd)|for discussions around OP_CHECKLOCKTIMEVERIFY and delaying rewards to miners|
+|Chris Pacia|Bitcoin Authenticator|[chrispacia](https://openname.org/chrispacia)|for discussions around enforcing namespace consensus and SPV compatibility|
+|Greg Slepak|okTurtles|[greg](https://openname.org/greg)|for discussions around name pricing|
+|Simon Murtha Smith||[smurthas](https://openname.org/smurthas)||
+|Michael Wawrzoniak|[Princeton](http://www.cs.princeton.edu/~mhw)/PlanetLab|-||
