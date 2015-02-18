@@ -31,8 +31,6 @@ register names by being the first to include the name in a “registration” op
 |Blockchain|bitcoin|
 |Hash storage method|OP_RETURN|
 |Data storage method|Kademlia DHT|
-|Language|Python|
-|Frameworks|Twisted|
 
 #### Name operations
 
