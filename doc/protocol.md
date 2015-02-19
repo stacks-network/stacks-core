@@ -64,7 +64,7 @@ register names by being the first to include the name in a “registration” op
 
 Each transaction operation has a "sender". If any pre-orders or name registrations occur as a result of a given transaction, the "sender" is also considered the "owner" of those pre-orders and/or name registrations.
 
-In a transaction, the sender is established as the funder of the first non-OP_RETURN input.
+In a transaction, the sender is established as the funder of the first input.
 
 In a name transfer, name ownership is transferred to the recipient of the first non-OP\_RETURN output, while name admin rights are given to the recipient of the second non-OP_RETURN output.
 
