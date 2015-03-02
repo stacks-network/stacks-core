@@ -154,7 +154,10 @@ def get_bulk_profiles():
     if usernames is None:
         return jsonify(error_reply("No usernames given"))
 
-    usernames = usernames.rsplit(',')
+    try:
+        usernames = usernames.rsplit(',')
+    except:
+        return jsonify(error_reply("Invalid input format"))
 
     list = []
 
@@ -212,8 +215,8 @@ def get_namespace():
 @app.route('/')
 def index():
     reply = '<hmtl><body>Welcome to openname-resolver, see \
-            <a href="http://github.com/opennamesystem"github page</a> \
-            for details.</body></html>'
+            <a href="http://github.com/openname/openname-resolver"> \
+            this Github repo</a> for details.</body></html>'
 
     return reply
 
