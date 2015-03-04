@@ -53,12 +53,12 @@ RUN cp -f /srv/openname-resolver/apache/config/default.conf /etc/apache2/sites-a
 RUN cp -f /srv/openname-resolver/apache/config/wsgi.conf /etc/apache2/conf-enabled
 
 # Set env variables here (can also use config_local.py file or pass them to Docker with -e)
-ENV NAMECOIND_SERVER <your server> 
-ENV NAMECOIND_PORT <your port>
-ENV NAMECOIND_USER <fill this>
-ENV NAMECOIND_PASSWD <fill this>
-ENV API_USERNAME <fill this>
-ENV API_PASSWORD <fill this>
+#ENV NAMECOIND_SERVER <your server> 
+#ENV NAMECOIND_PORT <your port>
+#ENV NAMECOIND_USER <fill this>
+#ENV NAMECOIND_PASSWD <fill this>
+#ENV API_USERNAME <fill this>
+#ENV API_PASSWORD <fill this>
 
 ##################### INSTALLATION END #####################
 
