@@ -4,7 +4,8 @@
 ############################################################
 
 # Set the base image to Ubuntu
-FROM ubuntu
+FROM ubuntu:14.04
+RUN rm /bin/sh && ln -s /bin/bash /bin/sh
 
 # File Author / Maintainer
 MAINTAINER Muneeb Ali (@muneeb)
@@ -45,7 +46,6 @@ RUN git clone https://github.com/openname/openname-resolver.git /srv/openname-re
 #ADD openname-resolver.tar.gz /srv/
 
 WORKDIR /srv/openname-resolver
-RUN chmod 755 /srv/openname-resolver/run.sh
 RUN pip install -r requirements.txt
 
 # Copy the Apache config files
@@ -53,6 +53,8 @@ RUN cp -f /srv/openname-resolver/apache/config/default.conf /etc/apache2/sites-a
 RUN cp -f /srv/openname-resolver/apache/config/wsgi.conf /etc/apache2/conf-enabled
 
 RUN cp -f /srv/openname-resolver/image/fullnode/run.sh /srv/openname-resolver/
+RUN cp -f /srv/openname-resolver/image/fullnode/config.py /srv/openname-resolver/server/config_local.py
+RUN chmod 755 /srv/openname-resolver/run.sh
 
 # Install Namecoind
 RUN apt-get install -y \
@@ -85,6 +87,8 @@ RUN chmod 600 /root/.namecoin/namecoin.conf
 
 #on ubuntu namecoind writes to / instead of /root, symlink it
 RUN ln -s /root/.namecoin /.namecoin
+
+WORKDIR /srv/openname-resolver
 
 ##################### INSTALLATION END #####################
 
