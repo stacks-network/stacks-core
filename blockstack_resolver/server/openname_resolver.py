@@ -31,6 +31,7 @@ from coinrpc import namecoind
 
 from .helper import requires_auth
 from .proofs import profile_to_proofs
+from .crossdomain import crossdomain
 
 # -----------------------------------
 def name_show_mem(key):
@@ -88,6 +89,7 @@ def full_profile_mem(key):
 # -----------------------------------
 @app.route('/resolver/value')
 @requires_auth
+@crossdomain(origin='*')
 def get_key_value():
 
     try:
@@ -107,6 +109,7 @@ def get_key_value():
 # -----------------------------------
 @app.route('/resolver/profile')
 @requires_auth
+@crossdomain(origin='*')
 def get_user_profile():
 
     try:
@@ -151,6 +154,7 @@ def get_user_profile():
 # -----------------------------------
 @app.route('/resolver/bulk')
 @requires_auth
+@crossdomain(origin='*')
 def get_bulk_profiles():
 
     usernames = request.args.get('usernames')
@@ -179,6 +183,7 @@ def get_bulk_profiles():
 # -----------------------------------
 @app.route('/resolver/namespace')
 @requires_auth
+@crossdomain(origin='*')
 def get_namespace():
 
     from commontools import get_json
