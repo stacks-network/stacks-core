@@ -30,7 +30,7 @@ mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
 from coinrpc import namecoind
 
 from .helper import requires_auth
-
+from .proofs import profile_to_proofs
 
 # -----------------------------------
 def name_show_mem(key):
@@ -107,12 +107,13 @@ def get_key_value():
 # -----------------------------------
 @app.route('/resolver/profile')
 @requires_auth
-def get_openname_profile():
+def get_user_profile():
 
     try:
-        key = 'u/' + request.args.get('openname').lower()
+        username = request.args.get('username').lower()
+        key = 'u/' + username
     except:
-        return jsonify(error_reply("No openname given"))
+        return jsonify(error_reply("No username given"))
 
     if MEMCACHED_ENABLED:
         log.debug('cache enabled')
@@ -124,7 +125,10 @@ def get_openname_profile():
     if cache_reply is None:
 
         try:
-            info = full_profile_mem(key)
+            info = {}
+            profile = full_profile_mem(key)
+            info['profile'] = profile
+            info['verifications'] = profile_to_proofs(profile, username)
             jsonify(info)
         except:
             return error_reply("Malformed profile")
