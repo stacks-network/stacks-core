@@ -14,8 +14,8 @@ DEBUG = True
 
 DEFAULT_PORT = 5000
 DEFAULT_HOST = '0.0.0.0'
-DEFAULT_MEMCACHED_PORT = 11211
-DEFAULT_MEMCACHED_SERVER = '127.0.0.1'
+MEMCACHED_PORT = 11211
+MEMCACHED_SERVER = '127.0.0.1'
 
 MEMCACHED_TIMEOUT = 15 * 60
 MEMCACHED_ENABLED = True
@@ -43,7 +43,7 @@ except:
         try:
             MEMCACHED_SERVERS = os.environ['MEMCACHIER_SERVERS'].split(',')
         except:
-            memcached_server = DEFAULT_MEMCACHED_SERVER + ':' + str(DEFAULT_MEMCACHED_PORT)
+            memcached_server = MEMCACHED_SERVER + ':' + str(MEMCACHED_PORT)
             MEMCACHED_SERVERS = [memcached_server]
 
     # --------------------------------------------------
