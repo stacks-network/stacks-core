@@ -9,3 +9,5 @@ lockfile==0.10.2
 pylibmc==1.3.0
 python-bitcoinrpc==0.1
 python-daemon==1.6.1
+requests==2.3.0
+beautifulsoup4==4.3.2
