@@ -1,55 +1,57 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-	Openname-resolver
-	~~~~~
+    Openname-resolver
+    ~~~~~
 
-	:copyright: (c) 2014 by Openname.org
-	:license: MIT, see LICENSE for more details.
+    :copyright: (c) 2014 by Openname.org
+    :license: MIT, see LICENSE for more details.
 
-	For testing the API from command line
+    For testing the API from command line
 """
 
 import requests
-import json  
+import json
 
-REMOTE_SERVER = 'http://openname-resolver.onename.io'
-API_ENDPOINT = '/resolver/value'
+REMOTE_SERVER = 'http://resolver.onename.com'
+API_ENDPOINT = '/resolver/profile'
 
-#-------------------------
-def call_api(key,auth_user,auth_passwd,server='local'):
-	
-	url = 'http://localhost:5000' + API_ENDPOINT
 
-	if(server == 'remote'):
-		url = REMOTE_SERVER + API_ENDPOINT
+# -------------------------
+def call_api(username, auth_user, auth_passwd, server='local'):
 
-	data = {}
-	data['key'] = key
+    url = 'http://localhost:5000' + API_ENDPOINT
 
-	print url 
-	print data 
+    if(server == 'remote'):
+        url = REMOTE_SERVER + API_ENDPOINT
 
-	headers = {'Content-type': 'application/json'}
+    data = {}
+    data['username'] = username
 
-	r = requests.get(url, params=data, headers=headers, auth=(auth_user,auth_passwd))
+    print url
+    print data
 
-	if r.status_code == 401:
-		print "Wrong user/passwd"
-	else:
-		print r.json()
-		print '-' * 10
+    headers = {'Content-type': 'application/json'}
 
-#-------------------------    
+    r = requests.get(url, params=data, headers=headers,
+                     auth=(auth_user, auth_passwd))
+
+    if r.status_code == 401:
+        print "Wrong user/passwd"
+    else:
+        print r.json()
+        print '-' * 10
+
+# -------------------------
 if __name__ == "__main__":
 
-	import sys 
-	try:
-		key = sys.argv[1]
-		auth_user = sys.argv[2]
-		auth_passwd = sys.argv[3]
-	except:
-		print "ERROR: need <key>, <auth_user>, <auth_passwd>"
-		exit()
+    import sys
+    try:
+        username = sys.argv[1]
+        auth_user = sys.argv[2]
+        auth_passwd = sys.argv[3]
+    except:
+        print "ERROR: need <username>, <auth_user>, <auth_passwd>"
+        exit()
 
-	call_api(key, auth_user, auth_passwd)
+    call_api(username, auth_user, auth_passwd)

@@ -11,4 +11,5 @@ try:
     API_USERNAME = os.environ['API_USERNAME']
     API_PASSWORD = os.environ['API_PASSWORD']
 except:
-    API_USERNAME = API_PASSWORD = ''
+    API_USERNAME = 'default'
+    API_PASSWORD = 'defualt'
