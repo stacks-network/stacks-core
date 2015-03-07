@@ -19,6 +19,8 @@ RUN apt-get install -y \
     git \
     python-pip
 
+RUN a2enmod headers
+
 # Install Memcached
 RUN apt-get install -y python-dev \
     libmemcached-dev \

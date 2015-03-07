@@ -13,7 +13,7 @@
 import requests
 import json
 
-REMOTE_SERVER = 'http://resolver.onename.com'
+REMOTE_SERVER = 'http://172.30.1.96'
 API_ENDPOINT = '/resolver/profile'
 
 
@@ -50,8 +50,9 @@ if __name__ == "__main__":
         username = sys.argv[1]
         auth_user = sys.argv[2]
         auth_passwd = sys.argv[3]
+        server = sys.argv[4]
     except:
-        print "ERROR: need <username>, <auth_user>, <auth_passwd>"
+        print "ERROR: need <username>, <auth_user>, <auth_passwd>, <server>"
         exit()
 
-    call_api(username, auth_user, auth_passwd)
+    call_api(username, auth_user, auth_passwd, server)
