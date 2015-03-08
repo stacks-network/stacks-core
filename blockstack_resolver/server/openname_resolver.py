@@ -107,13 +107,13 @@ def get_key_value():
 
 
 # -----------------------------------
-@app.route('/resolver/profile')
 @requires_auth
 @crossdomain(origin='*')
-def get_user_profile():
+@app.route('/v1/users/<username>', methods=['GET'])
+def get_user_profile(username):
 
     try:
-        username = request.args.get('username').lower()
+        username = username.lower()
         key = 'u/' + username
     except:
         return jsonify(error_reply("No username given"))

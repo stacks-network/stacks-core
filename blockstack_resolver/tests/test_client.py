@@ -13,7 +13,7 @@
 import requests
 import json
 
-REMOTE_SERVER = 'http://172.30.1.96'
+REMOTE_SERVER = 'http://resolver.onename.com'
 API_ENDPOINT = '/resolver/profile'
 
 
