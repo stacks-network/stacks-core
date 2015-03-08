@@ -108,8 +108,6 @@ def get_key_value():
 
 # -----------------------------------
 @app.route('/v1/users/<username>', methods=['GET'])
-@requires_auth
-@crossdomain(origin='*')
 def get_user_profile(username):
 
     try:
