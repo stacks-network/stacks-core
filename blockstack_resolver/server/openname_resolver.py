@@ -128,8 +128,12 @@ def get_user_profile(username):
         try:
             info = {}
             profile = full_profile_mem(key)
-            info['profile'] = profile
-            info['verifications'] = profile_to_proofs(profile, username)
+
+            if not profile:
+                info['error'] = "No user with this username exists"
+            else:
+                info['profile'] = profile
+                info['verifications'] = profile_to_proofs(profile, username)
             jsonify(info)
         except:
             return error_reply("Malformed profile")
