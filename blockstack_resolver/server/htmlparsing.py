@@ -6,6 +6,8 @@ GITHUB_MARDOWN_TAG = 'blob-wrapper data type-markdown js-blob-data'
 
 from .sites import SITES
 
+
+# ---------------------------
 def get_github_text(raw_html):
     html = BeautifulSoup(raw_html)
 
@@ -17,9 +19,9 @@ def get_github_text(raw_html):
         gist_description = ''
 
     file_text = html.body.find('div', attrs={'class': GITHUB_TEXT_TAG})
-    
+
     if file_text is not None:
-        file_text = file_text.text 
+        file_text = file_text.text
     else:
         file_text = html.body.find('div', attrs={'class': GITHUB_MARDOWN_TAG})
 
@@ -32,9 +34,11 @@ def get_github_text(raw_html):
 
     return search_text
 
+
+# ---------------------------
 def get_search_text(service, raw_html):
     if service == 'facebook':
-        raw_html = raw_html.replace('<!--','').replace('-->','')
+        raw_html = raw_html.replace('<!--', '').replace('-->', '')
 
     html_soup = BeautifulSoup(raw_html)
 
@@ -54,4 +58,3 @@ def get_search_text(service, raw_html):
                 search_text = search_results.text
 
     return search_text
-

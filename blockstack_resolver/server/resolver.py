@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Openname-resolver
+    Username Resolver
     ~~~~~
 
     :copyright: (c) 2014 by Openname.org
@@ -32,6 +32,7 @@ from coinrpc import namecoind
 from .helper import requires_auth
 from .proofs import profile_to_proofs
 from .crossdomain import crossdomain
+
 
 # -----------------------------------
 def name_show_mem(key):
@@ -87,13 +88,13 @@ def full_profile_mem(key):
 
 
 # -----------------------------------
-@app.route('/resolver/value')
+@app.route('/v1/value/<key>')
 @requires_auth
 @crossdomain(origin='*')
-def get_key_value():
+def get_key_value(key):
 
     try:
-        key = request.args.get('key').lower()
+        key = key.lower()
     except:
         return jsonify(error_reply("No key given"))
 
@@ -154,7 +155,7 @@ def get_user_profile(username):
 
 
 # -----------------------------------
-@app.route('/resolver/bulk')
+@app.route('/v1/bulk')
 @requires_auth
 @crossdomain(origin='*')
 def get_bulk_profiles():
@@ -183,7 +184,7 @@ def get_bulk_profiles():
 
 
 # -----------------------------------
-@app.route('/resolver/namespace')
+@app.route('/v1/namespace')
 @requires_auth
 @crossdomain(origin='*')
 def get_namespace():
@@ -225,8 +226,8 @@ def get_namespace():
 # -----------------------------------
 @app.route('/')
 def index():
-    reply = '<hmtl><body>Welcome to openname-resolver, see \
-            <a href="http://github.com/openname/openname-resolver"> \
+    reply = '<hmtl><body>Welcome to this resolver, see \
+            <a href="http://github.com/openname/resolver"> \
             this Github repo</a> for details.</body></html>'
 
     return reply
