@@ -76,7 +76,8 @@ WORKDIR /srv/resolver
 
 ##################### INSTALLATION END #####################
 
-# Expose the default ssl port
+# Expose the default http and https port
+EXPOSE 80
 EXPOSE 443
 
 # Set default entry point

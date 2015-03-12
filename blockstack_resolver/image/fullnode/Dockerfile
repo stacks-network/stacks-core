@@ -1,5 +1,5 @@
 ############################################################
-# Dockerfile to build openname-resolver
+# Dockerfile to build resolver
 # Based on Ubuntu
 ############################################################
 
@@ -10,6 +10,8 @@ FROM digitalpassport/blockchain
 MAINTAINER Muneeb Ali (@muneeb)
 
 ################## BEGIN INSTALLATION ######################
+
+RUN apt-get update 
 
 # Install Apache2
 RUN apt-get install -y \
@@ -31,21 +33,21 @@ RUN apt-get install -y python-dev \
 RUN mkdir -p /srv
 
 # Clone the app from github and install packages
-RUN git clone https://github.com/openname/openname-resolver.git /srv/openname-resolver
+RUN git clone https://github.com/openname/resolver.git /srv/resolver
 
 # Uncomment below if using a local tar.gz file
-#ADD openname-resolver.tar.gz /srv/
+#ADD resolver.tar.gz /srv/
 
-WORKDIR /srv/openname-resolver
+WORKDIR /srv/resolver
 RUN pip install -r requirements.txt
 
 # Copy the Apache config files
-RUN cp -f /srv/openname-resolver/apache/config/default.conf /etc/apache2/sites-available/000-default.conf
-RUN cp -f /srv/openname-resolver/apache/config/wsgi.conf /etc/apache2/conf-enabled
+RUN cp -f /srv/resolver/apache/config/default.conf /etc/apache2/sites-available/000-default.conf
+RUN cp -f /srv/resolver/apache/config/wsgi.conf /etc/apache2/conf-enabled
 
-RUN cp -f /srv/openname-resolver/image/fullnode/run.sh /srv/openname-resolver/
-RUN cp -f /srv/openname-resolver/image/fullnode/config.py /srv/openname-resolver/server/config_local.py
-RUN chmod 755 /srv/openname-resolver/run.sh
+RUN cp -f /srv/resolver/image/fullnode/run.sh /srv/resolver/
+RUN cp -f /srv/resolver/image/fullnode/config.py /srv/resolver/server/config_local.py
+RUN chmod 755 /srv/resolver/run.sh
 
 # Install Namecoind
 RUN apt-get install -y \
@@ -67,7 +69,7 @@ RUN git clone https://github.com/namecoin/namecoin.git /srv/namecoin
 WORKDIR /srv/namecoin/src
 RUN make namecoind
 
-WORKDIR /srv/openname-resolver
+WORKDIR /srv/resolver
 
 ##################### INSTALLATION END #####################
 
@@ -75,4 +77,4 @@ WORKDIR /srv/openname-resolver
 EXPOSE 80
 
 # Set default entry point
-ENTRYPOINT /srv/openname-resolver/run.sh
+ENTRYPOINT /srv/resolver/run.sh
