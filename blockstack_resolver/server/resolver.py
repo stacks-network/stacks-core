@@ -4,7 +4,7 @@
     Username Resolver
     ~~~~~
 
-    :copyright: (c) 2014 by Openname.org
+    :copyright: (c) 2015 by Openname.org
     :license: MIT, see LICENSE for more details.
 """
 
@@ -229,6 +229,8 @@ def index():
     reply = '<hmtl><body>Welcome to this resolver, see \
             <a href="http://github.com/openname/resolver"> \
             this Github repo</a> for details.</body></html>'
+
+    print reply
 
     return reply
 

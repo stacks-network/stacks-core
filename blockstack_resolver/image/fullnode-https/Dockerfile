@@ -11,6 +11,8 @@ MAINTAINER Muneeb Ali (@muneeb)
 
 ################## BEGIN INSTALLATION ######################
 
+RUN apt-get update
+
 # Install Apache2
 RUN apt-get install -y \
     apache2 \
@@ -43,7 +45,7 @@ WORKDIR /srv/resolver
 RUN pip install -r requirements.txt
 
 # Copy the Apache config files
-RUN cp -f /srv/resolver/apache/config/default.conf /etc/apache2/sites-available/000-default.conf
+RUN cp -f /srv/resolver/apache/config/default-ssl.conf /etc/apache2/sites-available/000-default.conf
 RUN cp -f /srv/resolver/apache/config/wsgi.conf /etc/apache2/conf-enabled
 
 RUN cp -f /srv/resolver/image/fullnode/run.sh /srv/resolver/
@@ -74,7 +76,7 @@ WORKDIR /srv/resolver
 
 ##################### INSTALLATION END #####################
 
-# Expose the default port
+# Expose the default ssl port
 EXPOSE 443
 
 # Set default entry point
