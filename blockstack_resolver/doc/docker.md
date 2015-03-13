@@ -7,6 +7,23 @@ The easiest way to run the resolver is by running a full-node docker (a full-nod
 
 > sudo docker run -d -p 80:80/tcp digitalpassport/resolver
 
+## With SSL 
+
+We highly recommend using the resolver with SSL. Here are steps to generate a self-signed certificate
+
+```
+sudo apt-get install openssl
+mkdir -p /etc/ssl/localcerts
+openssl req -new -x509 -days 365 -nodes -out /etc/ssl/localcerts/apache.pem -keyout /etc/ssl/localcerts/apache.key
+chmod 600 /etc/ssl/localcerts/apache*
+```
+
+After generating the self-signed certificate, you can run the resolver docker as: 
+
+> sudo docker run -d -p 80:80/tcp -p 443:443/tcp -v /etc/ssl/localcerts:/etc/ssl/localcerts digitalpassport/resolver-ssl
+
+This will listen for both http and https traffic.
+
 ## Installing Docker on Debian:
 
 If you don't have docker already installed, you can install it by:
