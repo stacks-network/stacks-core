@@ -13,14 +13,14 @@ We highly recommend using the resolver with SSL. Here are steps to generate a se
 
 ```
 sudo apt-get install openssl
-mkdir -p /etc/ssl/localcerts
-openssl req -new -x509 -days 365 -nodes -out /etc/ssl/localcerts/apache.pem -keyout /etc/ssl/localcerts/apache.key
-chmod 600 /etc/ssl/localcerts/apache*
+mkdir localcerts
+openssl req -new -x509 -days 365 -nodes -out localcerts/apache.pem -keyout localcerts/apache.key
+chmod 600 localcerts/apache*
 ```
 
-After generating the self-signed certificate, you can run the resolver docker as: 
+After generating the self-signed certificate (on the host), you can mount the localhosts directory in the docker and run the resolver docker as: 
 
-> sudo docker run -d -p 80:80/tcp -p 443:443/tcp -v /etc/ssl/localcerts:/etc/ssl/localcerts digitalpassport/resolver-ssl
+> sudo docker run -d -p 80:80/tcp -p 443:443/tcp -v /path/to/localcerts:/etc/ssl/localcerts digitalpassport/resolver-ssl
 
 This will listen for both http and https traffic.
 
