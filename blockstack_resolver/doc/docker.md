@@ -22,7 +22,7 @@ After generating the self-signed certificate (on the host), you can mount the lo
 
 > sudo docker run -d -p 80:80/tcp -p 443:443/tcp -v /path/to/localcerts:/etc/ssl/localcerts digitalpassport/resolver-ssl
 
-This will listen for both http and https traffic.
+Make sure to edit the /path/to/localcerts for your directory accordingly before running the above line. This will enable the resolver to listen for both http and https traffic.
 
 ## Installing Docker on Debian:
 
