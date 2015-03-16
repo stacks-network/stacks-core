@@ -1,5 +1,9 @@
 # Blockstore: A Key-Value Store on Bitcoin
 
+[![Latest Version](https://pypip.in/version/blockstore/badge.svg)](https://pypi.python.org/pypi/blockstore/)
+[![Downloads](https://pypip.in/download/blockstore/badge.svg)](https://pypi.python.org/pypi/blockstore/)
+[![License](https://pypip.in/license/blockstore/badge.svg)](https://pypi.python.org/pypi/blockstore>/)
+
 Blockstore is a generic key-value store on Bitcoin. You can use it register globally unique names, associate data with those names, and transfer them between Bitcoin addresses.
 
 Then, you or anyone can perform lookups on those names and securely obtain the data associated with them.
