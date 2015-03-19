@@ -30,7 +30,7 @@ mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
 from coinrpc import namecoind
 
 from .helper import requires_auth
-from .proofs import profile_to_proofs
+from .proofcheck import profile_to_proofs
 from .crossdomain import crossdomain
 
 

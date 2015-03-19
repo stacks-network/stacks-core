@@ -1,3 +1,12 @@
+# -*- coding: utf-8 -*-
+"""
+    Username Resolver
+    ~~~~~
+
+    :copyright: (c) 2015 by Openname.org
+    :license: MIT, see LICENSE for more details.
+"""
+
 SITES = {
     'twitter': {
         'base_url': 'https://twitter.com/',
