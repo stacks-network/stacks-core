@@ -1,12 +1,19 @@
 # -*- coding: utf-8 -*-
+"""
+    Username Resolver
+    ~~~~~
+
+    :copyright: (c) 2015 by Openname.org
+    :license: MIT, see LICENSE for more details.
+"""
 
 import requests
 import json
 import hashlib
-from .htmlparsing import *
+from .htmlparsing import get_search_text, get_github_text
 
 from .sites import SITES
-from config import MEMCACHED_PORT, MEMCACHED_TIMEOUT, DEFAULT_HOST, MEMCACHED_ENABLED
+from ..config import MEMCACHED_PORT, MEMCACHED_TIMEOUT, DEFAULT_HOST, MEMCACHED_ENABLED
 
 import pylibmc
 from time import time
@@ -144,7 +151,7 @@ def profile_to_proofs(profile, openname, refresh=False):
                             proof["valid"] = True
 
                             if MEMCACHED_ENABLED:
-                                mc.set("proof_" + proof_url_hash,openname,int(time() + MEMCACHED_TIMEOUT))
+                                mc.set("proof_" + proof_url_hash, openname, int(time() + MEMCACHED_TIMEOUT))
                                 #log.debug("cache miss")
                     else:
                         #log.debug("cache hit")
