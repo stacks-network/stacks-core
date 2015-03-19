@@ -88,9 +88,6 @@ def full_profile_mem(key):
 
 
 # -----------------------------------
-@app.route('/v1/value/<key>')
-@requires_auth
-@crossdomain(origin='*')
 def get_key_value(key):
 
     try:
@@ -107,8 +104,35 @@ def get_key_value(key):
     return jsonify(info)
 
 
+# -----------------------------------------
+@app.route('/v1/usercount', methods=['GET'])
+@requires_auth
+@crossdomain(origin='*')
+def get_user_count():
+
+    active_users = []
+
+    if MEMCACHED_ENABLED:
+
+        total_user_count = mc.get("total_users")
+
+        if total_user_count is None:
+            active_users_list = namecoind.name_filter('u/')
+
+            if type(active_users_list) is list:
+                mc.set("total_users", str(len(active_users_list)),int(time() + MEMCACHED_TIMEOUT))
+
+                return str(len(active_users_list))
+            else:
+                return 0
+        else:
+            return total_user_count
+
+
 # -----------------------------------
 @app.route('/v1/users/<username>', methods=['GET'])
+@requires_auth
+@crossdomain(origin='*')
 def get_user_profile(username):
 
     try:
