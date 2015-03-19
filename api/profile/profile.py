@@ -1,4 +1,5 @@
 import os, json, requests, traceback
+from coinrpc import namecoind
 
 from ..errors import APIError, ProfileNotFoundError, BadProfileError, \
 	UsernameTakenError
@@ -6,6 +7,12 @@ from ..errors import APIError, ProfileNotFoundError, BadProfileError, \
 from .examples import EXAMPLES
 from commontools import log, get_json
 from ..settings import USERDB_URI
+from ..settings import MEMCACHED_PORT, MEMCACHED_TIMEOUT, DEFAULT_HOST, MEMCACHED_ENABLED
+
+import pylibmc
+from time import time
+
+mc = pylibmc.Client([DEFAULT_HOST + ':' + MEMCACHED_PORT],binary=True)
 
 #-----------------------------------
 from pymongo import MongoClient
@@ -58,3 +65,32 @@ def get_db_profile(username):
 		log.error("couldn't connect to database")
 		
 	return profile
+
+#-----------------------------------------
+
+def get_user_count():
+
+	global MEMCACHED_ENABLED
+
+	active_users = []
+
+	if MEMCACHED_ENABLED:
+
+		total_user_count = mc.get("total_users")
+        
+        if total_user_count is None:
+        	active_users_list = namecoind.name_filter('u/')
+
+        	if type(active_users_list) is list:    		
+        		mc.set("total_users", str(len(active_users_list)),int(time() + MEMCACHED_TIMEOUT))
+
+        		return str(len(active_users_list))
+        	else:
+ 				return 0
+        else:
+ 			return total_user_count
+
+
+if __name__ == "__main__":
+	pass
+	#get_user_count()
