@@ -26,7 +26,8 @@ def contains_valid_proof_statement(search_text, username):
         "verifying that +%s is my bitcoin username" % username,
         "verifying that %s is my bitcoin username" % username,
         "verifying that %s is my openname" % username,
-        "verifying that +%s is my openname" % username
+        "verifying that +%s is my openname" % username,
+        "verifying my digital passport. My username is +%s" % username,
     ]
 
     for verification_style in verification_styles:
