@@ -5,10 +5,13 @@
     ~~~~~
 """
 
-import json, datetime, binascii
+import json
+import datetime
+import binascii
 from utilitybelt import dev_random_entropy, dev_urandom_entropy
 
 from ..db import db
+
 
 class User(db.Document):
     # metadata
@@ -18,6 +21,6 @@ class User(db.Document):
     # api keys
     app_id = db.StringField(max_length=255, unique=True, required=True)
     app_secret = db.StringField(max_length=255, unique=True)
-    app_secret_hash = db.StringField(max_length=255, unique=True, required=True)
+    app_secret_hash = db.StringField(
+        max_length=255, unique=True, required=True)
     request_count = db.IntField(min_value=0, default=0)
-

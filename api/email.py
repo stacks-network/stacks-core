@@ -2,6 +2,7 @@ import requests
 
 from . import app
 
+
 def send_w_mailgun(subject, recipient, template):
     return requests.post(
         "https://api.mailgun.net/v2/onename.io/messages",

@@ -12,6 +12,12 @@ app = Flask(__name__)
 
 app.config.from_object('api.settings')
 
+from flask_sslify import SSLify
+import os
+
+if 'DYNO' in os.environ:
+    sslify = SSLify(app)
+
 # Import functions
 import views
 

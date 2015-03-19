@@ -1,4 +1,5 @@
-import os, json
+import os
+import json
 from flask import jsonify
 
 from . import v1profile
@@ -23,6 +24,7 @@ def user_count():
             }
     }
     return jsonify(data), 200
+
 
 @v1profile.route('/users/<username>')
 @auth_required(exception_paths=['/v1/users/example'])

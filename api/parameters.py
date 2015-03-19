@@ -11,6 +11,7 @@ from flask import request
 
 from .errors import APIError
 
+
 def parameters_required(parameters):
     def decorator(f):
         def decorated_function(*args, **kwargs):
@@ -20,7 +21,8 @@ def parameters_required(parameters):
                 try:
                     data = json.loads(request.data)
                 except:
-                    raise APIError('Data payload must be in JSON format', status_code=400)
+                    raise APIError(
+                        'Data payload must be in JSON format', status_code=400)
             else:
                 data = {}
 
@@ -29,10 +31,9 @@ def parameters_required(parameters):
                 if parameter not in data:
                     parameters_missing.append(parameter)
             if len(parameters_missing) > 0:
-                raise APIError('Parameters missing: ' + ', '.join(parameters_missing), 400)
+                raise APIError(
+                    'Parameters missing: ' + ', '.join(parameters_missing), 400
+                )
             return f(*args, **kwargs)
         return update_wrapper(decorated_function, f)
     return decorator
-
-
-

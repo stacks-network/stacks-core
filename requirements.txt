@@ -1,4 +1,5 @@
 Flask==0.10.1
+Flask-SSLify==0.1.4
 Flask-WTF==0.10.2
 Jinja2==2.7.3
 MarkupSafe==0.23
