@@ -120,7 +120,7 @@ def get_user_count():
             active_users_list = namecoind.name_filter('u/')
 
             if type(active_users_list) is list:
-                mc.set("total_users", str(len(active_users_list)),int(time() + MEMCACHED_TIMEOUT))
+                mc.set("total_users", str(len(active_users_list)), int(time() + MEMCACHED_TIMEOUT))
 
                 return str(len(active_users_list))
             else:
@@ -150,15 +150,16 @@ def get_user_profile(username):
 
     if cache_reply is None:
 
-        try:
-            info = {}
-            profile = full_profile_mem(key)
+        info = {}
+        profile = full_profile_mem(key)
 
-            if not profile:
-                info['error'] = "No user with this username exists"
-            else:
-                info['profile'] = profile
-                info['verifications'] = profile_to_proofs(profile, username)
+        if not profile:
+            abort(404)
+
+        else:
+            info['profile'] = profile
+            info['verifications'] = profile_to_proofs(profile, username)
+        try:
             jsonify(info)
         except:
             return error_reply("Malformed profile")
@@ -253,8 +254,6 @@ def index():
     reply = '<hmtl><body>Welcome to this resolver, see \
             <a href="http://github.com/openname/resolver"> \
             this Github repo</a> for details.</body></html>'
-
-    print reply
 
     return reply
 
