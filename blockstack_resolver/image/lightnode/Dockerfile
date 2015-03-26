@@ -39,20 +39,17 @@ RUN apt-get install -y python-dev \
 RUN mkdir -p /srv
 
 # Clone the app from github and install packages
-RUN git clone https://github.com/openname/openname-resolver.git /srv/openname-resolver
+RUN git clone https://github.com/openname/resolver.git /srv/resolver
 
-# Uncomment below if using a local tar.gz file
-#ADD openname-resolver.tar.gz /srv/
-
-WORKDIR /srv/openname-resolver
-RUN chmod 755 /srv/openname-resolver/run.sh
+WORKDIR /srv/resolver
+RUN chmod 755 /srv/resolver/run.sh
 RUN pip install -r requirements.txt
 
 # Copy the Apache config files
-RUN cp -f /srv/openname-resolver/apache/config/default.conf /etc/apache2/sites-available/000-default.conf
-RUN cp -f /srv/openname-resolver/apache/config/wsgi.conf /etc/apache2/conf-enabled
+RUN cp -f /srv/resolver/apache/config/default.conf /etc/apache2/sites-available/000-default.conf
+RUN cp -f /srv/resolver/apache/config/wsgi.conf /etc/apache2/conf-enabled
 
-RUN cp -f /srv/openname-resolver/image/lightnode/run.sh /srv/openname-resolver/
+RUN cp -f /srv/resolver/image/lightnode/run.sh /srv/resolver/
 
 # Set env variables here (can also use config_local.py file or pass them to Docker with -e)
 #ENV NAMECOIND_SERVER <your server> 
@@ -68,4 +65,4 @@ RUN cp -f /srv/openname-resolver/image/lightnode/run.sh /srv/openname-resolver/
 EXPOSE 80
 
 # Set default entry point
-ENTRYPOINT /srv/openname-resolver/run.sh
+ENTRYPOINT /srv/resolver/run.sh
