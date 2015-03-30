@@ -43,7 +43,7 @@ old_users = old_db.user
 aws_db = MongoClient(AWSDB_URI)['blockdata']
 register_queue = aws_db.queue
 
-from config_local import problem_users, banned_users 
+from config_local import problem_users, banned_users
 
 load_servers = ['named4','named6','named7','named8']
 
