@@ -1,18 +1,28 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # -----------------------
-# Copyright 2014 Halfmoon Labs, Inc.
+# Copyright 2015 Halfmoon Labs, Inc.
 # All Rights Reserved
 # -----------------------
 
-from .register import update_name
-from commontools import log
-
 import json
-
 from time import sleep
+from commontools import log, get_json
 
 from coinrpc import namecoind
+
+from .nameops import update_name, process_user
+
+from .loadbalancer import load_balance
+
+from .config import MONGODB_URI, OLD_DB
+
+from pymongo import MongoClient
+remote_db = MongoClient(MONGODB_URI).get_default_database()
+users = remote_db.user
+
+old_db = MongoClient(OLD_DB).get_default_database()
+old_users = old_db.user
 
 
 # -----------------------------------
@@ -135,9 +145,63 @@ def send_update(expiring_users):
 
             sleep(5)
 
-#-----------------------------------
+
+# -----------------------------------
+def re_register(current_server):
+
+    expired_users = get_expired_names('u/')
+
+    #ignore_users = ['frm','rfd','meng','bjorn']
+    ignore_users = ['go']
+
+    counter = 0
+
+    for i in expired_users:
+
+        if counter % 10 == 0:
+            current_server = load_balance(current_server)
+            counter += 1
+
+        username = i['name'].lstrip('u/')
+
+        if username in ignore_users:
+            continue
+
+        new_user = users.find_one({'username':username})
+
+        if new_user is not None:
+            print username + " in new DB"
+
+            profile = get_json(new_user['profile'])
+            try:
+                process_user(username, profile, current_server)
+            except Exception as e:
+                print e
+            print '-' * 5
+            counter += 1
+            continue
+
+        old_user = old_users.find_one({'username': username})
+        if old_user is not None:
+            print username + " in old DB"
+            profile = get_json(old_user['profile'])
+
+            try:
+                process_user(username, profile, current_server)
+            except Exception as e:
+                print e
+
+            counter += 1
+            continue
+
+        print username + " not our user"
+        print '-' * 5
+
+# -----------------------------------
 if __name__ == '__main__':
 
-    expiring_users = get_expiring_names('u/',2000)
+    #expiring_users = get_expiring_names('u/',2000)
     #get_expired_names('u/')
     #send_update(expiring_users)
+
+    re_register('named3')
