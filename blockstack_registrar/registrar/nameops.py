@@ -20,12 +20,12 @@ aws_db = MongoClient(AWSDB_URI)['blockdata']
 register_queue = aws_db.queue
 
 from coinrpc.namecoind_server import NamecoindServer
-from blockdata.namecoind_cluster import get_server
+from coinrpc.namecoind_cluster import get_server
 
-from config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD
-from config import NAMECOIND_WALLET_PASSPHRASE, NAMECOIND_SERVER
-from config import NAMECOIND_USE_HTTPS
-from config import DEFAULT_HOST, MEMCACHED_PORT, MEMCACHED_TIMEOUT
+from .config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD
+from .config import NAMECOIND_WALLET_PASSPHRASE, NAMECOIND_SERVER
+from .config import NAMECOIND_USE_HTTPS
+from .config import DEFAULT_HOST, MEMCACHED_PORT, MEMCACHED_TIMEOUT
 
 from coinrpc import namecoind
 
