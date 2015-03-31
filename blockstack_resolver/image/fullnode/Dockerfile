@@ -4,7 +4,7 @@
 ############################################################
 
 # Set the base image to Ubuntu
-FROM digitalpassport/blockchain
+FROM digitalpassport/namecoind
 
 # File Author / Maintainer
 MAINTAINER Muneeb Ali (@muneeb)
@@ -29,8 +29,8 @@ RUN apt-get install -y python-dev \
     zlib1g-dev \
     memcached
 
-# Create the default directory
-RUN mkdir -p /srv
+# Create the default directory (uncomment if doesn't exist)
+#RUN mkdir -p /srv
 
 # Clone the app from github and install packages
 RUN git clone https://github.com/openname/resolver.git /srv/resolver
@@ -48,28 +48,6 @@ RUN cp -f /srv/resolver/apache/config/wsgi.conf /etc/apache2/conf-enabled
 RUN cp -f /srv/resolver/image/fullnode/run.sh /srv/resolver/
 RUN cp -f /srv/resolver/image/fullnode/config.py /srv/resolver/server/config_local.py
 RUN chmod 755 /srv/resolver/run.sh
-
-# Install Namecoind
-RUN apt-get install -y \
-    build-essential \
-    libssl-dev \
-    libboost-all-dev \
-    libgtk2.0-dev \
-    git
-
-# Assuming older version of libdb was already setup
-RUN apt-get install -y --force-yes \
-    libdb4.8-dev \
-    libdb4.8++-dev
-
-# Create the default service directory
-RUN git clone https://github.com/namecoin/namecoin.git /srv/namecoin
-
-# Compile
-WORKDIR /srv/namecoin/src
-RUN make namecoind
-
-WORKDIR /srv/resolver
 
 ##################### INSTALLATION END #####################
 

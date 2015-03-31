@@ -20,9 +20,16 @@ file_name = parent_dir + "/log/debug_log.txt"
 import logging
 from logging.handlers import RotatingFileHandler
 from time import sleep
-from coinrpc import namecoind
 from commontools import log
 from tools.warmup_cache import warmup_cache
+
+from server.config import NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USE_HTTPS
+from server.config import NAMECOIND_USER, NAMECOIND_PASSWD
+
+from coinrpc import NamecoindServer
+namecoind = NamecoindServer(NAMECOIND_SERVER, NAMECOIND_PORT,
+                            NAMECOIND_USER, NAMECOIND_PASSWD,
+                            NAMECOIND_USE_HTTPS)
 
 
 # -----------------------------------

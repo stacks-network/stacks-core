@@ -16,6 +16,8 @@ app = Flask(__name__)
 from .config import DEBUG
 from .config import DEFAULT_HOST, MEMCACHED_SERVERS, MEMCACHED_USERNAME
 from .config import MEMCACHED_PASSWORD, MEMCACHED_TIMEOUT, MEMCACHED_ENABLED
+from .config import NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USE_HTTPS
+from .config import NAMECOIND_USER, NAMECOIND_PASSWD
 
 from commontools import error_reply, log
 import logging
@@ -27,7 +29,10 @@ from time import time
 mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
                     username=MEMCACHED_USERNAME, password=MEMCACHED_PASSWORD)
 
-from coinrpc import namecoind
+from coinrpc import NamecoindServer
+namecoind = NamecoindServer(NAMECOIND_SERVER, NAMECOIND_PORT,
+                            NAMECOIND_USER, NAMECOIND_PASSWD,
+                            NAMECOIND_USE_HTTPS)
 
 from .helper import requires_auth
 from .proofcheck import profile_to_proofs
@@ -154,8 +159,8 @@ def get_user_profile(username):
         profile = full_profile_mem(key)
 
         if not profile:
-            abort(404)
-
+            #abort(404)
+            print "abort"
         else:
             info['profile'] = profile
             info['verifications'] = profile_to_proofs(profile, username)

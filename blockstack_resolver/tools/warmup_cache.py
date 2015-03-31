@@ -16,9 +16,17 @@ current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
 sys.path.insert(0, parent_dir)
 
-from coinrpc import namecoind
+
 from server.config import MEMCACHED_SERVERS, MEMCACHED_USERNAME
 from server.config import MEMCACHED_PASSWORD, MEMCACHED_TIMEOUT
+
+from server.config import NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USE_HTTPS
+from server.config import NAMECOIND_USER, NAMECOIND_PASSWD
+
+from coinrpc import NamecoindServer
+namecoind = NamecoindServer(NAMECOIND_SERVER, NAMECOIND_PORT,
+                            NAMECOIND_USER, NAMECOIND_PASSWD,
+                            NAMECOIND_USE_HTTPS)
 
 import pylibmc
 mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
