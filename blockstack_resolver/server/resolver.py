@@ -110,8 +110,7 @@ def get_key_value(key):
 
 
 # -----------------------------------------
-@app.route('/v1/usercount', methods=['GET'])
-@requires_auth
+@app.route('/v1/users', methods=['GET'])
 @crossdomain(origin='*')
 def get_user_count():
 
@@ -127,16 +126,20 @@ def get_user_count():
             if type(active_users_list) is list:
                 mc.set("total_users", str(len(active_users_list)), int(time() + MEMCACHED_TIMEOUT))
 
-                return str(len(active_users_list))
+                total_user_count = len(active_users_list)
             else:
-                return 0
-        else:
-            return total_user_count
+                total_user_count = 0
+
+    info = {}
+    stats = {}
+
+    stats['registrations'] = total_user_count
+    info['stats'] = stats
+    return jsonify(info)
 
 
 # -----------------------------------
 @app.route('/v1/users/<username>', methods=['GET'])
-@requires_auth
 @crossdomain(origin='*')
 def get_user_profile(username):
 
@@ -186,7 +189,6 @@ def get_user_profile(username):
 
 # -----------------------------------
 @app.route('/v1/bulk')
-@requires_auth
 @crossdomain(origin='*')
 def get_bulk_profiles():
 
@@ -215,7 +217,6 @@ def get_bulk_profiles():
 
 # -----------------------------------
 @app.route('/v1/namespace')
-@requires_auth
 @crossdomain(origin='*')
 def get_namespace():
 
