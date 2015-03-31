@@ -35,17 +35,17 @@ $ blockstore-cli lookup swiftonsecurity
 
 Next, learn how to register names of your own, as well as transfer them and associate data with them:
 
-[Full usage docs](/wiki/Usage)
+[Full usage docs](wiki/Usage)
 
 ## Design
 
-[Design decisions](/wiki/Design-Decisions)
+[Design decisions](wiki/Design-Decisions)
 
-[Protocol details](/wiki/Protocol-Details)
+[Protocol details](wiki/Protocol-Details)
 
-[Definitions](/wiki/Definitions)
+[Definitions](wiki/Definitions)
 
-[FAQ](/wiki/FAQ)
+[FAQ](wiki/FAQ)
 
 ## Contributions
 
@@ -56,12 +56,12 @@ The best way to contribute is to:
 1. make your changes
 1. submit a pull request
 
-[Code contributors](/graphs/contributors)
+[Code contributors](graphs/contributors)
 
-[Full contributor list](/wiki/Contributors)
+[Full contributor list](wiki/Contributors)
 
 ## License
 
-[Released under the MIT License](/LICENSE)
+[Released under the MIT License](LICENSE)
 
 Copyright 2015, openname.org
