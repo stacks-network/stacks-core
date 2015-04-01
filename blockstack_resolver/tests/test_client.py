@@ -13,12 +13,12 @@
 import requests
 import json
 
-REMOTE_SERVER = 'http://resolver.onename.com'
-API_ENDPOINT = '/resolver/profile'
+REMOTE_SERVER = 'https://50.19.215.172'
+API_ENDPOINT = '/v1/users/fredwilson'
 
 
 # -------------------------
-def call_api(username, auth_user, auth_passwd, server='local'):
+def call_api(auth_user, auth_passwd, server='local'):
 
     url = 'http://localhost:5000' + API_ENDPOINT
 
@@ -26,15 +26,15 @@ def call_api(username, auth_user, auth_passwd, server='local'):
         url = REMOTE_SERVER + API_ENDPOINT
 
     data = {}
-    data['username'] = username
 
-    print url
-    print data
+    # print url
+    # print data
 
     headers = {'Content-type': 'application/json'}
 
+    # SSL verification is turned off below (need to change that)
     r = requests.get(url, params=data, headers=headers,
-                     auth=(auth_user, auth_passwd))
+                     auth=(auth_user, auth_passwd), verify=False)
 
     if r.status_code == 401:
         print "Wrong user/passwd"
@@ -47,12 +47,11 @@ if __name__ == "__main__":
 
     import sys
     try:
-        username = sys.argv[1]
-        auth_user = sys.argv[2]
-        auth_passwd = sys.argv[3]
-        server = sys.argv[4]
+        auth_user = sys.argv[1]
+        auth_passwd = sys.argv[2]
+        server = sys.argv[3]
     except:
-        print "ERROR: need <username>, <auth_user>, <auth_passwd>, <server>"
+        print "ERROR: need <auth_user>, <auth_passwd>, <server>"
         exit()
 
-    call_api(username, auth_user, auth_passwd, server)
+    call_api(auth_user, auth_passwd, server)
