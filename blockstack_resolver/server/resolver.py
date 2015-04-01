@@ -111,6 +111,7 @@ def get_key_value(key):
 
 # -----------------------------------------
 @app.route('/v1/users', methods=['GET'])
+@requires_auth
 @crossdomain(origin='*')
 def get_user_count():
 
@@ -139,15 +140,10 @@ def get_user_count():
 
 
 # -----------------------------------
-@app.route('/v1/users/<username>', methods=['GET'])
-@crossdomain(origin='*')
 def get_user_profile(username):
 
-    try:
-        username = username.lower()
-        key = 'u/' + username
-    except:
-        return jsonify(error_reply("No username given"))
+    username = username.lower()
+    key = 'u/' + username
 
     if MEMCACHED_ENABLED:
         log.debug('cache enabled')
@@ -167,10 +163,6 @@ def get_user_profile(username):
         else:
             info['profile'] = profile
             info['verifications'] = profile_to_proofs(profile, username)
-        try:
-            jsonify(info)
-        except:
-            return error_reply("Malformed profile")
 
         if MEMCACHED_ENABLED:
             mc.set("profile_" + str(key), json.dumps(info),
@@ -180,22 +172,31 @@ def get_user_profile(username):
         log.debug("cache hit full_profile")
         info = json.loads(cache_reply)
 
-    if 'status' in info:
-        if info['status'] == 404:
-            abort(404)
-
-    return jsonify(info)
+    return info
 
 
 # -----------------------------------
-@app.route('/v1/bulk')
+@app.route('/v1/users/<usernames>', methods=['GET'])
+@requires_auth
 @crossdomain(origin='*')
-def get_bulk_profiles():
-
-    usernames = request.args.get('usernames')
+def get_users(usernames):
 
     if usernames is None:
         return jsonify(error_reply("No usernames given"))
+
+    if ',' not in usernames:
+        info = get_user_profile(usernames)
+
+        try:
+            jsonify(info)
+        except:
+            return error_reply("Malformed profile")
+
+        if 'status' in info:
+            if info['status'] == 404:
+                abort(404)
+
+        return jsonify(info)
 
     try:
         usernames = usernames.rsplit(',')
@@ -206,9 +207,8 @@ def get_bulk_profiles():
 
     for username in usernames:
 
-        result = {}
+        result = get_user_profile(username)
         result["username"] = username
-        result["profile"] = full_profile_mem('u/' + username.lower())
 
         list.append(result)
 
@@ -217,6 +217,7 @@ def get_bulk_profiles():
 
 # -----------------------------------
 @app.route('/v1/namespace')
+@requires_auth
 @crossdomain(origin='*')
 def get_namespace():
 
