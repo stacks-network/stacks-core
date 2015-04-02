@@ -34,7 +34,6 @@ namecoind = NamecoindServer(NAMECOIND_SERVER, NAMECOIND_PORT,
                             NAMECOIND_USER, NAMECOIND_PASSWD,
                             NAMECOIND_USE_HTTPS)
 
-from .helper import requires_auth
 from .proofcheck import profile_to_proofs
 from .crossdomain import crossdomain
 
@@ -111,7 +110,6 @@ def get_key_value(key):
 
 # -----------------------------------------
 @app.route('/v1/users', methods=['GET'])
-@requires_auth
 @crossdomain(origin='*')
 def get_user_count():
 
@@ -177,7 +175,6 @@ def get_user_profile(username):
 
 # -----------------------------------
 @app.route('/v1/users/<usernames>', methods=['GET'])
-@requires_auth
 @crossdomain(origin='*')
 def get_users(usernames):
 
@@ -219,7 +216,6 @@ def get_users(usernames):
 
 # -----------------------------------
 @app.route('/v1/namespace')
-@requires_auth
 @crossdomain(origin='*')
 def get_namespace():
 
