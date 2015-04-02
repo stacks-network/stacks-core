@@ -156,8 +156,7 @@ def get_user_profile(username):
         profile = full_profile_mem(key)
 
         if not profile:
-            #abort(404)
-            print "abort"
+            abort(404)
         else:
             info['profile'] = profile
             info['verifications'] = profile_to_proofs(profile, username)
