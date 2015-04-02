@@ -207,10 +207,12 @@ def get_users(usernames):
 
     for username in usernames:
 
-        result = get_user_profile(username)
-        result["username"] = username
-
-        list.append(result)
+        try:
+            result = {}
+            result[username] = get_user_profile(username)
+            list.append(result)
+        except:
+            pass
 
     return jsonify(results=list)
 
