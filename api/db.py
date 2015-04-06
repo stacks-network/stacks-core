@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
     Onename API
-    Copyright 2014 Halfmoon Labs, Inc.
+    Copyright 2015 Halfmoon Labs, Inc.
     ~~~~~
 """
 

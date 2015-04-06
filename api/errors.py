@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
     Onename API
-    Copyright 2014 Halfmoon Labs, Inc.
+    Copyright 2015 Halfmoon Labs, Inc.
     ~~~~~
 """
 
@@ -65,18 +65,6 @@ def internal_server_error(e):
 def exception_error(e):
     traceback.print_exc()
     return jsonify({'error': 'Internal server error'}), 404
-
-
-class ProfileNotFoundError(APIError):
-    pass
-
-
-class BadProfileError(APIError):
-    pass
-
-
-class UsernameTakenError(APIError):
-    pass
 
 
 class UnauthorizedAccessError(APIError):
