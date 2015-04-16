@@ -19,19 +19,14 @@ if 'DYNO' in os.environ:
     sslify = SSLify(app)
 
 # Import functions
-import views
+import main
 
 # Add in blueprints
 from .docs import docs
 from .auth import v1auth
-from .profile import v1profile
-from .proofs import v1proofs
-from .search import v1search
-from .misc import v1misc
 
 blueprints = [
-    docs,
-    v1auth, v1profile, v1proofs, v1search, v1misc
+    docs, v1auth
 ]
 
 for blueprint in blueprints:
