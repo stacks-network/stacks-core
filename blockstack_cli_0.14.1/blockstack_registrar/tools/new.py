@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-#-----------------------
-# Copyright 2014 Halfmoon Labs, Inc.
+# -----------------------
+# Copyright 2015 Halfmoon Labs, Inc.
 # All Rights Reserved
-#-----------------------
+# -----------------------
 
-from blockdata.namecoind_cluster import get_server
-from blockdata.register import update_name
+from pybitcoin.rpc.namecoind_cluster import get_server
+from registrar.nameops import update_name
 from commontools import setup_logging
 
 import json
@@ -17,12 +17,14 @@ log = logging.getLogger()
 
 from time import sleep
 
+from registrar.config import MAIN_SERVER, LOAD_SERVERS
 
-#-----------------------------------
+
+# -----------------------------------
 if __name__ == '__main__':
 
-    key = 'u/patcon'
-    log.debug(get_server(key))
+    key = 'u/gabridome'
+    log.debug(get_server(key, MAIN_SERVER, LOAD_SERVERS))
     #value = json.loads('{"next":"u/awright"}')
     #update_name(key,value)
 
