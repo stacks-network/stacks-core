@@ -8,9 +8,9 @@
 import os
 import json
 
-from config import MONGODB_URI, OLD_DB, AWSDB_URI
+from registrar.config import MONGODB_URI, OLD_DB, AWSDB_URI
 
-from blockdata.register import process_user, update_name, register_name
+from registrar.nameops import process_user, update_name, register_name
 
 from pymongo import MongoClient
 from bson.objectid import ObjectId
@@ -30,9 +30,9 @@ from coinkit import BitcoinKeypair, NamecoinKeypair
 
 from coinrpc import namecoind
 from coinrpc.namecoind_server import NamecoindServer
-from config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD
-from config import NAMECOIND_USE_HTTPS, NAMECOIND_SERVER
-from config import NAMECOIND_WALLET_PASSPHRASE
+from registrar.config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD
+from registrar.config import NAMECOIND_USE_HTTPS, NAMECOIND_SERVER
+from registrar.config import NAMECOIND_WALLET_PASSPHRASE
 from commontools import get_json, log
 import requests
 
@@ -138,14 +138,6 @@ def find_old_user(username):
 
     user = old_users.find_one({'username': username})
     print_user(user)
-
-
-# -----------------------------------
-def change_profile(username, profile):
-
-    user = users.find_one({'username': username})
-    user['profile'] = profile
-    users.save(user)
 
 
 # -----------------------------------
@@ -308,7 +300,7 @@ def grab_expiring_names():
 # -----------------------------------
 def transfer_key(key, nmc_address):
 
-    from blockdata.namecoind_cluster import get_server
+    from pybitcoin.rpc.namecoind_cluster import get_server
 
     serverinfo = get_server(key)
 
@@ -394,13 +386,29 @@ def change_email(old_email, new_email):
     user['email'] = new_email
     users.save(user)
 
+
+# -----------------------------------
+def change_username(old_username, new_username):
+    user = users.find_one({'username': old_username})
+    user['username'] = new_username
+    users.save(user)
+
+
+# -----------------------------------
+def change_profile(username, profile):
+
+    user = users.find_one({'username': username})
+    user['profile'] = profile
+    users.save(user)
+
 # -----------------------------------
 if __name__ == '__main__':
 
-    username = 'kh'
+    username = 'justas'
 
-    from config_local import problem_users
+    from registrar.config_local import problem_users
 
+    '''
     for username in problem_users:
         print 'processing:' + username
         user = users.find_one({'username': username})
@@ -411,8 +419,9 @@ if __name__ == '__main__':
             print e
 
     exit(0)
+    '''
 
-    #transfer_key('u/clark', 'N6aKxkTwUZEthoGwyrnGuU32F9V94eBqJL')
+    #transfer_key('u/paulw', 'N7KBT3qnnBjbFvdPdu8Uj1nVFnXidKXHEK')
 
     #exit(0)
 
@@ -438,12 +447,13 @@ if __name__ == '__main__':
     '''
 
     #change_email('tstern@tulane.edu', 'tstern1@tulane.edu')
+    #change_username('gbd', 'gabridome')
     #exit(0)
 
     #email = 'ItsikItsik@yahoo.com'
     
     user = users.find_one({'username': username})
-    process_manually(username)
+    #process_manually(username)
     
     #print user
     #user['profile'] = '{}'
@@ -452,7 +462,7 @@ if __name__ == '__main__':
     # users.save(user)
     #print_user(user)
 
-    exit(0)
+    #exit(0)
 
     '''
     from config_local import problem_users, banned_users
@@ -478,7 +488,8 @@ if __name__ == '__main__':
     exit(0)
     '''
 
-    #process_manually(username)
+    process_manually(username)
+    exit(0)
     # username = "winklevoss1"
     # alias = "winklevoss"
     # process_manually_alias(username,alias)
@@ -487,7 +498,7 @@ if __name__ == '__main__':
 
     # profile = user['profile']
 
-    # process_manually_old(username)
+    #process_manually_old(username)
 
     # cleanup_user(username)
     # print_user(user)
