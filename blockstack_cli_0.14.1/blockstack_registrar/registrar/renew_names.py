@@ -9,7 +9,7 @@ import json
 from time import sleep
 from commontools import log, get_json
 
-from coinrpc import namecoind
+from pybitcoin.rpc import namecoind
 
 from .nameops import update_name, process_user
 
@@ -182,10 +182,23 @@ def re_register(current_server):
             continue
 
         old_user = old_users.find_one({'username': username})
+
         if old_user is not None:
             print username + " in old DB"
             profile = get_json(old_user['profile'])
 
+            try:
+                process_user(username, profile, current_server)
+            except Exception as e:
+                print e
+
+            counter += 1
+            continue
+
+        profile = namecoind.name_show(i['name'])
+        profile = profile['value']
+        
+        if 'status' in profile and profile['status'] == 'reserved':
             try:
                 process_user(username, profile, current_server)
             except Exception as e:
