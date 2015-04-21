@@ -55,3 +55,10 @@ else:
     # from .secrets import *
 
     MONGODB_URI = 'mongodb://' + MONGODB_HOST + ':' + str(MONGODB_PORT) + '/' + MONGODB_DB
+
+try:
+
+    AWSDB_URI = os.environ['AWSDB_URI']
+
+except:
+    AWSDB_URI = None

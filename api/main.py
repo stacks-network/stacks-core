@@ -19,6 +19,11 @@ from .auth import auth_required
 
 from pybitcoin.rpc import namecoind
 
+from pymongo import MongoClient
+from settings import AWSDB_URI
+aws_db = MongoClient(AWSDB_URI)['onename-api']
+register_queue = aws_db.queue
+
 
 # --------------------------------------
 @app.route('/')
@@ -41,7 +46,7 @@ def versions():
 
 # --------------------------------------
 #@auth_required(exception_queries=['fredwilson'])
-@app.route('/search', methods=['GET'])
+@app.route('/v1/search', methods=['GET'])
 @parameters_required(parameters=['query'])
 @crossdomain(origin='*')
 def search_people():
@@ -70,7 +75,7 @@ def search_people():
 
 # --------------------------------------
 #@auth_required(exception_paths=['/v1/user_count/example'])
-@app.route('/users')
+@app.route('/v1/users')
 @crossdomain(origin='*')
 def user_count():
 
@@ -87,7 +92,7 @@ def user_count():
 
 # --------------------------------------
 #@auth_required(exception_paths=['/v1/users/example'])
-@app.route('/users/<username>')
+@app.route('/v1/users/<username>')
 @crossdomain(origin='*')
 def api_user(username):
 
@@ -103,7 +108,50 @@ def api_user(username):
 
 # --------------------------------------
 #@auth_required(exception_paths=['/v1/users/example'])
-@app.route('/transactions/send', methods=['POST'])
+@app.route('/v1/users/<username>/register', methods=['POST'])
+@parameters_required(['transfer_address'])
+@crossdomain(origin='*')
+def register_user(username):
+
+    if namecoind.check_registration('u/' + username):
+        raise APIError("username already registered", status_code=403)
+
+    data = json.loads(request.data)
+
+    user = {}
+    user['username'] = username
+
+    user['transfer_address'] = data['transfer_address']
+
+    try:
+        user['profile'] = data['profile']
+    except:
+        user['profile'] = {'status': 'registered',
+                           'message': 'This username was registered using the Onename API -- http://api.onename.com'}
+
+    find_user = register_queue.find_one({"username": username})
+
+    if find_user is not None:
+        # someone else already tried registering this name
+        # but the username is not registered on the blockchain
+        # don't tell the client that someone else's request is processing
+
+        pass
+    else:
+        try:
+            register_queue.save(user)
+        except Exception as e:
+            raise APIError(str(e), status_code=404)
+
+    reply = {}
+    reply['status'] = 'success'
+    return jsonify(reply), 200
+
+
+# --------------------------------------
+#@auth_required(exception_paths=['/v1/users/example'])
+@app.route('/v1/transactions/send', methods=['POST'])
+@parameters_required(['signed_hex'])
 @crossdomain(origin='*')
 def broadcast_tx():
 
