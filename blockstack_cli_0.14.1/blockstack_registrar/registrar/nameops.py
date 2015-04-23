@@ -19,9 +19,10 @@ from config import AWSDB_URI
 aws_db = MongoClient(AWSDB_URI)['blockdata']
 register_queue = aws_db.queue
 
-from coinrpc.namecoind_server import NamecoindServer
-from coinrpc.namecoind_cluster import get_server
+from pybitcoin.rpc.namecoind_client import NamecoindClient
+from pybitcoin.rpc.namecoind_cluster import get_server
 
+from .config import MAIN_SERVER, LOAD_SERVERS
 from .config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD
 from .config import NAMECOIND_WALLET_PASSPHRASE, NAMECOIND_SERVER
 from .config import NAMECOIND_USE_HTTPS
@@ -46,7 +47,7 @@ def register_name(key, value, server=NAMECOIND_SERVER, username=None):
         reply['message'] = "ERROR: " + "already in register queue: " + str(key)
     else:
 
-        namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER,
+        namecoind = NamecoindClient(server, NAMECOIND_PORT, NAMECOIND_USER,
                                     NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS,
                                     NAMECOIND_WALLET_PASSPHRASE)
 
@@ -93,7 +94,7 @@ def update_name(key, value):
 
         server = NAMECOIND_SERVER
 
-        serverinfo = get_server(key)
+        serverinfo = get_server(key, MAIN_SERVER, LOAD_SERVERS)
 
         if 'registered' in serverinfo and serverinfo['registered']:
             server = serverinfo['server']
@@ -101,7 +102,7 @@ def update_name(key, value):
         log.debug(server)
         log.debug(value)
 
-        namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER,
+        namecoind = NamecoindClient(server, NAMECOIND_PORT, NAMECOIND_USER,
                                     NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS,
                                     NAMECOIND_WALLET_PASSPHRASE)
 
