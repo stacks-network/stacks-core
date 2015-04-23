@@ -96,10 +96,10 @@ def user_count():
 @crossdomain(origin='*')
 def api_user(username):
 
-    BASE_URL = 'http://resolver.onename.com/v1/users/'
+    BASE_URL = 'https://resolver.onename.com/v1/users/'
 
     try:
-        reply = requests.get(BASE_URL + username, timeout=3)
+        reply = requests.get(BASE_URL + username, timeout=3, verify=False)
     except Exception as e:
         raise APIError(str(e), status_code=404)
 
