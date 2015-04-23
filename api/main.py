@@ -51,12 +51,12 @@ def versions():
 @crossdomain(origin='*')
 def search_people():
 
-    search_url = 'http://search.halfmoonlabs.com/search/name'
+    search_url = 'https://search.halfmoonlabs.com/search/name'
 
     name = request.values['query']
 
     try:
-        results = requests.get(url=search_url, params={'query': name})
+        results = requests.get(url=search_url, params={'query': name}, verify=False)
     except:
         raise APIError('Something went wrong', status_code=500)
 
@@ -79,10 +79,10 @@ def search_people():
 @crossdomain(origin='*')
 def user_count():
 
-    BASE_URL = 'http://resolver.onename.com/v1/users'
+    BASE_URL = 'https://resolver.onename.com/v1/users'
 
     try:
-        reply = requests.get(BASE_URL, timeout=3)
+        reply = requests.get(BASE_URL, timeout=3, verify=False)
 
     except Exception as e:
         raise APIError(str(e), status_code=404)
