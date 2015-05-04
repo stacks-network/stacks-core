@@ -24,6 +24,9 @@ from settings import AWSDB_URI
 aws_db = MongoClient(AWSDB_URI)['onename-api']
 register_queue = aws_db.queue
 
+namecoin_index = MongoClient(NAMECOIN_DB_URI)['namecoin_index']
+address_utxo = namecoin_index.address_utxo
+address_to_keys = namecoin_index.address_to_keys
 
 # --------------------------------------
 @app.route('/')
@@ -38,7 +41,6 @@ def versions():
     data = {
         'api': '1',
         'passcard_specs': '0.2',
-        'passcard_directory': '0.1',
     }
 
     return jsonify(data), 200
@@ -82,7 +84,7 @@ def user_count():
     BASE_URL = 'http://resolver.onename.com/v1/users'
 
     try:
-        reply = requests.get(BASE_URL, timeout=3)
+        reply = requests.get(BASE_URL, timeout=10)
 
     except Exception as e:
         raise APIError(str(e), status_code=404)
@@ -92,14 +94,14 @@ def user_count():
 
 # --------------------------------------
 #@auth_required(exception_paths=['/v1/users/example'])
-@app.route('/v1/users/<username>')
+@app.route('/v1/users/<passname>')
 @crossdomain(origin='*')
-def api_user(username):
+def api_user(passname):
 
     BASE_URL = 'http://resolver.onename.com/v1/users/'
 
     try:
-        reply = requests.get(BASE_URL + username, timeout=3)
+        reply = requests.get(BASE_URL + passname, timeout=10)
     except Exception as e:
         raise APIError(str(e), status_code=404)
 
@@ -108,32 +110,32 @@ def api_user(username):
 
 # --------------------------------------
 #@auth_required(exception_paths=['/v1/users/example'])
-@app.route('/v1/users/<username>/register', methods=['POST'])
+@app.route('/v1/users/<passname>/register', methods=['POST'])
 @parameters_required(['transfer_address'])
 @crossdomain(origin='*')
-def register_user(username):
+def register_user(passname):
 
-    if namecoind.check_registration('u/' + username):
-        raise APIError("username already registered", status_code=403)
+    if namecoind.check_registration('u/' + passname):
+        raise APIError("passname already registered", status_code=403)
 
     data = json.loads(request.data)
 
     user = {}
-    user['username'] = username
+    user['passname'] = passname
 
     user['transfer_address'] = data['transfer_address']
 
     try:
-        user['profile'] = data['profile']
+        user['passcard'] = data['passcard']
     except:
-        user['profile'] = {'status': 'registered',
-                           'message': 'This username was registered using the Onename API -- http://api.onename.com'}
+        user['passcard'] = {'status': 'registered',
+                            'message': 'This passcard was registered using the Onename API -- http://api.onename.com'}
 
-    find_user = register_queue.find_one({"username": username})
+    find_user = register_queue.find_one({"passname": passname})
 
     if find_user is not None:
         # someone else already tried registering this name
-        # but the username is not registered on the blockchain
+        # but the passname is not registered on the blockchain
         # don't tell the client that someone else's request is processing
 
         pass
@@ -167,5 +169,25 @@ def broadcast_tx():
         raise APIError(str(e), status_code=404)
 
     reply['transaction_hash'] = tx_hash
+
+    return jsonify(reply), 200
+
+# --------------------------------------
+#@auth_required(exception_paths=['/v1/users/example'])
+@app.route('/v1/addresses/<address>', methods=['GET'])
+@crossdomain(origin='*')
+def get_unspent(address):
+
+    reply = {}
+
+    try:
+        reply['unspent_outputs'] = address_utxo.find_one({"address": address})
+    except Exception as e:
+        raise APIError(str(e), status_code=404)
+
+    try:
+        reply['names_owned'] = address_to_keys.find_one({"address": address})
+    except Exception as e:
+        raise APIError(str(e), status_code=404)
 
     return jsonify(reply), 200
