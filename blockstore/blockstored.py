@@ -670,14 +670,20 @@ def run_blockstored():
     args = parser.parse_args()
 
     # propagate options 
-    for (argname, config_name) in zip( ["bitcoind_server", "bitcoind_port", "bitcoind_user", "bitcoind_passwd", "bitcoind_use_https"], \
-                                       ["BITCOIND_SERVER", "BITCOIND_PORT", "BITCOIND_USER", "BITCOIND_PASSWD", "BITCOIND_USE_HTTPS"] ):
+    for (argname, config_name) in zip( ["bitcoind_server", "bitcoind_port", "bitcoind_user", "bitcoind_passwd"], \
+                                       ["BITCOIND_SERVER", "BITCOIND_PORT", "BITCOIND_USER", "BITCOIND_PASSWD"] ):
         
         if hasattr( args, argname ) and getattr( args, argname ) is not None:
             
             bitcoin_opts[ argname ] = getattr( args, argname )
             setattr( config, config_name, getattr( args, argname ) )
     
+    if hasattr( args, "bitcoind_use_https" ):
+        if args.bitcoind_use_https:
+            
+            config.BITCOIND_USE_HTTPS = True 
+            bitcoin_opts[ "bitcoind_use_https" ] = True
+        
     if args.action == 'start':
         stop_server()
         if args.foreground:
