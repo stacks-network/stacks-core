@@ -59,6 +59,8 @@ else:
 try:
 
     AWSDB_URI = os.environ['AWSDB_URI']
+    NAMECOIN_DB_URI = os.environ['NAMECOIN_DB_URI']
 
 except:
     AWSDB_URI = None
+    NAMECOIN_DB_URI = None
