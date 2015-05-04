@@ -18,6 +18,8 @@ import signal
 import json
 import datetime
 import traceback
+import httplib
+import ssl
 
 from txjsonrpc.netstring import jsonrpc
 from twisted.internet import reactor
@@ -82,8 +84,14 @@ def create_bitcoind_connection(
         raise Exception('Invalid bitcoind port number.')
     authproxy_config_uri = '%s://%s:%s@%s:%s' % (
         protocol, rpc_username, rpc_password, server, port)
-
-    return AuthServiceProxy(authproxy_config_uri)
+    
+    # allow for self-signed certs (i.e. don't abort if we can't verify)
+    ssl_ctx = ssl.create_default_context()
+    ssl_ctx.check_hostname = False
+    ssl_ctx.verify_mode = ssl.CERT_NONE
+    connection = httplib.HTTPSConnection( server, int(port), context=ssl_ctx )
+    
+    return AuthServiceProxy(authproxy_config_uri, connection=connection)
 
 
 def get_working_dir():
