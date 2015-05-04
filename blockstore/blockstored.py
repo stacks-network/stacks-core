@@ -32,7 +32,8 @@ log = logging.getLogger()
 log.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
 console = logging.StreamHandler()
 console.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
-formatter = logging.Formatter('%(message)s')
+log_format = ('[%(levelname)s] [%(module)s:%(lineno)d] %(message)s' if config.DEBUG else '%(message)s')
+formatter = logging.Formatter( log_format )
 console.setFormatter(formatter)
 log.addHandler(console)
 
@@ -576,8 +577,17 @@ def run_server(foreground=False):
             command, shell=True, preexec_fn=os.setsid)
         log.info('Blockstored successfully started')
 
+    except IndexError, ie:
+        # indicates that we don't have the latest block 
+        log.error("\n\nFailed to find the first blockstore record.\nPlease verify that your bitcoin provider has processed up to block 343883.\n   Example:  bitcoin-cli getblockcount")
+        try:
+            os.killpg(blockstored.pid, signal.SIGTERM)
+        except:
+            pass
+        exit(1)
+        
     except Exception as e:
-        log.debug(e)
+        log.exception(e)
         log.info('Exiting blockstored server')
         try:
             os.killpg(blockstored.pid, signal.SIGTERM)
