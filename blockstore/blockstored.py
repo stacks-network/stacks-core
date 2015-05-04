@@ -579,7 +579,10 @@ def run_server(foreground=False):
 
     except IndexError, ie:
         # indicates that we don't have the latest block 
-        log.error("\n\nFailed to find the first blockstore record.\nPlease verify that your bitcoin provider has processed up to block 343883.\n   Example:  bitcoin-cli getblockcount")
+        log.error("\n\nFailed to find the first blockstore record.\n" + \
+                   "Please verify that your bitcoin provider has" + \
+                   "processed up to block %s.\n" % (START_BLOCK) + \
+                   "    Example:  bitcoin-cli getblockcount" )
         try:
             os.killpg(blockstored.pid, signal.SIGTERM)
         except:
