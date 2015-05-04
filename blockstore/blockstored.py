@@ -39,15 +39,42 @@ log.addHandler(console)
 
 from bitcoinrpc.authproxy import AuthServiceProxy
 
+bitcoin_opts = {
+    "bitcoind_user": config.BITCOIND_USER,
+    "bitcoind_passwd": config.BITCOIND_PASSWD,
+    "bitcoind_server": config.BITCOIND_SERVER,
+    "bitcoind_port": config.BITCOIND_PORT,
+    "bitcoind_use_https": config.BITCOIND_USE_HTTPS
+}
 
 def create_bitcoind_connection(
-        rpc_username=config.BITCOIND_USER,
-        rpc_password=config.BITCOIND_PASSWD,
-        server=config.BITCOIND_SERVER,
-        port=config.BITCOIND_PORT,
-        use_https=config.BITCOIND_USE_HTTPS):
+        rpc_username=None,
+        rpc_password=None,
+        server=None,
+        port=None,
+        use_https=None ):
     """ creates an auth service proxy object, to connect to bitcoind
     """
+    
+    global bitcoin_opts
+    
+    if rpc_username is None:
+        rpc_username = bitcoin_opts.get( "bitcoind_user" )
+    
+    if rpc_password is None:
+        rpc_password = bitcoin_opts.get( "bitcoind_passwd" )
+    
+    if server is None:
+        server = bitcoin_opts.get( "bitcoind_server" )
+        
+    if port is None:
+        port = bitcoin_opts.get( "bitcoind_port" )
+    
+    if use_https is None:
+        use_https = bitcoin_opts.get( "bitcoind_use_https" )
+        
+    log.debug("Connect to bitcoind at %s://%s@%s:%s" % ('https' if use_https else 'http', rpc_username, server, port) )
+    
     protocol = 'https' if use_https else 'http'
     if not server or len(server) < 1:
         raise Exception('Invalid bitcoind host address.')
@@ -420,7 +447,8 @@ def get_index_range(start_block=0):
 
     try:
         current_block = int(bitcoind.getblockcount())
-    except:
+    except Exception, e:
+        log.exception(e)
         log.info("ERROR: Cannot connect to bitcoind")
         user_input = raw_input(
             "Do you want to re-enter bitcoind server configs? (yes/no): ")
@@ -579,8 +607,8 @@ def run_server(foreground=False):
 
     except IndexError, ie:
         # indicates that we don't have the latest block 
-        log.error("\n\nFailed to find the first blockstore record.\n" + \
-                   "Please verify that your bitcoin provider has" + \
+        log.error("\n\nFailed to find the first blockstore record (got block %s).\n" % current_block + \
+                   "Please verify that your bitcoin provider has " + \
                    "processed up to block %s.\n" % (START_BLOCK) + \
                    "    Example:  bitcoin-cli getblockcount" )
         try:
@@ -602,6 +630,8 @@ def run_server(foreground=False):
 def run_blockstored():
     """ run blockstored
     """
+    global bitcoin_opts
+    
     parser = argparse.ArgumentParser(
         description='Blockstore Core Daemon version {}'.format(config.VERSION))
 
@@ -617,6 +647,9 @@ def run_blockstored():
     parser.add_argument(
         '--bitcoind-passwd',
         help='the password for bitcoind RPC server')
+    parser.add_argument(
+        "--bitcoind-use-https", action='store_true',
+        help='use HTTPS to connect to bitcoind')
     subparsers = parser.add_subparsers(
         dest='action', help='the action to be taken')
     parser_server = subparsers.add_parser(
@@ -636,6 +669,15 @@ def run_blockstored():
 
     args = parser.parse_args()
 
+    # propagate options 
+    for (argname, config_name) in zip( ["bitcoind_server", "bitcoind_port", "bitcoind_user", "bitcoind_passwd", "bitcoind_use_https"], \
+                                       ["BITCOIND_SERVER", "BITCOIND_PORT", "BITCOIND_USER", "BITCOIND_PASSWD", "BITCOIND_USE_HTTPS"] ):
+        
+        if hasattr( args, argname ) and getattr( args, argname ) is not None:
+            
+            bitcoin_opts[ argname ] = getattr( args, argname )
+            setattr( config, config_name, getattr( args, argname ) )
+    
     if args.action == 'start':
         stop_server()
         if args.foreground:
