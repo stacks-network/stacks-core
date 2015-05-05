@@ -1,4 +1,4 @@
-Openname-resolver
+BNS-resolver
 =======
 
 ## Installation:
@@ -31,7 +31,7 @@ git push heroku master
 
 ## Detailed Instructions:
 
-###1. Openname-resolver requires memcached:
+###1. BNS-resolver requires memcached:
 
 ###Linux:
 ```
@@ -42,7 +42,7 @@ Before installing pylibmc (listed in requirements.txt) install the above package
 
 Install coinrpc:
 ```
-pip install git+ssh://git@github.com/opennamesystem/coinrpc.git
+pip install coinrpc
 ```
 
 ------------------------------------------------------------------
