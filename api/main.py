@@ -20,7 +20,7 @@ from .auth import auth_required
 from pybitcoin.rpc import namecoind
 
 from pymongo import MongoClient
-from settings import AWSDB_URI
+from settings import AWSDB_URI, NAMECOIN_DB_URI
 aws_db = MongoClient(AWSDB_URI)['onename-api']
 register_queue = aws_db.queue
 
@@ -53,12 +53,12 @@ def versions():
 @crossdomain(origin='*')
 def search_people():
 
-    search_url = 'https://search.halfmoonlabs.com/search/name'
+    search_url = 'http://search.halfmoonlabs.com/search/name'
 
     name = request.values['query']
 
     try:
-        results = requests.get(url=search_url, params={'query': name}, verify=False)
+        results = requests.get(url=search_url, params={'query': name})
     except:
         raise APIError('Something went wrong', status_code=500)
 
@@ -101,7 +101,7 @@ def api_user(passname):
     BASE_URL = 'https://resolver.onename.com/v1/users/'
 
     try:
-        reply = requests.get(BASE_URL + username, timeout=10, verify=False)
+        reply = requests.get(BASE_URL + passname, timeout=10, verify=False)
     except Exception as e:
         raise APIError(str(e), status_code=404)
 
@@ -111,9 +111,11 @@ def api_user(passname):
 # --------------------------------------
 #@auth_required(exception_paths=['/v1/users/example'])
 @app.route('/v1/users/<passname>/register', methods=['POST'])
-@parameters_required(['transfer_address'])
+#@parameters_required(['transfer_address'])
 @crossdomain(origin='*')
 def register_user(passname):
+
+    print json.loads(request.data)
 
     if namecoind.check_registration('u/' + passname):
         raise APIError("passname already registered", status_code=403)
@@ -149,7 +151,6 @@ def register_user(passname):
     reply['status'] = 'success'
     return jsonify(reply), 200
 
-
 # --------------------------------------
 #@auth_required(exception_paths=['/v1/users/example'])
 @app.route('/v1/transactions/send', methods=['POST'])
@@ -164,13 +165,22 @@ def broadcast_tx():
     reply = {}
 
     try:
-        tx_hash = namecoind.sendrawtransaction(signed_hex)
+        info = namecoind.sendrawtransaction(signed_hex)
     except Exception as e:
         raise APIError(str(e), status_code=404)
 
-    reply['transaction_hash'] = tx_hash
+    if 'code' in info:
+        reply['status'] = 'error'
+        reply['message'] = info['message']
 
-    return jsonify(reply), 200
+        return jsonify(reply), 200
+    else:
+
+        reply['status'] = 'success'
+        reply['transaction_hash'] = info
+
+        return jsonify(reply), 200
+
 
 # --------------------------------------
 #@auth_required(exception_paths=['/v1/users/example'])
