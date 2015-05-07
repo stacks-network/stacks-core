@@ -16,10 +16,11 @@ app = Flask(__name__)
 from .config import DEBUG
 from .config import DEFAULT_HOST, MEMCACHED_SERVERS, MEMCACHED_USERNAME
 from .config import MEMCACHED_PASSWORD, MEMCACHED_TIMEOUT, MEMCACHED_ENABLED
+from .config import USERSTATS_TIMEOUT
 from .config import NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USE_HTTPS
 from .config import NAMECOIND_USER, NAMECOIND_PASSWD
 
-from commontools import error_reply, log
+from commontools import log
 import logging
 
 log.setLevel(logging.DEBUG if DEBUG else logging.INFO)
@@ -38,6 +39,14 @@ from .proofcheck import profile_to_proofs
 from .crossdomain import crossdomain
 
 
+# ---------------------------------
+def error_reply(msg, code=-1):
+    reply = {}
+    reply['status'] = code
+    reply['error'] = msg
+    return reply
+
+
 # -----------------------------------
 def name_show_mem(key):
 
@@ -47,8 +56,15 @@ def name_show_mem(key):
         cache_reply = None
 
     if cache_reply is None:
+
+        if not namecoind.check_registration(key):
+            abort(404)
+
         try:
             info = namecoind.name_show(key)
+
+            if 'status' in info['value'] and info['value']['status'] == -1:
+                info['value'] = {}
 
             if MEMCACHED_ENABLED:
                 mc.set("name_" + str(key), json.dumps(info['value']),
@@ -58,7 +74,6 @@ def name_show_mem(key):
             info = {}
     else:
         log.debug("cache hit: " + str(key))
-        info = {}
         info['value'] = json.loads(cache_reply)
 
     return info
@@ -91,23 +106,6 @@ def full_profile_mem(key):
         return check_profile
 
 
-# -----------------------------------
-def get_key_value(key):
-
-    try:
-        key = key.lower()
-    except:
-        return jsonify(error_reply("No key given"))
-
-    info = name_show_mem(key)
-
-    if 'status' in info:
-        if info['status'] == 404:
-            abort(404)
-
-    return jsonify(info)
-
-
 # -----------------------------------------
 @app.route('/v1/users', methods=['GET'])
 @crossdomain(origin='*')
@@ -123,7 +121,7 @@ def get_user_count():
             active_users_list = namecoind.name_filter('u/')
 
             if type(active_users_list) is list:
-                mc.set("total_users", str(len(active_users_list)), int(time() + MEMCACHED_TIMEOUT))
+                mc.set("total_users", str(len(active_users_list)), int(time() + USERSTATS_TIMEOUT))
 
                 total_user_count = len(active_users_list)
             else:
@@ -153,11 +151,13 @@ def get_user_profile(username):
     if cache_reply is None:
 
         info = {}
+
         profile = full_profile_mem(key)
 
         if not profile:
-            #abort(404)
-            print "abort"
+            info['profile'] = None
+            info['error'] = "Malformed profile data"
+            info['verifications'] = []
         else:
             info['profile'] = profile
             info['verifications'] = profile_to_proofs(profile, username)
@@ -182,18 +182,13 @@ def get_users(usernames):
         return jsonify(error_reply("No usernames given"))
 
     if ',' not in usernames:
+
         info = get_user_profile(usernames)
 
-        try:
-            jsonify(info)
-        except:
-            return error_reply("Malformed profile")
+        if 'error' in info:
+            return jsonify(info), 500
 
-        if 'status' in info:
-            if info['status'] == 404:
-                abort(404)
-
-        return jsonify(info)
+        return jsonify(info), 200
 
     try:
         usernames = usernames.rsplit(',')
