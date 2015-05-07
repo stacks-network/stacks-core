@@ -26,6 +26,9 @@ MEMCACHED_TIMEOUT = 30 * 60
 
 MAIL_USERNAME = 'support@onename.com'
 
+SEARCH_URL = 'http://search.halfmoonlabs.com'
+RESOLVER_URL = 'http://resolver.onename.com'
+
 if 'DYNO' in os.environ:
 
     # Secret settings
@@ -59,8 +62,8 @@ else:
 try:
 
     AWSDB_URI = os.environ['AWSDB_URI']
-    NAMECOIN_DB_URI = os.environ['NAMECOIN_DB_URI']
+    INDEX_DB_URI = os.environ['INDEX_DB_URI']
 
 except:
     AWSDB_URI = None
-    NAMECOIN_DB_URI = None
+    INDEX_DB_URI = None

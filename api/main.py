@@ -20,11 +20,13 @@ from .auth import auth_required
 from pybitcoin.rpc import namecoind
 
 from pymongo import MongoClient
-from settings import AWSDB_URI, NAMECOIN_DB_URI
+from settings import AWSDB_URI, INDEX_DB_URI
+from settings import RESOLVER_URL, SEARCH_URL
+
 aws_db = MongoClient(AWSDB_URI)['onename-api']
 register_queue = aws_db.queue
 
-namecoin_index = MongoClient(NAMECOIN_DB_URI)['namecoin_index']
+namecoin_index = MongoClient(INDEX_DB_URI)['namecoin_index']
 address_utxo = namecoin_index.address_utxo
 address_to_keys = namecoin_index.address_to_keys
 
@@ -53,7 +55,7 @@ def versions():
 @crossdomain(origin='*')
 def search_people():
 
-    search_url = 'http://search.halfmoonlabs.com/search/name'
+    search_url = SEARCH_URL + '/search/name'
 
     name = request.values['query']
 
@@ -81,7 +83,7 @@ def search_people():
 @crossdomain(origin='*')
 def user_count():
 
-    BASE_URL = 'https://resolver.onename.com/v1/users'
+    BASE_URL = RESOLVER_URL + '/v1/users'
 
     try:
         reply = requests.get(BASE_URL, timeout=10, verify=False)
@@ -91,14 +93,13 @@ def user_count():
 
     return jsonify(reply.json()), 200
 
-
 # --------------------------------------
 #@auth_required(exception_paths=['/v1/users/example'])
 @app.route('/v1/users/<passname>')
 @crossdomain(origin='*')
 def api_user(passname):
 
-    BASE_URL = 'https://resolver.onename.com/v1/users/'
+    BASE_URL = RESOLVER_URL + '/v1/users/'
 
     try:
         reply = requests.get(BASE_URL + passname, timeout=10, verify=False)
@@ -190,13 +191,26 @@ def get_unspent(address):
 
     reply = {}
 
+
     try:
-        reply['unspent_outputs'] = address_utxo.find_one({"address": address})
+        check_address = address_utxo.find_one({"address": address})
+
+        if check_address is not None and 'utxos' in check_address:
+            reply['unspent_outputs'] = check_address['utxos']
+        else:
+            reply['unspent_outputs'] = []
     except Exception as e:
         raise APIError(str(e), status_code=404)
 
     try:
-        reply['names_owned'] = address_to_keys.find_one({"address": address})
+        check_address = address_to_keys.find_one({"address": address})
+
+        print check_address
+
+        if check_address is not None and 'keys' in check_address:
+            reply['names_owned'] = check_address['keys']
+        else:
+            reply['names_owned'] = []
     except Exception as e:
         raise APIError(str(e), status_code=404)
 
