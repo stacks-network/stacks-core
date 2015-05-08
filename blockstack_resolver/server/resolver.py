@@ -178,35 +178,36 @@ def get_user_profile(username):
 @crossdomain(origin='*')
 def get_users(usernames):
 
+    reply = {}
+
     if usernames is None:
         return jsonify(error_reply("No usernames given"))
 
     if ',' not in usernames:
 
-        info = get_user_profile(usernames)
+        username = usernames
+
+        info = get_user_profile(username)
+        reply[username] = info
 
         if 'error' in info:
-            return jsonify(info), 500
+            return jsonify(info), 502
 
-        return jsonify(info), 200
+        return jsonify(reply), 200
 
     try:
         usernames = usernames.rsplit(',')
     except:
         return jsonify(error_reply("Invalid input format"))
 
-    list = []
-
     for username in usernames:
 
         try:
-            result = {}
-            result[username] = get_user_profile(username)
-            list.append(result)
+            reply[username] = get_user_profile(username)
         except:
             pass
 
-    return jsonify(results=list)
+    return jsonify(reply), 200
 
 
 # -----------------------------------
