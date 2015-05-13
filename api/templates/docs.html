@@ -2,9 +2,9 @@
 {% block content %}
 <div ng-app="docApp">
 	<div class="container-fluid">
-		<div class="row" style="padding-bottom: 60px;">
-			<div class="col-md-3">
-				<div class="bs-docs-sidebar affix" style="margin-top: 60px;">
+		<div class="row">
+			<div class="col-md-3 hidden-xs hidden-sm">
+				<div class="bs-docs-sidebar affix">
 				<div class="list-group">
 					<a href="/docs" class="list-group-item" ng-class="{active: activetab == '/docs'}">
 						Getting Started
@@ -31,6 +31,15 @@
 						Addresses
 					</a>
 				</div>
+				</div>
+			</div>
+			<div class="visible-xs visible-sm">
+				<div class="container-fluid">
+					<div class="row">
+						<div class="list-group solid">
+							<a href="/signup" class="list-group-item nav-solo" target="_self">Sign up</a>
+						</div>
+					</div>
 				</div>
 			</div>
 			<div class="col-md-8">
