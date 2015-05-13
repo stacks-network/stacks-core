@@ -12,8 +12,9 @@ gunicorn==19.1.1
 itsdangerous==0.24
 mongoengine==0.8.7
 python-bitcoinrpc==0.1
-pybitcoin==0.8.0
 pybitcointools==1.1.15
+pybitcoin==0.8.0
 pymongo==2.7.2
+wsgiref==0.1.2
 requests==2.6.0
 utilitybelt==0.2.2
