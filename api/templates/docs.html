@@ -3,7 +3,7 @@
 <div ng-app="docApp">
 	<div class="container-fluid">
 		<div class="row">
-			<div class="col-md-3 hidden-xs hidden-sm">
+			<div class="col-sm-4 col-md-3 hidden-xs">
 				<div class="bs-docs-sidebar affix">
 				<div class="list-group">
 					<a href="/docs" class="list-group-item" ng-class="{active: activetab == '/docs'}">
@@ -33,7 +33,7 @@
 				</div>
 				</div>
 			</div>
-			<div class="visible-xs visible-sm">
+			<div class="visible-xs">
 				<div class="container-fluid">
 					<div class="row">
 						<div class="list-group solid">
@@ -42,8 +42,12 @@
 					</div>
 				</div>
 			</div>
-			<div class="col-md-8">
-				<div ng-view=""></div>
+			<div class="container">
+				<div class="row">
+					<div class="col-xs-12 col-sm-6 col-md-9">
+						<div ng-view=""></div>
+					</div>
+				</div>
 			</div>
 		</div>
 	</div>	
