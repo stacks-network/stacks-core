@@ -1,56 +1,34 @@
 {% extends "base.html" %}
 {% block content %}
 <div ng-app="docApp">
-	<div class="container-fluid">
-		<div class="row">
-			<div class="col-sm-4 col-md-3 hidden-xs">
-				<div class="bs-docs-sidebar affix">
-				<div class="list-group">
-					<a href="/docs" class="list-group-item" ng-class="{active: activetab == '/docs'}">
-						Getting Started
-					</a>
-					<!--<a href="/docs/auth" class="list-group-item" ng-class="{active: activetab == '/docs/auth'}">
-						Authentication
-					</a>-->
-					<a href="/docs/users" class="list-group-item" ng-class="{active: activetab == '/docs/users'}">
-						Users
-					</a>
-					<a href="/docs/register" class="list-group-item" ng-class="{active: activetab == '/docs/register'}">
-						Register
-					</a>
-					<a href="/docs/usercount" class="list-group-item" ng-class="{active: activetab == '/docs/usercount'}">
-						User Count
-					</a>
-					<a href="/docs/search" class="list-group-item" ng-class="{active: activetab == '/docs/search'}">
-						Search
-					</a>
-					<a href="/docs/transactions" class="list-group-item" ng-class="{active: activetab == '/docs/transactions'}">
-						Transactions
-					</a>
-					<a href="/docs/addresses" class="list-group-item" ng-class="{active: activetab == '/docs/addresses'}">
-						Addresses
-					</a>
-				</div>
-				</div>
-			</div>
-			<div class="visible-xs">
-				<div class="container-fluid">
-					<div class="row">
-						<div class="list-group solid">
-							<a href="/signup" class="list-group-item nav-solo" target="_self">Sign up</a>
-						</div>
-					</div>
-				</div>
-			</div>
-			<div class="container">
-				<div class="row">
-					<div class="col-xs-12 col-sm-6 col-md-9">
-						<div ng-view=""></div>
-					</div>
+	<div class="pull-left sidebar hidden-xs">
+		<div class="list-group">
+			<a href="/docs" class="list-group-item" ng-class="{active: activetab == '/docs'}">Getting Started</a>
+			<a href="/docs/users" class="list-group-item" ng-class="{active: activetab == '/docs/users'}">Users</a>
+			<a href="/docs/register" class="list-group-item" ng-class="{active: activetab == '/docs/register'}">Register</a>
+			<a href="/docs/usercount" class="list-group-item" ng-class="{active: activetab == '/docs/usercount'}">User Count</a>
+			<a href="/docs/search" class="list-group-item" ng-class="{active: activetab == '/docs/search'}">Search</a>
+			<a href="/docs/transactions" class="list-group-item" ng-class="{active: activetab == '/docs/transactions'}">Transactions</a>
+			<a href="/docs/addresses" class="list-group-item" ng-class="{active: activetab == '/docs/addresses'}">Addresses</a>
+			<a href="/signup" class="list-group-item" target="_self">Sign up</a>
+		</div>
+	</div>
+	<div class="visible-xs">
+		<div class="container-fluid">
+			<div class="row">
+				<div class="list-group solid">
+					<a href="/signup" class="list-group-item nav-solo" target="_self">Sign up</a>
 				</div>
 			</div>
 		</div>
-	</div>	
+	</div>
+	<div class="container content">
+		<div class="row">
+			<div class="col-xs-12 col-sm-6 col-md-9">
+				<div ng-view=""></div>
+			</div>
+		</div>
+	</div>
 </div>
 {% endblock %}
 
