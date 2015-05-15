@@ -22,11 +22,36 @@
 			</div>
 		</div>
 	</div>
-	<div class="container content">
-		<div class="row">
-			<div class="col-xs-12 col-sm-6 col-md-9">
-				<div ng-view=""></div>
-			</div>
+	<div id="background" class="hidden-xs">
+     <div class="background-actual"></div>
+   </div>
+	<div class="content">
+		<div class="segment-wrapper">
+			<section id="docs">
+				<div class="">
+					<div class="container-fluid pull-left col-sm-6 segment-zone">
+						<div class="seg-zone-wrap">
+							<h1>API Reference</h1>
+							<p>
+								The Stripe API is organized around <a href="http://en.wikipedia.org/wiki/Representational_State_Transfer">REST</a>. Our API is designed to have predictable, resource-oriented URLs and to use HTTP response codes to indicate API errors. We use built-in HTTP features, like HTTP authentication and HTTP verbs, which can be understood by off-the-shelf HTTP clients, and we support <a href="http://en.wikipedia.org/wiki/Cross-origin_resource_sharing">cross-origin resource sharing</a> to allow you to interact securely with our API from a client-side web application (though you should remember that you should never expose your secret API key in any public website's client-side code). <a href="http://www.json.org/">JSON</a> will be returned in all responses from the API, including errors (though if you're using API bindings, we will convert the response to the appropriate language-specific object).
+							</p>
+							<p>
+								To make the Stripe API as explorable as possible, accounts have test-mode API keys as well as live-mode API keys. These keys can be active at the same time. Data created with test-mode credentials will never hit the credit card networks and will never cost anyone money.
+							</p>
+							<div ng-view=""></div>
+						</div>
+					</div>
+					<div class="segment-code" id="identifier">
+						<div class="seg-code-wrap">
+							<h3>Libraries</h3>
+							<p>Libraries are <a href="https://stripe.com/docs/libraries">available in several languages</a>.</p>
+						</div>
+						<div class="seg-code-wrap">
+							<div class="method-example-endpoint"><span class="lang"><pre class="language-none"><code class="language-none">https://api.stripe.com</code></pre></span></div>
+						</div>
+					</div>
+				</div>
+			</section>
 		</div>
 	</div>
 </div>
