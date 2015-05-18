@@ -7,12 +7,30 @@
 
 import json
 import requests
-
 from flask import request
 from functools import update_wrapper
-
+from werkzeug.datastructures import MultiDict, CombinedMultiDict
 from .errors import APIError
 from . import app
+
+
+def get_request_data():
+    args = []
+
+    if request.data:
+        try:
+            request_data = json.loads(request.data)
+        except ValueError:
+            pass
+        else:
+            request_data = {}
+
+    for d in request.args, request.form, request_data:
+        if not isinstance(d, MultiDict):
+            d = MultiDict(d)
+        args.append(d)
+
+    return CombinedMultiDict(args)
 
 
 def parameters_required(parameters):

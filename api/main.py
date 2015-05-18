@@ -32,20 +32,27 @@ address_to_utxo = namecoin_index.address_to_utxo_temp
 address_to_keys = namecoin_index.address_to_keys
 
 
+def get_unspents(address):
+    reply = []
+
+    for entry in address_to_utxo.find({"address": address}):
+        id = entry['utxo']
+
+        new_entry = {}
+        new_entry['txid'] = id.rsplit('_')[0]
+        new_entry['vout'] = id.rsplit('_')[1]
+        utxo = utxo_index.find_one({'id': id})
+
+        new_entry['scriptPubKey'] = utxo['data']['scriptPubKey']
+        new_entry['amount'] = utxo['data']['value']
+        reply.append(new_entry)
+
+    return reply
+
+
 @app.route('/')
 def index():
     return render_template('index.html')
-
-
-@app.route('/versions', methods=['GET'])
-@crossdomain(origin='*')
-def versions():
-    data = {
-        'api': '1',
-        'passcard_specs': '0.2',
-    }
-
-    return jsonify(data), 200
 
 
 # @auth_required(exception_queries=['fredwilson'])
@@ -108,31 +115,34 @@ def api_user(passname):
 
 
 # @auth_required(exception_paths=['/v1/users/example'])
-@app.route('/v1/users/<passname>/register', methods=['POST'])
-# @parameters_required(['transfer_address'])
+@app.route('/v1/users', methods=['POST'])
+@parameters_required(['passname', 'recipient_address'])
 @crossdomain(origin='*')
-def register_user(passname):
+def register_user():
     REGISTRATION_MESSAGE = (
         "This passcard was registered using the Onename"
-        " API -- http://api.onename.com")
+        " API - https://api.onename.com")
+
+    data = json.loads(request.data)
+
+    passname = data['passname']
 
     if namecoind.check_registration('u/' + passname):
         raise APIError("passname already registered", status_code=403)
 
-    data = json.loads(request.data)
-
-    user = {}
-    user['passname'] = passname
-
-    user['transfer_address'] = data['transfer_address']
-
-    try:
-        user['passcard'] = data['passcard']
-    except:
-        user['passcard'] = {
+    if 'passcard' in data:
+        passcard = data['passcard']
+    else:
+        passcard = {
             'status': 'registered',
             'message': REGISTRATION_MESSAGE
         }
+
+    user = {
+        'passname': passname,
+        'passcard': passcard,
+        'transfer_address': data['recipient_address']
+    }
 
     find_user = register_queue.find_one({"passname": passname})
 
@@ -147,13 +157,13 @@ def register_user(passname):
         except Exception as e:
             raise APIError(str(e), status_code=404)
 
-    reply = {}
-    reply['status'] = 'success'
+    reply = {'status': 'success'}
+
     return jsonify(reply), 200
 
 
 # @auth_required(exception_paths=['/v1/users/example'])
-@app.route('/v1/transactions/send', methods=['POST'])
+@app.route('/v1/transactions', methods=['POST'])
 @parameters_required(['signed_hex'])
 @crossdomain(origin='*')
 def broadcast_tx():
@@ -180,25 +190,6 @@ def broadcast_tx():
         reply['transaction_hash'] = info
 
         return jsonify(reply), 200
-
-
-def get_unspents(address):
-
-    reply = []
-
-    for entry in address_to_utxo.find({"address": address}):
-        id = entry['utxo']
-
-        new_entry = {}
-        new_entry['txid'] = id.rsplit('_')[0]
-        new_entry['vout'] = id.rsplit('_')[1]
-        utxo = utxo_index.find_one({'id': id})
-
-        new_entry['scriptPubKey'] = utxo['data']['scriptPubKey']
-        new_entry['amount'] = utxo['data']['value']
-        reply.append(new_entry)
-
-    return reply
 
 
 # @auth_required(exception_paths=['/v1/users/example'])
