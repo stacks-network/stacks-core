@@ -13,9 +13,10 @@ from flask import jsonify
 
 from . import app
 from .errors import APIError
-from .helper import parameters_required
+from .utils import parameters_required
 from .crossdomain import crossdomain
 from .auth import auth_required
+from .api_calls import api_calls
 
 from pybitcoin.rpc import namecoind
 
@@ -52,10 +53,10 @@ def get_unspents(address):
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', api_calls=api_calls)
 
 
-# @auth_required(exception_queries=['fredwilson'])
+# @auth_required(exception_queries=['fredwilson','wenger'])
 @app.route('/v1/search', methods=['GET'])
 @parameters_required(parameters=['query'])
 @crossdomain(origin='*')

@@ -1,0 +1,53 @@
+{% macro docsection(api_call) %}
+<div class="segment-wrapper">
+<section>
+    <div class="container pull-left col-sm-12" id="{{ api_call.anchor_tag }}">
+        <div class="container-fluid pull-left col-sm-6 segment-zone">
+            <div class="seg-zone-wrap">
+                <h1>{{ api_call.title }}</h1>
+                <p>{{ api_call.description }}</p>
+
+                <h5 class="doc-component">query parameters</h5>
+
+                <div class="queryparameters">
+                    {% for parameter in api_call.parameters %}
+                    <div class="parameter">
+                        <div class="parameter-label">
+                            {{ parameter.name }}
+                            {% if parameter.optional %}
+                                (optional)
+                            {% endif %}
+                        </div>
+                        <div class="parameter-description">{{ parameter.description }}</div>
+                    </div>
+                    {% endfor %}
+                    {% if not api_call.parameters %}
+                    -
+                    {% endif %}
+                </div>
+                
+                <h5 class="doc-component">returns</h5>
+                <p>{{ api_call.response_description }}</p>                
+            </div>
+            {% if api_call.tryit_pathname %}
+            <p class="doc-component">
+                <a href="{{ api_call.tryit_pathname }}" class="btn btn-default" target="_self">Try it out</a>
+            </p>
+            {% endif %}
+        </div>
+        <div class="segment-code" id="identifier">
+            <div class="seg-code-wrap">
+                <h5>Definition</h5>
+                <pre><code class="http">{{ api_call.method }} https://api.onename.com/v1{{ api_call.path_template }}</code></pre>
+
+                <h5>Example Request</h5>
+                <pre><code class="bash">{{ api_call.example_requests.bash }}</code></pre>
+
+                <h5>Example Response</h5>
+                <pre><code class="json">{{ api_call.example_response }}</code></pre>
+            </div>
+        </div>
+    </div>
+</section>
+</div>
+{% endmacro %}
