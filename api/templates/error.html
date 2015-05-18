@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+
+{% block title %}{{ status_code }} error - {{ error_message }}{% endblock %}
+
+{% block content %}
+<div class="centered">
+    <h3>{{ status_code }}</h3>
+    <h4>{{ error_message }}</h4>
+</div>
+{% endblock %}

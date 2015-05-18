@@ -22,6 +22,7 @@ def signup():
                 return render_template('emailtaken.html')
             return redirect(url_for('v1auth.registered'))
         else:
-            return render_template('400.html')
+            return render_template('error.html', status_code=400,
+                                   error_message="Unauthorized access.")
 
     return render_template('signup.html')

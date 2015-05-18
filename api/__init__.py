@@ -22,12 +22,9 @@ if 'DYNO' in os.environ:
 import main
 
 # Add in blueprints
-from .docs import docs
 from .auth import v1auth
 
-blueprints = [
-    docs, v1auth
-]
+blueprints = [v1auth]
 
 for blueprint in blueprints:
     app.register_blueprint(blueprint)

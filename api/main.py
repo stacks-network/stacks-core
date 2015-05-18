@@ -152,7 +152,6 @@ def register_user(passname):
     return jsonify(reply), 200
 
 
-# --------------------------------------
 # @auth_required(exception_paths=['/v1/users/example'])
 @app.route('/v1/transactions/send', methods=['POST'])
 @parameters_required(['signed_hex'])

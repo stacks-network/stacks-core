@@ -45,26 +45,27 @@ def resource_not_found(e):
     if request.path[1] == 'v':
         return jsonify({'error': 'Resource not found'}), 404
     else:
-        return render_template('404.html'), 404
+        return render_template('error.html', status_code=404,
+                               error_message="Resource not found"), 404
 
 
 # 403 Error handler
 @app.errorhandler(403)
 def unauthorized_access(e):
-    return jsonify({'error': 'Unauthorized access'}), 404
+    return jsonify({'error': 'Unauthorized access'}), 403
 
 
 # 500 Error handler
 @app.errorhandler(500)
 def internal_server_error(e):
-    return jsonify({'error': 'Internal server error'}), 404
+    return jsonify({'error': 'Internal server error'}), 500
 
 
 # 500 Error handler
 @app.errorhandler(Exception)
 def exception_error(e):
     traceback.print_exc()
-    return jsonify({'error': 'Internal server error'}), 404
+    return jsonify({'error': 'Internal server error'}), 500
 
 
 class UnauthorizedAccessError(APIError):
