@@ -23,6 +23,7 @@
 	<link href="{{ url_for('static', filename='css/bootstrap/docs.min.css') }}" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/proximanova/proximanova.css') }}" rel="stylesheet">
 	<link href="{{ url_for('static', filename='css/main.css') }}" rel="stylesheet">
+	<link href="{{ url_for('static', filename='css/highlight-sunburst.css') }}" rel="stylesheet">
 
 	<!-- SUPPORT FOR IE6-8 OF HTML5 ELEMENTS -->
 	<!--[if lt IE 9]>
@@ -30,8 +31,8 @@
 	<![endif]-->
 
 	{% block scripts %}
-	<script src="{{ url_for('static', filename='js/jquery/jquery.min.js') }}"></script>
-	<script src="{{ url_for('static', filename='js/bootstrap/bootstrap.min.js') }}"></script>
+		<script src="{{ url_for('static', filename='js/jquery/jquery.min.js') }}"></script>
+		<script src="{{ url_for('static', filename='js/bootstrap/bootstrap.min.js') }}"></script>
 	{% endblock %}
 	{% endblock %}
   </head>

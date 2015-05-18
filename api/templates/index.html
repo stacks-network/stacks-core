@@ -1,5 +1,10 @@
 {% extends "base.html" %}
 
+{% block scripts %}
+    <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/8.5/highlight.min.js"></script>
+    <script>hljs.initHighlightingOnLoad();</script>
+{% endblock %}
+
 {% block desktop_navbar %}
     {{ super() }}
     <div class="content">
@@ -9,10 +14,10 @@
         <div class="container head-code">
             <ul class="nav navbar-nav hidden-xs">
                 <li>
-                    <a href="/signup" class="active">curl</a>
+                    <a href="#" class="active">curl</a>
                 </li>
                 <li>
-                    <a href="/docs">Python</a>
+                    <a href="#">Python</a>
                 </li>
             </ul>
         </div>
@@ -24,13 +29,15 @@
     <div class="pull-left sidebar hidden-xs">
         <div class="list-group">
             <a href="/#" class="list-group-item">Getting Started</a>
-            <a href="/#users" class="list-group-item">Users</a>
-            <a href="/#register" class="list-group-item">Register</a>
-            <a href="/#usercount" class="list-group-item">User Count</a>
-            <a href="/#search" class="list-group-item">Search</a>
-            <a href="/#transactions" class="list-group-item">Transactions</a>
-            <a href="/#addresses" class="list-group-item">Addresses</a>
-            <a href="/signup" class="list-group-item" target="_self">Sign up</a>
+            <h5 style="margin-left: 10px;">USERS</h5>
+            <a href="/#lookup_users" class="list-group-item">Lookup users</a>
+            <a href="/#register_user" class="list-group-item">Register a user</a>
+            <a href="/#search_users" class="list-group-item">Search for a user</a>
+            <a href="/#user_stats" class="list-group-item">Get userbase stats</a>
+            <h5 style="margin-left: 10px;">TRANSACTIONS</h5>
+            <a href="/#transactions" class="list-group-item">Broadcast a transaction</a>
+            <h5 style="margin-left: 10px;">ADDRESSES</h5>
+            <a href="/#addresses" class="list-group-item">Lookup an address</a>
         </div>
     </div>
     <div class="visible-xs">
@@ -47,8 +54,8 @@
    </div>
     <div class="content">
         <div class="segment-wrapper">
-            <section id="get-started">
-                <div class="container pull-left col-sm-12">
+            <section>
+                <div class="container pull-left col-sm-12" id="get-started">
                     <div class="container-fluid col-sm-6 segment-zone">
                         <div class="seg-zone-wrap">
                             <h1>Getting Started</h1>
@@ -64,24 +71,19 @@
             </section>
         </div>
         <div class="segment-wrapper">
-            <section id="users">
-                <div class="container pull-left col-sm-12">
+            <section>
+                <div class="container pull-left col-sm-12" id="lookup_users">
                     <div class="container-fluid pull-left col-sm-6 segment-zone">
                         <div class="seg-zone-wrap">
-                            <h1>Users</h1>
-                            <h5 class="doc-component">summary</h5>
-                            <p>
-                                Returns the profile data (passcard) and verifications of the user with a given +passname.
-                            </p>
-                            <h5 class="doc-component">http request</h5>
-                            <p>
-                                <code>GET /v1/users/{passname}</code>
-                            </p>
-                            <h5 class="doc-component">response fields</h5>
-                            <p>
-                                <code>profile, verifications</code>
-                            </p>
-                            <h5 class="doc-component">example request</h5>
+                            <h1>Lookup users</h1>
+                            <p>Looks up the data for one or more users by their usernames. In order to perform more than one lookup at once, include a set of comma-separated usernames in the URL in place of the single username.</p>
+
+                            <h5 class="doc-component">query parameters</h5>
+                            <p>-</p>
+
+                            <h5 class="doc-component">returns</h5>
+                            <p>Returns an object with a top-level key for each username looked up. Each top-level key contains an sub-object that has a "profile" field and a "verifications" field.</p>
+
                             <p>
                                 <a href="/v1/users/fredwilson?app-id=demo-app-id&app-secret=demo-app-secret" class="btn btn-default" target="_self">
                                     TRY IT OUT
@@ -91,51 +93,120 @@
                     </div>
                     <div class="segment-code" id="identifier">
                         <div class="seg-code-wrap">
-                            <h3>Libraries</h3>
-                            <p>Libraries are <a href="https://stripe.com/docs/libraries">available in several languages</a>.</p>
-                            <pre><code>curl http://api.onename.com/v1/users/fredwilson -u 'YOUR-API-ID:YOUR-API-SECRET'</code></pre>
+                            <h5>Definition</h5>
+                            <pre><code class="http">GET https://api.onename.com/v1/users/{usernames}</code></pre>
+
+                            <h5>Example Request</h5>
+                            <pre><code class="bash">curl https://api.onename.com/v1/users/fredwilson
+    -u 'YOUR-API-ID:YOUR-API-SECRET'</code></pre>
+
+                            <h5>Example Response</h5>
+                            <pre><code class="json">{
+  "fredwilson": {
+    "profile": {
+      "avatar": {
+        "url": "https://s3.amazonaws.com/kd4/fredwilson1"
+      }, 
+      "bio": "I am a VC", 
+      "bitcoin": {
+        "address": "1Fbi3WDPEK6FxKppCXReCPFTgr9KhWhNB7"
+      }, 
+      "cover": {
+        "url": "https://s3.amazonaws.com/dx3/fredwilson"
+      }, 
+      "facebook": {
+        "proof": {
+          "url": "https://facebook.com/fred.wilson.963871/posts/10100401430876108"
+        }, 
+        "username": "fred.wilson.963871"
+      }, 
+      "graph": {
+        "url": "https://s3.amazonaws.com/grph/fredwilson"
+      }, 
+      "location": {
+        "formatted": "New York City"
+      }, 
+      "name": {
+        "formatted": "Fred Wilson"
+      }, 
+      "twitter": {
+        "proof": {
+          "url": "https://twitter.com/fredwilson/status/533040726146162689"
+        }, 
+        "username": "fredwilson"
+      }, 
+      "v": "0.2", 
+      "website": "http://avc.com"
+    }, 
+    "verifications": [
+      {
+        "identifier": "fredwilson", 
+        "proof_url": "https://twitter.com/fredwilson/status/533040726146162689", 
+        "service": "twitter", 
+        "valid": true
+      }, 
+      {
+        "identifier": "fred.wilson.963871", 
+        "proof_url": "https://facebook.com/fred.wilson.963871/posts/10100401430876108", 
+        "service": "facebook", 
+        "valid": true
+      }
+    ]
+  }
+}</code></pre>
                         </div>
                     </div>
                 </div>
             </section>
         </div>
         <div class="segment-wrapper">
-            <section id="register">
-                <div class="container pull-left col-sm-12">
+            <section>
+                <div class="container pull-left col-sm-12" id="register_user">
                     <div class="container-fluid pull-left col-sm-6 segment-zone">
                         <div class="seg-zone-wrap">
-                            <h1>Register</h1>
-                            <h5 class="doc-component">summary</h5>
+                            <h1>Register a user</h1>
                             <p>
                                 Takes in a passname to be registered along with the address that will own the passname. Optionally, takes in the passcard data that should be associated with the passname being registered. Returns a status object that shows if the request was successfully received. It takes on the order of hours to actually complete the registration.
                             </p>
-                            <h5 class="doc-component">http request</h5>
-                            <p>
-                                <code>POST /v1/users/{passname}/register</code>
-                            </p>
+
                             <h5 class="doc-component">query parameters</h5>
-                            <p>
-                                <code>transfer_address, passcard (optional)</code>
-                            </p>
-                            <h5 class="doc-component">response fields</h5>
-                            <p>
-                                <code>status</code>
-                            </p>
-                            <h5 class="doc-component">example request</h5>
-                            <p>
-                                
-                            </p>
+
+                            <div class="queryparameters">
+                                <div class="parameter">
+                                    <div class="parameter-label">
+                                        transfer_address
+                                    </div>
+                                    <div class="parameter-description">The namecoin address that the passcard will be transferred to once it has been registered.</div>
+                                </div>
+                                <div class="parameter">
+                                    <div class="parameter-label">
+                                        passcard
+                                    </div>
+                                    <div class="parameter-description">The JSON data that will be associated with the passcard during registration.</div>
+                                </div>
+                            </div>
+                            
+                            <h5 class="doc-component">returns</h5>
+                            <p>Returns an object with a status.</p>
+                            
                         </div>
                     </div>
                     <div class="segment-code" id="identifier">
                         <div class="seg-code-wrap">
-                            <h3>Libraries</h3>
-                            <p>Libraries are <a href="https://stripe.com/docs/libraries">available in several languages</a>.</p>
-                            <pre><code>curl http://api.onename.com/v1/users/fredwilson/register \
--u 'YOUR-API-ID:YOUR-API-SECRET' \
--d '{"transfer_address": "N8PcBQn...", "passcard": {"bio": "I am a VC"}}' \
--X POST
-</code></pre>
+                            <h5>Definition</h5>
+                            <pre><code class="http">POST https://api.onename.com/v1/users/{passname}/register</code></pre>
+
+                            <h5>Example Request</h5>
+                            <pre><code class="bash">curl http://api.onename.com/v1/users/fredwilson/register \
+    -u 'YOUR-API-ID:YOUR-API-SECRET' \
+    -d '{"transfer_address": "N8PcBQn...", "passcard": {"bio": "I am a VC"}}' \
+    -H 'Content-type: application/json' \
+    -X POST</code></pre>
+
+                            <h5>Example Response</h5>
+                            <pre><code class="json">{
+  "status": "success"
+}</code></pre>
                         </div>
                     </div>
                 </div>
