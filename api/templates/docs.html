@@ -27,9 +27,9 @@
    </div>
 	<div class="content">
 		<div class="segment-wrapper">
-			<section id="docs">
-				<div>
-					<div class="container-fluid pull-left col-sm-6 segment-zone">
+			<section id="get-started">
+				<div class="container pull-left col-sm-12">
+					<div class="container-fluid col-sm-6 segment-zone">
 						<div class="seg-zone-wrap">
 							<h1>Getting Started</h1>
 							<p>
@@ -56,20 +56,85 @@
 				</div>
 			</section>
 		</div>
-	</div>
-	<div class="content">
 		<div class="segment-wrapper">
-			<section id="docs2">
-				<div>
+			<section id="users">
+				<div class="container pull-left col-sm-12">
 					<div class="container-fluid pull-left col-sm-6 segment-zone">
 						<div class="seg-zone-wrap">
-							<h1>Getting Started</h1>
-							<p>
-								To start making calls to the Onename API, you'll need API credentials (an App ID and an App secret key).
-							</p>
-							<p>
-								<a href="/signup" class="btn btn-default" target="_self">Sign Up for an API Account</a>
-							</p>
+							<h1>Users</h1>
+<h5 class="doc-component">summary</h5>
+<p>
+	Returns the profile data (passcard) and verifications of the user with a given +passname.
+</p>
+<h5 class="doc-component">http request</h5>
+<p>
+	<code>GET /v1/users/{passname}</code>
+</p>
+<h5 class="doc-component">response fields</h5>
+<p>
+	<code>profile, verifications</code>
+</p>
+<h5 class="doc-component">example request</h5>
+<p>
+	<pre><code>
+    curl http://api.onename.com/v1/users/fredwilson \
+        -u 'YOUR-API-ID:YOUR-API-SECRET'
+    </code></pre>
+</p>
+<p>
+	<a href="/v1/users/fredwilson?app-id=demo-app-id&app-secret=demo-app-secret" class="btn btn-default" target="_self">
+		TRY IT OUT
+	</a>
+</p>
+						</div>
+					</div>
+					<div class="segment-code" id="identifier">
+						<div class="seg-code-wrap">
+							<h3>Libraries</h3>
+							<p>Libraries are <a href="https://stripe.com/docs/libraries">available in several languages</a>.</p>
+						</div>
+						<div class="seg-code-wrap">
+							<div class="method-example-endpoint">
+								<span class="lang">
+									<pre class="language-none"><code class="language-none">https://api.stripe.com</code></pre>
+								</span>
+							</div>
+						</div>
+					</div>
+				</div>
+			</section>
+		</div>
+		<div class="segment-wrapper">
+			<section id="register">
+				<div class="container pull-left col-sm-12">
+					<div class="container-fluid pull-left col-sm-6 segment-zone">
+						<div class="seg-zone-wrap">
+							<h1>Register</h1>
+<h5 class="doc-component">summary</h5>
+<p>
+	Takes in a passname to be registered along with the address that will own the passname. Optionally, takes in the passcard data that should be associated with the passname being registered. Returns a status object that shows if the request was successfully received. It takes on the order of hours to actually complete the registration.
+</p>
+<h5 class="doc-component">http request</h5>
+<p>
+	<code>POST /v1/users/{passname}/register</code>
+</p>
+<h5 class="doc-component">query parameters</h5>
+<p>
+	<code>transfer_address, passcard (optional)</code>
+</p>
+<h5 class="doc-component">response fields</h5>
+<p>
+	<code>status</code>
+</p>
+<h5 class="doc-component">example request</h5>
+<p>
+	<pre><code>
+    curl http://api.onename.com/v1/users/fredwilson/register \
+        -u 'YOUR-API-ID:YOUR-API-SECRET' \
+        -d '{"transfer_address": "N8PcBQn...", "passcard": {"bio": "I am a VC"}}' \
+        -X POST
+    </code></pre>
+</p>
 						</div>
 					</div>
 					<div class="segment-code" id="identifier">
