@@ -15,7 +15,6 @@ from .errors import APIError
 from . import app
 
 
-# ----------------------------------
 def parameters_required(parameters):
     def decorator(f):
         def decorated_function(*args, **kwargs):
@@ -43,7 +42,6 @@ def parameters_required(parameters):
     return decorator
 
 
-# ----------------------------------
 def send_w_mailgun(subject, recipient, template):
     return requests.post(
         "https://api.mailgun.net/v2/onename.io/messages",

@@ -31,13 +31,12 @@ utxo_index = namecoin_index.utxo
 address_to_utxo = namecoin_index.address_to_utxo_temp
 address_to_keys = namecoin_index.address_to_keys
 
-# --------------------------------------
+
 @app.route('/')
 def index():
     return render_template('index.html')
 
 
-# --------------------------------------
 @app.route('/versions', methods=['GET'])
 @crossdomain(origin='*')
 def versions():
@@ -49,8 +48,7 @@ def versions():
     return jsonify(data), 200
 
 
-# --------------------------------------
-#@auth_required(exception_queries=['fredwilson'])
+# @auth_required(exception_queries=['fredwilson'])
 @app.route('/v1/search', methods=['GET'])
 @parameters_required(parameters=['query'])
 @crossdomain(origin='*')
@@ -78,8 +76,7 @@ def search_people():
     return jsonify({'results': results}), 200
 
 
-# --------------------------------------
-#@auth_required(exception_paths=['/v1/user_count/example'])
+# @auth_required(exception_paths=['/v1/user_count/example'])
 @app.route('/v1/users')
 @crossdomain(origin='*')
 def user_count():
@@ -94,8 +91,8 @@ def user_count():
 
     return jsonify(reply.json()), 200
 
-# --------------------------------------
-#@auth_required(exception_paths=['/v1/users/example'])
+
+# @auth_required(exception_paths=['/v1/users/example'])
 @app.route('/v1/users/<passname>')
 @crossdomain(origin='*')
 def api_user(passname):
@@ -110,14 +107,14 @@ def api_user(passname):
     return jsonify(reply.json()), 200
 
 
-# --------------------------------------
-#@auth_required(exception_paths=['/v1/users/example'])
+# @auth_required(exception_paths=['/v1/users/example'])
 @app.route('/v1/users/<passname>/register', methods=['POST'])
-#@parameters_required(['transfer_address'])
+# @parameters_required(['transfer_address'])
 @crossdomain(origin='*')
 def register_user(passname):
-
-    print json.loads(request.data)
+    REGISTRATION_MESSAGE = (
+        "This passcard was registered using the Onename"
+        " API -- http://api.onename.com")
 
     if namecoind.check_registration('u/' + passname):
         raise APIError("passname already registered", status_code=403)
@@ -132,8 +129,10 @@ def register_user(passname):
     try:
         user['passcard'] = data['passcard']
     except:
-        user['passcard'] = {'status': 'registered',
-                            'message': 'This passcard was registered using the Onename API -- http://api.onename.com'}
+        user['passcard'] = {
+            'status': 'registered',
+            'message': REGISTRATION_MESSAGE
+        }
 
     find_user = register_queue.find_one({"passname": passname})
 
@@ -141,7 +140,6 @@ def register_user(passname):
         # someone else already tried registering this name
         # but the passname is not registered on the blockchain
         # don't tell the client that someone else's request is processing
-
         pass
     else:
         try:
@@ -153,8 +151,9 @@ def register_user(passname):
     reply['status'] = 'success'
     return jsonify(reply), 200
 
+
 # --------------------------------------
-#@auth_required(exception_paths=['/v1/users/example'])
+# @auth_required(exception_paths=['/v1/users/example'])
 @app.route('/v1/transactions/send', methods=['POST'])
 @parameters_required(['signed_hex'])
 @crossdomain(origin='*')
@@ -184,28 +183,26 @@ def broadcast_tx():
         return jsonify(reply), 200
 
 
-# -----------------------------------
 def get_unspents(address):
 
     reply = []
 
     for entry in address_to_utxo.find({"address": address}):
-        
         id = entry['utxo']
 
         new_entry = {}
         new_entry['txid'] = id.rsplit('_')[0]
         new_entry['vout'] = id.rsplit('_')[1]
         utxo = utxo_index.find_one({'id': id})
-    
+
         new_entry['scriptPubKey'] = utxo['data']['scriptPubKey']
         new_entry['amount'] = utxo['data']['value']
         reply.append(new_entry)
 
     return reply
 
-# --------------------------------------
-#@auth_required(exception_paths=['/v1/users/example'])
+
+# @auth_required(exception_paths=['/v1/users/example'])
 @app.route('/v1/addresses/<address>', methods=['GET'])
 @crossdomain(origin='*')
 def get_address_info(address):
@@ -214,9 +211,6 @@ def get_address_info(address):
 
     try:
         reply['unspent_outputs'] = get_unspents(address)
-
-        print reply
-
     except Exception as e:
         raise APIError(str(e), status_code=404)
 
