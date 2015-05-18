@@ -1,43 +1,160 @@
 {% extends "base.html" %}
 {% block content %}
 <div ng-app="docApp">
-	<div class="container-fluid">
-		<div class="row" style="padding-bottom: 60px;">
-			<div class="col-md-3">
-				<div class="bs-docs-sidebar affix" style="margin-top: 60px;">
-				<div class="list-group">
-					<a href="/docs" class="list-group-item" ng-class="{active: activetab == '/docs'}">
-						Getting Started
-					</a>
-					<!--<a href="/docs/auth" class="list-group-item" ng-class="{active: activetab == '/docs/auth'}">
-						Authentication
-					</a>-->
-					<a href="/docs/users" class="list-group-item" ng-class="{active: activetab == '/docs/users'}">
-						Users
-					</a>
-					<a href="/docs/register" class="list-group-item" ng-class="{active: activetab == '/docs/register'}">
-						Register
-					</a>
-					<a href="/docs/usercount" class="list-group-item" ng-class="{active: activetab == '/docs/usercount'}">
-						User Count
-					</a>
-					<a href="/docs/search" class="list-group-item" ng-class="{active: activetab == '/docs/search'}">
-						Search
-					</a>
-					<a href="/docs/transactions" class="list-group-item" ng-class="{active: activetab == '/docs/transactions'}">
-						Transactions
-					</a>
-					<a href="/docs/addresses" class="list-group-item" ng-class="{active: activetab == '/docs/addresses'}">
-						Addresses
-					</a>
+	<div class="pull-left sidebar hidden-xs">
+		<div class="list-group">
+			<a href="/docs" class="list-group-item" ng-class="{active: activetab == '/docs'}">Getting Started</a>
+			<a href="/docs/users" class="list-group-item" ng-class="{active: activetab == '/docs/users'}">Users</a>
+			<a href="/docs/register" class="list-group-item" ng-class="{active: activetab == '/docs/register'}">Register</a>
+			<a href="/docs/usercount" class="list-group-item" ng-class="{active: activetab == '/docs/usercount'}">User Count</a>
+			<a href="/docs/search" class="list-group-item" ng-class="{active: activetab == '/docs/search'}">Search</a>
+			<a href="/docs/transactions" class="list-group-item" ng-class="{active: activetab == '/docs/transactions'}">Transactions</a>
+			<a href="/docs/addresses" class="list-group-item" ng-class="{active: activetab == '/docs/addresses'}">Addresses</a>
+			<a href="/signup" class="list-group-item" target="_self">Sign up</a>
+		</div>
+	</div>
+	<div class="visible-xs">
+		<div class="container-fluid">
+			<div class="row">
+				<div class="list-group solid">
+					<a href="/signup" class="list-group-item nav-solo" target="_self">Sign up</a>
 				</div>
-				</div>
-			</div>
-			<div class="col-md-8">
-				<div ng-view=""></div>
 			</div>
 		</div>
-	</div>	
+	</div>
+	<div id="background" class="hidden-xs">
+     <div class="background-actual"></div>
+   </div>
+	<div class="content">
+		<div class="segment-wrapper">
+			<section id="get-started">
+				<div class="container pull-left col-sm-12">
+					<div class="container-fluid col-sm-6 segment-zone">
+						<div class="seg-zone-wrap">
+							<h1>Getting Started</h1>
+							<p>
+								To start making calls to the Onename API, you'll need API credentials (an App ID and an App secret key).
+							</p>
+							<p>
+								<a href="/signup" class="btn btn-default" target="_self">Sign Up for an API Account</a>
+							</p>
+						</div>
+					</div>
+					<div class="segment-code" id="identifier">
+						<div class="seg-code-wrap">
+							<h3>Libraries</h3>
+							<p>Libraries are <a href="https://stripe.com/docs/libraries">available in several languages</a>.</p>
+						</div>
+						<div class="seg-code-wrap">
+							<div class="method-example-endpoint">
+								<span class="lang">
+									<pre class="language-none"><code class="language-none">https://api.stripe.com</code></pre>
+								</span>
+							</div>
+						</div>
+					</div>
+				</div>
+			</section>
+		</div>
+		<div class="segment-wrapper">
+			<section id="users">
+				<div class="container pull-left col-sm-12">
+					<div class="container-fluid pull-left col-sm-6 segment-zone">
+						<div class="seg-zone-wrap">
+							<h1>Users</h1>
+<h5 class="doc-component">summary</h5>
+<p>
+	Returns the profile data (passcard) and verifications of the user with a given +passname.
+</p>
+<h5 class="doc-component">http request</h5>
+<p>
+	<code>GET /v1/users/{passname}</code>
+</p>
+<h5 class="doc-component">response fields</h5>
+<p>
+	<code>profile, verifications</code>
+</p>
+<h5 class="doc-component">example request</h5>
+<p>
+	<pre><code>
+    curl http://api.onename.com/v1/users/fredwilson \
+        -u 'YOUR-API-ID:YOUR-API-SECRET'
+    </code></pre>
+</p>
+<p>
+	<a href="/v1/users/fredwilson?app-id=demo-app-id&app-secret=demo-app-secret" class="btn btn-default" target="_self">
+		TRY IT OUT
+	</a>
+</p>
+						</div>
+					</div>
+					<div class="segment-code" id="identifier">
+						<div class="seg-code-wrap">
+							<h3>Libraries</h3>
+							<p>Libraries are <a href="https://stripe.com/docs/libraries">available in several languages</a>.</p>
+						</div>
+						<div class="seg-code-wrap">
+							<div class="method-example-endpoint">
+								<span class="lang">
+									<pre class="language-none"><code class="language-none">https://api.stripe.com</code></pre>
+								</span>
+							</div>
+						</div>
+					</div>
+				</div>
+			</section>
+		</div>
+		<div class="segment-wrapper">
+			<section id="register">
+				<div class="container pull-left col-sm-12">
+					<div class="container-fluid pull-left col-sm-6 segment-zone">
+						<div class="seg-zone-wrap">
+							<h1>Register</h1>
+<h5 class="doc-component">summary</h5>
+<p>
+	Takes in a passname to be registered along with the address that will own the passname. Optionally, takes in the passcard data that should be associated with the passname being registered. Returns a status object that shows if the request was successfully received. It takes on the order of hours to actually complete the registration.
+</p>
+<h5 class="doc-component">http request</h5>
+<p>
+	<code>POST /v1/users/{passname}/register</code>
+</p>
+<h5 class="doc-component">query parameters</h5>
+<p>
+	<code>transfer_address, passcard (optional)</code>
+</p>
+<h5 class="doc-component">response fields</h5>
+<p>
+	<code>status</code>
+</p>
+<h5 class="doc-component">example request</h5>
+<p>
+	<pre><code>
+    curl http://api.onename.com/v1/users/fredwilson/register \
+        -u 'YOUR-API-ID:YOUR-API-SECRET' \
+        -d '{"transfer_address": "N8PcBQn...", "passcard": {"bio": "I am a VC"}}' \
+        -X POST
+    </code></pre>
+</p>
+						</div>
+					</div>
+					<div class="segment-code" id="identifier">
+						<div class="seg-code-wrap">
+							<h3>Libraries</h3>
+							<p>Libraries are <a href="https://stripe.com/docs/libraries">available in several languages</a>.</p>
+						</div>
+						<div class="seg-code-wrap">
+							<div class="method-example-endpoint">
+								<span class="lang">
+									<pre class="language-none"><code class="language-none">https://api.stripe.com</code></pre>
+								</span>
+							</div>
+						</div>
+					</div>
+				</div>
+			</section>
+		</div>
+	</div>
+
 </div>
 {% endblock %}
 
