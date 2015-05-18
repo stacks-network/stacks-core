@@ -27,7 +27,8 @@ aws_db = MongoClient(AWSDB_URI)['onename-api']
 register_queue = aws_db.queue
 
 namecoin_index = MongoClient(INDEX_DB_URI)['namecoin_index']
-address_utxo = namecoin_index.address_utxo
+utxo_index = namecoin_index.utxo
+address_to_utxo = namecoin_index.address_to_utxo_temp
 address_to_keys = namecoin_index.address_to_keys
 
 # --------------------------------------
@@ -183,29 +184,44 @@ def broadcast_tx():
         return jsonify(reply), 200
 
 
+# -----------------------------------
+def get_unspents(address):
+
+    reply = []
+
+    for entry in address_to_utxo.find({"address": address}):
+        
+        id = entry['utxo']
+
+        new_entry = {}
+        new_entry['txid'] = id.rsplit('_')[0]
+        new_entry['vout'] = id.rsplit('_')[1]
+        utxo = utxo_index.find_one({'id': id})
+    
+        new_entry['scriptPubKey'] = utxo['data']['scriptPubKey']
+        new_entry['amount'] = utxo['data']['value']
+        reply.append(new_entry)
+
+    return reply
+
 # --------------------------------------
 #@auth_required(exception_paths=['/v1/users/example'])
 @app.route('/v1/addresses/<address>', methods=['GET'])
 @crossdomain(origin='*')
-def get_unspent(address):
+def get_address_info(address):
 
     reply = {}
 
-
     try:
-        check_address = address_utxo.find_one({"address": address})
+        reply['unspent_outputs'] = get_unspents(address)
 
-        if check_address is not None and 'utxos' in check_address:
-            reply['unspent_outputs'] = check_address['utxos']
-        else:
-            reply['unspent_outputs'] = []
+        print reply
+
     except Exception as e:
         raise APIError(str(e), status_code=404)
 
     try:
         check_address = address_to_keys.find_one({"address": address})
-
-        print check_address
 
         if check_address is not None and 'keys' in check_address:
             reply['names_owned'] = check_address['keys']
