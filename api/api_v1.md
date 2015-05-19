@@ -21,7 +21,7 @@ tryit_pathname:
 /v1/users/fredwilson?app-id=demo-app-id&app-secret=demo-app-secret
 
 example_request_bash:
-curl https://api.onename.com/v1/users/fredwilson
+curl https://api.onename.com/v1/users/fredwilson \
     -u 'YOUR-API-ID:YOUR-API-SECRET'
 
 example_response:
@@ -105,11 +105,12 @@ path_template:
 /users
 
 example_request_bash:
-curl http://api.onename.com/v1/users/fredwilson/register \\
-    -u 'YOUR-API-ID:YOUR-API-SECRET' \\
-    -d '{"recipient_address": "N6zdUCKq1gJaps76gagBbC5Vc6xBxMdvHc",
-         "passcard": {"bio": "I am a VC"}}' \\
-    -H 'Content-type: application/json' \\
+curl https://api.onename.com/v1/users \
+    -u 'YOUR-API-ID:YOUR-API-SECRET' \
+    -d '{"passname": "fredwilson",
+         "recipient_address": "N6zdUCKq1gJaps76gagBbC5Vc6xBxMdvHc",
+         "passcard": {"bio": "I am a VC"}}' \
+    -H 'Content-type: application/json' \
     -X POST
 
 example_response:
@@ -144,7 +145,7 @@ tryit_pathname:
 /v1/search?query=fred&app-id=demo-1234&app-secret=demo-1234
 
 example_request_bash:
-curl http://api.onename.com/v1/search?query=wenger \\
+curl https://api.onename.com/v1/search?query=wenger \
     -u 'YOUR-API-ID:YOUR-API-SECRET'
 
 example_response:
@@ -221,7 +222,7 @@ tryit_pathname:
 /v1/users?&app-id=demo-1234&app-secret=demo-1234
 
 example_request_bash:
-curl http://api.onename.com/v1/users \\
+curl https://api.onename.com/v1/users \
     -u 'YOUR-API-ID:YOUR-API-SECRET'
 
 example_response:
@@ -255,10 +256,10 @@ parameters[]:
 {"name": "signed_hex", "description": "A signed transaction in hex format."}
 
 example_request_bash:
-curl http://api.onename.com/v1/transactions/send \\
-    -u 'YOUR-API-ID:YOUR-API-SECRET' \\
-    -d '{"signed_hex": "00710000015e98119922f0b..."}' \\
-    -H 'Content-Type: application/json' \\
+curl https://api.onename.com/v1/transactions \
+    -u 'YOUR-API-ID:YOUR-API-SECRET' \
+    -d '{"signed_hex": "00710000015e98119922f0b"}' \
+    -H 'Content-Type: application/json' \
     -X POST
 
 example_response:
@@ -290,7 +291,7 @@ tryit_pathname:
 /v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4?&app-id=demo-1234&app-secret=demo-1234
 
 example_request_bash:
-curl http://api.onename.com/v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4 \\
+curl https://api.onename.com/v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4 \
     -u 'YOUR-API-ID:YOUR-API-SECRET'
 
 example_response:

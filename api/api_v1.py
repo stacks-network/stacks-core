@@ -8,6 +8,7 @@
 import requests
 import json
 from flask import request, jsonify
+from pybitcoin.rpc import namecoind
 
 from . import app
 from .errors import APIError

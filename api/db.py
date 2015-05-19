@@ -14,7 +14,6 @@ from flask.ext.mongoengine import MongoEngine
 db = MongoEngine(app)
 
 # MongoDB database for register queue, utxo index, etc.
-from pybitcoin.rpc import namecoind
 from pymongo import MongoClient
 from .settings import AWSDB_URI, INDEX_DB_URI, RESOLVER_URL, SEARCH_URL
 
