@@ -27,5 +27,5 @@ for blueprint in blueprints:
     app.register_blueprint(blueprint)
 
 # Import views
-import docs
+import index
 import api_v1
