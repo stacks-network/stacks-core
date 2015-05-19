@@ -18,10 +18,6 @@ import os
 if 'DYNO' in os.environ:
     sslify = SSLify(app)
 
-# Import views
-import api_v1
-import docs
-
 # Add in blueprints
 from .auth import v1auth
 
@@ -29,3 +25,7 @@ blueprints = [v1auth]
 
 for blueprint in blueprints:
     app.register_blueprint(blueprint)
+
+# Import views
+import docs
+import api_v1

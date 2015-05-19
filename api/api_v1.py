@@ -37,7 +37,7 @@ def get_unspents(address):
     return reply
 
 
-@app.route('/v1/users/<passname>')
+@app.route('/v1/users/<passname>', methods=['GET'])
 @auth_required(exception_paths=['/v1/users/fredwilson'])
 @crossdomain(origin='*')
 def api_user(passname):
@@ -128,7 +128,7 @@ def search_people():
     return jsonify({'results': results}), 200
 
 
-@app.route('/v1/users')
+@app.route('/v1/users', methods=['GET'])
 @crossdomain(origin='*')
 def user_count():
 

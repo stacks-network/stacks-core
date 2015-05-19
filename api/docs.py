@@ -41,5 +41,4 @@ def get_api_calls(filename):
 @app.route('/')
 def index():
     api_calls = get_api_calls('api/api_v1.md')
-
     return render_template('index.html', api_calls=api_calls)

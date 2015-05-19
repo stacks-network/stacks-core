@@ -42,7 +42,7 @@ def general_api_error_handler(error):
 # 404 Error handler
 @app.errorhandler(404)
 def resource_not_found(e):
-    if request.path[1] == 'v':
+    if len(request.path) > 1 and request.path[1] == 'v':
         return jsonify({'error': 'Resource not found'}), 404
     else:
         return render_template('error.html', status_code=404,

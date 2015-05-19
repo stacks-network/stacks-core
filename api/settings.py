@@ -35,7 +35,7 @@ for env_variable in os.environ:
     exec(env_variable + " = \"\"\"" + env_value + "\"\"\"")
 
 if 'DYNO' in os.environ:
-    APP_URL = 'localhost:5000'
+    APP_URL = 'api.onename.com'
 
     MONGODB_URI = MONGOLAB_URI
     parts = re.split(':|/|@|mongodb://', MONGOLAB_URI)
