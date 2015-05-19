@@ -21,9 +21,9 @@
 
 	<link href="{{ url_for('static', filename='css/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
 	<link href="{{ url_for('static', filename='css/bootstrap/docs.min.css') }}" rel="stylesheet">
-    <link href="{{ url_for('static', filename='css/proximanova/proximanova.css') }}" rel="stylesheet">
-	<link href="{{ url_for('static', filename='css/main.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/proximanova/proximanova.css') }}" rel="stylesheet">
 	<link href="{{ url_for('static', filename='css/highlight-sunburst.css') }}" rel="stylesheet">
+	<link href="{{ url_for('static', filename='css/main.css') }}" rel="stylesheet">
 
 	<!-- SUPPORT FOR IE6-8 OF HTML5 ELEMENTS -->
 	<!--[if lt IE 9]>
@@ -38,7 +38,7 @@
   </head>
   <body>
 
-	<div class="navbar navbar-fixed-top hidden-xs">
+	<div class="navbar navbar-fixed-top hidden-xs hidden-sm">
   	{% block desktop_navbar %}
 		<div class="pull-left navbar-default navbar-subtle">
 			<div class="navbar-header">
@@ -50,7 +50,7 @@
 		</div>
 	{% endblock %}
 	</div>
-	<div class="navbar navbar-fixed-top navbar-default navbar-subtle visible-xs">
+	<div class="navbar navbar-fixed-top navbar-default navbar-subtle visible-xs visible-sm">
 	{% block mobile_navbar %}
 		<div class="container-fluid">
 			<div class="navbar-header">
@@ -64,13 +64,14 @@
 				</a>
 				<a class="navbar-brand tagline" href="/#getstarted">api</a>
 			</div>
+			<!-- mobile .navbar-collapse - changes here need to reflect on sidebar nav -->
 			<div class="navbar-collapse collapse">
-			  <ul class="nav navbar-nav navbar-right visible-xs">
+			  <ul class="nav navbar-nav navbar-right visible-xs visible-sm">
 					<li>
 					  <a href="/#get-started">Getting Started</a>
 					</li>
 					<li>
-						<h5 class="sidehead">Users</h5>
+						<h5 class="navheader">Users</h5>
 					</li>
 					<li>
 					  <a href="/#lookup_users">Lookup users</a>
@@ -85,22 +86,22 @@
 						<a href="/#userbase_stats">Get userbase stats</a>
 					</li>
 					<li>
-						<h5 class="sidehead">Transactions</h5>
+						<h5 class="navheader">Transactions</h5>
 					</li>
 					<li>
 						<a href="/#broadcast_transaction">Broadcast a transaction</a>
 					</li>
 					<li>
-						<h5 class="sidehead">Addresses</h5>
+						<h5 class="navheader">Addresses</h5>
 					</li>
 					<li>
 						<a href="/#lookup_address">Lookup an address</a>
 					</li>
 					<li>
-					  <a href="/signup" target="self">Sign up</a>
+					  <a href="/signup">Sign up</a>
 					</li>
 			  </ul>
-			</div><!--/.nav-collapse -->
+			</div><!--/.navbar-collapse -->
 		</div>
 	{% endblock %}
 	</div>
