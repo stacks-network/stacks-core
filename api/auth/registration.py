@@ -4,7 +4,7 @@ from flask import render_template
 
 from .models import User
 from .utils import generate_app_secret, generate_app_id
-from ..helper import send_w_mailgun
+from ..utils import send_w_mailgun
 from ..errors import APIError
 
 

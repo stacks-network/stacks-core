@@ -72,7 +72,7 @@ api_calls = [
         "description": "Takes in a passname to be registered along with the address that will own the passname. Optionally, takes in the passcard data that should be associated with the passname being registered. Returns a status object that shows if the request was successfully received. It takes on the order of hours to actually complete the registration.",
         "parameters": [
             {"name": "transfer_address", "description": "The namecoin address that the passcard will be transferred to once it has been registered."},
-            {"name": "transfer_address", "description": "The namecoin address that the passcard will be transferred to once it has been registered.", "optional": True}
+            {"name": "passcard", "description": "The data to be associated with the passcard.", "optional": True}
         ],
         "response_description": "Returns an object with a status that is either true or false.",
         "method": "POST",

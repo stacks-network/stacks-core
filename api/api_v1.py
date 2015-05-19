@@ -7,30 +7,15 @@
 
 import requests
 import json
-
-from flask import redirect, url_for, render_template, request
-from flask import jsonify
+from flask import request, jsonify
 
 from . import app
 from .errors import APIError
 from .utils import parameters_required
 from .crossdomain import crossdomain
 from .auth import auth_required
-from .api_calls import api_calls
-
-from pybitcoin.rpc import namecoind
-
-from pymongo import MongoClient
-from settings import AWSDB_URI, INDEX_DB_URI
-from settings import RESOLVER_URL, SEARCH_URL
-
-aws_db = MongoClient(AWSDB_URI)['onename-api']
-register_queue = aws_db.queue
-
-namecoin_index = MongoClient(INDEX_DB_URI)['namecoin_index']
-utxo_index = namecoin_index.utxo
-address_to_utxo = namecoin_index.address_to_utxo_temp
-address_to_keys = namecoin_index.address_to_keys
+from .db import register_queue, utxo_index, address_to_utxo, address_to_keys
+from .settings import AWSDB_URI, INDEX_DB_URI, RESOLVER_URL, SEARCH_URL
 
 
 def get_unspents(address):
@@ -49,11 +34,6 @@ def get_unspents(address):
         reply.append(new_entry)
 
     return reply
-
-
-@app.route('/')
-def index():
-    return render_template('index.html', api_calls=api_calls)
 
 
 # @auth_required(exception_queries=['fredwilson','wenger'])
