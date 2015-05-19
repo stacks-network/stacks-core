@@ -37,52 +37,8 @@ def get_unspents(address):
     return reply
 
 
-# @auth_required(exception_queries=['fredwilson','wenger'])
-@app.route('/v1/search', methods=['GET'])
-@parameters_required(parameters=['query'])
-@crossdomain(origin='*')
-def search_people():
-
-    search_url = SEARCH_URL + '/search/name'
-
-    name = request.values['query']
-
-    try:
-        results = requests.get(url=search_url, params={'query': name})
-    except:
-        raise APIError('Something went wrong', status_code=500)
-
-    if results.status_code == 404:
-        raise APIError(status_code=404)
-    else:
-        return jsonify(results.json()), 200
-
-    if not ('results' in results and isinstance(results['results'], list)):
-        results = []
-    else:
-        results = results['results']
-
-    return jsonify({'results': results}), 200
-
-
-# @auth_required(exception_paths=['/v1/user_count/example'])
-@app.route('/v1/users')
-@crossdomain(origin='*')
-def user_count():
-
-    BASE_URL = RESOLVER_URL + '/v1/users'
-
-    try:
-        reply = requests.get(BASE_URL, timeout=10, verify=False)
-
-    except Exception as e:
-        raise APIError(str(e), status_code=404)
-
-    return jsonify(reply.json()), 200
-
-
-# @auth_required(exception_paths=['/v1/users/example'])
 @app.route('/v1/users/<passname>')
+@auth_required(exception_paths=['/v1/users/fredwilson'])
 @crossdomain(origin='*')
 def api_user(passname):
 
@@ -96,8 +52,8 @@ def api_user(passname):
     return jsonify(reply.json()), 200
 
 
-# @auth_required(exception_paths=['/v1/users/example'])
 @app.route('/v1/users', methods=['POST'])
+@auth_required()
 @parameters_required(['passname', 'recipient_address'])
 @crossdomain(origin='*')
 def register_user():
@@ -144,8 +100,51 @@ def register_user():
     return jsonify(reply), 200
 
 
-# @auth_required(exception_paths=['/v1/users/example'])
+@app.route('/v1/search', methods=['GET'])
+@auth_required(exception_queries=['fredwilson', 'wenger'])
+@parameters_required(parameters=['query'])
+@crossdomain(origin='*')
+def search_people():
+
+    search_url = SEARCH_URL + '/search/name'
+
+    name = request.values['query']
+
+    try:
+        results = requests.get(url=search_url, params={'query': name})
+    except:
+        raise APIError('Something went wrong', status_code=500)
+
+    if results.status_code == 404:
+        raise APIError(status_code=404)
+    else:
+        return jsonify(results.json()), 200
+
+    if not ('results' in results and isinstance(results['results'], list)):
+        results = []
+    else:
+        results = results['results']
+
+    return jsonify({'results': results}), 200
+
+
+@app.route('/v1/users')
+@crossdomain(origin='*')
+def user_count():
+
+    BASE_URL = RESOLVER_URL + '/v1/users'
+
+    try:
+        reply = requests.get(BASE_URL, timeout=10, verify=False)
+
+    except Exception as e:
+        raise APIError(str(e), status_code=404)
+
+    return jsonify(reply.json()), 200
+
+
 @app.route('/v1/transactions', methods=['POST'])
+@auth_required()
 @parameters_required(['signed_hex'])
 @crossdomain(origin='*')
 def broadcast_tx():
@@ -174,8 +173,9 @@ def broadcast_tx():
         return jsonify(reply), 200
 
 
-# @auth_required(exception_paths=['/v1/users/example'])
 @app.route('/v1/addresses/<address>', methods=['GET'])
+@auth_required(
+    exception_paths=['/v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4'])
 @crossdomain(origin='*')
 def get_address_info(address):
 
