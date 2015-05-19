@@ -1,10 +1,10 @@
 {% macro docsection(api_call) %}
-<div class="segment-wrapper">
+<div>
 <section>
-    <div class="container pull-left col-sm-12" id="{{ api_call.anchor_tag }}">
+    <div class="container pull-left col-sm-12 segment-wrapper" id="{{ api_call.anchor_tag }}">
         <div class="container-fluid pull-left col-sm-6 segment-zone">
             <div class="seg-zone-wrap">
-                <h1>{{ api_call.title }}</h1>
+                <h3>{{ api_call.title }}</h3>
                 <p>{{ api_call.description }}</p>
 
                 <h5 class="doc-component">query parameters</h5>

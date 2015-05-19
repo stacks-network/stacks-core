@@ -28,20 +28,21 @@
 
 {% block content %}
 <div ng-app="docApp">
-    <div class="pull-left sidebar hidden-xs">
+    <!-- sidebar navbar - changes here need to reflect on mobile .navbar-collapse -->
+    <div class="pull-left sidebar hidden-xs hidden-sm">
         <div class="list-group">
             <a href="/#" class="list-group-item">Getting Started</a>
-            <h5 style="margin-left: 10px;">USERS</h5>
+            <h5 class="navheader">Users</h5>
             <a href="/#lookup_users" class="list-group-item">Lookup users</a>
             <a href="/#register_user" class="list-group-item">Register a user</a>
             <a href="/#search_users" class="list-group-item">Search for a user</a>
             <a href="/#userbase_stats" class="list-group-item">Get userbase stats</a>
-            <h5 style="margin-left: 10px;">TRANSACTIONS</h5>
+            <h5 class="navheader">Transactions</h5>
             <a href="/#broadcast_transaction" class="list-group-item">Broadcast a transaction</a>
-            <h5 style="margin-left: 10px;">ADDRESSES</h5>
+            <h5 class="navheader">Addresses</h5>
             <a href="/#lookup_address" class="list-group-item">Lookup an address</a>
         </div>
-    </div>
+    </div><!--/sidebar navbar -->
     <div class="visible-xs">
         <div class="container-fluid">
             <div class="row">
@@ -55,12 +56,12 @@
      <div class="background-actual"></div>
    </div>
     <div class="content">
-        <div class="segment-wrapper">
+        <div>
             <section>
-                <div class="container pull-left col-sm-12" id="get-started">
-                    <div class="container-fluid col-sm-6 segment-zone">
+                <div class="container pull-left col-sm-12 segment-wrapper" id="get-started">
+                    <div class="container-fluid col-sm-6 segment-zone" style="border:none;">
                         <div class="seg-zone-wrap">
-                            <h1>Getting Started</h1>
+                            <h3>Getting Started</h3>
                             <p>
                                 To start making calls to the Onename API, you'll need API credentials (an App ID and an App secret key).
                             </p>
