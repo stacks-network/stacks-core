@@ -1,4 +1,5 @@
 from . import app
+import requests
 
 
 def send_w_mailgun(subject, recipient, template):
