@@ -5,7 +5,7 @@ from flask import render_template
 from .models import User
 from .utils import generate_app_secret, generate_app_id
 from ..mail import send_w_mailgun
-from ..errors import APIError
+from ..errors import AccountRegistrationError
 
 
 def register_user(email):
@@ -17,9 +17,9 @@ def register_user(email):
         app_secret_hash=app_secret_hash)
     try:
         user.save()
-    except:
+    except Exception as e:
         traceback.print_exc()
-        raise APIError('Could not register user')
+        raise AccountRegistrationError()
 
     template = render_template(
         'email/registration.html', user=user, app_secret=app_secret)

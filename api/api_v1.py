@@ -6,12 +6,16 @@
 """
 
 import requests
+from requests.exceptions import ConnectionError as RequestsConnectionError
+from requests.exceptions import Timeout as RequestsTimeout
 import json
 from flask import request, jsonify
 from pybitcoin.rpc import namecoind
 
 from . import app
-from .errors import APIError, InvalidProfileDataError
+from .errors import InvalidProfileDataError, PassnameTakenError, \
+    InternalProcessingError, ResolverConnectionError, \
+    BroadcastTransactionError, DatabaseLookupError
 from .parameters import parameters_required
 from .crossdomain import crossdomain
 from .auth import auth_required
@@ -19,21 +23,28 @@ from .db import register_queue, utxo_index, address_to_utxo, address_to_keys
 from .settings import AWSDB_URI, INDEX_DB_URI, RESOLVER_URL, SEARCH_URL
 
 
+def format_utxo_data(utxo_id, utxo_data):
+    unspent = None
+    if 'scriptPubKey' in utxo_data and 'value' in utxo_data:
+        unspent = {
+            'txid': utxo_id.rsplit('_')[0],
+            'vout': utxo_id.rsplit('_')[1],
+            'scriptPubKey': utxo_data['scriptPubKey'],
+            'amount': utxo_data['value']
+        }
+    return unspent
+
+
 def get_unspents(address):
     unspents = []
-
-    for entry in address_to_utxo.find({"address": address}):
-        id = entry['utxo']
-
-        new_entry = {}
-        new_entry['txid'] = id.rsplit('_')[0]
-        new_entry['vout'] = id.rsplit('_')[1]
-        utxo = utxo_index.find_one({'id': id})
-
-        new_entry['scriptPubKey'] = utxo['data']['scriptPubKey']
-        new_entry['amount'] = utxo['data']['value']
-        unspents.append(new_entry)
-
+    entries = address_to_utxo.find({'address': address})
+    for entry in entries:
+        if 'utxo' in entry:
+            utxo_id = entry['utxo']
+            utxo = utxo_index.find_one({'id': utxo_id})
+            if 'data' in utxo:
+                unspent = format_utxo_data(utxo_id, utxo['data'])
+                unspents.append(unspent)
     return unspents
 
 
@@ -45,8 +56,8 @@ def api_user(passnames):
 
     try:
         resp = requests.get(BASE_URL + passnames, timeout=10, verify=False)
-    except Exception as e:
-        raise APIError(str(e), status_code=404)
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        raise ResolverConnectionError()
 
     data = resp.json()
 
@@ -74,7 +85,7 @@ def register_user():
     passname = data['passname']
 
     if namecoind.check_registration('u/' + passname):
-        raise APIError("passname already registered", status_code=403)
+        raise PassnameTakenError()
 
     if 'passcard' in data:
         passcard = data['passcard']
@@ -90,18 +101,19 @@ def register_user():
         'transfer_address': data['recipient_address']
     }
 
-    find_user = register_queue.find_one({"passname": passname})
+    find_user = register_queue.find_one({'passname': passname})
 
     if find_user is not None:
-        # someone else already tried registering this name
-        # but the passname is not registered on the blockchain
-        # don't tell the client that someone else's request is processing
+        """ Someone else already tried registering this name
+            but the passname is not yet registered on the blockchain.
+            Don't tell the client that someone else's request is processing.
+        """
         pass
     else:
         try:
             register_queue.save(user)
         except Exception as e:
-            raise APIError(str(e), status_code=404)
+            raise DatabaseSaveError()
 
     resp = {'status': 'success'}
 
@@ -119,33 +131,26 @@ def search_people():
     name = request.values['query']
 
     try:
-        results = requests.get(url=search_url, params={'query': name})
-    except:
-        raise APIError('Something went wrong', status_code=500)
+        resp = requests.get(url=search_url, params={'query': name})
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        raise InternalProcessingError()
 
-    if results.status_code == 404:
-        raise APIError(status_code=404)
-    else:
-        return jsonify(results.json()), 200
+    data = resp.json()
+    if not ('results' in data and isinstance(data['results'], list)):
+        data = {'results': []}
 
-    if not ('results' in results and isinstance(results['results'], list)):
-        results = []
-    else:
-        results = results['results']
-
-    return jsonify({'results': results}), 200
+    return jsonify(data), 200
 
 
 @app.route('/v1/users', methods=['GET'])
 @crossdomain(origin='*')
 def user_stats():
-
     BASE_URL = RESOLVER_URL + '/v1/users'
 
     try:
         resp = requests.get(BASE_URL, timeout=10, verify=False)
-    except Exception as e:
-        raise APIError(str(e), status_code=404)
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        raise ResolverConnectionError()
 
     return jsonify(resp.json()), 200
 
@@ -159,14 +164,15 @@ def broadcast_tx():
     signed_hex = data['signed_hex']
 
     try:
-        info = namecoind.sendrawtransaction(signed_hex)
+        namecoind_response = namecoind.sendrawtransaction(signed_hex)
     except Exception as e:
-        raise APIError(str(e), status_code=404)
+        traceback.print_exc()
+        raise BroadcastTransactionError()
 
-    if 'code' in info:
-        resp = {'status': 'error', 'message': info['message']}
-    else:
-        resp = {'status': 'success', 'transaction_hash': info}
+    if 'code' in namecoind_response:
+        raise BroadcastTransactionError(namecoind_response['message'])
+
+    resp = {'transaction_hash': namecoind_response, 'status': 'success'}
 
     return jsonify(resp), 200
 
@@ -181,12 +187,13 @@ def get_address_info(address):
     try:
         unspent_outputs = get_unspents(address)
     except Exception as e:
-        raise APIError(str(e), status_code=404)
+        traceback.print_exc()
+        raise DatabaseLookupError()
 
     try:
-        address_names = address_to_keys.find_one({"address": address})
+        address_names = address_to_keys.find_one({'address': address})
     except Exception as e:
-        raise APIError(str(e), status_code=404)
+        raise DatabaseLookupError()
 
     names_owned = []
     if address_names is not None and 'keys' in address_names:

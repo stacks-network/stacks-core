@@ -90,7 +90,8 @@ register_user
 Takes in a passname to be registered along with the address that will own the passname. Optionally, takes in the passcard data that should be associated with the passname being registered. Returns a status object that shows if the request was successfully received. It takes on the order of hours to actually complete the registration.
 
 #### parameters[]:
-{"name": "transfer_address", "description": "The namecoin address that the passcard will be transferred to once it has been registered."}
+{"name": "passname", "description": "The passname (passcard username) that is to be registered."}
+{"name": "recipient_address", "description": "The namecoin address that the passcard will be transferred to once it has been registered."}
 {"name": "passcard", "description": "The data to be associated with the passcard.", "optional": true}
 
 #### response_description:
@@ -245,7 +246,7 @@ Returns an object with a status that is either "success" or "error".
 POST
 
 #### path_template:
-/users/{passnames}
+/transactions
 
 #### parameters[]:
 {"name": "signed_hex", "description": "A signed transaction in hex format."}
@@ -279,7 +280,7 @@ Returns an array of unspent outputs and an array of the names that the address o
 GET
 
 #### path_template:
-/users/{passnames}
+/addresses/{address}
 
 #### tryit_pathname:
 /v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4?&app-id=demo-1234&app-secret=demo-1234

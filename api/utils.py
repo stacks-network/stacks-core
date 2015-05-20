@@ -42,6 +42,7 @@ def get_api_calls(filename):
         text = f.read()
         for match in re.findall(pattern, text):
             match = re.sub(r'\n## ', '', match)
+            match = re.sub(r'\n_end_', '', match)
             api_call = build_api_call_object(match)
             api_calls.append(api_call)
 

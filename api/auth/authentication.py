@@ -4,7 +4,7 @@ from werkzeug.datastructures import Authorization
 from flask import g, request
 
 from .models import User
-from ..errors import APIError
+from ..errors import MissingCredentialsError, InvalidCredentialsError
 
 
 def authenticate_user(app_id, app_secret):
@@ -35,7 +35,7 @@ def auth_required(exception_paths=None, exception_queries=None):
                 auth = Authorization(
                     'basic', data={'username': app_id, 'password': app_secret})
             else:
-                raise APIError('API credentials missing', status_code=400)
+                raise MissingCredentialsError()
 
             if exception_paths and str(request.path) in exception_paths:
                 pass
@@ -43,7 +43,7 @@ def auth_required(exception_paths=None, exception_queries=None):
                     and request.values.get('query') in exception_queries):
                 pass
             elif not authenticate_user(app_id, app_secret):
-                raise APIError('Invalid API credentials', status_code=400)
+                raise InvalidCredentialsError()
 
             return f(*args, **kwargs)
         return update_wrapper(decorated_function, f)
