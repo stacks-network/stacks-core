@@ -81,7 +81,6 @@ curl https://api.onename.com/v1/users/fredwilson \
 
 _end_
 
-
 ## Register a user
 
 #### anchor_tag:
@@ -140,7 +139,7 @@ GET
 {"name": "query", "description": "The text to search for."}
 
 #### tryit_pathname:
-/v1/search?query=fred&app-id=demo-1234&app-secret=demo-1234
+/v1/search?query=wenger&app-id=demo-1234&app-secret=demo-1234
 
 #### example_request_bash:
 curl https://api.onename.com/v1/search?query=wenger \

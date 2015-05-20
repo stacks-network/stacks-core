@@ -11,8 +11,8 @@ from flask import request, jsonify
 from pybitcoin.rpc import namecoind
 
 from . import app
-from .errors import APIError
-from .utils import parameters_required
+from .errors import APIError, InvalidProfileDataError
+from .parameters import parameters_required
 from .crossdomain import crossdomain
 from .auth import auth_required
 from .db import register_queue, utxo_index, address_to_utxo, address_to_keys
@@ -20,7 +20,7 @@ from .settings import AWSDB_URI, INDEX_DB_URI, RESOLVER_URL, SEARCH_URL
 
 
 def get_unspents(address):
-    reply = []
+    unspents = []
 
     for entry in address_to_utxo.find({"address": address}):
         id = entry['utxo']
@@ -32,24 +32,32 @@ def get_unspents(address):
 
         new_entry['scriptPubKey'] = utxo['data']['scriptPubKey']
         new_entry['amount'] = utxo['data']['value']
-        reply.append(new_entry)
+        unspents.append(new_entry)
 
-    return reply
+    return unspents
 
 
-@app.route('/v1/users/<passname>', methods=['GET'])
+@app.route('/v1/users/<passnames>', methods=['GET'])
 @auth_required(exception_paths=['/v1/users/fredwilson'])
 @crossdomain(origin='*')
-def api_user(passname):
-
+def api_user(passnames):
     BASE_URL = RESOLVER_URL + '/v1/users/'
 
     try:
-        reply = requests.get(BASE_URL + passname, timeout=10, verify=False)
+        resp = requests.get(BASE_URL + passnames, timeout=10, verify=False)
     except Exception as e:
         raise APIError(str(e), status_code=404)
 
-    return jsonify(reply.json()), 200
+    data = resp.json()
+
+    for passname in passnames.split(','):
+        if passname not in data:
+            error = InvalidProfileDataError('')
+            data[passname] = {
+                'error': error.to_dict()
+            }
+
+    return jsonify(data), 200
 
 
 @app.route('/v1/users', methods=['POST'])
@@ -95,9 +103,9 @@ def register_user():
         except Exception as e:
             raise APIError(str(e), status_code=404)
 
-    reply = {'status': 'success'}
+    resp = {'status': 'success'}
 
-    return jsonify(reply), 200
+    return jsonify(resp), 200
 
 
 @app.route('/v1/search', methods=['GET'])
@@ -130,17 +138,16 @@ def search_people():
 
 @app.route('/v1/users', methods=['GET'])
 @crossdomain(origin='*')
-def user_count():
+def user_stats():
 
     BASE_URL = RESOLVER_URL + '/v1/users'
 
     try:
-        reply = requests.get(BASE_URL, timeout=10, verify=False)
-
+        resp = requests.get(BASE_URL, timeout=10, verify=False)
     except Exception as e:
         raise APIError(str(e), status_code=404)
 
-    return jsonify(reply.json()), 200
+    return jsonify(resp.json()), 200
 
 
 @app.route('/v1/transactions', methods=['POST'])
@@ -148,12 +155,8 @@ def user_count():
 @parameters_required(['signed_hex'])
 @crossdomain(origin='*')
 def broadcast_tx():
-
     data = json.loads(request.data)
-
     signed_hex = data['signed_hex']
-
-    reply = {}
 
     try:
         info = namecoind.sendrawtransaction(signed_hex)
@@ -161,16 +164,11 @@ def broadcast_tx():
         raise APIError(str(e), status_code=404)
 
     if 'code' in info:
-        reply['status'] = 'error'
-        reply['message'] = info['message']
-
-        return jsonify(reply), 200
+        resp = {'status': 'error', 'message': info['message']}
     else:
+        resp = {'status': 'success', 'transaction_hash': info}
 
-        reply['status'] = 'success'
-        reply['transaction_hash'] = info
-
-        return jsonify(reply), 200
+    return jsonify(resp), 200
 
 
 @app.route('/v1/addresses/<address>', methods=['GET'])
@@ -178,22 +176,22 @@ def broadcast_tx():
     exception_paths=['/v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4'])
 @crossdomain(origin='*')
 def get_address_info(address):
-
-    reply = {}
+    resp = {}
 
     try:
-        reply['unspent_outputs'] = get_unspents(address)
+        unspent_outputs = get_unspents(address)
     except Exception as e:
         raise APIError(str(e), status_code=404)
 
     try:
-        check_address = address_to_keys.find_one({"address": address})
-
-        if check_address is not None and 'keys' in check_address:
-            reply['names_owned'] = check_address['keys']
-        else:
-            reply['names_owned'] = []
+        address_names = address_to_keys.find_one({"address": address})
     except Exception as e:
         raise APIError(str(e), status_code=404)
 
-    return jsonify(reply), 200
+    names_owned = []
+    if address_names is not None and 'keys' in address_names:
+        names_owned = address_names['keys']
+
+    resp = {'unspent_outputs': unspent_outputs, 'names_owned': names_owned}
+
+    return jsonify(resp), 200
