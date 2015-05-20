@@ -1,0 +1,55 @@
+{% set site_name = 'Onename API' %}
+{% from '_logo-rev.html' import logorev %}
+
+<!doctype html>
+<html class="no-js">
+  <head>
+	{% block head %}
+	<title>{% block title %}{{ site_name }}{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, minimal-ui">
+	<meta name="description" content="">
+	<meta name="keywords" content="">
+	<meta name="author" content="">
+	<meta charset="utf-8">
+
+	<meta property="og:title" content=""/>
+	<meta property="og:type" content="website"/>
+	<meta property="og:url" content=""/>
+	<meta property="og:image" content="" />
+	<meta property="og:site_name" content='{{ site_name }}'/>
+	<meta property="og:description" content=""/>
+
+	<link href="{{ url_for('static', filename='css/bootstrap/bootstrap.min.css') }}" rel="stylesheet">
+	<link href="{{ url_for('static', filename='css/bootstrap/docs.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/proximanova/proximanova.css') }}" rel="stylesheet">
+	<link href="{{ url_for('static', filename='css/highlight-sunburst.css') }}" rel="stylesheet">
+	<link href="{{ url_for('static', filename='css/main.css') }}" rel="stylesheet">
+
+	<!-- SUPPORT FOR IE6-8 OF HTML5 ELEMENTS -->
+	<!--[if lt IE 9]>
+		  <script src="http://html5shim.googlecode.com/svn/trunk/html5.js"></script>
+	<![endif]-->
+
+	{% block scripts %}
+		<script src="{{ url_for('static', filename='js/jquery/jquery.min.js') }}"></script>
+		<script src="{{ url_for('static', filename='js/bootstrap/bootstrap.min.js') }}"></script>
+	{% endblock %}
+	{% endblock %}
+  </head>
+  <body>
+  <div class="wrap">
+  <nav class="navbar navbar-default base">
+		<div class="container-fluid">
+			<div class="navbar-header">
+				<a class="navbar-brand reverse" href="/">
+        	{{ logorev() }}
+				</a>
+    	</div>
+  	</div>
+	</nav>
+
+	{% block content %}
+	{% endblock %}
+</div>
+</body>
+</html>

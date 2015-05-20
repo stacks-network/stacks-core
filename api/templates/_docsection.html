@@ -6,9 +6,7 @@
             <div class="seg-zone-wrap">
                 <h3>{{ api_call.title }}</h3>
                 <p>{{ api_call.description }}</p>
-
                 <h5 class="doc-component">parameters</h5>
-
                 <div class="queryparameters">
                     {% for parameter in api_call.parameters %}
                     <div class="parameter">
@@ -26,7 +24,7 @@
                     {% endif %}
                 </div>
                 
-                <h5 class="doc-component">returns</h5>
+                <h4 class="doc-component">returns</h4>
                 <p>{{ api_call.response_description }}</p>                
             </div>
             {% if api_call.tryit_pathname %}
@@ -37,13 +35,13 @@
         </div>
         <div class="segment-code" id="identifier">
             <div class="seg-code-wrap">
-                <h5>Definition</h5>
+                <h4>Definition</h4>
                 <pre><code class="http">{{ api_call.method }} https://api.onename.com/v1{{ api_call.path_template }}</code></pre>
 
-                <h5>Example Request</h5>
+                <h4>Example Request</h4>
                 <pre><code class="bash">{{ api_call.example_request_bash }}</code></pre>
 
-                <h5>Example Response</h5>
+                <h4>Example Response</h4>
                 <pre><code class="json">{{ api_call.example_response }}</code></pre>
             </div>
         </div>
