@@ -38,14 +38,14 @@
   </head>
   <body>
 
-	<div class="navbar navbar-fixed-top hidden-xs hidden-sm">
+	<div class="navbar navbar-fixed-top">
   	{% block desktop_navbar %}
-		<div class="pull-left navbar-default navbar-subtle">
+		<div class="pull-left navbar-default navbar-subtle hidden-xs hidden-sm">
 			<div class="navbar-header">
 				<a class="navbar-brand" href="/">
 					{{ logo() }}
 				</a>
-				<a class="navbar-brand tagline" href="/">api</a>
+				<a class="tagline" href="/">api</a>
 			</div>
 		</div>
 	{% endblock %}
@@ -62,7 +62,7 @@
 				<a class="navbar-brand" href="/docs">
 					{{ logo() }}
 				</a>
-				<a class="navbar-brand tagline" href="/#getstarted">api</a>
+				<a class="tagline" href="/#getstarted">api</a>
 			</div>
 			<!-- mobile .navbar-collapse - changes here need to reflect on sidebar nav -->
 			<div class="navbar-collapse collapse">
