@@ -1,30 +1,28 @@
----START API CALL---
-anchor_tag:
+## Lookup users
+
+#### anchor_tag:
 lookup_users
 
-title:
-Lookup users
-
-description:
+#### description:
 Looks up the data for one or more users by their passnames. In order to perform more than one lookup at once, include a set of comma-separated passnames in the URL in place of the single passname.
 
-response_description:
+#### response_description:
 Returns an object with a top-level key for each passname looked up. Each top-level key contains an sub-object that has a "profile" field and a "verifications" field.
 
-method:
+#### method:
 GET
 
-path_template:
+#### path_template:
 /users/{passnames}
 
-tryit_pathname:
+#### tryit_pathname:
 /v1/users/fredwilson?app-id=demo-app-id&app-secret=demo-app-secret
 
-example_request_bash:
+#### example_request_bash:
 curl https://api.onename.com/v1/users/fredwilson \
     -u 'YOUR-API-ID:YOUR-API-SECRET'
 
-example_response:
+#### example_response:
 {
   "fredwilson": {
     "profile": {
@@ -78,33 +76,32 @@ example_response:
     ]
   }
 }
----END API CALL---
+
+_end_
 
 
----START API CALL---
-anchor_tag:
+## Register a user
+
+#### anchor_tag:
 register_user
 
-title:
-Register a user
-
-description:
+#### description:
 Takes in a passname to be registered along with the address that will own the passname. Optionally, takes in the passcard data that should be associated with the passname being registered. Returns a status object that shows if the request was successfully received. It takes on the order of hours to actually complete the registration.
 
-parameters[]:
+#### parameters[]:
 {"name": "transfer_address", "description": "The namecoin address that the passcard will be transferred to once it has been registered."}
 {"name": "passcard", "description": "The data to be associated with the passcard.", "optional": true}
 
-response_description:
+#### response_description:
 Returns an object with a status that is either "success" or "error".
 
-method:
+#### method:
 POST
 
-path_template:
+#### path_template:
 /users
 
-example_request_bash:
+#### example_request_bash:
 curl https://api.onename.com/v1/users \
     -u 'YOUR-API-ID:YOUR-API-SECRET' \
     -d '{"passname": "fredwilson",
@@ -113,42 +110,41 @@ curl https://api.onename.com/v1/users \
     -H 'Content-type: application/json' \
     -X POST
 
-example_response:
+#### example_response:
 {
     "status": "success"
 }
----END API CALL---
 
----START API CALL---
-anchor_tag:
+_end_
+
+## Search for a user
+
+#### anchor_tag:
 search_users
 
-title:
-Search for a user
-
-description:
+#### description:
 Takes in a search query and returns a list of results that match the search. The query is matched against +passnames, full names, and twitter handles.
 
-response_description:
+#### response_description:
 Returns an array of results, where each result has a \"profile\" object.
 
-method:
+#### method:
 GET
 
-path_template:
+#### path_template:
 /search
 
-parameters[]:
+#### parameters[]:
 {"name": "query", "description": "The text to search for."}
 
-tryit_pathname:
+#### tryit_pathname:
 /v1/search?query=fred&app-id=demo-1234&app-secret=demo-1234
 
-example_request_bash:
+#### example_request_bash:
 curl https://api.onename.com/v1/search?query=wenger \
     -u 'YOUR-API-ID:YOUR-API-SECRET'
 
-example_response:
+#### example_response:
 {
   "results": [
     {
@@ -197,106 +193,104 @@ example_response:
     }
   ]
 }
----END API CALL---
 
----START API CALL---
-anchor_tag:
+_end_
+
+## Get userbase stats
+
+#### anchor_tag:
 userbase_stats
 
-title:
-Get userbase stats
-
-description:
+#### description:
 Gets stats about the decentralized namespace, including the total number of users registered.
 
-response_description:
+#### response_description:
 Returns an object with a "stats" sub-object that in turn contains a "registrations" field that reflects a running count of the total users registered.
 
-method:
+#### method:
 GET
 
-path_template:
+#### path_template:
 /users
 
-tryit_pathname:
+#### tryit_pathname:
 /v1/users?&app-id=demo-1234&app-secret=demo-1234
 
-example_request_bash:
+#### example_request_bash:
 curl https://api.onename.com/v1/users \
     -u 'YOUR-API-ID:YOUR-API-SECRET'
 
-example_response:
+#### example_response:
 {
   "stats": {
     "registrations": "29235"
   }
 }
----END API CALL---
 
----START API CALL---
-anchor_tag:
+_end_
+
+## Broadcast a transaction
+
+#### anchor_tag:
 broadcast_transaction
 
-title:
-Broadcast a transaction
-
-description:
+#### description:
 Takes in a signed transaction (in hex format) and broadcasts it to the network. If the transaction is successfully broadcasted, the transaction hash is returned in the response.
 
-response_description:
+#### response_description:
 Returns an object with a status that is either "success" or "error".
 
-method:
+#### method:
 POST
 
-path_template:
+#### path_template:
 /users/{passnames}
 
-parameters[]:
+#### parameters[]:
 {"name": "signed_hex", "description": "A signed transaction in hex format."}
 
-example_request_bash:
+#### example_request_bash:
 curl https://api.onename.com/v1/transactions \
     -u 'YOUR-API-ID:YOUR-API-SECRET' \
     -d '{"signed_hex": "00710000015e98119922f0b"}' \
     -H 'Content-Type: application/json' \
     -X POST
 
-example_response:
+#### example_response:
 {
     "status": "success"
 }
----END API CALL---
 
----START API CALL---
-anchor_tag:
+_end_
+
+## Lookup an address
+
+#### anchor_tag:
 lookup_address
 
-title:
-Lookup an address
-
-description:
+#### description:
 Retrieves details on a given address. Unspent outputs are returned, so they can be used for building transactions. In addition, a list of names owned by the address is returned.
 
-response_description:
+#### response_description:
 Returns an array of unspent outputs and an array of the names that the address owns.
 
-method:
+#### method:
 GET
 
-path_template:
+#### path_template:
 /users/{passnames}
 
-tryit_pathname:
+#### tryit_pathname:
 /v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4?&app-id=demo-1234&app-secret=demo-1234
 
-example_request_bash:
+#### example_request_bash:
 curl https://api.onename.com/v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4 \
     -u 'YOUR-API-ID:YOUR-API-SECRET'
 
-example_response:
+#### example_response:
 {
   "names_owned": [],
   "unspent_outputs": []
 }
----END API CALL---
+
+_end_
