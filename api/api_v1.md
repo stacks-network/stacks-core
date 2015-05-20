@@ -1,3 +1,5 @@
+# API Documentation
+
 ## Lookup users
 
 #### anchor_tag:

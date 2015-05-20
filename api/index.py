@@ -8,10 +8,9 @@ def build_api_call_object(text):
     api_call = {}
 
     first_line, text = text.split('\n', 1)
-    print first_line
     api_call['title'] = first_line
 
-    for section in text.split('\n\n'):
+    for section in text.split('\n\n#### '):
         section = section.replace('#### ', '')
         if ':\n' in section:
             key, value = section.split(':\n', 1)
