@@ -1,8 +1,8 @@
 from flask import request, jsonify, render_template, redirect, url_for
 
 from . import v1auth
-from ..utils import parameters_required
-from ..errors import APIError
+from ..parameters import parameters_required
+from ..errors import AccountRegistrationError
 from .registration import register_user
 
 
@@ -18,7 +18,7 @@ def signup():
             email = request.form['email']
             try:
                 user = register_user(email)
-            except APIError:
+            except AccountRegistrationError as e:
                 return render_template('emailtaken.html')
             return redirect(url_for('v1auth.registered'))
         else:

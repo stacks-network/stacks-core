@@ -6,50 +6,69 @@
 """
 
 import requests
+from requests.exceptions import ConnectionError as RequestsConnectionError
+from requests.exceptions import Timeout as RequestsTimeout
 import json
 from flask import request, jsonify
 from pybitcoin.rpc import namecoind
 
 from . import app
-from .errors import APIError
-from .utils import parameters_required
+from .errors import InvalidProfileDataError, PassnameTakenError, \
+    InternalProcessingError, ResolverConnectionError, \
+    BroadcastTransactionError, DatabaseLookupError
+from .parameters import parameters_required
 from .crossdomain import crossdomain
 from .auth import auth_required
 from .db import register_queue, utxo_index, address_to_utxo, address_to_keys
 from .settings import AWSDB_URI, INDEX_DB_URI, RESOLVER_URL, SEARCH_URL
 
 
+def format_utxo_data(utxo_id, utxo_data):
+    unspent = None
+    if 'scriptPubKey' in utxo_data and 'value' in utxo_data:
+        unspent = {
+            'txid': utxo_id.rsplit('_')[0],
+            'vout': utxo_id.rsplit('_')[1],
+            'scriptPubKey': utxo_data['scriptPubKey'],
+            'amount': utxo_data['value']
+        }
+    return unspent
+
+
 def get_unspents(address):
-    reply = []
-
-    for entry in address_to_utxo.find({"address": address}):
-        id = entry['utxo']
-
-        new_entry = {}
-        new_entry['txid'] = id.rsplit('_')[0]
-        new_entry['vout'] = id.rsplit('_')[1]
-        utxo = utxo_index.find_one({'id': id})
-
-        new_entry['scriptPubKey'] = utxo['data']['scriptPubKey']
-        new_entry['amount'] = utxo['data']['value']
-        reply.append(new_entry)
-
-    return reply
+    unspents = []
+    entries = address_to_utxo.find({'address': address})
+    for entry in entries:
+        if 'utxo' in entry:
+            utxo_id = entry['utxo']
+            utxo = utxo_index.find_one({'id': utxo_id})
+            if 'data' in utxo:
+                unspent = format_utxo_data(utxo_id, utxo['data'])
+                unspents.append(unspent)
+    return unspents
 
 
-@app.route('/v1/users/<passname>', methods=['GET'])
+@app.route('/v1/users/<passnames>', methods=['GET'])
 @auth_required(exception_paths=['/v1/users/fredwilson'])
 @crossdomain(origin='*')
-def api_user(passname):
-
+def api_user(passnames):
     BASE_URL = RESOLVER_URL + '/v1/users/'
 
     try:
-        reply = requests.get(BASE_URL + passname, timeout=10, verify=False)
-    except Exception as e:
-        raise APIError(str(e), status_code=404)
+        resp = requests.get(BASE_URL + passnames, timeout=10, verify=False)
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        raise ResolverConnectionError()
 
-    return jsonify(reply.json()), 200
+    data = resp.json()
+
+    for passname in passnames.split(','):
+        if passname not in data:
+            error = InvalidProfileDataError('')
+            data[passname] = {
+                'error': error.to_dict()
+            }
+
+    return jsonify(data), 200
 
 
 @app.route('/v1/users', methods=['POST'])
@@ -66,7 +85,7 @@ def register_user():
     passname = data['passname']
 
     if namecoind.check_registration('u/' + passname):
-        raise APIError("passname already registered", status_code=403)
+        raise PassnameTakenError()
 
     if 'passcard' in data:
         passcard = data['passcard']
@@ -82,22 +101,23 @@ def register_user():
         'transfer_address': data['recipient_address']
     }
 
-    find_user = register_queue.find_one({"passname": passname})
+    find_user = register_queue.find_one({'passname': passname})
 
     if find_user is not None:
-        # someone else already tried registering this name
-        # but the passname is not registered on the blockchain
-        # don't tell the client that someone else's request is processing
+        """ Someone else already tried registering this name
+            but the passname is not yet registered on the blockchain.
+            Don't tell the client that someone else's request is processing.
+        """
         pass
     else:
         try:
             register_queue.save(user)
         except Exception as e:
-            raise APIError(str(e), status_code=404)
+            raise DatabaseSaveError()
 
-    reply = {'status': 'success'}
+    resp = {'status': 'success'}
 
-    return jsonify(reply), 200
+    return jsonify(resp), 200
 
 
 @app.route('/v1/search', methods=['GET'])
@@ -111,36 +131,28 @@ def search_people():
     name = request.values['query']
 
     try:
-        results = requests.get(url=search_url, params={'query': name})
-    except:
-        raise APIError('Something went wrong', status_code=500)
+        resp = requests.get(url=search_url, params={'query': name})
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        raise InternalProcessingError()
 
-    if results.status_code == 404:
-        raise APIError(status_code=404)
-    else:
-        return jsonify(results.json()), 200
+    data = resp.json()
+    if not ('results' in data and isinstance(data['results'], list)):
+        data = {'results': []}
 
-    if not ('results' in results and isinstance(results['results'], list)):
-        results = []
-    else:
-        results = results['results']
-
-    return jsonify({'results': results}), 200
+    return jsonify(data), 200
 
 
 @app.route('/v1/users', methods=['GET'])
 @crossdomain(origin='*')
-def user_count():
-
+def user_stats():
     BASE_URL = RESOLVER_URL + '/v1/users'
 
     try:
-        reply = requests.get(BASE_URL, timeout=10, verify=False)
+        resp = requests.get(BASE_URL, timeout=10, verify=False)
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        raise ResolverConnectionError()
 
-    except Exception as e:
-        raise APIError(str(e), status_code=404)
-
-    return jsonify(reply.json()), 200
+    return jsonify(resp.json()), 200
 
 
 @app.route('/v1/transactions', methods=['POST'])
@@ -148,29 +160,21 @@ def user_count():
 @parameters_required(['signed_hex'])
 @crossdomain(origin='*')
 def broadcast_tx():
-
     data = json.loads(request.data)
-
     signed_hex = data['signed_hex']
 
-    reply = {}
-
     try:
-        info = namecoind.sendrawtransaction(signed_hex)
+        namecoind_response = namecoind.sendrawtransaction(signed_hex)
     except Exception as e:
-        raise APIError(str(e), status_code=404)
+        traceback.print_exc()
+        raise BroadcastTransactionError()
 
-    if 'code' in info:
-        reply['status'] = 'error'
-        reply['message'] = info['message']
+    if 'code' in namecoind_response:
+        raise BroadcastTransactionError(namecoind_response['message'])
 
-        return jsonify(reply), 200
-    else:
+    resp = {'transaction_hash': namecoind_response, 'status': 'success'}
 
-        reply['status'] = 'success'
-        reply['transaction_hash'] = info
-
-        return jsonify(reply), 200
+    return jsonify(resp), 200
 
 
 @app.route('/v1/addresses/<address>', methods=['GET'])
@@ -178,22 +182,23 @@ def broadcast_tx():
     exception_paths=['/v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4'])
 @crossdomain(origin='*')
 def get_address_info(address):
-
-    reply = {}
-
-    try:
-        reply['unspent_outputs'] = get_unspents(address)
-    except Exception as e:
-        raise APIError(str(e), status_code=404)
+    resp = {}
 
     try:
-        check_address = address_to_keys.find_one({"address": address})
-
-        if check_address is not None and 'keys' in check_address:
-            reply['names_owned'] = check_address['keys']
-        else:
-            reply['names_owned'] = []
+        unspent_outputs = get_unspents(address)
     except Exception as e:
-        raise APIError(str(e), status_code=404)
+        traceback.print_exc()
+        raise DatabaseLookupError()
 
-    return jsonify(reply), 200
+    try:
+        address_names = address_to_keys.find_one({'address': address})
+    except Exception as e:
+        raise DatabaseLookupError()
+
+    names_owned = []
+    if address_names is not None and 'keys' in address_names:
+        names_owned = address_names['keys']
+
+    resp = {'unspent_outputs': unspent_outputs, 'names_owned': names_owned}
+
+    return jsonify(resp), 200

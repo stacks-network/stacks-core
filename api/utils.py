@@ -5,69 +5,50 @@
     ~~~~~
 """
 
+import re
 import json
-import requests
-from flask import request
-from functools import update_wrapper
-from werkzeug.datastructures import MultiDict, CombinedMultiDict
-from .errors import APIError
-from . import app
 
 
-def get_request_data():
-    args = []
+def build_api_call_object(text):
+    api_call = {}
 
-    if request.data:
-        try:
-            request_data = json.loads(request.data)
-        except ValueError:
-            pass
-        else:
-            request_data = {}
+    first_line, text = text.split('\n', 1)
+    api_call['title'] = first_line
 
-    for d in request.args, request.form, request_data:
-        if not isinstance(d, MultiDict):
-            d = MultiDict(d)
-        args.append(d)
+    for section in text.split('\n\n#### '):
+        section = section.replace('#### ', '')
+        if ':\n' in section:
+            key, value = section.split(':\n', 1)
+            value = value.strip()
+            if '[]' in key:
+                key = key.replace('[]', '')
+                parts = value.split('\n')
+                value = []
+                for part in parts:
+                    json_part = json.loads(part)
+                    value.append(json_part)
+            api_call[key.strip()] = value
 
-    return CombinedMultiDict(args)
-
-
-def parameters_required(parameters):
-    def decorator(f):
-        def decorated_function(*args, **kwargs):
-            if request.values:
-                data = request.values
-            elif request.data:
-                try:
-                    data = json.loads(request.data)
-                except:
-                    raise APIError(
-                        'Data payload must be in JSON format', status_code=400)
-            else:
-                data = {}
-
-            parameters_missing = []
-            for parameter in parameters:
-                if parameter not in data:
-                    parameters_missing.append(parameter)
-            if len(parameters_missing) > 0:
-                raise APIError(
-                    'Parameters missing: ' + ', '.join(parameters_missing), 400
-                )
-            return f(*args, **kwargs)
-        return update_wrapper(decorated_function, f)
-    return decorator
+    return api_call
 
 
-def send_w_mailgun(subject, recipient, template):
-    return requests.post(
-        "https://api.mailgun.net/v2/onename.io/messages",
-        auth=("api", app.config['MAILGUN_API_KEY']),
-        data={
-            "from": app.config['MAIL_USERNAME'],
-            "to": recipient,
-            "subject": subject,
-            "html": template
-        }
-    )
+def get_api_calls(filename):
+    api_calls = []
+
+    pattern = re.compile(
+        r"""\n## .*?_end_""", re.DOTALL)
+
+    with open(filename) as f:
+        text = f.read()
+        for match in re.findall(pattern, text):
+            match = re.sub(r'\n## ', '', match)
+            match = re.sub(r'\n_end_', '', match)
+            api_call = build_api_call_object(match)
+            api_calls.append(api_call)
+
+    return api_calls
+
+
+def camelcase_to_snakecase(name):
+    s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
+    return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
