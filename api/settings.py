@@ -29,6 +29,11 @@ MAIL_USERNAME = 'support@onename.com'
 SEARCH_URL = 'http://search.halfmoonlabs.com'
 RESOLVER_URL = 'http://resolver.onename.com'
 
+try:
+    from .secrets import *
+except:
+    pass
+
 # Secret settings
 for env_variable in os.environ:
     env_value = os.environ[env_variable]
