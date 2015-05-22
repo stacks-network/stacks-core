@@ -34,7 +34,6 @@ mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
 
 from commontools import log
 
-
 # -----------------------------------
 def warmup_cache(regrex, check_blocks=0):
 
@@ -50,8 +49,9 @@ def warmup_cache(regrex, check_blocks=0):
             mc.set("name_" + str(i['name']),i['value'],0)
             log.debug("inserting %s in cache",i['name'])
             counter += 1
-        except:
+        except Exception as e:
             log.debug("not putting %s in cache",i['name'])
+            log.debug(e)
 
     log.debug("inserted %s entries in cache",counter)
     log.debug('-'*5)
