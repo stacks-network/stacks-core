@@ -51,7 +51,8 @@ def warmup_cache(regrex, check_blocks=0):
             counter += 1
         except Exception as e:
             log.debug("not putting %s in cache",i['name'])
-            print e
+            log.debug(e)
+
     log.debug("inserted %s entries in cache",counter)
     log.debug('-'*5)
 
