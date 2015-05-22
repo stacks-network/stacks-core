@@ -10,6 +10,7 @@
 
 from flask import Flask, make_response, jsonify, abort, request
 import json
+import re
 
 app = Flask(__name__)
 
@@ -45,6 +46,16 @@ def error_reply(msg, code=-1):
     reply['status'] = code
     reply['error'] = msg
     return reply
+
+# -----------------------------------
+def username_is_valid(username):
+
+    regrex = re.compile('^[a-z0-9_]{1,60}$')
+
+    if regrex.match(username):
+        return True
+    else:
+        return False
 
 
 # -----------------------------------
@@ -249,6 +260,25 @@ def get_namespace():
 
     return jsonify(results=list)
 
+
+# -----------------------------------
+@app.route('/v1/namespace/recent/<blocks>')
+@crossdomain(origin='*')
+def get_recent_namespace(blocks):
+
+    users = namecoind.name_filter('u/', int(blocks))
+
+    list = []
+
+    for user in users:
+        
+        print user
+        username = user['name'].lstrip('u/').lower()
+
+        if username_is_valid(username):
+            list.append(username)
+
+    return jsonify(results=list)
 
 # -----------------------------------
 @app.route('/')
