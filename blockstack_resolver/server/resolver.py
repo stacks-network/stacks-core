@@ -39,6 +39,7 @@ namecoind = NamecoindServer(NAMECOIND_SERVER, NAMECOIND_PORT,
 from .proofcheck import profile_to_proofs
 from .crossdomain import crossdomain
 
+MAX_BLOCKS = 36000
 
 # ---------------------------------
 def error_reply(msg, code=-1):
@@ -267,13 +268,17 @@ def get_namespace():
 @crossdomain(origin='*')
 def get_recent_namespace(blocks):
 
-    users = namecoind.name_filter('u/', int(blocks))
+    blocks = int(blocks)
+
+    if blocks > MAX_BLOCKS:
+        blocks = MAX_BLOCKS
+
+    users = namecoind.name_filter('u/', blocks)
 
     list = []
 
     for user in users:
         
-        print user
         username = user['name'].lstrip('u/').lower()
 
         if username_is_valid(username):
