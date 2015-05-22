@@ -50,15 +50,14 @@ def error_reply(msg, code=-1):
 # -----------------------------------
 def name_show_mem(key):
 
+    info = {}
+
     if MEMCACHED_ENABLED:
         cache_reply = mc.get("name_" + str(key))
     else:
         cache_reply = None
 
     if cache_reply is None:
-
-        if not namecoind.check_registration(key):
-            abort(404)
 
         try:
             info = namecoind.name_show(key)
@@ -140,6 +139,9 @@ def get_user_profile(username):
 
     username = username.lower()
     key = 'u/' + username
+
+    if not namecoind.check_registration(key):
+        abort(404)
 
     if MEMCACHED_ENABLED:
         log.debug('cache enabled')
