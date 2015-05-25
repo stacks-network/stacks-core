@@ -31,8 +31,8 @@ from time import time
 mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
                     username=MEMCACHED_USERNAME, password=MEMCACHED_PASSWORD)
 
-from coinrpc import NamecoindServer
-namecoind = NamecoindServer(NAMECOIND_SERVER, NAMECOIND_PORT,
+from pybitcoin.rpc import NamecoindClient
+namecoind = NamecoindClient(NAMECOIND_SERVER, NAMECOIND_PORT,
                             NAMECOIND_USER, NAMECOIND_PASSWD,
                             NAMECOIND_USE_HTTPS)
 
