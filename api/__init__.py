@@ -6,15 +6,13 @@
 """
 
 from flask import Flask, Blueprint
-from https import RequireHTTPS
+from flask_https import RequireHTTPS
 
 # Create app
 app = Flask(__name__)
 
 app.config.from_object('api.settings')
 
-if app.config.get('DEBUG') is False:
-    RequireHTTPS(app)
 
 # Add in blueprints
 from .auth import v1auth
