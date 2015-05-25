@@ -5,14 +5,16 @@ from flask import request, redirect, current_app
 YEAR_IN_SECS = 31536000
 
 
-def redirect_to_https(status_code=301):
+def redirect_to_https(status_code=302):
     """ Redirect a request to https.
     """
-    if request.is_secure:
-        return fn(*args, **kwargs)
-    else:
+    criteria = [
+        request.is_secure,
+        request.headers.get('X-Forwarded-Proto', 'http') == 'https'
+    ]
+    if not any(criteria):
         if request.url.startswith('http://'):
-            new_url = request.url.replace("http://", "https://")
+            new_url = request.url.replace("http://", "https://", 1)
             print "redirecting from %s to %s" % (request.url, new_url)
             return redirect(new_url, code=status_code)
 
@@ -35,7 +37,6 @@ def set_hsts_header(response):
 class RequireHTTPS(object):
     """ Makes https required for a Flask app.
     """
-
     def __init__(self, app=None):
         self.app = app or current_app
         if app is not None:
