@@ -2,7 +2,7 @@ beautifulsoup4==4.3.2
 commontools==0.1.0
 ecdsa==0.11
 Flask==0.10.1
-flask-https==0.1.0
+Flask-HTTPS==0.1.0
 flask-mongoengine==0.7.1
 Flask-SSLify==0.1.5
 Flask-WTF==0.10.2
