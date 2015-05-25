@@ -28,16 +28,8 @@ def set_hsts_header(response):
     """
     if request.is_secure:
         response.headers.setdefault(
-            'Strict-Transport-Security', self.hsts_header)
+            'Strict-Transport-Security', default_hsts_header())
     return response
-
-
-def https_required(fn):
-    @wraps(fn)
-    def decorated_view(*args, **kwargs):
-        redirect_to_https()
-        return fn(*args, **kwargs)
-    return decorated_view
 
 
 class RequireHTTPS(object):
@@ -46,7 +38,8 @@ class RequireHTTPS(object):
 
     def __init__(self, app=None):
         self.app = app or current_app
-        self.enable_https_requirement(app)
+        if app is not None:
+            self.enable_https_requirement(app)
 
     def enable_https_requirement(self, app):
         app.before_request(redirect_to_https)
