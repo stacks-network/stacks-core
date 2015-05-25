@@ -13,7 +13,7 @@ def redirect_to_https(status_code=301):
     else:
         if request.url.startswith('http://'):
             new_url = request.url.replace("http://", "https://")
-            print "redirecting from %s to %s" (request.url, new_url)
+            print "redirecting from %s to %s" % (request.url, new_url)
             return redirect(new_url, code=status_code)
 
 
