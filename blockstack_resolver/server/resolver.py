@@ -41,6 +41,8 @@ from .crossdomain import crossdomain
 
 MAX_BLOCKS = 36000
 
+from threading import Thread
+
 # ---------------------------------
 def error_reply(msg, code=-1):
     reply = {}
@@ -118,6 +120,17 @@ def full_profile_mem(key):
 
 
 # -----------------------------------------
+def refresh_user_count():
+
+    active_users_list = namecoind.name_filter('u/')
+    
+    if type(active_users_list) is list:
+        mc.set("total_users", str(len(active_users_list)), int(time() + USERSTATS_TIMEOUT))
+        mc.set("total_users_old", str(len(active_users_list)), 0)
+
+    return len(active_users_list)
+
+# -----------------------------------------
 @app.route('/v1/users', methods=['GET'])
 @crossdomain(origin='*')
 def get_user_count():
@@ -129,20 +142,27 @@ def get_user_count():
         total_user_count = mc.get("total_users")
 
         if total_user_count is None:
-            active_users_list = namecoind.name_filter('u/')
 
-            if type(active_users_list) is list:
-                mc.set("total_users", str(len(active_users_list)), int(time() + USERSTATS_TIMEOUT))
+            total_user_count = mc.get("total_users_old")
 
-                total_user_count = len(active_users_list)
+            if total_user_count is None:
+
+                total_user_count = refresh_user_count()
+
             else:
-                total_user_count = 0
+
+                thread = Thread(target=refresh_user_count)
+                thread.start()
+    else:
+
+        total_user_count = refresh_user_count()
 
     info = {}
     stats = {}
 
     stats['registrations'] = total_user_count
     info['stats'] = stats
+
     return jsonify(info)
 
 
@@ -285,6 +305,7 @@ def get_recent_namespace(blocks):
             list.append(username)
 
     return jsonify(results=list)
+
 
 # -----------------------------------
 @app.route('/')
