@@ -49,7 +49,7 @@ if 'DYNO' in os.environ:
         MONGODB_DB) = parts
 elif 'AWS' in os.environ:
     MONGODB_DB = 'onename_api'
-    MONGODB_URI = os.environ['AWSDB_URI'] + '/' + MONGODB_DB
+    MONGODB_URI = MONGOLAB_URI
 else:
     APP_URL = 'localhost:5000'
 
@@ -59,5 +59,3 @@ else:
 
     MONGODB_URI = 'mongodb://%s:%s/%s' % (
         MONGODB_HOST, str(MONGODB_PORT), MONGODB_DB)
-
-AWSDB_URI = MONGODB_URI

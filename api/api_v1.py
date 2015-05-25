@@ -21,7 +21,7 @@ from .parameters import parameters_required
 from .crossdomain import crossdomain
 from .auth import auth_required
 from .db import register_queue, utxo_index, address_to_utxo, address_to_keys
-from .settings import AWSDB_URI, INDEX_DB_URI, RESOLVER_URL, SEARCH_URL
+from .settings import RESOLVER_URL, SEARCH_URL
 
 
 def format_utxo_data(utxo_id, utxo_data):

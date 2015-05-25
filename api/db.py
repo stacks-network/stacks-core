@@ -15,9 +15,9 @@ db = MongoEngine(app)
 
 # MongoDB database for register queue, utxo index, etc.
 from pymongo import MongoClient
-from .settings import AWSDB_URI, INDEX_DB_URI, RESOLVER_URL, SEARCH_URL
+from .settings import MONGODB_URI, INDEX_DB_URI, RESOLVER_URL, SEARCH_URL
 
-aws_db = MongoClient(AWSDB_URI)['onename-api']
+aws_db = MongoClient(MONGODB_URI)['onename-api']
 register_queue = aws_db.queue
 
 namecoin_index = MongoClient(INDEX_DB_URI)['namecoin_index']
