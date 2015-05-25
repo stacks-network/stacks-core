@@ -33,7 +33,7 @@ INDEX_DB_URI = None
 
 secrets_list = [
     'INDEX_DB_URI', 'SECRET_KEY', 'MONGODB_PASSWORD',
-    'MAILGUN_API_KEY'
+    'MAILGUN_API_KEY', 'MONGOLAB_URI'
 ]
 for env_variable in os.environ:
     if env_variable in secrets_list:
