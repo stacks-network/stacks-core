@@ -11,12 +11,6 @@ import re
 # Debugging
 DEBUG = True
 
-# URI for remote DB with user info
-try:
-    USERDB_URI = os.environ['USERDB_URI']
-except:
-    pass
-
 DEFAULT_PORT = 5000
 DEFAULT_HOST = '0.0.0.0'
 
@@ -35,11 +29,10 @@ except:
     pass
 
 # Secret settings
-AWSDB_URI = None
 INDEX_DB_URI = None
 
 secrets_list = [
-    'AWSDB_URI', 'INDEX_DB_URI', 'SECRET_KEY', 'MONGODB_PASSWORD',
+    'INDEX_DB_URI', 'SECRET_KEY', 'MONGODB_PASSWORD',
     'MAILGUN_API_KEY'
 ]
 for env_variable in os.environ:
@@ -66,3 +59,5 @@ else:
 
     MONGODB_URI = 'mongodb://%s:%s/%s' % (
         MONGODB_HOST, str(MONGODB_PORT), MONGODB_DB)
+
+AWSDB_URI = MONGODB_URI

@@ -22,5 +22,5 @@ register_queue = aws_db.queue
 
 namecoin_index = MongoClient(INDEX_DB_URI)['namecoin_index']
 utxo_index = namecoin_index.utxo
-address_to_utxo = namecoin_index.address_to_utxo_temp
+address_to_utxo = namecoin_index.address_to_utxo
 address_to_keys = namecoin_index.address_to_keys

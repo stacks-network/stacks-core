@@ -283,7 +283,7 @@ GET
 /addresses/{address}
 
 #### tryit_pathname:
-/v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4?&app-id=demo-1234&app-secret=demo-1234
+/v1/addresses/NBSffD6N6sABDxNooLZxL26jwGetiFHN6H?&app-id=demo-1234&app-secret=demo-1234
 
 #### example_request_bash:
 curl https://api.onename.com/v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4 \
@@ -291,8 +291,37 @@ curl https://api.onename.com/v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4 \
 
 #### example_response:
 {
-  "names_owned": [],
-  "unspent_outputs": []
+  "names_owned": [], 
+  "unspent_outputs": [
+    {
+      "amount": 99.995, 
+      "scriptPubKey": {
+        "addresses": [
+          "NBSffD6N6sABDxNooLZxL26jwGetiFHN6H"
+        ], 
+        "asm": "OP_DUP OP_HASH160 a31521da4d3df0d48a7aa7e1d8dadf0e0e862d8d OP_EQUALVERIFY OP_CHECKSIG", 
+        "hex": "76a914a31521da4d3df0d48a7aa7e1d8dadf0e0e862d8d88ac", 
+        "reqSigs": 1, 
+        "type": "pubkeyhash"
+      }, 
+      "txid": "e06501a48267c26e0ccf85823531be2301291cf582d1e422a69db5a59033e6e5", 
+      "vout": "1"
+    }, 
+    {
+      "amount": 378.26213117, 
+      "scriptPubKey": {
+        "addresses": [
+          "NBSffD6N6sABDxNooLZxL26jwGetiFHN6H"
+        ], 
+        "asm": "OP_DUP OP_HASH160 a31521da4d3df0d48a7aa7e1d8dadf0e0e862d8d OP_EQUALVERIFY OP_CHECKSIG", 
+        "hex": "76a914a31521da4d3df0d48a7aa7e1d8dadf0e0e862d8d88ac", 
+        "reqSigs": 1, 
+        "type": "pubkeyhash"
+      }, 
+      "txid": "3e3926dd5dc42a3f2d41139bf650d15becfe77bd2143071b09b9b22ca88ad55d", 
+      "vout": "1"
+    }
+  ]
 }
 
 _end_

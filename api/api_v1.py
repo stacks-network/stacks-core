@@ -5,10 +5,11 @@
     ~~~~~
 """
 
+import json
+import traceback
 import requests
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import Timeout as RequestsTimeout
-import json
 from flask import request, jsonify
 from pybitcoin.rpc import namecoind
 
@@ -179,7 +180,7 @@ def broadcast_tx():
 
 @app.route('/v1/addresses/<address>', methods=['GET'])
 @auth_required(
-    exception_paths=['/v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4'])
+    exception_paths=['/v1/addresses/NBSffD6N6sABDxNooLZxL26jwGetiFHN6H'])
 @crossdomain(origin='*')
 def get_address_info(address):
     resp = {}
