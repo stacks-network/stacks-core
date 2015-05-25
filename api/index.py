@@ -1,6 +1,7 @@
 from flask import render_template, send_from_directory
 from . import app
 from .utils import get_api_calls
+from .ssl_required import ssl_required
 
 
 @app.route('/')

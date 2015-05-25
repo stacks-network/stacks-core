@@ -9,7 +9,6 @@ import os
 import re
 
 # Debugging
-DEBUG = True
 
 DEFAULT_PORT = 5000
 DEFAULT_HOST = '0.0.0.0'
@@ -41,6 +40,8 @@ for env_variable in os.environ:
         exec(env_variable + " = \"\"\"" + env_value + "\"\"\"")
 
 if 'DYNO' in os.environ:
+    DEBUG = False
+
     APP_URL = 'api.onename.com'
 
     MONGODB_URI = MONGOLAB_URI
@@ -48,9 +49,13 @@ if 'DYNO' in os.environ:
     (_, MONGODB_USERNAME, MONGODB_PASSWORD, MONGODB_HOST, MONGODB_PORT,
         MONGODB_DB) = parts
 elif 'AWS' in os.environ:
+    DEBUG = False
+
     MONGODB_DB = 'onename_api'
     MONGODB_URI = MONGOLAB_URI
 else:
+    DEBUG = True
+
     APP_URL = 'localhost:5000'
 
     MONGODB_HOST = 'localhost'
