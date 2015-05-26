@@ -1,4 +1,4 @@
-openname-registrar
+registrar
 ==================
 
 For registering and updating passnames and passcards
