@@ -19,9 +19,9 @@ Passnames (usernames) may be up to 60 characters long and contain lowercase lett
 
 Regex: ^[a-z0-9_]{1,60}$
 
-## User Registration
+## Passcard Registration
 
-To register a user:
+To register a passcard:
 
 1. choose an available passname
 2. construct a valid JSON object that adheres to the [passcard schema specifications](https://github.com/namesystem/namesystem/wiki/Passcard-Schema-v2)
