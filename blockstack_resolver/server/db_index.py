@@ -127,17 +127,21 @@ def refresh_cache(blocks):
     namespace = namespaces.find_one({"blocks": blocks})
 
     for username in namespace['namespace']:
+        entry = {}
+
         try:
-            results[username] = profiles.find_one({'username': username})['profile']
+            entry["profile"] = profiles.find_one({'username': username})['profile']
         except:
             #work around for a bug in namecoind, where it shows
             #certain keys as expired in name_filter(blocks=0) when they're not
             profile = namecoind.get_full_profile('u/' + username)
             save_profile(username, profile)
-            results[username] = profile
+            entry["profile"] = profile
+
+        results[username] = entry
 
     namespace['profiles'] = results
-    namespaces.save(namespace) 
+    namespaces.save(namespace)  
 
 
 def refresh_index():
@@ -147,6 +151,8 @@ def refresh_index():
     refresh_namespace(RECENT_BLOCKS, refresh_profiles=True)
     refresh_cache(VALID_BLOCKS)
     refresh_cache(RECENT_BLOCKS)
+
+    print "Index refreshed"
 
 # -----------------------------------
 def sync_with_blockchain():
