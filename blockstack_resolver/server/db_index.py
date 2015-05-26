@@ -1,30 +1,27 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
+"""
+    BNS Resolver
+    ~~~~~
+
+    :copyright: (c) 2015 by Openname.org
+    :license: MIT, see LICENSE for more details.
+"""
 
 from commontools import get_json
+from time import sleep
 
 from .config import NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USE_HTTPS
 from .config import NAMECOIND_USER, NAMECOIND_PASSWD
+
+from .config import RECENT_BLOCKS, VALID_BLOCKS
+
+from .db import namespaces, profiles
+from .resolver import username_is_valid
 
 from pybitcoin.rpc import NamecoindClient
 namecoind = NamecoindClient(NAMECOIND_SERVER, NAMECOIND_PORT,
                             NAMECOIND_USER, NAMECOIND_PASSWD,
                             NAMECOIND_USE_HTTPS)
-
-from pymongo import MongoClient
-
-db = MongoClient()['resolver_index']
-
-namespaces = db.namespaces
-profiles = db.profiles
-
-namespaces.ensure_index('blocks')
-profiles.ensure_index('username')
-
-RECENT_BLOCKS = 100 
-VALID_BLOCKS = 36000
-
-from .resolver import username_is_valid
 
 
 def save_profile(username, profile):
@@ -118,7 +115,7 @@ def remove_expired_names():
             check_entry = profiles.find({"username": username}).limit(1)
 
             if check_entry.count() != 0:
-                print "removing: %s" % username 
+                #print "removing: %s" % username 
                 profiles.remove({"username": username}) 
 
 
@@ -151,17 +148,26 @@ def refresh_index():
     refresh_cache(VALID_BLOCKS)
     refresh_cache(RECENT_BLOCKS)
 
-if __name__ == '__main__':
+# -----------------------------------
+def sync_with_blockchain():
 
+    new_block = namecoind.blocks()
+    old_block = new_block - 1
+
+    while(1):
+
+        while(old_block == new_block):
+            sleep(30)
+            new_block = namecoind.blocks()
+
+        print 'current block: %s' % new_block
+
+        refresh_index()      
+        old_block = new_block
+
+
+if __name__ == '__main__':
 
     #only on first run
     #refresh_namespace(VALID_BLOCKS, refresh_profiles=True)
-    #refresh_index()
-    #exit(0)
-    check_entry = namespaces.find_one({"blocks": VALID_BLOCKS})
-
-    namespace = check_entry['namespace']
-    profiles = check_entry['profiles']
-
-    from pprint import pprint
-    pprint(profiles['muneeb'])
+    sync_with_blockchain()
