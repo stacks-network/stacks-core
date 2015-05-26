@@ -20,7 +20,6 @@ from .errors import InvalidProfileDataError, PassnameTakenError, \
     InternalProcessingError, ResolverConnectionError, \
     BroadcastTransactionError, DatabaseLookupError, InternalSSLError
 from .parameters import parameters_required
-from .crossdomain import crossdomain
 from .auth import auth_required
 from .db import register_queue, utxo_index, address_to_utxo, address_to_keys
 from .settings import RESOLVER_URL, SEARCH_URL
