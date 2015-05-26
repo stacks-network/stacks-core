@@ -21,7 +21,7 @@ from .config import USERSTATS_TIMEOUT
 from .config import NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USE_HTTPS
 from .config import NAMECOIND_USER, NAMECOIND_PASSWD
 
-from commontools import log
+from commontools import log, get_json
 import logging
 
 log.setLevel(logging.DEBUG if DEBUG else logging.INFO)
@@ -247,8 +247,6 @@ def get_users(usernames):
 @app.route('/v1/namespace')
 @crossdomain(origin='*')
 def get_namespace():
-
-    from commontools import get_json
 
     users = namecoind.name_filter('u/')
 
