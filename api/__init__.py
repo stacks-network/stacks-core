@@ -7,12 +7,15 @@
 
 from flask import Flask, Blueprint
 from flask_https import RequireHTTPS
+from flask_sslify import SSLify
 
 # Create app
 app = Flask(__name__)
 
 app.config.from_object('api.settings')
 
+if not (app.config.get('DEBUG')):
+    SSLify(app)
 
 # Add in blueprints
 from .auth import v1auth
