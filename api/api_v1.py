@@ -8,15 +8,17 @@
 import json
 import traceback
 import requests
+import ssl
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import Timeout as RequestsTimeout
 from flask import request, jsonify
 from pybitcoin.rpc import namecoind
+from flask_crossdomain import crossdomain
 
 from . import app
 from .errors import InvalidProfileDataError, PassnameTakenError, \
     InternalProcessingError, ResolverConnectionError, \
-    BroadcastTransactionError, DatabaseLookupError
+    BroadcastTransactionError, DatabaseLookupError, InternalSSLError
 from .parameters import parameters_required
 from .crossdomain import crossdomain
 from .auth import auth_required
@@ -85,7 +87,14 @@ def register_user():
 
     passname = data['passname']
 
-    if namecoind.check_registration('u/' + passname):
+    try:
+        was_registered = namecoind.check_registration('u/' + passname)
+    except ssl.SSLError:
+        raise InternalSSLError()
+    except Exception as e:
+        raise InternalProcessingError()
+
+    if was_registered:
         raise PassnameTakenError()
 
     if 'passcard' in data:
@@ -166,6 +175,8 @@ def broadcast_tx():
 
     try:
         namecoind_response = namecoind.sendrawtransaction(signed_hex)
+    except ssl.SSLError:
+        raise InternalSSLError()
     except Exception as e:
         traceback.print_exc()
         raise BroadcastTransactionError()

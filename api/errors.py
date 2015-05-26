@@ -93,6 +93,12 @@ class InternalProcessingError(APIError):
                "this error to support@onename.com.")
 
 
+class InternalSSLError(APIError):
+    status_code = 500
+    message = ("There was a problem processing the request with an internal "
+               "SSL error. Please report this error to support@onename.com.")
+
+
 class ResolverConnectionError(APIError):
     status_code = 500
     message = ("There was a problem processing the request. It seems that the "

@@ -8,14 +8,13 @@ from .errors import APIError
 
 def get_request_data():
     args = []
+    request_data = {}
 
     if request.data:
         try:
             request_data = json.loads(request.data)
         except ValueError:
             pass
-        else:
-            request_data = {}
 
     for d in request.args, request.form, request_data:
         if not isinstance(d, MultiDict):
@@ -28,16 +27,7 @@ def get_request_data():
 def parameters_required(parameters):
     def decorator(f):
         def decorated_function(*args, **kwargs):
-            if request.values:
-                data = request.values
-            elif request.data:
-                try:
-                    data = json.loads(request.data)
-                except:
-                    raise APIError(
-                        'Data payload must be in JSON format', status_code=400)
-            else:
-                data = {}
+            data = get_request_data()
 
             parameters_missing = []
             for parameter in parameters:
