@@ -2,6 +2,9 @@ machine:
     python:
         version: 2.7.9
 
+    pre:
+        - python manage.py init_db
+
 test:
   override:
     - python unit_tests.py

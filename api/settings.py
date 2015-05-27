@@ -60,7 +60,7 @@ else:
 
     MONGODB_HOST = 'localhost'
     MONGODB_PORT = 27017
-    MONGODB_DB = 'onename_api'
+    MONGODB_DB = 'onename_api8'
 
     MONGODB_URI = 'mongodb://%s:%s/%s' % (
         MONGODB_HOST, str(MONGODB_PORT), MONGODB_DB)
