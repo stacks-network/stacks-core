@@ -118,17 +118,16 @@ def build_nameset(db, nameop_sequence):
     # return the current consensus hash
     return consensus_hash128
 
-from ..blockchain import get_nulldata_txs_in_block
+from ..blockchain import get_nulldata_txs_in_block, get_nulldata_txs_in_blocks
 
 
 def nulldata_txs_to_nameops(txs):
     nameops = []
     for tx in txs:
         try:
-            nameop = parse_nameop(
-                tx['nulldata'], tx['vout'], senders=tx['senders'],
-                fee=tx['fee'])
-        except:
+            nameop = parse_nameop( tx['nulldata'], tx['vout'], senders=tx['senders'], fee=tx['fee'])
+        except Exception, e:
+            traceback.print_exc()
             pass
         else:
             if nameop:
@@ -136,12 +135,23 @@ def nulldata_txs_to_nameops(txs):
     return nameops
 
 
-def get_nameops_in_block(bitcoind, block_number):
-    current_nulldata_txs = get_nulldata_txs_in_block(bitcoind, block_number)
+def get_nameops_in_block(bitcoind, block_number ):
+    current_nulldata_txs = get_nulldata_txs_in_block(bitcoind, block_number )
     nameops = nulldata_txs_to_nameops(current_nulldata_txs)
     return nameops
 
+def get_nameops_in_blocks( workpool, blocks ):
+    current_nulldata_txs = get_nulldata_txs_in_blocks( workpool, blocks )
+    all_nameops = []
+    
+    for (block_number, txs) in current_nulldata_txs:
+       nameops = nulldata_txs_to_nameops(txs)
+       all_nameops += [(block_number, nameops)]
+       
+    return all_nameops
 
+
+# DEPRECATED 
 def get_nameops_in_block_range(bitcoind, first_block=0, last_block=None):
     nameop_sequence = []
 
