@@ -193,3 +193,20 @@ ALPHABETIC_PRICE_FLOOR = 10**4
 """
 
 BLOCKS_CONSENSUS_HASH_IS_VALID = 4*AVERAGE_BLOCKS_PER_HOUR
+
+""" Caching 
+"""
+
+# cache for raw transactions: map txid to tx
+CACHE_ENABLE = True
+CACHE_BUFLEN = 10000
+CACHE_ROOT = os.path.expanduser("~/.blockstore/cache")
+CACHE_TX_DIR = os.path.join( CACHE_ROOT, "tx_data" )
+CACHE_BLOCK_HASH_DIR = os.path.join( CACHE_ROOT, "block_hashes" )
+CACHE_BLOCK_DATA_DIR = os.path.join( CACHE_ROOT, "block_data" )
+
+""" Multiprocessing
+"""
+MULTIPROCESS_NUM_WORKERS = 8
+MULTIPROCESS_WORKER_BATCH = 8
+MULTIPROCESS_RPC_RETRY = 3
