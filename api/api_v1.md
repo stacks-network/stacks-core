@@ -265,34 +265,33 @@ curl https://api.onename.com/v1/transactions \
 
 _end_
 
-## Lookup an address
+## Get unspent outputs
 
 #### anchor_tag:
-lookup_address
+unspent_outputs
 
 #### description:
-Retrieves details on a given address. Unspent outputs are returned, so they can be used for building transactions. In addition, a list of names owned by the address is returned.
+Retrieves the unspent outputs for a given address so they can be used for building transactions.
 
 #### response_description:
-Returns an array of unspent outputs and an array of the names that the address owns.
+Returns an array of unspent outputs for a provided address.
 
 #### method:
 GET
 
 #### path_template:
-/addresses/{address}
+/addresses/{address}/unspents
 
 #### tryit_pathname:
-/v1/addresses/NBSffD6N6sABDxNooLZxL26jwGetiFHN6H?&app-id=demo-1234&app-secret=demo-1234
+/v1/addresses/NBSffD6N6sABDxNooLZxL26jwGetiFHN6H/unspents?&app-id=demo-1234&app-secret=demo-1234
 
 #### example_request_bash:
-curl https://api.onename.com/v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4 \
+curl https://api.onename.com/v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4/unspents \
     -u 'YOUR-API-ID:YOUR-API-SECRET'
 
 #### example_response:
 {
-  "names_owned": [], 
-  "unspent_outputs": [
+  "unspents": [
     {
       "amount": 99.995, 
       "scriptPubKey": {
@@ -321,6 +320,39 @@ curl https://api.onename.com/v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4 \
       "txid": "3e3926dd5dc42a3f2d41139bf650d15becfe77bd2143071b09b9b22ca88ad55d", 
       "vout": "1"
     }
+  ]
+}
+
+_end_
+
+## Get names owned
+
+#### anchor_tag:
+names_owned
+
+#### description:
+Retrieves a list of names owned by the address provided.
+
+#### response_description:
+Returns an array of the names that the address owns.
+
+#### method:
+GET
+
+#### path_template:
+/addresses/{address}/names
+
+#### tryit_pathname:
+/v1/addresses/N3hHzmmvnAFv36KPtu6KBVJ6egx8XKbtJ3?/names&app-id=demo-1234&app-secret=demo-1234
+
+#### example_request_bash:
+curl https://api.onename.com/v1/addresses/N3hHzmmvnAFv36KPtu6KBVJ6egx8XKbtJ3/names \
+    -u 'YOUR-API-ID:YOUR-API-SECRET'
+
+#### example_response:
+{
+  "names": [
+    "u/fredwilson"
   ]
 }
 
