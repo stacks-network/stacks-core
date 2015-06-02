@@ -22,6 +22,7 @@ import httplib
 import ssl
 import threading
 import time
+import socket
 from multiprocessing import Pool
 
 from txjsonrpc.netstring import jsonrpc
@@ -36,11 +37,15 @@ from utilitybelt import is_valid_int
 import lib.workpool as workpool
 
 create_ssl_authproxy = False 
+do_wrap_socket = False
 
 if hasattr( ssl, "_create_unverified_context" ):
    ssl._create_default_https_context = ssl._create_unverified_context
    create_ssl_authproxy = True 
-   
+
+if not hasattr( ssl, "create_default_context" ):
+   create_ssl_authproxy = False
+   do_wrap_socket = True
 
 log = logging.getLogger()
 log.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
@@ -61,6 +66,26 @@ bitcoin_opts = {
     "bitcoind_use_https": config.BITCOIND_USE_HTTPS
 }
 
+class BitcoindConnection( httplib.HTTPSConnection ):
+   """
+   Wrapped SSL connection, if we can't use SSLContext.
+   """
+
+   def __init__(self, host, port, timeout=None ):
+   
+      httplib.HTTPSConnection.__init__(self, host, port )
+      self.timeout = timeout
+        
+   def connect( self ):
+      
+      sock = socket.create_connection((self.host, self.port), self.timeout)
+      if self._tunnel_host:
+         self.sock = sock
+         self._tunnel()
+         
+      self.sock = ssl.wrap_socket( sock, cert_reqs=ssl.CERT_NONE )
+      
+
 def create_bitcoind_connection(
         rpc_username=None,
         rpc_password=None,
@@ -70,7 +95,7 @@ def create_bitcoind_connection(
     """ creates an auth service proxy object, to connect to bitcoind
     """
     
-    global bitcoin_opts
+    global bitcoin_opts, do_wrap_socket, create_ssl_authproxy
     
     if rpc_username is None:
         rpc_username = bitcoin_opts.get( "bitcoind_user" )
@@ -95,9 +120,16 @@ def create_bitcoind_connection(
     if not port or not is_valid_int(port):
         raise Exception('Invalid bitcoind port number.')
     
-    if create_ssl_authproxy:
+    authproxy_config_uri = '%s://%s:%s@%s:%s' % (protocol, rpc_username, rpc_password, server, port)
+    
+    if do_wrap_socket:
+       # ssl._create_unverified_context and ssl.create_default_context are not supported.
+       # wrap the socket directly 
+       connection = BitcoindConnection( server, int(port) )
+       return AuthServiceProxy(authproxy_config_uri, connection=connection)
+       
+    elif create_ssl_authproxy:
        # ssl has _create_unverified_context, so we're good to go 
-       authproxy_config_uri = '%s://%s:%s@%s:%s' % (protocol, rpc_username, rpc_password, server, port)
        return AuthServiceProxy(authproxy_config_uri)
     
     else:
