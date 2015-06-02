@@ -35,7 +35,12 @@ from coinkit import BitcoindClient, ChainComClient
 from utilitybelt import is_valid_int
 import lib.workpool as workpool
 
-ssl._create_default_https_context = ssl._create_unverified_context
+create_ssl_authproxy = False 
+
+if hasattr( ssl, "_create_unverified_context" ):
+   ssl._create_default_https_context = ssl._create_unverified_context
+   create_ssl_authproxy = True 
+   
 
 log = logging.getLogger()
 log.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
@@ -89,10 +94,19 @@ def create_bitcoind_connection(
         raise Exception('Invalid bitcoind host address.')
     if not port or not is_valid_int(port):
         raise Exception('Invalid bitcoind port number.')
-    authproxy_config_uri = '%s://%s:%s@%s:%s' % (
-        protocol, rpc_username, rpc_password, server, port)
     
-    return AuthServiceProxy(authproxy_config_uri)
+    if create_ssl_authproxy:
+       # ssl has _create_unverified_context, so we're good to go 
+       authproxy_config_uri = '%s://%s:%s@%s:%s' % (protocol, rpc_username, rpc_password, server, port)
+       return AuthServiceProxy(authproxy_config_uri)
+    
+    else:
+       # have to set up an unverified context ourselves 
+       ssl_ctx = ssl.create_default_context()
+       ssl_ctx.check_hostname = False
+       ssl_ctx.verify_mode = ssl.CERT_NONE
+       connection = httplib.HTTPSConnection( server, int(port), context=ssl_ctx )
+       return AuthServiceProxy(authproxy_config_uri, connection=connection)
 
 
 def get_working_dir():
