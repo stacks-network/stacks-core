@@ -13,7 +13,7 @@ sys.path.insert(0, parent_dir)
 
 import unittest
 
-BASE_URL = 'http://localhost:5000'
+BASE_URL = 'http://0.0.0.0:5000'
 VERSION = '1'
 
 
