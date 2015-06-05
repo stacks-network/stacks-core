@@ -57,7 +57,11 @@ except:
         NAMECOIND_PORT = os.environ['NAMECOIND_PORT']
         NAMECOIND_USER = os.environ['NAMECOIND_USER']
         NAMECOIND_PASSWD = os.environ['NAMECOIND_PASSWD']
-        NAMECOIND_USE_HTTPS = os.environ['NAMECOIND_USE_HTTPS']
+
+        if os.environ['NAMECOIND_USE_HTTPS'] == 'True':
+            NAMECOIND_USE_HTTPS = True
+        else:
+            NAMECOIND_USE_HTTPS = False
     except:
         log.debug("Namecoind not configured properly")
         exit(1)
