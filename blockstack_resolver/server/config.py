@@ -51,13 +51,13 @@ except:
             MEMCACHED_SERVERS = [memcached_server]
 
     # --------------------------------------------------
-    NAMECOIND_USE_HTTPS = True
 
     try:
         NAMECOIND_SERVER = os.environ['NAMECOIND_SERVER']
         NAMECOIND_PORT = os.environ['NAMECOIND_PORT']
         NAMECOIND_USER = os.environ['NAMECOIND_USER']
         NAMECOIND_PASSWD = os.environ['NAMECOIND_PASSWD']
+        NAMECOIND_USE_HTTPS = os.environ['NAMECOIND_USE_HTTPS']
     except:
         log.debug("Namecoind not configured properly")
         exit(1)
