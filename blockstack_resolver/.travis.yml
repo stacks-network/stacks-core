@@ -6,5 +6,5 @@ install:
 services:
   - mongodb
   - memcached
-before_script: python server/db_index.py
+before_script: python -m server.db_index
 script: python tests/unit_tests.py
