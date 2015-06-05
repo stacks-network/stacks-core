@@ -4,6 +4,7 @@
 import os
 import sys
 import requests
+import json
 
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -12,27 +13,31 @@ parent_dir = os.path.abspath(current_dir + "/../")
 sys.path.insert(0, parent_dir)
 
 import unittest
+from server.resolver import app
 
-BASE_URL = 'http://0.0.0.0:5000'
 VERSION = '1'
 
+c = app.test_client()
 
 def build_url(api_endpoint):
 
-    return BASE_URL + '/v' + VERSION + '/' + api_endpoint
+    return '/v' + VERSION + '/' + api_endpoint
 
 
 def get_passcard(passname):
 
-    headers = {'Content-type': 'application/json'}
-
     url = build_url('users/' + passname)
 
-    r = requests.get(url, headers=headers)
+    r = c.get(url)
 
-    return r.json()
+    return json.loads(r.data)
+
 
 class ResolverTestCase(unittest.TestCase):
+
+    def tearDown(self):
+        pass
+
 
     def test_connectivity(self):
         """ Check connection to resolver
@@ -42,12 +47,13 @@ class ResolverTestCase(unittest.TestCase):
 
 
         try:
-            reply = requests.get(BASE_URL)
-            html = reply.text
+            reply = c.get('/')
+            html = reply.data
         except Exception as e:
             pass
 
         self.assertIn('Welcome to this resolver', html, msg="resolver is not online")
+
 
     def test_valid_passcards(self):
         """ Check valid passcards
