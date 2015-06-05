@@ -16,7 +16,6 @@ import json
 REMOTE_SERVER = 'https://50.19.215.172'
 API_ENDPOINT = '/v1/users/fredwilson'
 
-
 # -------------------------
 def call_api(auth_user, auth_passwd, server='local'):
 
