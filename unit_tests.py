@@ -15,6 +15,9 @@ API_VERSION = '1'
 
 app = api.app.test_client()
 
+# if the above app_id is not in the local DB, uncomment these lines
+#from api.auth.registration import register_user 
+#register_user('test@domain.com', app_id=APP_ID, app_secret=APP_SECRET, email_user=False)
 
 def random_username():
     return hexlify(dev_urandom_entropy(16))
@@ -137,17 +140,32 @@ class SearchUsersTest(unittest.TestCase):
         check_data(self, data, required_keys=self.required_keys)
 
 
-class LookupAddressTest(unittest.TestCase):
+class LookupUnspentsTest(unittest.TestCase):
     def setUp(self):
         self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
-        self.required_keys = {'names_owned': [], 'unspent_outputs': []}
+        self.required_keys = {'unspent_outputs': []}
 
     def tearDown(self):
         pass
 
     def test_address_lookup(self):
         address = 'NBSffD6N6sABDxNooLZxL26jwGetiFHN6H'
-        data = test_get_request(self, build_url('/addresses/' + address),
+        data = test_get_request(self, build_url('/unspents/' + address),
+                                headers=self.headers)
+        check_data(self, data, required_keys=self.required_keys)
+
+
+class LookupNamesOwnedTest(unittest.TestCase):
+    def setUp(self):
+        self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
+        self.required_keys = {'names_owned': []}
+
+    def tearDown(self):
+        pass
+
+    def test_address_lookup(self):
+        address = 'NBSffD6N6sABDxNooLZxL26jwGetiFHN6H'
+        data = test_get_request(self, build_url('/names_owned/' + address),
                                 headers=self.headers)
         check_data(self, data, required_keys=self.required_keys)
 
@@ -197,7 +215,8 @@ def test_main():
         LookupUsersTest,
         UserbaseStatsTest,
         SearchUsersTest,
-        LookupAddressTest,
+        LookupUnspentsTest,
+        LookupNamesOwnedTest,
         BroadcastTransactionTest,
         RegisterUserTest,
     )
