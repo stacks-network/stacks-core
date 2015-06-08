@@ -1,7 +1,6 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Username Resolver
+    BNS Resolver
     ~~~~~
 
     :copyright: (c) 2015 by Openname.org
@@ -20,8 +19,9 @@ from .config import MEMCACHED_PASSWORD, MEMCACHED_TIMEOUT, MEMCACHED_ENABLED
 from .config import USERSTATS_TIMEOUT
 from .config import NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USE_HTTPS
 from .config import NAMECOIND_USER, NAMECOIND_PASSWD
+from .config import VALID_BLOCKS, RECENT_BLOCKS
 
-from commontools import log
+from commontools import log, get_json, error_reply
 import logging
 
 log.setLevel(logging.DEBUG if DEBUG else logging.INFO)
@@ -31,26 +31,24 @@ from time import time
 mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
                     username=MEMCACHED_USERNAME, password=MEMCACHED_PASSWORD)
 
-from coinrpc import NamecoindServer
-namecoind = NamecoindServer(NAMECOIND_SERVER, NAMECOIND_PORT,
+from pybitcoin.rpc import NamecoindClient
+namecoind = NamecoindClient(NAMECOIND_SERVER, NAMECOIND_PORT,
                             NAMECOIND_USER, NAMECOIND_PASSWD,
                             NAMECOIND_USE_HTTPS)
 
 from .proofcheck import profile_to_proofs
 from .crossdomain import crossdomain
 
-MAX_BLOCKS = 36000
-
 from threading import Thread
 
-# ---------------------------------
-def error_reply(msg, code=-1):
-    reply = {}
-    reply['status'] = code
-    reply['error'] = msg
-    return reply
+from pymongo import MongoClient
 
-# -----------------------------------
+db = MongoClient()['resolver_index']
+
+namespaces = db.namespaces
+profiles = db.profiles
+
+
 def username_is_valid(username):
 
     regrex = re.compile('^[a-z0-9_]{1,60}$')
@@ -61,65 +59,6 @@ def username_is_valid(username):
         return False
 
 
-# -----------------------------------
-def name_show_mem(key):
-
-    info = {}
-
-    if MEMCACHED_ENABLED:
-        cache_reply = mc.get("name_" + str(key))
-    else:
-        cache_reply = None
-
-    if cache_reply is None:
-
-        try:
-            info = namecoind.name_show(key)
-
-            if 'status' in info['value'] and info['value']['status'] == -1:
-                info['value'] = {}
-
-            if MEMCACHED_ENABLED:
-                mc.set("name_" + str(key), json.dumps(info['value']),
-                       int(time() + MEMCACHED_TIMEOUT))
-                log.debug("cache miss: " + str(key))
-        except:
-            info = {}
-    else:
-        log.debug("cache hit: " + str(key))
-        info['value'] = json.loads(cache_reply)
-
-    return info
-
-
-# -----------------------------------
-def full_profile_mem(key):
-
-    check_profile = name_show_mem(key)
-
-    try:
-        check_profile = check_profile['value']
-    except:
-        return check_profile
-
-    if 'next' in check_profile:
-
-        child_data = full_profile_mem(check_profile['next'])
-
-        if 'value' in child_data:
-            child_data = child_data['value']
-
-        del check_profile['next']
-
-        merged_data = {key: value for (key, value) in (check_profile.items() +
-                       child_data.items())}
-        return merged_data
-
-    else:
-        return check_profile
-
-
-# -----------------------------------------
 def refresh_user_count():
 
     active_users_list = namecoind.name_filter('u/')
@@ -130,7 +69,7 @@ def refresh_user_count():
 
     return len(active_users_list)
 
-# -----------------------------------------
+
 @app.route('/v1/users', methods=['GET'])
 @crossdomain(origin='*')
 def get_user_count():
@@ -166,29 +105,27 @@ def get_user_count():
     return jsonify(info)
 
 
-# -----------------------------------
 def get_user_profile(username):
 
     username = username.lower()
-    key = 'u/' + username
+    
+    check_entry = profiles.find({"username": username}).limit(1)
 
-    if not namecoind.check_registration(key):
+    if check_entry.count() == 0:
         abort(404)
 
     if MEMCACHED_ENABLED:
-        log.debug('cache enabled')
-        cache_reply = mc.get("profile_" + str(key))
+        cache_reply = mc.get("profile_" + str(username))
     else:
         cache_reply = None
-        log.debug("cache off")
 
     if cache_reply is None:
 
         info = {}
 
-        profile = full_profile_mem(key)
+        profile = profiles.find_one({"username": username})['profile']
 
-        if not profile:
+        if 'error' in profile:
             info['profile'] = None
             info['error'] = "Malformed profile data"
             info['verifications'] = []
@@ -197,17 +134,14 @@ def get_user_profile(username):
             info['verifications'] = profile_to_proofs(profile, username)
 
         if MEMCACHED_ENABLED:
-            mc.set("profile_" + str(key), json.dumps(info),
+            mc.set("profile_" + str(username), json.dumps(info),
                    int(time() + MEMCACHED_TIMEOUT))
-            log.debug("cache miss full_profile")
     else:
-        log.debug("cache hit full_profile")
         info = json.loads(cache_reply)
 
     return info
 
 
-# -----------------------------------
 @app.route('/v1/users/<usernames>', methods=['GET'])
 @crossdomain(origin='*')
 def get_users(usernames):
@@ -225,7 +159,7 @@ def get_users(usernames):
         reply[username] = info
 
         if 'error' in info:
-            return jsonify(info), 502
+            return jsonify(reply), 502
 
         return jsonify(reply), 200
 
@@ -244,70 +178,55 @@ def get_users(usernames):
     return jsonify(reply), 200
 
 
-# -----------------------------------
 @app.route('/v1/namespace')
 @crossdomain(origin='*')
 def get_namespace():
 
-    from commontools import get_json
+    results = {}
 
-    users = namecoind.name_filter('u/')
+    namespace = namespaces.find_one({"blocks": VALID_BLOCKS})
 
-    list = []
+    results['usernames'] = namespace['namespace']
+    results['profiles'] = namespace['profiles'] 
 
-    for user in users:
-        try:
-            username = user['name'].lstrip('u/').lower()
-            profile = get_json(user['value'])
-
-            if 'status' in profile and profile['status'] == -1:
-                continue
-
-            if 'status' in profile and profile['status'] == 'reserved':
-                continue
-
-            if profile == {}:
-                continue
-
-            if 'next' in profile:
-                profile = full_profile_mem('u/' + username)
-
-            result = {}
-            result["username"] = username
-            result["profile"] = profile
-            list.append(result)
-
-        except Exception as e:
-            continue
-
-    return jsonify(results=list)
+    return jsonify(results)
 
 
-# -----------------------------------
 @app.route('/v1/namespace/recent/<blocks>')
 @crossdomain(origin='*')
 def get_recent_namespace(blocks):
 
+    results = {}
+
     blocks = int(blocks)
 
-    if blocks > MAX_BLOCKS:
-        blocks = MAX_BLOCKS
+    if blocks > VALID_BLOCKS:
+        blocks = VALID_BLOCKS
 
-    users = namecoind.name_filter('u/', blocks)
+    if blocks == VALID_BLOCKS:
+        namespace = namespaces.find_one({"blocks": VALID_BLOCKS})
+        results['usernames'] = namespace['namespace']
+    elif blocks == RECENT_BLOCKS:
+        namespace = namespaces.find_one({"blocks": RECENT_BLOCKS})
+        results['usernames'] = namespace['namespace']
+    else:
 
-    list = []
+        users = namecoind.name_filter('u/', blocks)
 
-    for user in users:
+        list = []
+
+        for user in users:
         
-        username = user['name'].lstrip('u/').lower()
+            username = user['name'].lstrip('u/').lower()
 
-        if username_is_valid(username):
-            list.append(username)
+            if username_is_valid(username):
+                list.append(username)
 
-    return jsonify(results=list)
+        results['usernames'] = list 
+
+    return jsonify(results)
 
 
-# -----------------------------------
 @app.route('/')
 def index():
     reply = '<hmtl><body>Welcome to this resolver, see \
@@ -317,7 +236,6 @@ def index():
     return reply
 
 
-# -----------------------------------
 @app.errorhandler(500)
 def internal_error(error):
 
@@ -325,7 +243,6 @@ def internal_error(error):
     return json.dumps(reply)
 
 
-# -----------------------------------
 @app.errorhandler(404)
 def not_found(error):
     return make_response(jsonify({'error': 'Not found'}), 404)
