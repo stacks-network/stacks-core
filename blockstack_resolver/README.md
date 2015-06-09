@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/namesystem/resolver.svg?branch=master)](https://travis-ci.org/namesystem/resolver)
+
 BNS-resolver
 =======
 
@@ -21,11 +23,9 @@ pip install -r requirements.txt
 ./runserver
 ```
 
-Warmup cache and then keep memcached in sync with the blockchain:
+Warmup index and then keep it synced with the blockchain:
 
 ```
 source tools/setup_env.sh
-python -m tools.warmup_cache
-mkdir log
-python -m tools.sync_cache
+python -m server.db_index
 ```
