@@ -125,6 +125,21 @@ class UserbaseStatsTest(unittest.TestCase):
         check_data(self, data, required_keys=self.required_keys)
 
 
+class NamespaceTest(unittest.TestCase):
+    
+    def tearDown(self):
+        pass
+
+    def test_recent_namespace(self):
+        data = test_get_request(self, build_url('/namespace/recent'))
+        check_data(self, data, required_keys={'usernames': []})
+
+
+    def test_entire_namespace(self):
+        data = test_get_request(self, build_url('/namespace'))
+        check_data(self, data, required_keys={'profiles': []})
+
+
 class SearchUsersTest(unittest.TestCase):
     def setUp(self):
         self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
@@ -218,6 +233,7 @@ def test_main():
         LookupUnspentsTest,
         LookupNamesOwnedTest,
         BroadcastTransactionTest,
+        NamespaceTest,
         RegisterUserTest,
     )
 

@@ -164,6 +164,34 @@ def user_stats():
     return jsonify(resp.json()), 200
 
 
+@app.route('/v1/namespace', methods=['GET'])
+@crossdomain(origin='*')
+def user_entire_namespace():
+    
+    BASE_URL = RESOLVER_URL + '/v1/namespace'
+
+    try:
+        resp = requests.get(BASE_URL, timeout=10, verify=False)
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        raise ResolverConnectionError()
+
+    return jsonify(resp.json()), 200
+
+
+@app.route('/v1/namespace/recent', methods=['GET'])
+@crossdomain(origin='*')
+def get_recent_namespace():
+
+    BASE_URL = RESOLVER_URL + '/v1/namespace/recent/100'
+
+    try:
+        resp = requests.get(BASE_URL, timeout=10, verify=False)
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        raise ResolverConnectionError()
+
+    return jsonify(resp.json()), 200
+
+
 @app.route('/v1/transactions', methods=['POST'])
 @auth_required()
 @parameters_required(['signed_hex'])
