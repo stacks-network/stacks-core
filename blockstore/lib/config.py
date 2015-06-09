@@ -204,6 +204,7 @@ CACHE_ROOT = os.path.expanduser("~/.blockstore/cache")
 CACHE_TX_DIR = os.path.join( CACHE_ROOT, "tx_data" )
 CACHE_BLOCK_HASH_DIR = os.path.join( CACHE_ROOT, "block_hashes" )
 CACHE_BLOCK_DATA_DIR = os.path.join( CACHE_ROOT, "block_data" )
+CACHE_BLOCK_ID_DIR = os.path.join( CACHE_ROOT, "blocks" )
 
 """ Multiprocessing
 """
