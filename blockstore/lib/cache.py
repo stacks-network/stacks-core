@@ -1,5 +1,5 @@
 
-from config import CACHE_ROOT, CACHE_TX_DIR, CACHE_BLOCK_HASH_DIR, CACHE_BLOCK_DATA_DIR, CACHE_ENABLE, CACHE_BUFLEN
+from config import CACHE_ROOT, CACHE_BLOCK_ID_DIR, CACHE_ENABLE, CACHE_BUFLEN
 
 import os 
 import pickle
@@ -73,60 +73,92 @@ def cache_get( path ):
    Read and unpickle a Python object at the given path.
    """
    
-   obj = None 
-   if not CACHE_ENABLE:
+   try:
+      obj = None 
+      if not CACHE_ENABLE:
+         return None
+      
+      if os.path.exists( path ):
+         
+         fd = None
+         pstr = None
+         
+         with open(path, "r") as fd:
+            pstr = fd.read()
+            
+            try:
+               obj = pickle.loads( pstr )
+               
+            except pickle.PickleError, pe:
+               log.debug("Failed to unpickle %s" % path)
+               obj = None
+   
+   except Exception, e:
+      log.exception(e)
       return None
    
-   if os.path.exists( path ):
-      
-      fd = None
-      pstr = None
-      
-      with open(path, "r") as fd:
-         pstr = fd.read()
-         
-         try:
-            obj = pickle.loads( pstr )
-            
-         except pickle.PickleError, pe:
-            log.debug("Failed to unpickle %s" % path)
-            obj = None
-         
    return obj
+   
+
+def cache_get_size( path ):
+   """
+   Get the size of a cached file.
+   Return None if not cached
+   """
+   
+   if not os.path.exists( path ):
+      return None 
+   
+   if not os.path.isfile( path ):
+      return None
+   
+   return os.stat( path ).st_size
    
 
 def cache_put_impl( path, obj ):
    """
    Pickle and write an object to the given path.
+   Return the serialized length on success
+   Return None on error
    """
    
-   if not os.path.exists( os.path.dirname( path ) ):
-      try:
-         os.makedirs( os.path.dirname( path ) )
-      except OSError, oe:
-         if oe.errno == errno.EEXIST:
-            pass 
-         else:
-            raise
-   
-   pstr = None
    try:
-      pstr = pickle.dumps( obj )
-   except pickle.PickleError, pe:
-      # NOTE: Debug-level since this is potentially sensitive information
-      log.debug("Failed to pickle %s" % repr(obj))
-      pstr = None
-   
-   if pstr is not None:
-      # save 
+      if not os.path.exists( os.path.dirname( path ) ):
+         try:
+            os.makedirs( os.path.dirname( path ) )
+         except OSError, oe:
+            if oe.errno == errno.EEXIST:
+               pass 
+            else:
+               raise
       
-      with open(path, "w") as fd:
-         fd.write( pstr )
+      pstr = None
+      try:
+         pstr = pickle.dumps( obj )
+      except pickle.PickleError, pe:
+         # NOTE: Debug-level since this is potentially sensitive information
+         log.debug("Failed to pickle %s" % repr(obj))
+         pstr = None
+      
+      if pstr is not None:
+         # save 
+         
+         with open(path, "w") as fd:
+            fd.write( pstr )
+            
+         return len(pstr)
+      
+   except Exception, e:
+      log.exception(e)
+      return None
+   
    
    
 def cache_put( path, obj, async=True ):
    """
    Put something into the cache--either synchronously, or asynchronously.
+   If synchronously, return the length of the object put.
+   Otherwise, return None
    """
    
    global cache_thread
@@ -139,9 +171,10 @@ def cache_put( path, obj, async=True ):
          cache_start()
    
       cache_thread.queue( path, obj )
+      return None
       
    else:
-      cache_put_impl( path, obj )
+      return cache_put_impl( path, obj )
       
 
 def cache_start():
@@ -166,86 +199,40 @@ def cache_stop():
       cache_thread.cancel()
       
 
-def cache_tx_path( block_hash, txid ):
+def cache_block_id_path( block_id ):
    """
-   Generate the path to a cached transaction.
+   Path to a ched block, by id 
    """
-   root = CACHE_TX_DIR 
-   path = os.path.join( root, block_hash, txid )
-   return path
-
-
-def cache_get_tx( block_hash, txid ):
-   """
-   Get a cached transaction, from the txid.
-   Return None if not cached.
-   """
-   tx_path = cache_tx_path( block_hash, txid )
-   return cache_get( tx_path )
-
-
-def cache_put_tx( block_hash, txid, tx ):
-   """
-   Cache a transaction, given its tx ID and the tx data.
-   """
-   
-   if tx is not None and "txid" in tx.keys():
-      tx_path = cache_tx_path( block_hash, txid )
-      return cache_put( tx_path, tx )
-            
-   else:
-      raise Exception("'txid' not in transaction")
-   
-   
-def cache_block_hash_path( block_id ):
-   """
-   Generate the path to a cached block hash.
-   Convert to hex and separate every four characters with /
-   """
-   root = CACHE_BLOCK_HASH_DIR
+   root = CACHE_BLOCK_ID_DIR
    path = os.path.join( root, str(block_id) )
    return path
-
    
-def cache_get_block_hash( block_id ):
-   """
-   Get a cached block hash.
-   Return None if not present.
-   """
-   
-   bhash_path = cache_block_hash_path( block_id )
-   return cache_get( bhash_path )
 
-
-def cache_put_block_hash( block_id, bhash ):
+def cache_get_block( block_id ):
    """
-   Put a block hash
+   Get a block by ID 
    """
-   bhash_path = cache_block_hash_path( block_id )
-   return cache_put( bhash_path, bhash )
-
-
-def cache_block_data_path( block_hash ):
-   """
-   Generate the path to cached block data, given its hash.
-   """
-   root = CACHE_BLOCK_DATA_DIR
-   path = os.path.join( root, block_hash )
-   return path 
-
-
-def cache_get_block_data( block_hash ):
-   """
-   Get a block's cached data from its hash.
-   Return None if not cached locally.
-   """
-   data_path = cache_block_data_path( block_hash )
+   data_path = cache_block_id_path( block_id )
    return cache_get( data_path )
 
 
-def cache_put_block_data( block_hash, block_data ):
+def cache_get_block_size( block_data ):
    """
-   Put a block's data to the cache.
+   Find out out big a block will be when cached.
    """
-   data_path = cache_block_data_path( block_hash )
-   return cache_put( data_path, block_data )
+   pstr = None
+   try:
+      pstr = pickle.dumps( block_data )
+      return len(pstr)
+   except pickle.PickleError, pe:
+      # NOTE: Debug-level since this is potentially sensitive information
+      log.debug("Failed to pickle")
+      return None
+
+
+def cache_put_block( block_id, block_data ):
+   """
+   Put a block by ID 
+   """
+   data_path = cache_block_id_path( block_id )
+   return cache_put( data_path, block_data );
