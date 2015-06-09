@@ -26,6 +26,5 @@ pip install -r requirements.txt
 Warmup index and then keep it synced with the blockchain:
 
 ```
-source tools/setup_env.sh
 python -m server.db_index
 ```
