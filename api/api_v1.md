@@ -343,7 +343,7 @@ GET
 /addresses/{address}/names
 
 #### tryit_pathname:
-/v1/addresses/N3hHzmmvnAFv36KPtu6KBVJ6egx8XKbtJ3?/names&app-id=demo-1234&app-secret=demo-1234
+/v1/addresses/N3hHzmmvnAFv36KPtu6KBVJ6egx8XKbtJ3/names?&app-id=demo-1234&app-secret=demo-1234
 
 #### example_request_bash:
 curl https://api.onename.com/v1/addresses/N3hHzmmvnAFv36KPtu6KBVJ6egx8XKbtJ3/names \

@@ -216,45 +216,6 @@ def broadcast_tx():
     return jsonify(resp), 200
 
 
-@app.route('/v1/unspents/<address>', methods=['GET'])
-@auth_required(
-    exception_paths=['/v1/unspents/NBSffD6N6sABDxNooLZxL26jwGetiFHN6H'])
-@crossdomain(origin='*')
-def get_unspents_info(address):
-    resp = {}
-
-    try:
-        unspent_outputs = get_unspents(address)
-    except Exception as e:
-        traceback.print_exc()
-        raise DatabaseLookupError()
-
-    resp = {'unspent_outputs': unspent_outputs}
-
-    return jsonify(resp), 200
-
-
-@app.route('/v1/names_owned/<address>', methods=['GET'])
-@auth_required(
-    exception_paths=['/v1/names_owned/MyVZe4nwF45jeooXw2v1VtXyNCPczbL2EE'])
-@crossdomain(origin='*')
-def get_names_owned(address):
-    resp = {}
-
-    names_owned = []
-
-    try:
-        for entry in address_to_keys.find({'address': address}):
-            names_owned.append(entry['key'])
-    except Exception as e:
-        raise DatabaseLookupError()
-
-
-    resp = {'names_owned': names_owned}
-
-    return jsonify(resp), 200
-
-
 @app.route('/v1/addresses/<address>/unspents', methods=['GET'])
 @auth_required(exception_paths=[
     '/v1/addresses/NBSffD6N6sABDxNooLZxL26jwGetiFHN6H/unspents'])
@@ -276,14 +237,19 @@ def get_address_unspents(address):
     '/v1/addresses/N3hHzmmvnAFv36KPtu6KBVJ6egx8XKbtJ3/names'])
 @crossdomain(origin='*')
 def get_address_names(address):
+
+    print "got here"
+
+    resp = {}
+
+    names_owned = []
+
     try:
-        address_names = address_to_keys.find_one({'address': address})
+        for entry in address_to_keys.find({'address': address}):
+            names_owned.append(entry['key'])
     except Exception as e:
         raise DatabaseLookupError()
 
-    names_owned = []
-    if address_names is not None and 'keys' in address_names:
-        names_owned = address_names['keys']
 
     resp = {'names': names_owned}
 
