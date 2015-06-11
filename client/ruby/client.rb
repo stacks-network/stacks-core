@@ -11,25 +11,40 @@ class Client
 
   	def get_user(username)
   		url = @base_url + "/users/" +  username
-  		return send_request(url)
+  		return get_request(url)
 	end
 
 	def get_search(query)
 		url = @base_url + "/search?query=" + query
-		return send_request(url)
+		return get_request(url)
 	end
 
 	def get_stats()
 		url = @base_url + "/users"
-		return send_request(url)
+		return get_request(url)
 	end
 
 	def get_address(address)
 		url = @base_url + "/addresses/" + address
-		return send_request(url)
+		return get_request(url)
 	end
 
-    def send_request(url)
+	def register_user(payload)
+		# payload = {'passname' => 'randomguy', 'recipient_address' => '1LvmdgWbrBtjLYiFs5d8ukTz2Z5Ksccrv8',
+		# 					'passcard' => {'bio' => 'I am a random guy who thinks!'}} 
+
+		url = @base_url + "/users"
+		return post_request(url, payload)
+	end
+
+	def broadcast_transaction(payload)
+		#payload = {"signed_hex" => "00710000015e98119922f0b"}
+
+		url = @base_url +  "/transactions"
+		return post_request(url, payload)
+	end
+
+    def get_request(url)
 
     	uri = URI(url)
 
@@ -44,5 +59,22 @@ class Client
 			return response.body
 		end
 
+		end
+
+	def post_request(url, payload)
+		
+		uri = URI.parse(url)
+		http = Net::HTTP.new(uri.host, uri.port)
+		http.use_ssl = true
+		http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+		request = Net::HTTP::Post.new(uri.request_uri,initheader = {'Content-Type' =>'application/json'})
+		request.body = payload.to_json
+		
+		request.basic_auth @key_id, @key_secret
+		response = http.request(request)
+		return response.body
+
+
     end
+
 end
