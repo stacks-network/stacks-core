@@ -155,34 +155,25 @@ class SearchUsersTest(unittest.TestCase):
         check_data(self, data, required_keys=self.required_keys)
 
 
-class LookupUnspentsTest(unittest.TestCase):
+class LookupAddressTest(unittest.TestCase):
     def setUp(self):
         self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
-        self.required_keys = {'unspent_outputs': []}
-
+       
     def tearDown(self):
         pass
 
-    def test_address_lookup(self):
+    def test_unspents_lookup(self):
         address = 'NBSffD6N6sABDxNooLZxL26jwGetiFHN6H'
-        data = test_get_request(self, build_url('/unspents/' + address),
+        data = test_get_request(self, build_url('/addresses/' + address + '/unspents'),
                                 headers=self.headers)
-        check_data(self, data, required_keys=self.required_keys)
+        check_data(self, data, required_keys={'unspents': []})
 
 
-class LookupNamesOwnedTest(unittest.TestCase):
-    def setUp(self):
-        self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
-        self.required_keys = {'names_owned': []}
-
-    def tearDown(self):
-        pass
-
-    def test_address_lookup(self):
+    def test_names_owned_lookup(self):
         address = 'NBSffD6N6sABDxNooLZxL26jwGetiFHN6H'
-        data = test_get_request(self, build_url('/names_owned/' + address),
+        data = test_get_request(self, build_url('/addresses/' + address + '/names'),
                                 headers=self.headers)
-        check_data(self, data, required_keys=self.required_keys)
+        check_data(self, data, required_keys={'names': []})
 
 
 class BroadcastTransactionTest(unittest.TestCase):
@@ -230,8 +221,7 @@ def test_main():
         LookupUsersTest,
         UserbaseStatsTest,
         SearchUsersTest,
-        LookupUnspentsTest,
-        LookupNamesOwnedTest,
+        LookupAddressTest,
         BroadcastTransactionTest,
         NamespaceTest,
         RegisterUserTest,
