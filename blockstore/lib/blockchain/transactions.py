@@ -41,6 +41,13 @@ def getrawtransaction( bitcoind, block_hash, txid, verbose=0 ):
             log.error("\n\n[%s] Caught JSONRPCException from bitcoind: %s\n" % (os.getpid(), repr(je.error)))
             exc_to_raise = je
             continue
+
+         except Exception, e:
+            log.error("\n\n[%s] Caught Exception from bitcoind" % (os.getpid()))
+            log.exception(e)
+            exc_to_raise = e
+            bitcoind = multiprocess_bitcoind(reset=True)
+            continue 
             
          return tx 
       
@@ -90,6 +97,13 @@ def getblockhash( bitcoind, block_number ):
             exc_to_raise = je 
             continue
          
+         except Exception, e:
+            log.error("\n\n[%s] Caught Exception from bitcoind" % (os.getpid()))
+            log.exception(e)
+            exc_to_raise = e
+            bitcoind = multiprocess_bitcoind(reset=True)
+            continue 
+         
          return block_hash
       
       except Exception, e:
@@ -135,7 +149,13 @@ def getblock( bitcoind, block_hash ):
             log.error("\n\n[%s] Caught JSONRPCException from bitcoind: %s\n" % (os.getpid(), repr(je.error)))
             exc_to_raise = je
             continue
-         
+         except Exception, e:
+            log.error("\n\n[%s] Caught Exception from bitcoind" % (os.getpid()))
+            log.exception(e)
+            exc_to_raise = e
+            bitcoind = multiprocess_bitcoind( reset=True )
+            continue     
+    
          return block_data 
       
       except Exception, e:
@@ -377,7 +397,7 @@ def get_nulldata_txs_in_blocks( workpool, blocks ):
                   tx = txs[i]
                   
                   if ('nulldata' in tx.keys()) and ('senders' in tx.keys()) and ('fee' in tx.keys()):
-                     
+
                      # can use 
                      if not nulldata_tx_map.has_key( block_number ):
                         nulldata_tx_map[ block_number ] = [(i, tx)]
