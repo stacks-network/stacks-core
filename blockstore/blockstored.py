@@ -426,6 +426,13 @@ def refresh_index_block( bitcoind, block_number, workpool=None, initial_index=Fa
 
       
 
+def index_worker_init():
+    """
+    Set up the index worker's bitcoind connection.
+    """
+    global bitcoind 
+    bitcoind = workpool.multiprocess_bitcoind()
+
 
 def refresh_index( bitcoind, first_block, last_block, initial_index=False):
     """
@@ -444,14 +451,18 @@ def refresh_index( bitcoind, first_block, last_block, initial_index=False):
     num_workers = config.MULTIPROCESS_NUM_WORKERS
     nameop_sequence = []
     
-    workpool = Pool( processes=num_workers )
+    workpool = Pool( processes=num_workers, initializer=index_worker_init )
     
     # get *all* the block nameops!
     nameop_sequence = get_nameops_in_blocks( workpool, range(first_block, last_block+1) )
+    workpool.close()
+    workpool.join()
     nameop_sequence.sort()
     
     time_taken = "%s seconds" % (datetime.datetime.now() - start).seconds
     log.info(time_taken)
+
+    log.info("nameops: %s" % nameop_sequence)
 
     db = get_namedb()
     merkle_snapshot = build_nameset(db, nameop_sequence)
@@ -465,14 +476,13 @@ def refresh_index( bitcoind, first_block, last_block, initial_index=False):
     fout = open(lastblock_file, 'w')  # to overwrite
     fout.write(str(last_block))
     fout.close()
-    
 
 # ------------------------------
 old_block = 0
 index_initialized = False
 
 
-def reindex_blockchain( bitcoind ):
+def reindex_blockchain( local_bitcoind=None ):
     """
     """
 
@@ -480,6 +490,10 @@ def reindex_blockchain( bitcoind ):
     global old_block
     global index_initialized
     global counter
+    global bitcoind
+
+    if local_bitcoind is None:
+       local_bitcoind = bitcoind
 
     start_block, current_block = get_index_range()
 
@@ -500,7 +514,7 @@ def reindex_blockchain( bitcoind ):
             log.msg(message)
 
             # call the reindex func here
-            refresh_index(bitcoind, old_block + 1, current_block)
+            refresh_index(local_bitcoind, old_block + 1, current_block)
             old_block = current_block
 
 
