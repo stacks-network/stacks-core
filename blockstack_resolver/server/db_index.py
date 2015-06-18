@@ -198,6 +198,5 @@ def sync_with_blockchain():
 if __name__ == '__main__':
 
     #only on first run
-    #refresh_namespace(VALID_BLOCKS, refresh_profiles=True)
-    refresh_memory_cache()
+    refresh_namespace(VALID_BLOCKS, refresh_profiles=True)
     #sync_with_blockchain()
