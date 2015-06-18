@@ -13,10 +13,10 @@ from time import sleep
 from .config import NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USE_HTTPS
 from .config import NAMECOIND_USER, NAMECOIND_PASSWD
 
-from .config import RECENT_BLOCKS, VALID_BLOCKS
+from .config import RECENT_BLOCKS, VALID_BLOCKS, REFRESH_BLOCKS
 
 from .db import namespaces, profiles
-from .resolver import username_is_valid
+from .resolver import username_is_valid, get_user_profile
 
 from pybitcoin.rpc import NamecoindClient
 namecoind = NamecoindClient(NAMECOIND_SERVER, NAMECOIND_PORT,
@@ -154,6 +154,26 @@ def refresh_index():
 
     print "Index refreshed"
 
+
+def refresh_memory_cache():
+
+    namespace = namespaces.find_one({"blocks": VALID_BLOCKS})
+
+    print "Refreshing memory cache"
+
+    counter = 0
+
+    for username in namespace['namespace']:
+        try:
+            profile = get_user_profile(username)
+        except Exception as e:
+            print e
+
+        counter += 1
+
+        if counter % 100 == 0:
+            print counter
+
 # -----------------------------------
 def sync_with_blockchain():
 
@@ -171,9 +191,13 @@ def sync_with_blockchain():
         refresh_index()      
         old_block = new_block
 
+        if new_block % REFRESH_BLOCKS == 0:
+            refresh_memory_cache()
+
 
 if __name__ == '__main__':
 
     #only on first run
-    refresh_namespace(VALID_BLOCKS, refresh_profiles=True)
+    #refresh_namespace(VALID_BLOCKS, refresh_profiles=True)
+    refresh_memory_cache()
     #sync_with_blockchain()

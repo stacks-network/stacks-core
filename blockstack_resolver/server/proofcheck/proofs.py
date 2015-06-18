@@ -48,10 +48,10 @@ def contains_valid_proof_statement(search_text, username):
 
 
 # -----------------------------------------
-def is_valid_proof(site, site_username, openname, proof_url):
+def is_valid_proof(site, site_username, username, proof_url):
     site_username = site_username.lower()
     proof_url = proof_url.lower()
-    openname = openname.lower()
+    username = username.lower()
 
     if not site in SITES and 'base_url' in SITES[site]:
         return False
@@ -67,13 +67,19 @@ def is_valid_proof(site, site_username, openname, proof_url):
         return False
 
     if site == "github":
-        search_text = get_github_text(r.text)
+        try:
+            search_text = get_github_text(r.text)
+        except:
+            search_text = ''
     elif site in SITES:
-        search_text = get_search_text(site, r.text)
+        try:
+            search_text = get_search_text(site, r.text)
+        except:
+            search_text = ''
     else:
         search_text = ''
 
-    return contains_valid_proof_statement(search_text, openname)
+    return contains_valid_proof_statement(search_text, username)
 
 
 # -----------------------------------------
@@ -115,7 +121,7 @@ def site_data_to_identifier(site_data):
 
 
 # -----------------------------------------
-def profile_to_proofs(profile, openname, refresh=False):
+def profile_to_proofs(profile, username, refresh=False):
 
     global MEMCACHED_ENABLED
 
@@ -123,6 +129,11 @@ def profile_to_proofs(profile, openname, refresh=False):
         MEMCACHED_ENABLED = False
 
     proofs = []
+
+    try:
+        test = profile.items()
+    except:
+        return proofs
 
     for proof_site, site_data in profile.items():
         if proof_site in SITES and isinstance(site_data, dict):
@@ -147,15 +158,15 @@ def profile_to_proofs(profile, openname, refresh=False):
 
                     if cache_reply is None:
 
-                        if is_valid_proof(proof_site, identifier, openname, proof_url):
+                        if is_valid_proof(proof_site, identifier, username, proof_url):
                             proof["valid"] = True
 
                             if MEMCACHED_ENABLED:
-                                mc.set("proof_" + proof_url_hash, openname, int(time() + MEMCACHED_TIMEOUT))
+                                mc.set("proof_" + proof_url_hash, username, int(time() + MEMCACHED_TIMEOUT))
                                 #log.debug("cache miss")
                     else:
                         #log.debug("cache hit")
-                        if cache_reply == openname:
+                        if cache_reply == username:
                             proof["valid"] = True
 
                     proofs.append(proof)
