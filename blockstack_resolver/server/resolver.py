@@ -105,8 +105,13 @@ def get_user_count():
     return jsonify(info)
 
 
-def get_user_profile(username):
+def get_user_profile(username, refresh=False):
 
+    global MEMCACHED_ENABLED
+
+    if refresh:
+        MEMCACHED_ENABLED = False
+  
     username = username.lower()
     
     check_entry = profiles.find({"username": username}).limit(1)

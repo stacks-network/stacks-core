@@ -165,7 +165,7 @@ def refresh_memory_cache():
 
     for username in namespace['namespace']:
         try:
-            profile = get_user_profile(username)
+            profile = get_user_profile(username, refresh=True)
         except Exception as e:
             print e
 
