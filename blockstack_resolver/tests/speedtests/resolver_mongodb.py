@@ -10,6 +10,7 @@ import sys
 import os
 
 SERVER_PORT = 8080
+VALID_BLOCKS = 36000
 
 from SocketServer import ThreadingMixIn
 from jsonrpclib.SimpleJSONRPCServer import SimpleJSONRPCServer
@@ -20,7 +21,7 @@ parent_dir = os.path.abspath(current_dir + "/../../")
 
 sys.path.insert(0, parent_dir)
 
-from server.resolver import profiles
+from server.resolver import profiles, namespaces
 
 
 class SimpleThreadedJSONRPCServer(ThreadingMixIn, SimpleJSONRPCServer):
@@ -33,9 +34,17 @@ def get_profile(username):
     return profile
 
 
+def get_namespace():
+
+    namespace = namespaces.find_one({"blocks": VALID_BLOCKS})
+
+    return namespace['profiles']
+
+
 def main():
     server = SimpleThreadedJSONRPCServer(('localhost', SERVER_PORT))
     server.register_function(get_profile)
+    server.register_function(get_namespace)
     server.serve_forever()
 
 

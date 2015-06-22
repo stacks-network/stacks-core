@@ -3,7 +3,6 @@
 
 import sys
 import os
-from multiprocessing.pool import Pool
 
 from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
 
@@ -18,8 +17,12 @@ sys.path.insert(0, parent_dir)
 from server.resolver import namespaces
 
 
-def get_data(username):
+def get_profile(username):
     return proxy.get_profile(username)
+
+
+def get_namespace():
+    return proxy.get_namespace()
 
 # -----------------------------------
 if __name__ == '__main__':
@@ -28,5 +31,7 @@ if __name__ == '__main__':
 
     usernames = namespace['namespace']
 
-    for username in usernames:
-        print get_data(username)
+    #for username in usernames:
+    #    print get_profile(username)
+
+    print get_namespace()
