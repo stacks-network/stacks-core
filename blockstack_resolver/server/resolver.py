@@ -64,7 +64,7 @@ def username_is_valid(username):
 def refresh_user_count():
 
     active_users_list = namecoind.name_filter('u/')
-    
+
     if type(active_users_list) is list:
         mc.set("total_users", str(len(active_users_list)), int(time() + USERSTATS_TIMEOUT))
         mc.set("total_users_old", str(len(active_users_list)), 0)
@@ -113,9 +113,9 @@ def get_user_profile(username, refresh=False):
 
     if refresh:
         MEMCACHED_ENABLED = False
-  
+
     username = username.lower()
-    
+
     check_entry = profiles.find({"username": username}).limit(1)
 
     if check_entry.count() == 0:
@@ -223,13 +223,13 @@ def get_recent_namespace(blocks):
         list = []
 
         for user in users:
-        
+
             username = user['name'].lstrip('u/').lower()
 
             if username_is_valid(username):
                 list.append(username)
 
-        results['usernames'] = list 
+        results['usernames'] = list
 
     return jsonify(results)
 
