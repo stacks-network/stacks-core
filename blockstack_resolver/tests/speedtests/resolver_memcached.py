@@ -1,14 +1,17 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import zerorpc
+"""
+Multithreaded JSONRPCServer
+
+"""
 
 import sys
 import os
 
 # hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
-parent_dir = os.path.abspath(current_dir + "/../")
+parent_dir = os.path.abspath(current_dir + "/../../")
 
 sys.path.insert(0, parent_dir)
 
@@ -20,13 +23,25 @@ mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
                     behaviors={"no_block": True,
                                "connect_timeout": 500})
 
+SERVER_PORT = 8080
 
-class ResolverRPC(object):
-    def get_profile(self, username):
-        profile = mc.get("profile_" + str(username))
+from SocketServer import ThreadingMixIn
+from jsonrpclib.SimpleJSONRPCServer import SimpleJSONRPCServer
 
-        return profile
 
-s = zerorpc.Server(ResolverRPC(), pool_size=100)
-s.bind("tcp://0.0.0.0:4242")
-s.run()
+class SimpleThreadedJSONRPCServer(ThreadingMixIn, SimpleJSONRPCServer):
+    pass
+
+
+def get_profile(username):
+    return mc.get("profile_" + str(username))
+
+
+def main():
+    server = SimpleThreadedJSONRPCServer(('localhost', SERVER_PORT))
+    server.register_function(get_profile)
+    server.serve_forever()
+
+
+if __name__ == '__main__':
+    main()

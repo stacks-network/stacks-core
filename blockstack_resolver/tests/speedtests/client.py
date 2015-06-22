@@ -3,32 +3,23 @@
 
 import sys
 import os
+from multiprocessing.pool import Pool
 
-#hack around absolute paths
-current_dir =  os.path.abspath(os.path.dirname(__file__))
+from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
+
+proxy = AuthServiceProxy('http://none:none@localhost:8080')
+
+# hack around absolute paths
+current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
 from server.resolver import namespaces
 
-import zerorpc
 
-from multiprocessing.pool import Pool
-
-c = zerorpc.Client()
-c.connect("tcp://127.0.0.1:4242")
-
-import logging
-logger = logging.getLogger()
-logger.disabled = True
-logger.propagate = False
-
-
-def fetch_profile(username):
-
-    print c.get_profile(username)
-
+def get_data(username):
+    return proxy.get_profile(username)
 
 # -----------------------------------
 if __name__ == '__main__':
@@ -38,8 +29,4 @@ if __name__ == '__main__':
     usernames = namespace['namespace']
 
     for username in usernames:
-        fetch_profile(username)
-
-    #pool = Pool(100)
-
-    #pool.map(fetch_profile, usernames)
+        print get_data(username)
