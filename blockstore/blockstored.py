@@ -34,18 +34,8 @@ from lib import config
 from lib import cache
 from coinkit import BitcoindClient, ChainComClient
 from utilitybelt import is_valid_int
-import lib.workpool as workpool
 
-create_ssl_authproxy = False 
-do_wrap_socket = False
-
-if hasattr( ssl, "_create_unverified_context" ):
-   ssl._create_default_https_context = ssl._create_unverified_context
-   create_ssl_authproxy = True 
-
-if not hasattr( ssl, "create_default_context" ):
-   create_ssl_authproxy = False
-   do_wrap_socket = True
+import lib.blockdaemon as blockdaemon
 
 log = logging.getLogger()
 log.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
@@ -56,164 +46,8 @@ formatter = logging.Formatter( log_format )
 console.setFormatter(formatter)
 log.addHandler(console)
 
-from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
 
-bitcoin_opts = {
-    "bitcoind_user": config.BITCOIND_USER,
-    "bitcoind_passwd": config.BITCOIND_PASSWD,
-    "bitcoind_server": config.BITCOIND_SERVER,
-    "bitcoind_port": config.BITCOIND_PORT,
-    "bitcoind_use_https": config.BITCOIND_USE_HTTPS
-}
-
-class BitcoindConnection( httplib.HTTPSConnection ):
-   """
-   Wrapped SSL connection, if we can't use SSLContext.
-   """
-
-   def __init__(self, host, port, timeout=None ):
-   
-      httplib.HTTPSConnection.__init__(self, host, port )
-      self.timeout = timeout
-        
-   def connect( self ):
-      
-      sock = socket.create_connection((self.host, self.port), self.timeout)
-      if self._tunnel_host:
-         self.sock = sock
-         self._tunnel()
-         
-      self.sock = ssl.wrap_socket( sock, cert_reqs=ssl.CERT_NONE )
-      
-
-def create_bitcoind_connection(
-        rpc_username=None,
-        rpc_password=None,
-        server=None,
-        port=None,
-        use_https=None ):
-    """ creates an auth service proxy object, to connect to bitcoind
-    """
-    
-    global bitcoin_opts, do_wrap_socket, create_ssl_authproxy
-    
-    if rpc_username is None:
-        rpc_username = bitcoin_opts.get( "bitcoind_user" )
-    
-    if rpc_password is None:
-        rpc_password = bitcoin_opts.get( "bitcoind_passwd" )
-    
-    if server is None:
-        server = bitcoin_opts.get( "bitcoind_server" )
-        
-    if port is None:
-        port = bitcoin_opts.get( "bitcoind_port" )
-    
-    if use_https is None:
-        use_https = bitcoin_opts.get( "bitcoind_use_https" )
-        
-    log.debug("[%s] Connect to bitcoind at %s://%s@%s:%s" % (os.getpid(), 'https' if use_https else 'http', rpc_username, server, port) )
-    
-    protocol = 'https' if use_https else 'http'
-    if not server or len(server) < 1:
-        raise Exception('Invalid bitcoind host address.')
-    if not port or not is_valid_int(port):
-        raise Exception('Invalid bitcoind port number.')
-    
-    authproxy_config_uri = '%s://%s:%s@%s:%s' % (protocol, rpc_username, rpc_password, server, port)
-    
-    if do_wrap_socket:
-       # ssl._create_unverified_context and ssl.create_default_context are not supported.
-       # wrap the socket directly 
-       connection = BitcoindConnection( server, int(port) )
-       return AuthServiceProxy(authproxy_config_uri, connection=connection)
-       
-    elif create_ssl_authproxy:
-       # ssl has _create_unverified_context, so we're good to go 
-       return AuthServiceProxy(authproxy_config_uri)
-    
-    else:
-       # have to set up an unverified context ourselves 
-       ssl_ctx = ssl.create_default_context()
-       ssl_ctx.check_hostname = False
-       ssl_ctx.verify_mode = ssl.CERT_NONE
-       connection = httplib.HTTPSConnection( server, int(port), context=ssl_ctx )
-       return AuthServiceProxy(authproxy_config_uri, connection=connection)
-
-
-def get_working_dir():
-
-    from os.path import expanduser
-    home = expanduser("~")
-
-    from lib.config import BLOCKSTORED_WORKING_DIR
-    working_dir = os.path.join(home, BLOCKSTORED_WORKING_DIR)
-
-    if not os.path.exists(working_dir):
-        os.makedirs(working_dir)
-
-    return working_dir
-
-
-def get_config_file():
-    working_dir = get_working_dir()
-    return os.path.join(working_dir, config.BLOCKSTORED_CONFIG_FILE)
-
-
-from ConfigParser import SafeConfigParser
-
-
-def prompt_user_for_bitcoind_details():
-    """
-    """
-    config_file = get_config_file()
-    parser = SafeConfigParser()
-
-    parser.read(config_file)
-
-    if not parser.has_section('bitcoind'):
-
-        bitcoind_server = raw_input(
-            "Enter bitcoind host address (default: 127.0.0.1): "
-            ) or '127.0.0.1'
-        bitcoind_port = raw_input(
-            "Enter bitcoind rpc port (default: 8332): ") or '8332'
-        bitcoind_user = raw_input("Enter bitcoind rpc user/username: ")
-        bitcoind_passwd = raw_input("Enter bitcoind rpc password: ")
-        use_https = raw_input("Is ssl enabled on bitcoind? (yes/no): ")
-
-        if not parser.has_section('bitcoind'):
-            parser.add_section('bitcoind')
-
-        parser.set('bitcoind', 'server', bitcoind_server)
-        parser.set('bitcoind', 'port', bitcoind_port)
-        parser.set('bitcoind', 'user', bitcoind_user)
-        parser.set('bitcoind', 'passwd', bitcoind_passwd)
-        parser.set('bitcoind', 'use_https', use_https)
-
-        fout = open(config_file, 'w')
-        parser.write(fout)
-
-        if use_https.lower() == "yes" or use_https.lower() == "y":
-            bitcoind_use_https = True
-        else:
-            bitcoind_use_https = False
-
-        return create_bitcoind_connection(bitcoind_user, bitcoind_passwd,
-                                          bitcoind_server, bitcoind_port,
-                                          bitcoind_use_https)
-
-    else:
-        parser.remove_section('bitcoind')
-        fout = open(config_file, 'w')
-        parser.write(fout)
-        return create_bitcoind_connection()
-
-try:
-    bitcoind = create_bitcoind_connection()
-except:
-    # NOTE: has the important side-effect of making create_bitcoind_connection() work in the future!
-    bitcoind = prompt_user_for_bitcoind_details()
+global bitcoind 
 
 from lib import preorder_name, register_name, update_name, \
     transfer_name
@@ -254,7 +88,7 @@ def json_traceback():
 
 
 def get_namedb():
-    working_dir = get_working_dir()
+    working_dir = blockdaemon.get_working_dir( config.BLOCKSTORED_WORKING_DIR )
     namespace_file = os.path.join(
         working_dir, config.BLOCKSTORED_NAMESPACE_FILE)
     snapshots_file = os.path.join(
@@ -398,81 +232,12 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
 
         return
 
-
-def refresh_index_block( bitcoind, block_number, workpool=None, initial_index=False ):
-   
-   if workpool is None:
-      
-      # synchronous 
-      if initial_index:
-         log.info('Processing block %s', block_number)
-      else:
-         twisted_log.msg('Processing block', block_number)
-
-      block_nameops = get_nameops_in_block(bitcoind, block_number)
-
-      if initial_index:
-         log.info('block_nameops %s', block_nameops)
-      else:
-         twisted_log.msg('block_nameops', block_nameops)
-
-   else:
-      
-      # asynchronous 
-      if initial_index:
-         log.info('Processing block %s', block_number)
-      else:
-         twisted_log.msg('Processing block', block_number)
-
-      
-
-
-def refresh_index( bitcoind, first_block, last_block, initial_index=False):
-    """
-    """
-   
-    from twisted.python import log as twisted_log
-
-    working_dir = get_working_dir()
-
-    namespace_file = os.path.join( working_dir, config.BLOCKSTORED_NAMESPACE_FILE)
-    snapshots_file = os.path.join( working_dir, config.BLOCKSTORED_SNAPSHOTS_FILE)
-    lastblock_file = os.path.join( working_dir, config.BLOCKSTORED_LASTBLOCK_FILE)
-
-    start = datetime.datetime.now()
-    
-    num_workers = config.MULTIPROCESS_NUM_WORKERS
-    nameop_sequence = []
-    
-    workpool = Pool( processes=num_workers )
-    
-    # get *all* the block nameops!
-    nameop_sequence = get_nameops_in_blocks( workpool, range(first_block, last_block+1) )
-    nameop_sequence.sort()
-    
-    time_taken = "%s seconds" % (datetime.datetime.now() - start).seconds
-    log.info(time_taken)
-
-    db = get_namedb()
-    merkle_snapshot = build_nameset(db, nameop_sequence)
-    db.save_names(namespace_file)
-    db.save_snapshots(snapshots_file)
-
-    merkle_snapshot = "merkle snapshot: %s\n" % merkle_snapshot
-    log.info(merkle_snapshot)
-    log.info(db.name_records)
-
-    fout = open(lastblock_file, 'w')  # to overwrite
-    fout.write(str(last_block))
-    fout.close()
-    
-
 # ------------------------------
 old_block = 0
 index_initialized = False
 
 
-def reindex_blockchain( bitcoind ):
+def reindex_blockchain( bitcoind=None ):
     """
     """
 
@@ -480,8 +245,11 @@ def reindex_blockchain( bitcoind ):
     global old_block
     global index_initialized
     global counter
+    
+    if bitcoind is None:
+       bitcoind = blockdaemon.create_bitcoind_connection()
 
-    start_block, current_block = get_index_range()
+    start_block, current_block = blockdaemon.get_index_range( bitcoind, config.BLOCKSTORED_WORKING_DIR )
 
     # initial indexing
     if not index_initialized:
@@ -491,67 +259,22 @@ def reindex_blockchain( bitcoind ):
     else:
 
         # don't run this part until index is initialized
-
         if old_block == current_block:
             log.msg('Blockchain: no new blocks after', current_block)
         else:
             check_blocks = current_block - old_block
-            message = 'Blockchain: checking last %s block(s)' % check_blocks
+            message = 'Blockchain: checking last %s block(s) (%s-%s)' % (check_blocks, old_block, current_block)
             log.msg(message)
 
             # call the reindex func here
-            refresh_index(bitcoind, old_block + 1, current_block)
+            blockdaemon.refresh_index(bitcoind, old_block + 1, current_block)
             old_block = current_block
-
-
-def get_index_range(start_block=0):
-    """
-    """
-
-    from lib.config import FIRST_BLOCK_MAINNET
-
-    if start_block == 0:
-        start_block = FIRST_BLOCK_MAINNET
-
-    try:
-        current_block = int(bitcoind.getblockcount())
-        
-    except Exception, e:
-        log.exception(e)
-        log.info("ERROR: Cannot connect to bitcoind")
-        user_input = raw_input("Do you want to re-enter bitcoind server configs? (yes/no): ")
-        if user_input.lower() == "yes" or user_input.lower() == "y":
-            prompt_user_for_bitcoind_details()
-            log.info("Exiting. Restart blockstored to try the new configs.")
-            exit(1)
-        else:
-            exit(1)
-
-    working_dir = get_working_dir()
-    lastblock_file = os.path.join(working_dir, config.BLOCKSTORED_LASTBLOCK_FILE)
-
-    saved_block = 0
-    if os.path.isfile(lastblock_file):
-
-        fin = open(lastblock_file, 'r')
-        saved_block = fin.read()
-        saved_block = int(saved_block)
-        fin.close()
-
-    if saved_block == 0:
-        pass
-    elif saved_block == current_block:
-        start_block = saved_block
-    elif saved_block < current_block:
-        start_block = saved_block + 1
-
-    return start_block, current_block
 
 
 def prompt_user_for_chaincom_details():
     """
     """
-    config_file = get_config_file()
+    config_file = blockdaemon.get_config_file( config.BLOCKSTORED_WORKING_DIR, config.BLOCKSTORED_CONFIG_FILE )
     parser = SafeConfigParser()
 
     parser.read(config_file)
@@ -581,31 +304,6 @@ def prompt_user_for_chaincom_details():
         config.CHAIN_COM_API_SECRET = api_key_secret
 
 
-def init_bitcoind():
-    """
-    """
-
-    config_file = get_config_file()
-    parser = SafeConfigParser()
-
-    parser.read(config_file)
-
-    if parser.has_section('bitcoind'):
-        try:
-            return create_bitcoind_connection()
-        except:
-            return prompt_user_for_bitcoind_details()
-        else:
-            pass
-    else:
-        user_input = raw_input("Do you have your own bitcoind server? (yes/no): ")
-        if user_input.lower() == "yes" or user_input.lower() == "y":
-            return prompt_user_for_bitcoind_details()
-        else:
-            log.info("Using default bitcoind server at %s", config.BITCOIND_SERVER)
-            return create_bitcoind_connection()
-
-
 def stop_server():
     """ Stop the blockstored server
     """
@@ -616,7 +314,7 @@ def stop_server():
 
     from .lib.config import BLOCKSTORED_PID_FILE
 
-    working_dir = get_working_dir()
+    working_dir = blockdaemon.get_working_dir( config.BLOCKSTORED_WORKING_DIR )
 
     pid_file = os.path.join(working_dir, BLOCKSTORED_PID_FILE)
 
@@ -639,13 +337,13 @@ def run_server( bitcoind, foreground=False):
 
     if bitcoind is None:
        prompt_user_for_chaincom_details()
-       bitcoind = init_bitcoind()
+       bitcoind = blockdaemon.init_bitcoind( config.BLOCKSTORED_WORKING_DIR, config.BLOCKSTORED_CONFIG_FILE )
 
     from .lib.config import BLOCKSTORED_PID_FILE, BLOCKSTORED_LOG_FILE
     from .lib.config import BLOCKSTORED_TAC_FILE
     from .lib.config import START_BLOCK
 
-    working_dir = get_working_dir()
+    working_dir = blockdaemon.get_working_dir( config.BLOCKSTORED_WORKING_DIR )
 
     current_dir = os.path.abspath(os.path.dirname(__file__))
 
@@ -653,7 +351,7 @@ def run_server( bitcoind, foreground=False):
     log_file = os.path.join(working_dir, BLOCKSTORED_LOG_FILE)
     pid_file = os.path.join(working_dir, BLOCKSTORED_PID_FILE)
 
-    start_block, current_block = get_index_range()
+    start_block, current_block = blockdaemon.get_index_range( bitcoind, config.BLOCKSTORED_WORKING_DIR )
 
     if foreground:
         command = 'twistd --pidfile=%s -noy %s' % (pid_file, tac_file)
@@ -665,7 +363,7 @@ def run_server( bitcoind, foreground=False):
     try:
         # refresh_index(335563, 335566, initial_index=True)
         if start_block != current_block:
-            refresh_index(bitcoind, start_block, current_block, initial_index=True)
+            blockdaemon.refresh_index(bitcoind, start_block, current_block, config.BLOCKSTORED_WORKING_DIR, initial_index=True)
         
         blockstored = subprocess.Popen( command, shell=True, preexec_fn=os.setsid)
         log.info('Blockstored successfully started')
@@ -696,28 +394,13 @@ def run_server( bitcoind, foreground=False):
 def run_blockstored():
     """ run blockstored
     """
-    global bitcoin_opts
+    global blockstored
+    global bitcoind
     
-    signal.signal(signal.SIGINT, signal_handler)
+    # signal.signal(signal.SIGINT, signal_handler)
     
-    parser = argparse.ArgumentParser(
-        description='Blockstore Core Daemon version {}'.format(config.VERSION))
-
-    parser.add_argument(
-        '--bitcoind-server',
-        help='the hostname or IP address of the bitcoind RPC server')
-    parser.add_argument(
-        '--bitcoind-port', type=int,
-        help='the bitcoind RPC port to connect to')
-    parser.add_argument(
-        '--bitcoind-user',
-        help='the username for bitcoind RPC server')
-    parser.add_argument(
-        '--bitcoind-passwd',
-        help='the password for bitcoind RPC server')
-    parser.add_argument(
-        "--bitcoind-use-https", action='store_true',
-        help='use HTTPS to connect to bitcoind')
+    bitcoin_opts, parser = blockdaemon.parse_bitcoind_args( return_parser=True )
+    
     subparsers = parser.add_subparsers(
         dest='action', help='the action to be taken')
     parser_server = subparsers.add_parser(
@@ -729,32 +412,30 @@ def run_blockstored():
     parser_server = subparsers.add_parser(
         'stop',
         help='stop the blockstored server')
-
+    
+    args, _ = parser.parse_known_args()
+    
+    """
     # Print default help message, if no argument is given
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
-
-    args = parser.parse_args()
-
-    # propagate options 
-    for (argname, config_name) in zip( ["bitcoind_server", "bitcoind_port", "bitcoind_user", "bitcoind_passwd"], \
-                                       ["BITCOIND_SERVER", "BITCOIND_PORT", "BITCOIND_USER", "BITCOIND_PASSWD"] ):
-        
-        if hasattr( args, argname ) and getattr( args, argname ) is not None:
-            
-            bitcoin_opts[ argname ] = getattr( args, argname )
-            setattr( config, config_name, getattr( args, argname ) )
+    """
     
-    if hasattr( args, "bitcoind_use_https" ):
-        if args.bitcoind_use_https:
-            
-            config.BITCOIND_USE_HTTPS = True 
-            bitcoin_opts[ "bitcoind_use_https" ] = True
-        
-    # set up multiprocessing 
-    workpool.multiprocess_bitcoind_factory( create_bitcoind_connection )
+    config.BITCOIND_USE_HTTPS = bitcoin_opts[ "bitcoind_use_https" ]
     
+    try:
+       
+       bitcoind = blockdaemon.create_bitcoind_connection(bitcoin_opts['bitcoind_user'],
+                                                         bitcoin_opts['bitcoind_passwd'],
+                                                         bitcoin_opts['bitcoind_server'],
+                                                         bitcoin_opts['bitcoind_port'],
+                                                         bitcoin_opts['bitcoind_use_https'] )
+    except Exception, e:
+       log.exception(e)
+       # NOTE: has the important side-effect of making create_bitcoind_connection() work in the future!
+       bitcoind = blockdaemon.prompt_user_for_bitcoind_details( config.BLOCKSTORED_WORKING_DIR, config.BLOCKSTORED_CONFIG_FILE )
+
     if args.action == 'start':
         stop_server()
         if args.foreground:
@@ -769,4 +450,5 @@ def run_blockstored():
         stop_server()
 
 if __name__ == '__main__':
-    run_blockstored()
+    
+   run_blockstored()
