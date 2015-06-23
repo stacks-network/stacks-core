@@ -29,7 +29,9 @@ log.setLevel(logging.DEBUG if DEBUG else logging.INFO)
 import pylibmc
 from time import time
 mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
-                    username=MEMCACHED_USERNAME, password=MEMCACHED_PASSWORD)
+                    username=MEMCACHED_USERNAME, password=MEMCACHED_PASSWORD,
+                    behaviors={"no_block": True, 
+                               "connect_timeout": 500})
 
 from pybitcoin.rpc import NamecoindClient
 namecoind = NamecoindClient(NAMECOIND_SERVER, NAMECOIND_PORT,
@@ -62,7 +64,7 @@ def username_is_valid(username):
 def refresh_user_count():
 
     active_users_list = namecoind.name_filter('u/')
-    
+
     if type(active_users_list) is list:
         mc.set("total_users", str(len(active_users_list)), int(time() + USERSTATS_TIMEOUT))
         mc.set("total_users_old", str(len(active_users_list)), 0)
@@ -111,9 +113,9 @@ def get_user_profile(username, refresh=False):
 
     if refresh:
         MEMCACHED_ENABLED = False
-  
+
     username = username.lower()
-    
+
     check_entry = profiles.find({"username": username}).limit(1)
 
     if check_entry.count() == 0:
@@ -138,7 +140,7 @@ def get_user_profile(username, refresh=False):
             info['profile'] = profile
             info['verifications'] = profile_to_proofs(profile, username)
 
-        if MEMCACHED_ENABLED:
+        if MEMCACHED_ENABLED or refresh:
             mc.set("profile_" + str(username), json.dumps(info),
                    int(time() + MEMCACHED_TIMEOUT))
     else:
@@ -221,13 +223,13 @@ def get_recent_namespace(blocks):
         list = []
 
         for user in users:
-        
+
             username = user['name'].lstrip('u/').lower()
 
             if username_is_valid(username):
                 list.append(username)
 
-        results['usernames'] = list 
+        results['usernames'] = list
 
     return jsonify(results)
 
