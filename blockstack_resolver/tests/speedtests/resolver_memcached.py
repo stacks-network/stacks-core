@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Multithreaded JSONRPCServer
+JSON-RPC Resolver w/ memcached
 
 """
 

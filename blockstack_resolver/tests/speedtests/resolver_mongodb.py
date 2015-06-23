@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Multithreaded JSONRPCServer example
+JSON-RPC Resolver w/ MongoDB
 
 """
 
