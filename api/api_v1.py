@@ -151,47 +151,6 @@ def search_people():
     return jsonify(data), 200
 
 
-@app.route('/v1/users', methods=['GET'])
-@crossdomain(origin='*')
-def user_stats():
-    BASE_URL = RESOLVER_URL + '/v1/users'
-
-    try:
-        resp = requests.get(BASE_URL, timeout=10, verify=False)
-    except (RequestsConnectionError, RequestsTimeout) as e:
-        raise ResolverConnectionError()
-
-    return jsonify(resp.json()), 200
-
-
-@app.route('/v1/namespace', methods=['GET'])
-@crossdomain(origin='*')
-def user_entire_namespace():
-    
-    BASE_URL = RESOLVER_URL + '/v1/namespace'
-
-    try:
-        resp = requests.get(BASE_URL, timeout=10, verify=False)
-    except (RequestsConnectionError, RequestsTimeout) as e:
-        raise ResolverConnectionError()
-
-    return jsonify(resp.json()), 200
-
-
-@app.route('/v1/namespace/recent', methods=['GET'])
-@crossdomain(origin='*')
-def get_recent_namespace():
-
-    BASE_URL = RESOLVER_URL + '/v1/namespace/recent/100'
-
-    try:
-        resp = requests.get(BASE_URL, timeout=10, verify=False)
-    except (RequestsConnectionError, RequestsTimeout) as e:
-        raise ResolverConnectionError()
-
-    return jsonify(resp.json()), 200
-
-
 @app.route('/v1/transactions', methods=['POST'])
 @auth_required()
 @parameters_required(['signed_hex'])
@@ -216,40 +175,76 @@ def broadcast_tx():
     return jsonify(resp), 200
 
 
-@app.route('/v1/unspents/<address>', methods=['GET'])
-@auth_required(
-    exception_paths=['/v1/unspents/NBSffD6N6sABDxNooLZxL26jwGetiFHN6H'])
+@app.route('/v1/addresses/<address>/unspents', methods=['GET'])
+@auth_required(exception_paths=[
+    '/v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4/unspents'])
 @crossdomain(origin='*')
-def get_unspents_info(address):
-    resp = {}
-
+def get_address_unspents(address):
     try:
         unspent_outputs = get_unspents(address)
     except Exception as e:
         traceback.print_exc()
         raise DatabaseLookupError()
 
-    resp = {'unspent_outputs': unspent_outputs}
+    resp = {'unspents': unspent_outputs}
 
     return jsonify(resp), 200
 
 
-@app.route('/v1/names_owned/<address>', methods=['GET'])
-@auth_required(
-    exception_paths=['/v1/names_owned/MyVZe4nwF45jeooXw2v1VtXyNCPczbL2EE'])
+@app.route('/v1/addresses/<address>/names', methods=['GET'])
+@auth_required(exception_paths=[
+    '/v1/addresses/MyVZe4nwF45jeooXw2v1VtXyNCPczbL2EE/names'])
 @crossdomain(origin='*')
-def get_names_owned(address):
-    resp = {}
-
-    names_owned = []
-
+def get_address_names(address):
     try:
-        for entry in address_to_keys.find({'address': address}):
-            names_owned.append(entry['key'])
+        address_names = address_to_keys.find_one({'address': address})
     except Exception as e:
         raise DatabaseLookupError()
 
+    names_owned = []
+    if address_names:
+        for address_name in address_names:
+            names_owned.append(address_name['key'])
 
-    resp = {'names_owned': names_owned}
+    resp = {'names': names_owned}
 
     return jsonify(resp), 200
+
+
+@app.route('/v1/users', methods=['GET'])
+@auth_required()
+@crossdomain(origin='*')
+def get_all_users():
+    resp_json = {}
+
+    # Specify the URL for the namespace call. If 'recent_blocks' is present,
+    # limit the call to only the names registered in that recent # of blocks. 
+    namespace_url = RESOLVER_URL + '/v1/namespace'
+    if 'recent_blocks' in request.values:
+        try:
+            recent_blocks_int = int(request.values['recent_blocks'])
+        except:
+            abort(400)
+        else:
+            if not (recent_blocks_int > 0 and recent_blocks_int <= 100):
+                recent_blocks_int = 100
+            namespace_url += '/recent/' + str(recent_blocks_int)
+    
+    # Add in the data for the namespace call.
+    try:
+        namespace_resp = requests.get(namespace_url, timeout=10, verify=False)
+        resp_json.update(namespace_resp.json())
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        raise ResolverConnectionError()
+
+    # Add in userbase stats, but only if the user is asking for the entire
+    # namespace.
+    stats_url = RESOLVER_URL + '/v1/users'
+    if not 'recent_blocks' in request.values:
+        try:
+            stats_resp = requests.get(stats_url, timeout=10, verify=False)
+            resp_json.update(stats_resp.json())
+        except (RequestsConnectionError, RequestsTimeout) as e:
+            raise ResolverConnectionError()
+
+    return jsonify(resp_json), 200

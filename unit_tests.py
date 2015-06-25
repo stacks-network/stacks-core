@@ -8,8 +8,8 @@ from utilitybelt import dev_urandom_entropy
 import api
 from requests.auth import _basic_auth_str as basic_auth
 
-APP_ID = '39abc40158e78c6ae96c2a350401c56f'
-APP_SECRET = 'd909fe1396accded7f7a3a449140ea5b6761605a1683d4df499fa583b406e541'
+APP_ID = 'ab67b365c7570f1916cafec5c536fdec'
+APP_SECRET = 'a4a0dbde0737e7dd44c5b1b90de42829c1d843b9bb97aa61f053005e545f73fd'
 BASE_URL = 'http://localhost:5000'
 API_VERSION = '1'
 
@@ -112,32 +112,28 @@ class LookupUsersTest(unittest.TestCase):
                    banned_keys=self.banned_keys(usernames))
 
 
-class UserbaseStatsTest(unittest.TestCase):
+class UserbaseTest(unittest.TestCase):
     def setUp(self):
         self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
-        self.required_keys = {'stats': ['registrations']}
 
     def tearDown(self):
         pass
 
-    def test_stats_lookup(self):
-        data = test_get_request(self, build_url('/users'))
-        check_data(self, data, required_keys=self.required_keys)
+    def test_userbase_lookup(self):
+        required_keys = {
+            'stats': ['registrations'],
+            'usernames': [],
+            'profiles': []
+        }
+        data = test_get_request(self, build_url('/users'),
+                                headers=self.headers, status_code=200)
+        check_data(self, data, required_keys=required_keys)
 
-
-class NamespaceTest(unittest.TestCase):
-    
-    def tearDown(self):
-        pass
-
-    def test_recent_namespace(self):
-        data = test_get_request(self, build_url('/namespace/recent'))
-        check_data(self, data, required_keys={'usernames': []})
-
-
-    def test_entire_namespace(self):
-        data = test_get_request(self, build_url('/namespace'))
-        check_data(self, data, required_keys={'profiles': []})
+    def test_recent_userbase_lookup(self):
+        required_keys = {'usernames': []}
+        data = test_get_request(self, build_url('/users?recent_blocks=100'),
+                                headers=self.headers, status_code=200)
+        check_data(self, data, required_keys=required_keys)
 
 
 class SearchUsersTest(unittest.TestCase):
@@ -158,14 +154,17 @@ class SearchUsersTest(unittest.TestCase):
 class LookupUnspentsTest(unittest.TestCase):
     def setUp(self):
         self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
-        self.required_keys = {'unspent_outputs': []}
+        self.required_keys = {'unspents': []}
 
     def tearDown(self):
         pass
 
+    def build_url(self, address):
+        return build_url('/addresses/' + address + '/unspents')
+
     def test_address_lookup(self):
         address = 'NBSffD6N6sABDxNooLZxL26jwGetiFHN6H'
-        data = test_get_request(self, build_url('/unspents/' + address),
+        data = test_get_request(self, self.build_url(address),
                                 headers=self.headers)
         check_data(self, data, required_keys=self.required_keys)
 
@@ -173,34 +172,19 @@ class LookupUnspentsTest(unittest.TestCase):
 class LookupNamesOwnedTest(unittest.TestCase):
     def setUp(self):
         self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
-        self.required_keys = {'names_owned': []}
+        self.required_keys = {'names': []}
 
     def tearDown(self):
         pass
+
+    def build_url(self, address):
+        return build_url('/addresses/' + address + '/names')
 
     def test_address_lookup(self):
         address = 'NBSffD6N6sABDxNooLZxL26jwGetiFHN6H'
-        data = test_get_request(self, build_url('/names_owned/' + address),
+        data = test_get_request(self, self.build_url(address),
                                 headers=self.headers)
         check_data(self, data, required_keys=self.required_keys)
-
-
-class BroadcastTransactionTest(unittest.TestCase):
-    def setUp(self):
-        self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
-        self.required_keys = {'error': ['message', 'type']}
-        self.banned_keys = {'transaction_hash': []}
-
-    def tearDown(self):
-        pass
-
-    def test_bogus_transaction_broadcast(self):
-        signed_hex = '00710000015e98119922f0b'
-        payload = {'signed_hex': signed_hex}
-        data = test_post_request(self, build_url('/transactions'), payload,
-                                 headers=self.headers, status_code=400)
-        check_data(self, data, required_keys=self.required_keys,
-                   banned_keys=self.banned_keys)
 
 
 class RegisterUserTest(unittest.TestCase):
@@ -225,16 +209,34 @@ class RegisterUserTest(unittest.TestCase):
         check_data(self, data, required_keys=self.required_keys)
 
 
+class BroadcastTransactionTest(unittest.TestCase):
+    def setUp(self):
+        self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
+        self.required_keys = {'error': ['message', 'type']}
+        self.banned_keys = {'transaction_hash': []}
+
+    def tearDown(self):
+        pass
+
+    def test_bogus_transaction_broadcast(self):
+        signed_hex = '00710000015e98119922f0b'
+        payload = {'signed_hex': signed_hex}
+        data = test_post_request(self, build_url('/transactions'), payload,
+                                 headers=self.headers, status_code=400)
+        check_data(self, data, required_keys=self.required_keys,
+                   banned_keys=self.banned_keys)
+
+
+
 def test_main():
     test_support.run_unittest(
         LookupUsersTest,
-        UserbaseStatsTest,
+        UserbaseTest,
         SearchUsersTest,
         LookupUnspentsTest,
         LookupNamesOwnedTest,
-        BroadcastTransactionTest,
-        NamespaceTest,
         RegisterUserTest,
+        BroadcastTransactionTest,
     )
 
 

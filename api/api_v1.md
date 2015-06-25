@@ -81,45 +81,7 @@ curl https://api.onename.com/v1/users/fredwilson \
 
 _end_
 
-## Register a user
-
-#### anchor_tag:
-register_user
-
-#### description:
-Takes in a passname to be registered along with the address that will own the passname. Optionally, takes in the passcard data that should be associated with the passname being registered. Returns a status object that shows if the request was successfully received. It takes on the order of hours to actually complete the registration.
-
-#### parameters[]:
-{"name": "passname", "description": "The passname (passcard username) that is to be registered."}
-{"name": "recipient_address", "description": "The namecoin address that the passcard will be transferred to once it has been registered."}
-{"name": "passcard", "description": "The data to be associated with the passcard.", "optional": true}
-
-#### response_description:
-Returns an object with a status that is either "success" or "error".
-
-#### method:
-POST
-
-#### path_template:
-/users
-
-#### example_request_bash:
-curl https://api.onename.com/v1/users \
-    -u 'YOUR-API-ID:YOUR-API-SECRET' \
-    -d '{"passname": "fredwilson",
-         "recipient_address": "N6zdUCKq1gJaps76gagBbC5Vc6xBxMdvHc",
-         "passcard": {"bio": "I am a VC"}}' \
-    -H 'Content-type: application/json' \
-    -X POST
-
-#### example_response:
-{
-    "status": "success"
-}
-
-_end_
-
-## Search for a user
+## Search for users
 
 #### anchor_tag:
 search_users
@@ -198,25 +160,60 @@ curl https://api.onename.com/v1/search?query=wenger \
 
 _end_
 
-## Get userbase stats
+## Register users
 
 #### anchor_tag:
-userbase_stats
+register_users
 
 #### description:
-Gets stats about the decentralized namespace, including the total number of users registered.
+Takes in a passname to be registered along with the address that will own the passname. Optionally, takes in the passcard data that should be associated with the passname being registered. Returns a status object that shows if the request was successfully received. It takes on the order of hours to actually complete the registration.
+
+#### parameters[]:
+{"name": "passname", "description": "The passname (passcard username) that is to be registered."}
+{"name": "recipient_address", "description": "The namecoin address that the passcard will be transferred to once it has been registered."}
+{"name": "passcard", "description": "The data to be associated with the passcard.", "optional": true}
 
 #### response_description:
-Returns an object with a "stats" sub-object that in turn contains a "registrations" field that reflects a running count of the total users registered.
+Returns an object with a status that is either "success" or "error".
+
+#### method:
+POST
+
+#### path_template:
+/users
+
+#### example_request_bash:
+curl https://api.onename.com/v1/users \
+    -u 'YOUR-API-ID:YOUR-API-SECRET' \
+    -d '{"passname": "fredwilson",
+         "recipient_address": "N6zdUCKq1gJaps76gagBbC5Vc6xBxMdvHc",
+         "passcard": {"bio": "I am a VC"}}' \
+    -H 'Content-type: application/json' \
+    -X POST
+
+#### example_response:
+{
+    "status": "success"
+}
+
+_end_
+
+## Get entire userbase
+
+#### anchor_tag:
+get_userbase
+
+#### description:
+Gets all data for the decentralized namespace, including the total number of users registered.
+
+#### response_description:
+Returns an object with "stats", "usernames" and "profiles". "stats" is a sub-object which in turn contains a "registrations" field that reflects a running count of the total users registered. "usernames" is a list of all usernames in the namespace. "profiles" is a sub-object with data for each profile.
 
 #### method:
 GET
 
 #### path_template:
 /users
-
-#### tryit_pathname:
-/v1/users?&app-id=demo-1234&app-secret=demo-1234
 
 #### example_request_bash:
 curl https://api.onename.com/v1/users \
@@ -227,11 +224,21 @@ curl https://api.onename.com/v1/users \
   "stats": {
     "registrations": "29235"
   }
+  "usernames": [
+    'fredwilson',
+    ...
+  ],
+  "profiles": {
+    "fredwilson": {
+       ...
+    },
+    ...
+  }
 }
 
 _end_
 
-## Broadcast a transaction
+## Broadcast transactions
 
 #### anchor_tag:
 broadcast_transaction
@@ -265,33 +272,32 @@ curl https://api.onename.com/v1/transactions \
 
 _end_
 
-## Lookup an address
+## Get unspent outputs
 
 #### anchor_tag:
-lookup_address
+unspent_outputs
 
 #### description:
-Retrieves details on a given address. Unspent outputs are returned, so they can be used for building transactions. In addition, a list of names owned by the address is returned.
+Retrieves the unspent outputs for a given address so they can be used for building transactions.
 
 #### response_description:
-Returns an array of unspent outputs and an array of the names that the address owns.
+Returns an array of unspent outputs for a provided address.
 
 #### method:
 GET
 
 #### path_template:
-/addresses/{address}
+/addresses/{address}/unspents
 
 #### tryit_pathname:
-/v1/addresses/NBSffD6N6sABDxNooLZxL26jwGetiFHN6H?&app-id=demo-1234&app-secret=demo-1234
+/v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4/unspents?app-id=demo-1234&app-secret=demo-1234
 
 #### example_request_bash:
-curl https://api.onename.com/v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4 \
+curl https://api.onename.com/v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4/unspents \
     -u 'YOUR-API-ID:YOUR-API-SECRET'
 
 #### example_response:
 {
-  "names_owned": [], 
   "unspent_outputs": [
     {
       "amount": 99.995, 
@@ -321,6 +327,39 @@ curl https://api.onename.com/v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4 \
       "txid": "3e3926dd5dc42a3f2d41139bf650d15becfe77bd2143071b09b9b22ca88ad55d", 
       "vout": "1"
     }
+  ]
+}
+
+_end_
+
+## Get names owned
+
+#### anchor_tag:
+names_owned
+
+#### description:
+Retrieves a list of names owned by the address provided.
+
+#### response_description:
+Returns an array of the names that the address owns.
+
+#### method:
+GET
+
+#### path_template:
+/addresses/{address}/names
+
+#### tryit_pathname:
+/v1/addresses/MyVZe4nwF45jeooXw2v1VtXyNCPczbL2EE/names?app-id=demo-1234&app-secret=demo-1234
+
+#### example_request_bash:
+curl https://api.onename.com/v1/addresses/MyVZe4nwF45jeooXw2v1VtXyNCPczbL2EE/names \
+    -u 'YOUR-API-ID:YOUR-API-SECRET'
+
+#### example_response:
+{
+  "names": [
+    "u/fredwilson"
   ]
 }
 
