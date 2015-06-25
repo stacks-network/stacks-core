@@ -223,9 +223,9 @@ curl https://api.onename.com/v1/users \
 {
   "stats": {
     "registrations": "29235"
-  }
+  },
   "usernames": [
-    'fredwilson',
+    "fredwilson",
     ...
   ],
   "profiles": {
