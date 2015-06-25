@@ -197,14 +197,14 @@ def get_address_unspents(address):
 @crossdomain(origin='*')
 def get_address_names(address):
     try:
-        address_names = address_to_keys.find_one({'address': address})
+        results = address_to_keys.find({'address': address})
     except Exception as e:
         raise DatabaseLookupError()
 
     names_owned = []
-    if address_names:
-        for address_name in address_names:
-            names_owned.append(address_name['key'])
+    for result in results:
+        if 'key' in result:
+            names_owned.append(result['key'].lstrip('u/'))
 
     resp = {'names': names_owned}
 

@@ -28,8 +28,6 @@ except:
     pass
 
 # Secret settings
-INDEX_DB_URI = None
-
 secrets_list = [
     'INDEX_DB_URI', 'SECRET_KEY', 'MONGODB_PASSWORD',
     'MAILGUN_API_KEY', 'MONGOLAB_URI'
