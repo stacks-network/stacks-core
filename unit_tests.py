@@ -3,28 +3,23 @@ import json
 import unittest
 import requests
 import argparse
+import binascii
 from test import test_support
 from binascii import hexlify
 from utilitybelt import dev_urandom_entropy
 import api
 from requests.auth import _basic_auth_str as basic_auth
 
-secrets_list = ['ONENAME_APP_ID', 'ONENAME_APP_SECRET']
-for env_variable in os.environ:
-    if env_variable in secrets_list:
-        env_value = os.environ[env_variable]
-        exec(env_variable + " = \"\"\"" + env_value + "\"\"\"")
-
-APP_ID = ONENAME_APP_ID
-APP_SECRET = ONENAME_APP_SECRET
 BASE_URL = 'http://localhost:5000'
 API_VERSION = '1'
 
 app = api.app.test_client()
 
-# if the above app_id is not in the local DB, uncomment these lines
-#from api.auth.registration import register_user 
-#register_user('test@domain.com', app_id=APP_ID, app_secret=APP_SECRET, email_user=False)
+from api.auth.registration import register_user
+new_id = binascii.b2a_hex(os.urandom(16))
+APP_ID, APP_SECRET = new_id, new_id
+register_user(new_id + '@domain.com', app_id=APP_ID, app_secret=APP_SECRET,
+              email_user=False)
 
 def random_username():
     return hexlify(dev_urandom_entropy(16))
