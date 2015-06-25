@@ -1,3 +1,4 @@
+import os
 import json
 import unittest
 import requests
@@ -8,8 +9,14 @@ from utilitybelt import dev_urandom_entropy
 import api
 from requests.auth import _basic_auth_str as basic_auth
 
-APP_ID = 'ab67b365c7570f1916cafec5c536fdec'
-APP_SECRET = 'a4a0dbde0737e7dd44c5b1b90de42829c1d843b9bb97aa61f053005e545f73fd'
+secrets_list = ['ONENAME_APP_ID', 'ONENAME_APP_SECRET']
+for env_variable in os.environ:
+    if env_variable in secrets_list:
+        env_value = os.environ[env_variable]
+        exec(env_variable + " = \"\"\"" + env_value + "\"\"\"")
+
+APP_ID = ONENAME_APP_ID
+APP_SECRET = ONENAME_APP_SECRET
 BASE_URL = 'http://localhost:5000'
 API_VERSION = '1'
 
