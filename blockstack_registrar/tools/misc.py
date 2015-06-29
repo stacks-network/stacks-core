@@ -7,6 +7,7 @@
 
 import os
 import json
+import requests
 
 from registrar.config import MONGODB_URI, OLD_DB, AWSDB_URI
 
@@ -34,7 +35,6 @@ from registrar.config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD
 from registrar.config import NAMECOIND_USE_HTTPS, NAMECOIND_SERVER
 from registrar.config import NAMECOIND_WALLET_PASSPHRASE
 from commontools import get_json, log
-import requests
 
 # -----------------------------------
 remote_client = MongoClient(MONGODB_URI)
@@ -146,20 +146,20 @@ def import_user(username):
     for transfer_user in transfer.find():
 
         user_id = transfer_user['user_id']
-        new_user = users.find_one({"_id":user_id})
+        new_user = users.find_one({"_id": user_id})
 
         if new_user is None:
             continue
 
         if new_user['username'] == username:
-            old_user = old_users.find_one({'username':new_user['username']})
+            old_user = old_users.find_one({'username': new_user['username']})
             print username
         else:
             continue
 
         old_nmc_address = old_user['namecoin_address']
 
-        wif_pk = bip38_decrypt(str(transfer_user['encrypted_private_key']),FRONTEND_SECRET)
+        wif_pk = bip38_decrypt(str(transfer_user['encrypted_private_key']), FRONTEND_SECRET)
 
         keypair = NamecoinKeypair.from_private_key(wif_pk)
 
@@ -174,7 +174,7 @@ def import_update(username):
     for update_user in updates.find():
 
         user_id = update_user['user_id']
-        new_user = users.find_one({"_id":user_id})
+        new_user = users.find_one({"_id": user_id})
 
         if new_user is None:
             continue
@@ -186,7 +186,7 @@ def import_update(username):
 
         nmc_address = new_user['namecoin_address']
 
-        wif_pk = bip38_decrypt(str(update_user['encrypted_private_key']),FRONTEND_SECRET)
+        wif_pk = bip38_decrypt(str(update_user['encrypted_private_key']), FRONTEND_SECRET)
 
         keypair = NamecoinKeypair.from_private_key(wif_pk)
 
@@ -206,7 +206,7 @@ def get_unlock_url(username):
 # -----------------------------------
 def pending_transactions():
 
-    reply = namecoind.listtransactions("",10000)
+    reply = namecoind.listtransactions("", 10000)
 
     counter = 0
 
@@ -257,7 +257,6 @@ def get_emails(expiring_users):
 
         if reply is not None and 'email' in reply:
             emails.append(reply['email'])
-        # print '-' * 5
 
     print len(emails)
 
@@ -401,195 +400,37 @@ def change_profile(username, profile):
     user['profile'] = profile
     users.save(user)
 
-# -----------------------------------
-if __name__ == '__main__':
 
-    username = 'justas'
+def run_analytics():
 
-    from registrar.config_local import problem_users
+    start_time = '2014-10-21T20:58:28'  # 202000 block
+    end_time = '2014-10-28T20:23:11'  # 203000 block
 
-    '''
-    for username in problem_users:
-        print 'processing:' + username
-        user = users.find_one({'username': username})
-        try:
-            process_manually(username)
-        except Exception as e:
-            print username
-            print e
+    from datetime import datetime
+    import time
 
-    exit(0)
-    '''
+    start_time = datetime.strptime(start_time, '%Y-%m-%dT%H:%M:%S')
+    start_time = time.mktime(start_time.timetuple())
 
-    #transfer_key('u/paulw', 'N7KBT3qnnBjbFvdPdu8Uj1nVFnXidKXHEK')
+    end_time = datetime.strptime(end_time, '%Y-%m-%dT%H:%M:%S')
+    end_time = time.mktime(end_time.timetuple())
 
-    #exit(0)
-
-    '''
     counter = 0
-    from config_local import problem_users, banned_users
+
     for user in users.find():
 
-        if user['username'] in problem_users or user['username'] in banned_users:
-            continue
+        register_time = user['created_at']
 
-        if not profile_on_blockchain(user['username']):
-            print user['username']
-            entry = {}
-            entry['username'] = user['username']
-            pending_users.save(entry)
-        counter += 1
+        register_time = time.mktime(register_time.timetuple())
 
-        if counter % 25 == 0:
-            print counter
+        if register_time > start_time and register_time < end_time:
+            print register_time
+            counter += 1
 
-    exit(0)
-    '''
 
-    #change_email('tstern@tulane.edu', 'tstern1@tulane.edu')
-    #change_username('gbd', 'gabridome')
-    #exit(0)
+def delete_account(username):
 
-    #email = 'ItsikItsik@yahoo.com'
-    
-    user = users.find_one({'username': username})
-    #process_manually(username)
-    
-    #print user
-    #user['profile'] = '{}'
-    #users.save(user)
-    # user['username'] = 'kyle'
-    # users.save(user)
-    #print_user(user)
-
-    #exit(0)
-
-    '''
-    from config_local import problem_users, banned_users
-
-    for user in pending_users.find():
-
-        if user['username'] in problem_users or user['username'] in banned_users:
-            #pending_users.remove(user)
-            continue
-
-        if profile_on_blockchain(user['username']):
-            print "Removing: " + user['username']
-            pending_users.remove(user)
-            continue
-
-        print user['username']
-
-        try:
-            process_manually(user['username'])
-        except:
-            pass
-
-    exit(0)
-    '''
-
+    change_profile(username, {})
     process_manually(username)
-    exit(0)
-    # username = "winklevoss1"
-    # alias = "winklevoss"
-    # process_manually_alias(username,alias)
-
-    # user = users.find_one({"username":username})
-
-    # profile = user['profile']
-
-    #process_manually_old(username)
-
-    # cleanup_user(username)
-    # print_user(user)
-    # import_user(username)
-    # cleanup_user(username)
-
-    '''
-    from blockdata.namecoind_cluster import get_server
-
-    for i in skip_users.find():
-
-        reply = get_server(i['key'])
-
-        if reply['server'] == None:
-            pass
-        else:
-            print i['key']
-            print skip_users.remove(i)
-    '''
-
-    from blockdata.renew_names import get_expiring_names, get_expired_names
-    expiring_users = get_expiring_names('u/', 1000)
-    get_emails(expiring_users)
-    expired_users = get_expired_names('u/')
-
-    counter_squatted = 0
-
-    MAX_PENDING_TX = 50
-
-    need_update = []
-
-    '''
-    for i in expiring_users:
-
-        try:
-            profile = json.loads(i['value'])
-            status = profile['status']
-            if status == 'reserved':
-
-                need_update.append(i)
-        except:
-            pass
-
-    send_update(need_update)
-
-    exit(0)
-    '''
-
-    for i in expiring_users:
-
-        # if i['name'] in ignore_names:
-        #   continue
-
-        reply = skip_users.find_one({"key": i['name']})
-
-        if reply is not None:
-            print "Skipping: " + reply['key']
-            continue
-
-        username = i['name'].lstrip('u/')
-
-        new_user = users.find_one({'username': username})
-
-        if new_user is not None:
-            try:
-                process_manually(username)
-
-            except Exception as e:
-                if e.message == "cannot concatenate 'str' and \
-                                NoneType' objects":
-                    entry = {}
-                    entry["key"] = i['name']
-                    skip_users.insert(entry)
-                else:
-                    print e
-            continue
-
-        old_user = old_users.find_one({'username': username})
-
-        if old_user is not None:
-            try:
-                process_manually_old(username)
-
-            except Exception as e:
-                if e.message == "cannot concatenate 'str' and \
-                                NoneType' objects":
-                    entry = {}
-                    entry["key"] = i['name']
-                    skip_users.insert(entry)
-                else:
-                    print e
-            continue
-
-        print "Not our user"
+    user = users.find_one({'username': username})
+    users.remove(user)
