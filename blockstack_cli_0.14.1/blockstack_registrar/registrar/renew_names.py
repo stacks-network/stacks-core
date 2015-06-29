@@ -135,7 +135,7 @@ def send_update(expiring_users):
             #print '-' * 5
 
             try:
-                update_name(key,value)
+                update_name(key, value)
             except Exception as e:
 
                 if hasattr(e, 'error'):
@@ -198,14 +198,19 @@ def re_register(current_server):
         profile = namecoind.name_show(i['name'])
         profile = profile['value']
         
-        if 'status' in profile and profile['status'] == 'reserved':
-            try:
-                process_user(username, profile, current_server)
-            except Exception as e:
-                print e
 
-            counter += 1
-            continue
+        try:
+            if 'status' in profile and profile['status'] == 'reserved':
+                try:
+                    process_user(username, profile, current_server)
+                except Exception as e:
+                    print e
+
+                counter += 1
+                continue
+        except:
+            print "error"
+            print profile
 
         print username + " not our user"
         print '-' * 5
