@@ -5,7 +5,7 @@
 # All Rights Reserved
 #-----------------------
 
-from coinrpc.namecoind_server import NamecoindServer 
+from pybitcoin.rpc.namecoind_client import NamecoindClient as NamecoindServer 
 
 from config import MAIN_SERVER, LOAD_SERVERS
 
@@ -27,10 +27,10 @@ remote_client = MongoClient(MONGODB_URI)
 remote_db = remote_client.get_default_database()
 users = remote_db.user
 
-from blockdata.namecoind_cluster import pending_transactions
+from pybitcoin.rpc.namecoind_cluster import pending_transactions
 MAX_PENDING_TX = 50
 
-from blockdata.register import slice_profile
+from .nameops import slice_profile
 
 #-----------------------------------
 #get the latest value for key:value being registered
