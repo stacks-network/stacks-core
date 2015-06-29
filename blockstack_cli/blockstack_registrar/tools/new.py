@@ -23,7 +23,7 @@ from registrar.config import MAIN_SERVER, LOAD_SERVERS
 # -----------------------------------
 if __name__ == '__main__':
 
-    key = 'u/gabridome'
+    key = 'i/2drewlee-1'
     log.debug(get_server(key, MAIN_SERVER, LOAD_SERVERS))
     #value = json.loads('{"next":"u/awright"}')
     #update_name(key,value)
