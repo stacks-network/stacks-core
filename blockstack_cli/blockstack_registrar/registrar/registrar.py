@@ -128,6 +128,9 @@ def register_users():
         if user is None:
             continue 
 
+        if not user['username_activated']:
+            continue 
+
         if check_banned(user['username']):
             continue
 
