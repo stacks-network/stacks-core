@@ -5,9 +5,7 @@
     ~~~~~
 """
 
-import json
 import datetime
-import binascii
 from db import db
 
 
