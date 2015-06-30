@@ -21,8 +21,9 @@ from .errors import InvalidProfileDataError, PassnameTakenError, \
     BroadcastTransactionError, DatabaseLookupError, InternalSSLError
 from .parameters import parameters_required
 from .auth import auth_required
-from .db import register_queue, utxo_index, address_to_utxo, address_to_keys
+from .db import utxo_index, address_to_utxo, address_to_keys
 from .settings import RESOLVER_URL, SEARCH_URL
+from .models import Passcard
 
 
 def format_utxo_data(utxo_id, utxo_data):
@@ -104,13 +105,7 @@ def register_user():
             'message': REGISTRATION_MESSAGE
         }
 
-    user = {
-        'passname': passname,
-        'passcard': passcard,
-        'transfer_address': data['recipient_address']
-    }
-
-    find_user = register_queue.find_one({'passname': passname})
+    find_user = Passcard.objects(passname=passname)
 
     if find_user is not None:
         """ Someone else already tried registering this name
@@ -119,8 +114,10 @@ def register_user():
         """
         pass
     else:
+        passcard = Passcard(passname=passname, payload=passcard,
+                            transfer_address=data['recipient_address'])
         try:
-            register_queue.save(user)
+            passcard.save()
         except Exception as e:
             raise DatabaseSaveError()
 
