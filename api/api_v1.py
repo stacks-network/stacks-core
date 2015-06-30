@@ -18,7 +18,8 @@ from flask_crossdomain import crossdomain
 from . import app
 from .errors import InvalidProfileDataError, PassnameTakenError, \
     InternalProcessingError, ResolverConnectionError, \
-    BroadcastTransactionError, DatabaseLookupError, InternalSSLError
+    BroadcastTransactionError, DatabaseLookupError, InternalSSLError, \
+    DatabaseSaveError
 from .parameters import parameters_required
 from .auth import auth_required
 from .db import utxo_index, address_to_utxo, address_to_keys
@@ -87,14 +88,8 @@ def register_user():
 
     passname = data['passname']
 
-    try:
-        was_registered = namecoind.check_registration('u/' + passname)
-    except ssl.SSLError:
-        raise InternalSSLError()
-    except Exception as e:
-        raise InternalProcessingError()
-
-    if was_registered:
+    passcard_lookup = api_user(passname)
+    if 'error' in passcard_lookup.data and passcard_lookup.status_code == 404:
         raise PassnameTakenError()
 
     if 'passcard' in data:
@@ -105,16 +100,16 @@ def register_user():
             'message': REGISTRATION_MESSAGE
         }
 
-    find_user = Passcard.objects(passname=passname)
+    matching_passcards = Passcard.objects(passname=passname)
 
-    if find_user is not None:
+    if len(matching_passcards):
         """ Someone else already tried registering this name
             but the passname is not yet registered on the blockchain.
             Don't tell the client that someone else's request is processing.
         """
         pass
     else:
-        passcard = Passcard(passname=passname, payload=passcard,
+        passcard = Passcard(passname=passname, payload=json.dumps(passcard),
                             transfer_address=data['recipient_address'])
         try:
             passcard.save()
