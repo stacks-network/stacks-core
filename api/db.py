@@ -17,9 +17,6 @@ db = MongoEngine(app)
 from pymongo import MongoClient
 from .settings import MONGODB_URI, INDEX_DB_URI, RESOLVER_URL, SEARCH_URL
 
-aws_db = MongoClient(MONGODB_URI)['onename-api']
-register_queue = aws_db.queue
-
 namecoin_index = MongoClient(INDEX_DB_URI)['namecoin_index']
 utxo_index = namecoin_index.utxo
 address_to_utxo = namecoin_index.address_to_utxo
