@@ -1,20 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-#-----------------------
-# Copyright 2014 Halfmoon Labs, Inc.
+# -----------------------
+# Copyright 2015 Halfmoon Labs, Inc.
 # All Rights Reserved
-#-----------------------
+# -----------------------
 
-import json
-from coinrpc import namecoind
-from .register import process_user
-from pymongo import MongoClient
-from config import MONGODB_URI
-
-users = MongoClient(MONGODB_URI).get_default_database().user
+from .nameops import get_namecoind
 
 
-# -----------------------------------
 def test_private_key(passphrase, nmc_address):
 
     from coinkit.keypair import NamecoinKeypair
@@ -33,28 +26,18 @@ def test_private_key(passphrase, nmc_address):
         return False
 
 
-# -----------------------------------
-def do_name_transfer(username, live=False):
+def name_transfer(passname, transfer_address, live=False):
 
-    try:
-        entry = users.find({'username': username})
-        for i in entry:
-            user = i
-            break
-        nmc_address = user['namecoin_address']
-    except Exception as e:
-        print e
-        print "No such user in DB"
-        return
+    key = 'u/' + passname
+    namecoind = get_namecoind(key)
 
     # -----------------------------
     def name_transfer_inner(key):
 
-        print key, nmc_address
         if(live):
-            print namecoind.transfer(key, nmc_address)
-
-    key = 'u/' + username
+            print namecoind.name_transfer(key, transfer_address)
+        else:
+            print "Will transfer %s, to %s" % (key, transfer_address)
 
     name_transfer_inner(key)
 
@@ -65,18 +48,19 @@ def do_name_transfer(username, live=False):
 
         try:
             next_blob = value['next']
-        except:
+        except Exception as e:
             break
 
         if next_blob is not None:
             key = next_blob
             name_transfer_inner(key)
 
-# -----------------------------------
+
 if __name__ == '__main__':
 
     live = False
 
     username = "clone66"
+    address = 'NCinvalid'
 
-    do_name_transfer(username, live)
+    name_transfer(username, address, live)
