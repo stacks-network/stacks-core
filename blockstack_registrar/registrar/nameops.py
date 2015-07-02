@@ -35,7 +35,6 @@ from time import time
 mc = pylibmc.Client([DEFAULT_HOST + ':' + MEMCACHED_PORT], binary=True)
 
 
-# -----------------------------------
 def register_name(key, value, server=NAMECOIND_SERVER, username=None):
 
     reply = {}
@@ -83,7 +82,25 @@ def register_name(key, value, server=NAMECOIND_SERVER, username=None):
     return reply
 
 
-# -----------------------------------
+def get_namecoind(key):
+
+    server = NAMECOIND_SERVER
+
+    serverinfo = get_server(key, MAIN_SERVER, LOAD_SERVERS)
+
+    if 'registered' in serverinfo and serverinfo['registered']:
+        server = serverinfo['server']
+
+    log.debug(server)
+    log.debug(key)
+
+    namecoind = NamecoindClient(server, NAMECOIND_PORT, NAMECOIND_USER,
+                                NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS,
+                                NAMECOIND_WALLET_PASSPHRASE)
+
+    return namecoind
+
+
 def update_name(key, value):
 
     reply = {}
@@ -92,19 +109,7 @@ def update_name(key, value):
 
     if cache_reply is None:
 
-        server = NAMECOIND_SERVER
-
-        serverinfo = get_server(key, MAIN_SERVER, LOAD_SERVERS)
-
-        if 'registered' in serverinfo and serverinfo['registered']:
-            server = serverinfo['server']
-
-        log.debug(server)
-        log.debug(value)
-
-        namecoind = NamecoindClient(server, NAMECOIND_PORT, NAMECOIND_USER,
-                                    NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS,
-                                    NAMECOIND_WALLET_PASSPHRASE)
+        namecoind = get_namecoind(key)
 
         info = namecoind.name_update(key, json.dumps(value))
 
@@ -121,17 +126,14 @@ def update_name(key, value):
     log.debug('-' * 5)
 
 
-# -----------------------------------
 def _max_size(username):
     return VALUE_MAX_LIMIT - len('next: i-' + username + '000000')
 
 
-# -----------------------------------
 def _get_key(key_counter, username):
     return 'i/' + username.lower() + '-' + str(key_counter)
 
 
-# -----------------------------------
 def _splitter(remaining, username):
 
     split = {}
@@ -165,9 +167,9 @@ def _splitter(remaining, username):
         return split, remaining
 
 
-# -----------------------------------
-# if a next key is already registered, returns next one
 def slice_profile(username, profile):
+    '''if a next key is already registered, returns next one
+    '''
 
     keys = []
     values = []
@@ -205,9 +207,9 @@ def slice_profile(username, profile):
     return keys, values
 
 
-# -----------------------------------
-# returns keys without checking if they're already registered
 def slice_profile_update(username, profile):
+    '''returns keys without checking if they're already registered
+    '''
 
     keys = []
     values = []
@@ -236,7 +238,6 @@ def slice_profile_update(username, profile):
     return keys, values
 
 
-# -----------------------------------
 def process_user(username, profile, server=NAMECOIND_SERVER):
 
     master_key = 'u/' + username
@@ -266,7 +267,6 @@ def process_user(username, profile, server=NAMECOIND_SERVER):
     process_additional_keys(keys, values, server, username)
 
 
-# -----------------------------------
 def process_additional_keys(keys, values, server, username):
 
     # register/update remaining keys
