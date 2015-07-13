@@ -1,1 +1,0 @@
-tools/sync_cache currently writes the log to this directory as *.txt. Make sure this directory exists when running ons-server.
