@@ -27,16 +27,12 @@ def fetch_profile_namecoind(username):
     #profile = namecoind.name_show('u/' + username)
     profile = namecoind.get_full_profile('u/' + username)
 
-    print profile
-
     return profile
 
 
 def fetch_profile_db(username):
 
     profile = profiles.find_one({"username": username})['profile']
-
-    print profile
 
     return profile
 
@@ -46,9 +42,7 @@ def fetch_profile_mem(username):
     profile = mc.get("profile_" + str(username))
 
     if profile is None:
-        print username
-    else:
-        print profile
+        return username
 
     return profile
 
