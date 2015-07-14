@@ -1,8 +1,8 @@
 # Blockstore: A Key-Value Store on Bitcoin
 
-[![Latest Version](https://pypip.in/version/blockstore/badge.svg)](https://pypi.python.org/pypi/blockstore/)
-[![Downloads](https://pypip.in/download/blockstore/badge.svg)](https://pypi.python.org/pypi/blockstore/)
-[![License](https://pypip.in/license/blockstore/badge.svg)](https://pypi.python.org/pypi/blockstore>/)
+[![PyPI](https://img.shields.io/pypi/v/blockstore.svg)](https://pypi.python.org/pypi/blockstore/)
+[![PyPI](https://img.shields.io/pypi/dm/blockstore.svg)](https://pypi.python.org/pypi/blockstore/)
+[![PyPI](https://img.shields.io/pypi/l/blockstore.svg)](https://github.com/blockstack/blockstore/blob/master/LICENSE)
 
 Blockstore is a generic key-value store on Bitcoin. You can use it register globally unique names, associate data with those names, and transfer them between Bitcoin addresses.
 
@@ -12,13 +12,21 @@ Blockstore uses the Bitcoin blockchain for storing name operations and data hash
 
 ## Installation
 
+The fastest way to get started with blockstore is to use a docker image:
+
+```
+docker run -it --entrypoint=/bin/bash blockstack/blockstored
+```
+
+The docker image comes pre-populated with a snapshot that was processed till a recent block and you won't have to process all the blocks yourself (takes time). Alternatively, you can install a version on your machine directly:
+
 ```
 pip install blockstore
 ```
 
 ## Getting Started
 
-First, start blockstored and index the blockchain:
+Start blockstored and index the blockchain:
 
 ```
 $ blockstored start
@@ -35,17 +43,17 @@ $ blockstore-cli lookup swiftonsecurity
 
 Next, learn how to register names of your own, as well as transfer them and associate data with them:
 
-[Full usage docs](/wiki/Usage)
+[Full usage docs](../../wiki/Usage)
 
 ## Design
 
-[Design decisions](/wiki/Design-Decisions)
+[Design decisions](../../wiki/Design-Decisions)
 
-[Protocol details](/wiki/Protocol-Details)
+[Protocol details](../../wiki/Protocol-Details)
 
-[Definitions](/wiki/Definitions)
+[Definitions](../../wiki/Definitions)
 
-[FAQ](/wiki/FAQ)
+[FAQ](../../wiki/FAQ)
 
 ## Contributions
 
@@ -56,12 +64,12 @@ The best way to contribute is to:
 1. make your changes
 1. submit a pull request
 
-[Code contributors](/graphs/contributors)
+[Code contributors](../../graphs/contributors)
 
-[Full contributor list](/wiki/Contributors)
+[Full contributor list](../../wiki/Contributors)
 
 ## License
 
-[Released under the MIT License](/LICENSE)
+[Released under the MIT License](LICENSE)
 
 Copyright 2015, openname.org
