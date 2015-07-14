@@ -12,13 +12,21 @@ Blockstore uses the Bitcoin blockchain for storing name operations and data hash
 
 ## Installation
 
+The fastest way to get started with blockstore is to use a docker image:
+
+```
+docker run -it --entrypoint=/bin/bash blockstack/blockstored
+```
+
+The docker image comes pre-populated with a snapshot that was processed till a recent block and you won't have to process all the blocks yourself (takes time). Alternatively, you can install a version on your machine directly:
+
 ```
 pip install blockstore
 ```
 
 ## Getting Started
 
-First, start blockstored and index the blockchain:
+Start blockstored and index the blockchain:
 
 ```
 $ blockstored start
