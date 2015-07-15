@@ -1,7 +1,7 @@
 Twisted==15.0.0
 coinkit==0.7.7
 ecdsa==0.11
-kademlia==0.4
+kademlia==0.5
 pybitcointools==1.1.15
 python-bitcoinrpc==0.1
 requests==2.5.1

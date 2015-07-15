@@ -17,7 +17,7 @@ setup(
     include_package_data=True,
     install_requires=[
         'coinkit>=0.7.7',
-        'kademlia>=0.2',
+        'kademlia>=0.5',
         'python-bitcoinrpc>=0.1',
         'txjson-rpc>=0.3',
         'utilitybelt>=0.2.2'
