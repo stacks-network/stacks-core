@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/blockstack/resolver.svg?branch=master)](https://travis-ci.org/namesystem/resolver)
+
 resolver
 =======
 
