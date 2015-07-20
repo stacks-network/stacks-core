@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-    Username Resolver
+    Resolver
     ~~~~~
 
-    :copyright: (c) 2015 by Openname.org
+    :copyright: (c) 2015 by Blockstack.org
     :license: MIT, see LICENSE for more details.
 """
 
@@ -19,7 +19,7 @@ MEMCACHED_SERVER = '127.0.0.1'
 
 MEMCACHED_TIMEOUT = 12 * 60 * 60
 USERSTATS_TIMEOUT = 60 * 60
-MEMCACHED_ENABLED = True
+MEMCACHED_ENABLED = False
 
 RECENT_BLOCKS = 100 
 VALID_BLOCKS = 36000

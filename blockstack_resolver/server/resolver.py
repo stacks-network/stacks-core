@@ -1,17 +1,27 @@
 # -*- coding: utf-8 -*-
 """
-    BNS Resolver
+    Resolver
     ~~~~~
 
-    :copyright: (c) 2015 by Openname.org
+    :copyright: (c) 2015 by Blockstack.org
     :license: MIT, see LICENSE for more details.
 """
 
-from flask import Flask, make_response, jsonify, abort, request
 import json
 import re
+import pylibmc
+import logging
 
-app = Flask(__name__)
+from flask import Flask, make_response, jsonify, abort, request
+from threading import Thread
+from pymongo import MongoClient
+from time import time
+
+from commontools import log, get_json, error_reply
+from pybitcoin.rpc import NamecoindClient
+
+from .proofcheck import profile_to_proofs
+from .crossdomain import crossdomain
 
 from .config import DEBUG
 from .config import DEFAULT_HOST, MEMCACHED_SERVERS, MEMCACHED_USERNAME
@@ -21,29 +31,18 @@ from .config import NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USE_HTTPS
 from .config import NAMECOIND_USER, NAMECOIND_PASSWD
 from .config import VALID_BLOCKS, RECENT_BLOCKS
 
-from commontools import log, get_json, error_reply
-import logging
-
 log.setLevel(logging.DEBUG if DEBUG else logging.INFO)
 
-import pylibmc
-from time import time
+app = Flask(__name__)
+
 mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
                     username=MEMCACHED_USERNAME, password=MEMCACHED_PASSWORD,
-                    behaviors={"no_block": True, 
+                    behaviors={"no_block": True,
                                "connect_timeout": 500})
 
-from pybitcoin.rpc import NamecoindClient
 namecoind = NamecoindClient(NAMECOIND_SERVER, NAMECOIND_PORT,
                             NAMECOIND_USER, NAMECOIND_PASSWD,
                             NAMECOIND_USE_HTTPS)
-
-from .proofcheck import profile_to_proofs
-from .crossdomain import crossdomain
-
-from threading import Thread
-
-from pymongo import MongoClient
 
 db = MongoClient()['resolver_index']
 
@@ -237,7 +236,7 @@ def get_recent_namespace(blocks):
 @app.route('/')
 def index():
     reply = '<hmtl><body>Welcome to this resolver, see \
-            <a href="http://github.com/openname/resolver"> \
+            <a href="http://github.com/blockstack/resolver"> \
             this Github repo</a> for details.</body></html>'
 
     return reply

@@ -1,28 +1,27 @@
 # -*- coding: utf-8 -*-
 """
-    Username Resolver
+    Resolver
     ~~~~~
 
-    :copyright: (c) 2015 by Openname.org
+    :copyright: (c) 2015 by Blockstack.org
     :license: MIT, see LICENSE for more details.
 """
 
 import requests
 import json
 import hashlib
-from .htmlparsing import get_search_text, get_github_text
-
-from .sites import SITES
-from ..config import MEMCACHED_PORT, MEMCACHED_TIMEOUT, DEFAULT_HOST, MEMCACHED_ENABLED
-
 import pylibmc
 from time import time
-mc = pylibmc.Client([DEFAULT_HOST + ':' + str(MEMCACHED_PORT)], binary=True)
 
 from commontools import log
 
+from .htmlparsing import get_search_text, get_github_text
+from .sites import SITES
+from ..config import MEMCACHED_PORT, MEMCACHED_TIMEOUT, DEFAULT_HOST, MEMCACHED_ENABLED
 
-# -----------------------------------------
+mc = pylibmc.Client([DEFAULT_HOST + ':' + str(MEMCACHED_PORT)], binary=True)
+
+
 def contains_valid_proof_statement(search_text, username):
     search_text = search_text.lower()
 
@@ -47,8 +46,9 @@ def contains_valid_proof_statement(search_text, username):
     return False
 
 
-# -----------------------------------------
 def is_valid_proof(site, site_username, username, proof_url):
+    print proof_url
+    print site
     site_username = site_username.lower()
     proof_url = proof_url.lower()
     username = username.lower()
@@ -59,7 +59,13 @@ def is_valid_proof(site, site_username, username, proof_url):
     check_url = SITES[site]['base_url'] + site_username
 
     if not proof_url.startswith(check_url):
-        return False
+
+        if site == 'facebook':
+            check_url = SITES['facebook-www']['base_url'] + site_username
+            if not proof_url.startswith(check_url):
+                return False
+        else:
+            return False
 
     try:
         r = requests.get(proof_url)
@@ -82,7 +88,6 @@ def is_valid_proof(site, site_username, username, proof_url):
     return contains_valid_proof_statement(search_text, username)
 
 
-# -----------------------------------------
 def site_data_to_proof_url(site_data, identifier):
     proof_url = None
 
@@ -108,7 +113,6 @@ def site_data_to_proof_url(site_data, identifier):
     return proof_url
 
 
-# -----------------------------------------
 def site_data_to_identifier(site_data):
     identifier = None
     if "username" in site_data:
@@ -120,7 +124,6 @@ def site_data_to_identifier(site_data):
     return identifier
 
 
-# -----------------------------------------
 def profile_to_proofs(profile, username, refresh=False):
 
     global MEMCACHED_ENABLED

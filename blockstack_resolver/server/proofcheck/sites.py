@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-    Username Resolver
+    Resolver
     ~~~~~
 
-    :copyright: (c) 2015 by Openname.org
+    :copyright: (c) 2015 by Blockstack.org
     :license: MIT, see LICENSE for more details.
 """
 
@@ -16,6 +16,12 @@ SITES = {
     },
     'facebook': {
         'base_url': 'https://facebook.com/',
+        'html_query': {
+            'class': 'userContentWrapper _5pcr _3ccb'
+        }
+    },
+    'facebook-www': {
+        'base_url': 'https://www.facebook.com/',
         'html_query': {
             'class': 'userContentWrapper _5pcr _3ccb'
         }
