@@ -19,12 +19,13 @@ from . import app
 from .errors import InvalidProfileDataError, PassnameTakenError, \
     InternalProcessingError, ResolverConnectionError, \
     BroadcastTransactionError, DatabaseLookupError, InternalSSLError, \
-    DatabaseSaveError
+    DatabaseSaveError, DKIMPubkeyError
 from .parameters import parameters_required
 from .auth import auth_required
 from .db import utxo_index, address_to_utxo, address_to_keys
 from .settings import RESOLVER_URL, SEARCH_URL
 from .models import Passcard
+from .dkim import dns_resolver, parse_pubkey_from_data, DKIM_RECORD_PREFIX
 
 
 def format_utxo_data(utxo_id, utxo_data):
@@ -221,7 +222,7 @@ def get_all_users():
             if not (recent_blocks_int > 0 and recent_blocks_int <= 100):
                 recent_blocks_int = 100
             namespace_url += '/recent/' + str(recent_blocks_int)
-    
+
     # Add in the data for the namespace call.
     try:
         namespace_resp = requests.get(namespace_url, timeout=10, verify=False)
@@ -240,3 +241,21 @@ def get_all_users():
             raise ResolverConnectionError()
 
     return jsonify(resp_json), 200
+
+
+@app.route('/v1/domains/<domain>', methods=['GET'])
+@auth_required(exception_paths=[
+    '/v1/domains/onename.com'])
+@crossdomain(origin='*')
+def get_dkim_pubkey(domain):
+
+    domain = DKIM_RECORD_PREFIX + domain
+    data = dns_resolver(domain)
+    public_key = parse_pubkey_from_data(data)
+
+    if public_key is None:
+        raise DKIMPubkeyError()
+
+    resp = {'public_key': public_key}
+
+    return jsonify(resp), 200

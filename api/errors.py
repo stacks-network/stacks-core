@@ -106,6 +106,11 @@ class ResolverConnectionError(APIError):
                "this error to support@onename.com.")
 
 
+class DKIMPubkeyError(APIError):
+    status_code = 404
+    message = ("Public key record for domain not found")
+
+
 class BroadcastTransactionError(APIError):
     status_code = 400
     message = ("There was a problem broadcasting the transaction to the "

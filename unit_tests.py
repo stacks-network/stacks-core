@@ -21,6 +21,7 @@ APP_ID, APP_SECRET = new_id, new_id
 register_user(new_id + '@domain.com', app_id=APP_ID, app_secret=APP_SECRET,
               email_user=False)
 
+
 def random_username():
     return hexlify(dev_urandom_entropy(16))
 
@@ -229,6 +230,23 @@ class BroadcastTransactionTest(unittest.TestCase):
                    banned_keys=self.banned_keys)
 
 
+class DKIMPubkeyTest(unittest.TestCase):
+    def setUp(self):
+        self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
+        self.required_keys = {'public_key': []}
+
+    def tearDown(self):
+        pass
+
+    def build_url(self, domain):
+        return build_url('/domains/' + domain)
+
+    def test_address_lookup(self):
+        domain = 'onename.com'
+        data = test_get_request(self, self.build_url(domain),
+                                headers=self.headers)
+        check_data(self, data, required_keys=self.required_keys)
+
 
 def test_main():
     test_support.run_unittest(
@@ -239,6 +257,7 @@ def test_main():
         LookupNamesOwnedTest,
         RegisterUserTest,
         BroadcastTransactionTest,
+        DKIMPubkeyTest,
     )
 
 

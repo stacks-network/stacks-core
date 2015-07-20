@@ -364,3 +364,34 @@ curl https://api.onename.com/v1/addresses/MyVZe4nwF45jeooXw2v1VtXyNCPczbL2EE/nam
 }
 
 _end_
+
+## Get DKIM public key
+
+#### anchor_tag:
+dkim_pubkey
+
+#### description:
+Retrieves a DKIM public key for given domain.
+
+#### response_description:
+Returns a DKIM public key.
+
+#### method:
+GET
+
+#### path_template:
+/domains/{domain}
+
+#### tryit_pathname:
+/v1/domains/onename.com?app-id=demo-1234&app-secret=demo-1234
+
+#### example_request_bash:
+curl https://api.onename.com/v1/domains/onename.com \
+    -u 'YOUR-API-ID:YOUR-API-SECRET'
+
+#### example_response:
+{
+  "public_key": "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCkyK8qxCwSvo829+QZ5p5YJCL5+DGDgcGgXLyIWA3G5nK/KNEtxQkmTIC5HNcWgVTE8a7DkWNuRq3nLDbvjCY+D2NgSiTN6DLpsOjzoojLdiZYC6l2lUC6rUyPKs+cK68cZsfkFHIRpzZPKWujUTd1l62qbZ1LiVMzlNX3F/16DwIDAQAB"
+}
+
+_end_
