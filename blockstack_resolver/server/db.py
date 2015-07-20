@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-    BNS Resolver
+    Resolver
     ~~~~~
 
-    :copyright: (c) 2015 by Openname.org
+    :copyright: (c) 2015 by Blockstack.org
     :license: MIT, see LICENSE for more details.
 """
 

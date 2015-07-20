@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-    BNS Resolver
+    Resolver
     ~~~~~
 
-    :copyright: (c) 2015 by Openname.org
+    :copyright: (c) 2015 by Blockstack.org
     :license: MIT, see LICENSE for more details.
 """
 
@@ -48,12 +48,12 @@ def save_namespace(blocks, namespace):
         new_entry = {}
         new_entry['blocks'] = blocks
         new_entry['namespace'] = namespace
-    
+
         namespaces.insert(new_entry)
     else:
-        check_entry['namespace'] = namespace 
+        check_entry['namespace'] = namespace
         namespaces.save(check_entry)
-        
+
 
 def refresh_namespace(blocks, refresh_profiles=False):
 
@@ -61,7 +61,7 @@ def refresh_namespace(blocks, refresh_profiles=False):
 
     info = namecoind.name_filter("u/", blocks)
 
-    counter = 0 
+    counter = 0
 
     for entry in info:
 
@@ -71,7 +71,7 @@ def refresh_namespace(blocks, refresh_profiles=False):
             continue
 
         if 'expired' in entry and entry['expired'] == 1:
-            continue 
+            continue
 
         profile = get_json(entry['value'])
 
@@ -82,7 +82,7 @@ def refresh_namespace(blocks, refresh_profiles=False):
 
         if not refresh_profiles:
             continue
-        
+
         if 'next' in profile:
 
             profile = namecoind.get_full_profile('u/' + username)
@@ -93,14 +93,13 @@ def refresh_namespace(blocks, refresh_profiles=False):
 
         if counter % 100 == 0:
             print counter
-        
-    save_namespace(blocks, namespace)
 
+    save_namespace(blocks, namespace)
 
 
 def remove_expired_names():
 
-    #to get expired usernames, use 0 for blocks
+    # to get expired usernames, use 0 for blocks
     info = namecoind.name_filter("u/", 0)
 
     for entry in info:
@@ -109,15 +108,14 @@ def remove_expired_names():
 
         if not username_is_valid(username):
             continue
-        
+
         if 'expired' in entry and entry['expired'] == 1:
 
             check_entry = profiles.find({"username": username}).limit(1)
 
             if check_entry.count() != 0:
-                #print "removing: %s" % username 
-                profiles.remove({"username": username}) 
-
+                # print "removing: %s" % username
+                profiles.remove({"username": username})
 
 
 def refresh_cache(blocks):
@@ -141,7 +139,7 @@ def refresh_cache(blocks):
         results[username] = entry
 
     namespace['profiles'] = results
-    namespaces.save(namespace)  
+    namespaces.save(namespace)
 
 
 def refresh_index():
@@ -174,7 +172,7 @@ def refresh_memory_cache():
         if counter % 100 == 0:
             print counter
 
-# -----------------------------------
+
 def sync_with_blockchain():
 
     new_block = namecoind.blocks()
