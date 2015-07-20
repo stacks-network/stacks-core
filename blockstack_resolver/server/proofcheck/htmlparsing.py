@@ -8,36 +8,35 @@
 """
 
 from bs4 import BeautifulSoup
-
-GITHUB_GIST_TAG = 'gist-description'
-GITHUB_TEXT_TAG = 'blob-wrapper data type-text js-blob-data'
-GITHUB_MARDOWN_TAG = 'blob-wrapper data type-markdown js-blob-data'
-
 from .sites import SITES
+
+GITHUB_CONTENT_TAG = 'blob instapaper_body'
+GITHUB_DESCRIPTION_TAG = 'repository-description'
+GITHUB_FILE_TAG = 'blob-wrapper data type-text'
 
 
 # ---------------------------
 def get_github_text(raw_html):
     html = BeautifulSoup(raw_html)
 
-    gist_description = html.body.find('div', attrs={'class': GITHUB_GIST_TAG})
+    gist_description = html.body.find('div', attrs={'class': GITHUB_CONTENT_TAG})
 
     if gist_description is not None:
         gist_description = gist_description.text
     else:
-        gist_description = ''
+        gist_description = html.body.find('div', attrs={'class': GITHUB_DESCRIPTION_TAG})
 
-    file_text = html.body.find('div', attrs={'class': GITHUB_TEXT_TAG})
+        if gist_description is not None:
+            gist_description = gist_description.text
+        else:
+            gist_description = ''
+
+    file_text = html.body.find('div', attrs={'class': GITHUB_FILE_TAG})
 
     if file_text is not None:
         file_text = file_text.text
     else:
-        file_text = html.body.find('div', attrs={'class': GITHUB_MARDOWN_TAG})
-
-        if file_text is not None:
-            file_text = file_text.text
-        else:
-            file_text = ''
+        file_text = ''
 
     search_text = gist_description + ' ' + file_text
 
