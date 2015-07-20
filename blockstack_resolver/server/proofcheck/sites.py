@@ -20,6 +20,12 @@ SITES = {
             'class': 'userContentWrapper _5pcr _3ccb'
         }
     },
+    'facebook-www': {
+        'base_url': 'https://www.facebook.com/',
+        'html_query': {
+            'class': 'userContentWrapper _5pcr _3ccb'
+        }
+    },
     'github': {
         'base_url': 'https://gist.github.com/',
         'html_query': {
