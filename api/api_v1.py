@@ -211,7 +211,7 @@ def get_all_users():
     resp_json = {}
 
     # Specify the URL for the namespace call. If 'recent_blocks' is present,
-    # limit the call to only the names registered in that recent # of blocks. 
+    # limit the call to only the names registered in that recent # of blocks.
     namespace_url = RESOLVER_URL + '/v1/namespace'
     if 'recent_blocks' in request.values:
         try:
@@ -230,15 +230,21 @@ def get_all_users():
     except (RequestsConnectionError, RequestsTimeout) as e:
         raise ResolverConnectionError()
 
-    # Add in userbase stats, but only if the user is asking for the entire
-    # namespace.
+    return jsonify(resp_json), 200
+
+
+@app.route('/v1/users/stats', methods=['GET'])
+@auth_required()
+@crossdomain(origin='*')
+def get_user_stats():
+    resp_json = {}
+
     stats_url = RESOLVER_URL + '/v1/users'
-    if not 'recent_blocks' in request.values:
-        try:
-            stats_resp = requests.get(stats_url, timeout=10, verify=False)
-            resp_json.update(stats_resp.json())
-        except (RequestsConnectionError, RequestsTimeout) as e:
-            raise ResolverConnectionError()
+    try:
+        stats_resp = requests.get(stats_url, timeout=10, verify=False)
+        resp_json.update(stats_resp.json())
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        raise ResolverConnectionError()
 
     return jsonify(resp_json), 200
 

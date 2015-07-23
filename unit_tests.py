@@ -124,7 +124,6 @@ class UserbaseTest(unittest.TestCase):
 
     def test_userbase_lookup(self):
         required_keys = {
-            'stats': ['registrations'],
             'usernames': [],
             'profiles': []
         }
@@ -135,6 +134,22 @@ class UserbaseTest(unittest.TestCase):
     def test_recent_userbase_lookup(self):
         required_keys = {'usernames': []}
         data = test_get_request(self, build_url('/users?recent_blocks=100'),
+                                headers=self.headers, status_code=200)
+        check_data(self, data, required_keys=required_keys)
+
+
+class UserbaseStatsTest(unittest.TestCase):
+    def setUp(self):
+        self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
+
+    def tearDown(self):
+        pass
+
+    def test_stats_lookup(self):
+        required_keys = {
+            'stats': ['registrations']
+        }
+        data = test_get_request(self, build_url('/users/stats'),
                                 headers=self.headers, status_code=200)
         check_data(self, data, required_keys=required_keys)
 
@@ -252,6 +267,7 @@ def test_main():
     test_support.run_unittest(
         LookupUsersTest,
         UserbaseTest,
+        UserbaseStatsTest,
         SearchUsersTest,
         LookupUnspentsTest,
         LookupNamesOwnedTest,
