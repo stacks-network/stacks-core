@@ -19,7 +19,7 @@ from . import app
 from .errors import InvalidProfileDataError, PassnameTakenError, \
     InternalProcessingError, ResolverConnectionError, \
     BroadcastTransactionError, DatabaseLookupError, InternalSSLError, \
-    DatabaseSaveError, DKIMPubkeyError
+    DatabaseSaveError, DKIMPubkeyError, PassnameNotRegisteredError
 from .parameters import parameters_required
 from .auth import auth_required
 from .db import utxo_index, address_to_utxo, address_to_keys
@@ -66,8 +66,27 @@ def api_user(passnames):
 
     data = resp.json()
 
-    for passname in passnames.split(','):
+    passnames = passnames.split(',')
+
+    if len(passnames) is 1:
+        passname = passnames[0]
+        if 'error' in data:
+            error = PassnameNotRegisteredError('')
+            data[passname] = {
+                'error': error.to_dict()
+            }
+            return jsonify(data), 404
+
+    for passname in passnames:
         if passname not in data:
+            error = PassnameNotRegisteredError('')
+            data[passname] = {
+                'error': error.to_dict()
+            }
+
+        try:
+            json.loads(json.dumps(data[passname]))
+        except:
             error = InvalidProfileDataError('')
             data[passname] = {
                 'error': error.to_dict()
@@ -90,16 +109,18 @@ def register_user():
     passname = data['passname']
 
     passcard_lookup = api_user(passname)
-    if 'error' in passcard_lookup.data and passcard_lookup.status_code == 404:
-        raise PassnameTakenError()
 
-    if 'passcard' in data:
-        passcard = data['passcard']
+    if 'error' in passcard_lookup.data and passcard_lookup.status_code == 404:
+
+        if 'passcard' in data:
+            passcard = data['passcard']
+        else:
+            passcard = {
+                'status': 'registered',
+                'message': REGISTRATION_MESSAGE
+            }
     else:
-        passcard = {
-            'status': 'registered',
-            'message': REGISTRATION_MESSAGE
-        }
+        raise PassnameTakenError()
 
     matching_passcards = Passcard.objects(passname=passname)
 

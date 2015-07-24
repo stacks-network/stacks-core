@@ -75,6 +75,11 @@ class PassnameTakenError(APIError):
     message = ("There already exists a passcard with the passname provided.")
 
 
+class PassnameNotRegisteredError(APIError):
+    status_code = 404
+    message = ("This username is not registered.")
+
+
 class DatabaseSaveError(APIError):
     status_code = 500
     message = ("There was a problem saving to the database. Please report "
