@@ -172,11 +172,70 @@ def run_cli():
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-        'storedata',
-        help='<data> | data value to store in DHT')
+        'namespace_define',
+        help='<namespace_id> <lifetime> <base_name_cost> <cost_decay_rate> <privatekey> | define a namespace, in preparation for importing names.')
+    subparser.add_argument( 
+        'namespace_id', type=str, 
+        help='the human-readable namespace identifier')
+    subparser.add_argument(
+        'lifetime', type=int,
+        help='the number of blocks for which a name will be valid (any value less than zero means "forever")')
+    subparser.add_argument(
+        'base_name_cost', type=int,
+        help='the cost (in satoshis) for a 1-character name in this namespace')
+    subparser.add_argument(
+        'cost_decay_rate', type=float,
+        help='the rate at which the value of a name decays, based on its length: if L is the length, R is the rate, and B is the base name cost, then the cost per name shall be ceil(B / (R^(L-1)))')
+    subparser.add_argument(
+        'privatekey', type=str,
+        help='the privatekey of the owner Bitcoin address')
+    
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'namespace_begin',
+        help='<namespace_id> <privatekey> | begin the namespace, completing its definition and opening it for registration.')
+    subparser.add_argument(
+        'namespace_id', type=str,
+        help='the human-readable namespace identifier')
+    subparser.add_argument(
+        'privatekey', type=str,
+        help='the privatekey of the owner Bitcoin address')
+    
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'putdata',
+        help='<data> | store unsigned data into the DHT')
     subparser.add_argument(
         'data', type=str,
         help='the data to store in DHT')
+    
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'signdata',
+        help='<name> <data> <privatekey> | data value to sign in the blockchain')
+    subparser.add_argument(
+        'name', type=str,
+        help='the name that owns this data')
+    subparser.add_argument(
+        'data', type=str,
+        help='the data to sign')
+    subparser.add_argument(
+        'privatekey', type=str,
+        help='the private key associated with the name')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'putsigned',
+        help='<name> <data> <privatekey> | data value to sign in the blockchain')
+    subparser.add_argument(
+        'name', type=str,
+        help='the name that owns this data')
+    subparser.add_argument(
+        'data', type=str,
+        help='the data to sign')
+    subparser.add_argument(
+        'privatekey', type=str,
+        help='the private key associated with the name')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -186,6 +245,30 @@ def run_cli():
         'hash', type=str,
         help='the hash of the data, used as lookup key for DHT')
 
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'verifydata',
+        help='<name> <hash> | verify that a datum was signed by a user')
+    subparser.add_argument(
+       'name', type=str,
+       help='the name of the user that signed the data')
+    subparser.add_argument(
+       'hash', type=str,
+       help='the hash of the data')
+    
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'getverified',
+        help='<name> <hash> | get the data from DHT for given hash, and verify that it was signed by a user')
+    subparser.add_argument(
+       'name', type=str,
+       help='the name of the user that signed the data')
+    subparser.add_argument(
+        'hash', type=str,
+        help='the hash of the data, used as lookup key for DHT')
+
+
+    # ------------------------------------
     subparser = subparsers.add_parser(
         'lookup',
         help='<name> | get the record for a given name')
@@ -217,32 +300,70 @@ def run_cli():
 
     elif args.action == 'update':
         logger.debug('Updating %s', args.name)
-        client = proxy.callRemote('update', args.name, args.data,
-                                  args.privatekey)
+        client = proxy.callRemote('update', args.name, args.data, args.privatekey)
 
     elif args.action == 'transfer':
         logger.debug('Transfering %s', args.name)
-        client = proxy.callRemote('transfer', args.name, args.address,
-                                  args.privatekey)
+        client = proxy.callRemote('transfer', args.name, args.address, args.privatekey)
 
     elif args.action == 'renew':
         logger.debug('Renewing %s', args.name)
         client = proxy.callRemote('renew', args.name, args.privatekey)
 
-    elif args.action == 'storedata':
-        reply = {}
+    elif args.action == 'namespace_define':
+        logger.debug('Defining namespace %s' % args.namespace_id)
+        client = proxy.callRemote('namespace_define', args.namespace_id, args.lifetime, args.base_name_cost, args.cost_decay_rate, args.privatekey )
+        
+    elif args.action == 'namespace_begin':
+        logger.debug('Starting namespace %s' % args.namespace_id)
+        client = proxy.callRemote('namespace_begin', args.namespace_id, args.privatekey )
+        
+    elif args.action == 'putdata':
         value = args.data
 
         key = coinkit.hex_hash160(value)
         logger.debug('Storing %s', value)
 
-        client = proxy.callRemote('set', key, value)
+        client = proxy.callRemote('put', key, value)
 
+    elif args.action == 'signdata':
+        name = args.name
+        value = args.data 
+        
+        key = coinit.hex_hash160(value)
+        logger.debug("Signing hash '%s' by '%s'", key, name)
+        
+        client = proxy.callRemote('signdata', name, key, value, args.privatekey)
+        
+        
+    elif args.action == 'putsigned':
+        name = args.name
+        value = args.data 
+        
+        key = coinkit.hex_hash160(value)
+        logger.debug("Storing and signing hash '%s' by '%s'", key, name)
+        
+        client = proxy.callRemote('putsigned', name, key, value, args.privatekey )
+        
+    elif args.action == 'verifydata':
+        name = args.name 
+        key = args.hash
+        
+        logger.debug("Verifying that hash '%s' was signed by '%s'", key, name )
+        
+        client = proxy.callRemote('verifydata', name, key )
+    
     elif args.action == 'getdata':
         logger.debug('Getting %s', args.hash)
 
         client = proxy.callRemote('get', args.hash)
         client.addCallback(getFormat)
+
+    elif args.action == 'getverified':
+        logger.debug("Getting %s and verifying that '%s' put it", args.hash, args.name )
+        
+        client = proxy.callRemote('getverified', args.name, args.hash )
+        
 
     elif args.action == 'lookup':
         logger.debug('Looking up %s', args.name)

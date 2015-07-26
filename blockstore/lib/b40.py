@@ -14,13 +14,13 @@ def is_b40(s):
 
 def b40_to_bin(s):
     if not is_b40(s):
-        raise ValueError('s must only contain characters in the b40 char set')
+        raise ValueError('%s must only contain characters in the b40 char set' % s)
     return unhexlify(charset_to_hex(s, B40_CHARS))
 
 
 def bin_to_b40(s):
     if not isinstance(s, str):
-        raise ValueError('s must be a string')
+        raise ValueError('%s must be a string' % s)
     return hex_to_charset(hexlify(s), B40_CHARS)
 
 

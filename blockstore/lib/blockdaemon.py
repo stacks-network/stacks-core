@@ -26,13 +26,11 @@ import ssl
 import threading
 import time
 import socket
-from multiprocessing import Pool
 
 import config
 import cache 
 from utilitybelt import is_valid_int
-
-from . import get_nameops_in_block, get_nameops_in_blocks, build_nameset, NameDb
+from ConfigParser import SafeConfigParser
 
 create_ssl_authproxy = False 
 do_wrap_socket = False
@@ -56,14 +54,7 @@ log.addHandler(console)
 
 from bitcoinrpc.authproxy import AuthServiceProxy
 
-bitcoin_opts = {
-   "bitcoind_user": config.BITCOIND_USER,
-   "bitcoind_passwd": config.BITCOIND_PASSWD,
-   "bitcoind_server": config.BITCOIND_SERVER,
-   "bitcoind_port": config.BITCOIND_PORT,
-   "bitcoind_use_https": config.BITCOIND_USE_HTTPS
-}
-
+bitcoin_opts = {}
 
 class BitcoindConnection( httplib.HTTPSConnection ):
    """
@@ -90,11 +81,20 @@ def create_bitcoind_connection(
         rpc_password=None,
         server=None,
         port=None,
-        use_https=None ):
+        use_https=None,
+        config_file=None ):
     """ creates an auth service proxy object, to connect to bitcoind
     """
     
     global bitcoin_opts, do_wrap_socket, create_ssl_authproxy
+    
+    if len(bitcoin_opts) == 0:
+       
+       if config_file is None:
+         config_file = get_config_file( config.BLOCKSTORED_WORKING_DIR, config.BLOCKSTORED_CONFIG_FILE )
+      
+       log.debug("Loading default bitcoind options from %s" % config_file)
+       bitcoin_opts = config.default_bitcoind_opts( config_file )
     
     if rpc_username is None:
         rpc_username = bitcoin_opts.get( "bitcoind_user" )
@@ -158,9 +158,6 @@ def get_config_file( working_dir, config_file ):
     return os.path.join(working_dir, config_file )
 
 
-from ConfigParser import SafeConfigParser
-
-
 def prompt_user_for_bitcoind_details( working_dir, config_file ):
     """
     """
@@ -206,61 +203,20 @@ def prompt_user_for_bitcoind_details( working_dir, config_file ):
         fout = open(config_file, 'w')
         parser.write(fout)
         return create_bitcoind_connection()
-
-
-def refresh_index( bitcoind, first_block, last_block, working_dir, initial_index=False):
-    """
-    """
-
-    import workpool
-    
-    working_dir = get_working_dir( working_dir )
-
-    namespace_file = os.path.join( working_dir, config.BLOCKSTORED_NAMESPACE_FILE)
-    snapshots_file = os.path.join( working_dir, config.BLOCKSTORED_SNAPSHOTS_FILE)
-    lastblock_file = os.path.join( working_dir, config.BLOCKSTORED_LASTBLOCK_FILE)
-
-    start = datetime.datetime.now()
-    
-    num_workers = config.MULTIPROCESS_NUM_WORKERS
-    nameop_sequence = []
-    
-    # feed workers bitcoind this way
-    workpool.multiprocess_bitcoind_factory( create_bitcoind_connection )
-    
-    workpool = Pool( processes=num_workers )
-    
-    # get *all* the block nameops!
-    nameop_sequence = get_nameops_in_blocks( workpool, range(first_block, last_block+1) )
-    workpool.close()
-    workpool.join()
-    nameop_sequence.sort()
-    
-    time_taken = "%s seconds" % (datetime.datetime.now() - start).seconds
-    log.info(time_taken)
-
-    db = get_namedb()
-    merkle_snapshot = build_nameset(db, nameop_sequence)
-    db.save_names(namespace_file)
-    db.save_snapshots(snapshots_file)
-
-    merkle_snapshot = "merkle snapshot: %s\n" % merkle_snapshot
-    log.info(merkle_snapshot)
-    log.info(db.name_records)
-
-    fout = open(lastblock_file, 'w')  # to overwrite
-    fout.write(str(last_block))
-    fout.close()
     
 
 def get_index_range( bitcoind, working_dir, start_block=0):
     """
     """
 
-    from config import FIRST_BLOCK_MAINNET
+    from config import FIRST_BLOCK_MAINNET, FIRST_BLOCK_TESTNET, TESTNET
 
     if start_block == 0:
-        start_block = FIRST_BLOCK_MAINNET
+       
+       if TESTNET:
+          start_block = FIRST_BLOCK_TESTNET 
+       else:
+          start_block = FIRST_BLOCK_MAINNET
 
     try:
         current_block = int(bitcoind.getblockcount())
@@ -327,24 +283,16 @@ def init_bitcoind( working_dir, config_file ):
             return create_bitcoind_connection()
 
 
-def parse_bitcoind_args( return_parser=False ):
+def parse_bitcoind_args( return_parser=False, parser=None ):
     """
     Get bitcoind command-line arguments.
     Optionally return the parser as well.
     """
     
-    global bitcoin_opts
+    opts = {}
     
-    bitcoin_opts = {
-      "bitcoind_user": config.BITCOIND_USER,
-      "bitcoind_passwd": config.BITCOIND_PASSWD,
-      "bitcoind_server": config.BITCOIND_SERVER,
-      "bitcoind_port": config.BITCOIND_PORT,
-      "bitcoind_use_https": config.BITCOIND_USE_HTTPS
-    }
-
-    parser = argparse.ArgumentParser(
-        description='Blockstore Core Daemon version {}'.format(config.VERSION))
+    if parser is None:
+       parser = argparse.ArgumentParser( description='Blockstore Core Daemon version {}'.format(config.VERSION))
 
     parser.add_argument(
         '--bitcoind-server',
@@ -363,24 +311,26 @@ def parse_bitcoind_args( return_parser=False ):
         help='use HTTPS to connect to bitcoind')
     
     args, _ = parser.parse_known_args()
-
+    
     # propagate options 
-    for (argname, config_name) in zip( ["bitcoind_server", "bitcoind_port", "bitcoind_user", "bitcoind_passwd"], \
-                                       ["BITCOIND_SERVER", "BITCOIND_PORT", "BITCOIND_USER", "BITCOIND_PASSWD"] ):
+    for (argname, config_name) in zip( ["bitcoind_server", "bitcoind_port", "bitcoind_user", "bitcoind_passwd", "bitcoind_use_https"], \
+                                       ["BITCOIND_SERVER", "BITCOIND_PORT", "BITCOIND_USER", "BITCOIND_PASSWD", "BITCOIND_USE_HTTPS"] ):
         
         if hasattr( args, argname ) and getattr( args, argname ) is not None:
             
-            bitcoin_opts[ argname ] = getattr( args, argname )
+            opts[ argname ] = getattr( args, argname )
             setattr( config, config_name, getattr( args, argname ) )
-    
-    if hasattr( args, "bitcoind_use_https" ):
-        if args.bitcoind_use_https:
-            
-            config.BITCOIND_USE_HTTPS = True 
-            bitcoin_opts[ "bitcoind_use_https" ] = True
        
     if return_parser:
-       return bitcoin_opts, parser 
+       return opts, parser 
     else:
-       return bitcoin_opts
+       return opts
     
+    
+def setup( _bitcoin_opts ):
+   """
+   Set up the daemon--give it information it will need to carry out the above methods.
+   """
+   global bitcoin_opts
+   bitcoin_opts = _bitcoin_opts
+   

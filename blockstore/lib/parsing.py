@@ -4,7 +4,7 @@ from utilitybelt import is_hex, hex_to_charset, charset_to_hex
 from .config import *
 from .b40 import bin_to_b40
 from .operations import parse_preorder, parse_registration, parse_update, \
-    parse_transfer
+    parse_transfer, parse_putdata, parse_rmdata, parse_namespacedefine, parse_namespacebegin
 
 
 def get_recipient_from_nameop_outputs(outputs):
@@ -19,11 +19,26 @@ def get_recipient_from_nameop_outputs(outputs):
     return None
 
 
-def parse_nameop_data(data):
+def parse_blockstore_op_data(data):
+    """
+    Parse a string of binary data (nulldata from a blockchain transaction) into a blockstore operation.
+    
+    data format (once unhex'ed):
+    
+    0           2     3                                   40
+    |-----------|-----|-----------------------------------|
+    magic bytes op    payload
+    
+    For registered names, bytes 0-3 are 'i', 'd', ':', since 
+    name registrations occur as id://name.ns_id verbatum.
+    
+    For all other operations, "magic bytes" and "op" are our own 
+    special values.
+    """
+    
     if not is_hex(data):
         raise ValueError('Data must be hex')
-    # if not len(data) <= OP_RETURN_MAX_SIZE*2:
-    #    raise ValueError('Payload too large')
+    
     if not len(data) % 2 == 0:
         # raise ValueError('Data must have an even number of bytes')
         return None
@@ -33,42 +48,84 @@ def parse_nameop_data(data):
     except:
         raise Exception('Invalid data supplied: %s' % data)
 
-    magic_bytes, opcode, payload = bin_data[0:2], bin_data[2:3], bin_data[3:]
+    # not a registered name, but a full-on operation?
+    if bin_data[0:3] != NAME_SCHEME[0:3]:
+       
+       magic_bytes, opcode, payload = bin_data[0:2], bin_data[2:3], bin_data[3:]
 
-    if not magic_bytes == MAGIC_BYTES:
-        # Magic bytes don't match - not an openname operation.
-        return None
+       if not magic_bytes == MAGIC_BYTES:
+         # Magic bytes don't match - not an openname operation.
+         return None
 
-    if opcode == NAME_PREORDER and len(payload) >= MIN_OP_LENGTHS['preorder']:
-        nameop = parse_preorder(payload)
-    elif (opcode == NAME_REGISTRATION
-            and len(payload) >= MIN_OP_LENGTHS['registration']):
-        nameop = parse_registration(payload)
-    elif opcode == NAME_UPDATE and len(payload) >= MIN_OP_LENGTHS['update']:
-        nameop = parse_update(payload)
-    elif (opcode == NAME_TRANSFER
-          and len(payload) >= MIN_OP_LENGTHS['transfer']):
-        nameop = parse_transfer(payload)
     else:
-        nameop = None
+        # this is a name registration
+        opcode = NAME_REGISTRATION
 
-    return nameop
+    op = None 
+    
+    if opcode == NAME_PREORDER and len(payload) >= MIN_OP_LENGTHS['preorder']:
+        op = parse_preorder(payload)
+        
+    elif (opcode == NAME_REGISTRATION and len(payload) >= MIN_OP_LENGTHS['registration']):
+        op = parse_registration(payload)
+        
+    elif opcode == NAME_UPDATE and len(payload) >= MIN_OP_LENGTHS['update']:
+        op = parse_update(payload)
+        
+    elif (opcode == NAME_TRANSFER and len(payload) >= MIN_OP_LENGTHS['transfer']):
+        op = parse_transfer(payload)
+      
+    elif opcode == NAMESPACE_DEFINE and len(payload) >= MIN_OP_LENGTHS['namespace_define']:
+        op = parse_namespacedefine( payload )
+         
+    elif opcode == NAMESPACE_BEGIN and len(payload) >= MIN_OP_LENGTHS['namespace_begin']:
+        op = parse_namespacebegin( payload )
+        
+    elif opcode == DATA_PUT and len(payload) >= MIN_OP_LENGTHS['data_put']:
+        op = parse_putdata( payload )
+   
+    elif opcode == DATA_REMOVE and len(payload) >= MIN_OP_LENGTHS['data_remove']:
+        op = parse_rmdata( payload )
+    
+    return op
 
 
-def analyze_nameop_outputs(nameop, outputs):
+def analyze_op_outputs(nameop, outputs):
+    """
+    Perform opcode-specific analysis on blockstore operations,
+    e.g. inserting new data into the operation as a post-processing step.
+    
+    Name transfers: fill in 'recipient' with the hex string of the script_pubkey of the recipient principal.
+    """
+    
     if eval(nameop['opcode']) == NAME_TRANSFER:
         recipient = get_recipient_from_nameop_outputs(outputs)
         nameop.update({'recipient': recipient})
+        
     return nameop
 
 
-def parse_nameop(data, outputs, senders=None, fee=None):
-    nameop = parse_nameop_data(data)
-    if nameop:
-        nameop = analyze_nameop_outputs(nameop, outputs)
+def parse_blockstore_op(data, outputs, senders=None, fee=None):
+    """
+    Parse a blockstore operation from a transaction's nulldata (data) and a list of outputs, as well as 
+    optionally the list of transaction's senders and the total fee paid.
+    
+    Return a parsed operation, and will also optionally have:
+    * "sender": the first (primary) sender's script_pubkey, if there are any senders
+    * "fee": the total fee paid for this record.
+    """
+    
+    op = parse_blockstore_op_data(data)
+    if op:
+        
+        op = analyze_op_outputs(op, outputs)
+        
         if senders and len(senders) > 0 and 'script_pubkey' in senders[0]:
             primary_sender = str(senders[0]['script_pubkey'])
-            nameop['sender'] = primary_sender
+            op['sender'] = primary_sender
+            
         if fee:
-            nameop['fee'] = fee
-    return nameop
+            op['fee'] = fee
+            
+    return op
+

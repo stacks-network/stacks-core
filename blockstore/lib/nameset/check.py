@@ -1,4 +1,4 @@
-from ..hashing import hash_name
+from ..hashing import hash_name, hash256_trunc128
 from ..config import BLOCKS_CONSENSUS_HASH_IS_VALID
 
 
@@ -10,6 +10,46 @@ def name_registered(db, name):
 
 def name_not_registered(db, name):
     return (not name_registered(db, name))
+
+
+def namespace_registered( db, namespace ):
+   """
+   Has a namespace been declared?
+   """
+   if namespace in db.namespaces.keys():
+      return True 
+   else:
+      return False
+   
+def namespace_importing( db, namespace ):
+   """
+   Is a namespace in the process of being defined?
+   """
+   try:
+      namespace_id_hash = hash_name(namespace_id, sender_script_pubkey)
+   except ValueError:
+      return False
+   
+   if namespace_id_hash in db.imports.keys():
+      return True 
+   else:
+      return False
+
+
+def has_defined_namespace( db, namespace_id, sender_script_pubkey ):
+   """
+   Has the given user (identified by the sender_script_pubkey) defined this namespace?
+   """
+   try:
+      namespace_id_hash = hash_name(namespace_id, sender_script_pubkey)
+   except ValueError:
+      return False
+   
+   if namespace_id_hash in db.imports.keys():
+      if sender_script_pubkey == db.imports[namespace_id_hash]['sender']:
+         return True 
+   
+   return False
 
 
 def no_pending_higher_priority_registration(db, name, mining_fee):
@@ -57,3 +97,32 @@ def is_consensus_hash_valid(db, consensus_hash, current_block_number):
         if str(consensus_hash) == str(db.consensus_hashes[str(block_number)]):
             return True
     return False
+
+
+def is_storageop_from_registered_name( db, storageop ):
+    """
+    Determine if a storage operation came from a valid registered name.
+    """
+    
+    name_hash = storageop['name_hash']
+    data_hash = storageop['data_hash']
+   
+    name = get_name_from_hash128( name_hash, db )
+    if name is None:
+      # name does not exist 
+      return False 
+    
+    # name must be registered
+    if not name_registered( db, name ):
+      return 
+    
+    # storageop must have a sender 
+    if 'sender' not in storageop:
+      return 
+   
+    # storageop's sender must be the same as the name owner 
+    name_owner = db.name_records[name]['owner']
+    if name_owner != storageop['sender']:
+      return False
+    
+    
