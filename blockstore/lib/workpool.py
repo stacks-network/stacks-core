@@ -19,12 +19,15 @@ process_local_bitcoind = None
 # factory method for generating bitcoind connections 
 process_local_bitcoind_factory = None
 
-def multiprocess_bitcoind():
+def multiprocess_bitcoind( reset=False ):
    """
    Get a per-process bitcoind client.
    """
    
    global process_local_bitcoind, process_local_bitcoind_factory
+   
+   if reset: 
+      process_local_bitcoind = None 
    
    if process_local_bitcoind is None:
       # this proces does not yet have a bitcoind client.

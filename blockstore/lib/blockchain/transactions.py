@@ -1,4 +1,3 @@
-from ..parsing import parse_nameop
 from .nulldata import get_nulldata, has_nulldata
 import traceback
 
@@ -41,6 +40,13 @@ def getrawtransaction( bitcoind, block_hash, txid, verbose=0 ):
             log.error("\n\n[%s] Caught JSONRPCException from bitcoind: %s\n" % (os.getpid(), repr(je.error)))
             exc_to_raise = je
             continue
+
+         except Exception, e:
+            log.error("\n\n[%s] Caught Exception from bitcoind" % (os.getpid()))
+            log.exception(e)
+            exc_to_raise = e
+            bitcoind = multiprocess_bitcoind(reset=True)
+            continue 
             
          return tx 
       
@@ -63,6 +69,7 @@ def getrawtransaction_async( workpool, block_hash, tx_hash, verbose ):
    to go get it.
    """
    
+   log.info("getrawtransaction_async %s, %s" % (block_hash, tx_hash))
    tx_result = workpool.apply_async( getrawtransaction, (None, block_hash, tx_hash, verbose) )
    return tx_result
 
@@ -90,6 +97,13 @@ def getblockhash( bitcoind, block_number ):
             exc_to_raise = je 
             continue
          
+         except Exception, e:
+            log.error("\n\n[%s] Caught Exception from bitcoind" % (os.getpid()))
+            log.exception(e)
+            exc_to_raise = e
+            bitcoind = multiprocess_bitcoind(reset=True)
+            continue 
+         
          return block_hash
       
       except Exception, e:
@@ -110,6 +124,7 @@ def getblockhash_async( workpool, block_number ):
    Return a future to the block hash 
    """
    
+   log.info("getblockhash_async %s" % block_number)
    block_hash_future = workpool.apply_async( getblockhash, (None, block_number) )
    return block_hash_future
 
@@ -135,7 +150,13 @@ def getblock( bitcoind, block_hash ):
             log.error("\n\n[%s] Caught JSONRPCException from bitcoind: %s\n" % (os.getpid(), repr(je.error)))
             exc_to_raise = je
             continue
-         
+         except Exception, e:
+            log.error("\n\n[%s] Caught Exception from bitcoind" % (os.getpid()))
+            log.exception(e)
+            exc_to_raise = e
+            bitcoind = multiprocess_bitcoind( reset=True )
+            continue     
+    
          return block_data 
       
       except Exception, e:
@@ -151,17 +172,25 @@ def getblock( bitcoind, block_hash ):
    
 
 
-def getblock_async( workpool, block_hash ):
+def getblock_async( workpool, block_number, block_hash ):
    """
    Get a block's data, given its hash.
    Return a future to the data.
    """
+   log.info("getblock_async %s %s" % (block_number, block_hash))
    block_future = workpool.apply_async( getblock, (None, block_hash) )
    return block_future 
 
 
 def get_sender_and_amount_in_from_txn( tx, output_index ):
-
+   """
+   Given a transaction, get information about the sender 
+   and the money paid.
+   
+   Return a sender (a dict with a script_pubkey, amount, and list of addresses
+   within the script_pubkey), and the amount paid.
+   """
+   
    # grab the previous tx output (the current input)
    try:
       prev_tx_output = tx['vout'][output_index]
@@ -173,14 +202,15 @@ def get_sender_and_amount_in_from_txn( tx, output_index ):
    if not ('scriptPubKey' in prev_tx_output and 'value' in prev_tx_output):
       return (None, None)
 
-   # extract the script pubkey
+   # extract the script_pubkey
    script_pubkey = prev_tx_output['scriptPubKey']
+   
    # build and append the sender to the list of senders
    amount_in = int(prev_tx_output['value']*10**8)
    sender = {
-         "script_pubkey": script_pubkey.get('hex'),
-         "amount": amount_in,
-         "addresses": script_pubkey.get('addresses')
+      "script_pubkey": script_pubkey.get('hex'),
+      "amount": amount_in,
+      "addresses": script_pubkey.get('addresses')
    }
    
    return sender, amount_in
@@ -214,6 +244,7 @@ def get_senders_and_total_in( bitcoind, block_hash, inputs ):
          continue
       
       senders.append(sender)
+      
       # increment the total amount going in to the transaction
       total_in += amount_in
 
@@ -249,10 +280,22 @@ def process_nulldata_tx( bitcoind, block_hash, tx ):
 
 
 def process_nulldata_tx_async( workpool, block_hash, tx ):
-    
     """
+    Given a transaction and a block hash, begin fetching each 
+    of the transaction's vin's transactions.  The reason being,
+    we want to acquire each input's nulldata, and for that, we 
+    need the raw transaction data for the input.
+    
+    However, in order to identify a primary sender, we need to 
+    preserve the order in which the input transactions occurred.
+    To do so, we tag each future with the index into the transaction's 
+    vin list, so once the futures have been finalized, we'll have an 
+    ordered list of input transactions that is in the same order as 
+    they are in the given transaction's vin.
+    
     Returns: [(input_idx, tx_fut, tx_output_index)]
     """
+    
     tx_futs = []
     senders = []
     total_in = 0
@@ -262,7 +305,6 @@ def process_nulldata_tx_async( workpool, block_hash, tx ):
 
     inputs = tx['vin']
     
-    # TODO : preserve ordering of senders relative to inputs
     for i in xrange(0, len(inputs)):
       input = inputs[i]
       
@@ -299,6 +341,7 @@ def future_next( fut_records, fut_inspector ):
       if fut is not None:
          if fut.ready():
             fut_records.remove( fut_record )
+            log.info("Future: %s" % str(fut_record) )
             return fut_record 
       
    # no ready futures.  wait for one 
@@ -310,6 +353,7 @@ def future_next( fut_records, fut_inspector ):
          fut.wait( 10000000000000000L )
          
          fut_records.remove( fut_record )
+         log.info("Future: %s" % str(fut_record) )
          return fut_record
    
 
@@ -323,7 +367,15 @@ def bandwidth_record( cache_status, total_time, block_data ):
 def get_nulldata_txs_in_blocks( workpool, blocks ):
    
    """
-   Obtain the nulldata transactions for a collection of blocks.
+   Obtain transaction information (and nulldata) for a collection of blocks.
+   Each transaction record will contain:
+   * vin (list of inputs from bitcoind)
+   * vout (list of outputs from bitcoind)
+   * txid (transaction ID, as a hex string)
+   * senders (a list of {"script_pubkey":, "amount":, and "addresses":} dicts, for which the "script_pubkey" field identifies the sender uniquely)
+   * fee (total amount sent)
+   * nulldata (input data to the transaction's script; encodes blockstore operations)
+   
    Farm out the requisite RPCs to a workpool of processes, each 
    of which have their own bitcoind RPC client.
    
@@ -377,7 +429,7 @@ def get_nulldata_txs_in_blocks( workpool, blocks ):
                   tx = txs[i]
                   
                   if ('nulldata' in tx.keys()) and ('senders' in tx.keys()) and ('fee' in tx.keys()):
-                     
+
                      # can use 
                      if not nulldata_tx_map.has_key( block_number ):
                         nulldata_tx_map[ block_number ] = [(i, tx)]
@@ -406,7 +458,7 @@ def get_nulldata_txs_in_blocks( workpool, blocks ):
          
          # NOTE: interruptable blocking get(), but should not block since future_next found one that's ready
          block_hash = block_hash_fut.get( 10000000000000000L )
-         block_data_fut = getblock_async( workpool, block_hash )
+         block_data_fut = getblock_async( workpool, block_number, block_hash )
          block_data_futures.append( (block_number, block_hash, block_data_fut) )
       
       
@@ -465,12 +517,10 @@ def get_nulldata_txs_in_blocks( workpool, blocks ):
          
          if tx and has_nulldata(tx):
             
-            # go get these transactions, but tag each future with the hash of the parent tx
+            # go get input transactions for this transaction (since it's the one with nulldata, i.e., a blockstore operation),
+            # but tag each future with the hash of the current tx, so we can reassemble the in-flight inputs back into it. 
             nulldata_tx_futs_and_output_idxs = process_nulldata_tx_async( workpool, block_hash, tx )
-            if nulldata_tx_futs_and_output_idxs is not None:
-               
-               # get nulldata for this transaction
-               nulldata_tx_futures.append( (block_number, tx_index, tx, nulldata_tx_futs_and_output_idxs) )
+            nulldata_tx_futures.append( (block_number, tx_index, tx, nulldata_tx_futs_and_output_idxs) )
                   
          else:
             
@@ -483,7 +533,7 @@ def get_nulldata_txs_in_blocks( workpool, blocks ):
       block_nulldata_tx_time_start = time.time()
       block_nulldata_tx_time_end = 0
       
-      # coalesce nulldata transaction queries...
+      # coalesce queries on the inputs to each nulldata transaction from this block...
       for (block_number, tx_index, tx, nulldata_tx_futs_and_output_idxs) in nulldata_tx_futures:
          
          if ('vin' not in tx) or ('vout' not in tx) or ('txid' not in tx):
@@ -491,18 +541,18 @@ def get_nulldata_txs_in_blocks( workpool, blocks ):
          
          outputs = tx['vout']
          
-         total_in = 0
+         total_in = 0   # total input paid
          senders = []
          ordered_senders = []
          
          # gather this tx's nulldata queries
          for i in xrange(0, len(nulldata_tx_futs_and_output_idxs)):
             
-            input_idx, nulldata_tx_fut, tx_output_index = future_next( nulldata_tx_futs_and_output_idxs, lambda f: f[1] )
+            input_idx, input_tx_fut, tx_output_index = future_next( nulldata_tx_futs_and_output_idxs, lambda f: f[1] )
             
             # NOTE: interruptable blocking get(), but should not block since future_next found one that's ready
-            nulldata_tx = nulldata_tx_fut.get( 10000000000000000L )
-            sender, amount_in = get_sender_and_amount_in_from_txn( nulldata_tx, tx_output_index )
+            input_tx = input_tx_fut.get( 10000000000000000L )
+            sender, amount_in = get_sender_and_amount_in_from_txn( input_tx, tx_output_index )
             
             if sender is None or amount_in is None:
                continue
@@ -512,19 +562,24 @@ def get_nulldata_txs_in_blocks( workpool, blocks ):
             # NOTE: senders isn't commutative--will need to preserve order
             ordered_senders.append( (input_idx, sender) )
          
-         ordered_senders.sort()         # sort on input_idx 
+         # sort on input_idx, so the list of senders matches the given transaction's list of inputs
+         ordered_senders.sort()
          senders = [sender for (_, sender) in ordered_senders]
          
          total_out = get_total_out( outputs )
          nulldata = get_nulldata( tx )
       
-         # extend tx 
+         # extend tx to explicitly record its nulldata (i.e. the blockstore op),
+         # the list of senders (i.e. their script_pubkey strings and amount paid in),
+         # and the total amount paid
          tx['nulldata'] = nulldata
          tx['senders'] = senders
          tx['fee'] = total_in - total_out
          
+         # track the order of nulldata-containing transactions in this block
          if not nulldata_tx_map.has_key( block_number ):
             nulldata_tx_map[ block_number ] = [(tx_index, tx)]
+            
          else:
             nulldata_tx_map[ block_number ].append( (tx_index, tx) )
             
@@ -553,6 +608,7 @@ def get_nulldata_txs_in_blocks( workpool, blocks ):
          cache_put_block( block_number, block_data )
          
          if not block_bandwidth.has_key( block_number ):
+            
             # done with this block now 
             total_time = time.time() - block_times[ block_number ]
             block_bandwidth[ block_number ] = bandwidth_record( "MISS", total_time, block_data )
@@ -598,6 +654,9 @@ def get_nulldata_txs_in_blocks( workpool, blocks ):
       # next slice
       slice_count += 1
    
+   # get the blockchain-ordered list of nulldata-containing transactions.
+   # this is the blockchain-agreed list of all blockstore operations, as well as the amount paid per transaction and the 
+   # principal(s) who created each transaction.
    # convert {block_number: [tx]} to [(block_number, [tx])] where [tx] is ordered by the order in which the transactions occurred in the block
    for block_number in blocks:
       

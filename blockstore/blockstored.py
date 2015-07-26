@@ -25,47 +25,31 @@ import time
 import socket
 from multiprocessing import Pool
 
+from ConfigParser import SafeConfigParser
+
 from txjsonrpc.netstring import jsonrpc
 from twisted.internet import reactor
 
 from lib import config
-from lib import get_nameops_in_block, get_nameops_in_blocks, build_nameset, NameDb
+from lib import build_nameset, NameDb, verify_signed_data, get_blockstore_ops_in_blocks
 from lib import config
 from lib import cache
+from lib import workpool
 from coinkit import BitcoindClient, ChainComClient
 from utilitybelt import is_valid_int
 
 import lib.blockdaemon as blockdaemon
+log = blockdaemon.log 
 
-log = logging.getLogger()
-log.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
-console = logging.StreamHandler()
-console.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
-log_format = ('[%(levelname)s] [%(module)s:%(lineno)d] %(message)s' if config.DEBUG else '%(message)s')
-formatter = logging.Formatter( log_format )
-console.setFormatter(formatter)
-log.addHandler(console)
+bitcoind = None
+bitcoin_opts = None
+blockchain_client = None 
 
-
-global bitcoind 
+CHAIN_COM_API_ID = None 
+CHAIN_COM_API_SECRET = None
 
 from lib import preorder_name, register_name, update_name, \
     transfer_name
-
-
-try:
-    blockchain_client = ChainComClient(config.CHAIN_COM_API_ID,
-                                       config.CHAIN_COM_API_SECRET)
-except:
-    try:
-        blockchain_client = BitcoindClient(
-            config.BITCOIND_USER, config.BITCOIND_PASSWD,
-            server=config.BITCOIND_SERVER, port=str(config.BITCOIND_PORT),
-            use_https=True)
-    except:
-        blockchain_client = BitcoindClient(
-            'openname', 'opennamesystem',
-            server='btcd.onename.com', port='8332', use_https=True)
 
 
 def signal_handler(signal, frame):
@@ -89,28 +73,115 @@ def json_traceback():
 
 def get_namedb():
     working_dir = blockdaemon.get_working_dir( config.BLOCKSTORED_WORKING_DIR )
-    namespace_file = os.path.join(
-        working_dir, config.BLOCKSTORED_NAMESPACE_FILE)
-    snapshots_file = os.path.join(
-        working_dir, config.BLOCKSTORED_SNAPSHOTS_FILE)
+    namespace_file = os.path.join(working_dir, config.BLOCKSTORED_NAMESPACE_FILE)
+    snapshots_file = os.path.join(working_dir, config.BLOCKSTORED_SNAPSHOTS_FILE)
     db = NameDb(namespace_file, snapshots_file)
     return db
+ 
+ 
+def get_blockchain_client():
+   
+   global CHAIN_COM_API_ID, CHAIN_COM_API_SECRET, blockchain_client, bitcoin_opts
+   
+   if blockchain_client is not None:
+      return blockchain_client 
+   
+   config_file = blockdaemon.get_config_file( config.BLOCKSTORED_WORKING_DIR, config.BLOCKSTORED_CONFIG_FILE )
+   
+   # get chain.com info from the config file...
+   config_parser = SafeConfigParser()
+   config_parser.read(config_file)
+   
+   if config_parser.has_section('chain_com'):
+      CHAIN_COM_API_ID = config_parser.get('chain_com', 'api_key_id')
+      CHAIN_COM_API_SECRET = config_parser.get('chain_com', 'api_key_secret')
 
+   try:
+      blockchain_client = ChainComClient( CHAIN_COM_API_ID, CHAIN_COM_API_SECRET )
+      return blockchain_client
+      
+   except Exception, e:
+      log.exception(e)
+      
+      try:
+         blockchain_client = BitcoindClient( bitcoin_opts['bitcoind_user'], bitcoin_opts['bitcoind_passwd'],
+                                             server=bitcoin_opts['bitcoind_server'], port=str(bitcoin_opts['bitcoind_port']), use_https=bitcoin_opts.get('bitcoind_use_https', False) )
+         
+         return blockchain_client
+         
+      except Exception, e:
+         log.exception(e)
+         return None 
+      
+      return None
+
+
+def refresh_index( bitcoind, first_block, last_block, working_dir, initial_index=False):
+    """
+    Obtain the name operation sequence from the blockchain.
+    That is, go and fetch each block we haven't seen since the last call to this method,
+    extract the blockstore operations from them, and record in the given working_dir where we left 
+    off while watching the blockchain.
+    
+    Store the blockstore operations, name database, snapshots, and last block to the working_dir
+    Return 0 on success 
+    Raise an exception on error
+    """
+    
+    working_dir = blockdaemon.get_working_dir( working_dir )
+
+    namespace_file = os.path.join( working_dir, config.BLOCKSTORED_NAMESPACE_FILE)
+    snapshots_file = os.path.join( working_dir, config.BLOCKSTORED_SNAPSHOTS_FILE)
+    lastblock_file = os.path.join( working_dir, config.BLOCKSTORED_LASTBLOCK_FILE)
+
+    start = datetime.datetime.now()
+    
+    num_workers = config.MULTIPROCESS_NUM_WORKERS
+    blockstore_ops = []
+    
+    # feed workers bitcoind this way
+    workpool.multiprocess_bitcoind_factory( blockdaemon.create_bitcoind_connection )
+    
+    pool = Pool( processes=num_workers )
+    
+    # get *all* the blockstore operations!
+    blockstore_ops = get_blockstore_ops_in_blocks( pool, range(first_block, last_block+1) )
+    pool.close()
+    pool.join()
+    blockstore_ops.sort()
+    
+    time_taken = "%s seconds" % (datetime.datetime.now() - start).seconds
+    log.info(time_taken)
+
+    db = get_namedb()
+    merkle_snapshot = build_nameset(db, blockstore_ops)
+    db.save_names(namespace_file)
+    db.save_snapshots(snapshots_file)
+
+    merkle_snapshot = "merkle snapshot: %s\n" % merkle_snapshot
+    log.info(merkle_snapshot)
+    log.info(db.name_records)
+
+    fout = open(lastblock_file, 'w')  # to overwrite
+    fout.write(str(last_block))
+    fout.close()
+    
+    return 0
+ 
 
 class BlockstoredRPC(jsonrpc.JSONRPC):
-    """ blockstored rpc
+    """
+    Blockstored JSON RPC server.
     """
 
-    def __init__(self, dht_server=None):
+    def __init__(self, dht_server=None, storagedb=None):
         self.dht_server = dht_server
+        self.storagedb = storagedb
 
     def jsonrpc_ping(self):
         reply = {}
         reply['status'] = "alive"
         return reply
-
-    def jsonrpc_get(self, key):
-        return self.dht_server.get(key)
 
     def jsonrpc_lookup(self, name):
         """ Lookup the details for a name.
@@ -123,8 +194,10 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
 
         return name_record
 
-    def jsonrpc_set(self, key, value):
+    def jsonrpc_put(self, key, value):
         """
+        Put data into the DHT.  Do not put the signed 
+        hash into the blockchain.
         """
 
         reply = {}
@@ -145,10 +218,90 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
 
         return self.dht_server.set(key, value)
 
+
+    def jsonrpc_signdata(self, name, key, value, privatekey):
+        """
+        Given a usenrame and data, put its signed hash into the blockchain.
+        Follow this call up with jsonrpc_put to put it into the DHT.
+        """
+
+        reply = {}
+        blockchain_client_inst = get_blockchain_client()
+
+        try:
+            test_value = json.loads(value)
+        except Exception as e:
+            print principale
+            reply['error'] = "value not JSON, not storing"
+            return reply
+
+        hash = coinkit.hex_hash160(value)
+        test_key = hash
+
+        if key != test_key:
+            reply['error'] = "hash(value) doesn't match, not storing"
+            return reply
+
+        try:
+           resp = putdata_storage( str(name), str(key), str(privatekey), blockchain_client=blockchain_client_inst, testset=True)
+        except:
+           return json_traceback()
+
+        log.debug('setsigned <%s, %s, %s>' % (name, privatekey, value))
+        
+        return resp
+     
+     
+    def jsonrpc_putsigned( self, name, key, value, privatekey):
+        """
+        Given a username and data, sign it, broadcast the signature to the blockchain,
+        and then if successful, put the data into the DHT.
+        """        
+        
+        reply = self.jsonrpc_signdata( self, name, key, value, privatekey )
+        if reply.has_key('error'):
+           # error 
+           return reply 
+        else:
+           return self.jsonrpc_put( self, key, value )
+    
+    
+    def jsonrpc_get(self, key):
+        """
+        Given a key to data, look it up and return it.
+        """
+        return self.dht_server.get(key)
+
+
+    def jsonrpc_verifydata(self, name, key ):
+        """
+        Given a username and hash, verify that the user that owns 
+        the name has signed the hash in the blockchain.
+        """
+        
+        db = get_namedb()
+        return verify_signed_data( name, key, db )
+        
+        
+    def jsonrpc_getverified( self, name, key ):
+        """
+        Given a username and a hash, verify that the user that owns 
+        the name has signed the hash in the blockchain, and if so,
+        return the data.
+        """
+        
+        reply = self.jsonrpc_verifydata( name, key )
+        if reply.has_key('error'):
+          # error
+          return reply 
+        else:
+          return self.jsonrpc_get( self, key )
+
+
     def jsonrpc_getinfo(self):
         """
         """
-
+        global bitcoind
         info = bitcoind.getinfo()
         reply = {}
         reply['blocks'] = info['blocks']
@@ -157,17 +310,21 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
     def jsonrpc_preorder(self, name, privatekey):
         """ Preorder a name
         """
+        
+        blockchain_client_inst = get_blockchain_client()
+        if blockchain_client_inst is None:
+           return {'error': 'Failed to connect to blockchain'}
+        
         db = get_namedb()
         consensus_hash = db.consensus_hashes.get('current')
         if not consensus_hash:
             return {"error": "Nameset snapshot not found."}
+         
         if str(name) in db.name_records:
             return {"error": "Name already registered"}
 
         try:
-            resp = preorder_name(
-                str(name), str(consensus_hash), str(privatekey),
-                blockchain_client=blockchain_client, testset=True)
+            resp = preorder_name(str(name), str(consensus_hash), str(privatekey), blockchain_client=blockchain_client_inst, testset=True)
         except:
             return json_traceback()
 
@@ -178,15 +335,18 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
     def jsonrpc_register(self, name, privatekey):
         """ Register a name
         """
+        
+        blockchain_client_inst = get_blockchain_client()
+        if blockchain_client_inst is None:
+           return {'error': 'Failed to connect to blockchain'}
+        
         log.info("name: %s" % name)
         db = get_namedb()
         if str(name) in db.name_records:
             return {"error": "Name already registered"}
 
         try:
-            resp = register_name(
-                str(name), str(privatekey),
-                blockchain_client=blockchain_client, testset=True)
+            resp = register_name(str(name), str(privatekey), blockchain_client=blockchain_client_inst, testset=True)
         except:
             return json_traceback()
 
@@ -195,13 +355,16 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         return resp
 
     def jsonrpc_update(self, name, data, privatekey):
-        """ Update a name
+        """
+        Update a name with new data.
         """
 
+        blockchain_client_inst = get_blockchain_client()
+        if blockchain_client_inst is None:
+           return {'error': 'Failed to connect to blockchain'}
+        
         try:
-            resp = update_name(
-                str(name), str(data), str(privatekey),
-                blockchain_client=blockchain_client, testset=True)
+            resp = update_name(str(name), str(data), str(privatekey), blockchain_client=blockchain_client_inst, testset=True)
         except:
             return json_traceback()
 
@@ -213,10 +376,12 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         """ Transfer a name
         """
 
+        blockchain_client_inst = get_blockchain_client()
+        if blockchain_client_inst is None:
+           return {'error': 'Failed to connect to blockchain'}
+        
         try:
-            resp = transfer_name(
-                str(name), str(address), str(privatekey),
-                blockchain_client=blockchain_client, testset=True)
+            resp = transfer_name(str(name), str(address), str(privatekey), blockchain_client=blockchain_client_inst, testset=True)
         except:
             return json_traceback()
 
@@ -230,14 +395,53 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
 
         log.debug('renew <%s, %s>' % (name, privatekey))
 
+        # TODO 
         return
+
+    def jsonrpc_namespace_define( self, namespace_id, lifetime, base_name_cost, cost_decay_rate, privatekey ):
+        """
+        Define the properties of a namespace.
+        Between the namespace definition and the "namespace begin" operation, only the 
+        user who created the namespace can create names in it.
+        """
+        
+        blockchain_client_inst = get_blockchain_client()
+        if blockchain_client_inst is None:
+           return {'error': 'Failed to connect to blockchain'}
+        
+        try:
+           resp = namespace_define( str(namespace_id), int(lifetime), int(base_name_cost), float(cost_decay_rate), str(privatekey), blockchain_client=blockchain_client_inst, testset=True )
+        except:
+           return json_traceback()
+        
+        log.debug("namespace_define <%s, %s, %s, %s>" % (namespace_id, lifetime, base_name_cost, cost_decay_rate))
+        return resp 
+     
+     
+    def jsonrpc_namespace_begin( self, namespace_id, privatekey ):
+        """
+        Declare that a namespace is open to accepting new names.
+        """
+        
+        blockchain_client_inst = get_blockchain_client()
+        if blockchain_client_inst is None:
+           return {'error': 'Failed to connect to blockchain'}
+        
+        try:
+           resp = namespace_begin( str(namespace_id), str(privatekey), blockchain_client=blockchain_client_inst, testset=True )
+        except:
+           return json_traceback()
+        
+        log.debug("namespace_begin %s" % namespace_id )
+        return resp
+        
 
 # ------------------------------
 old_block = 0
 index_initialized = False
 
 
-def reindex_blockchain( bitcoind=None ):
+def reindex_blockchain():
     """
     """
 
@@ -245,12 +449,13 @@ def reindex_blockchain( bitcoind=None ):
     global old_block
     global index_initialized
     global counter
+    global bitcoind
     
     if bitcoind is None:
        bitcoind = blockdaemon.create_bitcoind_connection()
 
     start_block, current_block = blockdaemon.get_index_range( bitcoind, config.BLOCKSTORED_WORKING_DIR )
-
+    
     # initial indexing
     if not index_initialized:
 
@@ -267,13 +472,16 @@ def reindex_blockchain( bitcoind=None ):
             log.msg(message)
 
             # call the reindex func here
-            blockdaemon.refresh_index(bitcoind, old_block + 1, current_block)
+            refresh_index(bitcoind, old_block + 1, current_block, config.BLOCKSTORED_WORKING_DIR)
             old_block = current_block
 
 
 def prompt_user_for_chaincom_details():
     """
     """
+    global CHAIN_COM_API_ID
+    global CHAIN_COM_API_SECRET
+    
     config_file = blockdaemon.get_config_file( config.BLOCKSTORED_WORKING_DIR, config.BLOCKSTORED_CONFIG_FILE )
     parser = SafeConfigParser()
 
@@ -300,8 +508,8 @@ def prompt_user_for_chaincom_details():
             parser.write(fout)
 
         # update in config as well (which was already initialized)
-        config.CHAIN_COM_API_ID = api_key_id
-        config.CHAIN_COM_API_SECRET = api_key_secret
+        CHAIN_COM_API_ID = api_key_id
+        CHAIN_COM_API_SECRET = api_key_secret
 
 
 def stop_server():
@@ -363,7 +571,7 @@ def run_server( bitcoind, foreground=False):
     try:
         # refresh_index(335563, 335566, initial_index=True)
         if start_block != current_block:
-            blockdaemon.refresh_index(bitcoind, start_block, current_block, config.BLOCKSTORED_WORKING_DIR, initial_index=True)
+            refresh_index(bitcoind, start_block, current_block, config.BLOCKSTORED_WORKING_DIR, initial_index=True)
         
         blockstored = subprocess.Popen( command, shell=True, preexec_fn=os.setsid)
         log.info('Blockstored successfully started')
@@ -392,62 +600,79 @@ def run_server( bitcoind, foreground=False):
 
 
 def run_blockstored():
-    """ run blockstored
-    """
-    global blockstored
-    global bitcoind
-    
-    # signal.signal(signal.SIGINT, signal_handler)
-    
-    bitcoin_opts, parser = blockdaemon.parse_bitcoind_args( return_parser=True )
-    
-    subparsers = parser.add_subparsers(
-        dest='action', help='the action to be taken')
-    parser_server = subparsers.add_parser(
-        'start',
-        help='start the blockstored server')
-    parser_server.add_argument(
-        '--foreground', action='store_true',
-        help='start the blockstored server in foreground')
-    parser_server = subparsers.add_parser(
-        'stop',
-        help='stop the blockstored server')
-    
-    args, _ = parser.parse_known_args()
-    
-    """
-    # Print default help message, if no argument is given
-    if len(sys.argv) == 1:
-        parser.print_help()
-        sys.exit(1)
-    """
-    
-    config.BITCOIND_USE_HTTPS = bitcoin_opts[ "bitcoind_use_https" ]
-    
-    try:
-       
-       bitcoind = blockdaemon.create_bitcoind_connection(bitcoin_opts['bitcoind_user'],
-                                                         bitcoin_opts['bitcoind_passwd'],
-                                                         bitcoin_opts['bitcoind_server'],
-                                                         bitcoin_opts['bitcoind_port'],
-                                                         bitcoin_opts['bitcoind_use_https'] )
-    except Exception, e:
-       log.exception(e)
-       # NOTE: has the important side-effect of making create_bitcoind_connection() work in the future!
-       bitcoind = blockdaemon.prompt_user_for_bitcoind_details( config.BLOCKSTORED_WORKING_DIR, config.BLOCKSTORED_CONFIG_FILE )
+   """ run blockstored
+   """
+   global blockstored
+   global bitcoind
+   global blockchain_client
+   global bitcoin_opts
+   global CHAIN_COM_API_ID, CHAIN_COM_API_SECRET
+   
+   signal.signal(signal.SIGINT, signal_handler)
+   
+   config_file = blockdaemon.get_config_file( config.BLOCKSTORED_WORKING_DIR, config.BLOCKSTORED_CONFIG_FILE )
+   bitcoin_opts = config.default_bitcoind_opts( config_file )
+   
+   arg_bitcoin_opts, argparser = blockdaemon.parse_bitcoind_args( return_parser=True )
 
-    if args.action == 'start':
-        stop_server()
-        if args.foreground:
-            log.info('Initializing blockstored server in foreground ...')
-            run_server( bitcoind, foreground=True )
-            while(1):
-                stay_alive = True
-        else:
-            log.info('Starting blockstored server ...')
-            run_server( bitcoind )
-    elif args.action == 'stop':
-        stop_server()
+   # command-line overrides config file
+   for (k, v) in arg_bitcoin_opts.items():
+      bitcoin_opts[k] = v
+   
+   subparsers = argparser.add_subparsers(
+      dest='action', help='the action to be taken')
+   parser_server = subparsers.add_parser(
+      'start',
+      help='start the blockstored server')
+   parser_server.add_argument(
+      '--foreground', action='store_true',
+      help='start the blockstored server in foreground')
+   parser_server = subparsers.add_parser(
+      'stop',
+      help='stop the blockstored server')
+   
+   args, _ = argparser.parse_known_args()
+   
+   # get chain.com info from the config file...
+   blockchain_client = get_blockchain_client()
+   if blockchain_client is None:
+      log.error("Failed to initialized blockchain client")
+      exit(1)
+      
+   """
+   # Print default help message, if no argument is given
+   if len(sys.argv) == 1:
+      parser.print_help()
+      sys.exit(1)
+   """
+   
+   blockdaemon.setup( bitcoin_opts )
+   
+   try:
+      
+      bitcoind = blockdaemon.create_bitcoind_connection(bitcoin_opts['bitcoind_user'],
+                                                        bitcoin_opts['bitcoind_passwd'],
+                                                        bitcoin_opts['bitcoind_server'],
+                                                        bitcoin_opts['bitcoind_port'],
+                                                        bitcoin_opts['bitcoind_use_https'] )
+   except Exception, e:
+      log.exception(e)
+      # NOTE: has the important side-effect of making create_bitcoind_connection() work in the future!
+      bitcoind = blockdaemon.prompt_user_for_bitcoind_details( config.BLOCKSTORED_WORKING_DIR, config.BLOCKSTORED_CONFIG_FILE )
+
+   if args.action == 'start':
+      stop_server()
+      if args.foreground:
+         log.info('Initializing blockstored server in foreground ...')
+         run_server( bitcoind, foreground=True )
+         while(1):
+               stay_alive = True
+      else:
+         log.info('Starting blockstored server ...')
+         run_server( bitcoind )
+   elif args.action == 'stop':
+      stop_server()
+
 
 if __name__ == '__main__':
     
