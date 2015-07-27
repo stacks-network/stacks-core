@@ -28,6 +28,10 @@ from lib import config
 from coinkit import BitcoindClient, ChainComClient
 from utilitybelt import is_valid_int
 
+# opt-out for verifying self-signed certificates (typically used in bitcoind)
+import ssl
+ssl._create_default_https_context = ssl._create_unverified_context
+
 log = logging.getLogger()
 log.setLevel(logging.DEBUG if config.DEBUG else logging.INFO)
 console = logging.StreamHandler()
