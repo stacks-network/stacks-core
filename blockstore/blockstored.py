@@ -49,8 +49,7 @@ CHAIN_COM_API_ID = None
 CHAIN_COM_API_SECRET = None
 
 from lib import preorder_name, register_name, update_name, \
-    transfer_name
-
+    transfer_name, namespace_define, namespace_begin, putdata_storage, rmdata_storage
 
 def signal_handler(signal, frame):
     """ Handle Ctrl+C for dht node
@@ -216,7 +215,14 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
             reply['error'] = "hash(value) doesn't match, not storing"
             return reply
 
-        return self.dht_server.set(key, value)
+        result = self.dht_server.set(key, value)
+        if result:
+	   reply['key'] = hash 
+	   reply['result'] = True
+	else:
+	   reply['result'] = False
+        
+        return reply
 
 
     def jsonrpc_signdata(self, name, key, value, privatekey):

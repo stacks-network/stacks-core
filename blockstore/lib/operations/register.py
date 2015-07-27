@@ -49,14 +49,14 @@ def parse(bin_payload):
     will not be present in bin_payload.
     """
     
-    fqn = unhexlify( bin_payload )
-    scheme = fqn[0:(len(NAME_SCHEME) - 3)]      # excludes 'id://'
-    
-    if scheme != NAME_SCHEME[3:]:
+    fqn = bin_payload
+    scheme = fqn[0:len(NAME_SCHEME)]      # exclude scheme
+   
+    if scheme != NAME_SCHEME:
        raise Exception("Invalid bin payload: does not start with '%s'" % NAME_SCHEME)
     
     return {
        'opcode': 'NAME_REGISTRATION',
-       'name': fqn[(len(NAME_SCHEME) - 3):]          # skip the '//', since that's what bin_payload will always start with
+       'name': fqn[len(NAME_SCHEME):]          # skip the scheme
     }
  

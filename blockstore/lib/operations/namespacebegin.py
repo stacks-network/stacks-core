@@ -15,9 +15,9 @@ def build( namespace_id, testset=False ):
    
    Format:
    
-   0     2  3  4             23
-   |-----|--|--|-------------|
-   magic op len ns_id
+   0     2  3  4  5           24
+   |-----|--|--|--|-----------|
+   magic op len .   ns_id
    """
    
    # sanity check 
@@ -27,7 +27,7 @@ def build( namespace_id, testset=False ):
    if len(namespace_id) == 0 or len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
       raise Exception("Invalid namespace ID '%s (expected length between 1 and %s)" % (namespace_id, LENGTHS['blockchain_id_namespace_id']))
    
-   readable_script = "NAMESPACE_BEGIN %i %s" % (len(namespace_id), namespace_id)
+   readable_script = "NAMESPACE_BEGIN %i %s" % (len(namespace_id), hexlify("." + namespace_id))
    hex_script = blockstore_script_to_hex(readable_script)
    packaged_script = add_magic_bytes(hex_script, testset=testset)
    
@@ -49,8 +49,8 @@ def parse( bin_payload ):
    """
    
    namespace_id_len = ord( bin_payload[0:LENGTHS['blockchain_id_namespace_id_len']] )
-   namespace_id = bin_payload[ LENGTHS['blockchain_id_namespace_id_len']:LENGTHS['blockchain_id_namespace_id_len'] + namespace_id_len ]
-   
+   namespace_id = bin_payload[ LENGTHS['blockchain_id_namespace_id_len'] + 1:LENGTHS['blockchain_id_namespace_id_len'] + namespace_id_len + 1 ]	# skip the '.'
+
    return {
       'opcode': 'NAMESPACE_BEGIN',
       'namespace_id': namespace_id

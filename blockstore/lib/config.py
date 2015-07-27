@@ -11,7 +11,7 @@ from ConfigParser import SafeConfigParser
 import schemas
 
 DEBUG = True
-TESTNET = True
+TESTNET = False
 TESTSET = True
 
 """ constants
@@ -187,7 +187,7 @@ def default_bitcoind_opts( config_file=None ):
 
 REINDEX_FREQUENCY = 10  # in seconds
 
-FIRST_BLOCK_MAINNET = 343883
+FIRST_BLOCK_MAINNET = 367090 # 343883
 FIRST_BLOCK_MAINNET_TESTSET = FIRST_BLOCK_MAINNET
 # FIRST_BLOCK_TESTNET = 343883
 FIRST_BLOCK_TESTNET = 508800
@@ -264,9 +264,9 @@ MIN_OP_LENGTHS = {
     'transfer': LENGTHS['namelen'] + LENGTHS['name_min'],
     'data_put': LENGTHS['name_hash'] + LENGTHS['data_hash'],
     'data_remove': LENGTHS['name_hash'] + LENGTHS['data_hash'],
-    'namespace_define': LENGTHS['blockchain_id_namespace_id'] + LENGTHS['blockchain_id_namespace_id_len'],
-    'namespace_begin': LENGTHS['blockchain_id_namespace_life'] + LENGTHS['blockchain_id_namespace_cost'] + \
-                       LENGTHS['blockchain_id_namespace_price_decay'] + LENGTHS['blockchain_id_namespace_id_len'] + LENGTHS['blockchain_id_namespace_id']
+    'namespace_begin': LENGTHS['blockchain_id_namespace_id_len'] + 1,
+    'namespace_define': LENGTHS['blockchain_id_namespace_life'] + LENGTHS['blockchain_id_namespace_cost'] + \
+                       LENGTHS['blockchain_id_namespace_price_decay'] + LENGTHS['blockchain_id_namespace_id_len'] 
 }
 
 OP_RETURN_MAX_SIZE = 40

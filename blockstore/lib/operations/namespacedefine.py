@@ -5,7 +5,7 @@ from binascii import hexlify, unhexlify
 from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import blockstore_script_to_hex, add_magic_bytes, get_script_pubkey
-
+from ..hashing import hash_name
 
 def namespace_decay_to_float( namespace_decay_fixedpoint ):
    """
@@ -128,19 +128,19 @@ def parse( bin_payload ):
    namespace_id_len = None 
    namespace_id = None 
    
-   life = ord( bin_payload[off:off+LENGTHS['blockchain_id_namespace_life']] )
+   life = int( hexlify(bin_payload[off:off+LENGTHS['blockchain_id_namespace_life']]), 16 )
    
    off += LENGTHS['blockchain_id_namespace_life']
    
-   cost = ord( bin_payload[off:off+LENGTHS['blockchain_id_namespace_cost']] )
+   cost = int( hexlify(bin_payload[off:off+LENGTHS['blockchain_id_namespace_cost']]), 16 )
    
    off += LENGTHS['blockchain_id_namespace_cost']
    
-   decay_fixedpoint = ord( bin_payload[off:off+LENGTHS['blockchain_id_namespace_price_decay']] )
+   decay_fixedpoint = int( hexlify(bin_payload[off:off+LENGTHS['blockchain_id_namespace_price_decay']]), 16 )
    
    off += LENGTHS['blockchain_id_namespace_price_decay']
    
-   namespace_id_len = ord( bin_payload[off:off+LENGTHS['blockchain_id_namespace_id_len']] )
+   namespace_id_len = int( hexlify(bin_payload[off:off+LENGTHS['blockchain_id_namespace_id_len']]), 16 )
    
    off += LENGTHS['blockchain_id_namespace_id_len']
    
@@ -151,6 +151,6 @@ def parse( bin_payload ):
       'lifetime': life,
       'cost': cost,
       'price_decay': namespace_decay_to_float( decay_fixedpoint ),
-      'namespace_id_hash': namespace_id_hash
+      'namespace_id_hash': hexlify( namespace_id_hash )
    }
 

@@ -1,5 +1,5 @@
 from ..hashing import hash_name, hash256_trunc128
-from .namedb import get_name_from_hash128
+from .namedb import get_name_from_hash128, put_signed_data
 
 def remove_preorder(db, name, script_pubkey):
     try:
@@ -95,7 +95,7 @@ def commit_putdata( db, storageop ):
    name_hash = storageop['name_hash']
    data_hash = storageop['data_hash']
    
-   name = get_name_from_hash128( name_hash )
+   name = get_name_from_hash128( name_hash, db )
    put_signed_data( name, data_hash, db )
    
 
@@ -107,6 +107,6 @@ def commit_deletedata( db, storageop):
    name_hash = storageop['name_hash']
    data_hash = storageop['data_hash']
    
-   name = get_name_from_hash128( name_hash )
+   name = get_name_from_hash128( name_hash, db )
    remove_signed_data( name, data_hash, db )
    

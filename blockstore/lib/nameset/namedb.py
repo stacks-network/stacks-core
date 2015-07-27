@@ -168,6 +168,8 @@ def put_signed_data( owner_name, data_hash, db ):
    NOTE: this doesn't verify that the name is valid; the caller must do so.
    """
    
+   print "user %s owns %s" % (owner_name, data_hash)
+   
    if db.signed_data.has_key( owner_name ):
       db.signed_data[owner_name].update( set([data_hash]) )
    
@@ -181,12 +183,15 @@ def verify_signed_data( owner_name, data_hash, db ):
    
    Return True if so; False if not 
    """
-   
+  
+   debug_str = "" 
    if not db.signed_data.has_key( owner_name ):
       # user has written nothing 
-      return False 
+      debug_str = "user %s does not own anything" % owner_name
+      return {"debug": debug_str, "result": False} 
    
-   return data_hash in db.signed_data[ owner_name ]
+   debug_str = "user %s owns %s? %s" % (owner_name, data_hash, data_hash in db.signed_data[owner_name])
+   return {"debug": debug_str, "result":  data_hash in db.signed_data[ owner_name ] }
 
 
 def delete_signed_data( owner_name, data_hash, db ):

@@ -60,31 +60,40 @@ def parse_blockstore_op_data(data):
     else:
         # this is a name registration
         opcode = NAME_REGISTRATION
+        payload = bin_data
 
     op = None 
     
     if opcode == NAME_PREORDER and len(payload) >= MIN_OP_LENGTHS['preorder']:
+        print "Parse NAME_PREORDER: %s" % data
         op = parse_preorder(payload)
         
     elif (opcode == NAME_REGISTRATION and len(payload) >= MIN_OP_LENGTHS['registration']):
+        print "Parse NAME_REGISTRATION: %s" % data
         op = parse_registration(payload)
         
     elif opcode == NAME_UPDATE and len(payload) >= MIN_OP_LENGTHS['update']:
+        print "Parse NAME_UPDATE: %s" % data
         op = parse_update(payload)
         
     elif (opcode == NAME_TRANSFER and len(payload) >= MIN_OP_LENGTHS['transfer']):
+        print "Parse NAME_TRANSFER: %s" % data
         op = parse_transfer(payload)
       
     elif opcode == NAMESPACE_DEFINE and len(payload) >= MIN_OP_LENGTHS['namespace_define']:
+        print "Parse NAMESPACE_DEFINE: %s" % data
         op = parse_namespacedefine( payload )
          
     elif opcode == NAMESPACE_BEGIN and len(payload) >= MIN_OP_LENGTHS['namespace_begin']:
+        print "Parse NAMESPACE_BEGIN: %s" % data
         op = parse_namespacebegin( payload )
         
     elif opcode == DATA_PUT and len(payload) >= MIN_OP_LENGTHS['data_put']:
+        print "Parse DATA_PUT: %s" % data
         op = parse_putdata( payload )
    
     elif opcode == DATA_REMOVE and len(payload) >= MIN_OP_LENGTHS['data_remove']:
+        print "Parse DATA_REMOVE: %s" % data
         op = parse_rmdata( payload )
     
     return op
