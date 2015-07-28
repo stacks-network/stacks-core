@@ -217,11 +217,11 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
 
         result = self.dht_server.set(key, value)
         if result:
-	   reply['key'] = hash 
-	   reply['result'] = True
-	else:
-	   reply['result'] = False
-        
+           reply['key'] = hash 
+           reply['result'] = True
+        else:
+           reply['result'] = False
+      
         return reply
 
 
@@ -638,6 +638,9 @@ def run_blockstored():
       help='stop the blockstored server')
    
    args, _ = argparser.parse_known_args()
+   
+   print args 
+   print "multiprocessing = (%s, %s)" % (config.MULTIPROCESS_NUM_WORKERS, config.MULTIPROCESS_WORKER_BATCH)
    
    # get chain.com info from the config file...
    blockchain_client = get_blockchain_client()
