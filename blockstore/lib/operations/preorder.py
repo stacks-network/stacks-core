@@ -67,6 +67,6 @@ def parse(bin_payload):
     
     return {
         'opcode': 'NAME_PREORDER',
-        'preorder_name_hash': hexlify(name_hash),
-        'consensus_hash': hexlify(consensus_hash)
+        'preorder_name_hash': name_hash,
+        'consensus_hash': consensus_hash
     }
