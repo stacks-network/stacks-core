@@ -6,6 +6,7 @@ Listing of data schemas, as well as methods for validating them.
 
 import types
 import re
+from pybitcoin.formatcheck import is_b58check_address
 
 class SchemaField( object ):
    
@@ -20,6 +21,7 @@ class SchemaField( object ):
 
 
 class SchemaType( object ):
+   
    def __init__(self, *args):
       self.types = args
    
@@ -31,6 +33,24 @@ class SchemaType( object ):
       return type(value) in self.get_types()
    
 
+class ArrayType( SchemaType ):
+   
+   def __init__(self, internal_type):
+      super( ArrayType, self ).__init__( types.ListType )
+      self.internal_type = internal_type
+      
+   def valid( self, value ):
+      
+      if type(value) != types.ListType:
+         return False 
+      
+      for obj in value:
+         if type(obj) != self.internal_type and not isinstance( obj, self.internal_type ):
+            return False 
+      
+      return True
+      
+
 class BitcoinAddressType( SchemaType ):
    
    def __init__(self):
@@ -39,13 +59,26 @@ class BitcoinAddressType( SchemaType ):
    def valid( self, value ):
       
       if type(value) != types.StringType and type(value) != types.UnicodeType:
-         print "mismatch on type (%s)" % type(value)
          return False 
       
-      strvalue = str(value)
+      return is_b58check_address( value )
+
+
+class HashType( SchemaType ):
+   
+   def __init__(self, length=None ):
+      super( HashType, self ).__init__( types.StringType, types.UnicodeType )
+      self.length = length
+   
+   def valid( self, value ):
       
-      if re.match(r"[a-zA-Z1-9]{27,35}$", strvalue) is None:
-         print "mismatch on regex (%s)" % strvalue
+      if type(value) != types.StringType and type(value) != types.UnicodeType:
+         return False 
+      
+      if re.match(r"[a-fA-F0-9]", value ) is None:
+         return False 
+      
+      if self.length is not None and len(value) != self.length:
          return False 
       
       return True
@@ -96,13 +129,15 @@ class OptionalField( SchemaField ):
 
 
 STRING = SchemaType( types.StringType, types.UnicodeType )
+HASH160_TYPE = HashType(20) 
+HASH160_ARRAY = ArrayType( HASH160_TYPE )
 URL = STRING
 PGP_FINGERPRINT = PGPFingerprintType()
 BITCOIN_ADDRESS = BitcoinAddressType()
 EMAIL = EmailType()
 OPTIONAL = OptionalField
 
-def match( schema, obj, verbose=False ):
+def schema_match( schema, obj, verbose=False ):
    
    """
    Recursively verify that the given object has the given schema.
@@ -160,18 +195,18 @@ def match( schema, obj, verbose=False ):
             # check custom validation
             is_match = sub_schema.valid( sub_object )
             if is_match is False:
-               print "schema not valid: %s" % (sub_object)
+               debug( "schema not valid: %s" % (sub_object) )
             
          else:
             # check type 
             is_match = (type(sub_schema) == type(sub_object))
             if is_match is False:
-               print "%s != %s" % (type(sub_schema), type(sub_object))
+               debug( "%s != %s" % (type(sub_schema), type(sub_object)) )
             
       else:
          
          # recursively verify match 
-         is_match = match( sub_schema, sub_object )
+         is_match = schema_match( sub_schema, sub_object )
          
       if not is_match:
          debug( "Mismatch on key '%s'" % literal)
@@ -238,6 +273,8 @@ if __name__ == "__main__":
             "url": URL
          }
       },
+      
+      OPTIONAL("immutable_data"): ArrayType( STRING )
       
       "v": STRING
    }
@@ -527,6 +564,6 @@ if __name__ == "__main__":
    for i in xrange(0, len(testcases)):
       
       testcase = testcases[i]
-      rc = match( PASSCARD_SCHEMA_V2, testcase, verbose=True )
+      rc = schema_match( PASSCARD_SCHEMA_V2, testcase, verbose=True )
       print "test case %s: %s" % (i, rc)
 """

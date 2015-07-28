@@ -91,7 +91,7 @@ BITCOIND_USE_HTTPS = None
 """
 
 # cache for raw transactions: map txid to tx
-CACHE_ENABLE = False
+CACHE_ENABLE = None
 CACHE_BUFLEN = 10000
 CACHE_ROOT = os.path.expanduser("~/.blockstore/cache")
 CACHE_TX_DIR = os.path.join( CACHE_ROOT, "tx_data" )
@@ -101,8 +101,8 @@ CACHE_BLOCK_ID_DIR = os.path.join( CACHE_ROOT, "blocks" )
 
 """ Multiprocessing
 """
-MULTIPROCESS_NUM_WORKERS = 1
-MULTIPROCESS_WORKER_BATCH = 64
+MULTIPROCESS_NUM_WORKERS = 8
+MULTIPROCESS_WORKER_BATCH = 8
 MULTIPROCESS_RPC_RETRY = 3
 
 
@@ -167,17 +167,20 @@ def default_bitcoind_opts( config_file=None ):
    }
    
    # configure caching and multiiprocessing based on local vs nonlocal 
-   if CACHE_ENABLE is None:
-      if BITCOIND_SERVER == "localhost" or BITCOIND_SERVER == "127.0.0.1" or BITCOIND_SERVER == "::1":
+   if BITCOIND_SERVER == "localhost" or BITCOIND_SERVER == "127.0.0.1" or BITCOIND_SERVER == "::1":
+      # local bitcoind--no need to cache, and no need for parallel RPC (lest we overwhelm it)
+      if CACHE_ENABLE is None:
          CACHE_ENABLE = False
-         MULTIPROCESS_NUM_WORKERS = 1
-         MULTIPROCESS_WORKER_BATCH = 64
-         
-      else:
+      MULTIPROCESS_NUM_WORKERS = 1
+      MULTIPROCESS_WORKER_BATCH = 64
+      
+   else:
+      # non-local bitcoind--open the pipe!
+      if CACHE_ENABLE is None:
          CACHE_ENABLE = True 
-         MULTIPROCESS_NUM_WORKERS = 8
-         MULTIPROCESS_WORKER_BATCH = 8
-         
+      MULTIPROCESS_NUM_WORKERS = 8
+      MULTIPROCESS_WORKER_BATCH = 8
+      
    return default_bitcoin_opts
 
 
@@ -313,7 +316,7 @@ PASSCARD_SCHEMA_V2 = {
    
    "bio": schemas.STRING,
    
-   "location": {
+   schemas.OPTIONAL( "location" ): {
       "formatted": schemas.STRING 
    },
    
@@ -331,12 +334,12 @@ PASSCARD_SCHEMA_V2 = {
       "url": schemas.URL,
    },
    
-   "pgp": {
+   schemas.OPTIONAL( "pgp" ): {
       "url": schemas.URL,
       "fingerprint": schemas.PGP_FINGERPRINT,
    },
    
-   "email": schemas.EMAIL,
+   schemas.OPTIONAL( "email" ): schemas.EMAIL,
    
    "twitter": {
       "username": schemas.STRING,
@@ -358,6 +361,8 @@ PASSCARD_SCHEMA_V2 = {
          "url": schemas.URL
        }
    },
+   
+   schemas.OPTIONAL( "immutable_data" ): schemas.HASH160_ARRAY,
    
    "v": schemas.STRING
 }
