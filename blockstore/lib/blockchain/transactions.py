@@ -69,7 +69,7 @@ def getrawtransaction_async( workpool, block_hash, tx_hash, verbose ):
    to go get it.
    """
    
-   log.info("getrawtransaction_async %s, %s" % (block_hash, tx_hash))
+   log.debug("getrawtransaction_async %s, %s" % (block_hash, tx_hash))
    tx_result = workpool.apply_async( getrawtransaction, (None, block_hash, tx_hash, verbose) )
    return tx_result
 
@@ -124,7 +124,7 @@ def getblockhash_async( workpool, block_number ):
    Return a future to the block hash 
    """
    
-   log.info("getblockhash_async %s" % block_number)
+   log.debug("getblockhash_async %s" % block_number)
    block_hash_future = workpool.apply_async( getblockhash, (None, block_number) )
    return block_hash_future
 
@@ -177,7 +177,7 @@ def getblock_async( workpool, block_number, block_hash ):
    Get a block's data, given its hash.
    Return a future to the data.
    """
-   log.info("getblock_async %s %s" % (block_number, block_hash))
+   log.debug("getblock_async %s %s" % (block_number, block_hash))
    block_future = workpool.apply_async( getblock, (None, block_hash) )
    return block_future 
 
@@ -341,7 +341,6 @@ def future_next( fut_records, fut_inspector ):
       if fut is not None:
          if fut.ready():
             fut_records.remove( fut_record )
-            log.info("Future: %s" % str(fut_record) )
             return fut_record 
       
    # no ready futures.  wait for one 
@@ -353,7 +352,6 @@ def future_next( fut_records, fut_inspector ):
          fut.wait( 10000000000000000L )
          
          fut_records.remove( fut_record )
-         log.info("Future: %s" % str(fut_record) )
          return fut_record
    
 
@@ -439,11 +437,11 @@ def get_nulldata_txs_in_blocks( workpool, blocks ):
             
             total_time = time.time() - block_times[ block_number ]                                       
             block_bandwidth[ block_number ] = bandwidth_record( "HIT", total_time, block_data )
-            log.info("HIT: %s" % block_number )
+            log.debug("HIT: %s" % block_number )
             continue
          
          # cache miss
-         log.info("MISS: %s" % block_number )
+         log.debug("MISS: %s" % block_number )
          block_hash_fut = getblockhash_async( workpool, block_number )
          block_hash_futures.append( (block_number, block_hash_fut) )
    
@@ -634,22 +632,22 @@ def get_nulldata_txs_in_blocks( workpool, blocks ):
       block_nulldata_tx_time = block_nulldata_tx_time_end - block_nulldata_tx_time_start
       
       # log some stats...
-      log.info("blocks %s-%s (%s):" % (block_slice[0], block_slice[-1], len(block_slice)) )
-      log.info("  Hits:   %s" % len(block_id_hits))
-      log.info("  Misses: %s" % len(block_id_misses))
-      log.info("  Hit time total:  %s" % total_hit_processing_time )
-      log.info("  Hit data total:  %s" % total_hit_data )
-      log.info("  Hit bandwidth:   %s" % (total_hit_data / (total_hit_processing_time + 1e-7)) )
-      log.info("  Miss time total: %s" % total_miss_processing_time )
-      log.info("  Miss data total: %s" % total_miss_data )
-      log.info("  Miss bandwidth:  %s" % (total_miss_data / (total_miss_processing_time + 1e-7)) )
-      log.info("  block hash time:        %s" % block_hash_time)
-      log.info("  block data time:        %s" % block_data_time)
-      log.info("  block tx time:          %s" % block_tx_time)
-      log.info("  block nulldata tx time: %s" % block_nulldata_tx_time)
-      log.info("  Total time:      %s" % (end_slice_time - start_slice_time))
-      log.info("  Total size:      %s" % (total_hit_data + total_miss_data))
-      log.info("  Total bandwidth: %s" % ((total_hit_data + total_miss_data) / (end_slice_time - start_slice_time)))
+      log.debug("blocks %s-%s (%s):" % (block_slice[0], block_slice[-1], len(block_slice)) )
+      log.debug("  Hits:   %s" % len(block_id_hits))
+      log.debug("  Misses: %s" % len(block_id_misses))
+      log.debug("  Hit time total:  %s" % total_hit_processing_time )
+      log.debug("  Hit data total:  %s" % total_hit_data )
+      log.debug("  Hit goodput:      %s" % (total_hit_data / (total_hit_processing_time + 1e-7)) )
+      log.debug("  Miss time total: %s" % total_miss_processing_time )
+      log.debug("  Miss data total: %s" % total_miss_data )
+      log.debug("  Miss goodput:    %s" % (total_miss_data / (total_miss_processing_time + 1e-7)) )
+      log.debug("  block hash time:        %s" % block_hash_time)
+      log.debug("  block data time:        %s" % block_data_time)
+      log.debug("  block tx time:          %s" % block_tx_time)
+      log.debug("  block nulldata tx time: %s" % block_nulldata_tx_time)
+      log.debug("  Total time:      %s" % (end_slice_time - start_slice_time))
+      log.debug("  Total size:      %s" % (total_hit_data + total_miss_data))
+      log.debug("  Total goodput:   %s" % ((total_hit_data + total_miss_data) / (end_slice_time - start_slice_time)))
       
       # next slice
       slice_count += 1
