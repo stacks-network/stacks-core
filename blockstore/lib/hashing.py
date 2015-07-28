@@ -8,7 +8,6 @@ from .config import LENGTHS
 
 
 def hash_name(name, script_pubkey):
-    print "hash_name %s %s" % (name, script_pubkey)
     bin_name = b40_to_bin(name)
     name_and_pubkey = bin_name + unhexlify(script_pubkey)
     return hex_hash160(name_and_pubkey)
