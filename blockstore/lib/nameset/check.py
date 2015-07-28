@@ -1,6 +1,6 @@
 from ..hashing import hash_name, hash256_trunc128
 from ..config import BLOCKS_CONSENSUS_HASH_IS_VALID
-
+from .namedb import get_name_from_hash128
 
 def name_registered(db, name):
     if name in db.name_records:
@@ -21,20 +21,28 @@ def namespace_registered( db, namespace ):
    else:
       return False
    
-def namespace_importing( db, namespace ):
+
+def namespace_importing_hash( db, namespace_id_hash ):
    """
    Is a namespace in the process of being defined?
    """
-   try:
-      namespace_id_hash = hash_name(namespace_id, sender_script_pubkey)
-   except ValueError:
-      return False
-   
    if namespace_id_hash in db.imports.keys():
       return True 
    else:
       return False
 
+
+def namespace_importing( db, namespace, sender_script_pubkey ):
+   """
+   Is a namespace in the process of being defined?
+   """
+   try:
+      namespace_id_hash = hash_name(namespace, sender_script_pubkey)
+   except ValueError:
+      return False
+
+   return namespace_importing_hash( db, namespace_id_hash )
+   
 
 def has_defined_namespace( db, namespace_id, sender_script_pubkey ):
    """
@@ -63,11 +71,19 @@ def has_preordered_name(db, name, sender_script_pubkey):
     try:
         name_hash = hash_name(name, sender_script_pubkey)
     except ValueError:
+        raise 
         return False
 
     if name_hash in db.preorders:
+        print "%s: %s" % (name_hash, db.preorders[name_hash])
         if sender_script_pubkey == db.preorders[name_hash]['sender']:
             return True
+        else:
+            print "requester: %s; preorderer: %s" % (sender_script_pubkey, db.preorders[name_hash]['sender'])
+            return False
+    else:
+        print "%s not found" % name_hash 
+ 
     return False
 
 
@@ -125,4 +141,6 @@ def is_storageop_from_registered_name( db, storageop ):
     if name_owner != storageop['sender']:
       return False
     
-    
+    else:
+      return True 
+ 

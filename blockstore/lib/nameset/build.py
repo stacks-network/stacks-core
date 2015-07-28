@@ -5,7 +5,7 @@ from binascii import hexlify, unhexlify
 from .check import *
 from .commit import commit_registration, commit_update, commit_transfer, \
     commit_renewal, commit_namespace, commit_putdata, commit_deletedata
-from .log import log_preorder, log_registration, log_update, log_transfer, log_namespace_define, log_namespace_begin
+from .log import log_preorder, log_registration, log_update, log_transfer, log_namespace_define, log_namespace_begin, log_putdata, log_deletedata
 
 from ..fees import is_mining_fee_sufficient
 from ..parsing import parse_blockstore_op
@@ -105,10 +105,10 @@ def log_blockstore_op(db, blockstore_op, block_number):
         log_namespace_begin(db, blockstore_op, block_number)
         
     elif opcode == DATA_PUT:
-        log_data_put( db, blockstore_op, block_number )
+        log_putdata( db, blockstore_op, block_number )
     
     elif opcode == DATA_DELETE:
-        log_data_delete( db, blockstore_op, block_number )
+        log_deletedata( db, blockstore_op, block_number )
 
 
 def name_record_to_string(name, name_record):

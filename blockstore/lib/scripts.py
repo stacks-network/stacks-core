@@ -50,6 +50,7 @@ def data_script_to_hex(script):
 
 # generate a pay-to-pubkeyhash script from a private key.
 def get_script_pubkey( private_key ):
-   hash160 = BitcoinPrivateKey(private_key).public_key().hash160()
+   hash160 = BitcoinPrivateKey(private_key).public_key(compressed=True).hash160()
    script_pubkey = script_to_hex( 'OP_DUP OP_HASH160 %s OP_EQUALVERIFY OP_CHECKSIG' % hash160)
+   print "script_pubkey of %s is %s" % (private_key, script_pubkey)
    return  script_pubkey

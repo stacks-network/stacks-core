@@ -330,7 +330,7 @@ def run_cli():
         name = args.name
         value = args.data 
         
-        key = coinit.hex_hash160(value)
+        key = coinkit.hex_hash160(value)
         logger.debug("Signing hash '%s' by '%s'", key, name)
         
         client = proxy.callRemote('signdata', name, key, value, args.privatekey)
