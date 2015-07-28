@@ -313,14 +313,18 @@ def parse_bitcoind_args( return_parser=False, parser=None ):
     args, _ = parser.parse_known_args()
     
     # propagate options 
-    for (argname, config_name) in zip( ["bitcoind_server", "bitcoind_port", "bitcoind_user", "bitcoind_passwd", "bitcoind_use_https"], \
-                                       ["BITCOIND_SERVER", "BITCOIND_PORT", "BITCOIND_USER", "BITCOIND_PASSWD", "BITCOIND_USE_HTTPS"] ):
+    for (argname, config_name) in zip( ["bitcoind_server", "bitcoind_port", "bitcoind_user", "bitcoind_passwd"], \
+                                       ["BITCOIND_SERVER", "BITCOIND_PORT", "BITCOIND_USER", "BITCOIND_PASSWD"] ):
         
         if hasattr( args, argname ) and getattr( args, argname ) is not None:
             
             opts[ argname ] = getattr( args, argname )
             setattr( config, config_name, getattr( args, argname ) )
-       
+            
+    if args.bitcoind_use_https:
+       config.BITCOIND_USE_HTTPS = True 
+       opts['bitcoind_use_https'] = True
+    
     if return_parser:
        return opts, parser 
     else:
