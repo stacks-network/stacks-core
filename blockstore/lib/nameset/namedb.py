@@ -5,7 +5,35 @@ from collections import defaultdict
 from ..config import NAMESPACE_DEFAULT
 
 class NameDb():
-    def __init__(self, names_filename, snapshots_filename):
+    """
+    Client to the blockstore database of names and storage operations, constructed and  
+    kept synchronized with records in the underlying blockchain.  If the blockchain 
+    is the ledger of all name and storage operations to have ever been committed 
+    (including invalid and fraudulent ones), then this databse represents the 
+    current state of all valid names, namespaces, and storage operations.
+    
+    Constructing the database is an iterative process.  Blockstore data are 
+    encoded in OP_RETURN transactions within the underlying cryptocurrency (Bitcoin).
+    Each block in the blockchain must be fed into the database, and the blocks' 
+    blockstore operations extracted, validated, and accounted for.  As such, at block N,
+    the blockstore database represents the current state of names and storage at block N.
+    
+    Because the underlying cryptocurrency blockchain can fork, blockstore peers need to 
+    determine that they are on the smae fork so they will know which blockstore operations 
+    to process.  To do so, the blockstore database calculates a Merkle tree over its 
+    current state at the current block, and encodes the root hash in each operation.  Then,
+    one peer can tell that the other peer's operations were calculated on the same blockchain 
+    fork simply by ensuring that the operation had the right Merkle root hash for that block.
+    These Merkle root hashes are called "consensus hashes."
+    """
+    
+    def __init__(self, db_filename, consensus_snapshots_filename):
+        """
+        Construct a blockstore database client, optionally from locally-cached 
+        blockstore database state and the set of previously-calculated consensus 
+        hashes for each block.
+        """
+        
         self.name_records = {}                  # map name.ns_id to dict of
                                                 # { "owner": hex string of script_pubkey,
                                                 #   "first_registered": block when registered,
@@ -18,6 +46,7 @@ class NameDb():
         self.namespaces = {}                    # map namespace ID to first instance of NAMESPACE_BEGIN op
         self.signed_data = {}                   # map name to set of hashes of data
         
+        # the set of operations witnessed for the current block the client is processing.
         self.pending_registrations = defaultdict(list)
         self.pending_updates = defaultdict(list)
         self.pending_transfers = defaultdict(list)
@@ -30,13 +59,13 @@ class NameDb():
 
         self.consensus_hashes = defaultdict(dict)
 
-        # default namespace 
+        # default namespace (empty string)
         self.namespaces[""] = NAMESPACE_DEFAULT
         self.namespaces[None] = NAMESPACE_DEFAULT
         
-        if names_filename:
+        if db_filename:
             try:
-                with open(names_filename, 'r') as f:
+                with open(db_filename, 'r') as f:
                    
                     db_dict = json.loads(f.read())
                     
@@ -65,7 +94,7 @@ class NameDb():
             except Exception as e:
                 pass
 
-        if snapshots_filename:
+        if consensus_snapshots_filename:
             try:
                 with open(snapshots_filename, 'r') as f:
                     db_dict = json.loads(f.read())
