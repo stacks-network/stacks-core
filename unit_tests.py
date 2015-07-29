@@ -149,7 +149,7 @@ class UserbaseStatsTest(unittest.TestCase):
         required_keys = {
             'stats': ['registrations']
         }
-        data = test_get_request(self, build_url('/users/stats'),
+        data = test_get_request(self, build_url('/stats/users'),
                                 headers=self.headers, status_code=200)
         check_data(self, data, required_keys=required_keys)
 
@@ -248,13 +248,13 @@ class BroadcastTransactionTest(unittest.TestCase):
 class DKIMPubkeyTest(unittest.TestCase):
     def setUp(self):
         self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
-        self.required_keys = {'public_key': []}
+        self.required_keys = {'public_key': [], 'key_type': []}
 
     def tearDown(self):
         pass
 
     def build_url(self, domain):
-        return build_url('/domains/' + domain)
+        return build_url('/domains/' + domain + '/dkim')
 
     def test_address_lookup(self):
         domain = 'onename.com'

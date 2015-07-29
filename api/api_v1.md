@@ -81,7 +81,7 @@ curl https://api.onename.com/v1/users/fredwilson \
 
 _end_
 
-## Search for users
+## Search users
 
 #### anchor_tag:
 search_users
@@ -198,7 +198,7 @@ curl https://api.onename.com/v1/users \
 
 _end_
 
-## Get entire userbase
+## Get all users
 
 #### anchor_tag:
 get_userbase
@@ -371,7 +371,7 @@ _end_
 dkim_pubkey
 
 #### description:
-Retrieves a DKIM public key for given domain.
+Retrieves a DKIM public key for given domain, using the "blockchainid._domainkey" subdomain DNS record.
 
 #### response_description:
 Returns a DKIM public key.
@@ -380,18 +380,53 @@ Returns a DKIM public key.
 GET
 
 #### path_template:
-/domains/{domain}
+/domains/{domain}/dkim
 
 #### tryit_pathname:
-/v1/domains/onename.com?app-id=demo-1234&app-secret=demo-1234
+/v1/domains/onename.com/dkim?app-id=demo-1234&app-secret=demo-1234
 
 #### example_request_bash:
-curl https://api.onename.com/v1/domains/onename.com \
+curl https://api.onename.com/v1/domains/onename.com/dkim \
     -u 'YOUR-API-ID:YOUR-API-SECRET'
 
 #### example_response:
 {
-  "public_key": "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCkyK8qxCwSvo829+QZ5p5YJCL5+DGDgcGgXLyIWA3G5nK/KNEtxQkmTIC5HNcWgVTE8a7DkWNuRq3nLDbvjCY+D2NgSiTN6DLpsOjzoojLdiZYC6l2lUC6rUyPKs+cK68cZsfkFHIRpzZPKWujUTd1l62qbZ1LiVMzlNX3F/16DwIDAQAB"
+  "key_curve": "secp256k1", 
+  "key_type": "ecdsa", 
+  "public_key": "MFYwEAYHKoZIzj0CAQYFK4EEAAoDQgAE3s0qMljBNrC6mmfMLQp1B+v8haqeOswDV4r0p6HogXA7JT0bOt4nIom6IQeE+TQRzdn4fz+VWBxIBkL9nAXIRQ=="
+}
+
+_end_
+
+## Get user stats
+
+#### anchor_tag:
+user_stats
+
+#### description:
+Gets all user stats.
+
+#### response_description:
+Returns an object with "stats".
+
+#### method:
+GET
+
+#### path_template:
+/stats/users
+
+#### tryit_pathname:
+/v1/stats/users?app-id=demo-1234&app-secret=demo-1234
+
+#### example_request_bash:
+curl https://api.onename.com/v1/stats/users \
+    -u 'YOUR-API-ID:YOUR-API-SECRET'
+
+#### example_response:
+{
+  "stats": {
+    "registrations": "31804"
+  }
 }
 
 _end_

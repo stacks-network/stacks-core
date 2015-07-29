@@ -254,8 +254,7 @@ def get_all_users():
     return jsonify(resp_json), 200
 
 
-@app.route('/v1/users/stats', methods=['GET'])
-@auth_required()
+@app.route('/v1/stats/users', methods=['GET'])
 @crossdomain(origin='*')
 def get_user_stats():
     resp_json = {}
@@ -270,19 +269,17 @@ def get_user_stats():
     return jsonify(resp_json), 200
 
 
-@app.route('/v1/domains/<domain>', methods=['GET'])
-@auth_required(exception_paths=[
-    '/v1/domains/onename.com'])
+@app.route('/v1/domains/<domain>/dkim', methods=['GET'])
+@auth_required(exception_paths=['/v1/domains/onename.com/dkim'])
 @crossdomain(origin='*')
 def get_dkim_pubkey(domain):
-
     domain = DKIM_RECORD_PREFIX + domain
     data = dns_resolver(domain)
-    public_key = parse_pubkey_from_data(data)
+    public_key_data = parse_pubkey_from_data(data)
 
-    if public_key is None:
+    if public_key_data['public_key'] is None:
         raise DKIMPubkeyError()
 
-    resp = {'public_key': public_key}
+    resp = public_key_data
 
     return jsonify(resp), 200
