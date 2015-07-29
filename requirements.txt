@@ -21,3 +21,4 @@ python-bitcoinrpc==0.1
 requests==2.3.0
 utilitybelt==0.1.6
 wsgiref==0.1.2
+dnspython==1.12.0
