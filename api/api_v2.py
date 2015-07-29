@@ -24,7 +24,7 @@ from .parameters import parameters_required
 from .auth import auth_required
 from .db import utxo_index, address_to_utxo, address_to_keys
 from .settings import RESOLVER_URL, SEARCH_URL
-from .models import Passcard
+from .models import User
 
 
 def format_utxo_data(utxo_id, utxo_data):
@@ -52,67 +52,67 @@ def get_unspents(address):
     return unspents
 
 
-@app.route('/v1/users/<passnames>', methods=['GET'])
-@auth_required(exception_paths=['/v1/users/fredwilson'])
+@app.route('/v2/users/<username>', methods=['GET'])
+@auth_required(exception_paths=['/v2/users/fredwilson'])
 @crossdomain(origin='*')
-def api_user(passnames):
-    BASE_URL = RESOLVER_URL + '/v1/users/'
+def v2_api_user(usernames):
+    BASE_URL = RESOLVER_URL + '/v2/users/'
 
     try:
-        resp = requests.get(BASE_URL + passnames, timeout=10, verify=False)
+        resp = requests.get(BASE_URL + usernames, timeout=10, verify=False)
     except (RequestsConnectionError, RequestsTimeout) as e:
         raise ResolverConnectionError()
 
     data = resp.json()
 
-    for passname in passnames.split(','):
-        if passname not in data:
+    for username in usernames.split(','):
+        if username not in data:
             error = InvalidProfileDataError('')
-            data[passname] = {
+            data[username] = {
                 'error': error.to_dict()
             }
 
     return jsonify(data), 200
 
 
-@app.route('/v1/users', methods=['POST'])
+@app.route('/v2/users', methods=['POST'])
 @auth_required()
-@parameters_required(['passname', 'recipient_address'])
+@parameters_required(['username', 'recipient_address'])
 @crossdomain(origin='*')
-def register_user():
+def v2_register_user():
     REGISTRATION_MESSAGE = (
-        "This passcard was registered using the Onename"
+        "This profile was registered using the Onename"
         " API - https://api.onename.com")
 
     data = json.loads(request.data)
 
-    passname = data['passname']
+    username = data['username']
 
-    passcard_lookup = api_user(passname)
-    if 'error' in passcard_lookup.data and passcard_lookup.status_code == 404:
+    profile_lookup = api_user(username)
+    if 'error' in profile_lookup.data and profile_lookup.status_code == 404:
         raise UsernameTakenError()
 
-    if 'passcard' in data:
-        passcard = data['passcard']
+    if 'profile' in data:
+        profile = data['profile']
     else:
-        passcard = {
+        profile = {
             'status': 'registered',
             'message': REGISTRATION_MESSAGE
         }
 
-    matching_passcards = Passcard.objects(passname=passname)
+    matching_profiles = profile.objects(username=username)
 
-    if len(matching_passcards):
+    if len(matching_profiles):
         """ Someone else already tried registering this name
-            but the passname is not yet registered on the blockchain.
+            but the username is not yet registered on the blockchain.
             Don't tell the client that someone else's request is processing.
         """
         pass
     else:
-        passcard = Passcard(passname=passname, payload=json.dumps(passcard),
+        new_user = User(username=username, profile=json.dumps(profile),
                             transfer_address=data['recipient_address'])
         try:
-            passcard.save()
+            new_user.save()
         except Exception as e:
             raise DatabaseSaveError()
 
@@ -121,11 +121,11 @@ def register_user():
     return jsonify(resp), 200
 
 
-@app.route('/v1/search', methods=['GET'])
+@app.route('/v2/search', methods=['GET'])
 @auth_required(exception_queries=['fredwilson', 'wenger'])
 @parameters_required(parameters=['query'])
 @crossdomain(origin='*')
-def search_people():
+def v2_search_people():
 
     search_url = SEARCH_URL + '/search/name'
 
@@ -143,11 +143,11 @@ def search_people():
     return jsonify(data), 200
 
 
-@app.route('/v1/transactions', methods=['POST'])
+@app.route('/v2/transactions', methods=['POST'])
 @auth_required()
 @parameters_required(['signed_hex'])
 @crossdomain(origin='*')
-def broadcast_tx():
+def v2_broadcast_tx():
     data = json.loads(request.data)
     signed_hex = data['signed_hex']
 
@@ -167,11 +167,11 @@ def broadcast_tx():
     return jsonify(resp), 200
 
 
-@app.route('/v1/addresses/<address>/unspents', methods=['GET'])
+@app.route('/v2/addresses/<address>/unspents', methods=['GET'])
 @auth_required(exception_paths=[
-    '/v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4/unspents'])
+    '/v2/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4/unspents'])
 @crossdomain(origin='*')
-def get_address_unspents(address):
+def v2_get_address_unspents(address):
     try:
         unspent_outputs = get_unspents(address)
     except Exception as e:
@@ -183,11 +183,11 @@ def get_address_unspents(address):
     return jsonify(resp), 200
 
 
-@app.route('/v1/addresses/<address>/names', methods=['GET'])
+@app.route('/v2/addresses/<address>/names', methods=['GET'])
 @auth_required(exception_paths=[
-    '/v1/addresses/MyVZe4nwF45jeooXw2v1VtXyNCPczbL2EE/names'])
+    '/v2/addresses/MyVZe4nwF45jeooXw2v1VtXyNCPczbL2EE/names'])
 @crossdomain(origin='*')
-def get_address_names(address):
+def v2_get_address_names(address):
     try:
         results = address_to_keys.find({'address': address})
     except Exception as e:
@@ -203,15 +203,15 @@ def get_address_names(address):
     return jsonify(resp), 200
 
 
-@app.route('/v1/users', methods=['GET'])
+@app.route('/v2/users', methods=['GET'])
 @auth_required()
 @crossdomain(origin='*')
-def get_all_users():
+def v2_get_all_users():
     resp_json = {}
 
     # Specify the URL for the namespace call. If 'recent_blocks' is present,
-    # limit the call to only the names registered in that recent # of blocks. 
-    namespace_url = RESOLVER_URL + '/v1/namespace'
+    # limit the call to only the names registered in that recent # of blocks.
+    namespace_url = RESOLVER_URL + '/v2/namespace'
     if 'recent_blocks' in request.values:
         try:
             recent_blocks_int = int(request.values['recent_blocks'])
@@ -221,7 +221,7 @@ def get_all_users():
             if not (recent_blocks_int > 0 and recent_blocks_int <= 100):
                 recent_blocks_int = 100
             namespace_url += '/recent/' + str(recent_blocks_int)
-    
+
     # Add in the data for the namespace call.
     try:
         namespace_resp = requests.get(namespace_url, timeout=10, verify=False)
@@ -231,7 +231,7 @@ def get_all_users():
 
     # Add in userbase stats, but only if the user is asking for the entire
     # namespace.
-    stats_url = RESOLVER_URL + '/v1/users'
+    stats_url = RESOLVER_URL + '/v2/users'
     if not 'recent_blocks' in request.values:
         try:
             stats_resp = requests.get(stats_url, timeout=10, verify=False)

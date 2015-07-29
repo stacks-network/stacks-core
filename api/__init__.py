@@ -28,3 +28,4 @@ for blueprint in blueprints:
 # Import views
 import index
 import api_v1
+import api_v2

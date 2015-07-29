@@ -70,9 +70,9 @@ class InvalidProfileDataError(APIError):
                "an error with the way the data was handled.")
 
 
-class PassnameTakenError(APIError):
+class UsernameTakenError(APIError):
     status_code = 403
-    message = ("There already exists a passcard with the passname provided.")
+    message = ("There already exists a profile with the username provided.")
 
 
 class DatabaseSaveError(APIError):
