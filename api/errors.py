@@ -75,6 +75,11 @@ class UsernameTakenError(APIError):
     message = ("There already exists a profile with the username provided.")
 
 
+class PassnameNotRegisteredError(APIError):
+    status_code = 404
+    message = ("This username is not registered.")
+
+
 class DatabaseSaveError(APIError):
     status_code = 500
     message = ("There was a problem saving to the database. Please report "
@@ -104,6 +109,11 @@ class ResolverConnectionError(APIError):
     message = ("There was a problem processing the request. It seems that the "
                "name system resolver could not be reached. Please report "
                "this error to support@onename.com.")
+
+
+class DKIMPubkeyError(APIError):
+    status_code = 404
+    message = ("Public key record for domain not found")
 
 
 class BroadcastTransactionError(APIError):

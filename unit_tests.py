@@ -21,6 +21,7 @@ APP_ID, APP_SECRET = new_id, new_id
 register_user(new_id + '@domain.com', app_id=APP_ID, app_secret=APP_SECRET,
               email_user=False)
 
+
 def random_username():
     return hexlify(dev_urandom_entropy(16))
 
@@ -123,7 +124,6 @@ class UserbaseTest(unittest.TestCase):
 
     def test_userbase_lookup(self):
         required_keys = {
-            'stats': ['registrations'],
             'usernames': [],
             'profiles': []
         }
@@ -134,6 +134,22 @@ class UserbaseTest(unittest.TestCase):
     def test_recent_userbase_lookup(self):
         required_keys = {'usernames': []}
         data = test_get_request(self, build_url('/users?recent_blocks=100'),
+                                headers=self.headers, status_code=200)
+        check_data(self, data, required_keys=required_keys)
+
+
+class UserbaseStatsTest(unittest.TestCase):
+    def setUp(self):
+        self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
+
+    def tearDown(self):
+        pass
+
+    def test_stats_lookup(self):
+        required_keys = {
+            'stats': ['registrations']
+        }
+        data = test_get_request(self, build_url('/stats/users'),
                                 headers=self.headers, status_code=200)
         check_data(self, data, required_keys=required_keys)
 
@@ -229,16 +245,35 @@ class BroadcastTransactionTest(unittest.TestCase):
                    banned_keys=self.banned_keys)
 
 
+class DKIMPubkeyTest(unittest.TestCase):
+    def setUp(self):
+        self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
+        self.required_keys = {'public_key': [], 'key_type': []}
+
+    def tearDown(self):
+        pass
+
+    def build_url(self, domain):
+        return build_url('/domains/' + domain + '/dkim')
+
+    def test_address_lookup(self):
+        domain = 'onename.com'
+        data = test_get_request(self, self.build_url(domain),
+                                headers=self.headers)
+        check_data(self, data, required_keys=self.required_keys)
+
 
 def test_main():
     test_support.run_unittest(
         LookupUsersTest,
         UserbaseTest,
+        UserbaseStatsTest,
         SearchUsersTest,
         LookupUnspentsTest,
         LookupNamesOwnedTest,
         RegisterUserTest,
         BroadcastTransactionTest,
+        DKIMPubkeyTest,
     )
 
 

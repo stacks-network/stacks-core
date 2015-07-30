@@ -16,15 +16,16 @@ from pybitcoin.rpc import namecoind
 from flask_crossdomain import crossdomain
 
 from . import app
-from .errors import InvalidProfileDataError, UsernameTakenError, \
+from .errors import InvalidProfileDataError, PassnameTakenError, \
     InternalProcessingError, ResolverConnectionError, \
     BroadcastTransactionError, DatabaseLookupError, InternalSSLError, \
-    DatabaseSaveError
+    DatabaseSaveError, DKIMPubkeyError, PassnameNotRegisteredError
 from .parameters import parameters_required
 from .auth import auth_required
 from .db import utxo_index, address_to_utxo, address_to_keys
 from .settings import RESOLVER_URL, SEARCH_URL
 from .models import Passcard
+from .dkim import dns_resolver, parse_pubkey_from_data, DKIM_RECORD_PREFIX
 
 
 def format_utxo_data(utxo_id, utxo_data):
@@ -65,8 +66,27 @@ def api_user(passnames):
 
     data = resp.json()
 
-    for passname in passnames.split(','):
+    passnames = passnames.split(',')
+
+    if len(passnames) is 1:
+        passname = passnames[0]
+        if 'error' in data:
+            error = PassnameNotRegisteredError('')
+            data[passname] = {
+                'error': error.to_dict()
+            }
+            return jsonify(data), 404
+
+    for passname in passnames:
         if passname not in data:
+            error = PassnameNotRegisteredError('')
+            data[passname] = {
+                'error': error.to_dict()
+            }
+
+        try:
+            json.loads(json.dumps(data[passname]))
+        except:
             error = InvalidProfileDataError('')
             data[passname] = {
                 'error': error.to_dict()
@@ -89,16 +109,18 @@ def register_user():
     passname = data['passname']
 
     passcard_lookup = api_user(passname)
-    if 'error' in passcard_lookup.data and passcard_lookup.status_code == 404:
-        raise UsernameTakenError()
 
-    if 'passcard' in data:
-        passcard = data['passcard']
+    if 'error' in passcard_lookup.data and passcard_lookup.status_code == 404:
+
+        if 'passcard' in data:
+            passcard = data['passcard']
+        else:
+            passcard = {
+                'status': 'registered',
+                'message': REGISTRATION_MESSAGE
+            }
     else:
-        passcard = {
-            'status': 'registered',
-            'message': REGISTRATION_MESSAGE
-        }
+        raise PassnameTakenError()
 
     matching_passcards = Passcard.objects(passname=passname)
 
@@ -210,7 +232,7 @@ def get_all_users():
     resp_json = {}
 
     # Specify the URL for the namespace call. If 'recent_blocks' is present,
-    # limit the call to only the names registered in that recent # of blocks. 
+    # limit the call to only the names registered in that recent # of blocks.
     namespace_url = RESOLVER_URL + '/v1/namespace'
     if 'recent_blocks' in request.values:
         try:
@@ -221,7 +243,7 @@ def get_all_users():
             if not (recent_blocks_int > 0 and recent_blocks_int <= 100):
                 recent_blocks_int = 100
             namespace_url += '/recent/' + str(recent_blocks_int)
-    
+
     # Add in the data for the namespace call.
     try:
         namespace_resp = requests.get(namespace_url, timeout=10, verify=False)
@@ -229,14 +251,35 @@ def get_all_users():
     except (RequestsConnectionError, RequestsTimeout) as e:
         raise ResolverConnectionError()
 
-    # Add in userbase stats, but only if the user is asking for the entire
-    # namespace.
+    return jsonify(resp_json), 200
+
+
+@app.route('/v1/stats/users', methods=['GET'])
+@crossdomain(origin='*')
+def get_user_stats():
+    resp_json = {}
+
     stats_url = RESOLVER_URL + '/v1/users'
-    if not 'recent_blocks' in request.values:
-        try:
-            stats_resp = requests.get(stats_url, timeout=10, verify=False)
-            resp_json.update(stats_resp.json())
-        except (RequestsConnectionError, RequestsTimeout) as e:
-            raise ResolverConnectionError()
+    try:
+        stats_resp = requests.get(stats_url, timeout=10, verify=False)
+        resp_json.update(stats_resp.json())
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        raise ResolverConnectionError()
 
     return jsonify(resp_json), 200
+
+
+@app.route('/v1/domains/<domain>/dkim', methods=['GET'])
+@auth_required(exception_paths=['/v1/domains/onename.com/dkim'])
+@crossdomain(origin='*')
+def get_dkim_pubkey(domain):
+    domain = DKIM_RECORD_PREFIX + domain
+    data = dns_resolver(domain)
+    public_key_data = parse_pubkey_from_data(data)
+
+    if public_key_data['public_key'] is None:
+        raise DKIMPubkeyError()
+
+    resp = public_key_data
+
+    return jsonify(resp), 200
