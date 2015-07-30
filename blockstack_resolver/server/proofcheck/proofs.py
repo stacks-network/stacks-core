@@ -47,8 +47,7 @@ def contains_valid_proof_statement(search_text, username):
 
 
 def is_valid_proof(site, site_username, username, proof_url):
-    print proof_url
-    print site
+
     site_username = site_username.lower()
     proof_url = proof_url.lower()
     username = username.lower()
