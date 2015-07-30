@@ -59,7 +59,6 @@ def get_search_text(service, raw_html):
                 search_text = search_results.text
         elif 'title' in query_data:
             search_results = html_soup.title.string
-            print search_results
         else:
             search_results = html_soup.body
             if search_results:
