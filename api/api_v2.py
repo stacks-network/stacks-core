@@ -26,6 +26,14 @@ from .db import utxo_index, address_to_utxo, address_to_keys
 from .settings import RESOLVER_URL, SEARCH_URL
 from .models import User
 
+from twisted.internet import reactor
+from txjsonrpc.netstring.jsonrpc import Proxy
+from .settings import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
+
+proxy = Proxy(BLOCKSTORED_SERVER, BLOCKSTORED_PORT)
+
+from blockstore.blockstore_cli import printValue, printError, shutDown, getFormat
+
 
 def format_utxo_data(utxo_id, utxo_data):
     unspent = None
@@ -121,52 +129,6 @@ def v2_register_user():
     return jsonify(resp), 200
 
 
-@app.route('/v2/search', methods=['GET'])
-@auth_required(exception_queries=['fredwilson', 'wenger'])
-@parameters_required(parameters=['query'])
-@crossdomain(origin='*')
-def v2_search_people():
-
-    search_url = SEARCH_URL + '/search/name'
-
-    name = request.values['query']
-
-    try:
-        resp = requests.get(url=search_url, params={'query': name})
-    except (RequestsConnectionError, RequestsTimeout) as e:
-        raise InternalProcessingError()
-
-    data = resp.json()
-    if not ('results' in data and isinstance(data['results'], list)):
-        data = {'results': []}
-
-    return jsonify(data), 200
-
-
-@app.route('/v2/transactions', methods=['POST'])
-@auth_required()
-@parameters_required(['signed_hex'])
-@crossdomain(origin='*')
-def v2_broadcast_tx():
-    data = json.loads(request.data)
-    signed_hex = data['signed_hex']
-
-    try:
-        namecoind_response = namecoind.sendrawtransaction(signed_hex)
-    except ssl.SSLError:
-        raise InternalSSLError()
-    except Exception as e:
-        traceback.print_exc()
-        raise BroadcastTransactionError()
-
-    if 'code' in namecoind_response:
-        raise BroadcastTransactionError(namecoind_response['message'])
-
-    resp = {'transaction_hash': namecoind_response, 'status': 'success'}
-
-    return jsonify(resp), 200
-
-
 @app.route('/v2/addresses/<address>/unspents', methods=['GET'])
 @auth_required(exception_paths=[
     '/v2/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4/unspents'])
@@ -240,3 +202,48 @@ def v2_get_all_users():
             raise ResolverConnectionError()
 
     return jsonify(resp_json), 200
+
+
+@app.route('/v2/domains/<domain>/dkim', methods=['GET'])
+@auth_required(exception_paths=['/v2/domains/onename.com/dkim'])
+@crossdomain(origin='*')
+def v2_get_dkim_pubkey(domain):
+    domain = DKIM_RECORD_PREFIX + domain
+    data = dns_resolver(domain)
+    public_key_data = parse_pubkey_from_data(data)
+
+    if public_key_data['public_key'] is None:
+        raise DKIMPubkeyError()
+
+    resp = public_key_data
+
+    return jsonify(resp), 200
+
+
+@app.route('/v2/data/<hash>', methods=['GET'])
+#@auth_required()
+@crossdomain(origin='*')
+def v2_get_immutable_data(hash):
+
+    print "hello"
+    resp = {}
+    resp['message'] = "hello"
+
+    client = proxy.callRemote('get', hash)
+    client.addCallback(getFormat)
+
+    client.addCallback(printValue).addErrback(printError).addBoth(shutDown)
+    reactor.run()
+
+    return jsonify(resp), 200
+
+
+@app.route('/v2/data', methods=['POST'])
+#@auth_required()
+@parameters_required(['hash', 'payload'])
+@crossdomain(origin='*')
+def v2_write_immutable_data():
+
+    resp = {'status': 'success'}
+
+    return jsonify(resp), 200

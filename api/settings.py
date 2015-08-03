@@ -22,6 +22,9 @@ MAIL_USERNAME = 'support@onename.com'
 SEARCH_URL = 'http://search.halfmoonlabs.com'
 RESOLVER_URL = 'http://resolver.onename.com'
 
+BLOCKSTORED_SERVER = '52.0.28.169'
+BLOCKSTORED_PORT = 6264
+
 try:
     from .secrets import *
 except:
