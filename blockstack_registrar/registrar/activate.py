@@ -1,11 +1,14 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-#-----------------------
-# Copyright 2014 Halfmoon Labs, Inc.
-# All Rights Reserved
-#-----------------------
+"""
+    registrar
+    ~~~~~
 
-from pybitcoin.rpc.namecoind_client import NamecoindClient as NamecoindServer 
+    copyright: (c) 2014 by Halfmoon Labs, Inc.
+    copyright: (c) 2015 by Blockstack.org
+    license: MIT, see LICENSE for more details.
+"""
+
+from pybitcoin.rpc.namecoind_client import NamecoindClient as NamecoindServer
 
 from config import MAIN_SERVER, LOAD_SERVERS
 
@@ -14,9 +17,10 @@ from commontools import utf8len, log
 
 from time import sleep
 
-from config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_WALLET_PASSPHRASE, NAMECOIND_USE_HTTPS, NAMECOIND_SERVER
+from config import NAMECOIND_SERVER, NAMECOIND_PORT
+from config import NAMECOIND_USER, NAMECOIND_PASSWD
+from config import NAMECOIND_WALLET_PASSPHRASE, NAMECOIND_USE_HTTPS
 
-#-----------------------------------
 from pymongo import MongoClient
 from config import AWSDB_URI
 aws_db = MongoClient(AWSDB_URI)['blockdata']
@@ -32,25 +36,27 @@ MAX_PENDING_TX = 50
 
 from .nameops import slice_profile
 
-#-----------------------------------
-#get the latest value for key:value being registered
+
 def refresh_value(entry):
+    """get the latest value for key:value being registered
+    """
+
     username = entry['username']
-    user = users.find_one({"username":username})
+    user = users.find_one({"username": username})
 
     if user is None:
-        return None 
+        return None
 
     profile = user['profile']
-    keys, values = slice_profile(username,profile)
+    keys, values = slice_profile(username, profile)
 
-    counter = 0 
+    counter = 0
     for key in keys:
         if entry['key'] == key:
-            return values[counter] 
+            return values[counter]
         counter += 1
 
-#-----------------------------------
+
 def clean_wallet():
 
     for entry in register_queue.find():
@@ -58,7 +64,7 @@ def clean_wallet():
             entry['tx_sent'] = False
             register_queue.save(entry)
 
-#-----------------------------------
+
 def do_name_firstupdate():
 
     log.debug("Checking for new activations")
@@ -89,33 +95,35 @@ def do_name_firstupdate():
 
             key = entry['key']
             server = entry['server']
-            namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS, NAMECOIND_WALLET_PASSPHRASE)
+            namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER,
+                                        NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS,
+                                        NAMECOIND_WALLET_PASSPHRASE)
 
             if 'tx_sent' in entry and entry['tx_sent'] is True:
                 log.debug('Already sent name_firstupdate: %s' % entry['key'])
                 continue
 
-            if 'wait_till_block' not in entry: 
+            if 'wait_till_block' not in entry:
 
                 reply = namecoind.gettransaction(entry['txid'])
 
                 if 'code' in reply:
                     register_queue.remove(entry)
                     continue
-                
+
                 if reply['confirmations'] > 1:
                     log.debug('Got confirmations on name_new: %s' % entry['key'])
                     entry['wait_till_block'] = namecoind.blocks() + (12 - reply['confirmations'])
                     register_queue.save(entry)
                 else:
                     log.debug('No confirmations on name_new: %s' % entry['key'])
-                    continue 
+                    continue
 
             if entry['wait_till_block'] <= blocks:
 
                 if server in ignore_servers:
                     continue
-                
+
                 if pending_transactions(server) > MAX_PENDING_TX:
                         log.debug("Pending tx on server, try again")
                         ignore_servers.append(server)
@@ -124,16 +132,16 @@ def do_name_firstupdate():
                 update_value = None
                 if 'username' in entry:
                     update_value = get_string(refresh_value(entry))
-                    
+
                 if update_value is None:
-                    update_value = get_string(entry['value'])    
-                
+                    update_value = get_string(entry['value'])
+
                 log.debug("Activating entry: '%s' to point to '%s'" % (key, update_value))
-                
+
                 output = namecoind.firstupdate(key,entry['rand'],update_value,entry['txid'])
-                
+
                 log.debug(output)
-                
+
                 if 'message' in output and output['message'] == "this name is already active":
                     register_queue.remove(entry)
                 elif 'message' in output and output['message'] == "previous transaction is not in the wallet":
@@ -153,7 +161,7 @@ def do_name_firstupdate():
             log.debug("key %s already active" % (entry['key']))
             register_queue.remove(entry)
 
-    print "Pending activations: %s" %counter_pending
+    print "Pending activations: %s" % counter_pending
     current_block = namecoind.blocks()
     while(1):
         new_block = namecoind.blocks()
@@ -164,7 +172,6 @@ def do_name_firstupdate():
         else:
             break
 
-#-----------------------------------
 if __name__ == '__main__':
 
     #clean_wallet()
