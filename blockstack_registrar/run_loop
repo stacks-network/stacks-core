@@ -1,6 +1,0 @@
-while true; do 
-	python -m blockdata.activate;
-	echo "sleeping";
-	echo "-------------------------";
-	sleep 100;
-done
