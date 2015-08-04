@@ -6,6 +6,6 @@ For registering/updating users on the blockchain
 Installation
 =========
 
-First install coinrpc (need to update this to pybitcoin)
+First install pybitcoin
 
-> pip install coinrpc
+> pip install pybitcoin

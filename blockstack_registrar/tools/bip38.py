@@ -1,22 +1,24 @@
 # -*- coding: utf-8 -*-
-#-----------------------
-
 """
-    BIP 0038
-    ~~~~~
-
-    :copyright: (c) 2014 by Halfmoon Labs
-    :license: MIT, see LICENSE for more details.
+    copyright: (c) 2014 by Halfmoon Labs, Inc.
+    copyright: (c) 2015 by Blockstack.org
+    license: MIT, see LICENSE for more details.
 """
 
-import re, os, random, struct, hashlib, binascii, scrypt
+import re
+import os
+import random
+import struct
+import hashlib
+import binascii
+import scrypt
 from hashlib import sha256
 from coinkit import BitcoinKeypair, b58check_encode, b58check_decode
 from Crypto.Cipher import AES
 
-#--------------------------------------------
+
 def bip38_encrypt(private_key, passphrase, n=16384, r=8, p=8, compressed=False):
-	# determine the flagbyte
+    # determine the flagbyte
     if compressed:
         flagbyte = '\xe0'
     else:
@@ -51,7 +53,7 @@ def bip38_encrypt(private_key, passphrase, n=16384, r=8, p=8, compressed=False):
     # return the encrypted private key
     return b58check_encrypted_private_key
 
-#--------------------------------------------
+
 def bip38_decrypt(b58check_encrypted_private_key, passphrase, n=16384, r=8, p=8):
     # decode private key from base 58 check to binary
     encrypted_private_key = b58check_decode(b58check_encrypted_private_key)

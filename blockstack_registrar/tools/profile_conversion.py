@@ -1,61 +1,60 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-#-----------------------
-# Copyright 2014 Halfmoon Labs, Inc.
-# All Rights Reserved
-#-----------------------
+"""
+    copyright (c) 2014 by Halfmoon Labs, Inc.
+    copyright (c) 2015 by Blockstack.org
+    license: MIT, see LICENSE for more details.
+"""
 
-#-----------------------------------
+
 def convert_v1_to_v2(profile):
 
-	new_profile = {}
-	
-	if 'v' in profile:
-		new_profile['v'] = '0.2'
+    new_profile = {}
 
-	if 'website' in profile:
-		new_profile['website'] = profile['website']
-	
-	if 'bio' in profile:
-		new_profile['bio'] = profile['bio']
-	
-	if 'github' in profile:
-		new_profile['github'] = profile['github']
-	
-	if 'instagram' in profile:
-		new_profile['instagram'] = {"username":profile['instagram']}
-	
-	if 'twitter' in profile:
-		new_profile['twitter'] = {"username":profile['twitter']}
-	
-	if 'cover' in profile:
-		new_profile['cover'] = {"url":profile['cover']}
+    if 'v' in profile:
+        new_profile['v'] = '0.2'
 
-	if 'avatar' in profile:
-		new_profile['avatar'] = {"url":profile['avatar']}
+    if 'website' in profile:
+        new_profile['website'] = profile['website']
 
-	if 'bitcoin' in profile:
-		new_profile['bitcoin'] = {"address":profile['bitcoin']}
+    if 'bio' in profile:
+        new_profile['bio'] = profile['bio']
+    if 'github' in profile:
+        new_profile['github'] = profile['github']
 
-	if 'linkedin' in profile:
-		new_profile['linkedin'] = {"url":profile['linkedin']}
+    if 'instagram' in profile:
+        new_profile['instagram'] = {"username": profile['instagram']}
 
-	if 'name' in profile:
-		new_profile['name'] = {"formatted":profile['name']}
+    if 'twitter' in profile:
+        new_profile['twitter'] = {"username": profile['twitter']}
 
-	if 'facebook' in profile:
-		new_profile['facebook'] = {"username":profile['facebook']}
+    if 'cover' in profile:
+        new_profile['cover'] = {"url": profile['cover']}
 
-	if 'location' in profile:
-		new_profile['location'] = {"formatted":profile['location']}
+    if 'avatar' in profile:
+        new_profile['avatar'] = {"url": profile['avatar']}
 
-	if 'angellist' in profile:
-		new_profile['angellist'] = {"username":profile['angellist']}
+    if 'bitcoin' in profile:
+        new_profile['bitcoin'] = {"address": profile['bitcoin']}
 
-	if 'bitmessage' in profile:
-		new_profile['bitmessage'] = {"address":profile['bitmessage']}
+    if 'linkedin' in profile:
+        new_profile['linkedin'] = {"url": profile['linkedin']}
 
-	if 'pgp' in profile:
-		new_profile['pgp'] = profile['pgp']
+    if 'name' in profile:
+        new_profile['name'] = {"formatted": profile['name']}
 
-	return new_profile
+    if 'facebook' in profile:
+        new_profile['facebook'] = {"username": profile['facebook']}
+
+    if 'location' in profile:
+        new_profile['location'] = {"formatted": profile['location']}
+
+    if 'angellist' in profile:
+        new_profile['angellist'] = {"username": profile['angellist']}
+
+    if 'bitmessage' in profile:
+        new_profile['bitmessage'] = {"address": profile['bitmessage']}
+
+    if 'pgp' in profile:
+        new_profile['pgp'] = profile['pgp']
+
+    return new_profile
