@@ -1,9 +1,12 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# -----------------------
-# Copyright 2015 Halfmoon Labs, Inc.
-# All Rights Reserved
-# -----------------------
+"""
+    registrar
+    ~~~~~
+
+    copyright: (c) 2014 by Halfmoon Labs, Inc.
+    copyright: (c) 2015 by Blockstack.org
+    license: MIT, see LICENSE for more details.
+"""
 
 # 520 is the real limit
 # hardcoded here instead of some config file
