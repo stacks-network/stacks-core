@@ -1,9 +1,12 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-#-----------------------
-# Copyright 2014 Halfmoon Labs, Inc.
-# All Rights Reserved
-#-----------------------
+"""
+    registrar
+    ~~~~~
+
+    copyright: (c) 2014 by Halfmoon Labs, Inc.
+    copyright: (c) 2015 by Blockstack.org
+    license: MIT, see LICENSE for more details.
+"""
 
 import os
 import json
@@ -28,7 +31,6 @@ from tools.sweep_btc import sweep_btc
 
 from debug import import_user
 
-#-----------------------------------
 remote_client = MongoClient(MONGODB_URI)
 remote_db = remote_client.get_default_database()
 users = remote_db.user
@@ -45,15 +47,15 @@ register_queue = aws_db.queue
 
 from config_local import problem_users, banned_users
 
-load_servers = ['named4','named6','named7','named8']
+load_servers = ['named4', 'named6', 'named7', 'named8']
 
 current_server = 0
 
-MAX_PENDING_TX = 50 
+MAX_PENDING_TX = 50
 
 from blockdata.namecoind_cluster import pending_transactions
 
-#-----------------------------------
+
 def load_balance():
 
     global current_server
@@ -75,19 +77,18 @@ def load_balance():
             break
 
 
-#-----------------------------------
-def process_profile(username,profile):
+def process_profile(username, profile):
 
     if username in problem_users:
         return
 
     try:
-        process_user(username,profile,load_servers[current_server])
+        process_user(username, profile, load_servers[current_server])
     except Exception as e:
-        print e 
+        print e
 
-#-----------------------------------
-def profile_on_blockchain(username,DB_profile):
+
+def profile_on_blockchain(username, DB_profile):
 
     try:
         block_profile = namecoind.get_full_profile('u/' + username)
@@ -102,34 +103,34 @@ def profile_on_blockchain(username,DB_profile):
         if hashlib.md5(block_profile).hexdigest() == hashlib.md5(DB_profile).hexdigest():
             return True
         else:
-            return False 
+            return False
     else:
         return False
 
-#-----------------------------------
+
 def check_banned(username):
 
     for user in banned_users:
-        if user in username: 
+        if user in username:
             return True
 
-    return False 
+    return False
 
-#-----------------------------------
-def register_users(): 
 
-    counter = 0 
+def register_users():
+
+    counter = 0
 
     for new_user in registrations.find():
 
         user_id = new_user['user_id']
-        user = users.find_one({"_id":user_id})
+        user = users.find_one({"_id": user_id})
 
         if user is None:
-            continue 
+            continue
 
         if not user['username_activated']:
-            continue 
+            continue
 
         if check_banned(user['username']):
             continue
@@ -138,123 +139,121 @@ def register_users():
 
         counter += 1
 
-        check_queue = register_queue.find_one({"key":'u/' + user['username']})
+        check_queue = register_queue.find_one({"key": 'u/' + user['username']})
 
         if check_queue is not None:
             print "Already in queue"
-            continue 
+            continue
 
-        if 'dispatched' in new_user and new_user['dispatched'] is False: 
-    
+        if 'dispatched' in new_user and new_user['dispatched'] is False:
+
             print "Dispatch: " + user['username']
-            
-            process_profile(user['username'],user['profile'])
-            new_user['dispatched'] = True 
+
+            process_profile(user['username'], user['profile'])
+            new_user['dispatched'] = True
             registrations.save(new_user)
 
         elif 'dispatched' in new_user and new_user['dispatched'] is True:
 
-            if profile_on_blockchain(user["username"],user["profile"]):
+            if profile_on_blockchain(user["username"], user["profile"]):
                 registrations.remove(new_user)
             else:
-                process_profile(user['username'],user['profile'])
-            
+                process_profile(user['username'], user['profile'])
+
         if counter % 5 == 0:
             load_balance()
 
     print counter
 
-#-----------------------------------
-def check_transfer(): 
+
+def check_transfer():
 
     for new_user in transfer.find():
-    
+
         user_id = new_user['user_id']
-        user = users.find_one({"_id":user_id})
+        user = users.find_one({"_id": user_id})
 
         if user is None:
-            old_user = old_users.find_one({"_id":user_id})
-            user = users.find_one({"username":old_user['username']})
+            old_user = old_users.find_one({"_id": user_id})
+            user = users.find_one({"username": old_user['username']})
 
         if check_banned(user['username']):
             continue
-        
-        if profile_on_blockchain(user["username"],user["profile"]):
+
+        if profile_on_blockchain(user["username"], user["profile"]):
             pass
         else:
             print "Problem: " + user["username"]
             #import_user(user["username"])
-            process_profile(user['username'],user['profile'])
+            process_profile(user['username'], user['profile'])
 
-#-----------------------------------
-def update_users(): 
+
+def update_users():
 
     for new_user in updates.find():
-        
+
         user_id = new_user['user_id']
-        user = users.find_one({"_id":user_id})
+        user = users.find_one({"_id": user_id})
 
         if user is None:
-            old_user = old_users.find_one({"_id":user_id})
-            user = users.find_one({"username":old_user['username']})
+            old_user = old_users.find_one({"_id": user_id})
+            user = users.find_one({"username": old_user['username']})
 
         if check_banned(user['username']):
             continue
-        
-        if profile_on_blockchain(user["username"],user["profile"]):
+
+        if profile_on_blockchain(user["username"], user["profile"]):
             updates.remove(new_user)
         else:
             print "Update: " + str(user['username'])
-            process_profile(user['username'],user['profile'])
+            process_profile(user['username'], user['profile'])
 
-#-----------------------------------
-def cleanup_db(): 
+
+def cleanup_db():
 
     print "----------"
     print "Cleaning DB"
 
     for new_user in updates.find():
-    
+
         user_id = new_user['user_id']
-        user = users.find_one({"_id":user_id})
-    
+        user = users.find_one({"_id": user_id})
+
         if user is None:
-            old_user = old_users.find_one({"_id":user_id})
-            user = users.find_one({"username":old_user['username']})        
+            old_user = old_users.find_one({"_id": user_id})
+            user = users.find_one({"username": old_user['username']})
 
         if check_banned(user['username']):
             continue
-    
-        try:    
-            if profile_on_blockchain(user["username"],user["profile"]):
+
+        try:
+            if profile_on_blockchain(user["username"], user["profile"]):
                 print "cleaning: " + user["username"]
                 updates.remove(new_user)
         except:
             pass
 
-    
     for new_user in transfer.find():
-        
+
         user_id = new_user['user_id']
-        user = users.find_one({"_id":user_id})
-        
+        user = users.find_one({"_id": user_id})
+
         if user is None:
-            old_user = old_users.find_one({"_id":user_id})
-            user = users.find_one({"username":old_user['username']})        
+            old_user = old_users.find_one({"_id": user_id})
+            user = users.find_one({"username": old_user['username']})       
 
         if check_banned(user['username']):
             continue
 
-        if sweep_btc(new_user,LIVE=False):
+        if sweep_btc(new_user, LIVE=False):
             print "Sweep BTC"
         else:
-            if profile_on_blockchain(user["username"],user["profile"]):
+            if profile_on_blockchain(user["username"], user["profile"]):
                 print "cleaning: " + user["username"]
                 transfer.remove(new_user)
 
-
     for new_user in registrations.find():
-    
+
         user_id = new_user['user_id']
         user = users.find_one({"_id":user_id})
 
@@ -262,10 +261,10 @@ def cleanup_db():
             continue
 
         if check_banned(user['username']):
-            continue        
-        
+            continue
+
         try:
-            if profile_on_blockchain(user["username"],user["profile"]):
+            if profile_on_blockchain(user["username"], user["profile"]):
                 print "cleaning: " + user["username"]
                 registrations.remove(new_user)
 
@@ -273,14 +272,14 @@ def cleanup_db():
             pass
     print "----------"
 
-#-----------------------------------
+
 def get_pending_state():
 
-    print "Pending registrations: %s" %registrations.count()
-    print "Pending updates: %s" %updates.count()
-    print "Pending transfers: %s" %transfer.count() 
+    print "Pending registrations: %s" % registrations.count()
+    print "Pending updates: %s" % updates.count()
+    print "Pending transfers: %s" % transfer.count()
 
-#-----------------------------------
+
 if __name__ == '__main__':
 
     #cleanup_db()
@@ -288,5 +287,4 @@ if __name__ == '__main__':
     update_users()
     register_users()
 
-    #get_pending_state()    
-    
+    #get_pending_state()

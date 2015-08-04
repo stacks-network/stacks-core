@@ -1,13 +1,9 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# -----------------------
-# Copyright 2015 Halfmoon Labs, Inc.
-# All Rights Reserved
-# -----------------------
-
-'''
-    configuration file
-'''
+"""
+    copyright: (c) 2014 by Halfmoon Labs, Inc.
+    copyright: (c) 2015 by Blockstack.org
+    license: MIT, see LICENSE for more details.
+"""
 
 try:
     from config_local import *
