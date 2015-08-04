@@ -1,9 +1,12 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# -----------------------
-# Copyright 2015 Halfmoon Labs, Inc.
-# All Rights Reserved
-# -----------------------
+"""
+    registrar
+    ~~~~~
+
+    copyright: (c) 2014 by Halfmoon Labs, Inc.
+    copyright: (c) 2015 by Blockstack.org
+    license: MIT, see LICENSE for more details.
+"""
 
 from .nameops import get_namecoind
 
@@ -61,6 +64,6 @@ if __name__ == '__main__':
     live = False
 
     username = "clone66"
-    address = 'NCinvalid'
+    address = 'NMCinvalid'
 
     name_transfer(username, address, live)

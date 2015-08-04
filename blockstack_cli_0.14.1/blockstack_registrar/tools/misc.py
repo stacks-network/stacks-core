@@ -1,9 +1,12 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# -----------------------
-# Copyright 2015 Halfmoon Labs, Inc.
-# All Rights Reserved
-# -----------------------
+"""
+    registrar
+    ~~~~~
+
+    copyright: (c) 2014 by Halfmoon Labs, Inc.
+    copyright: (c) 2015 by Blockstack.org
+    license: MIT, see LICENSE for more details.
+"""
 
 import os
 import json
@@ -36,7 +39,7 @@ from registrar.config import NAMECOIND_USE_HTTPS, NAMECOIND_SERVER
 from registrar.config import NAMECOIND_WALLET_PASSPHRASE
 from commontools import get_json, log
 
-# -----------------------------------
+
 remote_client = MongoClient(MONGODB_URI)
 
 remote_db = remote_client.get_default_database()
@@ -56,13 +59,11 @@ old_users = old_db.user
 reservation = remote_db.username_reservation
 
 
-# -----------------------------------
 def print_user(user):
     for key, value in user.iteritems():
         print key + " : " + str(value)
 
 
-# -----------------------------------
 def cleanup_user(username):
 
     user = users.find_one({"username": username})
@@ -88,14 +89,12 @@ def cleanup_user(username):
         registrations.remove(cleanup_user)
 
 
-# -----------------------------------
 def process_manually_alias(username, alias):
 
     user = users.find_one({'username': username})
     process_user(alias, user['profile'])
 
 
-# -----------------------------------
 def process_manually(username):
 
     user = users.find_one({'username': username})
@@ -103,14 +102,12 @@ def process_manually(username):
     # cleanup_user(username)
 
 
-# -----------------------------------
 def process_manually_old(username):
 
     user = old_users.find_one({'username': username})
     process_user(user['username'], json.loads(user['profile']))
 
 
-# -----------------------------------
 def make_alias(alias, target):
 
     value = {}
@@ -119,28 +116,24 @@ def make_alias(alias, target):
     process_user(alias, value)
 
 
-# -----------------------------------
 def find_via_email(email):
 
     user = users.find_one({'email': email})
     print_user(user)
 
 
-# -----------------------------------
 def find_via_username(username):
 
     user = users.find_one({'username': username})
     print_user(user)
 
 
-# -----------------------------------
 def find_old_user(username):
 
     user = old_users.find_one({'username': username})
     print_user(user)
 
 
-# -----------------------------------
 def import_user(username):
 
     for transfer_user in transfer.find():
@@ -168,7 +161,6 @@ def import_user(username):
             print namecoind.importprivkey(keypair.wif_pk())
 
 
-# -----------------------------------
 def import_update(username):
 
     for update_user in updates.find():
@@ -195,15 +187,6 @@ def import_update(username):
             print namecoind.importprivkey(keypair.wif_pk())
 
 
-# -----------------------------------
-def get_unlock_url(username):
-
-    for i in remote_db.username_reservation.find():
-        if i['username'] == username:
-            print 'http://onename.io/?c=' + i['access_code']
-
-
-# -----------------------------------
 def pending_transactions():
 
     reply = namecoind.listtransactions("", 10000)
@@ -220,7 +203,6 @@ def pending_transactions():
     return False
 
 
-# -----------------------------------
 def send_update(expiring_users):
 
     for i in expiring_users:
@@ -246,7 +228,6 @@ def send_update(expiring_users):
                 print e
 
 
-# -----------------------------------
 def get_emails(expiring_users):
 
     emails = []
@@ -275,28 +256,6 @@ def get_emails(expiring_users):
     fout.close()
 
 
-# -----------------------------------
-def grab_expiring_names():
-
-    usernames = ['fredwilson']
-
-    while(1):
-        for username in usernames:
-
-            key = 'u/' + username
-            reply = namecoind.name_show(key)
-
-            value = get_json(reply['value'])
-
-            print "key %s expires in %s" % (key, reply['expires_in'])
-
-            if 'expired' in reply and int(reply['expired']) == 1:
-                register_name(key,value)
-
-            sleep(60)
-
-
-# -----------------------------------
 def transfer_key(key, nmc_address):
 
     from pybitcoin.rpc.namecoind_cluster import get_server
@@ -319,16 +278,14 @@ def transfer_key(key, nmc_address):
     print namecoind.name_transfer(key, nmc_address)
 
 
-# -----------------------------------------
 def get_blockchain_profile(username):
 
-    auth = ('opennamesystem', 'opennamesystem')
-    BASE_URL = 'http://ons-server.halfmoonlabs.com/ons/profile?openname='
+    BASE_URL = 'http://resolver.onename.com/v1/users/'
 
     profile = None
 
     try:
-        r = requests.get(BASE_URL + username, timeout=3, auth=auth)
+        r = requests.get(BASE_URL + username, timeout=3)
         profile = json.loads(r.text)
     except Exception as e:
         print e
@@ -337,7 +294,6 @@ def get_blockchain_profile(username):
     return profile
 
 
-# -----------------------------------------
 def get_db_profile(username):
 
     try:
@@ -351,7 +307,6 @@ def get_db_profile(username):
     return profile
 
 
-# -----------------------------------
 def profile_on_blockchain(username):
 
     if len(username) == 34:
@@ -360,13 +315,11 @@ def profile_on_blockchain(username):
     if 'clone' in username or 'stormtrooper' in username:
         return True
 
-
     block_profile = get_blockchain_profile(username)
     db_profile = get_db_profile(username)
 
     block_profile = json.dumps(block_profile, sort_keys=True)
     db_profile = json.dumps(db_profile, sort_keys=True)
-
 
     if len(block_profile) == len(db_profile):
         # check hash for only profiles where length is the same
@@ -379,21 +332,18 @@ def profile_on_blockchain(username):
         return False
 
 
-# -----------------------------------
 def change_email(old_email, new_email):
     user = users.find_one({'email': old_email})
     user['email'] = new_email
     users.save(user)
 
 
-# -----------------------------------
 def change_username(old_username, new_username):
     user = users.find_one({'username': old_username})
     user['username'] = new_username
     users.save(user)
 
 
-# -----------------------------------
 def change_profile(username, profile):
 
     user = users.find_one({'username': username})

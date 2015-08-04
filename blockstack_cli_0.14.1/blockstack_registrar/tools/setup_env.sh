@@ -1,8 +1,4 @@
 #!/bin/bash
-#-----------------------
-# Copyright 2014 Halfmoon Labs, Inc.
-# All Rights Reserved
-#-----------------------
 
 echo "Enter MONGODB_URI:"
 read input
