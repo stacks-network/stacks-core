@@ -50,6 +50,22 @@ class ArrayType( SchemaType ):
       
       return True
       
+      
+class Base64StringType( SchemaType ):
+   
+   def __init__(self):
+      super( Base64StringType, self ).__init__( types.StringType, types.UnicodeType )
+   
+   def valid( self, value ):
+      
+      if type(value) != types.StringType and type(value) != types.UnicodeType:
+         return False 
+      
+      if re.match(r"^[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=]+$", value) is None:
+         return False
+      
+      return True 
+   
 
 class BitcoinAddressType( SchemaType ):
    
@@ -75,7 +91,7 @@ class HashType( SchemaType ):
       if type(value) != types.StringType and type(value) != types.UnicodeType:
          return False 
       
-      if re.match(r"[a-fA-F0-9]", value ) is None:
+      if re.match(r"^[a-fA-F0-9]+$", value ) is None:
          return False 
       
       if self.length is not None and len(value) != self.length:
@@ -96,7 +112,7 @@ class PGPFingerprintType( SchemaType ):
       
       strvalue = str(value)
       
-      if re.match(r"[a-fA-F0-9 :]$", strvalue) is None:
+      if re.match(r"^[a-fA-F0-9 :]+$", strvalue) is None:
          return False 
       
       return True
@@ -128,19 +144,24 @@ class OptionalField( SchemaField ):
    pass
 
 
+INTEGER = SchemaType( types.IntType, types.LongType )
+FLOAT = SchemaType( types.FloatType )
 STRING = SchemaType( types.StringType, types.UnicodeType )
+B64STRING = Base64StringType()
 HASH160_TYPE = HashType(20) 
 HASH160_ARRAY = ArrayType( HASH160_TYPE )
+STRING_ARRAY = ArrayType( STRING )
 URL = STRING
 PGP_FINGERPRINT = PGPFingerprintType()
 BITCOIN_ADDRESS = BitcoinAddressType()
 EMAIL = EmailType()
 OPTIONAL = OptionalField
 
-def schema_match( schema, obj, verbose=False ):
+def schema_match( schema, obj, allow_extra=True, verbose=False ):
    
    """
    Recursively verify that the given object has the given schema.
+   Optionally allow extra unmatched fields in the object that are not present in the schema.
    Return True if so
    Return False if not 
    """
@@ -158,10 +179,10 @@ def schema_match( schema, obj, verbose=False ):
       else:
          return True
       
-   # all object keys must be acceptable to the schema
+   # all object keys must be acceptable to the schema, unless we're allowing extras
    for literal in obj.keys():
       
-      if literal not in schema.keys():
+      if literal not in schema.keys() and not allow_extra:
          
          debug("Unmatched object literal '%s'" % literal)
          return False

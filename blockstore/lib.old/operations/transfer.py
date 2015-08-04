@@ -1,4 +1,4 @@
-from pybitcoin import embed_data_in_blockchain, \
+from pybitcoin import embed_data_in_blockchain, BlockchainInfoClient, \
     analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
     make_pay_to_address_script
  
@@ -39,8 +39,8 @@ def build(name, testset=False):
 
 
 def make_outputs( data, inputs, new_name_owner_address, change_address, format='bin', fee=None, op_return_amount=DEFAULT_OP_RETURN_VALUE, name_owner_amount=DEFAULT_DUST_SIZE):
-    """
-    Builds the outputs for a name transfer operation.
+   
+    """ Builds the outputs for a name transfer operation.
     """
     if fee is None:
         fee = calculate_basic_name_tx_fee()
@@ -60,7 +60,7 @@ def make_outputs( data, inputs, new_name_owner_address, change_address, format='
     ]
 
 
-def broadcast(name, destination_address, private_key, blockchain_client, testset=False):
+def broadcast(name, destination_address, private_key, blockchain_client=BlockchainInfoClient(), testset=False):
    
     nulldata = build(name, testset=testset)
     # get inputs and from address
@@ -75,7 +75,18 @@ def broadcast(name, destination_address, private_key, blockchain_client, testset
     return response
 
 
-def parse(bin_payload, recipient):
+def get_recipient_from_nameop_outputs(outputs):
+    for output in outputs:
+        output_script = output['scriptPubKey']
+        output_type = output_script.get('type')
+        output_asm = output_script.get('asm')
+        output_hex = output_script.get('hex')
+        output_addresses = output_script.get('addresses')
+        if output_asm[0:9] != 'OP_RETURN' and output_hex:
+            return output_hex
+    return None
+
+def parse(bin_payload, outputs):
     """
     # NOTE: first three bytes were stripped
     """
@@ -85,5 +96,5 @@ def parse(bin_payload, recipient):
     return {
         'opcode': 'NAME_TRANSFER',
         'name': name,
-        'recipient': recipient
+        'recipient': get_recipient_from_nameop_outputs( outputs )
     }

@@ -3,7 +3,7 @@ from .check import name_not_registered, has_preordered_name, \
     is_consensus_hash_valid, is_storageop_from_registered_name, \
     namespace_importing, namespace_importing_hash, namespace_registered
 from ..fees import is_mining_fee_sufficient
-from .namedb import get_name_from_hash128, put_signed_data, get_namespace_from_name
+from .namedb import get_name_from_hash128, get_namespace_from_name
 from ..hashing import hash256_trunc128, hash_name
 from collections import defaultdict
 
@@ -142,43 +142,3 @@ def log_namespace_begin(db, nameop, block_number):
        db.pending_imports[ namespace_id ] = db.imports[ namespace_id_hash ]
        del db.imports[ namespace_id_hash ]
  
- 
-def log_putdata( db, storageop, block_number ):
-    """
-    Log that someone stored data.
-    Data can only be written by users with registered names.
-    """
-    
-    data_hash = storageop['data_hash']
-    
-    if is_storageop_from_registered_name( db, storageop ):
-       
-       name_hash = storageop['name_hash']
-       name = get_name_from_hash128( name_hash, db )
-       
-       if name is not None:
-         db.pending_data_puts[name].append( storageop )
-       else:
-         print "Unrecognized name_hash '%s'" % name_hash
-    else:
-       print "Not from registered name: %s" % storageop
-       
-    
-def log_deletedata( db, storageop, block_number ):
-    """
-    Log that someone deleted data.
-    Data can only be deleted by the user that put it.
-    """
-    
-    data_hash = storageop['data_hash']
-    
-    if is_storageop_from_registered_name( db, storageop ):
-       
-       name_hash = storageop['name_hash']
-       name = get_name_from_hash128( name_hash )
-       
-       if name is not None and data_hash in db.signed_data[name]:
-          # user owns this data
-          db.pending_data_deletes[name].append( data_hash )
-    
-    

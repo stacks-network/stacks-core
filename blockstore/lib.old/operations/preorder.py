@@ -5,7 +5,7 @@ from binascii import hexlify, unhexlify
 from ..b40 import b40_to_hex, is_b40
 from ..config import *
 from ..scripts import blockstore_script_to_hex, add_magic_bytes, get_script_pubkey
-from ..hashing import hash_name
+from ..hashing import hash_name, calculate_consensus_hash128
 
 
 def build(name, script_pubkey, consensus_hash, testset=False):
@@ -18,9 +18,9 @@ def build(name, script_pubkey, consensus_hash, testset=False):
     
     Record format:
     
-    0     2  3                               23             39
-    |-----|--|-------------------------------|--------------|
-    magic op  hash(name.ns_id,script_pubkey)  consensus hash
+    0     2  3                        23             39
+    |-----|--|------------------------|--------------|
+    magic op  hash(name.ns_id,pubkey) consensus hash
     
     """
     
@@ -40,7 +40,7 @@ def build(name, script_pubkey, consensus_hash, testset=False):
     return packaged_script
 
 
-def broadcast(name, consensus_hash, private_key, blockchain_client, testset=False):
+def broadcast(name, consensus_hash, private_key, blockchain_client=BlockchainInfoClient(), testset=False):
     """
     Builds and broadcasts a preorder transaction.
     """
@@ -55,7 +55,7 @@ def broadcast(name, consensus_hash, private_key, blockchain_client, testset=Fals
     return response
 
 
-def parse(bin_payload):
+def parse(bin_payload, outputs):
     """
     Parse a name preorder.
     NOTE: bin_payload *excludes* the leading 3 bytes (magic + op) returned by build.

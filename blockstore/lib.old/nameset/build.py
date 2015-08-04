@@ -3,16 +3,15 @@ from collections import defaultdict
 from binascii import hexlify, unhexlify
 
 from .check import *
-from .commit import commit_registration, commit_update, commit_transfer, \
-    commit_renewal, commit_namespace, commit_putdata, commit_deletedata
-from .log import log_preorder, log_registration, log_update, log_transfer, log_namespace_define, log_namespace_begin, log_putdata, log_deletedata
+from .commit import commit_registration, commit_update, commit_transfer, commit_renewal, commit_namespace
+from .log import log_preorder, log_registration, log_update, log_transfer, log_namespace_define, log_namespace_begin
 
 from ..fees import is_mining_fee_sufficient
 from ..parsing import parse_blockstore_op
 from ..config import *
 from ..hashing import bin_double_sha256, calculate_consensus_hash128
 
-from coinkit import MerkleTree
+from pybitcoin import MerkleTree
 from ..blockchain import get_nulldata_txs_in_block, get_nulldata_txs_in_blocks
 
 def process_pending_ops_in_block(db, current_block_number):
@@ -48,24 +47,16 @@ def process_pending_ops_in_block(db, current_block_number):
         if len(nameops) == 1:
             commit_renewal(db, nameops[0], current_block_number)
 
-    # commit all pending data-signature writes for each name
-    for name, storageops in db.pending_data_puts.items():
-       for storageop in storageops:
-          commit_putdata( db, storageop )
-               
-    # commit all pending data-deletions for each name
-    for name, storageops in db.pending_data_deletes.items():
-        for storageop in storageops:
-          commit_deletedata( db, storageop )
-            
     # delete all the pending operations
     db.pending_registrations = defaultdict(list)
     db.pending_updates = defaultdict(list)
     db.pending_transfers = defaultdict(list)
     db.pending_renewals = defaultdict(list)
-    db.pending_data_puts = defaultdict(list)
-    db.pending_data_deletes = defaultdict(list)
     db.pending_imports = defaultdict(list)
+    
+    # save our work at this point in time 
+    db.save( current_block_number )
+    
     
 
 def clean_out_expired_names(db, current_block_number):
@@ -127,9 +118,7 @@ def name_record_to_string(name, name_record):
 
 def calculate_merkle_snapshot(db):
     """
-    Calculate the current Merkle snapshot of the set of blockstore operations.
-    The Merkle tree is constructed by joining the lists of [hash(name.ns_id.script_pubkey.value_hash), hash1, hash2, ...],
-    ordered by name.nsid.  The sequence of hash1, hash2, ... are sorted alphanumerically.
+    Calculate the current Merkle snapshot of the set of names and data.
     
     The intuition behind generating a Merkle tree is that it represents the global state 
     of all name and storage operations that have occurred at this point in the database.
@@ -141,7 +130,6 @@ def calculate_merkle_snapshot(db):
     """
     
     names = sorted(db.name_records)
-    signed_data = sorted(db.signed_data)
     
     hashes = []
     
@@ -151,10 +139,6 @@ def calculate_merkle_snapshot(db):
         name_string_hash = hexlify(bin_double_sha256(name_string))
         hashes.append(name_string_hash)
         
-        # data this name owns 
-        data_hashes = sorted( db.signed_data.get( name, [] ) )
-        hashes += data_hashes
-    
     if len(hashes) == 0:
         hashes.append(hexlify(bin_double_sha256("")))
         

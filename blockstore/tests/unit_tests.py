@@ -5,7 +5,7 @@ import string
 from test import test_support
 
 from opennamelib import *
-from coinkit import *
+from pybitcoin import *
 
 try:
     with open('data/secrets.json', 'r') as f:

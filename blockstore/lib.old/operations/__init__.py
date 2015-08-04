@@ -2,7 +2,8 @@ import preorder
 import register
 import transfer
 import update
-import namespacepreorder
+import putdata
+import rmdata
 import namespacedefine
 import namespacebegin
 
@@ -15,9 +16,7 @@ from .transfer import build as build_transfer, \
     make_outputs as make_transfer_ouptuts
 from .update import build as build_update, \
     broadcast as update_name, parse as parse_update
-from .namespacepreorder import build as build_namespace_preorder, \
-    broadcast as preorder_namespace, parse as parse_namespace_preorder 
-from .namespacedefine import build as build_namespace_define, \
-    broadcast as namespace_define, parse as parse_namespace_define 
-from .namespacebegin import build as build_namespace_begin, \
-    broadcast as namespace_begin, parse as parse_namespace_begin
+from .namespacedefine import build as build_namespacedefine, \
+    broadcast as namespace_define, parse as parse_namespacedefine 
+from .namespacebegin import build as build_namespacebegin, \
+    broadcast as namespace_begin, parse as parse_namespacebegin

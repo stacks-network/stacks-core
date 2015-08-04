@@ -8,6 +8,7 @@
 import os
 from ConfigParser import SafeConfigParser
 
+import schemas
 import virtualchain
 
 DEBUG = True
@@ -31,20 +32,52 @@ AVERAGE_BLOCKS_PER_HOUR = MINUTES_PER_HOUR/AVERAGE_MINUTES_PER_BLOCK
 
 """ blockstore configs
 """
-MAX_NAMES_PER_SENDER = 1                # a sender can own exactly one name
 
-""" RPC server configs 
-"""
-RPC_SERVER_PORT = 6264
+LISTEN_IP = '0.0.0.0'
+VERSION = 'v0.1-beta'
+RPC_TIMEOUT = 5  # seconds
+
+DEFAULT_BLOCKSTORED_PORT = 6264  # port 6263 is 'NAME' on a phone keypad
+BLOCKSTORED_PID_FILE = 'blockstored.pid'
+BLOCKSTORED_LOG_FILE = 'blockstored.log'
+BLOCKSTORED_TAC_FILE = 'blockstored.tac'
+BLOCKSTORED_WORKING_DIR = '.blockstore'
+BLOCKSTORED_NAMESPACE_FILE = 'namespace.txt'
+BLOCKSTORED_SNAPSHOTS_FILE = 'snapshots.txt'
+BLOCKSTORED_STORAGEDB_FILE = 'storagedb.txt'
+BLOCKSTORED_LASTBLOCK_FILE = 'lastblock.txt'
+BLOCKSTORED_CONFIG_FILE = 'blockstore.ini'
+
+DEFAULT_BLOCKMIRRORD_PORT = 6266  # port 6263 is 'NAME' on a phone keypad
+BLOCKMIRRORD_PID_FILE = 'blockmirrord.pid'
+BLOCKMIRRORD_LOG_FILE = 'blockmirrord.log'
+BLOCKMIRRORD_WORKING_DIR = '.blockmirror'
+BLOCKMIRRORD_CONFIG_FILE = 'blockmirror.ini'
+
+try:
+    BLOCKSTORED_SERVER = os.environ['BLOCKSTORED_SERVER']
+    BLOCKSTORED_PORT = os.environ['BLOCKSTORED_PORT']
+    
+    BLOCKMIRRORD_SERVER = os.environ['BLOCKMIRRORD_SERVER']
+    BLOCKMIRRORD_PORT = os.environ['BLOCKMIRRORD_PORT']
+    
+except KeyError:
+    BLOCKSTORED_SERVER = 'localhost'
+    BLOCKSTORED_PORT = DEFAULT_BLOCKSTORED_PORT
+    
+    BLOCKMIRRORD_SERVER = 'localhost'
+    BLOCKMIRRORD_PORT = DEFAULT_BLOCKMIRRORD_PORT
 
 """ DHT configs
 """
 
 DEFAULT_BITCOIND_SERVER = 'btcd.onename.com'
-DEFAULT_BITCOIND_PORT = 8332 
-DEFAULT_BITCOIND_PORT_TESTNET = 18332
-DEFAULT_BITCOIND_USERNAME = 'openname'
-DEFAULT_BITCOIND_PASSWD = 'opennamesystem'
+
+BITCOIND_SERVER = None 
+BITCOIND_PORT = None
+BITCOIND_USER = None
+BITCOIND_PASSWD = None
+BITCOIND_USE_HTTPS = None
 
 """ Multiprocessing
 """
@@ -54,6 +87,7 @@ MULTIPROCESS_RPC_RETRY = 3
 
 """ block indexing configs
 """
+
 REINDEX_FREQUENCY = 10  # in seconds
 
 FIRST_BLOCK_MAINNET = 367090 # 343883
@@ -95,29 +129,15 @@ NAME_TRANSFER = '>'
 NAME_RENEWAL = ':'
 NAME_REVOKE = '~'
 
+# NOTE: to appear as the first three bytes in the OP_RETURN for a NAME_REGISTER
 NAME_SCHEME = MAGIC_BYTES_MAINSET + NAME_REGISTRATION
 
-NAMESPACE_PREORDER = '*'
-NAMESPACE_DEFINE = '&'
+NAMESPACE_DEFINE = '*'
 NAMESPACE_BEGIN = '!'
-
-# list of opcodes we support
-OPCODES = [
-   NAME_PREORDER,
-   NAME_REGISTRATION,
-   NAME_UPDATE,
-   NAME_TRANSFER,
-   NAME_RENEWAL,
-   NAME_REVOKE,
-   NAMESPACE_PREORDER,
-   NAMESPACE_DEFINE,
-   NAMESPACE_BEGIN
-]
-   
 
 NAMESPACE_LIFE_INFINITE = 0xffffffff
 
-# op-return formats
+# Other
 LENGTHS = {
     'magic_bytes': 2,
     'opcode': 1,
@@ -128,6 +148,7 @@ LENGTHS = {
     'name_max': 34,
     'unencoded_name': 34,
     'name_hash': 16,
+    'namespace_hash': 20,
     'update_hash': 20,
     'data_hash': 20,
     'blockchain_id_name': 34,
@@ -139,14 +160,13 @@ LENGTHS = {
 }
 
 MIN_OP_LENGTHS = {
-    'preorder': LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'],
+    'preorder': LENGTHS['preorder_name_hash'],
     'registration': LENGTHS['namelen'] + LENGTHS['name_min'],
     'update': LENGTHS['name_hash'] + LENGTHS['update_hash'],
     'transfer': LENGTHS['namelen'] + LENGTHS['name_min'],
-    'namespace_preorder': LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'],
+    'namespace_begin': 1 + LENGTHS['blockchain_id_namespace_id'],
     'namespace_define': LENGTHS['blockchain_id_namespace_life'] + LENGTHS['blockchain_id_namespace_cost'] + \
-                        LENGTHS['blockchain_id_namespace_price_decay'] + 1 + LENGTHS['blockchain_id_namespace_id'],
-    'namespace_begin': 1 + LENGTHS['blockchain_id_namespace_id']
+                        LENGTHS['blockchain_id_namespace_price_decay'] + LENGTHS['namespace_hash'] 
 }
 
 OP_RETURN_MAX_SIZE = 40
@@ -174,14 +194,23 @@ NAMESPACE_DEFAULT = {
    'lifetime': EXPIRATION_PERIOD,
    'cost': PRICE_FOR_1LETTER_NAMES,
    'price_decay': float(PRICE_DROP_PER_LETTER),
-   'namespace_id': None,
-   'namespace_id_hash': "",
-   'sender': ""
+   'namespace_id': None 
 }
 
+""" consensus hash configs
+"""
+
+BLOCKS_CONSENSUS_HASH_IS_VALID = 4*AVERAGE_BLOCKS_PER_HOUR
 
 """ Validation 
 """
+
+def get_first_block():
+   """
+   Get the first block to start processing requests.
+   """ 
+   return START_BLOCK
+
 
 def default_bitcoind_opts( config_file=None ):
    """
@@ -225,16 +254,16 @@ def default_bitcoind_opts( config_file=None ):
 
       if TESTNET:
          bitcoind_server = "localhost"
-         bitcoind_port = DEFAULT_BITCOIND_PORT_TESTNET
-         bitcoind_user = DEFAULT_BITCOIND_USERNAME
-         bitcoind_passwd = DEFAULT_BITCOIND_PASSWD
+         bitcoind_port = 18332
+         bitcoind_user = 'openname'
+         bitcoind_passwd = 'opennamesystem'
          bitcoind_use_https = False
          
       else:
          bitcoind_server = DEFAULT_BITCOIND_SERVER
-         bicoind_port = DEFAULT_BITCOIND_PORT
-         bitcoind_user = DEFAULT_BITCOIND_USERNAME
-         bitcoind_passwd = DEFAULT_BITCOIND_PASSWD
+         bicoind_port = 8332
+         bitcoind_user = 'openname'
+         bitcoind_passwd = 'opennamesystem'
          bitcoind_use_https = True
         
    default_bitcoin_opts = {
@@ -246,7 +275,7 @@ def default_bitcoind_opts( config_file=None ):
    }
    
    # strip None's
-   for (k, v) in default_bitcoin_opts.items():
+   for (k, v) in default_bitcoin_opts:
       if v is None:
          del default_bitcoin_opts[k]
       
@@ -268,8 +297,8 @@ def default_chaincom_opts( config_file=None ):
    
    if parser.has_section('chain_com'):
       
-      api_key_id = parser.get('chain_com', 'api_key_id')
-      api_key_secret = parser.get('chain_com', 'api_key_secret')
+      api_key_id = parser.get('api_key_id')
+      api_key_secret = parser.get('api_key_secret')
       
       chaincom_opts = {
          'api_key_id': api_key_id,
@@ -278,7 +307,7 @@ def default_chaincom_opts( config_file=None ):
       
    
    # strip nones 
-   for (k, v) in chaincom_opts.items():
+   for (k, v) in chaincom_opts:
       if v is None:
          del chaincom_opts[k]
    
@@ -295,7 +324,7 @@ def opt_strip( prefix, opts ):
       
       # remove prefix
       if opt_name.startswith(prefix):
-         opt_name = opt_name[len(prefix):]
+         opt_name = opt_name[prefix]
       
       opts[ opt_name ] = opt_value
       
@@ -385,7 +414,7 @@ def interactive_configure( config_file=None, force=False ):
    if not force:
       
       # get current set of bitcoind opts
-      tmp_bitcoind_opts = default_bitcoind_opts( config_file=config_file )
+      tmp_bitcoind_opts = default_bitcoin_opts( config_file=config_file )
       bitcoind_opts = opt_strip( "bitcoind_", tmp_bitcoind_opts )
          
       # get current set of chaincom opts 

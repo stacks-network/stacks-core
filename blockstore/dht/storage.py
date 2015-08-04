@@ -23,17 +23,26 @@ from kademlia.utils import digest
 
 import sys
 import json
-import coinkit
+import pybitcoin
 import os
 import socket
 
 # Hack around absolute paths
-current_dir = os.path.abspath(os.path.dirname(__file__))
-parent_dir = os.path.abspath(current_dir + "/../")
+# current_dir = os.path.abspath(os.path.dirname(__file__))
+# parent_dir = os.path.abspath(current_dir + "/../")
 
-sys.path.insert(0, parent_dir)
+# sys.path.insert(0, parent_dir)
 
-from lib.config import STORAGE_TTL
+# from .plugin import STORAGE_TTL
+# 3 years
+STORAGE_TTL = 3 * 60 * 60 * 24 * 365
+
+DHT_SERVER_PORT = 6265  # blockstored default to port 6264
+
+DEFAULT_DHT_SERVERS = [('dht.openname.org', DHT_SERVER_PORT),
+                       ('dht.onename.com', DHT_SERVER_PORT),
+                       ('dht.halfmoonlabs.com', DHT_SERVER_PORT),
+                       ('127.0.0.1', DHT_SERVER_PORT)]
 
 
 class BlockStorage(object):
@@ -61,7 +70,7 @@ class BlockStorage(object):
             self.log.info("value not JSON, not storing")
             return
 
-        hash = coinkit.hex_hash160(value)
+        hash = pybitcoin.hash.hex_hash160(value)
         test_key = digest(hash)
 
         if key != test_key:
@@ -82,7 +91,7 @@ class BlockStorage(object):
         self.cull()
         if key in self.data:
             value = self[key]
-            hash = coinkit.hex_hash160(value)
+            hash = pybitcoin.hash.hex_hash160(value)
 
             test_key = digest(hash)
 

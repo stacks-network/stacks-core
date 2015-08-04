@@ -1,0 +1,41 @@
+TODO
+
+Beta at Aug. 15.  Should be as close-to-ready as possible 
+Announce on Sept. 1.
+Summit on Sept. 12.
+
+* revoke operation
+
+* move to pybitcoin
+
+Blockstack is the interface to the "packages" namespace 
+* pip install blockstack
+* blockstack install blockchain_id 
+--> fetches blockchain_id python package from the user account "blockchain_id.packages" (i.e. there is a packages namespace)--i.e., the package zip file is in mutable storage tied to "blockchain_id.packages"
+
+* move off of chain.com
+
+* transfer will blow away old data (e.g. from the profile)
+
+Storage
+* blockstore-cli --> high-level client-side API library, with CLI wrapper
+
+Migration plan:
+* null namespace has to be "imported" with NAMESPACE_DEFINE
+* namespace owner (us) puts all names in place, as NAME_REGISTER operations 
+* namespace owner (us) sends each name to the public key of the name owner (i.e. pubkey in namecoin to be converted to the pubkey in bitcoin)
+* namespace owner (us) writes NAMESPACE_BEGIN
+
+* need to create a 'packages' namespace'
+
+API plan:
+* https://github.com/blockstack/blockstore/issues/100
+
+Microsoft hack-a-thon
+* user is authoritative source of their data; other processes write to it with the user's permission
+* create user agents that run as delegates of the user
+* profile --> Syndicate Volume
+* user allows other programs to write to a subset of the profile (i.e. permissioned mounts in Syndicate), can revoke 
+* user (or agent) updates it periodically (e.g. uber driver's agent writes their location to their profile; uber indexes)
+* web apps serve and run agents, and index other users' data with users' permissions
+

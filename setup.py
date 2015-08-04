@@ -16,11 +16,12 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'coinkit>=0.7.7',
+        'pybitcoin>=0.8.3',
         'kademlia>=0.2',
         'python-bitcoinrpc>=0.1',
         'txjson-rpc>=0.3',
         'utilitybelt>=0.2.2'
+        'virtualchain>=0.0.1'
     ],
     classifiers=[
         'Intended Audience :: Developers',

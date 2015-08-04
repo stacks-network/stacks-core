@@ -34,7 +34,7 @@ def build( namespace_id, testset=False ):
    return packaged_script
 
 
-def broadcast( namespace_id, private_key, blockchain_client, testset=False ):
+def broadcast( namespace_id, private_key, blockchain_client=BlockchainInfoClient(), testset=False ):
    
    nulldata = build( namespace_id, testset=testset )
    # response = {'success': True }
@@ -43,7 +43,7 @@ def broadcast( namespace_id, private_key, blockchain_client, testset=False ):
    return response
 
 
-def parse( bin_payload ):
+def parse( bin_payload, outputs ):
    """
    NOTE: the first three bytes will be missing
    NOTE: the first byte in bin_payload is a '.'

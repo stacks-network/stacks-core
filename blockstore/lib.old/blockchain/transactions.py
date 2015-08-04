@@ -1,12 +1,11 @@
 from .nulldata import get_nulldata, has_nulldata
 import traceback
 
-from ..config import DEBUG, CACHE_ROOT, CACHE_TX_DIR, CACHE_BLOCK_DATA_DIR, CACHE_BLOCK_HASH_DIR, MULTIPROCESS_RPC_RETRY, MULTIPROCESS_WORKER_BATCH, MULTIPROCESS_NUM_WORKERS
+from ..config import DEBUG, MULTIPROCESS_RPC_RETRY, MULTIPROCESS_WORKER_BATCH, MULTIPROCESS_NUM_WORKERS
 from ..workpool import multiprocess_bitcoind
 
 import logging
 import os
-from ..cache import *
 import time
 
 from bitcoinrpc.authproxy import JSONRPCException
@@ -19,7 +18,7 @@ formatter = logging.Formatter( log_format )
 
 def getrawtransaction( bitcoind, block_hash, txid, verbose=0 ):
    """
-   Get a raw transaction by txid, but check our local cache first.
+   Get a raw transaction by txid.
    Only call out to bitcoind if we need to.
    """
    
@@ -77,7 +76,6 @@ def getrawtransaction_async( workpool, block_hash, tx_hash, verbose ):
 def getblockhash( bitcoind, block_number ):
    """
    Get a block's hash, given its ID.
-   Check the local cache first, then ask bitcoind.
    """
    
    exc_to_raise = None  # exception to raise if we fail
@@ -132,7 +130,6 @@ def getblockhash_async( workpool, block_number ):
 def getblock( bitcoind, block_hash ):
    """
    Get a block's data, given its hash.
-   Check our cache first.
    """
    
    exc_to_raise = None
@@ -354,13 +351,24 @@ def future_next( fut_records, fut_inspector ):
          fut_records.remove( fut_record )
          return fut_record
    
+   
 
-def bandwidth_record( cache_status, total_time, block_data ):
+def get_block_goodput( block_data ):
+   """
+   Find out how much goodput data is present in a block's data
+   """
+   if block_data is None:
+      return 0
+   
+   sum( [len(h) for h in block_data] )
+   
+
+def bandwidth_record( total_time, block_data ):
    return {
-      "cache": cache_status,
       "time":  total_time,
-      "size": cache_get_block_size( block_data )
+      "size":  get_block_goodput( block_data )
    }
+
 
 def get_nulldata_txs_in_blocks( workpool, blocks ):
    
@@ -381,7 +389,7 @@ def get_nulldata_txs_in_blocks( workpool, blocks ):
    """
    
    nulldata_tx_map = {}    # {block_number: {tx": [tx]}}
-   block_bandwidth = {}    # {block_number: {"cache": "HIT"|"MISS", "time": time taken to process, "size": number of bytes}}
+   block_bandwidth = {}    # {block_number: {"time": time taken to process, "size": number of bytes}}
    nulldata_txs = []
    
    # break work up into slices so we don't run out of memory 
@@ -400,48 +408,12 @@ def get_nulldata_txs_in_blocks( workpool, blocks ):
       block_slice = blocks[ (slice_count * slice_len) : min((slice_count+1) * slice_len, len(blocks)-1) ]
       
       start_slice_time = time.time()
-      cached_block_data = {}
       
       # get all block hashes 
       for block_number in block_slice:
          
-         cached_block_data[block_number] = {
-            "txs": []
-         }
-         
          block_times[block_number] = time.time() 
          
-         # do we have this block cached?
-         block_data = cache_get_block( block_number )
-         if block_data is not None:
-            
-            # processed before!
-            # sanity check...
-            if 'txs' in block_data.keys():
-               
-               # sorted already by tx_index
-               txs = block_data['txs']
-               
-               for i in xrange(0,len(txs)):
-                  
-                  tx = txs[i]
-                  
-                  if ('nulldata' in tx.keys()) and ('senders' in tx.keys()) and ('fee' in tx.keys()):
-
-                     # can use 
-                     if not nulldata_tx_map.has_key( block_number ):
-                        nulldata_tx_map[ block_number ] = [(i, tx)]
-                     else:
-                        nulldata_tx_map[ block_number ].append( (i, tx) )
-            
-            
-            total_time = time.time() - block_times[ block_number ]                                       
-            block_bandwidth[ block_number ] = bandwidth_record( "HIT", total_time, block_data )
-            log.debug("HIT: %s" % block_number )
-            continue
-         
-         # cache miss
-         log.debug("MISS: %s" % block_number )
          block_hash_fut = getblockhash_async( workpool, block_number )
          block_hash_futures.append( (block_number, block_hash_fut) )
    
@@ -497,7 +469,7 @@ def get_nulldata_txs_in_blocks( workpool, blocks ):
             # maybe done with this block
             # NOTE will be called multiple times; we expect the last write to be the total time taken by this block
             total_time = time.time() - block_times[ block_number ]
-            block_bandwidth[ block_number ] = bandwidth_record( "MISS", total_time, cached_block_data[block_number] )
+            block_bandwidth[ block_number ] = bandwidth_record( total_time, None )
             
             
       block_tx_time_start = time.time()
@@ -525,7 +497,7 @@ def get_nulldata_txs_in_blocks( workpool, blocks ):
             # maybe done with this block
             # NOTE will be called multiple times; we expect the last write to be the total time taken by this block
             total_time = time.time() - block_times[ block_number ]
-            block_bandwidth[ block_number ] = bandwidth_record( "MISS", total_time, cached_block_data[block_number] )
+            block_bandwidth[ block_number ] = bandwidth_record( total_time, None )
             
       
       block_nulldata_tx_time_start = time.time()
@@ -584,12 +556,12 @@ def get_nulldata_txs_in_blocks( workpool, blocks ):
          # maybe done with this block
          # NOTE will be called multiple times; we expect the last write to be the total time taken by this block
          total_time = time.time() - block_times[ block_number ]
-         block_bandwidth[ block_number ] = bandwidth_record( "MISS", total_time, cached_block_data[block_number] )
+         block_bandwidth[ block_number ] = bandwidth_record( total_time, None )
             
-      # cache blocks 
+      # record bandwidth information 
       for block_number in block_slice:
          
-         block_data = cached_block_data[block_number]
+         block_data = None
          
          if nulldata_tx_map.has_key( block_number ):
             
@@ -597,19 +569,13 @@ def get_nulldata_txs_in_blocks( workpool, blocks ):
             tx_list.sort()                                # sorts on tx_index--preserves order in the block
             
             txs = [ tx for (_, tx) in tx_list ]
-            block_data["txs"] = txs 
+            block_data = txs 
             
-         else:
-            block_data["txs"] = []
-         
-         # save for later
-         cache_put_block( block_number, block_data )
-         
          if not block_bandwidth.has_key( block_number ):
             
             # done with this block now 
             total_time = time.time() - block_times[ block_number ]
-            block_bandwidth[ block_number ] = bandwidth_record( "MISS", total_time, block_data )
+            block_bandwidth[ block_number ] = bandwidth_record( total_time, block_data )
          
          
       block_tx_time_end = time.time()
@@ -617,14 +583,8 @@ def get_nulldata_txs_in_blocks( workpool, blocks ):
    
       end_slice_time = time.time()
       
-      block_id_hits = filter( lambda block_id: block_bandwidth[block_id]["cache"] == "HIT", block_bandwidth.keys() )
-      block_id_misses = filter( lambda block_id: block_bandwidth[block_id]["cache"] == "MISS", block_bandwidth.keys() )
-      
-      total_hit_processing_time = sum( map( lambda block_id: block_bandwidth[block_id]["time"], block_id_hits ) )
-      total_miss_processing_time = sum( map( lambda block_id: block_bandwidth[block_id]["time"], block_id_misses) )
-      
-      total_hit_data = sum( map( lambda block_id: block_bandwidth[block_id]["size"], block_id_hits ) )
-      total_miss_data = sum( map( lambda block_id: block_bandwidth[block_id]["size"], block_id_misses ) )
+      total_processing_time = sum( map( lambda block_id: block_bandwidth[block_id]["time"], block_bandwidth.keys() ) )
+      total_data = sum( map( lambda block_id: block_bandwidth[block_id]["size"], block_bandwidth.keys() ) )
       
       block_hash_time = block_hash_time_end - block_hash_time_start 
       block_data_time = block_data_time_end - block_data_time_start
@@ -633,21 +593,13 @@ def get_nulldata_txs_in_blocks( workpool, blocks ):
       
       # log some stats...
       log.debug("blocks %s-%s (%s):" % (block_slice[0], block_slice[-1], len(block_slice)) )
-      log.debug("  Hits:   %s" % len(block_id_hits))
-      log.debug("  Misses: %s" % len(block_id_misses))
-      log.debug("  Hit time total:  %s" % total_hit_processing_time )
-      log.debug("  Hit data total:  %s" % total_hit_data )
-      log.debug("  Hit goodput:      %s" % (total_hit_data / (total_hit_processing_time + 1e-7)) )
-      log.debug("  Miss time total: %s" % total_miss_processing_time )
-      log.debug("  Miss data total: %s" % total_miss_data )
-      log.debug("  Miss goodput:    %s" % (total_miss_data / (total_miss_processing_time + 1e-7)) )
+      log.debug("  Time total:     %s" % total_processing_time )
+      log.debug("  Data total:     %s" % total_data )
+      log.debug("  Total goodput:  %s" % (total_hit_data / (total_hit_processing_time + 1e-7)))
       log.debug("  block hash time:        %s" % block_hash_time)
       log.debug("  block data time:        %s" % block_data_time)
       log.debug("  block tx time:          %s" % block_tx_time)
       log.debug("  block nulldata tx time: %s" % block_nulldata_tx_time)
-      log.debug("  Total time:      %s" % (end_slice_time - start_slice_time))
-      log.debug("  Total size:      %s" % (total_hit_data + total_miss_data))
-      log.debug("  Total goodput:   %s" % ((total_hit_data + total_miss_data) / (end_slice_time - start_slice_time)))
       
       # next slice
       slice_count += 1

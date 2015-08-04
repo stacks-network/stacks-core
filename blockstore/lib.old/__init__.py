@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-    blockstore
+    opennamed
     ~~~~~
 
     :license: MIT, see LICENSE for more details.
@@ -15,6 +15,7 @@ from hashing import *
 from parsing import *
 from fees import *
 
+from blockchain import *
 from nameset import *
 from operations import *
 from operations import update_name

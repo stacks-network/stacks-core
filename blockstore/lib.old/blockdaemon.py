@@ -11,7 +11,6 @@
 """
 
 import argparse
-import coinkit
 import logging
 import os
 import os.path
@@ -28,7 +27,6 @@ import time
 import socket
 
 import config
-import cache 
 from utilitybelt import is_valid_int
 from ConfigParser import SafeConfigParser
 
@@ -209,23 +207,17 @@ def get_index_range( bitcoind, working_dir, start_block=0):
     """
     """
 
-    from config import FIRST_BLOCK_MAINNET, FIRST_BLOCK_TESTNET, TESTNET
-
     if start_block == 0:
+       start_block = config.get_first_block()
        
-       if TESTNET:
-          start_block = FIRST_BLOCK_TESTNET 
-       else:
-          start_block = FIRST_BLOCK_MAINNET
-
     try:
-        current_block = int(bitcoind.getblockcount())
+       current_block = int(bitcoind.getblockcount())
         
     except Exception, e:
-        log.exception(e)
-        log.info("ERROR: Cannot connect to bitcoind")
-        log.info("Please check your bitcoind configuration")
-        exit(1)
+       log.exception(e)
+       log.info("ERROR: Cannot connect to bitcoind")
+       log.info("Please check your bitcoind configuration")
+       exit(1)
 
     working_dir = get_working_dir(working_dir)
     lastblock_file = os.path.join(working_dir, config.BLOCKSTORED_LASTBLOCK_FILE)

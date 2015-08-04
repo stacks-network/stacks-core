@@ -35,7 +35,7 @@ def build(name, testset=False):
     return packaged_script 
 
 
-def broadcast(name, private_key, blockchain_client, testset=False):
+def broadcast(name, private_key, blockchain_client=BlockchainInfoClient(), testset=False):
     
     nulldata = build(name, testset=testset)
     # response = {'success': True }
@@ -44,7 +44,7 @@ def broadcast(name, private_key, blockchain_client, testset=False):
     return response
 
 
-def parse(bin_payload):
+def parse(bin_payload, outputs):
     
     """
     Interpret a block's nulldata back into a name.  The first three bytes (2 magic + 1 opcode)

@@ -1,5 +1,12 @@
 from ..hashing import hash_name, hash256_trunc128
-from .namedb import get_name_from_hash128, put_signed_data
+from .namedb import get_name_from_hash128
+
+"""
+Methods for committing a block's blockstore operations.
+These methods should only be called after logging them 
+to the blockstore database, since no sanity checking 
+is performed by these methods.
+"""
 
 def remove_preorder(db, name, script_pubkey):
     try:
@@ -85,28 +92,3 @@ def commit_namespace( db, nameop, block_number ):
    for op in op_sequence:
       log_blockstore_op( db, op, op['block_number'] )
 
-
- 
-def commit_putdata( db, storageop ):
-   """
-   Store signed data hash, owned by the principal that put the storage op.
-   """
-   
-   name_hash = storageop['name_hash']
-   data_hash = storageop['data_hash']
-   
-   name = get_name_from_hash128( name_hash, db )
-   put_signed_data( name, data_hash, db )
-   
-
-def commit_deletedata( db, storageop):
-   """
-   Delete a signed data hash.
-   """
-   
-   name_hash = storageop['name_hash']
-   data_hash = storageop['data_hash']
-   
-   name = get_name_from_hash128( name_hash, db )
-   remove_signed_data( name, data_hash, db )
-   

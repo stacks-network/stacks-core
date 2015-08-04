@@ -13,7 +13,7 @@ from twisted.python import log
 from kademlia.network import Server
 
 import sys
-import coinkit
+import pybitcoin
 import json
 
 log.startLogging(sys.stdout)
@@ -22,7 +22,7 @@ log.startLogging(sys.stdout)
 #value = "temp"
 
 value = '{"name": "Muneeb Ali Khan"}'
-key = coinkit.hex_hash160(value)
+key = pybitcoin.hash.hex_hash160(value)
 
 print key
 print value

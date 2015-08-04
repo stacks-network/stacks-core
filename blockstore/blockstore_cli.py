@@ -12,13 +12,19 @@ import sys
 import json
 import traceback
 
-from lib import config
-import coinkit
+from lib import config, schemas, parsing, profile
+import pybitcoin
 
 import logging
 
+from kademlia.network import Server
+
 from twisted.python import log
 from twisted.internet.error import ConnectionRefusedError
+from twisted.internet import reactor
+from txjsonrpc.netstring.jsonrpc import Proxy
+
+from dht.storage import BlockStorage
 
 # Disable twisted log messages, because it's too noisy
 log.startLoggingWithObserver(log.PythonLoggingObserver, setStdout=0)
@@ -32,8 +38,6 @@ console.setFormatter(formatter)
 logger.addHandler(logging.NullHandler())
 # logger.addHandler(console)
 
-from twisted.internet import reactor
-from txjsonrpc.netstring.jsonrpc import Proxy
 
 proxy = Proxy(config.BLOCKSTORED_SERVER, config.BLOCKSTORED_PORT)
 
@@ -57,9 +61,6 @@ def getFormat(result):
 
     return reply
 
-import traceback
-
-
 def printError(error):
     reply = {}
     traceback.print_exc()
@@ -75,6 +76,52 @@ def printError(error):
 def shutDown(data):
     reactor.stop()
 
+
+def link_immutable_profile( user_profile_json, data_hash ):
+    """
+    Reactor callback to a lookup(name) that 
+    puts a hash for immutable data into a user's profile,
+    and serializes and returns the new JSON
+    """
+    
+    user_profile = parsing.parse_user_profile( user_profile_json )
+    if user_profile is None:
+       log.error("Failed to parse user profile '%s'" % user_profile_json )
+       raise Exception("Failed to parse user profile")
+    
+    profile.add_immutable_data( user_profile, data_hash )
+    
+    # serialize 
+    new_profile_json = None 
+    try:
+       new_profile_json = profile.serialize_user_profile( user_profile )
+    except Exception, e:
+       log.error("Failed to serialize '%s'" % new_profile_json )
+       raise e
+    
+    return new_profile_json 
+    
+    
+def update_profile_deferred( user_profile_json, apiProxy, name, privatekey ):
+   """
+   Reactor callback to update() the user profile.
+   Returns a deferred call to update().
+   """
+   
+   update_key = pybitcoin.hash.hex_hash160( user_profile_json )
+   update_deferred = apiProxy.callRemote("update", name, update_key, privatekey )
+   return update_deferred
+   
+   
+def store_profile( result, user_profile_json ):
+   """
+   Store JSON profile data to the storage providers, synchronously.
+   """
+   
+   profile_key = pybitcoin.hash.hex_hash160( user_profile_json )
+   result = dht_server.set(key, value)
+   return result       
+   
 
 def pretty_dump(input):
     """ pretty dump
@@ -203,16 +250,16 @@ def run_cli():
     
     # ------------------------------------
     subparser = subparsers.add_parser(
-        'putdata',
-        help='<data> | store unsigned data into the DHT')
+        'put_mutable',
+        help='<data> | Store data into the DHT, but do NOT put the hash into the blockchain.')
     subparser.add_argument(
         'data', type=str,
         help='the data to store in DHT')
     
     # ------------------------------------
     subparser = subparsers.add_parser(
-        'signdata',
-        help='<name> <data> <privatekey> | data value to sign in the blockchain')
+        'put_immutable',
+        help='<name> <data> <privatekey> | Store data into the DHT, update the user\'s profile\'s list of data keys, and sign and write the new profile\'s hash to the blockchain).')
     subparser.add_argument(
         'name', type=str,
         help='the name that owns this data')
@@ -225,8 +272,8 @@ def run_cli():
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-        'putsigned',
-        help='<name> <data> <privatekey> | data value to sign in the blockchain')
+        'link_immutable',
+        help='<name> <key> <privatekey> | Put a data hash into the user\'s profile, and sign and write the new profile\'s hash to the blockchain.')
     subparser.add_argument(
         'name', type=str,
         help='the name that owns this data')
@@ -239,34 +286,33 @@ def run_cli():
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-        'getdata',
-        help='<hash> | get the data from DHT for given hash')
+        'get_mutable',
+        help='<hash> | Get data from the DHT that has a given hash.')
     subparser.add_argument(
         'hash', type=str,
         help='the hash of the data, used as lookup key for DHT')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-        'verifydata',
-        help='<name> <hash> | verify that a datum was signed by a user')
+        'has_immutable',
+        help='<name> <hash> | Determine whether or not the user\'s profile has a given data hash.')
     subparser.add_argument(
-       'name', type=str,
-       help='the name of the user that signed the data')
+        'name', type=str,
+        help='the name of the user')
     subparser.add_argument(
-       'hash', type=str,
-       help='the hash of the data')
+        'hash', type=str,
+        help='the hash of the data')
     
     # ------------------------------------
     subparser = subparsers.add_parser(
-        'getverified',
-        help='<name> <hash> | get the data from DHT for given hash, and verify that it was signed by a user')
+        'get_immutable',
+        help='<name> <hash> | Verify that a piece of data was authored by the given user, and fetch it from the DHT if so.')
     subparser.add_argument(
-       'name', type=str,
-       help='the name of the user that signed the data')
+        'name', type=str,
+        help='the name of the user')
     subparser.add_argument(
         'hash', type=str,
         help='the hash of the data, used as lookup key for DHT')
-
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -318,53 +364,55 @@ def run_cli():
         logger.debug('Starting namespace %s' % args.namespace_id)
         client = proxy.callRemote('namespace_begin', args.namespace_id, args.privatekey )
         
-    elif args.action == 'putdata':
+    elif args.action == 'put_mutable':
         value = args.data
 
-        key = coinkit.hex_hash160(value)
-        logger.debug('Storing %s', value)
+        key = pybitcoin.hash.hex_hash160(value)
+        logger.debug('Storing to the DHT: %s, %s', key, value)
 
-        client = proxy.callRemote('put', key, value)
+        client = proxy.callRemote('put_mutable', key, value)
 
-    elif args.action == 'signdata':
+    elif args.action == 'put_immutable':
         name = args.name
-        value = args.data 
-        
-        key = coinkit.hex_hash160(value)
-        logger.debug("Signing hash '%s' by '%s'", key, name)
-        
-        client = proxy.callRemote('signdata', name, key, value, args.privatekey)
-        
-        
-    elif args.action == 'putsigned':
+        value = args.data
+        privatekey = args.private_key
+
+        key = pybitcoin.hash.hex_hash160(value)
+        logger.debug('Storing to the DHT and adding to %s\'s profile in the blockchain: %s, %s', name, key, value)
+
+        client = proxy.callRemote('lookup', name)
+        client.addCallback( link_immutable_profile, key )
+        client.addCallback( update_profile, proxy, name, privatekey )
+
+    elif args.action == 'link_immutable':
         name = args.name
-        value = args.data 
-        
-        key = coinkit.hex_hash160(value)
-        logger.debug("Storing and signing hash '%s' by '%s'", key, name)
-        
-        client = proxy.callRemote('putsigned', name, key, value, args.privatekey )
-        
-    elif args.action == 'verifydata':
-        name = args.name 
         key = args.hash
+        privatekey = args.private_key
         
-        logger.debug("Verifying that hash '%s' was signed by '%s'", key, name )
-        
-        client = proxy.callRemote('verifydata', name, key )
-    
-    elif args.action == 'getdata':
-        logger.debug('Getting %s', args.hash)
+        logger.debug('Adding to %s\'s profile in the blockchain: %s', name, key)
 
-        client = proxy.callRemote('get', args.hash)
-        client.addCallback(getFormat)
+        client = proxy.callRemote('link_immutable', name, key, privatekey)
 
-    elif args.action == 'getverified':
-        logger.debug("Getting %s and verifying that '%s' put it", args.hash, args.name )
+    elif args.action == 'get_mutable':         
+        key = args.hash 
         
-        client = proxy.callRemote('getverified', args.name, args.hash )
+        logger.debug("Getting from the DHT: %s", key )
+        client = proxy.callRemote('get_mutable', key)
         
+    elif args.action == 'has_immutable':
+        name = args.name 
+        key = args.hash 
+        
+        logger.debug("Verifying that %s authored %s", name, key )
+        client = proxy.callRemote('has_immutable', name, key )
 
+    elif args.action == 'get_immutable':
+        name = args.name 
+        key = args.hash 
+        
+        logger.debug("Getting %s's data %s from the DHT", name, key )
+        client = proxy.callRemote('get_immutable', name, key )
+        
     elif args.action == 'lookup':
         logger.debug('Looking up %s', args.name)
         client = proxy.callRemote('lookup', args.name)
