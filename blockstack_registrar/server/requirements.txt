@@ -1,0 +1,5 @@
+coinrpc==0.1.0
+commontools==0.1.0
+pylibmc==1.3.0
+pymongo==2.7.2
+python-bitcoinrpc==0.1
