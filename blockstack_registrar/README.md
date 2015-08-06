@@ -26,3 +26,7 @@ To register a blockchain ID:
 1. choose an available username
 2. construct a valid JSON object that adheres to the [profile schema specifications](https://github.com/blockstack/blockstack/wiki/Passcard-Schema-v2)
 3. register the username and profile as an entry in the key-value store
+
+## License
+
+GPL v3. See LICENSE.
