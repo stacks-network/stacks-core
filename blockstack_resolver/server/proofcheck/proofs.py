@@ -19,7 +19,7 @@ This file is part of Resolver.
     GNU General Public License for more details.
 
     You should have received a copy of the GNU General Public License
-    along with Resolver.  If not, see <http://www.gnu.org/licenses/>.
+    along with Resolver. If not, see <http://www.gnu.org/licenses/>.
 """
 
 import requests
