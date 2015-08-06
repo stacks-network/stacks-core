@@ -5,7 +5,7 @@ Instructions for Docker
 
 The easiest way to run the resolver is by running a full-node docker (a full-node has a local namecoin daemon running inside the docker). On debian/ubuntu you can use:
 
-> sudo docker run -d -p 80:80/tcp digitalpassport/resolver
+> sudo docker run -d -p 80:80/tcp blockstack/resolver
 
 ## With SSL 
 
@@ -20,7 +20,7 @@ chmod 600 localcerts/apache*
 
 After generating the self-signed certificate (on the host), you can mount the localhosts directory in the docker and run the resolver docker as: 
 
-> sudo docker run -d -p 80:80/tcp -p 443:443/tcp -v /path/to/localcerts:/etc/ssl/localcerts digitalpassport/resolver-ssl
+> sudo docker run -d -p 80:80/tcp -p 443:443/tcp -v /path/to/localcerts:/etc/ssl/localcerts blockstack/resolver-ssl
 
 This will enable the resolver to listen for both http and https traffic. Make sure to **edit the /path/to/localcerts** for your directory accordingly before running the above line. 
 
@@ -32,7 +32,7 @@ If you don't have docker already installed, you can install it by:
 sudo apt-get update
 sudo apt-get install -y docker.io
 . ~/.bashrc
-sudo docker run -d -p 80:80/tcp digitalpassport/resolver
+sudo docker run -d -p 80:80/tcp blockstack/resolver
 ```
 
 ## Installing Docker on OS X:
@@ -44,7 +44,7 @@ brew install docker
 brew install boot2docker
 boot2docker init
 boot2docker up
-docker run -d -p 80:80/tcp digitalpassport/resolver
+docker run -d -p 80:80/tcp blockstack/resolver
 ```
 
 Docker on OS X has a time sync issue that affects namecoind. Run:

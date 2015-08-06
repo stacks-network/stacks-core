@@ -1,4 +1,4 @@
-BNS-resolver
+resolver
 =======
 
 ## Installation:
@@ -12,15 +12,6 @@ pip install -r requirements.txt
 ./runserver
 ```
 
-Warmup cache and then keep memcached in sync with the blockchain:
-
-```
-source tools/setup_env.sh
-python -m tools.warmup_cache
-mkdir log
-python -m tools.sync_cache
-```
-
 To deploy on Heroku:
 
 ```bash
@@ -31,7 +22,7 @@ git push heroku master
 
 ## Detailed Instructions:
 
-###1. BNS-resolver requires memcached:
+###1. resolver requires memcached:
 
 ###Linux:
 ```
@@ -40,9 +31,9 @@ sudo apt-get install memcached libmemcached-dev zlib1g-dev
 
 Before installing pylibmc (listed in requirements.txt) install the above packages.
 
-Install coinrpc:
+Install pybitcoin:
 ```
-pip install coinrpc
+pip install pybitcoin
 ```
 
 ------------------------------------------------------------------
@@ -107,19 +98,4 @@ on Mac:
 
 ------------------------------------------------------------------
 
-###4. pip install git+ssh://git@github.com/onenameio/coinrpc.git
-
-Note: above command may require sudo access :
-	```
-	sudo pip install git+ssh://git@github.com/onenameio/coinrpc.git
-	```
-
-	TODO: Add a non-ssh/HTTPS method as well for installing Coinrpc
-
-------------------------------------------------------------------
-
-TODO/Suggestions:
- remove coinrpc from requirements.txt as it was already installed in the previous step. 
- It may give an exception: 'No distributions at all found for coinrpc==0.1.0 (from -r requirements.txt (line 5))'
- Also ensure requirments.txt is up-to-date. as a few things maybe missing from it. 
-
+###4. pip install pybitcoin
