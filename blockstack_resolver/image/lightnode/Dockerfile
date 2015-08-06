@@ -1,5 +1,5 @@
 ############################################################
-# Dockerfile to build openname-resolver
+# Dockerfile to build resolver
 # Based on Ubuntu
 ############################################################
 
