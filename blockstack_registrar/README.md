@@ -5,7 +5,7 @@ For registering and updating blockchain ID
 
 ## Setup Environment 
 
-Blockchain ID currently uses the Namecoind blockchain for storing data. You'll need to compile a Namecoin Daemon (namecoind) to register/update opennames and profiles. You can follow the instructions for [compiling namecoind on Debian](https://github.com/namesystem/registrar/blob/master/doc/build-debian.md). 
+Blockchain ID currently uses the Namecoin blockchain for storing data. You'll need to compile a Namecoin Daemon (namecoind) to register/update opennames and profiles. You can follow the instructions for [compiling namecoind on Debian](https://github.com/namesystem/registrar/blob/master/doc/build-debian.md). 
 
 We've also developed a Python RPC client, shipped with [pybitcoin](https://github.com/namesystem/pybitcoin/rpc) for easily interacting with namecoind. This RPC client can be used to register users and update their profiles once you've setup your own namecoind instance. See the [README](https://github.com/namesystem/pybitcoin/tree/master/pybitcoin/rpc) files for details.
 
