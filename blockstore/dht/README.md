@@ -1,7 +1,7 @@
-openname-dht
+blockstore-dht
 ============
 
-Kademlia DHT for Openname data
+Kademlia DHT for blockstore data
 
 To run a stand-alone server:
 
