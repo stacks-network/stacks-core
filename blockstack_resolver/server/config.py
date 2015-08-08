@@ -69,17 +69,17 @@ except:
     # --------------------------------------------------
 
     try:
-        NAMECOIND_SERVER = os.environ['NAMECOIND_SERVER']
-        NAMECOIND_PORT = os.environ['NAMECOIND_PORT']
-        NAMECOIND_USER = os.environ['NAMECOIND_USER']
-        NAMECOIND_PASSWD = os.environ['NAMECOIND_PASSWD']
+        BITCOIND_SERVER = os.environ['BITCOIND_SERVER']
+        BITCOIND_PORT = os.environ['BITCOIND_PORT']
+        BITCOIND_USER = os.environ['BITCOIND_USER']
+        BITCOIND_PASSWD = os.environ['BITCOIND_PASSWD']
 
-        if os.environ['NAMECOIND_USE_HTTPS'] == 'True':
-            NAMECOIND_USE_HTTPS = True
+        if os.environ['BITCOIND_USE_HTTPS'] == 'True':
+            BITCOIND_USE_HTTPS = True
         else:
-            NAMECOIND_USE_HTTPS = False
+            BITCOIND_USE_HTTPS = False
     except:
-        log.debug("Namecoind not configured properly")
+        log.debug("Bitcoind not configured properly")
         exit(1)
 
     # --------------------------------------------------

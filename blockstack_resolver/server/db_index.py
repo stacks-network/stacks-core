@@ -25,18 +25,18 @@ This file is part of Resolver.
 from commontools import get_json
 from time import sleep
 
-from .config import NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USE_HTTPS
-from .config import NAMECOIND_USER, NAMECOIND_PASSWD
+from .config import BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USE_HTTPS
+from .config import BITCOIND_USER, BITCOIND_PASSWD
 
 from .config import RECENT_BLOCKS, VALID_BLOCKS, REFRESH_BLOCKS
 
 from .db import namespaces, profiles
 from .resolver import username_is_valid, get_user_profile
 
-from pybitcoin.rpc import NamecoindClient
-namecoind = NamecoindClient(NAMECOIND_SERVER, NAMECOIND_PORT,
-                            NAMECOIND_USER, NAMECOIND_PASSWD,
-                            NAMECOIND_USE_HTTPS)
+from pybitcoin.rpc import BitcoindClient
+bitcoind = BitcoindClient(BITCOIND_SERVER, BITCOIND_PORT,
+                          BITCOIND_USER, BITCOIND_PASSWD,
+                          BITCOIND_USE_HTTPS)
 
 
 def save_profile(username, profile):
@@ -74,7 +74,7 @@ def refresh_namespace(blocks, refresh_profiles=False):
 
     namespace = []
 
-    info = namecoind.name_filter("u/", blocks)
+    info = 'xx'  # fetch namespace here
 
     counter = 0
 
@@ -98,10 +98,6 @@ def refresh_namespace(blocks, refresh_profiles=False):
         if not refresh_profiles:
             continue
 
-        if 'next' in profile:
-
-            profile = namecoind.get_full_profile('u/' + username)
-
         save_profile(username, profile)
 
         counter += 1
@@ -115,7 +111,7 @@ def refresh_namespace(blocks, refresh_profiles=False):
 def remove_expired_names():
 
     # to get expired usernames, use 0 for blocks
-    info = namecoind.name_filter("u/", 0)
+    info = 'xx'  # fetch namespace here
 
     for entry in info:
 
@@ -142,15 +138,7 @@ def refresh_cache(blocks):
     for username in namespace['namespace']:
         entry = {}
 
-        try:
-            entry["profile"] = profiles.find_one({'username': username})['profile']
-        except:
-            #work around for a bug in namecoind, where it shows
-            #certain keys as expired in name_filter(blocks=0) when they're not
-            profile = namecoind.get_full_profile('u/' + username)
-            save_profile(username, profile)
-            entry["profile"] = profile
-
+        entry["profile"] = profiles.find_one({'username': username})['profile']
         results[username] = entry
 
     namespace['profiles'] = results
@@ -190,18 +178,18 @@ def refresh_memory_cache():
 
 def sync_with_blockchain():
 
-    new_block = namecoind.blocks()
+    new_block = bitcoind.blocks()
     old_block = new_block - 1
 
     while(1):
 
         while(old_block == new_block):
             sleep(30)
-            new_block = namecoind.blocks()
+            new_block = bitcoind.blocks()
 
         print 'current block: %s' % new_block
 
-        refresh_index()      
+        refresh_index()
         old_block = new_block
 
         if new_block % REFRESH_BLOCKS == 0:
