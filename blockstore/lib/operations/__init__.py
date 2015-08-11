@@ -25,6 +25,7 @@ import preorder
 import register
 import transfer
 import update
+import revoke
 import namespacepreorder
 import namespacedefine
 import namespacebegin
