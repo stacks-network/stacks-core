@@ -413,7 +413,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         return resp 
     
     
-    def jsonrpc_namespace_define( self, namespace_id, lifetime, base_name_cost, cost_decay_rate ):
+    def jsonrpc_namespace_define( self, namespace_id, lifetime, base_name_cost, cost_decay_rate, privatekey ):
         """
         Define the properties of a namespace.
         Between the namespace definition and the "namespace begin" operation, only the 
@@ -425,7 +425,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
            return {"error": "Failed to connect to blockchain UTXO provider"}
         
         try:
-           resp = namespace_define( str(namespace_id), int(lifetime), int(base_name_cost), float(cost_decay_rate), blockchain_client_inst, testset=True )
+           resp = namespace_define( str(namespace_id), int(lifetime), int(base_name_cost), float(cost_decay_rate), str(privatekey), blockchain_client_inst, testset=True )
         except:
            return json_traceback()
         
