@@ -27,7 +27,6 @@ from b40 import *
 from config import *
 from scripts import *
 from hashing import *
-from parsing import *
 
 from nameset import *
 from operations import *
