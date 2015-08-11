@@ -35,7 +35,7 @@ class SchemaField( object ):
 
    def __eq__(self, value):
       return self.name == value
-
+   
 
 class SchemaType( object ):
    
@@ -49,6 +49,9 @@ class SchemaType( object ):
       # children override this
       return type(value) in self.get_types()
    
+   def __repr__(self):
+      return "SchemaType(%s)" % (",".join( [str(t) for t in self.get_types()] ) )
+   
       
 class Base64StringType( SchemaType ):
    
@@ -60,7 +63,7 @@ class Base64StringType( SchemaType ):
       if type(value) != types.StringType and type(value) != types.UnicodeType:
          return False 
       
-      if re.match(r"^[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=]+$", value) is None:
+      if len(value) > 0 and re.match(r"^[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=]+$", value) is None:
          return False
       
       return True 
@@ -211,6 +214,8 @@ def schema_match( schema, obj, allow_extra=True, verbose=True ):
       sub_schema = schema[field]
       is_match = False
       
+      # debug("%s =~ %s" % (sub_object, sub_schema))
+      
       if type(sub_schema) != types.DictType:
          
          if isinstance( sub_schema, SchemaType ):
@@ -218,7 +223,7 @@ def schema_match( schema, obj, allow_extra=True, verbose=True ):
             # check custom validation
             is_match = sub_schema.valid( sub_object )
             if is_match is False:
-               debug( "schema not valid: %s" % (sub_object) )
+               debug( "%s (%s): schema not valid: '%s'" % (sub_schema, field, sub_object) )
          
          elif isinstance( sub_schema, types.ListType ) and len(sub_schema) == 1:
             
@@ -227,7 +232,7 @@ def schema_match( schema, obj, allow_extra=True, verbose=True ):
             
             if not isinstance( sub_object, types.ListType ):
                is_match = False
-               debug("%s != [%s]" % (type(sub_object), type(sub_schema)))
+               debug("%s != [%s]" % (sub_object, sub_schema))
                
             else:
                for so in sub_object:
@@ -235,14 +240,14 @@ def schema_match( schema, obj, allow_extra=True, verbose=True ):
                   # match each object in the list to this schema
                   is_match = schema_match( sub_schema, so )
                   if not is_match:
-                     debug("%s is not %s" (type(sub_object), type(sub_schema)))
+                     debug("%s is not %s" (sub_object, sub_schema))
                      break
             
          else:
             # check type 
-            is_match = (type(sub_schema) == type(sub_object))
+            is_match = sub_schema.valid( sub_object ) # (type(sub_schema) == type(sub_object))
             if is_match is False:
-               debug( "%s is not" % (type(sub_schema), type(sub_object)) )
+               debug( "%s is not %s" % (sub_object, sub_schema) )
             
       else:
          
