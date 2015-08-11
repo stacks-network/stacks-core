@@ -25,19 +25,22 @@
 
 import os
 import sys
-# current_dir =  os.path.abspath(os.path.dirname(__file__))
-# sys.path.insert(0, current_dir)
 
-from .parsing import json_stable_serialize 
-from . import schemas
+# hack around absolute paths
+current_dir =  os.path.abspath(os.path.dirname(__file__))
+sys.path.insert(0, current_dir)
+
+from parsing import json_stable_serialize 
+import schemas
 
 import pybitcoin
 import pybitcointools
 import types
 import re
 import base64
+import json
 
-from .config import log
+from config import log
 
 class UnhandledURLException( Exception ):
    def __init__(self, url):
@@ -76,6 +79,7 @@ def get_data_hash( data_text ):
    Return the hex string.
    """
    return pybitcoin.hash.hex_hash160( data_text )
+
 
 def make_mutable_urls( data_id ):
    """
@@ -161,7 +165,7 @@ def mutable_data_route_parse( route_json_text ):
       return None
    
    # validate against our route schema 
-   if not schemas.schema_match( route_object, ROUTE_SCHEMA ):
+   if not schemas.schema_match( ROUTE_SCHEMA, route_object ):
       log.error("Not a valid route: '%s'" % str(route_json_text))
       return None
       
@@ -177,7 +181,7 @@ def mutable_data( data_id, data_text, nonce, privkey=None, sig=None ):
    """
    data = {
       "id": str(data_id),
-      "data": str(data_text),
+      "data": base64.b64encode( str(data_text) ),
       "nonce": int(nonce)
    }
    
@@ -188,6 +192,7 @@ def mutable_data( data_id, data_text, nonce, privkey=None, sig=None ):
       data['sig'] = sign_mutable_data( data, privkey )
    
    else:
+      # need a sig or a private key!
       return None
    
    return data 
@@ -213,11 +218,25 @@ def mutable_data_parse( mutable_data_json_text ):
       log.error("Not a JSON string: '%s'" % str(mutable_data_json_text))
       return None
    
+   # TODO: use the schema to check for possible type conversions,
+   # and to carry out type conversions en masse.
+   if not data_object.has_key('nonce'):
+      log.error("Not a valid mutable data object: missing 'nonce'")
+      return None 
+   
+   try:
+      data_object['nonce'] = int( data_object['nonce'] )
+   except Exception, e:
+      log.error("Not a valid mutable data object: '%s'" % str(mutable_data_json_text))
+      return None 
+   
    # validate against data schema 
-   if not schemas.schema_match( data_object, MUTABLE_DATA_SCHEMA ):
+   if not schemas.schema_match( MUTABLE_DATA_SCHEMA, data_object ):
       log.error("Not a valid mutable data object: '%s'" % str(mutable_data_json_text))
       return None
    
+   # decode data 
+   data_object['data'] = base64.b64decode( data_object['data'] )
    return data_object 
 
 
