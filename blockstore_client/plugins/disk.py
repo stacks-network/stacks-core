@@ -26,6 +26,7 @@
 
 import os
 import sys 
+import traceback
 
 DISK_ROOT="/tmp/blockstore-disk"
 IMMUTABLE_STORAGE_ROOT = DISK_ROOT + "/immutable"
@@ -79,10 +80,15 @@ def get_immutable_handler( key ):
    data = None 
    path = os.path.join( IMMUTABLE_STORAGE_ROOT, key )
    
-   with open( path, "r" ) as f:
-      data = f.read() 
-      
-   return data
+   try:
+      with open( path, "r" ) as f:
+         data = f.read() 
+         
+      return data
+   
+   except Exception, e:
+      traceback.print_exc()
+      return None
 
 
 def get_mutable_handler( data_id ):
@@ -100,10 +106,15 @@ def get_mutable_handler( data_id ):
    data_id_noslash = data_id.replace( "/", r"\x2f" )
    path = os.path.join( MUTABLE_STORAGE_ROOT, data_id_noslash )
    
-   with open( path, "r" ) as f:
-      data = f.read()
+   try:
+      with open( path, "r" ) as f:
+         data = f.read()
       
-   return data
+      return data 
+   
+   except Exception, e:
+      traceback.print_exc()
+      return None 
 
 
 def put_immutable_handler( key, data, txid ):
@@ -119,8 +130,12 @@ def put_immutable_handler( key, data, txid ):
    
    path = os.path.join( IMMUTABLE_STORAGE_ROOT, key )
    
-   with open( path, "w+") as f:
-      f.write( data )
+   try:
+      with open( path, "w+") as f:
+         f.write( data )
+   except Exception, e:
+      traceback.print_exc()
+      return False 
    
    return True 
 
@@ -164,6 +179,7 @@ def delete_immutable_handler( key, txid ):
    except Exception, e:
       pass
    
+   return True 
 
 
 def delete_mutable_handler( data_id, signature ):
@@ -184,5 +200,97 @@ def delete_mutable_handler( data_id, signature ):
    except Exception, e:
       pass 
    
+   return True
+   
+   
+if __name__ == "__main__":
+   """
+   Unit tests.
+   """
+   
+   import pybitcoin 
+   import json 
+   
+   # hack around absolute paths
+   current_dir =  os.path.abspath(os.path.dirname(__file__))
+   sys.path.insert(0, current_dir)
+   
+   current_dir =  os.path.abspath(os.path.join( os.path.dirname(__file__), "..") )
+   sys.path.insert(0, current_dir)
+   
+   from parsing import json_stable_serialize
+   from storage import mutable_data_parse, mutable_data
+   
+   test_data = [
+      ("my_first_datum",        "hello world",                              1, "unused"),
+      ("/my/second/datum",      "hello world 2",                            2, "unused"),
+      ("user_profile",          '{"name":{"formatted":"judecn"},"v":"2"}',  3, "unused"),
+      ("empty_string",          "",                                         4, "unused"),
+   ]
+   
+   def hash_data( d ):
+      return pybitcoin.hash.hex_hash160( d )
+   
+   storage_init()
+   
+   # put_immutable_handler
+   for d_id, d, n, s in test_data:
+      
+      rc = put_immutable_handler( hash_data( d ), d, "unused" )
+      if not rc:
+         raise Exception("put_immutable_handler('%s') failed" % d)
+      
+      
+   # put_mutable_handler
+   for d_id, d, n, s in test_data:
+      
+      data_url = make_mutable_url( d_id )
+      
+      data = mutable_data( d_id, d, n, sig=s )
+      
+      data_json = json_stable_serialize( data )
+      
+      rc = put_mutable_handler( d_id, n, "unused", data_json )
+      if not rc:
+         raise Exception("put_mutable_handler('%s', '%s') failed" % (d_id, d))
+      
+   # get_immutable_handler
+   for d_id, d, n, s in test_data:
+      
+      rd = get_immutable_handler( hash_data( d ) )
+      if rd != d:
+         raise Exception("get_mutable_handler('%s'): '%s' != '%s'" % (hash_data(d), d, rd))
+      
+   # get_mutable_handler
+   for d_id, d, n, s in test_data:
+      
+      rd_json = get_mutable_handler( d_id )
+      rd = mutable_data_parse( rd_json )
+      if rd is None:
+         raise Exception("Failed to parse mutable data '%s'" % rd_json)
+      
+      if rd['id'] != d_id:
+         raise Exception("Data ID mismatch: '%s' != '%s'" % (rd['id'], d_id))
+      
+      if rd['nonce'] != n:
+         raise Exception("Nonce mismatch: '%s' != '%s'" % (rd['nonce'], n))
+      
+      if rd['data'] != d:
+         raise Exception("Data mismatch: '%s' != '%s'" % (rd['data'], d))
+      
+   # delete_immutable_handler
+   for d_id, d, n, s in test_data:
+      
+      rc = delete_immutable_handler( hash_data(d), "unused" )
+      if not rc:
+         raise Exception("delete_immutable_handler('%s' (%s)) failed" % (hash_data(d), d))
+      
+   # delete_mutable_handler
+   for d_id, d, n, s in test_data:
+      
+      rc = delete_mutable_handler( d_id, "unused" )
+      if not rc:
+         raise Exception("delete_mutable_handler('%s') failed" % d_id)
+      
    
    
