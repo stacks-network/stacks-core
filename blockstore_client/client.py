@@ -122,25 +122,27 @@ class BlockstoreRPCClient(object):
                  raise Exception("Invalid response: message too big")
               
         # receive message 
-        response = self.sock.recv( buf_len )
+        response = self.sock.recv( buf_len+1 )
         
-        # get the last comma to terminate the message
-        c = self.sock.recv(1)
-        if c[0] != ',':
+        # ensure that the message is terminated with a comma 
+        if response[-1] != ',':
            self.sock.close()
            raise Exception("Invalid response: invalid netstring termination")
+        
+        # trim ','
+        response = response[:-1]
         
         # parse the response
         try:
             result = json.loads(response)
-        except:
-            log.error("Invalid response: not a JSON string")
-            return None
+        except Exception, e:
+            
+            # try to clean up 
+            self.sock.close()
+            raise Exception("Invalid response: not a JSON string")
         
         return result 
-         
-         
-
+        
 
 def session( server_host, server_port, username=None, password=None, set_global=True ):
    """
