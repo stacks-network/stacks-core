@@ -56,7 +56,7 @@ def build(name, script_pubkey, consensus_hash, testset=False):
     
     name_hash = hash_name(name, script_pubkey)
 
-    script = 'NAME_PREORDER %s %s' % (name_hash, consensus_hash)
+    script = 'NAME_PREORDER 0x%s 0x%s' % (name_hash, consensus_hash)
     hex_script = blockstore_script_to_hex(script)
     packaged_script = add_magic_bytes(hex_script, testset=testset)
     

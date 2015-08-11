@@ -47,6 +47,10 @@ def blockstore_script_to_hex(script):
                 hex_script += '%0.2x' % ord(eval(part))
             except:
                 raise Exception('Invalid opcode: %s' % part)
+        
+        elif part.startswith("0x"):
+            # literal hex string
+            hex_script += part[2:]
             
         elif is_valid_int(part):
             hex_part = '%0.2x' % int(part)

@@ -51,7 +51,7 @@ def build(name, testset=False):
        # too long
       raise Exception("Name '%s' too long (exceeds %d bytes)" % (fqn, LENGTHS['blockchain_id_name']))
     
-    readable_script = "NAME_REGISTRATION %s" % (hexlify(name))
+    readable_script = "NAME_REGISTRATION 0x%s" % (hexlify(name))
     hex_script = blockstore_script_to_hex(readable_script)
     packaged_script = add_magic_bytes(hex_script, testset=testset)
     

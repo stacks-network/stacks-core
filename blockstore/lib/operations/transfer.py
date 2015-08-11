@@ -66,7 +66,7 @@ def build(name, keepdata, consensus_hash, testset=False):
     name_hash = hash256_trunc128( name )
     disposition_hex = hexlify(data_disposition)
     
-    readable_script = 'NAME_TRANSFER %s %s %s' % (disposition_hex, name_hash, consensus_hash)
+    readable_script = 'NAME_TRANSFER 0x%s 0x%s 0x%s' % (disposition_hex, name_hash, consensus_hash)
     hex_script = blockstore_script_to_hex(readable_script)
     packaged_script = add_magic_bytes(hex_script, testset=testset)
     

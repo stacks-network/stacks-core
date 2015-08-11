@@ -53,7 +53,7 @@ def build(name, consensus_hash, data_hash=None, testset=False):
        
     hex_name = hash256_trunc128( name + consensus_hash )
     
-    readable_script = 'NAME_UPDATE %s %s' % (hex_name, data_hash)
+    readable_script = 'NAME_UPDATE 0x%s 0x%s' % (hex_name, data_hash)
     hex_script = blockstore_script_to_hex(readable_script)
     packaged_script = add_magic_bytes(hex_script, testset=testset)
 

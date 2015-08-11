@@ -57,7 +57,7 @@ def build( namespace_id, script_pubkey, consensus_hash, testset=False ):
    
    namespace_id_hash = hash_name(namespace_id, script_pubkey)
    
-   readable_script = "NAMESPACE_PREORDER %s %s" % (namespace_id_hash, consensus_hash)
+   readable_script = "NAMESPACE_PREORDER 0x%s 0x%s" % (namespace_id_hash, consensus_hash)
    hex_script = blockstore_script_to_hex(readable_script)
    packaged_script = add_magic_bytes(hex_script, testset=testset)
    
