@@ -1,3 +1,26 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+    Blockstore
+    ~~~~~
+    copyright: (c) 2014 by Halfmoon Labs, Inc.
+    copyright: (c) 2015 by Blockstack.org
+    
+    This file is part of Blockstore
+    
+    Blockstore is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    
+    Blockstore is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
+"""
+
 from pybitcoin import embed_data_in_blockchain, \
     analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
     make_pay_to_address_script
@@ -9,29 +32,41 @@ from binascii import hexlify, unhexlify
 from ..b40 import b40_to_hex, bin_to_b40
 from ..config import *
 from ..scripts import blockstore_script_to_hex, add_magic_bytes
-from ..fees import calculate_basic_name_tx_fee
+from ..hashing import hash256_trunc128
 
+def calculate_basic_name_tx_fee():
+    return DEFAULT_OP_RETURN_FEE
 
-def build(name, testset=False):
+def build(name, keepdata, consensus_hash, testset=False):
     """
     Takes in a name to transfer.  Name must include the namespace ID, but not the scheme.
     
     Record format:
     
-    0     2  3  4                      39
-    |-----|--|--|----------------------|
-    magic op len name.ns_id (up to 34 bytes)
+    0     2  3    4                   20              36
+    |-----|--|----|-------------------|---------------|
+    magic op keep  hash128(name.ns_id) consensus hash
+             data?
     """
     
     if name.startswith(NAME_SCHEME):
        raise Exception("Invalid name %s: must not start with %s" % (name, NAME_SCHEME))
     
     # without the scheme, name must be 34 bytes 
-    if len(name) > LENGTHS['blockchain_id_name'] - LENGTHS['blockchain_id_scheme']:
-       raise Exception("Name '%s' is too long; expected %s bytes" % (name, LENGTHS['blockchain_id_name'] - LENGTHS['blockchain_id_scheme']))
+    if len(name) > LENGTHS['blockchain_id_name']:
+       raise Exception("Name '%s' is too long; expected %s bytes" % (name, LENGTHS['blockchain_id_name']))
     
-    name_hex = hexlify(name)
-    readable_script = 'NAME_TRANSFER %i %s' % (len(name_hex), name_hex)
+    data_disposition = None 
+    
+    if keepdata:
+       data_disposition = TRANSFER_KEEP_DATA 
+    else:
+       data_disposition = TRANSFER_REMOVE_DATA
+    
+    name_hash = hash256_trunc128( name )
+    disposition_hex = hexlify(data_disposition)
+    
+    readable_script = 'NAME_TRANSFER %s %s %s' % (disposition_hex, name_hash, consensus_hash)
     hex_script = blockstore_script_to_hex(readable_script)
     packaged_script = add_magic_bytes(hex_script, testset=testset)
     
@@ -60,17 +95,22 @@ def make_outputs( data, inputs, new_name_owner_address, change_address, format='
     ]
 
 
-def broadcast(name, destination_address, private_key, blockchain_client, testset=False):
+def broadcast(name, destination_address, keepdata, consensus_hash, private_key, blockchain_client, testset=False):
    
-    nulldata = build(name, testset=testset)
+    nulldata = build(name, keepdata, consensus_hash, testset=testset)
+    
     # get inputs and from address
     private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
+    
     # build custom outputs here
     outputs = make_outputs(nulldata, inputs, destination_address, from_address, format='hex')
+    
     # serialize, sign, and broadcast the tx
     response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_client)
+    
     # response = {'success': True }
     response.update({'data': nulldata})
+    
     # return the response
     return response
 
@@ -80,10 +120,20 @@ def parse(bin_payload, recipient):
     # NOTE: first three bytes were stripped
     """
     
-    name_len = ord(bin_payload[0:1])
-    name = unhexlify( bin_payload[1:1+name_len] )
+    disposition_char = bin_payload[0:1]
+    name_hash = bin_payload[1:1+LENGTHS['name_hash']]
+    consensus_hash = bin_payload[1+LENGTHS['name_hash']:]
+    
+    # keep data by default 
+    disposition = True 
+    
+    if disposition_char == TRANSFER_REMOVE_DATA:
+       disposition = False 
+    
     return {
         'opcode': 'NAME_TRANSFER',
-        'name': name,
-        'recipient': recipient
+        'name_hash': name_hash,
+        'consensus_hash': consensus_hash,
+        'recipient': recipient,
+        'keep_data': disposition
     }

@@ -3,8 +3,22 @@
 """
     Blockstore
     ~~~~~
-    :copyright: (c) 2015 by Openname.org
-    :license: MIT, see LICENSE for more details.
+    copyright: (c) 2014 by Halfmoon Labs, Inc.
+    copyright: (c) 2015 by Blockstack.org
+    
+    This file is part of Blockstore
+    
+    Blockstore is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    
+    Blockstore is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 # Hooks to the virtual chain's state engine that bind our namedb to the virtualchain package.
@@ -124,7 +138,7 @@ def get_virtual_chain_version():
    
    Get the version string for this virtual chain.
    """
-   return "v0.01-beta"
+   return VERSION
 
 
 def get_opcodes():
@@ -160,7 +174,7 @@ def get_first_block_id():
    
    Get the id of the first block to start indexing.
    """ 
-   return 368346
+   return START_BLOCK
 
 
 def get_db_state():
@@ -252,38 +266,48 @@ def db_check( block_id, checked_ops, opcode, op, db_state=None ):
    checked_ops is a dict that maps opcodes to operations already checked by
    this method for this block.
    
-   # TODO: revoke operation
-   
    Return True if it's valid; False if not.
    """
    
    if db_state is not None:
          
       db = db_state
+      rc = False
+      
+      if opcode not in OPCODES:
+         log.error("Unrecognized opcode '%s'" % (opcode))
+         return False 
       
       if opcode == NAME_PREORDER:
-         return db.log_preorder( checked_ops, ops, block_id )
+         rc = db.log_preorder( checked_ops, op, block_id )
       
       elif opcode == NAME_REGISTRATION:
-         return db.log_registration( checked_ops, ops, block_id )
+         rc = db.log_registration( checked_ops, op, block_id )
       
       elif opcode == NAME_UPDATE:
-         return db.log_update( checked_ops, ops, block_id )
+         rc = db.log_update( checked_ops, op, block_id )
       
       elif opcode == NAME_TRANSFER:
-         return db.log_transfer( checked_ops, ops, block_id )
+         rc = db.log_transfer( checked_ops, op, block_id )
+      
+      elif opcode == NAME_REVOKE:
+         rc = db.log_revoke( checked_ops, op, block_id )
       
       elif opcode == NAMESPACE_PREORDER:
-         return db.log_namespace_preorder( checked_ops, ops, block_id )
+         rc = db.log_namespace_preorder( checked_ops, op, block_id )
       
       elif opcode == NAMESPACE_DEFINE:
-         return db.log_namespace_define( checked_ops, ops, block_id )
+         rc = db.log_namespace_define( checked_ops, op, block_id )
       
       elif opcode == NAMESPACE_BEGIN:
-         return db.log_namespace_begin( checked_ops, ops, block_id )
+         rc = db.log_namespace_begin( checked_ops, op, block_id )
       
-      log.error("Unrecognized opcode '%s'" % opcode )
-      return False
+      if rc:
+         log.debug("ACCEPT op '%s' (%s)" % (opcode, op))
+      else:
+         log.debug("REJECT op '%s' (%s)" % (opcode, op))
+         
+      return rc
    
    else:
       log.error("No state engine defined")
@@ -298,14 +322,18 @@ def db_commit( block_id, opcode, op, db_state=None ):
    part of the database.  This does *not* need to write 
    the data to persistent storage, since save() will be 
    called once per block processed.
-   
-   # TODO: revoke operation
    """
    
    if db_state is not None:
       
       db = db_state
       
+      if opcode not in OPCODES:
+         log.error("Unrecognized opcode '%s'" % (opcode))
+         return False 
+      
+      log.debug("COMMIT op '%s' (%s)" % (opcode, op))
+         
       if opcode == NAME_PREORDER:
          db.commit_preorder( op, block_id )
       
@@ -318,6 +346,9 @@ def db_commit( block_id, opcode, op, db_state=None ):
       elif opcode == NAME_TRANSFER:
          db.commit_transfer( op, block_id )
       
+      elif opcode == NAME_REVOKE:
+         db.commit_revoke( op, block_id )
+         
       elif opcode == NAMESPACE_PREORDER:
          db.commit_namespace_preorder( op, block_id )
          
@@ -327,9 +358,8 @@ def db_commit( block_id, opcode, op, db_state=None ):
       elif opcode == NAMESPACE_BEGIN:
          db.commit_namespace_begin( op, block_id )
          
-      else:
-         log.error("Unrecognized opcode '%s'" % opcode )
-         return False 
+      # do expirations
+      db.commit_name_expire_all( block_id )
       
       return True
    
@@ -375,8 +405,6 @@ def db_save( block_id, filename, db_state=None ):
    
    # remove expired names before saving
    if db is not None:
-      
-      db.commit_name_expire_all( block_id )
       
       return db.save_db( filename )
    

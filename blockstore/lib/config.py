@@ -1,8 +1,24 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 """
     Blockstore
     ~~~~~
-    :copyright: (c) 2015 by Openname.org
-    :license: MIT, see LICENSE for more details.
+    copyright: (c) 2014 by Halfmoon Labs, Inc.
+    copyright: (c) 2015 by Blockstack.org
+    
+    This file is part of Blockstore
+    
+    Blockstore is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    
+    Blockstore is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 import os
@@ -13,6 +29,8 @@ import virtualchain
 DEBUG = True
 TESTNET = False
 TESTSET = True
+
+VERSION = "v0.01-beta"
 
 """ constants
 """
@@ -56,10 +74,10 @@ MULTIPROCESS_RPC_RETRY = 3
 """
 REINDEX_FREQUENCY = 10  # in seconds
 
-FIRST_BLOCK_MAINNET = 367090 # 343883
+FIRST_BLOCK_MAINNET = 369169 # 343883
 FIRST_BLOCK_MAINNET_TESTSET = FIRST_BLOCK_MAINNET
 # FIRST_BLOCK_TESTNET = 343883
-FIRST_BLOCK_TESTNET = 508800
+FIRST_BLOCK_TESTNET = 529008
 FIRST_BLOCK_TESTNET_TESTSET = FIRST_BLOCK_TESTNET
 
 if TESTNET:
@@ -101,6 +119,9 @@ NAMESPACE_PREORDER = '*'
 NAMESPACE_DEFINE = '&'
 NAMESPACE_BEGIN = '!'
 
+TRANSFER_KEEP_DATA = '>'
+TRANSFER_REMOVE_DATA = '~'
+
 # list of opcodes we support
 OPCODES = [
    NAME_PREORDER,
@@ -131,7 +152,6 @@ LENGTHS = {
     'update_hash': 20,
     'data_hash': 20,
     'blockchain_id_name': 34,
-    'blockchain_id_scheme': len(NAME_SCHEME),
     'blockchain_id_namespace_life': 4,
     'blockchain_id_namespace_cost': 8,
     'blockchain_id_namespace_price_decay': 4,
@@ -172,7 +192,7 @@ ALPHABETIC_PRICE_FLOOR = 10**4
 NAMESPACE_DEFAULT = {
    'opcode': 'NAMESPACE_DEFINE',
    'lifetime': EXPIRATION_PERIOD,
-   'cost': PRICE_FOR_1LETTER_NAMES,
+   'cost': 1,
    'price_decay': float(PRICE_DROP_PER_LETTER),
    'namespace_id': None,
    'namespace_id_hash': "",
