@@ -24,6 +24,7 @@
 import client 
 import config 
 import schemas
+import parsing
 import user
 import plugins
 
