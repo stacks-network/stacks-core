@@ -173,7 +173,7 @@ def run_cli():
       help='the cost (in satoshis) for a 1-character name in this namespace')
    subparser.add_argument(
       'cost_decay_rate', type=float,
-      help='the rate at which the value of a name decays, based on its length: if L is the length, R is the rate, and B is the base name cost, then the cost per name shall be ceil(B / (R^(L-1)))')
+      help='the rate at which the value of a name decays, based on its length: if L is the length, R is the rate (this argument), and B is the base name cost, then the cost per name shall be ceil(B / (R^(L-1)))')
    subparser.add_argument(
       'privatekey', type=str,
       help='the privatekey of the namespace creator')
