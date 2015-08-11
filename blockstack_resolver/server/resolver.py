@@ -33,7 +33,6 @@ from pymongo import MongoClient
 from time import time
 
 from commontools import log, get_json, error_reply
-from pybitcoin.rpc import NamecoindClient
 
 from .proofcheck import profile_to_proofs
 from .crossdomain import crossdomain
@@ -42,8 +41,6 @@ from .config import DEBUG
 from .config import DEFAULT_HOST, MEMCACHED_SERVERS, MEMCACHED_USERNAME
 from .config import MEMCACHED_PASSWORD, MEMCACHED_TIMEOUT, MEMCACHED_ENABLED
 from .config import USERSTATS_TIMEOUT
-from .config import NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USE_HTTPS
-from .config import NAMECOIND_USER, NAMECOIND_PASSWD
 from .config import VALID_BLOCKS, RECENT_BLOCKS
 
 log.setLevel(logging.DEBUG if DEBUG else logging.INFO)
@@ -55,9 +52,6 @@ mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
                     behaviors={"no_block": True,
                                "connect_timeout": 500})
 
-namecoind = NamecoindClient(NAMECOIND_SERVER, NAMECOIND_PORT,
-                            NAMECOIND_USER, NAMECOIND_PASSWD,
-                            NAMECOIND_USE_HTTPS)
 
 db = MongoClient()['resolver_index']
 
@@ -77,7 +71,7 @@ def username_is_valid(username):
 
 def refresh_user_count():
 
-    active_users_list = namecoind.name_filter('u/')
+    active_users_list = 'xx'  # fetch user info here
 
     if type(active_users_list) is list:
         mc.set("total_users", str(len(active_users_list)), int(time() + USERSTATS_TIMEOUT))
@@ -232,7 +226,7 @@ def get_recent_namespace(blocks):
         results['usernames'] = namespace['namespace']
     else:
 
-        users = namecoind.name_filter('u/', blocks)
+        users = 'xx' # fetch users here
 
         list = []
 
