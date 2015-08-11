@@ -29,7 +29,7 @@ from binascii import hexlify, unhexlify
 from .namedb import BlockstoreDB, BlockstoreDBIterator
 
 from ..config import *
-from ..operations import parse_preorder, parse_registration, parse_update, parse_transfer, parse_namespace_preorder, parse_namespace_define, parse_namespace_begin
+from ..operations import parse_preorder, parse_registration, parse_update, parse_transfer, parse_revoke, parse_namespace_preorder, parse_namespace_define, parse_namespace_begin
 
 import virtualchain
 
@@ -83,8 +83,6 @@ def parse_blockstore_op_data( opcode, payload, sender, recipient ):
     
     We are given opcode and payload as arguments.
     
-    # TODO: revoke operation 
-    
     Returns a parsed operation on success
     Returns None if no operation could be parsed.
     """
@@ -107,7 +105,11 @@ def parse_blockstore_op_data( opcode, payload, sender, recipient ):
     elif (opcode == NAME_TRANSFER and len(payload) >= MIN_OP_LENGTHS['transfer']):
         log.debug( "Parse NAME_TRANSFER: %s" % data )
         op = parse_transfer(payload, recipient )
-      
+    
+    elif (opcode == NAME_REVOKE and len(payload) >= MIN_OP_LENGTHS['revoke']):
+        log.debug( "Parse NAME_REVOKE: %s" % data )
+        op = parse_revoke(payload)
+        
     elif opcode == NAMESPACE_PREORDER and len(payload) >= MIN_OP_LENGTHS['namespace_preorder']:
         log.debug( "Parse NAMESPACE_PREORDER: %s" % data)
         op = parse_namespace_preorder( payload )
@@ -119,6 +121,9 @@ def parse_blockstore_op_data( opcode, payload, sender, recipient ):
     elif opcode == NAMESPACE_BEGIN and len(payload) >= MIN_OP_LENGTHS['namespace_begin']:
         log.debug( "Parse NAMESPACE_BEGIN: %s" % data )
         op = parse_namespace_begin( payload )
+    
+    else:
+        log.warning("Unrecognized op: code='%s', data=%s, len=%s" % (opcode, data, len(payload)))
         
     return op
 
