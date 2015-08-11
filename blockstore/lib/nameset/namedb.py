@@ -474,7 +474,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       if len( self.pending_imports[namespace_id_hash] ) < 1:
          return None 
       
-      return self.pending_imports[ namesapce_id_hash ][0]
+      return self.pending_imports[ namespace_id_hash ][0]
       
 
    def get_importing_namespace_define( self, namespace_id_hash ):
@@ -598,7 +598,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       if namespace_define is None:
          return False 
       
-      return (namespace_id_hash == namesapce_define['namespace_id_hash'])
+      return (namespace_id_hash == namespace_define['namespace_id_hash'])
    
    
    def is_namespace_importing( self, namespace_id, sender_script_pubkey ):
@@ -969,7 +969,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       namespace_id_hash = nameop['namespace_id_hash']
       sender = nameop['sender']
       
-      self.pending_preorders[ namespace_id_hash ].append( nameop )
+      self.pending_imports[ namespace_id_hash ].append( nameop )
    
 
    def commit_namespace_import( self, nameop, block_id ):
