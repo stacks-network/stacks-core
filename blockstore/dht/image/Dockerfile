@@ -32,7 +32,7 @@ RUN mkdir -p /srv/
 # Clone the app from github and install packages
 ADD blockstore.tar.gz /srv/
 RUN pip install kademlia
-RUN pip install coinkit 
+RUN pip install pybitcoin
 
 ##################### INSTALLATION END #####################
 

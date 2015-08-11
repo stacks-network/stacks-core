@@ -4,10 +4,6 @@ Beta at Aug. 15.  Should be as close-to-ready as possible
 Announce on Sept. 1.
 Summit on Sept. 12.
 
-* revoke operation
-
-* move to pybitcoin
-
 Blockstack is the interface to the "packages" namespace 
 * pip install blockstack
 * blockstack install blockchain_id 
@@ -15,10 +11,7 @@ Blockstack is the interface to the "packages" namespace
 
 * move off of chain.com
 
-* transfer will blow away old data (e.g. from the profile)
-
-Storage
-* blockstore-cli --> high-level client-side API library, with CLI wrapper
+* expire preorders and namespace preorders
 
 Migration plan:
 * null namespace has to be "imported" with NAMESPACE_DEFINE
