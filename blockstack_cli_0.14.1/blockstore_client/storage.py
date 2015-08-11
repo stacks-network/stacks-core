@@ -597,6 +597,3 @@ def delete_mutable_data( data_id, privatekey ):
          continue
       
    return True 
-
-   
-      
