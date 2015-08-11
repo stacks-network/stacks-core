@@ -68,6 +68,10 @@ class BlockstoreRPCClient(object):
         except AttributeError:
             return self.dispatch(key)
 
+
+    def socket():
+        return self.sock
+     
     def default(self, *args ):
         self.params = args
         return self.request()
