@@ -57,7 +57,19 @@ RPC_SERVER_PORT = 6264
 
 """ DHT configs
 """
+# 3 years
+STORAGE_TTL = 3 * 60 * 60 * 24 * 365
 
+DHT_SERVER_PORT = 6265  # blockstored default to port 6264
+
+DEFAULT_DHT_SERVERS = [('dht.openname.org', DHT_SERVER_PORT),
+                       ('dht.onename.com', DHT_SERVER_PORT),
+                       ('dht.halfmoonlabs.com', DHT_SERVER_PORT),
+                       ('127.0.0.1', DHT_SERVER_PORT)]
+
+
+""" Bitcoin configs 
+"""
 DEFAULT_BITCOIND_SERVER = 'btcd.onename.com'
 DEFAULT_BITCOIND_PORT = 8332 
 DEFAULT_BITCOIND_PORT_TESTNET = 18332
@@ -304,6 +316,84 @@ def default_chaincom_opts( config_file=None ):
    
    return chaincom_opts
 
+
+def default_dht_opts( config_file=None ):
+   """
+   Get our default DHT options from the config file.
+   """
+   
+   global DHT_SERVER_PORT, DEFAULT_DHT_SERVERS
+   
+   if config_file is None:
+      config_file = virtualchain.get_config_filename()
+   
+   
+   defaults = {
+      'disable': str(False),
+      'port': str(DHT_SERVER_PORT),
+      'servers': ",".join( ["%s:%s" % (host, port) for (host, port) in DEFAULT_DHT_SERVERS] )
+   }
+   
+   parser = SafeConfigParser( defaults )
+   parser.read( config_file )
+   
+   if parser.has_section('dht'):
+      
+      disable = parser.get('dht', 'disable')
+      port = parser.get('dht', 'port')
+      servers = parser.get('dht', 'servers')     # expect comma-separated list of host:port
+      
+      if disable is None:
+         disable = False 
+         
+      if port is None:
+         port = DHT_SERVER_PORT
+         
+      if servers is None:
+         servers = DEFAULT_DHT_SERVERS
+         
+      try:
+         disable = bool(disable)
+      except:
+         raise Exception("Invalid field value for dht.disable: expected bool")
+      
+      try:
+         port = int(port)
+      except:
+         raise Exception("Invalid field value for dht.port: expected int")
+      
+      parsed_servers = []
+      try:
+         server_list = servers.split(",")
+         for server in server_list:
+            server_host, server_port = server.split(":")
+            server_port = int(server_port)
+            
+            parsed_servers.append( (server_host, server_port) )
+            
+      except:
+         raise Exception("Invalid field value for dht.servers: expected 'HOST:PORT[,HOST:PORT...]'")
+      
+      dht_opts = {
+         'disable': disable,
+         'port': port,
+         'servers': parsed_servers
+      }
+      
+      return dht_opts 
+   
+   else:
+      
+      # use defaults
+      dht_opts = {
+         'disable': False,
+         'port': DHT_SERVER_PORT,
+         'servers': DEFAULT_DHT_SERVERS
+      }
+         
+      return dht_opts
+   
+      
 
 def opt_strip( prefix, opts ):
    """
