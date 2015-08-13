@@ -61,8 +61,8 @@ def get_sorted_commands():
                     'put_immutable', 'get_mutable', 'get_immutable',
                     'lookup', 'getindex']
 
-    for x in sorted(command_list):
-        print x
+    for cmd in sorted(command_list):
+        print cmd
 
 
 def run_cli():
@@ -79,15 +79,15 @@ def run_cli():
 
     parser.add_argument(
       '--blockstored-server',
-      help="""the hostname or IP address of the blockstored RPC server (default: {})""".format(config.BLOCKSTORED_SERVER))
+      help="""the hostname/IP of server (default: {})""".format(config.BLOCKSTORED_SERVER))
 
     parser.add_argument(
       '--blockstored-port', type=int,
-      help="""the blockstored RPC port to connect to (default: {})""".format(config.BLOCKSTORED_PORT))
+      help="""the server port to connect to (default: {})""".format(config.BLOCKSTORED_PORT))
 
     parser.add_argument(
       '--txid', type=str,
-      help="the transaction hash for a partially-failed storage operation")
+      help="tx hash of a partially-failed storage operation")
 
     subparsers = parser.add_subparsers(
       dest='action',
@@ -97,7 +97,7 @@ def run_cli():
     # start commands
     subparser = subparsers.add_parser(
       'get_immutable',
-      help='<name> <hash> | Get immutable data from the storage providers, and verify that the named user wrote it.')
+      help='<name> <hash> | get immutable data from storage')
     subparser.add_argument(
       'name', type=str,
       help='the name of the user')
@@ -108,7 +108,7 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
       'get_mutable',
-      help='<name> <data_id> | Get mutable data from the storage providers, and verify that the named user wrote it.')
+      help='<name> <data_id> | get mutable data from storage')
     subparser.add_argument(
       'name', type=str,
       help='the name associated with the data')
@@ -139,8 +139,8 @@ def run_cli():
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-      'namespace_begin',
-      help='<namespace_id> <privatekey> | begin the namespace, completing its definition and opening it for registration by other parties.')
+      'namespace_preorder',
+      help='preorder a namespace and claim the name')
     subparser.add_argument(
       'namespace_id', type=str,
       help='the human-readable namespace identifier')
@@ -150,8 +150,8 @@ def run_cli():
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-      'namespace_define',
-      help='<namespace_id> <lifetime> <base_name_cost> <cost_decay_rate> <privatekey> | define a namespace\'s parameters, in preparation for importing names.')
+      'namespace_reveal',
+      help='define a namespace\'s parameters once preorder succeeds')
     subparser.add_argument( 
       'namespace_id', type=str, 
       help='the human-readable namespace identifier')
@@ -170,8 +170,8 @@ def run_cli():
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-      'namespace_preorder',
-      help='<namespace_id> <privatekey> | preorder a namespace, in order to claim the namespace ID and begin populating it.')
+      'namespace_ready',
+      help='open namespace for registrations')
     subparser.add_argument(
       'namespace_id', type=str,
       help='the human-readable namespace identifier')
@@ -198,7 +198,7 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
       'put_immutable',
-      help='<name> <data> <privatekey> | Store immutable data into the storage providers, creating it if it does not exist.')
+      help='store immutable data into storage')
     subparser.add_argument(
       'name', type=str,
       help='the name that owns this data')
@@ -212,7 +212,7 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
       'put_mutable',
-      help='<name> <data_id> <data> <privatekey> [<nonce>] | Store mutable data into the storage providers, creating it if it does not exist.')
+      help='store mutable data into storage')
     subparser.add_argument(
       'name', type=str,
       help='the name that owns this data')
@@ -251,7 +251,7 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
       'transfer',
-      help='<name> <address> <keepdata> <privatekey> | transfer a name')
+      help='transfer a name')
     subparser.add_argument(
       'name', type=str,
       help='the name that you want to register/claim')
@@ -268,7 +268,7 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
       'update',
-      help='<name> <storage_index_json> <privatekey> | update storage index data and store it into the storage providers')
+      help='update storage index data and store it')
     subparser.add_argument(
       'name', type=str,
       help='the name that you want to update')
@@ -323,15 +323,15 @@ def run_cli():
         result = client.namespace_preorder(str(args.namespace_id),
                                            str(args.privatekey))
 
-    elif args.action == 'namespace_define':
-        result = client.namespace_define(str(args.namespace_id),
+    elif args.action == 'namespace_reveal':
+        result = client.namespace_reveal(str(args.namespace_id),
                                          int(args.lifetime),
                                          int(args.base_name_cost),
                                          float(args.cost_decay_rate),
                                          str(args.privatekey))
 
-    elif args.action == 'namespace_begin':
-        result = client.namespace_begin(str(args.namespace_id),
+    elif args.action == 'namespace_ready':
+        result = client.namespace_ready(str(args.namespace_id),
                                         str(args.privatekey))
 
     elif args.action == 'put_mutable':
