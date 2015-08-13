@@ -39,6 +39,15 @@ bitcoind = BitcoindClient(BITCOIND_SERVER, BITCOIND_PORT,
                           BITCOIND_USE_HTTPS)
 
 
+from twisted.internet import reactor
+from txjsonrpc.netstring.jsonrpc import Proxy
+from .config import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
+
+proxy = Proxy(BLOCKSTORED_SERVER, BLOCKSTORED_PORT)
+
+from blockstore.blockstore_cli import printValue, printError, shutDown, getFormat
+
+
 def save_profile(username, profile):
 
     check_entry = profiles.find({"username": username}).limit(1)
@@ -196,8 +205,25 @@ def sync_with_blockchain():
             refresh_memory_cache()
 
 
+def format_response(response):
+
+    response = response[0]
+    return json.dumps(response, sort_keys=True, indent=4, separators=(',', ': '))
+
+
+def v2_get_immutable_data(hash):
+
+    from jsonrpc_ns import JSONRPCProxy
+    blockstored = JSONRPCProxy('52.0.28.169', 6264)
+    resp = blockstored.request('ping')
+
+    return resp
+
+
 if __name__ == '__main__':
 
+    print bitcoind.blocks()
+    print v2_get_immutable_data('temp')
     #only on first run
-    refresh_namespace(VALID_BLOCKS, refresh_profiles=True)
+    #refresh_namespace(VALID_BLOCKS, refresh_profiles=True)
     #sync_with_blockchain()
