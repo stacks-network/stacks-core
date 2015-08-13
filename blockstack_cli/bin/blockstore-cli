@@ -34,8 +34,8 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
-from blockstore_client import config, client, schemas, parsing, user
-from blockstore_client import plugins
+from blockstore import config, client, schemas, parsing, user
+from blockstore import drivers
 
 log = config.log
 
@@ -50,6 +50,21 @@ def print_result(json_str):
     print pretty_dump(json_str)
 
 
+def get_sorted_commands():
+    """ when adding new commands to the parser, use this function to
+        check the correct sorted order
+    """
+
+    command_list = ['getinfo', 'ping', 'preorder', 'register', 'update',
+                    'transfer', 'renew', 'namespace_preorder',
+                    'namespace_define', 'namespace_begin', 'put_mutable',
+                    'put_immutable', 'get_mutable', 'get_immutable',
+                    'lookup', 'getindex']
+
+    for x in sorted(command_list):
+        print x
+
+
 def run_cli():
     """ run cli
     """
@@ -57,7 +72,7 @@ def run_cli():
     # TODO: read config file
     proxy = client.session(config.BLOCKSTORED_SERVER, config.BLOCKSTORED_PORT)
 
-    client.register_storage(plugins.disk)
+    client.register_storage(drivers.disk)
 
     parser = argparse.ArgumentParser(
       description='Blockstore Cli version {}'.format(config.VERSION))
@@ -78,82 +93,54 @@ def run_cli():
       dest='action',
       help='the action to be taken')
 
+    # ------------------------------------
+    # start commands
+    subparser = subparsers.add_parser(
+      'get_immutable',
+      help='<name> <hash> | Get immutable data from the storage providers, and verify that the named user wrote it.')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name of the user')
+    subparser.add_argument(
+      'hash', type=str,
+      help='the hash of the data')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'get_mutable',
+      help='<name> <data_id> | Get mutable data from the storage providers, and verify that the named user wrote it.')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name associated with the data')
+    subparser.add_argument(
+      'data_id', type=str,
+      help='the unchanging identifier for this data')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'getindex',
+      help='<name> | get the storage index for a given name')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name to look up')
+
+    # ------------------------------------
     subparser = subparsers.add_parser(
       'getinfo',
       help='get basic info from the blockstored server')
 
-    subparser = subparsers.add_parser(
-      'ping',
-      help='check if the blockstored server is up')
-
     # ------------------------------------
     subparser = subparsers.add_parser(
-      'preorder',
-      help='<name> <privatekey> | preorder a name')
+      'lookup',
+      help='<name> | get the name record for a given name')
     subparser.add_argument(
       'name', type=str,
-      help='the name that you want to preorder')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the private key of the Bitcoin address that will own the name')
+      help='the name to look up')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-      'register',
-      help='<name> <privatekey> | register/claim a name')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name that you want to register/claim')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the private key of the Bitcoin address that will own the name')
-
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'update',
-      help='<name> <storage_index_json> <privatekey> | update storage index data and store it into the storage providers')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name that you want to update')
-    subparser.add_argument(
-      'storage_index_json', type=str,
-      help='the JSON-encoded storage index to associate with the name')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the privatekey of the owner Bitcoin address')
-
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'transfer',
-      help='<name> <address> <keepdata> <privatekey> | transfer a name')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name that you want to register/claim')
-    subparser.add_argument(
-      'address', type=str,
-      help='the new owner Bitcoin address')
-    subparser.add_argument(
-      'keepdata', type=bool,
-      help='whether or not the storage index should remain associated with the name')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the privatekey of the owner Bitcoin address')
-
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'renew',
-      help='<name> <privatekey> | renew a name')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name that you want to renew')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the privatekey of the owner Bitcoin address')
-
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'namespace_preorder',
-      help='<namespace_id> <privatekey> | preorder a namespace, in order to claim the namespace ID and begin populating it.')
+      'namespace_begin',
+      help='<namespace_id> <privatekey> | begin the namespace, completing its definition and opening it for registration by other parties.')
     subparser.add_argument(
       'namespace_id', type=str,
       help='the human-readable namespace identifier')
@@ -183,14 +170,44 @@ def run_cli():
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-      'namespace_begin',
-      help='<namespace_id> <privatekey> | begin the namespace, completing its definition and opening it for registration by other parties.')
+      'namespace_preorder',
+      help='<namespace_id> <privatekey> | preorder a namespace, in order to claim the namespace ID and begin populating it.')
     subparser.add_argument(
       'namespace_id', type=str,
       help='the human-readable namespace identifier')
     subparser.add_argument(
       'privatekey', type=str,
       help='the privatekey of the namespace creator')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'ping',
+      help='check if the blockstored server is up')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'preorder',
+      help='<name> <privatekey> | preorder a name')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that you want to preorder')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the private key of the Bitcoin address that will own the name')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'put_immutable',
+      help='<name> <data> <privatekey> | Store immutable data into the storage providers, creating it if it does not exist.')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that owns this data')
+    subparser.add_argument(
+      'data', type=str,
+      help='the data to store')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the private key associated with the name')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -211,55 +228,56 @@ def run_cli():
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-      'put_immutable',
-      help='<name> <data> <privatekey> | Store immutable data into the storage providers, creating it if it does not exist.')
+      'register',
+      help='<name> <privatekey> | register/claim a name')
     subparser.add_argument(
       'name', type=str,
-      help='the name that owns this data')
-    subparser.add_argument(
-      'data', type=str,
-      help='the data to store')
+      help='the name that you want to register/claim')
     subparser.add_argument(
       'privatekey', type=str,
-      help='the private key associated with the name')
+      help='the private key of the Bitcoin address that will own the name')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-      'get_mutable',
-      help='<name> <data_id> | Get mutable data from the storage providers, and verify that the named user wrote it.')
+      'renew',
+      help='<name> <privatekey> | renew a name')
     subparser.add_argument(
       'name', type=str,
-      help='the name associated with the data')
+      help='the name that you want to renew')
     subparser.add_argument(
-      'data_id', type=str,
-      help='the unchanging identifier for this data')
+      'privatekey', type=str,
+      help='the privatekey of the owner Bitcoin address')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-      'get_immutable',
-      help='<name> <hash> | Get immutable data from the storage providers, and verify that the named user wrote it.')
+      'transfer',
+      help='<name> <address> <keepdata> <privatekey> | transfer a name')
     subparser.add_argument(
       'name', type=str,
-      help='the name of the user')
+      help='the name that you want to register/claim')
     subparser.add_argument(
-      'hash', type=str,
-      help='the hash of the data')
+      'address', type=str,
+      help='the new owner Bitcoin address')
+    subparser.add_argument(
+      'keepdata', type=bool,
+      help='whether or not the storage index should remain associated with the name')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the privatekey of the owner Bitcoin address')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-      'lookup',
-      help='<name> | get the name record for a given name')
+      'update',
+      help='<name> <storage_index_json> <privatekey> | update storage index data and store it into the storage providers')
     subparser.add_argument(
       'name', type=str,
-      help='the name to look up')
-
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'getindex',
-      help='<name> | get the storage index for a given name')
+      help='the name that you want to update')
     subparser.add_argument(
-      'name', type=str,
-      help='the name to look up')
+      'storage_index_json', type=str,
+      help='the JSON-encoded storage index to associate with the name')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the privatekey of the owner Bitcoin address')
 
     # Print default help message, if no argument is given
     if len(sys.argv) == 1:
