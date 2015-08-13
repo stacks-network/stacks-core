@@ -177,6 +177,7 @@ def get_default_proxy():
     Get the default API proxy to blockstore.
     """
     global default_proxy
+
     return default_proxy
 
 
@@ -304,8 +305,9 @@ def getinfo(proxy=None):
 
     try:
         resp = proxy.getinfo()
-    except Exception, e:
+    except Exception as e:
         resp['error'] = str(e)
+
     return resp
 
 
@@ -314,11 +316,17 @@ def ping(proxy=None):
     ping
     """
 
+    resp = {}
+
     if proxy is None:
         proxy = get_default_proxy()
 
-    response = proxy.ping()
-    return response
+    try:
+        resp = proxy.ping()
+    except Exception as e:
+        resp['error'] = str(e)
+
+    return resp
 
 
 def lookup(name, proxy=None):
@@ -337,10 +345,17 @@ def preorder(name, privatekey, proxy=None):
     preorder
     """
 
+    resp = {}
+
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.preorder(name, privatekey)
+    try:
+        resp = proxy.preorder(name, privatekey)
+    except Exception as e:
+        resp['error'] = str(e)
+
+    return resp
 
 
 def register(name, privatekey, proxy=None):
