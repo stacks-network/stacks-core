@@ -28,7 +28,7 @@ import hashlib
 import math
 
 from collections import defaultdict
-from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAGIC_BYTES, TESTSET, MAX_NAMES_PER_SENDER, EXPIRATION_PERIOD, NAME_PREORDER, NAMESPACE_PREORDER
+from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAGIC_BYTES, TESTSET, MAX_NAMES_PER_SENDER, EXPIRATION_PERIOD, NAME_PREORDER, NAMESPACE_PREORDER, NAME_REGISTRATION
 from ..operations import build_namespace_define
 from ..hashing import *
 
@@ -333,7 +333,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
                   self.preorders = db_dict['preorders']
                   
          except Exception as e:
-               pass
+            log.exception(e)
+            pass
 
       # build up our reverse indexes
       for name, name_record in self.name_records.items():
@@ -1015,11 +1016,17 @@ class BlockstoreDB( virtualchain.StateEngine ):
       # no longer importing 
       self.commit_remove_namespace_import( namespace_id_hash )
       
+      # tag each op with its opcode (to keep virtualchain happy)
+      # also, tag each op so the log/commit methods know that this is part of an import 
+      for op in op_sequence:
+         self.force_opcode( op, eval(op['opcode']) )
+         op['namespace_import'] = True
+      
       # import each operation for this namespace
       # (i.e. as if they were all in this block)
-      pending_ops = self.log_pending_ops( block_id, op_sequence )
-      self.commit_pending_ops( block_id, pending_ops )
-         
+      pending_ops = self.log_pending_ops( block_number, op_sequence )
+      self.commit_pending_ops( block_number, pending_ops )
+      
       # record namespace rules
       namespace_record = {}
       namespace_record.update( namespace_define_nameop )
@@ -1076,10 +1083,22 @@ class BlockstoreDB( virtualchain.StateEngine ):
       sender = nameop['sender']
       namespace_id = get_namespace_from_name( name )
       
-      if self.log_namespace_import( pending_nameops, nameop, block_id ):
-         # this registration is part of a namespace import 
+      if self.log_namespace_import( pending_nameops, NAME_REGISTRATION, nameop, block_id ):
+         # this registration will be part of a namespace to be imported.
          # will add to the namespace's list of imports.
          return True
+      
+      elif nameop.get('namespace_import'):
+         # we're sending this nameop as part of a namespace import.
+         # don't need to consider mining fees or preorders; just keep the first instance.
+         if not self.is_name_registered( name ):
+            
+            # accept 
+            return True 
+         else:
+            
+            # collision
+            return False
       
       else:
          
@@ -1135,7 +1154,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       self.name_consensus_hash_name[ name_consensus_hash ] = name
       nameop['name'] = name
       
-      if self.log_namespace_import( pending_nameops, nameop, block_id ):
+      if self.log_namespace_import( pending_nameops, NAME_UPDATE, nameop, block_id ):
          # this update is part of a namespace import 
          # will add to the namespace's list of imports.
          return True
@@ -1227,7 +1246,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       name = nameop['name']
       sender = nameop['sender']
       
-      if self.log_namespace_import( pending_nameops, nameop, block_id ):
+      if self.log_namespace_import( pending_nameops, NAME_REVOKE, nameop, block_id ):
          # this update is part of a namespace import 
          # will add to the namespace's list of imports.
          return True
@@ -1271,7 +1290,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
          return False 
 
 
-   def log_namespace_import( self, pending_nameops, nameop, block_id ):
+   def log_namespace_import( self, pending_nameops, opcode, nameop, block_id ):
       """
       Determine if a nameop is supposed to be part of a namespace import.
       

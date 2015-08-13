@@ -178,8 +178,8 @@ MIN_OP_LENGTHS = {
     'revoke': LENGTHS['namelen'] + LENGTHS['name_min'],
     'namespace_preorder': LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'],
     'namespace_define': LENGTHS['blockchain_id_namespace_life'] + LENGTHS['blockchain_id_namespace_cost'] + \
-                        LENGTHS['blockchain_id_namespace_price_decay'] + 1 + LENGTHS['namelen'],
-    'namespace_begin': 1 + LENGTHS['blockchain_id_namespace_id']
+                        LENGTHS['blockchain_id_namespace_price_decay'] + 1 + LENGTHS['name_min'],
+    'namespace_begin': 1 + LENGTHS['name_min']
 }
 
 OP_RETURN_MAX_SIZE = 40
