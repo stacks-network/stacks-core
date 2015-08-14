@@ -41,6 +41,7 @@ from txjsonrpc.netstring import jsonrpc
 
 from lib import nameset as blockstore_state_engine
 from lib import get_db_state
+from lib.config import REINDEX_FREQUENCY
 from lib import *
 
 import virtualchain 
@@ -139,44 +140,27 @@ def get_logfile_path():
 
 def get_state_engine():
    """
-   Get or construct the blockstore virtual chain state engine.
+   Get a handle to the blockstore virtual chain state engine.
    """
    return get_db_state()
    
-# ------------------------------
-old_block = 0
-index_initialized = False
 
-def reindex_blockchain():
-   """
-   Reindex the virtual chain--bring it up to speed with bitcoind.
-   This is called by twisted, so we'll need to re-initialize everything
-   """
-   
-   from twisted.python import log
-   global old_block
-   global index_initialized
-   
-   # set up our implementation 
-   setup()
-   
-   bitcoind_opts = get_bitcoin_opts()
-   bitcoind = get_bitcoind()
-   
-   _, last_block_id = virtualchain.get_index_range( bitcoind )
-   blockstore_state_engine = get_state_engine()
-   
-   virtualchain.sync_virtualchain( bitcoind_opts, last_block_id, blockstore_state_engine )
-    
-
-def sigint_handler(signal, frame):
+def sigint_handler_server(signal, frame):
     """
-    Handle Ctrl+C for dht node
+    Handle Ctrl+C for server subprocess
     """
     
     log.info('\n')
     log.info('Exiting blockstored server')
     stop_server()
+    sys.exit(0)
+
+
+
+def sigint_handler_indexer(signal, frame):
+    """
+    Handle Ctrl+C for indexer processe
+    """
     sys.exit(0)
 
 
@@ -195,9 +179,11 @@ def get_utxo_provider_client():
    """
    
    global blockchain_client 
+   global chaincom_opts
+   global blockchain_opts
    
-   blockchain_opts = get_bitcoin_opts()
-   chaincom_opts = get_chaincom_opts()
+   # acquire configuration (which we should already have)
+   bitcoin_opts, chaincom_opts = configure( interactive=False )
    
    chaincom_id = chaincom_opts['api_key_id']
    chaincom_secret = chaincom_opts['api_key_secret']
@@ -225,7 +211,11 @@ def get_utxo_provider_client():
 
 class BlockstoredRPC(jsonrpc.JSONRPC):
     """
-    Blockstored JSON RPC server.
+    Blockstored not-quote-JSON-RPC server.
+    
+    We say "not quite" because the implementation serves data 
+    via Netstrings, not HTTP, and does not pay attention to 
+    the 'id' or 'version' fields in the JSONRPC spec.
     
     This endpoint does *not* talk to a storage provider, but only 
     serves back information from the blockstore virtual chain.
@@ -313,8 +303,6 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         except:
             return json_traceback()
 
-        log.debug('register/renew <%s, %s>' % (name, privatekey))
-
         return resp
 
 
@@ -322,7 +310,8 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         """
         Update a name with new data.
         """
-
+        log.debug('update <%s, %s, %s>' % (name, data_hash, privatekey))
+        
         blockchain_client_inst = get_utxo_provider_client()
         db = get_state_engine()
         
@@ -336,7 +325,6 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         except:
             return json_traceback()
 
-        log.debug('update <%s, %s, %s>' % (name, data_hash, privatekey))
         
         return resp
 
@@ -450,6 +438,28 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         log.debug("namespace_begin %s" % namespace_id )
         return resp
         
+        
+        
+def run_indexer():
+    """
+    Continuously reindex the blockchain, but as a subprocess.
+    """
+    
+    # set up this process
+    signal.signal( signal.SIGINT, sigint_handler_indexer )
+
+    bitcoind_opts = get_bitcoin_opts()
+    bitcoind = get_bitcoind()
+
+    _, last_block_id = virtualchain.get_index_range( bitcoind )
+    blockstore_state_engine = get_state_engine()
+
+    while True:
+        
+        time.sleep( REINDEX_FREQUENCY )
+        virtualchain.sync_virtualchain( bitcoind_opts, last_block_id, blockstore_state_engine )
+
+    return
 
 
 def stop_server():
@@ -482,18 +492,19 @@ def run_server( foreground=False):
     Run the blockstored RPC server, optionally in the foreground.
     """
     
+    signal.signal( signal.SIGINT, sigint_handler_server )
+   
     bitcoin_opts = get_bitcoin_opts()
     bitcoind = virtualchain.connect_bitcoind( bitcoin_opts )
    
     tac_file = get_tacfile_path()
     log_file = get_logfile_path()
     pid_file = get_pidfile_path()
-
+    
     start_block, current_block = virtualchain.get_index_range( bitcoind )
     
-    #current_block = start_block + 4
-    #print "\n\nStart debug run %s-%s\n\n" % (start_block, current_block)
-
+    indexer_command = "%s indexer" % sys.argv[0]
+    
     if foreground:
         command = 'twistd --pidfile=%s -noy %s' % (pid_file, tac_file)
     else:
@@ -508,16 +519,23 @@ def run_server( foreground=False):
        blockstore_state_engine = get_state_engine()
        virtualchain.sync_virtualchain( bitcoin_opts, current_block, blockstore_state_engine )
     
-    #print "\n\nStop debug run\n\n"
-    #stop_server()
-    #sys.exit(0)
-    
     try:
         
-       # fork the server 
+       # fork the server
        blockstored = subprocess.Popen( command, shell=True, preexec_fn=os.setsid)
+       
+       # fork the indexer 
+       indexer = subprocess.Popen( indexer_command, shell=True )
+       
        log.info('Blockstored successfully started')
+       
+       # wait for it to die 
        blockstored.wait()
+       
+       # stop our indexing thread 
+       os.kill( indexer.pid, signal.SIGINT )
+       indexer.wait()
+       
        return blockstored.returncode 
     
     except IndexError, ie:
@@ -561,13 +579,11 @@ def setup( return_parser=False ):
    global bitcoin_opts
    global chaincom_opts
    
-   signal.signal( signal.SIGINT, sigint_handler )
-   
    # set up our implementation 
    virtualchain.setup_virtualchain( blockstore_state_engine )
    
    # acquire configuration, and store it globally
-   bitcoin_opts, chaincom_opts = interactive_configure()
+   bitcoin_opts, chaincom_opts = configure( interactive=True )
    
    # merge in command-line bitcoind options 
    config_file = virtualchain.get_config_filename()
@@ -602,6 +618,8 @@ def run_blockstored():
    
    argparser = setup( return_parser=True )
    
+   log.debug( "\n" + str( chaincom_opts ) + "\n" )
+   
    # get RPC server options
    subparsers = argparser.add_subparsers(
       dest='action', help='the action to be taken')
@@ -616,6 +634,10 @@ def run_blockstored():
    parser_server = subparsers.add_parser(
       'stop',
       help='stop the blockstored server')
+   
+   parser_server = subparsers.add_parser(
+      'indexer',
+      help='run blockstore indexer worker')
    
    args, _ = argparser.parse_known_args()
    
@@ -640,6 +662,8 @@ def run_blockstored():
    elif args.action == 'stop':
       stop_server()
 
+   elif args.action == 'indexer':
+      run_indexer()
 
 if __name__ == '__main__':
     

@@ -36,7 +36,8 @@ application = service.Application("blockstored")
 # ------------
 # blockstore 
 # ------------
-from blockstored import BlockstoredRPC, reindex_blockchain
+# from blockstored import BlockstoredRPC, reindex_blockchain
+from blockstored import BlockstoredRPC
 import lib.config
 from lib.config import REINDEX_FREQUENCY, RPC_SERVER_PORT
 
@@ -70,5 +71,5 @@ if not dht_opts['disable']:
    server_dht.setServiceParent(application)
 
 
-lc = LoopingCall(reindex_blockchain)
-lc.start(REINDEX_FREQUENCY)
+# lc = LoopingCall(reindex_blockchain)
+# lc.start(REINDEX_FREQUENCY)
