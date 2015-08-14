@@ -197,6 +197,8 @@ def get_db_state():
       return blockstore_db 
    
    db_filename = virtualchain.get_db_filename()
+   
+   log.info("Loading blockstore DB from '%s'" % db_filename )
    blockstore_db = BlockstoreDB( db_filename )
    return blockstore_db
 
