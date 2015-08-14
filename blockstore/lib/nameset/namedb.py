@@ -364,6 +364,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
             }
             
             f.write(json.dumps(db_dict))
+            f.flush()
             
       except Exception as e:
          log.exception(e)
