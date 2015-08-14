@@ -437,12 +437,12 @@ def interactive_prompt( message, parameters ):
    return ret
 
 
-def interactive_prompt_missing( message, all_params, given_opts ):
+def find_missing( message, all_params, given_opts, prompt_missing=True ):
    """
    Find and interactively prompt the user for missing parameters,
    given the list of all valid parameters and a dict of known options.
    
-   Return the updated dict of known options, with the user's input.
+   Return the (updated dict of known options, missing), with the user's input.
    """
    
    # are we missing anything for bitcoin?
@@ -451,19 +451,20 @@ def interactive_prompt_missing( message, all_params, given_opts ):
       if missing_param not in given_opts.keys():
          missing_params.append( missing_param )
       
-   if len(missing_params) > 0:
+   if len(missing_params) > 0 and prompt_missing:
       
       missing_values = interactive_prompt( message, missing_params )
       given_opts.update( missing_values )
-   
-   return given_opts
+
+   return given_opts, missing_params
 
 
-def interactive_configure( config_file=None, force=False ):
+def configure( config_file=None, force=False, interactive=True ):
    """
-   Prompt the user for all the details of the config file
-   that are still missing.  If there are no missing options, 
-   then this method does nothing.
+   Configure blockstore:  find and store configuration parameters to the config file.
+   
+   Optionally prompt for missing data interactively (with interactive=True).  Or, raise an exception
+   if there are any fields missing.
    
    Optionally force a re-prompting for all configuration details (with force=True)
    
@@ -503,9 +504,14 @@ def interactive_configure( config_file=None, force=False ):
       chaincom_opts = default_chaincom_opts( config_file=config_file )
       
    # get any missing fields 
-   bitcoind_opts = interactive_prompt_missing( bitcoind_message, bitcoind_params, bitcoind_opts )
-   chaincom_opts = interactive_prompt_missing( chaincom_message, chaincom_params, chaincom_opts )
+   bitcoind_opts, missing_bitcoin_opts = find_missing( bitcoind_message, bitcoind_params, bitcoind_opts, prompt_missing=interactive )
+   chaincom_opts, missing_chaincom_opts = find_missing( chaincom_message, chaincom_params, chaincom_opts, prompt_missing=interactive )
    
+   if not interactive and (len(missing_bitcoin_opts) > 0 or len(missing_chaincom_opts) > 0):
+       
+       # cannot continue 
+       raise Exception("Missing configuration fields: %s" % (",".join( missing_bitcoin_opts + missing_chaincom_opts )) )
+                       
    return (bitcoind_opts, chaincom_opts)
       
 
