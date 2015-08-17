@@ -25,6 +25,7 @@
 
 import os
 from binascii import hexlify, unhexlify
+import time
 
 from .namedb import BlockstoreDB, BlockstoreDBIterator
 
@@ -35,6 +36,7 @@ import virtualchain
 
 log = virtualchain.session.log
 blockstore_db = None
+last_load_time = 0
 
 def get_recipient_from_nameop_outputs(outputs):
     """
@@ -193,13 +195,24 @@ def get_db_state():
    """
    
    global blockstore_db
+   global last_load_time
+   
+   now = time.time()
+   
+   # force invalidation
+   if now - last_load_time > REINDEX_FREQUENCY:
+       blockstore_db = None
+       
    if blockstore_db is not None:
       return blockstore_db 
    
    db_filename = virtualchain.get_db_filename()
    
-   log.info("Loading blockstore DB from '%s'" % db_filename )
+   log.info("(Re)Loading blockstore state from '%s'" % db_filename )
    blockstore_db = BlockstoreDB( db_filename )
+   
+   last_load_time = time.time()
+   
    return blockstore_db
 
 
