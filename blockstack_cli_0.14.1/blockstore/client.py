@@ -441,6 +441,8 @@ def update(name, user_json_or_hash, privatekey, txid=None, proxy=None):
         return current_user_record
 
     result = {}
+    
+    old_hash = pybitcoin.hash.hex_hash160(user_db.serialize_user(user_data))
 
     # no transaction: go put one
     if txid is None:
@@ -480,8 +482,7 @@ def update(name, user_json_or_hash, privatekey, txid=None, proxy=None):
     
     result['status'] = True
     result['value_hash'] = new_data_hash
-    result['old_value_hash'] = user_record_hash
-    result["transaction_hash"] = txid
+    result['transaction_hash'] = txid
 
     return result
 
@@ -631,13 +632,17 @@ def put_immutable(name, data, privatekey, txid=None, proxy=None):
         # no user data
         return {'error': "Unable to load user record: %s" % user['error']}
 
-    data_hash = pybitcoin.hash.hex_hash160(data)
-    user_db.add_immutable_data(user, data_hash)
+    data_hash = storage.get_data_hash( data )
+    rc = user_db.add_immutable_data(user, data_hash)
+    if not rc:
+        return {'error': 'Invalid hash'}
 
     user_json = user_db.serialize_user(user)
     if user_json is None:
         raise Exception("BUG: failed to serialize user record")
-
+    
+    value_hash = None 
+    
     if txid is None:
 
         # haven't updated the user record yet.  Do so now.
@@ -650,9 +655,17 @@ def put_immutable(name, data, privatekey, txid=None, proxy=None):
             return update_result
 
         txid = update_result['transaction_hash']
+        value_hash = update_result['value_hash']
 
-    result = {'transaction_hash': txid}
+    result = {
+        'data_hash': data_hash,
+        'transaction_hash': txid
+    }
 
+    # propagate update() data
+    if value_hash is not None:
+        result['value_hash'] = value_hash
+    
     # replicate the data
     rc = storage.put_immutable_data(data, txid)
     if not rc:
@@ -697,6 +710,7 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
     route = None
     exists = True
     old_hash = None
+    cur_hash = None
 
     # do we have a route for this data yet?
     if not user_db.has_mutable_data_route(user, data_id):
@@ -727,7 +741,7 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
             return update_result
 
         txid = update_result['transaction_hash']
-        old_hash = update_result['old_value_hash']
+        cur_hash = update_result['value_hash']
         
         exists = False
 
@@ -775,9 +789,9 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
 
     result['transaction_hash'] = txid
     
-    if old_hash:
+    if cur_hash:
         # propagate 
-        result['old_value_hash'] = old_hash
+        result['value_hash'] = cur_hash
         
     return result
 
@@ -828,7 +842,7 @@ def delete_immutable(name, data_key, privatekey, proxy=None, txid=None):
         result['error'] = 'Failed to delete immutable data'
 
     result['transaction_hash'] = txid
-    result['old_value_hash'] = update_status['old_value_hash']
+    result['value_hash'] = update_status['value_hash']
     
     return result
 
@@ -868,6 +882,7 @@ def delete_mutable(name, data_id, privatekey, proxy=default_proxy, txid=None,
     # update the user record
     update_status = update(name, user_json, privatekey, txid=txid,
                            proxy=proxy)
+    
     if 'error' in update_status:
 
         # failed; caller should try again
@@ -890,6 +905,7 @@ def delete_mutable(name, data_id, privatekey, proxy=default_proxy, txid=None,
     else:
         result['status'] = True
         result['transaction_hash'] = txid 
-        result['old_value_hash'] = update_status['old_value_hash']
+        result['value_hash'] = update_status['value_hash']
+    
 
     return result
