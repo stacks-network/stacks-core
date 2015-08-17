@@ -45,7 +45,7 @@ from .config import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
 
 proxy = Proxy(BLOCKSTORED_SERVER, BLOCKSTORED_PORT)
 
-from blockstore.blockstore_cli import printValue, printError, shutDown, getFormat
+from blockstore.client import BlockstoreRPCClient
 
 
 def save_profile(username, profile):
@@ -213,9 +213,8 @@ def format_response(response):
 
 def v2_get_immutable_data(hash):
 
-    from jsonrpc_ns import JSONRPCProxy
-    blockstored = JSONRPCProxy('52.0.28.169', 6264)
-    resp = blockstored.request('ping')
+    blockstored = BlockstoreRPCClient('52.0.28.169', 6264)
+    resp = blockstored.ping()
 
     return resp
 
