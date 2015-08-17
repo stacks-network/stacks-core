@@ -319,6 +319,9 @@ def get_immutable_data( data_key ):
          log.exception( e ) 
          continue 
       
+      if data is None:
+         continue
+      
       # validate 
       data_hash = get_data_hash( data )
       if data_hash != data_key:
@@ -368,6 +371,9 @@ def get_mutable_data_route( data_id, route_hash ):
          log.exception(e)
          continue 
       
+      if route_json is None:
+         continue 
+     
       if get_data_hash( route_json ) != route_hash:
          log.error("Invalid route: hash mismatch")
          continue 
