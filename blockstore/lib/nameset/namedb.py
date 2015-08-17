@@ -28,7 +28,9 @@ import hashlib
 import math
 
 from collections import defaultdict
-from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAGIC_BYTES, TESTSET, MAX_NAMES_PER_SENDER, EXPIRATION_PERIOD, NAME_PREORDER, NAMESPACE_PREORDER, NAME_REGISTRATION, NAME_UPDATE
+from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAGIC_BYTES, TESTSET, MAX_NAMES_PER_SENDER, \
+    EXPIRATION_PERIOD, NAME_PREORDER, NAMESPACE_PREORDER, NAME_REGISTRATION, NAME_UPDATE, TRANSFER_KEEP_DATA, \
+    TRANSFER_REMOVE_DATA, NAME_REVOKE 
 from ..operations import build_namespace_define
 from ..hashing import *
 
@@ -535,6 +537,21 @@ class BlockstoreDB( virtualchain.StateEngine ):
       return self.pending_imports[ namespace_id_hash ]
    
    
+   def get_name_owner( self, name ):
+      """
+      Get the script_pubkey hex string of the user that 
+      owns the given name.
+      
+      Return the string on success
+      Return None if not found.
+      """
+      if name in self.name_records.keys() and 'sender' in self.name_records[name]:
+         return self.name_records[name]['sender']
+      
+      else:
+         return None
+      
+   
    def find_renewed_at( self, block_id ):
       """
       Find all names registered at a particular block.
@@ -901,7 +918,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       try:
          name = nameop['name']
       except:
-         print "\n\nnameop: %s\n\n" % nameop
+         log.error( "No 'name' in nameop: %s" % nameop )
          name = self.name_consensus_hash_name[ name_consensus_hash ]
          del self.name_consensus_hash_name[ name_consensus_hash ]
       
@@ -925,6 +942,12 @@ class BlockstoreDB( virtualchain.StateEngine ):
       recipient = nameop['recipient']
       keep_data = nameop['keep_data']
       
+      op = TRANSFER_KEEP_DATA
+      if not keep_data:
+          op = TRANSFER_REMOVE_DATA
+          
+      log.debug("Name '%s': %s >%s %s" % (name, owner, op, recipient))
+      
       self.name_records[name]['sender'] = recipient
       
       self.owner_names[owner].remove( name )
@@ -941,6 +964,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       name = nameop['name']
       self.name_records[name]['revoked'] = True 
+      self.name_records[name]['value_hash'] = None
       
    
    def commit_namespace_preorder( self, nameop, block_number ):
@@ -1195,28 +1219,34 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       if name is None:
          # invalid 
+         log.debug("  No name found for '%s'" % name_hash )
          return False 
       
       consensus_hash = nameop['consensus_hash']
       sender = nameop['sender']
       recipient = nameop['recipient']
       
-      if not self.is_consensus_hash_valid( consensus_hash, block_id ):
+      if not self.is_consensus_hash_valid( block_id, consensus_hash ):
          # nope 
+         log.debug("  Invalid consensus hash '%s'" % consensus_hash )
          return False
          
       if sender == recipient:
          # nonsensical 
+         log.debug("  Sender is the same as the Recipient (%s)" % sender )
          return False 
       
       if not self.is_name_registered( name ):
+         log.debug("  Name '%s' is not registered" % name)
          return False
       
       if not self.is_name_owner( name, sender ):
+         log.debug("  Name '%s' is not owned by %s (but %s)" % (name, sender, self.get_name_owner(name)))
          return False 
       
       if self.is_name_revoked( name ):
          # name exists and was revoked 
+         log.debug("  Name '%s' is revoked" % name )
          return False 
       
       if recipient in self.owner_names.keys():
@@ -1225,12 +1255,16 @@ class BlockstoreDB( virtualchain.StateEngine ):
          recipient_names = self.owner_names[ recipient ]
          if name in recipient_names:
             # shouldn't happen, ever, since names are unique
+            log.debug("Recipient %s already owns '%s'" % (recipient, name))
             return False 
          
          if len(recipient_names) >= MAX_NAMES_PER_SENDER:
             # transfer would exceed quota
+            log.debug("Recipient %s has exceeded name quota" % recipient)
             return False
          
+      # remember the name, so we don't have to look it up later 
+      nameop['name'] = name
       return True
 
 
@@ -1253,13 +1287,16 @@ class BlockstoreDB( virtualchain.StateEngine ):
          return True
       
       if not self.is_name_registered( name ):
+         log.debug("  Name '%s' is not registered" % name )
          return False 
       
       if not self.is_name_owner( name, sender ):
+         log.debug("  Name '%s' is not owned by %s (but %s)" % (name, sender, self.get_name_owner(name)))
          return False 
       
       if self.is_name_revoked( name ):
          # name was already revoked 
+         log.debug("  Name '%s' is already revoked" % name)
          return False 
       
       return True
