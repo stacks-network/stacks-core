@@ -31,7 +31,7 @@ from collections import defaultdict
 from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAGIC_BYTES, TESTSET, MAX_NAMES_PER_SENDER, \
     EXPIRATION_PERIOD, NAME_PREORDER, NAMESPACE_PREORDER, NAME_REGISTRATION, NAME_UPDATE, TRANSFER_KEEP_DATA, \
     TRANSFER_REMOVE_DATA, NAME_REVOKE 
-from ..operations import build_namespace_define
+from ..operations import build_namespace_reveal
 from ..hashing import *
 
 import virtualchain
@@ -58,7 +58,7 @@ class BlockstoreDBIterator(object):
    
    A serialized pending import includes the hash of the namespace ID and 
    the sender's script_pubkey, as well as the hash over the sequence 
-   of import operations (including the NAMESPACE_PREORDER and NAMESPACE_DEFINE,
+   of import operations (including the NAMESPACE_PREORDER and NAMESPACE_REVEAL,
    if given), such that each operation is serialized in a stable manner 
    (e.g. in key1:value1, key2:value2,... strings that have been stable-sorted).
    """
@@ -109,7 +109,7 @@ class BlockstoreDBIterator(object):
       include the owner's script_pubkey and rules
       """
       
-      rules_string = build_namespace_define( "", namespace_record['lifetime'], namespace_record['cost'], namespace_record['price_decay'], testset=TESTSET )
+      rules_string = build_namespace_reveal( "", namespace_record['lifetime'], namespace_record['cost'], namespace_record['price_decay'], testset=TESTSET )
       sender = namespace_record['sender']
       
       if sender is None:
@@ -298,10 +298,10 @@ class BlockstoreDB( virtualchain.StateEngine ):
       self.owner_names = defaultdict(list)    # map sender_script_pubkey hex string to list of names owned by the principal it represents
       self.hash_names = {}                    # map hex_hash160(name) to name
       self.preorders = {}                     # map preorder name.ns_id+script_pubkey hash (as a hex string) to its first "preorder" nameop
-      self.namespaces = {}                    # map namespace ID to first instance of NAMESPACE_DEFINE op (a dict) combined with the namespace name and sender script_pubkey
+      self.namespaces = {}                    # map namespace ID to first instance of NAMESPACE_REVEAL op (a dict) combined with the namespace name and sender script_pubkey
       self.pending_imports = {}               # map an in-progress namespace import (as the hex string of ns_id+script_pubkey hash) to a list of nameops.
                                               # The first element is always the NAMESPACE_PREORDER nameop.
-                                              # The second element is always the NAMESPACE_DEFINE nameop.
+                                              # The second element is always the NAMESPACE_REVEAL nameop.
       
       self.block_name_renewals = defaultdict(list)        # map a block ID to the list of names that were renewed at that block.  Used to find expired names.
       
@@ -481,10 +481,10 @@ class BlockstoreDB( virtualchain.StateEngine ):
       return self.pending_imports[ namespace_id_hash ][0]
       
 
-   def get_importing_namespace_define( self, namespace_id_hash ):
+   def get_importing_namespace_reveal( self, namespace_id_hash ):
       """
       Given the hash(namespace_id, sender_script_pubkey) for a namespace that is 
-      being imported, get its associated NAMESPACE_DEFINE operation.
+      being imported, get its associated NAMESPACE_REVEAL operation.
       
       Return the op as a dict on success.
       Return None on error 
@@ -523,7 +523,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       Given the hash(namespace_id, sender_script_pubkey) for a 
       namespace that is being imported, get the list of *all*
       nameops that constitute the import.  This includes the 
-      namespace's NAMESPACE_PREORDER and NAMESPACE_DEFINE operations,
+      namespace's NAMESPACE_PREORDER and NAMESPACE_REVEAL operations,
       if they have been committed yet (they will be the first 
       two records).
       
@@ -613,11 +613,11 @@ class BlockstoreDB( virtualchain.StateEngine ):
       if namespace_id_hash not in self.pending_imports.keys():
          return False 
       
-      namespace_define = self.get_importing_namespace_define( namespace_id_hash )
-      if namespace_define is None:
+      namespace_reveal = self.get_importing_namespace_reveal( namespace_id_hash )
+      if namespace_reveal is None:
          return False 
       
-      return (namespace_id_hash == namespace_define['namespace_id_hash'])
+      return (namespace_id_hash == namespace_reveal['namespace_id_hash'])
    
    
    def is_namespace_importing( self, namespace_id, sender_script_pubkey ):
@@ -650,9 +650,9 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       if namespace_id_hash in self.pending_imports.keys():
          
-         namespace_define_nameop = self.get_importing_namespace_define( namespace_id_hash )
+         namespace_reveal_nameop = self.get_importing_namespace_reveal( namespace_id_hash )
          
-         if namespace_define_nameop is not None and sender_script_pubkey == namespace_define_nameop['sender']:
+         if namespace_reveal_nameop is not None and sender_script_pubkey == namespace_reveal_nameop['sender']:
             return True 
          
       return False 
@@ -723,7 +723,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
    def is_name_imported( self, name, sender_script_pubkey ):
       """
       Given a name and a sender script_pubkey hex string, determine if the given name is part of a namespace import.
-      The name must have been sent by the same sender who sent the NAMESPACE_DEFINE
+      The name must have been sent by the same sender who sent the NAMESPACE_REVEAL
       
       Return True if so
       Return False if not.
@@ -983,9 +983,9 @@ class BlockstoreDB( virtualchain.StateEngine ):
       self.pending_imports[ namespace_id_hash ] = [nameop]
    
    
-   def commit_namespace_define( self, nameop, block_number ):
+   def commit_namespace_reveal( self, nameop, block_number ):
       """
-      Commit a NAMESPACE_DEFINE nameop, so we can subsequently accept 
+      Commit a NAMESPACE_REVEAL nameop, so we can subsequently accept 
       and batch-commit a set of name registrations in it.
       
       The namespace will be preordered, but not yet defined
@@ -1002,10 +1002,10 @@ class BlockstoreDB( virtualchain.StateEngine ):
       """
       Given a nameop, add it to a namespace that 
       is being imported.  i.e. if it was sent by the same sender as 
-      the person who sent the namespace_define opeation.
+      the person who sent the namespace_reveal opeation.
       
       The operations committed to this namespace's list of imports
-      will be committed as a batch by commit_namespace_begin().
+      will be committed as a batch by commit_namespace_ready().
       """
       
       name = nameop['name']
@@ -1020,10 +1020,10 @@ class BlockstoreDB( virtualchain.StateEngine ):
       self.pending_imports[ namespace_id_hash ].append( nameop )
          
     
-   def commit_namespace_begin( self, nameop, block_number ):
+   def commit_namespace_ready( self, nameop, block_number ):
       """
       Commit a namespace and all of the names it has imported.
-      The given nameop is a NAMESPACE_BEGIN nameop.
+      The given nameop is a NAMESPACE_READY nameop.
       """
       
       namespace_id = nameop['namespace_id']
@@ -1035,7 +1035,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
          return False 
       
       # find the corresponding definition.
-      namespace_define_nameop = self.get_importing_namespace_define( namespace_id_hash )
+      namespace_reveal_nameop = self.get_importing_namespace_reveal( namespace_id_hash )
       op_sequence = self.get_importing_namespace_ops( namespace_id_hash )
       
       # no longer importing 
@@ -1054,7 +1054,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       # record namespace rules
       namespace_record = {}
-      namespace_record.update( namespace_define_nameop )
+      namespace_record.update( namespace_reveal_nameop )
       
       # remember owner
       namespace_record['sender'] = sender 
@@ -1070,7 +1070,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       nameop belongs to (it is blinded until registration).
       But that's okay--we don't need to preorder names during 
       a namespace import, because we will only accept names 
-      sent from the importer until the NAMESPACE_BEGIN operation 
+      sent from the importer until the NAMESPACE_REVEAL operation 
       is sent.
       
       Return True if accepted 
@@ -1352,9 +1352,9 @@ class BlockstoreDB( virtualchain.StateEngine ):
          
 
 
-   def log_namespace_define( self, pending_nameops, nameop, block_id ):
+   def log_namespace_reveal( self, pending_nameops, nameop, block_id ):
       """
-      Log a NAMESPACE_DEFINE operation to the name database.
+      Log a NAMESPACE_REVEAL operation to the name database.
       It is only valid if it is the first such operation 
       for this namespace, and if it was sent by the same 
       sender who sent the NAMESPACE_PREORDER.
@@ -1383,11 +1383,11 @@ class BlockstoreDB( virtualchain.StateEngine ):
       return True 
       
       
-   def log_namespace_begin( self, pending_nameops, nameop, block_id ):
+   def log_namespace_ready( self, pending_nameops, nameop, block_id ):
       """
-      Log a NAMESPACE_BEGIN operation to the name database.
+      Log a NAMESPACE_READY operation to the name database.
       It is only valid if it has been imported by the same sender as
-      the corresponding NAMESPACE_DEFINE, and the namespace is still 
+      the corresponding NAMESPACE_REVEAL, and the namespace is still 
       in the process of being imported.
       """
       

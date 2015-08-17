@@ -30,7 +30,7 @@ import time
 from .namedb import BlockstoreDB, BlockstoreDBIterator
 
 from ..config import *
-from ..operations import parse_preorder, parse_registration, parse_update, parse_transfer, parse_revoke, parse_namespace_preorder, parse_namespace_define, parse_namespace_begin
+from ..operations import parse_preorder, parse_registration, parse_update, parse_transfer, parse_revoke, parse_namespace_preorder, parse_namespace_reveal, parse_namespace_ready
 
 import virtualchain
 
@@ -118,13 +118,13 @@ def parse_blockstore_op_data( opcode, payload, sender, recipient ):
         log.debug( "Parse NAMESPACE_PREORDER: %s" % data)
         op = parse_namespace_preorder( payload )
         
-    elif opcode == NAMESPACE_DEFINE and len(payload) >= MIN_OP_LENGTHS['namespace_define']:
-        log.debug( "Parse NAMESPACE_DEFINE: %s" % data )
-        op = parse_namespace_define( payload, sender )
+    elif opcode == NAMESPACE_REVEAL and len(payload) >= MIN_OP_LENGTHS['namespace_reveal']:
+        log.debug( "Parse NAMESPACE_REVEAL: %s" % data )
+        op = parse_namespace_reveal( payload, sender )
          
-    elif opcode == NAMESPACE_BEGIN and len(payload) >= MIN_OP_LENGTHS['namespace_begin']:
-        log.debug( "Parse NAMESPACE_BEGIN: %s" % data )
-        op = parse_namespace_begin( payload )
+    elif opcode == NAMESPACE_READY and len(payload) >= MIN_OP_LENGTHS['namespace_ready']:
+        log.debug( "Parse NAMESPACE_READY: %s" % data )
+        op = parse_namespace_ready( payload )
     
     else:
         log.warning("Unrecognized op: code='%s', data=%s, len=%s" % (opcode, data, len(payload)))
@@ -318,11 +318,11 @@ def db_check( block_id, checked_ops, opcode, op, db_state=None ):
       elif opcode == NAMESPACE_PREORDER:
          rc = db.log_namespace_preorder( checked_ops, op, block_id )
       
-      elif opcode == NAMESPACE_DEFINE:
-         rc = db.log_namespace_define( checked_ops, op, block_id )
+      elif opcode == NAMESPACE_REVEAL:
+         rc = db.log_namespace_reveal( checked_ops, op, block_id )
       
-      elif opcode == NAMESPACE_BEGIN:
-         rc = db.log_namespace_begin( checked_ops, op, block_id )
+      elif opcode == NAMESPACE_READY:
+         rc = db.log_namespace_ready( checked_ops, op, block_id )
       
       if rc:
          log.debug("ACCEPT op '%s' (%s)" % (opcode, op))
@@ -374,11 +374,11 @@ def db_commit( block_id, opcode, op, db_state=None ):
       elif opcode == NAMESPACE_PREORDER:
          db.commit_namespace_preorder( op, block_id )
          
-      elif opcode == NAMESPACE_DEFINE:
-         db.commit_namespace_define( op, block_id )
+      elif opcode == NAMESPACE_REVEAL:
+         db.commit_namespace_reveal( op, block_id )
       
-      elif opcode == NAMESPACE_BEGIN:
-         db.commit_namespace_begin( op, block_id )
+      elif opcode == NAMESPACE_READY:
+         db.commit_namespace_ready( op, block_id )
          
       # do expirations
       db.commit_name_expire_all( block_id )

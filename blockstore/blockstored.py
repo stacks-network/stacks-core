@@ -401,9 +401,9 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         return resp 
     
     
-    def jsonrpc_namespace_define( self, namespace_id, lifetime, base_name_cost, cost_decay_rate, privatekey ):
+    def jsonrpc_namespace_reveal( self, namespace_id, lifetime, base_name_cost, cost_decay_rate, privatekey ):
         """
-        Define the properties of a namespace.
+        Reveal and define the properties of a namespace.
         Between the namespace definition and the "namespace begin" operation, only the 
         user who created the namespace can create names in it.
         """
@@ -413,15 +413,15 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
            return {"error": "Failed to connect to blockchain UTXO provider"}
         
         try:
-           resp = namespace_define( str(namespace_id), int(lifetime), int(base_name_cost), float(cost_decay_rate), str(privatekey), blockchain_client_inst, testset=True )
+           resp = namespace_reveal( str(namespace_id), int(lifetime), int(base_name_cost), float(cost_decay_rate), str(privatekey), blockchain_client_inst, testset=True )
         except:
            return json_traceback()
         
-        log.debug("namespace_define <%s, %s, %s, %s>" % (namespace_id, lifetime, base_name_cost, cost_decay_rate))
+        log.debug("namespace_reveal <%s, %s, %s, %s>" % (namespace_id, lifetime, base_name_cost, cost_decay_rate))
         return resp 
      
      
-    def jsonrpc_namespace_begin( self, namespace_id, privatekey ):
+    def jsonrpc_namespace_ready( self, namespace_id, privatekey ):
         """
         Declare that a namespace is open to accepting new names.
         """
@@ -431,11 +431,11 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
            return {"error": "Failed to connect to blockchain UTXO provider"}
         
         try:
-           resp = namespace_begin( str(namespace_id), str(privatekey), blockchain_client_inst, testset=True )
+           resp = namespace_ready( str(namespace_id), str(privatekey), blockchain_client_inst, testset=True )
         except:
            return json_traceback()
         
-        log.debug("namespace_begin %s" % namespace_id )
+        log.debug("namespace_ready %s" % namespace_id )
         return resp
         
         

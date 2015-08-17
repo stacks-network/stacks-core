@@ -126,7 +126,7 @@ def build( namespace_id, lifetime, satoshi_cost, price_decay_rate, testset=False
    satoshi_cost_hex = serialize_int( satoshi_cost, 8 )
    price_decay_hex = serialize_int( price_decay_rate_fixedpoint, 4 )
    
-   readable_script = "NAMESPACE_DEFINE 0x%s 0x%s 0x%s 0x%s" % (life_hex, satoshi_cost_hex, price_decay_hex, hexlify("." + namespace_id))
+   readable_script = "NAMESPACE_REVEAL 0x%s 0x%s 0x%s 0x%s" % (life_hex, satoshi_cost_hex, price_decay_hex, hexlify("." + namespace_id))
    hex_script = blockstore_script_to_hex(readable_script)
    packaged_script = add_magic_bytes(hex_script, testset=testset)
    
@@ -181,7 +181,7 @@ def parse( bin_payload, sender ):
    namespace_id_hash = hash_name( namespace_id, sender )
    
    return {
-      'opcode': 'NAMESPACE_DEFINE',
+      'opcode': 'NAMESPACE_REVEAL',
       'lifetime': life,
       'cost': cost,
       'price_decay': decay,

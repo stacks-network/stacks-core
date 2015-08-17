@@ -27,8 +27,8 @@ import transfer
 import update
 import revoke
 import namespacepreorder
-import namespacedefine
-import namespacebegin
+import namespacereveal
+import namespaceready
 
 from .preorder import build as build_preorder, \
     broadcast as preorder_name, parse as parse_preorder
@@ -43,7 +43,7 @@ from .revoke import build as build_revoke, \
     broadcast as revoke_name, parse as parse_revoke
 from .namespacepreorder import build as build_namespace_preorder, \
     broadcast as namespace_preorder, parse as parse_namespace_preorder 
-from .namespacedefine import build as build_namespace_define, \
-    broadcast as namespace_define, parse as parse_namespace_define 
-from .namespacebegin import build as build_namespace_begin, \
-    broadcast as namespace_begin, parse as parse_namespace_begin
+from .namespacereveal import build as build_namespace_reveal, \
+    broadcast as namespace_reveal, parse as parse_namespace_reveal 
+from .namespaceready import build as build_namespace_ready, \
+    broadcast as namespace_ready, parse as parse_namespace_ready

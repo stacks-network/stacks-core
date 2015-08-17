@@ -49,7 +49,7 @@ def build( namespace_id, testset=False ):
    if len(namespace_id) == 0 or len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
       raise Exception("Invalid namespace ID '%s (expected length between 1 and %s)" % (namespace_id, LENGTHS['blockchain_id_namespace_id']))
    
-   readable_script = "NAMESPACE_BEGIN 0x%s" % (hexlify("." + namespace_id))
+   readable_script = "NAMESPACE_READY 0x%s" % (hexlify("." + namespace_id))
    hex_script = blockstore_script_to_hex(readable_script)
    packaged_script = add_magic_bytes(hex_script, testset=testset)
    
@@ -74,6 +74,6 @@ def parse( bin_payload ):
    namespace_id = bin_payload[ 1: ]
    
    return {
-      'opcode': 'NAMESPACE_BEGIN',
+      'opcode': 'NAMESPACE_READY',
       'namespace_id': namespace_id
    }
