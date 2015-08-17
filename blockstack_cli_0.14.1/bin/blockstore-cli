@@ -392,10 +392,10 @@ def run_cli():
         result = client.get_mutable(str(args.name), str(args.data_id))
 
     elif args.action == 'get_immutable':
-        result = client.get_immutable(str(args.name), str(args.data_hash))
+        result = client.get_immutable(str(args.name), str(args.hash))
 
     elif args.action == 'delete_immutable':
-        result = client.delete_immutable(str(args.name), str(args.data_hash), str(args.privatekey))
+        result = client.delete_immutable(str(args.name), str(args.hash), str(args.privatekey))
 
     elif args.action == 'delete_mutable':
         result = client.delete_mutable(str(args.name), str(args.data_id), str(args.privatekey))
