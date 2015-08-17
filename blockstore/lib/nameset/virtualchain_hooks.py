@@ -38,17 +38,21 @@ log = virtualchain.session.log
 blockstore_db = None
 last_load_time = 0
 
-def get_recipient_from_nameop_outputs(outputs):
+def get_recipient_from_nameop_outputs( outputs ):
     """
     Find the script_pubkey hex string from the 
     first non-OP_RETURN transaction in a list of 
     transaction outputs (i.e. there are expected 
-    to be two transactions: the OP_RETURN with 
+    to be two transactions for everything except 
+    for NAME_TRANSFER operations: the OP_RETURN with 
     the 'transfer' operation, and the one with 
     the script_pubkey).
     
-    There should only be one recipient.  Raise an exception if 
-    there are more than one, or zero.
+    NAME_TRANSFER operations have three recipients:
+    the sender, the receiver, and the OP_RETURN.
+    By construction, the recipient's address in 
+    the NAME_TRANSFER operation is the first 
+    non-OP_RETURN address.
     """
     
     ret = None
@@ -61,10 +65,8 @@ def get_recipient_from_nameop_outputs(outputs):
         
         if output_asm[0:9] != 'OP_RETURN' and output_hex:
             
-            if ret is not None:
-               raise Exception("Multiple recipients are unsupported")
-            
             ret = output_hex 
+            break
             
     if ret is None:
        raise Exception("No recipients found")
