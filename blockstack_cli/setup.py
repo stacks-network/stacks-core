@@ -2,13 +2,13 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='blockstore',
+    name='blockstore-client',
     version='0.0.3',
     url='https://github.com/blockstack/blockstore-client',
-    license='MIT',
-    author='Onename',
+    license='GPLv3',
+    author='Blockstack.org',
     author_email='support@onename.com',
-    description='Python client library to Blockstore',
+    description='Python client library for Blockstore',
     keywords='blockchain bitcoin btc cryptocurrency name key value store data',
     packages=find_packages(),
     scripts=['bin/blockstore-cli'],
@@ -16,16 +16,12 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'pybitcoin>=0.8.3',
-        'kademlia>=0.2',
-        'python-bitcoinrpc>=0.1',
-        'jsonrpc>=1.2',
-        'utilitybelt>=0.2.2'
-        'virtualchain>=0.0.1'
+        'pybitcoin>=0.8.2',
+        'kademlia>=0.5'
     ],
     classifiers=[
         'Intended Audience :: Developers',
-        'License :: OSI Approved :: MIT License',
+        'License :: GPLv3 License',
         'Operating System :: OS Independent',
         'Programming Language :: Python',
         'Topic :: Internet',
