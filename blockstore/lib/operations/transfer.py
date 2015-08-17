@@ -132,8 +132,8 @@ def parse(bin_payload, recipient):
     
     return {
         'opcode': 'NAME_TRANSFER',
-        'name_hash': name_hash,
-        'consensus_hash': consensus_hash,
+        'name_hash': hexlify( name_hash ),
+        'consensus_hash': hexlify( consensus_hash ),
         'recipient': recipient,
         'keep_data': disposition
     }
