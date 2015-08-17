@@ -7,7 +7,7 @@ setup(
     url='https://github.com/blockstack/blockstore-client',
     license='GPLv3',
     author='Blockstack.org',
-    author_email='support@onename.com',
+    author_email='support@blockstack.org',
     description='Python client library for Blockstore',
     keywords='blockchain bitcoin btc cryptocurrency name key value store data',
     packages=find_packages(),
