@@ -30,7 +30,7 @@ import drivers
 
 from client import getinfo, get_user_record, ping, lookup
 from client import preorder, update, transfer, renew, revoke
-from client import namespace_preorder, namespace_define, namespace_begin
+from client import namespace_preorder, namespace_reveal, namespace_ready
 from client import get_immutable, get_mutable
 from client import put_immutable, put_mutable, delete_immutable, delete_mutable
 from client import session, register_storage

@@ -164,10 +164,15 @@ def get_mutable_data_route( user, data_id ):
    Return the route (as a dict) on success 
    Return None if not found 
    """
-   if not has_mutable_data_route( user, data_id ):
-      return None 
    
-   return user['mutable_data'][data_id]
+   if not user.has_key('mutable_data'):
+      return None
+
+   for route in user['mutable_data']:
+      if route['id'] == data_id:
+         return route
+   
+   return None 
 
 
 def add_mutable_data_route( user, data_route ):
