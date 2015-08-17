@@ -91,7 +91,7 @@ def get_immutable_handler( key ):
       return None
 
 
-def get_mutable_handler( data_id ):
+def get_mutable_handler( url ):
    """
    Local disk implementation of the get_mutable_handler API call.
    Given a route URL to data, return the data itself.
@@ -102,9 +102,12 @@ def get_mutable_handler( data_id ):
    
    global MUTABLE_STORAGE_ROOT
    
-   # replace all /'s with \x2f's
-   data_id_noslash = data_id.replace( "/", r"\x2f" )
-   path = os.path.join( MUTABLE_STORAGE_ROOT, data_id_noslash )
+   if not url.startswith( "file://" ):
+      # invalid
+      return None 
+   
+   # get path from URL 
+   path = url[ len("file://"): ]
    
    try:
       with open( path, "r" ) as f:
