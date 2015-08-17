@@ -530,7 +530,7 @@ def namespace_preorder(namespace_id, privatekey, proxy=None):
     return proxy.namespace_preorder(namespace_id, privatekey)
 
 
-def namespace_define(namespace_id, lifetime, base_name_cost, cost_decay_rate,
+def namespace_reveal(namespace_id, lifetime, base_name_cost, cost_decay_rate,
                      privatekey, proxy=None):
     """
     namesapce_define
@@ -543,7 +543,7 @@ def namespace_define(namespace_id, lifetime, base_name_cost, cost_decay_rate,
                                   cost_decay_rate, privatekey)
 
 
-def namespace_begin(namespace_id, privatekey, proxy=None):
+def namespace_ready(namespace_id, privatekey, proxy=None):
     """
     namespace_begin
     """

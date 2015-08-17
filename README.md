@@ -7,6 +7,8 @@ This package contains the client library for Blockstore.  It talks to blockstore
 
 The blockstore-cli currently supports the following commands:
 
+* delete_immutable
+* delete_mutable
 * get_immutable
 * get_mutable
 * getindex
