@@ -57,7 +57,7 @@ def get_sorted_commands():
 
     command_list = ['getinfo', 'ping', 'preorder', 'register', 'update',
                     'transfer', 'renew', 'namespace_preorder',
-                    'namespace_define', 'namespace_begin', 'put_mutable',
+                    'namespace_ready', 'namespace_reveal', 'put_mutable',
                     'put_immutable', 'get_mutable', 'get_immutable',
                     'lookup', 'getindex']
 
