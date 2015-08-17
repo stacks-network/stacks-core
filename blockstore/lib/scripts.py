@@ -1,3 +1,26 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+    Blockstore
+    ~~~~~
+    copyright: (c) 2014 by Halfmoon Labs, Inc.
+    copyright: (c) 2015 by Blockstack.org
+    
+    This file is part of Blockstore
+    
+    Blockstore is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    
+    Blockstore is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
+"""
+
 from utilitybelt import is_hex, is_valid_int
 from binascii import hexlify, unhexlify
 from pybitcoin import BitcoinPrivateKey, script_to_hex
@@ -24,6 +47,10 @@ def blockstore_script_to_hex(script):
                 hex_script += '%0.2x' % ord(eval(part))
             except:
                 raise Exception('Invalid opcode: %s' % part)
+        
+        elif part.startswith("0x"):
+            # literal hex string
+            hex_script += part[2:]
             
         elif is_valid_int(part):
             hex_part = '%0.2x' % int(part)
@@ -46,6 +73,7 @@ def blockstore_script_to_hex(script):
 
 # generate a pay-to-pubkeyhash script from a private key.
 def get_script_pubkey( private_key ):
-   hash160 = BitcoinPrivateKey(private_key).public_key(compressed=True).hash160()
+   
+   hash160 = BitcoinPrivateKey(private_key).public_key().hash160()
    script_pubkey = script_to_hex( 'OP_DUP OP_HASH160 %s OP_EQUALVERIFY OP_CHECKSIG' % hash160)
    return  script_pubkey

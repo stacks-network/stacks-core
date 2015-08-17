@@ -3,8 +3,22 @@
 """
     Blockstore
     ~~~~~
-    :copyright: (c) 2015 by Openname.org
-    :license: MIT, see LICENSE for more details.
+    copyright: (c) 2014 by Halfmoon Labs, Inc.
+    copyright: (c) 2015 by Blockstack.org
+    
+    This file is part of Blockstore
+    
+    Blockstore is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    
+    Blockstore is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 import argparse
@@ -24,10 +38,10 @@ from ConfigParser import SafeConfigParser
 
 import pybitcoin
 from txjsonrpc.netstring import jsonrpc
-from twisted.internet import reactor
 
 from lib import nameset as blockstore_state_engine
 from lib import get_db_state
+from lib.config import REINDEX_FREQUENCY
 from lib import *
 
 import virtualchain 
@@ -126,44 +140,27 @@ def get_logfile_path():
 
 def get_state_engine():
    """
-   Get or construct the blockstore virtual chain state engine.
+   Get a handle to the blockstore virtual chain state engine.
    """
    return get_db_state()
    
-# ------------------------------
-old_block = 0
-index_initialized = False
 
-def reindex_blockchain():
-   """
-   Reindex the virtual chain--bring it up to speed with bitcoind.
-   This is called by twisted, so we'll need to re-initialize everything
-   """
-   
-   from twisted.python import log
-   global old_block
-   global index_initialized
-   
-   # set up our implementation 
-   setup()
-   
-   bitcoind_opts = get_bitcoin_opts()
-   bitcoind = get_bitcoind()
-   
-   _, last_block_id = virtualchain.get_index_range( bitcoind )
-   blockstore_state_engine = get_state_engine()
-   
-   virtualchain.sync_virtualchain( bitcoind_opts, last_block_id, blockstore_state_engine )
-    
-
-def sigint_handler(signal, frame):
+def sigint_handler_server(signal, frame):
     """
-    Handle Ctrl+C for dht node
+    Handle Ctrl+C for server subprocess
     """
     
     log.info('\n')
     log.info('Exiting blockstored server')
     stop_server()
+    sys.exit(0)
+
+
+
+def sigint_handler_indexer(signal, frame):
+    """
+    Handle Ctrl+C for indexer processe
+    """
     sys.exit(0)
 
 
@@ -182,15 +179,17 @@ def get_utxo_provider_client():
    """
    
    global blockchain_client 
+   global chaincom_opts
+   global blockchain_opts
    
-   blockchain_opts = get_bitcoin_opts()
-   chaincom_opts = get_chaincom_opts()
+   # acquire configuration (which we should already have)
+   bitcoin_opts, chaincom_opts = configure( interactive=False )
    
    chaincom_id = chaincom_opts['api_key_id']
    chaincom_secret = chaincom_opts['api_key_secret']
    
    try:
-      blockchain_client = ChainComClient( chaincom_id, chaincom_secret )
+      blockchain_client = pybitcoin.ChainComClient( chaincom_id, chaincom_secret )
       return blockchain_client
       
    except Exception, e:
@@ -212,7 +211,11 @@ def get_utxo_provider_client():
 
 class BlockstoredRPC(jsonrpc.JSONRPC):
     """
-    Blockstored JSON RPC server.
+    Blockstored not-quote-JSON-RPC server.
+    
+    We say "not quite" because the implementation serves data 
+    via Netstrings, not HTTP, and does not pay attention to 
+    the 'id' or 'version' fields in the JSONRPC spec.
     
     This endpoint does *not* talk to a storage provider, but only 
     serves back information from the blockstore virtual chain.
@@ -225,6 +228,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         reply = {}
         reply['status'] = "alive"
         return reply
+
 
     def jsonrpc_lookup(self, name):
         """
@@ -240,118 +244,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         else:
            return name_record 
         
-
-    def jsonrpc_put(self, key, value):
-        """
-        Put data into the DHT.  Do not put the signed 
-        hash into the blockchain.
-        """
-
-        reply = {}
-
-        try:
-            test_value = json.loads(value)
-        except Exception as e:
-            print e
-            reply['error'] = "value not JSON, not storing"
-            return reply
-
-        hash = pybitcoin.hash.hex_hash160(value)
-        test_key = hash
-
-        if key != test_key:
-            reply['error'] = "hash(value) doesn't match, not storing"
-            return reply
-
-        result = self.dht_server.set(key, value)
-        if result:
-           reply['key'] = hash 
-           reply['result'] = True
-        else:
-           reply['result'] = False
-      
-        return reply
-
-
-    def jsonrpc_signdata(self, name, key, value, privatekey):
-        """
-        Given a usenrame and data, put its signed hash into the blockchain.
-        Follow this call up with jsonrpc_put to put it into the DHT.
-        """
-
-        reply = {}
-        blockchain_client_inst = get_utxo_provider_client()
-
-        try:
-            test_value = json.loads(value)
-        except Exception as e:
-            print principale
-            reply['error'] = "value not JSON, not storing"
-            return reply
-
-        hash = pybitcoin.hash.hex_hash160(value)
-        test_key = hash
-
-        if key != test_key:
-            reply['error'] = "hash(value) doesn't match, not storing"
-            return reply
-
-        try:
-           resp = putdata_storage( str(name), str(key), str(privatekey), blockchain_client_inst, testset=True)
-        except:
-           return json_traceback()
-
-        log.debug('setsigned <%s, %s, %s>' % (name, privatekey, value))
         
-        return resp
-     
-     
-    def jsonrpc_putsigned( self, name, key, value, privatekey):
-        """
-        Given a username and data, sign it, broadcast the signature to the blockchain,
-        and then if successful, put the data into the DHT.
-        """        
-        
-        reply = self.jsonrpc_signdata( self, name, key, value, privatekey )
-        if reply.has_key('error'):
-           # error 
-           return reply 
-        else:
-           return self.jsonrpc_put( self, key, value )
-    
-    
-    def jsonrpc_get(self, key):
-        """
-        Given a key to data, look it up and return it.
-        """
-        return self.dht_server.get(key)
-
-
-    def jsonrpc_verifydata(self, name, key ):
-        """
-        Given a username and hash, verify that the user that owns 
-        the name has signed the hash in the blockchain.
-        """
-        
-        db = get_state_engine()
-        return verify_signed_data( name, key, db )
-        
-        
-    def jsonrpc_getverified( self, name, key ):
-        """
-        Given a username and a hash, verify that the user that owns 
-        the name has signed the hash in the blockchain, and if so,
-        return the data.
-        """
-        
-        reply = self.jsonrpc_verifydata( name, key )
-        if reply.has_key('error'):
-          # error
-          return reply 
-        else:
-          return self.jsonrpc_get( self, key )
-
-
     def jsonrpc_getinfo(self):
         """
         """
@@ -359,7 +252,11 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         info = bitcoind.getinfo()
         reply = {}
         reply['blocks'] = info['blocks']
+        
+        db = get_state_engine()
+        reply['consensus'] = db.get_current_consensus()
         return reply
+
 
     def jsonrpc_preorder(self, name, privatekey):
         """ Preorder a name
@@ -367,14 +264,14 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         
         blockchain_client_inst = get_utxo_provider_client()
         if blockchain_client_inst is None:
-           return {'error': 'Failed to connect to blockchain'}
+           return {"error": "Failed to connect to blockchain UTXO provider"}
         
-        db = blockstore_state_engine()
+        db = get_state_engine()
         consensus_hash = db.get_current_consensus()
         if not consensus_hash:
             return {"error": "Nameset snapshot not found."}
          
-        if str(name) in db.name_records:
+        if db.is_name_registered( name ):
             return {"error": "Name already registered"}
 
         try:
@@ -386,17 +283,19 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
 
         return resp
 
+
     def jsonrpc_register(self, name, privatekey):
         """ Register a name
         """
         
         blockchain_client_inst = get_utxo_provider_client()
         if blockchain_client_inst is None:
-           return {'error': 'Failed to connect to blockchain'}
+           return {"error": "Failed to connect to blockchain UTXO provider"}
         
         log.info("name: %s" % name)
-        db = blockstore_state_engine()
-        if str(name) in db.name_records:
+        db = get_state_engine()
+        
+        if db.is_name_registered( name ):
             return {"error": "Name already registered"}
 
         try:
@@ -404,40 +303,46 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         except:
             return json_traceback()
 
-        log.debug('register <%s, %s>' % (name, privatekey))
-
         return resp
 
-    def jsonrpc_update(self, name, data, privatekey):
+
+    def jsonrpc_update(self, name, data_hash, privatekey):
         """
         Update a name with new data.
         """
-
+        log.debug('update <%s, %s, %s>' % (name, data_hash, privatekey))
+        
         blockchain_client_inst = get_utxo_provider_client()
+        db = get_state_engine()
+        
         consensus_hash = db.get_current_consensus()
         
         if blockchain_client_inst is None:
-           return {'error': 'Failed to connect to blockchain'}
+           return {"error": "Failed to connect to blockchain UTXO provider"}
         
         try:
-            resp = update_name(str(name), str(data), str(consensus_hash), str(privatekey), blockchain_client_inst, testset=True)
+            resp = update_name(str(name), str(data_hash), str(consensus_hash), str(privatekey), blockchain_client_inst, testset=True)
         except:
             return json_traceback()
 
-        log.debug('update <%s, %s, %s>' % (name, data, privatekey))
-
+        
         return resp
 
-    def jsonrpc_transfer(self, name, address, privatekey):
+
+    def jsonrpc_transfer(self, name, address, keep_data, privatekey):
         """ Transfer a name
         """
 
         blockchain_client_inst = get_utxo_provider_client()
+        db = get_state_engine()
+        
+        consensus_hash = db.get_current_consensus()
+        
         if blockchain_client_inst is None:
-           return {'error': 'Failed to connect to blockchain'}
+           return {"error": "Failed to connect to blockchain UTXO provider"}
         
         try:
-            resp = transfer_name(str(name), str(address), str(privatekey), blockchain_client_inst, testset=True)
+            resp = transfer_name(str(name), str(address), bool(keep_data), str(consensus_hash), str(privatekey), blockchain_client_inst, testset=True)
         except:
             return json_traceback()
 
@@ -449,12 +354,28 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
     def jsonrpc_renew(self, name, privatekey):
         """ Renew a name
         """
-
-        log.debug('renew <%s, %s>' % (name, privatekey))
-
-        # TODO 
-        return
+        
+        return self.jsonrpc_register( name, privatekey )
    
+   
+    def jsonrpc_revoke( self, name, privatekey ):
+        """ Revoke a name and all of its data.
+        """
+        
+        blockchain_client_inst = get_utxo_provider_client()
+        
+        if blockchain_client_inst is None:
+           return {"error": "Failed to connect to blockchain UTXO provider"}
+        
+        try:
+            resp = revoke_name(str(name), str(privatekey), blockchain_client_inst, testset=True)
+        except:
+            return json_traceback()
+        
+        log.debug("revoke <%s>" % name )
+        
+        return resp
+       
     
     def jsonrpc_namespace_preorder( self, namespace_id, privatekey ):
         """
@@ -463,11 +384,11 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         user who created the namespace can create names in it.
         """
         
-        db = blockstore_state_engine()
+        db = get_state_engine()
         
         blockchain_client_inst = get_utxo_provider_client()
         if blockchain_client_inst is None:
-           return {'error': 'Failed to connect to blockchain'}
+           return {"error": "Failed to connect to blockchain UTXO provider"}
         
         consensus_hash = db.get_current_consensus()
         
@@ -480,7 +401,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         return resp 
     
     
-    def jsonrpc_namespace_define( self, namespace_id, lifetime, base_name_cost, cost_decay_rate ):
+    def jsonrpc_namespace_define( self, namespace_id, lifetime, base_name_cost, cost_decay_rate, privatekey ):
         """
         Define the properties of a namespace.
         Between the namespace definition and the "namespace begin" operation, only the 
@@ -489,10 +410,10 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         
         blockchain_client_inst = get_utxo_provider_client()
         if blockchain_client_inst is None:
-           return {'error': 'Failed to connect to blockchain'}
+           return {"error": "Failed to connect to blockchain UTXO provider"}
         
         try:
-           resp = namespace_define( str(namespace_id), int(lifetime), int(base_name_cost), float(cost_decay_rate), blockchain_client_inst, testset=True )
+           resp = namespace_define( str(namespace_id), int(lifetime), int(base_name_cost), float(cost_decay_rate), str(privatekey), blockchain_client_inst, testset=True )
         except:
            return json_traceback()
         
@@ -507,7 +428,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         
         blockchain_client_inst = get_utxo_provider_client()
         if blockchain_client_inst is None:
-           return {'error': 'Failed to connect to blockchain'}
+           return {"error": "Failed to connect to blockchain UTXO provider"}
         
         try:
            resp = namespace_begin( str(namespace_id), str(privatekey), blockchain_client_inst, testset=True )
@@ -517,6 +438,34 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         log.debug("namespace_begin %s" % namespace_id )
         return resp
         
+        
+        
+def run_indexer():
+    """
+    Continuously reindex the blockchain, but as a subprocess.
+    """
+    
+    # set up this process
+    signal.signal( signal.SIGINT, sigint_handler_indexer )
+
+    bitcoind_opts = get_bitcoin_opts()
+    bitcoind = get_bitcoind()
+
+    _, last_block_id = virtualchain.get_index_range( bitcoind )
+    blockstore_state_engine = get_state_engine()
+
+    while True:
+        
+        time.sleep( REINDEX_FREQUENCY )
+        virtualchain.sync_virtualchain( bitcoind_opts, last_block_id, blockstore_state_engine )
+        
+        next_block = virtualchain.get_index_range( bitcoind )
+        if next_block is None:
+            continue
+        else:
+            _, last_block_id = next_block
+        
+    return
 
 
 def stop_server():
@@ -549,15 +498,19 @@ def run_server( foreground=False):
     Run the blockstored RPC server, optionally in the foreground.
     """
     
+    signal.signal( signal.SIGINT, sigint_handler_server )
+   
     bitcoin_opts = get_bitcoin_opts()
     bitcoind = virtualchain.connect_bitcoind( bitcoin_opts )
    
     tac_file = get_tacfile_path()
     log_file = get_logfile_path()
     pid_file = get_pidfile_path()
-
+    
     start_block, current_block = virtualchain.get_index_range( bitcoind )
-
+    
+    indexer_command = "%s indexer" % sys.argv[0]
+    
     if foreground:
         command = 'twistd --pidfile=%s -noy %s' % (pid_file, tac_file)
     else:
@@ -571,13 +524,26 @@ def run_server( foreground=False):
        
        blockstore_state_engine = get_state_engine()
        virtualchain.sync_virtualchain( bitcoin_opts, current_block, blockstore_state_engine )
-        
+    
     try:
         
-       # fork the server 
+       # fork the server
        blockstored = subprocess.Popen( command, shell=True, preexec_fn=os.setsid)
+       
+       # fork the indexer 
+       indexer = subprocess.Popen( indexer_command, shell=True )
+       
        log.info('Blockstored successfully started')
-
+       
+       # wait for it to die 
+       blockstored.wait()
+       
+       # stop our indexing thread 
+       os.kill( indexer.pid, signal.SIGINT )
+       indexer.wait()
+       
+       return blockstored.returncode 
+    
     except IndexError, ie:
         
         traceback.print_exc()
@@ -619,13 +585,11 @@ def setup( return_parser=False ):
    global bitcoin_opts
    global chaincom_opts
    
-   signal.signal( signal.SIGINT, sigint_handler )
-   
    # set up our implementation 
    virtualchain.setup_virtualchain( blockstore_state_engine )
    
    # acquire configuration, and store it globally
-   bitcoin_opts, chaincom_opts = interactive_configure()
+   bitcoin_opts, chaincom_opts = configure( interactive=True )
    
    # merge in command-line bitcoind options 
    config_file = virtualchain.get_config_filename()
@@ -660,18 +624,26 @@ def run_blockstored():
    
    argparser = setup( return_parser=True )
    
+   log.debug( "\n" + str( chaincom_opts ) + "\n" )
+   
    # get RPC server options
    subparsers = argparser.add_subparsers(
       dest='action', help='the action to be taken')
+   
    parser_server = subparsers.add_parser(
       'start',
       help='start the blockstored server')
    parser_server.add_argument(
       '--foreground', action='store_true',
       help='start the blockstored server in foreground')
+   
    parser_server = subparsers.add_parser(
       'stop',
       help='stop the blockstored server')
+   
+   parser_server = subparsers.add_parser(
+      'indexer',
+      help='run blockstore indexer worker')
    
    args, _ = argparser.parse_known_args()
    
@@ -685,11 +657,9 @@ def run_blockstored():
       if args.foreground:
          
          log.info('Initializing blockstored server in foreground ...')
-         run_server( foreground=True )
+         exit_status = run_server( foreground=True )
+         log.info("Service endpoint exited with status code %s" % exit_status )
          
-         while(1):
-            stay_alive = True
-            
       else:
          
          log.info('Starting blockstored server ...')
@@ -698,6 +668,8 @@ def run_blockstored():
    elif args.action == 'stop':
       stop_server()
 
+   elif args.action == 'indexer':
+      run_indexer()
 
 if __name__ == '__main__':
     

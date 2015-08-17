@@ -1,3 +1,26 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+    Blockstore
+    ~~~~~
+    copyright: (c) 2014 by Halfmoon Labs, Inc.
+    copyright: (c) 2015 by Blockstack.org
+    
+    This file is part of Blockstore
+    
+    Blockstore is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    
+    Blockstore is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
+"""
+
 from pybitcoin import embed_data_in_blockchain, BlockchainInfoClient, hex_hash160
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
@@ -17,9 +40,9 @@ def namespace_decay_to_float( namespace_decay_fixedpoint ):
    """
    
    ipart = namespace_decay_fixedpoint >> 24
-   fpart = namespace_decay_fixedpoint & 0xff000000
+   fpart = namespace_decay_fixedpoint & 0x00ffffff
    
-   return ipart + (float(fpart) / 2**24)
+   return ipart + (float(fpart) / (1 << 24))
 
 def namespace_decay_to_fixpoint( namespace_decay_float ):
    """
@@ -35,17 +58,35 @@ def namespace_decay_to_fixpoint( namespace_decay_float ):
    if( ipart > 255 ):
       return None 
    
-   fpart = (namespace_decay_float - ipart)
+   fpart = float(namespace_decay_float - ipart)
    
-   fixpoint = (ipart << 24) | int(fpart * (1 << 24))
+   fixpoint = (ipart << 24) | int(fpart * float(1 << 24))
    return fixpoint
+   
+   
+def serialize_int( int_field, numbytes ):
+   """
+   Serialize an integer to a hex string that is padlen characters long.
+   Raise an exception on overflow.
+   """
+   
+   if int_field >= 2**(numbytes*8) or int_field < -(2**(numbytes*8)):
+      raise Exception("Integer overflow (%s bytes)" % (numbytes) )
+   
+   format_str = "%%0.%sx" % (numbytes*2) 
+   hex_str = format_str % int_field 
+   
+   if len(hex_str) % 2 != 0:
+      # sometimes python cuts off the leading zero 
+      hex_str = '0' + hex_str
+   
+   return hex_str
    
    
 # name lifetime (blocks): 4 bytes (0xffffffff for infinite)
 # baseline price for one-letter names (satoshis): 8 bytes
 # price decay rate per letter (fixed-point decimal: 2**8 integer part, 2**24 decimal part): 4 bytes
 # namespace ID: up to 19 bytes
-
 def build( namespace_id, lifetime, satoshi_cost, price_decay_rate, testset=False ):
    """
    Record to mark the beginning of a namespace import in the blockchain.
@@ -81,15 +122,18 @@ def build( namespace_id, lifetime, satoshi_cost, price_decay_rate, testset=False
    if price_decay_rate_fixedpoint < 0 or price_decay_rate_fixedpoint > (2**32 - 1):
       raise Exception("Decay rate '%s' out of range (expected unsigned 32-bit integer)" % price_decay_rate_fixedpoint)
    
-   readable_script = "NAMESPACE_DEFINE %i %i %i %s" % (lifetime, satoshi_cost, price_decay_rate_fixedpoint, hexlify("." + namespace_id))
+   life_hex = serialize_int( lifetime, 4 )
+   satoshi_cost_hex = serialize_int( satoshi_cost, 8 )
+   price_decay_hex = serialize_int( price_decay_rate_fixedpoint, 4 )
    
+   readable_script = "NAMESPACE_DEFINE 0x%s 0x%s 0x%s 0x%s" % (life_hex, satoshi_cost_hex, price_decay_hex, hexlify("." + namespace_id))
    hex_script = blockstore_script_to_hex(readable_script)
    packaged_script = add_magic_bytes(hex_script, testset=testset)
    
    return packaged_script
 
 
-def broadcast( namespace_id, lifetime, satoshi_cost, price_decay_rate, blockchain_client, testset=False ):
+def broadcast( namespace_id, lifetime, satoshi_cost, price_decay_rate, private_key, blockchain_client, testset=False ):
    """
    Propagate a namespace.
    
@@ -133,7 +177,7 @@ def parse( bin_payload, sender ):
    
    off += LENGTHS['blockchain_id_namespace_price_decay']
    
-   namespace_id = hexlify( bin_payload[off+1:] )        # skip '.', which is cosmetic i.e. for blockchain explorers
+   namespace_id = bin_payload[off+1:]        # skip '.', which is cosmetic i.e. for blockchain explorers
    namespace_id_hash = hash_name( namespace_id, sender )
    
    return {

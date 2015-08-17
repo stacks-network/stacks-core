@@ -1,8 +1,24 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 """
     Blockstore
     ~~~~~
-    :copyright: (c) 2015 by Openname.org
-    :license: MIT, see LICENSE for more details.
+    copyright: (c) 2014 by Halfmoon Labs, Inc.
+    copyright: (c) 2015 by Blockstack.org
+    
+    This file is part of Blockstore
+    
+    Blockstore is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+    
+    Blockstore is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 import os
@@ -13,6 +29,8 @@ import virtualchain
 DEBUG = True
 TESTNET = False
 TESTSET = True
+
+VERSION = "v0.01-beta"
 
 """ constants
 """
@@ -39,7 +57,19 @@ RPC_SERVER_PORT = 6264
 
 """ DHT configs
 """
+# 3 years
+STORAGE_TTL = 3 * 60 * 60 * 24 * 365
 
+DHT_SERVER_PORT = 6265  # blockstored default to port 6264
+
+DEFAULT_DHT_SERVERS = [('dht.openname.org', DHT_SERVER_PORT),
+                       ('dht.onename.com', DHT_SERVER_PORT),
+                       ('dht.halfmoonlabs.com', DHT_SERVER_PORT),
+                       ('127.0.0.1', DHT_SERVER_PORT)]
+
+
+""" Bitcoin configs 
+"""
 DEFAULT_BITCOIND_SERVER = 'btcd.onename.com'
 DEFAULT_BITCOIND_PORT = 8332 
 DEFAULT_BITCOIND_PORT_TESTNET = 18332
@@ -56,10 +86,10 @@ MULTIPROCESS_RPC_RETRY = 3
 """
 REINDEX_FREQUENCY = 10  # in seconds
 
-FIRST_BLOCK_MAINNET = 367090 # 343883
+FIRST_BLOCK_MAINNET = 369169 # 343883
 FIRST_BLOCK_MAINNET_TESTSET = FIRST_BLOCK_MAINNET
 # FIRST_BLOCK_TESTNET = 343883
-FIRST_BLOCK_TESTNET = 508800
+FIRST_BLOCK_TESTNET = 529008
 FIRST_BLOCK_TESTNET_TESTSET = FIRST_BLOCK_TESTNET
 
 if TESTNET:
@@ -101,6 +131,9 @@ NAMESPACE_PREORDER = '*'
 NAMESPACE_DEFINE = '&'
 NAMESPACE_BEGIN = '!'
 
+TRANSFER_KEEP_DATA = '>'
+TRANSFER_REMOVE_DATA = '~'
+
 # list of opcodes we support
 OPCODES = [
    NAME_PREORDER,
@@ -131,7 +164,6 @@ LENGTHS = {
     'update_hash': 20,
     'data_hash': 20,
     'blockchain_id_name': 34,
-    'blockchain_id_scheme': len(NAME_SCHEME),
     'blockchain_id_namespace_life': 4,
     'blockchain_id_namespace_cost': 8,
     'blockchain_id_namespace_price_decay': 4,
@@ -143,10 +175,11 @@ MIN_OP_LENGTHS = {
     'registration': LENGTHS['namelen'] + LENGTHS['name_min'],
     'update': LENGTHS['name_hash'] + LENGTHS['update_hash'],
     'transfer': LENGTHS['namelen'] + LENGTHS['name_min'],
+    'revoke': LENGTHS['namelen'] + LENGTHS['name_min'],
     'namespace_preorder': LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'],
     'namespace_define': LENGTHS['blockchain_id_namespace_life'] + LENGTHS['blockchain_id_namespace_cost'] + \
-                        LENGTHS['blockchain_id_namespace_price_decay'] + 1 + LENGTHS['blockchain_id_namespace_id'],
-    'namespace_begin': 1 + LENGTHS['blockchain_id_namespace_id']
+                        LENGTHS['blockchain_id_namespace_price_decay'] + 1 + LENGTHS['name_min'],
+    'namespace_begin': 1 + LENGTHS['name_min']
 }
 
 OP_RETURN_MAX_SIZE = 40
@@ -172,7 +205,7 @@ ALPHABETIC_PRICE_FLOOR = 10**4
 NAMESPACE_DEFAULT = {
    'opcode': 'NAMESPACE_DEFINE',
    'lifetime': EXPIRATION_PERIOD,
-   'cost': PRICE_FOR_1LETTER_NAMES,
+   'cost': 1,
    'price_decay': float(PRICE_DROP_PER_LETTER),
    'namespace_id': None,
    'namespace_id_hash': "",
@@ -285,6 +318,84 @@ def default_chaincom_opts( config_file=None ):
    return chaincom_opts
 
 
+def default_dht_opts( config_file=None ):
+   """
+   Get our default DHT options from the config file.
+   """
+   
+   global DHT_SERVER_PORT, DEFAULT_DHT_SERVERS
+   
+   if config_file is None:
+      config_file = virtualchain.get_config_filename()
+   
+   
+   defaults = {
+      'disable': str(False),
+      'port': str(DHT_SERVER_PORT),
+      'servers': ",".join( ["%s:%s" % (host, port) for (host, port) in DEFAULT_DHT_SERVERS] )
+   }
+   
+   parser = SafeConfigParser( defaults )
+   parser.read( config_file )
+   
+   if parser.has_section('dht'):
+      
+      disable = parser.get('dht', 'disable')
+      port = parser.get('dht', 'port')
+      servers = parser.get('dht', 'servers')     # expect comma-separated list of host:port
+      
+      if disable is None:
+         disable = False 
+         
+      if port is None:
+         port = DHT_SERVER_PORT
+         
+      if servers is None:
+         servers = DEFAULT_DHT_SERVERS
+         
+      try:
+         disable = bool(disable)
+      except:
+         raise Exception("Invalid field value for dht.disable: expected bool")
+      
+      try:
+         port = int(port)
+      except:
+         raise Exception("Invalid field value for dht.port: expected int")
+      
+      parsed_servers = []
+      try:
+         server_list = servers.split(",")
+         for server in server_list:
+            server_host, server_port = server.split(":")
+            server_port = int(server_port)
+            
+            parsed_servers.append( (server_host, server_port) )
+            
+      except:
+         raise Exception("Invalid field value for dht.servers: expected 'HOST:PORT[,HOST:PORT...]'")
+      
+      dht_opts = {
+         'disable': disable,
+         'port': port,
+         'servers': parsed_servers
+      }
+      
+      return dht_opts 
+   
+   else:
+      
+      # use defaults
+      dht_opts = {
+         'disable': False,
+         'port': DHT_SERVER_PORT,
+         'servers': DEFAULT_DHT_SERVERS
+      }
+         
+      return dht_opts
+   
+      
+
 def opt_strip( prefix, opts ):
    """
    Given a dict of opts that start with prefix,
@@ -326,12 +437,12 @@ def interactive_prompt( message, parameters ):
    return ret
 
 
-def interactive_prompt_missing( message, all_params, given_opts ):
+def find_missing( message, all_params, given_opts, prompt_missing=True ):
    """
    Find and interactively prompt the user for missing parameters,
    given the list of all valid parameters and a dict of known options.
    
-   Return the updated dict of known options, with the user's input.
+   Return the (updated dict of known options, missing), with the user's input.
    """
    
    # are we missing anything for bitcoin?
@@ -340,19 +451,20 @@ def interactive_prompt_missing( message, all_params, given_opts ):
       if missing_param not in given_opts.keys():
          missing_params.append( missing_param )
       
-   if len(missing_params) > 0:
+   if len(missing_params) > 0 and prompt_missing:
       
       missing_values = interactive_prompt( message, missing_params )
       given_opts.update( missing_values )
-   
-   return given_opts
+
+   return given_opts, missing_params
 
 
-def interactive_configure( config_file=None, force=False ):
+def configure( config_file=None, force=False, interactive=True ):
    """
-   Prompt the user for all the details of the config file
-   that are still missing.  If there are no missing options, 
-   then this method does nothing.
+   Configure blockstore:  find and store configuration parameters to the config file.
+   
+   Optionally prompt for missing data interactively (with interactive=True).  Or, raise an exception
+   if there are any fields missing.
    
    Optionally force a re-prompting for all configuration details (with force=True)
    
@@ -392,9 +504,14 @@ def interactive_configure( config_file=None, force=False ):
       chaincom_opts = default_chaincom_opts( config_file=config_file )
       
    # get any missing fields 
-   bitcoind_opts = interactive_prompt_missing( bitcoind_message, bitcoind_params, bitcoind_opts )
-   chaincom_opts = interactive_prompt_missing( chaincom_message, chaincom_params, chaincom_opts )
+   bitcoind_opts, missing_bitcoin_opts = find_missing( bitcoind_message, bitcoind_params, bitcoind_opts, prompt_missing=interactive )
+   chaincom_opts, missing_chaincom_opts = find_missing( chaincom_message, chaincom_params, chaincom_opts, prompt_missing=interactive )
    
+   if not interactive and (len(missing_bitcoin_opts) > 0 or len(missing_chaincom_opts) > 0):
+       
+       # cannot continue 
+       raise Exception("Missing configuration fields: %s" % (",".join( missing_bitcoin_opts + missing_chaincom_opts )) )
+                       
    return (bitcoind_opts, chaincom_opts)
       
 
