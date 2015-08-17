@@ -235,6 +235,8 @@ def schema_match( schema, obj, allow_extra=True, verbose=False ):
                debug("%s != [%s]" % (sub_object, sub_schema))
                
             else:
+               
+               is_match = True  # for empty lists
                for so in sub_object:
                   
                   # match each object in the list to this schema
