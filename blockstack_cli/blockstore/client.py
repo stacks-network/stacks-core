@@ -842,7 +842,7 @@ def delete_immutable(name, data_key, privatekey, proxy=None, txid=None):
         result['error'] = 'Failed to delete immutable data'
 
     result['transaction_hash'] = txid
-    result['value_hash'] = update_status['value_hash']
+    result['value_hash'] = update_result['value_hash']
     
     return result
 
