@@ -279,6 +279,17 @@ def run_cli():
 
     # ------------------------------------
     subparser = subparsers.add_parser(
+      'revoke',
+      help='<name> <privatekey> | revoke a name and its data')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that you want to revoke')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the privatekey of the owner Bitcoin address')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
       'transfer',
       help='transfer a name')
     subparser.add_argument(
@@ -347,6 +358,9 @@ def run_cli():
 
     elif args.action == 'renew':
         result = client.renew(str(args.name), str(args.privatekey))
+
+    elif args.action == 'revoke':
+        result = client.revoke(str(args.name), str(args.privatekey))
 
     elif args.action == 'namespace_preorder':
         result = client.namespace_preorder(str(args.namespace_id),
