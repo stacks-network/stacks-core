@@ -230,6 +230,10 @@ def get_user_record(name, create=False):
         return {"error": "No such name"}
 
     name_record = name_record[0]
+    if name_record is None:
+        # failed to look up 
+        return {'error': "No such name"}
+    
     if 'error' in name_record:
 
         # failed to look up
@@ -263,7 +267,7 @@ def get_user_record(name, create=False):
     return user_resp
 
 
-def store_user(user, txid):
+def store_user_record(user, txid):
     """
     Store JSON user record data to the immutable storage providers, synchronously.
 
@@ -283,6 +287,36 @@ def store_user(user, txid):
 
     data_hash = storage.get_data_hash(user_json)
     result = storage.put_immutable_data(user_json, txid, replication_strategy=storage.REPLICATE_ALL)
+
+    rc = None
+    if result is None:
+        rc = False
+    else:
+        rc = True
+
+    return (rc, data_hash)
+
+
+def remove_user_record(user, txid):
+    """
+    Delete JSON user record data from immutable storage providers, synchronously.
+
+    Return (True, hash(user)) on success
+    Return (False, hash(user)) on error
+    """
+
+    username = user_db.name(user)
+
+    # serialize
+    user_json = None
+    try:
+        user_json = user_db.serialize_user(user)
+    except Exception, e:
+        log.error("Failed to serialize '%s'" % user)
+        return False
+
+    data_hash = storage.get_data_hash(user_json)
+    result = storage.delete_immutable_data(data_hash, txid)
 
     rc = None
     if result is None:
@@ -397,15 +431,20 @@ def update(name, user_json_or_hash, privatekey, txid=None, proxy=None):
 
         user_record_hash = pybitcoin.hash.hex_hash160(user_db.serialize_user(user_data))
 
+    # go get the current user record 
+    current_user_record = get_user_record( name )
+    if current_user_record is None:
+        return {'error': 'No such user'}
+    
+    if current_user_record.has_key('error'):
+        # some other error 
+        return current_user_record
+
     result = {}
 
     # no transaction: go put one
     if txid is None:
-
-        print user_json_or_hash
-        print user_data
-        print user_record_hash
-
+        
         result = proxy.update(name, user_record_hash, privatekey)
         result = result[0]
 
@@ -426,18 +465,23 @@ def update(name, user_json_or_hash, privatekey, txid=None, proxy=None):
         result['transaction_hash'] = txid
 
     # store new user data
-    rc = False
-    data_hash = None
+    rc = True
+    new_data_hash = None
     if user_data is not None:
-
-        rc, data_hash = store_user(user_data, txid)
-    if rc:
-        result['status'] = rc
-        result['value_hash'] = data_hash
-        result["transaction_hash"] = txid
-
+        rc, new_data_hash = store_user_record(user_data, txid)
+    
     else:
-        result['error'] = "Failed to store updated user record"
+        # was already a hash
+        new_data_hash = user_json_or_hash
+    
+    if not rc:
+        result['error'] = "Failed to store updated user record."
+        return result 
+    
+    result['status'] = True
+    result['value_hash'] = new_data_hash
+    result['old_value_hash'] = user_record_hash
+    result["transaction_hash"] = txid
 
     return result
 
@@ -652,6 +696,7 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
 
     route = None
     exists = True
+    old_hash = None
 
     # do we have a route for this data yet?
     if not user_db.has_mutable_data_route(user, data_id):
@@ -667,13 +712,13 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
 
         writer_pubkey = pybitcointools.privkey_to_pubkey(privatekey)
 
-        route = storage.mutable_data_route(data_id, data_urls,
+        route = storage.mutable_data_route(data_id, urls,
                                            writer_pubkey=writer_pubkey)
 
         user_db.add_mutable_data_route(user, route)
 
         user_json = user_db.serialize_user(user)
-
+        
         # update the user record with the new route
         update_result = update(name, user_json, privatekey, txid=txid, proxy=proxy)
         if 'error' in update_result:
@@ -682,7 +727,8 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
             return update_result
 
         txid = update_result['transaction_hash']
-
+        old_hash = update_result['old_value_hash']
+        
         exists = False
 
     else:
@@ -720,7 +766,7 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
 
     data_json = parsing.json_stable_serialize(data)
 
-    store_rc = storage.put_mutable_data(data_id, nonce, data['sig'], data_json)
+    store_rc = storage.put_mutable_data( data, privatekey )
     if not store_rc:
         result['error'] = "Failed to store mutable data"
 
@@ -728,6 +774,11 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
         result['status'] = True
 
     result['transaction_hash'] = txid
+    
+    if old_hash:
+        # propagate 
+        result['old_value_hash'] = old_hash
+        
     return result
 
 
@@ -777,6 +828,8 @@ def delete_immutable(name, data_key, privatekey, proxy=None, txid=None):
         result['error'] = 'Failed to delete immutable data'
 
     result['transaction_hash'] = txid
+    result['old_value_hash'] = update_status['old_value_hash']
+    
     return result
 
 
@@ -836,5 +889,7 @@ def delete_mutable(name, data_id, privatekey, proxy=default_proxy, txid=None,
 
     else:
         result['status'] = True
+        result['transaction_hash'] = txid 
+        result['old_value_hash'] = update_status['old_value_hash']
 
     return result
