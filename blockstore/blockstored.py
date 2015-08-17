@@ -458,8 +458,13 @@ def run_indexer():
         
         time.sleep( REINDEX_FREQUENCY )
         virtualchain.sync_virtualchain( bitcoind_opts, last_block_id, blockstore_state_engine )
-        _, last_block_id = virtualchain.get_index_range( bitcoind )
-
+        
+        next_block = virtualchain.get_index_range( bitcoind )
+        if next_block is None:
+            continue
+        else:
+            _, last_block_id = next_block
+        
     return
 
 
