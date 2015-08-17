@@ -237,10 +237,17 @@ def default_bitcoind_opts( config_file=None ):
 
       if parser.has_section('bitcoind'):
 
-         bitcoind_server = parser.get('bitcoind', 'server')
-         bitcoind_port = parser.get('bitcoind', 'port')
-         bitcoind_user = parser.get('bitcoind', 'user')
-         bitcoind_passwd = parser.get('bitcoind', 'passwd')
+         if parser.has_option('bitcoind', 'server'):
+            bitcoind_server = parser.get('bitcoind', 'server')
+         
+         if parser.has_option('bitcoind', 'port'):
+            bitcoind_port = parser.get('bitcoind', 'port')
+         
+         if parser.has_option('bitcoind', 'user'):
+            bitcoind_user = parser.get('bitcoind', 'user')
+         
+         if parser.has_option('bitcoind', 'passwd'):
+            bitcoind_passwd = parser.get('bitcoind', 'passwd')
          
          if parser.has_option('bitcoind', 'use_https'):
             use_https = parser.get('bitcoind', 'use_https')
@@ -299,10 +306,16 @@ def default_chaincom_opts( config_file=None ):
    
    chaincom_opts = {}
    
+   api_key_id = None 
+   api_key_secret = None
+   
    if parser.has_section('chain_com'):
       
-      api_key_id = parser.get('chain_com', 'api_key_id')
-      api_key_secret = parser.get('chain_com', 'api_key_secret')
+      if parser.has_option('chain_com', 'api_key_id'):
+         api_key_id = parser.get('chain_com', 'api_key_id')
+      
+      if parser.has_option('chain_com', 'api_key_secret'):
+         api_key_secret = parser.get('chain_com', 'api_key_secret')
       
       chaincom_opts = {
          'api_key_id': api_key_id,
@@ -310,7 +323,7 @@ def default_chaincom_opts( config_file=None ):
       }
       
    
-   # strip nones 
+   # strip Nones 
    for (k, v) in chaincom_opts.items():
       if v is None:
          del chaincom_opts[k]
