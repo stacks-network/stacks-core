@@ -105,7 +105,7 @@ def make_mutable_urls( data_id ):
       
       urls.append( new_url )
       
-   return new_urls 
+   return urls 
 
 
 def mutable_data_route( data_id, data_urls, writer_pubkey=None ):
@@ -130,7 +130,7 @@ def mutable_data_route( data_id, data_urls, writer_pubkey=None ):
          return None
    
    if writer_pubkey is not None:
-      if writer_pubkey not in [types.StringType, types.UnicodeType]:
+      if type(writer_pubkey) not in [types.StringType, types.UnicodeType]:
          log.error("Writer public key must be encoded as a string (got '%s')" % str(writer_pubkey))
          return None
       
@@ -139,7 +139,7 @@ def mutable_data_route( data_id, data_urls, writer_pubkey=None ):
       "urls": data_urls
    }
    
-   if write_pubkey is not None:
+   if writer_pubkey is not None:
       route['pubkey'] = writer_pubkey
    
    return route
@@ -172,7 +172,29 @@ def mutable_data_route_parse( route_json_text ):
    return route_object 
 
 
-def mutable_data( data_id, data_text, nonce, privkey=None, sig=None ):
+
+def mutable_data_encode( data ):
+   """
+   Encode the 'data' field of a mutable data dict, making 
+   it suitable for storing and printing to a console.
+   Call this method after mutable_data( encode=False )
+   to encode the data.
+   """
+   
+   data['data'] = base64.b64encode( data['data'] )
+
+
+def mutable_data_decode( data ):
+   """
+   Decode the 'data' field of a mutable data dict.
+   Call this method after mutable_data_parse( decode=False )
+   to recover the data.
+   """
+   
+   data['data'] = base64.b64decode( data['data'] )
+    
+
+def mutable_data( data_id, data_text, nonce, privkey=None, sig=None, encode=True ):
    """
    Generate a mutable data dict from the given information.
    If sig is given, use sig
@@ -181,9 +203,12 @@ def mutable_data( data_id, data_text, nonce, privkey=None, sig=None ):
    """
    data = {
       "id": str(data_id),
-      "data": base64.b64encode( str(data_text) ),
+      "data": data_text,
       "nonce": int(nonce)
    }
+   
+   if encode:
+      mutable_data_encode( data )
    
    if sig is not None:
       data['sig'] = sig 
@@ -197,12 +222,14 @@ def mutable_data( data_id, data_text, nonce, privkey=None, sig=None ):
    
    return data 
 
-   
 
-def mutable_data_parse( mutable_data_json_text ):
+def mutable_data_parse( mutable_data_json_text, decode=True ):
    """
    Given the serialized JSON for a piece of mutable data,
    parse it into a JSON document.
+   
+   If decode is True, then decode the data string as well.
+   
    Return the parsed JSON dict on success
    Return None on error
    """
@@ -236,9 +263,10 @@ def mutable_data_parse( mutable_data_json_text ):
       return None
    
    # decode data 
-   data_object['data'] = base64.b64decode( data_object['data'] )
+   if decode:
+      mutable_data_decode( data_object )
+   
    return data_object 
-
 
 
 def register_storage( storage_impl ):
@@ -291,6 +319,9 @@ def get_immutable_data( data_key ):
          log.exception( e ) 
          continue 
       
+      if data is None:
+         continue
+      
       # validate 
       data_hash = get_data_hash( data )
       if data_hash != data_key:
@@ -309,7 +340,7 @@ def get_mutable_data_route_hash( route ):
    Return the hash on success
    Return None on error
    """
-   route_json = parsing.json_stable_serialize( route )
+   route_json = json_stable_serialize( route )
    if route_json is None:
       return None 
    
@@ -340,6 +371,9 @@ def get_mutable_data_route( data_id, route_hash ):
          log.exception(e)
          continue 
       
+      if route_json is None:
+         continue 
+     
       if get_data_hash( route_json ) != route_hash:
          log.error("Invalid route: hash mismatch")
          continue 
@@ -361,6 +395,41 @@ def get_mutable_data_route( data_id, route_hash ):
    return None 
 
 
+def sign_raw_data( raw_data, privatekey ):
+   """
+   Sign a string of data.
+   Return a base64-encoded signature.
+   """
+   data_hash = get_data_hash( raw_data )
+   
+   data_sig_bin = pybitcointools.ecdsa_raw_sign( data_hash, privatekey )
+   return pybitcointools.encode_sig( data_sig_bin[0], data_sig_bin[1], data_sig_bin[2] )
+
+
+def verify_raw_data( raw_data, pubkey, sigb64 ):
+   """
+   Verify the signature over a string, given the public key 
+   and base64-encode signature.
+   Return True on success.
+   Return False on error.
+   """
+   
+   data_hash = get_data_hash( raw_data )
+   
+   return pybitcointools.ecdsa_raw_verify( data_hash, pybitcointools.decode_sig( sigb64 ), pubkey )
+
+
+def sign_mutable_data( data, privatekey ):
+   """
+   Given a mutable data dict and a ECDSA private key,
+   generate and return a base64-encoded signature over the fields that matter (i.e. the data_id, nonce, and data).
+   Return the signature (baes64-encoded)
+   """
+   
+   data_str = str(data['id']) + str(data['nonce']) + str(data['data'])
+   return sign_raw_data( data_str, privatekey )
+
+
 def verify_mutable_data( data, pubkey ):
    """
    Given the data (as a dict) and the base64-encoded signature,
@@ -369,21 +438,18 @@ def verify_mutable_data( data, pubkey ):
    """
    
    sigb64 = data['sig']
-   data['sig'] = ""
    
-   data_text = parsing.json_stable_serialize( data )
-   data_hash = get_data_hash( data )
+   data_str = str(data['id']) + str(data['nonce']) + str(data['data'])
    
-   rc = pybitcointools.ecdsa_raw_verify( data_hash, pybitcointools.decode_sig( sigb64 ), pubkey )
-   return rc
+   return verify_raw_data( data_str, pubkey, sigb64 )
 
 
-def get_mutable_data( data_route, min_nonce=None, max_nonce=None, nonce_check=None ):
+def get_mutable_data( data_route, nonce_min=None, nonce_max=None, nonce_check=None ):
    """
    Given a data's route, go fetch the data.
    
-   Optionally verify that the nonce in the data returned is within [min_nonce, max_nonce],
-   or no less than min_nonce, or no greater than max_nonce.
+   Optionally verify that the nonce in the data returned is within [nonce_min, nonce_max],
+   or no less than nonce_min, or no greater than nonce_max.
    
    Optionally evaluate nonce with nonce_check, which takes the data structure and returns true if the nonce is valid.
    
@@ -425,29 +491,31 @@ def get_mutable_data( data_route, min_nonce=None, max_nonce=None, nonce_check=No
             # no data
             continue 
          
-         # parse it
-         data = mutable_data_parse( data_json )
+         # parse it, but don't decode it yet
+         data = mutable_data_parse( data_json, decode=False )
          if data is None:
             log.error("Unparseable data")
             continue
          
          # if the route includes a private key, verify it 
-         if pubkey is not None:
+         if data_pubkey is not None:
             
-            rc = verify_mutable_data( data, pubkey )
+            rc = verify_mutable_data( data, data_pubkey )
             if not rc:
                
                log.error("Invalid signature")
                continue 
          
+         # can decode the data now, since we've checked the sig 
+         mutable_data_decode( data )
          
          # verify nonce, if need be
-         if min_nonce is not None:
-            if data['nonce'] < min_nonce:
+         if nonce_min is not None:
+            if data['nonce'] < nonce_min:
                continue 
          
-         if max_nonce is not None:
-            if data['nonce'] > max_nonce:
+         if nonce_max is not None:
+            if data['nonce'] > nonce_max:
                continue 
             
          if nonce_check is not None:
@@ -504,24 +572,12 @@ def put_immutable_data( data_text, txid, replication_strategy=REPLICATE_ALL ):
          else:
             continue 
          
-      # succeeded
-      return data_hash 
+      if replication_strategy == REPLICATE_ANY:
+         # succeeded once 
+         return data_hash 
          
-   return None 
-
-
-def sign_mutable_data( data, privatekey ):
-   """
-   Given a mutable data dict and a ECDSA private key,
-   generate and return a base64-encoded signature over the fields that matter (i.e. the data_id, nonce, and data).
-   Return the signature.
-   """
-   
-   data_str = str(data['id']) + str(data['nonce']) + str(data['data'])
-   data_hash = get_data_hash( data_str )
-   
-   data_sig_bin = pybitcointools.ecdsa_raw_sign( data_hash, privatekey )
-   return pybitcointools.encode_sig( data_sig_bin )
+   # succeeded everywhere
+   return data_hash 
 
 
 def put_mutable_data( data, privatekey, replication_strategy=REPLICATE_ALL ):
@@ -545,7 +601,7 @@ def put_mutable_data( data, privatekey, replication_strategy=REPLICATE_ALL ):
       sig = sign_mutable_data( data, privatekey )
       data['sig'] = sig
       
-   data_json = parsing.json_stable_serialize( data )
+   data_json = json_stable_serialize( data )
    
    for handler in storage_handlers:
       
@@ -556,7 +612,7 @@ def put_mutable_data( data, privatekey, replication_strategy=REPLICATE_ALL ):
       
       try:
          
-         handler.put_mutable_handler( data_id, nonce, sig, data_json )
+         rc = handler.put_mutable_handler( data_id, nonce, sig, data_json )
       except Exception, e:
          
          log.exception( e )
@@ -575,9 +631,12 @@ def put_mutable_data( data, privatekey, replication_strategy=REPLICATE_ALL ):
          else:
             continue 
          
-      return True 
+      if replication_strategy == REPLICATE_ANY:
+         # succeeded once
+         return True 
    
-   return False
+   # succeeded for all storage providers
+   return True 
 
 
 def delete_immutable_data( data_hash, txid ):
@@ -614,8 +673,7 @@ def delete_mutable_data( data_id, privatekey ):
    
    global storage_handlers
    
-   # sign the data_id to prove authenticity to the storage system 
-   signature = sign_mutable_data( data_id, privatekey )
+   sigb64 = sign_raw_data( data_id, privatekey )
    
    # remove data 
    for handler in storage_handlers:
@@ -625,7 +683,7 @@ def delete_mutable_data( data_id, privatekey ):
       
       try:
          
-         handler.delete_mutable_handler( data_id, signature )
+         handler.delete_mutable_handler( data_id, sigb64 )
       except Exception, e:
          
          log.exception( e )

@@ -100,7 +100,7 @@ class HashType( SchemaType ):
       if re.match(r"^[a-fA-F0-9]+$", strvalue ) is None:
          return False 
       
-      if self.length is not None and len(strvalue) != self.length:
+      if self.length is not None and len(strvalue) != self.length * 2:
          return False 
       
       return True
@@ -161,7 +161,7 @@ BITCOIN_ADDRESS = BitcoinAddressType()
 EMAIL = EmailType()
 OPTIONAL = OptionalField
 
-def schema_match( schema, obj, allow_extra=True, verbose=True ):
+def schema_match( schema, obj, allow_extra=True, verbose=False ):
    
    """
    Recursively verify that the given object has the given schema.
@@ -176,7 +176,7 @@ def schema_match( schema, obj, allow_extra=True, verbose=True ):
    
    # object is literal?
    if type(obj) != types.DictType:
-      if obj != schema:
+      if not schema.valid( obj ):
          debug( "Literal '%s' does not match '%s'" % (obj, schema) )
          return False 
       
@@ -214,7 +214,7 @@ def schema_match( schema, obj, allow_extra=True, verbose=True ):
       sub_schema = schema[field]
       is_match = False
       
-      # debug("%s =~ %s" % (sub_object, sub_schema))
+      debug("%s =~ %s" % (sub_object, sub_schema))
       
       if type(sub_schema) != types.DictType:
          
@@ -228,31 +228,33 @@ def schema_match( schema, obj, allow_extra=True, verbose=True ):
          elif isinstance( sub_schema, types.ListType ) and len(sub_schema) == 1:
             
             # array of objects with a given schema
-            sub_schema = sub_object[0]
+            sub_schema = sub_schema[0]
             
             if not isinstance( sub_object, types.ListType ):
                is_match = False
                debug("%s != [%s]" % (sub_object, sub_schema))
                
             else:
+               
+               is_match = True  # for empty lists
                for so in sub_object:
                   
                   # match each object in the list to this schema
-                  is_match = schema_match( sub_schema, so )
+                  is_match = schema_match( sub_schema, so, verbose=verbose )
                   if not is_match:
-                     debug("%s is not %s" (sub_object, sub_schema))
+                     debug("[%s] is not [%s]" % (so, sub_schema))
                      break
             
          else:
-            # check type 
-            is_match = sub_schema.valid( sub_object ) # (type(sub_schema) == type(sub_object))
-            if is_match is False:
-               debug( "%s is not %s" % (sub_object, sub_schema) )
+            # invalid schema 
+            raise Exception("Invalid schema: '%s' ('%s') is neither a SchemaType nor a list of SchemaType instances" % (sub_schema, field))
             
       else:
          
          # recursively verify match 
-         is_match = schema_match( sub_schema, sub_object )
+         is_match = schema_match( sub_schema, sub_object, verbose=verbose )
+         if not is_match:
+             debug( "%s is not %s" % (sub_object, sub_schema) )
          
       if not is_match:
          debug( "Mismatch on key '%s'" % literal)
