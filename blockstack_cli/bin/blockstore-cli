@@ -95,6 +95,35 @@ def run_cli():
 
     # ------------------------------------
     # start commands
+    
+    subparser = subparsers.add_parser(
+      'delete_immutable',
+      help='<name> <hash> <privatekey> | Delete immutable data from the storage providers.')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name of the user')
+    subparser.add_argument(
+      'hash', type=str,
+      help='the hash of the data')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the privatekey of the user')
+    
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'delete_mutable',
+      help='<name> <data_id> <privatekey> | Delete mutable data from the storage providers.')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name of the user')
+    subparser.add_argument(
+      'data_id', type=str,
+      help='the unchanging identifier for this data')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the privatekey of the user')
+    
+    # ------------------------------------
     subparser = subparsers.add_parser(
       'get_immutable',
       help='<name> <hash> | Get immutable data from the storage providers, and verify that the named user wrote it.')
@@ -210,19 +239,19 @@ def run_cli():
       help='the private key associated with the name')
 
     # ------------------------------------
-    subparser = subparsers.add_parser(
+    put_mutable_parser = subparsers.add_parser(
       'put_mutable',
       help='<name> <data_id> <data> <privatekey> [<nonce>] | Store mutable data into the storage providers, creating it if it does not exist.')
-    subparser.add_argument(
+    put_mutable_parser.add_argument(
       'name', type=str,
       help='the name that owns this data')
-    subparser.add_argument(
+    put_mutable_parser.add_argument(
       'data_id', type=str,
       help='the unchanging identifier for this data')
-    subparser.add_argument(
+    put_mutable_parser.add_argument(
       'data', type=str,
       help='the data to store')
-    subparser.add_argument(
+    put_mutable_parser.add_argument(
       'privatekey', type=str,
       help='the private key assocated with the name')
 
@@ -284,7 +313,7 @@ def run_cli():
         parser.print_help()
         sys.exit(1)
 
-    args = parser.parse_args()
+    args, unknown_args = parser.parse_known_args()
     result = {}
 
     if args.action == 'getinfo':
@@ -351,6 +380,12 @@ def run_cli():
     elif args.action == 'get_immutable':
         result = client.get_immutable(str(args.name), str(args.data_hash))
 
+    elif args.action == 'delete_immutable':
+        result = client.delete_immutable(str(args.name), str(args.data_hash), str(args.privatekey))
+
+    elif args.action == 'delete_mutable':
+        result = client.delete_mutable(str(args.name), str(args.data_id), str(args.privatekey))
+    
     elif args.action == 'lookup':
         result = client.lookup(str(args.name))
 
