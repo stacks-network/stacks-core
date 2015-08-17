@@ -100,7 +100,7 @@ class HashType( SchemaType ):
       if re.match(r"^[a-fA-F0-9]+$", strvalue ) is None:
          return False 
       
-      if self.length is not None and len(strvalue) != self.length:
+      if self.length is not None and len(strvalue) != self.length * 2:
          return False 
       
       return True
