@@ -1,32 +1,32 @@
-# -*- coding: utf-8 -*-
-"""
-    OpenDig
-    ~~~~~
 
-    :copyright: (c) 2014 by OpenNameSystem.org
-    :license: MIT, see LICENSE for more details.
-"""
-
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
-    name='opendig',
-    version='0.1.0',
-    url='https://github.com/opennamesystem/opendig',
-    license='MIT',
-    author='Muneeb Ali (@muneeb), Ryan Shea (@ryaneshea)',
-    author_email='hello@halfmoonlabs.com',
-    description="A command-line tool for the Open Name System (the equivalent of dig for DNS).",
-    packages=['opendig'],
-    scripts=['bin/opendig'],
+    name='blockstore-client',
+    version='0.0.3',
+    url='https://github.com/blockstack/blockstore-client',
+    license='GPLv3',
+    author='Blockstack.org',
+    author_email='support@blockstack.org',
+    description='Python client library for Blockstore',
+    keywords='blockchain bitcoin btc cryptocurrency name key value store data',
+    packages=find_packages(),
+    scripts=['bin/blockstore-cli'],
+    download_url='https://github.com/blockstack/blockstore-client/archive/master.zip',
     zip_safe=False,
-    download_url='https://github.com/opennamesystem/opendig/archive/master.zip',
-    install_requires=['cement==2.2.2','dnspython==1.11.1','coinrpc==0.1.0'],
-    keywords=['domain', 'name', 'resolution', 'bitcoin', 'address'],
+    include_package_data=True,
+    install_requires=[
+        'pybitcoin>=0.8.2',
+        'kademlia>=0.5',
+        'boto>=2.38.0'
+    ],
     classifiers=[
         'Intended Audience :: Developers',
-        'License :: OSI Approved :: MIT License',
+        'License :: GPLv3 License',
         'Operating System :: OS Independent',
         'Programming Language :: Python',
+        'Topic :: Internet',
+        'Topic :: Security :: Cryptography',
+        'Topic :: Software Development :: Libraries :: Python Modules',
     ],
 )
