@@ -193,7 +193,7 @@ def storage_init():
         
         try:
             parser.read(CONFIG_PATH)
-        except exception, e:
+        except Exception, e:
             log.exception(e)
             return False
 
