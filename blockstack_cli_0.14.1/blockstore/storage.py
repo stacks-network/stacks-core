@@ -528,11 +528,10 @@ def get_mutable_data( data_route, nonce_min=None, nonce_max=None, nonce_check=No
    return None 
 
 
-def put_immutable_data( data_text, txid, replication_strategy=REPLICATE_ALL ):
+def put_immutable_data( data_text, txid ):
    """
    Given a string of data (which can either be data or a route), store it into our immutable data stores.
-   If replication_strategy is REPLICATE_ALL, then we succeed only when we replicate to each data store.
-   IF it is REPLICATE_ANY, we succeed as soon as we replicate successfully once.
+   Do so in a best-effort manner--this method only fails if *all* storage providers fail.
    
    Return the hash of the data on success
    Return None on error
@@ -541,6 +540,7 @@ def put_immutable_data( data_text, txid, replication_strategy=REPLICATE_ALL ):
    global storage_handlers
    
    data_hash = get_data_hash( data_text )
+   successes = 0
    
    for handler in storage_handlers:
       
@@ -555,36 +555,27 @@ def put_immutable_data( data_text, txid, replication_strategy=REPLICATE_ALL ):
       except Exception, e:
          
          log.exception(e)
-         
-         if replication_strategy == REPLICATE_ALL:
-            # one failed
-            return None 
-         
-         else:
-            continue 
+         continue 
       
       if not rc:
-         
-         if replication_strategy == REPLICATE_ALL:
-            # one failed 
-            return None 
-         
-         else:
-            continue 
-         
-      if replication_strategy == REPLICATE_ANY:
-         # succeeded once 
-         return data_hash 
-         
-   # succeeded everywhere
-   return data_hash 
+         log.error("Failed to replicate with '%s'" % handler.__name__)
+      
+      else:
+         successes += 1
+   
+   if successes == 0:
+       # failed everywhere 
+       return None 
+   
+   else:
+       # succeeded somewhere 
+       return data_hash 
 
 
-def put_mutable_data( data, privatekey, replication_strategy=REPLICATE_ALL ):
+def put_mutable_data( data, privatekey ):
    """
    Given the unserialized data, store it into our mutable data stores.
-   If replication_strategy is REPLICATE_ALL, then we succeed only when we replicate to each data store.
-   IF it is REPLICATE_ANY, we succeed as soon as we replicate successfully once.
+   Do so in a best-effor way.  This method only fails if all storage providers fail.
    
    If the data is not signed, then it will be signed with the given private key.
    
@@ -603,6 +594,8 @@ def put_mutable_data( data, privatekey, replication_strategy=REPLICATE_ALL ):
       
    data_json = json_stable_serialize( data )
    
+   successes = 0
+   
    for handler in storage_handlers:
       
       if not hasattr( handler, "put_mutable_handler" ):
@@ -616,27 +609,21 @@ def put_mutable_data( data, privatekey, replication_strategy=REPLICATE_ALL ):
       except Exception, e:
          
          log.exception( e )
-         
-         if replication_strategy == REPLICATE_ALL:
-            # one failed 
-            return False 
-         else:
-            continue 
+         continue
          
       if not rc:
-         
-         if replication_strategy == REPLICATE_ALL:
-            # one failed 
-            return False 
-         else:
-            continue 
-         
-      if replication_strategy == REPLICATE_ANY:
-         # succeeded once
-         return True 
+         log.error("Failed to replicate with '%s'" % handler.__name__)
+      
+      else:
+         successes += 1
    
-   # succeeded for all storage providers
-   return True 
+   if successes == 0:
+       # failed everywhere 
+       return False 
+   
+   else:
+       # succeeded somewhere 
+       return True 
 
 
 def delete_immutable_data( data_hash, txid ):
