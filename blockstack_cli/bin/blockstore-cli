@@ -34,8 +34,7 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
-from blockstore import config, client, schemas, parsing, user
-from blockstore import drivers
+from blockstore import config, client, schemas, parsing, user, storage, drivers
 
 log = config.log
 
@@ -69,12 +68,27 @@ def run_cli():
     """ run cli
     """
 
-    # TODO: read config file
-    proxy = client.session(config.BLOCKSTORED_SERVER, config.BLOCKSTORED_PORT)
-
-    rc = client.register_storage(drivers.disk)
-    if not rc:
-        raise Exception("Failed to initialize storage driver")
+    conf = config.get_config()
+    storage_drivers = conf['storage_drivers']
+    
+    if storage_drivers is None:
+        log.error("No storage driver(s) defined in the config file.  Please set 'storage=' to a comma-separated list of %s" % ", ".join(drivers.DRIVERS))
+        sys.exit(1)
+        
+        
+    # load all storage drivers
+    for storage_driver in storage_drivers.split(","):
+        storage_impl = client.load_storage( storage_driver )
+        if storage_impl is None:
+            log.error("Failed to load storage driver '%s'" % (storage_driver))
+            sys.exit(1)
+    
+        rc = client.register_storage( storage_impl )
+        if not rc:
+            log.error("Failed to initialize storage driver '%s'" % (storage_driver))
+            sys.exit(1)
+    
+    proxy = client.session(conf['blockstored_server'], conf['blockstored_port'])
 
     parser = argparse.ArgumentParser(
       description='Blockstore Cli version {}'.format(config.VERSION))
