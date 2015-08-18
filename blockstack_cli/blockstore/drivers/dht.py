@@ -21,7 +21,8 @@
     along with Blockstore-client.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-# this module contains the plugin to blockstack that makes the DHT useful as ancillary storage
+# this module contains the plugin to blockstack that makes the DHT useful as ancillary storage.
+# This depends on the blockstore server package, since it includes the DHT node implementation.
 
 import os
 import sys
@@ -29,13 +30,14 @@ import traceback
 
 from kademlia.network import Server
 
+import twisted
 from twisted.internet import reactor
 from twisted.application import service, internet
+import Queue
 
 import types 
 import re 
 import pybitcoin
-
 
 DHT_SERVER_PORT = 6265  # blockstored default to port 6264
 
@@ -49,6 +51,17 @@ STORAGE_TTL = 3 * 60 * 60 * 24 * 365
 
 NONE_VALUE = "(null)"
 
+def hostname_to_ip(servers):
+    """ Given (hostname, port) return (ip_address, port)
+    """
+
+    reply = []
+
+    for server, port in servers:
+        ip_address = socket.gethostbyname(server)
+        reply.append((ip_address, port))
+
+    return reply
 
 # client to the DHT 
 dht_server = None 
@@ -69,13 +82,33 @@ def dht_init():
    
    global dht_server
    
-   dht_server = Server(storage=BlockStorage())
+   dht_server = Server()
    dht_server.listen( DHT_SERVER_PORT )
    bootstrap_servers = hostname_to_ip(DEFAULT_DHT_SERVERS)
    dht_server.bootstrap(bootstrap_servers)
    
    return True 
 
+
+def dht_block( d ):
+   """
+   Block on a given deferred, until it is ready.
+   """
+   q = Queue.Queue()
+   d.addBoth( q.put )
+   
+   try:
+       ret = q.get()
+   except Queue.Empty:
+       raise Exception("Request timed out")
+   
+   if isinstance( ret, twisted.python.failure.Failure ):
+       raise Exception("Request failed")
+   
+   else:
+       return ret
+       
+   
 
 def dht_get_key( data_key ):
    """
@@ -86,7 +119,10 @@ def dht_get_key( data_key ):
    if dht_server is None:
       raise Exception("DHT is not initialized")
    
-   value = dht_server.get( data_key )
+   value_future = dht_server.get( data_key )
+   
+   value = dht_block( value_future )
+   
    if value == NONE_VALUE:
       return None 
    else:
@@ -99,12 +135,13 @@ def dht_put_data( data_key, data_value ):
    """
    global dht_server 
    if dht_server is None:
-      raise Exceptoin("DHT is not initialized")
+      raise Exception("DHT is not initialized")
    
    if data_value is None:
       data_value = NONE_VALUE
-      
-   return dht_server.set( data_key, data_value )
+   
+   fut = dht_server.set( data_key, data_value )
+   return dht_block( fut )
 
 
 # ---------------------------------------------------------
@@ -221,4 +258,120 @@ def delete_mutable_handler( data_id, signature ):
       return False 
    
    return True 
+   
+
+if __name__ == "__main__":
+   """
+   Unit tests.
+   """
+   
+   import pybitcoin 
+   import json 
+   
+   # hack around absolute paths
+   current_dir =  os.path.abspath(os.path.dirname(__file__))
+   sys.path.insert(0, current_dir)
+   
+   current_dir =  os.path.abspath(os.path.join( os.path.dirname(__file__), "..") )
+   sys.path.insert(0, current_dir)
+   
+   from parsing import json_stable_serialize
+   from storage import mutable_data_parse, mutable_data
+   
+   test_data = [
+      ["my_first_datum",        "hello world",                              1, "unused", None],
+      ["/my/second/datum",      "hello world 2",                            2, "unused", None],
+      ["user_profile",          '{"name":{"formatted":"judecn"},"v":"2"}',  3, "unused", None],
+      ["empty_string",          "",                                         4, "unused", None],
+   ]
+   
+   def hash_data( d ):
+      return pybitcoin.hash.hex_hash160( d )
+   
+   rc = storage_init()
+   if not rc:
+      raise Exception("Failed to initialize")
+   
+   
+   # put_immutable_handler
+   print "put_immutable_handler"
+   for i in xrange(0, len(test_data)):
+      
+      d_id, d, n, s, url = test_data[i]
+      
+      rc = put_immutable_handler( hash_data( d ), d, "unused" )
+      if not rc:
+         raise Exception("put_immutable_handler('%s') failed" % d)
+      
+      
+   # put_mutable_handler
+   print "put_mutable_handler"
+   for i in xrange(0, len(test_data)):
+      
+      d_id, d, n, s, url = test_data[i]
+      
+      data_url = make_mutable_url( d_id )
+      
+      data = mutable_data( d_id, d, n, sig=s )
+      
+      data_json = json_stable_serialize( data )
+      
+      rc = put_mutable_handler( d_id, n, "unused", data_json )
+      if not rc:
+         raise Exception("put_mutable_handler('%s', '%s') failed" % (d_id, d))
+     
+      test_data[i][4] = data_url
+      
+      
+   # get_immutable_handler
+   print "get_immutable_handler"
+   for i in xrange(0, len(test_data)):
+      
+      d_id, d, n, s, url = test_data[i]
+      
+      rd = get_immutable_handler( hash_data( d ) )
+      if rd != d:
+         raise Exception("get_mutable_handler('%s'): '%s' != '%s'" % (hash_data(d), d, rd))
+      
+   # get_mutable_handler
+   print "get_mutable_handler"
+   for i in xrange(0, len(test_data)):
+      
+      d_id, d, n, s, url = test_data[i]
+      
+      rd_json = get_mutable_handler( url )
+      rd = mutable_data_parse( rd_json )
+      if rd is None:
+         raise Exception("Failed to parse mutable data '%s'" % rd_json)
+      
+      if rd['id'] != d_id:
+         raise Exception("Data ID mismatch: '%s' != '%s'" % (rd['id'], d_id))
+      
+      if rd['nonce'] != n:
+         raise Exception("Nonce mismatch: '%s' != '%s'" % (rd['nonce'], n))
+      
+      if rd['data'] != d:
+         raise Exception("Data mismatch: '%s' != '%s'" % (rd['data'], d))
+      
+   # delete_immutable_handler
+   print "delete_immutable_handler"
+   for i in xrange(0, len(test_data)):
+      
+      d_id, d, n, s, url = test_data[i]
+      
+      rc = delete_immutable_handler( hash_data(d), "unused" )
+      if not rc:
+         raise Exception("delete_immutable_handler('%s' (%s)) failed" % (hash_data(d), d))
+      
+   # delete_mutable_handler
+   print "delete_mutable_handler"
+   for i in xrange(0, len(test_data)):
+      
+      d_id, d, n, s, url = test_data[i]
+      
+      rc = delete_mutable_handler( d_id, "unused" )
+      if not rc:
+         raise Exception("delete_mutable_handler('%s') failed" % d_id)
+      
+   
    
