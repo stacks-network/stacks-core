@@ -187,7 +187,9 @@ def register_storage(storage_impl):
     """
     rc = storage.register_storage(storage_impl)
     if rc:
-        storage_impl.storage_init()
+        rc = storage_impl.storage_init()
+        
+    return rc
 
 
 def load_user(record_hash):
