@@ -30,7 +30,8 @@ import math
 from collections import defaultdict
 from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAGIC_BYTES, TESTSET, MAX_NAMES_PER_SENDER, \
     EXPIRATION_PERIOD, NAME_PREORDER, NAMESPACE_PREORDER, NAME_REGISTRATION, NAME_UPDATE, TRANSFER_KEEP_DATA, \
-    TRANSFER_REMOVE_DATA, NAME_REVOKE 
+    TRANSFER_REMOVE_DATA, NAME_REVOKE, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY, NAME_PREORDER_EXPIRE, \
+    NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE
 from ..operations import build_namespace_reveal
 from ..hashing import *
 
@@ -790,7 +791,51 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       if self.hash_names.has_key( name_hash ):
          del self.hash_names[ name_hash ]
-         
+   
+   
+   def commit_preorder_expire_all( self, block_id ):
+      """
+      Given the block ID, go find and remove all expired preorders
+      """
+      for (name_hash, nameop) in self.preorders.items():
+          if nameop['block_number'] + NAME_PREORDER_EXPIRE <= block_id:
+              # expired 
+              log.debug("Expire name preorder '%s'" % name_hash)
+              del self.preorders[name_hash]
+      
+      
+   def commit_namespace_preorder_expire_all( self, block_id ):
+      """
+      Given the block ID, go find and remove all expired namespace preorders
+      """
+      for (namespace_id_hash, nameop_list) in self.pending_imports.items():
+          if len(nameop_list) != 1:
+              continue 
+          
+          # just a preorder
+          preorder_nameop = nameop_list[0]
+          if preorder_nameop['block_number'] + NAMESPACE_PREORDER_EXPIRE <= block_id:
+              # expired 
+              log.debug("Expire namespace preorder '%s'" % namespace_id_hash)
+              del self.pending_imports[ namespace_id_hash ]
+              
+              
+   def commit_namespace_reveal_expire_all( self, block_id ):
+      """
+      Given the block ID, go find and remove all expired namespace reveals 
+      that have not been made ready.
+      """
+      for (namespace_id_hash, nameop_list) in self.pending_imports.items():
+          if len(nameop_list) < 2:
+              continue 
+          
+          # preorder + reveal + optional ops 
+          reveal_op = nameop_list[1]
+          if reveal_op['block_number'] + NAMESPACE_REVEAL_EXPIRE <= block_id:
+              # expired 
+              log.debug("Expire incomplete namespace '%s'" % reveal_op['namespace_id'])
+              del self.pending_imports[ namespace_id_hash ]
+              
    
    def commit_name_expire_all( self, block_id ):
       """
@@ -801,7 +846,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       expiring_block_number = block_id - EXPIRATION_PERIOD
       expired_names = self.find_renewed_at( expiring_block_number )
       for name in expired_names:
-         
+         log.debug("Expire name '%s'" % name)
          self.commit_name_expire( name )
       
       if expiring_block_number in self.block_name_renewals.keys():
@@ -845,6 +890,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       """
       
       name_hash = nameop['preorder_name_hash']
+      nameop['block_number'] = current_block_number
       self.preorders[ name_hash ] = nameop
       
 
@@ -979,6 +1025,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
       namespace_id_hash = nameop['namespace_id_hash']
       sender = nameop['sender']
       
+      nameop['block_number'] = block_number
+      
       # this namespace is preordered, but not yet defined
       self.pending_imports[ namespace_id_hash ] = [nameop]
    
@@ -1082,16 +1130,20 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       for pending_preorders in pending_nameops[ NAME_PREORDER ]:
          if pending_preorders['preorder_name_hash'] == preorder_name_hash:
+            log.debug("Name hash '%s' is already preordered" % preorder_name_hash)
             return False
          
-      if self.is_new_preorder(preorder_name_hash) and self.is_consensus_hash_valid( block_id, consensus_hash ):
-         # new hash and right consensus 
-         return True 
+      if not self.is_new_preorder( preorder_name_hash ):
+          log.debug("Name hash '%s' is already preordered" % preorder_name_hash )
+          return False 
       
-      else:
-         return False 
-
-
+      if not self.is_consensus_hash_valid( block_id, consensus_hash ):
+          log.debug("Invalid consensus hash '%s'" % consensus_hash )
+          return False 
+      
+      return True 
+  
+  
    def log_registration( self, pending_nameops, nameop, block_id ):
       """
       Progess a registration nameop.
@@ -1123,6 +1175,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
          else:
             
             # collision
+            log.debug("Name '%s' is already registered" % name)
             return False
       
       else:
@@ -1139,21 +1192,21 @@ class BlockstoreDB( virtualchain.StateEngine ):
          namespace_base_price = namespace['cost']
          namespace_price_decay = namespace['price_decay']
          
-         # is this registration valid?
-         if not self.is_name_registered( name ) and self.has_preordered_name( name, sender ) and is_mining_fee_sufficient( name, nameop['fee'], namespace_base_price, namespace_price_decay ):
-            
-            # registration
-            return True
+         if self.is_name_registered( name ):
+             log.debug("Name '%s' is already registered" % name)
+             return False 
          
-         elif self.is_name_registered( name ) and self.is_name_owner( name, sender ) and is_mining_fee_sufficient( name, nameop['fee'], namespace_base_price, namespace_price_decay ):
-            
-            # renewal
-            return True 
+         if not self.is_name_mining_fee_sufficient( name, nameop['fee'], namespace_base_price, namespace_price_decay ):
+             log.debug("Name '%s' costs %s, but sender paid %s" % (name, price_name( name, namespace_base_price, namespace_price_decay ), nameop['fee'] ))
+             return False 
          
-         else:
-            
-            # invalid 
-            return False
+         # either a registration or a renewal 
+         if not self.has_preordered_name( name, sender ) and not self.is_name_owner( name, sender ):
+             log.debug("Name '%s' is neither preordered, nor is '%s' its owner" % (name, sender))
+             return False 
+         
+         # regster/renewal 
+         return True 
    
    
    def log_update(self, pending_nameops, nameop, block_id ):
@@ -1171,7 +1224,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       name = self.get_name_from_name_consensus_hash( name_consensus_hash, sender, block_id )
       
       if name is None:
-         
+         log.debug("Unable to resolve name consensus hash '%s' to name" % name_consensus_hash)
          # nothing to do--write is stale or on a fork
          return False
       
@@ -1188,18 +1241,20 @@ class BlockstoreDB( virtualchain.StateEngine ):
          
          if not self.is_name_registered( name ):
             # doesn't exist 
+            log.debug("Name '%s' is not registered" % name )
             return False 
          
          if self.is_name_revoked( name ):
             # revoked 
+            log.debug("Name '%s' is revoked" % name)
             return False 
          
          if self.is_name_owner( name, sender ):
-            
             # update is sent by the owner of the name, so accept 
             return True 
          
          else:
+            log.debug("Name '%s' is not onwed by '%s'" % (name, sender))
             return False
 
 
@@ -1318,15 +1373,19 @@ class BlockstoreDB( virtualchain.StateEngine ):
       # block duplicate preorders
       for pending_namespace_preorder in pending_nameops[ NAMESPACE_PREORDER ]:
          if pending_namespace_preorder['namespace_id_hash'] == namespace_id_hash:
+            log.debug("Namespace hash '%s' is already preordered")
             return False
       
-      if self.is_new_namespace_preorder(namespace_id_hash) and self.is_consensus_hash_valid( block_id, consensus_hash ):
-         # new hash and right consensus 
-         return True 
+      if not self.is_new_namespace_preorder( namespace_id_hash ):
+          log.debug("Namespace preorder '%s' already in use" % namespace_id_hash)
+          return False
       
-      else:
-         return False 
-
+      if not self.is_consensus_hash_valid( block_id, consensus_hash ):
+          log.debug("Invalid consensus hash '%s'" % consensus_hash )
+          return False 
+      
+      return True 
+  
 
    def log_namespace_import( self, pending_nameops, opcode, nameop, block_id ):
       """
@@ -1348,6 +1407,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
          return True
       
       else:
+         log.debug("Name '%s' is already imported" % name)
          return False
          
 
@@ -1369,16 +1429,24 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       if not self.is_namespace_preordered( namespace_id_hash, sender ):
          # this sender did not preorder this namespace
+         log.debug("Namespace '%s' is already preordered" % namespace_id)
          return False 
       
       if self.is_namespace_importing_hash( namespace_id_hash ):
          # this namespace was already defined
+         log.debug("Namespace '%s' is already importing" % namespace_id )
          return False
       
       if self.is_namespace_registered( namespace_id ):
          # this namespace already exists (i.e. was already begun)
+         log.debug("Namespace '%s' is already registered" % namespace_id )
          return False 
       
+      if not is_namespace_mining_fee_sufficient( namespace_id, nameop['fee'] ):
+         # not enough money 
+         log.debug("Namespace '%s' costs %s, but sender paid %s" % (namespace_id, price_name(namespace_id, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY), nameop['fee'] ))
+         return False
+          
       # can begin import
       return True 
       
@@ -1396,10 +1464,12 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       if not self.is_namespace_importing( namespace_id, sender ):
          # namespace is not importing, and/or this is not the right sender
+         log.debug("Namespace '%s' is not importing" % namespace_id )
          return False
       
       if self.is_namespace_registered( namespace_id ):
          # namespace already exists 
+         log.debug("Namespace '%s' is already registered" % namespace_id )
          return False 
       
       # can commit imported nameops 
@@ -1449,7 +1519,7 @@ def price_name( name, namespace_base_price, namespace_decay ):
    return int(price)
 
 
-def is_mining_fee_sufficient( name, mining_fee, namespace_base_price, namespace_decay ):
+def is_name_mining_fee_sufficient( name, mining_fee, namespace_base_price, namespace_decay ):
    """
    Given a name, its mining fee, and the namespace 
    pricing parameters, is the fee sufficient?
@@ -1459,4 +1529,16 @@ def is_mining_fee_sufficient( name, mining_fee, namespace_base_price, namespace_
    """
    
    name_price = price_name(name, namespace_base_price, namespace_decay)
+   return (mining_fee >= name_price)
+
+
+def is_namespace_mining_fee_sufficient( namespace_id, mining_fee ):
+   """
+   Given a namespace ID and its mining fee, is the fee sufficient?
+   
+   Return True if so
+   Return False if not.
+   """
+   
+   name_price = price_name(namespace_id, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY)
    return (mining_fee >= name_price)

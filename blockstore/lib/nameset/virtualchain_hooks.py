@@ -380,9 +380,6 @@ def db_commit( block_id, opcode, op, db_state=None ):
       elif opcode == NAMESPACE_READY:
          db.commit_namespace_ready( op, block_id )
          
-      # do expirations
-      db.commit_name_expire_all( block_id )
-      
       return True
    
    else:
@@ -428,11 +425,22 @@ def db_save( block_id, filename, db_state=None ):
    # remove expired names before saving
    if db is not None:
       
+      # do expirations
+      log.debug("Clear all expired names at %s" % block_id )
+      db.commit_name_expire_all( block_id )
+      
+      log.debug("Clear all expired preorders at %s" % block_id )
+      db.commit_preorder_expire_all( block_id )
+      
+      log.debug("Clear all expired namespace preorders at %s" % block_id )
+      db.commit_namespace_preorder_expire_all( block_id )
+      
+      log.debug("Clear all expired partial namespace imports at %s" % block_id )
+      db.commit_namespace_reveal_expire_all( block_id )
+      
       return db.save_db( filename )
    
    else:
       log.error("No state engine defined")
       return False 
-   
-
 
