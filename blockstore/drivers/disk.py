@@ -35,7 +35,7 @@ MUTABLE_STORAGE_ROOT = DISK_ROOT + "/mutable"
 def storage_init():
    """
    Local disk implementation of the storage_init API call.
-   Given the blockstore API proxy, set up any persistent state.
+   Do one-time global setup--i.e. make directories.
    Return True on success
    Return False on error 
    """
@@ -50,6 +50,8 @@ def storage_init():
    if not os.path.isdir( IMMUTABLE_STORAGE_ROOT ):
       os.makedirs( IMMUTABLE_STORAGE_ROOT )
    
+   return True 
+
 
 def make_mutable_url( data_id ):
    """
@@ -225,19 +227,25 @@ if __name__ == "__main__":
    from storage import mutable_data_parse, mutable_data
    
    test_data = [
-      ("my_first_datum",        "hello world",                              1, "unused"),
-      ("/my/second/datum",      "hello world 2",                            2, "unused"),
-      ("user_profile",          '{"name":{"formatted":"judecn"},"v":"2"}',  3, "unused"),
-      ("empty_string",          "",                                         4, "unused"),
+      ["my_first_datum",        "hello world",                              1, "unused", None],
+      ["/my/second/datum",      "hello world 2",                            2, "unused", None],
+      ["user_profile",          '{"name":{"formatted":"judecn"},"v":"2"}',  3, "unused", None],
+      ["empty_string",          "",                                         4, "unused", None],
    ]
    
    def hash_data( d ):
       return pybitcoin.hash.hex_hash160( d )
    
-   storage_init()
+   rc = storage_init()
+   if not rc:
+      raise Exception("Failed to initialize")
+   
    
    # put_immutable_handler
-   for d_id, d, n, s in test_data:
+   print "put_immutable_handler"
+   for i in xrange(0, len(test_data)):
+      
+      d_id, d, n, s, url = test_data[i]
       
       rc = put_immutable_handler( hash_data( d ), d, "unused" )
       if not rc:
@@ -245,7 +253,10 @@ if __name__ == "__main__":
       
       
    # put_mutable_handler
-   for d_id, d, n, s in test_data:
+   print "put_mutable_handler"
+   for i in xrange(0, len(test_data)):
+      
+      d_id, d, n, s, url = test_data[i]
       
       data_url = make_mutable_url( d_id )
       
@@ -256,18 +267,27 @@ if __name__ == "__main__":
       rc = put_mutable_handler( d_id, n, "unused", data_json )
       if not rc:
          raise Exception("put_mutable_handler('%s', '%s') failed" % (d_id, d))
+     
+      test_data[i][4] = data_url
+      
       
    # get_immutable_handler
-   for d_id, d, n, s in test_data:
+   print "get_immutable_handler"
+   for i in xrange(0, len(test_data)):
+      
+      d_id, d, n, s, url = test_data[i]
       
       rd = get_immutable_handler( hash_data( d ) )
       if rd != d:
          raise Exception("get_mutable_handler('%s'): '%s' != '%s'" % (hash_data(d), d, rd))
       
    # get_mutable_handler
-   for d_id, d, n, s in test_data:
+   print "get_mutable_handler"
+   for i in xrange(0, len(test_data)):
       
-      rd_json = get_mutable_handler( d_id )
+      d_id, d, n, s, url = test_data[i]
+      
+      rd_json = get_mutable_handler( url )
       rd = mutable_data_parse( rd_json )
       if rd is None:
          raise Exception("Failed to parse mutable data '%s'" % rd_json)
@@ -282,14 +302,20 @@ if __name__ == "__main__":
          raise Exception("Data mismatch: '%s' != '%s'" % (rd['data'], d))
       
    # delete_immutable_handler
-   for d_id, d, n, s in test_data:
+   print "delete_immutable_handler"
+   for i in xrange(0, len(test_data)):
+      
+      d_id, d, n, s, url = test_data[i]
       
       rc = delete_immutable_handler( hash_data(d), "unused" )
       if not rc:
          raise Exception("delete_immutable_handler('%s' (%s)) failed" % (hash_data(d), d))
       
    # delete_mutable_handler
-   for d_id, d, n, s in test_data:
+   print "delete_mutable_handler"
+   for i in xrange(0, len(test_data)):
+      
+      d_id, d, n, s, url = test_data[i]
       
       rc = delete_mutable_handler( d_id, "unused" )
       if not rc:
