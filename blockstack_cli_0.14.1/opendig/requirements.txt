@@ -1,2 +1,0 @@
-cement==2.2.2
-dnspython==1.11.1
