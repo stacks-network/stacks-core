@@ -72,7 +72,9 @@ def run_cli():
     # TODO: read config file
     proxy = client.session(config.BLOCKSTORED_SERVER, config.BLOCKSTORED_PORT)
 
-    client.register_storage(drivers.disk)
+    rc = client.register_storage(drivers.disk)
+    if not rc:
+        raise Exception("Failed to initialize storage driver")
 
     parser = argparse.ArgumentParser(
       description='Blockstore Cli version {}'.format(config.VERSION))
