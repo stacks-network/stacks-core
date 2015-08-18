@@ -28,8 +28,9 @@ import traceback
 import types
 import socket
 import uuid
+import importlib
 
-from . import parsing, schemas, storage
+from . import parsing, schemas, storage, drivers
 from . import user as user_db
 
 import pybitcoin
@@ -181,6 +182,23 @@ def get_default_proxy():
     return default_proxy
 
 
+def load_storage( module_name ):
+    """
+    Load a storage implementation, given its module name.
+    Valid options can be found in blockstore.drivers.DRIVERS
+    """
+    
+    if module_name not in drivers.DRIVERS:
+        raise Exception("Unrecognized storage driver.  Valid options are %s" % (", ".join(drivers.DRIVERS)))
+                        
+    try:
+        storage_impl = importlib.import_module("blockstore.drivers.%s" % module_name)
+    except ImportError, ie:
+        raise Exception("Failed to import blockstore.drivers.%s.  Please verify that it is accessible via your PYTHONPATH" % module_name)
+    
+    return storage_impl 
+
+
 def register_storage(storage_impl):
     """
     Register a storage implementation.
@@ -288,7 +306,7 @@ def store_user_record(user, txid):
         return False
 
     data_hash = storage.get_data_hash(user_json)
-    result = storage.put_immutable_data(user_json, txid, replication_strategy=storage.REPLICATE_ALL)
+    result = storage.put_immutable_data(user_json, txid )
 
     rc = None
     if result is None:
@@ -680,8 +698,7 @@ def put_immutable(name, data, privatekey, txid=None, proxy=None):
 
 
 def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
-                txid=None, nonce=None, make_nonce=None,
-                replication_strategy=storage.REPLICATE_ALL):
+                txid=None, nonce=None, make_nonce=None ):
     """
     put_mutable
 
@@ -693,11 +710,9 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
     If neither nonce nor make_nonce are given, the mutable data (if it already exists) is fetched, and the nonce is calculated as existing['nonce'] + 1.
 
     ** Durability ** 
-
-    replication_strategy defines how rigorous blockstore is when it comes to replicating data to its storage providers.
-    If set to REPLICATE_ALL (the default), then this method only succeeds if we successfully replicate to *every* storage provider.
-    If set to REPLICATE_ANY, then this method succeeds if we successfully replicate to one storage provider.
-    Storage providers are contacted in the order they are registered.
+    
+    Replication is best-effort.  If one storage provider driver succeeds, the put_mutable succeeds.  If they all fail, then put_mutable fails.
+    More complex behavior can be had by creating a "meta-driver" that calls existing drivers' methods in the desired manner.
     """
 
     if proxy is None:
@@ -769,6 +784,10 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
                 result['transaction_hash'] = txid
                 return result
 
+            if existing_data.has_key('error'):
+                existing_data['transaction_hash'] = txid
+                return existing_data
+            
             nonce = existing_data['nonce']
             nonce += 1
 
