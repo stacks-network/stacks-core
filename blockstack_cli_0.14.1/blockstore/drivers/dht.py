@@ -27,9 +27,6 @@ import os
 import sys
 import traceback 
 
-# current_dir =  os.path.abspath(os.path.dirname(__file__))
-# sys.path.insert(0, current_dir)
-
 from kademlia.network import Server
 
 from twisted.internet import reactor
