@@ -23,3 +23,6 @@
 
 import dht 
 import disk
+import s3
+
+DRIVERS = ['dht', 'disk', 's3']
