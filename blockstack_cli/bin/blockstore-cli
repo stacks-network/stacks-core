@@ -1,0 +1,428 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+    Blockstore-client
+    ~~~~~
+    copyright: (c) 2014 by Halfmoon Labs, Inc.
+    copyright: (c) 2015 by Blockstack.org
+
+    This file is part of Blockstore-client.
+
+    Blockstore-client is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Blockstore-client is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Blockstore-client.  If not, see <http://www.gnu.org/licenses/>.
+"""
+
+import argparse
+import sys
+import json
+import traceback
+import os
+import pybitcoin
+
+# Hack around absolute paths
+current_dir = os.path.abspath(os.path.dirname(__file__))
+parent_dir = os.path.abspath(current_dir + "/../")
+
+sys.path.insert(0, parent_dir)
+
+from blockstore import config, client, schemas, parsing, user, storage, drivers
+
+log = config.log
+
+
+def pretty_dump(json_str):
+    """ pretty dump
+    """
+    return json.dumps(json_str, sort_keys=True, indent=4, separators=(',', ': '))
+
+
+def print_result(json_str):
+    print pretty_dump(json_str)
+
+
+def get_sorted_commands():
+    """ when adding new commands to the parser, use this function to
+        check the correct sorted order
+    """
+
+    command_list = ['getinfo', 'ping', 'preorder', 'register', 'update',
+                    'transfer', 'renew', 'namespace_preorder',
+                    'namespace_ready', 'namespace_reveal', 'put_mutable',
+                    'put_immutable', 'get_mutable', 'get_immutable',
+                    'lookup', 'getindex']
+
+    for cmd in sorted(command_list):
+        print cmd
+
+
+def run_cli():
+    """ run cli
+    """
+
+    conf = config.get_config()
+    storage_drivers = conf['storage_drivers']
+    
+    if storage_drivers is None:
+        log.error("No storage driver(s) defined in the config file.  Please set 'storage=' to a comma-separated list of %s" % ", ".join(drivers.DRIVERS))
+        sys.exit(1)
+        
+        
+    # load all storage drivers
+    for storage_driver in storage_drivers.split(","):
+        storage_impl = client.load_storage( storage_driver )
+        if storage_impl is None:
+            log.error("Failed to load storage driver '%s'" % (storage_driver))
+            sys.exit(1)
+    
+        rc = client.register_storage( storage_impl )
+        if not rc:
+            log.error("Failed to initialize storage driver '%s'" % (storage_driver))
+            sys.exit(1)
+    
+    proxy = client.session(conf['blockstored_server'], conf['blockstored_port'])
+
+    parser = argparse.ArgumentParser(
+      description='Blockstore Cli version {}'.format(config.VERSION))
+
+    parser.add_argument(
+      '--blockstored-server',
+      help="""the hostname/IP of server (default: {})""".format(config.BLOCKSTORED_SERVER))
+
+    parser.add_argument(
+      '--blockstored-port', type=int,
+      help="""the server port to connect to (default: {})""".format(config.BLOCKSTORED_PORT))
+
+    parser.add_argument(
+      '--txid', type=str,
+      help="tx hash of a partially-failed storage operation")
+
+    subparsers = parser.add_subparsers(
+      dest='action',
+      help='the action to be taken')
+
+    # ------------------------------------
+    # start commands
+    
+    subparser = subparsers.add_parser(
+      'delete_immutable',
+      help='<name> <hash> <privatekey> | Delete immutable data from the storage providers.')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name of the user')
+    subparser.add_argument(
+      'hash', type=str,
+      help='the hash of the data')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the privatekey of the user')
+    
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'delete_mutable',
+      help='<name> <data_id> <privatekey> | Delete mutable data from the storage providers.')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name of the user')
+    subparser.add_argument(
+      'data_id', type=str,
+      help='the unchanging identifier for this data')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the privatekey of the user')
+    
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'get_immutable',
+      help='<name> <hash> | get immutable data from storage')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name of the user')
+    subparser.add_argument(
+      'hash', type=str,
+      help='the hash of the data')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'get_mutable',
+      help='<name> <data_id> | get mutable data from storage')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name associated with the data')
+    subparser.add_argument(
+      'data_id', type=str,
+      help='the unchanging identifier for this data')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'getindex',
+      help='<name> | get the storage index for a given name')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name to look up')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'getinfo',
+      help='get basic info from the blockstored server')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'lookup',
+      help='<name> | get the name record for a given name')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name to look up')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'namespace_preorder',
+      help='preorder a namespace and claim the name')
+    subparser.add_argument(
+      'namespace_id', type=str,
+      help='the human-readable namespace identifier')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the privatekey of the namespace creator')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'namespace_reveal',
+      help='define a namespace\'s parameters once preorder succeeds')
+    subparser.add_argument( 
+      'namespace_id', type=str, 
+      help='the human-readable namespace identifier')
+    subparser.add_argument(
+      'lifetime', type=int,
+      help='the number of blocks for which a name will be valid (any value less than zero means "forever")')
+    subparser.add_argument(
+      'base_name_cost', type=int,
+      help='the cost (in satoshis) for a 1-character name in this namespace')
+    subparser.add_argument(
+      'cost_decay_rate', type=float,
+      help='the rate at which the value of a name decays, based on its length: if L is the length, R is the rate (this argument), and B is the base name cost, then the cost per name shall be ceil(B / (R^(L-1)))')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the privatekey of the namespace creator')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'namespace_ready',
+      help='open namespace for registrations')
+    subparser.add_argument(
+      'namespace_id', type=str,
+      help='the human-readable namespace identifier')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the privatekey of the namespace creator')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'ping',
+      help='check if the blockstored server is up')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'preorder',
+      help='<name> <privatekey> | preorder a name')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that you want to preorder')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the private key of the Bitcoin address that will own the name')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'put_immutable',
+      help='store immutable data into storage')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that owns this data')
+    subparser.add_argument(
+      'data', type=str,
+      help='the data to store')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the private key associated with the name')
+
+    # ------------------------------------
+    put_mutable_parser = subparsers.add_parser(
+      'put_mutable',
+      help='<name> <data_id> <data> <privatekey> [<nonce>] | Store mutable data into the storage providers, creating it if it does not exist.')
+    put_mutable_parser.add_argument(
+      'name', type=str,
+      help='the name that owns this data')
+    put_mutable_parser.add_argument(
+      'data_id', type=str,
+      help='the unchanging identifier for this data')
+    put_mutable_parser.add_argument(
+      'data', type=str,
+      help='the data to store')
+    put_mutable_parser.add_argument(
+      'privatekey', type=str,
+      help='the private key assocated with the name')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'register',
+      help='<name> <privatekey> | register/claim a name')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that you want to register/claim')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the private key of the Bitcoin address that will own the name')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'renew',
+      help='<name> <privatekey> | renew a name')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that you want to renew')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the privatekey of the owner Bitcoin address')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'revoke',
+      help='<name> <privatekey> | revoke a name and its data')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that you want to revoke')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the privatekey of the owner Bitcoin address')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'transfer',
+      help='transfer a name')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that you want to register/claim')
+    subparser.add_argument(
+      'address', type=str,
+      help='the new owner Bitcoin address')
+    subparser.add_argument(
+      'keepdata', type=bool,
+      help='whether or not the storage index should remain associated with the name')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the privatekey of the owner Bitcoin address')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'update',
+      help='update storage index data and store it')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that you want to update')
+    subparser.add_argument(
+      'storage_index_json', type=str,
+      help='the JSON-encoded storage index to associate with the name')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the privatekey of the owner Bitcoin address')
+
+    # Print default help message, if no argument is given
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(1)
+
+    args, unknown_args = parser.parse_known_args()
+    result = {}
+
+    if args.action == 'getinfo':
+        result = client.getinfo()
+
+    elif args.action == 'ping':
+        result = client.ping()
+
+    elif args.action == 'preorder':
+        result = client.preorder(str(args.name), str(args.privatekey))
+
+    elif args.action == 'register':
+        result = client.register(str(args.name), str(args.privatekey))
+
+    elif args.action == 'update':
+
+        txid = None
+        if args.txid is not None:
+            txid = str(args.txid)
+
+        result = client.update(str(args.name),
+                               str(args.storage_index_json),
+                               str(args.privatekey),
+                               txid=txid)
+
+    elif args.action == 'transfer':
+        result = client.transfer(str(args.name),
+                                 str(args.address),
+                                 bool(args.keepdata),
+                                 str(args.privatekey))
+
+    elif args.action == 'renew':
+        result = client.renew(str(args.name), str(args.privatekey))
+
+    elif args.action == 'revoke':
+        result = client.revoke(str(args.name), str(args.privatekey))
+
+    elif args.action == 'namespace_preorder':
+        result = client.namespace_preorder(str(args.namespace_id),
+                                           str(args.privatekey))
+
+    elif args.action == 'namespace_reveal':
+        result = client.namespace_reveal(str(args.namespace_id),
+                                         int(args.lifetime),
+                                         int(args.base_name_cost),
+                                         float(args.cost_decay_rate),
+                                         str(args.privatekey))
+
+    elif args.action == 'namespace_ready':
+        result = client.namespace_ready(str(args.namespace_id),
+                                        str(args.privatekey))
+
+    elif args.action == 'put_mutable':
+        result = client.put_mutable(str(args.name),
+                                    str(args.data_id),
+                                    str(args.data),
+                                    str(args.privatekey))
+
+    elif args.action == 'put_immutable':
+        result = client.put_immutable(str(args.name),
+                                      str(args.data),
+                                      str(args.privatekey))
+
+    elif args.action == 'get_mutable':
+        result = client.get_mutable(str(args.name), str(args.data_id))
+
+    elif args.action == 'get_immutable':
+        result = client.get_immutable(str(args.name), str(args.hash))
+
+    elif args.action == 'delete_immutable':
+        result = client.delete_immutable(str(args.name), str(args.hash), str(args.privatekey))
+
+    elif args.action == 'delete_mutable':
+        result = client.delete_mutable(str(args.name), str(args.data_id), str(args.privatekey))
+    
+    elif args.action == 'lookup':
+        result = client.lookup(str(args.name))
+
+    elif args.action == 'getindex':
+        result = client.get_user_record(str(args.name))
+
+    print_result(result)
+
+if __name__ == '__main__':
+    run_cli()
