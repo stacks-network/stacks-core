@@ -17,7 +17,8 @@ setup(
     include_package_data=True,
     install_requires=[
         'pybitcoin>=0.8.2',
-        'kademlia>=0.5'
+        'kademlia>=0.5',
+        'boto>=2.38.0'
     ],
     classifiers=[
         'Intended Audience :: Developers',
