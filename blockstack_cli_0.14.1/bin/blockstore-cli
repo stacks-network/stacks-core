@@ -55,9 +55,10 @@ def get_sorted_commands():
     """
 
     command_list = ['getinfo', 'ping', 'preorder', 'register', 'update',
-                    'transfer', 'renew', 'namespace_preorder',
+                    'transfer', 'renew', 'name_import', 'namespace_preorder',
                     'namespace_ready', 'namespace_reveal', 'put_mutable',
                     'put_immutable', 'get_mutable', 'get_immutable',
+                    'get_name_cost', 'get_name_import_cost', 'get_namespace_cost',
                     'lookup', 'getindex']
 
     for cmd in sorted(command_list):
@@ -163,6 +164,30 @@ def run_cli():
 
     # ------------------------------------
     subparser = subparsers.add_parser(
+      'get_name_cost',
+      help="<name> | get the cost of a name")
+    subparser.add_argument(
+      'name', type=str,
+      help="The fully-qualified name to check")
+    
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'get_name_import_cost',
+      help="<name> | get the cost to import a name")
+    subparser.add_argument(
+      'name', type=str,
+      help="The fully-qualified name to check")
+    
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'get_namespace_cost',
+      help="<namespace_id> | get the cost of a namespace")
+    subparser.add_argument(
+      'namespace_id', type=str,
+      help="The namespace ID to check")
+    
+    # ------------------------------------
+    subparser = subparsers.add_parser(
       'getindex',
       help='<name> | get the storage index for a given name')
     subparser.add_argument(
@@ -181,6 +206,23 @@ def run_cli():
     subparser.add_argument(
       'name', type=str,
       help='the name to look up')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'name_import',
+      help='import a name into a revealed namespace')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that you want to import')
+    subparser.add_argument(
+      'address', type=str,
+      help='the new owner Bitcoin address')
+    subparser.add_argument(
+      'hash', type=str,
+      help='hash of the storage index to associate with the name')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the privatekey of the importer\'s Bitcoin address')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -378,6 +420,9 @@ def run_cli():
     elif args.action == 'revoke':
         result = client.revoke(str(args.name), str(args.privatekey))
 
+    elif args.action == 'name_import':
+        result = client.name_import(str(args.name), str(args.address), str(args.hash), str(args.privatekey))
+        
     elif args.action == 'namespace_preorder':
         result = client.namespace_preorder(str(args.namespace_id),
                                            str(args.privatekey))
@@ -422,6 +467,15 @@ def run_cli():
     elif args.action == 'getindex':
         result = client.get_user_record(str(args.name))
 
+    elif args.action == 'get_name_cost':
+        result = client.name_cost(str(args.name))
+    
+    elif args.action == 'get_name_import_cost':
+        result = client.name_import_cost(str(args.name))
+    
+    elif args.action == 'get_namespace_cost':
+        result = client.namespace_cost(str(args.namespace_id))
+        
     print_result(result)
 
 if __name__ == '__main__':
