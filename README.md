@@ -70,6 +70,6 @@ The best way to contribute is to:
 
 ## License
 
-[Released under the MIT License](LICENSE)
+GPL v3. See LICENSE.
 
-Copyright 2015, openname.org
+Copyright: (c) 2015 by Blockstack.org
