@@ -383,6 +383,36 @@ def ping(proxy=None):
     return resp
 
 
+def name_cost( name, proxy=None ):
+    """
+    name_cost
+    """
+    if proxy is None:
+        proxy = get_default_proxy()
+    
+    return proxy.name_cost(name)
+
+
+def name_import_cost( name, proxy=None ):
+    """
+    name_import_cost
+    """
+    if proxy is None:
+        proxy = get_default_proxy()
+    
+    return proxy.name_import_cost(name)
+
+
+def namespace_cost( namespace_id, proxy=None ):
+    """
+    namespace_cost 
+    """
+    if proxy is None:
+        proxy = get_default_proxy()
+    
+    return proxy.namespace_cost(namespace_id)
+
+
 def lookup(name, proxy=None):
     """
     lookup
@@ -538,6 +568,17 @@ def revoke(name, privatekey, proxy=None):
         proxy = get_default_proxy()
 
     return proxy.revoke(name, privatekey)
+
+
+def name_import(name, address, update_hash, privatekey, proxy=None):
+    """
+    name import
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    return proxy.name_import(name, address, update_hash, privatekey)
 
 
 def namespace_preorder(namespace_id, privatekey, proxy=None):
