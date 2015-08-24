@@ -30,13 +30,16 @@ import time
 from .namedb import BlockstoreDB, BlockstoreDBIterator
 
 from ..config import *
-from ..operations import parse_preorder, parse_registration, parse_update, parse_transfer, parse_revoke, parse_namespace_preorder, parse_namespace_define, parse_namespace_begin
+from ..operations import parse_preorder, parse_registration, parse_update, parse_transfer, parse_revoke, \
+    parse_name_import, parse_namespace_preorder, parse_namespace_reveal, parse_namespace_ready, \
+    get_transfer_recipient_from_outputs, get_import_update_hash_from_outputs
 
 import virtualchain
 
 log = virtualchain.session.log
 blockstore_db = None
 last_load_time = 0
+
 
 def get_recipient_from_nameop_outputs( outputs ):
     """
@@ -48,7 +51,41 @@ def get_recipient_from_nameop_outputs( outputs ):
     the 'transfer' operation, and the one with 
     the script_pubkey).
     
-    NAME_TRANSFER operations have three recipients:
+    NAME_TRANSFER operations have three outputs:
+    the sender, the receiver, and the OP_RETURN.
+    By construction, the recipient's address in 
+    the NAME_TRANSFER operation is the first 
+    non-OP_RETURN address.
+    """
+    
+    ret = None
+    for output in outputs:
+       
+        output_script = output['scriptPubKey']
+        output_asm = output_script.get('asm')
+        output_hex = output_script.get('hex')
+        output_addresses = output_script.get('addresses')
+        
+        if output_asm[0:9] != 'OP_RETURN' and output_hex:
+            
+            ret = output_hex 
+            break
+            
+    if ret is None:
+       raise Exception("No recipients found")
+    
+    return ret 
+
+
+def get_update_hash_from_nameop_outputs( outputs, recipient ):
+    """
+    This is mean for NAME_IMPORT operations, which 
+    have three outputs:  the OP_RETURN, the name's 
+    recipient, and the name's update hash.  This 
+    method extracts the name update hash from 
+    the list of outputs.
+    
+    NAME_TRANSFER operations have three outputs:
     the sender, the receiver, and the OP_RETURN.
     By construction, the recipient's address in 
     the NAME_TRANSFER operation is the first 
@@ -73,8 +110,9 @@ def get_recipient_from_nameop_outputs( outputs ):
     
     return ret 
  
+ 
 
-def parse_blockstore_op_data( opcode, payload, sender, recipient ):
+def parse_blockstore_op_data( opcode, payload, sender, recipient=None, import_update_hash=None ):
     """
     Parse a string of binary data (nulldata from a blockchain transaction) into a blockstore operation.
     
@@ -114,17 +152,21 @@ def parse_blockstore_op_data( opcode, payload, sender, recipient ):
         log.debug( "Parse NAME_REVOKE: %s" % data )
         op = parse_revoke(payload)
         
+    elif opcode == NAME_IMPORT and len(payload) >= MIN_OP_LENGTHS['name_import']:
+        log.debug( "Parse NAME_IMPORT: %s" % data )
+        op = parse_name_import( payload, recipient, import_update_hash )
+        
     elif opcode == NAMESPACE_PREORDER and len(payload) >= MIN_OP_LENGTHS['namespace_preorder']:
         log.debug( "Parse NAMESPACE_PREORDER: %s" % data)
         op = parse_namespace_preorder( payload )
         
-    elif opcode == NAMESPACE_DEFINE and len(payload) >= MIN_OP_LENGTHS['namespace_define']:
-        log.debug( "Parse NAMESPACE_DEFINE: %s" % data )
-        op = parse_namespace_define( payload, sender )
+    elif opcode == NAMESPACE_REVEAL and len(payload) >= MIN_OP_LENGTHS['namespace_reveal']:
+        log.debug( "Parse NAMESPACE_REVEAL: %s" % data )
+        op = parse_namespace_reveal( payload, sender )
          
-    elif opcode == NAMESPACE_BEGIN and len(payload) >= MIN_OP_LENGTHS['namespace_begin']:
-        log.debug( "Parse NAMESPACE_BEGIN: %s" % data )
-        op = parse_namespace_begin( payload )
+    elif opcode == NAMESPACE_READY and len(payload) >= MIN_OP_LENGTHS['namespace_ready']:
+        log.debug( "Parse NAMESPACE_READY: %s" % data )
+        op = parse_namespace_ready( payload )
     
     else:
         log.warning("Unrecognized op: code='%s', data=%s, len=%s" % (opcode, data, len(payload)))
@@ -237,6 +279,7 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
 
    sender = None 
    recipient = None
+   import_update_hash = None
    address = None
    
    if len(senders) == 0:
@@ -257,13 +300,25 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
    sender = str(senders[0]['script_pubkey'])
    address = str(senders[0]['addresses'][0])
    
-   try:
-      recipient = get_recipient_from_nameop_outputs( outputs )
-   except Exception, e:
-      log.error(e)
-      raise Exception("Only support one recipient for (%s, %s)" % (opcode, hexlify(data)))
+   if opcode in [NAME_IMPORT, NAME_TRANSFER]:
+      # these operations have a designated recipient
+      try:
+         recipient, recipient_address = get_transfer_recipient_from_outputs( outputs )
+      except Exception, e:
+         log.error(e)
+         raise Exception("No recipient for (%s, %s)" % (opcode, hexlify(data)))
       
-   op = parse_blockstore_op_data(opcode, data, sender, recipient )
+      
+   if opcode in [NAME_IMPORT]:
+      # this operation has an update hash embedded as a phony recipient 
+      try:
+         import_update_hash = get_import_update_hash_from_outputs( outputs, recipient )
+      except Exception, e:
+         log.error(e)
+         raise Exception("No update hash for (%s, %s)" % (opcode, hexlify(data)))
+     
+         
+   op = parse_blockstore_op_data(opcode, data, sender, recipient=recipient, import_update_hash=import_update_hash )
    
    if op is not None:
       
@@ -274,6 +329,7 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
       op['sender'] = sender 
       op['address'] = address 
       op['recipient'] = recipient
+      op['recipient_address'] = recipient_address
       
    return op
 
@@ -315,14 +371,17 @@ def db_check( block_id, checked_ops, opcode, op, db_state=None ):
       elif opcode == NAME_REVOKE:
          rc = db.log_revoke( checked_ops, op, block_id )
       
+      elif opcode == NAME_IMPORT:
+         rc = db.log_name_import( checked_ops, op, block_id )
+         
       elif opcode == NAMESPACE_PREORDER:
          rc = db.log_namespace_preorder( checked_ops, op, block_id )
       
-      elif opcode == NAMESPACE_DEFINE:
-         rc = db.log_namespace_define( checked_ops, op, block_id )
+      elif opcode == NAMESPACE_REVEAL:
+         rc = db.log_namespace_reveal( checked_ops, op, block_id )
       
-      elif opcode == NAMESPACE_BEGIN:
-         rc = db.log_namespace_begin( checked_ops, op, block_id )
+      elif opcode == NAMESPACE_READY:
+         rc = db.log_namespace_ready( checked_ops, op, block_id )
       
       if rc:
          log.debug("ACCEPT op '%s' (%s)" % (opcode, op))
@@ -371,18 +430,18 @@ def db_commit( block_id, opcode, op, db_state=None ):
       elif opcode == NAME_REVOKE:
          db.commit_revoke( op, block_id )
          
+      elif opcode == NAME_IMPORT:
+         db.commit_name_import( op, block_id )
+         
       elif opcode == NAMESPACE_PREORDER:
          db.commit_namespace_preorder( op, block_id )
          
-      elif opcode == NAMESPACE_DEFINE:
-         db.commit_namespace_define( op, block_id )
+      elif opcode == NAMESPACE_REVEAL:
+         db.commit_namespace_reveal( op, block_id )
       
-      elif opcode == NAMESPACE_BEGIN:
-         db.commit_namespace_begin( op, block_id )
+      elif opcode == NAMESPACE_READY:
+         db.commit_namespace_ready( op, block_id )
          
-      # do expirations
-      db.commit_name_expire_all( block_id )
-      
       return True
    
    else:
@@ -428,11 +487,22 @@ def db_save( block_id, filename, db_state=None ):
    # remove expired names before saving
    if db is not None:
       
+      # do expirations
+      log.debug("Clear all expired names at %s" % block_id )
+      db.commit_name_expire_all( block_id )
+      
+      log.debug("Clear all expired preorders at %s" % block_id )
+      db.commit_preorder_expire_all( block_id )
+      
+      log.debug("Clear all expired namespace preorders at %s" % block_id )
+      db.commit_namespace_preorder_expire_all( block_id )
+      
+      log.debug("Clear all expired partial namespace imports at %s" % block_id )
+      db.commit_namespace_reveal_expire_all( block_id )
+      
       return db.save_db( filename )
    
    else:
       log.error("No state engine defined")
       return False 
-   
-
 

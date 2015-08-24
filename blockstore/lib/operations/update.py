@@ -42,9 +42,9 @@ def build(name, consensus_hash, data_hash=None, testset=False):
     magic op  hash128(name.ns_id,consensus hash) hash160(data)
     """
     
-    if name.startswith(NAME_SCHEME):
-       raise Exception("Invalid name %s: must not start with %s" % (name, NAME_SCHEME))
-    
+    if not is_b40( name ) or "+" in name or name.count(".") > 1:
+       raise Exception("Name '%s' has non-base-38 characters" % name)
+   
     if not is_hex( data_hash ):
        raise Exception("Invalid hex string '%s': not hex" % (data_hash))
     

@@ -41,7 +41,7 @@ from txjsonrpc.netstring import jsonrpc
 
 from lib import nameset as blockstore_state_engine
 from lib import get_db_state
-from lib.config import REINDEX_FREQUENCY
+from lib.config import REINDEX_FREQUENCY, TESTSET
 from lib import *
 
 import virtualchain 
@@ -53,7 +53,7 @@ bitcoin_opts = None
 chaincom_opts = None
 blockchain_client = None 
 
-def get_bitcoind( new_bitcoind_opts=None ):
+def get_bitcoind( new_bitcoind_opts=None, reset=False ):
    """
    Get or instantiate our bitcoind client.
    Optionally re-set the bitcoind options.
@@ -61,10 +61,13 @@ def get_bitcoind( new_bitcoind_opts=None ):
    global bitcoind 
    global bitcoin_opts 
    
-   if bitcoind is not None:
+   if reset:
+       bitcoind = None
+   
+   elif bitcoind is not None:
       return bitcoind 
    
-   else:
+   if bitcoind is None:
       if new_bitcoind_opts is not None:
          bitcoin_opts = new_bitcoind_opts
       
@@ -144,6 +147,34 @@ def get_state_engine():
    """
    return get_db_state()
    
+   
+def get_index_range():
+    """
+    Get the bitcoin block index range.
+    Mask connection failures with timeouts.
+    """
+    
+    global bitcoind 
+    
+    if bitcoind is None:
+        bitcoind = get_bitcoind()
+    
+    next_block = None 
+    while next_block is None:
+
+        next_block = virtualchain.get_index_range( bitcoind )
+
+        if next_block is None:
+            
+            # try to reconnnect 
+            time.sleep(1)
+            log.error("Reconnect to bitcoind")
+            bitcoind = get_bitcoind( reset=True )
+            continue 
+        
+        else:
+            return next_block 
+        
 
 def sigint_handler_server(signal, frame):
     """
@@ -207,6 +238,36 @@ def get_utxo_provider_client():
          return None 
       
       return None
+
+
+
+def get_name_cost( name ):
+    """
+    Get the cost of a name, given the fully-qualified name.
+    Do so by finding the namespace it belongs to (even if the namespace is being imported).
+    Return None if the namespace has not been declared
+    """
+    db = get_state_engine()
+
+    namespace_id = get_namespace_from_name( name )
+    if namespace_id is None or len(namespace_id) == 0:
+        return None
+    
+    namespace = db.get_namespace( namespace_id )
+    if namespace is None:
+        # maybe importing?
+        namespace = db.get_namespace_reveal( namespace_id )
+        
+    if namespace is None:
+        # no such namespace
+        return None
+    
+    namespace_base_price = namespace['cost']
+    namespace_price_decay = namespace['price_decay']
+    
+    name_fee = price_name( get_name_from_fq_name( name ), namespace_base_price, namespace_price_decay ) + DEFAULT_OP_RETURN_FEE
+    return name_fee
+
 
 
 class BlockstoredRPC(jsonrpc.JSONRPC):
@@ -274,8 +335,27 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         if db.is_name_registered( name ):
             return {"error": "Name already registered"}
 
+        # if this name is part of a namespace import, the fee will be borne 
+        # by the register, not the preorder.
+        # otherwise, names imported into readied namespaces will be paid for 
+        # at the time or preorder.
+        name_fee = None 
+        
+        if not db.is_name_part_of_any_import( name ):
+            
+            # this name is NOT getting imported.
+            # the preorder op will bear the fee imposed by the readied namespace
+            name_fee = get_name_cost( name )
+        
+        else:
+            
+            # imported preorders have a fixed cost
+            name_fee = DEFAULT_OP_RETURN_FEE
+            
+        log.debug("The price of '%s' is %s satoshis" % (name, name_fee))
+        
         try:
-            resp = preorder_name(str(name), str(consensus_hash), str(privatekey), blockchain_client_inst, testset=True)
+            resp = preorder_name(str(name), str(consensus_hash), str(privatekey), blockchain_client_inst, name_fee, testset=TESTSET)
         except:
             return json_traceback()
 
@@ -297,9 +377,9 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         
         if db.is_name_registered( name ):
             return {"error": "Name already registered"}
-
+        
         try:
-            resp = register_name(str(name), str(privatekey), blockchain_client_inst, testset=True)
+            resp = register_name(str(name), str(privatekey), blockchain_client_inst, DEFAULT_OP_RETURN_FEE, testset=TESTSET)
         except:
             return json_traceback()
 
@@ -321,7 +401,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
            return {"error": "Failed to connect to blockchain UTXO provider"}
         
         try:
-            resp = update_name(str(name), str(data_hash), str(consensus_hash), str(privatekey), blockchain_client_inst, testset=True)
+            resp = update_name(str(name), str(data_hash), str(consensus_hash), str(privatekey), blockchain_client_inst, testset=TESTSET)
         except:
             return json_traceback()
 
@@ -342,7 +422,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
            return {"error": "Failed to connect to blockchain UTXO provider"}
         
         try:
-            resp = transfer_name(str(name), str(address), bool(keep_data), str(consensus_hash), str(privatekey), blockchain_client_inst, testset=True)
+            resp = transfer_name(str(name), str(address), bool(keep_data), str(consensus_hash), str(privatekey), blockchain_client_inst, testset=TESTSET)
         except:
             return json_traceback()
 
@@ -368,7 +448,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
            return {"error": "Failed to connect to blockchain UTXO provider"}
         
         try:
-            resp = revoke_name(str(name), str(privatekey), blockchain_client_inst, testset=True)
+            resp = revoke_name(str(name), str(privatekey), blockchain_client_inst, testset=TESTSET)
         except:
             return json_traceback()
         
@@ -376,6 +456,32 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         
         return resp
        
+    
+    def jsonrpc_name_import( self, name, recipient_address, update_hash, privatekey ):
+        """
+        Import a name into a namespace.
+        """
+        
+        blockchain_client_inst = get_utxo_provider_client()
+        db = get_state_engine()
+        
+        if db.is_name_registered( name ):
+            return {"error": "Name already registered"}
+
+        # calculate the import fee, plus the extra output fee
+        name_fee = get_name_cost( name ) + DEFAULT_DUST_SIZE
+        
+        log.debug("The price of '%s' is %s satoshis" % (name, name_fee))
+        
+        try:
+            resp = name_import( str(name), str(recipient_address), str(update_hash), str(privatekey), blockchain_client_inst, fee=name_fee, testset=TESTSET )
+        except:
+            return json_traceback()
+        
+        log.debug("import <%s>" % name )
+        
+        return resp
+        
     
     def jsonrpc_namespace_preorder( self, namespace_id, privatekey ):
         """
@@ -392,8 +498,12 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         
         consensus_hash = db.get_current_consensus()
         
+        namespace_fee = price_name(namespace_id, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY) + DEFAULT_OP_RETURN_FEE
+        
+        log.debug("Namespace '%s' will cost %s satoshis" % (namespace_id, namespace_fee))
+        
         try:
-           resp = namespace_preorder( str(namespace_id), str(consensus_hash), str(privatekey), blockchain_client_inst, testset=True )
+           resp = namespace_preorder( str(namespace_id), str(consensus_hash), str(privatekey), blockchain_client_inst, namespace_fee, testset=TESTSET )
         except:
            return json_traceback()
         
@@ -401,9 +511,9 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         return resp 
     
     
-    def jsonrpc_namespace_define( self, namespace_id, lifetime, base_name_cost, cost_decay_rate, privatekey ):
+    def jsonrpc_namespace_reveal( self, namespace_id, lifetime, base_name_cost, cost_decay_rate, privatekey ):
         """
-        Define the properties of a namespace.
+        Reveal and define the properties of a namespace.
         Between the namespace definition and the "namespace begin" operation, only the 
         user who created the namespace can create names in it.
         """
@@ -413,15 +523,15 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
            return {"error": "Failed to connect to blockchain UTXO provider"}
         
         try:
-           resp = namespace_define( str(namespace_id), int(lifetime), int(base_name_cost), float(cost_decay_rate), str(privatekey), blockchain_client_inst, testset=True )
+           resp = namespace_reveal( str(namespace_id), int(lifetime), int(base_name_cost), float(cost_decay_rate), str(privatekey), blockchain_client_inst, testset=TESTSET )
         except:
            return json_traceback()
         
-        log.debug("namespace_define <%s, %s, %s, %s>" % (namespace_id, lifetime, base_name_cost, cost_decay_rate))
+        log.debug("namespace_reveal <%s, %s, %s, %s>" % (namespace_id, lifetime, base_name_cost, cost_decay_rate))
         return resp 
      
      
-    def jsonrpc_namespace_begin( self, namespace_id, privatekey ):
+    def jsonrpc_namespace_ready( self, namespace_id, privatekey ):
         """
         Declare that a namespace is open to accepting new names.
         """
@@ -431,13 +541,42 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
            return {"error": "Failed to connect to blockchain UTXO provider"}
         
         try:
-           resp = namespace_begin( str(namespace_id), str(privatekey), blockchain_client_inst, testset=True )
+           resp = namespace_ready( str(namespace_id), str(privatekey), blockchain_client_inst, testset=TESTSET )
         except:
            return json_traceback()
         
-        log.debug("namespace_begin %s" % namespace_id )
+        log.debug("namespace_ready %s" % namespace_id )
         return resp
         
+    
+    def jsonrpc_name_cost( self, name ):
+        """
+        Return the cost of a given name.
+        """
+        ret = get_name_cost( name )
+        if ret is None:
+            return {"error": "Invalid namespace"}
+        
+        return {"cost": ret}
+        
+        
+    def jsonrpc_name_import_cost( self, name ):
+        """
+        Return the cost to import a given name.
+        """
+        ret = get_name_cost( name ) + DEFAULT_DUST_SIZE
+        if ret is None:
+            return {"error": "Invalid namespace"}
+        
+        return {"cost": ret}
+        
+        
+    def jsonrpc_namespace_cost( self, namespace_id ):
+        """
+        Return the cost of a given namespace.
+        """
+        ret = price_name(namespace_id, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY) + DEFAULT_OP_RETURN_FEE
+        return {"cost": ret}
         
         
 def run_indexer():
@@ -449,22 +588,17 @@ def run_indexer():
     signal.signal( signal.SIGINT, sigint_handler_indexer )
 
     bitcoind_opts = get_bitcoin_opts()
-    bitcoind = get_bitcoind()
-
-    _, last_block_id = virtualchain.get_index_range( bitcoind )
+    
+    _, last_block_id = get_index_range()
     blockstore_state_engine = get_state_engine()
-
+    
     while True:
         
         time.sleep( REINDEX_FREQUENCY )
         virtualchain.sync_virtualchain( bitcoind_opts, last_block_id, blockstore_state_engine )
         
-        next_block = virtualchain.get_index_range( bitcoind )
-        if next_block is None:
-            continue
-        else:
-            _, last_block_id = next_block
-        
+        _, last_block_id = get_index_range()
+                
     return
 
 
@@ -501,13 +635,12 @@ def run_server( foreground=False):
     signal.signal( signal.SIGINT, sigint_handler_server )
    
     bitcoin_opts = get_bitcoin_opts()
-    bitcoind = virtualchain.connect_bitcoind( bitcoin_opts )
-   
+    
     tac_file = get_tacfile_path()
     log_file = get_logfile_path()
     pid_file = get_pidfile_path()
     
-    start_block, current_block = virtualchain.get_index_range( bitcoind )
+    start_block, current_block = get_index_range()
     
     indexer_command = "%s indexer" % sys.argv[0]
     
@@ -580,7 +713,6 @@ def setup( return_parser=False ):
    Otherwise return None.
    """
    
-   global bitcoind
    global blockchain_client
    global bitcoin_opts
    global chaincom_opts
@@ -663,7 +795,7 @@ def run_blockstored():
       else:
          
          log.info('Starting blockstored server ...')
-         run_server( bitcoind )
+         run_server()
          
    elif args.action == 'stop':
       stop_server()

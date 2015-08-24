@@ -33,7 +33,7 @@ from ..hashing import hash_name
 
 def build(name, script_pubkey, consensus_hash, testset=False):
     """
-    Takes a name, including the namespace ID (but not the id:// scheme), a script_publickey to prove ownership
+    Takes a name, including the namespace ID (but not the id: scheme), a script_publickey to prove ownership
     of the subsequent NAME_REGISTER operation, and the current consensus hash for this block (to prove that the 
     caller is not on a shorter fork).
     
@@ -47,8 +47,8 @@ def build(name, script_pubkey, consensus_hash, testset=False):
     
     """
     
-    if not is_b40( name ):
-       raise Exception("Name '%s' is not base-40" % name)
+    if not is_b40( name ) or "+" in name or name.count(".") > 1:
+       raise Exception("Name '%s' has non-base-38 characters" % name)
     
     # name itself cannot exceed LENGTHS['blockchain_id_name']
     if len(NAME_SCHEME) + len(name) > LENGTHS['blockchain_id_name']:
@@ -63,7 +63,7 @@ def build(name, script_pubkey, consensus_hash, testset=False):
     return packaged_script
 
 
-def broadcast(name, consensus_hash, private_key, blockchain_client, testset=False):
+def broadcast(name, consensus_hash, private_key, blockchain_client, fee, testset=False):
     """
     Builds and broadcasts a preorder transaction.
     """
@@ -71,7 +71,7 @@ def broadcast(name, consensus_hash, private_key, blockchain_client, testset=Fals
     script_pubkey = get_script_pubkey( private_key )
     
     nulldata = build( name, script_pubkey, consensus_hash, testset=testset)
-    response = embed_data_in_blockchain( nulldata, private_key, blockchain_client, format='hex')
+    response = embed_data_in_blockchain( nulldata, private_key, blockchain_client, fee=fee, format='hex')
     
     # response = {'success': True }
     response.update( {'data': nulldata, 'consensus_hash': consensus_hash})

@@ -28,7 +28,7 @@ import virtualchain
 
 DEBUG = True
 TESTNET = False
-TESTSET = True
+TESTSET = False
 
 VERSION = "v0.01-beta"
 
@@ -43,7 +43,9 @@ SECONDS_PER_MINUTE = 60
 MINUTES_PER_YEAR = DAYS_PER_YEAR*HOURS_PER_DAY*MINUTES_PER_HOUR
 SECONDS_PER_YEAR = int(round(MINUTES_PER_YEAR*SECONDS_PER_MINUTE))
 BLOCKS_PER_YEAR = int(round(MINUTES_PER_YEAR/AVERAGE_MINUTES_PER_BLOCK))
+BLOCKS_PER_DAY = int(round(float(MINUTES_PER_HOUR * HOURS_PER_DAY)/AVERAGE_MINUTES_PER_BLOCK))
 EXPIRATION_PERIOD = BLOCKS_PER_YEAR*1
+NAME_PREORDER_EXPIRE = BLOCKS_PER_DAY
 # EXPIRATION_PERIOD = 10
 AVERAGE_BLOCKS_PER_HOUR = MINUTES_PER_HOUR/AVERAGE_MINUTES_PER_BLOCK
 
@@ -76,17 +78,11 @@ DEFAULT_BITCOIND_PORT_TESTNET = 18332
 DEFAULT_BITCOIND_USERNAME = 'openname'
 DEFAULT_BITCOIND_PASSWD = 'opennamesystem'
 
-""" Multiprocessing
-"""
-MULTIPROCESS_NUM_WORKERS = 8
-MULTIPROCESS_WORKER_BATCH = 8
-MULTIPROCESS_RPC_RETRY = 3
-
 """ block indexing configs
 """
-REINDEX_FREQUENCY = 10  # in seconds
+REINDEX_FREQUENCY = 30 # seconds
 
-FIRST_BLOCK_MAINNET = 369169 # 343883
+FIRST_BLOCK_MAINNET = 370607 # 343883
 FIRST_BLOCK_MAINNET_TESTSET = FIRST_BLOCK_MAINNET
 # FIRST_BLOCK_TESTNET = 343883
 FIRST_BLOCK_TESTNET = 529008
@@ -124,12 +120,13 @@ NAME_UPDATE = '+'
 NAME_TRANSFER = '>'
 NAME_RENEWAL = ':'
 NAME_REVOKE = '~'
+NAME_IMPORT = ';'
 
 NAME_SCHEME = MAGIC_BYTES_MAINSET + NAME_REGISTRATION
 
 NAMESPACE_PREORDER = '*'
-NAMESPACE_DEFINE = '&'
-NAMESPACE_BEGIN = '!'
+NAMESPACE_REVEAL = '&'
+NAMESPACE_READY = '!'
 
 TRANSFER_KEEP_DATA = '>'
 TRANSFER_REMOVE_DATA = '~'
@@ -142,9 +139,10 @@ OPCODES = [
    NAME_TRANSFER,
    NAME_RENEWAL,
    NAME_REVOKE,
+   NAME_IMPORT,
    NAMESPACE_PREORDER,
-   NAMESPACE_DEFINE,
-   NAMESPACE_BEGIN
+   NAMESPACE_REVEAL,
+   NAMESPACE_READY
 ]
    
 
@@ -159,7 +157,6 @@ LENGTHS = {
     'namelen': 1,
     'name_min': 1,
     'name_max': 34,
-    'unencoded_name': 34,
     'name_hash': 16,
     'update_hash': 20,
     'data_hash': 20,
@@ -172,14 +169,15 @@ LENGTHS = {
 
 MIN_OP_LENGTHS = {
     'preorder': LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'],
-    'registration': LENGTHS['namelen'] + LENGTHS['name_min'],
+    'registration': LENGTHS['name_min'],
     'update': LENGTHS['name_hash'] + LENGTHS['update_hash'],
-    'transfer': LENGTHS['namelen'] + LENGTHS['name_min'],
-    'revoke': LENGTHS['namelen'] + LENGTHS['name_min'],
+    'transfer': LENGTHS['name_hash'] + LENGTHS['consensus_hash'],
+    'revoke': LENGTHS['name_min'],
+    'name_import': LENGTHS['name_min'],
     'namespace_preorder': LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'],
-    'namespace_define': LENGTHS['blockchain_id_namespace_life'] + LENGTHS['blockchain_id_namespace_cost'] + \
+    'namespace_reveal': LENGTHS['blockchain_id_namespace_life'] + LENGTHS['blockchain_id_namespace_cost'] + \
                         LENGTHS['blockchain_id_namespace_price_decay'] + 1 + LENGTHS['name_min'],
-    'namespace_begin': 1 + LENGTHS['name_min']
+    'namespace_ready': 1 + LENGTHS['name_min']
 }
 
 OP_RETURN_MAX_SIZE = 40
@@ -201,9 +199,15 @@ PRICE_DROP_PER_LETTER = 10
 PRICE_DROP_FOR_NON_ALPHABETIC = 10
 ALPHABETIC_PRICE_FLOOR = 10**4
 
+NAMESPACE_BASE_COST = SATOSHIS_PER_BTC
+NAMESPACE_COST_DECAY = 3.0
+
+NAMESPACE_PREORDER_EXPIRE = BLOCKS_PER_DAY      # namespace preorders expire after 1 day, if not revealed
+NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_YEAR       # namespace reveals expire after 1 year, if not readied.
+
 # default namespace record (i.e. for names with no namespace ID)
 NAMESPACE_DEFAULT = {
-   'opcode': 'NAMESPACE_DEFINE',
+   'opcode': 'NAMESPACE_REVEAL',
    'lifetime': EXPIRATION_PERIOD,
    'cost': 1,
    'price_decay': float(PRICE_DROP_PER_LETTER),
@@ -237,10 +241,17 @@ def default_bitcoind_opts( config_file=None ):
 
       if parser.has_section('bitcoind'):
 
-         bitcoind_server = parser.get('bitcoind', 'server')
-         bitcoind_port = parser.get('bitcoind', 'port')
-         bitcoind_user = parser.get('bitcoind', 'user')
-         bitcoind_passwd = parser.get('bitcoind', 'passwd')
+         if parser.has_option('bitcoind', 'server'):
+            bitcoind_server = parser.get('bitcoind', 'server')
+         
+         if parser.has_option('bitcoind', 'port'):
+            bitcoind_port = parser.get('bitcoind', 'port')
+         
+         if parser.has_option('bitcoind', 'user'):
+            bitcoind_user = parser.get('bitcoind', 'user')
+         
+         if parser.has_option('bitcoind', 'passwd'):
+            bitcoind_passwd = parser.get('bitcoind', 'passwd')
          
          if parser.has_option('bitcoind', 'use_https'):
             use_https = parser.get('bitcoind', 'use_https')
@@ -299,10 +310,16 @@ def default_chaincom_opts( config_file=None ):
    
    chaincom_opts = {}
    
+   api_key_id = None 
+   api_key_secret = None
+   
    if parser.has_section('chain_com'):
       
-      api_key_id = parser.get('chain_com', 'api_key_id')
-      api_key_secret = parser.get('chain_com', 'api_key_secret')
+      if parser.has_option('chain_com', 'api_key_id'):
+         api_key_id = parser.get('chain_com', 'api_key_id')
+      
+      if parser.has_option('chain_com', 'api_key_secret'):
+         api_key_secret = parser.get('chain_com', 'api_key_secret')
       
       chaincom_opts = {
          'api_key_id': api_key_id,
@@ -310,7 +327,7 @@ def default_chaincom_opts( config_file=None ):
       }
       
    
-   # strip nones 
+   # strip Nones 
    for (k, v) in chaincom_opts.items():
       if v is None:
          del chaincom_opts[k]

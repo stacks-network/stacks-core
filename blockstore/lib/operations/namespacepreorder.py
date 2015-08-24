@@ -49,8 +49,8 @@ def build( namespace_id, script_pubkey, consensus_hash, testset=False ):
    """
    
    # sanity check 
-   if not is_b40( namespace_id ):
-      raise Exception("Namespace identifier '%s' is not base-40" % namespace_id)
+   if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
+      raise Exception("Namespace identifier '%s' has non-base-38 characters" % namespace_id)
    
    if len(namespace_id) == 0 or len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
       raise Exception("Invalid namespace ID length '%s (expected length between 1 and %s)" % (namespace_id, LENGTHS['blockchain_id_namespace_id']))
@@ -64,7 +64,7 @@ def build( namespace_id, script_pubkey, consensus_hash, testset=False ):
    return packaged_script
 
 
-def broadcast( namespace_id, consensus_hash, private_key, blockchain_client, testset=False ):
+def broadcast( namespace_id, consensus_hash, private_key, blockchain_client, fee, testset=False ):
    """
    Propagate a namespace.
    
@@ -77,7 +77,7 @@ def broadcast( namespace_id, consensus_hash, private_key, blockchain_client, tes
    nulldata = build( namespace_id, script_pubkey, consensus_hash, testset=testset )
    
    # response = {'success': True }
-   response = embed_data_in_blockchain( nulldata, private_key, blockchain_client, format='hex')
+   response = embed_data_in_blockchain( nulldata, private_key, blockchain_client, fee=fee, format='hex')
    response.update({'data': nulldata})
    return response
    

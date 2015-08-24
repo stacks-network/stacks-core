@@ -32,7 +32,7 @@ from ..scripts import blockstore_script_to_hex, add_magic_bytes
 
 def build(name, testset=False):
     """
-    Takes in the name that was preordered, including the namespace ID (but not the id:// scheme)
+    Takes in the name that was preordered, including the namespace ID (but not the id: scheme)
     Returns a hex string representing up to LENGTHS['blockchain_id_name'] bytes.
     
     Record format:
@@ -43,8 +43,8 @@ def build(name, testset=False):
     
     """
     
-    if not is_b40( name ):
-       raise Exception("Name '%s' is not base-40" % name)
+    if not is_b40( name ) or "+" in name or name.count(".") > 1:
+       raise Exception("Name '%s' has non-base-38 characters" % name)
     
     name_hex = hexlify(name)
     if len(name_hex) > LENGTHS['blockchain_id_name'] * 2:
@@ -58,11 +58,11 @@ def build(name, testset=False):
     return packaged_script 
 
 
-def broadcast(name, private_key, blockchain_client, testset=False):
+def broadcast(name, private_key, blockchain_client, fee, testset=False):
     
     nulldata = build(name, testset=testset)
     # response = {'success': True }
-    response = embed_data_in_blockchain( nulldata, private_key, blockchain_client, format='hex')
+    response = embed_data_in_blockchain( nulldata, private_key, blockchain_client, fee=fee, format='hex')
     response.update({'data': nulldata})
     return response
 

@@ -13,8 +13,12 @@ Blockstack is the interface to the "packages" namespace
 
 * expire preorders and namespace preorders
 
+* NAMESPACE_DEFINE --> NAMESPACE_REVEAL
+* NAMESPACE_BEGIN --> NAMESPACE_READY
+
+
 Migration plan:
-* null namespace has to be "imported" with NAMESPACE_DEFINE
+* use '.user' for the user namespace
 * namespace owner (us) puts all names in place, as NAME_REGISTER operations 
 * namespace owner (us) sends each name to the public key of the name owner (i.e. pubkey in namecoin to be converted to the pubkey in bitcoin)
 * namespace owner (us) writes NAMESPACE_BEGIN
