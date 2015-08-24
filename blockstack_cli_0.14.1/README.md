@@ -11,9 +11,13 @@ The blockstore-cli currently supports the following commands:
 * delete_mutable
 * get_immutable
 * get_mutable
+* get_name_cost
+* get_name_import_cost
+* get_namespace_cost
 * getindex
 * getinfo
 * lookup
+* name_import
 * namespace_begin
 * namespace_define
 * namespace_preorder
