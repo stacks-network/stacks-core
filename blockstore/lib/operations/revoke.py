@@ -29,10 +29,9 @@ from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import blockstore_script_to_hex, add_magic_bytes
 
-
 def build(name, testset=False):
     """
-    Takes in the name that was preordered, including the namespace ID (but not the id: scheme)
+    Takes in the name, including the namespace ID (but not the id: scheme)
     Returns a hex string representing up to LENGTHS['blockchain_id_name'] bytes.
     
     Record format:
@@ -51,24 +50,23 @@ def build(name, testset=False):
        # too long
       raise Exception("Name '%s' too long (exceeds %d bytes)" % (fqn, LENGTHS['blockchain_id_name']))
     
-    readable_script = "NAME_REGISTRATION 0x%s" % (hexlify(name))
+    readable_script = "NAME_REVOKE 0x%s" % (hexlify(name))
     hex_script = blockstore_script_to_hex(readable_script)
     packaged_script = add_magic_bytes(hex_script, testset=testset)
     
     return packaged_script 
 
 
-def broadcast(name, private_key, blockchain_client, fee, testset=False):
+def broadcast(name, private_key, blockchain_client, testset=False):
     
     nulldata = build(name, testset=testset)
     # response = {'success': True }
-    response = embed_data_in_blockchain( nulldata, private_key, blockchain_client, fee=fee, format='hex')
+    response = embed_data_in_blockchain( nulldata, private_key, blockchain_client, format='hex')
     response.update({'data': nulldata})
     return response
 
 
-def parse(bin_payload):
-    
+def parse(bin_payload):    
     """
     Interpret a block's nulldata back into a name.  The first three bytes (2 magic + 1 opcode)
     will not be present in bin_payload.
@@ -79,7 +77,7 @@ def parse(bin_payload):
     fqn = bin_payload
     
     return {
-       'opcode': 'NAME_REGISTRATION',
+       'opcode': 'NAME_REVOKE',
        'name': fqn
     }
  

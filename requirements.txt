@@ -1,5 +1,5 @@
 Twisted==15.0.0
-coinkit==0.7.7
+pybitcoin==0.8.3
 ecdsa==0.11
 kademlia==0.5
 pybitcointools==1.1.15
@@ -10,3 +10,4 @@ txJSON-RPC==0.3.1
 u-msgpack-python==2.0
 utilitybelt==0.2.2
 zope.interface==4.1.2
+virtualchain==0.0.1

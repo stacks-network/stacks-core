@@ -5,7 +5,7 @@ from lib import config
 
 from opennamed import bitcoind
 
-
+# DEPRECATED 
 def refresh_index(first_block, last_block):
     """
     """

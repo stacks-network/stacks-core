@@ -23,13 +23,13 @@
 
 from pybitcoin import embed_data_in_blockchain, \
     analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script
+    make_pay_to_address_script, b58check_encode, b58check_decode
  
 from pybitcoin.transactions.outputs import calculate_change_amount
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
-from ..b40 import b40_to_hex, bin_to_b40
+from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import blockstore_script_to_hex, add_magic_bytes
 from ..hashing import hash256_trunc128
@@ -38,16 +38,19 @@ def calculate_basic_name_tx_fee():
     return DEFAULT_OP_RETURN_FEE
 
 
-def get_transfer_recipient_from_outputs( outputs ):
+def get_import_update_hash_from_outputs( outputs, recipient ):
     """
-    Given the outputs from a name transfer operation,
-    find the recipient's script_pubkey string and address
+    Given the outputs from a name import operation, and the
+    recipient's script_pubkey string, find the update hash output.
     
-    By construction, it will be the first non-OP_RETURN 
-    output (i.e. the second output).
+    By construction, it will be the address of the second non-OP_RETURN 
+    output (i.e. the third output).  By process of 
+    elimination, it will be the only non-OP_RETURN output 
+    that is not the recipient.
     """
     
     ret = None
+    count = 0
     for output in outputs:
        
         output_script = output['scriptPubKey']
@@ -55,84 +58,91 @@ def get_transfer_recipient_from_outputs( outputs ):
         output_hex = output_script.get('hex')
         output_addresses = output_script.get('addresses')
         
-        if output_asm[0:9] != 'OP_RETURN' and output_hex:
+        if output_asm[0:9] != 'OP_RETURN' and output_hex is not None and output_hex != recipient:
             
-            ret = (output_hex, output_addresses[0])
+            ret = b58check_decode( str(output_addresses[0]) )
             break
             
     if ret is None:
-       raise Exception("No recipients found")
+       raise Exception("No update hash found")
     
     return ret 
 
 
-def build(name, keepdata, consensus_hash, testset=False):
+def build(name, testset=False):
     """
-    Takes in a name to transfer.  Name must include the namespace ID, but not the scheme.
+    Takes in a name to import.  Name must include the namespace ID.
     
     Record format:
     
-    0     2  3    4                   20              36
-    |-----|--|----|-------------------|---------------|
-    magic op keep  hash128(name.ns_id) consensus hash
-             data?
+    0    2  3                             39
+    |----|--|-----------------------------|
+    magic op   name.ns_id (34 bytes)
+    
+    The transaction itself will have two outputs:
+    * the recipient
+    * the hash of the name's associated data
     """
     
     if not is_b40( name ) or "+" in name or name.count(".") > 1:
        raise Exception("Name '%s' has non-base-38 characters" % name)
     
-    # without the scheme, name must be 34 bytes 
-    if len(name) > LENGTHS['blockchain_id_name']:
-       raise Exception("Name '%s' is too long; expected %s bytes" % (name, LENGTHS['blockchain_id_name']))
+    name_hex = hexlify(name)
+    if len(name_hex) > LENGTHS['blockchain_id_name'] * 2:
+       # too long
+      raise Exception("Name '%s' too long (exceeds %d bytes)" % (fqn, LENGTHS['blockchain_id_name']))
     
-    data_disposition = None 
-    
-    if keepdata:
-       data_disposition = TRANSFER_KEEP_DATA 
-    else:
-       data_disposition = TRANSFER_REMOVE_DATA
-    
-    name_hash = hash256_trunc128( name )
-    disposition_hex = hexlify(data_disposition)
-    
-    readable_script = 'NAME_TRANSFER 0x%s 0x%s 0x%s' % (disposition_hex, name_hash, consensus_hash)
+    readable_script = "NAME_IMPORT 0x%s" % (hexlify(name))
     hex_script = blockstore_script_to_hex(readable_script)
     packaged_script = add_magic_bytes(hex_script, testset=testset)
     
     return packaged_script
 
 
-def make_outputs( data, inputs, new_name_owner_address, change_address, format='bin', fee=None, op_return_amount=DEFAULT_OP_RETURN_VALUE, name_owner_amount=DEFAULT_DUST_SIZE):
+def make_outputs( data, inputs, new_name_owner_address, change_address, update_hash_b58, format='bin', fee=None, op_return_amount=DEFAULT_OP_RETURN_VALUE, name_owner_amount=DEFAULT_DUST_SIZE):
     """
-    Builds the outputs for a name transfer operation.
+    Builds the outputs for a name import:
+    * [0] is the OP_RETURN 
+    * [1] is the new owner (recipient)
+    * [2] is the update hash
+    * [3] is the debit to the original owner
     """
     if fee is None:
-        fee = calculate_basic_name_tx_fee()
+       fee = calculate_basic_name_tx_fee()
         
-    total_to_send = op_return_amount + name_owner_amount
- 
+    total_to_send = op_return_amount + name_owner_amount + DEFAULT_DUST_SIZE
+    
     return [
         # main output
         {"script_hex": make_op_return_script(data, format=format),
          "value": op_return_amount},
+    
         # new name owner output
         {"script_hex": make_pay_to_address_script(new_name_owner_address),
          "value": name_owner_amount},
+        
+        # update hash output
+        {"script_hex": make_pay_to_address_script(update_hash_b58),
+         "value": DEFAULT_DUST_SIZE},
+        
         # change output
         {"script_hex": make_pay_to_address_script(change_address),
          "value": calculate_change_amount(inputs, total_to_send, fee)}
     ]
 
 
-def broadcast(name, destination_address, keepdata, consensus_hash, private_key, blockchain_client, testset=False):
+def broadcast(name, destination_address, update_hash, private_key, blockchain_client, fee=None, testset=False):
    
-    nulldata = build(name, keepdata, consensus_hash, testset=testset)
+    nulldata = build(name, testset=testset)
     
     # get inputs and from address
     private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
     
+    # convert update_hash from a hex string so it looks like an address
+    update_hash_b58 = b58check_encode( unhexlify(update_hash) )
+    
     # build custom outputs here
-    outputs = make_outputs(nulldata, inputs, destination_address, from_address, format='hex')
+    outputs = make_outputs(nulldata, inputs, destination_address, from_address, update_hash_b58, fee=fee, format='hex')
     
     # serialize, sign, and broadcast the tx
     response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_client)
@@ -144,25 +154,16 @@ def broadcast(name, destination_address, keepdata, consensus_hash, private_key, 
     return response
 
 
-def parse(bin_payload, recipient):
+def parse(bin_payload, recipient, update_hash ):
     """
     # NOTE: first three bytes were stripped
     """
     
-    disposition_char = bin_payload[0:1]
-    name_hash = bin_payload[1:1+LENGTHS['name_hash']]
-    consensus_hash = bin_payload[1+LENGTHS['name_hash']:]
-    
-    # keep data by default 
-    disposition = True 
-    
-    if disposition_char == TRANSFER_REMOVE_DATA:
-       disposition = False 
+    fqn = bin_payload
     
     return {
-        'opcode': 'NAME_TRANSFER',
-        'name_hash': hexlify( name_hash ),
-        'consensus_hash': hexlify( consensus_hash ),
-        'recipient': recipient,
-        'keep_data': disposition
+        'opcode': 'NAME_IMPORT',
+        'name': fqn,
+        'recipient': hexlify(recipient),
+        'update_hash': hexlify(update_hash)
     }

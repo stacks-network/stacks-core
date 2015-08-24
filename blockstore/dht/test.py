@@ -3,8 +3,22 @@
 """
     Blockstore
     ~~~~~
-    :copyright: (c) 2015 by Openname.org
-    :license: MIT, see LICENSE for more details.
+    copyright: (c) 2014 by Halfmoon Labs, Inc.
+    copyright: (c) 2015 by Blockstack.org
+
+    This file is part of Blockstore
+
+    Blockstore is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Blockstore is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 from twisted.internet import reactor
@@ -13,7 +27,7 @@ from twisted.python import log
 from kademlia.network import Server
 
 import sys
-import coinkit
+import pybitcoin
 import json
 
 log.startLogging(sys.stdout)
@@ -22,7 +36,7 @@ log.startLogging(sys.stdout)
 #value = "temp"
 
 value = '{"name": "Muneeb Ali Khan"}'
-key = coinkit.hex_hash160(value)
+key = pybitcoin.hash.hex_hash160(value)
 
 print key
 print value

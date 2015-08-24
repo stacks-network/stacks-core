@@ -3,8 +3,22 @@
 """
     Blockstore
     ~~~~~
-    :copyright: (c) 2015 by Openname.org
-    :license: MIT, see LICENSE for more details.
+    copyright: (c) 2014 by Halfmoon Labs, Inc.
+    copyright: (c) 2015 by Blockstack.org
+
+    This file is part of Blockstore
+
+    Blockstore is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Blockstore is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 import time
@@ -23,17 +37,26 @@ from kademlia.utils import digest
 
 import sys
 import json
-import coinkit
+import pybitcoin
 import os
 import socket
 
 # Hack around absolute paths
-current_dir = os.path.abspath(os.path.dirname(__file__))
-parent_dir = os.path.abspath(current_dir + "/../")
+# current_dir = os.path.abspath(os.path.dirname(__file__))
+# parent_dir = os.path.abspath(current_dir + "/../")
 
-sys.path.insert(0, parent_dir)
+# sys.path.insert(0, parent_dir)
 
-from lib.config import STORAGE_TTL
+# from .plugin import STORAGE_TTL
+# 3 years
+STORAGE_TTL = 3 * 60 * 60 * 24 * 365
+
+DHT_SERVER_PORT = 6265  # blockstored default to port 6264
+
+DEFAULT_DHT_SERVERS = [('dht.openname.org', DHT_SERVER_PORT),
+                       ('dht.onename.com', DHT_SERVER_PORT),
+                       ('dht.halfmoonlabs.com', DHT_SERVER_PORT),
+                       ('127.0.0.1', DHT_SERVER_PORT)]
 
 
 class BlockStorage(object):
@@ -61,7 +84,7 @@ class BlockStorage(object):
             self.log.info("value not JSON, not storing")
             return
 
-        hash = coinkit.hex_hash160(value)
+        hash = pybitcoin.hash.hex_hash160(value)
         test_key = digest(hash)
 
         if key != test_key:
@@ -82,7 +105,7 @@ class BlockStorage(object):
         self.cull()
         if key in self.data:
             value = self[key]
-            hash = coinkit.hex_hash160(value)
+            hash = pybitcoin.hash.hex_hash160(value)
 
             test_key = digest(hash)
 
