@@ -43,8 +43,8 @@ def build( namespace_id, testset=False ):
    """
    
    # sanity check 
-   if not is_b40( namespace_id ):
-      raise Exception("Namespace ID '%s' is not base-40" % namespace_id)
+   if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
+      raise Exception("Namespace ID '%s' has non-base-38 characters" % namespace_id)
    
    if len(namespace_id) == 0 or len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
       raise Exception("Invalid namespace ID '%s (expected length between 1 and %s)" % (namespace_id, LENGTHS['blockchain_id_namespace_id']))

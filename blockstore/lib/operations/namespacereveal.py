@@ -44,6 +44,7 @@ def namespace_decay_to_float( namespace_decay_fixedpoint ):
    
    return ipart + (float(fpart) / (1 << 24))
 
+
 def namespace_decay_to_fixpoint( namespace_decay_float ):
    """
    Convert a floating-point number to a namespace decay rate.
@@ -102,8 +103,8 @@ def build( namespace_id, lifetime, satoshi_cost, price_decay_rate, testset=False
    """
    
    # sanity check 
-   if not is_b40( namespace_id ):
-      raise Exception("Namespace identifier '%s' is not base-40" % namespace_id)
+   if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
+      raise Exception("Namespace ID '%s' has non-base-38 characters" % namespace_id)
    
    if len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
       raise Exception("Invalid namespace ID length for '%s' (expected length between 1 and %s)" % (namespace_id, LENGTHS['blockchain_id_namespace_id']))

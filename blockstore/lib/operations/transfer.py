@@ -37,6 +37,35 @@ from ..hashing import hash256_trunc128
 def calculate_basic_name_tx_fee():
     return DEFAULT_OP_RETURN_FEE
 
+
+def get_transfer_recipient_from_outputs( outputs ):
+    """
+    Given the outputs from a name transfer operation,
+    find the recipient's script_pubkey string and address
+    
+    By construction, it will be the first non-OP_RETURN 
+    output (i.e. the second output).
+    """
+    
+    ret = None
+    for output in outputs:
+       
+        output_script = output['scriptPubKey']
+        output_asm = output_script.get('asm')
+        output_hex = output_script.get('hex')
+        output_addresses = output_script.get('addresses')
+        
+        if output_asm[0:9] != 'OP_RETURN' and output_hex:
+            
+            ret = (output_hex, output_addresses[0])
+            break
+            
+    if ret is None:
+       raise Exception("No recipients found")
+    
+    return ret 
+
+
 def build(name, keepdata, consensus_hash, testset=False):
     """
     Takes in a name to transfer.  Name must include the namespace ID, but not the scheme.
@@ -49,8 +78,8 @@ def build(name, keepdata, consensus_hash, testset=False):
              data?
     """
     
-    if name.startswith(NAME_SCHEME):
-       raise Exception("Invalid name %s: must not start with %s" % (name, NAME_SCHEME))
+    if not is_b40( name ) or "+" in name or name.count(".") > 1:
+       raise Exception("Name '%s' has non-base-38 characters" % name)
     
     # without the scheme, name must be 34 bytes 
     if len(name) > LENGTHS['blockchain_id_name']:

@@ -42,8 +42,8 @@ def build(name, testset=False):
     
     """
     
-    if not is_b40( name ):
-       raise Exception("Name '%s' is not base-40" % name)
+    if not is_b40( name ) or "+" in name or name.count(".") > 1:
+       raise Exception("Name '%s' has non-base-38 characters" % name)
     
     name_hex = hexlify(name)
     if len(name_hex) > LENGTHS['blockchain_id_name'] * 2:
