@@ -28,7 +28,7 @@ import virtualchain
 
 DEBUG = True
 TESTNET = False
-TESTSET = True
+TESTSET = False
 
 VERSION = "v0.01-beta"
 
@@ -80,9 +80,9 @@ DEFAULT_BITCOIND_PASSWD = 'opennamesystem'
 
 """ block indexing configs
 """
-REINDEX_FREQUENCY = 10  # in seconds
+REINDEX_FREQUENCY = 30 # seconds
 
-FIRST_BLOCK_MAINNET = 369169 # 343883
+FIRST_BLOCK_MAINNET = 370607 # 343883
 FIRST_BLOCK_MAINNET_TESTSET = FIRST_BLOCK_MAINNET
 # FIRST_BLOCK_TESTNET = 343883
 FIRST_BLOCK_TESTNET = 529008
@@ -120,6 +120,7 @@ NAME_UPDATE = '+'
 NAME_TRANSFER = '>'
 NAME_RENEWAL = ':'
 NAME_REVOKE = '~'
+NAME_IMPORT = ';'
 
 NAME_SCHEME = MAGIC_BYTES_MAINSET + NAME_REGISTRATION
 
@@ -138,6 +139,7 @@ OPCODES = [
    NAME_TRANSFER,
    NAME_RENEWAL,
    NAME_REVOKE,
+   NAME_IMPORT,
    NAMESPACE_PREORDER,
    NAMESPACE_REVEAL,
    NAMESPACE_READY
@@ -167,10 +169,11 @@ LENGTHS = {
 
 MIN_OP_LENGTHS = {
     'preorder': LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'],
-    'registration': LENGTHS['namelen'] + LENGTHS['name_min'],
+    'registration': LENGTHS['name_min'],
     'update': LENGTHS['name_hash'] + LENGTHS['update_hash'],
-    'transfer': LENGTHS['namelen'] + LENGTHS['name_min'],
-    'revoke': LENGTHS['namelen'] + LENGTHS['name_min'],
+    'transfer': LENGTHS['name_hash'] + LENGTHS['consensus_hash'],
+    'revoke': LENGTHS['name_min'],
+    'name_import': LENGTHS['name_min'],
     'namespace_preorder': LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'],
     'namespace_reveal': LENGTHS['blockchain_id_namespace_life'] + LENGTHS['blockchain_id_namespace_cost'] + \
                         LENGTHS['blockchain_id_namespace_price_decay'] + 1 + LENGTHS['name_min'],
