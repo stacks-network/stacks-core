@@ -30,13 +30,16 @@ import time
 from .namedb import BlockstoreDB, BlockstoreDBIterator
 
 from ..config import *
-from ..operations import parse_preorder, parse_registration, parse_update, parse_transfer, parse_revoke, parse_namespace_preorder, parse_namespace_reveal, parse_namespace_ready
+from ..operations import parse_preorder, parse_registration, parse_update, parse_transfer, parse_revoke, \
+    parse_name_import, parse_namespace_preorder, parse_namespace_reveal, parse_namespace_ready, \
+    get_transfer_recipient_from_outputs, get_import_update_hash_from_outputs
 
 import virtualchain
 
 log = virtualchain.session.log
 blockstore_db = None
 last_load_time = 0
+
 
 def get_recipient_from_nameop_outputs( outputs ):
     """
@@ -48,7 +51,41 @@ def get_recipient_from_nameop_outputs( outputs ):
     the 'transfer' operation, and the one with 
     the script_pubkey).
     
-    NAME_TRANSFER operations have three recipients:
+    NAME_TRANSFER operations have three outputs:
+    the sender, the receiver, and the OP_RETURN.
+    By construction, the recipient's address in 
+    the NAME_TRANSFER operation is the first 
+    non-OP_RETURN address.
+    """
+    
+    ret = None
+    for output in outputs:
+       
+        output_script = output['scriptPubKey']
+        output_asm = output_script.get('asm')
+        output_hex = output_script.get('hex')
+        output_addresses = output_script.get('addresses')
+        
+        if output_asm[0:9] != 'OP_RETURN' and output_hex:
+            
+            ret = output_hex 
+            break
+            
+    if ret is None:
+       raise Exception("No recipients found")
+    
+    return ret 
+
+
+def get_update_hash_from_nameop_outputs( outputs, recipient ):
+    """
+    This is mean for NAME_IMPORT operations, which 
+    have three outputs:  the OP_RETURN, the name's 
+    recipient, and the name's update hash.  This 
+    method extracts the name update hash from 
+    the list of outputs.
+    
+    NAME_TRANSFER operations have three outputs:
     the sender, the receiver, and the OP_RETURN.
     By construction, the recipient's address in 
     the NAME_TRANSFER operation is the first 
@@ -73,8 +110,9 @@ def get_recipient_from_nameop_outputs( outputs ):
     
     return ret 
  
+ 
 
-def parse_blockstore_op_data( opcode, payload, sender, recipient ):
+def parse_blockstore_op_data( opcode, payload, sender, recipient=None, import_update_hash=None ):
     """
     Parse a string of binary data (nulldata from a blockchain transaction) into a blockstore operation.
     
@@ -113,6 +151,10 @@ def parse_blockstore_op_data( opcode, payload, sender, recipient ):
     elif (opcode == NAME_REVOKE and len(payload) >= MIN_OP_LENGTHS['revoke']):
         log.debug( "Parse NAME_REVOKE: %s" % data )
         op = parse_revoke(payload)
+        
+    elif opcode == NAME_IMPORT and len(payload) >= MIN_OP_LENGTHS['name_import']:
+        log.debug( "Parse NAME_IMPORT: %s" % data )
+        op = parse_name_import( payload, recipient, import_update_hash )
         
     elif opcode == NAMESPACE_PREORDER and len(payload) >= MIN_OP_LENGTHS['namespace_preorder']:
         log.debug( "Parse NAMESPACE_PREORDER: %s" % data)
@@ -237,6 +279,7 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
 
    sender = None 
    recipient = None
+   import_update_hash = None
    address = None
    
    if len(senders) == 0:
@@ -257,13 +300,25 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
    sender = str(senders[0]['script_pubkey'])
    address = str(senders[0]['addresses'][0])
    
-   try:
-      recipient = get_recipient_from_nameop_outputs( outputs )
-   except Exception, e:
-      log.error(e)
-      raise Exception("Only support one recipient for (%s, %s)" % (opcode, hexlify(data)))
+   if opcode in [NAME_IMPORT, NAME_TRANSFER]:
+      # these operations have a designated recipient
+      try:
+         recipient, recipient_address = get_transfer_recipient_from_outputs( outputs )
+      except Exception, e:
+         log.error(e)
+         raise Exception("No recipient for (%s, %s)" % (opcode, hexlify(data)))
       
-   op = parse_blockstore_op_data(opcode, data, sender, recipient )
+      
+   if opcode in [NAME_IMPORT]:
+      # this operation has an update hash embedded as a phony recipient 
+      try:
+         import_update_hash = get_import_update_hash_from_outputs( outputs, recipient )
+      except Exception, e:
+         log.error(e)
+         raise Exception("No update hash for (%s, %s)" % (opcode, hexlify(data)))
+     
+         
+   op = parse_blockstore_op_data(opcode, data, sender, recipient=recipient, import_update_hash=import_update_hash )
    
    if op is not None:
       
@@ -274,6 +329,7 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
       op['sender'] = sender 
       op['address'] = address 
       op['recipient'] = recipient
+      op['recipient_address'] = recipient_address
       
    return op
 
@@ -315,6 +371,9 @@ def db_check( block_id, checked_ops, opcode, op, db_state=None ):
       elif opcode == NAME_REVOKE:
          rc = db.log_revoke( checked_ops, op, block_id )
       
+      elif opcode == NAME_IMPORT:
+         rc = db.log_name_import( checked_ops, op, block_id )
+         
       elif opcode == NAMESPACE_PREORDER:
          rc = db.log_namespace_preorder( checked_ops, op, block_id )
       
@@ -370,6 +429,9 @@ def db_commit( block_id, opcode, op, db_state=None ):
       
       elif opcode == NAME_REVOKE:
          db.commit_revoke( op, block_id )
+         
+      elif opcode == NAME_IMPORT:
+         db.commit_name_import( op, block_id )
          
       elif opcode == NAMESPACE_PREORDER:
          db.commit_namespace_preorder( op, block_id )
