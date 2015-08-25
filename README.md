@@ -3,7 +3,6 @@
 [![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 [![PyPI](https://img.shields.io/pypi/v/blockstore.svg)](https://pypi.python.org/pypi/blockstore/)
 [![PyPI](https://img.shields.io/pypi/dm/blockstore.svg)](https://pypi.python.org/pypi/blockstore/)
-[![PyPI](https://img.shields.io/pypi/l/blockstore.svg)](https://github.com/blockstack/blockstore/blob/master/LICENSE)
 
 Blockstore is a generic key-value store on Bitcoin. You can use it register globally unique names, associate data with those names, and transfer them between Bitcoin addresses.
 
