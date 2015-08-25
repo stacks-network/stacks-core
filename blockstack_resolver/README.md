@@ -1,4 +1,5 @@
 [![Build Status](https://travis-ci.org/blockstack/resolver.svg?branch=master)](https://travis-ci.org/namesystem/resolver)
+[![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 
 resolver
 =======
