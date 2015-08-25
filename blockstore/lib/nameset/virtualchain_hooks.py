@@ -300,12 +300,15 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
    sender = str(senders[0]['script_pubkey'])
    address = str(senders[0]['addresses'][0])
    
+   recipient = None 
+   recipient_address = None 
+   
    if opcode in [NAME_IMPORT, NAME_TRANSFER]:
       # these operations have a designated recipient
       try:
          recipient, recipient_address = get_transfer_recipient_from_outputs( outputs )
       except Exception, e:
-         log.error(e)
+         log.exception(e)
          raise Exception("No recipient for (%s, %s)" % (opcode, hexlify(data)))
       
       
@@ -314,7 +317,7 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
       try:
          import_update_hash = get_import_update_hash_from_outputs( outputs, recipient )
       except Exception, e:
-         log.error(e)
+         log.exception(e)
          raise Exception("No update hash for (%s, %s)" % (opcode, hexlify(data)))
      
          
@@ -328,8 +331,12 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
       
       op['sender'] = sender 
       op['address'] = address 
-      op['recipient'] = recipient
-      op['recipient_address'] = recipient_address
+      
+      if recipient is not None:
+         op['recipient'] = recipient
+      
+      if recipient_address is not None:
+         op['recipient_address'] = recipient_address
       
    return op
 
