@@ -1,5 +1,6 @@
-Blockstore Client
-=================
+# Blockstore Client
+
+[![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 
 This package contains the client library for Blockstore.  It talks to blockstored and provides an interface for creating and managing blockchain IDs, blockchain ID namespaces, and storage records associated with them.
 
