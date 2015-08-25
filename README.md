@@ -1,5 +1,7 @@
 # Blockstore: A Key-Value Store on Bitcoin
 
+[![Join the chat at https://gitter.im/namesystem/blockstore](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/namesystem/blockstore?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 [![PyPI](https://img.shields.io/pypi/v/blockstore.svg)](https://pypi.python.org/pypi/blockstore/)
 [![PyPI](https://img.shields.io/pypi/dm/blockstore.svg)](https://pypi.python.org/pypi/blockstore/)
 [![PyPI](https://img.shields.io/pypi/l/blockstore.svg)](https://github.com/blockstack/blockstore/blob/master/LICENSE)
