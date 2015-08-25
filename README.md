@@ -1,5 +1,6 @@
 # Blockstore: A Key-Value Store on Bitcoin
 
+[![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 [![PyPI](https://img.shields.io/pypi/v/blockstore.svg)](https://pypi.python.org/pypi/blockstore/)
 [![PyPI](https://img.shields.io/pypi/dm/blockstore.svg)](https://pypi.python.org/pypi/blockstore/)
 [![PyPI](https://img.shields.io/pypi/l/blockstore.svg)](https://github.com/blockstack/blockstore/blob/master/LICENSE)
