@@ -159,12 +159,13 @@ def get_index_range():
     if bitcoind is None:
         bitcoind = get_bitcoind()
     
-    next_block = None 
-    while next_block is None:
+    first_block = None 
+    last_block = None
+    while last_block is None:
 
-        next_block = virtualchain.get_index_range( bitcoind )
+        first_block, last_block = virtualchain.get_index_range( bitcoind )
 
-        if next_block is None:
+        if last_block is None:
             
             # try to reconnnect 
             time.sleep(1)
@@ -173,7 +174,7 @@ def get_index_range():
             continue 
         
         else:
-            return next_block 
+            return first_block, last_block 
         
 
 def sigint_handler_server(signal, frame):
