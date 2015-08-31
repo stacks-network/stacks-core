@@ -31,7 +31,7 @@ from collections import defaultdict
 from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAGIC_BYTES, TESTSET, MAX_NAMES_PER_SENDER, \
     EXPIRATION_PERIOD, NAME_PREORDER, NAMESPACE_PREORDER, NAME_REGISTRATION, NAME_UPDATE, TRANSFER_KEEP_DATA, \
     TRANSFER_REMOVE_DATA, NAME_REVOKE, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY, NAME_PREORDER_EXPIRE, \
-    NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL
+    NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTORE_VERSION, NAMESPACE_MINIMUM_COST
 
 from ..operations import build_namespace_reveal
 from ..hashing import *
@@ -109,7 +109,7 @@ class BlockstoreDBIterator(object):
       include the owner's script_pubkey and rules
       """
       
-      rules_string = build_namespace_reveal( "", namespace_record['lifetime'], namespace_record['cost'], namespace_record['price_decay'], testset=TESTSET )
+      rules_string = build_namespace_reveal( "", namespace_record['version'], namespace_record['recipient_address'], namespace_record['lifetime'], namespace_record['cost'], namespace_record['price_decay'], testset=TESTSET )
       sender = namespace_record.get('sender', "")
       
       if sender is None:
@@ -341,13 +341,14 @@ class BlockstoreDB( virtualchain.StateEngine ):
          return self.name_records[name]
       
       
-   def get_name_preorder( self, name, sender_script_pubkey ):
+   def get_name_preorder( self, name, sender_script_pubkey, register_addr ):
       """
-      Get the preorder for a name, given the name and the sender's script_pubkey string.
+      Get the preorder for a name, given the name, the sender's script_pubkey string, and the 
+      registration address used to calculate the preorder hash.
       Return the nameop on success
       Return None if not found.
       """
-      preorder_hash = hash_name(name, sender_script_pubkey)
+      preorder_hash = hash_name(name, sender_script_pubkey, register_addr=register_addr)
       if preorder_hash not in self.preorders.keys():
           return None
       
@@ -501,7 +502,13 @@ class BlockstoreDB( virtualchain.StateEngine ):
       Return False if not.
       """
       
-      return name in self.name_records.keys()
+      if name not in self.name_records.keys():
+          return False 
+      
+      if self.name_records[name].has_key('revoked') and self.name_records[name]['revoked']:
+          return False 
+      
+      return True
 
 
    def is_namespace_ready( self, namespace_id ):
@@ -536,59 +543,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
       Return False if not.
       """
       return self.get_namespace_reveal( namespace_id ) is not None
+  
    
-
-   def has_defined_namespace( self, namespace_id, sender_script_pubkey ):
-      """
-      Given the human-readable namespace ID and the sender's script_pubkey 
-      hex string, did the owner of the public key define the namespace?
-      Return True if so
-      Return False if not.
-      """
-      try:
-         namespace_id_hash = hash_name( namespace_id, sender_script_pubkey )
-      except ValueError:
-         return False 
-      
-      if namespace_id_hash in self.namespace_preorders.keys():
-         
-         namespace_reveal_nameop = self.get_importing_namespace_reveal( namespace_id )
-         
-         if namespace_reveal_nameop is not None and sender_script_pubkey == namespace_reveal_nameop['sender']:
-            return True 
-         
-      return False 
-   
-   
-   def has_preordered_name( self, name, sender_script_pubkey ):
-      """
-      Given the fully-qualified name (name.ns_id) and a sender's script_pubkey 
-      hex string, see if the sender did in fact preorder this name.
-      Return True if so.
-      Return False if not.
-      """
-      try:
-         name_hash = hash_name(name, sender_script_pubkey)
-      except ValueError:
-         raise 
-         return False
-
-      if name_hash in self.preorders.keys():
-         
-         log.info( "%s: %s" % (name_hash, self.preorders[name_hash]) )
-         if sender_script_pubkey == self.preorders[name_hash]['sender']:
-            
-            return True
-         else:
-            self.log( "requester: %s; preorderer: %s" % (sender_script_pubkey, self.preorders[name_hash]['sender']) )
-            return False
-         
-      else:
-         log.info("%s not found" % name_hash)
- 
-      return False
-
-
    def is_name_owner( self, name, sender_script_pubkey ):
       """
       Given the fully-qualified name (name.ns_id) and a list of senders'
@@ -675,12 +631,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
       """
       Given the block ID, go find and remove all expired namespace preorders
       """
-      for (namespace_id_hash, nameop_list) in self.namespace_preorders.items():
-          if len(nameop_list) != 1:
-              continue 
+      for (namespace_id_hash, preorder_nameop) in self.namespace_preorders.items():
           
-          # just a preorder
-          preorder_nameop = nameop_list[0]
           if preorder_nameop['block_number'] + NAMESPACE_PREORDER_EXPIRE <= block_id:
               # expired 
               log.debug("Expire namespace preorder '%s'" % namespace_id_hash)
@@ -781,6 +733,10 @@ class BlockstoreDB( virtualchain.StateEngine ):
       sender = nameop['sender']
       address = nameop['address']
       
+      # NOTE: on renewals, these fields should match the above two fields.
+      recipient = nameop['recipient']
+      recipient_address = nameop['recipient_address']
+      
       # did this name collide with another name?
       if nameop.get('collision') is not None:
          # do nothing--this name collided 
@@ -797,14 +753,15 @@ class BlockstoreDB( virtualchain.StateEngine ):
     
           name_record = {
             'value_hash': None,             # i.e. the hex hash of profile data in immutable storage.
-            'sender': str(sender),
+            'sender': str(recipient),           # the recipient is the expected future sender
             'first_registered': current_block_number,
             'last_renewed': current_block_number,
-            'address': address,
+            'address': recipient_address,
+            'revoked': False
           }
     
           self.name_records[ name ] = name_record 
-          self.owner_names[ sender ].append( str(name) )
+          self.owner_names[ recipient ].append( str(name) )
           self.hash_names[ hash256_trunc128( name ) ] = name 
           self.block_name_renewals[ current_block_number ].append( name )
       
@@ -876,8 +833,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       """
       
       name = nameop['name']
-      
-      self.commit_name_expire( name )
+      self.name_records[name]['revoked'] = True
       
       
    def commit_name_import( self, nameop, current_block_number ):
@@ -895,7 +851,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
         'sender': recipient,
         'first_registered': current_block_number,
         'last_renewed': current_block_number,
-        'address': recipient_address
+        'address': recipient_address,
+        'revoked': False
       }
 
       self.name_records[ name ] = name_record 
@@ -929,6 +886,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       The namespace will be revealed, but not yet ready
       (i.e. we know its parameters, but only the sender can operate on its names)
+      
+      The namespace will be owned by the recipient, not the sender.
       """
       
       # collision?
@@ -937,7 +896,6 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       namespace_id = nameop['namespace_id']
       namespace_id_hash = nameop['namespace_id_hash']
-      sender = nameop['sender']
       
       nameop['block_number'] = block_number
       self.namespace_reveals[ namespace_id ] = nameop
@@ -1072,6 +1030,11 @@ class BlockstoreDB( virtualchain.StateEngine ):
           log.debug("Sender '%s' exceeded name quota of %s" % (sender, MAX_NAMES_PER_SENDER ))
           return False
       
+      # burn fee must be present 
+      if not 'op_fee' in nameop:
+          log.debug("Missing preorder fee")
+          return False 
+      
       return True 
   
       
@@ -1092,6 +1055,11 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       name = nameop['name']
       sender = nameop['sender']
+      address = nameop['address']
+      
+      # address mixed into the preorder
+      register_addr = nameop['recipient_address']
+      
       name_fee = None
       namespace = None
       
@@ -1100,6 +1068,11 @@ class BlockstoreDB( virtualchain.StateEngine ):
           log.debug("Malformed name '%s': non-base-38 characters" % name)
           return False
       
+      # name must not be revoked 
+      if self.is_name_revoked( name ):
+          log.debug("Name '%s' is revoked" % name)
+          return False 
+      
       namespace_id = get_namespace_from_name( name )
       
       # namespace must exist and be ready 
@@ -1107,8 +1080,11 @@ class BlockstoreDB( virtualchain.StateEngine ):
           log.debug("Namespace '%s' is not ready" % namespace_id)
           return False
         
+      # get namespace...
+      namespace = self.get_namespace( namespace_id )
+      
       # preordered?
-      name_preorder = self.get_name_preorder( name, sender )
+      name_preorder = self.get_name_preorder( name, sender, register_addr )
       if name_preorder is not None:
           
           # name must be preordered by the same sender 
@@ -1122,23 +1098,38 @@ class BlockstoreDB( virtualchain.StateEngine ):
              self.disallow_registration( pending_nameops[ NAME_REGISTRATION ], name )
              return False
       
+          # name can't be registered if it was reordered before its namespace was ready 
+          if namespace['block_number'] < block_id:
+             log.debug("Name '%s' preordered before namespace '%s' was ready" % (name, namespace_id))
+             return False
+          
+          # fee was included in the preorder
+          if not 'op_fee' in name_preorder:
+             log.debug("Name '%s' preorder did not pay the fee" % (name))
+             return False 
+         
+          name_fee = name_preorder['op_fee']
+      
       
       elif self.is_name_registered( name ):
           
-          # name must be owned by this sender 
-          if not self.is_name_owner( name, sender ):
-              log.debug("Name '%s' not owned by %s" % (name, sender))
+          # name must be owned by the recipient already
+          if not self.is_name_owner( name, recipient ):
+              log.debug("Name '%s' not owned by %s" % (name, recipient))
               return False 
+          
+          # fee borne by the renewal
+          if not 'op_fee' in nameop:
+              log.debug("Name '%s' renewal did not pay the fee" % (name))
+              return False 
+          
+          name_fee = nameop['op_fee']
           
       else:
           
           # does not exist and not preordered
-          log.debug("Name '%s' was not preordered" % name)
+          log.debug("Name '%s' was not preordered by %s" % (name, sender))
           return False 
-      
-      
-      namespace = self.get_namespace( namespace_id )
-      name_fee = name_preorder['fee']
       
       # check name fee 
       namespace_base_price = namespace['cost']
@@ -1148,7 +1139,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       # fee must be high enough
       if name_fee < price_name( name_without_namespace, namespace_base_price, namespace_price_decay ):
-          log.debug("Name '%s' costs %s, but sender paid %s" % (name, price_name( name_without_namespace, namespace_base_price, namespace_price_decay ), name_fee ))
+          log.debug("Name '%s' costs %s, but paid %s" % (name, price_name( name_without_namespace, namespace_base_price, namespace_price_decay ), name_fee ))
           return False
       
       # regster/renewal 
@@ -1175,6 +1166,11 @@ class BlockstoreDB( virtualchain.StateEngine ):
          log.debug("Unable to resolve name consensus hash '%s' to name" % name_consensus_hash)
          # nothing to do--write is stale or on a fork
          return False
+      
+      # name must not be revoked 
+      if self.is_name_revoked( name ):
+          log.debug("Name '%s' is revoked" % name)
+          return False 
       
       namespace_id = get_namespace_from_name( name )
       
@@ -1226,6 +1222,11 @@ class BlockstoreDB( virtualchain.StateEngine ):
          # invalid 
          log.debug("No name found for '%s'" % name_hash )
          return False 
+      
+      # name must not be revoked 
+      if self.is_name_revoked( name ):
+          log.debug("Name '%s' is revoked" % name)
+          return False 
       
       namespace_id = get_namespace_from_name( name )
       
@@ -1295,6 +1296,11 @@ class BlockstoreDB( virtualchain.StateEngine ):
           log.debug("Malformed name '%s': non-base-38 characters" % name)
           return False
       
+      # name must not be revoked 
+      if self.is_name_revoked( name ):
+          log.debug("Name '%s' is revoked" % name)
+          return False 
+      
       namespace_id = get_namespace_from_name( name )
       
       # namespace must be ready 
@@ -1349,13 +1355,17 @@ class BlockstoreDB( virtualchain.StateEngine ):
           log.debug("Name '%s' already exists" % name )
           return False
       
-      # sender must be the same as the namespace's sender
-      if sender != namespace['sender']:
+      # sender must be the same as the the person who revealed the namespace
+      if sender != namespace['recipient']:
           log.debug("Name '%s' is not sent by the namespace owner")
           return False 
       
       # sender must have paid enough 
-      name_fee = nameop['fee']
+      if not 'op_fee' in nameop:
+          log.debug("Name '%s' import did not pay the fee" % name)
+          return False 
+      
+      name_fee = nameop['op_fee']
       
       # check name fee 
       namespace_base_price = namespace['cost']
@@ -1387,7 +1397,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       # namespace must not exist
       for pending_namespace_preorder in pending_nameops[ NAMESPACE_PREORDER ]:
          if pending_namespace_preorder['namespace_id_hash'] == namespace_id_hash:
-            log.debug("Namespace hash '%s' is already preordered")
+            log.debug("Namespace hash '%s' is already preordered" % namespace_id_hash)
             return False
       
       # cannot be preordered already
@@ -1398,6 +1408,11 @@ class BlockstoreDB( virtualchain.StateEngine ):
       # has to have a reasonable consensus hash
       if not self.is_consensus_hash_valid( block_id, consensus_hash ):
           log.debug("Invalid consensus hash '%s'" % consensus_hash )
+          return False 
+      
+      # has to have paid a fee 
+      if not 'op_fee' in nameop:
+          log.debug("Missing namespace preorder fee")
           return False 
       
       return True 
@@ -1417,7 +1432,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       namespace_id = nameop['namespace_id']
       namespace_id_hash = nameop['namespace_id_hash']
       sender = nameop['sender']
-      namespace = None
+      namespace_preorder = None
       
       # well-formed?
       if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
@@ -1437,14 +1452,14 @@ class BlockstoreDB( virtualchain.StateEngine ):
          return False 
       
       # must currently be preordered
-      namespace = self.get_namespace_preorder( namespace_id_hash )
-      if namespace is None:
+      namespace_preorder = self.get_namespace_preorder( namespace_id_hash )
+      if namespace_preorder is None:
          # not preordered 
          log.debug("Namespace '%s' is not preordered" % namespace_id )
          return False 
      
       # must be sent by the same person who preordered it
-      if namespace['sender'] != sender:
+      if namespace_preorder['sender'] != sender:
          # not sent by the preorderer 
          log.debug("Namespace '%s' is not preordered by '%s'" % (namespace_id, sender))
       
@@ -1454,14 +1469,22 @@ class BlockstoreDB( virtualchain.StateEngine ):
          self.disallow_reveal( pending_nameops[ NAMESPACE_REVEAL ], namespace_id )
          return False
       
+      # must be a version we support 
+      if nameop['version'] != BLOCKSTORE_VERSION:
+         log.debug("Namespace '%s' requires version %s, but this blockstore is version %s" % (nameop['version'], BLOCKSTORE_VERSION))
+         return False
+      
       # check fee...
-      namespace_preorder = self.get_namespace_preorder( namespace_id_hash )
-      namespace_fee = namespace_preorder['fee']
+      if not 'op_fee' in namespace_preorder:
+         log.debug("Namespace '%s' preorder did not pay the fee" % (namespace_id))
+         return False 
+     
+      namespace_fee = namespace_preorder['op_fee']
       
       # must have paid enough 
-      if namespace_fee < price_name( namespace_id, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY ):
+      if namespace_fee < price_name( namespace_id, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY, minimum_cost=NAMESPACE_MINIMUM_COST ):
          # not enough money 
-         log.debug("Namespace '%s' costs %s, but sender paid %s" % (namespace_id, price_name(namespace_id, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY), namespace_fee ))
+         log.debug("Namespace '%s' costs %s, but sender paid %s" % (namespace_id, price_name(namespace_id, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY, minimum_cost=NAMESPACE_MINIMUM_COST), namespace_fee ))
          return False
           
       # can begin import
@@ -1484,9 +1507,9 @@ class BlockstoreDB( virtualchain.StateEngine ):
          log.debug("Namespace '%s' is not revealed" % namespace_id )
          return False 
       
-      # must have been sent by the same person who revealed it (and thus preordered it)
+      # must have been sent by the same person who revealed it
       revealed_namespace = self.get_namespace_reveal( namespace_id )
-      if revealed_namespace['sender'] != sender:
+      if revealed_namespace['recipient'] != sender:
          log.debug("Namespace '%s' is not owned by '%s'" % (namespace_id, sender))
          return False 
       
@@ -1535,7 +1558,7 @@ def get_name_from_fq_name( name ):
    return name.split(".")[0]
 
 
-def price_name( name, namespace_base_price, namespace_decay ):
+def price_name( name, namespace_base_price, namespace_decay, minimum_cost=1 ):
    """
    Calculate the price of a name (without its namespace ID), given the 
    namespace base price and price decay exponent.
@@ -1550,8 +1573,8 @@ def price_name( name, namespace_base_price, namespace_decay ):
    price = math.ceil( price / (namespace_decay**(len(name)-1)) )
    
    # price cannot be lower than 1 satoshi
-   if price < 1:
-      price = 1
+   if price < minimum_cost:
+      price = minimum_cost
    
    return int(price)
 
@@ -1577,5 +1600,5 @@ def is_namespace_mining_fee_sufficient( namespace_id, mining_fee ):
    Return False if not.
    """
    
-   name_price = price_name(namespace_id, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY)
+   name_price = price_name(namespace_id, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY, minimum_cost=NAMESPACE_MINIMUM_COST)
    return (mining_fee >= name_price)
