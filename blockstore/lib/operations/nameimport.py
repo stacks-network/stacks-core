@@ -34,19 +34,18 @@ from ..config import *
 from ..scripts import blockstore_script_to_hex, add_magic_bytes
 from ..hashing import hash256_trunc128
 
-def calculate_basic_name_tx_fee():
-    return DEFAULT_OP_RETURN_FEE
-
-
 def get_import_update_hash_from_outputs( outputs, recipient ):
     """
-    Given the outputs from a name import operation, and the
-    recipient's script_pubkey string, find the update hash output.
+    This is meant for NAME_IMPORT operations, which 
+    have five outputs:  the OP_RETURN, the sender (i.e.
+    the namespace owner), the name's recipient, the
+    name's update hash, and the burn output.
+    This method extracts the name update hash from
+    the list of outputs.
     
-    By construction, it will be the address of the second non-OP_RETURN 
-    output (i.e. the third output).  By process of 
-    elimination, it will be the only non-OP_RETURN output 
-    that is not the recipient.
+    By construction, the update hash address in 
+    the NAME_IMPORT operation is the first 
+    non-OP_RETURN output that is *not* the recipient.
     """
     
     ret = None
@@ -99,39 +98,43 @@ def build(name, testset=False):
     return packaged_script
 
 
-def make_outputs( data, inputs, new_name_owner_address, change_address, update_hash_b58, format='bin', fee=None, op_return_amount=DEFAULT_OP_RETURN_VALUE, name_owner_amount=DEFAULT_DUST_SIZE):
+def make_outputs( data, inputs, recipient_address, sender_address, update_hash_b58, fee, format='bin'):
     """
     Builds the outputs for a name import:
     * [0] is the OP_RETURN 
     * [1] is the new owner (recipient)
     * [2] is the update hash
-    * [3] is the debit to the original owner
+    * [3] is the change sent to the original owner
+    * [4] is the fee sent to the *burn address*
     """
-    if fee is None:
-       fee = calculate_basic_name_tx_fee()
-        
-    total_to_send = op_return_amount + name_owner_amount + DEFAULT_DUST_SIZE
+    
+    # (besides the fee...)
+    total_to_send = DEFAULT_OP_RETURN_FEE + DEFAULT_DUST_FEE * 2 + max(fee, DEFAULT_DUST_FEE) + len(inputs) * DEFAULT_DUST_FEE
     
     return [
         # main output
         {"script_hex": make_op_return_script(data, format=format),
-         "value": op_return_amount},
+         "value": DEFAULT_OP_RETURN_FEE},
     
-        # new name owner output
-        {"script_hex": make_pay_to_address_script(new_name_owner_address),
-         "value": name_owner_amount},
+        # recipient output
+        {"script_hex": make_pay_to_address_script(recipient_address),
+         "value": DEFAULT_DUST_FEE},
         
         # update hash output
         {"script_hex": make_pay_to_address_script(update_hash_b58),
-         "value": DEFAULT_DUST_SIZE},
+         "value": DEFAULT_DUST_FEE},
         
         # change output
-        {"script_hex": make_pay_to_address_script(change_address),
-         "value": calculate_change_amount(inputs, total_to_send, fee)}
+        {"script_hex": make_pay_to_address_script(sender_address),
+         "value": calculate_change_amount(inputs, total_to_send, DEFAULT_DUST_FEE)},
+        
+        # burn output 
+        {"script_hex": make_pay_to_address_script(BLOCKSTORE_BURN_ADDRESS),
+         "value": max(fee, DEFAULT_DUST_FEE)}
     ]
 
 
-def broadcast(name, destination_address, update_hash, private_key, blockchain_client, fee=None, testset=False):
+def broadcast(name, recipient_address, update_hash, private_key, blockchain_client, fee, testset=False):
    
     nulldata = build(name, testset=testset)
     
@@ -142,7 +145,7 @@ def broadcast(name, destination_address, update_hash, private_key, blockchain_cl
     update_hash_b58 = b58check_encode( unhexlify(update_hash) )
     
     # build custom outputs here
-    outputs = make_outputs(nulldata, inputs, destination_address, from_address, update_hash_b58, fee=fee, format='hex')
+    outputs = make_outputs(nulldata, inputs, recipient_address, from_address, update_hash_b58, fee, format='hex')
     
     # serialize, sign, and broadcast the tx
     response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_client)
