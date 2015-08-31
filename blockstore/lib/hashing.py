@@ -29,12 +29,16 @@ from .b40 import b40_to_bin
 from .config import LENGTHS
 
 
-def hash_name(name, script_pubkey):
+def hash_name(name, script_pubkey, register_addr=None):
    """
-   Generate the hash over a name and hex-string script pubkey.
+   Generate the hash over a name and hex-string script pubkey
    """
    bin_name = b40_to_bin(name)
    name_and_pubkey = bin_name + unhexlify(script_pubkey)
+   
+   if register_addr is not None:
+       name_and_pubkey += str(register_addr)
+       
    return hex_hash160(name_and_pubkey)
 
 
