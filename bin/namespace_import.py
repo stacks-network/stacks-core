@@ -27,7 +27,7 @@ def pretty_dump(json_str):
     return json.dumps(json_str, sort_keys=True, indent=4, separators=(',', ': '))
 
 
-def send_checkpoint( chaincom_client, privkey_str, checkpoint_str="https://blockstack.org/summit" ):
+def send_checkpoint( chaincom_client, privkey_str, checkpoint_str="http://blockstack.org/summit" ):
     """
     Write an OP_RETURN to the blockchain, to checkpoint our progress.
     Should be written every Nth name.
@@ -113,11 +113,18 @@ if __name__ == "__main__":
     # resume from where we left off...
     try:
         # should contain newline-separated list of names we've processed so far
-        log_fd = open( logfile_path, "r+" )
-        failed_fd = open( failed_path, "r+" )
+        if not os.path.exists( logfile_path ):
+            log_fd = open( logfile_path, "w+" )
+        else:
+            log_fd = open( logfile_path, "r+" )
+        
+        if not os.path.exists( failed_path ):
+            failed_fd = open( failed_path, "w+" )
+        else:
+            failed_fd = open( failed_path, "r+" )
         
         processed_so_far_lines = log_fd.read()
-        failed_lines = failed_fd.read()
+        failed_fd.seek( 0, 2 )
         
     except Exception, e:
         traceback.print_exc()
@@ -125,7 +132,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     processed_so_far = processed_so_far_lines.split("\n")
-    failed = failed_lines.split("\n")
+    num_processed_so_far = len(processed_so_far)
     
     # each line in the log is a JSON object...
     for imported_name_json in processed_so_far:
@@ -153,7 +160,7 @@ if __name__ == "__main__":
         if fqn in imported_names.keys():
             continue 
 
-        print "name_import" + fqn + " " + address + " " + update_hash
+        print "name_import " + fqn + " " + address + " " + update_hash
 
         try:
             result = client.name_import( fqn, address, update_hash, privkey_str )
@@ -161,7 +168,6 @@ if __name__ == "__main__":
             traceback.print_exc()
             print >> sys.stderr, "register '%s' failed:\n%s\n" % (fqn, traceback.format_exc())
             
-            failed.append( fqn )
             failed_fd.write( "%s\n" % (fqn))
             failed_fd.flush()
             continue 
@@ -173,13 +179,12 @@ if __name__ == "__main__":
             print >> sys.stderr, "register '%s' failed:\n%s\n" % (fqn, pp.pformat(result))
             print >> sys.stderr, pretty_dump( result )
             
-            failed.append( fqn )
             failed_fd.write( "%s\n" % (fqn))
             failed_fd.flush()
             continue 
         
         # record progress
-        processed_so_far.append( fqn )
+        num_processed_so_far += 1
         
         result['name'] = fqn
         result_str = json.dumps( result )
@@ -191,7 +196,7 @@ if __name__ == "__main__":
         
         time.sleep(20)
         
-        if (len(processed_so_far) % 20 == 0):
+        if (num_processed_so_far % 20 == 0):
             
             checkpoint_tx = send_checkpoint( chaincom_client, privkey_str )
             print pretty_dump( checkpoint_tx )
