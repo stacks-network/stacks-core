@@ -320,43 +320,37 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         return reply
 
 
-    def jsonrpc_preorder(self, name, privatekey):
+    def jsonrpc_preorder(self, name, register_addr, privatekey):
         """ Preorder a name
         """
         
         blockchain_client_inst = get_utxo_provider_client()
         if blockchain_client_inst is None:
-           return {"error": "Failed to connect to blockchain UTXO provider"}
+            return {"error": "Failed to connect to blockchain UTXO provider"}
         
         db = get_state_engine()
         consensus_hash = db.get_current_consensus()
+        
         if not consensus_hash:
+            # consensus hash must exist
             return {"error": "Nameset snapshot not found."}
          
         if db.is_name_registered( name ):
+            # name can't be registered
             return {"error": "Name already registered"}
 
-        # if this name is part of a namespace import, the fee will be borne 
-        # by the register, not the preorder.
-        # otherwise, names imported into readied namespaces will be paid for 
-        # at the time or preorder.
-        name_fee = None 
+        namespace_id = get_namespace_from_name( name )
         
-        if not db.is_name_part_of_any_import( name ):
-            
-            # this name is NOT getting imported.
-            # the preorder op will bear the fee imposed by the readied namespace
-            name_fee = get_name_cost( name )
+        if not db.is_namespace_ready( namespace_id ):
+            # namespace must be ready; otherwise this is a waste
+            return {"error": "Namespace is not ready"}
         
-        else:
-            
-            # imported preorders have a fixed cost
-            name_fee = DEFAULT_OP_RETURN_FEE
+        name_fee = get_name_cost( name )
             
         log.debug("The price of '%s' is %s satoshis" % (name, name_fee))
         
         try:
-            resp = preorder_name(str(name), str(consensus_hash), str(privatekey), blockchain_client_inst, name_fee, testset=TESTSET)
+            resp = preorder_name(str(name), str(register_addr), str(consensus_hash), str(privatekey), blockchain_client_inst, name_fee, testset=TESTSET)
         except:
             return json_traceback()
 
@@ -365,7 +359,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         return resp
 
 
-    def jsonrpc_register(self, name, privatekey):
+    def jsonrpc_register(self, name, register_addr, privatekey, renewal_fee=None):
         """ Register a name
         """
         
@@ -376,11 +370,12 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         log.info("name: %s" % name)
         db = get_state_engine()
         
-        if db.is_name_registered( name ):
+        if db.is_name_registered( name ) and renewal_fee is None:
+            # *must* be given, so we don't accidentally charge
             return {"error": "Name already registered"}
         
         try:
-            resp = register_name(str(name), str(privatekey), blockchain_client_inst, DEFAULT_OP_RETURN_FEE, testset=TESTSET)
+            resp = register_name(str(name), str(register_addr), str(privatekey), blockchain_client_inst, renewal_fee=renewal_fee, testset=TESTSET)
         except:
             return json_traceback()
 
@@ -436,7 +431,16 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         """ Renew a name
         """
         
-        return self.jsonrpc_register( name, privatekey )
+        # renew the name for the caller
+        name_rec = db.get_name( name )
+        if name_rec is None:
+            return {"error": "Name is not registered"}
+        
+        # renew to the caller
+        register_addr = name_rec['address']
+        renewal_fee = get_name_cost( name )
+        
+        return self.jsonrpc_register( name, register_addr, privatekey, renewal_fee=renewal_fee )
    
    
     def jsonrpc_revoke( self, name, privatekey ):
@@ -470,12 +474,12 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
             return {"error": "Name already registered"}
 
         # calculate the import fee, plus the extra output fee
-        name_fee = get_name_cost( name ) + DEFAULT_DUST_SIZE
+        name_fee = get_name_cost( name ) + DEFAULT_DUST_FEE
         
         log.debug("The price of '%s' is %s satoshis" % (name, name_fee))
         
         try:
-            resp = name_import( str(name), str(recipient_address), str(update_hash), str(privatekey), blockchain_client_inst, fee=name_fee, testset=TESTSET )
+            resp = name_import( str(name), str(recipient_address), str(update_hash), str(privatekey), blockchain_client_inst, name_fee, testset=TESTSET )
         except:
             return json_traceback()
         
@@ -484,7 +488,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         return resp
         
     
-    def jsonrpc_namespace_preorder( self, namespace_id, privatekey ):
+    def jsonrpc_namespace_preorder( self, namespace_id, register_addr, privatekey ):
         """
         Define the properties of a namespace.
         Between the namespace definition and the "namespace begin" operation, only the 
@@ -499,12 +503,12 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         
         consensus_hash = db.get_current_consensus()
         
-        namespace_fee = price_name(namespace_id, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY) + DEFAULT_OP_RETURN_FEE
+        namespace_fee = price_name(namespace_id, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY, minimum_cost=NAMESPACE_MINIMUM_COST) + DEFAULT_OP_RETURN_FEE
         
         log.debug("Namespace '%s' will cost %s satoshis" % (namespace_id, namespace_fee))
         
         try:
-           resp = namespace_preorder( str(namespace_id), str(consensus_hash), str(privatekey), blockchain_client_inst, namespace_fee, testset=TESTSET )
+           resp = namespace_preorder( str(namespace_id), str(register_addr), str(consensus_hash), str(privatekey), blockchain_client_inst, namespace_fee, testset=TESTSET )
         except:
            return json_traceback()
         
@@ -512,7 +516,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         return resp 
     
     
-    def jsonrpc_namespace_reveal( self, namespace_id, lifetime, base_name_cost, cost_decay_rate, privatekey ):
+    def jsonrpc_namespace_reveal( self, namespace_id, register_addr, lifetime, base_name_cost, cost_decay_rate, privatekey ):
         """
         Reveal and define the properties of a namespace.
         Between the namespace definition and the "namespace begin" operation, only the 
@@ -524,7 +528,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
            return {"error": "Failed to connect to blockchain UTXO provider"}
         
         try:
-           resp = namespace_reveal( str(namespace_id), int(lifetime), int(base_name_cost), float(cost_decay_rate), str(privatekey), blockchain_client_inst, testset=TESTSET )
+           resp = namespace_reveal( str(namespace_id), str(register_addr), int(lifetime), int(base_name_cost), float(cost_decay_rate), str(privatekey), blockchain_client_inst, testset=TESTSET )
         except:
            return json_traceback()
         
@@ -565,7 +569,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         """
         Return the cost to import a given name.
         """
-        ret = get_name_cost( name ) + DEFAULT_DUST_SIZE
+        ret = get_name_cost( name ) + DEFAULT_DUST_FEE
         if ret is None:
             return {"error": "Invalid namespace"}
         
@@ -576,7 +580,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         """
         Return the cost of a given namespace.
         """
-        ret = price_name(namespace_id, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY) + DEFAULT_OP_RETURN_FEE
+        ret = price_name(namespace_id, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY, minimum=NAMESPACE_MINIMUM_COST) + DEFAULT_OP_RETURN_FEE
         return {"cost": ret}
         
         
