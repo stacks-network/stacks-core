@@ -34,7 +34,7 @@ from . import parsing, schemas, storage, drivers
 from . import user as user_db
 
 import pybitcoin
-import pybitcointools
+import bitcoin as pybitcointools
 import binascii
 
 from .config import log, DEBUG, MAX_RPC_LEN
@@ -424,25 +424,46 @@ def lookup(name, proxy=None):
     return proxy.lookup(name)
 
 
-def preorder(name, privatekey, proxy=None):
+def preorder(name, privatekey, register_addr=None, proxy=None):
     """
-    preorder
+    preorder.
+    Generate a private key to derive a change address for the register,
+    if one is not given already.
     """
 
+    register_privkey_wif = None 
+    
+    if register_addr is None:
+        privkey = pybitcoin.BitcoinPrivateKey()
+        pubkey = privkey.public_key()
+        
+        register_addr = pubkey.to_wif()
+        
+        register_privkey_wif = privkey.to_wif()
+        print register_privkey_wif
+        print register_addr
+    
     resp = {}
 
     if proxy is None:
         proxy = get_default_proxy()
 
     try:
-        resp = proxy.preorder(name, privatekey)
+        resp = proxy.preorder(name, register_addr, privatekey)
     except Exception as e:
         resp['error'] = str(e)
 
+    if 'error' in resp:
+        return resp
+    
+    # give the client back the key to the addr we used 
+    if register_privkey_wif is not None:
+        resp[0]['register_privatekey'] = register_privkey_wif
+    
     return resp
 
 
-def register(name, privatekey, proxy=None):
+def register(name, register_addr, privatekey, proxy=None):
     """
     register
     """
@@ -450,7 +471,7 @@ def register(name, privatekey, proxy=None):
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.register(name, privatekey)
+    return proxy.register(name, register_addr, privatekey)
 
 
 def update(name, user_json_or_hash, privatekey, txid=None, proxy=None):
@@ -581,18 +602,38 @@ def name_import(name, address, update_hash, privatekey, proxy=None):
     return proxy.name_import(name, address, update_hash, privatekey)
 
 
-def namespace_preorder(namespace_id, privatekey, proxy=None):
+def namespace_preorder(namespace_id, privatekey, reveal_addr=None, proxy=None):
     """
     namespace preorder
+    Generate a register change address private key, if not given 
     """
 
     if proxy is None:
         proxy = get_default_proxy()
+    
+    reveal_privkey_wif = None
+    
+    if reveal_addr is None:
+        privkey = pybitcoin.BitcoinPrivateKey()
+        pubkey = privkey.public_key()
+        reveal_addr = pubkey.address()
+        
+        reveal_privkey_wif = privkey.to_wif()
+        print reveal_privkey_wif
+        print reveal_addr
+    
+    result = proxy.namespace_preorder(namespace_id, reveal_addr, privatekey )
+    
+    if 'error' in result:
+        return result 
+    
+    if reveal_privkey_wif is not None:
+        result[0]['reveal_privatekey'] = reveal_privkey_wif
+    
+    return result
 
-    return proxy.namespace_preorder(namespace_id, privatekey)
 
-
-def namespace_reveal(namespace_id, lifetime, base_name_cost, cost_decay_rate,
+def namespace_reveal(namespace_id, reveal_addr, lifetime, base_name_cost, cost_decay_rate,
                      privatekey, proxy=None):
     """
     namesapce_reveal
@@ -601,7 +642,7 @@ def namespace_reveal(namespace_id, lifetime, base_name_cost, cost_decay_rate,
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.namespace_reveal(namespace_id, lifetime, base_name_cost,
+    return proxy.namespace_reveal(namespace_id, reveal_addr, lifetime, base_name_cost,
                                   cost_decay_rate, privatekey)
 
 
