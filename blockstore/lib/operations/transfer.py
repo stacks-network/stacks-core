@@ -34,10 +34,6 @@ from ..config import *
 from ..scripts import blockstore_script_to_hex, add_magic_bytes
 from ..hashing import hash256_trunc128
 
-def calculate_basic_name_tx_fee():
-    return DEFAULT_OP_RETURN_FEE
-
-
 def get_transfer_recipient_from_outputs( outputs ):
     """
     Given the outputs from a name transfer operation,
@@ -102,25 +98,23 @@ def build(name, keepdata, consensus_hash, testset=False):
     return packaged_script
 
 
-def make_outputs( data, inputs, new_name_owner_address, change_address, format='bin', fee=None, op_return_amount=DEFAULT_OP_RETURN_VALUE, name_owner_amount=DEFAULT_DUST_SIZE):
+def make_outputs( data, inputs, new_name_owner_address, change_address, format='bin' ):
     """
     Builds the outputs for a name transfer operation.
     """
-    if fee is None:
-        fee = calculate_basic_name_tx_fee()
-        
-    total_to_send = op_return_amount + name_owner_amount
+    
+    total_to_send = DEFAULT_OP_RETURN_FEE + DEFAULT_DUST_FEE + len(inputs) * DEFAULT_DUST_FEE
  
     return [
         # main output
         {"script_hex": make_op_return_script(data, format=format),
-         "value": op_return_amount},
+         "value": DEFAULT_OP_RETURN_FEE},
         # new name owner output
         {"script_hex": make_pay_to_address_script(new_name_owner_address),
-         "value": name_owner_amount},
+         "value": DEFAULT_DUST_FEE},
         # change output
         {"script_hex": make_pay_to_address_script(change_address),
-         "value": calculate_change_amount(inputs, total_to_send, fee)}
+         "value": calculate_change_amount(inputs, total_to_send, DEFAULT_OP_RETURN_FEE)}
     ]
 
 
