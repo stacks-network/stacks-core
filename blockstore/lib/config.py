@@ -23,6 +23,7 @@
 
 import os
 from ConfigParser import SafeConfigParser
+import pybitcoin
 
 import virtualchain
 
@@ -31,6 +32,9 @@ TESTNET = False
 TESTSET = False
 
 VERSION = "v0.01-beta"
+
+# namespace version 
+BLOCKSTORE_VERSION = 1
 
 """ constants
 """
@@ -144,7 +148,6 @@ OPCODES = [
    NAMESPACE_REVEAL,
    NAMESPACE_READY
 ]
-   
 
 NAMESPACE_LIFE_INFINITE = 0xffffffff
 
@@ -162,8 +165,9 @@ LENGTHS = {
     'data_hash': 20,
     'blockchain_id_name': 34,
     'blockchain_id_namespace_life': 4,
-    'blockchain_id_namespace_cost': 8,
+    'blockchain_id_namespace_cost': 7,
     'blockchain_id_namespace_price_decay': 4,
+    'blockchain_id_namespace_version': 2,
     'blockchain_id_namespace_id': 19
 }
 
@@ -176,7 +180,7 @@ MIN_OP_LENGTHS = {
     'name_import': LENGTHS['name_min'],
     'namespace_preorder': LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'],
     'namespace_reveal': LENGTHS['blockchain_id_namespace_life'] + LENGTHS['blockchain_id_namespace_cost'] + \
-                        LENGTHS['blockchain_id_namespace_price_decay'] + 1 + LENGTHS['name_min'],
+                        LENGTHS['blockchain_id_namespace_price_decay'] + LENGTHS['blockchain_id_namespace_version'] + LENGTHS['name_min'],
     'namespace_ready': 1 + LENGTHS['name_min']
 }
 
@@ -186,7 +190,7 @@ OP_RETURN_MAX_SIZE = 40
 """
 
 DEFAULT_OP_RETURN_FEE = 10000
-DEFAULT_DUST_SIZE = 5500
+DEFAULT_DUST_FEE = 5500
 DEFAULT_OP_RETURN_VALUE = 0
 DEFAULT_FEE_PER_KB = 10000
 
@@ -199,21 +203,31 @@ PRICE_DROP_PER_LETTER = 10
 PRICE_DROP_FOR_NON_ALPHABETIC = 10
 ALPHABETIC_PRICE_FLOOR = 10**4
 
+# NAMESPACE_BASE_COST = 64 * SATOSHIS_PER_BTC
 NAMESPACE_BASE_COST = SATOSHIS_PER_BTC
-NAMESPACE_COST_DECAY = 3.0
+NAMESPACE_COST_DECAY = 4.0
+# NAMESPACE_MINIMUM_COST = SATOSHIS_PER_BTC / 10  # 0.1 BTC
+NAMESPACE_MINIMUM_COST = 1
 
 NAMESPACE_PREORDER_EXPIRE = BLOCKS_PER_DAY      # namespace preorders expire after 1 day, if not revealed
 NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_YEAR       # namespace reveals expire after 1 year, if not readied.
+
+# burn address for fees (the address of public key 0x0000000000000000000000000000000000000000)
+BLOCKSTORE_BURN_ADDRESS = "1111111111111111111114oLvT2"
 
 # default namespace record (i.e. for names with no namespace ID)
 NAMESPACE_DEFAULT = {
    'opcode': 'NAMESPACE_REVEAL',
    'lifetime': EXPIRATION_PERIOD,
-   'cost': 1,
-   'price_decay': float(PRICE_DROP_PER_LETTER),
+   'cost': 100000000000L,
+   'price_decay': 1.0,
    'namespace_id': None,
    'namespace_id_hash': "",
-   'sender': ""
+   'sender': "",
+   'recipient': "",
+   'address': "",
+   'recipient_address': "",
+   'version': BLOCKSTORE_VERSION
 }
 
 
