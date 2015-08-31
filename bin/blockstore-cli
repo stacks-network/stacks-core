@@ -216,7 +216,7 @@ def run_cli():
       help='the name that you want to import')
     subparser.add_argument(
       'address', type=str,
-      help='the new owner Bitcoin address')
+      help='the new owner\'s Bitcoin address')
     subparser.add_argument(
       'hash', type=str,
       help='hash of the storage index to associate with the name')
@@ -234,6 +234,11 @@ def run_cli():
     subparser.add_argument(
       'privatekey', type=str,
       help='the privatekey of the namespace creator')
+    subparser.add_argument(
+      'address', type=str, nargs='?',
+      help='[OPTIONAL] the address of private key that will reveal this namespace (should be different from the private key given here).  \
+      If not given, a new private key will be generated, and it must be submitted as the address on namespace_reveal.')
+    
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -242,6 +247,9 @@ def run_cli():
     subparser.add_argument( 
       'namespace_id', type=str, 
       help='the human-readable namespace identifier')
+    subparser.add_argument(
+      'addr', type=str,
+      help='the address that will import names into the namespace, and open it for registration')
     subparser.add_argument(
       'lifetime', type=int,
       help='the number of blocks for which a name will be valid (any value less than zero means "forever")')
@@ -253,7 +261,7 @@ def run_cli():
       help='the rate at which the value of a name decays, based on its length: if L is the length, R is the rate (this argument), and B is the base name cost, then the cost per name shall be ceil(B / (R^(L-1)))')
     subparser.add_argument(
       'privatekey', type=str,
-      help='the privatekey of the namespace creator')
+      help='the privatekey of the namespace revealer')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -281,6 +289,10 @@ def run_cli():
     subparser.add_argument(
       'privatekey', type=str,
       help='the private key of the Bitcoin address that will own the name')
+    subparser.add_argument(
+      'address', type=str,
+      help='[OPTIONAL] the address of the private key that will register the name (should be different from the private key given here). \
+      If not given, a new private key will be generated, and its address must be submitted upon register.')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -316,10 +328,13 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
       'register',
-      help='<name> <privatekey> | register/claim a name')
+      help='<name> <addr> <privatekey> | register/claim a name')
     subparser.add_argument(
       'name', type=str,
       help='the name that you want to register/claim')
+    subparser.add_argument(
+      'addr', type=str,
+      help='the address that will own the name')
     subparser.add_argument(
       'privatekey', type=str,
       help='the private key of the Bitcoin address that will own the name')
@@ -376,6 +391,9 @@ def run_cli():
     subparser.add_argument(
       'privatekey', type=str,
       help='the privatekey of the owner Bitcoin address')
+    subparser.add_argument(
+      'txid', type=str, nargs='?',
+      help='[OPTIONAL] the transaction ID of the previously-attempted, partially-successful update')
 
     # Print default help message, if no argument is given
     if len(sys.argv) == 1:
@@ -392,10 +410,15 @@ def run_cli():
         result = client.ping()
 
     elif args.action == 'preorder':
-        result = client.preorder(str(args.name), str(args.privatekey))
+        
+        register_addr = None 
+        if args.address is not None:
+            register_addr = str(args.address)
+            
+        result = client.preorder(str(args.name), str(args.privatekey), register_addr=register_addr )
 
     elif args.action == 'register':
-        result = client.register(str(args.name), str(args.privatekey))
+        result = client.register(str(args.name), str(args.addr), str(args.privatekey))
 
     elif args.action == 'update':
 
@@ -424,11 +447,19 @@ def run_cli():
         result = client.name_import(str(args.name), str(args.address), str(args.hash), str(args.privatekey))
         
     elif args.action == 'namespace_preorder':
+        
+        reveal_addr = None 
+        if args.address is not None:
+            reveal_addr = str(args.address)
+        
         result = client.namespace_preorder(str(args.namespace_id),
-                                           str(args.privatekey))
+                                           str(args.privatekey),
+                                           reveal_addr=reveal_addr)
+        
 
     elif args.action == 'namespace_reveal':
         result = client.namespace_reveal(str(args.namespace_id),
+                                         str(args.addr),
                                          int(args.lifetime),
                                          int(args.base_name_cost),
                                          float(args.cost_decay_rate),
