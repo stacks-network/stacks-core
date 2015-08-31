@@ -34,7 +34,7 @@ from parsing import json_stable_serialize
 import schemas
 
 import pybitcoin
-import pybitcointools
+import bitcoin as pybitcointools
 import types
 import re
 import base64
