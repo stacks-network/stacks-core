@@ -31,7 +31,7 @@ from ..scripts import blockstore_script_to_hex, add_magic_bytes, get_script_pubk
 from ..hashing import hash_name
 
 
-def build(name, script_pubkey, consensus_hash, testset=False):
+def build(name, script_pubkey, register_addr, consensus_hash, testset=False):
     """
     Takes a name, including the namespace ID (but not the id: scheme), a script_publickey to prove ownership
     of the subsequent NAME_REGISTER operation, and the current consensus hash for this block (to prove that the 
@@ -41,9 +41,9 @@ def build(name, script_pubkey, consensus_hash, testset=False):
     
     Record format:
     
-    0     2  3                               23             39
-    |-----|--|-------------------------------|--------------|
-    magic op  hash(name.ns_id,script_pubkey)  consensus hash
+    0     2  3                                              23             39
+    |-----|--|----------------------------------------------|--------------|
+    magic op  hash(name.ns_id,script_pubkey,register_addr)   consensus hash
     
     """
     
@@ -54,7 +54,7 @@ def build(name, script_pubkey, consensus_hash, testset=False):
     if len(NAME_SCHEME) + len(name) > LENGTHS['blockchain_id_name']:
        raise Exception("Name '%s' is too long; exceeds %s bytes" % (name, LENGTHS['blockchain_id_name'] - len(NAME_SCHEME)))
     
-    name_hash = hash_name(name, script_pubkey)
+    name_hash = hash_name(name, script_pubkey, register_addr=register_addr)
 
     script = 'NAME_PREORDER 0x%s 0x%s' % (name_hash, consensus_hash)
     hex_script = blockstore_script_to_hex(script)
@@ -63,18 +63,52 @@ def build(name, script_pubkey, consensus_hash, testset=False):
     return packaged_script
 
 
-def broadcast(name, consensus_hash, private_key, blockchain_client, fee, testset=False):
+def make_outputs( data, inputs, change_addr, fee, format='bin' ):
+    """
+    Make outputs for a name preorder:
+    [0] OP_RETURN with the name 
+    [1] change address with the NAME_PREORDER sender's address
+    [2] pay-to-address with the *burn address* with the fee
+    """
+    
+    total_to_send = DEFAULT_OP_RETURN_FEE + min(fee, DEFAULT_OP_RETURN_FEE) + len(inputs) * DEFAULT_DUST_FEE
+    
+    return [
+        # main output
+        {"script_hex": make_op_return_script(data, format=format),
+         "value": DEFAULT_OP_RETURN_FEE},
+        
+        # change address
+        {"script_hex": make_pay_to_address_script(change_addr),
+         "value": calculate_change_amount(inputs, total_to_send, DEFAULT_OP_RETURN_FEE)},
+        
+        # burn address
+        {"script_hex": make_pay_to_address_script(BLOCKSTORE_BURN_ADDRESS),
+         "value": min(fee, DEFAULT_OP_RETURN_FEE)}
+    ]
+
+
+def broadcast(name, register_addr, consensus_hash, private_key, blockchain_client, fee, testset=False):
     """
     Builds and broadcasts a preorder transaction.
     """
     
     script_pubkey = get_script_pubkey( private_key )
     
-    nulldata = build( name, script_pubkey, consensus_hash, testset=testset)
-    response = embed_data_in_blockchain( nulldata, private_key, blockchain_client, fee=fee, format='hex')
+    nulldata = build( name, script_pubkey, register_addr, consensus_hash, testset=testset)
+    
+    # get inputs and from address
+    private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
+    
+    # build custom outputs here
+    outputs = make_outputs(nulldata, inputs, register_addr, from_address, format='hex')
+    
+    # serialize, sign, and broadcast the tx
+    response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_client)
     
     # response = {'success': True }
-    response.update( {'data': nulldata, 'consensus_hash': consensus_hash})
+    response.update({'data': nulldata})
+    
     return response
 
 

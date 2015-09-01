@@ -32,30 +32,22 @@ from .namedb import BlockstoreDB, BlockstoreDBIterator
 from ..config import *
 from ..operations import parse_preorder, parse_registration, parse_update, parse_transfer, parse_revoke, \
     parse_name_import, parse_namespace_preorder, parse_namespace_reveal, parse_namespace_ready, \
-    get_transfer_recipient_from_outputs, get_import_update_hash_from_outputs
+    get_transfer_recipient_from_outputs, get_import_update_hash_from_outputs, get_registration_recipient_from_outputs
 
 import virtualchain
 
 log = virtualchain.session.log
 blockstore_db = None
 last_load_time = 0
-
-
-def get_recipient_from_nameop_outputs( outputs ):
+ 
+ 
+def get_burn_fee_from_outputs( outputs ):
     """
-    Find the script_pubkey hex string from the 
-    first non-OP_RETURN transaction in a list of 
-    transaction outputs (i.e. there are expected 
-    to be two transactions for everything except 
-    for NAME_TRANSFER operations: the OP_RETURN with 
-    the 'transfer' operation, and the one with 
-    the script_pubkey).
+    Given the set of outputs, find the fee sent 
+    to our burn address.
     
-    NAME_TRANSFER operations have three outputs:
-    the sender, the receiver, and the OP_RETURN.
-    By construction, the recipient's address in 
-    the NAME_TRANSFER operation is the first 
-    non-OP_RETURN address.
+    Return the fee on success
+    Return None if not found
     """
     
     ret = None
@@ -66,53 +58,18 @@ def get_recipient_from_nameop_outputs( outputs ):
         output_hex = output_script.get('hex')
         output_addresses = output_script.get('addresses')
         
-        if output_asm[0:9] != 'OP_RETURN' and output_hex:
-            
-            ret = output_hex 
-            break
-            
-    if ret is None:
-       raise Exception("No recipients found")
-    
-    return ret 
-
-
-def get_update_hash_from_nameop_outputs( outputs, recipient ):
-    """
-    This is mean for NAME_IMPORT operations, which 
-    have three outputs:  the OP_RETURN, the name's 
-    recipient, and the name's update hash.  This 
-    method extracts the name update hash from 
-    the list of outputs.
-    
-    NAME_TRANSFER operations have three outputs:
-    the sender, the receiver, and the OP_RETURN.
-    By construction, the recipient's address in 
-    the NAME_TRANSFER operation is the first 
-    non-OP_RETURN address.
-    """
-    
-    ret = None
-    for output in outputs:
-       
-        output_script = output['scriptPubKey']
-        output_asm = output_script.get('asm')
-        output_hex = output_script.get('hex')
-        output_addresses = output_script.get('addresses')
+        print output
         
-        if output_asm[0:9] != 'OP_RETURN' and output_hex:
+        if output_asm[0:9] != 'OP_RETURN' and BLOCKSTORE_BURN_ADDRESS == output_addresses[0]:
             
-            ret = output_hex 
+            # recipient's script_pubkey and address
+            ret = int(output['value']*(10**8))
             break
-            
-    if ret is None:
-       raise Exception("No recipients found")
     
     return ret 
- 
- 
+    
 
-def parse_blockstore_op_data( opcode, payload, sender, recipient=None, import_update_hash=None ):
+def parse_blockstore_op_data( opcode, payload, sender, recipient=None, recipient_address=None, import_update_hash=None ):
     """
     Parse a string of binary data (nulldata from a blockchain transaction) into a blockstore operation.
     
@@ -162,7 +119,7 @@ def parse_blockstore_op_data( opcode, payload, sender, recipient=None, import_up
         
     elif opcode == NAMESPACE_REVEAL and len(payload) >= MIN_OP_LENGTHS['namespace_reveal']:
         log.debug( "Parse NAMESPACE_REVEAL: %s" % data )
-        op = parse_namespace_reveal( payload, sender )
+        op = parse_namespace_reveal( payload, sender, recipient_address )
          
     elif opcode == NAMESPACE_READY and len(payload) >= MIN_OP_LENGTHS['namespace_ready']:
         log.debug( "Parse NAMESPACE_READY: %s" % data )
@@ -268,10 +225,10 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
    optionally the list of transaction's senders and the total fee paid.
    
    Return a parsed operation, and will also optionally have:
-   * "sender": the first (primary) sender's script_pubkey.  There should be exactly one.
+   * "sender": the first (primary) sender's script_pubkey.
    * "address": the sender's bitcoin address
    * "fee": the total fee paid for this record.
-   * "recipient": the first non-OP_RETURN output's script_pubkey.  There should be exactly one.
+   * "recipient": the first non-OP_RETURN output's script_pubkey.
    
    NOTE: the transactions that our tools put have a single sender, and a single output address.
    This is assumed by this code.  An exception will be raised if these criteria are not met.
@@ -285,9 +242,6 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
    if len(senders) == 0:
       raise Exception("No senders for (%s, %s)" % (opcode, hexlify(data)))
    
-   if len(senders) != 1:
-      raise Exception("Multiple senders are unsupported for (%s, %s)" % (opcode, hexlify(data)))
-   
    if 'script_pubkey' not in senders[0].keys():
       raise Exception("No script_pubkey in sender of (%s, %s)" % (opcode, hexlify(data)))
    
@@ -300,12 +254,25 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
    sender = str(senders[0]['script_pubkey'])
    address = str(senders[0]['addresses'][0])
    
+   recipient = None 
+   recipient_address = None 
+   op_fee = get_burn_fee_from_outputs( outputs )
+   
+   if opcode in [NAME_REGISTRATION, NAMESPACE_REVEAL]:
+      # these operations have a separate change address from the sender 
+      try:
+         recipient, recipient_address = get_registration_recipient_from_outputs( outputs )
+      except Exception, e:
+         log.exception(e)
+         raise Exception("No registration address for (%s, %s)" % (opcode, hexlify(data)))
+     
+   
    if opcode in [NAME_IMPORT, NAME_TRANSFER]:
       # these operations have a designated recipient
       try:
          recipient, recipient_address = get_transfer_recipient_from_outputs( outputs )
       except Exception, e:
-         log.error(e)
+         log.exception(e)
          raise Exception("No recipient for (%s, %s)" % (opcode, hexlify(data)))
       
       
@@ -314,22 +281,30 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
       try:
          import_update_hash = get_import_update_hash_from_outputs( outputs, recipient )
       except Exception, e:
-         log.error(e)
+         log.exception(e)
          raise Exception("No update hash for (%s, %s)" % (opcode, hexlify(data)))
      
          
-   op = parse_blockstore_op_data(opcode, data, sender, recipient=recipient, import_update_hash=import_update_hash )
+   op = parse_blockstore_op_data(opcode, data, sender, recipient=recipient, recipient_address=recipient_address, import_update_hash=import_update_hash )
    
    if op is not None:
       
       # store the above ancillary data with the opcode, so our namedb can look it up later 
       if fee is not None:
          op['fee'] = fee 
+         
+      if op_fee is not None:
+         op['op_fee'] = op_fee 
       
+      # sender script_pubkey and change address
       op['sender'] = sender 
       op['address'] = address 
-      op['recipient'] = recipient
-      op['recipient_address'] = recipient_address
+      
+      if recipient is not None:
+         op['recipient'] = recipient
+      
+      if recipient_address is not None:
+         op['recipient_address'] = recipient_address
       
    return op
 

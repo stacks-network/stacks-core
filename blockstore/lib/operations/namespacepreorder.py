@@ -21,7 +21,12 @@
     along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pybitcoin import embed_data_in_blockchain, BlockchainInfoClient, hex_hash160
+from pybitcoin import embed_data_in_blockchain, \
+    analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
+    make_pay_to_address_script, b58check_encode, b58check_decode, BlockchainInfoClient, hex_hash160
+
+from pybitcoin.transactions.outputs import calculate_change_amount
+
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
@@ -30,7 +35,7 @@ from ..config import *
 from ..scripts import blockstore_script_to_hex, add_magic_bytes, get_script_pubkey
 from ..hashing import hash_name
 
-def build( namespace_id, script_pubkey, consensus_hash, testset=False ):
+def build( namespace_id, script_pubkey, register_addr, consensus_hash, testset=False ):
    """
    Preorder a namespace with the given consensus hash.  This records that someone has begun to create 
    a namespace, while blinding all other peers to its ID.  This operation additionally records the 
@@ -43,9 +48,9 @@ def build( namespace_id, script_pubkey, consensus_hash, testset=False ):
    
    Format:
    
-   0     2   3                        23               39
-   |-----|---|------------------------|----------------|
-   magic op  hash(ns_id,script_pubkey) consensus hash
+   0     2   3                                      23               39
+   |-----|---|--------------------------------------|----------------|
+   magic op  hash(ns_id,script_pubkey,register_addr) consensus hash
    """
    
    # sanity check 
@@ -55,7 +60,7 @@ def build( namespace_id, script_pubkey, consensus_hash, testset=False ):
    if len(namespace_id) == 0 or len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
       raise Exception("Invalid namespace ID length '%s (expected length between 1 and %s)" % (namespace_id, LENGTHS['blockchain_id_namespace_id']))
    
-   namespace_id_hash = hash_name(namespace_id, script_pubkey)
+   namespace_id_hash = hash_name(namespace_id, script_pubkey, register_addr=register_addr)
    
    readable_script = "NAMESPACE_PREORDER 0x%s 0x%s" % (namespace_id_hash, consensus_hash)
    hex_script = blockstore_script_to_hex(readable_script)
@@ -64,21 +69,56 @@ def build( namespace_id, script_pubkey, consensus_hash, testset=False ):
    return packaged_script
 
 
-def broadcast( namespace_id, consensus_hash, private_key, blockchain_client, fee, testset=False ):
+def make_outputs( data, inputs, change_addr, fee, format='bin' ):
+    """
+    Make outputs for a namespace preorder:
+    [0] OP_RETURN with the name 
+    [1] change address with the NAME_PREORDER sender's address
+    [2] pay-to-address with the *burn address* with the fee
+    """
+    
+    total_to_send = DEFAULT_OP_RETURN_FEE * 2 + max(fee, DEFAULT_OP_RETURN_FEE) + len(inputs) * DEFAULT_DUST_FEE
+    
+    return [
+        # main output
+        {"script_hex": make_op_return_script(data, format=format),
+         "value": DEFAULT_OP_RETURN_FEE},
+        
+        # change address
+        {"script_hex": make_pay_to_address_script(change_addr),
+         "value": calculate_change_amount(inputs, total_to_send, DEFAULT_OP_RETURN_FEE)},
+        
+        # burn address
+        {"script_hex": make_pay_to_address_script(BLOCKSTORE_BURN_ADDRESS),
+         "value": max(fee, DEFAULT_OP_RETURN_FEE)}
+    ]
+    
+
+def broadcast( namespace_id, register_addr, consensus_hash, private_key, blockchain_client, fee, testset=False ):
    """
    Propagate a namespace.
    
    Arguments:
    namespace_id         human-readable (i.e. base-40) name of the namespace
+   register_addr        the addr of the key that will reveal the namespace (mixed into the preorder to prevent name preimage attack races)
    private_key          the Bitcoin address that created this namespace, and can populate it.
    """
     
    script_pubkey = get_script_pubkey( private_key )
-   nulldata = build( namespace_id, script_pubkey, consensus_hash, testset=testset )
+   nulldata = build( namespace_id, script_pubkey, register_addr, consensus_hash, testset=testset )
    
+   # get inputs and from address
+   private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
+    
+   # build custom outputs here
+   outputs = make_outputs(nulldata, inputs, from_address, fee, format='hex')
+    
+   # serialize, sign, and broadcast the tx
+   response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_client)
+    
    # response = {'success': True }
-   response = embed_data_in_blockchain( nulldata, private_key, blockchain_client, fee=fee, format='hex')
    response.update({'data': nulldata})
+    
    return response
    
 

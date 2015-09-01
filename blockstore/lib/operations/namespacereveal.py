@@ -21,7 +21,12 @@
     along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pybitcoin import embed_data_in_blockchain, BlockchainInfoClient, hex_hash160
+from pybitcoin import embed_data_in_blockchain, \
+    analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
+    make_pay_to_address_script, b58check_encode, b58check_decode, BlockchainInfoClient, hex_hash160
+
+from pybitcoin.transactions.outputs import calculate_change_amount
+
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
@@ -85,21 +90,22 @@ def serialize_int( int_field, numbytes ):
    
    
 # name lifetime (blocks): 4 bytes (0xffffffff for infinite)
-# baseline price for one-letter names (satoshis): 8 bytes
+# baseline price for one-letter names (satoshis): 7 bytes
 # price decay rate per letter (fixed-point decimal: 2**8 integer part, 2**24 decimal part): 4 bytes
+# version: 2 bytes
 # namespace ID: up to 19 bytes
-def build( namespace_id, lifetime, satoshi_cost, price_decay_rate, testset=False ):
+def build( namespace_id, version, reveal_addr, lifetime, satoshi_cost, price_decay_rate, testset=False ):
    """
    Record to mark the beginning of a namespace import in the blockchain.
    This reveals the namespace ID, and encodes the preorder's namespace rules.
    
-   Namespace ID must be base40.
+   Namespace ID must be base38.
    
    Format:
    
-   0     2   3     7          15     19 20                    39
-   |-----|---|-----|----------|------|--|---------------------|
-   magic op  life  cost       decay   .  ns_id
+   0     2   3     7          14          18       20                    39
+   |-----|---|-----|----------|-----------|--------|---------------------|
+   magic op  life  cost       decay        version  ns_id
    """
    
    # sanity check 
@@ -124,36 +130,73 @@ def build( namespace_id, lifetime, satoshi_cost, price_decay_rate, testset=False
       raise Exception("Decay rate '%s' out of range (expected unsigned 32-bit integer)" % price_decay_rate_fixedpoint)
    
    life_hex = serialize_int( lifetime, 4 )
-   satoshi_cost_hex = serialize_int( satoshi_cost, 8 )
+   satoshi_cost_hex = serialize_int( satoshi_cost, 7 )
    price_decay_hex = serialize_int( price_decay_rate_fixedpoint, 4 )
+   version_hex = serialize_int( version, 2 )
    
-   readable_script = "NAMESPACE_REVEAL 0x%s 0x%s 0x%s 0x%s" % (life_hex, satoshi_cost_hex, price_decay_hex, hexlify("." + namespace_id))
+   readable_script = "NAMESPACE_REVEAL 0x%s 0x%s 0x%s 0x%s 0x%s" % (life_hex, satoshi_cost_hex, price_decay_hex, version_hex, hexlify(namespace_id))
    hex_script = blockstore_script_to_hex(readable_script)
    packaged_script = add_magic_bytes(hex_script, testset=testset)
    
    return packaged_script
 
 
-def broadcast( namespace_id, lifetime, satoshi_cost, price_decay_rate, private_key, blockchain_client, testset=False ):
+def make_outputs( data, inputs, reveal_addr, change_addr, format='bin', op_return_amount=DEFAULT_OP_RETURN_FEE, testset=False ):
+    """
+    Make outputs for a register:
+    [0] OP_RETURN with the name 
+    [1] pay-to-address with the *reveal_addr*, not the sender's address.
+    [2] change address with the NAMESPACE_PREORDER sender's address
+    """
+    
+    total_to_send = DEFAULT_OP_RETURN_FEE * 2 + DEFAULT_DUST_FEE + len(inputs) * DEFAULT_DUST_FEE
+    
+    return [
+        # main output
+        {"script_hex": make_op_return_script(data, format=format),
+         "value": DEFAULT_OP_RETURN_FEE},
+    
+        # register address
+        {"script_hex": make_pay_to_address_script(reveal_addr),
+         "value": DEFAULT_DUST_FEE},
+        
+        # change address
+        {"script_hex": make_pay_to_address_script(change_addr),
+         "value": calculate_change_amount(inputs, total_to_send, DEFAULT_OP_RETURN_FEE)},
+    ]
+    
+    
+
+def broadcast( namespace_id, reveal_addr, lifetime, satoshi_cost, price_decay_rate, private_key, blockchain_client, testset=False ):
    """
    Propagate a namespace.
    
    Arguments:
    namespace_id         human-readable (i.e. base-40) name of the namespace
+   reveal_addr          address to own this namespace until it is ready
    lifetime:            the number of blocks for which names will be valid (pass a negative value for "infinite")
    satoshi_cost:        the base cost (i.e. cost of a 1-character name), in satoshis 
    price_decay_rate     a positive float representing the rate at which names get cheaper.  The formula is satoshi_cost / (price_decay_rate)^(name_length - 1).
    """
    
-   nulldata = build( namespace_id, lifetime, satoshi_cost, price_decay_rate, testset=testset )
+   nulldata = build( namespace_id, BLOCKSTORE_VERSION, reveal_addr, lifetime, satoshi_cost, price_decay_rate, testset=testset )
    
+   # get inputs and from address
+   private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
+    
+   # build custom outputs here
+   outputs = make_outputs(nulldata, inputs, reveal_addr, from_address, format='hex')
+    
+   # serialize, sign, and broadcast the tx
+   response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_client)
+    
    # response = {'success': True }
-   response = embed_data_in_blockchain( nulldata, private_key, blockchain_client, format='hex')
    response.update({'data': nulldata})
+    
    return response
    
 
-def parse( bin_payload, sender ):
+def parse( bin_payload, sender, recipient_address ):
    """
    NOTE: the first three bytes will be missing
    """
@@ -178,8 +221,12 @@ def parse( bin_payload, sender ):
    
    off += LENGTHS['blockchain_id_namespace_price_decay']
    
-   namespace_id = bin_payload[off+1:]        # skip '.', which is cosmetic i.e. for blockchain explorers
-   namespace_id_hash = hash_name( namespace_id, sender )
+   version = int( hexlify(bin_payload[off:off+LENGTHS['blockchain_id_namespace_version']]), 16 )
+   
+   off += LENGTHS['blockchain_id_namespace_version']
+   
+   namespace_id = bin_payload[off:]
+   namespace_id_hash = hash_name( namespace_id, sender, register_addr=recipient_address )
    
    return {
       'opcode': 'NAMESPACE_REVEAL',
@@ -187,6 +234,7 @@ def parse( bin_payload, sender ):
       'cost': cost,
       'price_decay': decay,
       'namespace_id': namespace_id,
-      'namespace_id_hash': namespace_id_hash
+      'namespace_id_hash': namespace_id_hash,
+      'version': version
    }
 

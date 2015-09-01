@@ -51,6 +51,8 @@ from .namespacereveal import build as build_namespace_reveal, \
 from .namespaceready import build as build_namespace_ready, \
     broadcast as namespace_ready, parse as parse_namespace_ready
 
+from .register import get_registration_recipient_from_outputs 
+
 from .transfer import get_transfer_recipient_from_outputs
 
 from .nameimport import get_import_update_hash_from_outputs
