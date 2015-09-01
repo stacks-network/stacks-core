@@ -8,7 +8,7 @@ Blockstore is a generic key-value store on Bitcoin. You can use it register glob
 
 Then, you or anyone can perform lookups on those names and securely obtain the data associated with them.
 
-Blockstore uses the Bitcoin blockchain for storing name operations and data hashes, and the Kademlia distributed hash table for storing the full data files.
+Blockstore uses the Bitcoin blockchain for storing name operations and data hashes, and the Kademlia distributed hash table (DHT) and other external datastores for storing the full data files outside of the blockchain.
 
 ## Installation
 
