@@ -31,7 +31,8 @@ from collections import defaultdict
 from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAGIC_BYTES, TESTSET, MAX_NAMES_PER_SENDER, \
     EXPIRATION_PERIOD, NAME_PREORDER, NAMESPACE_PREORDER, NAME_REGISTRATION, NAME_UPDATE, TRANSFER_KEEP_DATA, \
     TRANSFER_REMOVE_DATA, NAME_REVOKE, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY, NAME_PREORDER_EXPIRE, \
-    NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTORE_VERSION, NAMESPACE_MINIMUM_COST
+    NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTORE_VERSION, NAMESPACE_MINIMUM_COST, \
+    NAMESPACE_1_CHAR_COST, NAMESPACE_23_CHAR_COST, NAMESPACE_4567_CHAR_COST, NAMESPACE_8UP_CHAR_COST
 
 from ..operations import build_namespace_reveal
 from ..hashing import *
@@ -216,6 +217,10 @@ class BlockstoreDB( virtualchain.StateEngine ):
    latest hash of their profile data (which in turn resolves 
    to JSON in ancillary storage that contains the pointers 
    to their mutable data).
+   
+   NOTE: this only works with small-ish datasets (~10 million names or less)
+   before things get too slow.  At that point, we'll need 
+   to upgrade to an actual database.
    """
    
    def __init__(self, db_filename ):
@@ -1482,9 +1487,9 @@ class BlockstoreDB( virtualchain.StateEngine ):
       namespace_fee = namespace_preorder['op_fee']
       
       # must have paid enough 
-      if namespace_fee < price_name( namespace_id, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY, minimum_cost=NAMESPACE_MINIMUM_COST ):
+      if namespace_fee < price_namespace( namespace_id ):
          # not enough money 
-         log.debug("Namespace '%s' costs %s, but sender paid %s" % (namespace_id, price_name(namespace_id, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY, minimum_cost=NAMESPACE_MINIMUM_COST), namespace_fee ))
+         log.debug("Namespace '%s' costs %s, but sender paid %s" % (namespace_id, price_namespace(namespace_id), namespace_fee ))
          return False
           
       # can begin import
@@ -1579,6 +1584,27 @@ def price_name( name, namespace_base_price, namespace_decay, minimum_cost=1 ):
    return int(price)
 
 
+def price_namespace( namespace_id ):
+   """
+   Calculate the cost of a namespace.
+   """
+   
+   #return price_name( namespace_id, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY, minimum_cost=NAMESPACE_MINIMUM_COST )
+   
+   if len(namespace_id) == 1:
+       return NAMESPACE_1_CHAR_COST
+   
+   elif len(namespace_id) in [2, 3]:
+       return NAMESPACE_23_CHAR_COST
+   
+   elif len(namespace_id) in [4, 5, 6, 7]:
+       return NAMESPACE_4567_CHAR_COST
+   
+   else:
+       return NAMESPACE_8UP_CHAR_COST
+   
+    
+
 def is_name_mining_fee_sufficient( name, mining_fee, namespace_base_price, namespace_decay ):
    """
    Given a name (without its namespace ID), its mining fee, and the namespace 
@@ -1600,5 +1626,5 @@ def is_namespace_mining_fee_sufficient( namespace_id, mining_fee ):
    Return False if not.
    """
    
-   name_price = price_name(namespace_id, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY, minimum_cost=NAMESPACE_MINIMUM_COST)
+   name_price = price_namespace(namespace_id)
    return (mining_fee >= name_price)

@@ -270,7 +270,6 @@ def get_name_cost( name ):
     return name_fee
 
 
-
 class BlockstoredRPC(jsonrpc.JSONRPC):
     """
     Blockstored not-quote-JSON-RPC server.
@@ -503,7 +502,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         
         consensus_hash = db.get_current_consensus()
         
-        namespace_fee = price_name(namespace_id, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY, minimum_cost=NAMESPACE_MINIMUM_COST) + DEFAULT_OP_RETURN_FEE
+        namespace_fee = price_namespace( namespace_id ) + DEFAULT_OP_RETURN_FEE
         
         log.debug("Namespace '%s' will cost %s satoshis" % (namespace_id, namespace_fee))
         
@@ -556,32 +555,35 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
     
     def jsonrpc_name_cost( self, name ):
         """
-        Return the cost of a given name.
+        Return the cost of a given name, including fees
+        Return value is in satoshis
         """
         ret = get_name_cost( name )
         if ret is None:
             return {"error": "Invalid namespace"}
         
-        return {"cost": ret}
+        return {"satoshis": ret}
         
         
     def jsonrpc_name_import_cost( self, name ):
         """
-        Return the cost to import a given name.
+        Return the cost to import a given name, including fees.
+        Return value is in satoshis
         """
         ret = get_name_cost( name ) + DEFAULT_DUST_FEE
         if ret is None:
             return {"error": "Invalid namespace"}
         
-        return {"cost": ret}
+        return {"satoshis": int(ret)}
         
         
     def jsonrpc_namespace_cost( self, namespace_id ):
         """
-        Return the cost of a given namespace.
+        Return the cost of a given namespace, including fees.
+        Return value is in satoshis
         """
-        ret = price_name(namespace_id, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY, minimum=NAMESPACE_MINIMUM_COST) + DEFAULT_OP_RETURN_FEE
-        return {"cost": ret}
+        ret = price_namespace(namespace_id) + DEFAULT_OP_RETURN_FEE
+        return {"satoshis": int(ret)}
         
         
 def run_indexer():
