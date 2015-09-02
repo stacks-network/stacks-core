@@ -38,6 +38,7 @@ import Queue
 import types 
 import re 
 import pybitcoin
+import socket
 
 DHT_SERVER_PORT = 6265  # blockstored default to port 6264
 
