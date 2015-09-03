@@ -235,7 +235,7 @@ def load_user(record_hash):
     return user
 
 
-def get_user_record(name, create=False):
+def get_user_record(name, create_if_absent=False):
     """
     Given the name of the user, look up the user's record hash,
     and then get the record itself from storage.
@@ -268,7 +268,7 @@ def get_user_record(name, create=False):
     if name_record['value_hash'] in [None, "null", ""]:
 
         # no user data
-        if not create:
+        if not create_if_absent:
             return {"error": "No user data"}
         else:
             # make an empty one and return that
@@ -503,7 +503,7 @@ def update(name, user_json_or_hash, privatekey, txid=None, proxy=None):
         user_record_hash = pybitcoin.hash.hex_hash160(user_db.serialize_user(user_data))
 
     # go get the current user record 
-    current_user_record = get_user_record( name )
+    current_user_record = get_user_record( name, create_if_absent=True )
     if current_user_record is None:
         return {'error': 'No such user'}
     
