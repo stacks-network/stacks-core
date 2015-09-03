@@ -106,7 +106,9 @@ def get_namecoind(key):
     serverinfo = get_server(key, MAIN_SERVER, LOAD_SERVERS)
 
     if 'registered' in serverinfo and serverinfo['registered']:
-        server = serverinfo['server']
+
+        if serverinfo['server'] is not None:
+            server = serverinfo['server']
 
     log.debug(server)
     log.debug(key)

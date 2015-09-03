@@ -44,13 +44,14 @@ from time import sleep
 FRONTEND_SECRET = os.environ['FRONTEND_SECRET']
 
 
-from coinkit import BitcoinKeypair, NamecoinKeypair
+from pybitcoin import BitcoinKeypair, NamecoinKeypair
 
-from coinrpc import namecoind
-from coinrpc.namecoind_server import NamecoindServer
+from pybitcoin.rpc import namecoind
+from pybitcoin.rpc.namecoind_client import NamecoindClient
 from registrar.config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD
 from registrar.config import NAMECOIND_USE_HTTPS, NAMECOIND_SERVER
 from registrar.config import NAMECOIND_WALLET_PASSPHRASE
+from registrar.config import NAMECOIND_UPDATE_SERVER
 from commontools import get_json, log
 
 
@@ -189,10 +190,14 @@ def import_update(userobj):
 
     keypair = NamecoinKeypair.from_private_key(wif_pk)
 
+    namecoind = NamecoindClient(NAMECOIND_UPDATE_SERVER, NAMECOIND_PORT, NAMECOIND_USER,
+                                NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS,
+                                NAMECOIND_WALLET_PASSPHRASE)
+
     if nmc_address == keypair.address():
         print update_user['username']
         print nmc_address
-        #print namecoind.importprivkey(keypair.wif_pk())
+        print namecoind.importprivkey(keypair.wif_pk())
 
 
 def pending_transactions():
@@ -279,7 +284,7 @@ def transfer_key(key, nmc_address):
         print "Don't own this key"
         return
 
-    namecoind = NamecoindServer(server, NAMECOIND_PORT, NAMECOIND_USER,
+    namecoind = NamecoindClient(server, NAMECOIND_PORT, NAMECOIND_USER,
                                 NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS,
                                 NAMECOIND_WALLET_PASSPHRASE)
 
