@@ -290,7 +290,7 @@ def run_cli():
       'privatekey', type=str,
       help='the private key of the Bitcoin address that will own the name')
     subparser.add_argument(
-      'address', type=str,
+      'address', type=str, nargs='?',
       help='[OPTIONAL] the address of the private key that will register the name (should be different from the private key given here). \
       If not given, a new private key will be generated, and its address must be submitted upon register.')
 
