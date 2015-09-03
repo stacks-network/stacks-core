@@ -597,6 +597,20 @@ class BlockstoreDB( virtualchain.StateEngine ):
       return (name in names_expiring)
    
    
+   def is_name_revoked( self, name ):
+      """
+      Given a name, is it revoked?
+      
+      Return True if so 
+      Return False if not, or if the name does not exist
+      """ 
+      
+      if not name in self.name_records.keys():
+          return False 
+      
+      return self.name_records[name]['revoked']
+  
+   
    def commit_name_expire( self, name ):
       """
       Remove an expired name.
@@ -920,6 +934,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
       sender = nameop['sender']
       namespace = self.namespace_reveals[ namespace_id ]
       
+      namespace['ready_block'] = block_number
+      
       self.commit_remove_namespace_import( namespace_id, sender )
       
       # namespace is ready!
@@ -1081,7 +1097,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       namespace_id = get_namespace_from_name( name )
       
       # namespace must exist and be ready 
-      if not is_namespace_ready( namespace_id ):
+      if not self.is_namespace_ready( namespace_id ):
           log.debug("Namespace '%s' is not ready" % namespace_id)
           return False
         
@@ -1104,7 +1120,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
              return False
       
           # name can't be registered if it was reordered before its namespace was ready 
-          if namespace['block_number'] < block_id:
+          if name_preorder['block_number'] < namespace['ready_block']:
              log.debug("Name '%s' preordered before namespace '%s' was ready" % (name, namespace_id))
              return False
           
