@@ -437,7 +437,7 @@ def preorder(name, privatekey, register_addr=None, proxy=None):
         privkey = pybitcoin.BitcoinPrivateKey()
         pubkey = privkey.public_key()
         
-        register_addr = pubkey.to_wif()
+        register_addr = pubkey.address()
         
         register_privkey_wif = privkey.to_wif()
         print register_privkey_wif
