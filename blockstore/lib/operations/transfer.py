@@ -29,7 +29,7 @@ from pybitcoin.transactions.outputs import calculate_change_amount
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
-from ..b40 import b40_to_hex, bin_to_b40
+from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import blockstore_script_to_hex, add_magic_bytes
 from ..hashing import hash256_trunc128
