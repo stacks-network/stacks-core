@@ -288,10 +288,10 @@ def run_cli():
       help='the name that you want to preorder')
     subparser.add_argument(
       'privatekey', type=str,
-      help='the private key of the Bitcoin address that will own the name')
+      help='the private key of the Bitcoin account to pay for the name')
     subparser.add_argument(
       'address', type=str, nargs='?',
-      help='[OPTIONAL] the address of the private key that will register the name (should be different from the private key given here). \
+      help='[OPTIONAL] the address that will own the name (should be different from the address of the private key given here). \
       If not given, a new private key will be generated, and its address must be submitted upon register.')
 
     # ------------------------------------
@@ -337,7 +337,7 @@ def run_cli():
       help='the address that will own the name')
     subparser.add_argument(
       'privatekey', type=str,
-      help='the private key of the Bitcoin address that will own the name')
+      help='the private key used to preorder the name')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
