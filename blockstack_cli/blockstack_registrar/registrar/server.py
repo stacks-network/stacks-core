@@ -34,13 +34,13 @@ from pybitcoin.rpc import namecoind
 from pybitcoin.rpc.namecoind_cluster import pending_transactions
 
 from registrar.nameops import process_user
+from registrar.transfer import transfer_name, nameTransferred
 
 from tools.sweep_btc import sweep_btc
 from tools.misc import import_user, import_update
 from tools.bip38 import bip38_decrypt
 
 from .config import MONGODB_URI, OLD_DB, AWSDB_URI
-#from .config import NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD
 from .config_local import problem_users, banned_users
 
 remote_client = MongoClient(MONGODB_URI)
@@ -85,13 +85,13 @@ def load_balance():
             break
 
 
-def process_profile(username, profile):
+def process_profile(username, profile, new_address=None):
 
     if username in problem_users:
         return
 
     try:
-        process_user(username, profile, load_servers[current_server])
+        process_user(username, profile, load_servers[current_server], new_address)
     except Exception as e:
         print e
 
@@ -103,8 +103,8 @@ def profile_on_blockchain(username, DB_profile):
     except:
         return False
 
-    block_profile = json.dumps(block_profile,sort_keys=True)
-    DB_profile = json.dumps(DB_profile,sort_keys=True)
+    block_profile = json.dumps(block_profile, sort_keys=True)
+    DB_profile = json.dumps(DB_profile, sort_keys=True)
 
     if len(block_profile) == len(DB_profile):
         #check hash for only profiles where length is the same
@@ -157,16 +157,21 @@ def register_users():
 
             print "Dispatch: " + user['username']
 
-            process_profile(user['username'], user['profile'])
+            process_profile(user['username'], user['profile'], new_address=user['namecoin_address'])
             new_user['dispatched'] = True
             registrations.save(new_user)
 
         elif 'dispatched' in new_user and new_user['dispatched'] is True:
 
             if profile_on_blockchain(user["username"], user["profile"]):
-                registrations.remove(new_user)
+
+                if nameTransferred:
+                    print "cleaning: " + user["username"]
+                    registrations.remove(new_user)
+                else:
+                    transfer_name(new_user['username'], new_user['namecoin_address'], live=False)
             else:
-                process_profile(user['username'], user['profile'])
+                process_profile(user['username'], user['profile'], new_address=user['namecoin_address'])
 
         if counter % 5 == 0:
             load_balance()
@@ -293,7 +298,7 @@ if __name__ == '__main__':
 
     #cleanup_db()
     #check_transfer()
-    update_users()
-    #register_users()
+    #update_users()
+    register_users()
 
     #get_pending_state()
