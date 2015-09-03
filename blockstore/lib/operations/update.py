@@ -25,7 +25,7 @@ from pybitcoin import embed_data_in_blockchain, BlockchainInfoClient, hex_hash16
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
-from ..b40 import b40_to_hex, bin_to_b40
+from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import blockstore_script_to_hex, add_magic_bytes
 from ..hashing import hash256_trunc128
