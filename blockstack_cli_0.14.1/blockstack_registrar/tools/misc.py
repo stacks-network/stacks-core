@@ -172,33 +172,27 @@ def import_user(username):
 
         if old_nmc_address == keypair.address():
             print old_nmc_address
-            print namecoind.importprivkey(keypair.wif_pk())
+            #print namecoind.importprivkey(keypair.wif_pk())
 
 
-def import_update(username):
+def import_update(userobj):
 
-    for update_user in updates.find():
+    user_id = userobj['user_id']
+    update_user = users.find_one({"_id": user_id})
 
-        user_id = update_user['user_id']
-        new_user = users.find_one({"_id": user_id})
+    if update_user is None:
+        return
 
-        if new_user is None:
-            continue
+    nmc_address = update_user['namecoin_address']
 
-        if new_user['username'] == username:
-            print username
-        else:
-            continue
+    wif_pk = bip38_decrypt(str(userobj['encrypted_private_key']), FRONTEND_SECRET)
 
-        nmc_address = new_user['namecoin_address']
+    keypair = NamecoinKeypair.from_private_key(wif_pk)
 
-        wif_pk = bip38_decrypt(str(update_user['encrypted_private_key']), FRONTEND_SECRET)
-
-        keypair = NamecoinKeypair.from_private_key(wif_pk)
-
-        if nmc_address == keypair.address():
-            print nmc_address
-            print namecoind.importprivkey(keypair.wif_pk())
+    if nmc_address == keypair.address():
+        print update_user['username']
+        print nmc_address
+        #print namecoind.importprivkey(keypair.wif_pk())
 
 
 def pending_transactions():
