@@ -120,7 +120,7 @@ def get_namecoind(key):
     return namecoind
 
 
-def update_name(key, value):
+def update_name(key, value, new_address=None):
 
     reply = {}
 
@@ -130,7 +130,7 @@ def update_name(key, value):
 
         namecoind = get_namecoind(key)
 
-        info = namecoind.name_update(key, json.dumps(value))
+        info = namecoind.name_update(key, json.dumps(value), new_address)
 
         if 'code' in info:
             reply = info
@@ -257,7 +257,7 @@ def slice_profile_update(username, profile):
     return keys, values
 
 
-def process_user(username, profile, server=NAMECOIND_SERVER):
+def process_user(username, profile, server=NAMECOIND_SERVER, new_address=None):
 
     master_key = 'u/' + username
 
@@ -275,7 +275,7 @@ def process_user(username, profile, server=NAMECOIND_SERVER):
         # if name is registered
         log.debug("name update: %s", key1)
         log.debug("size: %s", utf8len(json.dumps(value1)))
-        update_name(key1, value1)
+        update_name(key1, value1, new_address)
 
     else:
         # if not registered
@@ -283,10 +283,10 @@ def process_user(username, profile, server=NAMECOIND_SERVER):
         log.debug("size: %s", utf8len(json.dumps(value1)))
         register_name(key1, value1, server, username)
 
-    process_additional_keys(keys, values, server, username)
+    process_additional_keys(keys, values, server, username, new_address)
 
 
-def process_additional_keys(keys, values, server, username):
+def process_additional_keys(keys, values, server, username, new_address):
 
     # register/update remaining keys
     size = len(keys)
@@ -299,7 +299,7 @@ def process_additional_keys(keys, values, server, username):
 
         if namecoind.check_registration(next_key):
             log.debug("name update: " + next_key)
-            update_name(next_key, next_value)
+            update_name(next_key, next_value, new_address)
         else:
             log.debug("name new: " + next_key)
             register_name(next_key, next_value, server, username)
