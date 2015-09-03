@@ -21,7 +21,7 @@
     along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pybitcoin import embed_data_in_blockchain, BlockchainInfoClient, bin_hash160, BitcoinPrivateKey
+from pybitcoin import embed_data_in_blockchain, BlockchainInfoClient, bin_hash160, BitcoinPrivateKey, analyze_private_key
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
