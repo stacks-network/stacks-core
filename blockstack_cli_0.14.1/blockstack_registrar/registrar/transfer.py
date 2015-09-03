@@ -43,13 +43,16 @@ def test_private_key(passphrase, nmc_address):
         return False
 
 
-def name_transfer(passname, transfer_address, live=False):
+def name_transfer(username, transfer_address, live=False):
 
-    key = 'u/' + passname
+    key = 'u/' + username
+
     namecoind = get_namecoind(key)
 
     # -----------------------------
     def name_transfer_inner(key):
+
+        namecoind = get_namecoind(key)
 
         if(live):
             print namecoind.name_transfer(key, transfer_address)
