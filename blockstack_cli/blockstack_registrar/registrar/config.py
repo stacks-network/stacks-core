@@ -24,8 +24,9 @@ This file is part of Registrar.
 
 try:
     from config_local import *
-except:
+except Exception as e:
 
+    print e
     print "using default config"
 
     import os
