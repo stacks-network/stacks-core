@@ -145,7 +145,7 @@ def send_update(expiring_users):
             value = i['value']
 
         if 'message' in value:
-            value['message'] = value['message'].replace('This OneName username', 'This username')
+            value['message'] = value['message'].replace('This OneName username', 'This blockchain ID')
 
             #print key
             #print value
@@ -214,7 +214,6 @@ def re_register(current_server):
 
         profile = namecoind.name_show(i['name'])
         profile = profile['value']
-        
 
         try:
             if 'status' in profile and profile['status'] == 'reserved':
