@@ -9,6 +9,9 @@ import subprocess
 import pprint
 import pybitcoin
 import binascii
+import logging 
+
+DEBUG = True
 
 from ConfigParser import SafeConfigParser
 
@@ -20,7 +23,9 @@ sys.path.insert(0, parent_dir)
 
 from blockstore import client, config
 
-AVG_BLOCK_TIME = 600    # average number of seconds between blocks 
+log = config.log
+
+AVG_BLOCK_TIME = 60    # average number of seconds between blocks 
 CONFIRM_DELAY = 10      # number of blocks to wait to pass before confirming that the name was registered
 
 def pretty_dump(json_str):
@@ -63,25 +68,32 @@ def confirm_name_imported( client, name ):
     """
     See if a name has been imported.
     """
+    
     name_info = client.lookup( name )
     if 'error' in name_info:
+        log.info( "confirm '%s'...no" % name )
         return False 
     
     # must be a full record 
     name_info = name_info[0]
     
     if name_info is None:
+        log.info( "confirm '%s'...no" % name )
         return False 
     
     if 'address' not in name_info:
+        log.info( "confirm '%s'...no" % name )
         return False 
     
     if 'value_hash' not in name_info:
+        log.info( "confirm '%s'...no" % name )
         return False 
     
     if name_info['value_hash'] is None:
+        log.info( "confirm '%s'...no" % name )
         return False 
     
+    log.info( "confirm '%s'...yes" % name )
     return True
     
 
@@ -199,16 +211,27 @@ if __name__ == "__main__":
     # find any previously-sent-but-not-confirmed names 
     for sent_name in sent_names.keys():
         if sent_name not in confirmed_names:
-            if not sent_names[sent_name].has_key('time') or sent_names[sent_name]['time'] + (AVG_BLOCK_TIME * CONFIRM_DELAY) < time.time():
-                # it's been a while, so let's try to confirm this name
-                t = sent_names[sent_name].get('time', 0)
-                unconfirmed_names[ sent_name ] = t
+            t = sent_names[sent_name].get('time', 0)
+            unconfirmed_names[ sent_name ] = t
+            
+    # sanity check all names 
+    for name in names:
+        
+        # must have BTC or NMC address 
+        if not name.has_key('nmc_address') and not name.has_key('btc_address'):
+            raise Exception("Name '%s' lacks an address" % name)
+        
+        # must have a profile hash 
+        if not name.has_key('hash') and not name.has_key('profile_hash'):
+            raise Exception("Name '%s' lacks a profile hash" % name )
     
     # do all imports
     for name in names:
         
         # every block (or on start-up), update the list of imported names
         if time_of_last_confirmation + AVG_BLOCK_TIME < time.time():
+            
+            log.info( "Check for confirmed names" )
             
             # get sent names that were sent more than AVG_BLOCK_TIME * CONFIRM_DELAY seconds ago 
             names_to_check = filter( lambda n: unconfirmed_names[n] + AVG_BLOCK_TIME * CONFIRM_DELAY < time.time(), unconfirmed_names.keys() )
@@ -229,28 +252,36 @@ if __name__ == "__main__":
                 
             time_of_last_confirmation = time.time()
             
-                
         username = name['username']
-        nmc_address = str(name['nmc_address'])
-        update_hash = str(name['hash'])
         
+        if name.has_key('hash'):
+            update_hash = str(name['hash'])
+        elif name.has_key('profile_hash'):
+            update_hash = str(name['profile_hash'])
+            
         fqn = username + "." + namespace_id
         
-        address = namecoin_to_bitcoin_address( nmc_address )
-        
-        if fqn in confirmed_names:
-            # already imported
+        if fqn in confirmed_names or fqn in sent_names.keys():
+            # already imported or sent
             continue 
         
-        print "name_import " + fqn + " " + address + " " + update_hash
-
-        sys.exit(0)
+        btc_address = None 
+        nmc_address = None 
+        address = None
         
+        if name.has_key('nmc_address'):
+            nmc_address = str(name['nmc_address'])
+            btc_address = namecoin_to_bitcoin_address( nmc_address )
+            
+        elif name.has_key("btc_address"):
+            btc_address = name['btc_address']
+        
+        log.debug( "name_import " + fqn + " " + btc_address + " " + update_hash )
+
         try:
-            result = client.name_import( fqn, address, update_hash, privkey_str )
-        except:
-            traceback.print_exc()
-            print >> sys.stderr, "register '%s' failed:\n%s\n" % (fqn, traceback.format_exc())
+            result = client.name_import( fqn, btc_address, update_hash, privkey_str )
+        except Exception, e:
+            log.error( "register '%s' failed:\n%s\n" % (fqn, traceback.format_exc()) )
             
             failed_fd.write( "%s\n" % (fqn))
             failed_fd.flush()
@@ -260,15 +291,31 @@ if __name__ == "__main__":
             result = result[0]
         
         if 'error' in result.keys():
-            print >> sys.stderr, "register '%s' failed:\n%s\n" % (fqn, pp.pformat(result))
-            print >> sys.stderr, pretty_dump( result )
+            log.error( "register '%s' failed:\n%s\n" % (fqn, pp.pformat(result)) )
+            log.error( "Result: %s" % result)
             
-            failed_fd.write( "%s\n" % (fqn))
-            failed_fd.flush()
+            if result['error'] == 'Name already registered':
+                # it's because this is confirmed already!
+                log.debug("Confirmed: '%s'" % fqn)
+                confirmed_fd.write( "%s\n" % fqn)
+                confirmed_fd.flush()
+                
+                if fqn in sent_names.keys():
+                    del sent_names[fqn]
+                
+                confirmed_names.append( fqn )
+                
+                if fqn in unconfirmed_names[ fqn ]:
+                    del unconfirmed_names[ fqn ]
+            
+            else:
+                failed_fd.write( "%s\n" % (fqn))
+                failed_fd.flush()
+                
             continue 
         
         # record progress
-        num_sent_names += 1
+        # num_sent_names += 1
         
         result['name'] = fqn
         result['time'] = time.time()
@@ -303,5 +350,26 @@ if __name__ == "__main__":
             time.sleep(20)
         """
 
-    sys.exit(0)
+    # wait for all names to confirm 
+    while len(unconfirmed_names.keys()) > 0:
         
+        time.sleep( AVG_BLOCK_TIME )
+    
+        # get sent names that were sent more than AVG_BLOCK_TIME * CONFIRM_DELAY seconds ago 
+        names_to_check = filter( lambda n: unconfirmed_names[n] + AVG_BLOCK_TIME * CONFIRM_DELAY < time.time(), unconfirmed_names.keys() )
+        
+        log.info( "Check for %d unconfirmed name(s)" % len(names_to_check) )
+        
+        # which of our unconfirmed names have been confirmed?
+        new_confirmed = find_imported( client, names_to_check )
+        for confirmed_name in new_confirmed:
+            
+            confirmed_fd.write( "%s\n" % confirmed_name )
+            confirmed_fd.flush()
+            
+            if confirmed_name in sent_names.keys():
+                del sent_names[confirmed_name]
+                
+            confirmed_names.append( confirmed_name )
+            
+            del unconfirmed_names[ confirmed_name ]
