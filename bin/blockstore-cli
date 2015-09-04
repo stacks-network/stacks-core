@@ -372,8 +372,8 @@ def run_cli():
       'address', type=str,
       help='the new owner Bitcoin address')
     subparser.add_argument(
-      'keepdata', type=bool,
-      help='whether or not the storage index should remain associated with the name')
+      'keepdata', type=str,
+      help='whether or not the storage index should remain associated with the name [true|false]')
     subparser.add_argument(
       'privatekey', type=str,
       help='the privatekey of the owner Bitcoin address')
@@ -432,9 +432,13 @@ def run_cli():
                                txid=txid)
 
     elif args.action == 'transfer':
+        keepdata = False 
+        if args.keepdata.lower() == "true":
+            keepdata = True 
+            
         result = client.transfer(str(args.name),
                                  str(args.address),
-                                 bool(args.keepdata),
+                                 keepdata,
                                  str(args.privatekey))
 
     elif args.action == 'renew':
