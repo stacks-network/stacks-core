@@ -25,7 +25,7 @@ from blockstore import client, config
 
 log = config.log
 
-AVG_BLOCK_TIME = 60    # average number of seconds between blocks 
+AVG_BLOCK_TIME = 600    # average number of seconds between blocks 
 CONFIRM_DELAY = 10      # number of blocks to wait to pass before confirming that the name was registered
 
 def pretty_dump(json_str):
