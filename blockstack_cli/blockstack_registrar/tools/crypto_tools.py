@@ -26,7 +26,7 @@ import os
 import base64
 
 from Crypto.Cipher import AES
-
+from pybitcoin import BitcoinPrivateKey, NamecoinPrivateKey
 from binascii import hexlify, unhexlify
 
 # modified from example at https://gist.github.com/sekondus/4322469
