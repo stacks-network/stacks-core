@@ -165,11 +165,11 @@ def register_users():
 
             if profile_on_blockchain(user["username"], user["profile"]):
 
-                if nameTransferred:
+                if nameTransferred(user, namecoind):
                     print "cleaning: " + user["username"]
                     registrations.remove(new_user)
                 else:
-                    transfer_name(new_user['username'], new_user['namecoin_address'], live=False)
+                    transfer_name(user['username'], user['namecoin_address'], live=True)
             else:
                 process_profile(user['username'], user['profile'], new_address=user['namecoin_address'])
 
@@ -220,7 +220,7 @@ def update_users():
         else:
             print "Update: " + str(user['username'])
             import_update(new_user)
-            #process_profile(user['username'], user['profile'])
+            process_profile(user['username'], user['profile'], new_address=user['namecoin_address'])
 
 
 def cleanup_db():
@@ -296,9 +296,9 @@ def get_pending_state():
 
 if __name__ == '__main__':
 
-    #cleanup_db()
-    #check_transfer()
-    #update_users()
+    cleanup_db()
+    check_transfer()
+    update_users()
     register_users()
 
     #get_pending_state()
