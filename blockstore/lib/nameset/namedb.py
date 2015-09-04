@@ -32,7 +32,7 @@ from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAGIC_BYTES, TE
     EXPIRATION_PERIOD, NAME_PREORDER, NAMESPACE_PREORDER, NAME_REGISTRATION, NAME_UPDATE, TRANSFER_KEEP_DATA, \
     TRANSFER_REMOVE_DATA, NAME_REVOKE, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY, NAME_PREORDER_EXPIRE, \
     NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTORE_VERSION, NAMESPACE_MINIMUM_COST, \
-    NAMESPACE_1_CHAR_COST, NAMESPACE_23_CHAR_COST, NAMESPACE_4567_CHAR_COST, NAMESPACE_8UP_CHAR_COST
+    NAMESPACE_1_CHAR_COST, NAMESPACE_23_CHAR_COST, NAMESPACE_4567_CHAR_COST, NAMESPACE_8UP_CHAR_COST, NAME_MINIMUM_COST
 
 from ..operations import build_namespace_reveal
 from ..hashing import *
@@ -721,8 +721,6 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       if self.namespace_preorders.has_key( namespace_id_hash ):
           del self.namespace_preorders[ namespace_id_hash ]
-      else:
-          log.warning("BUG: no namespace preorder for '%s' (hash '%s')" % (namespace_id, namespace_id_hash))
       
       if self.namespace_reveals.has_key( namespace_id ):
           del self.namespace_reveals[ namespace_id ]
@@ -1607,7 +1605,7 @@ def get_name_from_fq_name( name ):
    return name.split(".")[0]
 
 
-def price_name( name, namespace_base_price, namespace_decay, minimum_cost=1 ):
+def price_name( name, namespace_base_price, namespace_decay, minimum_cost=NAME_MINIMUM_COST ):
    """
    Calculate the price of a name (without its namespace ID), given the 
    namespace base price and price decay exponent.
@@ -1632,8 +1630,6 @@ def price_namespace( namespace_id ):
    """
    Calculate the cost of a namespace.
    """
-   
-   #return price_name( namespace_id, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY, minimum_cost=NAMESPACE_MINIMUM_COST )
    
    if len(namespace_id) == 1:
        return NAMESPACE_1_CHAR_COST
