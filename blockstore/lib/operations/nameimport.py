@@ -76,7 +76,7 @@ def build(name, testset=False):
     
     0    2  3                             39
     |----|--|-----------------------------|
-    magic op   name.ns_id (34 bytes)
+    magic op   name.ns_id (37 bytes)
     
     The transaction itself will have two outputs:
     * the recipient
@@ -89,7 +89,7 @@ def build(name, testset=False):
     name_hex = hexlify(name)
     if len(name_hex) > LENGTHS['blockchain_id_name'] * 2:
        # too long
-      raise Exception("Name '%s' too long (exceeds %d bytes)" % (fqn, LENGTHS['blockchain_id_name']))
+      raise Exception("Name '%s' too long (exceeds %d bytes)" % (name, LENGTHS['blockchain_id_name']))
     
     readable_script = "NAME_IMPORT 0x%s" % (hexlify(name))
     hex_script = blockstore_script_to_hex(readable_script)

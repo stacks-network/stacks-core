@@ -76,7 +76,7 @@ def build(name, testset=False):
     
     0    2  3                             39
     |----|--|-----------------------------|
-    magic op   name.ns_id (34 bytes)
+    magic op   name.ns_id (37 bytes)
     
     """
     
