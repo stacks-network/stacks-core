@@ -697,36 +697,41 @@ class BlockstoreDB( virtualchain.StateEngine ):
          del self.block_name_renewals[ expiring_block_number ]
       
 
-   def commit_remove_preorder( self, name, script_pubkey ):
+   def commit_remove_preorder( self, name, script_pubkey, register_addr ):
       """
       Given the fully-qualified name (name.ns_id) and a script_pubkey hex string,
       remove the preorder.
       """
       try:
-         name_hash = hash_name(name, script_pubkey)
+         name_hash = hash_name(name, script_pubkey, register_addr=register_addr)
       except ValueError:
-         return None
+         return
       else:
          if self.preorders.has_key(name_hash):
             del self.preorders[name_hash]
+         else:
+            log.warning("BUG: No preorder found for '%s' from '%s'" % (name, script_pubkey))
 
 
-   def commit_remove_namespace_import( self, namespace_id, sender ):
+   def commit_remove_namespace_import( self, namespace_id, namespace_id_hash ):
       """
       Given the namespace ID, go remove the namespace preorder and reveal.
       (i.e. call this on a NAMESPACE_READY commit).
       """
       
-      namespace_id_hash = hash_name( namespace_id, sender )
       if self.namespace_preorders.has_key( namespace_id_hash ):
           del self.namespace_preorders[ namespace_id_hash ]
+      else:
+          log.warning("BUG: no namespace preorder for '%s' (hash '%s')" % (namespace_id, namespace_id_hash))
       
       if self.namespace_reveals.has_key( namespace_id ):
           del self.namespace_reveals[ namespace_id ]
       
       if self.namespace_hash_to_id.has_key( namespace_id_hash ):
           del self.namespace_hash_to_id[ namespace_id_hash ]
-      
+      else:
+          log.warning("BUG: no such namespace hash '%s' (for '%s')" % (namespace_id_hash, namespace_id))
+          
       return
       
       
@@ -768,7 +773,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       else:
     
           # registered!
-          self.commit_remove_preorder( name, sender )
+          self.commit_remove_preorder( name, sender, recipient_address )
     
           name_record = {
             'value_hash': None,             # i.e. the hex hash of profile data in immutable storage.
@@ -873,7 +878,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
         'address': recipient_address,
         'revoked': False
       }
-
+      
+      # if this name already existed, then blow it away 
       self.name_records[ name ] = name_record 
       self.owner_names[ recipient ].append( str(name) )
       self.hash_names[ hash256_trunc128( name ) ] = name 
@@ -922,6 +928,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
    
       if namespace_id_hash in self.namespace_preorders:
           del self.namespace_preorders[namespace_id_hash]
+      else:
+          log.debug("BUG: no namespace preorder for '%s' (hash '%s')" % (namespace_id, namespace_id_hash))
           
 
    def commit_namespace_ready( self, nameop, block_number ):
@@ -936,7 +944,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       namespace['ready_block'] = block_number
       
-      self.commit_remove_namespace_import( namespace_id, sender )
+      self.commit_remove_namespace_import( namespace_id, namespace['namespace_id_hash'] )
       
       # namespace is ready!
       self.namespaces[ namespace_id ] = namespace 
@@ -1079,7 +1087,15 @@ class BlockstoreDB( virtualchain.StateEngine ):
       address = nameop['address']
       
       # address mixed into the preorder
-      register_addr = nameop['recipient_address']
+      register_addr = nameop.get('recipient_address', None)
+      if register_addr is None:
+          log.debug("No registration address given")
+          return False 
+      
+      recipient = nameop.get('recipient', None)
+      if recipient is None:
+          log.debug("No recipient p2kh given")
+          return False
       
       name_fee = None
       namespace = None
@@ -1120,7 +1136,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
              return False
       
           # name can't be registered if it was reordered before its namespace was ready 
-          if name_preorder['block_number'] < namespace['ready_block']:
+          if not namespace.has_key('ready_block') or name_preorder['block_number'] < namespace['ready_block']:
              log.debug("Name '%s' preordered before namespace '%s' was ready" % (name, namespace_id))
              return False
           
@@ -1151,6 +1167,11 @@ class BlockstoreDB( virtualchain.StateEngine ):
           # does not exist and not preordered
           log.debug("Name '%s' was not preordered by %s" % (name, sender))
           return False 
+      
+      # cannot exceed quota 
+      if len( self.owner_names.get( recipient, [] ) ) >= MAX_NAMES_PER_SENDER:
+          log.debug("Recipient '%s' has exceeded quota" % recipient)
+          return False
       
       # check name fee 
       namespace_base_price = namespace['cost']
@@ -1371,11 +1392,6 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       namespace = self.get_namespace_reveal( namespace_id )
       
-      # name can't exist 
-      if self.is_name_registered( name ):
-          log.debug("Name '%s' already exists" % name )
-          return False
-      
       # sender must be the same as the the person who revealed the namespace
       if sender != namespace['recipient']:
           log.debug("Name '%s' is not sent by the namespace owner")
@@ -1399,6 +1415,10 @@ class BlockstoreDB( virtualchain.StateEngine ):
           log.debug("Name '%s' costs %s, but sender paid %s" % (name, price_name( name_without_namespace, namespace_base_price, namespace_price_decay ), name_fee ))
           return False
       
+      # we can overwrite, but emit a warning 
+      if self.is_name_registered( name ):
+          log.warning("Overwriting already-imported name '%s'" % name)
+          
       # good!
       return True
       
@@ -1454,6 +1474,14 @@ class BlockstoreDB( virtualchain.StateEngine ):
       namespace_id_hash = nameop['namespace_id_hash']
       sender = nameop['sender']
       namespace_preorder = None
+      
+      if not nameop.has_key('recipient'):
+         log.debug("No recipient p2kh for namespace '%s'" % namespace_id)
+         return False
+         
+      if not nameop.has_key('recipient_address'):
+         log.debug("No recipient_address for namespace '%s'" % namespace_id)
+         return False
       
       # well-formed?
       if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
