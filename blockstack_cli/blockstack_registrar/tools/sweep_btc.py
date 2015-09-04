@@ -25,15 +25,15 @@ This file is part of Registrar.
 import json
 import requests
 
-from config import MONGODB_URI, OLD_DB, FRONTEND_SECRET
-from config_local import CHAIN_API_KEY
+from registrar.config import MONGODB_URI, OLD_DB, FRONTEND_SECRET
+from registrar.config_local import CHAIN_API_KEY
 
 from .bip38 import bip38_decrypt
 from coinkit import BitcoinKeypair, NamecoinKeypair
 
 from commontools import log
 from coinrpc.bitcoind_server import BitcoindServer
-from config import BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER, BITCOIND_PASSWD, BITCOIND_USE_HTTPS, BITCOIND_WALLET_PASSPHRASE 
+from registrar.config import BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER, BITCOIND_PASSWD, BITCOIND_USE_HTTPS, BITCOIND_WALLET_PASSPHRASE 
 bitcoind = BitcoindServer(BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER, BITCOIND_PASSWD, BITCOIND_USE_HTTPS, BITCOIND_WALLET_PASSPHRASE) 
 
 from pymongo import MongoClient

@@ -24,26 +24,24 @@ This file is part of Registrar.
 
 import os
 import json
-
-from config import MONGODB_URI, OLD_DB, AWSDB_URI
-
-from coinrpc import namecoind, NamecoindServer
-from config import NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD
-
-from blockdata.register import process_user
-
-from pymongo import MongoClient
-
-from encrypt.bip38 import bip38_decrypt
-
 import datetime
 import hashlib
 
+from pymongo import MongoClient
 from time import sleep
 
-from tools.sweep_btc import sweep_btc
+from pybitcoin.rpc import namecoind
+from pybitcoin.rpc.namecoind_cluster import pending_transactions
 
-from debug import import_user
+from registrar.nameops import process_user
+from registrar.transfer import transfer_name, nameTransferred
+
+from tools.sweep_btc import sweep_btc
+from tools.misc import import_user, import_update
+from tools.bip38 import bip38_decrypt
+
+from .config import MONGODB_URI, OLD_DB, AWSDB_URI
+from .config_local import problem_users, banned_users
 
 remote_client = MongoClient(MONGODB_URI)
 remote_db = remote_client.get_default_database()
@@ -59,15 +57,11 @@ old_users = old_db.user
 aws_db = MongoClient(AWSDB_URI)['blockdata']
 register_queue = aws_db.queue
 
-from config_local import problem_users, banned_users
-
 load_servers = ['named4', 'named6', 'named7', 'named8']
 
 current_server = 0
 
 MAX_PENDING_TX = 50
-
-from blockdata.namecoind_cluster import pending_transactions
 
 
 def load_balance():
@@ -91,13 +85,13 @@ def load_balance():
             break
 
 
-def process_profile(username, profile):
+def process_profile(username, profile, new_address=None):
 
     if username in problem_users:
         return
 
     try:
-        process_user(username, profile, load_servers[current_server])
+        process_user(username, profile, load_servers[current_server], new_address)
     except Exception as e:
         print e
 
@@ -109,8 +103,8 @@ def profile_on_blockchain(username, DB_profile):
     except:
         return False
 
-    block_profile = json.dumps(block_profile,sort_keys=True)
-    DB_profile = json.dumps(DB_profile,sort_keys=True)
+    block_profile = json.dumps(block_profile, sort_keys=True)
+    DB_profile = json.dumps(DB_profile, sort_keys=True)
 
     if len(block_profile) == len(DB_profile):
         #check hash for only profiles where length is the same
@@ -163,16 +157,21 @@ def register_users():
 
             print "Dispatch: " + user['username']
 
-            process_profile(user['username'], user['profile'])
+            process_profile(user['username'], user['profile'], new_address=user['namecoin_address'])
             new_user['dispatched'] = True
             registrations.save(new_user)
 
         elif 'dispatched' in new_user and new_user['dispatched'] is True:
 
             if profile_on_blockchain(user["username"], user["profile"]):
-                registrations.remove(new_user)
+
+                if nameTransferred:
+                    print "cleaning: " + user["username"]
+                    registrations.remove(new_user)
+                else:
+                    transfer_name(new_user['username'], new_user['namecoin_address'], live=False)
             else:
-                process_profile(user['username'], user['profile'])
+                process_profile(user['username'], user['profile'], new_address=user['namecoin_address'])
 
         if counter % 5 == 0:
             load_balance()
@@ -220,7 +219,8 @@ def update_users():
             updates.remove(new_user)
         else:
             print "Update: " + str(user['username'])
-            process_profile(user['username'], user['profile'])
+            import_update(new_user)
+            #process_profile(user['username'], user['profile'])
 
 
 def cleanup_db():
@@ -297,8 +297,8 @@ def get_pending_state():
 if __name__ == '__main__':
 
     #cleanup_db()
-    check_transfer()
-    update_users()
+    #check_transfer()
+    #update_users()
     register_users()
 
     #get_pending_state()
