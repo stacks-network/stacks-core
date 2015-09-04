@@ -1,11 +1,35 @@
-# modified from example at https://gist.github.com/sekondus/4322469
+# -*- coding: utf-8 -*-
+"""
+    Registrar
+    ~~~~~
+
+    copyright: (c) 2014 by Halfmoon Labs, Inc.
+    copyright: (c) 2015 by Blockstack.org
+
+This file is part of Registrar.
+
+    Registrar is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Registrar is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Registrar. If not, see <http://www.gnu.org/licenses/>.
+"""
+
+import os
+import base64
 
 from Crypto.Cipher import AES
-import base64
-import os
 
 from binascii import hexlify, unhexlify
 
+# modified from example at https://gist.github.com/sekondus/4322469
 # the block size for the cipher object; must be 16, 24, or 32 for AES
 BLOCK_SIZE = 32
 
@@ -22,26 +46,31 @@ pad = lambda s: s + (BLOCK_SIZE - len(s) % BLOCK_SIZE) * PADDING
 EncodeAES = lambda c, s: base64.b64encode(c.encrypt(pad(s)))
 DecodeAES = lambda c, e: c.decrypt(base64.b64decode(e)).rstrip(PADDING)
 
-# generate a random secret key
-#secret = os.urandom(BLOCK_SIZE)
 
-#for saving, if needed
-#print hexlify(secret)
+def get_new_secret():
+    secret = os.urandom(BLOCK_SIZE)
+    return hexlify(secret)
 
 
-def aes_encrypt(text, secret):
-    # create a cipher object using the random secret
+def aes_encrypt(payload, secret):
     cipher = AES.new(unhexlify(secret))
-
-    # encode a string
-    encoded = EncodeAES(cipher, text)
-    return encoded
+    return EncodeAES(cipher, payload)
 
 
-def aes_decrypt(text, secret):
-    # create a cipher object using the random secret
+def aes_decrypt(payload, secret):
     cipher = AES.new(unhexlify(secret))
+    return DecodeAES(cipher, payload)
 
-    # decode the encoded string
-    decoded = DecodeAES(cipher, text)
-    return decoded
+
+def get_addresses_from_privkey(hex_privkey):
+
+    nmc_privkey = NamecoinPrivateKey(hex_privkey)
+    btc_privkey = BitcoinPrivateKey(hex_privkey)
+
+    nmc_pubkey = nmc_privkey.public_key()
+    nmc_address = nmc_pubkey.address()
+
+    btc_pubkey = btc_privkey.public_key()
+    btc_address = btc_pubkey.address()
+
+    return nmc_address, btc_address
