@@ -43,20 +43,36 @@ def test_private_key(passphrase, nmc_address):
         return False
 
 
-def name_transfer(passname, transfer_address, live=False):
+def nameTransferred(user, namecoind):
 
-    key = 'u/' + passname
+    try:
+        resp = namecoind.name_show('u/' + user['username'])
+    except:
+        return False
+
+    if 'address' in resp and resp['address'] == user['namecoin_address']:
+        return True
+    else:
+        return False
+
+
+def transfer_name(username, transfer_address, live=False):
+
+    key = 'u/' + username
+
     namecoind = get_namecoind(key)
 
     # -----------------------------
-    def name_transfer_inner(key):
+    def transfer_inner(key):
+
+        namecoind = get_namecoind(key)
 
         if(live):
             print namecoind.name_transfer(key, transfer_address)
         else:
             print "Will transfer %s, to %s" % (key, transfer_address)
 
-    name_transfer_inner(key)
+    transfer_inner(key)
 
     while(1):
         value = namecoind.name_show(key)['value']
@@ -70,7 +86,7 @@ def name_transfer(passname, transfer_address, live=False):
 
         if next_blob is not None:
             key = next_blob
-            name_transfer_inner(key)
+            transfer_inner(key)
 
 
 if __name__ == '__main__':
@@ -80,4 +96,4 @@ if __name__ == '__main__':
     username = "clone66"
     address = 'NMCinvalid'
 
-    name_transfer(username, address, live)
+    transfer_name(username, address, live)
