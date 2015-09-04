@@ -55,7 +55,7 @@ AVERAGE_BLOCKS_PER_HOUR = MINUTES_PER_HOUR/AVERAGE_MINUTES_PER_BLOCK
 
 """ blockstore configs
 """
-MAX_NAMES_PER_SENDER = 1                # a sender can own exactly one name
+MAX_NAMES_PER_SENDER = 25                # a sender can own exactly one name
 
 """ RPC server configs 
 """
