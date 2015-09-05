@@ -53,7 +53,7 @@ bitcoin_opts = None
 chaincom_opts = None
 blockchain_client = None 
 
-def get_bitcoind( new_bitcoind_opts=None, reset=False ):
+def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
    """
    Get or instantiate our bitcoind client.
    Optionally re-set the bitcoind options.
@@ -64,16 +64,24 @@ def get_bitcoind( new_bitcoind_opts=None, reset=False ):
    if reset:
        bitcoind = None
    
-   elif bitcoind is not None:
+   elif not new and bitcoind is not None:
       return bitcoind 
    
-   if bitcoind is None:
+   if new or bitcoind is None:
       if new_bitcoind_opts is not None:
          bitcoin_opts = new_bitcoind_opts
       
+      new_bitcoind = None
       try:
-         bitcoind = virtualchain.connect_bitcoind( bitcoin_opts )
-         return bitcoind 
+         new_bitcoind = virtualchain.connect_bitcoind( bitcoin_opts )
+         
+         if new:
+             return new_bitcoind
+         
+         else:
+             # save for subsequent reuse 
+             bitcoind = new_bitcoind
+             return bitcoind 
       
       except Exception, e:
          log.exception( e )
@@ -152,25 +160,24 @@ def get_index_range():
     """
     Get the bitcoin block index range.
     Mask connection failures with timeouts.
+    Always try to reconnect
     """
+     
     
-    global bitcoind 
-    
-    if bitcoind is None:
-        bitcoind = get_bitcoind()
+    bitcoind_session = get_bitcoind( new=True )
     
     first_block = None 
     last_block = None
     while last_block is None:
 
-        first_block, last_block = virtualchain.get_index_range( bitcoind )
+        first_block, last_block = virtualchain.get_index_range( bitcoind_session )
 
         if last_block is None:
             
             # try to reconnnect 
             time.sleep(1)
             log.error("Reconnect to bitcoind")
-            bitcoind = get_bitcoind( reset=True )
+            bitcoind_session = get_bitcoind( new=True )
             continue 
         
         else:
