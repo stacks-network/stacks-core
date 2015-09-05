@@ -49,32 +49,39 @@ namecoind = NamecoindClient(NAMECOIND_SERVER, NAMECOIND_PORT,
 # -----------------------------------
 remote_db = MongoClient(MONGODB_URI).get_default_database()
 users = remote_db.user
-registrations = remote_db.user_registration
-updates = remote_db.profile_update
-transfer = remote_db.name_transfer
 
 old_db = MongoClient(OLD_DB).get_default_database()
 old_users = old_db.user
 
-aws_db = MongoClient(AWSDB_URI)['blockdata']
-skip_users = aws_db.skip_users
-pending_users = aws_db.pending_users
-
 c = MongoClient()
-
 namespace_db = c['namespace']
 nmc_state = namespace_db.nmc_state
 registrar_state = namespace_db.registrar_state
 btc_state = namespace_db.btc_state
 
+nmc_state.ensure_index('username')
+registrar_state.ensure_index('username')
+
 
 def get_hash(profile):
 
     if type(profile) is not dict:
-        print "converting to json"
-        profile = json.loads(profile)
+        try:
+            print "WARNING: converting to json"
+            profile = json.loads(profile)
+        except:
+            print "WARNING: not valid json"
 
     return hex_hash160(json.dumps(profile, sort_keys=True))
+
+
+def fix_db():
+
+    c = MongoClient()
+    db = c['namespace']
+
+    print db.collection_names()
+    #print db.drop_collection('nmc_state')
 
 
 def create_test_namespace():
@@ -226,24 +233,151 @@ def build_nmc_state():
 
 def process_nmc_state():
 
+    counter = 0
+
+    # convert profile to json
     for entry in nmc_state.find():
 
-        print entry['username']
+        if type(entry['profile']) is not dict:
+
+            try:
+                profile = json.loads(entry['profile'])
+                nmc_state.save(entry)
+            except:
+                pass
+
+    # mark if profile is valid
+    for entry in nmc_state.find():
+
+        if type(entry['profile']) is not dict:
+            entry['profileIsValid'] = False
+        else:
+            entry['profileIsValid'] = True
+
+        nmc_state.save(entry)
+
+    # pull full profiles for entries with next keys
+    for entry in nmc_state.find():
+        if entry['profileIsValid']:
+            if 'next' in entry['profile']:
+                counter += 1
+                print counter
+                profile = namecoind.get_full_profile('u/' + entry['username'])
+                entry['full_profile'] = profile
+                nmc_state.save(entry)
+
+    # replace profiles with full profiles
+    for entry in nmc_state.find():
+        if entry['profileIsValid']:
+            if 'next' in entry['profile']:
+                # check if full_profile was fetched properly
+                USE_FULL_PROFILE = False
+                if len(json.dumps(entry['full_profile'])) >= len(json.dumps(entry['profile'])):
+                    USE_FULL_PROFILE = True
+                else:
+                    if 'code' not in entry['full_profile']:
+                        USE_FULL_PROFILE = True
+
+                if USE_FULL_PROFILE:
+                    entry['profile'] = entry['full_profile']
+                    del entry['full_profile']
+                    nmc_state.save(entry)
+
+    # save profile hash
+    for entry in nmc_state.find():
+
+        entry['profile_hash'] = get_hash(entry['profile'])
+        nmc_state.save(entry)
+
+
+def temp_process_nmc_state():
+
+    counter = 0
+    for entry in nmc_state.find():
+
+        entry['profile_hash'] = get_hash(entry['profile'])
+        nmc_state.save(entry)
 
 
 def build_registrar_state():
 
-    return
+    counter_users = 0
+
+    for entry in users.find():
+
+        new_entry = {}
+        new_entry['username'] = entry['username']
+        new_entry['profile'] = entry['profile']
+        new_entry['nmc_address'] = entry['namecoin_address']
+
+        registrar_state.insert(new_entry)
+
+        counter_users += 1
+
+        if counter_users % 10 == 0:
+            print counter_users
+
+    counter_old_users = 0
+
+    for entry in old_users.find():
+
+        check_entry = users.find_one({'username': entry['username']})
+
+        if check_entry is None:
+
+            new_entry = {}
+            new_entry['username'] = entry['username']
+            new_entry['profile'] = entry['profile']
+            new_entry['nmc_address'] = entry['namecoin_address']
+
+            registrar_state.insert(new_entry)
+
+            counter_old_users += 1
+
+            if counter_old_users % 10 == 0:
+                print counter_old_users
+
+    #print users.count()
+    #print old_users.count()
+    print counter_users
+    print counter_old_users
+    print registrar_state.count()
 
 
-def fix_db():
+def process_registrar_state():
 
-    c = MongoClient()
-    db = c['namespace']
+    for entry in registrar_state.find():
 
-    print db.collection_names()
-    #print db.drop_collection('nmc_state')
+        entry['profile_hash'] = get_hash(entry['profile'])
+
+        registrar_state.save(entry)
+
+
+def compare_states():
+
+    print "Total users nmc state: %s" % nmc_state.count()
+    print "Total users registrar state: %s" % registrar_state.count()
+
+    counter_not_registered = 0
+
+    for entry in registrar_state.find():
+
+        check_entry = nmc_state.find_one({"username": entry['username']})
+
+        if check_entry is None:
+
+            # special case: remove the junk bitcoin addresses
+            if len(entry['username']) == 34:
+                print entry['username']
+                #registrar_state.remove(entry)
+
+            counter_not_registered += 1
+
+    print counter_not_registered
 
 if __name__ == '__main__':
 
-    process_nmc_state()
+    #temp_process_nmc_state()
+    compare_states()
+    #process_registrar_state()
+    #process_nmc_state()
