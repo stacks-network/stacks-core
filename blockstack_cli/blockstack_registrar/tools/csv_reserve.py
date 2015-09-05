@@ -50,13 +50,13 @@ def format_key_value(key, name=None):
 
     if name is not None and name != '' and name != ' ':
 
-        value["message"] = "This username is reserved for %s." \
+        value["message"] = "This blockchain ID is reserved for %s." \
                             "If this is you, please email %s" \
                             " to claim it for free." % (name.lstrip(' '), CONTACT_EMAIL)
 
     else:
 
-        value["message"] = "This username was parked to evade name squatting," \
+        value["message"] = "This blockchain ID was parked to evade name squatting," \
                            " but can be made available upon reasonable request" \
                            " at no charge. If you are interested in this name," \
                            " please email %s with your twitter" \
