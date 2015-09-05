@@ -289,14 +289,23 @@ def process_nmc_state():
         entry['profile_hash'] = get_hash(entry['profile'])
         nmc_state.save(entry)
 
+    counter = 0
+    # save nmc owner address
+    for entry in nmc_state.find():
+
+        resp = namecoind.name_show('u/' + entry['username'])
+
+        if 'address' in resp:
+            entry['nmc_address'] = resp['address']
+            nmc_state.save(entry)
+
+        counter += 1
+        print counter
+
 
 def temp_process_nmc_state():
 
-    counter = 0
-    for entry in nmc_state.find():
-
-        entry['profile_hash'] = get_hash(entry['profile'])
-        nmc_state.save(entry)
+    return
 
 
 def build_registrar_state():
@@ -360,6 +369,7 @@ def compare_states():
 
     counter_not_registered = 0
 
+    # check if registrar has pending registrations
     for entry in registrar_state.find():
 
         check_entry = nmc_state.find_one({"username": entry['username']})
@@ -373,11 +383,50 @@ def compare_states():
 
             counter_not_registered += 1
 
-    print counter_not_registered
+    print "Not registered on nmc: %s" % counter_not_registered
+
+    # check if registrar's view matches nmc
+
+    counter_profile_data_mismatch = 0
+
+    for entry in registrar_state.find():
+
+        nmc_entry = nmc_state.find_one({"username": entry['username']})
+
+        if nmc_entry is None:
+            continue
+
+        if entry['profile_hash'] != nmc_entry['profile_hash']:
+            print entry['username']
+            counter_profile_data_mismatch += 1
+
+    print counter_profile_data_mismatch
+
+
+def check_ownership_state():
+
+    counter_needs_transfer = 0
+    counter_transferred = 0
+
+    for entry in registrar_state.find():
+
+        nmc_entry = nmc_state.find_one({"username": entry['username']})
+
+        if nmc_entry is None:
+            continue
+
+        if nmc_entry['nmc_address'] != entry['nmc_address']:
+            print entry['username']
+            counter_needs_transfer += 1
+        else:
+            counter_transferred += 1
+
+    print counter_needs_transfer
+    print counter_transferred
 
 if __name__ == '__main__':
 
-    #temp_process_nmc_state()
-    compare_states()
+    temp_compare_states()
+    #compare_states()
     #process_registrar_state()
     #process_nmc_state()
