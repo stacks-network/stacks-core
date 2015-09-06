@@ -21,7 +21,13 @@
     along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pybitcoin import embed_data_in_blockchain, BlockchainInfoClient, bin_hash160, BitcoinPrivateKey
+from pybitcoin import embed_data_in_blockchain, \
+    analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
+    make_pay_to_address_script, b58check_encode, b58check_decode, BlockchainInfoClient, \
+    hex_hash160, bin_hash160, BitcoinPrivateKey
+
+
+from pybitcoin.transactions.outputs import calculate_change_amount
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
@@ -71,7 +77,7 @@ def make_outputs( data, inputs, change_addr, fee, format='bin' ):
     [2] pay-to-address with the *burn address* with the fee
     """
     
-    total_to_send = DEFAULT_OP_RETURN_FEE + min(fee, DEFAULT_OP_RETURN_FEE) + len(inputs) * DEFAULT_DUST_FEE
+    total_to_send = DEFAULT_OP_RETURN_FEE + max(fee, DEFAULT_OP_RETURN_FEE) + len(inputs) * DEFAULT_DUST_FEE
     
     return [
         # main output
@@ -84,7 +90,7 @@ def make_outputs( data, inputs, change_addr, fee, format='bin' ):
         
         # burn address
         {"script_hex": make_pay_to_address_script(BLOCKSTORE_BURN_ADDRESS),
-         "value": min(fee, DEFAULT_OP_RETURN_FEE)}
+         "value": max(fee, DEFAULT_OP_RETURN_FEE)}
     ]
 
 
@@ -101,7 +107,7 @@ def broadcast(name, register_addr, consensus_hash, private_key, blockchain_clien
     private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
     
     # build custom outputs here
-    outputs = make_outputs(nulldata, inputs, register_addr, from_address, format='hex')
+    outputs = make_outputs(nulldata, inputs, from_address, fee, format='hex')
     
     # serialize, sign, and broadcast the tx
     response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_client)

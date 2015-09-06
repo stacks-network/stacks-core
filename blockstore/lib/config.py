@@ -55,7 +55,7 @@ AVERAGE_BLOCKS_PER_HOUR = MINUTES_PER_HOUR/AVERAGE_MINUTES_PER_BLOCK
 
 """ blockstore configs
 """
-MAX_NAMES_PER_SENDER = 1                # a sender can own exactly one name
+MAX_NAMES_PER_SENDER = 25                # a sender can own exactly one name
 
 """ RPC server configs 
 """
@@ -84,9 +84,9 @@ DEFAULT_BITCOIND_PASSWD = 'opennamesystem'
 
 """ block indexing configs
 """
-REINDEX_FREQUENCY = 30 # seconds
+REINDEX_FREQUENCY = 60 # seconds
 
-FIRST_BLOCK_MAINNET = 370607 # 343883
+FIRST_BLOCK_MAINNET = 372693 # 343883
 FIRST_BLOCK_MAINNET_TESTSET = FIRST_BLOCK_MAINNET
 # FIRST_BLOCK_TESTNET = 343883
 FIRST_BLOCK_TESTNET = 529008
@@ -163,7 +163,7 @@ LENGTHS = {
     'name_hash': 16,
     'update_hash': 20,
     'data_hash': 20,
-    'blockchain_id_name': 34,
+    'blockchain_id_name': 37,
     'blockchain_id_namespace_life': 4,
     'blockchain_id_namespace_cost': 7,
     'blockchain_id_namespace_price_decay': 4,
@@ -203,11 +203,13 @@ PRICE_DROP_PER_LETTER = 10
 PRICE_DROP_FOR_NON_ALPHABETIC = 10
 ALPHABETIC_PRICE_FLOOR = 10**4
 
+NAME_MINIMUM_COST = 10000       # about one OP_RETURN
+
 # NAMESPACE_BASE_COST = 64 * SATOSHIS_PER_BTC
-NAMESPACE_BASE_COST = SATOSHIS_PER_BTC
-NAMESPACE_COST_DECAY = 4.0
+# NAMESPACE_BASE_COST = SATOSHIS_PER_BTC
+# NAMESPACE_COST_DECAY = 4.0
 # NAMESPACE_MINIMUM_COST = SATOSHIS_PER_BTC / 10  # 0.1 BTC
-NAMESPACE_MINIMUM_COST = 1
+# NAMESPACE_MINIMUM_COST = 1   
 
 """
 NAMESPACE_1_CHAR_COST = 86.67 * SATOSHIS_PER_BTC        # ~$20,000
