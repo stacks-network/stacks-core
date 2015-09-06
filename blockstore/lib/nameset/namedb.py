@@ -30,8 +30,8 @@ import math
 from collections import defaultdict
 from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAGIC_BYTES, TESTSET, MAX_NAMES_PER_SENDER, \
     EXPIRATION_PERIOD, NAME_PREORDER, NAMESPACE_PREORDER, NAME_REGISTRATION, NAME_UPDATE, TRANSFER_KEEP_DATA, \
-    TRANSFER_REMOVE_DATA, NAME_REVOKE, NAMESPACE_BASE_COST, NAMESPACE_COST_DECAY, NAME_PREORDER_EXPIRE, \
-    NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTORE_VERSION, NAMESPACE_MINIMUM_COST, \
+    TRANSFER_REMOVE_DATA, NAME_REVOKE, NAME_PREORDER_EXPIRE, \
+    NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTORE_VERSION, \
     NAMESPACE_1_CHAR_COST, NAMESPACE_23_CHAR_COST, NAMESPACE_4567_CHAR_COST, NAMESPACE_8UP_CHAR_COST, NAME_MINIMUM_COST
 
 from ..operations import build_namespace_reveal
@@ -292,7 +292,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
 
       # build up our reverse indexes
       for name, name_record in self.name_records.items():
-         self.block_name_renewals[ name_record['last_renewed'] ] = name
+         self.block_name_renewals[ name_record['last_renewed'] ] = [name]
          self.owner_names[ name_record['sender'] ].append( name )
          self.hash_names[ hash256_trunc128( name ) ] = name
 
