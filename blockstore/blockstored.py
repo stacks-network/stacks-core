@@ -438,6 +438,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         """
         
         # renew the name for the caller
+        db = get_state_engine()
         name_rec = db.get_name( name )
         if name_rec is None:
             return {"error": "Name is not registered"}
