@@ -292,8 +292,17 @@ class BlockstoreDB( virtualchain.StateEngine ):
 
       # build up our reverse indexes
       for name, name_record in self.name_records.items():
-         self.block_name_renewals[ name_record['last_renewed'] ] = [name]
-         self.owner_names[ name_record['sender'] ].append( name )
+         
+         if not self.block_name_renewals.has_key( name_record['last_renewed'] ):
+             self.block_name_renewals[ name_record['last_renewed'] ] = [name]    
+         else:
+             self.block_name_renewals[ name_record['last_renewed'] ].append( name )
+             
+         if not self.owner_names.has_key( name_record['sender'] ):
+             self.owner_names[ name_record['sender'] ] = [name]
+         else:
+             self.owner_names[ name_record['sender'] ].append( name )
+             
          self.hash_names[ hash256_trunc128( name ) ] = name
 
       for (namespace_id, namespace_reveal) in self.namespace_reveals.items():
@@ -797,7 +806,9 @@ class BlockstoreDB( virtualchain.StateEngine ):
       block_last_renewed = self.name_records[name]['last_renewed']
       
       # name no longer expires at last renewal time...
-      self.block_name_renewals[ block_last_renewed ].remove( name )
+      if name in self.block_name_renewals[ block_last_renewed ]:
+         self.block_name_renewals[ block_last_renewed ].remove( name )
+         
       self.block_name_renewals[ current_block_number ].append( name )
       
       self.name_records[name]['last_renewed'] = current_block_number
