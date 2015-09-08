@@ -28,16 +28,17 @@ import traceback
 import types
 import socket
 import uuid
+import os
 import importlib
 
-from . import parsing, schemas, storage, drivers
+from . import parsing, schemas, storage, drivers, config
 from . import user as user_db
 
 import pybitcoin
 import bitcoin as pybitcointools
 import binascii
 
-from .config import log, DEBUG, MAX_RPC_LEN
+from config import log, DEBUG, MAX_RPC_LEN
 
 # default API endpoint proxy to blockstored
 default_proxy = None
@@ -633,7 +634,8 @@ def namespace_preorder(namespace_id, privatekey, reveal_addr=None, proxy=None):
     return result
 
 
-def namespace_reveal(namespace_id, reveal_addr, lifetime, base_name_cost, cost_decay_rate,
+def namespace_reveal(namespace_id, reveal_addr, lifetime, coeff, base_cost,
+                     bucket_exponents, nonalpha_discount, no_vowel_discount,
                      privatekey, proxy=None):
     """
     namesapce_reveal
@@ -642,8 +644,9 @@ def namespace_reveal(namespace_id, reveal_addr, lifetime, base_name_cost, cost_d
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.namespace_reveal(namespace_id, reveal_addr, lifetime, base_name_cost,
-                                  cost_decay_rate, privatekey)
+    return proxy.namespace_reveal(namespace_id, reveal_addr, lifetime, coeff,
+                                  base_cost, bucket_exponents, nonalpha_discount,
+                                  no_vowel_discount, privatekey )
 
 
 def namespace_ready(namespace_id, privatekey, proxy=None):
@@ -656,6 +659,141 @@ def namespace_ready(namespace_id, privatekey, proxy=None):
 
     return proxy.namespace_ready(namespace_id, privatekey)
 
+
+def load_mutable_data_version( conf, name, data_id, try_remote=True ):
+    """
+    Get the version field of a piece of mutable data.
+    Check the local cache first, and if we need to,
+    fetch the data itself from mutable storage
+    """
+
+    # try to get the current, locally-cached version 
+    if conf is None:
+        conf = config.get_config()
+        
+    metadata_dir = None
+    if conf is not None:
+        
+        metadata_dir = conf.get('metadata', None)
+        if metadata_dir is not None and os.path.isdir( metadata_dir ):
+            
+            # find the version file for this data 
+            serialized_data_id = data_id.replace("/", "\x2f").replace('\0', "\\0")
+            version_file_path = os.path.join( metadata_dir, serialized_data_id + ".ver")
+            
+            if os.path.exists( version_file_path ):
+                
+                ver = None
+                try:
+                    with open( version_file_path, "r" ) as f:
+                        ver_txt = f.read()
+                        ver = int( ver_txt.strip() )
+                
+                    # success!
+                    return ver 
+                
+                except ValueError, ve:
+                    # not an int 
+                    log.warn("Not an integer: '%s'" % version_file_path )
+                    
+                except Exception, e:
+                    # can't read
+                    log.warn("Failed to read '%s': %s" % (version_file_path))
+
+    if not try_remote:
+        if conf is None:
+            log.warning("No config found; cannot load version for '%s'" % data_id)
+            
+        elif metadata_dir is None:
+            log.warning("No metadata directory found; cannot load version for '%s'" % data_id)
+            
+        return None 
+    
+    # if we got here, then we need to fetch remotely 
+    existing_data = get_mutable(name, data_id)
+    if existing_data is None:
+        
+        # nope 
+        return None
+
+    if existing_data.has_key('error'):
+        
+        # nope 
+        return None
+    
+    ver = existing_data['ver']
+    return ver
+
+
+def store_mutable_data_version( conf, data_id, ver ):
+    """
+    Locally store the version of a piece of mutable data, 
+    so we can ensure that its version is incremented on 
+    subsequent puts.
+    
+    Return True if stored 
+    Return False if not
+    """
+    
+    if conf is None:
+        conf = config.get_config()
+    
+    if conf is None:
+        log.warning("No config found; cannot store version for '%s'" % data_id)
+        return False
+    
+    metadata_dir = conf['metadata']
+    if not os.path.isdir( metadata_dir ):
+        log.warning("No metadata directory found; cannot store version of '%s'" % data_id)
+        return False 
+    
+    serialized_data_id = data_id.replace("/", "\x2f").replace('\0', "\\0")
+    version_file_path = os.path.join( metadata_dir, serialized_data_id + ".ver")
+    
+    try:
+        with open( version_file_path, "w+" ) as f:
+            f.write("%s" % ver )
+        
+        return True 
+    
+    except Exception, e:
+        # failed for whatever reason 
+        log.warn("Failed to store version of '%s' to '%s'" % (data_id, version_file_path))
+        return False 
+    
+
+def delete_mutable_data_version( conf, data_id ):
+    """
+    Locally delete the version of a piece of mutable data.
+    
+    Return True if deleted. 
+    Return False if not
+    """
+    
+    if conf is None:
+        conf = config.get_config()
+    
+    if conf is None:
+        log.warning("No config found; cannot store version for '%s'" % data_id)
+        return False
+    
+    metadata_dir = conf['metadata']
+    if not os.path.isdir( metadata_dir ):
+        log.warning("No metadata directory found; cannot store version of '%s'" % data_id)
+        return False 
+    
+    serialized_data_id = data_id.replace("/", "\x2f").replace('\0', "\\0")
+    version_file_path = os.path.join( metadata_dir, serialized_data_id + ".ver")
+    
+    try:
+        os.unlink( version_file_path )
+        return True 
+    
+    except Exception, e:
+        # failed for whatever reason 
+        log.warn("Failed to remove version file '%s'" % (version_file_path))
+        return False 
+    
 
 def get_immutable(name, data_key):
     """
@@ -680,13 +818,16 @@ def get_immutable(name, data_key):
         return {'error': 'No immutable data found'}
 
     return {'data': data}
+    
 
-
-def get_mutable(name, data_id, nonce_min=None, nonce_max=None, nonce_check=None):
+def get_mutable(name, data_id, ver_min=None, ver_max=None, ver_check=None, conf=None):
     """
     get_mutable
     """
 
+    if conf is None:
+        conf = config.get_config()
+        
     user = get_user_record(name)
     if 'error' in user:
 
@@ -701,14 +842,29 @@ def get_mutable(name, data_id, nonce_min=None, nonce_max=None, nonce_check=None)
         return {'error': 'No such route'}
 
     # go and fetch the data
-    data = storage.get_mutable_data(data_route, nonce_min=nonce_min,
-                                    nonce_max=nonce_max,
-                                    nonce_check=nonce_check)
+    data = storage.get_mutable_data(data_route, ver_min=ver_min,
+                                    ver_max=ver_max,
+                                    ver_check=ver_check)
     if data is None:
 
         # no data
         return {'error': 'No mutable data found'}
 
+    # what's the expected version of this data?
+    expected_version = load_mutable_data_version( conf, name, data_id, try_remote=False )
+    if expected_version is not None:
+        if expected_version > data['ver']:
+            return {'error': 'Stale data', 'ver_minimum': expected_version, 'ver_received': data['ver']}
+
+    elif ver_check is None:
+        # we don't have a local version, and the caller didn't check it.
+        log.warning("Unconfirmed version for data '%s'" % data_id)
+        data['warning'] = "Unconfirmed version"
+        
+    # remember latest version 
+    if data['ver'] > expected_version:
+        store_mutable_data_version( conf, data_id, data['ver'] ) 
+    
     # include the route
     data['route'] = data_route
     return data
@@ -728,7 +884,7 @@ def put_immutable(name, data, privatekey, txid=None, proxy=None):
         proxy = default_proxy
 
     # need to put the transaction ID into the data record we put
-    user = get_user_record(name, create=True)
+    user = get_user_record(name, create_if_absent=True)
     if 'error' in user:
 
         # no user data
@@ -780,16 +936,16 @@ def put_immutable(name, data, privatekey, txid=None, proxy=None):
 
 
 def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
-                txid=None, nonce=None, make_nonce=None ):
+                txid=None, ver=None, make_ver=None, conf=None ):
     """
     put_mutable
 
     ** Consistency **
 
-    nonce, if given, is the nonce to include in the data.
-    make_nonce, if given, is a callback that takes the data_id and data_text and generates a nonce to be included in the data record uploaded.
-    If nonce is not given, but make_nonce is, then make_nonce will be used to generate the nonce.
-    If neither nonce nor make_nonce are given, the mutable data (if it already exists) is fetched, and the nonce is calculated as existing['nonce'] + 1.
+    ver, if given, is the version to include in the data.
+    make_ver, if given, is a callback that takes the data_id, data_text, and current version as arguments, and generates the version to be included in the data record uploaded.
+    If ver is not given, but make_ver is, then make_ver will be used to generate the version.
+    If neither ver nor make_ver are given, the mutable data (if it already exists) is fetched, and the version is calculated as the larget known version + 1.
 
     ** Durability ** 
     
@@ -801,18 +957,45 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
         proxy = get_default_proxy()
 
     result = {}
-    user = get_user_record(name, create=create)
+    user = get_user_record(name, create_if_absent=create)
     if 'error' in user:
 
         return {'error': "Unable to load user record: %s" % user['error']}
 
     route = None
-    exists = True
+    exists = user_db.has_mutable_data_route(user, data_id)
     old_hash = None
     cur_hash = None
+    new_ver = ver
+    
+    if ver is None:
+
+        if exists:
+            # mutable record already exists.
+            # generate one automatically.
+            # use the existing locally-stored version,
+            # and fall back to using the last-known version 
+            # from the existing mutable data record.
+            new_ver = load_mutable_data_version( config.get_config(), name, data_id, try_remote=True )
+            if new_ver is None:
+                # data exists, but we couldn't figure out the version 
+                return {'error': "Unable to determine version"}
+            
+        if make_ver is not None:
+            # generate version 
+            new_ver = make_ver( data_id, data_text, new_ver )
+        
+        else:
+            # no version known, and no way to generate it.
+            # by default, start at 1.  we'll manage it ourselves.
+            if new_ver is None:
+                new_ver = 1
+            else:
+                new_ver += 1
+            
 
     # do we have a route for this data yet?
-    if not user_db.has_mutable_data_route(user, data_id):
+    if not exists:
 
         if not create:
             # won't create; expect it to exist
@@ -841,8 +1024,6 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
 
         txid = update_result['transaction_hash']
         cur_hash = update_result['value_hash']
-        
-        exists = False
 
     else:
 
@@ -851,38 +1032,15 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
 
             return {"error": "No such route"}
 
-    if nonce is None:
-
-        # need a nonce
-        if make_nonce is not None:
-            nonce = make_nonce(data_id, data_text)
-
-        if exists:
-
-            existing_data = get_mutable(name, data_id)
-            if existing_data is None:
-
-                result['error'] = "No nonce calculated"
-                result['transaction_hash'] = txid
-                return result
-
-            if existing_data.has_key('error'):
-                existing_data['transaction_hash'] = txid
-                return existing_data
-            
-            nonce = existing_data['nonce']
-            nonce += 1
-
-        else:
-            nonce = 1
-
-    # upload the data
-    data = storage.mutable_data(data_id, data_text, nonce, privkey=privatekey)
+    # generate the data
+    data = storage.mutable_data(data_id, data_text, new_ver, privkey=privatekey)
     if data is None:
         return {"error": "Failed to generate data record"}
 
+    # serialize...
     data_json = parsing.json_stable_serialize(data)
 
+    # replicate...
     store_rc = storage.put_mutable_data( data, privatekey )
     if not store_rc:
         result['error'] = "Failed to store mutable data"
@@ -895,7 +1053,10 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
     if cur_hash:
         # propagate 
         result['value_hash'] = cur_hash
-        
+    
+    # cache new version 
+    store_mutable_data_version( conf, data_id, new_ver )
+    
     return result
 
 
@@ -1010,5 +1171,7 @@ def delete_mutable(name, data_id, privatekey, proxy=default_proxy, txid=None,
         result['transaction_hash'] = txid 
         result['value_hash'] = update_status['value_hash']
     
-
+    # uncache local version 
+    delete_mutable_data_version( config.get_config(), data_id )
+    
     return result
