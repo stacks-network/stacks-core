@@ -103,7 +103,7 @@ def make_outputs( data, inputs, new_name_owner_address, change_address, format='
     Builds the outputs for a name transfer operation.
     """
     
-    total_to_send = DEFAULT_OP_RETURN_FEE + DEFAULT_DUST_FEE + len(inputs) * DEFAULT_DUST_FEE
+    total_to_send = DEFAULT_OP_RETURN_FEE + DEFAULT_DUST_FEE*2
  
     return [
         # main output
@@ -114,7 +114,7 @@ def make_outputs( data, inputs, new_name_owner_address, change_address, format='
          "value": DEFAULT_DUST_FEE},
         # change output
         {"script_hex": make_pay_to_address_script(change_address),
-         "value": calculate_change_amount(inputs, total_to_send, DEFAULT_OP_RETURN_FEE)}
+         "value": calculate_change_amount(inputs, total_to_send, (len(inputs) + 3) * DEFAULT_DUST_FEE)}
     ]
 
 

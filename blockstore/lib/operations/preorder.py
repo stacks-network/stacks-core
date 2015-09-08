@@ -77,7 +77,7 @@ def make_outputs( data, inputs, change_addr, fee, format='bin' ):
     [2] pay-to-address with the *burn address* with the fee
     """
     
-    total_to_send = DEFAULT_OP_RETURN_FEE + max(fee, DEFAULT_OP_RETURN_FEE) + len(inputs) * DEFAULT_DUST_FEE
+    total_to_send = DEFAULT_OP_RETURN_FEE + max(fee, DEFAULT_OP_RETURN_FEE)
     
     return [
         # main output
@@ -86,7 +86,7 @@ def make_outputs( data, inputs, change_addr, fee, format='bin' ):
         
         # change address
         {"script_hex": make_pay_to_address_script(change_addr),
-         "value": calculate_change_amount(inputs, total_to_send, DEFAULT_OP_RETURN_FEE)},
+         "value": calculate_change_amount(inputs, total_to_send, (len(inputs) + 3) * DEFAULT_DUST_FEE)},
         
         # burn address
         {"script_hex": make_pay_to_address_script(BLOCKSTORE_BURN_ADDRESS),

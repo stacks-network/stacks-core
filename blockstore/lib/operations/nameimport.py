@@ -109,7 +109,7 @@ def make_outputs( data, inputs, recipient_address, sender_address, update_hash_b
     """
     
     # (besides the fee...)
-    total_to_send = DEFAULT_OP_RETURN_FEE + DEFAULT_DUST_FEE * 2 + max(fee, DEFAULT_DUST_FEE) + len(inputs) * DEFAULT_DUST_FEE
+    total_to_send = DEFAULT_OP_RETURN_FEE + DEFAULT_DUST_FEE * 2 + max(fee, DEFAULT_DUST_FEE)
     
     return [
         # main output
@@ -126,7 +126,7 @@ def make_outputs( data, inputs, recipient_address, sender_address, update_hash_b
         
         # change output
         {"script_hex": make_pay_to_address_script(sender_address),
-         "value": calculate_change_amount(inputs, total_to_send, DEFAULT_DUST_FEE)},
+         "value": calculate_change_amount(inputs, total_to_send, (len(inputs) + 5) * DEFAULT_DUST_FEE)},
         
         # burn output 
         {"script_hex": make_pay_to_address_script(BLOCKSTORE_BURN_ADDRESS),
