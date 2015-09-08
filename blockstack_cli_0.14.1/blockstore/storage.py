@@ -61,7 +61,7 @@ MUTABLE_DATA_SCHEMA = {
    
    "id": schemas.STRING,
    "data": schemas.B64STRING,
-   "nonce": schemas.INTEGER,
+   "ver": schemas.INTEGER,
    "sig": schemas.B64STRING
 }
 
@@ -194,7 +194,7 @@ def mutable_data_decode( data ):
    data['data'] = base64.b64decode( data['data'] )
     
 
-def mutable_data( data_id, data_text, nonce, privkey=None, sig=None, encode=True ):
+def mutable_data( data_id, data_text, ver, privkey=None, sig=None, encode=True ):
    """
    Generate a mutable data dict from the given information.
    If sig is given, use sig
@@ -204,7 +204,7 @@ def mutable_data( data_id, data_text, nonce, privkey=None, sig=None, encode=True
    data = {
       "id": str(data_id),
       "data": data_text,
-      "nonce": int(nonce)
+      "ver": int(ver)
    }
    
    if encode:
@@ -247,12 +247,12 @@ def mutable_data_parse( mutable_data_json_text, decode=True ):
    
    # TODO: use the schema to check for possible type conversions,
    # and to carry out type conversions en masse.
-   if not data_object.has_key('nonce'):
-      log.error("Not a valid mutable data object: missing 'nonce'")
+   if not data_object.has_key('ver'):
+      log.error("Not a valid mutable data object: missing 'ver'")
       return None 
    
    try:
-      data_object['nonce'] = int( data_object['nonce'] )
+      data_object['ver'] = int( data_object['ver'] )
    except Exception, e:
       log.error("Not a valid mutable data object: '%s'" % str(mutable_data_json_text))
       return None 
@@ -422,11 +422,11 @@ def verify_raw_data( raw_data, pubkey, sigb64 ):
 def sign_mutable_data( data, privatekey ):
    """
    Given a mutable data dict and a ECDSA private key,
-   generate and return a base64-encoded signature over the fields that matter (i.e. the data_id, nonce, and data).
+   generate and return a base64-encoded signature over the fields that matter (i.e. the data_id, ver, and data).
    Return the signature (baes64-encoded)
    """
    
-   data_str = str(data['id']) + str(data['nonce']) + str(data['data'])
+   data_str = str(data['id']) + str(data['ver']) + str(data['data'])
    return sign_raw_data( data_str, privatekey )
 
 
@@ -439,19 +439,19 @@ def verify_mutable_data( data, pubkey ):
    
    sigb64 = data['sig']
    
-   data_str = str(data['id']) + str(data['nonce']) + str(data['data'])
+   data_str = str(data['id']) + str(data['ver']) + str(data['data'])
    
    return verify_raw_data( data_str, pubkey, sigb64 )
 
 
-def get_mutable_data( data_route, nonce_min=None, nonce_max=None, nonce_check=None ):
+def get_mutable_data( data_route, ver_min=None, ver_max=None, ver_check=None ):
    """
    Given a data's route, go fetch the data.
    
-   Optionally verify that the nonce in the data returned is within [nonce_min, nonce_max],
-   or no less than nonce_min, or no greater than nonce_max.
+   Optionally verify that the version ('ver') in the data returned is within [ver_min, ver_max],
+   or no less than ver_min, or no greater than ver_max.
    
-   Optionally evaluate nonce with nonce_check, which takes the data structure and returns true if the nonce is valid.
+   Optionally evaluate version with ver_check, which takes the data structure and returns true if the version is valid.
    
    Return a mutable data dict on success 
    Return None on error
@@ -509,17 +509,17 @@ def get_mutable_data( data_route, nonce_min=None, nonce_max=None, nonce_check=No
          # can decode the data now, since we've checked the sig 
          mutable_data_decode( data )
          
-         # verify nonce, if need be
-         if nonce_min is not None:
-            if data['nonce'] < nonce_min:
+         # verify ver, if need be
+         if ver_min is not None:
+            if data['ver'] < ver_min:
                continue 
          
-         if nonce_max is not None:
-            if data['nonce'] > nonce_max:
+         if ver_max is not None:
+            if data['ver'] > ver_max:
                continue 
             
-         if nonce_check is not None:
-            rc = nonce_check( data )
+         if ver_check is not None:
+            rc = ver_check( data )
             if not rc:
                continue 
          
@@ -585,7 +585,7 @@ def put_mutable_data( data, privatekey ):
    
    data_id = data['id']
    data_text = data['data']
-   nonce = data['nonce']
+   ver = data['ver']
    sig = data.get('sig', None)
    
    if sig is None:
@@ -605,7 +605,7 @@ def put_mutable_data( data, privatekey ):
       
       try:
          
-         rc = handler.put_mutable_handler( data_id, nonce, sig, data_json )
+         rc = handler.put_mutable_handler( data_id, ver, sig, data_json )
       except Exception, e:
          
          log.exception( e )
