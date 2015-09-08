@@ -86,7 +86,7 @@ DEFAULT_BITCOIND_PASSWD = 'opennamesystem'
 """
 REINDEX_FREQUENCY = 60 # seconds
 
-FIRST_BLOCK_MAINNET = 372693 # 343883
+FIRST_BLOCK_MAINNET = 373599 # 343883
 FIRST_BLOCK_MAINNET_TESTSET = FIRST_BLOCK_MAINNET
 # FIRST_BLOCK_TESTNET = 343883
 FIRST_BLOCK_TESTNET = 529008
@@ -165,8 +165,10 @@ LENGTHS = {
     'data_hash': 20,
     'blockchain_id_name': 37,
     'blockchain_id_namespace_life': 4,
-    'blockchain_id_namespace_cost': 7,
-    'blockchain_id_namespace_price_decay': 4,
+    'blockchain_id_namespace_coeff': 1,
+    'blockchain_id_namespace_base': 1,
+    'blockchain_id_namespace_buckets': 8,
+    'blockchain_id_namespace_discounts': 1,
     'blockchain_id_namespace_version': 2,
     'blockchain_id_namespace_id': 19
 }
@@ -179,8 +181,10 @@ MIN_OP_LENGTHS = {
     'revoke': LENGTHS['name_min'],
     'name_import': LENGTHS['name_min'],
     'namespace_preorder': LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'],
-    'namespace_reveal': LENGTHS['blockchain_id_namespace_life'] + LENGTHS['blockchain_id_namespace_cost'] + \
-                        LENGTHS['blockchain_id_namespace_price_decay'] + LENGTHS['blockchain_id_namespace_version'] + LENGTHS['name_min'],
+    'namespace_reveal': LENGTHS['blockchain_id_namespace_life'] + LENGTHS['blockchain_id_namespace_coeff'] + \
+                        LENGTHS['blockchain_id_namespace_base'] + LENGTHS['blockchain_id_namespace_buckets'] + \
+                        LENGTHS['blockchain_id_namespace_discounts'] + LENGTHS['blockchain_id_namespace_version'] + \
+                        LENGTHS['name_min'],
     'namespace_ready': 1 + LENGTHS['name_min']
 }
 
@@ -203,7 +207,7 @@ PRICE_DROP_PER_LETTER = 10
 PRICE_DROP_FOR_NON_ALPHABETIC = 10
 ALPHABETIC_PRICE_FLOOR = 10**4
 
-NAME_MINIMUM_COST = 10000       # about one OP_RETURN
+NAME_COST_UNIT = 100    # 100 satoshis
 
 # NAMESPACE_BASE_COST = 64 * SATOSHIS_PER_BTC
 # NAMESPACE_BASE_COST = SATOSHIS_PER_BTC
@@ -211,17 +215,17 @@ NAME_MINIMUM_COST = 10000       # about one OP_RETURN
 # NAMESPACE_MINIMUM_COST = SATOSHIS_PER_BTC / 10  # 0.1 BTC
 # NAMESPACE_MINIMUM_COST = 1   
 
-"""
-NAMESPACE_1_CHAR_COST = 86.67 * SATOSHIS_PER_BTC        # ~$20,000
-NAMESPACE_23_CHAR_COST = 8.67 * SATOSHIS_PER_BTC        # ~$2,000
-NAMESPACE_4567_CHAR_COST = 0.867 * SATOSHIS_PER_BTC     # ~$200
-NAMESPACE_8UP_CHAR_COST = 0.0867 * SATOSHIS_PER_BTC     # ~$20
+NAMESPACE_1_CHAR_COST = 400 * SATOSHIS_PER_BTC        # ~$96,000
+NAMESPACE_23_CHAR_COST = 40 * SATOSHIS_PER_BTC        # ~$9,600
+NAMESPACE_4567_CHAR_COST = 4 * SATOSHIS_PER_BTC       # ~$960
+NAMESPACE_8UP_CHAR_COST = 0.4 * SATOSHIS_PER_BTC      # ~$96
+
 """
 NAMESPACE_1_CHAR_COST = 86.67 * 0.001 * SATOSHIS_PER_BTC
 NAMESPACE_23_CHAR_COST = 8.67 * 0.001 * SATOSHIS_PER_BTC
 NAMESPACE_4567_CHAR_COST = 0.867 * 0.001 * SATOSHIS_PER_BTC
 NAMESPACE_8UP_CHAR_COST = 0.0867 * 0.001 * SATOSHIS_PER_BTC
-
+"""
 
 NAMESPACE_PREORDER_EXPIRE = BLOCKS_PER_DAY      # namespace preorders expire after 1 day, if not revealed
 NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_YEAR       # namespace reveals expire after 1 year, if not readied.
@@ -233,15 +237,18 @@ BLOCKSTORE_BURN_ADDRESS = "1111111111111111111114oLvT2"
 NAMESPACE_DEFAULT = {
    'opcode': 'NAMESPACE_REVEAL',
    'lifetime': EXPIRATION_PERIOD,
-   'cost': 100000000000L,
-   'price_decay': 1.0,
+   'coeff': 15,
+   'base': 15,
+   'buckets': [15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15],
+   'version': BLOCKSTORE_VERSION,
+   'nonalpha_discount': 1.0,
+   'no_vowel_discount': 1.0,
    'namespace_id': None,
-   'namespace_id_hash': "",
+   'namespace_id_hash': None,
    'sender': "",
    'recipient': "",
    'address': "",
    'recipient_address': "",
-   'version': BLOCKSTORE_VERSION
 }
 
 

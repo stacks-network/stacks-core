@@ -103,9 +103,9 @@ def make_outputs( data, inputs, register_addr, change_addr, renewal_fee=None, fo
     [2] change address with the NAME_PREORDER sender's address
     """
     
-    total_to_send = DEFAULT_OP_RETURN_FEE + DEFAULT_DUST_FEE + len(inputs) * DEFAULT_DUST_FEE
+    total_to_send = DEFAULT_OP_RETURN_FEE + DEFAULT_DUST_FEE
     if renewal_fee is not None:
-        total_to_send += max(renewal_fee, DEFAULT_OP_RETURN_FEE)
+        total_to_send += max(renewal_fee, DEFAULT_DUST_FEE)
     
     outputs = [
         # main output
@@ -118,7 +118,7 @@ def make_outputs( data, inputs, register_addr, change_addr, renewal_fee=None, fo
         
         # change address
         {"script_hex": make_pay_to_address_script(change_addr),
-         "value": calculate_change_amount(inputs, total_to_send, DEFAULT_OP_RETURN_FEE)},
+         "value": calculate_change_amount(inputs, total_to_send, (len(inputs) + 3) * DEFAULT_DUST_FEE)},
     ]
     
     if renewal_fee is not None:
@@ -126,7 +126,7 @@ def make_outputs( data, inputs, register_addr, change_addr, renewal_fee=None, fo
             
             # burn address (when renewing)
             {"script_hex": make_pay_to_address_script(BLOCKSTORE_BURN_ADDRESS),
-             "value": max(renewal_fee, DEFAULT_OP_RETURN_FEE)}
+             "value": max(renewal_fee, DEFAULT_DUST_FEE)}
         )
 
     return outputs

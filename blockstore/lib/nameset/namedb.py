@@ -32,7 +32,7 @@ from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAGIC_BYTES, TE
     EXPIRATION_PERIOD, NAME_PREORDER, NAMESPACE_PREORDER, NAME_REGISTRATION, NAME_UPDATE, TRANSFER_KEEP_DATA, \
     TRANSFER_REMOVE_DATA, NAME_REVOKE, NAME_PREORDER_EXPIRE, \
     NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTORE_VERSION, \
-    NAMESPACE_1_CHAR_COST, NAMESPACE_23_CHAR_COST, NAMESPACE_4567_CHAR_COST, NAMESPACE_8UP_CHAR_COST, NAME_MINIMUM_COST
+    NAMESPACE_1_CHAR_COST, NAMESPACE_23_CHAR_COST, NAMESPACE_4567_CHAR_COST, NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT
 
 from ..operations import build_namespace_reveal
 from ..hashing import *
@@ -110,7 +110,16 @@ class BlockstoreDBIterator(object):
       include the owner's script_pubkey and rules
       """
       
-      rules_string = build_namespace_reveal( "", namespace_record['version'], namespace_record['recipient_address'], namespace_record['lifetime'], namespace_record['cost'], namespace_record['price_decay'], testset=TESTSET )
+      rules_string = build_namespace_reveal( "", namespace_record['version'], \
+                                                 namespace_record['recipient_address'], \
+                                                 namespace_record['lifetime'], \
+                                                 namespace_record['coeff'], \
+                                                 namespace_record['base'], \
+                                                 namespace_record['buckets'], \
+                                                 namespace_record['nonalpha_discount'], \
+                                                 namespace_record['no_vowel_discount'], \
+                                                 testset=TESTSET )
+      
       sender = namespace_record.get('sender', "")
       
       if sender is None:
@@ -292,8 +301,17 @@ class BlockstoreDB( virtualchain.StateEngine ):
 
       # build up our reverse indexes
       for name, name_record in self.name_records.items():
-         self.block_name_renewals[ name_record['last_renewed'] ] = [name]
-         self.owner_names[ name_record['sender'] ].append( name )
+         
+         if not self.block_name_renewals.has_key( name_record['last_renewed'] ):
+             self.block_name_renewals[ name_record['last_renewed'] ] = [name]    
+         else:
+             self.block_name_renewals[ name_record['last_renewed'] ].append( name )
+             
+         if not self.owner_names.has_key( name_record['sender'] ):
+             self.owner_names[ name_record['sender'] ] = [name]
+         else:
+             self.owner_names[ name_record['sender'] ].append( name )
+             
          self.hash_names[ hash256_trunc128( name ) ] = name
 
       for (namespace_id, namespace_reveal) in self.namespace_reveals.items():
@@ -797,7 +815,9 @@ class BlockstoreDB( virtualchain.StateEngine ):
       block_last_renewed = self.name_records[name]['last_renewed']
       
       # name no longer expires at last renewal time...
-      self.block_name_renewals[ block_last_renewed ].remove( name )
+      if name in self.block_name_renewals[ block_last_renewed ]:
+         self.block_name_renewals[ block_last_renewed ].remove( name )
+         
       self.block_name_renewals[ current_block_number ].append( name )
       
       self.name_records[name]['last_renewed'] = current_block_number
@@ -990,7 +1010,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       Always succeeds.
       """
       
-      for i in xrange(0, len(pending_ops)):
+      for i in xrange(0, len(pending_nameops)):
           
           if pending_nameops[i]['name'] == name:
               pending_nameops[i]['collision'] = True
@@ -1008,7 +1028,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       Always succeeds.
       """
       
-      for i in xrange(0, len(pending_ops)):
+      for i in xrange(0, len(pending_nameops)):
           
           if pending_nameops[i]['namespace_id'] == namespace_id:
               pending_nameops[i]['collision'] = True
@@ -1172,14 +1192,11 @@ class BlockstoreDB( virtualchain.StateEngine ):
           return False
       
       # check name fee 
-      namespace_base_price = namespace['cost']
-      namespace_price_decay = namespace['price_decay']
-      
       name_without_namespace = get_name_from_fq_name( name )
       
       # fee must be high enough
-      if name_fee < price_name( name_without_namespace, namespace_base_price, namespace_price_decay ):
-          log.debug("Name '%s' costs %s, but paid %s" % (name, price_name( name_without_namespace, namespace_base_price, namespace_price_decay ), name_fee ))
+      if name_fee < price_name( name_without_namespace, namespace ):
+          log.debug("Name '%s' costs %s, but paid %s" % (name, price_name( name_without_namespace, namespace ), name_fee ))
           return False
       
       # regster/renewal 
@@ -1383,7 +1400,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       namespace_id = get_namespace_from_name( name )
       
-      # namespace must be revealed 
+      # namespace must be revealed, but not ready
       if not self.is_namespace_revealed( namespace_id ):
           log.debug("Namespace '%s' is not revealed" % namespace_id )
           return False 
@@ -1392,26 +1409,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       # sender must be the same as the the person who revealed the namespace
       if sender != namespace['recipient']:
-          log.debug("Name '%s' is not sent by the namespace owner")
+          log.debug("Name '%s' is not sent by the namespace revealer")
           return False 
-      
-      # sender must have paid enough 
-      if not 'op_fee' in nameop:
-          log.debug("Name '%s' import did not pay the fee" % name)
-          return False 
-      
-      name_fee = nameop['op_fee']
-      
-      # check name fee 
-      namespace_base_price = namespace['cost']
-      namespace_price_decay = namespace['price_decay']
-      
-      name_without_namespace = get_name_from_fq_name( name )
-      
-      # fee must be high enough
-      if name_fee < price_name( name_without_namespace, namespace_base_price, namespace_price_decay ):
-          log.debug("Name '%s' costs %s, but sender paid %s" % (name, price_name( name_without_namespace, namespace_base_price, namespace_price_decay ), name_fee ))
-          return False
       
       # we can overwrite, but emit a warning 
       if self.is_name_registered( name ):
@@ -1605,26 +1604,42 @@ def get_name_from_fq_name( name ):
    return name.split(".")[0]
 
 
-def price_name( name, namespace_base_price, namespace_decay, minimum_cost=NAME_MINIMUM_COST ):
+def price_name( name, namespace ):
    """
    Calculate the price of a name (without its namespace ID), given the 
-   namespace base price and price decay exponent.
-
+   namespace parameters.
+   
    The minimum price is 1 satoshi
    """
    
-   # establish the base price (in satoshis)
-   price = float(namespace_base_price)
+   base = namespace['base']
+   coeff = namespace['coeff']
+   buckets = namespace['buckets']
    
-   # adjust the price by a factor X for every character beyond the first
-   price = math.ceil( price / (namespace_decay**(len(name)-1)) )
+   bucket_exponent = 0
+   discount = 1.0
    
-   # price cannot be lower than 1 satoshi
-   if price < minimum_cost:
-      price = minimum_cost
+   if len(name) < len(buckets):
+       bucket_exponent = buckets[len(name)-1]
+   else:
+       bucket_exponent = buckets[-1]
+       
+   # no vowel discount?
+   if sum( [name.lower().count(v) for v in ["a", "e", "i", "o", "u", "y"]] ) == 0:
+       # no vowels!
+       discount = max( discount, namespace['no_vowel_discount'] )
    
-   return int(price)
-
+   # non-alpha discount?
+   if sum( [name.lower().count(v) for v in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "-", "_"]] ) > 0:
+       # non-alpha!
+       discount = max( discount, namespace['nonalpha_discount'] )
+       
+   price = (float(coeff * (base ** bucket_exponent)) / float(discount)) * NAME_COST_UNIT
+   if price < NAME_COST_UNIT:
+       price = NAME_COST_UNIT
+   
+   return price
+   
 
 def price_namespace( namespace_id ):
    """
@@ -1644,27 +1659,3 @@ def price_namespace( namespace_id ):
        return NAMESPACE_8UP_CHAR_COST
    
     
-
-def is_name_mining_fee_sufficient( name, mining_fee, namespace_base_price, namespace_decay ):
-   """
-   Given a name (without its namespace ID), its mining fee, and the namespace 
-   pricing parameters, is the fee sufficient?
-   
-   Return True if so
-   Return False if not.
-   """
-   
-   name_price = price_name(name, namespace_base_price, namespace_decay)
-   return (mining_fee >= name_price)
-
-
-def is_namespace_mining_fee_sufficient( namespace_id, mining_fee ):
-   """
-   Given a namespace ID and its mining fee, is the fee sufficient?
-   
-   Return True if so
-   Return False if not.
-   """
-   
-   name_price = price_namespace(namespace_id)
-   return (mining_fee >= name_price)
