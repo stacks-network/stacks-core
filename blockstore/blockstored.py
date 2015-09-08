@@ -558,6 +558,9 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         Return the cost of a given name, including fees
         Return value is in satoshis
         """
+        if len(name) > LENGTHS['blockchain_id_name']:
+            return {"error": "Name too long"}
+        
         ret = get_name_cost( name )
         if ret is None:
             return {"error": "Unknown/invalid namespace"}
@@ -570,8 +573,23 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         Return the cost of a given namespace, including fees.
         Return value is in satoshis
         """
+        if len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
+            return {"error": "Namespace ID too long"}
+        
         ret = price_namespace(namespace_id)
         return {"satoshis": int(math.ceil(ret))}
+        
+        
+    def jsonrpc_lookup_namespace( self, namespace_id ):
+        """
+        Return the readied namespace with the given namespace_id
+        """
+        db = get_state_engine()
+        ns = db.get_namespace( namespace_id )
+        if ns is None:
+            return {"error": "No such ready namespace"}
+        else:
+            return ns
         
         
 def run_indexer():
