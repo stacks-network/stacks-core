@@ -34,40 +34,6 @@ from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import blockstore_script_to_hex, add_magic_bytes
 from ..hashing import hash_name
-
-def namespace_decay_to_float( namespace_decay_fixedpoint ):
-   """
-   Convert the raw namespace decay rate (a fixedpoint decimal)
-   to a floating-point number.
-   
-   Upper 8 bits: integer 
-   Lower 24 bits: decimal
-   """
-   
-   ipart = namespace_decay_fixedpoint >> 24
-   fpart = namespace_decay_fixedpoint & 0x00ffffff
-   
-   return ipart + (float(fpart) / (1 << 24))
-
-
-def namespace_decay_to_fixpoint( namespace_decay_float ):
-   """
-   Convert a floating-point number to a namespace decay rate.
-   Return None if invalid 
-   """
-   
-   if namespace_decay_float < 0:
-      return None 
-   
-   ipart = int(namespace_decay_float) 
-   
-   if( ipart > 255 ):
-      return None 
-   
-   fpart = float(namespace_decay_float - ipart)
-   
-   fixpoint = (ipart << 24) | int(fpart * float(1 << 24))
-   return fixpoint
    
    
 def serialize_int( int_field, numbytes ):
@@ -88,24 +54,63 @@ def serialize_int( int_field, numbytes ):
    
    return hex_str
    
-   
-# name lifetime (blocks): 4 bytes (0xffffffff for infinite)
-# baseline price for one-letter names (satoshis): 7 bytes
-# price decay rate per letter (fixed-point decimal: 2**8 integer part, 2**24 decimal part): 4 bytes
+
+def serialize_buckets( bucket_exponents ):
+    """
+    Serialize the list of bucket exponents.
+    There should be 16 buckets, and each one should have an integer between 0 and 15.
+    """
+    ret = ""
+    for i in xrange(0, len(bucket_exponents)):
+        ret += "%X" % bucket_exponents[i]
+    
+    return ret
+
+
+def serialize_discounts( nonalpha_discount, no_vowel_discount ):
+    """
+    Serialize the non-alpha and no-vowel discounts.
+    They must be between 0 and 15
+    """
+    return "%X%X" % (nonalpha_discount, no_vowel_discount)
+
+
 # version: 2 bytes
 # namespace ID: up to 19 bytes
-def build( namespace_id, version, reveal_addr, lifetime, satoshi_cost, price_decay_rate, testset=False ):
+def build( namespace_id, version, reveal_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, testset=False ):
    """
    Record to mark the beginning of a namespace import in the blockchain.
    This reveals the namespace ID, and encodes the preorder's namespace rules.
    
+   The rules for a namespace are as follows:
+   * a name can fall into one of 16 buckets, measured by length.  Bucket 16 incorporates all names at least 16 characters long.
+   * the pricing structure applies a multiplicative penalty for having numeric characters, or punctuation characters.
+   * the price of a name in a bucket is ((coeff) * (base) ^ (bucket exponent)) / ((numeric discount multiplier) * (punctuation discount multiplier))
+   
+   Example:
+   base = 10
+   coeff = 2
+   nonalpha discount: 10
+   no-vowel discount: 10
+   buckets 1, 2: 9
+   buckets 3, 4, 5, 6: 8
+   buckets 7, 8, 9, 10, 11, 12, 13, 14: 7
+   buckets 15, 16+:
+   
+   The price of "john" would be 2 * 10^8, since "john" falls into bucket 4 and has no punctuation or numerics.
+   The price of "john1" would be 2 * 10^6, since "john1" falls into bucket 5 but has a number (and thus receives a 10x discount)
+   The price of "john_1" would be 2 * 10^6, since "john_1" falls into bucket 6 but has a number and puncuation (and thus receives a 10x discount)
+   The price of "j0hn_1" would be 2 * 10^5, since "j0hn_1" falls into bucket 6 but has a number and punctuation and lacks vowels (and thus receives a 100x discount)
    Namespace ID must be base38.
    
    Format:
    
-   0     2   3     7          14          18       20                    39
-   |-----|---|-----|----------|-----------|--------|---------------------|
-   magic op  life  cost       decay        version  ns_id
+   0     2   3        7     8     9    10   11   12   13   14    15    16    17       18        20                        39
+   |-----|---|--------|-----|-----|----|----|----|----|----|-----|-----|-----|--------|----------|-------------------------|
+   magic  op  life    coeff. base 1-2  3-4  5-6  7-8  9-10 11-12 13-14 15-16  nonalpha  version   namespace ID
+                                                     bucket exponents         no-vowel
+                                                                              discounts
+   
    """
    
    # sanity check 
@@ -115,33 +120,45 @@ def build( namespace_id, version, reveal_addr, lifetime, satoshi_cost, price_dec
    if len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
       raise Exception("Invalid namespace ID length for '%s' (expected length between 1 and %s)" % (namespace_id, LENGTHS['blockchain_id_namespace_id']))
    
-   price_decay_rate_fixedpoint = namespace_decay_to_fixpoint( price_decay_rate )
-   
-   if price_decay_rate_fixedpoint is None:
-      raise Exception("Invalid price decay rate '%s'" % price_decay_rate)
-   
    if lifetime < 0 or lifetime > (2**32 - 1):
       lifetime = NAMESPACE_LIFE_INFINITE 
-      
-   if satoshi_cost < 0 or satoshi_cost > (2**64 - 1):
-      raise Exception("Cost '%s' out of range (expected unsigned 64-bit integer)" % satoshi_cost)
+
+   if coeff < 0 or coeff > 255:
+      raise Exception("Invalid cost multiplier %s: must be in range [0, 256)" % coeff)
+  
+   if base < 0 or base > 255:
+      raise Exception("Invalid base price %s: must be in range [0, 256)" % base)
+  
+   if len(bucket_exponents) != 16:
+        raise Exception("Exactly 16 buckets required")
+
+   for i in xrange(0, len(bucket_exponents)):
+       if bucket_exponents[i] < 0 or bucket_exponents[i] > 15:
+          raise Exception("Invalid bucket exponent %s (must be in range [0, 16)" % bucket_exponents[i])
    
-   if price_decay_rate_fixedpoint < 0 or price_decay_rate_fixedpoint > (2**32 - 1):
-      raise Exception("Decay rate '%s' out of range (expected unsigned 32-bit integer)" % price_decay_rate_fixedpoint)
-   
+   if nonalpha_discount < 0 or nonalpha_discount > 15:
+        raise Exception("Invalid non-alpha discount %s: must be in range [0, 16)" % nonalpha_discount)
+    
+   if no_vowel_discount < 0 or no_vowel_discount > 15:
+        raise Exception("Invalid no-vowel discount %s: must be in range [0, 16)" % no_vowel_discount)
+    
+   # good to go!
    life_hex = serialize_int( lifetime, 4 )
-   satoshi_cost_hex = serialize_int( satoshi_cost, 7 )
-   price_decay_hex = serialize_int( price_decay_rate_fixedpoint, 4 )
+   coeff_hex = serialize_int( coeff, 1 )
+   base_hex = serialize_int( base, 1 )
+   bucket_hex = serialize_buckets( bucket_exponents )
+   discount_hex = serialize_discounts( nonalpha_discount, no_vowel_discount )
    version_hex = serialize_int( version, 2 )
+   namespace_id_hex = hexlify( namespace_id )
    
-   readable_script = "NAMESPACE_REVEAL 0x%s 0x%s 0x%s 0x%s 0x%s" % (life_hex, satoshi_cost_hex, price_decay_hex, version_hex, hexlify(namespace_id))
+   readable_script = "NAMESPACE_REVEAL 0x%s 0x%s 0x%s 0x%s 0x%s 0x%s 0x%s" % (life_hex, coeff_hex, base_hex, bucket_hex, discount_hex, version_hex, namespace_id_hex)
    hex_script = blockstore_script_to_hex(readable_script)
    packaged_script = add_magic_bytes(hex_script, testset=testset)
    
    return packaged_script
 
 
-def make_outputs( data, inputs, reveal_addr, change_addr, format='bin', op_return_amount=DEFAULT_OP_RETURN_FEE, testset=False ):
+def make_outputs( data, inputs, reveal_addr, change_addr, format='bin', testset=False ):
     """
     Make outputs for a register:
     [0] OP_RETURN with the name 
@@ -149,7 +166,7 @@ def make_outputs( data, inputs, reveal_addr, change_addr, format='bin', op_retur
     [2] change address with the NAMESPACE_PREORDER sender's address
     """
     
-    total_to_send = DEFAULT_OP_RETURN_FEE * 2 + DEFAULT_DUST_FEE + len(inputs) * DEFAULT_DUST_FEE
+    total_to_send = DEFAULT_OP_RETURN_FEE + DEFAULT_DUST_FEE
     
     return [
         # main output
@@ -162,12 +179,12 @@ def make_outputs( data, inputs, reveal_addr, change_addr, format='bin', op_retur
         
         # change address
         {"script_hex": make_pay_to_address_script(change_addr),
-         "value": calculate_change_amount(inputs, total_to_send, DEFAULT_OP_RETURN_FEE)},
+         "value": calculate_change_amount(inputs, total_to_send, DEFAULT_DUST_FEE * (len(inputs) + 3))},
     ]
     
     
 
-def broadcast( namespace_id, reveal_addr, lifetime, satoshi_cost, price_decay_rate, private_key, blockchain_client, testset=False ):
+def broadcast( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, private_key, blockchain_client, testset=False ):
    """
    Propagate a namespace.
    
@@ -175,11 +192,14 @@ def broadcast( namespace_id, reveal_addr, lifetime, satoshi_cost, price_decay_ra
    namespace_id         human-readable (i.e. base-40) name of the namespace
    reveal_addr          address to own this namespace until it is ready
    lifetime:            the number of blocks for which names will be valid (pass a negative value for "infinite")
-   satoshi_cost:        the base cost (i.e. cost of a 1-character name), in satoshis 
-   price_decay_rate     a positive float representing the rate at which names get cheaper.  The formula is satoshi_cost / (price_decay_rate)^(name_length - 1).
+   coeff:               cost multipler
+   base_cost:           the base cost (i.e. cost of a 1-character name), in satoshis 
+   bucket_exponents:    bucket cost exponents to which to raise the base cost 
+   nonalpha_discount:   discount multipler for non-alpha-character names 
+   no_vowel_discount:   discount multipler for no-vowel names
    """
    
-   nulldata = build( namespace_id, BLOCKSTORE_VERSION, reveal_addr, lifetime, satoshi_cost, price_decay_rate, testset=testset )
+   nulldata = build( namespace_id, BLOCKSTORE_VERSION, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, testset=testset )
    
    # get inputs and from address
    private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
@@ -203,38 +223,61 @@ def parse( bin_payload, sender, recipient_address ):
    
    off = 0
    life = None 
-   cost = None 
-   decay = None 
-   namespace_id_len = None 
+   coeff = None 
+   base = None 
+   bucket_hex = None
+   buckets = []
+   discount_hex = None
+   nonalpha_discount = None 
+   no_vowel_discount = None
+   version = None
    namespace_id = None 
+   namespace_id_hash = None
    
    life = int( hexlify(bin_payload[off:off+LENGTHS['blockchain_id_namespace_life']]), 16 )
    
    off += LENGTHS['blockchain_id_namespace_life']
    
-   cost = int( hexlify(bin_payload[off:off+LENGTHS['blockchain_id_namespace_cost']]), 16 )
+   coeff = int( hexlify(bin_payload[off:off+LENGTHS['blockchain_id_namespace_coeff']]), 16 )
    
-   off += LENGTHS['blockchain_id_namespace_cost']
+   off += LENGTHS['blockchain_id_namespace_coeff']
    
-   decay_fixedpoint = int( hexlify(bin_payload[off:off+LENGTHS['blockchain_id_namespace_price_decay']]), 16 )
-   decay = namespace_decay_to_float( decay_fixedpoint )
+   base = int( hexlify(bin_payload[off:off+LENGTHS['blockchain_id_namespace_base']]), 16 )
    
-   off += LENGTHS['blockchain_id_namespace_price_decay']
+   off += LENGTHS['blockchain_id_namespace_base']
    
-   version = int( hexlify(bin_payload[off:off+LENGTHS['blockchain_id_namespace_version']]), 16 )
+   bucket_hex = hexlify(bin_payload[off:off+LENGTHS['blockchain_id_namespace_buckets']])
+   
+   off += LENGTHS['blockchain_id_namespace_buckets']
+   
+   discount_hex = hexlify(bin_payload[off:off+LENGTHS['blockchain_id_namespace_discounts']])
+   
+   off += LENGTHS['blockchain_id_namespace_discounts']
+   
+   version = int( hexlify(bin_payload[off:off+LENGTHS['blockchain_id_namespace_version']]), 16)
    
    off += LENGTHS['blockchain_id_namespace_version']
    
    namespace_id = bin_payload[off:]
    namespace_id_hash = hash_name( namespace_id, sender, register_addr=recipient_address )
    
+   # extract buckets 
+   buckets = [int(x, 16) for x in list(bucket_hex)]
+   
+   # extract discounts
+   nonalpha_discount = int( list(discount_hex)[0], 16 )
+   no_vowel_discount = int( list(discount_hex)[1], 16 )
+   
    return {
       'opcode': 'NAMESPACE_REVEAL',
       'lifetime': life,
-      'cost': cost,
-      'price_decay': decay,
+      'coeff': coeff,
+      'base': base,
+      'buckets': buckets,
+      'version': version,
+      'nonalpha_discount': nonalpha_discount,
+      'no_vowel_discount': no_vowel_discount,
       'namespace_id': namespace_id,
-      'namespace_id_hash': namespace_id_hash,
-      'version': version
+      'namespace_id_hash': namespace_id_hash
    }
 
