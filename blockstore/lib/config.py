@@ -86,7 +86,7 @@ DEFAULT_BITCOIND_PASSWD = 'opennamesystem'
 """
 REINDEX_FREQUENCY = 60 # seconds
 
-FIRST_BLOCK_MAINNET = 372693 # 343883
+FIRST_BLOCK_MAINNET = 373489 # 343883
 FIRST_BLOCK_MAINNET_TESTSET = FIRST_BLOCK_MAINNET
 # FIRST_BLOCK_TESTNET = 343883
 FIRST_BLOCK_TESTNET = 529008
@@ -165,8 +165,10 @@ LENGTHS = {
     'data_hash': 20,
     'blockchain_id_name': 37,
     'blockchain_id_namespace_life': 4,
-    'blockchain_id_namespace_cost': 7,
-    'blockchain_id_namespace_price_decay': 4,
+    'blockchain_id_namespace_coeff': 1,
+    'blockchain_id_namespace_base': 1,
+    'blockchain_id_namespace_buckets': 8,
+    'blockchain_id_namespace_discounts': 1,
     'blockchain_id_namespace_version': 2,
     'blockchain_id_namespace_id': 19
 }
@@ -179,8 +181,10 @@ MIN_OP_LENGTHS = {
     'revoke': LENGTHS['name_min'],
     'name_import': LENGTHS['name_min'],
     'namespace_preorder': LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'],
-    'namespace_reveal': LENGTHS['blockchain_id_namespace_life'] + LENGTHS['blockchain_id_namespace_cost'] + \
-                        LENGTHS['blockchain_id_namespace_price_decay'] + LENGTHS['blockchain_id_namespace_version'] + LENGTHS['name_min'],
+    'namespace_reveal': LENGTHS['blockchain_id_namespace_life'] + LENGTHS['blockchain_id_namespace_coeff'] + \
+                        LENGTHS['blockchain_id_namespace_base'] + LENGTHS['blockchain_id_namespace_buckets'] + \
+                        LENGTHS['blockchain_id_namespace_discounts'] + LENGTHS['blockchain_id_namespace_version'] + \
+                        LENGTHS['name_min'],
     'namespace_ready': 1 + LENGTHS['name_min']
 }
 
@@ -233,15 +237,18 @@ BLOCKSTORE_BURN_ADDRESS = "1111111111111111111114oLvT2"
 NAMESPACE_DEFAULT = {
    'opcode': 'NAMESPACE_REVEAL',
    'lifetime': EXPIRATION_PERIOD,
-   'cost': 100000000000L,
-   'price_decay': 1.0,
+   'coeff': 15,
+   'base': 15,
+   'buckets': [15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15],
+   'version': BLOCKSTORE_VERSION,
+   'nonalpha_discount': 1.0,
+   'no_vowel_discount': 1.0,
    'namespace_id': None,
-   'namespace_id_hash': "",
+   'namespace_id_hash': None,
    'sender': "",
    'recipient': "",
    'address': "",
    'recipient_address': "",
-   'version': BLOCKSTORE_VERSION
 }
 
 
