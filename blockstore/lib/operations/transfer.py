@@ -103,7 +103,7 @@ def make_outputs( data, inputs, new_name_owner_address, change_address, format='
     Builds the outputs for a name transfer operation.
     """
     
-    total_to_send = DEFAULT_OP_RETURN_FEE + DEFAULT_DUST_FEE*2
+    total_to_send = DEFAULT_OP_RETURN_FEE + DEFAULT_DUST_FEE
  
     return [
         # main output
