@@ -98,18 +98,16 @@ def build(name, testset=False):
     return packaged_script
 
 
-def make_outputs( data, inputs, recipient_address, sender_address, update_hash_b58, fee, format='bin'):
+def make_outputs( data, inputs, recipient_address, sender_address, update_hash_b58, format='bin'):
     """
     Builds the outputs for a name import:
     * [0] is the OP_RETURN 
     * [1] is the new owner (recipient)
     * [2] is the update hash
     * [3] is the change sent to the original owner
-    * [4] is the fee sent to the *burn address*
     """
     
-    # (besides the fee...)
-    total_to_send = DEFAULT_OP_RETURN_FEE + DEFAULT_DUST_FEE * 2 + max(fee, DEFAULT_DUST_FEE)
+    total_to_send = DEFAULT_OP_RETURN_FEE + DEFAULT_DUST_FEE * 3
     
     return [
         # main output
@@ -126,15 +124,11 @@ def make_outputs( data, inputs, recipient_address, sender_address, update_hash_b
         
         # change output
         {"script_hex": make_pay_to_address_script(sender_address),
-         "value": calculate_change_amount(inputs, total_to_send, (len(inputs) + 5) * DEFAULT_DUST_FEE)},
-        
-        # burn output 
-        {"script_hex": make_pay_to_address_script(BLOCKSTORE_BURN_ADDRESS),
-         "value": max(fee, DEFAULT_DUST_FEE)}
+         "value": calculate_change_amount(inputs, total_to_send, (len(inputs) + 4) * DEFAULT_DUST_FEE)}
     ]
 
 
-def broadcast(name, recipient_address, update_hash, private_key, blockchain_client, fee, testset=False):
+def broadcast(name, recipient_address, update_hash, private_key, blockchain_client, testset=False):
    
     nulldata = build(name, testset=testset)
     
@@ -145,7 +139,7 @@ def broadcast(name, recipient_address, update_hash, private_key, blockchain_clie
     update_hash_b58 = b58check_encode( unhexlify(update_hash) )
     
     # build custom outputs here
-    outputs = make_outputs(nulldata, inputs, recipient_address, from_address, update_hash_b58, fee, format='hex')
+    outputs = make_outputs(nulldata, inputs, recipient_address, from_address, update_hash_b58, format='hex')
     
     # serialize, sign, and broadcast the tx
     response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_client)
