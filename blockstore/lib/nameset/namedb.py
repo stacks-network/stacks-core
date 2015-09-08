@@ -32,7 +32,7 @@ from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAGIC_BYTES, TE
     EXPIRATION_PERIOD, NAME_PREORDER, NAMESPACE_PREORDER, NAME_REGISTRATION, NAME_UPDATE, TRANSFER_KEEP_DATA, \
     TRANSFER_REMOVE_DATA, NAME_REVOKE, NAME_PREORDER_EXPIRE, \
     NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTORE_VERSION, \
-    NAMESPACE_1_CHAR_COST, NAMESPACE_23_CHAR_COST, NAMESPACE_4567_CHAR_COST, NAMESPACE_8UP_CHAR_COST
+    NAMESPACE_1_CHAR_COST, NAMESPACE_23_CHAR_COST, NAMESPACE_4567_CHAR_COST, NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT
 
 from ..operations import build_namespace_reveal
 from ..hashing import *
@@ -1620,7 +1620,7 @@ def price_name( name, namespace ):
    discount = 1.0
    
    if len(name) < len(buckets):
-       bucket_exponent = buckets[len(name)]
+       bucket_exponent = buckets[len(name)-1]
    else:
        bucket_exponent = buckets[-1]
        
@@ -1634,15 +1634,9 @@ def price_name( name, namespace ):
        # non-alpha!
        discount = max( discount, namespace['nonalpha_discount'] )
        
-   price = float(coeff * (base ** bucket_exponent)) / float(discount)
-   if price < 1:
-       price = 1
-   
-   """
-   # TODO: remove when done testing
-   if price > 1000:
-       price = 1000
-   """
+   price = (float(coeff * (base ** bucket_exponent)) / float(discount)) * NAME_COST_UNIT
+   if price < NAME_COST_UNIT:
+       price = NAME_COST_UNIT
    
    return price
    
