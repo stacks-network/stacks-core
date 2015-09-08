@@ -23,6 +23,7 @@ This file is part of Registrar.
 """
 
 from .nameops import get_namecoind
+from pybitcoin.rpc import NamecoindClient
 
 
 def test_private_key(passphrase, nmc_address):
@@ -57,6 +58,8 @@ def nameTransferred(user, namecoind):
 
 
 def transfer_name(username, transfer_address, live=False):
+    """ recursively transfer next pointers
+    """
 
     key = 'u/' + username
 
@@ -87,6 +90,23 @@ def transfer_name(username, transfer_address, live=False):
         if next_blob is not None:
             key = next_blob
             transfer_inner(key)
+
+
+def transfer_key(username, transfer_address, live=False, server=None):
+    """ transfer single key
+    """
+
+    key = 'u/' + username
+
+    if server == None:
+        namecoind = get_namecoind(key)
+    else:
+        namecoind = NamecoindClient(server)
+
+    if(live):
+        print namecoind.name_transfer(key, transfer_address)
+    else:
+        print "Will transfer %s to %s" % (key, transfer_address)
 
 
 if __name__ == '__main__':
