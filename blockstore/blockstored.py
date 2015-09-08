@@ -223,7 +223,7 @@ def get_utxo_provider_client():
    global blockchain_opts
    
    # acquire configuration (which we should already have)
-   bitcoin_opts, chaincom_opts = configure( interactive=False )
+   blockchain_opts, chaincom_opts = configure( interactive=False )
    
    chaincom_id = chaincom_opts['api_key_id']
    chaincom_secret = chaincom_opts['api_key_secret']
@@ -647,7 +647,7 @@ def run_server( foreground=False):
     
     signal.signal( signal.SIGINT, sigint_handler_server )
    
-    bitcoin_opts = get_bitcoin_opts()
+    bt_opts = get_bitcoin_opts()
     
     tac_file = get_tacfile_path()
     log_file = get_logfile_path()
@@ -669,7 +669,7 @@ def run_server( foreground=False):
        log.info("Synchronizing with blockchain, up to %s" % current_block )
        
        blockstore_state_engine = get_state_engine()
-       virtualchain.sync_virtualchain( bitcoin_opts, current_block, blockstore_state_engine )
+       virtualchain.sync_virtualchain( bt_opts, current_block, blockstore_state_engine )
     
     try:
         
