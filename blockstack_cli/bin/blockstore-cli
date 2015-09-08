@@ -70,6 +70,10 @@ def run_cli():
     """
 
     conf = config.get_config()
+    if conf is None:
+        log.error("Failed to load config")
+        sys.exit(1)
+        
     storage_drivers = conf['storage_drivers']
     
     if storage_drivers is None:
@@ -254,11 +258,20 @@ def run_cli():
       'lifetime', type=int,
       help='the number of blocks for which a name will be valid (any value less than zero means "forever")')
     subparser.add_argument(
-      'base_name_cost', type=int,
-      help='the cost (in satoshis) for a 1-character name in this namespace')
+      'coeff', type=int,
+      help='constant cost multipler for names (in range [0, 16))')
     subparser.add_argument(
-      'cost_decay_rate', type=float,
-      help='the rate at which the value of a name decays, based on its length: if L is the length, R is the rate (this argument), and B is the base name cost, then the cost per name shall be ceil(B / (R^(L-1)))')
+      'base', type=int,
+      help='base cost for names (in range [0, 16))')
+    subparser.add_argument(
+      'bucket_exponents', type=str,
+      help='per-name-length cost exponents (CSV string of 16 values in range [0, 16))')
+    subparser.add_argument(
+      'nonalpha_discount', type=int,
+      help='non-alpha discount multipler (in range [0, 16))')
+    subparser.add_argument(
+      'no_vowel_discount', type=int,
+      help='no-vowel discount multipler (in range [0, 16))')
     subparser.add_argument(
       'privatekey', type=str,
       help='the privatekey of the namespace revealer')
@@ -462,11 +475,24 @@ def run_cli():
         
 
     elif args.action == 'namespace_reveal':
+        bucket_exponents = args.bucket_exponents.split(',')
+        if len(bucket_exponents) != 16:
+            raise Exception("bucket_exponents must be a 16-value CSV of integers")
+        
+        for i in xrange(0, len(bucket_exponents)):
+            try:
+                bucket_exponents[i] = int(bucket_exponents[i])
+            except:
+                raise Exception("bucket_exponents must contain integers in range [0, 16)")
+        
         result = client.namespace_reveal(str(args.namespace_id),
                                          str(args.addr),
                                          int(args.lifetime),
-                                         int(args.base_name_cost),
-                                         float(args.cost_decay_rate),
+                                         int(args.coeff),
+                                         int(args.base),
+                                         bucket_exponents,
+                                         int(args.nonalpha_discount),
+                                         int(args.no_vowel_discount),
                                          str(args.privatekey))
 
     elif args.action == 'namespace_ready':
@@ -482,10 +508,11 @@ def run_cli():
     elif args.action == 'put_immutable':
         result = client.put_immutable(str(args.name),
                                       str(args.data),
-                                      str(args.privatekey))
+                                      str(args.privatekey),
+                                      conf=conf)
 
     elif args.action == 'get_mutable':
-        result = client.get_mutable(str(args.name), str(args.data_id))
+        result = client.get_mutable(str(args.name), str(args.data_id), conf=conf)
 
     elif args.action == 'get_immutable':
         result = client.get_immutable(str(args.name), str(args.hash))
