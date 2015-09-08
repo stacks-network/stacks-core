@@ -42,7 +42,7 @@ from txjsonrpc.netstring import jsonrpc
 
 from lib import nameset as blockstore_state_engine
 from lib import get_db_state
-from lib.config import REINDEX_FREQUENCY, TESTSET
+from lib.config import REINDEX_FREQUENCY, TESTSET, DEFAULT_DUST_FEE
 from lib import *
 
 import virtualchain 
@@ -475,16 +475,8 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         blockchain_client_inst = get_utxo_provider_client()
         db = get_state_engine()
         
-        if db.is_name_registered( name ):
-            return {"error": "Name already registered"}
-
-        # calculate the import fee, plus the extra output fee
-        name_fee = get_name_cost( name )
-        
-        log.debug("The price of '%s' is %s satoshis" % (name, name_fee))
-        
         try:
-            resp = name_import( str(name), str(recipient_address), str(update_hash), str(privatekey), blockchain_client_inst, name_fee, testset=TESTSET )
+            resp = name_import( str(name), str(recipient_address), str(update_hash), str(privatekey), blockchain_client_inst, testset=TESTSET )
         except:
             return json_traceback()
         
@@ -508,7 +500,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         
         consensus_hash = db.get_current_consensus()
         
-        namespace_fee = price_namespace( namespace_id ) + DEFAULT_OP_RETURN_FEE
+        namespace_fee = price_namespace( namespace_id )
         
         log.debug("Namespace '%s' will cost %s satoshis" % (namespace_id, namespace_fee))
         
@@ -564,18 +556,6 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
     def jsonrpc_name_cost( self, name ):
         """
         Return the cost of a given name, including fees
-        Return value is in satoshis
-        """
-        ret = get_name_cost( name )
-        if ret is None:
-            return {"error": "Unknown/invalid namespace"}
-        
-        return {"satoshis": int(math.ceil(ret))}
-        
-        
-    def jsonrpc_name_import_cost( self, name ):
-        """
-        Return the cost to import a given name, including fees.
         Return value is in satoshis
         """
         ret = get_name_cost( name )
