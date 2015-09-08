@@ -219,7 +219,8 @@ def update_users():
             updates.remove(new_user)
         else:
             print "Update: " + str(user['username'])
-            import_update(new_user)
+            #import_update(new_user)
+
             process_profile(user['username'], user['profile'], new_address=user['namecoin_address'])
 
 
@@ -297,8 +298,8 @@ def get_pending_state():
 if __name__ == '__main__':
 
     cleanup_db()
-    check_transfer()
-    update_users()
+    #check_transfer()
+    #update_users()
     register_users()
 
     #get_pending_state()
