@@ -33,6 +33,7 @@ import traceback
 import httplib
 import time
 import socket
+import math
 
 from ConfigParser import SafeConfigParser
 
@@ -270,10 +271,7 @@ def get_name_cost( name ):
         # no such namespace
         return None
     
-    namespace_base_price = namespace['cost']
-    namespace_price_decay = namespace['price_decay']
-    
-    name_fee = price_name( get_name_from_fq_name( name ), namespace_base_price, namespace_price_decay ) + DEFAULT_OP_RETURN_FEE
+    name_fee = price_name( get_name_from_fq_name( name ), namespace )
     return name_fee
 
 
@@ -481,7 +479,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
             return {"error": "Name already registered"}
 
         # calculate the import fee, plus the extra output fee
-        name_fee = get_name_cost( name ) + DEFAULT_DUST_FEE
+        name_fee = get_name_cost( name )
         
         log.debug("The price of '%s' is %s satoshis" % (name, name_fee))
         
@@ -522,8 +520,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         log.debug("namespace_preorder <%s>" % (namespace_id))
         return resp 
     
-    
-    def jsonrpc_namespace_reveal( self, namespace_id, register_addr, lifetime, base_name_cost, cost_decay_rate, privatekey ):
+    def jsonrpc_namespace_reveal( self, namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey ):
         """
         Reveal and define the properties of a namespace.
         Between the namespace definition and the "namespace begin" operation, only the 
@@ -535,11 +532,14 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
            return {"error": "Failed to connect to blockchain UTXO provider"}
         
         try:
-           resp = namespace_reveal( str(namespace_id), str(register_addr), int(lifetime), int(base_name_cost), float(cost_decay_rate), str(privatekey), blockchain_client_inst, testset=TESTSET )
+           resp = namespace_reveal( str(namespace_id), str(register_addr), int(lifetime),
+                                    int(coeff), int(base), list(bucket_exponents),
+                                    int(nonalpha_discount), int(no_vowel_discount),
+                                    str(privatekey), blockchain_client_inst, testset=TESTSET )
         except:
            return json_traceback()
         
-        log.debug("namespace_reveal <%s, %s, %s, %s>" % (namespace_id, lifetime, base_name_cost, cost_decay_rate))
+        log.debug("namespace_reveal <%s, %s, %s, %s, %s, %s, %s>" % (namespace_id, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount))
         return resp 
      
      
@@ -568,9 +568,9 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         """
         ret = get_name_cost( name )
         if ret is None:
-            return {"error": "Invalid namespace"}
+            return {"error": "Unknown/invalid namespace"}
         
-        return {"satoshis": ret}
+        return {"satoshis": int(math.ceil(ret))}
         
         
     def jsonrpc_name_import_cost( self, name ):
@@ -578,11 +578,11 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         Return the cost to import a given name, including fees.
         Return value is in satoshis
         """
-        ret = get_name_cost( name ) + DEFAULT_DUST_FEE
+        ret = get_name_cost( name )
         if ret is None:
-            return {"error": "Invalid namespace"}
+            return {"error": "Unknown/invalid namespace"}
         
-        return {"satoshis": int(ret)}
+        return {"satoshis": int(math.ceil(ret))}
         
         
     def jsonrpc_namespace_cost( self, namespace_id ):
@@ -590,8 +590,8 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         Return the cost of a given namespace, including fees.
         Return value is in satoshis
         """
-        ret = price_namespace(namespace_id) + DEFAULT_OP_RETURN_FEE
-        return {"satoshis": int(ret)}
+        ret = price_namespace(namespace_id)
+        return {"satoshis": int(math.ceil(ret))}
         
         
 def run_indexer():
