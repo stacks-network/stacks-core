@@ -1400,7 +1400,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       namespace_id = get_namespace_from_name( name )
       
-      # namespace must be revealed 
+      # namespace must be revealed, but not ready
       if not self.is_namespace_revealed( namespace_id ):
           log.debug("Namespace '%s' is not revealed" % namespace_id )
           return False 
@@ -1409,25 +1409,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       # sender must be the same as the the person who revealed the namespace
       if sender != namespace['recipient']:
-          log.debug("Name '%s' is not sent by the namespace owner")
+          log.debug("Name '%s' is not sent by the namespace revealer")
           return False 
-      
-      """
-      # sender must have paid enough 
-      if not 'op_fee' in nameop:
-          log.debug("Name '%s' import did not pay the fee" % name)
-          return False 
-      
-      name_fee = nameop['op_fee']
-      
-      # check name fee 
-      name_without_namespace = get_name_from_fq_name( name )
-      
-      # fee must be high enough
-      if name_fee < price_name( name_without_namespace, namespace ):
-          log.debug("Name '%s' costs %s, but sender paid %s" % (name, price_name( name_without_namespace, namespace ), name_fee ))
-          return False
-      """
       
       # we can overwrite, but emit a warning 
       if self.is_name_registered( name ):
