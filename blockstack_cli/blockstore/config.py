@@ -28,6 +28,8 @@ import traceback
 
 BLOCKSTORED_PORT = 6264
 BLOCKSTORED_SERVER = "127.0.0.1"
+BLOCKSTORE_METADATA_DIR = os.path.expanduser("~/.blockstore-client/metadata")
+
 DEBUG = True
 VERSION = "v0.01-beta"
 MAX_RPC_LEN = 1024 * 1024 * 1024
@@ -64,6 +66,7 @@ def make_default_config( path=CONFIG_PATH ):
     
         parser.set('blockstore-client', 'server', BLOCKSTORED_SERVER)
         parser.set('blockstore-client', 'port', BLOCKSTORED_PORT)
+        parser.set('blockstore-client', 'metadata', BLOCKSTORE_METADATA_DIR)
         
         try:
             with open(path, "w") as f:
@@ -99,7 +102,8 @@ def get_config( path=CONFIG_PATH ):
     config = {
         "blockstored_server": BLOCKSTORED_SERVER,
         "blockstored_port": BLOCKSTORED_PORT,
-        "storage_driver": None
+        "storage_driver": None,
+        "metadata": BLOCKSTORE_METADATA_DIR
     }
     
     
@@ -126,4 +130,19 @@ def get_config( path=CONFIG_PATH ):
         if parser.has_option("blockstore-client", "storage"):
             config['storage_drivers'] = parser.get("blockstore-client", "storage")
             
+        if parser.has_option("blockstore-client", "metadata"):
+            config['metadata'] = parser.get("blockstore-client", "metadata")
+            
+    if not os.path.isdir(config['metadata']):
+        if config['metadata'].startswith( os.path.expanduser("~/.blockstore-client") ):
+            try:
+                os.makedirs( config['metadata'] )
+            except:
+                log.error("Failed to make directory '%s'" % (config['metadata']))
+                return None 
+            
+        else:
+            log.error("Directory '%s' does not exist" % (config['metadata']))
+            return None 
+        
     return config
