@@ -311,7 +311,7 @@ def default_bitcoind_opts( config_file=None ):
          
       else:
          bitcoind_server = DEFAULT_BITCOIND_SERVER
-         bicoind_port = DEFAULT_BITCOIND_PORT
+         bitcoind_port = DEFAULT_BITCOIND_PORT
          bitcoind_user = DEFAULT_BITCOIND_USERNAME
          bitcoind_passwd = DEFAULT_BITCOIND_PASSWD
          bitcoind_use_https = True
@@ -458,11 +458,26 @@ def opt_strip( prefix, opts ):
       
       # remove prefix
       if opt_name.startswith(prefix):
+         del opts[opt_name]
          opt_name = opt_name[len(prefix):]
       
       opts[ opt_name ] = opt_value
       
    return opts 
+
+
+def opt_restore( prefix, opts ):
+   """
+   Given a dict of opts, add the given prefix to each key
+   """
+   
+   ret = {}
+   
+   for (opt_name, opt_value) in opts.items():
+      
+      ret[ prefix + opt_name ] = opt_value
+      
+   return ret 
 
 
 def interactive_prompt( message, parameters ):
@@ -558,6 +573,9 @@ def configure( config_file=None, force=False, interactive=True ):
    # get any missing fields 
    bitcoind_opts, missing_bitcoin_opts = find_missing( bitcoind_message, bitcoind_params, bitcoind_opts, prompt_missing=interactive )
    chaincom_opts, missing_chaincom_opts = find_missing( chaincom_message, chaincom_params, chaincom_opts, prompt_missing=interactive )
+   
+   # restore prefix 
+   bitcoind_opts = opt_restore( "bitcoind_", bitcoind_opts )
    
    if not interactive and (len(missing_bitcoin_opts) > 0 or len(missing_chaincom_opts) > 0):
        
