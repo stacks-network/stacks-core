@@ -1,14 +1,12 @@
-# Blockstore: A Key-Value Store on Bitcoin
+# Blockstore: Name Registrations on the Bitcoin Blockchain
 
 [![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 [![PyPI](https://img.shields.io/pypi/v/blockstore.svg)](https://pypi.python.org/pypi/blockstore/)
 [![PyPI](https://img.shields.io/pypi/dm/blockstore.svg)](https://pypi.python.org/pypi/blockstore/)
 
-Blockstore is a generic key-value store on Bitcoin. You can use it register globally unique names, associate data with those names, and transfer them between Bitcoin addresses.
+Blockstore enables human-readable name registrations on the Bitcoin blockchain, along with the ability to store associated data in external datastores. You can use it to register globally unique names, associate data with those names, and transfer them between Bitcoin addresses. Anyone can perform lookups on those names and securely obtain the data associated with them.
 
-Then, you or anyone can perform lookups on those names and securely obtain the data associated with them.
-
-Blockstore uses the Bitcoin blockchain for storing name operations and data hashes, and the Kademlia distributed hash table (DHT) and other external datastores for storing the full data files outside of the blockchain.
+Blockstore uses the Bitcoin blockchain for storing name operations and data hashes, and the Kademlia-based distributed hash table (DHT) and other external datastores for storing the full data files outside of the blockchain.
 
 ## Installation
 
