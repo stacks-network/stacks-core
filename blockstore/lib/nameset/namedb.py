@@ -1412,6 +1412,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
           log.debug("Name '%s' is not sent by the namespace owner")
           return False 
       
+      """
       # sender must have paid enough 
       if not 'op_fee' in nameop:
           log.debug("Name '%s' import did not pay the fee" % name)
@@ -1426,6 +1427,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       if name_fee < price_name( name_without_namespace, namespace ):
           log.debug("Name '%s' costs %s, but sender paid %s" % (name, price_name( name_without_namespace, namespace ), name_fee ))
           return False
+      """
       
       # we can overwrite, but emit a warning 
       if self.is_name_registered( name ):
@@ -1658,6 +1660,7 @@ def price_name( name, namespace ):
    if price > 1000:
        price = 1000
    """
+   
    return price
    
 
