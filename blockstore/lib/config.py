@@ -823,6 +823,7 @@ def configure( config_file=None, force=False, interactive=True ):
    
    if not force:
        
+       # default DHT options
        dht_opts = default_dht_opts( config_file=config_file )
        
    dht_msg = "Please enter your DHT node configuration.\nUnless you plan on leaving Blockstore\nrunning, you should disable the DHT feature."

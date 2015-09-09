@@ -214,7 +214,7 @@ def json_traceback():
  
 def get_utxo_provider_client():
    """
-   Get or instantiate our blockchain UTXO provider's client (i.e. chain.com; falling back to bitcoind otherwise).
+   Get or instantiate our blockchain UTXO provider's client.
    Return None if we were unable to connect
    """
    
