@@ -769,8 +769,6 @@ def run_blockstored():
    
    argparser = setup( return_parser=True )
    
-   log.debug( "\n" + str( chaincom_opts ) + "\n" )
-   
    # get RPC server options
    subparsers = argparser.add_subparsers(
       dest='action', help='the action to be taken')

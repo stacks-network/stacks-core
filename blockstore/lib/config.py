@@ -22,6 +22,7 @@
 """
 
 import os
+import sys
 from ConfigParser import SafeConfigParser
 import pybitcoin
 
@@ -293,7 +294,7 @@ def default_bitcoind_opts( config_file=None ):
          else:
             use_https = 'no'
 
-         if use_https.lower() == "yes" or use_https.lower() == "y":
+         if use_https.lower() == "yes" or use_https.lower() == "y" or use_https.lower() == "true":
             bitcoind_use_https = True
          else:
             bitcoind_use_https = False
@@ -356,11 +357,11 @@ def default_chaincom_opts( config_file=None ):
       if parser.has_option('chain_com', 'api_key_secret'):
          api_key_secret = parser.get('chain_com', 'api_key_secret')
       
-      chaincom_opts = {
-         'api_key_id': api_key_id,
-         'api_key_secret': api_key_secret
-      }
-      
+   chaincom_opts = {
+       'api_key_id': api_key_id,
+       'api_key_secret': api_key_secret
+   }
+    
    
    # strip Nones 
    for (k, v) in chaincom_opts.items():
@@ -454,16 +455,16 @@ def opt_strip( prefix, opts ):
    remove the prefix from each of them.
    """
    
+   ret = {}
    for (opt_name, opt_value) in opts.items():
       
       # remove prefix
       if opt_name.startswith(prefix):
-         del opts[opt_name]
          opt_name = opt_name[len(prefix):]
       
-      opts[ opt_name ] = opt_value
+      ret[ opt_name ] = opt_value
       
-   return opts 
+   return ret 
 
 
 def opt_restore( prefix, opts ):
@@ -480,7 +481,7 @@ def opt_restore( prefix, opts ):
    return ret 
 
 
-def interactive_prompt( message, parameters ):
+def interactive_prompt( message, parameters, default_opts ):
    """
    Prompt the user for a series of parameters
    Return a dict mapping the parameter name to the 
@@ -498,32 +499,46 @@ def interactive_prompt( message, parameters ):
    ret = {}
    
    for param in parameters:
-      value = raw_input("%s: ")
-      ret[param] = value 
+      
+      prompt_str = "%s: "  % param 
+      if param in default_opts.keys():
+          prompt_str = "%s (default: '%s'): " % (param, default_opts[param])
+          
+      value = raw_input(prompt_str)
+      
+      if len(value) > 0:
+         ret[param] = value 
+      elif param in default_opts.keys():
+         ret[param] = default_opts[param]
+      else:
+         ret[param] = None
+         
    
    return ret
 
 
-def find_missing( message, all_params, given_opts, prompt_missing=True ):
+def find_missing( message, all_params, given_opts, default_opts, prompt_missing=True ):
    """
    Find and interactively prompt the user for missing parameters,
    given the list of all valid parameters and a dict of known options.
    
-   Return the (updated dict of known options, missing), with the user's input.
+   Return the (updated dict of known options, missing, num_prompted), with the user's input.
    """
    
    # are we missing anything for bitcoin?
    missing_params = []
-   for missing_param in given_opts:
+   for missing_param in all_params:
       if missing_param not in given_opts.keys():
          missing_params.append( missing_param )
       
+   num_prompted = 0
    if len(missing_params) > 0 and prompt_missing:
       
-      missing_values = interactive_prompt( message, missing_params )
+      missing_values = interactive_prompt( message, missing_params, default_opts )
       given_opts.update( missing_values )
+      num_prompted += 1
 
-   return given_opts, missing_params
+   return given_opts, missing_params, num_prompted
 
 
 def configure( config_file=None, force=False, interactive=True ):
@@ -540,10 +555,15 @@ def configure( config_file=None, force=False, interactive=True ):
    
    if config_file is None:
       try:
+         # get input for everything
          config_file = virtualchain.get_config_filename()
       except:
          pass 
    
+   if not os.path.exists( config_file ):
+       # definitely ask for everything
+       force = True 
+       
    bitcoind_message  = "Blockstore does not have enough information to connect\n"
    bitcoind_message += "to bitcoind.  Please supply the following parameters:"
    
@@ -561,18 +581,21 @@ def configure( config_file=None, force=False, interactive=True ):
    chaincom_opts = {}
    chaincom_params = ["api_key_id", "api_key_secret"]
    
+   bitcoind_opts_defaults = opt_strip( "bitcoind_", default_bitcoind_opts( config_file=config_file ) ) 
+   chaincom_opts_defaults = default_chaincom_opts( config_file=config_file )
+   
    if not force:
       
       # get current set of bitcoind opts
-      tmp_bitcoind_opts = default_bitcoind_opts( config_file=config_file )
-      bitcoind_opts = opt_strip( "bitcoind_", tmp_bitcoind_opts )
-         
+      bitcoind_opts = opt_strip( "bitcoind_", default_bitcoind_opts( config_file=config_file ) ) 
+      
       # get current set of chaincom opts 
       chaincom_opts = default_chaincom_opts( config_file=config_file )
       
+      
    # get any missing fields 
-   bitcoind_opts, missing_bitcoin_opts = find_missing( bitcoind_message, bitcoind_params, bitcoind_opts, prompt_missing=interactive )
-   chaincom_opts, missing_chaincom_opts = find_missing( chaincom_message, chaincom_params, chaincom_opts, prompt_missing=interactive )
+   bitcoind_opts, missing_bitcoin_opts, num_bitcoind_prompted = find_missing( bitcoind_message, bitcoind_params, bitcoind_opts, bitcoind_opts_defaults, prompt_missing=interactive )
+   chaincom_opts, missing_chaincom_opts, num_chaincom_prompted = find_missing( chaincom_message, chaincom_params, chaincom_opts, chaincom_opts_defaults, prompt_missing=interactive )
    
    # restore prefix 
    bitcoind_opts = opt_restore( "bitcoind_", bitcoind_opts )
@@ -582,6 +605,11 @@ def configure( config_file=None, force=False, interactive=True ):
        # cannot continue 
        raise Exception("Missing configuration fields: %s" % (",".join( missing_bitcoin_opts + missing_chaincom_opts )) )
                        
+   # if we prompted, then save 
+   if num_bitcoind_prompted > 0 or num_chaincom_prompted > 0:
+       print >> sys.stderr, "Saving configuration to %s" % config_file
+       write_config_file( bitcoind_opts=bitcoind_opts, chaincom_opts=chaincom_opts, config_file=config_file )
+       
    return (bitcoind_opts, chaincom_opts)
       
 
@@ -606,14 +634,20 @@ def write_config_file( bitcoind_opts=None, chaincom_opts=None, config_file=None 
    
    if bitcoind_opts is not None:
       
-      bitcoind_opts = opt_strip( "bitcoind_", bitcoind_opts )
+      tmp_bitcoind_opts = opt_strip( "bitcoind_", bitcoind_opts )
       
-      for opt_name, opt_value in bitcoind_opts.items():
-         parser.set( 'bitcoind', opt_name, opt_value )
+      parser.add_section( 'bitcoind' )
+      for opt_name, opt_value in tmp_bitcoind_opts.items():
+         if opt_value is None:
+             raise Exception("%s is not defined" % opt_name)
+         parser.set( 'bitcoind', opt_name, "%s" % opt_value )
       
    if chaincom_opts is not None:
       
+      parser.add_section( 'chain_com' )
       for opt_name, opt_value in chaincom_opts.items():
+         if opt_value is None:
+             raise Exception("%s is not defined" % opt_name)
          parser.set( 'chain_com', opt_name, opt_value )
       
    with open(config_file, "w") as fout:
