@@ -425,6 +425,23 @@ def lookup(name, proxy=None):
     return proxy.lookup(name)
 
 
+def lookup_namespace( namespace_id, proxy=None ):
+    """ 
+    lookup namespace 
+    """
+    
+    if proxy is None:
+        proxy = get_default_proxy()
+    
+    ret = proxy.lookup_namespace(namespace_id)
+    if ret is not None:
+        # this isn't needed
+        if 'opcode' in ret[0]:
+            del ret[0]['opcode']
+    
+    return ret
+
+
 def preorder(name, privatekey, register_addr=None, proxy=None):
     """
     preorder.
@@ -443,6 +460,11 @@ def preorder(name, privatekey, register_addr=None, proxy=None):
         register_privkey_wif = privkey.to_wif()
         print register_privkey_wif
         print register_addr
+    
+    # make sure the reveal address is *not* the address of this private key 
+    privkey = pybitcoin.BitcoinPrivateKey( privatekey )
+    if register_addr == privkey.public_key().address():
+        return {"error": "Register address derived from private key"}
     
     resp = {}
 
@@ -622,6 +644,11 @@ def namespace_preorder(namespace_id, privatekey, reveal_addr=None, proxy=None):
         reveal_privkey_wif = privkey.to_wif()
         print reveal_privkey_wif
         print reveal_addr
+        
+    # make sure the reveal address is *not* the address of this private key 
+    privkey = pybitcoin.BitcoinPrivateKey( privatekey )
+    if reveal_addr == privkey.public_key().address():
+        return {"error": "Reveal address derived from private key"}
     
     result = proxy.namespace_preorder(namespace_id, reveal_addr, privatekey )
     
