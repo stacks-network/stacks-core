@@ -285,6 +285,20 @@ if __name__ == "__main__":
     # do all imports
     for name in names:
         
+        username = name['username']
+        
+        if name.has_key('hash'):
+            update_hash = str(name['hash'])
+        elif name.has_key('profile_hash'):
+            update_hash = str(name['profile_hash'])
+            
+        fqn = username + "." + namespace_id
+        
+        if fqn in confirmed_names or fqn in sent_names.keys():
+            # already imported or sent
+            num_sent_names += 1
+            continue 
+        
         # how long are we doing to wait?
         delay = 20
         try:
@@ -342,20 +356,6 @@ if __name__ == "__main__":
                 
             time_of_last_confirmation = time.time()
             
-        username = name['username']
-        
-        if name.has_key('hash'):
-            update_hash = str(name['hash'])
-        elif name.has_key('profile_hash'):
-            update_hash = str(name['profile_hash'])
-            
-        fqn = username + "." + namespace_id
-        
-        if fqn in confirmed_names or fqn in sent_names.keys():
-            # already imported or sent
-            num_sent_names += 1
-            continue 
-        
         btc_address = None 
         nmc_address = None 
         address = None
@@ -373,62 +373,75 @@ if __name__ == "__main__":
         except:
            log.debug("non-ascii name '%s'" % fqn)
            continue
-           
-        log.debug( "name_import " + fqn + " " + btc_address + " " + update_hash )
+          
+        count = 0
+        while count < 3:
+ 
+           log.debug( "name_import " + fqn + " " + btc_address + " " + update_hash )
+  
+           try:
+               result = client.name_import( fqn, btc_address, update_hash, privkey_str )
+           except Exception, e:
+               log.error( "register '%s' failed:\n%s\n" % (fqn, traceback.format_exc()) )
+      
+               if count == 0:      
+                  failed_fd.write( "%s\n" % (fqn))
+                  failed_fd.flush()
 
-        try:
-            result = client.name_import( fqn, btc_address, update_hash, privkey_str )
-        except Exception, e:
-            log.error( "register '%s' failed:\n%s\n" % (fqn, traceback.format_exc()) )
-            
-            failed_fd.write( "%s\n" % (fqn))
-            failed_fd.flush()
-            continue 
+               time.sleep(2.0 * (count+1))
+               count += 1
+               continue 
         
-        if type(result) == type([]):
-            result = result[0]
+           if type(result) == type([]):
+               result = result[0]
         
-        if 'error' in result.keys():
-            log.error( "register '%s' failed:\n%s\n" % (fqn, pp.pformat(result)) )
-            log.error( "Result: %s" % result)
+           if 'error' in result.keys():
+               log.error( "register '%s' failed:\n%s\n" % (fqn, pp.pformat(result)) )
             
-            if result['error'] == 'Name already registered':
-                # it's because this is confirmed already!
-                log.debug("Confirmed: '%s'" % fqn)
-                confirmed_fd.write( "%s\n" % fqn)
-                confirmed_fd.flush()
+               if result['error'] == 'Name already registered':
+                   # it's because this is confirmed already!
+                   log.debug("Confirmed: '%s'" % fqn)
+                   confirmed_fd.write( "%s\n" % fqn)
+                   confirmed_fd.flush()
                 
-                if fqn in sent_names.keys():
-                    del sent_names[fqn]
+                   if fqn in sent_names.keys():
+                       del sent_names[fqn]
                 
-                confirmed_names.append( fqn )
+                   confirmed_names.append( fqn )
                 
-                if fqn in unconfirmed_names[ fqn ]:
-                    del unconfirmed_names[ fqn ]
+                   if fqn in unconfirmed_names[ fqn ]:
+                       del unconfirmed_names[ fqn ]
             
-            else:
-                failed_fd.write( "%s\n" % (fqn))
-                failed_fd.flush()
+               else:
+                  print "chain.com failed; retry count %s" % count
+                  if count == 0:
+                     failed_fd.write( "%s\n" % (fqn))
+                     failed_fd.flush()
+               
+                  if count == 2: 
+                     # try again later
+                     names.append( name )
+                     log.error("result: %s" % result)
                 
-                # try again
-                names.append( name )
-                
-            continue 
+               time.sleep(2.0 * (count+1))
+               count += 1
+               continue 
         
-        else:
-            result['name'] = fqn
-            result['time'] = time.time()
-            result_str = json.dumps( result )
+           else:
+               result['name'] = fqn
+               result['time'] = time.time()
+               result_str = json.dumps( result )
             
-            sent_fd.write( "%s\n" % result_str)
-            sent_fd.flush()
+               sent_fd.write( "%s\n" % result_str)
+               sent_fd.flush()
+             
+               print pretty_dump( result )
             
-            print pretty_dump( result )
-            
-            unconfirmed_names[ fqn ] = result['time']
+               unconfirmed_names[ fqn ] = result['time']
                 
-            # record progress
-            num_sent_names += 1
+               # record progress
+               num_sent_names += 1
+               break 
         
         time.sleep(delay)
         """
