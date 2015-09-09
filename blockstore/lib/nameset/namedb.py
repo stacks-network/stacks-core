@@ -1102,7 +1102,6 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       name = nameop['name']
       sender = nameop['sender']
-      address = nameop['address']
       
       # address mixed into the preorder
       register_addr = nameop.get('recipient_address', None)
