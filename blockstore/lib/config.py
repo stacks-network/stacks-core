@@ -69,7 +69,7 @@ STORAGE_TTL = 3 * 60 * 60 * 24 * 365
 
 DHT_SERVER_PORT = 6265  # blockstored default to port 6264
 
-DEFAULT_DHT_SERVERS = [('dht.openname.org', DHT_SERVER_PORT),
+DEFAULT_DHT_SERVERS = [('dht.blockstack.org', DHT_SERVER_PORT),
                        ('dht.onename.com', DHT_SERVER_PORT),
                        ('dht.halfmoonlabs.com', DHT_SERVER_PORT),
                        ('127.0.0.1', DHT_SERVER_PORT)]
