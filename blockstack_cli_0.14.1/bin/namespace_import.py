@@ -10,6 +10,7 @@ import pprint
 import pybitcoin
 import binascii
 import logging 
+import requests
 
 DEBUG = True
 
@@ -27,6 +28,7 @@ log = config.log
 
 AVG_BLOCK_TIME = 600    # average number of seconds between blocks 
 CONFIRM_DELAY = 10      # number of blocks to wait to pass before confirming that the name was registered
+MAX_UNCONFIRMED = 150
 
 def pretty_dump(json_str):
     """ pretty dump
@@ -63,6 +65,35 @@ def get_chaincom_api_keys( path="./chaincom.ini" ):
     
     return parser.get("chaincom", "api_key_id"), parser.get("chaincom", "api_key_secret")
 
+
+def get_num_unconfirmed_txs( chaincom_api_key, chaincom_api_secret, address, count=500 ):
+    """
+    Get the number of unconfirmed transactions for an address.
+    """
+    r = requests.get("https://api.chain.com/v2/bitcoin/addresses/%s/transactions?limit=%s&api-key-id=%s&api-key-secret=%s" % (address, count, chaincom_api_key, chaincom_api_secret))
+    data = None 
+    
+    if r.status_code != 200:
+        return -1 
+    
+    try:
+        data = r.json()
+    except:
+        print >> sys.stderr, "Failed to get transactions"
+        return None 
+    
+    num_unconfirmed = 0
+    for tx in data:
+        
+        try:
+            if tx["confirmations"] == 0:
+                num_unconfirmed += 1
+        except:
+            print tx 
+            sys.exit(1)
+            
+    return num_unconfirmed
+            
 
 def confirm_name_imported( client, name ):
     """
@@ -144,6 +175,9 @@ if __name__ == "__main__":
 
     privkey_str = sys.argv[3]
     namespace_id = sys.argv[2]
+    
+    privkey = pybitcoin.BitcoinPrivateKey( privkey_str )
+    importer_address = privkey.public_key().address()
 
     try:
         names = json.loads( names_json )
@@ -167,6 +201,8 @@ if __name__ == "__main__":
     failed_lines = None
     failed = []
     
+    num_sent_names = 0
+    
     # resume from where we left off...
     try:
         # should contain newline-separated list of names we've processed so far
@@ -187,7 +223,8 @@ if __name__ == "__main__":
             
         sent_names_json = sent_fd.read().split("\n")
         confirmed_names = confirmed_fd.read().split("\n")
-        failed_fd.seek( 0, 2 )
+        
+        failed = failed_fd.read().split("\n")
         
     except Exception, e:
         traceback.print_exc()
@@ -225,8 +262,62 @@ if __name__ == "__main__":
         if not name.has_key('hash') and not name.has_key('profile_hash'):
             raise Exception("Name '%s' lacks a profile hash" % name )
     
+    
+    # some failed names might have actually gone through.  Find out which.
+    new_confirmed = find_imported( client, failed )
+    for confirmed_name in new_confirmed:
+        confirmed_fd.write( "%s\n" % confirmed_name )
+        confirmed_fd.flush()
+        
+        if confirmed_name in sent_names.keys():
+            del sent_names[confirmed_name]
+            
+        confirmed_names.append( confirmed_name )
+        failed.remove( confirmed_name )
+        
+    # new failed set
+    new_failed_fd = open( failed_path + ".tmp", "w+" )
+    new_failed_fd.write( "\n".join( failed ) )
+    new_failed_fd.flush()
+    new_failed_fd.close()
+    os.rename( failed_path + ".tmp", failed_path )
+    
     # do all imports
     for name in names:
+        
+        # how long are we doing to wait?
+        delay = 20
+        try:
+            with open("delay.txt", "r") as fd:
+                delay_txt = fd.read()
+            
+            delay = float(delay_txt.strip())
+        except Exception, e:
+            print >> sys.stderr, "failed to read delay.txt; assuming %s" % delay
+            
+
+        # every so often, see if we need to throttle ourselves
+        if num_sent_names % 10 == 0:
+            
+            num_unconfirmed_txs = 100000000
+            
+            while num_unconfirmed_txs > MAX_UNCONFIRMED:
+                num_unconfirmed_txs = get_num_unconfirmed_txs( chaincom_id, chaincom_secret, importer_address )
+                if num_unconfirmed_txs < 0:
+                    
+                    # hitting the API server too hard?
+                    print >> sys.stderr, "WARN: failed to connect to chain.com"
+                    time.sleep(delay)
+                    num_unconfirmed_txs = 1000000000
+                    continue 
+                
+                print >> sys.stderr, "%s unconfirmed transactions" % num_unconfirmed_txs
+                
+                if num_unconfirmed_txs <= MAX_UNCONFIRMED:
+                    break
+                
+                time.sleep(60)
+                
         
         # every block (or on start-up), update the list of imported names
         if time_of_last_confirmation + AVG_BLOCK_TIME < time.time():
@@ -263,6 +354,7 @@ if __name__ == "__main__":
         
         if fqn in confirmed_names or fqn in sent_names.keys():
             # already imported or sent
+            num_sent_names += 1
             continue 
         
         btc_address = None 
@@ -312,35 +404,27 @@ if __name__ == "__main__":
                 failed_fd.write( "%s\n" % (fqn))
                 failed_fd.flush()
                 
+                # try again
+                names.append( name )
+                
             continue 
         
-        # record progress
-        # num_sent_names += 1
-        
-        result['name'] = fqn
-        result['time'] = time.time()
-        result_str = json.dumps( result )
-        
-        sent_fd.write( "%s\n" % result_str)
-        sent_fd.flush()
-        
-        print pretty_dump( result )
-        
-        unconfirmed_names[ fqn ] = result['time']
-        
-        # how long are we doing to wait?
-        delay = 20
-        try:
-            with open("delay.txt", "r") as fd:
-                delay_txt = fd.read()
+        else:
+            result['name'] = fqn
+            result['time'] = time.time()
+            result_str = json.dumps( result )
             
-            delay = float(delay_txt.strip())
-        except Exception, e:
-            print >> sys.stderr, "failed to read delay.txt; assuming %s" % delay
+            sent_fd.write( "%s\n" % result_str)
+            sent_fd.flush()
             
+            print pretty_dump( result )
+            
+            unconfirmed_names[ fqn ] = result['time']
+                
+            # record progress
+            num_sent_names += 1
+        
         time.sleep(delay)
-        
-        
         """
         if (num_sent_names % 20 == 0):
             
