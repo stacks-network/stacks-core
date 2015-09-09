@@ -294,8 +294,7 @@ if __name__ == "__main__":
             delay = float(delay_txt.strip())
         except Exception, e:
             print >> sys.stderr, "failed to read delay.txt; assuming %s" % delay
-            
-
+    
         # every so often, see if we need to throttle ourselves
         if num_sent_names % 10 == 0:
             
@@ -367,7 +366,14 @@ if __name__ == "__main__":
             
         elif name.has_key("btc_address"):
             btc_address = name['btc_address']
-        
+
+        # ascii only 
+        try:
+           fqn = str(fqn)
+        except:
+           log.debug("non-ascii name '%s'" % fqn)
+           continue
+           
         log.debug( "name_import " + fqn + " " + btc_address + " " + update_hash )
 
         try:
