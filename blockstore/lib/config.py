@@ -253,6 +253,23 @@ NAMESPACE_DEFAULT = {
 }
 
 
+""" UTXOs 
+"""
+SUPPORTED_UTXO_PROVIDERS = [ "chain_com", "blockcypher", "blockchain_info", "bitcoind_utxo" ]
+SUPPORTED_UTXO_PARAMS = {
+    "chain_com": ["api_key_id", "api_key_secret"],
+    "blockcypher": ["api_token"],
+    "blockchain_info": ["api_token"],
+    "bitcoind_utxo": ["rpc_username", "rpc_password", "server", "port", "use_https", "version_byte"]
+}
+
+SUPPORTED_UTXO_PROMPT_MESSAGES = {
+    "chain_com": "Please enter your chain.com API key and secret.",
+    "blockcypher": "Please enter your Blockcypher API token.",
+    "blockchain_info": "Please enter your blockchain.info API token.",
+    "bitcoind_utxo": "Please enter your fully-indexed bitcoind node information."
+}
+
 """ Validation 
 """
 
@@ -333,6 +350,47 @@ def default_bitcoind_opts( config_file=None ):
    return default_bitcoin_opts
 
 
+def default_utxo_provider( config_file=None ):
+   """
+   Get our defualt UTXO provider options from a config file.
+   """
+   
+   global SUPPORTED_UTXO_PROVIDERS
+   
+   if config_file is None:
+      config_file = virtualchain.get_config_filename()
+   
+   parser = SafeConfigParser()
+   parser.read( config_file )
+   
+   for provider_name in SUPPORTED_UTXO_PROVIDERS:
+       if parser.has_section( provider_name ):
+           return provider_name 
+       
+   return None
+   
+
+def default_utxo_provider_opts( utxo_provider, config_file=None ):
+   """
+   Get the default options for a utxo provider.
+   """
+   
+   if utxo_provider == "chain_com":
+       return default_chaincom_opts( config_file=config_file )
+   
+   elif utxo_provider == "blockcypher":
+       return default_blockcypher_opts( config_file=config_file )
+   
+   elif utxo_provider == "blockchain_info":
+       return default_blockchain_info_opts( config_file=config_file )
+   
+   elif utxo_provider == "bitcoind_utxo":
+       return default_bitcoind_utxo_opts( config_file=config_file )
+   
+   else:
+       raise Exception("Unsupported UTXO provider '%s'" % utxo_provider)
+   
+
 def default_chaincom_opts( config_file=None ):
    """
    Get our default chain.com options from a config file.
@@ -358,6 +416,7 @@ def default_chaincom_opts( config_file=None ):
          api_key_secret = parser.get('chain_com', 'api_key_secret')
       
    chaincom_opts = {
+       'utxo_provider': "chain_com",
        'api_key_id': api_key_id,
        'api_key_secret': api_key_secret
    }
@@ -369,6 +428,144 @@ def default_chaincom_opts( config_file=None ):
          del chaincom_opts[k]
    
    return chaincom_opts
+
+
+def default_blockcypher_opts( config_file=None ):
+   """
+   Get our default blockcypher.com options from a config file.
+   """
+   
+   if config_file is None:
+      config_file = virtualchain.get_config_filename()
+   
+   parser = SafeConfigParser()
+   parser.read( config_file )
+   
+   blockcypher_opts = {}
+   
+   api_token = None 
+   
+   if parser.has_section('blockcypher'):
+      
+      if parser.has_option('blockcypher', 'api_token'):
+         api_token = parser.get('blockcypher', 'api_token')
+      
+   blockcypher_opts = {
+       'utxo_provider': "blockcypher",
+       'api_token': api_token
+   }
+    
+   
+   # strip Nones 
+   for (k, v) in blockcypher_opts.items():
+      if v is None:
+         del blockcypher_opts[k]
+   
+   return blockcypher_opts
+
+
+def default_blockchain_info_opts( config_file=None ):
+   """
+   Get our default blockchain.info options from a config file.
+   """
+   
+   if config_file is None:
+       config_file = virtualchain.get_config_filename()
+   
+   parser = SafeConfigParser()
+   parser.read( config_file )
+   
+   blockchain_info_opts = {}
+   
+   api_token = None 
+   
+   if parser.has_section("blockchain_info"):
+       
+       if parser.has_option("blockchain_info", "api_token"):
+           api_token = parser.get("blockchain_info", "api_token")
+           
+   blockchain_info_opts = {
+       "utxo_provider": "blockchain_info",
+       "api_token": api_token
+   }
+   
+   # strip Nones 
+   for (k, v) in blockchain_info_opts.items():
+      if v is None:
+         del blockchain_info_opts[k]
+   
+   return blockchain_info_opts
+
+
+def default_bitcoind_utxo_opts( config_file=None ):
+   """
+   Get our default bitcoind UTXO options from a config file.
+   """
+   
+   if config_file is None:
+       config_file = virtualchain.get_config_filename()
+       
+   parser = SafeConfigParser()
+   parser.read( config_file )
+   
+   bitcoind_utxo_opts = {}
+   
+   server = None 
+   port = None 
+   rpc_username = None 
+   rpc_password = None 
+   use_https = None 
+   version_byte = None
+   
+   if parser.has_section("bitcoind_utxo"):
+       
+       if parser.has_option("bitcoind_utxo", "server"):
+           server = parser.get("bitcoind_utxo", "server")
+           
+       if parser.has_option("bitcoind_utxo", "port"):
+           port = int( parser.get("bitcoind_utxo", "port") )
+                      
+       if parser.has_option("bitcoind_utxo", "rpc_username"):
+           rpc_username = parser.get("bitcoind_utxo", "rpc_username")
+           
+       if parser.has_option("bitcoind_utxo", "rpc_password"):
+           rpc_password = parser.get("bitcoind_utxo", "rpc_password")
+       
+       if parser.has_option("bitcoind_utxo", "use_https"):
+           use_https = bool( parser.get("bitcoind_utxo", "use_https") )
+           
+       if parser.has_option("bitcoind_utxo", "version_byte"):
+           version_byte = int(parser.get("bitcoind_utxo", "version_byte"))
+           
+           
+   if use_https is None:
+       use_https = True 
+   
+   if version_byte is None:
+       version_byte = 0 
+       
+   if server is None:
+       server = '127.0.0.1'
+   
+   if port is None:
+       port = 8332 
+       
+   bitcoind_utxo_opts = {
+       "utxo_provider": "bitcoind_utxo",
+       "rpc_username": rpc_username,
+       "rpc_password": rpc_password,
+       "server": server,
+       "port": port,
+       "use_https": use_https,
+       "version_byte": version_byte
+   }
+   
+   # strip Nones 
+   for (k, v) in bitcoind_utxo_opts.items():
+      if v is None:
+         del bitcoind_utxo_opts[k]
+   
+   return bitcoind_utxo_opts
 
 
 def default_dht_opts( config_file=None ):
@@ -383,7 +580,7 @@ def default_dht_opts( config_file=None ):
    
    
    defaults = {
-      'disable': str(False),
+      'disable': str(True),
       'port': str(DHT_SERVER_PORT),
       'servers': ",".join( ["%s:%s" % (host, port) for (host, port) in DEFAULT_DHT_SERVERS] )
    }
@@ -398,7 +595,7 @@ def default_dht_opts( config_file=None ):
       servers = parser.get('dht', 'servers')     # expect comma-separated list of host:port
       
       if disable is None:
-         disable = False 
+         disable = True 
          
       if port is None:
          port = DHT_SERVER_PORT
@@ -440,7 +637,7 @@ def default_dht_opts( config_file=None ):
       
       # use defaults
       dht_opts = {
-         'disable': False,
+         'disable': True,
          'port': DHT_SERVER_PORT,
          'servers': DEFAULT_DHT_SERVERS
       }
@@ -550,8 +747,10 @@ def configure( config_file=None, force=False, interactive=True ):
    
    Optionally force a re-prompting for all configuration details (with force=True)
    
-   Return (bitcoind_opts, chaincom_opts)
+   Return (bitcoind_opts, utxo_opts)
    """
+   
+   global SUPPORTED_UTXO_PROVIDERS, SUPPORTED_UTXO_PARAMS, SUPPORTED_UTXO_PROMPT_MESSAGES
    
    if config_file is None:
       try:
@@ -563,63 +762,93 @@ def configure( config_file=None, force=False, interactive=True ):
    if not os.path.exists( config_file ):
        # definitely ask for everything
        force = True 
-       
+   
    bitcoind_message  = "Blockstore does not have enough information to connect\n"
    bitcoind_message += "to bitcoind.  Please supply the following parameters:"
    
    bitcoind_opts = {}
    bitcoind_params = ["server", "port", "user", "passwd", "use_https"]
-   
-   chaincom_message  = 'NOTE: Blockstore currently requires API access to chain.com\n'
-   chaincom_message += 'for getting unspent outputs. We will add support for using\n'
-   chaincom_message += 'bitcoind and/or other API providers in the next release.\n'
-   chaincom_message += "\n"
-   chaincom_message += "If you have not done so already, please go to https://chain.com\n"
-   chaincom_message += "and register for an API key and secret.  Once you have them,"
-   chaincom_message += "please enter them here."
-   
-   chaincom_opts = {}
-   chaincom_params = ["api_key_id", "api_key_secret"]
-   
+
    bitcoind_opts_defaults = opt_strip( "bitcoind_", default_bitcoind_opts( config_file=config_file ) ) 
-   chaincom_opts_defaults = default_chaincom_opts( config_file=config_file )
    
    if not force:
-      
+       
       # get current set of bitcoind opts
       bitcoind_opts = opt_strip( "bitcoind_", default_bitcoind_opts( config_file=config_file ) ) 
       
-      # get current set of chaincom opts 
-      chaincom_opts = default_chaincom_opts( config_file=config_file )
-      
-      
-   # get any missing fields 
+       
+   # get any missing bitcoind fields 
    bitcoind_opts, missing_bitcoin_opts, num_bitcoind_prompted = find_missing( bitcoind_message, bitcoind_params, bitcoind_opts, bitcoind_opts_defaults, prompt_missing=interactive )
-   chaincom_opts, missing_chaincom_opts, num_chaincom_prompted = find_missing( chaincom_message, chaincom_params, chaincom_opts, chaincom_opts_defaults, prompt_missing=interactive )
-   
-   # restore prefix 
    bitcoind_opts = opt_restore( "bitcoind_", bitcoind_opts )
    
-   if not interactive and (len(missing_bitcoin_opts) > 0 or len(missing_chaincom_opts) > 0):
+   # find the current utxo provider 
+   utxo_provider = default_utxo_provider( config_file=config_file )
+   if utxo_provider is None:
+       
+       # prompt for it? 
+       if interactive or force:
+                    
+           utxo_message  = 'NOTE: Blockstore currently requires an external API\n'
+           utxo_message += 'for querying unspent transaction outputs.  The set of\n'
+           utxo_message += 'supported providers are:\n'
+           utxo_message += "     \n".join( SUPPORTED_UTXO_PROVIDERS ) + "\n"
+           utxo_message += "Please get the requisite API tokens and enter them here."
+           
+           utxo_provider_dict = interactive_prompt( utxo_message, ['utxo_provider'], {} )
+           utxo_provider = utxo_provider_dict['utxo_provider']
+           
+       else:
+           raise Exception("No UTXO provider given")
+       
+   if not utxo_provider in SUPPORTED_UTXO_PROVIDERS:
+       raise Exception("Unsupported UTXO provider '%s'" % utxo_provider)
+   
+   utxo_opts = {}
+   utxo_params = SUPPORTED_UTXO_PARAMS[ utxo_provider ]
+   
+   utxo_opts_defaults = default_utxo_provider_opts( utxo_provider, config_file=config_file )
+   
+   if not force:
+      
+      # get current set of utxo opts 
+      utxo_opts = default_utxo_provider_opts( utxo_provider, config_file=config_file )
+      
+   utxo_opts, missing_utxo_opts, num_utxo_opts_prompted = find_missing( SUPPORTED_UTXO_PROMPT_MESSAGES[utxo_provider], utxo_params, utxo_opts, utxo_opts_defaults, prompt_missing=interactive )
+   utxo_opts['utxo_provider'] = utxo_provider 
+   
+   dht_opts = {}
+   dht_params = ['disable']
+   
+   dht_opts_defaults = default_dht_opts( config_file=config_file )
+   
+   if not force:
+       
+       dht_opts = default_dht_opts( config_file=config_file )
+       
+   dht_msg = "Please enter your DHT node configuration.\nUnless you plan on leaving Blockstore\nrunning, you should disable the DHT feature."
+   dht_opts, missing_dht_opts, num_dht_opts_prompted = find_missing( dht_msg, dht_params, dht_opts, dht_opts_defaults, prompt_missing=interactive )
+   
+   if not interactive and (len(missing_bitcoin_opts) > 0 or len(missing_utxo_opts) > 0 or len(missing_dht_opts) > 0):
        
        # cannot continue 
-       raise Exception("Missing configuration fields: %s" % (",".join( missing_bitcoin_opts + missing_chaincom_opts )) )
+       raise Exception("Missing configuration fields: %s" % (",".join( missing_bitcoin_opts + missing_utxo_opts )) )
                        
    # if we prompted, then save 
-   if num_bitcoind_prompted > 0 or num_chaincom_prompted > 0:
+   if num_bitcoind_prompted > 0 or num_utxo_opts_prompted > 0 or num_dht_opts_prompted > 0:
        print >> sys.stderr, "Saving configuration to %s" % config_file
-       write_config_file( bitcoind_opts=bitcoind_opts, chaincom_opts=chaincom_opts, config_file=config_file )
+       write_config_file( bitcoind_opts=bitcoind_opts, utxo_opts=utxo_opts, dht_opts=dht_opts, config_file=config_file )
        
-   return (bitcoind_opts, chaincom_opts)
+   return (bitcoind_opts, utxo_opts, dht_opts)
       
 
-def write_config_file( bitcoind_opts=None, chaincom_opts=None, config_file=None ):
+def write_config_file( bitcoind_opts=None, utxo_opts=None, dht_opts=None, config_file=None ):
    """
    Update a configuration file, given the bitcoind options and chain.com options.
    Return True on success 
    Return False on failure
    """
    
+   print dht_opts 
    if config_file is None:
       try:
          config_file = virtualchain.get_config_filename()
@@ -636,23 +865,77 @@ def write_config_file( bitcoind_opts=None, chaincom_opts=None, config_file=None 
       
       tmp_bitcoind_opts = opt_strip( "bitcoind_", bitcoind_opts )
       
+      if parser.has_section('bitcoind'):
+          parser.remove_section('bitcoind')
+          
       parser.add_section( 'bitcoind' )
       for opt_name, opt_value in tmp_bitcoind_opts.items():
          if opt_value is None:
              raise Exception("%s is not defined" % opt_name)
          parser.set( 'bitcoind', opt_name, "%s" % opt_value )
       
-   if chaincom_opts is not None:
+   if utxo_opts is not None:
       
-      parser.add_section( 'chain_com' )
-      for opt_name, opt_value in chaincom_opts.items():
+      if parser.has_section( utxo_opts['utxo_provider'] ):
+          parser.remove_section( utxo_opts['utxo_provider'] )
+          
+      parser.add_section( utxo_opts['utxo_provider'] )
+      for opt_name, opt_value in utxo_opts.items():
+         
+         # don't log this meta-field 
+         if opt_name == 'utxo_provider':
+             continue 
+         
          if opt_value is None:
              raise Exception("%s is not defined" % opt_name)
-         parser.set( 'chain_com', opt_name, opt_value )
+         
+         parser.set( utxo_opts['utxo_provider'], opt_name, "%s" % opt_value )
       
+   if dht_opts is not None:
+      
+      if parser.has_section("dht"):
+          parser.remove_section("dht")
+      
+      parser.add_section( "dht" )
+      for opt_name, opt_value in dht_opts.items():
+          
+          if opt_value is None:
+              raise Exception("%s is not defined" % opt_name )
+          
+          parser.set( "dht", opt_name, "%s" % opt_value )
+       
    with open(config_file, "w") as fout:
       parser.write( fout )
    
    return True
 
+
+def connect_utxo_provider( utxo_opts ):
+   """
+   Set up and return a UTXO provider client.
+   """
+   
+   global SUPPORTED_UTXO_PROVIDERS
+   
+   if not utxo_opts.has_key("utxo_provider"):
+       raise Exception("No UTXO provider given")
+   
+   utxo_provider = utxo_opts['utxo_provider']
+   if not utxo_provider in SUPPORTED_UTXO_PROVIDERS:
+       raise Exception("Unsupported UTXO provider '%s'" % utxo_provider)
+   
+   if utxo_provider == "chain_com":
+       return pybitcoin.ChainComClient( utxo_opts['api_key_id'], utxo_opts['api_key_secret'] )
+   
+   elif utxo_provider == "blockcypher":
+       return pybitcoin.BlockcypherClient( utxo_opts['api_token'] )
+   
+   elif utxo_provider == "blockchain_info":
+       return pybitcoin.BlockchainInfoClient( utxo_opts['api_token'] )
+   
+   elif utxo_provider == "bitcoind_utxo":
+       return pybitcoin.BitcoindClient( utxo_opts['rpc_username'], utxo_opts['rpc_password'], use_https=utxo_opts['use_https'], server=utxo_opts['server'], port=utxo_opts['port'], version_byte=utxo_opts['version_byte'] )
+   
+   else:
+       raise Exception("Unrecognized UTXO provider '%s'" % utxo_provider )
    

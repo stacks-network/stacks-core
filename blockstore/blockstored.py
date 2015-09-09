@@ -51,7 +51,7 @@ log = virtualchain.session.log
 # global variables, for use with the RPC server and the twisted callback
 bitcoind = None
 bitcoin_opts = None
-chaincom_opts = None
+utxo_opts = None
 blockchain_client = None 
 
 def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
@@ -98,12 +98,12 @@ def get_bitcoin_opts():
    return bitcoin_opts 
 
 
-def get_chaincom_opts():
+def get_utxo_opts():
    """
-   Get chain.com options.
+   Get UTXO provider options.
    """
-   global chaincom_opts
-   return chaincom_opts
+   global utxo_opts
+   return utxo_opts
 
 
 def set_bitcoin_opts( new_bitcoin_opts ):
@@ -114,12 +114,12 @@ def set_bitcoin_opts( new_bitcoin_opts ):
    bitcoin_opts = new_bitcoin_opts
    
    
-def set_chaincom_opts( new_chaincom_opts ):
+def set_utxo_opts( new_utxo_opts ):
    """
    Set new global chian.com options 
    """
-   global chaincom_opts 
-   chaincom_opts = new_chaincom_opts
+   global utxo_opts 
+   utxo_opts = new_utxo_opts
    
    
 def get_pidfile_path():
@@ -219,35 +219,17 @@ def get_utxo_provider_client():
    """
    
    global blockchain_client 
-   global chaincom_opts
+   global utxo_opts
    global blockchain_opts
    
    # acquire configuration (which we should already have)
-   blockchain_opts, chaincom_opts = configure( interactive=False )
-   
-   chaincom_id = chaincom_opts['api_key_id']
-   chaincom_secret = chaincom_opts['api_key_secret']
+   blockchain_opts, utxo_opts, dht_opts = configure( interactive=False )
    
    try:
-      blockchain_client = pybitcoin.ChainComClient( chaincom_id, chaincom_secret )
-      return blockchain_client
-      
-   except Exception, e:
-      log.exception(e)
-      
-      # try bitcoind...
-      try:
-         blockchain_client = BitcoindClient( blockchain_opts['bitcoind_user'], blockchain_opts['bitcoind_passwd'],
-                                             server=blockchain_opts['bitcoind_server'], port=str(blockchain_opts['bitcoind_port']), use_https=blockchain_opts.get('bitcoind_use_https', False) )
-         
-         return blockchain_client
-         
-      except Exception, e:
-         log.exception(e)
-         return None 
-      
-      return None
-
+       blockchain_client = connect_utxo_provider( utxo_opts )
+   except:
+       log.exception(e)
+       return None 
 
 
 def get_name_cost( name ):
@@ -728,13 +710,12 @@ def setup( return_parser=False ):
    
    global blockchain_client
    global bitcoin_opts
-   global chaincom_opts
    
    # set up our implementation 
    virtualchain.setup_virtualchain( blockstore_state_engine )
    
    # acquire configuration, and store it globally
-   bitcoin_opts, chaincom_opts = configure( interactive=True )
+   bitcoin_opts, utxo_opts, dht_opts = configure( interactive=True )
    
    # merge in command-line bitcoind options 
    config_file = virtualchain.get_config_filename()
@@ -754,7 +735,7 @@ def setup( return_parser=False ):
    
    # store options 
    set_bitcoin_opts( bitcoin_opts )
-   set_chaincom_opts( chaincom_opts )
+   set_utxo_opts( utxo_opts )
    
    if return_parser:
       return argparser 
