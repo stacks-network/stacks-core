@@ -49,10 +49,12 @@ import virtualchain
 log = virtualchain.session.log 
 
 # global variables, for use with the RPC server and the twisted callback
+blockstore_opts = None
 bitcoind = None
 bitcoin_opts = None
 utxo_opts = None
 blockchain_client = None 
+blockchain_broadcaster = None
 
 def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
    """
@@ -104,6 +106,14 @@ def get_utxo_opts():
    """
    global utxo_opts
    return utxo_opts
+
+
+def get_blockstore_opts():
+   """
+   Get blockstore configuration options.
+   """
+   global blockstore_opts 
+   return blockstore_opts 
 
 
 def set_bitcoin_opts( new_bitcoin_opts ):
@@ -218,18 +228,51 @@ def get_utxo_provider_client():
    Return None if we were unable to connect
    """
    
+   """
+   global blockstore_opts
    global blockchain_client 
-   global utxo_opts
    global blockchain_opts
+   global utxo_opts
+   """
    
    # acquire configuration (which we should already have)
-   blockchain_opts, utxo_opts, dht_opts = configure( interactive=False )
+   blockstore_opts, blockchain_opts, utxo_opts, dht_opts = configure( interactive=False )
    
    try:
        blockchain_client = connect_utxo_provider( utxo_opts )
+       return blockchain_client
    except:
        log.exception(e)
        return None 
+
+
+def get_tx_broadcaster():
+   """
+   Get or instantiate our blockchain UTXO provider's transaction broadcaster.
+   fall back to the utxo provider client, if one is not designated
+   """
+   """
+   global blockstore_opts
+   global blockchain_broadcaster
+   global blockchain_opts
+   global utxo_opts
+   """
+   # acquire configuration (which we should already have)
+   blockstore_opts, blockchain_opts, utxo_opts, dht_opts = configure( interactive=False )
+   
+   # is there a particular blockchain client we want for importing?
+   if 'tx_broadcaster' not in blockstore_opts:
+       return get_utxo_provider_client() 
+   
+   broadcaster_opts = default_utxo_provider_opts( blockstore_opts['tx_broadcaster'] ) 
+       
+   try:
+       blockchain_broadcaster = connect_utxo_provider( broadcaster_opts )
+       return blockchain_broadcaster
+   except:
+       log.exception(e)
+       return None 
+
 
 
 def get_name_cost( name ):
@@ -455,10 +498,17 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         """
         
         blockchain_client_inst = get_utxo_provider_client()
+        if blockchain_client_inst is None:
+           return {"error": "Failed to connect to blockchain UTXO provider"}
+        
+        broadcaster_client_inst = get_tx_broadcaster()
+        if broadcaster_client_inst is None:
+           return {"error": "Failed to connect to blockchain transaction broadcaster"}
+       
         db = get_state_engine()
         
         try:
-            resp = name_import( str(name), str(recipient_address), str(update_hash), str(privatekey), blockchain_client_inst, testset=TESTSET )
+            resp = name_import( str(name), str(recipient_address), str(update_hash), str(privatekey), blockchain_client_inst, blockchain_broadcaster=broadcaster_client_inst, testset=TESTSET )
         except:
             return json_traceback()
         
@@ -708,14 +758,19 @@ def setup( return_parser=False ):
    Otherwise return None.
    """
    
+   global blockstore_opts 
    global blockchain_client
+   global blockchain_broadcaster
    global bitcoin_opts
+   global utxo_opts 
+   global blockstore_opts
+   global dht_opts
    
    # set up our implementation 
    virtualchain.setup_virtualchain( blockstore_state_engine )
    
    # acquire configuration, and store it globally
-   bitcoin_opts, utxo_opts, dht_opts = configure( interactive=True )
+   blockstore_opts, bitcoin_opts, utxo_opts, dht_opts = configure( interactive=True )
    
    # merge in command-line bitcoind options 
    config_file = virtualchain.get_config_filename()

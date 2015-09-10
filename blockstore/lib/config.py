@@ -273,6 +273,44 @@ SUPPORTED_UTXO_PROMPT_MESSAGES = {
 """ Validation 
 """
 
+def default_blockstore_opts( config_file=None ):
+   """
+   Get our default blockstore opts from a config file
+   or from sane defaults.
+   """
+   
+   if config_file is None:
+      config_file = virtualchain.get_config_filename()
+   
+   parser = SafeConfigParser()
+   parser.read( config_file )
+   
+   blockstore_opts = {}
+   tx_broadcaster = None 
+   utxo_provider = None
+   
+   if parser.has_section('blockstore'):
+      
+      if parser.has_option('blockstore', 'tx_broadcaster'):
+         tx_broadcaster = parser.get('blockstore', 'tx_broadcaster')
+      
+      if parser.has_option('blockstore', 'utxo_provider'):
+         utxo_provider = parser.get('blockstore', 'utxo_provider')
+      
+   blockstore_opts = {
+       'tx_broadcaster': tx_broadcaster,
+       'utxo_provider': utxo_provider
+   }
+    
+   
+   # strip Nones 
+   for (k, v) in blockstore_opts.items():
+      if v is None:
+         del blockstore_opts[k]
+   
+   return blockstore_opts
+   
+
 def default_bitcoind_opts( config_file=None ):
    """
    Get our default bitcoind options, such as from a config file, 
@@ -369,6 +407,28 @@ def default_utxo_provider( config_file=None ):
        
    return None
    
+
+def all_utxo_providers( config_file=None ):
+   """
+   Get our defualt UTXO provider options from a config file.
+   """
+   
+   global SUPPORTED_UTXO_PROVIDERS
+   
+   if config_file is None:
+      config_file = virtualchain.get_config_filename()
+   
+   parser = SafeConfigParser()
+   parser.read( config_file )
+   
+   provider_names = []
+   
+   for provider_name in SUPPORTED_UTXO_PROVIDERS:
+       if parser.has_section( provider_name ):
+           provider_names.append( provider_name )
+       
+   return provider_names 
+
 
 def default_utxo_provider_opts( utxo_provider, config_file=None ):
    """
@@ -762,6 +822,25 @@ def configure( config_file=None, force=False, interactive=True ):
    if not os.path.exists( config_file ):
        # definitely ask for everything
        force = True 
+       
+   # get blockstore opts 
+   blockstore_opts = {}
+   blockstore_params = []
+   blockstore_opts_defaults = default_blockstore_opts( config_file=config_file )
+   
+   if not force:
+       
+       # default blockstore options 
+       blockstore_opts = default_blockstore_opts( config_file=config_file )
+       
+   blockstore_msg = "ADVANCED USERS ONLY.\nPlease enter blockstore configuration hints."
+   blockstore_opts, missing_blockstore_opts, num_blockstore_opts_prompted = find_missing( blockstore_msg, blockstore_params, blockstore_opts, blockstore_opts_defaults, prompt_missing=interactive )
+   
+   utxo_provider = None 
+   if 'utxo_provider' in blockstore_opts:
+       utxo_provider = blockstore_opts['utxo_provider']
+   else:
+       utxo_provider = default_utxo_provider( config_file=config_file )
    
    bitcoind_message  = "Blockstore does not have enough information to connect\n"
    bitcoind_message += "to bitcoind.  Please supply the following parameters:"
@@ -782,7 +861,6 @@ def configure( config_file=None, force=False, interactive=True ):
    bitcoind_opts = opt_restore( "bitcoind_", bitcoind_opts )
    
    # find the current utxo provider 
-   utxo_provider = default_utxo_provider( config_file=config_file )
    if utxo_provider is None:
        
        # prompt for it? 
@@ -837,12 +915,12 @@ def configure( config_file=None, force=False, interactive=True ):
    # if we prompted, then save 
    if num_bitcoind_prompted > 0 or num_utxo_opts_prompted > 0 or num_dht_opts_prompted > 0:
        print >> sys.stderr, "Saving configuration to %s" % config_file
-       write_config_file( bitcoind_opts=bitcoind_opts, utxo_opts=utxo_opts, dht_opts=dht_opts, config_file=config_file )
+       write_config_file( bitcoind_opts=bitcoind_opts, utxo_opts=utxo_opts, dht_opts=dht_opts, blockstore_opts=blockstore_opts, config_file=config_file )
        
-   return (bitcoind_opts, utxo_opts, dht_opts)
+   return (blockstore_opts, bitcoind_opts, utxo_opts, dht_opts)
       
 
-def write_config_file( bitcoind_opts=None, utxo_opts=None, dht_opts=None, config_file=None ):
+def write_config_file( blockstore_opts=None, bitcoind_opts=None, utxo_opts=None, dht_opts=None, config_file=None ):
    """
    Update a configuration file, given the bitcoind options and chain.com options.
    Return True on success 
@@ -905,6 +983,21 @@ def write_config_file( bitcoind_opts=None, utxo_opts=None, dht_opts=None, config
           
           parser.set( "dht", opt_name, "%s" % opt_value )
        
+   
+   if blockstore_opts is not None:
+      
+      if parser.has_section("blockstore"):
+          parser.remove_section("blockstore")
+      
+      parser.add_section( "blockstore" )
+      for opt_name, opt_value in dht_opts.items():
+          
+          if opt_value is None:
+              raise Exception("%s is not defined" % opt_name )
+          
+          parser.set( "blockstore", opt_name, "%s" % opt_value )
+          
+          
    with open(config_file, "w") as fout:
       parser.write( fout )
    
