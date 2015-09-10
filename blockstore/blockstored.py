@@ -55,6 +55,7 @@ bitcoin_opts = None
 utxo_opts = None
 blockchain_client = None 
 blockchain_broadcaster = None
+indexer_pid = None
 
 def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
    """
@@ -195,7 +196,7 @@ def get_index_range():
             return first_block, last_block 
         
 
-def sigint_handler_server(signal, frame):
+def die_handler_server(signal, frame):
     """
     Handle Ctrl+C for server subprocess
     """
@@ -207,7 +208,7 @@ def sigint_handler_server(signal, frame):
 
 
 
-def sigint_handler_indexer(signal, frame):
+def die_handler_indexer(signal, frame):
     """
     Handle Ctrl+C for indexer processe
     """
@@ -630,7 +631,9 @@ def run_indexer():
     """
     
     # set up this process
-    signal.signal( signal.SIGINT, sigint_handler_indexer )
+    signal.signal( signal.SIGINT, die_handler_indexer )
+    signal.signal( signal.SIGQUIT, die_handler_indexer )
+    signal.signal( signal.SIGTERM, die_handler_indexer )
 
     bitcoind_opts = get_bitcoin_opts()
     
@@ -651,6 +654,8 @@ def stop_server():
     """
     Stop the blockstored server.
     """
+    global indexer_pid 
+    
     # Quick hack to kill a background daemon
     pid_file = get_pidfile_path()
 
@@ -671,13 +676,23 @@ def stop_server():
         except Exception, e:
            return 
 
+    
+    if indexer_pid is not None:
+        try:
+           os.kill(indexer_pid, signal.SIGTERM)
+        except Exception, e:
+           return 
 
 def run_server( foreground=False):
     """ 
     Run the blockstored RPC server, optionally in the foreground.
     """
     
-    signal.signal( signal.SIGINT, sigint_handler_server )
+    global indexer_pid
+    
+    signal.signal( signal.SIGINT, die_handler_server )
+    signal.signal( signal.SIGQUIT, die_handler_server )
+    signal.signal( signal.SIGTERM, die_handler_server )
    
     bt_opts = get_bitcoin_opts()
     
@@ -706,10 +721,16 @@ def run_server( foreground=False):
     try:
         
        # fork the server
-       blockstored = subprocess.Popen( command, shell=True, preexec_fn=os.setsid)
+       blockstored = None
+       if foreground:
+          blockstored = subprocess.Popen( command, shell=True)
+          
+       else:
+          blockstored = subprocess.Popen( command, shell=True, preexec_fn=os.setsid)
        
        # fork the indexer 
        indexer = subprocess.Popen( indexer_command, shell=True )
+       indexer_pid = indexer.pid
        
        log.info('Blockstored successfully started')
        
@@ -717,6 +738,7 @@ def run_server( foreground=False):
        blockstored.wait()
        
        # stop our indexing thread 
+       indexer_pid = None
        os.kill( indexer.pid, signal.SIGINT )
        indexer.wait()
        
