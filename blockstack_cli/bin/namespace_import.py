@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+import random
 import json 
 import time
 import os 
@@ -28,7 +29,7 @@ log = config.log
 
 AVG_BLOCK_TIME = 600    # average number of seconds between blocks 
 CONFIRM_DELAY = 10      # number of blocks to wait to pass before confirming that the name was registered
-MAX_UNCONFIRMED = 150
+MAX_UNCONFIRMED = 300
 
 def pretty_dump(json_str):
     """ pretty dump
@@ -375,7 +376,8 @@ if __name__ == "__main__":
            continue
           
         count = 0
-        while count < 3:
+        MAX_COUNT = 5
+        while count < MAX_COUNT:
  
            log.debug( "name_import " + fqn + " " + btc_address + " " + update_hash )
   
@@ -388,7 +390,7 @@ if __name__ == "__main__":
                   failed_fd.write( "%s\n" % (fqn))
                   failed_fd.flush()
 
-               time.sleep(2.0 * (count+1))
+               time.sleep(2.0 * (count+1+random.random()))
                count += 1
                continue 
         
@@ -412,18 +414,21 @@ if __name__ == "__main__":
                    if fqn in unconfirmed_names[ fqn ]:
                        del unconfirmed_names[ fqn ]
             
+               elif 'has non-base-38 characters' in result['error']:
+                  break
+                  
                else:
-                  print "chain.com failed; retry count %s" % count
+                  print >> sys.stderr, "import failed; retry count %s" % count
                   if count == 0:
                      failed_fd.write( "%s\n" % (fqn))
                      failed_fd.flush()
                
-                  if count == 2: 
+                  if count == MAX_COUNT - 1: 
                      # try again later
                      names.append( name )
                      log.error("result: %s" % result)
                 
-               time.sleep(2.0 * (count+1))
+               time.sleep(2.0 * (count+1+random.random()))
                count += 1
                continue 
         
@@ -443,7 +448,7 @@ if __name__ == "__main__":
                num_sent_names += 1
                break 
         
-        time.sleep(delay)
+        time.sleep(delay/1.5 + delay * random.random())
         """
         if (num_sent_names % 20 == 0):
             
