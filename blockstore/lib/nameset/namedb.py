@@ -28,6 +28,7 @@ import hashlib
 import math
 import keychain
 import pybitcoin
+import os
 
 from collections import defaultdict
 from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAGIC_BYTES, TESTSET, MAX_NAMES_PER_SENDER, \
@@ -388,6 +389,27 @@ class BlockstoreDB( virtualchain.StateEngine ):
       Generate all possible NAME_IMPORT addresses from the NAMESPACE_REVEAL public key 
       """
       
+      pubkey_addr = pybitcoin.BitcoinPublicKey( str(pubkey_hex) ).address()
+      
+      # do we have a cached one on disk?
+      cached_keychain = os.path.join( virtualchain.get_working_dir(), "%s.keychain" % pubkey_addr)
+      if os.path.exists( cached_keychain ):
+          
+          child_addrs = []
+          try:
+              lines = []
+              with open(cached_keychain, "r") as f:
+                  lines = f.readlines()
+              
+              child_attrs = [l.strip() for l in lines]
+              
+              log.debug("Loaded cached import keychain for '%s' (%s)" % (pubkey_hex, pubkey_addr))
+              return child_attrs 
+          
+          except Exception, e:
+              log.exception(e)
+              pass 
+      
       pubkey_hex = str(pubkey_hex)
       public_keychain = keychain.PublicKeychain.from_public_key( pubkey_hex )
       child_addrs = []
@@ -400,10 +422,24 @@ class BlockstoreDB( virtualchain.StateEngine ):
           
           if i % 20 == 0 and i != 0:
               log.debug("%s children..." % i)
-          
+      
       # include this address 
-      pubkey_addr = pybitcoin.BitcoinPublicKey( pubkey_hex ).address()
       child_addrs.append( pubkey_addr )
+      
+      log.debug("Done building import keychain for '%s' (%s)" % (pubkey_hex, pubkey_addr))
+      
+      # cache 
+      try:
+          with open(cached_keychain, "w+") as f:
+              for addr in child_addrs:
+                  f.write("%s\n" % addr)
+                  
+              f.flush()
+              
+          log.debug("Cached keychain to '%s'" % cached_keychain)
+      except Exception, e:
+          log.exception(e)
+          log.error("Unable to cache keychain for '%s' (%s)" % (pubkey_hex, pubkey_addr))
       
       return child_addrs
 
