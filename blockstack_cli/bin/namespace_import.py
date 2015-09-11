@@ -12,6 +12,7 @@ import pybitcoin
 import binascii
 import logging 
 import requests
+import keychain 
 
 DEBUG = True
 
@@ -29,7 +30,7 @@ log = config.log
 
 AVG_BLOCK_TIME = 600    # average number of seconds between blocks 
 CONFIRM_DELAY = 10      # number of blocks to wait to pass before confirming that the name was registered
-MAX_UNCONFIRMED = 300
+MAX_UNCONFIRMED = 500
 
 def pretty_dump(json_str):
     """ pretty dump
@@ -177,9 +178,57 @@ if __name__ == "__main__":
     privkey_str = sys.argv[3]
     namespace_id = sys.argv[2]
     
-    privkey = pybitcoin.BitcoinPrivateKey( privkey_str )
-    importer_address = privkey.public_key().address()
-
+    print "--------------------------------------------------------------"
+    print "WARN: you will need to populate these keys with BTC beforehand"
+    print "--------------------------------------------------------------"
+    
+    keyring = []
+    keyring_path = "%s.keyring" % namespace_id 
+    
+    if os.path.exists(keyring_path):
+        print "import from '%s'" % keyring_path
+        try:
+            tmp = []
+            with open( keyring_path, "r" ) as f:
+                tmp = f.readlines()
+            
+            keyring = [k.strip() for k in tmp]
+            
+            for pk in keyring:
+                print "%s (%s)" % (pk, pybitcoin.BitcoinPrivateKey( pk ).public_key().address())
+                
+        except Exception, e:
+            log.exception(e)
+            pass
+        
+    if len(keyring) == 0:
+        pk = pybitcoin.BitcoinPrivateKey( privkey_str )
+        keyring_generator = keychain.PrivateKeychain.from_private_key( privkey_str )
+        
+        keyring = [ pk.to_hex() ]
+        print "%s (%s) master" % (pk.to_wif(), pk.public_key().address())
+        
+        for i in xrange(0, 90):
+            
+            pk_hex = keyring_generator.child(i).private_key()
+            pk_wif = pybitcoin.BitcoinPrivateKey( pk_hex ).to_wif()
+            
+            print "%s (%s)" % (pk_wif, pybitcoin.BitcoinPrivateKey( pk_hex ).public_key().address())
+            
+            keyring.append( pk_wif )
+            
+        try:
+            with open(keyring_path, "w+") as f:
+                for k in keyring:
+                    f.write("%s\n" % k)
+                
+                f.flush()
+        except Exception, e:
+            log.exception(e)
+            pass
+    
+    print "--------------------------------------------------------------"
+    
     try:
         names = json.loads( names_json )
     except Exception, e:
@@ -187,7 +236,7 @@ if __name__ == "__main__":
         print >> sys.stderr, "Invalid JSON file '%s'" % sys.argv[1]
         sys.exit(1)
 
-    # recorrd name status
+    # record name status
     logfile_path = namespace_id + ".sent"
     failed_path = namespace_id + ".failed"
     confirmed_path = namespace_id + ".confirmed"
@@ -283,6 +332,8 @@ if __name__ == "__main__":
     new_failed_fd.close()
     os.rename( failed_path + ".tmp", failed_path )
     
+    key_rr = 0
+    
     # do all imports
     for name in names:
         
@@ -313,17 +364,17 @@ if __name__ == "__main__":
         # every so often, see if we need to throttle ourselves
         if num_sent_names % 10 == 0:
             
-            num_unconfirmed_txs = 100000000
+            total_unconfirmed = 0
+            num_unconfirmed_txs = 10000000000
             
             while num_unconfirmed_txs > MAX_UNCONFIRMED:
-                num_unconfirmed_txs = get_num_unconfirmed_txs( chaincom_id, chaincom_secret, importer_address )
-                if num_unconfirmed_txs < 0:
+                
+                for pk_str in keyring:
                     
-                    # hitting the API server too hard?
-                    print >> sys.stderr, "WARN: failed to connect to chain.com"
-                    time.sleep(delay)
-                    num_unconfirmed_txs = 1000000000
-                    continue 
+                    addr = pybitcoin.BitcoinPrivateKey( pk_str ).public_key().address()
+                    total_unconfirmed += get_num_unconfirmed_txs( chaincom_id, chaincom_secret, addr )
+                    
+                num_unconfirmed_txs = total_unconfirmed
                 
                 print >> sys.stderr, "%s unconfirmed transactions" % num_unconfirmed_txs
                 
@@ -377,12 +428,33 @@ if __name__ == "__main__":
           
         count = 0
         MAX_COUNT = 5
+        already_exists = False
         while count < MAX_COUNT:
  
-           log.debug( "name_import " + fqn + " " + btc_address + " " + update_hash )
-  
+           pk_str = keyring[ key_rr % len(keyring) ]
+           pub_str = pybitcoin.BitcoinPrivateKey( pk_str ).public_key().address()
+           key_rr += 1
+           
+           existing_name = client.lookup( fqn )
+            
            try:
-               result = client.name_import( fqn, btc_address, update_hash, privkey_str )
+                if existing_name[0] is not None:
+                    log.debug("Name '%s' already imported: %s" % (fqn, existing_name))
+                
+                    confirmed_fd.write( "%s\n" % fqn )
+                    confirmed_fd.flush()
+                    confirmed_names.append( fqn )
+                    already_exists = True
+                    break
+                    
+           except Exception, e:
+                log.exception(e)
+                sys.exit(0)
+           
+           log.debug( "name_import " + fqn + " " + btc_address + " " + update_hash + " (key " + pub_str + ")" )
+           
+           try:
+               result = client.name_import( fqn, btc_address, update_hash, pk_str )
            except Exception, e:
                log.error( "register '%s' failed:\n%s\n" % (fqn, traceback.format_exc()) )
       
@@ -390,7 +462,6 @@ if __name__ == "__main__":
                   failed_fd.write( "%s\n" % (fqn))
                   failed_fd.flush()
 
-               time.sleep(2.0 * (count+1+random.random()))
                count += 1
                continue 
         
@@ -428,7 +499,6 @@ if __name__ == "__main__":
                      names.append( name )
                      log.error("result: %s" % result)
                 
-               time.sleep(2.0 * (count+1+random.random()))
                count += 1
                continue 
         
@@ -448,7 +518,8 @@ if __name__ == "__main__":
                num_sent_names += 1
                break 
         
-        time.sleep(delay/1.5 + delay * random.random())
+        if not already_exists:
+            time.sleep(delay)
         """
         if (num_sent_names % 20 == 0):
             
