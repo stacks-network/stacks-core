@@ -329,6 +329,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
              continue 
          
          pubkey_hex = None 
+         pubkey_addr = None
          
          # find a revealed name whose sender's address matches the namespace recipient's
          for name, name_record in self.name_records.items():
@@ -339,12 +340,17 @@ class BlockstoreDB( virtualchain.StateEngine ):
                  continue 
              
              pubkey_hex = name_record['sender_pubkey']
+             pubkey_addr = pybitcoin.BitcoinPublicKey( str(pubkey_hex) ).address()
+             
+             if pubkey_addr != namespace_reveal['recipient_address']:
+                 continue
+             
              break 
          
          if pubkey_hex is None:
              raise Exception("No sender public key found for namespace '%s'" % namespace_id)
          
-         log.debug("Deriving %s children of '%s' for '%s'" % (NAME_IMPORT_KEYRING_SIZE, pubkey_hex, namespace_id))
+         log.debug("Deriving %s children of %s ('%s') for '%s'" % (NAME_IMPORT_KEYRING_SIZE, pubkey_addr, pubkey_hex, namespace_id))
          
          # generate all possible addresses from this public key 
          self.import_addresses[ namespace_id ] = BlockstoreDB.build_import_keychain( pubkey_hex )
