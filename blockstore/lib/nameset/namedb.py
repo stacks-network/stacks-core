@@ -26,13 +26,16 @@ import traceback
 import binascii
 import hashlib 
 import math
+import keychain
+import pybitcoin
 
 from collections import defaultdict
 from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAGIC_BYTES, TESTSET, MAX_NAMES_PER_SENDER, \
     EXPIRATION_PERIOD, NAME_PREORDER, NAMESPACE_PREORDER, NAME_REGISTRATION, NAME_UPDATE, TRANSFER_KEEP_DATA, \
     TRANSFER_REMOVE_DATA, NAME_REVOKE, NAME_PREORDER_EXPIRE, \
     NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTORE_VERSION, \
-    NAMESPACE_1_CHAR_COST, NAMESPACE_23_CHAR_COST, NAMESPACE_4567_CHAR_COST, NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT
+    NAMESPACE_1_CHAR_COST, NAMESPACE_23_CHAR_COST, NAMESPACE_4567_CHAR_COST, NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
+    NAME_IMPORT_KEYRING_SIZE
 
 from ..operations import build_namespace_reveal
 from ..hashing import *
@@ -154,7 +157,7 @@ class BlockstoreDBIterator(object):
          
          serialized_name_record = self.serialize_name_record( name, self.db.get_name( name ) )
          
-         log.debug("   Serialized name record: '%s' (%s)" % (serialized_name_record, name) )
+         # log.debug("   Serialized name record: '%s' (%s)" % (serialized_name_record, name) )
          return serialized_name_record
       
       # out of names 
@@ -188,7 +191,7 @@ class BlockstoreDBIterator(object):
              
          serialized_namespace_record = self.serialize_namespace_record( namespace_id, namespace )
          
-         log.debug("   Serialized namespace record: '%s' (%s)" % (serialized_namespace_record, namespace_id) )
+         # log.debug("   Serialized namespace record: '%s' (%s)" % (serialized_namespace_record, namespace_id) )
          return serialized_namespace_record
       
       # out of namespaces 
@@ -265,6 +268,9 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       self.name_consensus_hash_name = {}      # temporary table for mapping the hash(name + consensus_hash) in an update to its name
       
+      self.import_addresses = {}              # temporary table for mapping a NAMESPACE_REVEAL's root public key address to the set of all derived public key addresses.
+                                              # each NAME_IMPORT must come from one of these derived public key addresses.
+                                              
       # default namespace (empty string)
       self.namespaces[""] = NAMESPACE_DEFAULT
       self.namespaces[None] = NAMESPACE_DEFAULT
@@ -299,7 +305,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
             log.exception(e)
             pass
 
-      # build up our reverse indexes
+      # build up our reverse indexes on names
       for name, name_record in self.name_records.items():
          
          if not self.block_name_renewals.has_key( name_record['last_renewed'] ):
@@ -314,9 +320,35 @@ class BlockstoreDB( virtualchain.StateEngine ):
              
          self.hash_names[ hash256_trunc128( name ) ] = name
 
+      # build up our reverse indexes on reveals 
       for (namespace_id, namespace_reveal) in self.namespace_reveals.items():
          self.namespace_hash_to_id[ namespace_reveal['namespace_id_hash'] ] = namespace_id
          
+         if namespace_id in (None, ""):
+             continue 
+         
+         pubkey_hex = None 
+         
+         # find a revealed name whose sender's address matches the namespace recipient's
+         for name, name_record in self.name_records.items():
+             if not name.endswith( namespace_id ):
+                 continue 
+             
+             if not name_record.has_key('sender_pubkey'):
+                 continue 
+             
+             pubkey_hex = name_record['sender_pubkey']
+             break 
+         
+         if pubkey_hex is None:
+             raise Exception("No sender public key found for namespace '%s'" % namespace_id)
+         
+         log.debug("Deriving %s children of '%s' for '%s'" % (NAME_IMPORT_KEYRING_SIZE, pubkey_hex, namespace_id))
+         
+         # generate all possible addresses from this public key 
+         self.import_addresses[ namespace_id ] = BlockstoreDB.build_import_keychain( pubkey_hex )
+         
+             
 
       # load up consensus hash for this block 
       self.snapshot( self.lastblock )
@@ -349,6 +381,32 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       return True
    
+   
+   @classmethod 
+   def build_import_keychain( cls, pubkey_hex ):
+      """
+      Generate all possible NAME_IMPORT addresses from the NAMESPACE_REVEAL public key 
+      """
+      
+      pubkey_hex = str(pubkey_hex)
+      public_keychain = keychain.PublicKeychain.from_public_key( pubkey_hex )
+      child_addrs = []
+      
+      for i in xrange(0, NAME_IMPORT_KEYRING_SIZE):
+          public_child = public_keychain.child(i)
+          public_child_address = public_child.address()
+          
+          child_addrs.append( public_child_address )
+          
+          if i % 20 == 0 and i != 0:
+              log.debug("%s children..." % i)
+          
+      # include this address 
+      pubkey_addr = pybitcoin.BitcoinPublicKey( pubkey_hex ).address()
+      child_addrs.append( pubkey_addr )
+      
+      return child_addrs
+
    
    def get_name( self, name ):
       """
@@ -689,6 +747,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
               log.debug("Expire incomplete namespace '%s'" % namespace_id)
               del self.namespace_reveals[ namespace_id ]
               del self.namespace_hash_to_id[ namespace_id ]
+              del self.import_addresses[ namespace_id ]
                      
               for (name, nameop) in self.name_records:
                  
@@ -697,7 +756,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
                      log.debug("Expire imported name '%s'" % name)
                      self.commit_name_expire( name )
                 
-                
+              
    
    def commit_name_expire_all( self, block_id ):
       """
@@ -748,6 +807,9 @@ class BlockstoreDB( virtualchain.StateEngine ):
       else:
           log.warning("BUG: no such namespace hash '%s' (for '%s')" % (namespace_id_hash, namespace_id))
           
+      if self.import_addresses.has_key( namespace_id ):
+          del self.import_addresses[ namespace_id ]
+          
       return
       
       
@@ -797,7 +859,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
             'first_registered': current_block_number,
             'last_renewed': current_block_number,
             'address': recipient_address,
-            'revoked': False
+            'revoked': False,
+            'sender_pubkey': nameop['sender_pubkey']
           }
     
           self.name_records[ name ] = name_record 
@@ -894,7 +957,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
         'first_registered': current_block_number,
         'last_renewed': current_block_number,
         'address': recipient_address,
-        'revoked': False
+        'revoked': False,
+        'sender_pubkey': nameop['sender_pubkey']
       }
       
       # if this name already existed, then blow it away 
@@ -946,10 +1010,11 @@ class BlockstoreDB( virtualchain.StateEngine ):
    
       if namespace_id_hash in self.namespace_preorders:
           del self.namespace_preorders[namespace_id_hash]
+          
       else:
           log.debug("BUG: no namespace preorder for '%s' (hash '%s')" % (namespace_id, namespace_id_hash))
-          
-
+      
+        
    def commit_namespace_ready( self, nameop, block_number ):
       """
       Mark a namespace as ready for external name registrations.
@@ -1391,6 +1456,11 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       name = nameop['name']
       sender = nameop['sender']
+      sender_pubkey = None 
+      
+      if not nameop.has_key('sender_pubkey'):
+         log.debug("Name import requires a sender_pubkey")
+         return False 
       
       # name must be well-formed
       if not is_b40( name ) or "+" in name or name.count(".") > 1:
@@ -1406,10 +1476,35 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       namespace = self.get_namespace_reveal( namespace_id )
       
+      # sender must be a public key derived from the revealer's public key
+      sender_pubkey_hex = nameop['sender_pubkey']
+      sender_pubkey = pybitcoin.BitcoinPublicKey( str(sender_pubkey_hex) )
+      sender_address = sender_pubkey.address()
+      
+      import_addresses = self.import_addresses.get(namespace_id, None)
+      
+      if import_addresses is None:
+          
+          # the first name imported must be the revealer's address
+          if sender_address != namespace['recipient_address']:
+              log.debug("First NAME_IMPORT must come from the namespace revealer's address")
+              return False
+          
+          # need to generate a keyring from the revealer's public key
+          log.debug("Generating %s-key keychain for '%s'" % (NAME_IMPORT_KEYRING_SIZE, namespace_id))
+          import_addresses = BlockstoreDB.build_import_keychain( sender_pubkey_hex )
+          self.import_addresses[namespace_id] = import_addresses
+      
+      if sender_address not in import_addresses:
+          log.debug("Sender address '%s' is not in the import keychain (%s)" % (sender_address, import_addresses))
+          return False 
+      
+      """
       # sender must be the same as the the person who revealed the namespace
       if sender != namespace['recipient']:
           log.debug("Name '%s' is not sent by the namespace revealer")
           return False 
+      """
       
       # we can overwrite, but emit a warning 
       if self.is_name_registered( name ):
@@ -1469,7 +1564,14 @@ class BlockstoreDB( virtualchain.StateEngine ):
       namespace_id = nameop['namespace_id']
       namespace_id_hash = nameop['namespace_id_hash']
       sender = nameop['sender']
+      sender_pubkey = None 
       namespace_preorder = None
+      
+      if not nameop.has_key('sender_pubkey'):
+         log.debug("Namespace reveal requires a sender_pubkey")
+         return False 
+      
+      sender_pubkey = nameop['sender_pubkey']
       
       if not nameop.has_key('recipient'):
          log.debug("No recipient p2kh for namespace '%s'" % namespace_id)
