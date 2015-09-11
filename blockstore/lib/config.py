@@ -85,7 +85,7 @@ DEFAULT_BITCOIND_PASSWD = 'opennamesystem'
 
 """ block indexing configs
 """
-REINDEX_FREQUENCY = 60 # seconds
+REINDEX_FREQUENCY = 600 # seconds
 
 FIRST_BLOCK_MAINNET = 373599 # 343883
 FIRST_BLOCK_MAINNET_TESTSET = FIRST_BLOCK_MAINNET
@@ -231,6 +231,10 @@ NAMESPACE_8UP_CHAR_COST = 0.0867 * 0.001 * SATOSHIS_PER_BTC
 NAMESPACE_PREORDER_EXPIRE = BLOCKS_PER_DAY      # namespace preorders expire after 1 day, if not revealed
 NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_YEAR       # namespace reveals expire after 1 year, if not readied.
 
+NAME_IMPORT_KEYRING_SIZE = 300                  # number of keys to derive from the import key
+
+NUM_CONFIRMATIONS = 0                         # number of blocks to wait for before accepting names
+
 # burn address for fees (the address of public key 0x0000000000000000000000000000000000000000)
 BLOCKSTORE_BURN_ADDRESS = "1111111111111111111114oLvT2"
 
@@ -250,6 +254,7 @@ NAMESPACE_DEFAULT = {
    'recipient': "",
    'address': "",
    'recipient_address': "",
+   'sender_pubkey': None
 }
 
 

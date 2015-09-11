@@ -172,9 +172,12 @@ def get_index_range():
     """
     Get the bitcoin block index range.
     Mask connection failures with timeouts.
-    Always try to reconnect
+    Always try to reconnect.
+    
+    The last block will be the last block to search for names.
+    This will be NUM_CONFIRMATIONS behind the actual last-block the 
+    cryptocurrency node knows about.
     """
-     
     
     bitcoind_session = get_bitcoind( new=True )
     
@@ -193,7 +196,7 @@ def get_index_range():
             continue 
         
         else:
-            return first_block, last_block 
+            return first_block, last_block - NUM_CONFIRMATIONS
         
 
 def die_handler_server(signal, frame):
@@ -682,6 +685,7 @@ def stop_server():
            os.kill(indexer_pid, signal.SIGTERM)
         except Exception, e:
            return 
+       
 
 def run_server( foreground=False):
     """ 
@@ -702,14 +706,20 @@ def run_server( foreground=False):
     
     start_block, current_block = get_index_range()
     
-    indexer_command = "%s indexer" % sys.argv[0]
+    argv0 = os.path.normpath( sys.argv[0] )
+    
+    if os.path.exists("./%s" % argv0 ):
+        indexer_command = ("./%s indexer" % argv0).split()
+    else:
+        # hope its in the $PATH
+        indexer_command = ("%s indexer" % argv0).split()
     
     if foreground:
-        command = 'twistd --pidfile=%s -noy %s' % (pid_file, tac_file)
+        command = ('twistd --pidfile=%s -noy %s' % (pid_file, tac_file)).split()
     else:
-        command = 'twistd --pidfile=%s --logfile=%s -y %s' % (pid_file,
-                                                              log_file,
-                                                              tac_file)
+        command = ('twistd --pidfile=%s --logfile=%s -y %s' % (pid_file,
+                                                               log_file,
+                                                               tac_file)).split()
 
     if start_block != current_block:
        # bring us up to speed 
@@ -723,13 +733,16 @@ def run_server( foreground=False):
        # fork the server
        blockstored = None
        if foreground:
-          blockstored = subprocess.Popen( command, shell=True)
+          blockstored = subprocess.Popen( command, shell=False)
           
        else:
-          blockstored = subprocess.Popen( command, shell=True, preexec_fn=os.setsid)
+          blockstored = subprocess.Popen( command, shell=False, preexec_fn=os.setsid)
+          
+          # TODO redirect stdout/stderr to logfile 
+          
        
        # fork the indexer 
-       indexer = subprocess.Popen( indexer_command, shell=True )
+       indexer = subprocess.Popen( indexer_command, shell=False )
        indexer_pid = indexer.pid
        
        log.info('Blockstored successfully started')
@@ -737,7 +750,7 @@ def run_server( foreground=False):
        # wait for it to die 
        blockstored.wait()
        
-       # stop our indexing thread 
+       # stop our indexing subprocess 
        indexer_pid = None
        os.kill( indexer.pid, signal.SIGINT )
        indexer.wait()
@@ -852,9 +865,10 @@ def run_blockstored():
    
    if args.action == 'start':
       
-      # make sure the server isn't already running 
-      stop_server()
-      
+      if os.path.exists( get_pidfile_path() ):
+          log.error("Blockstored appears to be running already.  If not, please remove '%s'" % get_pidfile_path())
+          sys.exit(1)
+          
       if args.foreground:
          
          log.info('Initializing blockstored server in foreground ...')
