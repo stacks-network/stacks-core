@@ -18,7 +18,7 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstore-client.  If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstore-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
 import argparse
@@ -188,16 +188,16 @@ def load_storage( module_name ):
     Load a storage implementation, given its module name.
     Valid options can be found in blockstore.drivers.DRIVERS
     """
-    
+
     if module_name not in drivers.DRIVERS:
         raise Exception("Unrecognized storage driver.  Valid options are %s" % (", ".join(drivers.DRIVERS)))
-                        
+
     try:
         storage_impl = importlib.import_module("blockstore.drivers.%s" % module_name)
     except ImportError, ie:
         raise Exception("Failed to import blockstore.drivers.%s.  Please verify that it is accessible via your PYTHONPATH" % module_name)
-    
-    return storage_impl 
+
+    return storage_impl
 
 
 def register_storage(storage_impl):
@@ -207,7 +207,7 @@ def register_storage(storage_impl):
     rc = storage.register_storage(storage_impl)
     if rc:
         rc = storage_impl.storage_init()
-        
+
     return rc
 
 
@@ -252,9 +252,9 @@ def get_user_record(name, create_if_absent=False):
 
     name_record = name_record[0]
     if name_record is None:
-        # failed to look up 
+        # failed to look up
         return {'error': "No such name"}
-    
+
     if 'error' in name_record:
 
         # failed to look up
@@ -390,7 +390,7 @@ def name_cost( name, proxy=None ):
     """
     if proxy is None:
         proxy = get_default_proxy()
-    
+
     return proxy.name_cost(name)
 
 
@@ -400,17 +400,17 @@ def name_import_cost( name, proxy=None ):
     """
     if proxy is None:
         proxy = get_default_proxy()
-    
+
     return proxy.name_import_cost(name)
 
 
 def namespace_cost( namespace_id, proxy=None ):
     """
-    namespace_cost 
+    namespace_cost
     """
     if proxy is None:
         proxy = get_default_proxy()
-    
+
     return proxy.namespace_cost(namespace_id)
 
 
@@ -426,19 +426,19 @@ def lookup(name, proxy=None):
 
 
 def lookup_namespace( namespace_id, proxy=None ):
-    """ 
-    lookup namespace 
     """
-    
+    lookup namespace
+    """
+
     if proxy is None:
         proxy = get_default_proxy()
-    
+
     ret = proxy.lookup_namespace(namespace_id)
     if ret is not None:
         # this isn't needed
         if 'opcode' in ret[0]:
             del ret[0]['opcode']
-    
+
     return ret
 
 
@@ -449,23 +449,23 @@ def preorder(name, privatekey, register_addr=None, proxy=None):
     if one is not given already.
     """
 
-    register_privkey_wif = None 
-    
+    register_privkey_wif = None
+
     if register_addr is None:
         privkey = pybitcoin.BitcoinPrivateKey()
         pubkey = privkey.public_key()
-        
+
         register_addr = pubkey.address()
-        
+
         register_privkey_wif = privkey.to_wif()
         print register_privkey_wif
         print register_addr
-    
-    # make sure the reveal address is *not* the address of this private key 
+
+    # make sure the reveal address is *not* the address of this private key
     privkey = pybitcoin.BitcoinPrivateKey( privatekey )
     if register_addr == privkey.public_key().address():
         return {"error": "Register address derived from private key"}
-    
+
     resp = {}
 
     if proxy is None:
@@ -478,11 +478,11 @@ def preorder(name, privatekey, register_addr=None, proxy=None):
 
     if 'error' in resp:
         return resp
-    
-    # give the client back the key to the addr we used 
+
+    # give the client back the key to the addr we used
     if register_privkey_wif is not None:
         resp[0]['register_privatekey'] = register_privkey_wif
-    
+
     return resp
 
 
@@ -525,22 +525,22 @@ def update(name, user_json_or_hash, privatekey, txid=None, proxy=None):
 
         user_record_hash = pybitcoin.hash.hex_hash160(user_db.serialize_user(user_data))
 
-    # go get the current user record 
+    # go get the current user record
     current_user_record = get_user_record( name, create_if_absent=True )
     if current_user_record is None:
         return {'error': 'No such user'}
-    
+
     if current_user_record.has_key('error'):
-        # some other error 
+        # some other error
         return current_user_record
 
     result = {}
-    
+
     old_hash = pybitcoin.hash.hex_hash160(user_db.serialize_user(user_data))
 
     # no transaction: go put one
     if txid is None:
-        
+
         result = proxy.update(name, user_record_hash, privatekey)
         result = result[0]
 
@@ -565,15 +565,15 @@ def update(name, user_json_or_hash, privatekey, txid=None, proxy=None):
     new_data_hash = None
     if user_data is not None:
         rc, new_data_hash = store_user_record(user_data, txid)
-    
+
     else:
         # was already a hash
         new_data_hash = user_json_or_hash
-    
+
     if not rc:
         result['error'] = "Failed to store updated user record."
-        return result 
-    
+        return result
+
     result['status'] = True
     result['value_hash'] = new_data_hash
     result['transaction_hash'] = txid
@@ -628,36 +628,36 @@ def name_import(name, address, update_hash, privatekey, proxy=None):
 def namespace_preorder(namespace_id, privatekey, reveal_addr=None, proxy=None):
     """
     namespace preorder
-    Generate a register change address private key, if not given 
+    Generate a register change address private key, if not given
     """
 
     if proxy is None:
         proxy = get_default_proxy()
-    
+
     reveal_privkey_wif = None
-    
+
     if reveal_addr is None:
         privkey = pybitcoin.BitcoinPrivateKey()
         pubkey = privkey.public_key()
         reveal_addr = pubkey.address()
-        
+
         reveal_privkey_wif = privkey.to_wif()
         print reveal_privkey_wif
         print reveal_addr
-        
-    # make sure the reveal address is *not* the address of this private key 
+
+    # make sure the reveal address is *not* the address of this private key
     privkey = pybitcoin.BitcoinPrivateKey( privatekey )
     if reveal_addr == privkey.public_key().address():
         return {"error": "Reveal address derived from private key"}
-    
+
     result = proxy.namespace_preorder(namespace_id, reveal_addr, privatekey )
-    
+
     if 'error' in result:
-        return result 
-    
+        return result
+
     if reveal_privkey_wif is not None:
         result[0]['reveal_privatekey'] = reveal_privkey_wif
-    
+
     return result
 
 
@@ -694,35 +694,35 @@ def load_mutable_data_version( conf, name, data_id, try_remote=True ):
     fetch the data itself from mutable storage
     """
 
-    # try to get the current, locally-cached version 
+    # try to get the current, locally-cached version
     if conf is None:
         conf = config.get_config()
-        
+
     metadata_dir = None
     if conf is not None:
-        
+
         metadata_dir = conf.get('metadata', None)
         if metadata_dir is not None and os.path.isdir( metadata_dir ):
-            
-            # find the version file for this data 
+
+            # find the version file for this data
             serialized_data_id = data_id.replace("/", "\x2f").replace('\0', "\\0")
             version_file_path = os.path.join( metadata_dir, serialized_data_id + ".ver")
-            
+
             if os.path.exists( version_file_path ):
-                
+
                 ver = None
                 try:
                     with open( version_file_path, "r" ) as f:
                         ver_txt = f.read()
                         ver = int( ver_txt.strip() )
-                
+
                     # success!
-                    return ver 
-                
+                    return ver
+
                 except ValueError, ve:
-                    # not an int 
+                    # not an int
                     log.warn("Not an integer: '%s'" % version_file_path )
-                    
+
                 except Exception, e:
                     # can't read
                     log.warn("Failed to read '%s': %s" % (version_file_path))
@@ -730,97 +730,97 @@ def load_mutable_data_version( conf, name, data_id, try_remote=True ):
     if not try_remote:
         if conf is None:
             log.warning("No config found; cannot load version for '%s'" % data_id)
-            
+
         elif metadata_dir is None:
             log.warning("No metadata directory found; cannot load version for '%s'" % data_id)
-            
-        return None 
-    
-    # if we got here, then we need to fetch remotely 
+
+        return None
+
+    # if we got here, then we need to fetch remotely
     existing_data = get_mutable(name, data_id)
     if existing_data is None:
-        
-        # nope 
+
+        # nope
         return None
 
     if existing_data.has_key('error'):
-        
-        # nope 
+
+        # nope
         return None
-    
+
     ver = existing_data['ver']
     return ver
 
 
 def store_mutable_data_version( conf, data_id, ver ):
     """
-    Locally store the version of a piece of mutable data, 
-    so we can ensure that its version is incremented on 
+    Locally store the version of a piece of mutable data,
+    so we can ensure that its version is incremented on
     subsequent puts.
-    
-    Return True if stored 
+
+    Return True if stored
     Return False if not
     """
-    
+
     if conf is None:
         conf = config.get_config()
-    
+
     if conf is None:
         log.warning("No config found; cannot store version for '%s'" % data_id)
         return False
-    
+
     metadata_dir = conf['metadata']
     if not os.path.isdir( metadata_dir ):
         log.warning("No metadata directory found; cannot store version of '%s'" % data_id)
-        return False 
-    
+        return False
+
     serialized_data_id = data_id.replace("/", "\x2f").replace('\0', "\\0")
     version_file_path = os.path.join( metadata_dir, serialized_data_id + ".ver")
-    
+
     try:
         with open( version_file_path, "w+" ) as f:
             f.write("%s" % ver )
-        
-        return True 
-    
+
+        return True
+
     except Exception, e:
-        # failed for whatever reason 
+        # failed for whatever reason
         log.warn("Failed to store version of '%s' to '%s'" % (data_id, version_file_path))
-        return False 
-    
+        return False
+
 
 def delete_mutable_data_version( conf, data_id ):
     """
     Locally delete the version of a piece of mutable data.
-    
-    Return True if deleted. 
+
+    Return True if deleted.
     Return False if not
     """
-    
+
     if conf is None:
         conf = config.get_config()
-    
+
     if conf is None:
         log.warning("No config found; cannot store version for '%s'" % data_id)
         return False
-    
+
     metadata_dir = conf['metadata']
     if not os.path.isdir( metadata_dir ):
         log.warning("No metadata directory found; cannot store version of '%s'" % data_id)
-        return False 
-    
+        return False
+
     serialized_data_id = data_id.replace("/", "\x2f").replace('\0', "\\0")
     version_file_path = os.path.join( metadata_dir, serialized_data_id + ".ver")
-    
+
     try:
         os.unlink( version_file_path )
-        return True 
-    
+        return True
+
     except Exception, e:
-        # failed for whatever reason 
+        # failed for whatever reason
         log.warn("Failed to remove version file '%s'" % (version_file_path))
-        return False 
-    
+        return False
+
 
 def get_immutable(name, data_key):
     """
@@ -845,7 +845,7 @@ def get_immutable(name, data_key):
         return {'error': 'No immutable data found'}
 
     return {'data': data}
-    
+
 
 def get_mutable(name, data_id, ver_min=None, ver_max=None, ver_check=None, conf=None):
     """
@@ -854,7 +854,7 @@ def get_mutable(name, data_id, ver_min=None, ver_max=None, ver_check=None, conf=
 
     if conf is None:
         conf = config.get_config()
-        
+
     user = get_user_record(name)
     if 'error' in user:
 
@@ -887,11 +887,11 @@ def get_mutable(name, data_id, ver_min=None, ver_max=None, ver_check=None, conf=
         # we don't have a local version, and the caller didn't check it.
         log.warning("Unconfirmed version for data '%s'" % data_id)
         data['warning'] = "Unconfirmed version"
-        
-    # remember latest version 
+
+    # remember latest version
     if data['ver'] > expected_version:
-        store_mutable_data_version( conf, data_id, data['ver'] ) 
-    
+        store_mutable_data_version( conf, data_id, data['ver'] )
+
     # include the route
     data['route'] = data_route
     return data
@@ -901,8 +901,8 @@ def put_immutable(name, data, privatekey, txid=None, proxy=None):
     """
     put_immutable
 
-    Optionally include a txid from the user record update, in order to retry a failed 
-    data replication (in which case, this txid corresponds to the succeeded name 
+    Optionally include a txid from the user record update, in order to retry a failed
+    data replication (in which case, this txid corresponds to the succeeded name
     update operation).  This is to avoid needing to pay for each replication retry.
     """
 
@@ -925,9 +925,9 @@ def put_immutable(name, data, privatekey, txid=None, proxy=None):
     user_json = user_db.serialize_user(user)
     if user_json is None:
         raise Exception("BUG: failed to serialize user record")
-    
-    value_hash = None 
-    
+
+    value_hash = None
+
     if txid is None:
 
         # haven't updated the user record yet.  Do so now.
@@ -950,7 +950,7 @@ def put_immutable(name, data, privatekey, txid=None, proxy=None):
     # propagate update() data
     if value_hash is not None:
         result['value_hash'] = value_hash
-    
+
     # replicate the data
     rc = storage.put_immutable_data(data, txid)
     if not rc:
@@ -974,8 +974,8 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
     If ver is not given, but make_ver is, then make_ver will be used to generate the version.
     If neither ver nor make_ver are given, the mutable data (if it already exists) is fetched, and the version is calculated as the larget known version + 1.
 
-    ** Durability ** 
-    
+    ** Durability **
+
     Replication is best-effort.  If one storage provider driver succeeds, the put_mutable succeeds.  If they all fail, then put_mutable fails.
     More complex behavior can be had by creating a "meta-driver" that calls existing drivers' methods in the desired manner.
     """
@@ -994,24 +994,24 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
     old_hash = None
     cur_hash = None
     new_ver = ver
-    
+
     if ver is None:
 
         if exists:
             # mutable record already exists.
             # generate one automatically.
             # use the existing locally-stored version,
-            # and fall back to using the last-known version 
+            # and fall back to using the last-known version
             # from the existing mutable data record.
             new_ver = load_mutable_data_version( config.get_config(), name, data_id, try_remote=True )
             if new_ver is None:
-                # data exists, but we couldn't figure out the version 
+                # data exists, but we couldn't figure out the version
                 return {'error': "Unable to determine version"}
-            
+
         if make_ver is not None:
-            # generate version 
+            # generate version
             new_ver = make_ver( data_id, data_text, new_ver )
-        
+
         else:
             # no version known, and no way to generate it.
             # by default, start at 1.  we'll manage it ourselves.
@@ -1019,7 +1019,7 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
                 new_ver = 1
             else:
                 new_ver += 1
-            
+
 
     # do we have a route for this data yet?
     if not exists:
@@ -1041,7 +1041,7 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
         user_db.add_mutable_data_route(user, route)
 
         user_json = user_db.serialize_user(user)
-        
+
         # update the user record with the new route
         update_result = update(name, user_json, privatekey, txid=txid, proxy=proxy)
         if 'error' in update_result:
@@ -1076,14 +1076,14 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
         result['status'] = True
 
     result['transaction_hash'] = txid
-    
+
     if cur_hash:
-        # propagate 
+        # propagate
         result['value_hash'] = cur_hash
-    
-    # cache new version 
+
+    # cache new version
     store_mutable_data_version( conf, data_id, new_ver )
-    
+
     return result
 
 
@@ -1134,7 +1134,7 @@ def delete_immutable(name, data_key, privatekey, proxy=None, txid=None):
 
     result['transaction_hash'] = txid
     result['value_hash'] = update_result['value_hash']
-    
+
     return result
 
 
@@ -1173,7 +1173,7 @@ def delete_mutable(name, data_id, privatekey, proxy=default_proxy, txid=None,
     # update the user record
     update_status = update(name, user_json, privatekey, txid=txid,
                            proxy=proxy)
-    
+
     if 'error' in update_status:
 
         # failed; caller should try again
@@ -1195,10 +1195,10 @@ def delete_mutable(name, data_id, privatekey, proxy=default_proxy, txid=None,
 
     else:
         result['status'] = True
-        result['transaction_hash'] = txid 
+        result['transaction_hash'] = txid
         result['value_hash'] = update_status['value_hash']
-    
-    # uncache local version 
+
+    # uncache local version
     delete_mutable_data_version( config.get_config(), data_id )
-    
+
     return result
