@@ -49,10 +49,13 @@ import virtualchain
 log = virtualchain.session.log 
 
 # global variables, for use with the RPC server and the twisted callback
+blockstore_opts = None
 bitcoind = None
 bitcoin_opts = None
-chaincom_opts = None
+utxo_opts = None
 blockchain_client = None 
+blockchain_broadcaster = None
+indexer_pid = None
 
 def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
    """
@@ -98,12 +101,20 @@ def get_bitcoin_opts():
    return bitcoin_opts 
 
 
-def get_chaincom_opts():
+def get_utxo_opts():
    """
-   Get chain.com options.
+   Get UTXO provider options.
    """
-   global chaincom_opts
-   return chaincom_opts
+   global utxo_opts
+   return utxo_opts
+
+
+def get_blockstore_opts():
+   """
+   Get blockstore configuration options.
+   """
+   global blockstore_opts 
+   return blockstore_opts 
 
 
 def set_bitcoin_opts( new_bitcoin_opts ):
@@ -114,12 +125,12 @@ def set_bitcoin_opts( new_bitcoin_opts ):
    bitcoin_opts = new_bitcoin_opts
    
    
-def set_chaincom_opts( new_chaincom_opts ):
+def set_utxo_opts( new_utxo_opts ):
    """
    Set new global chian.com options 
    """
-   global chaincom_opts 
-   chaincom_opts = new_chaincom_opts
+   global utxo_opts 
+   utxo_opts = new_utxo_opts
    
    
 def get_pidfile_path():
@@ -161,9 +172,12 @@ def get_index_range():
     """
     Get the bitcoin block index range.
     Mask connection failures with timeouts.
-    Always try to reconnect
+    Always try to reconnect.
+    
+    The last block will be the last block to search for names.
+    This will be NUM_CONFIRMATIONS behind the actual last-block the 
+    cryptocurrency node knows about.
     """
-     
     
     bitcoind_session = get_bitcoind( new=True )
     
@@ -182,10 +196,10 @@ def get_index_range():
             continue 
         
         else:
-            return first_block, last_block 
+            return first_block, last_block - NUM_CONFIRMATIONS
         
 
-def sigint_handler_server(signal, frame):
+def die_handler_server(signal, frame):
     """
     Handle Ctrl+C for server subprocess
     """
@@ -197,7 +211,7 @@ def sigint_handler_server(signal, frame):
 
 
 
-def sigint_handler_indexer(signal, frame):
+def die_handler_indexer(signal, frame):
     """
     Handle Ctrl+C for indexer processe
     """
@@ -214,39 +228,54 @@ def json_traceback():
  
 def get_utxo_provider_client():
    """
-   Get or instantiate our blockchain UTXO provider's client (i.e. chain.com; falling back to bitcoind otherwise).
+   Get or instantiate our blockchain UTXO provider's client.
    Return None if we were unable to connect
    """
    
+   """
+   global blockstore_opts
    global blockchain_client 
-   global chaincom_opts
    global blockchain_opts
+   global utxo_opts
+   """
    
    # acquire configuration (which we should already have)
-   blockchain_opts, chaincom_opts = configure( interactive=False )
-   
-   chaincom_id = chaincom_opts['api_key_id']
-   chaincom_secret = chaincom_opts['api_key_secret']
+   blockstore_opts, blockchain_opts, utxo_opts, dht_opts = configure( interactive=False )
    
    try:
-      blockchain_client = pybitcoin.ChainComClient( chaincom_id, chaincom_secret )
-      return blockchain_client
-      
-   except Exception, e:
-      log.exception(e)
-      
-      # try bitcoind...
-      try:
-         blockchain_client = BitcoindClient( blockchain_opts['bitcoind_user'], blockchain_opts['bitcoind_passwd'],
-                                             server=blockchain_opts['bitcoind_server'], port=str(blockchain_opts['bitcoind_port']), use_https=blockchain_opts.get('bitcoind_use_https', False) )
-         
-         return blockchain_client
-         
-      except Exception, e:
-         log.exception(e)
-         return None 
-      
-      return None
+       blockchain_client = connect_utxo_provider( utxo_opts )
+       return blockchain_client
+   except:
+       log.exception(e)
+       return None 
+
+
+def get_tx_broadcaster():
+   """
+   Get or instantiate our blockchain UTXO provider's transaction broadcaster.
+   fall back to the utxo provider client, if one is not designated
+   """
+   """
+   global blockstore_opts
+   global blockchain_broadcaster
+   global blockchain_opts
+   global utxo_opts
+   """
+   # acquire configuration (which we should already have)
+   blockstore_opts, blockchain_opts, utxo_opts, dht_opts = configure( interactive=False )
+   
+   # is there a particular blockchain client we want for importing?
+   if 'tx_broadcaster' not in blockstore_opts:
+       return get_utxo_provider_client() 
+   
+   broadcaster_opts = default_utxo_provider_opts( blockstore_opts['tx_broadcaster'] ) 
+       
+   try:
+       blockchain_broadcaster = connect_utxo_provider( broadcaster_opts )
+       return blockchain_broadcaster
+   except:
+       log.exception(e)
+       return None 
 
 
 
@@ -473,10 +502,17 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         """
         
         blockchain_client_inst = get_utxo_provider_client()
+        if blockchain_client_inst is None:
+           return {"error": "Failed to connect to blockchain UTXO provider"}
+        
+        broadcaster_client_inst = get_tx_broadcaster()
+        if broadcaster_client_inst is None:
+           return {"error": "Failed to connect to blockchain transaction broadcaster"}
+       
         db = get_state_engine()
         
         try:
-            resp = name_import( str(name), str(recipient_address), str(update_hash), str(privatekey), blockchain_client_inst, testset=TESTSET )
+            resp = name_import( str(name), str(recipient_address), str(update_hash), str(privatekey), blockchain_client_inst, blockchain_broadcaster=broadcaster_client_inst, testset=TESTSET )
         except:
             return json_traceback()
         
@@ -598,7 +634,9 @@ def run_indexer():
     """
     
     # set up this process
-    signal.signal( signal.SIGINT, sigint_handler_indexer )
+    signal.signal( signal.SIGINT, die_handler_indexer )
+    signal.signal( signal.SIGQUIT, die_handler_indexer )
+    signal.signal( signal.SIGTERM, die_handler_indexer )
 
     bitcoind_opts = get_bitcoin_opts()
     
@@ -619,6 +657,8 @@ def stop_server():
     """
     Stop the blockstored server.
     """
+    global indexer_pid 
+    
     # Quick hack to kill a background daemon
     pid_file = get_pidfile_path()
 
@@ -639,13 +679,24 @@ def stop_server():
         except Exception, e:
            return 
 
+    
+    if indexer_pid is not None:
+        try:
+           os.kill(indexer_pid, signal.SIGTERM)
+        except Exception, e:
+           return 
+       
 
 def run_server( foreground=False):
     """ 
     Run the blockstored RPC server, optionally in the foreground.
     """
     
-    signal.signal( signal.SIGINT, sigint_handler_server )
+    global indexer_pid
+    
+    signal.signal( signal.SIGINT, die_handler_server )
+    signal.signal( signal.SIGQUIT, die_handler_server )
+    signal.signal( signal.SIGTERM, die_handler_server )
    
     bt_opts = get_bitcoin_opts()
     
@@ -655,14 +706,20 @@ def run_server( foreground=False):
     
     start_block, current_block = get_index_range()
     
-    indexer_command = "%s indexer" % sys.argv[0]
+    argv0 = os.path.normpath( sys.argv[0] )
+    
+    if os.path.exists("./%s" % argv0 ):
+        indexer_command = ("./%s indexer" % argv0).split()
+    else:
+        # hope its in the $PATH
+        indexer_command = ("%s indexer" % argv0).split()
     
     if foreground:
-        command = 'twistd --pidfile=%s -noy %s' % (pid_file, tac_file)
+        command = ('twistd --pidfile=%s -noy %s' % (pid_file, tac_file)).split()
     else:
-        command = 'twistd --pidfile=%s --logfile=%s -y %s' % (pid_file,
-                                                              log_file,
-                                                              tac_file)
+        command = ('twistd --pidfile=%s --logfile=%s -y %s' % (pid_file,
+                                                               log_file,
+                                                               tac_file)).split()
 
     if start_block != current_block:
        # bring us up to speed 
@@ -674,17 +731,27 @@ def run_server( foreground=False):
     try:
         
        # fork the server
-       blockstored = subprocess.Popen( command, shell=True, preexec_fn=os.setsid)
+       blockstored = None
+       if foreground:
+          blockstored = subprocess.Popen( command, shell=False)
+          
+       else:
+          blockstored = subprocess.Popen( command, shell=False, preexec_fn=os.setsid)
+          
+          # TODO redirect stdout/stderr to logfile 
+          
        
        # fork the indexer 
-       indexer = subprocess.Popen( indexer_command, shell=True )
+       indexer = subprocess.Popen( indexer_command, shell=False )
+       indexer_pid = indexer.pid
        
        log.info('Blockstored successfully started')
        
        # wait for it to die 
        blockstored.wait()
        
-       # stop our indexing thread 
+       # stop our indexing subprocess 
+       indexer_pid = None
        os.kill( indexer.pid, signal.SIGINT )
        indexer.wait()
        
@@ -726,15 +793,19 @@ def setup( return_parser=False ):
    Otherwise return None.
    """
    
+   global blockstore_opts 
    global blockchain_client
+   global blockchain_broadcaster
    global bitcoin_opts
-   global chaincom_opts
+   global utxo_opts 
+   global blockstore_opts
+   global dht_opts
    
    # set up our implementation 
    virtualchain.setup_virtualchain( blockstore_state_engine )
    
    # acquire configuration, and store it globally
-   bitcoin_opts, chaincom_opts = configure( interactive=True )
+   blockstore_opts, bitcoin_opts, utxo_opts, dht_opts = configure( interactive=True )
    
    # merge in command-line bitcoind options 
    config_file = virtualchain.get_config_filename()
@@ -754,7 +825,7 @@ def setup( return_parser=False ):
    
    # store options 
    set_bitcoin_opts( bitcoin_opts )
-   set_chaincom_opts( chaincom_opts )
+   set_utxo_opts( utxo_opts )
    
    if return_parser:
       return argparser 
@@ -794,9 +865,10 @@ def run_blockstored():
    
    if args.action == 'start':
       
-      # make sure the server isn't already running 
-      stop_server()
-      
+      if os.path.exists( get_pidfile_path() ):
+          log.error("Blockstored appears to be running already.  If not, please remove '%s'" % get_pidfile_path())
+          sys.exit(1)
+          
       if args.foreground:
          
          log.info('Initializing blockstored server in foreground ...')

@@ -27,6 +27,9 @@ import os
 from binascii import hexlify, unhexlify
 import time
 
+import pybitcoin 
+import traceback
+
 from .namedb import BlockstoreDB, BlockstoreDBIterator
 
 from ..config import *
@@ -58,8 +61,6 @@ def get_burn_fee_from_outputs( outputs ):
         output_hex = output_script.get('hex')
         output_addresses = output_script.get('addresses')
         
-        print output
-        
         if output_asm[0:9] != 'OP_RETURN' and BLOCKSTORE_BURN_ADDRESS == output_addresses[0]:
             
             # recipient's script_pubkey and address
@@ -68,6 +69,44 @@ def get_burn_fee_from_outputs( outputs ):
     
     return ret 
     
+
+def get_public_key_hex_from_tx( inputs, address ):
+    """
+    Given a list of inputs and outputs and the address of one of the inputs,
+    find the public key.
+    """
+    
+    ret = None 
+    
+    for inp in inputs:
+        
+        input_scriptsig = inp.get('scriptSig', None )
+        if input_scriptsig is None:
+            continue 
+        
+        input_asm = input_scriptsig.get("asm")
+        
+        if len(input_asm.split(" ")) >= 2:
+            
+            # public key is the second hex string.  verify it matches the address
+            pubkey_hex = input_asm.split(" ")[1]
+            pubkey = None 
+            
+            try:
+                pubkey = pybitcoin.BitcoinPublicKey( str(pubkey_hex) ) 
+            except Exception, e: 
+                traceback.print_exc()
+                log.warning("Invalid public key '%s'" % pubkey_hex)
+                continue 
+            
+            if address != pubkey.address():
+                continue 
+            
+            ret = pubkey_hex
+            break
+        
+    return ret 
+
 
 def parse_blockstore_op_data( opcode, payload, sender, recipient=None, recipient_address=None, import_update_hash=None ):
     """
@@ -217,7 +256,7 @@ def get_db_state():
    return blockstore_db
 
 
-def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
+def db_parse( block_id, opcode, data, senders, inputs, outputs, fee, db_state=None ):
    """
    (required by virtualchain state engine)
    
@@ -229,6 +268,7 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
    * "address": the sender's bitcoin address
    * "fee": the total fee paid for this record.
    * "recipient": the first non-OP_RETURN output's script_pubkey.
+   * "sender_pubkey": the sender's public key (hex string)
    
    NOTE: the transactions that our tools put have a single sender, and a single output address.
    This is assumed by this code.  An exception will be raised if these criteria are not met.
@@ -238,6 +278,7 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
    recipient = None
    import_update_hash = None
    address = None
+   sender_pubkey_hex = None
    
    if len(senders) == 0:
       raise Exception("No senders for (%s, %s)" % (opcode, hexlify(data)))
@@ -253,9 +294,14 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
    
    sender = str(senders[0]['script_pubkey'])
    address = str(senders[0]['addresses'][0])
+   sender_pubkey_hex = get_public_key_hex_from_tx( inputs, address )
+   
+   if sender_pubkey_hex is None:
+      raise Exception("Could not determine public key for '%s'" % address)
    
    recipient = None 
    recipient_address = None 
+   
    op_fee = get_burn_fee_from_outputs( outputs )
    
    if opcode in [NAME_REGISTRATION, NAMESPACE_REVEAL]:
@@ -296,7 +342,7 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
       if op_fee is not None:
          op['op_fee'] = op_fee 
       
-      # sender script_pubkey and change address
+      # sender script_pubkey, change address, and sender's public key
       op['sender'] = sender 
       op['address'] = address 
       
@@ -306,6 +352,9 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
       if recipient_address is not None:
          op['recipient_address'] = recipient_address
       
+      if sender_pubkey_hex is not None:
+         op['sender_pubkey'] = sender_pubkey_hex
+         
    return op
 
 
