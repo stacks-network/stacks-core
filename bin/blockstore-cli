@@ -73,26 +73,26 @@ def run_cli():
     if conf is None:
         log.error("Failed to load config")
         sys.exit(1)
-        
+
     storage_drivers = conf['storage_drivers']
-    
+
     if storage_drivers is None:
         log.error("No storage driver(s) defined in the config file.  Please set 'storage=' to a comma-separated list of %s" % ", ".join(drivers.DRIVERS))
         sys.exit(1)
-        
-        
+
+
     # load all storage drivers
     for storage_driver in storage_drivers.split(","):
         storage_impl = client.load_storage( storage_driver )
         if storage_impl is None:
             log.error("Failed to load storage driver '%s'" % (storage_driver))
             sys.exit(1)
-    
+
         rc = client.register_storage( storage_impl )
         if not rc:
             log.error("Failed to initialize storage driver '%s'" % (storage_driver))
             sys.exit(1)
-    
+
     proxy = client.session(conf['blockstored_server'], conf['blockstored_port'])
 
     parser = argparse.ArgumentParser(
@@ -116,7 +116,7 @@ def run_cli():
 
     # ------------------------------------
     # start commands
-    
+
     subparser = subparsers.add_parser(
       'delete_immutable',
       help='<name> <hash> <privatekey> | Delete immutable data from the storage providers.')
@@ -129,7 +129,7 @@ def run_cli():
     subparser.add_argument(
       'privatekey', type=str,
       help='the privatekey of the user')
-    
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'delete_mutable',
@@ -143,7 +143,7 @@ def run_cli():
     subparser.add_argument(
       'privatekey', type=str,
       help='the privatekey of the user')
-    
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'get_immutable',
@@ -173,7 +173,7 @@ def run_cli():
     subparser.add_argument(
       'name', type=str,
       help="The fully-qualified name to check")
-    
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'get_name_import_cost',
@@ -181,7 +181,7 @@ def run_cli():
     subparser.add_argument(
       'name', type=str,
       help="The fully-qualified name to check")
-    
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'get_namespace_cost',
@@ -189,7 +189,7 @@ def run_cli():
     subparser.add_argument(
       'namespace_id', type=str,
       help="The namespace ID to check")
-    
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'getindex',
@@ -210,7 +210,7 @@ def run_cli():
     subparser.add_argument(
       'name', type=str,
       help='the name to look up')
-    
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'lookup_namespace',
@@ -218,7 +218,7 @@ def run_cli():
     subparser.add_argument(
       'namespace_id', type=str,
       help='the namespace to look up')
-    
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'name_import',
@@ -250,14 +250,14 @@ def run_cli():
       'address', type=str, nargs='?',
       help='[OPTIONAL] the address of private key that will reveal this namespace (should be different from the private key given here).  \
       If not given, a new private key will be generated, and it must be submitted as the address on namespace_reveal.')
-    
+
 
     # ------------------------------------
     subparser = subparsers.add_parser(
       'namespace_reveal',
       help='define a namespace\'s parameters once preorder succeeds')
-    subparser.add_argument( 
-      'namespace_id', type=str, 
+    subparser.add_argument(
+      'namespace_id', type=str,
       help='the human-readable namespace identifier')
     subparser.add_argument(
       'addr', type=str,
@@ -431,11 +431,11 @@ def run_cli():
         result = client.ping()
 
     elif args.action == 'preorder':
-        
-        register_addr = None 
+
+        register_addr = None
         if args.address is not None:
             register_addr = str(args.address)
-            
+
         result = client.preorder(str(args.name), str(args.privatekey), register_addr=register_addr )
 
     elif args.action == 'register':
@@ -453,10 +453,10 @@ def run_cli():
                                txid=txid)
 
     elif args.action == 'transfer':
-        keepdata = False 
+        keepdata = False
         if args.keepdata.lower() == "true":
-            keepdata = True 
-            
+            keepdata = True
+
         result = client.transfer(str(args.name),
                                  str(args.address),
                                  keepdata,
@@ -470,33 +470,33 @@ def run_cli():
 
     elif args.action == 'name_import':
         result = client.name_import(str(args.name), str(args.address), str(args.hash), str(args.privatekey))
-        
+
     elif args.action == 'namespace_preorder':
-        
-        reveal_addr = None 
+
+        reveal_addr = None
         if args.address is not None:
             reveal_addr = str(args.address)
-        
+
         result = client.namespace_preorder(str(args.namespace_id),
                                            str(args.privatekey),
                                            reveal_addr=reveal_addr)
-        
+
 
     elif args.action == 'namespace_reveal':
         bucket_exponents = args.bucket_exponents.split(',')
         if len(bucket_exponents) != 16:
             raise Exception("bucket_exponents must be a 16-value CSV of integers")
-        
+
         for i in xrange(0, len(bucket_exponents)):
             try:
                 bucket_exponents[i] = int(bucket_exponents[i])
             except:
                 raise Exception("bucket_exponents must contain integers in range [0, 16)")
-        
+
         lifetime = int(args.lifetime)
         if lifetime < 0:
-            lifetime = 0xffffffff       # means "infinite" to blockstore 
-            
+            lifetime = 0xffffffff       # means "infinite" to blockstore
+
         result = client.namespace_reveal(str(args.namespace_id),
                                          str(args.addr),
                                          lifetime,
@@ -534,7 +534,7 @@ def run_cli():
 
     elif args.action == 'delete_mutable':
         result = client.delete_mutable(str(args.name), str(args.data_id), str(args.privatekey))
-    
+
     elif args.action == 'lookup':
         result = client.lookup(str(args.name))
 
@@ -546,13 +546,13 @@ def run_cli():
 
     elif args.action == 'get_name_cost':
         result = client.name_cost(str(args.name))
-    
+
     elif args.action == 'get_name_import_cost':
         result = client.name_import_cost(str(args.name))
-    
+
     elif args.action == 'get_namespace_cost':
         result = client.namespace_cost(str(args.namespace_id))
-        
+
     print_result(result)
 
 if __name__ == '__main__':
