@@ -701,7 +701,8 @@ def run_server( foreground=False):
     bt_opts = get_bitcoin_opts()
     
     tac_file = get_tacfile_path()
-    log_file = get_logfile_path()
+    access_log_file = get_logfile_path() + ".access"
+    indexer_log_file = get_logfile_path() + ".indexer"
     pid_file = get_pidfile_path()
     
     start_block, current_block = get_index_range()
@@ -718,7 +719,7 @@ def run_server( foreground=False):
         command = ('twistd --pidfile=%s -noy %s' % (pid_file, tac_file)).split()
     else:
         command = ('twistd --pidfile=%s --logfile=%s -y %s' % (pid_file,
-                                                               log_file,
+                                                               access_log_file,
                                                                tac_file)).split()
 
     if start_block != current_block:
@@ -736,9 +737,19 @@ def run_server( foreground=False):
           blockstored = subprocess.Popen( command, shell=False)
           
        else:
-          blockstored = subprocess.Popen( command, shell=False, preexec_fn=os.setsid)
+          # redirect to log 
+          logfile = None
           
-          # TODO redirect stdout/stderr to logfile 
+          try:
+              if os.path.exists( indexer_log_file ):
+                  logfile = open( indexer_log_file, "a" )
+              else:
+                  logfile = open( indexer_log_file, "a+" )
+          except OSError, oe:
+              log.error("Failed to open '%s': %s" % (indexer_log_file, oe.strerror))
+              sys.exit(1)
+          
+          blockstored = subprocess.Popen( command, shell=False, stdout=logfile, stderr=logfile, preexec_fn=os.setsid)
           
        
        # fork the indexer 
@@ -747,13 +758,15 @@ def run_server( foreground=False):
        
        log.info('Blockstored successfully started')
        
-       # wait for it to die 
+       # wait for the API server to die (we kill it with `blockstored stop`)
        blockstored.wait()
        
-       # stop our indexing subprocess 
+       # stop our indexer subprocess 
        indexer_pid = None
        os.kill( indexer.pid, signal.SIGINT )
        indexer.wait()
+       
+       logfile.close()
        
        return blockstored.returncode 
     
@@ -769,7 +782,7 @@ def run_server( foreground=False):
             os.killpg(blockstored.pid, signal.SIGTERM)
         except:
             pass
-        exit(1)
+        sys.exit(1)
     
     except Exception, e:
         log.exception(e)
@@ -778,7 +791,7 @@ def run_server( foreground=False):
             os.killpg(blockstored.pid, signal.SIGTERM)
         except:
             pass
-        exit(1)
+        sys.exit(1)
 
 
 def setup( return_parser=False ):
