@@ -36,6 +36,7 @@ from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAGIC_BYTES, TE
     TRANSFER_REMOVE_DATA, NAME_REVOKE, NAME_PREORDER_EXPIRE, \
     NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTORE_VERSION, \
     NAMESPACE_1_CHAR_COST, NAMESPACE_23_CHAR_COST, NAMESPACE_4567_CHAR_COST, NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
+    TESTSET_NAMESPACE_1_CHAR_COST, TESTSET_NAMESPACE_23_CHAR_COST, TESTSET_NAMESPACE_4567_CHAR_COST, TESTSET_NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
     NAME_IMPORT_KEYRING_SIZE
 
 from ..operations import build_namespace_reveal
@@ -303,7 +304,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
                   self.preorders = db_dict['preorders']
                   
          except Exception as e:
-            log.exception(e)
+            log.warning("Failed to open '%s'; creating a new database" % db_filename)
             pass
 
       # build up our reverse indexes on names
@@ -355,10 +356,9 @@ class BlockstoreDB( virtualchain.StateEngine ):
          # generate all possible addresses from this public key 
          self.import_addresses[ namespace_id ] = BlockstoreDB.build_import_keychain( pubkey_hex )
          
-             
-
       # load up consensus hash for this block 
-      self.snapshot( self.lastblock )
+      if self.get_consensus_at( self.lastblock ) is None:
+          self.snapshot( self.lastblock )
       
 
    def save_db(self, filename):
@@ -733,6 +733,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
       """
       Remove an expired name.
       The caller must verify that the expiration criteria have been met.
+      Return True if expired
+      Return False if not
       """
       
       name_hash = hash256_trunc128( name )
@@ -740,7 +742,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       owner = None
       
       if not self.name_records.has_key( name ):
-         return None
+         return False
       
       owner = self.name_records[name]['sender']
       
@@ -751,36 +753,59 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       if self.hash_names.has_key( name_hash ):
          del self.hash_names[ name_hash ]
+         
+      return True
    
    
    def commit_preorder_expire_all( self, block_id ):
       """
       Given the block ID, go find and remove all expired preorders
+      Return True if we expired at least one preorder 
+      Return False if not.
       """
+      
+      have_changed = False 
+      
       for (name_hash, nameop) in self.preorders.items():
           if nameop['block_number'] + NAME_PREORDER_EXPIRE <= block_id:
               # expired 
               log.debug("Expire name preorder '%s'" % name_hash)
               del self.preorders[name_hash]
+              have_changed = True 
+              
+      return have_changed
       
       
    def commit_namespace_preorder_expire_all( self, block_id ):
       """
       Given the block ID, go find and remove all expired namespace preorders
+      Return True if we expired at least one preorder 
+      Return False if not 
       """
+      
+      have_changed = False 
+      
       for (namespace_id_hash, preorder_nameop) in self.namespace_preorders.items():
           
           if preorder_nameop['block_number'] + NAMESPACE_PREORDER_EXPIRE <= block_id:
               # expired 
               log.debug("Expire namespace preorder '%s'" % namespace_id_hash)
               del self.namespace_preorders[ namespace_id_hash ]
-              
+              have_changed = True 
+      
+      return have_changed 
+  
               
    def commit_namespace_reveal_expire_all( self, block_id ):
       """
       Given the block ID, go find and remove all expired namespace reveals 
       that have not been made ready.  Remove their associated name imports.
+      Return True if we expired at least one reveal 
+      Return False if not
       """
+      
+      have_changed = False 
+      
       for (namespace_id, reveal_op) in self.namespace_reveals.items():
           
           if reveal_op['block_number'] + NAMESPACE_REVEAL_EXPIRE <= block_id:
@@ -790,30 +815,43 @@ class BlockstoreDB( virtualchain.StateEngine ):
               del self.namespace_reveals[ namespace_id ]
               del self.namespace_hash_to_id[ namespace_id ]
               del self.import_addresses[ namespace_id ]
-                     
+              
+              have_changed = True 
+              
               for (name, nameop) in self.name_records:
                  
                  if namespace_id == get_namespace_from_name( name ):
                      # part of this namespace 
                      log.debug("Expire imported name '%s'" % name)
                      self.commit_name_expire( name )
-                
-              
+      
+      return have_changed
+  
    
    def commit_name_expire_all( self, block_id ):
       """
       Given a block ID, remove all name records that expired 
       exactly EXPIRATION_PERIOD blocks ago.
+      
+      Return True if we expired any names 
+      Return False if not.
       """
+      
+      have_changed = False 
       
       expiring_block_number = block_id - EXPIRATION_PERIOD
       expired_names = self.find_renewed_at( expiring_block_number )
       for name in expired_names:
          log.debug("Expire name '%s'" % name)
-         self.commit_name_expire( name )
+         rc = self.commit_name_expire( name )
+         if rc:
+             have_changed = True
       
       if expiring_block_number in self.block_name_renewals.keys():
          del self.block_name_renewals[ expiring_block_number ]
+         have_changed = True 
+         
+      return have_changed
       
 
    def commit_remove_preorder( self, name, script_pubkey, register_addr ):
@@ -1784,21 +1822,33 @@ def price_name( name, namespace ):
    return price
    
 
-def price_namespace( namespace_id ):
+def price_namespace( namespace_id, testset=TESTSET ):
    """
    Calculate the cost of a namespace.
    """
    
    if len(namespace_id) == 1:
-       return NAMESPACE_1_CHAR_COST
+       if testset:
+           return TESTSET_NAMESPACE_1_CHAR_COST
+       else:
+           return NAMESPACE_1_CHAR_COST
    
    elif len(namespace_id) in [2, 3]:
-       return NAMESPACE_23_CHAR_COST
+       if testset:
+           return TESTSET_NAMESPACE_23_CHAR_COST
+       else:
+           return NAMESPACE_23_CHAR_COST
    
    elif len(namespace_id) in [4, 5, 6, 7]:
-       return NAMESPACE_4567_CHAR_COST
+       if testset:
+           return TESTSET_NAMESPACE_4567_CHAR_COST
+       else:
+           return NAMESPACE_4567_CHAR_COST
    
    else:
-       return NAMESPACE_8UP_CHAR_COST
+       if testset:
+           return TESTSET_NAMESPACE_8UP_CHAR_COST
+       else:
+           return NAMESPACE_8UP_CHAR_COST
    
     
