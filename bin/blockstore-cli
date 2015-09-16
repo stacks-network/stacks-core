@@ -59,7 +59,7 @@ def get_sorted_commands():
                     'namespace_ready', 'namespace_reveal', 'put_mutable',
                     'put_immutable', 'get_mutable', 'get_immutable',
                     'get_name_cost', 'get_namespace_cost',
-                    'lookup', 'get_name_record']
+                    'lookup', 'lookup_namespace', 'get_name_record']
 
     for cmd in sorted(command_list):
         print cmd
@@ -185,7 +185,7 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
       'get_name_record',
-      help='<name> | get the name record for a given name')
+      help='<name> | get the off-blockchain record for a given name')
     subparser.add_argument(
       'name', type=str,
       help='the name to look up')
@@ -226,7 +226,7 @@ def run_cli():
       help='hash of the storage index to associate with the name')
     subparser.add_argument(
       'privatekey', type=str,
-      help='the privatekey of the importer\'s Bitcoin address')
+      help='the private key of the namespace revealer\'s address')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -240,9 +240,8 @@ def run_cli():
       help='the privatekey of the namespace creator')
     subparser.add_argument(
       'address', type=str, nargs='?',
-      help='[OPTIONAL] the address of private key that will reveal this namespace (should be different from the private key given here).  \
-      If not given, a new private key will be generated, and it must be submitted as the address on namespace_reveal.')
-
+      help='[OPTIONAL] the address of private key that will import names into this namespace (should be different from the private key given here).  \
+      If not given, a new private key will be generated.  The private key must be used to sign name_import requests, and the address must be submitted on namespace_reveal')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -274,7 +273,7 @@ def run_cli():
       help='no-vowel discount multipler (in range [0, 16))')
     subparser.add_argument(
       'privatekey', type=str,
-      help='the privatekey of the namespace revealer')
+      help='the privatekey of the namespace creator (from namespace_preorder)')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -346,12 +345,12 @@ def run_cli():
       'name', type=str,
       help='the name that you want to register/claim')
     subparser.add_argument(
-      'addr', type=str,
-      help='the address that will own the name')
-    subparser.add_argument(
       'privatekey', type=str,
       help='the private key used to preorder the name')
-
+    subparser.add_argument(
+      'addr', type=str,
+      help='the address that will own the name')
+    
     # ------------------------------------
     subparser = subparsers.add_parser(
       'renew',
@@ -399,8 +398,8 @@ def run_cli():
       'name', type=str,
       help='the name that you want to update')
     subparser.add_argument(
-      'storage_index_json', type=str,
-      help='the JSON-encoded storage index to associate with the name')
+      'record_json', type=str,
+      help='the JSON-encoded user record to associate with the name')
     subparser.add_argument(
       'privatekey', type=str,
       help='the privatekey of the owner Bitcoin address')
@@ -440,7 +439,7 @@ def run_cli():
             txid = str(args.txid)
 
         result = client.update(str(args.name),
-                               str(args.storage_index_json),
+                               str(args.record_json),
                                str(args.privatekey),
                                txid=txid)
 
@@ -529,7 +528,7 @@ def run_cli():
 
     elif args.action == 'lookup':
         result = client.lookup(str(args.name))
-
+        
     elif args.action == 'lookup_namespace':
         result = client.lookup_namespace(str(args.namespace_id))
 
