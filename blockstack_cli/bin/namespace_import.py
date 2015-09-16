@@ -30,7 +30,7 @@ log = config.log
 
 AVG_BLOCK_TIME = 600    # average number of seconds between blocks 
 CONFIRM_DELAY = 10      # number of blocks to wait to pass before confirming that the name was registered
-MAX_UNCONFIRMED = 500
+MAX_UNCONFIRMED = 50000000
 
 def pretty_dump(json_str):
     """ pretty dump
@@ -95,6 +95,25 @@ def get_num_unconfirmed_txs( chaincom_api_key, chaincom_api_secret, address, cou
             sys.exit(1)
             
     return num_unconfirmed
+
+
+def get_balance( chaincom_api_key, chaincom_api_secret, address ):
+    """
+    Get the number of unconfirmed transactions for an address.
+    """
+    r = requests.get("https://api.chain.com/v2/bitcoin/addresses/%s?api-key-id=%s&api-key-secret=%s" % (address, chaincom_api_key, chaincom_api_secret))
+    data = None 
+    
+    if r.status_code != 200:
+        return -1 
+    
+    try:
+        data = r.json()
+    except:
+        print >> sys.stderr, "Failed to get transactions"
+        return None 
+    
+    return data[0]["total"]["balance"]
             
 
 def confirm_name_imported( client, name ):
@@ -182,7 +201,9 @@ if __name__ == "__main__":
     print "WARN: you will need to populate these keys with BTC beforehand"
     print "--------------------------------------------------------------"
     
+    total_balance = 0
     keyring = []
+    unfunded = []
     keyring_path = "%s.keyring" % namespace_id 
     
     if os.path.exists(keyring_path):
@@ -192,10 +213,19 @@ if __name__ == "__main__":
             with open( keyring_path, "r" ) as f:
                 tmp = f.readlines()
             
-            keyring = [k.strip() for k in tmp]
+            keyring = []
+            tmp2 = [k.strip() for k in tmp]
             
-            for pk in keyring:
-                print "%s (%s)" % (pk, pybitcoin.BitcoinPrivateKey( pk ).public_key().address())
+            for pk in tmp2:
+                addr = pybitcoin.BitcoinPrivateKey( pk ).public_key().address()
+                balance = get_balance( chaincom_id, chaincom_secret, addr )
+                print "%s (%s) balance: %s" % (pk, addr, balance)
+                
+                total_balance += balance
+                if balance > 54000:
+                    keyring.append( pk )
+                else:
+                    unfunded.append(addr)
                 
         except Exception, e:
             log.exception(e)
@@ -208,15 +238,22 @@ if __name__ == "__main__":
         keyring = [ pk.to_hex() ]
         print "%s (%s) master" % (pk.to_wif(), pk.public_key().address())
         
-        for i in xrange(0, 90):
+        for i in xrange(0, 300):
             
             pk_hex = keyring_generator.child(i).private_key()
             pk_wif = pybitcoin.BitcoinPrivateKey( pk_hex ).to_wif()
             
-            print "%s (%s)" % (pk_wif, pybitcoin.BitcoinPrivateKey( pk_hex ).public_key().address())
+            pk_addr = pybitcoin.BitcoinPrivateKey( pk_hex ).public_key().address()
+            balance = get_balance( chaincom_id, chaincom_secret, pk_addr )
             
-            keyring.append( pk_wif )
+            print "%s (%s) balance: %s" % (pk_wif, pk_addr, balance)
             
+            total_balance += balance
+            if balance >= 54000:
+                keyring.append( pk_wif )
+            else:
+                unfunded.append(pk_addr)
+                
         try:
             with open(keyring_path, "w+") as f:
                 for k in keyring:
@@ -226,6 +263,15 @@ if __name__ == "__main__":
         except Exception, e:
             log.exception(e)
             pass
+    
+    print "--------------------------------------------------------------"
+    
+    print "Unfunded:"
+    for addr in unfunded:
+        print addr
+        
+    print "--------------------------------------------------------------"
+    print "Total: %s" % total_balance
     
     print "--------------------------------------------------------------"
     
@@ -361,13 +407,16 @@ if __name__ == "__main__":
         except Exception, e:
             print >> sys.stderr, "failed to read delay.txt; assuming %s" % delay
     
+        """
         # every so often, see if we need to throttle ourselves
-        if num_sent_names % 10 == 0:
+        if num_sent_names % len(keyring) == 0:
             
             total_unconfirmed = 0
             num_unconfirmed_txs = 10000000000
             
             while num_unconfirmed_txs > MAX_UNCONFIRMED:
+                
+                total_unconfirmed = 0
                 
                 for pk_str in keyring:
                     
@@ -382,7 +431,7 @@ if __name__ == "__main__":
                     break
                 
                 time.sleep(60)
-                
+        """
         
         # every block (or on start-up), update the list of imported names
         if time_of_last_confirmation + AVG_BLOCK_TIME < time.time():
@@ -427,7 +476,7 @@ if __name__ == "__main__":
            continue
           
         count = 0
-        MAX_COUNT = 5
+        MAX_COUNT = len(keyring)
         already_exists = False
         while count < MAX_COUNT:
  
