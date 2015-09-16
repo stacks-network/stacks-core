@@ -70,6 +70,3 @@ if not dht_opts['disable']:
    server_dht = internet.UDPServer(dht_port, dht_server.protocol)
    server_dht.setServiceParent(application)
 
-
-# lc = LoopingCall(reindex_blockchain)
-# lc.start(REINDEX_FREQUENCY)
