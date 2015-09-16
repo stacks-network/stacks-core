@@ -87,3 +87,11 @@ def parse(bin_payload):
         'name_hash': name_hash,
         'update_hash': update_hash
     }
+
+
+def serialize( nameop ):
+    """
+    Convert the set of data obtained from parsing the update into a unique string.
+    """
+    
+    return NAME_UPDATE + ":" + nameop['name_hash'] + "," + nameop['update_hash']

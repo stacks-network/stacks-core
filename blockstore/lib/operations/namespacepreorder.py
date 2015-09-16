@@ -139,3 +139,10 @@ def parse( bin_payload ):
       'consensus_hash': consensus_hash
    }
 
+
+def serialize( nameop ):
+    """
+    Convert the set of data obtained from parsing the namespace preorder into a unique string.
+    """
+    
+    return NAMESPACE_PREORDER + ":" + nameop['namespace_id_hash'] + "," + nameop['consensus_hash']

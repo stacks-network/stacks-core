@@ -167,3 +167,11 @@ def parse(bin_payload):
        'name': fqn
     }
  
+ 
+def serialize( nameop ):
+    """
+    Convert the set of data obtained from parsing the registration into a unique string.
+    """
+    
+    return NAME_REGISTRATION + ":" + nameop['name']
+

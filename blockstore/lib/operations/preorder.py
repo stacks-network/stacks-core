@@ -132,3 +132,11 @@ def parse(bin_payload):
         'preorder_name_hash': name_hash,
         'consensus_hash': consensus_hash
     }
+
+
+def serialize( nameop ):
+    """
+    Convert the set of data obtained from parsing the preorder into a unique string.
+    """
+    
+    return NAME_PREORDER + ":" + nameop['preorder_name_hash'] + "," + nameop['consensus_hash']

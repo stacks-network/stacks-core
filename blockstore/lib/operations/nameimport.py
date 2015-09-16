@@ -167,3 +167,11 @@ def parse(bin_payload, recipient, update_hash ):
         'recipient': hexlify(recipient),
         'update_hash': hexlify(update_hash)
     }
+
+
+def serialize( nameop ):
+    """
+    Convert the set of data obtained from parsing the name import into a unique string.
+    """
+    
+    return NAME_IMPORT + ":" + nameop['name'] + "," + nameop['recipient'] + "," + nameop['update_hash']
