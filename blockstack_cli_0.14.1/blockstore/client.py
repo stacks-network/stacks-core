@@ -236,7 +236,7 @@ def load_user(record_hash):
     return user
 
 
-def get_user_record(name, create_if_absent=False):
+def get_name_record(name, create_if_absent=False):
     """
     Given the name of the user, look up the user's record hash,
     and then get the record itself from storage.
@@ -384,34 +384,24 @@ def ping(proxy=None):
     return resp
 
 
-def name_cost( name, proxy=None ):
+def get_name_cost( name, proxy=None ):
     """
     name_cost
     """
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.name_cost(name)
+    return proxy.get_name_cost(name)
 
 
-def name_import_cost( name, proxy=None ):
-    """
-    name_import_cost
-    """
-    if proxy is None:
-        proxy = get_default_proxy()
-
-    return proxy.name_import_cost(name)
-
-
-def namespace_cost( namespace_id, proxy=None ):
+def get_namespace_cost( namespace_id, proxy=None ):
     """
     namespace_cost
     """
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.namespace_cost(namespace_id)
+    return proxy.get_namespace_cost(namespace_id)
 
 
 def lookup(name, proxy=None):
@@ -526,7 +516,7 @@ def update(name, user_json_or_hash, privatekey, txid=None, proxy=None):
         user_record_hash = pybitcoin.hash.hex_hash160(user_db.serialize_user(user_data))
 
     # go get the current user record
-    current_user_record = get_user_record( name, create_if_absent=True )
+    current_user_record = get_name_record( name, create_if_absent=True )
     if current_user_record is None:
         return {'error': 'No such user'}
 
@@ -827,7 +817,7 @@ def get_immutable(name, data_key):
     get_immutable
     """
 
-    user = get_user_record(name)
+    user = get_name_record(name)
     if 'error' in user:
 
         # no user data
@@ -855,7 +845,7 @@ def get_mutable(name, data_id, ver_min=None, ver_max=None, ver_check=None, conf=
     if conf is None:
         conf = config.get_config()
 
-    user = get_user_record(name)
+    user = get_name_record(name)
     if 'error' in user:
 
         # no user data
@@ -911,7 +901,7 @@ def put_immutable(name, data, privatekey, txid=None, proxy=None):
         proxy = default_proxy
 
     # need to put the transaction ID into the data record we put
-    user = get_user_record(name, create_if_absent=True)
+    user = get_name_record(name, create_if_absent=True)
     if 'error' in user:
 
         # no user data
@@ -984,7 +974,7 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
         proxy = get_default_proxy()
 
     result = {}
-    user = get_user_record(name, create_if_absent=create)
+    user = get_name_record(name, create_if_absent=create)
     if 'error' in user:
 
         return {'error': "Unable to load user record: %s" % user['error']}
@@ -1096,7 +1086,7 @@ def delete_immutable(name, data_key, privatekey, proxy=None, txid=None):
         proxy = get_default_proxy()
 
     result = {}
-    user = get_user_record(name)
+    user = get_name_record(name)
     if 'error' in user:
 
         # no user data
@@ -1148,7 +1138,7 @@ def delete_mutable(name, data_id, privatekey, proxy=default_proxy, txid=None,
         proxy = get_default_proxy()
 
     result = {}
-    user = get_user_record(name)
+    user = get_name_record(name)
     if 'error' in user:
 
         # no user data
