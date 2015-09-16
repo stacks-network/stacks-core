@@ -1028,6 +1028,7 @@ def write_config_file( blockstore_opts=None, bitcoind_opts=None, utxo_opts=None,
           
           
    with open(config_file, "w") as fout:
+      os.fchmod( fout.fileno(), 0600 )
       parser.write( fout )
    
    return True
