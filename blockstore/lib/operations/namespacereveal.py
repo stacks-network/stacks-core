@@ -287,7 +287,7 @@ def serialize( nameop ):
     Convert the set of data obtained from parsing the namespace_reveal into a unique string.
     """
     
-    bucket_str = ",".join( nameop['buckets'] )
+    bucket_str = ",".join( [str(i) for i in nameop['buckets']] )
     return NAMESPACE_REVEAL + ":" + nameop['namespace_id'] + "," + \
                                     str(nameop['lifetime']) + "," + \
                                     str(nameop['coeff']) + "," + \
