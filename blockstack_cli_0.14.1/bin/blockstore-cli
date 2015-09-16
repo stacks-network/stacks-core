@@ -58,8 +58,8 @@ def get_sorted_commands():
                     'transfer', 'renew', 'name_import', 'namespace_preorder',
                     'namespace_ready', 'namespace_reveal', 'put_mutable',
                     'put_immutable', 'get_mutable', 'get_immutable',
-                    'get_name_cost', 'get_name_import_cost', 'get_namespace_cost',
-                    'lookup', 'getindex']
+                    'get_name_cost', 'get_namespace_cost',
+                    'lookup', 'get_name_record']
 
     for cmd in sorted(command_list):
         print cmd
@@ -176,14 +176,6 @@ def run_cli():
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-      'get_name_import_cost',
-      help="<name> | get the cost to import a name")
-    subparser.add_argument(
-      'name', type=str,
-      help="The fully-qualified name to check")
-
-    # ------------------------------------
-    subparser = subparsers.add_parser(
       'get_namespace_cost',
       help="<namespace_id> | get the cost of a namespace")
     subparser.add_argument(
@@ -192,8 +184,8 @@ def run_cli():
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-      'getindex',
-      help='<name> | get the storage index for a given name')
+      'get_name_record',
+      help='<name> | get the name record for a given name')
     subparser.add_argument(
       'name', type=str,
       help='the name to look up')
@@ -541,17 +533,14 @@ def run_cli():
     elif args.action == 'lookup_namespace':
         result = client.lookup_namespace(str(args.namespace_id))
 
-    elif args.action == 'getindex':
-        result = client.get_user_record(str(args.name))
+    elif args.action == 'get_name_record':
+        result = client.get_name_record(str(args.name))
 
     elif args.action == 'get_name_cost':
-        result = client.name_cost(str(args.name))
-
-    elif args.action == 'get_name_import_cost':
-        result = client.name_import_cost(str(args.name))
+        result = client.get_name_cost(str(args.name))
 
     elif args.action == 'get_namespace_cost':
-        result = client.namespace_cost(str(args.namespace_id))
+        result = client.get_namespace_cost(str(args.namespace_id))
 
     print_result(result)
 
