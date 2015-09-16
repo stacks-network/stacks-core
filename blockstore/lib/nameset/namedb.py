@@ -37,7 +37,7 @@ from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAGIC_BYTES, TE
     NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTORE_VERSION, \
     NAMESPACE_1_CHAR_COST, NAMESPACE_23_CHAR_COST, NAMESPACE_4567_CHAR_COST, NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
     TESTSET_NAMESPACE_1_CHAR_COST, TESTSET_NAMESPACE_23_CHAR_COST, TESTSET_NAMESPACE_4567_CHAR_COST, TESTSET_NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
-    NAME_IMPORT_KEYRING_SIZE
+    NAME_IMPORT_KEYRING_SIZE, GENESIS_SNAPSHOT
 
 from ..operations import build_namespace_reveal
 from ..hashing import *
@@ -45,184 +45,6 @@ from ..b40 import is_b40
 
 import virtualchain
 log = virtualchain.session.log
-
-class BlockstoreDBIterator(object):
-   """
-   Iterator class for BlockstoreDB.  Iterates over all records 
-   for which we want to generate a consensus hash.
-   
-   Iterates over serialized name records in lexical order, 
-   and then serialized namespaces in lexical order,
-   and then serialized pending namespace imports in *import* order.
-  
-   A serialized name record incorporates the name, the owner's
-   script_pubkey, and the profile hash.
-   
-   A serialized namespace record incorporates the namespace ID,
-   its rules, and creator's script_pubkey.
-   
-   A serialized pending namespace (i.e. one that has been 
-   defined but not begun) includes hash( namespace_id, sender_script_pubkey )
-   and its rules.
-   
-   A serialized pending import includes the hash of the namespace ID and 
-   the sender's script_pubkey, as well as the hash over the sequence 
-   of import operations (including the NAMESPACE_PREORDER and NAMESPACE_REVEAL,
-   if given), such that each operation is serialized in a stable manner 
-   (e.g. in key1:value1, key2:value2,... strings that have been stable-sorted).
-   """
-   
-   def __init__( self, blockstore_db ):
-      self.db = blockstore_db 
-      
-      self.sorted_names = None
-      self.next_name = 0
-      
-      self.sorted_namespaces = None
-      self.next_namespace = 0
-      
-      self.sorted_importing_namespaces = None
-      self.next_import_namespace = 0
-      
-   def __iter__(self):
-      return self 
-   
-   
-   def serialize_name_record( self, name, name_record ):
-      """
-      Serialize a name record:
-      make it sortable on the name (names are unique, so this imposes 
-      a total order on the set of serialized name records), and include the 
-      owner's script_pubkey, profile hash, and revocation status.
-      """
-      
-      profile_hash = name_record.get('value_hash', "")
-      revoked_string = ""
-      
-      if profile_hash is None:
-         profile_hash = ""
-          
-      name_string = (name + name_record['sender'] + profile_hash + revoked_string).encode('utf8')
-      
-      return name_string
-   
-   
-   def serialize_namespace_record( self, namespace_id, namespace_record ):
-      """
-      Serialize a namespace record--either a ready or revealed one
-      make it sortable on the namespace ID (namespace IDs are unique, so 
-      this imposes a total order on the set of serialized name records), and
-      include the owner's script_pubkey and rules
-      """
-      
-      rules_string = build_namespace_reveal( "", namespace_record['version'], \
-                                                 namespace_record['recipient_address'], \
-                                                 namespace_record['lifetime'], \
-                                                 namespace_record['coeff'], \
-                                                 namespace_record['base'], \
-                                                 namespace_record['buckets'], \
-                                                 namespace_record['nonalpha_discount'], \
-                                                 namespace_record['no_vowel_discount'], \
-                                                 testset=TESTSET )
-      
-      sender = namespace_record.get('sender', "")
-      
-      if sender is None:
-         sender = ""
-         
-      if namespace_id is None:
-         namespace_id = ""
-         
-      try:
-         namespace_string = (namespace_id + rules_string + sender).encode('utf8')
-      except Exception, e:
-         raise e
-      
-      return namespace_string 
-      
-   
-   def next_name_record( self ):
-      """
-      Get the next serialized name record.
-      Return None if we're out of names 
-      """
-      
-      if self.sorted_names is None:
-         # have not done names yet 
-         self.sorted_names = sorted( self.db.get_all_names() )
-         self.next_name = 0
-      
-      if self.next_name < len(self.sorted_names):
-         
-         name = self.sorted_names[ self.next_name ]
-         self.next_name += 1
-         
-         serialized_name_record = self.serialize_name_record( name, self.db.get_name( name ) )
-         
-         # log.debug("   Serialized name record: '%s' (%s)" % (serialized_name_record, name) )
-         return serialized_name_record
-      
-      # out of names 
-      self.sorted_names = []
-      return None
-   
-   
-   def next_namespace_record( self ):
-      """
-      Get the next serialized namespace record (both revealed and ready namespaces)
-      Return None if we're out of namespaces.
-      """
-      
-      if self.sorted_namespaces is None:
-         # have not done namespaces yet 
-         self.sorted_namespaces = sorted( self.db.get_all_namespace_ids() + self.db.get_all_revealed_namespace_ids() )
-         self.next_namespace = 0
-      
-      if self.next_namespace < len(self.sorted_namespaces):
-         
-         namespace_id = self.sorted_namespaces[ self.next_namespace ]
-         self.next_namespace += 1
-         
-         # either revealed or ready...
-         namespace = self.db.get_namespace( namespace_id )
-         if namespace is None:
-             
-             namespace = self.db.get_namespace_reveal( namespace_id )
-             if namespace is None:
-                 raise Exception("BUG: no data for namespace '%s'" % namespace_id)
-             
-         serialized_namespace_record = self.serialize_namespace_record( namespace_id, namespace )
-         
-         # log.debug("   Serialized namespace record: '%s' (%s)" % (serialized_namespace_record, namespace_id) )
-         return serialized_namespace_record
-      
-      # out of namespaces 
-      self.sorted_namespaces = []
-      return None 
-      
-      
-   def next(self):
-      """
-      Iterate over the *serialized* names, namespaces, and importing namespaces.
-      Do so in a stable order.
-      """
-      
-      serialized_record = None 
-      
-      # all registered names
-      serialized_record = self.next_name_record()
-      if serialized_record is not None:
-         return serialized_record
-      
-      # all ready namespaces
-      serialized_record = self.next_namespace_record()
-      if serialized_record is not None:
-         return serialized_record
-      
-      # done!
-      raise StopIteration()
-   
-   
 
 class BlockstoreDB( virtualchain.StateEngine ):
    """
@@ -245,7 +67,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       import virtualchain_hooks
       
-      super( BlockstoreDB, self ).__init__( MAGIC_BYTES, OPCODES, impl=virtualchain_hooks, state=self )
+      super( BlockstoreDB, self ).__init__( MAGIC_BYTES, OPCODES, impl=virtualchain_hooks, initial_snapshots=GENESIS_SNAPSHOT, state=self )
       
       self.db_filename = db_filename 
       
@@ -355,11 +177,6 @@ class BlockstoreDB( virtualchain.StateEngine ):
          
          # generate all possible addresses from this public key 
          self.import_addresses[ namespace_id ] = BlockstoreDB.build_import_keychain( pubkey_hex )
-         
-      # load up consensus hash for this block 
-      if self.get_consensus_at( self.lastblock ) is None:
-          self.snapshot( self.lastblock )
-      
 
    def save_db(self, filename):
       """
@@ -482,7 +299,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
    def get_all_names( self ):
       """
-      Get the set of all regisered names
+      Get the set of all registered names
       """
       
       return self.name_records.keys()
@@ -760,30 +577,20 @@ class BlockstoreDB( virtualchain.StateEngine ):
    def commit_preorder_expire_all( self, block_id ):
       """
       Given the block ID, go find and remove all expired preorders
-      Return True if we expired at least one preorder 
-      Return False if not.
       """
-      
-      have_changed = False 
       
       for (name_hash, nameop) in self.preorders.items():
           if nameop['block_number'] + NAME_PREORDER_EXPIRE <= block_id:
               # expired 
               log.debug("Expire name preorder '%s'" % name_hash)
               del self.preorders[name_hash]
-              have_changed = True 
               
-      return have_changed
       
       
    def commit_namespace_preorder_expire_all( self, block_id ):
       """
       Given the block ID, go find and remove all expired namespace preorders
-      Return True if we expired at least one preorder 
-      Return False if not 
       """
-      
-      have_changed = False 
       
       for (namespace_id_hash, preorder_nameop) in self.namespace_preorders.items():
           
@@ -791,20 +598,14 @@ class BlockstoreDB( virtualchain.StateEngine ):
               # expired 
               log.debug("Expire namespace preorder '%s'" % namespace_id_hash)
               del self.namespace_preorders[ namespace_id_hash ]
-              have_changed = True 
       
-      return have_changed 
   
               
    def commit_namespace_reveal_expire_all( self, block_id ):
       """
       Given the block ID, go find and remove all expired namespace reveals 
-      that have not been made ready.  Remove their associated name imports.
-      Return True if we expired at least one reveal 
-      Return False if not
+      that have not been made ready.  Remove their associated name imports
       """
-      
-      have_changed = False 
       
       for (namespace_id, reveal_op) in self.namespace_reveals.items():
           
@@ -816,43 +617,29 @@ class BlockstoreDB( virtualchain.StateEngine ):
               del self.namespace_hash_to_id[ namespace_id ]
               del self.import_addresses[ namespace_id ]
               
-              have_changed = True 
-              
               for (name, nameop) in self.name_records:
                  
                  if namespace_id == get_namespace_from_name( name ):
                      # part of this namespace 
                      log.debug("Expire imported name '%s'" % name)
                      self.commit_name_expire( name )
-      
-      return have_changed
   
    
    def commit_name_expire_all( self, block_id ):
       """
       Given a block ID, remove all name records that expired 
       exactly EXPIRATION_PERIOD blocks ago.
-      
-      Return True if we expired any names 
-      Return False if not.
       """
-      
-      have_changed = False 
       
       expiring_block_number = block_id - EXPIRATION_PERIOD
       expired_names = self.find_renewed_at( expiring_block_number )
       for name in expired_names:
          log.debug("Expire name '%s'" % name)
-         rc = self.commit_name_expire( name )
-         if rc:
-             have_changed = True
-      
+         self.commit_name_expire( name )
+         
       if expiring_block_number in self.block_name_renewals.keys():
          del self.block_name_renewals[ expiring_block_number ]
-         have_changed = True 
          
-      return have_changed
-      
 
    def commit_remove_preorder( self, name, script_pubkey, register_addr ):
       """
@@ -1619,7 +1406,9 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       # has to have a reasonable consensus hash
       if not self.is_consensus_hash_valid( block_id, consensus_hash ):
-          log.debug("Invalid consensus hash '%s'" % consensus_hash )
+          
+          valid_consensus_hashes = self.get_valid_consensus_hashes( block_id )
+          log.debug("Invalid consensus hash '%s': expected any of %s" % (consensus_hash, ",".join( valid_consensus_hashes )) )
           return False 
       
       # has to have paid a fee 
@@ -1749,13 +1538,6 @@ class BlockstoreDB( virtualchain.StateEngine ):
       # can commit imported nameops 
       return True
       
-      
-   def __iter__(self):
-      """
-      Get a BlockstoreDBIterator for this db.
-      """
-      return BlockstoreDBIterator( self )
-   
      
 def get_namespace_from_name( name ):
    """
