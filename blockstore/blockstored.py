@@ -806,7 +806,7 @@ def run_server( foreground=False ):
     argv0 = os.path.normpath( sys.argv[0] )
     
     if os.path.exists("./%s" % argv0 ):
-        indexer_command = ("./%s indexer" % argv0).split()
+        indexer_command = ("%s indexer" % (os.path.join( os.getcwd(), argv0))).split()
     else:
         # hope its in the $PATH
         indexer_command = ("%s indexer" % argv0).split()
@@ -815,9 +815,9 @@ def run_server( foreground=False ):
     logfile = None
     if not foreground:
 
-        api_server_command = ('twistd --pidfile=%s --logfile=%s -y %s' % (pid_file,
-                                                                          access_log_file,
-                                                                          tac_file)).split()
+        api_server_command = ('twistd --pidfile=%s --logfile=%s -noy %s' % (pid_file,
+                                                                           access_log_file,
+                                                                           tac_file)).split()
 
         try:
             if os.path.exists( indexer_log_file ):
@@ -886,7 +886,7 @@ def run_server( foreground=False ):
         indexer = subprocess.Popen( indexer_command, shell=False )
     else:
         indexer = subprocess.Popen( indexer_command, shell=False, stdout=logfile, stderr=logfile )
-                                    
+        
     indexer_pid = indexer.pid
     
     # wait for the API server to die (we kill it with `blockstored stop`)
