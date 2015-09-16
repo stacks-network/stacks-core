@@ -204,7 +204,6 @@ def die_handler_server(signal, frame):
     Handle Ctrl+C for server subprocess
     """
     
-    log.info('\n')
     log.info('Exiting blockstored server')
     stop_server()
     sys.exit(0)
@@ -215,6 +214,9 @@ def die_handler_indexer(signal, frame):
     """
     Handle Ctrl+C for indexer processe
     """
+    
+    db = get_state_engine()
+    virtualchain.stop_sync_virtualchain( db )
     sys.exit(0)
 
 
@@ -230,13 +232,6 @@ def get_utxo_provider_client():
    """
    Get or instantiate our blockchain UTXO provider's client.
    Return None if we were unable to connect
-   """
-   
-   """
-   global blockstore_opts
-   global blockchain_client 
-   global blockchain_opts
-   global utxo_opts
    """
    
    # acquire configuration (which we should already have)
@@ -255,12 +250,7 @@ def get_tx_broadcaster():
    Get or instantiate our blockchain UTXO provider's transaction broadcaster.
    fall back to the utxo provider client, if one is not designated
    """
-   """
-   global blockstore_opts
-   global blockchain_broadcaster
-   global blockchain_opts
-   global utxo_opts
-   """
+   
    # acquire configuration (which we should already have)
    blockstore_opts, blockchain_opts, utxo_opts, dht_opts = configure( interactive=False )
    
@@ -330,6 +320,10 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         Lookup the profile for a name.
         """
         
+        # are we doing our initial indexing?
+        if is_indexing():
+            return {"error": "Indexing blockchain"}
+        
         blockstore_state_engine = get_state_engine()
         name_record = blockstore_state_engine.get_name( name )
         
@@ -343,6 +337,11 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
     def jsonrpc_getinfo(self):
         """
         """
+        
+        # are we doing our initial indexing?
+        if is_indexing():
+            return {"error": "Indexing blockchain"}
+        
         bitcoind = get_bitcoind()
         info = bitcoind.getinfo()
         reply = {}
@@ -356,6 +355,10 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
     def jsonrpc_preorder(self, name, register_addr, privatekey):
         """ Preorder a name
         """
+        
+        # are we doing our initial indexing?
+        if is_indexing():
+            return {"error": "Indexing blockchain"}
         
         blockchain_client_inst = get_utxo_provider_client()
         if blockchain_client_inst is None:
@@ -396,6 +399,10 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         """ Register a name
         """
         
+        # are we doing our initial indexing?
+        if is_indexing():
+            return {"error": "Indexing blockchain"}
+        
         blockchain_client_inst = get_utxo_provider_client()
         if blockchain_client_inst is None:
            return {"error": "Failed to connect to blockchain UTXO provider"}
@@ -419,6 +426,11 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         """
         Update a name with new data.
         """
+        
+        # are we doing our initial indexing?
+        if is_indexing():
+            return {"error": "Indexing blockchain"}
+        
         log.debug('update <%s, %s, %s>' % (name, data_hash, privatekey))
         
         blockchain_client_inst = get_utxo_provider_client()
@@ -441,7 +453,11 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
     def jsonrpc_transfer(self, name, address, keep_data, privatekey):
         """ Transfer a name
         """
-
+        
+        # are we doing our initial indexing?
+        if is_indexing():
+            return {"error": "Indexing blockchain"}
+        
         blockchain_client_inst = get_utxo_provider_client()
         db = get_state_engine()
         
@@ -464,6 +480,10 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         """ Renew a name
         """
         
+        # are we doing our initial indexing?
+        if is_indexing():
+            return {"error": "Indexing blockchain"}
+        
         # renew the name for the caller
         db = get_state_engine()
         name_rec = db.get_name( name )
@@ -480,6 +500,10 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
     def jsonrpc_revoke( self, name, privatekey ):
         """ Revoke a name and all of its data.
         """
+        
+        # are we doing our initial indexing?
+        if is_indexing():
+            return {"error": "Indexing blockchain"}
         
         blockchain_client_inst = get_utxo_provider_client()
         
@@ -500,6 +524,10 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         """
         Import a name into a namespace.
         """
+        
+        # are we doing our initial indexing?
+        if is_indexing():
+            return {"error": "Indexing blockchain"}
         
         blockchain_client_inst = get_utxo_provider_client()
         if blockchain_client_inst is None:
@@ -528,6 +556,10 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         user who created the namespace can create names in it.
         """
         
+        # are we doing our initial indexing?
+        if is_indexing():
+            return {"error": "Indexing blockchain"}
+        
         db = get_state_engine()
         
         blockchain_client_inst = get_utxo_provider_client()
@@ -555,6 +587,10 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         user who created the namespace can create names in it.
         """
         
+        # are we doing our initial indexing?
+        if is_indexing():
+            return {"error": "Indexing blockchain"}
+        
         blockchain_client_inst = get_utxo_provider_client()
         if blockchain_client_inst is None:
            return {"error": "Failed to connect to blockchain UTXO provider"}
@@ -576,6 +612,10 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         Declare that a namespace is open to accepting new names.
         """
         
+        # are we doing our initial indexing?
+        if is_indexing():
+            return {"error": "Indexing blockchain"}
+        
         blockchain_client_inst = get_utxo_provider_client()
         if blockchain_client_inst is None:
            return {"error": "Failed to connect to blockchain UTXO provider"}
@@ -594,6 +634,11 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         Return the cost of a given name, including fees
         Return value is in satoshis
         """
+        
+        # are we doing our initial indexing?
+        if is_indexing():
+            return {"error": "Indexing blockchain"}
+        
         if len(name) > LENGTHS['blockchain_id_name']:
             return {"error": "Name too long"}
         
@@ -609,6 +654,11 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         Return the cost of a given namespace, including fees.
         Return value is in satoshis
         """
+        
+        # are we doing our initial indexing?
+        if is_indexing():
+            return {"error": "Indexing blockchain"}
+        
         if len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
             return {"error": "Namespace ID too long"}
         
@@ -620,6 +670,11 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         """
         Return the readied namespace with the given namespace_id
         """
+        
+        # are we doing our initial indexing?
+        if is_indexing():
+            return {"error": "Indexing blockchain"}
+        
         db = get_state_engine()
         ns = db.get_namespace( namespace_id )
         if ns is None:
@@ -649,7 +704,7 @@ def run_indexer():
         virtualchain.sync_virtualchain( bitcoind_opts, last_block_id, blockstore_state_engine )
         
         _, last_block_id = get_index_range()
-                
+        
     return
 
 
@@ -686,18 +741,59 @@ def stop_server():
         except Exception, e:
            return 
        
+    # stop building new state if we're in the middle of it
+    db = get_state_engine()
+    virtualchain.stop_sync_virtualchain( db )
+    
+    set_indexing( False )
+    
+       
+def get_indexing_lockfile():
+    """
+    Return path to the indexing lockfile 
+    """
+    return os.path.join( virtualchain.get_working_dir(), "blockstore.indexing" )
+       
+       
+def is_indexing():
+    """
+    Is the blockstore daemon synchronizing with the blockchain?
+    """
+    indexing_path = get_indexing_lockfile()
+    if os.path.exists( indexing_path ):
+        return True 
+    else:
+        return False
+        
+        
+def set_indexing( flag ):
+    """
+    Set a flag in the filesystem as to whether or not we're indexing.
+    """
+    indexing_path = get_indexing_lockfile()
+    if flag:
+        try:
+            fd = open( indexing_path, "w+" )
+            fd.close()
+            return True
+        except:
+            return False 
+        
+    else:
+        try:
+            os.unlink( indexing_path )
+            return True
+        except:
+            return False 
+        
 
-def run_server( foreground=False):
+def run_server( foreground=False ):
     """ 
     Run the blockstored RPC server, optionally in the foreground.
     """
     
     global indexer_pid
     
-    signal.signal( signal.SIGINT, die_handler_server )
-    signal.signal( signal.SIGQUIT, die_handler_server )
-    signal.signal( signal.SIGTERM, die_handler_server )
-   
     bt_opts = get_bitcoin_opts()
     
     tac_file = get_tacfile_path()
@@ -715,83 +811,101 @@ def run_server( foreground=False):
         # hope its in the $PATH
         indexer_command = ("%s indexer" % argv0).split()
     
-    if foreground:
-        command = ('twistd --pidfile=%s -noy %s' % (pid_file, tac_file)).split()
-    else:
-        command = ('twistd --pidfile=%s --logfile=%s -y %s' % (pid_file,
-                                                               access_log_file,
-                                                               tac_file)).split()
+    
+    logfile = None
+    if not foreground:
 
+        api_server_command = ('twistd --pidfile=%s --logfile=%s -y %s' % (pid_file,
+                                                                          access_log_file,
+                                                                          tac_file)).split()
+
+        try:
+            if os.path.exists( indexer_log_file ):
+                logfile = open( indexer_log_file, "a" )
+            else:
+                logfile = open( indexer_log_file, "a+" )
+        except OSError, oe:
+            log.error("Failed to open '%s': %s" % (indexer_log_file, oe.strerror))
+            sys.exit(1)
+        
+        # become a daemon 
+        child_pid = os.fork()
+        if child_pid == 0:
+            
+            # child! detach, setsid, and make a new child to be adopted by init 
+            sys.stdin.close()
+            os.dup2( logfile.fileno(), sys.stdout.fileno() )
+            os.dup2( logfile.fileno(), sys.stderr.fileno() )
+            os.setsid()
+            
+            daemon_pid = os.fork()
+            if daemon_pid == 0:
+                
+                # daemon!
+                os.chdir("/")
+            
+            elif daemon_pid > 0:
+                
+                # parent!
+                sys.exit(0)
+                
+            else:
+                
+                # error
+                sys.exit(1)
+                
+        elif child_pid > 0:
+            
+            # parent
+            # wait for child 
+            pid, status = os.waitpid( child_pid, 0 )
+            sys.exit(status)
+            
+    else:
+        
+        # foreground
+        api_server_command = ('twistd --pidfile=%s -noy %s' % (pid_file, tac_file)).split()
+        
+    
+    # start API server
+    blockstored = subprocess.Popen( api_server_command, shell=False)    
+    
+    set_indexing( False )
+    
     if start_block != current_block:
-       # bring us up to speed 
-       log.info("Synchronizing with blockchain, up to %s" % current_block )
-       
-       blockstore_state_engine = get_state_engine()
-       virtualchain.sync_virtualchain( bt_opts, current_block, blockstore_state_engine )
+        # bring us up to speed 
+        set_indexing( True )
     
-    try:
+        blockstore_state_engine = get_state_engine()
+        virtualchain.sync_virtualchain( bt_opts, current_block, blockstore_state_engine )
         
-       # fork the server
-       blockstored = None
-       if foreground:
-          blockstored = subprocess.Popen( command, shell=False)
-          
-       else:
-          # redirect to log 
-          logfile = None
-          
-          try:
-              if os.path.exists( indexer_log_file ):
-                  logfile = open( indexer_log_file, "a" )
-              else:
-                  logfile = open( indexer_log_file, "a+" )
-          except OSError, oe:
-              log.error("Failed to open '%s': %s" % (indexer_log_file, oe.strerror))
-              sys.exit(1)
-          
-          blockstored = subprocess.Popen( command, shell=False, stdout=logfile, stderr=logfile, preexec_fn=os.setsid)
-          
-       
-       # fork the indexer 
-       indexer = subprocess.Popen( indexer_command, shell=False )
-       indexer_pid = indexer.pid
-       
-       log.info('Blockstored successfully started')
-       
-       # wait for the API server to die (we kill it with `blockstored stop`)
-       blockstored.wait()
-       
-       # stop our indexer subprocess 
-       indexer_pid = None
-       os.kill( indexer.pid, signal.SIGINT )
-       indexer.wait()
-       
-       logfile.close()
-       
-       return blockstored.returncode 
+        set_indexing( False )
     
-    except IndexError, ie:
-        
-        traceback.print_exc()
-        # indicates that we don't have the latest block 
-        log.error("\n\nFailed to find the first blockstore record (got block %s).\n" % current_block + \
-                   "Please verify that your bitcoin provider has processd up to" + \
-                   "to block %s.\n" % (START_BLOCK) + \
-                   "    Example:  bitcoin-cli getblockcount" )
-        try:
-            os.killpg(blockstored.pid, signal.SIGTERM)
-        except:
-            pass
-        sys.exit(1)
+    # fork the indexer 
+    if foreground:
+        indexer = subprocess.Popen( indexer_command, shell=False )
+    else:
+        indexer = subprocess.Popen( indexer_command, shell=False, stdout=logfile, stderr=logfile )
+                                    
+    indexer_pid = indexer.pid
     
-    except Exception, e:
-        log.exception(e)
-        log.info('Exiting blockstored server')
-        try:
-            os.killpg(blockstored.pid, signal.SIGTERM)
-        except:
-            pass
-        sys.exit(1)
+    # wait for the API server to die (we kill it with `blockstored stop`)
+    blockstored.wait()
+    
+    # stop our indexer subprocess 
+    indexer_pid = None
+    
+    os.kill( indexer.pid, signal.SIGINT )
+    indexer.wait()
+    
+    logfile.flush()
+    logfile.close()
+    
+    # stop building new state if we're in the middle of it
+    db = get_state_engine()
+    virtualchain.stop_sync_virtualchain( db )
+    
+    return blockstored.returncode 
 
 
 def setup( return_parser=False ):
@@ -879,7 +993,7 @@ def run_blockstored():
    if args.action == 'start':
       
       if os.path.exists( get_pidfile_path() ):
-          log.error("Blockstored appears to be running already.  If not, please remove '%s'" % get_pidfile_path())
+          log.error("Blockstored appears to be running already.  If not, please run '%s stop'" % (sys.argv[0]))
           sys.exit(1)
           
       if args.foreground:
