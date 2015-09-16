@@ -28,7 +28,7 @@ import parsing
 import user
 import drivers
 
-from client import getinfo, get_user_record, ping, lookup
+from client import getinfo, get_name_record, ping, lookup
 from client import preorder, update, transfer, renew, revoke
 from client import namespace_preorder, namespace_reveal, namespace_ready
 from client import get_immutable, get_mutable
