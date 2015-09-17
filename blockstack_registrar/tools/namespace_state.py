@@ -581,6 +581,40 @@ def check_transfer_state():
         #print entry['username']
         #print '-' * 5
 
+def update_transfer_state():
+
+    counter = 0
+
+    for entry in registrar_state.find():
+
+        if 'needsTransfer' in entry and entry['needsTransfer'] is True:
+
+            profile = entry['profile']
+
+            #print entry['username']
+            #print entry['server']
+            #print '-' * 5
+            #continue
+
+            namecoind = NamecoindClient()
+
+            try:
+                resp = namecoind.name_show('u/' + entry['username'])
+            except Exception as e:
+                print e
+                continue
+            current_nmc_address = resp['address']
+
+            if current_nmc_address == entry['nmc_address']:
+                print entry['username']
+
+                entry['needsTransfer'] = False
+                registrar_state.save(entry)
+
+            counter += 1
+
+    print counter
+
 
 def dump_btc_state():
 
@@ -598,12 +632,10 @@ def dump_btc_state():
 
 if __name__ == '__main__':
 
+    update_transfer_state()
     #dump_btc_state()
-    check_total_users_in_states()  
-    #fix_nmc_state()
-    #fix_db()
+    #check_total_users_in_states()  
     #create_migration_state()
-    #model_pricing()
     #check_transfer_state()
     #compare_states()
     #process_registrar_state()
