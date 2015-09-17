@@ -297,13 +297,70 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
        
       
-   def get_all_names( self ):
+   def get_all_names( self, offset=None, count=None ):
       """
-      Get the set of all registered names
+      Get the set of all registered names, with optional pagination
+      Returns the list of names.
+      TODO: this is somewhat inefficient with offsets, since we have 
+      to sort the name set first.
       """
       
-      return self.name_records.keys()
+      if offset is None:
+          offset = 0
+          
+      if offset < 0:
+         raise Exception("Invalid offset %s" % offset)
+     
+      if offset >= len(self.name_records.keys()):
+         return []
+      
+      names = []
+      if count is None:
+         names = self.name_records.keys()[:]
+         names.sort()
+         
+      else:
+         names = sorted(self.name_records.keys())[offset:min(offset+count, len(self.name_records.keys()))]
+         names.sort()
+      
+      return dict( zip( names, [self.name_records[name] for name in names] ) )
    
+   
+   def get_names_in_namespace( self, namespace_id, offset=None, count=None ):
+      """
+      Get the set of all registered names in a particular namespace
+      TODO: this is somewhat inefficient since we have to scan through 
+      the whole name set.
+      """
+      
+      if offset is None:
+          offset = 0
+          
+      if offset < 0:
+          raise Exception("Invalid offset %s" % offset)
+      
+      if offset >= len(self.name_records.keys()):
+          return []
+      
+      all_names = self.name_records.keys()[:]
+      all_names.sort()
+      
+      namespace_names = []
+      
+      for name in all_names:
+          if get_namespace_from_name( name ) != namespace_id:
+              continue
+          
+          if offset == 0:
+              namespace_names.append( name )
+              if len(namespace_names) > count:
+                  break
+              
+          else:
+              offset -= 1 
+
+      return dict( zip( namespace_names, [self.name_records[name] for name in namespace_names] ) )
+  
    
    def get_namespace( self, namespace_id ):
       """
