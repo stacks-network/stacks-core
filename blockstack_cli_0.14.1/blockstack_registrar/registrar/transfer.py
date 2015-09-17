@@ -104,7 +104,11 @@ def transfer_key(username, transfer_address, live=False, server=None):
         namecoind = NamecoindClient(server)
 
     if(live):
-        print namecoind.name_transfer(key, transfer_address)
+        try:
+            print namecoind.name_transfer(key, transfer_address)
+        except Exception as e:
+            print e
+            print username
     else:
         print "Will transfer %s to %s" % (key, transfer_address)
 
