@@ -314,7 +314,6 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         reply['status'] = "alive"
         return reply
 
-
     def jsonrpc_lookup(self, name):
         """
         Lookup the profile for a name.
@@ -580,6 +579,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         log.debug("namespace_preorder <%s>" % (namespace_id))
         return resp 
     
+    
     def jsonrpc_namespace_reveal( self, namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey ):
         """
         Reveal and define the properties of a namespace.
@@ -629,7 +629,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         return resp
         
     
-    def jsonrpc_name_cost( self, name ):
+    def jsonrpc_get_name_cost( self, name ):
         """
         Return the cost of a given name, including fees
         Return value is in satoshis
@@ -649,7 +649,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         return {"satoshis": int(math.ceil(ret))}
         
         
-    def jsonrpc_namespace_cost( self, namespace_id ):
+    def jsonrpc_get_namespace_cost( self, namespace_id ):
         """
         Return the cost of a given namespace, including fees.
         Return value is in satoshis
@@ -682,6 +682,42 @@ class BlockstoredRPC(jsonrpc.JSONRPC):
         else:
             return ns
         
+    
+    def jsonrpc_get_all_names( self, offset, count ):
+        """
+        Return all names 
+        """
+        # are we doing our initial indexing?
+        if is_indexing():
+            return {"error": "Indexing blockchain"}
+        
+        db = get_state_engine()
+        return db.get_all_names( offset=offset, count=count )
+    
+    
+    def jsonrpc_get_names_in_namespace( self, namespace_id, offset, count ):
+        """
+        Return all names in a namespace
+        """
+        # are we doing our initial indexing?
+        if is_indexing():
+            return {"error": "Indexing blockchain"}
+        
+        db = get_state_engine()
+        return db.get_names_in_namespace( namespace_id, offset=offset, count=count )
+    
+    
+    def jsonrpc_get_consensus_at( self, block_id ):
+        """
+        Return the consensus hash at a block number 
+        """
+        # are we doing our initial indexing?
+        if is_indexing():
+            return {"error": "Indexing blockchain"}
+        
+        db = get_state_engine()
+        return db.get_consensus_at( block_id )
+    
         
 def run_indexer():
     """
