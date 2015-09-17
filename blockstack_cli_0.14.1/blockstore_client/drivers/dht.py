@@ -25,11 +25,6 @@ import os
 import sys
 import traceback
 
-import twisted
-from twisted.internet import reactor
-from twisted.application import service, internet
-import Queue
-
 import types
 import re
 import pybitcoin
