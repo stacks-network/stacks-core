@@ -31,8 +31,6 @@ import pybitcoin
 import socket
 from basicrpc import Proxy
 
-from kademlia.network import Server
-
 """ this module contains the plugin to blockstack that makes the DHT useful as
     ancillary storage. This depends on the blockstore server package, since it
     includes the DHT node implementation.
