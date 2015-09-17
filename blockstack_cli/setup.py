@@ -17,9 +17,10 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'pybitcoin>=0.8.2',
-        'kademlia>=0.5',
-        'boto>=2.38.0'
+        'pybitcoin>=0.9.5',
+        'boto>=2.38.0',
+        'basicrpc>=0.0.1',
+        'bitcoin>=1.1'
     ],
     classifiers=[
         'Intended Audience :: Developers',
