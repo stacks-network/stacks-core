@@ -23,6 +23,7 @@ This file is part of Registrar.
 """
 
 import json
+from time import sleep
 
 from pymongo import MongoClient
 
@@ -39,6 +40,7 @@ from registrar.config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD
 from registrar.config import NAMECOIND_USE_HTTPS, NAMECOIND_SERVER
 from registrar.config import NAMECOIND_WALLET_PASSPHRASE
 from registrar.config import MONGODB_URI, OLD_DB, AWSDB_URI, MONGOLAB_URI
+from registrar.config import IGNORE_USERNAMES
 
 
 namecoind = NamecoindClient(NAMECOIND_SERVER, NAMECOIND_PORT,
@@ -62,6 +64,9 @@ btc_state = namespace_db.btc_state
 nmc_state.ensure_index('username')
 registrar_state.ensure_index('username')
 
+migration_db = c['migration']
+migration_users = migration_db.migration_users
+
 
 def get_hash(profile):
 
@@ -81,7 +86,7 @@ def fix_db():
     db = c['namespace']
 
     print db.collection_names()
-    #print db.drop_collection('nmc_state')
+    #print db.drop_collection('btc_state')
 
 
 def create_test_namespace():
@@ -168,6 +173,88 @@ def check_test_namespace():
     #fout = open('output_file.txt', 'w')
 
     #fout.write(json.dumps(namespace))
+
+
+def check_total_users_in_states():
+
+    print "Total users nmc state: %s" % nmc_state.count()
+    print "Total users registrar state: %s" % registrar_state.count()
+    print "Total users btc state: %s" % btc_state.count()
+
+
+def fix_nmc_state():
+
+    for entry in nmc_state.find():
+
+        if 'nmc_address' not in entry:
+
+            resp = namecoind.name_show('u/' + entry['username'])
+
+            if 'code' in resp:
+                nmc_state.remove(entry)
+
+
+def create_migration_state():
+
+    for entry in migration_users.find():
+
+        check_entry = btc_state.find_one({"username": entry['username']})
+
+        if check_entry is not None:
+            print "%s already in btc_state" % entry['username']
+            continue
+
+        new_entry = {}
+        new_entry['username'] = entry['username']
+        new_entry['btc_address'] = entry['btc_address']
+        new_entry['profile'] = entry['profile']
+        new_entry['profile_hash'] = entry['profile_hash']
+
+        btc_state.insert(new_entry)
+
+    for entry in registrar_state.find():
+
+        check_entry = btc_state.find_one({"username": entry['username']})
+
+        if check_entry is not None:
+            print "%s already in btc_state" % entry['username']
+            continue
+
+        if 'needsTransfer' in entry and entry['needsTransfer'] is True:
+
+            new_entry = {}
+            new_entry['username'] = entry['username']
+            new_entry['btc_address'] = address_to_new_cryptocurrency(str(entry['nmc_address']), 0)
+            new_entry['profile'] = entry['profile']
+            new_entry['profile_hash'] = get_hash(entry['profile'])
+
+            btc_state.insert(new_entry)
+
+    for entry in nmc_state.find():
+
+        check_entry = btc_state.find_one({"username": entry['username']})
+
+        if check_entry is not None:
+            print "%s already in btc_state" % entry['username']
+            continue
+
+        if 'reservedByOnename' in entry and entry['reservedByOnename'] is False:
+
+            try:
+                new_entry = {}
+                new_entry['username'] = entry['username']
+                resp = namecoind.name_show('u/' + entry['username'])
+
+                new_entry['btc_address'] = address_to_new_cryptocurrency(str(entry['nmc_address']), 0)
+                new_entry['profile'] = entry['profile']
+                new_entry['profile_hash'] = entry['profile_hash']
+            except:
+                print "ERROR"
+                print entry
+            else:
+                btc_state.insert(new_entry)
+        else:
+            print entry
 
 
 def get_reserved_usernames():
@@ -364,9 +451,6 @@ def process_registrar_state():
 
 def compare_states():
 
-    print "Total users nmc state: %s" % nmc_state.count()
-    print "Total users registrar state: %s" % registrar_state.count()
-
     counter_not_registered = 0
 
     # check if registrar has pending registrations
@@ -388,8 +472,9 @@ def compare_states():
     # check if registrar's view matches nmc
 
     counter_profile_data_mismatch = 0
+    counter_send_profile_update = 0
 
-    for entry in registrar_state.find():
+    for entry in registrar_state.find(timeout=False):
 
         nmc_entry = nmc_state.find_one({"username": entry['username']})
 
@@ -397,10 +482,23 @@ def compare_states():
             continue
 
         if entry['profile_hash'] != nmc_entry['profile_hash']:
-            print entry['username']
+            #print entry['username']
             counter_profile_data_mismatch += 1
 
-    print counter_profile_data_mismatch
+            if 'needsTransfer' in entry and entry['needsTransfer'] is True:
+                counter_send_profile_update += 1
+                if entry['username'] in IGNORE_USERNAMES:
+                    continue
+                else:
+                    user = users.find_one({"username": entry['username']})
+                    print user['username']
+                    try:
+                        process_user(user['username'], user['profile'], new_address=user['namecoin_address'])
+                    except Exception as e:
+                        print e
+
+    print "Profile hash mismatch: %s" % counter_profile_data_mismatch
+    print "Registrar profiles to update: %s" % counter_send_profile_update
 
 
 def check_ownership_state():
@@ -424,9 +522,121 @@ def check_ownership_state():
     print counter_needs_transfer
     print counter_transferred
 
+
+def check_transfer_state():
+
+    from registrar.config import SERVER_FLEET, IGNORE_USERNAMES
+
+    servers = SERVER_FLEET
+
+    counter = 0
+
+    for entry in registrar_state.find(timeout=False):
+
+        counter += 1
+        #print counter
+
+        nmc_entry = nmc_state.find_one({"username": entry['username']})
+
+        if nmc_entry is None:
+            continue
+
+        if 'needsTransfer' in entry and entry['needsTransfer'] is True:
+            continue
+
+        if nmc_entry['nmc_address'] != entry['nmc_address']:
+
+            server_counter = 0
+
+            while(server_counter != len(servers)):
+
+                server = servers[server_counter]
+
+                #print server
+
+                namecoind = NamecoindClient(server)
+
+                try:
+                    resp = namecoind.validateaddress(nmc_entry['nmc_address'])
+                except Exception as e:
+                    print e
+                    print server
+                    server_counter += 1
+                    sleep(3)
+                    continue
+
+                if 'ismine' in resp and resp['ismine'] is True:
+                    entry['needsTransfer'] = True
+                    entry['server'] = server
+                    #print entry
+                    registrar_state.save(entry)
+                    break
+
+                server_counter += 1
+
+                if server_counter == 8:
+                    print entry['username']
+
+
+        #print entry['username']
+        #print '-' * 5
+
+def update_transfer_state():
+
+    counter = 0
+
+    for entry in registrar_state.find():
+
+        if 'needsTransfer' in entry and entry['needsTransfer'] is True:
+
+            profile = entry['profile']
+
+            #print entry['username']
+            #print entry['server']
+            #print '-' * 5
+            #continue
+
+            namecoind = NamecoindClient()
+
+            try:
+                resp = namecoind.name_show('u/' + entry['username'])
+            except Exception as e:
+                print e
+                continue
+            current_nmc_address = resp['address']
+
+            if current_nmc_address == entry['nmc_address']:
+                print entry['username']
+
+                entry['needsTransfer'] = False
+                registrar_state.save(entry)
+
+            counter += 1
+
+    print counter
+
+
+def dump_btc_state():
+
+    namespace = []
+
+    for entry in btc_state.find():
+        del entry['_id']
+        namespace.append(entry)
+
+    print namespace
+    fout = open('btc_state_v1.txt', 'w')
+
+    fout.write(json.dumps(namespace))
+    fout.close()
+
 if __name__ == '__main__':
 
-    temp_compare_states()
+    update_transfer_state()
+    #dump_btc_state()
+    #check_total_users_in_states()  
+    #create_migration_state()
+    #check_transfer_state()
     #compare_states()
     #process_registrar_state()
     #process_nmc_state()

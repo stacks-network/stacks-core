@@ -57,7 +57,8 @@ old_users = old_db.user
 aws_db = MongoClient(AWSDB_URI)['blockdata']
 register_queue = aws_db.queue
 
-load_servers = ['named4', 'named6', 'named7', 'named8']
+from registrar.config import LOAD_SERVERS
+load_servers = LOAD_SERVERS
 
 current_server = 0
 
@@ -197,7 +198,7 @@ def check_transfer():
             pass
         else:
             print "Problem: " + user["username"]
-            #import_user(user["username"])
+            import_user(user["username"])
             process_profile(user['username'], user['profile'])
 
 
@@ -266,24 +267,6 @@ def cleanup_db():
                 print "cleaning: " + user["username"]
                 transfer.remove(new_user)
 
-    for new_user in registrations.find():
-
-        user_id = new_user['user_id']
-        user = users.find_one({"_id":user_id})
-
-        if user is None:
-            continue
-
-        if check_banned(user['username']):
-            continue
-
-        try:
-            if profile_on_blockchain(user["username"], user["profile"]):
-                print "cleaning: " + user["username"]
-                registrations.remove(new_user)
-
-        except:
-            pass
     print "----------"
 
 
@@ -296,9 +279,6 @@ def get_pending_state():
 
 if __name__ == '__main__':
 
-    cleanup_db()
-    check_transfer()
-    update_users()
+    #cleanup_db()
+    #update_users()
     register_users()
-
-    #get_pending_state()
