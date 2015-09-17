@@ -1,12 +1,10 @@
+basicrpc==0.0.1
+bitcoin==1.1.36
+boto==2.38.0
 commontools==0.1.0
-ecdsa==0.11
-kademlia==0.5
-pybitcoin==0.8.2
+ecdsa==0.13
+pybitcoin==0.9.5
 pybitcointools==1.1.15
 python-bitcoinrpc==0.1
 requests==2.7.0
-rpcudp==1.0
-Twisted==15.3.0
-u-msgpack-python==2.1
 utilitybelt==0.2.6
-zope.interface==4.1.2
