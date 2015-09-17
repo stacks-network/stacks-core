@@ -54,6 +54,8 @@ from registrar.config import NAMECOIND_WALLET_PASSPHRASE
 from registrar.config import NAMECOIND_UPDATE_SERVER
 from commontools import get_json, log
 
+from registrar.config import SERVER_FLEET
+from pybitcoin.rpc.namecoind_cluster import pending_transactions
 
 remote_client = MongoClient(MONGODB_URI)
 
@@ -77,6 +79,22 @@ reservation = remote_db.username_reservation
 def print_user(user):
     for key, value in user.iteritems():
         print key + " : " + str(value)
+
+
+def check_pending_tx():
+
+    counter_total = 0
+
+    for server in SERVER_FLEET:
+        print server
+        try:
+            count = int(pending_transactions(server))
+            print count
+            counter_total += count
+        except Exception as e:
+            print e
+
+    return counter_total
 
 
 def cleanup_user(username):

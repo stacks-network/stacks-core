@@ -111,6 +111,25 @@ def get_expiring_names(regrex, expires_in):
 
 
 # -----------------------------------
+def get_recent_names(regrex, updated_in):
+
+    expiring_names = []
+    reply = namecoind.name_filter(regrex, updated_in)
+
+    counter = 0
+    for i in reply:
+        expiring_names.append(i)
+        print i['name']
+        print i['expires_in']
+        counter += 1
+
+    print '-' * 5
+    print "Total updated in " + str(updated_in) + " blocks: " + str(counter)
+
+    return expiring_names
+
+
+# -----------------------------------
 def get_expired_names(regrex):
 
     expired_names = []
@@ -191,7 +210,7 @@ def re_register(current_server):
 
             profile = get_json(new_user['profile'])
             try:
-                process_user(username, profile, current_server)
+                process_user(username, profile, current_server, new_address=new_user['namecoind_address'])
             except Exception as e:
                 print e
             print '-' * 5
@@ -205,7 +224,7 @@ def re_register(current_server):
             profile = get_json(old_user['profile'])
 
             try:
-                process_user(username, profile, current_server)
+                process_user(username, profile, current_server, new_address=old_user['namecoind_address'])
             except Exception as e:
                 print e
 
@@ -217,6 +236,10 @@ def re_register(current_server):
 
         try:
             if 'status' in profile and profile['status'] == 'reserved':
+
+                profile = profile.replace('username', 'blockchain ID')
+                profile = profile.replace('reservations@onename.io', 'support@onename.com')
+
                 try:
                     process_user(username, profile, current_server)
                 except Exception as e:
