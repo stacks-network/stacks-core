@@ -137,7 +137,13 @@ class BlockstoreRPCClient(object):
                     raise Exception("Invalid response: message too big")
 
         # receive message
-        response = self.sock.recv(buf_len+1)
+        num_received = 0
+        response = ""
+        
+        while num_received < buf_len+1:
+            buf = self.sock.recv( 4096 )
+            num_received += len(buf)
+            response += buf
 
         # ensure that the message is terminated with a comma
         if response[-1] != ',':
@@ -403,6 +409,35 @@ def get_namespace_cost( namespace_id, proxy=None ):
 
     return proxy.get_namespace_cost(namespace_id)
 
+
+def get_all_names( offset, count, proxy=None ):
+    """
+    get all names
+    """
+    if proxy is None:
+        proxy = get_default_proxy()
+    
+    return proxy.get_all_names( offset, count )
+
+
+def get_names_in_namespace( namespace_id, offset, count, proxy=None ):
+    """
+    Get names in a namespace 
+    """
+    if proxy is None:
+        proxy = get_default_proxy()
+        
+    return proxy.get_names_in_namespace( namespace_id, offset, count )
+
+
+def get_consensus_at( block_id, proxy=None ):
+    """
+    Get consensus at a block 
+    """
+    if proxy is None:
+        proxy = get_default_proxy()
+    
+    return proxy.get_consensus_at( block_id )
 
 def lookup(name, proxy=None):
     """
