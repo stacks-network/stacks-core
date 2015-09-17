@@ -34,7 +34,7 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
-from blockstore import config, client, schemas, parsing, user, storage, drivers
+from blockstore_client import config, client, schemas, parsing, user, storage, drivers
 
 log = config.log
 
