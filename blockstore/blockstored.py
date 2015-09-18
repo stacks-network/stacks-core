@@ -994,7 +994,15 @@ def setup( return_parser=False ):
       return argparser 
    else:
       return None
-   
+  
+  
+def reconfigure():
+   """
+   Reconfigure blockstored.
+   """
+   configure( force=True )
+   print "Blockstore successfully reconfigured."
+   sys.exit(0)
 
 def run_blockstored():
    """
@@ -1017,6 +1025,10 @@ def run_blockstored():
    parser_server = subparsers.add_parser(
       'stop',
       help='stop the blockstored server')
+   
+   parser_server = subparsers.add_parser(
+      'reconfigure',
+      help='reconfigure the blockstored server')
    
    parser_server = subparsers.add_parser(
       'indexer',
@@ -1046,6 +1058,9 @@ def run_blockstored():
    elif args.action == 'stop':
       stop_server()
 
+   elif args.action == 'reconfigure':
+      reconfigure()
+   
    elif args.action == 'indexer':
       run_indexer()
 
