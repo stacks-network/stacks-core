@@ -80,4 +80,12 @@ def parse(bin_payload):
        'opcode': 'NAME_REVOKE',
        'name': fqn
     }
- 
+
+
+def serialize( nameop ):
+    """
+    Convert the set of data obtained from parsing the revoke into a unique string.
+    """
+    
+    return NAME_REVOKE + ":" + nameop['name']
+

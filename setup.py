@@ -18,14 +18,14 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstore. If not, see <http://www.gnu.org/licenses/>.
 """
 
 from setuptools import setup, find_packages
 
 setup(
     name='blockstore',
-    version='0.0.3',
+    version='0.0.4',
     url='https://github.com/blockstack/blockstore',
     license='GPLv3',
     author='Blockstack.org',
@@ -39,7 +39,8 @@ setup(
     include_package_data=True,
     install_requires=[
         'virtualchain>=0.0.1',
-        'kademlia>=0.5'
+        'kademlia>=0.5',
+        'keychain>=0.1.3'
     ],
     classifiers=[
         'Intended Audience :: Developers',

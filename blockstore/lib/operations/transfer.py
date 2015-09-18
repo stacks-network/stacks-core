@@ -160,3 +160,12 @@ def parse(bin_payload, recipient):
         'recipient': recipient,
         'keep_data': disposition
     }
+
+
+def serialize( nameop ):
+    """
+    Convert the set of data obtained from parsing the transfer into a unique string.
+    """
+    
+    return NAME_TRANSFER + ":" + nameop['nam_hash'] + "," + nameop['consensus_hash'] + "," + nameop['recipient'] + "," + str(nameop['keep_data'])
+

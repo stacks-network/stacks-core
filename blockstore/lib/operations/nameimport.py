@@ -128,8 +128,11 @@ def make_outputs( data, inputs, recipient_address, sender_address, update_hash_b
     ]
 
 
-def broadcast(name, recipient_address, update_hash, private_key, blockchain_client, testset=False):
+def broadcast(name, recipient_address, update_hash, private_key, blockchain_client, blockchain_broadcaster=None, testset=False):
    
+    if blockchain_broadcaster is None:
+        blockchain_broadcaster = blockchain_client 
+        
     nulldata = build(name, testset=testset)
     
     # get inputs and from address
@@ -142,7 +145,7 @@ def broadcast(name, recipient_address, update_hash, private_key, blockchain_clie
     outputs = make_outputs(nulldata, inputs, recipient_address, from_address, update_hash_b58, format='hex')
     
     # serialize, sign, and broadcast the tx
-    response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_client)
+    response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_broadcaster)
     
     # response = {'success': True }
     response.update({'data': nulldata})
@@ -164,3 +167,11 @@ def parse(bin_payload, recipient, update_hash ):
         'recipient': hexlify(recipient),
         'update_hash': hexlify(update_hash)
     }
+
+
+def serialize( nameop ):
+    """
+    Convert the set of data obtained from parsing the name import into a unique string.
+    """
+    
+    return NAME_IMPORT + ":" + nameop['name'] + "," + nameop['recipient'] + "," + nameop['update_hash']

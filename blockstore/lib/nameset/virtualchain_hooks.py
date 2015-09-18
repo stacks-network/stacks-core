@@ -27,12 +27,17 @@ import os
 from binascii import hexlify, unhexlify
 import time
 
-from .namedb import BlockstoreDB, BlockstoreDBIterator
+import pybitcoin 
+import traceback
+
+from .namedb import BlockstoreDB
 
 from ..config import *
 from ..operations import parse_preorder, parse_registration, parse_update, parse_transfer, parse_revoke, \
     parse_name_import, parse_namespace_preorder, parse_namespace_reveal, parse_namespace_ready, \
-    get_transfer_recipient_from_outputs, get_import_update_hash_from_outputs, get_registration_recipient_from_outputs
+    get_transfer_recipient_from_outputs, get_import_update_hash_from_outputs, get_registration_recipient_from_outputs, \
+    serialize_namespace_preorder, serialize_namespace_reveal, serialize_namespace_ready, serialize_preorder, serialize_registration, \
+    serialize_update, serialize_transfer, serialize_revoke, serialize_name_import
 
 import virtualchain
 
@@ -58,8 +63,6 @@ def get_burn_fee_from_outputs( outputs ):
         output_hex = output_script.get('hex')
         output_addresses = output_script.get('addresses')
         
-        print output
-        
         if output_asm[0:9] != 'OP_RETURN' and BLOCKSTORE_BURN_ADDRESS == output_addresses[0]:
             
             # recipient's script_pubkey and address
@@ -68,6 +71,44 @@ def get_burn_fee_from_outputs( outputs ):
     
     return ret 
     
+
+def get_public_key_hex_from_tx( inputs, address ):
+    """
+    Given a list of inputs and outputs and the address of one of the inputs,
+    find the public key.
+    """
+    
+    ret = None 
+    
+    for inp in inputs:
+        
+        input_scriptsig = inp.get('scriptSig', None )
+        if input_scriptsig is None:
+            continue 
+        
+        input_asm = input_scriptsig.get("asm")
+        
+        if len(input_asm.split(" ")) >= 2:
+            
+            # public key is the second hex string.  verify it matches the address
+            pubkey_hex = input_asm.split(" ")[1]
+            pubkey = None 
+            
+            try:
+                pubkey = pybitcoin.BitcoinPublicKey( str(pubkey_hex) ) 
+            except Exception, e: 
+                traceback.print_exc()
+                log.warning("Invalid public key '%s'" % pubkey_hex)
+                continue 
+            
+            if address != pubkey.address():
+                continue 
+            
+            ret = pubkey_hex
+            break
+        
+    return ret 
+
 
 def parse_blockstore_op_data( opcode, payload, sender, recipient=None, recipient_address=None, import_update_hash=None ):
     """
@@ -217,7 +258,7 @@ def get_db_state():
    return blockstore_db
 
 
-def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
+def db_parse( block_id, opcode, data, senders, inputs, outputs, fee, db_state=None ):
    """
    (required by virtualchain state engine)
    
@@ -229,6 +270,7 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
    * "address": the sender's bitcoin address
    * "fee": the total fee paid for this record.
    * "recipient": the first non-OP_RETURN output's script_pubkey.
+   * "sender_pubkey": the sender's public key (hex string)
    
    NOTE: the transactions that our tools put have a single sender, and a single output address.
    This is assumed by this code.  An exception will be raised if these criteria are not met.
@@ -238,6 +280,7 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
    recipient = None
    import_update_hash = None
    address = None
+   sender_pubkey_hex = None
    
    if len(senders) == 0:
       raise Exception("No senders for (%s, %s)" % (opcode, hexlify(data)))
@@ -253,9 +296,14 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
    
    sender = str(senders[0]['script_pubkey'])
    address = str(senders[0]['addresses'][0])
+   sender_pubkey_hex = get_public_key_hex_from_tx( inputs, address )
+   
+   if sender_pubkey_hex is None:
+      raise Exception("Could not determine public key for '%s'" % address)
    
    recipient = None 
    recipient_address = None 
+   
    op_fee = get_burn_fee_from_outputs( outputs )
    
    if opcode in [NAME_REGISTRATION, NAMESPACE_REVEAL]:
@@ -296,7 +344,7 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
       if op_fee is not None:
          op['op_fee'] = op_fee 
       
-      # sender script_pubkey and change address
+      # sender script_pubkey, change address, and sender's public key
       op['sender'] = sender 
       op['address'] = address 
       
@@ -306,6 +354,9 @@ def db_parse( block_id, opcode, data, senders, outputs, fee, db_state=None ):
       if recipient_address is not None:
          op['recipient_address'] = recipient_address
       
+      if sender_pubkey_hex is not None:
+         op['sender_pubkey'] = sender_pubkey_hex
+         
    return op
 
 
@@ -378,74 +429,124 @@ def db_commit( block_id, opcode, op, db_state=None ):
    part of the database.  This does *not* need to write 
    the data to persistent storage, since save() will be 
    called once per block processed.
+   
+   Return True if the state of the virtual chain has changed.
+   Return False if not.
    """
    
    if db_state is not None:
       
       db = db_state
       
-      if opcode not in OPCODES:
-         log.error("Unrecognized opcode '%s'" % (opcode))
-         return False 
+      if opcode is not None:
+
+        # committing an operation
+        if opcode not in OPCODES:
+            log.error("Unrecognized opcode '%s'" % (opcode))
+            return False 
+
+        log.debug("COMMIT op '%s' (%s)" % (opcode, op))
+            
+        if opcode == NAME_PREORDER:
+            db.commit_preorder( op, block_id )
+
+        elif opcode == NAME_REGISTRATION:
+            db.commit_registration( op, block_id )
+
+        elif opcode == NAME_UPDATE:
+            db.commit_update( op, block_id )
+
+        elif opcode == NAME_TRANSFER:
+            db.commit_transfer( op, block_id )
+
+        elif opcode == NAME_REVOKE:
+            db.commit_revoke( op, block_id )
+            
+        elif opcode == NAME_IMPORT:
+            db.commit_name_import( op, block_id )
+            
+        elif opcode == NAMESPACE_PREORDER:
+            db.commit_namespace_preorder( op, block_id )
+            
+        elif opcode == NAMESPACE_REVEAL:
+            db.commit_namespace_reveal( op, block_id )
+
+        elif opcode == NAMESPACE_READY:
+            db.commit_namespace_ready( op, block_id )
       
-      log.debug("COMMIT op '%s' (%s)" % (opcode, op))
-         
-      if opcode == NAME_PREORDER:
-         db.commit_preorder( op, block_id )
-      
-      elif opcode == NAME_REGISTRATION:
-         db.commit_registration( op, block_id )
-      
-      elif opcode == NAME_UPDATE:
-         db.commit_update( op, block_id )
-      
-      elif opcode == NAME_TRANSFER:
-         db.commit_transfer( op, block_id )
-      
-      elif opcode == NAME_REVOKE:
-         db.commit_revoke( op, block_id )
-         
-      elif opcode == NAME_IMPORT:
-         db.commit_name_import( op, block_id )
-         
-      elif opcode == NAMESPACE_PREORDER:
-         db.commit_namespace_preorder( op, block_id )
-         
-      elif opcode == NAMESPACE_REVEAL:
-         db.commit_namespace_reveal( op, block_id )
-      
-      elif opcode == NAMESPACE_READY:
-         db.commit_namespace_ready( op, block_id )
-         
-      return True
-   
+      else:
+
+        # last commit before save
+        # do expirations
+        log.debug("Clear all expired names at %s" % block_id )
+        db.commit_name_expire_all( block_id )
+        
+        log.debug("Clear all expired preorders at %s" % block_id )
+        db.commit_preorder_expire_all( block_id )
+        
+        log.debug("Clear all expired namespace preorders at %s" % block_id )
+        db.commit_namespace_preorder_expire_all( block_id )
+        
+        log.debug("Clear all expired partial namespace imports at %s" % block_id )
+        db.commit_namespace_reveal_expire_all( block_id )
+        
    else:
       log.error("No state engine defined")
       return False
+  
+   return True
 
 
-def db_iterable( block_id, db_state=None ):
+def db_serialize( op, nameop, db_state=None ):
    """
    (required by virtualchain state engine)
    
-   Return an iterable that, when iterated upon, will 
-   walk through all currently-valid (non-expired) name records 
-   and namespace metadata, in order.
+   Serialize a given name operation
    """
    
    if db_state is not None:
          
-      db = db_state 
-      db_iterator = BlockstoreDBIterator( db )
+      sr = None
       
-      return db_iterator
+      if op == NAMESPACE_PREORDER:
+          sr = serialize_namespace_preorder( nameop )
+      
+      elif op == NAMESPACE_REVEAL:
+          sr = serialize_namespace_reveal( nameop )
+      
+      elif op == NAMESPACE_READY:
+          sr = serialize_namespace_ready( nameop )
+      
+      elif op == NAME_PREORDER:
+          sr = serialize_preorder( nameop )
+      
+      elif op == NAME_REGISTRATION:
+          sr = serialize_registration( nameop )
+      
+      elif op == NAME_UPDATE:
+          sr = serialize_update( nameop )
+      
+      elif op == NAME_TRANSFER:
+          sr = serialize_transfer( nameop )
+      
+      elif op == NAME_REVOKE:
+          sr = serialize_revoke( nameop )
+      
+      elif op == NAME_IMPORT:
+          sr = serialize_name_import( nameop )
+      
+      else:
+          log.error("Unrecognized opcode '%s'" % op)
+          return None 
+      
+      return sr
    
    else:
       log.error("No state engine defined")
       return []
 
 
-def db_save( block_id, filename, db_state=None ):
+def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
    """
    (required by virtualchain state engine)
    
@@ -462,20 +563,16 @@ def db_save( block_id, filename, db_state=None ):
    # remove expired names before saving
    if db is not None:
       
-      # do expirations
-      log.debug("Clear all expired names at %s" % block_id )
-      db.commit_name_expire_all( block_id )
+      # see if anything actually changed 
+      if len(pending_ops) > 0:
+          
+          # state has changed 
+          return db.save_db( filename )
       
-      log.debug("Clear all expired preorders at %s" % block_id )
-      db.commit_preorder_expire_all( block_id )
-      
-      log.debug("Clear all expired namespace preorders at %s" % block_id )
-      db.commit_namespace_preorder_expire_all( block_id )
-      
-      log.debug("Clear all expired partial namespace imports at %s" % block_id )
-      db.commit_namespace_reveal_expire_all( block_id )
-      
-      return db.save_db( filename )
+      else:
+          
+          # all good 
+          return True
    
    else:
       log.error("No state engine defined")

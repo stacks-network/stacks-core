@@ -77,3 +77,12 @@ def parse( bin_payload ):
       'opcode': 'NAMESPACE_READY',
       'namespace_id': namespace_id
    }
+
+
+def serialize( nameop ):
+    """
+    Convert the set of data obtained from parsing the namespace_ready into a unique string.
+    """
+    
+    return NAMESPACE_READY + ":" + nameop['namespace_id']
+
