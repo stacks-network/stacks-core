@@ -30,12 +30,14 @@ import time
 import pybitcoin 
 import traceback
 
-from .namedb import BlockstoreDB, BlockstoreDBIterator
+from .namedb import BlockstoreDB
 
 from ..config import *
 from ..operations import parse_preorder, parse_registration, parse_update, parse_transfer, parse_revoke, \
     parse_name_import, parse_namespace_preorder, parse_namespace_reveal, parse_namespace_ready, \
-    get_transfer_recipient_from_outputs, get_import_update_hash_from_outputs, get_registration_recipient_from_outputs
+    get_transfer_recipient_from_outputs, get_import_update_hash_from_outputs, get_registration_recipient_from_outputs, \
+    serialize_namespace_preorder, serialize_namespace_reveal, serialize_namespace_ready, serialize_preorder, serialize_registration, \
+    serialize_update, serialize_transfer, serialize_revoke, serialize_name_import
 
 import virtualchain
 
@@ -427,74 +429,124 @@ def db_commit( block_id, opcode, op, db_state=None ):
    part of the database.  This does *not* need to write 
    the data to persistent storage, since save() will be 
    called once per block processed.
+   
+   Return True if the state of the virtual chain has changed.
+   Return False if not.
    """
    
    if db_state is not None:
       
       db = db_state
       
-      if opcode not in OPCODES:
-         log.error("Unrecognized opcode '%s'" % (opcode))
-         return False 
+      if opcode is not None:
+
+        # committing an operation
+        if opcode not in OPCODES:
+            log.error("Unrecognized opcode '%s'" % (opcode))
+            return False 
+
+        log.debug("COMMIT op '%s' (%s)" % (opcode, op))
+            
+        if opcode == NAME_PREORDER:
+            db.commit_preorder( op, block_id )
+
+        elif opcode == NAME_REGISTRATION:
+            db.commit_registration( op, block_id )
+
+        elif opcode == NAME_UPDATE:
+            db.commit_update( op, block_id )
+
+        elif opcode == NAME_TRANSFER:
+            db.commit_transfer( op, block_id )
+
+        elif opcode == NAME_REVOKE:
+            db.commit_revoke( op, block_id )
+            
+        elif opcode == NAME_IMPORT:
+            db.commit_name_import( op, block_id )
+            
+        elif opcode == NAMESPACE_PREORDER:
+            db.commit_namespace_preorder( op, block_id )
+            
+        elif opcode == NAMESPACE_REVEAL:
+            db.commit_namespace_reveal( op, block_id )
+
+        elif opcode == NAMESPACE_READY:
+            db.commit_namespace_ready( op, block_id )
       
-      log.debug("COMMIT op '%s' (%s)" % (opcode, op))
-         
-      if opcode == NAME_PREORDER:
-         db.commit_preorder( op, block_id )
-      
-      elif opcode == NAME_REGISTRATION:
-         db.commit_registration( op, block_id )
-      
-      elif opcode == NAME_UPDATE:
-         db.commit_update( op, block_id )
-      
-      elif opcode == NAME_TRANSFER:
-         db.commit_transfer( op, block_id )
-      
-      elif opcode == NAME_REVOKE:
-         db.commit_revoke( op, block_id )
-         
-      elif opcode == NAME_IMPORT:
-         db.commit_name_import( op, block_id )
-         
-      elif opcode == NAMESPACE_PREORDER:
-         db.commit_namespace_preorder( op, block_id )
-         
-      elif opcode == NAMESPACE_REVEAL:
-         db.commit_namespace_reveal( op, block_id )
-      
-      elif opcode == NAMESPACE_READY:
-         db.commit_namespace_ready( op, block_id )
-         
-      return True
-   
+      else:
+
+        # last commit before save
+        # do expirations
+        log.debug("Clear all expired names at %s" % block_id )
+        db.commit_name_expire_all( block_id )
+        
+        log.debug("Clear all expired preorders at %s" % block_id )
+        db.commit_preorder_expire_all( block_id )
+        
+        log.debug("Clear all expired namespace preorders at %s" % block_id )
+        db.commit_namespace_preorder_expire_all( block_id )
+        
+        log.debug("Clear all expired partial namespace imports at %s" % block_id )
+        db.commit_namespace_reveal_expire_all( block_id )
+        
    else:
       log.error("No state engine defined")
       return False
+  
+   return True
 
 
-def db_iterable( block_id, db_state=None ):
+def db_serialize( op, nameop, db_state=None ):
    """
    (required by virtualchain state engine)
    
-   Return an iterable that, when iterated upon, will 
-   walk through all currently-valid (non-expired) name records 
-   and namespace metadata, in order.
+   Serialize a given name operation
    """
    
    if db_state is not None:
          
-      db = db_state 
-      db_iterator = BlockstoreDBIterator( db )
+      sr = None
       
-      return db_iterator
+      if op == NAMESPACE_PREORDER:
+          sr = serialize_namespace_preorder( nameop )
+      
+      elif op == NAMESPACE_REVEAL:
+          sr = serialize_namespace_reveal( nameop )
+      
+      elif op == NAMESPACE_READY:
+          sr = serialize_namespace_ready( nameop )
+      
+      elif op == NAME_PREORDER:
+          sr = serialize_preorder( nameop )
+      
+      elif op == NAME_REGISTRATION:
+          sr = serialize_registration( nameop )
+      
+      elif op == NAME_UPDATE:
+          sr = serialize_update( nameop )
+      
+      elif op == NAME_TRANSFER:
+          sr = serialize_transfer( nameop )
+      
+      elif op == NAME_REVOKE:
+          sr = serialize_revoke( nameop )
+      
+      elif op == NAME_IMPORT:
+          sr = serialize_name_import( nameop )
+      
+      else:
+          log.error("Unrecognized opcode '%s'" % op)
+          return None 
+      
+      return sr
    
    else:
       log.error("No state engine defined")
       return []
 
 
-def db_save( block_id, filename, db_state=None ):
+def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
    """
    (required by virtualchain state engine)
    
@@ -511,20 +563,16 @@ def db_save( block_id, filename, db_state=None ):
    # remove expired names before saving
    if db is not None:
       
-      # do expirations
-      log.debug("Clear all expired names at %s" % block_id )
-      db.commit_name_expire_all( block_id )
+      # see if anything actually changed 
+      if len(pending_ops) > 0:
+          
+          # state has changed 
+          return db.save_db( filename )
       
-      log.debug("Clear all expired preorders at %s" % block_id )
-      db.commit_preorder_expire_all( block_id )
-      
-      log.debug("Clear all expired namespace preorders at %s" % block_id )
-      db.commit_namespace_preorder_expire_all( block_id )
-      
-      log.debug("Clear all expired partial namespace imports at %s" % block_id )
-      db.commit_namespace_reveal_expire_all( block_id )
-      
-      return db.save_db( filename )
+      else:
+          
+          # all good 
+          return True
    
    else:
       log.error("No state engine defined")

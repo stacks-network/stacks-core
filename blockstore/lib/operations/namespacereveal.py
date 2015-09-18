@@ -281,3 +281,20 @@ def parse( bin_payload, sender, recipient_address ):
       'namespace_id_hash': namespace_id_hash
    }
 
+
+def serialize( nameop ):
+    """
+    Convert the set of data obtained from parsing the namespace_reveal into a unique string.
+    """
+    
+    bucket_str = ",".join( [str(i) for i in nameop['buckets']] )
+    return NAMESPACE_REVEAL + ":" + nameop['namespace_id'] + "," + \
+                                    str(nameop['lifetime']) + "," + \
+                                    str(nameop['coeff']) + "," + \
+                                    str(nameop['base']) + "," + \
+                                    bucket_str + "," + \
+                                    str(nameop['version']) + "," + \
+                                    str(nameop['nonalpha_discount']) + "," + \
+                                    str(nameop['no_vowel_discount']) 
+                          
+                                  
