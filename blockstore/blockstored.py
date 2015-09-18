@@ -1004,6 +1004,50 @@ def reconfigure():
    print "Blockstore successfully reconfigured."
    sys.exit(0)
 
+
+def clean( confirm=True ):
+    """
+    Remove blockstore's db, lastblock, and snapshot files.
+    Prompt for confirmation 
+    """
+   
+    delete = False 
+    exit_status = 0
+    
+    if confirm:
+        warning = "WARNING: THIS WILL DELETE YOUR BLOCKSTORE DATABASE!\n"
+        warning+= "Are you sure you want to proceed?\n"
+        warning+= "Type 'YES' if so: "
+        value = raw_input( warning )
+        
+        if value != "YES":
+            sys.exit(exit_status)
+        
+        else:
+            delete = True 
+       
+    else:
+        delete = True 
+        
+    
+    if delete:
+        print "Deleting..."
+       
+        db_filename = virtualchain.get_db_filename()
+        lastblock_filename = virtualchain.get_lastblock_filename()
+        snapshots_filename = virtualchain.get_snapshots_filename()
+        
+        for path in [db_filename, lastblock_filename, snapshots_filename]:
+            try:
+                os.unlink( path )
+            except:
+                log.warning("Unable to delete '%s'" % path)
+                exit_status = 1
+                
+    sys.exit(exit_status)
+           
+   
+
 def run_blockstored():
    """
    run blockstored
@@ -1029,6 +1073,13 @@ def run_blockstored():
    parser_server = subparsers.add_parser(
       'reconfigure',
       help='reconfigure the blockstored server')
+   
+   parser_server = subparsers.add_parser(
+      'clean',
+      help='remove all blockstore database information')
+   parser_server.add_argument(
+      '--force', action='store_true',
+      help='Do not confirm the request to delete.')
    
    parser_server = subparsers.add_parser(
       'indexer',
@@ -1061,6 +1112,9 @@ def run_blockstored():
    elif args.action == 'reconfigure':
       reconfigure()
    
+   elif args.action == 'clean':
+      clean( not args.force )
+      
    elif args.action == 'indexer':
       run_indexer()
 
