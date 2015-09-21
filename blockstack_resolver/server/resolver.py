@@ -28,6 +28,7 @@ import pylibmc
 
 from flask import Flask, make_response, jsonify, abort, request
 from time import time
+from basicrpc import Proxy
 
 from .proofcheck import profile_to_proofs
 from .crossdomain import crossdomain
@@ -37,6 +38,8 @@ from .config import DEFAULT_HOST, MEMCACHED_SERVERS, MEMCACHED_USERNAME
 from .config import MEMCACHED_PASSWORD, MEMCACHED_TIMEOUT, MEMCACHED_ENABLED
 from .config import USERSTATS_TIMEOUT
 from .config import VALID_BLOCKS, RECENT_BLOCKS
+from .config import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
+from .config import DHT_MIRROR, DHT_MIRROR_PORT
 
 app = Flask(__name__)
 
@@ -44,6 +47,10 @@ mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
                     username=MEMCACHED_USERNAME, password=MEMCACHED_PASSWORD,
                     behaviors={"no_block": True,
                                "connect_timeout": 500})
+
+
+dht_client = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
+blockstore_client = Proxy(BLOCKSTORED_SERVER, BLOCKSTORED_PORT)
 
 
 def username_is_valid(username):
@@ -111,10 +118,13 @@ def get_user_profile(username, refresh=False):
 
     username = username.lower()
 
-    check_entry = profiles.find({"username": username}).limit(1)
+    resp = blockstore_client.lookup(username + ".id")
+    resp = resp[0]
 
-    if check_entry.count() == 0:
+    if resp is None:
         abort(404)
+
+    profile_hash = resp['value_hash']
 
     if MEMCACHED_ENABLED:
         cache_reply = mc.get("profile_" + str(username))
@@ -125,7 +135,9 @@ def get_user_profile(username, refresh=False):
 
         info = {}
 
-        profile = profiles.find_one({"username": username})['profile']
+        dht_resp = dht_client.get(profile_hash)
+        dht_resp = dht_resp[0]
+        profile = json.loads(dht_resp['value'])
 
         if 'error' in profile:
             info['profile'] = None
@@ -151,7 +163,8 @@ def get_users(usernames):
     reply = {}
 
     if usernames is None:
-        return jsonify(error_reply("No usernames given"))
+        reply['error'] = "No usernames given"
+        return jsonify(reply)
 
     if ',' not in usernames:
 
@@ -168,7 +181,8 @@ def get_users(usernames):
     try:
         usernames = usernames.rsplit(',')
     except:
-        return jsonify(error_reply("Invalid input format"))
+        reply['error'] = "Invalid input format"
+        return jsonify(reply)
 
     for username in usernames:
 
