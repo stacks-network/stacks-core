@@ -1,0 +1,9 @@
+Flask==0.10.1
+Jinja2==2.8
+MarkupSafe==0.23
+Werkzeug==0.10.4
+basicrpc==0.0.1
+beautifulsoup4==4.4.0
+itsdangerous==0.24
+pylibmc==1.5.0
+requests==2.7.0
