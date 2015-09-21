@@ -1,6 +1,7 @@
 # Blockstore: Name Registrations on the Bitcoin Blockchain
 
-[![PyPI](https://img.shields.io/pypi/v/blockstore.svg?style=flat-square)](https://pypi.python.org/pypi/blockstore/)[![PyPI](https://img.shields.io/pypi/dm/blockstore.svg?style=flat-square)](https://pypi.python.org/pypi/blockstore/)[![Slack](http://slack.blockstack.org/badge.svg?style=flat-square)](http://slack.blockstack.org/)
+[![PyPI](https://img.shields.io/pypi/v/blockstore.svg?style=flat-square)](https://pypi.python.org/pypi/blockstore/)[![PyPI](https://img.shields.io/pypi/dm/blockstore.svg?style=flat-square)](https://pypi.python.org/pypi/blockstore/)
+[![Slack](http://slack.blockstack.org/badge.svg?style=flat-square)](http://slack.blockstack.org/)
 
 Blockstore enables human-readable name registrations on the Bitcoin blockchain, along with the ability to store associated data in external datastores. You can use it to register globally unique names, associate data with those names, and transfer them between Bitcoin addresses. Anyone can perform lookups on those names and securely obtain the data associated with them.
 
@@ -23,6 +24,69 @@ The docker image comes pre-populated with a snapshot that was processed till a r
 pip install blockstore
 ```
 (currently installs v0.0.3, see note about next release above)
+
+### What's included
+
+Within the install you'll find the following directories and files. You'll see something like this:
+
+```
+blockstore/
+├── bin/
+│   ├── blockstored
+│   └── README.md
+├── blockstore/
+│   ├── __init__.py
+│   ├── blockmirrord.py
+│   ├── blockmirrord.tac
+│   ├── blockstore.tac
+│   ├── blockstored.py
+│   ├── build_nameset.py
+│   ├── coinkit.patch
+│   ├── dht/
+│   │   ├── __init__.py
+│   │   ├── image/
+│   │   │   ├── Dockerfile
+│   │   │   └── README.md
+│   │   ├── plugin.py
+│   │   ├── README.md
+│   │   ├── server.tac
+│   │   ├── storage.py
+│   │   └── test.py
+│   ├── lib/
+│   │   ├── __init__.py
+│   │   ├── b40.py
+│   │   ├── config.py
+│   │   ├── hashing.py
+│   │   ├── nameset/
+│   │   │   ├── __init__.py
+│   │   │   ├── namedb.py
+│   │   │   └── virtualchain_hooks.py
+│   │   ├── operations/
+│   │   │   ├── __init__.py
+│   │   │   ├── nameimport.py
+│   │   │   ├── namespacepreorder.py
+│   │   │   ├── namespaceready.py
+│   │   │   ├── namespacereveal.py
+│   │   │   ├── preorder.py
+│   │   │   ├── register.py
+│   │   │   ├── revoke.py
+│   │   │   ├── transfer.py
+│   │   │   └── update.py
+│   │   ├── README.md
+│   │   └── scripts.py
+│   ├── tests/
+│   │   └── unit_tests.py
+│   └── TODO.txt
+├── Dockerfile
+├── images/
+│   └── Dockerfile
+├── LICENSE
+├── MANIFEST.in
+├── README.md
+├── requirements.txt
+└── setup.py
+```
+
 
 ## Getting Started
 
