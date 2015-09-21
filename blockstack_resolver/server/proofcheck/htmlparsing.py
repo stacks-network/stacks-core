@@ -32,7 +32,7 @@ GITHUB_FILE_TAG = 'blob-wrapper data type-text'
 
 # ---------------------------
 def get_github_text(raw_html):
-    html = BeautifulSoup(raw_html)
+    html = BeautifulSoup(raw_html, "html.parser")
 
     gist_description = html.body.find('div', attrs={'class': GITHUB_CONTENT_TAG})
 
@@ -63,7 +63,7 @@ def get_search_text(service, raw_html):
     if service == 'facebook':
         raw_html = raw_html.replace('<!--', '').replace('-->', '')
 
-    html_soup = BeautifulSoup(raw_html)
+    html_soup = BeautifulSoup(raw_html, "html.parser")
 
     if service in SITES:
         query_data = SITES[service]['html_query']
