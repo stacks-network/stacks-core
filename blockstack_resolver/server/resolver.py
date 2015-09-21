@@ -25,14 +25,9 @@ This file is part of Resolver.
 import json
 import re
 import pylibmc
-import logging
 
 from flask import Flask, make_response, jsonify, abort, request
-from threading import Thread
-from pymongo import MongoClient
 from time import time
-
-from commontools import log, get_json, error_reply
 
 from .proofcheck import profile_to_proofs
 from .crossdomain import crossdomain
@@ -43,20 +38,12 @@ from .config import MEMCACHED_PASSWORD, MEMCACHED_TIMEOUT, MEMCACHED_ENABLED
 from .config import USERSTATS_TIMEOUT
 from .config import VALID_BLOCKS, RECENT_BLOCKS
 
-log.setLevel(logging.DEBUG if DEBUG else logging.INFO)
-
 app = Flask(__name__)
 
 mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
                     username=MEMCACHED_USERNAME, password=MEMCACHED_PASSWORD,
                     behaviors={"no_block": True,
                                "connect_timeout": 500})
-
-
-db = MongoClient()['resolver_index']
-
-namespaces = db.namespaces
-profiles = db.profiles
 
 
 def username_is_valid(username):
@@ -80,7 +67,7 @@ def refresh_user_count():
     return len(active_users_list)
 
 
-@app.route('/v1/users', methods=['GET'])
+@app.route('/v2/users', methods=['GET'])
 @crossdomain(origin='*')
 def get_user_count():
 
@@ -157,7 +144,7 @@ def get_user_profile(username, refresh=False):
     return info
 
 
-@app.route('/v1/users/<usernames>', methods=['GET'])
+@app.route('/v2/users/<usernames>', methods=['GET'])
 @crossdomain(origin='*')
 def get_users(usernames):
 
@@ -193,7 +180,7 @@ def get_users(usernames):
     return jsonify(reply), 200
 
 
-@app.route('/v1/namespace')
+@app.route('/v2/namespace')
 @crossdomain(origin='*')
 def get_namespace():
 
@@ -207,44 +194,9 @@ def get_namespace():
     return jsonify(results)
 
 
-@app.route('/v1/namespace/recent/<blocks>')
-@crossdomain(origin='*')
-def get_recent_namespace(blocks):
-
-    results = {}
-
-    blocks = int(blocks)
-
-    if blocks > VALID_BLOCKS:
-        blocks = VALID_BLOCKS
-
-    if blocks == VALID_BLOCKS:
-        namespace = namespaces.find_one({"blocks": VALID_BLOCKS})
-        results['usernames'] = namespace['namespace']
-    elif blocks == RECENT_BLOCKS:
-        namespace = namespaces.find_one({"blocks": RECENT_BLOCKS})
-        results['usernames'] = namespace['namespace']
-    else:
-
-        users = 'xx' # fetch users here
-
-        list = []
-
-        for user in users:
-
-            username = user['name'].lstrip('u/').lower()
-
-            if username_is_valid(username):
-                list.append(username)
-
-        results['usernames'] = list
-
-    return jsonify(results)
-
-
 @app.route('/')
 def index():
-    reply = '<hmtl><body>Welcome to this resolver, see \
+    reply = '<hmtl><body>Welcome to this Blockchain ID resolver, see \
             <a href="http://github.com/blockstack/resolver"> \
             this Github repo</a> for details.</body></html>'
 

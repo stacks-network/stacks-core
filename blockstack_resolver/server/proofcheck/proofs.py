@@ -28,8 +28,6 @@ import hashlib
 import pylibmc
 from time import time
 
-from commontools import log
-
 from .htmlparsing import get_search_text, get_github_text
 from .sites import SITES
 from ..config import MEMCACHED_PORT, MEMCACHED_TIMEOUT, DEFAULT_HOST, MEMCACHED_ENABLED

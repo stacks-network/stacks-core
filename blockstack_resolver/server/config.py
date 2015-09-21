@@ -23,7 +23,9 @@ This file is part of Resolver.
 """
 
 import os
-from commontools import log
+
+import logging
+log = logging.getLogger()
 
 DEBUG = True
 
