@@ -78,6 +78,10 @@ def refresh_user_count():
 @crossdomain(origin='*')
 def get_user_count():
 
+    resp = {}
+    resp['error'] = "not yet supported"
+    return jsonify(resp)
+
     active_users = []
 
     if MEMCACHED_ENABLED:
@@ -198,9 +202,13 @@ def get_users(usernames):
 @crossdomain(origin='*')
 def get_namespace():
 
+    resp = {}
+    resp['error'] = "not yet supported"
+    return jsonify(resp)
+
     results = {}
 
-    namespace = namespaces.find_one({"blocks": VALID_BLOCKS})
+    namespace = 'xx'  # get namespace info
 
     results['usernames'] = namespace['namespace']
     results['profiles'] = namespace['profiles'] 
