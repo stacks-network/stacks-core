@@ -39,13 +39,6 @@ bitcoind = BitcoindClient(BITCOIND_SERVER, BITCOIND_PORT,
                           BITCOIND_USE_HTTPS)
 
 
-from twisted.internet import reactor
-from txjsonrpc.netstring.jsonrpc import Proxy
-from .config import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
-
-proxy = Proxy(BLOCKSTORED_SERVER, BLOCKSTORED_PORT)
-
-from blockstore.client import BlockstoreRPCClient
 
 
 def save_profile(username, profile):
@@ -219,10 +212,50 @@ def v2_get_immutable_data(hash):
     return resp
 
 
+def blockstored_dht_write(key, value):
+
+    blockstored = BlockstoreRPCClient('52.0.28.169', 6264)
+
+    resp = None
+
+    try:
+        resp = blockstored.set(key, value)
+    except Exception as e:
+        print e
+
+    print entry['username']
+    print resp
+
+
 if __name__ == '__main__':
+
+    import json
+    from pybitcoin import hex_hash160
 
     print bitcoind.blocks()
     print v2_get_immutable_data('temp')
+
+    fin = open('namespace_test1.json', 'r')
+    namespace_file = json.loads(fin.read())
+
+    namespace = []
+
+    error_usernames = ['n4gn', 'pgrous', 'h4x0r3d', 'eddie_03']
+
+    for entry in namespace_file:
+
+        if entry['username'] not in error_usernames:
+            continue
+
+        profile_hash = hex_hash160(entry['profile'])
+
+        if profile_hash != entry['hash']:
+            print "ERROR!"
+            print entry['username']
+            print entry['hash']
+            print profile_hash
+        else:
+            blockstored_dht_write(entry['hash'], entry['profile'])
     #only on first run
     #refresh_namespace(VALID_BLOCKS, refresh_profiles=True)
     #sync_with_blockchain()
