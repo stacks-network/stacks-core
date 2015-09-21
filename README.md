@@ -1,4 +1,5 @@
-# Blockstore: Name Registrations on the Bitcoin Blockchain
+# Blockstore
+### Name Registrations on the Bitcoin Blockchain
 
 [![PyPI](https://img.shields.io/pypi/v/blockstore.svg)](https://pypi.python.org/pypi/blockstore/)
 [![PyPI](https://img.shields.io/pypi/dm/blockstore.svg)](https://pypi.python.org/pypi/blockstore/)
