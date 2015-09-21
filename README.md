@@ -1,7 +1,9 @@
-# Blockstore: Name Registrations on the Bitcoin Blockchain
+# Blockstore
 
 [![PyPI](https://img.shields.io/pypi/v/blockstore.svg?style=flat-square)](https://pypi.python.org/pypi/blockstore/)[![PyPI](https://img.shields.io/pypi/dm/blockstore.svg?style=flat-square)](https://pypi.python.org/pypi/blockstore/)
 [![Slack](http://slack.blockstack.org/badge.svg?style=flat-square)](http://slack.blockstack.org/)
+
+### Name Registrations on the Bitcoin Blockchain
 
 Blockstore enables human-readable name registrations on the Bitcoin blockchain, along with the ability to store associated data in external datastores. You can use it to register globally unique names, associate data with those names, and transfer them between Bitcoin addresses. Anyone can perform lookups on those names and securely obtain the data associated with them.
 
