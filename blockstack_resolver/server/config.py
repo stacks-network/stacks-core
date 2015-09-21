@@ -69,17 +69,12 @@ except:
     # --------------------------------------------------
 
     try:
-        BITCOIND_SERVER = os.environ['BITCOIND_SERVER']
-        BITCOIND_PORT = os.environ['BITCOIND_PORT']
-        BITCOIND_USER = os.environ['BITCOIND_USER']
-        BITCOIND_PASSWD = os.environ['BITCOIND_PASSWD']
-
-        if os.environ['BITCOIND_USE_HTTPS'] == 'True':
-            BITCOIND_USE_HTTPS = True
-        else:
-            BITCOIND_USE_HTTPS = False
+        BLOCKSTORED_SERVER = os.environ['BLOCKSTORED_SERVER']
+        BLOCKSTORED_PORT = os.environ['BLOCKSTORED_PORT']
+        DHT_MIRROR = os.environ['DHT_MIRROR']
+        DHT_MIRROR_PORT = os.environ['DHT_MIRROR_PORT']
     except:
-        log.debug("Bitcoind not configured properly")
+        log.debug("Blockstored or DHT-mirror not configured properly")
         exit(1)
 
     # --------------------------------------------------
