@@ -40,7 +40,7 @@ setup(
     install_requires=[
         'virtualchain>=0.0.2',
         'kademlia>=0.5',
-        'keychain>=0.1.3'
+        'keychain>=0.1.3',
         'blockstore-client>=0.0.1'
     ],
     classifiers=[
