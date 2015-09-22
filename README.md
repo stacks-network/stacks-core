@@ -13,7 +13,13 @@ Blockstore uses the Bitcoin blockchain for storing name operations and data hash
 
 **NOTE: This repo is going through rapid development for a planned release on Sep 24, 2015. If you notice any issues during installation etc please report them in Github issues. We hope to have a stable, easy to install, version out very soon!**
 
-The fastest way to get started with blockstore is to use a docker image:
+The fastest way to get started with blockstore is to use pip:
+
+```
+pip install blockstore
+```
+
+We also maintain a docker image for blockstored:
 
 ```
 docker run -it --entrypoint=/bin/bash blockstack/blockstored
@@ -22,10 +28,6 @@ docker run -it --entrypoint=/bin/bash blockstack/blockstored
 
 The docker image comes pre-populated with a snapshot that was processed till a recent block and you won't have to process all the blocks yourself (takes time). Alternatively, you can install a version on your machine directly:
 
-```
-pip install blockstore
-```
-(currently installs v0.0.3, see note about next release above)
 
 ### What's included
 
