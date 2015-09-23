@@ -31,8 +31,6 @@ from .settings import DHT_MIRROR, DHT_MIRROR_PORT
 
 proxy = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
 
-from blockstore.blockstore_cli import printValue, printError, shutDown, getFormat
-
 
 def format_utxo_data(utxo_id, utxo_data):
     unspent = None
