@@ -1,7 +1,8 @@
 # Blockstore
 
-[![PyPI](https://img.shields.io/pypi/v/blockstore.svg?style=flat-square)](https://pypi.python.org/pypi/blockstore/)[![PyPI](https://img.shields.io/pypi/dm/blockstore.svg?style=flat-square)](https://pypi.python.org/pypi/blockstore/)
-[![Slack](http://slack.blockstack.org/badge.svg?style=flat-square)](http://slack.blockstack.org/)
+[![PyPI](https://img.shields.io/pypi/v/blockstore.svg)](https://pypi.python.org/pypi/blockstore/)
+[![PyPI](https://img.shields.io/pypi/dm/blockstore.svg)](https://pypi.python.org/pypi/blockstore/)
+[![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 
 ### Name Registrations on the Bitcoin Blockchain
 
