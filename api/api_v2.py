@@ -19,18 +19,17 @@ from . import app
 from .errors import InvalidProfileDataError, UsernameTakenError, \
     InternalProcessingError, ResolverConnectionError, \
     BroadcastTransactionError, DatabaseLookupError, InternalSSLError, \
-    DatabaseSaveError
+    DatabaseSaveError, NotYetSupportedError
 from .parameters import parameters_required
 from .auth import auth_required
 from .db import utxo_index, address_to_utxo, address_to_keys
-from .settings import RESOLVER_URL, SEARCH_URL
+from .settings import BTC_RESOLVER_URL, SEARCH_URL
 from .models import User
 
-from twisted.internet import reactor
-from txjsonrpc.netstring.jsonrpc import Proxy
-from .settings import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
+from basicrpc import Proxy
+from .settings import DHT_MIRROR, DHT_MIRROR_PORT
 
-proxy = Proxy(BLOCKSTORED_SERVER, BLOCKSTORED_PORT)
+proxy = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
 
 from blockstore.blockstore_cli import printValue, printError, shutDown, getFormat
 
@@ -60,11 +59,11 @@ def get_unspents(address):
     return unspents
 
 
-@app.route('/v2/users/<username>', methods=['GET'])
+@app.route('/v2/users/<usernames>', methods=['GET'])
 @auth_required(exception_paths=['/v2/users/fredwilson'])
 @crossdomain(origin='*')
 def v2_api_user(usernames):
-    BASE_URL = RESOLVER_URL + '/v2/users/'
+    BASE_URL = BTC_RESOLVER_URL + '/v2/users/'
 
     try:
         resp = requests.get(BASE_URL + usernames, timeout=10, verify=False)
@@ -88,6 +87,9 @@ def v2_api_user(usernames):
 @parameters_required(['username', 'recipient_address'])
 @crossdomain(origin='*')
 def v2_register_user():
+
+    raise NotYetSupportedError()
+
     REGISTRATION_MESSAGE = (
         "This profile was registered using the Onename"
         " API - https://api.onename.com")
@@ -134,6 +136,9 @@ def v2_register_user():
     '/v2/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4/unspents'])
 @crossdomain(origin='*')
 def v2_get_address_unspents(address):
+
+    raise NotYetSupportedError()
+
     try:
         unspent_outputs = get_unspents(address)
     except Exception as e:
@@ -150,6 +155,9 @@ def v2_get_address_unspents(address):
     '/v2/addresses/MyVZe4nwF45jeooXw2v1VtXyNCPczbL2EE/names'])
 @crossdomain(origin='*')
 def v2_get_address_names(address):
+
+    raise NotYetSupportedError()
+
     try:
         results = address_to_keys.find({'address': address})
     except Exception as e:
@@ -169,6 +177,9 @@ def v2_get_address_names(address):
 @auth_required()
 @crossdomain(origin='*')
 def v2_get_all_users():
+
+    raise NotYetSupportedError()
+
     resp_json = {}
 
     # Specify the URL for the namespace call. If 'recent_blocks' is present,
@@ -221,29 +232,21 @@ def v2_get_dkim_pubkey(domain):
 
 
 @app.route('/v2/data/<hash>', methods=['GET'])
-#@auth_required()
+@auth_required()
 @crossdomain(origin='*')
 def v2_get_immutable_data(hash):
 
-    print "hello"
-    resp = {}
-    resp['message'] = "hello"
-
-    client = proxy.callRemote('get', hash)
-    client.addCallback(getFormat)
-
-    client.addCallback(printValue).addErrback(printError).addBoth(shutDown)
-    reactor.run()
+    resp = proxy.get(hash)
 
     return jsonify(resp), 200
 
 
 @app.route('/v2/data', methods=['POST'])
-#@auth_required()
+@auth_required()
 @parameters_required(['hash', 'payload'])
 @crossdomain(origin='*')
 def v2_write_immutable_data():
 
-    resp = {'status': 'success'}
+    resp = proxy.set(hash, payload)
 
     return jsonify(resp), 200

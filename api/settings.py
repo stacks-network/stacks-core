@@ -21,9 +21,10 @@ MAIL_USERNAME = 'support@onename.com'
 
 SEARCH_URL = 'http://search.halfmoonlabs.com'
 RESOLVER_URL = 'http://resolver.onename.com'
+BTC_RESOLVER_URL = 'http://resolver-btc.onename.com'
 
-BLOCKSTORED_SERVER = '52.0.28.169'
-BLOCKSTORED_PORT = 6264
+DHT_MIRROR = '54.173.110.67'
+DHT_MIRROR_PORT = 6266
 
 try:
     from .secrets import *

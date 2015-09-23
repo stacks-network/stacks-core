@@ -121,6 +121,11 @@ class DKIMPubkeyError(APIError):
     message = ("Public key record for domain not found")
 
 
+class NotYetSupportedError(APIError):
+    status_code = 403
+    message = ("End-point is not supported yet")
+
+
 class BroadcastTransactionError(APIError):
     status_code = 400
     message = ("There was a problem broadcasting the transaction to the "
