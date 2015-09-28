@@ -1,5 +1,6 @@
-registrar
-==================
+# registrar
+
+[![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 
 For registering and updating [blockchain IDs](https://github.com/blockstack/blockstack/wiki/Blockchain-ID).
 
