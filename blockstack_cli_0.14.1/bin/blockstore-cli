@@ -380,11 +380,11 @@ def run_cli():
       'name', type=str,
       help='the name that you want to register/claim')
     subparser.add_argument(
-      'privatekey', type=str,
-      help='the private key used to preorder the name')
-    subparser.add_argument(
       'addr', type=str,
       help='the address that will own the name')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the private key used to preorder the name')
     
     # ------------------------------------
     subparser = subparsers.add_parser(
