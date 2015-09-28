@@ -1,10 +1,10 @@
-#!/usr/bin/python 
+#!/usr/bin/python
 
 from setuptools import setup, find_packages
 
 setup(
     name='blockstore-client',
-    version='0.0.3',
+    version='0.0.1',
     url='https://github.com/blockstack/blockstore-client',
     license='GPLv3',
     author='Blockstack.org',
@@ -24,7 +24,7 @@ setup(
     ],
     classifiers=[
         'Intended Audience :: Developers',
-        'License :: GPLv3 License',
+        'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
         'Operating System :: OS Independent',
         'Programming Language :: Python',
         'Topic :: Internet',
