@@ -31,13 +31,13 @@ import pybitcoin
 import os
 
 from collections import defaultdict
-from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAGIC_BYTES, TESTSET, MAX_NAMES_PER_SENDER, \
+from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAX_NAMES_PER_SENDER, \
     EXPIRATION_PERIOD, NAME_PREORDER, NAMESPACE_PREORDER, NAME_REGISTRATION, NAME_UPDATE, TRANSFER_KEEP_DATA, \
     TRANSFER_REMOVE_DATA, NAME_REVOKE, NAME_PREORDER_EXPIRE, \
     NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTORE_VERSION, \
     NAMESPACE_1_CHAR_COST, NAMESPACE_23_CHAR_COST, NAMESPACE_4567_CHAR_COST, NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
     TESTSET_NAMESPACE_1_CHAR_COST, TESTSET_NAMESPACE_23_CHAR_COST, TESTSET_NAMESPACE_4567_CHAR_COST, TESTSET_NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
-    NAME_IMPORT_KEYRING_SIZE, GENESIS_SNAPSHOT
+    NAME_IMPORT_KEYRING_SIZE, GENESIS_SNAPSHOT, GENESIS_SNAPSHOT_TESTSET, default_blockstore_opts
 
 from ..operations import build_namespace_reveal
 from ..hashing import *
@@ -66,8 +66,17 @@ class BlockstoreDB( virtualchain.StateEngine ):
       """
       
       import virtualchain_hooks
+      blockstore_opts = default_blockstore_opts( virtualchain.get_config_filename() )
+      initial_snapshots = None 
       
-      super( BlockstoreDB, self ).__init__( MAGIC_BYTES, OPCODES, impl=virtualchain_hooks, initial_snapshots=GENESIS_SNAPSHOT, state=self )
+      if blockstore_opts['testset']:
+          initial_snapshots = GENESIS_SNAPSHOT_TESTSET
+          
+      else:
+          initial_snapshots = GENESIS_SNAPSHOT
+      
+      
+      super( BlockstoreDB, self ).__init__( virtualchain_hooks.get_magic_bytes(), OPCODES, impl=virtualchain_hooks, initial_snapshots=initial_snapshots, state=self )
       
       self.db_filename = db_filename 
       
@@ -144,6 +153,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
              
          self.hash_names[ hash256_trunc128( name ) ] = name
 
+
       # build up our reverse indexes on reveals 
       for (namespace_id, namespace_reveal) in self.namespace_reveals.items():
          self.namespace_hash_to_id[ namespace_reveal['namespace_id_hash'] ] = namespace_id
@@ -170,13 +180,12 @@ class BlockstoreDB( virtualchain.StateEngine ):
              
              break 
          
-         if pubkey_hex is None:
-             raise Exception("No sender public key found for namespace '%s'" % namespace_id)
+         if pubkey_hex is not None:
+            log.debug("Deriving %s children of %s ('%s') for '%s'" % (NAME_IMPORT_KEYRING_SIZE, pubkey_addr, pubkey_hex, namespace_id))
          
-         log.debug("Deriving %s children of %s ('%s') for '%s'" % (NAME_IMPORT_KEYRING_SIZE, pubkey_addr, pubkey_hex, namespace_id))
-         
-         # generate all possible addresses from this public key 
-         self.import_addresses[ namespace_id ] = BlockstoreDB.build_import_keychain( pubkey_hex )
+            # generate all possible addresses from this public key 
+            self.import_addresses[ namespace_id ] = BlockstoreDB.build_import_keychain( pubkey_hex )
+
 
    def save_db(self, filename):
       """
@@ -1419,16 +1428,11 @@ class BlockstoreDB( virtualchain.StateEngine ):
           import_addresses = BlockstoreDB.build_import_keychain( sender_pubkey_hex )
           self.import_addresses[namespace_id] = import_addresses
       
+      # sender must be the same as the the person who revealed the namespace
+      # (i.e. sender's address must be from one of the valid import addresses)
       if sender_address not in import_addresses:
           log.debug("Sender address '%s' is not in the import keychain (%s)" % (sender_address, import_addresses))
           return False 
-      
-      """
-      # sender must be the same as the the person who revealed the namespace
-      if sender != namespace['recipient']:
-          log.debug("Name '%s' is not sent by the namespace revealer")
-          return False 
-      """
       
       # we can overwrite, but emit a warning 
       if self.is_name_registered( name ):
@@ -1661,10 +1665,12 @@ def price_name( name, namespace ):
    return price
    
 
-def price_namespace( namespace_id, testset=TESTSET ):
+def price_namespace( namespace_id ):
    """
    Calculate the cost of a namespace.
    """
+   
+   testset = default_blockstore_opts( virtualchain.get_config_filename() )
    
    if len(namespace_id) == 1:
        if testset:
