@@ -21,7 +21,7 @@
     along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pybitcoin import embed_data_in_blockchain, \
+from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
     analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
     make_pay_to_address_script, b58check_encode, b58check_decode, BlockchainInfoClient, hex_hash160
 
@@ -32,7 +32,7 @@ from binascii import hexlify, unhexlify
 
 from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
-from ..scripts import blockstore_script_to_hex, add_magic_bytes, get_script_pubkey
+from ..scripts import *
 from ..hashing import hash_name
 
 def build( namespace_id, script_pubkey, register_addr, consensus_hash, testset=False ):
@@ -69,7 +69,7 @@ def build( namespace_id, script_pubkey, register_addr, consensus_hash, testset=F
    return packaged_script
 
 
-def make_outputs( data, inputs, change_addr, fee, format='bin' ):
+def make_outputs( data, inputs, change_addr, fee, pay_fee=True, format='bin' ):
     """
     Make outputs for a namespace preorder:
     [0] OP_RETURN with the name 
@@ -77,24 +77,35 @@ def make_outputs( data, inputs, change_addr, fee, format='bin' ):
     [2] pay-to-address with the *burn address* with the fee
     """
     
-    total_to_send = DEFAULT_OP_RETURN_FEE + DEFAULT_DUST_FEE + max(fee, DEFAULT_DUST_FEE)
+    dust_fee = DEFAULT_OP_RETURN_FEE + (len(inputs) + 2) * DEFAULT_DUST_FEE
+    op_fee = max(fee, DEFAULT_DUST_FEE)
+    dust_value = DEFAULT_DUST_FEE
+    
+    bill = op_fee
+    
+    if not pay_fee:
+        # subsidized
+        dust_fee = 0
+        op_fee = 0
+        dust_value = 0
+        bill = 0
     
     return [
         # main output
         {"script_hex": make_op_return_script(data, format=format),
-         "value": DEFAULT_OP_RETURN_FEE},
+         "value": 0},
         
         # change address
         {"script_hex": make_pay_to_address_script(change_addr),
-         "value": calculate_change_amount(inputs, total_to_send, (len(inputs) + 3) * DEFAULT_DUST_FEE)},
+         "value": calculate_change_amount(inputs, bill, dust_fee)},
         
         # burn address
         {"script_hex": make_pay_to_address_script(BLOCKSTORE_BURN_ADDRESS),
-         "value": max(fee, DEFAULT_DUST_FEE)}
+         "value": op_fee}
     ]
     
 
-def broadcast( namespace_id, register_addr, consensus_hash, private_key, blockchain_client, fee, testset=False ):
+def broadcast( namespace_id, register_addr, consensus_hash, private_key, blockchain_client, fee, pay_fee=True, tx_only=False, testset=False, blockchain_broadcaster=None ):
    """
    Propagate a namespace.
    
@@ -103,8 +114,14 @@ def broadcast( namespace_id, register_addr, consensus_hash, private_key, blockch
    register_addr        the addr of the key that will reveal the namespace (mixed into the preorder to prevent name preimage attack races)
    private_key          the Bitcoin address that created this namespace, and can populate it.
    """
-    
-   script_pubkey = get_script_pubkey( private_key )
+   
+   
+   if blockchain_broadcaster is None:
+       blockchain_broadcaster = blockchain_client 
+   
+   pubkey_hex = BitcoinPrivateKey( private_key ).public_key().to_hex()
+   
+   script_pubkey = get_script_pubkey( pubkey_hex )
    nulldata = build( namespace_id, script_pubkey, register_addr, consensus_hash, testset=testset )
    
    # get inputs and from address
@@ -113,13 +130,19 @@ def broadcast( namespace_id, register_addr, consensus_hash, private_key, blockch
    # build custom outputs here
    outputs = make_outputs(nulldata, inputs, from_address, fee, format='hex')
     
-   # serialize, sign, and broadcast the tx
-   response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_client)
-    
-   # response = {'success': True }
-   response.update({'data': nulldata})
-    
-   return response
+   if tx_only:
+       
+        unsigned_tx = serialize_transaction( inputs, outputs )
+        return {"unsigned_tx": unsigned_tx}
+       
+   else:
+        # serialize, sign, and broadcast the tx
+        response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_broadcaster)
+            
+        # response = {'success': True }
+        response.update({'data': nulldata})
+            
+        return response
    
 
 def parse( bin_payload ):
@@ -138,6 +161,14 @@ def parse( bin_payload ):
       'namespace_id_hash': namespace_id_hash,
       'consensus_hash': consensus_hash
    }
+
+
+def get_fees( inputs, outputs ):
+    """
+    Blockstore currently does not allow 
+    the subsidization of namespaces.
+    """
+    return (None, None)
 
 
 def serialize( nameop ):
