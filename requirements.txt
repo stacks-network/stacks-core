@@ -13,5 +13,5 @@ six==1.9.0
 Twisted==15.4.0
 txJSON-RPC==0.3.1
 utilitybelt==0.2.6
-virtualchain==0.0.1
+virtualchain==0.0.2
 zope.interface==4.1.2

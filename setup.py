@@ -25,7 +25,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='blockstore',
-    version='0.0.4',
+    version='0.0.5',
     url='https://github.com/blockstack/blockstore',
     license='GPLv3',
     author='Blockstack.org',
@@ -38,9 +38,10 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'virtualchain>=0.0.1',
+        'virtualchain>=0.0.2',
         'kademlia>=0.5',
-        'keychain>=0.1.3'
+        'keychain>=0.1.3',
+        'blockstore-client>=0.0.1'
     ],
     classifiers=[
         'Intended Audience :: Developers',
