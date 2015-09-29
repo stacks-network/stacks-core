@@ -30,9 +30,8 @@ import virtualchain
 
 DEBUG = True
 TESTNET = False
-TESTSET = False
 
-VERSION = "v0.01-beta"
+VERSION = "0.04"
 
 # namespace version 
 BLOCKSTORE_VERSION = 1
@@ -88,7 +87,7 @@ DEFAULT_BITCOIND_PASSWD = 'opennamesystem'
 REINDEX_FREQUENCY = 300 # seconds
 
 FIRST_BLOCK_MAINNET = 373601
-FIRST_BLOCK_MAINNET_TESTSET = 374200
+FIRST_BLOCK_MAINNET_TESTSET = 374201
 # FIRST_BLOCK_TESTNET = 343883
 FIRST_BLOCK_TESTNET = 529008
 FIRST_BLOCK_TESTNET_TESTSET = FIRST_BLOCK_TESTNET
@@ -99,27 +98,17 @@ GENESIS_SNAPSHOT = {
     str(FIRST_BLOCK_MAINNET): "17ac43c1d8549c3181b200f1bf97eb7d",
 }
 
-if TESTNET:
-    if TESTSET:
-        START_BLOCK = FIRST_BLOCK_TESTNET_TESTSET
-    else:
-        START_BLOCK = FIRST_BLOCK_TESTNET
-else:
-    if TESTSET:
-        START_BLOCK = FIRST_BLOCK_MAINNET_TESTSET
-    else:
-        START_BLOCK = FIRST_BLOCK_MAINNET
+GENESIS_SNAPSHOT_TESTSET = {
+    str(FIRST_BLOCK_MAINNET_TESTSET-2): "9e938749294b8019f9857cda93e7e73f",
+    str(FIRST_BLOCK_MAINNET_TESTSET-1): "9e938749294b8019f9857cda93e7e73f",
+    str(FIRST_BLOCK_MAINNET_TESTSET): "9e938749294b8019f9857cda93e7e73f",
+}
 
 """ magic bytes configs
 """
 
 MAGIC_BYTES_TESTSET = 'eg'
 MAGIC_BYTES_MAINSET = 'id'
-
-if TESTSET:
-    MAGIC_BYTES = MAGIC_BYTES_TESTSET
-else:
-    MAGIC_BYTES = MAGIC_BYTES_MAINSET
 
 """ name operation data configs
 """
@@ -247,9 +236,10 @@ NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_YEAR       # namespace reveals expire after
 
 NAME_IMPORT_KEYRING_SIZE = 300                  # number of keys to derive from the import key
 
-NUM_CONFIRMATIONS = 6                         # number of blocks to wait for before accepting names
+NUM_CONFIRMATIONS = 0                         # number of blocks to wait for before accepting names
 
 # burn address for fees (the address of public key 0x0000000000000000000000000000000000000000)
+BLOCKSTORE_BURN_PUBKEY_HASH = "0000000000000000000000000000000000000000"
 BLOCKSTORE_BURN_ADDRESS = "1111111111111111111114oLvT2"
 
 # default namespace record (i.e. for names with no namespace ID)
@@ -293,7 +283,7 @@ SUPPORTED_UTXO_PROMPT_MESSAGES = {
 """ Validation 
 """
 
-def default_blockstore_opts( config_file=None ):
+def default_blockstore_opts( config_file=None, testset=False ):
    """
    Get our default blockstore opts from a config file
    or from sane defaults.
@@ -308,6 +298,8 @@ def default_blockstore_opts( config_file=None ):
    blockstore_opts = {}
    tx_broadcaster = None 
    utxo_provider = None
+   testset_first_block = None
+   max_subsidy = 0
    
    if parser.has_section('blockstore'):
       
@@ -317,11 +309,23 @@ def default_blockstore_opts( config_file=None ):
       if parser.has_option('blockstore', 'utxo_provider'):
          utxo_provider = parser.get('blockstore', 'utxo_provider')
       
+      if parser.has_option('blockstore', 'testset'):
+         testset = bool(parser.get('blockstore', 'testset'))
+         
+      if parser.has_option('blockstore', 'testset_first_block'):
+         testset_first_block = int( parser.get('blockstore', 'testset_first_block') )
+         
+      if parser.has_option('blockstore', 'max_subsidy'):
+         max_subsidy = int( parser.get('blockstore', 'max_subsidy'))
+         
+         
    blockstore_opts = {
        'tx_broadcaster': tx_broadcaster,
-       'utxo_provider': utxo_provider
+       'utxo_provider': utxo_provider,
+       'testset': testset,
+       'testset_first_block': testset_first_block,
+       'max_subsidy': max_subsidy
    }
-    
    
    # strip Nones 
    for (k, v) in blockstore_opts.items():
@@ -369,7 +373,7 @@ def default_bitcoind_opts( config_file=None ):
          else:
             use_https = 'no'
 
-         if use_https.lower() == "yes" or use_https.lower() == "y" or use_https.lower() == "true":
+         if use_https.lower() in ["yes", "y", "true"]:
             bitcoind_use_https = True
          else:
             bitcoind_use_https = False
@@ -612,7 +616,13 @@ def default_bitcoind_utxo_opts( config_file=None ):
            rpc_password = parser.get("bitcoind_utxo", "rpc_password")
        
        if parser.has_option("bitcoind_utxo", "use_https"):
-           use_https = bool( parser.get("bitcoind_utxo", "use_https") )
+            
+            if parser.get("bitcoind_utxo", "use_https").lower() in ["y", "yes", "true"]:
+                use_https = True
+            else:
+                use_https = False
+                
+            use_https = bool( parser.get("bitcoind_utxo", "use_https") )
            
        if parser.has_option("bitcoind_utxo", "version_byte"):
            version_byte = int(parser.get("bitcoind_utxo", "version_byte"))
@@ -832,7 +842,7 @@ def find_missing( message, all_params, given_opts, default_opts, prompt_missing=
    return given_opts, missing_params, num_prompted
 
 
-def configure( config_file=None, force=False, interactive=True ):
+def configure( config_file=None, force=False, interactive=True, testset=False ):
    """
    Configure blockstore:  find and store configuration parameters to the config file.
    
@@ -851,7 +861,7 @@ def configure( config_file=None, force=False, interactive=True ):
          # get input for everything
          config_file = virtualchain.get_config_filename()
       except:
-         pass 
+         raise
    
    if not os.path.exists( config_file ):
        # definitely ask for everything
@@ -859,13 +869,13 @@ def configure( config_file=None, force=False, interactive=True ):
        
    # get blockstore opts 
    blockstore_opts = {}
-   blockstore_opts_defaults = default_blockstore_opts( config_file=config_file )
+   blockstore_opts_defaults = default_blockstore_opts( config_file=config_file, testset=testset )
    blockstore_params = blockstore_opts_defaults.keys()
    
    if not force:
        
        # default blockstore options 
-       blockstore_opts = default_blockstore_opts( config_file=config_file )
+       blockstore_opts = default_blockstore_opts( config_file=config_file, testset=testset )
        
    blockstore_msg = "ADVANCED USERS ONLY.\nPlease enter blockstore configuration hints."
    blockstore_opts, missing_blockstore_opts, num_blockstore_opts_prompted = find_missing( blockstore_msg, blockstore_params, blockstore_opts, blockstore_opts_defaults, prompt_missing=False )
@@ -1017,7 +1027,7 @@ def write_config_file( blockstore_opts=None, bitcoind_opts=None, utxo_opts=None,
       
       if parser.has_section("blockstore"):
           parser.remove_section("blockstore")
-      
+          
       parser.add_section( "blockstore" )
       for opt_name, opt_value in blockstore_opts.items():
           
