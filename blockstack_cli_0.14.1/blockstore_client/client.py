@@ -38,7 +38,8 @@ import pybitcoin
 import bitcoin as pybitcointools
 import binascii
 
-from config import log, DEBUG, MAX_RPC_LEN
+from config import log, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTORED_SERVER, \
+    BLOCKSTORED_PORT, BLOCKSTORE_METADATA_DIR, BLOCKSTORE_DEFAULT_STORAGE_DRIVERS
 
 # default API endpoint proxy to blockstored
 default_proxy = None
@@ -100,19 +101,25 @@ class BlockstoreRPCClient(object):
 
         data = json.dumps(parameters)
         data_netstring = str(len(data)) + ":" + data + ","
-
+        
         # send request
-        self.sock.sendall(data_netstring)
+        try:
+            self.sock.sendall(data_netstring)
+        except Exception, e:
+            self.sock.close()
+            self.sock = None
+            raise e
 
         # get response: expect comma-ending netstring
         # get the length first
         len_buf = ""
-
+        
         while True:
             c = self.sock.recv(1)
             if len(c) == 0:
                 # connection closed
                 self.sock.close()
+                self.sock = None
                 raise Exception("Server closed remote connection")
 
             c = c[0]
@@ -129,11 +136,13 @@ class BlockstoreRPCClient(object):
                 except Exception, e:
                     # invalid
                     self.sock.close()
+                    self.sock = None
                     raise Exception("Invalid response: invalid netstring length")
 
                 # ensure it's not too big
                 if buf_len >= self.max_rpc_len:
                     self.sock.close()
+                    self.sock = None
                     raise Exception("Invalid response: message too big")
 
         # receive message
@@ -148,6 +157,7 @@ class BlockstoreRPCClient(object):
         # ensure that the message is terminated with a comma
         if response[-1] != ',':
             self.sock.close()
+            self.sock = None
             raise Exception("Invalid response: invalid netstring termination")
 
         # trim ','
@@ -160,23 +170,60 @@ class BlockstoreRPCClient(object):
 
             # try to clean up
             self.sock.close()
+            self.sock = None
             raise Exception("Invalid response: not a JSON string")
 
         return result
 
 
-def session(server_host, server_port, username=None, password=None,
-            set_global=True):
+def session(conf=None, server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_PORT,
+            username=None, password=None, storage_drivers=BLOCKSTORE_DEFAULT_STORAGE_DRIVERS,
+            metadata_dir=BLOCKSTORE_METADATA_DIR, set_global=True):
+    
     """
-    Create a JSONRPC API proxy to blockstore
+    Create a blockstore session: 
+    * validate the configuration
+    * load all storage drivers 
+    * initialize all storage drivers
+    * load an API proxy to blockstore
+    
+    Returns the API proxy object.
     """
-
+    
     global default_proxy
     proxy = BlockstoreRPCClient(server_host, server_port)
 
     if default_proxy is None and set_global:
         default_proxy = proxy
+      
+    if conf is not None:
+        
+        missing = find_missing( conf )
+        if len(missing) > 0:
+            log.error("Missing blockstore configuration fields: %s" % (", ".join(missing)))
+            sys.exit(1)
+            
+        server_host = conf['server']
+        server_port = conf['port']
+        storage_drivers = conf['storage_drivers']
+        metadata_dir = conf['metadata']
+    
+    if storage_drivers is None:
+        log.error("No storage driver(s) defined in the config file.  Please set 'storage=' to a comma-separated list of %s" % ", ".join(drivers.DRIVERS))
+        sys.exit(1)
 
+    # load all storage drivers
+    for storage_driver in storage_drivers.split(","):
+        storage_impl = load_storage( storage_driver )
+        if storage_impl is None:
+            log.error("Failed to load storage driver '%s'" % (storage_driver))
+            sys.exit(1)
+
+        rc = register_storage( storage_impl )
+        if not rc:
+            log.error("Failed to initialize storage driver '%s'" % (storage_driver))
+            sys.exit(1)
+    
     return proxy
 
 
@@ -242,6 +289,9 @@ def load_user(record_hash):
     return user
 
 
+def lookup( name ):
+    return get_name_record( name )
+
 def get_name_record(name, create_if_absent=False):
     """
     Given the name of the user, look up the user's record hash,
@@ -252,10 +302,13 @@ def get_name_record(name, create_if_absent=False):
     """
 
     # find name record first
-    name_record = lookup(name)
+    name_record = get_name_blockchain_record(name)
     if len(name_record) == 0:
         return {"error": "No such name"}
-
+   
+    if 'error' in name_record:
+        return name_record 
+    
     name_record = name_record[0]
     if name_record is None:
         # failed to look up
@@ -294,7 +347,7 @@ def get_name_record(name, create_if_absent=False):
     return user_resp
 
 
-def store_user_record(user, txid):
+def store_name_record(user, txid):
     """
     Store JSON user record data to the immutable storage providers, synchronously.
 
@@ -324,7 +377,7 @@ def store_user_record(user, txid):
     return (rc, data_hash)
 
 
-def remove_user_record(user, txid):
+def remove_name_record(user, txid):
     """
     Delete JSON user record data from immutable storage providers, synchronously.
 
@@ -439,26 +492,26 @@ def get_consensus_at( block_id, proxy=None ):
     
     return proxy.get_consensus_at( block_id )
 
-def lookup(name, proxy=None):
+def get_name_blockchain_record(name, proxy=None):
     """
-    lookup
-    """
-
-    if proxy is None:
-        proxy = get_default_proxy()
-
-    return proxy.lookup(name)
-
-
-def lookup_namespace( namespace_id, proxy=None ):
-    """
-    lookup namespace
+    get_name_blockchain_record
     """
 
     if proxy is None:
         proxy = get_default_proxy()
 
-    ret = proxy.lookup_namespace(namespace_id)
+    return proxy.get_name_blockchain_record(name)
+
+
+def get_namespace_blockchain_record( namespace_id, proxy=None ):
+    """
+    get_namespace_blockchain_record
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    ret = proxy.get_namespace_blockchain_record(namespace_id)
     if ret is not None:
         # this isn't needed
         if 'opcode' in ret[0]:
@@ -467,7 +520,7 @@ def lookup_namespace( namespace_id, proxy=None ):
     return ret
 
 
-def preorder(name, privatekey, register_addr=None, proxy=None):
+def preorder(name, privatekey, register_addr=None, proxy=None, tx_only=False ):
     """
     preorder.
     Generate a private key to derive a change address for the register,
@@ -497,7 +550,15 @@ def preorder(name, privatekey, register_addr=None, proxy=None):
         proxy = get_default_proxy()
 
     try:
-        resp = proxy.preorder(name, register_addr, privatekey)
+        if tx_only:
+            
+            # get unsigned preorder
+            resp = proxy.preorder_tx( name, privatekey, register_addr )
+            
+        else:
+            # send preorder
+            resp = proxy.preorder(name, privatekey, register_addr)
+            
     except Exception as e:
         resp['error'] = str(e)
 
@@ -511,7 +572,28 @@ def preorder(name, privatekey, register_addr=None, proxy=None):
     return resp
 
 
-def register(name, register_addr, privatekey, proxy=None):
+def preorder_subsidized( name, public_key, register_addr, subsidy_key, proxy=None ):
+    """
+    preorder a name, but subsidize it with the given subsidy_key.
+    Return a SIGHASH_ANYONECANPAY transaction, where the client must sign each 
+    input originating from register_addr
+    """
+    resp = {}
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    try:
+        # get preorder tx
+        resp = proxy.preorder_tx_subsidized( name, public_key, register_addr, subsidy_key )
+        
+    except Exception as e:
+        resp['error'] = str(e)
+    
+    return resp
+
+
+def register(name, privatekey, register_addr, proxy=None, tx_only=False ):
     """
     register
     """
@@ -519,10 +601,45 @@ def register(name, register_addr, privatekey, proxy=None):
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.register(name, register_addr, privatekey)
+    try:
+        if tx_only:
+            
+            # get unsigned preorder
+            resp = proxy.register_tx( name, privatekey, register_addr )
+            
+        else:
+            # send preorder
+            resp = proxy.register(name, privatekey, register_addr)
+            
+    except Exception as e:
+        resp['error'] = str(e)
+
+    return resp
 
 
-def update(name, user_json_or_hash, privatekey, txid=None, proxy=None):
+
+def register_subsidized( name, public_key, register_addr, subsidy_key, proxy=None ):
+    """
+    make a transaction that will register a name, but subsidize it with the given subsidy_key.
+    Return a SIGHASH_ANYONECANPAY transaction, where the client must sign each 
+    input originating from register_addr
+    """
+    resp = {}
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    try:
+        # get register tx
+        resp = proxy.register_tx_subsidized( name, public_key, register_addr, subsidy_key )
+        
+    except Exception as e:
+        resp['error'] = str(e)
+    
+    return resp
+
+
+def update(name, user_json_or_hash, privatekey, txid=None, proxy=None, tx_only=False, public_key=None, subsidy_key=None):
     """
     update
 
@@ -530,7 +647,11 @@ def update(name, user_json_or_hash, privatekey, txid=None, proxy=None):
     data to new storage systems, or to recover from a transient error encountered
     earlier.
     """
-
+    
+    # sanity check 
+    if privatekey is None and public_key is None:
+        return {'error': 'Missing public and private key'}
+    
     if proxy is None:
         proxy = get_default_proxy()
 
@@ -562,12 +683,27 @@ def update(name, user_json_or_hash, privatekey, txid=None, proxy=None):
     result = {}
 
     old_hash = pybitcoin.hash.hex_hash160(user_db.serialize_user(user_data))
-
+    
+    # only want transaction?
+    if tx_only:
+        
+        if privatekey is None and public_key is not None and subsidy_key is not None:
+            return proxy.update_tx_subsidized( name, user_record_hash, public_key, subsidy_key )
+        
+        else:
+            return proxy.update_tx( name, user_record_hash, privatekey )
+            
+    
     # no transaction: go put one
     if txid is None:
-
-        result = proxy.update(name, user_record_hash, privatekey)
-        result = result[0]
+        
+        if tx_only:
+            result = proxy.update_tx( name, user_record_hash, privatekey )
+            return result 
+        
+        else:
+            result = proxy.update(name, user_record_hash, privatekey)
+            result = result[0]
 
         if 'error' in result:
             # failed
@@ -589,7 +725,7 @@ def update(name, user_json_or_hash, privatekey, txid=None, proxy=None):
     rc = True
     new_data_hash = None
     if user_data is not None:
-        rc, new_data_hash = store_user_record(user_data, txid)
+        rc, new_data_hash = store_name_record(user_data, txid)
 
     else:
         # was already a hash
@@ -606,7 +742,14 @@ def update(name, user_json_or_hash, privatekey, txid=None, proxy=None):
     return result
 
 
-def transfer(name, address, keep_data, privatekey, proxy=None):
+def update_subsidized( name, user_json_or_hash, public_key, subsidy_key, txid=None ):
+    """
+    update_subsidized
+    """
+    return update( name, user_json_or_hash, None, txid=txid, public_key=public_key, subsidy_key=subsidy_key, tx_only=True )
+
+
+def transfer(name, address, keep_data, privatekey, proxy=None, tx_only=False):
     """
     transfer
     """
@@ -614,10 +757,24 @@ def transfer(name, address, keep_data, privatekey, proxy=None):
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.transfer(name, address, keep_data, privatekey)
+    if tx_only:
+        return proxy.transfer_tx( name, address, keep_data, privatekey )
+    
+    else:
+        return proxy.transfer(name, address, keep_data, privatekey)
 
 
-def renew(name, privatekey, proxy=None):
+def transfer_subsidized( name, address, keep_data, public_key, subsidy_key, proxy=None ):
+    """
+    transfer_subsidized
+    """
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    return proxy.transfer_tx_subsidized( name, address, keep_data, public_key, subsidy_key )
+
+
+def renew(name, privatekey, proxy=None, tx_only=False):
     """
     renew
     """
@@ -625,10 +782,25 @@ def renew(name, privatekey, proxy=None):
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.renew(name, privatekey)
+    if tx_only:
+        return proxy.renew_tx( name, privatekey )
+    
+    else:
+        return proxy.renew(name, privatekey)
 
 
-def revoke(name, privatekey, proxy=None):
+def renew_subsidized( name, public_key, subsidy_key, proxy=None ):
+    """
+    renew_subsidized
+    """
+    
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    return proxy.renew_tx_subsidized( name, public_key, subsidy_key )
+
+
+def revoke(name, privatekey, proxy=None, tx_only=False):
     """
     revoke
     """
@@ -636,7 +808,21 @@ def revoke(name, privatekey, proxy=None):
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.revoke(name, privatekey)
+    if tx_only:
+        return proxy.revoke_tx( name, privatekey )
+    
+    else:
+        return proxy.revoke(name, privatekey)
+    
+    
+def revoke_subsidized( name, public_key, subsidy_key, proxy=None ):
+    """
+    revoke_subsidized
+    """
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    return proxy.revoke_tx_subsidized( name, public_key, subsidy_key )
 
 
 def name_import(name, address, update_hash, privatekey, proxy=None):
