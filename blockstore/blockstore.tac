@@ -41,7 +41,7 @@ from blockstored import BlockstoredRPC
 import lib.config
 from lib.config import REINDEX_FREQUENCY, RPC_SERVER_PORT
 
-factory_blockstore = jsonrpc.RPCFactory(BlockstoredRPC())
+factory_blockstore = jsonrpc.RPCFactory(BlockstoredRPC(), maxLength=8192)
 
 server_blockstore = internet.TCPServer(RPC_SERVER_PORT, factory_blockstore)
 server_blockstore.setServiceParent(application)
