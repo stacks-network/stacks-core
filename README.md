@@ -19,7 +19,7 @@ datastores for storing the full data files outside of the blockchain.
 
 **NOTE: This repo is going through rapid development. If you notice any issues
 during installation etc please report them in Github issues. We hope to have
-a stable, easy to install, version out very soon!**
+a stable, easy to install version out very soon!**
 
 ## Table of contents
 
@@ -172,17 +172,17 @@ Blockstore’s detailed documentation is located included in this repo’s
 
 ## Community
 
-The Blockstack community is a group of blockchain companies and nonprofits
+The Blockstack community is a group of blockchain developers
 coming together to define and develop a set of software protocols and tools to
 serve as a common backend for blockchain-powered decentralized applications. We
-are opening membership to the public, welcoming all developers and companies
+are opening membership to the public, welcoming all developers and organizations
 that are interested in joining the community and contributing to Blockstack
 development.
 
-For more information please visit the community website
+For more information, please visit the community website @
 [Blockstack.org](http://blockstack.org)
 
-Our community is welcoming on both, our [public
+Our community is welcoming on both our [public
 Slack](http://chat.blockstack.org/) and [public
 Forum](http://forum.blockstack.org/).
 
