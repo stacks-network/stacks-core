@@ -1,7 +1,4 @@
 
-https://github.com/blockstack/blockstore
-
-
 # Blockstore
 
 [![PyPI](https://img.shields.io/pypi/v/blockstore.svg)](https://pypi.python.org/pypi/blockstore/)
@@ -26,7 +23,7 @@ Blockstore uses the Bitcoin blockchain for storing name operations and data hash
 * [Overview](#overview)
 * [Quick start](#get-start)
 * [Requirements](#requirements)
-* [Install blockstore using pip *recommended](#install-pip)
+* [Install blockstore](#install-pip)
 * [Getting started](#get-start)
 * [What’s included](#whats-included)
 * [Bugs and feature requests](#bugs-and-feature-requests)
@@ -54,7 +51,6 @@ Several quick start options are available:
 
 * [Requirements](#requirements)
 * Install with [pip](https://pypi.python.org/pypi/pip): `pip install blockstore`.
-* Install with [docker](https://www.npmjs.com): `npm install bootstrap`.
 
 
 
@@ -62,8 +58,7 @@ Several quick start options are available:
 
 In order to install and run Blockstore, you will need the following:
 
-- [x] Acccess to a bitcoin node with a full transaction index (i.e. txindex is enabled)
-- You need to be able to connect to a specific bitcoin node that stores each transaction. Note: This is ​*not*​ the default behavior, the `txindex` option has to be explicitly enabled in the node.  For example, `btcd.onename.com` have this feature enabled.
+- [x] Acccess to a bitcoin node with a full transaction index (i.e. txindex is enabled). You need to be able to connect to a specific bitcoin node that stores each transaction. Note: This is ​*not*​ the default behavior, the `txindex` option has to be explicitly enabled in the node.  For example, `btcd.onename.com` have this feature enabled.
 - [x] [Python 2.6 or higher](https://www.python.org/). (Python 3.x not supported)
 - [x] [The Python distutils package](https://docs.python.org/2/distutils/) (Verify as it is not always installed with Python)
 - [x] [Python pip](https://pypi.python.org/pypi/pip)
@@ -71,7 +66,6 @@ In order to install and run Blockstore, you will need the following:
 
 
 ## Install blockstore using pip
-*recommended
 
 
 The fastest way to get started with blockstore is to use pip:
@@ -271,5 +265,4 @@ Our community is highly active and welcoming on both, our [public Slack](http://
 ## Copyright and license
 
 Code and documentation copyright 2015 by Blockstack.org. Code released under [the GPL v3 license](http://www.gnu.org/licenses/quick-guide-gplv3.en.html). Docs released under [Creative Commons](http://creativecommons.org/).
-
 
