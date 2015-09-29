@@ -66,10 +66,17 @@ $ blockstored start
 Then, perform name lookups:
 
 ```
-$ blockstore-cli lookup swiftonsecurity
+$ blockstore-cli lookup werner.id
 {
-    "data": "{\"name\":{\"formatted\": \"Taylor Swift\"}}"
+    "address": "1KRca8gGiCiTNGR65iXMPQ6d5fisDdN3ZF",
+    "first_registered": 374132,
+    "last_renewed": 374132,
+    "revoked": false,
+    "sender": "76a914ca19f0c96683b6cabfb5c9a406bebc6771d8ede488ac",
+    "sender_pubkey": "0411d88aa37a0eea476a5b63ca4b1cd392ded830865...",
+    "value_hash": "3dafd5f42798df3045cd2eb70a71cccf8500e6d4"
 }
+
 ```
 
 Next, learn how to register names of your own, as well as transfer them and
