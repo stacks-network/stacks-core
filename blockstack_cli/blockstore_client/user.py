@@ -44,6 +44,11 @@ USER_SCHEMA = {
    "v": STRING
 }
 
+RESERVED_USER_SCHEMA = {
+
+   "message": STRING,
+   "status": STRING
+}
 
 def make_empty_user( name, name_record ):
    """
@@ -77,8 +82,13 @@ def parse_user( user_json ):
    # verify that this is a valid user record 
    valid = schema_match( USER_SCHEMA, user )
    if not valid:
-      print "invalid schema '%s'" % user_json
-      return None 
+      
+      # could be reserved 
+      valid = schema_match( RESERVED_USER_SCHEMA, user )
+      if not valid:
+          
+         print "invalid schema '%s'" % user_json
+         return None 
    
    return user 
 
