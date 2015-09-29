@@ -1,2 +1,2 @@
-include blockstore/blockstored.tac
 include blockstore/dht/server.tac
+include blockstore/blockstore.tac

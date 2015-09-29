@@ -1,16 +1,22 @@
-# Blockstore: A Key-Value Store on Bitcoin
+# Blockstore: Name Registrations on the Bitcoin Blockchain
 
-[![Latest Version](https://pypip.in/version/blockstore/badge.svg)](https://pypi.python.org/pypi/blockstore/)
-[![Downloads](https://pypip.in/download/blockstore/badge.svg)](https://pypi.python.org/pypi/blockstore/)
-[![License](https://pypip.in/license/blockstore/badge.svg)](https://pypi.python.org/pypi/blockstore>/)
+[![PyPI](https://img.shields.io/pypi/v/blockstore.svg)](https://pypi.python.org/pypi/blockstore/)
+[![PyPI](https://img.shields.io/pypi/dm/blockstore.svg)](https://pypi.python.org/pypi/blockstore/)
+[![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 
-Blockstore is a generic key-value store on Bitcoin. You can use it register globally unique names, associate data with those names, and transfer them between Bitcoin addresses.
+Blockstore enables human-readable name registrations on the Bitcoin blockchain, along with the ability to store associated data in external datastores. You can use it to register globally unique names, associate data with those names, and transfer them between Bitcoin addresses. Anyone can perform lookups on those names and securely obtain the data associated with them.
 
-Then, you or anyone can perform lookups on those names and securely obtain the data associated with them.
-
-Blockstore uses the Bitcoin blockchain for storing name operations and data hashes, and the Kademlia distributed hash table for storing the full data files.
+Blockstore uses the Bitcoin blockchain for storing name operations and data hashes, and the Kademlia-based distributed hash table (DHT) and other external datastores for storing the full data files outside of the blockchain.
 
 ## Installation
+
+The fastest way to get started with blockstore is to use a docker image:
+
+```
+docker run -it --entrypoint=/bin/bash blockstack/blockstored
+```
+
+The docker image comes pre-populated with a snapshot that was processed till a recent block and you won't have to process all the blocks yourself (takes time). Alternatively, you can install a version on your machine directly:
 
 ```
 pip install blockstore
@@ -18,7 +24,7 @@ pip install blockstore
 
 ## Getting Started
 
-First, start blockstored and index the blockchain:
+Start blockstored and index the blockchain:
 
 ```
 $ blockstored start
@@ -62,6 +68,6 @@ The best way to contribute is to:
 
 ## License
 
-[Released under the MIT License](LICENSE)
+GPL v3. See LICENSE.
 
-Copyright 2015, openname.org
+Copyright: (c) 2015 by Blockstack.org

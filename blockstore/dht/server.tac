@@ -5,14 +5,14 @@
     ~~~~~
     copyright: (c) 2014 by Halfmoon Labs, Inc.
     copyright: (c) 2015 by Blockstack.org
-    
+
     This file is part of Blockstore
-    
+
     Blockstore is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
-    
+
     Blockstore is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -25,7 +25,7 @@ from twisted.application import service, internet
 from twisted.python.log import ILogObserver
 from twisted.internet import reactor, task
 
-import sys 
+import sys
 import os
 sys.path.append(os.path.dirname(__file__))
 
