@@ -49,10 +49,6 @@ mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
                                "connect_timeout": 500})
 
 
-dht_client = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
-blockstore_client = Proxy(BLOCKSTORED_SERVER, BLOCKSTORED_PORT)
-
-
 def username_is_valid(username):
 
     regrex = re.compile('^[a-z0-9_]{1,60}$')
@@ -122,6 +118,7 @@ def get_user_profile(username, refresh=False):
 
     username = username.lower()
 
+    blockstore_client = Proxy(BLOCKSTORED_SERVER, BLOCKSTORED_PORT)
     resp = blockstore_client.lookup(username + ".id")
     resp = resp[0]
 
@@ -139,6 +136,7 @@ def get_user_profile(username, refresh=False):
 
         info = {}
 
+        dht_client = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
         dht_resp = dht_client.get(profile_hash)
         dht_resp = dht_resp[0]
         profile = json.loads(dht_resp['value'])
