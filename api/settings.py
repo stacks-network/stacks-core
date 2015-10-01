@@ -30,35 +30,29 @@ except:
 # Secret settings
 secrets_list = [
     'INDEX_DB_URI', 'SECRET_KEY', 'MONGODB_PASSWORD',
-    'MAILGUN_API_KEY', 'MONGOLAB_URI'
+    'MAILGUN_API_KEY', 'MONGODB_URI'
 ]
 for env_variable in os.environ:
     if env_variable in secrets_list:
         env_value = os.environ[env_variable]
         exec(env_variable + " = \"\"\"" + env_value + "\"\"\"")
 
+parts = re.split(':|/|@|,|mongodb://', MONGODB_URI)
+(_, MONGODB_USERNAME, MONGODB_PASSWORD, MONGODB_HOST, MONGODB_PORT, _, _,
+    MONGODB_DB) = parts
+
 if 'DYNO' in os.environ:
     DEBUG = False
-
     APP_URL = 'api.onename.com'
-
-    MONGODB_URI = MONGOLAB_URI
-    parts = re.split(':|/|@|mongodb://', MONGOLAB_URI)
-    (_, MONGODB_USERNAME, MONGODB_PASSWORD, MONGODB_HOST, MONGODB_PORT,
-        MONGODB_DB) = parts
-elif 'AWS' in os.environ:
-    DEBUG = False
-
-    MONGODB_DB = 'onename_api'
-    MONGODB_URI = MONGOLAB_URI
 else:
     DEBUG = True
-
     APP_URL = 'localhost:5000'
 
+    """
     MONGODB_HOST = 'localhost'
     MONGODB_PORT = 27017
     MONGODB_DB = 'onename_api8'
 
     MONGODB_URI = 'mongodb://%s:%s/%s' % (
         MONGODB_HOST, str(MONGODB_PORT), MONGODB_DB)
+    """
