@@ -42,6 +42,8 @@ RECENT_BLOCKS = 100
 VALID_BLOCKS = 36000
 REFRESH_BLOCKS = 25
 
+DEFAULT_NAMESPACE = "id"
+
 try:
     from config_local import *
 except:
