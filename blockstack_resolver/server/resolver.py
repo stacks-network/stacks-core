@@ -40,6 +40,7 @@ from .config import USERSTATS_TIMEOUT
 from .config import VALID_BLOCKS, RECENT_BLOCKS
 from .config import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
 from .config import DHT_MIRROR, DHT_MIRROR_PORT
+from .config import DEFAULT_NAMESPACE
 
 app = Flask(__name__)
 
@@ -109,7 +110,7 @@ def get_user_count():
     return jsonify(info)
 
 
-def get_user_profile(username, refresh=False):
+def get_user_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
 
     global MEMCACHED_ENABLED
 
@@ -119,7 +120,7 @@ def get_user_profile(username, refresh=False):
     username = username.lower()
 
     blockstore_client = Proxy(BLOCKSTORED_SERVER, BLOCKSTORED_PORT)
-    resp = blockstore_client.lookup(username + ".id")
+    resp = blockstore_client.lookup(username + "." + namespace)
     resp = resp[0]
 
     if resp is None:
