@@ -25,15 +25,10 @@ This file is part of Resolver.
 import json
 import re
 import pylibmc
-import logging
 
 from flask import Flask, make_response, jsonify, abort, request
-from threading import Thread
-from pymongo import MongoClient
 from time import time
-
-from commontools import log, get_json, error_reply
-from pybitcoin.rpc import NamecoindClient
+from basicrpc import Proxy
 
 from .proofcheck import profile_to_proofs
 from .crossdomain import crossdomain
@@ -42,11 +37,9 @@ from .config import DEBUG
 from .config import DEFAULT_HOST, MEMCACHED_SERVERS, MEMCACHED_USERNAME
 from .config import MEMCACHED_PASSWORD, MEMCACHED_TIMEOUT, MEMCACHED_ENABLED
 from .config import USERSTATS_TIMEOUT
-from .config import NAMECOIND_SERVER, NAMECOIND_PORT, NAMECOIND_USE_HTTPS
-from .config import NAMECOIND_USER, NAMECOIND_PASSWD
 from .config import VALID_BLOCKS, RECENT_BLOCKS
-
-log.setLevel(logging.DEBUG if DEBUG else logging.INFO)
+from .config import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
+from .config import DHT_MIRROR, DHT_MIRROR_PORT
 
 app = Flask(__name__)
 
@@ -54,15 +47,6 @@ mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
                     username=MEMCACHED_USERNAME, password=MEMCACHED_PASSWORD,
                     behaviors={"no_block": True,
                                "connect_timeout": 500})
-
-namecoind = NamecoindClient(NAMECOIND_SERVER, NAMECOIND_PORT,
-                            NAMECOIND_USER, NAMECOIND_PASSWD,
-                            NAMECOIND_USE_HTTPS)
-
-db = MongoClient()['resolver_index']
-
-namespaces = db.namespaces
-profiles = db.profiles
 
 
 def username_is_valid(username):
@@ -77,7 +61,7 @@ def username_is_valid(username):
 
 def refresh_user_count():
 
-    active_users_list = namecoind.name_filter('u/')
+    active_users_list = 'xx'  # fetch user info here
 
     if type(active_users_list) is list:
         mc.set("total_users", str(len(active_users_list)), int(time() + USERSTATS_TIMEOUT))
@@ -86,9 +70,13 @@ def refresh_user_count():
     return len(active_users_list)
 
 
-@app.route('/v1/users', methods=['GET'])
+@app.route('/v2/users', methods=['GET'])
 @crossdomain(origin='*')
 def get_user_count():
+
+    resp = {}
+    resp['error'] = "not yet supported"
+    return jsonify(resp)
 
     active_users = []
 
@@ -130,10 +118,14 @@ def get_user_profile(username, refresh=False):
 
     username = username.lower()
 
-    check_entry = profiles.find({"username": username}).limit(1)
+    blockstore_client = Proxy(BLOCKSTORED_SERVER, BLOCKSTORED_PORT)
+    resp = blockstore_client.lookup(username + ".id")
+    resp = resp[0]
 
-    if check_entry.count() == 0:
+    if resp is None:
         abort(404)
+
+    profile_hash = resp['value_hash']
 
     if MEMCACHED_ENABLED:
         cache_reply = mc.get("profile_" + str(username))
@@ -144,7 +136,10 @@ def get_user_profile(username, refresh=False):
 
         info = {}
 
-        profile = profiles.find_one({"username": username})['profile']
+        dht_client = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
+        dht_resp = dht_client.get(profile_hash)
+        dht_resp = dht_resp[0]
+        profile = json.loads(dht_resp['value'])
 
         if 'error' in profile:
             info['profile'] = None
@@ -163,14 +158,15 @@ def get_user_profile(username, refresh=False):
     return info
 
 
-@app.route('/v1/users/<usernames>', methods=['GET'])
+@app.route('/v2/users/<usernames>', methods=['GET'])
 @crossdomain(origin='*')
 def get_users(usernames):
 
     reply = {}
 
     if usernames is None:
-        return jsonify(error_reply("No usernames given"))
+        reply['error'] = "No usernames given"
+        return jsonify(reply)
 
     if ',' not in usernames:
 
@@ -187,7 +183,8 @@ def get_users(usernames):
     try:
         usernames = usernames.rsplit(',')
     except:
-        return jsonify(error_reply("Invalid input format"))
+        reply['error'] = "Invalid input format"
+        return jsonify(reply)
 
     for username in usernames:
 
@@ -199,13 +196,17 @@ def get_users(usernames):
     return jsonify(reply), 200
 
 
-@app.route('/v1/namespace')
+@app.route('/v2/namespace')
 @crossdomain(origin='*')
 def get_namespace():
 
+    resp = {}
+    resp['error'] = "not yet supported"
+    return jsonify(resp)
+
     results = {}
 
-    namespace = namespaces.find_one({"blocks": VALID_BLOCKS})
+    namespace = 'xx'  # get namespace info
 
     results['usernames'] = namespace['namespace']
     results['profiles'] = namespace['profiles'] 
@@ -213,44 +214,9 @@ def get_namespace():
     return jsonify(results)
 
 
-@app.route('/v1/namespace/recent/<blocks>')
-@crossdomain(origin='*')
-def get_recent_namespace(blocks):
-
-    results = {}
-
-    blocks = int(blocks)
-
-    if blocks > VALID_BLOCKS:
-        blocks = VALID_BLOCKS
-
-    if blocks == VALID_BLOCKS:
-        namespace = namespaces.find_one({"blocks": VALID_BLOCKS})
-        results['usernames'] = namespace['namespace']
-    elif blocks == RECENT_BLOCKS:
-        namespace = namespaces.find_one({"blocks": RECENT_BLOCKS})
-        results['usernames'] = namespace['namespace']
-    else:
-
-        users = namecoind.name_filter('u/', blocks)
-
-        list = []
-
-        for user in users:
-
-            username = user['name'].lstrip('u/').lower()
-
-            if username_is_valid(username):
-                list.append(username)
-
-        results['usernames'] = list
-
-    return jsonify(results)
-
-
 @app.route('/')
 def index():
-    reply = '<hmtl><body>Welcome to this resolver, see \
+    reply = '<hmtl><body>Welcome to this Blockchain ID resolver, see \
             <a href="http://github.com/blockstack/resolver"> \
             this Github repo</a> for details.</body></html>'
 

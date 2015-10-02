@@ -23,7 +23,9 @@ This file is part of Resolver.
 """
 
 import os
-from commontools import log
+
+import logging
+log = logging.getLogger()
 
 DEBUG = True
 
@@ -69,17 +71,12 @@ except:
     # --------------------------------------------------
 
     try:
-        NAMECOIND_SERVER = os.environ['NAMECOIND_SERVER']
-        NAMECOIND_PORT = os.environ['NAMECOIND_PORT']
-        NAMECOIND_USER = os.environ['NAMECOIND_USER']
-        NAMECOIND_PASSWD = os.environ['NAMECOIND_PASSWD']
-
-        if os.environ['NAMECOIND_USE_HTTPS'] == 'True':
-            NAMECOIND_USE_HTTPS = True
-        else:
-            NAMECOIND_USE_HTTPS = False
+        BLOCKSTORED_SERVER = os.environ['BLOCKSTORED_SERVER']
+        BLOCKSTORED_PORT = os.environ['BLOCKSTORED_PORT']
+        DHT_MIRROR = os.environ['DHT_MIRROR']
+        DHT_MIRROR_PORT = os.environ['DHT_MIRROR_PORT']
     except:
-        log.debug("Namecoind not configured properly")
+        log.debug("Blockstored or DHT-mirror not configured properly")
         exit(1)
 
     # --------------------------------------------------
