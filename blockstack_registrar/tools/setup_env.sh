@@ -12,6 +12,10 @@ echo "Enter AWSDB_URI:"
 read input
 export AWSDB_URI=$input
 
+echo "Enter MONGOLAB_URI:"
+read input
+export MONGOLAB_URI=$input
+
 echo "Enter FRONTEND_SECRET:"
 read input
 export FRONTEND_SECRET=$input
