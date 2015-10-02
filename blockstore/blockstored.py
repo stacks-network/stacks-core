@@ -638,7 +638,7 @@ def blockstore_name_revoke( name, privatekey, tx_only=False, pay_fee=True, subsi
     log.debug("revoke <%s>" % name )
     
     return resp
-    
+
 
 def blockstore_name_import( name, recipient_address, update_hash, privatekey, tx_only=False, testset=False ):
     """
@@ -1454,9 +1454,10 @@ def run_server( testset=False, foreground=False ):
     
     os.kill( indexer.pid, signal.SIGINT )
     indexer.wait()
-    
-    logfile.flush()
-    logfile.close()
+   
+    if logfile is not None:
+        logfile.flush()
+        logfile.close()
     
     # stop building new state if we're in the middle of it
     db = get_state_engine()
@@ -1569,7 +1570,7 @@ def clean( testset=False, confirm=True ):
                 exit_status = 1
                 
     sys.exit(exit_status)
-           
+
 
 def check_testset_enabled():
     """
