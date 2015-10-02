@@ -60,6 +60,8 @@ namespace_db = c['namespace']
 nmc_state = namespace_db.nmc_state
 registrar_state = namespace_db.registrar_state
 btc_state = namespace_db.btc_state
+btc_state_diff = namespace_db.btc_state_diff
+btc_state_diff_2 = namespace_db.btc_state_diff_2
 
 nmc_state.ensure_index('username')
 registrar_state.ensure_index('username')
@@ -620,19 +622,20 @@ def dump_btc_state():
 
     namespace = []
 
-    for entry in btc_state.find():
+    for entry in btc_state_diff_2.find():
         del entry['_id']
         namespace.append(entry)
 
     print namespace
-    fout = open('btc_state_v1.txt', 'w')
+    fout = open('btc_state_diff_2.txt', 'w')
 
     fout.write(json.dumps(namespace))
     fout.close()
 
 if __name__ == '__main__':
 
-    update_transfer_state()
+    dump_btc_state()
+    #update_transfer_state()
     #dump_btc_state()
     #check_total_users_in_states()  
     #create_migration_state()
