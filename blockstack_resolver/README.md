@@ -20,7 +20,7 @@ We welcome all contributions! to this open-source software! Some things to note:
 Example API call:
 
 ```
-http://localhost:5000/v1/username/fredwilson
+http://localhost:5000/v2/username/fredwilson
 ```
 
 ## For quick deployment:
