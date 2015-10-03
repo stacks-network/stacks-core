@@ -99,6 +99,7 @@ blockstore/
 │   ├── blockmirrord.py
 │   ├── blockmirrord.tac
 │   ├── blockstore.tac
+│   ├── blockstore-testset.tac
 │   ├── blockstored.py
 │   ├── build_nameset.py
 │   ├── coinkit.patch
