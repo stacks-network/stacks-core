@@ -1,2 +1,3 @@
 include blockstore/dht/server.tac
 include blockstore/blockstore.tac
+include blockstore/blockstore-testset.tac
