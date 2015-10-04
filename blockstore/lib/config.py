@@ -621,8 +621,6 @@ def default_bitcoind_utxo_opts( config_file=None ):
                 use_https = True
             else:
                 use_https = False
-                
-            use_https = bool( parser.get("bitcoind_utxo", "use_https") )
            
        if parser.has_option("bitcoind_utxo", "version_byte"):
            version_byte = int(parser.get("bitcoind_utxo", "version_byte"))
