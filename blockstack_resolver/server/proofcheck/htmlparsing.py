@@ -30,7 +30,6 @@ GITHUB_DESCRIPTION_TAG = 'repository-description'
 GITHUB_FILE_TAG = 'blob-wrapper data type-text'
 
 
-# ---------------------------
 def get_github_text(raw_html):
     html = BeautifulSoup(raw_html, "html.parser")
 
@@ -58,7 +57,6 @@ def get_github_text(raw_html):
     return search_text
 
 
-# ---------------------------
 def get_search_text(service, raw_html):
     if service == 'facebook':
         raw_html = raw_html.replace('<!--', '').replace('-->', '')
@@ -80,3 +78,12 @@ def get_search_text(service, raw_html):
                 search_text = search_results.text
 
     return search_text
+
+
+def get_twitter_url(raw_html):
+
+    soup = BeautifulSoup(raw_html, "html.parser")
+
+    url = soup.find("meta", {"property": "og:url"})['content']
+
+    return url
