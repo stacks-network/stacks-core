@@ -28,7 +28,7 @@ import hashlib
 import pylibmc
 from time import time
 
-from .htmlparsing import get_search_text, get_github_text
+from .htmlparsing import get_search_text, get_github_text, get_twitter_url
 from .sites import SITES
 from ..config import MEMCACHED_PORT, MEMCACHED_TIMEOUT, DEFAULT_HOST, MEMCACHED_ENABLED
 
@@ -78,12 +78,21 @@ def is_valid_proof(site, site_username, username, proof_url):
             if not proof_url.startswith(check_url):
                 return False
         else:
-            return False
+            return False    
 
     try:
         r = requests.get(proof_url)
     except:
         return False
+
+    if site == 'twitter':
+
+        # fix for twitter checking only tweet IDs and forwarding requests
+        # fetch URL of the page the request got forwarded to
+        proof_url = get_twitter_url(r.text)
+
+        if not proof_url.startswith(check_url):
+            return False
 
     if site == "github":
         try:
