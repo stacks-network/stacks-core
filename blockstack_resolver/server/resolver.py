@@ -110,6 +110,31 @@ def get_user_count():
     return jsonify(info)
 
 
+def get_profile_from_dht(profile_hash):
+
+    dht_client = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
+    dht_resp = dht_client.get(profile_hash)
+    dht_resp = dht_resp[0]
+    profile = json.loads(dht_resp['value'])
+
+    return profile
+
+
+def format_profile(profile, username):
+
+    data = {}
+
+    if 'error' in profile:
+        data['profile'] = None
+        data['error'] = "Malformed profile data"
+        data['verifications'] = []
+    else:
+        data['profile'] = profile
+        data['verifications'] = profile_to_proofs(profile, username)
+
+    return data
+
+
 def get_user_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
 
     global MEMCACHED_ENABLED
@@ -120,13 +145,11 @@ def get_user_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
     username = username.lower()
 
     blockstore_client = Proxy(BLOCKSTORED_SERVER, BLOCKSTORED_PORT)
-    resp = blockstore_client.lookup(username + "." + namespace)
-    resp = resp[0]
+    blockstore_resp = blockstore_client.lookup(username + "." + namespace)
+    blockstore_resp = blockstore_resp[0]
 
-    if resp is None:
+    if blockstore_resp is None:
         abort(404)
-
-    profile_hash = resp['value_hash']
 
     if MEMCACHED_ENABLED:
         cache_reply = mc.get("profile_" + str(username))
@@ -135,28 +158,17 @@ def get_user_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
 
     if cache_reply is None:
 
-        info = {}
-
-        dht_client = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
-        dht_resp = dht_client.get(profile_hash)
-        dht_resp = dht_resp[0]
-        profile = json.loads(dht_resp['value'])
-
-        if 'error' in profile:
-            info['profile'] = None
-            info['error'] = "Malformed profile data"
-            info['verifications'] = []
-        else:
-            info['profile'] = profile
-            info['verifications'] = profile_to_proofs(profile, username)
+        profile_hash = blockstore_resp['value_hash']
+        profile = get_profile_from_dht(profile_hash)
+        data = format_profile(profile, username)
 
         if MEMCACHED_ENABLED or refresh:
             mc.set("profile_" + str(username), json.dumps(info),
                    int(time() + MEMCACHED_TIMEOUT))
     else:
-        info = json.loads(cache_reply)
+        data = json.loads(cache_reply)
 
-    return info
+    return data
 
 
 @app.route('/v2/users/<usernames>', methods=['GET'])
@@ -217,6 +229,7 @@ def get_namespace():
 
 @app.route('/')
 def index():
+
     reply = '<hmtl><body>Welcome to this Blockchain ID resolver, see \
             <a href="http://github.com/blockstack/resolver"> \
             this Github repo</a> for details.</body></html>'
