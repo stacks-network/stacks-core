@@ -53,6 +53,7 @@ from tools.sweep_btc import sweep_btc
 from tools.misc import import_update
 from tools.crypto_tools import aes_encrypt, aes_decrypt, get_addresses_from_privkey
 from tools.namespace_state import get_hash
+from tools.namespace_diff import insert_state_diff as insert_btc_diff
 
 from registrar.config import SERVER_FLEET
 from pybitcoin.rpc.namecoind_cluster import pending_transactions
@@ -266,23 +267,6 @@ def clean_registration(username):
     if check_register is not None:
         registrations.remove(check_register)
         print "cleaning: %s" % username
-
-
-def insert_btc_diff(username, profile, nmc_address):
-
-    check_btc_diff = btc_state_diff_2.find_one({"username": username})
-
-    if check_btc_diff is None:
-        new_entry = {}
-        new_entry['username'] = username
-        new_entry['btc_address'] = address_to_new_cryptocurrency(nmc_address, 0)
-        new_entry['profile'] = profile
-        new_entry['profile_hash'] = get_hash(profile)
-
-        print "inserting in diff: %s" % username
-        btc_state_diff_2.insert(new_entry)
-    else:
-        print "already in diff: %s" % username
 
 
 def calculate_diff():
