@@ -163,7 +163,7 @@ def get_user_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
         data = format_profile(profile, username)
 
         if MEMCACHED_ENABLED or refresh:
-            mc.set("profile_" + str(username), json.dumps(info),
+            mc.set("profile_" + str(username), json.dumps(data),
                    int(time() + MEMCACHED_TIMEOUT))
     else:
         data = json.loads(cache_reply)
