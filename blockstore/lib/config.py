@@ -264,19 +264,21 @@ NAMESPACE_DEFAULT = {
 
 """ UTXOs 
 """
-SUPPORTED_UTXO_PROVIDERS = [ "chain_com", "blockcypher", "blockchain_info", "bitcoind_utxo" ]
+SUPPORTED_UTXO_PROVIDERS = [ "chain_com", "blockcypher", "blockchain_info", "bitcoind_utxo", "mock_utxo" ]
 SUPPORTED_UTXO_PARAMS = {
     "chain_com": ["api_key_id", "api_key_secret"],
     "blockcypher": ["api_token"],
     "blockchain_info": ["api_token"],
-    "bitcoind_utxo": ["rpc_username", "rpc_password", "server", "port", "use_https", "version_byte"]
+    "bitcoind_utxo": ["rpc_username", "rpc_password", "server", "port", "use_https", "version_byte"],
+    "mock_utxo": []
 }
 
 SUPPORTED_UTXO_PROMPT_MESSAGES = {
     "chain_com": "Please enter your chain.com API key and secret.",
     "blockcypher": "Please enter your Blockcypher API token.",
     "blockchain_info": "Please enter your blockchain.info API token.",
-    "bitcoind_utxo": "Please enter your fully-indexed bitcoind node information."
+    "bitcoind_utxo": "Please enter your fully-indexed bitcoind node information.",
+    "mock_utxo": "Mock UTXO provider.  Do not use in production."
 }
 
 
@@ -346,7 +348,7 @@ def default_bitcoind_opts( config_file=None ):
    bitcoind_user = None 
    bitcoind_passwd = None 
    bitcoind_use_https = None 
-   
+  
    loaded = False 
    
    if config_file is not None:
@@ -401,7 +403,7 @@ def default_bitcoind_opts( config_file=None ):
       "bitcoind_passwd": bitcoind_passwd,
       "bitcoind_server": bitcoind_server,
       "bitcoind_port": bitcoind_port,
-      "bitcoind_use_https": bitcoind_use_https
+      "bitcoind_use_https": bitcoind_use_https,
    }
    
    # strip None's
@@ -470,7 +472,10 @@ def default_utxo_provider_opts( utxo_provider, config_file=None ):
    
    elif utxo_provider == "bitcoind_utxo":
        return default_bitcoind_utxo_opts( config_file=config_file )
-   
+  
+   elif utxo_provider == "mock_utxo":
+       return default_mock_utxo_opts( config_file=config_file )
+
    else:
        raise Exception("Unsupported UTXO provider '%s'" % utxo_provider)
    
@@ -654,6 +659,91 @@ def default_bitcoind_utxo_opts( config_file=None ):
          del bitcoind_utxo_opts[k]
    
    return bitcoind_utxo_opts
+
+
+def default_mock_utxo_opts( config_file=None ):
+   """
+   Get default options for the mock UTXO provider.
+   """
+
+   mock_tx_list = None
+   mock_tx_file = None 
+   mock_start_block = FIRST_BLOCK_MAINNET 
+   mock_start_time = None 
+   mock_difficulty = None 
+   mock_initial_utxos = None 
+
+   if config_file is not None:
+         
+      parser = SafeConfigParser()
+      parser.read(config_file)
+
+      if parser.has_section("mock_utxo"):
+         
+         if parser.has_option('mock_utxo', 'tx_list'):
+            # should be a csv of raw transactions 
+            mock_tx_list = parser.get('mock_utxo', 'tx_list').split(',')
+
+         if parser.has_option('mock_utxo', 'tx_file'):
+            # should be a path 
+            mock_tx_file = parser.get('mock_utxo', 'tx_file')
+
+         if parser.has_option('mock_utxo', 'start_block'):
+            # should be an int 
+            try:
+                mock_start_block = int( parser.get('mock_utxo', 'start_block') )
+            except:
+                print >> sys.stderr, "Invalid 'start_block' value: expected int"
+                return None
+
+         if parser.has_option('mock_utxo', 'difficulty'):
+            # should be a float
+            try:
+                mock_difficulty = float( parser.get('mock_utxo', 'difficulty') )
+            except:
+                print >> sys.stderr, "Invalid 'difficulty' value: expected float"
+                return None
+
+         if parser.has_option('mock_utxo', 'start_block'):
+            # should be an int 
+            try:
+                mock_start_block = int( parser.get('mock_utxo', 'start_block'))
+            except:
+                print >> sys.stderr, "Invalid 'start_block' value: expected int"
+                return None 
+
+         if parser.has_option('mock_utxo', 'initial_utxos'):
+            # should be a csv of privatekey:int 
+            try:
+                wallet_info = parser.get('mock_utxo', 'initial_utxos').split(',')
+                wallets = {}
+                for wi in wallet_info:
+                    privkey, value = wi.split(':')
+                    wallets[ privkey ] = int(value)
+
+                mock_initial_utxos = wallets 
+
+            except:
+                print >> sys.stderr, "Invalid 'mock_initial_utxos' value: expected CSV of wif_private_key:int"
+                return None
+
+
+   default_mock_utxo_opts = {
+      "utxo_provider": "mock_utxo",
+      "tx_list": mock_tx_list,
+      "tx_file": mock_tx_file,
+      "start_block": mock_start_block,
+      "difficulty": mock_difficulty,
+      "initial_utxos": mock_initial_utxos,
+      "start_block": mock_start_block
+   }
+   
+   # strip Nones 
+   for (k, v) in default_mock_utxo_opts.items():
+      if v is None:
+         del default_mock_utxo_opts[k]
+   
+   return default_mock_utxo_opts
 
 
 def default_dht_opts( config_file=None ):
@@ -903,7 +993,7 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
    
    # find the current utxo provider 
    while utxo_provider is None or utxo_provider not in SUPPORTED_UTXO_PROVIDERS:
-       
+      
        # prompt for it? 
        if interactive or force:
                     
@@ -917,8 +1007,7 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
            utxo_provider = utxo_provider_dict['utxo_provider']
            
        else:
-           raise Exception("No UTXO provider given")
-       
+           raise Exception("No UTXO provider given") 
    
    utxo_opts = {}
    utxo_opts_defaults = default_utxo_provider_opts( utxo_provider, config_file=config_file )
@@ -1067,7 +1156,12 @@ def connect_utxo_provider( utxo_opts ):
    
    elif utxo_provider == "bitcoind_utxo":
        return pybitcoin.BitcoindClient( utxo_opts['rpc_username'], utxo_opts['rpc_password'], use_https=utxo_opts['use_https'], server=utxo_opts['server'], port=utxo_opts['port'], version_byte=utxo_opts['version_byte'] )
-   
+  
+   elif utxo_provider == "mock_utxo":
+       # requires blockstore tests to be installed 
+       from ..tests import connect_mock_utxo_provider
+       return connect_mock_utxo_provider( utxo_opts )
+
    else:
        raise Exception("Unrecognized UTXO provider '%s'" % utxo_provider )
    
