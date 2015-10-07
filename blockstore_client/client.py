@@ -292,6 +292,7 @@ def load_user(record_hash):
 def lookup( name ):
     return get_name_record( name )
 
+
 def get_name_record(name, create_if_absent=False):
     """
     Given the name of the user, look up the user's record hash,
@@ -823,6 +824,16 @@ def revoke_subsidized( name, public_key, subsidy_key, proxy=None ):
         proxy = get_default_proxy()
 
     return proxy.revoke_tx_subsidized( name, public_key, subsidy_key )
+
+
+def send_subsidized( privatekey, subsidized_tx, proxy=None ):
+    """
+    send_subsidized
+    """
+    if proxy is None:
+        proxy = get_default_proxy()
+        
+    return proxy.send_subsidized( privatekey, subsidized_tx )
 
 
 def name_import(name, address, update_hash, privatekey, proxy=None):
