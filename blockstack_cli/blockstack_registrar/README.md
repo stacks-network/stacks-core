@@ -2,15 +2,11 @@
 
 [![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 
-For registering and updating [blockchain IDs](https://github.com/blockstack/blockstack/wiki/Blockchain-ID).
+For registering and updating [blockchain IDs](https://github.com/blockstack/blockstack/wiki/Blockchain-ID). 
 
-## Setup Environment 
+Blockchain IDs are registered on the Bitcoin blockchain, using [Blockstore](https://github.com/blockstack/blockstore), and associated data is stored on external data stores like a DHT. 
 
-Blockchain IDs currently use the Namecoin blockchain for storing data. You'll need to compile a Namecoin Daemon (namecoind) to register/update opennames and profiles. You can follow the instructions for [compiling namecoind on Debian](https://github.com/blockstack/registrar/blob/master/doc/build-debian.md). 
-
-We've also developed a Python RPC client, shipped with [pybitcoin](https://github.com/blockstack/pybitcoin/rpc) for easily interacting with namecoind. This RPC client can be used to register users and update their profiles once you've setup your own namecoind instance. See the [README](https://github.com/blockstack/pybitcoin/tree/master/pybitcoin/rpc) files for details.
-
-We're in the process of releasing more tools/software for making this process easier for developers, so stay tuned!
+A registrar is a service that registers blockchain IDs and then transfers them to the respective users, along with writing/updating any associated data. Just like GoDaddy helps you manage domain names, a blockchain ID registrar helps you register/manage your blockchain ID. However, the end-users have complete control over the blockchain IDs registered (after a transfer is complete), and anyone can decide to run a registrar.
 
 ## Blockchain IDs
 
