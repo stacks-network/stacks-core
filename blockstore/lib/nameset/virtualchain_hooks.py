@@ -562,6 +562,8 @@ def db_serialize( op, nameop, db_state=None ):
           log.error("Unrecognized opcode '%s'" % op)
           return None 
       
+      # always include the transaction ID 
+      sr = sr + nameop['virtualchain_txid']
       return sr
    
    else:
