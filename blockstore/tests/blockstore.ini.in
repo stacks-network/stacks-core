@@ -1,0 +1,20 @@
+[bitcoind]
+passwd = opennamesystem
+server = btcd.onename.com
+port = 8332
+use_https = True
+user = openname
+
+[mock_utxo]
+initial_utxos = @MOCK_INITIAL_UTXOS@
+
+[dht]
+disable = True
+port = 6265
+servers = dht.openname.org:6265,dht.onename.com:6265,dht.halfmoonlabs.com:6265,127.0.0.1:6265
+
+[blockstore]
+max_subsidy = 65000
+subsidization_keys = ./blockstore-subsidization-keys.txt
+tx_broadcaster = mock_utxo
+utxo_provider = mock_utxo
