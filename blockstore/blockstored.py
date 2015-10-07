@@ -247,7 +247,7 @@ def get_utxo_provider_client():
    try:
        utxo_provider = connect_utxo_provider( utxo_opts )
        return utxo_provider
-   except:
+   except Exception, e:
        log.exception(e)
        return None 
 
