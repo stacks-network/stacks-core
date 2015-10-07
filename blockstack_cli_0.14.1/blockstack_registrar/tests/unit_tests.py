@@ -26,6 +26,8 @@ This file is part of Registrar.
 import os
 import sys
 import unittest
+
+from basicrpc import Proxy
 from pymongo import MongoClient
 
 # Hack around absolute paths
@@ -48,6 +50,13 @@ def get_db():
     return remote_db.user
 
 
+def get_blockchain_record(username):
+
+    client = Proxy(BLOCKSTORED_SERVER, BLOCKSTORED_PORT)
+    resp = client.lookup(username + "." + DEFAULT_NAMESPACE)
+    return resp[0]
+
+
 class RegistrarTestCase(unittest.TestCase):
 
     def tearDown(self):
@@ -60,23 +69,58 @@ class RegistrarTestCase(unittest.TestCase):
         users = get_db()
         count = users.count()
 
-        self.assertGreater(count, 100, msg="cannot connect to DB")
+        self.assertGreater(count, 100, msg="Cannot connect to DB")
 
     def test_blockstore_connectivity(self):
         """ Check connection to blockstore node
         """
-        pass
+
+        client = Proxy(BLOCKSTORED_SERVER, BLOCKSTORED_PORT)
+        resp = client.ping()[0]
+
+        self.assertDictContainsSubset({'status': 'alive'}, resp)
 
     def test_dht_connectivity(self):
         """ Check connection to DHT
         """
-        pass
+
+        client = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
+        resp = client.ping()[0]
+
+        self.assertDictContainsSubset({'status': 'alive'}, resp)
 
     def test_username_registered(self):
         """ Check if username is registered on blockchain 
         """
 
-        pass
+        for username in test_users:
+
+            resp = get_blockchain_record(username)
+
+            try:
+                last_renewed = resp['last_renewed']
+            except:
+                last_renewed = 0
+
+            self.assertGreater(last_renewed, 100, msg="Username not registered")
+
+    def test_profile_data(self):
+        """ Check if:
+            1) correct profile data is associated with username
+            2) data can be fetched from DHT
+        """
+
+        for username in test_users:
+
+            resp = get_blockchain_record(username)
+
+            profile_hash = resp['value_hash']
+
+            dht_mirror = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
+            profile = dht_mirror.get(profile_hash)
+            profile = profile[0]
+
+            self.assertIsInstance(profile, dict, msg="Profile not found")
 
 if __name__ == '__main__':
 

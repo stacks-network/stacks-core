@@ -116,7 +116,7 @@ def populate_diff_db():
 def get_latest_diff():
 
     for user in state_diff.find():
-        print user
+        print user['username']
 
 if __name__ == '__main__':
 
