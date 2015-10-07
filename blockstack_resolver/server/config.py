@@ -34,10 +34,6 @@ DEFAULT_HOST = '0.0.0.0'
 MEMCACHED_PORT = 11211
 MEMCACHED_SERVER = '127.0.0.1'
 
-MEMCACHED_TIMEOUT = 12 * 60 * 60
-USERSTATS_TIMEOUT = 60 * 60
-MEMCACHED_ENABLED = True
-
 RECENT_BLOCKS = 100
 VALID_BLOCKS = 36000
 REFRESH_BLOCKS = 25
@@ -49,6 +45,10 @@ try:
 except:
 
     log.debug('config_local.py not found, using default settings')
+
+    MEMCACHED_TIMEOUT = 12 * 60 * 60
+    USERSTATS_TIMEOUT = 60 * 60
+    MEMCACHED_ENABLED = False
 
     try:
         MEMCACHED_USERNAME = os.environ['MEMCACHEDCLOUD_USERNAME']
