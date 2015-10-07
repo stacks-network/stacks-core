@@ -82,7 +82,7 @@ def make_outputs( data, inputs, change_addr, fee, pay_fee=True, format='bin' ):
     dust_value = DEFAULT_DUST_FEE
     
     bill = op_fee
-    
+   
     if not pay_fee:
         # subsidized
         dust_fee = 0
