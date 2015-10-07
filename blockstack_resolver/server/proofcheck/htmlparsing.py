@@ -84,6 +84,9 @@ def get_twitter_url(raw_html):
 
     soup = BeautifulSoup(raw_html, "html.parser")
 
-    url = soup.find("meta", {"property": "og:url"})['content']
+    try:
+        url = soup.find("meta", {"property": "og:url"})['content']
+    except:
+        url = ''
 
     return url
