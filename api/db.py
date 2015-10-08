@@ -11,6 +11,7 @@ from . import app
 from mongoengine import connect
 from flask.ext.mongoengine import MongoEngine
 
+connect(app.config['MONGODB_DB'], host=app.config['MONGODB_URI'])
 db = MongoEngine(app)
 
 # MongoDB database for register queue, utxo index, etc.
