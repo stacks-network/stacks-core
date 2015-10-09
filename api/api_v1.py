@@ -54,7 +54,7 @@ def get_unspents(address):
 
 
 @app.route('/v1/users/<passnames>', methods=['GET'])
-@auth_required(exception_paths=['/v1/users/fredwilson'])
+# @auth_required(exception_paths=['/v1/users/fredwilson'])
 @crossdomain(origin='*')
 def api_user(passnames):
     BASE_URL = RESOLVER_URL + '/v1/users/'
