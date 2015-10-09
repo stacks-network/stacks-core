@@ -19,8 +19,8 @@ MEMCACHED_TIMEOUT = 30*60
 
 MAIL_USERNAME = 'support@onename.com'
 
-SEARCH_URL = 'http://search.halfmoonlabs.com'
-RESOLVER_URL = 'http://resolver.onename.com'
+SEARCH_URL = 'http://search.onename.com'
+NMC_RESOLVER_URL = 'http://resolver-nmc.onename.com'
 BTC_RESOLVER_URL = 'http://resolver-btc.onename.com'
 
 DHT_MIRROR = '54.173.110.67'
@@ -36,6 +36,7 @@ secrets_list = [
     'INDEX_DB_URI', 'SECRET_KEY', 'MONGODB_PASSWORD',
     'MAILGUN_API_KEY', 'MONGODB_URI', 'MONGODB_DB'
 ]
+
 for env_variable in os.environ:
     if env_variable in secrets_list:
         env_value = os.environ[env_variable]

@@ -16,7 +16,7 @@ db = MongoEngine(app)
 
 # MongoDB database for register queue, utxo index, etc.
 from pymongo import MongoClient
-from .settings import MONGODB_URI, INDEX_DB_URI, RESOLVER_URL, SEARCH_URL
+from .settings import INDEX_DB_URI
 
 namecoin_index = MongoClient(INDEX_DB_URI)['namecoin_index']
 utxo_index = namecoin_index.utxo

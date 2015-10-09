@@ -9,6 +9,7 @@ import json
 import traceback
 import requests
 import ssl
+
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import Timeout as RequestsTimeout
 from flask import request, jsonify
@@ -16,15 +17,16 @@ from pybitcoin.rpc import namecoind
 from flask_crossdomain import crossdomain
 
 from . import app
-from .errors import InvalidProfileDataError, PassnameTakenError, \
+from .errors import InvalidProfileDataError, UsernameTakenError, \
     InternalProcessingError, ResolverConnectionError, \
     BroadcastTransactionError, DatabaseLookupError, InternalSSLError, \
-    DatabaseSaveError, DKIMPubkeyError, PassnameNotRegisteredError
+    DatabaseSaveError, DKIMPubkeyError, UsernameNotRegisteredError
+
 from .parameters import parameters_required
 from .auth import auth_required
 from .db import utxo_index, address_to_utxo, address_to_keys
-from .settings import RESOLVER_URL, SEARCH_URL
-from .models import Passcard
+from .settings import NMC_RESOLVER_URL, SEARCH_URL
+from .models import User
 from .dkim import dns_resolver, parse_pubkey_from_data, DKIM_RECORD_PREFIX
 
 
@@ -53,42 +55,42 @@ def get_unspents(address):
     return unspents
 
 
-@app.route('/v1/users/<passnames>', methods=['GET'])
+@app.route('/v1/users/<usernames>', methods=['GET'])
 @auth_required(exception_paths=['/v1/users/fredwilson'])
 @crossdomain(origin='*')
-def api_user(passnames):
-    BASE_URL = RESOLVER_URL + '/v1/users/'
+def api_user(usernames):
+    BASE_URL = NMC_RESOLVER_URL + '/v1/users/'
 
     try:
-        resp = requests.get(BASE_URL + passnames, timeout=10, verify=False)
+        resp = requests.get(BASE_URL + usernames, timeout=10, verify=False)
     except (RequestsConnectionError, RequestsTimeout) as e:
         raise ResolverConnectionError()
 
     data = resp.json()
 
-    passnames = passnames.split(',')
+    usernames = usernames.split(',')
 
-    if len(passnames) is 1:
-        passname = passnames[0]
+    if len(usernames) is 1:
+        username = usernames[0]
         if 'error' in data:
-            error = PassnameNotRegisteredError('')
-            data[passname] = {
+            error = UsernameNotRegisteredError('')
+            data[username] = {
                 'error': error.to_dict()
             }
             return jsonify(data), 404
 
-    for passname in passnames:
-        if passname not in data:
-            error = PassnameNotRegisteredError('')
-            data[passname] = {
+    for username in usernames:
+        if username not in data:
+            error = UsernameNotRegisteredError('')
+            data[username] = {
                 'error': error.to_dict()
             }
 
         try:
-            json.loads(json.dumps(data[passname]))
+            json.loads(json.dumps(data[username]))
         except:
             error = InvalidProfileDataError('')
-            data[passname] = {
+            data[username] = {
                 'error': error.to_dict()
             }
 
@@ -97,44 +99,44 @@ def api_user(passnames):
 
 @app.route('/v1/users', methods=['POST'])
 @auth_required()
-@parameters_required(['passname', 'recipient_address'])
+@parameters_required(['username', 'recipient_address'])
 @crossdomain(origin='*')
 def register_user():
     REGISTRATION_MESSAGE = (
-        "This passcard was registered using the Onename"
+        "This profile was registered using the Onename"
         " API - https://api.onename.com")
 
     data = json.loads(request.data)
 
-    passname = data['passname']
+    username = data['username']
 
-    passcard_lookup = api_user(passname)
+    profile_lookup = api_user(username)
 
-    if 'error' in passcard_lookup.data and passcard_lookup.status_code == 404:
+    if 'error' in profile_lookup.data and profile_lookup.status_code == 404:
 
-        if 'passcard' in data:
-            passcard = data['passcard']
+        if 'profile' in data:
+            profile = data['profile']
         else:
-            passcard = {
+            profile = {
                 'status': 'registered',
                 'message': REGISTRATION_MESSAGE
             }
     else:
-        raise PassnameTakenError()
+        raise UsernameTakenError()
 
-    matching_passcards = Passcard.objects(passname=passname)
+    matching_profiles = User.objects(username=username)
 
-    if len(matching_passcards):
+    if len(matching_profiles):
         """ Someone else already tried registering this name
-            but the passname is not yet registered on the blockchain.
+            but the username is not yet registered on the blockchain.
             Don't tell the client that someone else's request is processing.
         """
         pass
     else:
-        passcard = Passcard(passname=passname, payload=json.dumps(passcard),
+        profile = User(username=username, profile=json.dumps(profile),
                             transfer_address=data['recipient_address'])
         try:
-            passcard.save()
+            profile.save()
         except Exception as e:
             raise DatabaseSaveError()
 
@@ -233,7 +235,7 @@ def get_all_users():
 
     # Specify the URL for the namespace call. If 'recent_blocks' is present,
     # limit the call to only the names registered in that recent # of blocks.
-    namespace_url = RESOLVER_URL + '/v1/namespace'
+    namespace_url = NMC_RESOLVER_URL + '/v1/namespace'
     if 'recent_blocks' in request.values:
         try:
             recent_blocks_int = int(request.values['recent_blocks'])
@@ -259,7 +261,7 @@ def get_all_users():
 def get_user_stats():
     resp_json = {}
 
-    stats_url = RESOLVER_URL + '/v1/users'
+    stats_url = NMC_RESOLVER_URL + '/v1/users'
     try:
         stats_resp = requests.get(stats_url, timeout=10, verify=False)
         resp_json.update(stats_resp.json())
