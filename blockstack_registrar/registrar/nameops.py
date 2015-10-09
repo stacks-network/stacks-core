@@ -56,6 +56,9 @@ def get_dht_profile(username):
 
     resp = get_blockchain_record(username)
 
+    if resp is None:
+        return None
+
     profile_hash = resp['value_hash']
 
     dht_mirror = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
