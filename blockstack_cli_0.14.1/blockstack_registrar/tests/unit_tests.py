@@ -35,6 +35,9 @@ current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
 sys.path.insert(0, parent_dir)
 
+from registrar.nameops import get_blockchain_record
+from registrar.nameops import get_dht_profile
+
 from registrar.config import DEFAULT_NAMESPACE
 from registrar.config import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
 from registrar.config import DHT_MIRROR, DHT_MIRROR_PORT
@@ -48,13 +51,6 @@ def get_db():
     remote_db = MongoClient(MONGODB_URI).get_default_database()
 
     return remote_db.user
-
-
-def get_blockchain_record(username):
-
-    client = Proxy(BLOCKSTORED_SERVER, BLOCKSTORED_PORT)
-    resp = client.lookup(username + "." + DEFAULT_NAMESPACE)
-    return resp[0]
 
 
 class RegistrarTestCase(unittest.TestCase):
@@ -112,13 +108,7 @@ class RegistrarTestCase(unittest.TestCase):
 
         for username in test_users:
 
-            resp = get_blockchain_record(username)
-
-            profile_hash = resp['value_hash']
-
-            dht_mirror = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
-            profile = dht_mirror.get(profile_hash)
-            profile = profile[0]
+            profile = get_dht_profile(username)
 
             self.assertIsInstance(profile, dict, msg="Profile not found")
 
