@@ -93,12 +93,14 @@ class LookupUsersTest(unittest.TestCase):
         check_data(self, data, required_keys=self.required_keys(usernames),
                    banned_keys=self.banned_keys(usernames))
 
+    """
     def test_user_lookup_without_auth(self):
         usernames = ['naval']
         data = test_get_request(self, self.build_url(usernames),
                                 headers={}, status_code=401)
         check_data(self, data, required_keys={'error': ['message', 'type']},
                    banned_keys={'naval': []})
+    """
 
     def test_user_lookup_with_auth(self):
         usernames = ['naval']
