@@ -40,10 +40,17 @@ try:
 except:
     INDEXDB_URI = None
 
+from registrar.nameops import get_dht_profile
+
 from registrar.config import DEFAULT_NAMESPACE
 from registrar.config import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
 from registrar.config import DHT_MIRROR, DHT_MIRROR_PORT
 from registrar.config import IGNORE_USERNAMES
+
+remote_db = MongoClient(MONGODB_URI).get_default_database()
+users = remote_db.user
+registrations = remote_db.user_registration
+
 
 c = MongoClient(INDEXDB_URI)
 state_diff = c['namespace'].state_diff
@@ -53,7 +60,7 @@ def get_hash(profile):
 
     if type(profile) is not dict:
         try:
-            print "WARNING: converting to json"
+            # print "WARNING: converting to json"
             profile = json.loads(profile)
         except:
             print "WARNING: not valid json"
@@ -79,10 +86,6 @@ def insert_state_diff(username, profile, nmc_address):
 
 
 def populate_diff_db():
-
-    remote_db = MongoClient(MONGODB_URI).get_default_database()
-    users = remote_db.user
-    registrations = remote_db.user_registration
 
     counter = 0
     for new_user in registrations.find():
@@ -113,6 +116,26 @@ def populate_diff_db():
     print counter
 
 
+def cleanup_diff_db():
+
+    for entry in state_diff.find():
+
+        username = entry['username']
+        profile = get_dht_profile(username)
+        dht_profile_hash = get_hash(profile)
+
+        check_user = users.find_one({"username": username})
+        try:
+            db_profile_hash = get_hash(check_user['profile'])
+        except:
+            db_profile_hash = None
+            print "ERROR: %s" % username
+
+        if dht_profile_hash == db_profile_hash:
+            print "registered: %s" % username
+            state_diff.remove({"username": username})
+
+
 def get_latest_diff():
 
     for user in state_diff.find():
@@ -120,5 +143,6 @@ def get_latest_diff():
 
 if __name__ == '__main__':
 
-    get_latest_diff()
+    cleanup_diff_db()
+    #get_latest_diff()
     #populate_diff_db()
