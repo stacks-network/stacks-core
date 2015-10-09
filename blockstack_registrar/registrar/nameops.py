@@ -22,76 +22,62 @@ This file is part of Registrar.
     along with Registrar. If not, see <http://www.gnu.org/licenses/>.
 """
 
-# 520 is the real limit
-# hardcoded here instead of some config file
-VALUE_MAX_LIMIT = 512
-
 import json
+import logging
+import pylibmc
 
-from commontools import utf8len, log
-
-# -----------------------------------
+from time import time
 from pymongo import MongoClient
-from config import AWSDB_URI
-aws_db = MongoClient(AWSDB_URI)['blockdata']
+from basicrpc import Proxy
+
+from registrar.config import AWSDB_URI
+from registrar.config import MAIN_SERVER
+from registrar.config import DEFAULT_HOST, MEMCACHED_PORT, MEMCACHED_TIMEOUT
+
+from registrar.config import DEFAULT_NAMESPACE
+from registrar.config import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
+from registrar.config import DHT_MIRROR, DHT_MIRROR_PORT
+
+mc = pylibmc.Client([DEFAULT_HOST + ':' + MEMCACHED_PORT], binary=True)
+log = logging.getLogger()
+
+aws_db = MongoClient(AWSDB_URI)['registrar']
 register_queue = aws_db.queue
 
-from pybitcoin.rpc.namecoind_client import NamecoindClient
-from pybitcoin.rpc.namecoind_cluster import get_server
 
-from .config import MAIN_SERVER, LOAD_SERVERS
-from .config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD
-from .config import NAMECOIND_WALLET_PASSPHRASE, NAMECOIND_SERVER
-from .config import NAMECOIND_USE_HTTPS
-from .config import DEFAULT_HOST, MEMCACHED_PORT, MEMCACHED_TIMEOUT
+def get_blockchain_record(username):
 
-from coinrpc import namecoind
-
-import pylibmc
-from time import time
-mc = pylibmc.Client([DEFAULT_HOST + ':' + MEMCACHED_PORT], binary=True)
+    client = Proxy(BLOCKSTORED_SERVER, BLOCKSTORED_PORT)
+    resp = client.lookup(username + "." + DEFAULT_NAMESPACE)
+    return resp[0]
 
 
-def register_name(key, value, server=NAMECOIND_SERVER, username=None):
+def get_dht_profile(username):
+
+    resp = get_blockchain_record(username)
+
+    profile_hash = resp['value_hash']
+
+    dht_mirror = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
+    resp = dht_mirror.get(profile_hash)
+    return resp[0]['value']
+
+
+def register_name(username, profile, server=MAIN_SERVER):
 
     reply = {}
 
     # check if already in register queue (name_new)
-    check_queue = register_queue.find_one({"key": key})
+    check_queue = register_queue.find_one({"username": username})
 
     if check_queue is not None:
-        reply['message'] = "ERROR: " + "already in register queue: " + str(key)
+        reply['message'] = "ERROR: " + "already in register queue: %s" % username
     else:
 
-        namecoind = NamecoindClient(server, NAMECOIND_PORT, NAMECOIND_USER,
-                                    NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS,
-                                    NAMECOIND_WALLET_PASSPHRASE)
-
-        try:
-            info = namecoind.name_new(key, json.dumps(value))
-
-            reply['txid'] = info[0]
-            reply['rand'] = info[1]
-
-        except:
-            log.debug(info)
-            reply['message'] = info
-            return reply
-
-        reply['key'] = key
-        reply['value'] = json.dumps(value)
-
-        reply['tx_sent'] = False
-        reply['server'] = server
-
-        if username is not None:
-            reply['username'] = username
+        # register functionality here
 
         # save this data to Mongodb...
         register_queue.insert(reply)
-
-        # reply[_id] is causing a json encode error
-        del reply['_id']
 
     log.debug(reply)
     log.debug('-' * 5)
@@ -99,209 +85,34 @@ def register_name(key, value, server=NAMECOIND_SERVER, username=None):
     return reply
 
 
-def get_namecoind(key):
-
-    server = NAMECOIND_SERVER
-
-    serverinfo = get_server(key, MAIN_SERVER, LOAD_SERVERS)
-
-    if 'registered' in serverinfo and serverinfo['registered']:
-
-        if serverinfo['server'] is not None:
-            server = serverinfo['server']
-
-    log.debug(server)
-    log.debug(key)
-
-    namecoind = NamecoindClient(server, NAMECOIND_PORT, NAMECOIND_USER,
-                                NAMECOIND_PASSWD, NAMECOIND_USE_HTTPS,
-                                NAMECOIND_WALLET_PASSPHRASE)
-
-    return namecoind
-
-
-def update_name(key, value, new_address=None):
+def update_name(username, profile, new_address=None):
 
     reply = {}
 
-    cache_reply = mc.get("name_update_" + str(key))
+    cache_reply = mc.get("name_update_" + str(username))
 
     if cache_reply is None:
 
-        namecoind = get_namecoind(key)
-
-        info = namecoind.name_update(key, json.dumps(value), new_address)
-
-        if 'code' in info:
-            reply = info
-        else:
-            reply['tx'] = info
-            mc.set("name_update_" + str(key), "in_memory", int(time() + MEMCACHED_TIMEOUT))
-
+        # update name func here
+        pass
     else:
-        reply['message'] = "ERROR: " + "recently sent name_update: " + str(key)
+        reply['message'] = "ERROR: " + "recently sent name_update: %s" % username
 
     log.debug(reply)
     log.debug('-' * 5)
 
 
-def _max_size(username):
-    return VALUE_MAX_LIMIT - len('next: i-' + username + '000000')
-
-
-def _get_key(key_counter, username):
-    return 'i/' + username.lower() + '-' + str(key_counter)
-
-
-def _splitter(remaining, username):
-
-    split = {}
-    maxsize = _max_size(username)
-
-    if utf8len(json.dumps(remaining)) < maxsize:
-        return remaining, None
-    else:
-        for key in remaining.keys():
-
-            if utf8len(json.dumps(remaining[key])) > maxsize:
-                # include the size of key in (key, value) maxsize as well
-                temp = {}
-                temp[key] = 'extra-space-here'
-
-                maxsize_value = maxsize - utf8len(json.dumps(temp))
-                remaining[key] = remaining[key][:maxsize_value]
-
-            # some foreign languages have a bug in size reduction
-            # check again, and display error
-            if utf8len(json.dumps(remaining[key])) > maxsize:
-                remaining[key] = 'Error: value too large'
-
-            split[key] = remaining[key]
-
-            if utf8len(json.dumps(split)) > maxsize:
-                del split[key]
-            else:
-                del remaining[key]
-
-        return split, remaining
-
-
-def slice_profile(username, profile):
-    '''if a next key is already registered, returns next one
-    '''
-
-    keys = []
-    values = []
-
-    key = 'u/' + username.lower()
-    keys.append(key)
-
-    split, remaining = _splitter(profile, username)
-    values.append(split)
-
-    key_counter = 000000
-    counter = 0
-
-    while(remaining is not None):
-
-        key_counter += 1
-        key = _get_key(key_counter, username)
-
-        while(1):
-
-            if namecoind.check_registration(key):
-                key_counter += 1
-                key = _get_key(key_counter, username)
-            else:
-                break
-
-        split, remaining = _splitter(remaining, username)
-
-        keys.append(key)
-        values.append(split)
-
-        values[counter]['next'] = key
-        counter += 1
-
-    return keys, values
-
-
-def slice_profile_update(username, profile):
-    '''returns keys without checking if they're already registered
-    '''
-
-    keys = []
-    values = []
-
-    key = 'u/' + username.lower()
-    keys.append(key)
-
-    split, remaining = _splitter(profile, username)
-    values.append(split)
-
-    key_counter = 0
-    counter = 0
-
-    while(remaining is not None):
-
-        key_counter += 1
-        key = _get_key(key_counter, username)
-
-        split, remaining = _splitter(remaining, username)
-        keys.append(key)
-        values.append(split)
-
-        values[counter]['next'] = key
-        counter += 1
-
-    return keys, values
-
-
-def process_user(username, profile, server=NAMECOIND_SERVER, new_address=None):
+def process_user(username, profile, server=MAIN_SERVER, new_address=None):
 
     master_key = 'u/' + username
-
-    if namecoind.check_registration(master_key):
-        keys, values = slice_profile_update(username, profile)
-    else:
-        keys, values = slice_profile(username, profile)
-
-    index = 0
-    key1 = keys[index]
-    value1 = values[index]
 
     if namecoind.check_registration(key1):
 
         # if name is registered
-        log.debug("name update: %s", key1)
-        log.debug("size: %s", utf8len(json.dumps(value1)))
-        update_name(key1, value1, new_address)
+        log.debug("name update: %s", username)
+        #update_name()
 
     else:
         # if not registered
-        log.debug("name new: %s", key1)
-        log.debug("size: %s", utf8len(json.dumps(value1)))
-        register_name(key1, value1, server, username)
-
-    process_additional_keys(keys, values, server, username, new_address)
-
-
-def process_additional_keys(keys, values, server, username, new_address):
-
-    # register/update remaining keys
-    size = len(keys)
-    index = 1
-    while index < size:
-        next_key = keys[index]
-        next_value = values[index]
-
-        log.debug(utf8len(json.dumps(next_value)))
-
-        if namecoind.check_registration(next_key):
-            log.debug("name update: " + next_key)
-            update_name(next_key, next_value, new_address)
-        else:
-            log.debug("name new: " + next_key)
-            register_name(next_key, next_value, server, username)
-
-        index += 1
+        log.debug("name new: %s", username)
+        #register_name()
