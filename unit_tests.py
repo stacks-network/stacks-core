@@ -277,7 +277,7 @@ def test_main():
         #UserbaseTest,
         #UserbaseStatsTest,
         SearchUsersTest,
-        LookupUnspentsTest,
+        #LookupUnspentsTest,
         #LookupNamesOwnedTest,
         #RegisterUserTest,
         #BroadcastTransactionTest,
