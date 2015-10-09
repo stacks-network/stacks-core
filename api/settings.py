@@ -20,10 +20,12 @@ MEMCACHED_TIMEOUT = 30*60
 MAIL_USERNAME = 'support@onename.com'
 
 SEARCH_URL = 'http://search.onename.com'
-NMC_RESOLVER_URL = 'http://resolver-nmc.onename.com'
-BTC_RESOLVER_URL = 'http://resolver-btc.onename.com'
+RESOLVER_URL = 'http://resolver-btc.onename.com'
 
-DHT_MIRROR = '54.173.110.67'
+BLOCKSTORED_SERVER = '52.20.98.85'
+BLOCKSTORED_PORT = 6264
+
+DHT_MIRROR = '52.20.98.85'
 DHT_MIRROR_PORT = 6266
 
 try:
@@ -34,7 +36,8 @@ except:
 # Secret settings
 secrets_list = [
     'INDEX_DB_URI', 'SECRET_KEY', 'MONGODB_PASSWORD',
-    'MAILGUN_API_KEY', 'MONGODB_URI', 'MONGODB_DB'
+    'MAILGUN_API_KEY', 'MONGODB_URI', 'MONGODB_DB',
+    'CHAIN_API_ID', 'CHAIN_API_SECRET'
 ]
 
 for env_variable in os.environ:

@@ -121,9 +121,9 @@ class DKIMPubkeyError(APIError):
     message = ("Public key record for domain not found")
 
 
-class NotYetSupportedError(APIError):
+class UpgradeInprogressError(APIError):
     status_code = 403
-    message = ("End-point is not supported yet")
+    message = ("This end-point is currently being upgraded and is temporarily unavailable")
 
 
 class BroadcastTransactionError(APIError):
