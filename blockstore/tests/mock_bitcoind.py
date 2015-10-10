@@ -23,16 +23,21 @@ from utilitybelt import is_valid_int
 from ConfigParser import SafeConfigParser
 
 import pybitcoin
+import pybitcoin.transactions.opcodes as opcodes
 
 # hack around absolute paths 
-current_dir =  os.path.abspath(os.path.dirname(__file__) + "/../..")
+current_dir =  os.path.abspath(os.path.dirname(__file__) + "../..")
 sys.path.insert(0, current_dir)
 
+import blockstore
 from blockstore.lib import *
 import virtualchain
 
 # global singleton
-mock_bitcoind = None 
+mock_bitcoind = None
+
+# global opcode table 
+opcode_table = {}
 
 class MockBitcoindConnection( object ):
     """
@@ -113,25 +118,6 @@ class MockBitcoindConnection( object ):
                 break
 
 
-
-    def make_txid( self, tx_hex ):
-        """
-        Create a transaction ID from a serialized transaction.
-        """
-
-        sha256 = hashlib.sha256()
-        sha256.update( binascii.unhexlify(tx_hex) )
-        sha256_1 = sha256.digest()
-
-        sha256 = hashlib.sha256()
-        sha256.update( sha256_1 )
-        sha256_2 = sha256.digest()
-
-        txid = binascii.hexlify( "".join( list(reversed(sha256_2)) ) )
-
-        return txid
-    
-
     def getblockhash( self, block_id ):
         """
         Get the block hash, given the ID
@@ -183,8 +169,12 @@ class MockBitcoindConnection( object ):
             return raw_tx
 
         # parse like how bitcoind would have
+        """
         btcd = virtualchain.create_bitcoind_connection( "openname", "opennamesystem", "btcd.onename.com", 8332, True )
         ret = btcd.decoderawtransaction( raw_tx )
+        """
+        ret = btc_decoderawtransaction_compat( raw_tx )
+
         return ret
 
 
@@ -244,7 +234,7 @@ class MockBitcoindConnection( object ):
         block_txs = {}
         block_txids = []
         for tx in txs:
-            txid = self.make_txid( tx )
+            txid = make_txid( tx )
             block_txids.append( txid )
             block_txs[ txid ] = tx
 
@@ -258,7 +248,7 @@ class MockBitcoindConnection( object ):
         block_header = version + prev_block_hash + tx_merkle_root + t_hex + difficulty_hex + '00000000'
 
         # NOTE: not accurate; just get *a* hash
-        block_hash = self.make_txid( block_header )
+        block_hash = make_txid( block_header )
 
         # update nextblockhash at least 
         self.blocks[prev_block_hash]['nextblockhash'] = block_hash 
@@ -289,26 +279,9 @@ class MockBitcoindConnection( object ):
         self.difficulty += 1
         self.end_block += 1
 
-        return [ self.make_txid( tx ) for tx in txs ]
+        return [ make_txid( tx ) for tx in txs ]
 
 
-    def make_txid( self, tx_hex ):
-        """
-        Create a transaction ID from a serialized transaction.
-        """
-
-        sha256 = hashlib.sha256()
-        sha256.update( binascii.unhexlify(tx_hex) )
-        sha256_1 = sha256.digest()
-
-        sha256 = hashlib.sha256()
-        sha256.update( sha256_1 )
-        sha256_2 = sha256.digest()
-
-        txid = binascii.hexlify( "".join( list(reversed(sha256_2)) ) )
-
-        return txid
-        
 
 def connect_mock_bitcoind( mock_opts, reset=False ):
     """
@@ -333,3 +306,230 @@ def get_mock_bitcoind():
     """
     global mock_bitcoind
     return mock_bitcoind
+
+    
+
+def make_txid( tx_hex ):
+    """
+    Create a transaction ID from a serialized transaction.
+    """
+
+    sha256 = hashlib.sha256()
+    sha256.update( binascii.unhexlify(tx_hex) )
+    sha256_1 = sha256.digest()
+
+    sha256 = hashlib.sha256()
+    sha256.update( sha256_1 )
+    sha256_2 = sha256.digest()
+
+    txid = binascii.hexlify( "".join( list(reversed(sha256_2)) ) )
+
+    return txid
+        
+
+def btc_decoderawtransaction_script_hex_to_asm( script_hex ):
+    """
+    Given a script in hex, decode it to assembler.
+    """
+
+    global opcode_table
+
+    asm_bytes = binascii.unhexlify( script_hex )
+    asm_vec = []
+
+    if len(opcode_table) == 0:
+        for attr in dir(opcodes):
+            if attr.startswith("OP_"):
+                # map op values to op names
+                opcode_table[ getattr(opcodes, attr) ] = attr
+
+    i = 0
+    while i < len(asm_bytes):
+        
+        opcode = ord( asm_bytes[i] )
+
+        if opcode not in opcode_table.keys():
+            # first byte is length; remaining bytes are data
+            length = ord( asm_bytes[i] )
+            data = "".join( [("%02x" % ord(j)) for j in asm_bytes[i+1:i+1+length]] )
+
+            i += length + 1
+
+            asm_vec.append( data )
+
+        else:
+            
+            asm_vec.append( opcode_table[opcode] )
+
+            # special case: OP_RETURN 
+            if opcode_table[opcode] == 'OP_RETURN':
+                asm_vec.append( binascii.hexlify(asm_bytes[i+2:]) )
+                i = len(asm_bytes)
+
+            else:
+
+                # next op
+                i += 1
+
+    return " ".join( asm_vec )
+
+
+def btc_decoderawtransaction_get_pubkey_from_script( script ):
+    """
+    Given a pay-to-public-key script, get the public key.
+    Returns a hex string on success.
+    Returns None on error.
+    """
+
+    # format: [1-byte length] [pubkey] OP_CHECKSIG
+    pubkey_len = int( script[0:1], 16 )
+    if len(script[:-2]) == pubkey_len * 2 and script[-2:].lower() == 'ac':
+
+        # the rest of the script is a public key
+        bin_pubkey = binascii.unhexlify( script[2:2*pubkey_len] )
+        try:
+            pk = pybitcoin.BitcoinPublicKey( bin_pubkey )
+            return pk.to_hex()
+
+        except:
+            return None 
+
+    else:
+        return None
+
+
+def btc_decoderawtransaction_get_script_hash_from_script( script ):
+    """
+    Given a pay-to-script-hash script, get the script hash.
+    Returns a hex string on success.
+    Returns None on error.
+    """
+
+    # format: OP_HASH160 [hash len] [hash] OP_EQUAL
+    hash_len = int( script[2:4], 16 )
+    hash_hex = script[4:len(hash_len)*2]
+
+    return hash_hex
+
+
+def btc_decoderawtransaction_get_script_type( script ):
+    """
+    Given a hex script, deduce the type.
+    """
+
+    if len(script) == (25 * 2) and script[0:6].lower() == '76a914' and script[-4:].lower() == '88ac':
+        # format: OP_DUP OP_HASH160 0x14 [20-byte hash] OP_EQUALVERIFY OP_CHECKSIG
+        return "pubkeyhash"
+
+    elif script[-2:].lower() == 'ac':
+
+        # maybe a pay-to-pubkey...
+        # format: [pubkey len] [pubkey] OP_CHECKSIG
+        pk_hex = btc_decoderawtransaction_get_pubkey_from_script( script )
+        if pk_hex is not None:
+            return "pubkey"
+
+    elif len(script) == (24 * 2) and script[0:2].lower() == 'a9' and script[-2:].lower() == '87':
+
+        # maybe a pay-to-script-hash...
+        # format: OP_HASH160 [hash len] [hash] OP_EQUAL
+        return "scripthash"
+
+    elif script[0:2].lower() == '6a':
+        
+        # format: OP_RETURN [data]
+        return "nulldata"
+
+    elif script[-2:].lower() == 'ae':
+
+        # format (?): [instructions] OP_CHECKMULTISIG
+        # TODO: not sure if this check is correct...
+        return "multisig"
+
+    return "nonstandard"
+
+
+def btc_decoderawtransaction_compat( tx_hex ):
+    """
+    Implementation of bitcoind's decoderawtransaction
+    JSONRPC method.  Tries to be faithful enough to
+    bitcoind for virtualchain's sake.
+
+    Does NOT handle coinbase transactions
+    """
+
+    inputs, outputs, locktime, version = tx_deserialize( tx_hex )
+    txid = make_txid( tx_hex )
+
+    vin = []
+    vout = []
+
+    for inp in inputs:
+        vin_inp = {
+            "txid": inp['transaction_hash'],
+            "vout": inp['output_index'],
+        }
+
+        if inp.has_key("script_sig"):
+            scriptsig_hex = inp['script_sig']
+            scriptsig_asm = btc_decoderawtransaction_script_hex_to_asm( scriptsig_hex )
+
+            vin_inp['scriptSig'] = {
+                'asm': scriptsig_asm,
+                'hex': scriptsig_hex
+            }
+
+        if inp.has_key("sequence"):
+
+            vin_inp['sequence'] = inp['sequence']
+
+        vin.append( vin_inp )
+
+    for i in xrange( 0, len(outputs) ):
+
+        out = outputs[i]
+        script_type = btc_decoderawtransaction_get_script_type( out['script_hex'] )
+        addresses = []
+
+        if script_type == "pubkeyhash":
+            addresses.append( pybitcoin.script_hex_to_address( out['script_hex'] ) )
+
+        elif script_type == "pubkey":
+            pubkey = btc_decoderawtransaction_get_pubkey_from_script( out['script_hex'] )
+            addr = pybitcoin.BitcoinPublicKey( pubkey ).address()
+            addresses.append( addr )
+
+        elif script_type == "scripthash":
+            script_hash = btc_decoderawtransaction_get_script_hash_from_script( out['script_hex'] ) 
+            addr = pybitcoin.b58check_encode( binascii.unhexlify( script_hash ), version_byte=5 )
+            addresses.append( addr )
+
+        vout_out = {
+            "value": float(out['value']) / 10e7,
+            "n": i,
+            "scriptPubKey": {
+                'asm': btc_decoderawtransaction_script_hex_to_asm( out['script_hex'] ),
+                'hex': out['script_hex'],
+                "type": script_type
+            },
+        }
+
+        if script_type in ["pubkeyhash", "pubkey", "scripthash"]:
+            vout_out['scriptPubKey']['reqSigs'] = 1
+
+        if len(addresses) > 0:
+            vout_out['scriptPubKey']['addresses'] = addresses
+
+        vout.append( vout_out )
+
+    tx_decoded = {
+        "txid": txid,
+        "version": version,
+        "locktime": locktime,
+        "vin": vin,
+        "vout": vout
+    }
+
+    return tx_decoded
+
+
