@@ -110,7 +110,7 @@ def broadcast(name, data_hash, consensus_hash, private_key, blockchain_client, b
     else:
        
         signed_tx = tx_serialize_and_sign( inputs, outputs, private_key_obj )
-        response = broadcast_transaction( signed_tx, blockchain_broadcaster, format='hex')
+        response = broadcast_transaction( signed_tx, blockchain_broadcaster )
         response.update({'data': nulldata})
         return response
 
