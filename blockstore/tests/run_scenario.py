@@ -48,7 +48,7 @@ def load_scenario( scenario_name ):
     try:
         scenario = importlib.import_module( scenario_name )
     except ImportError, ie:
-        raise Exception("Failed to import 'scenarios.%s'.  Please verify that the 'scenarios/' directory is in your import path" % scenario_name )
+        raise Exception("Failed to import '%s'." % scenario_name )
 
     # validate 
     if not hasattr( scenario, "wallets" ):
@@ -115,21 +115,19 @@ def run_scenario( scenario, config_file ):
     bitcoind = mock_bitcoind.connect_mock_bitcoind( utxo_opts )
     
     # count blocks as given (needs to be by ref)
-    block_counter = {'count': virtualchain.get_first_block_id() }
+    sync_virtualchain_upcall = lambda: virtualchain.sync_virtualchain( utxo_opts, bitcoind.getblockcount(), db )
    
     # load the scenario into the mock blockchain and mock utxo provider
     try:
-        scenario.scenario( scenario.wallets, bitcoind=bitcoind, block_counter=block_counter )
+        scenario.scenario( scenario.wallets, bitcoind=bitcoind, sync_virtualchain_upcall=sync_virtualchain_upcall, state_engine=db )
+
     except Exception, e:
         log.exception(e)
         log.error("Failed to run scenario '%s'" % scenario.__name__)
         return False
 
     # one more, just to cap it off
-    testlib.next_block( bitcoind=bitcoind, block_counter=block_counter )
-
-    # crawl the mock blockchain
-    virtualchain.sync_virtualchain( utxo_opts, block_counter['count'], db )
+    testlib.next_block( bitcoind=bitcoind, sync_virtualchain_upcall=sync_virtualchain_upcall )
 
     # run the checks on the database
     try:
@@ -145,8 +143,8 @@ def run_scenario( scenario, config_file ):
 
 if __name__ == "__main__":
 
-    if len(sys.argv) != 2:
-        print >> sys.stderr, "Usage: %s [scenario.import.path]"
+    if len(sys.argv) < 2:
+        print >> sys.stderr, "Usage: %s [scenario.import.path] [OPTIONAL: working dir]"
         sys.exit(1)
  
     # load up the scenario 
@@ -154,6 +152,12 @@ if __name__ == "__main__":
     if scenario is None:
         print "Failed to load '%s'" % sys.argv[1]
         sys.exit(1)
+
+    working_dir = None
+    if len(sys.argv) > 2:
+        working_dir = sys.argv[2]
+    else:
+        working_dir = "/tmp/blockstore-run-scenario.%s" % scenario.__name__
 
     # patch state engine implementation
     blockstore_state_engine.working_dir = "/tmp/blockstore-run-scenario.%s" % scenario.__name__
