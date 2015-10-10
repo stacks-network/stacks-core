@@ -63,7 +63,7 @@ class MockUTXOProvider(object):
         
         for i in xrange(0, len(outputs)):
 
-            txid = self.bitcoind.make_txid( hex_tx )
+            txid = mock_bitcoind.make_txid( hex_tx )
             out = outputs[i]
             value = out['value']
             script_hex = out['script_hex']
