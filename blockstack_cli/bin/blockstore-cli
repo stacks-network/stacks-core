@@ -59,8 +59,10 @@ def get_sorted_commands():
                     'namespace_ready', 'namespace_reveal', 'put_mutable',
                     'put_immutable', 'get_mutable', 'get_immutable',
                     'get_name_cost', 'get_namespace_cost',
-                    'lookup', 'lookup_namespace', 'get_name_record',
-                    'get_all_names', 'get_names_in_namespace', 'get_consensus_at']
+                    'get_name_blockchain_record', 'get_namespace_blockchain_record',
+                    'get_name_record', 'lookup',
+                    'get_all_names', 'get_names_in_namespace', 'get_consensus_at',
+                    'preorder_tx', 'preorder_subsidized']
 
     for cmd in sorted(command_list):
         print cmd
@@ -74,28 +76,7 @@ def run_cli():
     if conf is None:
         log.error("Failed to load config")
         sys.exit(1)
-
-    storage_drivers = conf['storage_drivers']
-
-    if storage_drivers is None:
-        log.error("No storage driver(s) defined in the config file.  Please set 'storage=' to a comma-separated list of %s" % ", ".join(drivers.DRIVERS))
-        sys.exit(1)
-
-
-    # load all storage drivers
-    for storage_driver in storage_drivers.split(","):
-        storage_impl = client.load_storage( storage_driver )
-        if storage_impl is None:
-            log.error("Failed to load storage driver '%s'" % (storage_driver))
-            sys.exit(1)
-
-        rc = client.register_storage( storage_impl )
-        if not rc:
-            log.error("Failed to initialize storage driver '%s'" % (storage_driver))
-            sys.exit(1)
-
-    proxy = client.session(conf['blockstored_server'], conf['blockstored_port'])
-
+    
     parser = argparse.ArgumentParser(
       description='Blockstore Cli version {}'.format(config.VERSION))
 
@@ -232,20 +213,29 @@ def run_cli():
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-      'lookup',
-      help='<name> | get the name record for a given name')
+      'get_name_blockchain_record',
+      help='<name> | get the blockchain-hosted information for a particular name')
     subparser.add_argument(
       'name', type=str,
-      help='the name to look up')
+      help='the name to query')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-      'lookup_namespace',
-      help='<namespace_id> | get the namespace record for a given namespace ID')
+      'get_namespace_blockchain_record',
+      help='<namespace_id> | get the blockchain-hosted information for a particular namespace')
     subparser.add_argument(
       'namespace_id', type=str,
       help='the namespace to look up')
 
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'lookup',
+      help='<name> | get name record for a particular name')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name to look up')
+    
     # ------------------------------------
     subparser = subparsers.add_parser(
       'name_import',
@@ -340,7 +330,40 @@ def run_cli():
       'address', type=str, nargs='?',
       help='[OPTIONAL] the address that will own the name (should be different from the address of the private key given here). \
       If not given, a new private key will be generated, and its address must be submitted upon register.')
+    
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'preorder_tx',
+      help='<name> <privatekey> [address] | create an unsigned serialized transaction that will preorder a name.')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that you want to preorder')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the private key of the Bitcoin account to pay for the name and register it')
+    subparser.add_argument(
+      'address', type=str, nargs='?',
+      help='[OPTIONAL] the address that will own the name (should be different from the address of the private key given here). \
+      If not given, a new private key will be generated, and its address must be submitted upon register.')
 
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'preorder_subsidized',
+      help='<name> <public_key> <address> <subsidy_key> | create an "anyone-can-pay" transaction to preorder a name, subsidized with a separate key.  The client must sign the <public_key>\'s address input separately to complete the transaction.')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that you want to preorder')
+    subparser.add_argument(
+      'public_key', type=str,
+      help='the client\'s public key, whose private counterpart will sign the subsidized transaction.')
+    subparser.add_argument(
+      'address', type=str,
+      help='The address that will own the name (should be different from the address of the public key given here). \
+      If not given, a new private key will be generated, and its address must be submitted upon register.')
+    subparser.add_argument(
+      'subsidy_key', type=str,
+      help='the private key of the Bitcoin account to pay for the name')
+    
     # ------------------------------------
     subparser = subparsers.add_parser(
       'put_immutable',
@@ -375,16 +398,47 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
       'register',
-      help='<name> <addr> <privatekey> | register/claim a name')
+      help='<name> <privatekey> <addr> | register/claim a name')
     subparser.add_argument(
       'name', type=str,
       help='the name that you want to register/claim')
     subparser.add_argument(
+      'privatekey', type=str,
+      help='the private key used to preorder the name')
+    subparser.add_argument(
       'addr', type=str,
-      help='the address that will own the name')
+      help='the address that will own the name (given in the preorder)')
+    
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'register_tx',
+      help='<name> <privatekey> <addr> | Generate an unsigned transaction to register/claim a name')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that you want to register/claim')
     subparser.add_argument(
       'privatekey', type=str,
       help='the private key used to preorder the name')
+    subparser.add_argument(
+      'addr', type=str,
+      help='the address that will own the name (given in the preorder)')
+    
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'register_subsidized',
+      help='<name> <public_key> <addr> <subsidy_key> | create an "anyone-can-pay" transaction to register/claim a name, subsidized by a separate key.  The client must sign the <public_key>\'s address inputs before broadcasting it.')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that you want to register/claim')
+    subparser.add_argument(
+      'public_key', type=str,
+      help='the private key used to preorder the name')
+    subparser.add_argument(
+      'addr', type=str,
+      help='the address that will own the name (given in the preorder)')
+    subparser.add_argument(
+      'subsidy_key', type=str,
+      help='the private key used to pay for this transaction')
     
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -399,6 +453,31 @@ def run_cli():
 
     # ------------------------------------
     subparser = subparsers.add_parser(
+      'renew_tx',
+      help='<name> <privatekey> | create an unsigned transaction to renew a name')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that you want to renew')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the privatekey of the owner Bitcoin address')
+    
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'renew_subsidized',
+      help='<name> <public_key> <subsidy_key> | create an "anyone-can-pay" transaction to renew a name, subsidized by a separate key.  The client must sign the <public_key>\'s address inputs before broadcasting it.')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that you want to renew')
+    subparser.add_argument(
+      'public_key', type=str,
+      help='the public key of the owner')
+    subparser.add_argument(
+      'subsidy_key', type=str,
+      help='the key to subsidize the transaction')
+    
+    # ------------------------------------
+    subparser = subparsers.add_parser(
       'revoke',
       help='<name> <privatekey> | revoke a name and its data')
     subparser.add_argument(
@@ -410,8 +489,33 @@ def run_cli():
 
     # ------------------------------------
     subparser = subparsers.add_parser(
+      'revoke_tx',
+      help='<name> <privatekey> | generate an unsigned transaction to revoke a name and its data')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that you want to revoke')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the privatekey of the owner Bitcoin address')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'revoke_subsidized',
+      help='<name> <public_key> <subsidy_key> | create an "anyone-can-pay" transaction to revoke a name and its data, subsidized by a separate key.  The client must sign the <public_key>\'s address inputs before broadcasting it.')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that you want to revoke')
+    subparser.add_argument(
+      'public_key', type=str,
+      help='the public key of the owner Bitcoin address')
+    subparser.add_argument(
+      'subsidy_key', type=str,
+      help='the key to subsidize the transaction')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
       'transfer',
-      help='transfer a name')
+      help='<name> <address> <keepdata> <privatekey> | transfer a name')
     subparser.add_argument(
       'name', type=str,
       help='the name that you want to register/claim')
@@ -427,8 +531,62 @@ def run_cli():
 
     # ------------------------------------
     subparser = subparsers.add_parser(
+      'transfer_tx',
+      help='<name> <address> <keepdata> <privatekey> | create an unsigned transaction that will transfer a name')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that you want to register/claim')
+    subparser.add_argument(
+      'address', type=str,
+      help='the new owner Bitcoin address')
+    subparser.add_argument(
+      'keepdata', type=str,
+      help='whether or not the storage index should remain associated with the name [true|false]')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the privatekey of the owner Bitcoin address')
+    
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'transfer_subsidized',
+      help='<name> <address> <keepdata> <public_key> <subsidy_key> | create an "anyone-can-pay" transaction that will transfer a name, subsidized by a separate key.  The client must sign the <public_key>\s address inputs before broadcasting it.')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that you want to register/claim')
+    subparser.add_argument(
+      'address', type=str,
+      help='the new owner Bitcoin address')
+    subparser.add_argument(
+      'keepdata', type=str,
+      help='whether or not the storage index should remain associated with the name [true|false]')
+    subparser.add_argument(
+      'public_key', type=str,
+      help='the public key of the owner Bitcoin address')
+    subparser.add_argument(
+      'subsidy_key', type=str,
+      help='the key to subsidize the transaction.')
+    
+    # ------------------------------------
+    subparser = subparsers.add_parser(
       'update',
-      help='update storage index data and store it')
+      help='<name> <record_json> <private_key> [txid] | update and store a name record')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that you want to update')
+    subparser.add_argument(
+      'record_json', type=str,
+      help='the JSON-encoded user record to associate with the name')
+    subparser.add_argument(
+      'privatekey', type=str,
+      help='the privatekey of the owner Bitcoin address')
+    subparser.add_argument(
+      'txid', type=str, nargs='?',
+      help='[OPTIONAL] the transaction ID of the previously-attempted, partially-successful update')
+    
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'update_tx',
+      help='<name> <record_json> <private_key> [txid] | generate an unsigned transaction to update and store a name record')
     subparser.add_argument(
       'name', type=str,
       help='the name that you want to update')
@@ -442,6 +600,27 @@ def run_cli():
       'txid', type=str, nargs='?',
       help='[OPTIONAL] the transaction ID of the previously-attempted, partially-successful update')
 
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'update_subsidized',
+      help='<name> <record_json> <public_key> <subsidy_key> [txid] | generate an "anyone-can-pay" transaction to update and store a name record, subsidized by a separate key.  The client will need to sign the <public_key>\'s address inputs before broadcasting it.')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name that you want to update')
+    subparser.add_argument(
+      'record_json', type=str,
+      help='the JSON-encoded user record to associate with the name')
+    subparser.add_argument(
+      'public_key', type=str,
+      help='the public key of the owner Bitcoin address')
+    subparser.add_argument(
+      'subsidy_key', type=str,
+      help='the key to subsidize the transaction')
+    subparser.add_argument(
+      'txid', type=str, nargs='?',
+      help='[OPTIONAL] the transaction ID of the previously-attempted, partially-successful update')
+
+
     # Print default help message, if no argument is given
     if len(sys.argv) == 1:
         parser.print_help()
@@ -450,6 +629,17 @@ def run_cli():
     args, unknown_args = parser.parse_known_args()
     result = {}
 
+    blockstore_server = args.blockstored_server
+    blockstore_port = args.blockstored_port
+    
+    if blockstore_server is None:
+        blockstore_server = config.BLOCKSTORED_SERVER 
+    
+    if blockstore_port is None:
+        blockstore_port = config.BLOCKSTORED_PORT
+        
+    proxy = client.session(conf=conf, server_host=blockstore_server, server_port=blockstore_port )
+    
     if args.action == 'getinfo':
         result = client.getinfo()
 
@@ -463,10 +653,28 @@ def run_cli():
             register_addr = str(args.address)
 
         result = client.preorder(str(args.name), str(args.privatekey), register_addr=register_addr )
+        
+    elif args.action == 'preorder_tx':
+        
+        register_addr = None
+        if args.address is not None:
+            register_addr = str(args.address)
 
+        result = client.preorder(str(args.name), str(args.privatekey), register_addr=register_addr, tx_only=True )
+
+    elif args.action == 'preorder_subsidized':
+
+        result = client.preorder_subsidized( str(args.name), str(args.public_key), str(args.address), str(args.subsidy_key) )
+        
     elif args.action == 'register':
-        result = client.register(str(args.name), str(args.addr), str(args.privatekey))
+        result = client.register(str(args.name), str(args.privatekey), str(args.addr))
 
+    elif args.action == 'register_tx':
+        result = client.register(str(args.name), str(args.privatekey), str(args.addr), tx_only=True )
+
+    elif args.action == 'register_subsidized':
+        result = client.register_subsidized(str(args.name), str(args.privatekey), str(args.addr), str(args.subsidy_key) )
+        
     elif args.action == 'update':
 
         txid = None
@@ -478,8 +686,37 @@ def run_cli():
                                str(args.privatekey),
                                txid=txid)
 
+    
+    elif args.action == 'update_tx':
+
+        txid = None
+        if args.txid is not None:
+            txid = str(args.txid)
+
+        result = client.update(str(args.name),
+                               str(args.record_json),
+                               str(args.privatekey),
+                               txid=txid, tx_only=True)
+
+    
+    elif args.action == 'update_subsidized':
+
+        txid = None
+        if args.txid is not None:
+            txid = str(args.txid)
+
+        result = client.update_subsidized(str(args.name),
+                                          str(args.record_json),
+                                          str(args.public_key),
+                                          str(args.subsidy_key),
+                                          txid=txid)
+        
     elif args.action == 'transfer':
         keepdata = False
+        if args.keepdata.lower() not in ["true", "false"]:
+            print >> sys.stderr, "Pass 'true' or 'false' for keepdata"
+            sys.exit(1)
+            
         if args.keepdata.lower() == "true":
             keepdata = True
 
@@ -488,12 +725,56 @@ def run_cli():
                                  keepdata,
                                  str(args.privatekey))
 
+
+    elif args.action == 'transfer_tx':
+        keepdata = False
+        if args.keepdata.lower() not in ["true", "false"]:
+            print >> sys.stderr, "Pass 'true' or 'false' for keepdata"
+            sys.exit(1)
+            
+        if args.keepdata.lower() == "true":
+            keepdata = True
+
+        result = client.transfer(str(args.name),
+                                 str(args.address),
+                                 keepdata,
+                                 str(args.privatekey),
+                                 tx_only=True)
+        
+        
+    elif args.action == 'transfer_subsidized':
+        keepdata = False
+        if args.keepdata.lower() not in ["true", "false"]:
+            print >> sys.stderr, "Pass 'true' or 'false' for keepdata"
+            sys.exit(1)
+            
+        if args.keepdata.lower() == "true":
+            keepdata = True
+
+        result = client.transfer_subsidized(str(args.name),
+                                            str(args.address),
+                                            keepdata,
+                                            str(args.public_key),
+                                            str(args.subsidy_key))
+        
     elif args.action == 'renew':
         result = client.renew(str(args.name), str(args.privatekey))
+        
+    elif args.action == 'renew_tx':
+        result = client.renew(str(args.name), str(args.privatekey), tx_only=True)
 
+    elif args.action == 'renew_subsidized':
+        result = client.renew_subsidized(str(args.name), str(args.public_key), str(args.subsidy_key))
+        
     elif args.action == 'revoke':
         result = client.revoke(str(args.name), str(args.privatekey))
+        
+    elif args.action == 'revoke_tx':
+        result = client.revoke(str(args.name), str(args.privatekey), tx_only=True)
 
+    elif args.action == 'revoke_subsidized':
+        result = client.revoke_subsidized(str(args.name), str(args.public_key), str(args.subsidy_key))
+        
     elif args.action == 'name_import':
         result = client.name_import(str(args.name), str(args.address), str(args.hash), str(args.privatekey))
 
@@ -561,15 +842,18 @@ def run_cli():
     elif args.action == 'delete_mutable':
         result = client.delete_mutable(str(args.name), str(args.data_id), str(args.privatekey))
 
+    elif args.action == 'get_name_blockchain_record':
+        result = client.get_name_blockchain_record(str(args.name))
+        
+    elif args.action == 'get_namespace_blockchain_record':
+        result = client.get_namespace_blockchain_record(str(args.namespace_id))
+
     elif args.action == 'lookup':
         result = client.lookup(str(args.name))
-        
-    elif args.action == 'lookup_namespace':
-        result = client.lookup_namespace(str(args.namespace_id))
 
     elif args.action == 'get_name_record':
-        result = client.get_name_record(str(args.name))
-
+        result = client.get_name_record( str(args.name) )
+        
     elif args.action == 'get_name_cost':
         result = client.get_name_cost(str(args.name))
 
