@@ -165,13 +165,18 @@ _end_
 #### anchor_tag:
 register_users
 
-#### description:
-Takes in a passname to be registered along with the address that will own the passname. Optionally, takes in the passcard data that should be associated with the passname being registered. Returns a status object that shows if the request was successfully received. It takes on the order of hours to actually complete the registration.
+#### description: 
+Registers a new blockchain ID and transfers the ownership to
+a bitcoin address. Takes in a username to be registered along with the address
+that will own the blockchain ID. Optionally, takes in the profile data that should
+be associated with the blockchain ID being registered. Returns a status object that
+shows if the request was successfully received. It takes on the order of hours
+to actually complete the registration.
 
 #### parameters[]:
-{"name": "passname", "description": "The passname (passcard username) that is to be registered."}
-{"name": "recipient_address", "description": "The namecoin address that the passcard will be transferred to once it has been registered."}
-{"name": "passcard", "description": "The data to be associated with the passcard.", "optional": true}
+{"name": "username", "description": "The username (blockchain ID username) that is to be registered."}
+{"name": "recipient_address", "description": "The bitcoin address that the blockchain ID will be transferred to once it has been registered."}
+{"name": "profile", "description": "The data to be associated with the blockchain ID.", "optional": true}
 
 #### response_description:
 Returns an object with a status that is either "success" or "error".
@@ -185,9 +190,9 @@ POST
 #### example_request_bash:
 curl https://api.onename.com/v1/users \
     -u 'YOUR-API-ID:YOUR-API-SECRET' \
-    -d '{"passname": "fredwilson",
-         "recipient_address": "N6zdUCKq1gJaps76gagBbC5Vc6xBxMdvHc",
-         "passcard": {"bio": "I am a VC"}}' \
+    -d '{"username": "fredwilson",
+         "recipient_address": "152f1muMCNa7goXYhYAQC61hxEgGacmncB",
+         "profile": {"bio": "I am a VC"}}' \
     -H 'Content-type: application/json' \
     -X POST
 

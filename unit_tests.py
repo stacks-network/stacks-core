@@ -25,7 +25,8 @@ register_user(new_id + '@domain.com', app_id=APP_ID, app_secret=APP_SECRET,
 
 
 def random_username():
-    return hexlify(dev_urandom_entropy(16))
+    username = hexlify(dev_urandom_entropy(16))
+    return username
 
 
 def build_url(pathname):
@@ -277,9 +278,9 @@ def test_main():
         #UserbaseTest,
         #UserbaseStatsTest,
         SearchUsersTest,
-        #LookupUnspentsTest,
+        LookupUnspentsTest,
         #LookupNamesOwnedTest,
-        #RegisterUserTest,
+        RegisterUserTest,
         #BroadcastTransactionTest,
         DKIMPubkeyTest,
     )
