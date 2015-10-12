@@ -21,9 +21,9 @@
     along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pybitcoin import embed_data_in_blockchain, \
+from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
     analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script
+    make_pay_to_address_script, BitcoinPrivateKey, BitcoinPublicKey, get_unspents, script_hex_to_address
  
 from pybitcoin.transactions.outputs import calculate_change_amount
 from utilitybelt import is_hex
@@ -31,7 +31,7 @@ from binascii import hexlify, unhexlify
 
 from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
-from ..scripts import blockstore_script_to_hex, add_magic_bytes
+from ..scripts import *
 from ..hashing import hash256_trunc128
 
 def get_transfer_recipient_from_outputs( outputs ):
@@ -98,44 +98,84 @@ def build(name, keepdata, consensus_hash, testset=False):
     return packaged_script
 
 
-def make_outputs( data, inputs, new_name_owner_address, change_address, format='bin' ):
+def make_outputs( data, inputs, new_name_owner_address, change_address, pay_fee=True, format='bin' ):
     """
     Builds the outputs for a name transfer operation.
     """
     
-    total_to_send = DEFAULT_OP_RETURN_FEE + DEFAULT_DUST_FEE
- 
+    dust_fee = None
+    op_fee = None
+    dust_value = None 
+    
+    if pay_fee:
+        dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
+        op_fee = DEFAULT_DUST_FEE
+        dust_value = DEFAULT_DUST_FEE
+        bill = op_fee
+    
+    else:
+        dust_fee = 0
+        op_fee = 0
+        dust_value = 0
+    
     return [
         # main output
         {"script_hex": make_op_return_script(data, format=format),
-         "value": DEFAULT_OP_RETURN_FEE},
+         "value": 0},
         # new name owner output
         {"script_hex": make_pay_to_address_script(new_name_owner_address),
-         "value": DEFAULT_DUST_FEE},
+         "value": dust_value},
         # change output
         {"script_hex": make_pay_to_address_script(change_address),
-         "value": calculate_change_amount(inputs, total_to_send, (len(inputs) + 3) * DEFAULT_DUST_FEE)}
+         "value": calculate_change_amount(inputs, op_fee, dust_fee)}
     ]
 
 
-def broadcast(name, destination_address, keepdata, consensus_hash, private_key, blockchain_client, testset=False):
-   
+def broadcast(name, destination_address, keepdata, consensus_hash, private_key, blockchain_client, blockchain_broadcaster=None, pay_fee=True, tx_only=False, public_key=None, testset=False):
+    
+    # sanity check 
+    if public_key is None and private_key is None:
+        raise Exception("Missing both public and private key")
+    
+    if not tx_only and private_key is None:
+        raise Exception("Need private key for broadcasting")
+    
+    if blockchain_broadcaster is None:
+        blockchain_broadcaster = blockchain_client 
+    
+    from_address = None 
+    inputs = None
+    private_key_obj = None
+    
+    if private_key is not None:
+        # ordering directly 
+        pubk = BitcoinPrivateKey( private_key ).public_key()
+        public_key = pubk.to_hex()
+        
+        # get inputs and from address using private key
+        private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
+        
+    elif public_key is not None:
+        # subsidizing 
+        pubk = BitcoinPublicKey( public_key )
+        from_address = pubk.address()
+        
+        # get inputs from utxo provider 
+        inputs = get_unspents( from_address, blockchain_client )
+        
     nulldata = build(name, keepdata, consensus_hash, testset=testset)
+    outputs = make_outputs(nulldata, inputs, destination_address, from_address, pay_fee=pay_fee, format='hex')
     
-    # get inputs and from address
-    private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
+    if tx_only:
     
-    # build custom outputs here
-    outputs = make_outputs(nulldata, inputs, destination_address, from_address, format='hex')
+        unsigned_tx = serialize_transaction( inputs, outputs )
+        return {"unsigned_tx": unsigned_tx}
     
-    # serialize, sign, and broadcast the tx
-    response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_client)
-    
-    # response = {'success': True }
-    response.update({'data': nulldata})
-    
-    # return the response
-    return response
+    else:
+        # serialize, sign, and broadcast the tx
+        response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_broadcaster)
+        response.update({'data': nulldata})
+        return response
 
 
 def parse(bin_payload, recipient):
@@ -160,6 +200,41 @@ def parse(bin_payload, recipient):
         'recipient': recipient,
         'keep_data': disposition
     }
+
+
+def get_fees( inputs, outputs ):
+    """
+    Given a transaction's outputs, look up its fees:
+    * the first output should be an OP_RETURN with the transfer info 
+    * the second output should be the new owner's address, with a DEFAULT_DUST_FEE
+    * the third output should be the change address
+    
+    Return (dust fees, operation fees) on success 
+    Return (None, None) on invalid output listing
+    """
+    if len(outputs) != 3:
+        return (None, None)
+    
+    # 0: op_return
+    if not tx_output_is_op_return( outputs[0] ):
+        return (None, None) 
+    
+    if outputs[0]["value"] != 0:
+        return (None, None) 
+    
+    # 1: transfer address 
+    if script_hex_to_address( outputs[1]["script_hex"] ) is None:
+        return (None, None)
+    
+    # 2: change address 
+    if script_hex_to_address( outputs[2]["script_hex"] ) is None:
+        return (None, None)
+    
+    dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
+    op_fee = DEFAULT_DUST_FEE
+    
+    return (dust_fee, op_fee)
+
 
 
 def serialize( nameop ):

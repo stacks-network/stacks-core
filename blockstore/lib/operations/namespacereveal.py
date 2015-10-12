@@ -21,7 +21,7 @@
     along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pybitcoin import embed_data_in_blockchain, \
+from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
     analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
     make_pay_to_address_script, b58check_encode, b58check_decode, BlockchainInfoClient, hex_hash160
 
@@ -171,7 +171,7 @@ def make_outputs( data, inputs, reveal_addr, change_addr, format='bin', testset=
     return [
         # main output
         {"script_hex": make_op_return_script(data, format=format),
-         "value": DEFAULT_OP_RETURN_FEE},
+         "value": 0},
     
         # register address
         {"script_hex": make_pay_to_address_script(reveal_addr),
@@ -184,7 +184,7 @@ def make_outputs( data, inputs, reveal_addr, change_addr, format='bin', testset=
     
     
 
-def broadcast( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, private_key, blockchain_client, testset=False ):
+def broadcast( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, private_key, blockchain_client, tx_only=False, blockchain_broadcaster=None, testset=False ):
    """
    Propagate a namespace.
    
@@ -199,6 +199,9 @@ def broadcast( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exp
    no_vowel_discount:   discount multipler for no-vowel names
    """
    
+   if blockchain_broadcaster is None:
+       blockchain_broadcaster = blockchain_client 
+    
    nulldata = build( namespace_id, BLOCKSTORE_VERSION, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, testset=testset )
    
    # get inputs and from address
@@ -207,13 +210,18 @@ def broadcast( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exp
    # build custom outputs here
    outputs = make_outputs(nulldata, inputs, reveal_addr, from_address, format='hex')
     
-   # serialize, sign, and broadcast the tx
-   response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_client)
-    
-   # response = {'success': True }
-   response.update({'data': nulldata})
-    
-   return response
+   if tx_only:
+        unsigned_tx = serialize_transaction( inputs, outputs )
+        return {"unsigned_tx": unsigned_tx}
+   
+   else:
+        # serialize, sign, and broadcast the tx
+        response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_broadcaster)
+            
+        # response = {'success': True }
+        response.update({'data': nulldata})
+            
+        return response
    
 
 def parse( bin_payload, sender, recipient_address ):
@@ -280,6 +288,14 @@ def parse( bin_payload, sender, recipient_address ):
       'namespace_id': namespace_id,
       'namespace_id_hash': namespace_id_hash
    }
+
+
+def get_fees( inputs, outputs ):
+    """
+    Blockstore currently does not allow 
+    the subsidization of namespaces.
+    """
+    return (None, None)
 
 
 def serialize( nameop ):

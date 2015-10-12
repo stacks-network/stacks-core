@@ -23,7 +23,7 @@
 
 from pybitcoin import embed_data_in_blockchain, \
     analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, b58check_encode, b58check_decode
+    make_pay_to_address_script, b58check_encode, b58check_decode, serialize_transaction
  
 from pybitcoin.transactions.outputs import calculate_change_amount
 from utilitybelt import is_hex
@@ -31,7 +31,7 @@ from binascii import hexlify, unhexlify
 
 from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
-from ..scripts import blockstore_script_to_hex, add_magic_bytes
+from ..scripts import *
 from ..hashing import hash256_trunc128
 
 def get_import_update_hash_from_outputs( outputs, recipient ):
@@ -107,51 +107,59 @@ def make_outputs( data, inputs, recipient_address, sender_address, update_hash_b
     * [3] is the change sent to the original owner
     """
     
-    total_to_send = DEFAULT_OP_RETURN_FEE + DEFAULT_DUST_FEE * 3
+    dust_fee = DEFAULT_OP_RETURN_FEE + (len(inputs) + 3) * DEFAULT_DUST_FEE
+    op_fee = 2 * DEFAULT_DUST_FEE
+    dust_value = DEFAULT_DUST_FEE
     
     return [
         # main output
         {"script_hex": make_op_return_script(data, format=format),
-         "value": DEFAULT_OP_RETURN_FEE},
+         "value": 0},
     
         # recipient output
         {"script_hex": make_pay_to_address_script(recipient_address),
-         "value": DEFAULT_DUST_FEE},
+         "value": dust_value},
         
         # update hash output
         {"script_hex": make_pay_to_address_script(update_hash_b58),
-         "value": DEFAULT_DUST_FEE},
+         "value": dust_value},
         
         # change output
         {"script_hex": make_pay_to_address_script(sender_address),
-         "value": calculate_change_amount(inputs, total_to_send, (len(inputs) + 4) * DEFAULT_DUST_FEE)}
+         "value": calculate_change_amount(inputs, op_fee, dust_fee)}
     ]
 
 
-def broadcast(name, recipient_address, update_hash, private_key, blockchain_client, blockchain_broadcaster=None, testset=False):
+def broadcast(name, recipient_address, update_hash, private_key, blockchain_client, blockchain_broadcaster=None, tx_only=False, testset=False):
    
     if blockchain_broadcaster is None:
         blockchain_broadcaster = blockchain_client 
-        
-    nulldata = build(name, testset=testset)
     
-    # get inputs and from address
-    private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
+    nulldata = build(name, testset=testset)
     
     # convert update_hash from a hex string so it looks like an address
     update_hash_b58 = b58check_encode( unhexlify(update_hash) )
     
-    # build custom outputs here
+    # get inputs and from address
+    private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
+    
+    # NAME_IMPORT outputs
     outputs = make_outputs(nulldata, inputs, recipient_address, from_address, update_hash_b58, format='hex')
     
-    # serialize, sign, and broadcast the tx
-    response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_broadcaster)
+    if tx_only:
+        
+        unsigned_tx = serialize_transaction( inputs, outputs )
+        return {"unsigned_tx": unsigned_tx}
     
-    # response = {'success': True }
-    response.update({'data': nulldata})
-    
-    # return the response
-    return response
+    else:
+        # serialize, sign, and broadcast the tx
+        response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_broadcaster)
+        
+        # response = {'success': True }
+        response.update({'data': nulldata})
+        
+        # return the response
+        return response
 
 
 def parse(bin_payload, recipient, update_hash ):
@@ -167,6 +175,14 @@ def parse(bin_payload, recipient, update_hash ):
         'recipient': hexlify(recipient),
         'update_hash': hexlify(update_hash)
     }
+
+
+def get_fees( inputs, outputs ):
+    """
+    Blockstore currently does not allow 
+    the subsidization of namespaces.
+    """
+    return (None, None)
 
 
 def serialize( nameop ):

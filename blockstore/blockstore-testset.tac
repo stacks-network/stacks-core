@@ -21,6 +21,9 @@
     along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
 """
 
+# This file is nearly identical to blockstore.tac, except for the "testset=" flag.
+# This file is needed because by design, there is no way to pass app-specific flags to twistd.
+
 #hack around absolute paths
 import os
 import sys
@@ -41,7 +44,7 @@ from blockstored import BlockstoredRPC
 import lib.config
 from lib.config import REINDEX_FREQUENCY, RPC_SERVER_PORT
 
-factory_blockstore = jsonrpc.RPCFactory(BlockstoredRPC(), maxLength=8192)
+factory_blockstore = jsonrpc.RPCFactory(BlockstoredRPC( testset=True ), maxLength=8192)
 
 server_blockstore = internet.TCPServer(RPC_SERVER_PORT, factory_blockstore)
 server_blockstore.setServiceParent(application)
@@ -54,7 +57,7 @@ from dht.storage import BlockStorage, hostname_to_ip
 from lib import nameset as blockstore_state_engine
 import virtualchain 
 
-virtualchain.setup_virtualchain( blockstore_state_engine )
+virtualchain.setup_virtualchain( blockstore_state_engine, testset=True )
 dht_opts = lib.config.default_dht_opts()
 
 if not dht_opts['disable']:

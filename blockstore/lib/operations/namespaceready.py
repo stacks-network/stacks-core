@@ -21,13 +21,13 @@
     along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pybitcoin import embed_data_in_blockchain, BlockchainInfoClient, hex_hash160
+from pybitcoin import embed_data_in_blockchain, BlockchainInfoClient, hex_hash160, make_op_return_tx, serialize_transaction, broadcast_transaction, make_op_return_outputs
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
 from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
-from ..scripts import blockstore_script_to_hex, add_magic_bytes
+from ..scripts import *
 
 def build( namespace_id, testset=False ):
    """
@@ -56,13 +56,30 @@ def build( namespace_id, testset=False ):
    return packaged_script
 
 
-def broadcast( namespace_id, private_key, blockchain_client, testset=False ):
+def broadcast( namespace_id, private_key, blockchain_client, testset=False, tx_only=False, blockchain_broadcaster=None ):
    
+   if blockchain_broadcaster is None:
+       blockchain_broadcaster = blockchain_client 
+    
    nulldata = build( namespace_id, testset=testset )
-   # response = {'success': True }
-   response = embed_data_in_blockchain( nulldata, private_key, blockchain_client, format='hex')
-   response.update({'data': nulldata})
-   return response
+   
+   # get inputs and from address
+   private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
+   
+   # OP_RETURN outputs 
+   outputs = make_op_return_outputs( nulldata, inputs, from_address, fee=DEFAULT_OP_RETURN_FEE, format='hex' )
+   
+   if tx_only:
+       
+       unsigned_tx = serialize_transaction( inputs, outputs )
+       return {'unsigned_tx': signed_tx}
+
+   else:
+       
+       signed_tx = tx_serialize_and_sign( inputs, outputs, private_key_obj )
+       response = broadcast_transaction( signed_tx, blockchain_broadcaster )
+       response.update({'data': nulldata})
+       return response
 
 
 def parse( bin_payload ):
@@ -77,6 +94,14 @@ def parse( bin_payload ):
       'opcode': 'NAMESPACE_READY',
       'namespace_id': namespace_id
    }
+
+
+def get_fees( inputs, outputs ):
+    """
+    Blockstore currently does not allow 
+    the subsidization of namespaces.
+    """
+    return (None, None)
 
 
 def serialize( nameop ):

@@ -30,9 +30,8 @@ import virtualchain
 
 DEBUG = True
 TESTNET = False
-TESTSET = False
 
-VERSION = "v0.01-beta"
+VERSION = "0.04"
 
 # namespace version 
 BLOCKSTORE_VERSION = 1
@@ -88,7 +87,7 @@ DEFAULT_BITCOIND_PASSWD = 'opennamesystem'
 REINDEX_FREQUENCY = 300 # seconds
 
 FIRST_BLOCK_MAINNET = 373601
-FIRST_BLOCK_MAINNET_TESTSET = 374200
+FIRST_BLOCK_MAINNET_TESTSET = 374201
 # FIRST_BLOCK_TESTNET = 343883
 FIRST_BLOCK_TESTNET = 529008
 FIRST_BLOCK_TESTNET_TESTSET = FIRST_BLOCK_TESTNET
@@ -99,27 +98,17 @@ GENESIS_SNAPSHOT = {
     str(FIRST_BLOCK_MAINNET): "17ac43c1d8549c3181b200f1bf97eb7d",
 }
 
-if TESTNET:
-    if TESTSET:
-        START_BLOCK = FIRST_BLOCK_TESTNET_TESTSET
-    else:
-        START_BLOCK = FIRST_BLOCK_TESTNET
-else:
-    if TESTSET:
-        START_BLOCK = FIRST_BLOCK_MAINNET_TESTSET
-    else:
-        START_BLOCK = FIRST_BLOCK_MAINNET
+GENESIS_SNAPSHOT_TESTSET = {
+    str(FIRST_BLOCK_MAINNET_TESTSET-2): "9e938749294b8019f9857cda93e7e73f",
+    str(FIRST_BLOCK_MAINNET_TESTSET-1): "9e938749294b8019f9857cda93e7e73f",
+    str(FIRST_BLOCK_MAINNET_TESTSET): "9e938749294b8019f9857cda93e7e73f",
+}
 
 """ magic bytes configs
 """
 
 MAGIC_BYTES_TESTSET = 'eg'
 MAGIC_BYTES_MAINSET = 'id'
-
-if TESTSET:
-    MAGIC_BYTES = MAGIC_BYTES_TESTSET
-else:
-    MAGIC_BYTES = MAGIC_BYTES_MAINSET
 
 """ name operation data configs
 """
@@ -250,6 +239,7 @@ NAME_IMPORT_KEYRING_SIZE = 300                  # number of keys to derive from 
 NUM_CONFIRMATIONS = 6                         # number of blocks to wait for before accepting names
 
 # burn address for fees (the address of public key 0x0000000000000000000000000000000000000000)
+BLOCKSTORE_BURN_PUBKEY_HASH = "0000000000000000000000000000000000000000"
 BLOCKSTORE_BURN_ADDRESS = "1111111111111111111114oLvT2"
 
 # default namespace record (i.e. for names with no namespace ID)
@@ -274,26 +264,28 @@ NAMESPACE_DEFAULT = {
 
 """ UTXOs 
 """
-SUPPORTED_UTXO_PROVIDERS = [ "chain_com", "blockcypher", "blockchain_info", "bitcoind_utxo" ]
+SUPPORTED_UTXO_PROVIDERS = [ "chain_com", "blockcypher", "blockchain_info", "bitcoind_utxo", "mock_utxo" ]
 SUPPORTED_UTXO_PARAMS = {
     "chain_com": ["api_key_id", "api_key_secret"],
     "blockcypher": ["api_token"],
     "blockchain_info": ["api_token"],
-    "bitcoind_utxo": ["rpc_username", "rpc_password", "server", "port", "use_https", "version_byte"]
+    "bitcoind_utxo": ["rpc_username", "rpc_password", "server", "port", "use_https", "version_byte"],
+    "mock_utxo": []
 }
 
 SUPPORTED_UTXO_PROMPT_MESSAGES = {
     "chain_com": "Please enter your chain.com API key and secret.",
     "blockcypher": "Please enter your Blockcypher API token.",
     "blockchain_info": "Please enter your blockchain.info API token.",
-    "bitcoind_utxo": "Please enter your fully-indexed bitcoind node information."
+    "bitcoind_utxo": "Please enter your fully-indexed bitcoind node information.",
+    "mock_utxo": "Mock UTXO provider.  Do not use in production."
 }
 
 
 """ Validation 
 """
 
-def default_blockstore_opts( config_file=None ):
+def default_blockstore_opts( config_file=None, testset=False ):
    """
    Get our default blockstore opts from a config file
    or from sane defaults.
@@ -308,6 +300,8 @@ def default_blockstore_opts( config_file=None ):
    blockstore_opts = {}
    tx_broadcaster = None 
    utxo_provider = None
+   testset_first_block = None
+   max_subsidy = 0
    
    if parser.has_section('blockstore'):
       
@@ -317,11 +311,23 @@ def default_blockstore_opts( config_file=None ):
       if parser.has_option('blockstore', 'utxo_provider'):
          utxo_provider = parser.get('blockstore', 'utxo_provider')
       
+      if parser.has_option('blockstore', 'testset'):
+         testset = bool(parser.get('blockstore', 'testset'))
+         
+      if parser.has_option('blockstore', 'testset_first_block'):
+         testset_first_block = int( parser.get('blockstore', 'testset_first_block') )
+         
+      if parser.has_option('blockstore', 'max_subsidy'):
+         max_subsidy = int( parser.get('blockstore', 'max_subsidy'))
+         
+         
    blockstore_opts = {
        'tx_broadcaster': tx_broadcaster,
-       'utxo_provider': utxo_provider
+       'utxo_provider': utxo_provider,
+       'testset': testset,
+       'testset_first_block': testset_first_block,
+       'max_subsidy': max_subsidy
    }
-    
    
    # strip Nones 
    for (k, v) in blockstore_opts.items():
@@ -342,7 +348,7 @@ def default_bitcoind_opts( config_file=None ):
    bitcoind_user = None 
    bitcoind_passwd = None 
    bitcoind_use_https = None 
-   
+  
    loaded = False 
    
    if config_file is not None:
@@ -369,7 +375,7 @@ def default_bitcoind_opts( config_file=None ):
          else:
             use_https = 'no'
 
-         if use_https.lower() == "yes" or use_https.lower() == "y" or use_https.lower() == "true":
+         if use_https.lower() in ["yes", "y", "true"]:
             bitcoind_use_https = True
          else:
             bitcoind_use_https = False
@@ -397,7 +403,7 @@ def default_bitcoind_opts( config_file=None ):
       "bitcoind_passwd": bitcoind_passwd,
       "bitcoind_server": bitcoind_server,
       "bitcoind_port": bitcoind_port,
-      "bitcoind_use_https": bitcoind_use_https
+      "bitcoind_use_https": bitcoind_use_https,
    }
    
    # strip None's
@@ -466,7 +472,10 @@ def default_utxo_provider_opts( utxo_provider, config_file=None ):
    
    elif utxo_provider == "bitcoind_utxo":
        return default_bitcoind_utxo_opts( config_file=config_file )
-   
+  
+   elif utxo_provider == "mock_utxo":
+       return default_mock_utxo_opts( config_file=config_file )
+
    else:
        raise Exception("Unsupported UTXO provider '%s'" % utxo_provider)
    
@@ -612,7 +621,11 @@ def default_bitcoind_utxo_opts( config_file=None ):
            rpc_password = parser.get("bitcoind_utxo", "rpc_password")
        
        if parser.has_option("bitcoind_utxo", "use_https"):
-           use_https = bool( parser.get("bitcoind_utxo", "use_https") )
+            
+            if parser.get("bitcoind_utxo", "use_https").lower() in ["y", "yes", "true"]:
+                use_https = True
+            else:
+                use_https = False
            
        if parser.has_option("bitcoind_utxo", "version_byte"):
            version_byte = int(parser.get("bitcoind_utxo", "version_byte"))
@@ -646,6 +659,91 @@ def default_bitcoind_utxo_opts( config_file=None ):
          del bitcoind_utxo_opts[k]
    
    return bitcoind_utxo_opts
+
+
+def default_mock_utxo_opts( config_file=None ):
+   """
+   Get default options for the mock UTXO provider.
+   """
+
+   mock_tx_list = None
+   mock_tx_file = None 
+   mock_start_block = FIRST_BLOCK_MAINNET 
+   mock_start_time = None 
+   mock_difficulty = None 
+   mock_initial_utxos = None 
+
+   if config_file is not None:
+         
+      parser = SafeConfigParser()
+      parser.read(config_file)
+
+      if parser.has_section("mock_utxo"):
+         
+         if parser.has_option('mock_utxo', 'tx_list'):
+            # should be a csv of raw transactions 
+            mock_tx_list = parser.get('mock_utxo', 'tx_list').split(',')
+
+         if parser.has_option('mock_utxo', 'tx_file'):
+            # should be a path 
+            mock_tx_file = parser.get('mock_utxo', 'tx_file')
+
+         if parser.has_option('mock_utxo', 'start_block'):
+            # should be an int 
+            try:
+                mock_start_block = int( parser.get('mock_utxo', 'start_block') )
+            except:
+                print >> sys.stderr, "Invalid 'start_block' value: expected int"
+                return None
+
+         if parser.has_option('mock_utxo', 'difficulty'):
+            # should be a float
+            try:
+                mock_difficulty = float( parser.get('mock_utxo', 'difficulty') )
+            except:
+                print >> sys.stderr, "Invalid 'difficulty' value: expected float"
+                return None
+
+         if parser.has_option('mock_utxo', 'start_block'):
+            # should be an int 
+            try:
+                mock_start_block = int( parser.get('mock_utxo', 'start_block'))
+            except:
+                print >> sys.stderr, "Invalid 'start_block' value: expected int"
+                return None 
+
+         if parser.has_option('mock_utxo', 'initial_utxos'):
+            # should be a csv of privatekey:int 
+            try:
+                wallet_info = parser.get('mock_utxo', 'initial_utxos').split(',')
+                wallets = {}
+                for wi in wallet_info:
+                    privkey, value = wi.split(':')
+                    wallets[ privkey ] = int(value)
+
+                mock_initial_utxos = wallets 
+
+            except:
+                print >> sys.stderr, "Invalid 'mock_initial_utxos' value: expected CSV of wif_private_key:int"
+                return None
+
+
+   default_mock_utxo_opts = {
+      "utxo_provider": "mock_utxo",
+      "tx_list": mock_tx_list,
+      "tx_file": mock_tx_file,
+      "start_block": mock_start_block,
+      "difficulty": mock_difficulty,
+      "initial_utxos": mock_initial_utxos,
+      "start_block": mock_start_block
+   }
+   
+   # strip Nones 
+   for (k, v) in default_mock_utxo_opts.items():
+      if v is None:
+         del default_mock_utxo_opts[k]
+   
+   return default_mock_utxo_opts
 
 
 def default_dht_opts( config_file=None ):
@@ -832,7 +930,7 @@ def find_missing( message, all_params, given_opts, default_opts, prompt_missing=
    return given_opts, missing_params, num_prompted
 
 
-def configure( config_file=None, force=False, interactive=True ):
+def configure( config_file=None, force=False, interactive=True, testset=False ):
    """
    Configure blockstore:  find and store configuration parameters to the config file.
    
@@ -851,7 +949,7 @@ def configure( config_file=None, force=False, interactive=True ):
          # get input for everything
          config_file = virtualchain.get_config_filename()
       except:
-         pass 
+         raise
    
    if not os.path.exists( config_file ):
        # definitely ask for everything
@@ -859,13 +957,13 @@ def configure( config_file=None, force=False, interactive=True ):
        
    # get blockstore opts 
    blockstore_opts = {}
-   blockstore_opts_defaults = default_blockstore_opts( config_file=config_file )
+   blockstore_opts_defaults = default_blockstore_opts( config_file=config_file, testset=testset )
    blockstore_params = blockstore_opts_defaults.keys()
    
    if not force:
        
        # default blockstore options 
-       blockstore_opts = default_blockstore_opts( config_file=config_file )
+       blockstore_opts = default_blockstore_opts( config_file=config_file, testset=testset )
        
    blockstore_msg = "ADVANCED USERS ONLY.\nPlease enter blockstore configuration hints."
    blockstore_opts, missing_blockstore_opts, num_blockstore_opts_prompted = find_missing( blockstore_msg, blockstore_params, blockstore_opts, blockstore_opts_defaults, prompt_missing=False )
@@ -895,7 +993,7 @@ def configure( config_file=None, force=False, interactive=True ):
    
    # find the current utxo provider 
    while utxo_provider is None or utxo_provider not in SUPPORTED_UTXO_PROVIDERS:
-       
+      
        # prompt for it? 
        if interactive or force:
                     
@@ -909,8 +1007,7 @@ def configure( config_file=None, force=False, interactive=True ):
            utxo_provider = utxo_provider_dict['utxo_provider']
            
        else:
-           raise Exception("No UTXO provider given")
-       
+           raise Exception("No UTXO provider given") 
    
    utxo_opts = {}
    utxo_opts_defaults = default_utxo_provider_opts( utxo_provider, config_file=config_file )
@@ -1017,7 +1114,7 @@ def write_config_file( blockstore_opts=None, bitcoind_opts=None, utxo_opts=None,
       
       if parser.has_section("blockstore"):
           parser.remove_section("blockstore")
-      
+          
       parser.add_section( "blockstore" )
       for opt_name, opt_value in blockstore_opts.items():
           
@@ -1059,7 +1156,12 @@ def connect_utxo_provider( utxo_opts ):
    
    elif utxo_provider == "bitcoind_utxo":
        return pybitcoin.BitcoindClient( utxo_opts['rpc_username'], utxo_opts['rpc_password'], use_https=utxo_opts['use_https'], server=utxo_opts['server'], port=utxo_opts['port'], version_byte=utxo_opts['version_byte'] )
-   
+  
+   elif utxo_provider == "mock_utxo":
+       # requires blockstore tests to be installed 
+       from ..tests import connect_mock_utxo_provider
+       return connect_mock_utxo_provider( utxo_opts )
+
    else:
        raise Exception("Unrecognized UTXO provider '%s'" % utxo_provider )
    

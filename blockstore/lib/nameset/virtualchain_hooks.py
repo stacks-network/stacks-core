@@ -44,8 +44,7 @@ import virtualchain
 log = virtualchain.session.log
 blockstore_db = None
 last_load_time = 0
- 
- 
+
 def get_burn_fee_from_outputs( outputs ):
     """
     Given the set of outputs, find the fee sent 
@@ -172,13 +171,18 @@ def parse_blockstore_op_data( opcode, payload, sender, recipient=None, recipient
     return op
 
 
-def get_virtual_chain_name():
+def get_virtual_chain_name(testset=False):
    """
    (required by virtualchain state engine)
    
    Get the name of the virtual chain we're building.
    """
-   return "blockstore"
+   
+   if testset:
+       return "blockstore-test"
+   
+   else:
+       return "blockstore"
 
 
 def get_virtual_chain_version():
@@ -214,7 +218,12 @@ def get_magic_bytes():
    
    Get the magic byte sequence for our OP_RETURNs
    """
-   return MAGIC_BYTES
+   blockstore_opts = default_blockstore_opts( virtualchain.get_config_filename() )
+   if blockstore_opts['testset']:
+       return MAGIC_BYTES_TESTSET
+   
+   else:
+       return MAGIC_BYTES_MAINSET
 
 
 def get_first_block_id():
@@ -223,7 +232,21 @@ def get_first_block_id():
    
    Get the id of the first block to start indexing.
    """ 
-   return START_BLOCK
+   blockstore_opts = default_blockstore_opts( virtualchain.get_config_filename() )
+   start_block = None
+   
+   if TESTNET:
+       if blockstore_opts['testset']:
+           start_block = FIRST_BLOCK_TESTNET_TESTSET
+       else:
+           start_block = FIRST_BLOCK_TESTNET
+   else:
+       if blockstore_opts['testset']:
+           start_block = FIRST_BLOCK_MAINNET_TESTSET
+       else:
+           start_block = FIRST_BLOCK_MAINNET
+
+   return start_block
 
 
 def get_db_state():
@@ -539,6 +562,8 @@ def db_serialize( op, nameop, db_state=None ):
           log.error("Unrecognized opcode '%s'" % op)
           return None 
       
+      # always include the transaction ID 
+      sr = sr + nameop['virtualchain_txid']
       return sr
    
    else:
