@@ -17,7 +17,7 @@ from flask_crossdomain import crossdomain
 
 from basicrpc import Proxy
 from pybitcoin import get_unspents, ChainComClient
-from pybitcoin import bitcoind
+from pybitcoin.rpc import BitcoindClient
 
 from . import app
 from .errors import InvalidProfileDataError, UsernameTakenError, \
@@ -36,6 +36,12 @@ from .settings import RESOLVER_URL, SEARCH_URL
 from .settings import CHAIN_API_ID, CHAIN_API_SECRET
 from .settings import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
 from .settings import DHT_MIRROR, DHT_MIRROR_PORT
+from .settings import BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER
+from .settings import BITCOIND_PASSWD, BITCOIND_USE_HTTPS
+
+
+bitcoind = BitcoindClient(BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER,
+                          BITCOIND_PASSWD, BITCOIND_USE_HTTPS)
 
 
 @app.route('/v1/users/<usernames>', methods=['GET'])
@@ -157,8 +163,6 @@ def search_people():
 @crossdomain(origin='*')
 def broadcast_tx():
 
-    raise UpgradeInprogressError()
-
     data = json.loads(request.data)
     signed_hex = data['signed_hex']
 
@@ -170,10 +174,10 @@ def broadcast_tx():
         traceback.print_exc()
         raise BroadcastTransactionError()
 
-    if 'code' in namecoind_response:
-        raise BroadcastTransactionError(namecoind_response['message'])
+    if 'code' in bitcoind_response:
+        raise BroadcastTransactionError(bitcoind_response['message'])
 
-    resp = {'transaction_hash': namecoind_response, 'status': 'success'}
+    resp = {'transaction_hash': bitcoind_response, 'status': 'success'}
 
     return jsonify(resp), 200
 

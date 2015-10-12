@@ -246,6 +246,7 @@ class BroadcastTransactionTest(unittest.TestCase):
         pass
 
     def test_bogus_transaction_broadcast(self):
+        #bitcoind reject this, needs updating
         signed_hex = '00710000015e98119922f0b'
         payload = {'signed_hex': signed_hex}
         data = test_post_request(self, build_url('/transactions'), payload,

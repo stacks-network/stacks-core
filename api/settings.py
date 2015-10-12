@@ -28,6 +28,12 @@ BLOCKSTORED_PORT = 6264
 DHT_MIRROR = '52.20.98.85'
 DHT_MIRROR_PORT = 6266
 
+BITCOIND_SERVER = 'btcd.onename.com'
+BITCOIND_PORT = 8332
+BITCOIND_USER = 'openname'
+BITCOIND_PASSWD = 'opennamesystem'
+BITCOIND_USE_HTTPS = True
+
 try:
     from .secrets import *
 except:
