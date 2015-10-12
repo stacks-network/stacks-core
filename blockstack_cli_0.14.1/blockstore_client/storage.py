@@ -65,10 +65,6 @@ MUTABLE_DATA_SCHEMA = {
    "sig": schemas.B64STRING
 }
 
-# data replication strategies
-REPLICATE_ALL = "replicate_all"         # replicate to each data storage provider
-REPLICATE_ANY = "replicate_any"         # replicate to at least one storage provider
-
 # global list of registered data handlers
 storage_handlers = []
 
