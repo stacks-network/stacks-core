@@ -100,7 +100,11 @@ def dht_get_key(data_key):
     global dht_server
     ret = dht_server.get( data_key )
     if ret is not None:
-        ret = ret[0]["value"]
+        if type(ret) == types.ListType:
+            ret = ret[0]
+            
+        if type(ret) == types.DictType and ret.has_key("value"):
+            ret = ret["value"]
 
     return ret
 

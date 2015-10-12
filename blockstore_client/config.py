@@ -29,6 +29,7 @@ import traceback
 BLOCKSTORED_PORT = 6264
 BLOCKSTORED_SERVER = "127.0.0.1"
 BLOCKSTORE_METADATA_DIR = os.path.expanduser("~/.blockstore-client/metadata")
+BLOCKSTORE_DEFAULT_STORAGE_DRIVERS = "dht"
 
 DEBUG = True
 VERSION = "v0.01-beta"
@@ -64,9 +65,11 @@ def make_default_config( path=CONFIG_PATH ):
             log.error("Failed to make configuration directory '%s'." % path)
             return False 
     
+        parser = SafeConfigParser()
         parser.set('blockstore-client', 'server', BLOCKSTORED_SERVER)
         parser.set('blockstore-client', 'port', BLOCKSTORED_PORT)
         parser.set('blockstore-client', 'metadata', BLOCKSTORE_METADATA_DIR)
+        parser.set('blockstred-client', 'storage_drivers', BLOCKSTORE_DEFAULT_STORAGE_DRIVERS )
         
         try:
             with open(path, "w") as f:
@@ -78,6 +81,19 @@ def make_default_config( path=CONFIG_PATH ):
             return False 
 
     return True 
+
+
+def find_missing( conf ):
+    """
+    Find and return the list of missing configuration keys.
+    """
+    
+    missing = []
+    for k in ['server', 'port', 'metadata', 'storage_drivers']:
+        if k not in conf.keys():
+            missing.append( k )
+            
+    return missing
 
 
 def get_config( path=CONFIG_PATH ):
@@ -100,9 +116,9 @@ def get_config( path=CONFIG_PATH ):
     
     # defaults
     config = {
-        "blockstored_server": BLOCKSTORED_SERVER,
-        "blockstored_port": BLOCKSTORED_PORT,
-        "storage_driver": None,
+        "server": BLOCKSTORED_SERVER,
+        "port": BLOCKSTORED_PORT,
+        "storage_drivers": BLOCKSTORE_DEFAULT_STORAGE_DRIVERS,
         "metadata": BLOCKSTORE_METADATA_DIR
     }
     
@@ -119,11 +135,11 @@ def get_config( path=CONFIG_PATH ):
         
         # blockstored 
         if parser.has_option("blockstore-client", "server"):
-            config['blockstored_server'] = parser.get("blockstore-client", "server")
+            config['server'] = parser.get("blockstore-client", "server")
          
         if parser.has_option("blockstore-client", "port"):
             try:
-                config['blockstored_port'] = int(parser.get("blockstore-client", "port"))
+                config['port'] = int(parser.get("blockstore-client", "port"))
             except:
                 log.error("Invalid 'port=' setting.  Please use an integer")
             
