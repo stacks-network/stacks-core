@@ -21,6 +21,14 @@ This file is part of Registrar.
     You should have received a copy of the GNU General Public License
     along with Registrar. If not, see <http://www.gnu.org/licenses/>.
 """
+import os
+
+DHT_MIRROR = '52.20.98.85'
+DHT_MIRROR_PORT = 6266
+
+IGNORE_USERNAMES = []
+MONGODB_URI = os.environ['MONGODB_URI']
+INDEXDB_URI = os.environ['INDEXDB_URI']
 
 try:
     from config_local import *
@@ -34,24 +42,24 @@ except Exception as e:
     DEBUG = True
 
     # --------------------------------------------------
-    NAMECOIND_READONLY = False
+    #NAMECOIND_READONLY = False
 
-    NAMECOIND_USE_HTTPS = True
+    #NAMECOIND_USE_HTTPS = True
 
-    NAMECOIND_PORT = os.environ['NAMECOIND_PORT']
-    NAMECOIND_SERVER = os.environ['NAMECOIND_SERVER']
-    NAMECOIND_USER = os.environ['NAMECOIND_USER']
-    NAMECOIND_PASSWD = os.environ['NAMECOIND_PASSWD']
+    #NAMECOIND_PORT = os.environ['NAMECOIND_PORT']
+    #NAMECOIND_SERVER = os.environ['NAMECOIND_SERVER']
+    #NAMECOIND_USER = os.environ['NAMECOIND_USER']
+    #NAMECOIND_PASSWD = os.environ['NAMECOIND_PASSWD']
     #WALLET_PASSPHRASE = os.environ['WALLET_PASSPHRASE']
     #--------------------------------------------------
 
-    MONGODB_URI = os.environ['MONGODB_URI']
-    OLD_DB = os.environ['OLD_DB']
+    #MONGODB_URI = os.environ['MONGODB_URI']
+    #OLD_DB = os.environ['OLD_DB']
     AWSDB_URI = os.environ['AWSDB_URI']
-    MONGOLAB_URI = os.environ['MONGOLAB_URI']
+    #MONGOLAB_URI = os.environ['MONGOLAB_URI']
 
     DEFAULT_HOST = '127.0.0.1'
     MEMCACHED_PORT = '11211'
     MEMCACHED_TIMEOUT = 15 * 60
 
-    FRONTEND_SECRET = os.environ['FRONTEND_SECRET']
+    #FRONTEND_SECRET = os.environ['FRONTEND_SECRET']
