@@ -62,8 +62,17 @@ def get_dht_profile(username):
     profile_hash = resp['value_hash']
 
     dht_mirror = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
-    resp = dht_mirror.get(profile_hash)
-    return resp[0]['value']
+
+    profile = None
+
+    try:
+        resp = dht_mirror.get(profile_hash)
+        profile = resp[0]['value']
+    except Exception as e:
+        print "Error: %s" % username
+        print e
+
+    return profile
 
 
 def register_name(username, profile, server=MAIN_SERVER):

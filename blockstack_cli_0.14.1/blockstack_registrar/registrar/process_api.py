@@ -32,16 +32,8 @@ from pybitcoin.rpc import NamecoindClient
 from pybitcoin.rpc.namecoind_cluster import check_address
 
 from registrar.nameops import process_user, update_name, register_name
-from registrar.nameops import get_namecoind
-from registrar.transfer import transfer_name, nameTransferred
 
-from registrar.config import NAMECOIND_PORT, NAMECOIND_USER, NAMECOIND_PASSWD
-from registrar.config import NAMECOIND_USE_HTTPS, NAMECOIND_SERVER
-from registrar.config import NAMECOIND_WALLET_PASSPHRASE
-
-namecoind = NamecoindClient(NAMECOIND_SERVER, NAMECOIND_PORT,
-                            NAMECOIND_USER, NAMECOIND_PASSWD,
-                            NAMECOIND_WALLET_PASSPHRASE, NAMECOIND_USE_HTTPS)
+from registrar.config import MONGOLAB_URI
 
 
 api_db = MongoClient(MONGOLAB_URI).get_default_database()
@@ -55,6 +47,8 @@ def process_api_registraions(LIVE=False):
     new_users = api_db['passcard']
 
     for entry in new_users.find():
+        print entry
+        continue
         username = entry['passname']
         transfer_address = entry['transfer_address']
         profile = json.loads(entry['payload'])
@@ -85,8 +79,8 @@ def process_api_registraions(LIVE=False):
                     print "transfer: " + username
                     print transfer_address
                     if LIVE:
-                        transfer_name(username, transfer_address, live=True)
-
+                        #transfer_name(username, transfer_address, live=True)
+                        pass
 
 if __name__ == '__main__':
 
