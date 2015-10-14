@@ -25,6 +25,7 @@ This file is part of Registrar.
 
 import os
 import sys
+import json
 import unittest
 
 from basicrpc import Proxy
@@ -42,7 +43,7 @@ from registrar.config import DEFAULT_NAMESPACE
 from registrar.config import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
 from registrar.config import DHT_MIRROR, DHT_MIRROR_PORT
 
-test_users = ['muneeb', 'fredwilson']
+test_users = ['muneeb', 'fredwilson', 'fred']
 
 
 def get_db():
@@ -109,6 +110,8 @@ class RegistrarTestCase(unittest.TestCase):
         for username in test_users:
 
             profile = get_dht_profile(username)
+
+            profile = json.loads(profile)
 
             self.assertIsInstance(profile, dict, msg="Profile not found")
 

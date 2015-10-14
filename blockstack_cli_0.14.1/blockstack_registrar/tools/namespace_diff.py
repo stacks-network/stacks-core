@@ -30,16 +30,6 @@ from pymongo import MongoClient
 from basicrpc import Proxy
 from pybitcoin import hex_hash160, address_to_new_cryptocurrency
 
-try:
-    MONGODB_URI = os.environ['MONGODB_URI']
-except:
-    MONGODB_URI = None
-
-try:
-    INDEXDB_URI = os.environ['INDEXDB_URI']
-except:
-    INDEXDB_URI = None
-
 from registrar.nameops import get_blockchain_record
 from registrar.nameops import get_dht_profile
 
@@ -47,6 +37,7 @@ from registrar.config import DEFAULT_NAMESPACE
 from registrar.config import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
 from registrar.config import DHT_MIRROR, DHT_MIRROR_PORT
 from registrar.config import IGNORE_USERNAMES
+from registrar.config import MONGODB_URI, INDEXDB_URI
 
 remote_db = MongoClient(MONGODB_URI).get_default_database()
 users = remote_db.user
@@ -172,11 +163,16 @@ def process_name_updates(list_usernames):
 def get_latest_diff():
 
     for user in state_diff.find():
-        print user['username']
+
+        username = user['username']
+
+        if username == 'fred':
+            print user
 
 
 if __name__ == '__main__':
 
+    print check_ownership('fboya')
     #cleanup_diff_db()
-    get_latest_diff()
+    #get_latest_diff()
     #populate_diff_db()
