@@ -29,22 +29,19 @@ import json
 from pymongo import MongoClient
 from basicrpc import Proxy
 
-from registrar.nameops import get_blockchain_record
-from registrar.nameops import get_dht_profile
+from .nameops import get_blockchain_record
+from .nameops import get_dht_profile
 
-from registrar.config import DEFAULT_NAMESPACE
-from registrar.config import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
-from registrar.config import DHT_MIRROR, DHT_MIRROR_PORT
-from registrar.config import IGNORE_USERNAMES
-from registrar.config import MONGODB_URI, INDEXDB_URI
+from .config import DEFAULT_NAMESPACE
+from .config import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
+from .config import DHT_MIRROR, DHT_MIRROR_PORT
+from .config import IGNORE_USERNAMES
+from .config import MONGODB_URI, INDEXDB_URI
+from .config import BTC_PRIV_KEY
 
-from tools.namespace_diff import get_hash
+from .utils import get_hash
 
-c = MongoClient(INDEXDB_URI)
-state_diff = c['namespace'].state_diff
-
-remote_db = MongoClient(MONGODB_URI).get_default_database()
-users = remote_db.user
+from registrar.db import state_diff, users
 
 
 def refresh_profile(username):
@@ -55,12 +52,12 @@ def refresh_profile(username):
 
     user = users.find_one({"username": username})
 
-    profile_hash = update_user['profile_hash']
+    profile_hash = get_hash(user['profile'])
     btc_address = update_user['btc_address']
     fqu = username + ".id"
 
     c = Proxy('54.82.121.156', 6264)
-    #print c.name_import(fqu, btc_address, profile_hash, privkey_str)
+    print c.name_import(fqu, btc_address, profile_hash, PRIVKEY)
 
 
 def get_latest_diff():
@@ -75,7 +72,7 @@ def get_latest_diff():
 
 if __name__ == '__main__':
 
-    username = 'fboya'
+    username = 'clone355'
 
     refresh_profile(username)
     #get_latest_diff()
