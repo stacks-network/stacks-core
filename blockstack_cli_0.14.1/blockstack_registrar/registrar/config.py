@@ -23,12 +23,23 @@ This file is part of Registrar.
 """
 import os
 
-DHT_MIRROR = '52.20.98.85'
+BLOCKSTORED_IP = '52.20.98.85'
+BLOCKSTORED_PORT = 6264
+DHT_MIRROR_IP = '52.20.98.85'
 DHT_MIRROR_PORT = 6266
+
+DEFAULT_NAMESPACE = "id"
 
 IGNORE_USERNAMES = []
 MONGODB_URI = os.environ['MONGODB_URI']
 INDEXDB_URI = os.environ['INDEXDB_URI']
+BTC_PRIV_KEY = os.environ['BTC_PRIV_KEY']
+
+DEFAULT_HOST = '127.0.0.1'
+MEMCACHED_PORT = '11211'
+MEMCACHED_TIMEOUT = 15 * 60
+
+DEBUG = True
 
 try:
     from config_local import *
@@ -37,19 +48,15 @@ except Exception as e:
     print e
     print "using default config"
 
-    import os
-
-    DEBUG = True
 
     # --------------------------------------------------
-    #NAMECOIND_READONLY = False
 
-    #NAMECOIND_USE_HTTPS = True
+    #BITCOIND_USE_HTTPS = True
 
-    #NAMECOIND_PORT = os.environ['NAMECOIND_PORT']
-    #NAMECOIND_SERVER = os.environ['NAMECOIND_SERVER']
-    #NAMECOIND_USER = os.environ['NAMECOIND_USER']
-    #NAMECOIND_PASSWD = os.environ['NAMECOIND_PASSWD']
+    #BITCOIND_PORT = os.environ['BITCOIND_PORT']
+    #BITCOIND_SERVER = os.environ['BITCOIND_SERVER']
+    #BITCOIND_USER = os.environ['BITCOIND_USER']
+    #BITCOIND_PASSWD = os.environ['BITCOIND_PASSWD']
     #WALLET_PASSPHRASE = os.environ['WALLET_PASSPHRASE']
     #--------------------------------------------------
 
@@ -57,9 +64,5 @@ except Exception as e:
     #OLD_DB = os.environ['OLD_DB']
     AWSDB_URI = os.environ['AWSDB_URI']
     #MONGOLAB_URI = os.environ['MONGOLAB_URI']
-
-    DEFAULT_HOST = '127.0.0.1'
-    MEMCACHED_PORT = '11211'
-    MEMCACHED_TIMEOUT = 15 * 60
 
     #FRONTEND_SECRET = os.environ['FRONTEND_SECRET']
