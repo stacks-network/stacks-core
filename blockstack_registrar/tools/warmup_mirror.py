@@ -23,40 +23,17 @@ This file is part of Registrar.
     along with Registrar. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os
 import json
-from basicrpc import Proxy
-from pymongo import MongoClient
 
-try:
-    INDEXDB_URI = os.environ['INDEXDB_URI']
-except:
-    INDEXDB_URI = None
-
-from registrar.config import DHT_MIRROR, DHT_MIRROR_PORT
 from registrar.config import IGNORE_USERNAMES
 
-c = MongoClient(INDEXDB_URI)
-state_diff = c['namespace'].state_diff
+from registrar.db import users
+from registrar.db import state_diff
 
-dht_mirror = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
+from registrar.network import dht_client
 
-
-def pretty_print(data):
-
-    try:
-        data = data[0]
-    except:
-        pass
-
-    if type(data) is not dict:
-        try:
-            data = json.loads(data)
-        except Exception as e:
-            print "got here"
-            print e
-
-    print json.dumps(data, sort_keys=True, indent=4, separators=(',', ': '))
+from registrar.utils import get_hash
+from registrar.utils import pretty_print
 
 
 def warmup_mirror():
@@ -76,7 +53,7 @@ def warmup_mirror():
         print value
 
         try:
-            resp = dht_mirror.set(key, value)
+            resp = dht_client.set(key, value)
             pretty_print(resp)
             counter += 1
             print counter
@@ -87,7 +64,29 @@ def warmup_mirror():
             print key
             print value
 
+
+def refresh_entry(username):
+
+    entry = users.find_one({"username": username})
+
+    print entry['username']
+    key = get_hash(entry['profile'])
+    value = json.dumps(entry['profile'], sort_keys=True)
+
+    print key
+    print value
+
+    try:
+        resp = dht_client.set(key, value)
+        pretty_print(resp)
+    except Exception as e:
+        print e
+        print "problem %s" % entry['username']
+
 # ------------------------------
 if __name__ == '__main__':
 
-    warmup_mirror()
+    username = 'fboya'
+    #warmup_mirror()
+
+    refresh_entry(username)
