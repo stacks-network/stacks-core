@@ -91,6 +91,8 @@ def is_valid_proof(site, site_username, username, proof_url):
         # fetch URL of the page the request got forwarded to
         proof_url = get_twitter_url(r.text)
 
+        proof_url = proof_url.lower()
+
         if not proof_url.startswith(check_url):
             return False
 
