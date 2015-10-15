@@ -36,12 +36,12 @@ current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
 sys.path.insert(0, parent_dir)
 
-from registrar.nameops import get_blockchain_record
-from registrar.nameops import get_dht_profile
+from registrar.network import get_blockchain_record
+from registrar.network import get_dht_profile
 
 from registrar.config import DEFAULT_NAMESPACE
-from registrar.config import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
-from registrar.config import DHT_MIRROR, DHT_MIRROR_PORT
+from registrar.config import BLOCKSTORED_IP, BLOCKSTORED_PORT
+from registrar.config import DHT_MIRROR_IP, DHT_MIRROR_PORT
 
 test_users = ['muneeb', 'fredwilson', 'fred']
 
@@ -72,7 +72,7 @@ class RegistrarTestCase(unittest.TestCase):
         """ Check connection to blockstore node
         """
 
-        client = Proxy(BLOCKSTORED_SERVER, BLOCKSTORED_PORT)
+        client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
         resp = client.ping()[0]
 
         self.assertDictContainsSubset({'status': 'alive'}, resp)
@@ -81,13 +81,13 @@ class RegistrarTestCase(unittest.TestCase):
         """ Check connection to DHT
         """
 
-        client = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
+        client = Proxy(DHT_MIRROR_IP, DHT_MIRROR_PORT)
         resp = client.ping()[0]
 
         self.assertDictContainsSubset({'status': 'alive'}, resp)
 
     def test_username_registered(self):
-        """ Check if username is registered on blockchain 
+        """ Check if username is registered on blockchain
         """
 
         for username in test_users:
