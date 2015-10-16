@@ -30,15 +30,16 @@ import keychain
 import pybitcoin
 import os
 import copy
+import shutil
 
 from collections import defaultdict
 from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAX_NAMES_PER_SENDER, \
-    EXPIRATION_PERIOD, NAME_PREORDER, NAMESPACE_PREORDER, NAME_REGISTRATION, NAME_UPDATE, TRANSFER_KEEP_DATA, \
+    NAME_PREORDER, NAMESPACE_PREORDER, NAME_REGISTRATION, NAME_UPDATE, TRANSFER_KEEP_DATA, \
     TRANSFER_REMOVE_DATA, NAME_REVOKE, NAME_PREORDER_EXPIRE, \
     NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTORE_VERSION, \
     NAMESPACE_1_CHAR_COST, NAMESPACE_23_CHAR_COST, NAMESPACE_4567_CHAR_COST, NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
     TESTSET_NAMESPACE_1_CHAR_COST, TESTSET_NAMESPACE_23_CHAR_COST, TESTSET_NAMESPACE_4567_CHAR_COST, TESTSET_NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
-    NAME_IMPORT_KEYRING_SIZE, GENESIS_SNAPSHOT, GENESIS_SNAPSHOT_TESTSET, default_blockstore_opts
+    NAME_IMPORT_KEYRING_SIZE, GENESIS_SNAPSHOT, GENESIS_SNAPSHOT_TESTSET, default_blockstore_opts, NAMESPACE_READY
 
 from ..operations import build_namespace_reveal
 from ..hashing import *
@@ -46,6 +47,7 @@ from ..b40 import is_b40
 
 import virtualchain
 log = virtualchain.session.log
+
 
 class BlockstoreDB( virtualchain.StateEngine ):
    """
@@ -103,15 +105,15 @@ class BlockstoreDB( virtualchain.StateEngine ):
       self.owner_names = defaultdict(list)    # map sender_script_pubkey hex string to list of names owned by the principal it represents
       self.hash_names = {}                    # map hex_hash160(name) to name
       
-      self.namespace_hash_to_id = {}          # map the namespace ID of a revealed namespace to its namespace hash.  Entries here only exist until the namespace is ready 
+      self.namespace_id_to_hash = {}          # map the namespace ID of a revealed namespace to its namespace hash.  Entries here only exist until the namespace is ready 
       
-      self.block_name_renewals = defaultdict(list)        # map a block ID to the list of names that were renewed at that block.  Used to find expired names.
+      self.block_name_expires = defaultdict(list)        # map a block ID to the list of names that expire at that block.
       
       self.name_consensus_hash_name = {}      # temporary table for mapping the hash(name + consensus_hash) in an update to its name
       
       self.import_addresses = {}              # temporary table for mapping a NAMESPACE_REVEAL's root public key address to the set of all derived public key addresses.
                                               # each NAME_IMPORT must come from one of these derived public key addresses.
-                                              
+                                        
       # default namespace (empty string)
       self.namespaces[""] = NAMESPACE_DEFAULT
       self.namespaces[None] = NAMESPACE_DEFAULT
@@ -145,15 +147,21 @@ class BlockstoreDB( virtualchain.StateEngine ):
          except Exception as e:
             log.warning("Failed to open '%s'; creating a new database" % db_filename)
             pass
-
-      # build up our reverse indexes on names
+ 
       for name, name_record in self.name_records.items():
          
-         if not self.block_name_renewals.has_key( name_record['last_renewed'] ):
-             self.block_name_renewals[ name_record['last_renewed'] ] = [name]    
+         # build up our reverse indexes on names
+         ns_id = get_namespace_from_name( name )
+         namespace = self.namespaces.get( ns_id, None )
+         if namespace is None:
+             raise Exception("Name with no namespace: '%s'" % name)
+
+         expires = name_record['last_renewed'] + namespace['lifetime']
+         if not self.block_name_expires.has_key( expires ):
+             self.block_name_expires[ expires ] = [name]
          else:
-             self.block_name_renewals[ name_record['last_renewed'] ].append( name )
-             
+             self.block_name_expires[ expires ].append( name )
+
          if not self.owner_names.has_key( name_record['sender'] ):
              self.owner_names[ name_record['sender'] ] = [name]
          else:
@@ -161,10 +169,14 @@ class BlockstoreDB( virtualchain.StateEngine ):
              
          self.hash_names[ hash256_trunc128( name ) ] = name
 
+         # convert history to int
+         self.name_records[name]['history'] = self.sanitize_history( self.name_records[name]['history'] )
 
-      # build up our reverse indexes on reveals 
+
       for (namespace_id, namespace_reveal) in self.namespace_reveals.items():
-         self.namespace_hash_to_id[ namespace_reveal['namespace_id_hash'] ] = namespace_id
+      
+         # build up our reverse indexes on reveals 
+         self.namespace_id_to_hash[ namespace_reveal['namespace_id'] ] = namespace_reveal['namespace_id_hash']
          
          if namespace_id in (None, ""):
              continue 
@@ -193,6 +205,16 @@ class BlockstoreDB( virtualchain.StateEngine ):
          
             # generate all possible addresses from this public key 
             self.import_addresses[ namespace_id ] = BlockstoreDB.build_import_keychain( pubkey_hex )
+         
+         # convert history to int 
+         self.namespace_reveals[namespace_id]['history'] = self.sanitize_history( namespace_reveal['history'] )
+
+
+      for (namespace_id, namespace) in self.namespaces.items():
+
+         # sanitize history on import 
+         self.namespaces[namespace_id]['history'] = self.sanitize_history( namespace['history'] )
+    
 
 
    def save_db(self, filename):
@@ -221,8 +243,37 @@ class BlockstoreDB( virtualchain.StateEngine ):
          return False
       
       return True
-   
-   
+  
+
+   def get_db_path( self ):
+      """
+      Get db file path 
+      """
+      return self.db_filename
+
+
+   def export_db( self, path ):
+      """
+      Copy the database to the given location.
+      """
+      shutil.copyfile( self.get_db_path(), path )
+
+
+   def sanitize_history( self, history ):
+      """
+      Given a record's history dict, sanitize it:
+      * convert string-ified block numbers to ints.
+      """
+
+      block_number_strs = history.keys()
+      for block_number_str in block_number_strs:
+          history_rec = history[block_number_str]
+          del history[block_number_str]
+          history[int(block_number_str)] = history_rec
+
+      return history
+
+
    @classmethod 
    def build_import_keychain( cls, pubkey_hex ):
       """
@@ -286,7 +337,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
    
    def get_name( self, name ):
       """
-      Given a name, return its metadata gleaned from the blockchain.
+      Given a name, return the latest version and history of 
+      the metadata gleaned from the blockchain.
       Name must be fully-qualified (i.e. name.ns_id)
       Return None if no such name is registered.
       """
@@ -295,25 +347,140 @@ class BlockstoreDB( virtualchain.StateEngine ):
          return None 
       
       else:
-         return self.name_records[name]
-      
-      
-   def get_name_preorder( self, name, sender_script_pubkey, register_addr ):
+         # don't return expired names
+         if self.name_records[name]['expired']:
+             return None 
+         
+         else:
+             return self.name_records[name]
+     
+
+   def get_name_at( self, name, block_number ):
       """
-      Get the preorder for a name, given the name, the sender's script_pubkey string, and the 
-      registration address used to calculate the preorder hash.
-      Return the nameop on success
-      Return None if not found.
+      Generate and return a name record as it was at a particular block number.
       """
-      preorder_hash = hash_name(name, sender_script_pubkey, register_addr=register_addr)
-      if preorder_hash not in self.preorders.keys():
+
+      name_rec = self.get_name( name )
+
+      # trivial reject 
+      if name_rec is None:
+          # never existed
+          return None 
+
+      if block_number < name_rec['block_number']:
+          # didn't exist then
           return None
-      
-      else:
-          return self.preorders[ preorder_hash ]
-      
+
+      historical_rec = BlockstoreDB.restore_from_history( name_rec, block_number )
+      return historical_rec
+
+
+   def get_namespace_at( self, namespace_id, block_number ):
+      """
+      Generate and return a namespace record as it was at a particular block number.
+      """
+
+      namespace_rec = self.get_namespace( namespace_id )
+      if namespace_rec is None:
+          return None 
+
+      if block_number < namespace_rec['block_number']:
+          return None 
+
+      historical_rec = BlockstoreDB.restore_from_history( namespace_rec, block_number )
+      return historical_rec
+
+
+   def get_name_history( self, name, start_block, end_block ):
+      """
+      Get the sequence of states of a name over a given point in time.
+
+      TODO: this is not particularly efficient
+      """
+
+      name_rec = self.get_name( name )
+      if name_rec is None:
+          return None 
+
+      name_snapshots = []
+
+      update_points = sorted( name_rec['history'].keys() )
+      for update_point in update_points:
+          if update_point >= start_block and update_point < end_block:
+             historical_rec = self.get_name_at( name, update_point )
+             name_snapshots.append( historical_rec )
+
+      return name_snapshots
+
+   
+   def _rec_dup( self, rec ):
+      """
+      (private method)
+      Duplicate a name record, and strip out all
+      unnecessary information.
+      """
+      ret = copy.deepcopy( rec )
+      del ret['history']
+      return ret
+
+
+   def get_all_nameops_at( self, block_id ):
+      """
+      Given a block number, get the set of name operations 
+      created or altered at that block number.
+      """
+
+      ret = []
+
+      # all name records
+      for (name, name_rec) in self.name_records.items():
+          if block_id < name_rec['block_number'] or block_id not in name_rec['history'].keys() + [name_rec['block_number']]:
+              # neither created nor altered at this block
+              continue
        
-      
+          rec = BlockstoreDB.restore_from_history( name_rec, block_id )
+          ret.append( rec )
+
+      # all current preorders
+      for (name_hash, preorder) in self.preorders.items():
+          if block_id == preorder['block_number']:
+              
+              rec = self._rec_dup( preorder )
+              ret.append( rec )
+
+      # all namespaces 
+      for (namespace_id, namespace) in self.namespaces.items():
+          
+          # null namespaces don't exist 
+          if namespace_id is None or len(namespace_id) == 0:
+              continue 
+
+          if block_id < namespace['block_number'] or block_id not in namespace['history'].keys() + [namespace['block_number']]:
+              # neither created nor altered at this block 
+              continue 
+
+          rec = BlockstoreDB.restore_from_history( namespace, block_id )
+          ret.append( rec )
+
+      # all current namespace preorders 
+      for (namespace_id_hash, namespace_preorder) in self.namespace_preorders.items():
+          if block_id == namespace_preorder['block_number']:
+              
+              rec = self._rec_dup( namespace_preorder )
+              ret.append( rec )
+
+      # all current namespace reveals 
+      for (namespace_id, namespace_reveal) in self.namespace_reveals.items():
+
+          if block_id < namespace_reveal['block_number']:
+              continue 
+
+          rec = BlockstoreDB.restore_from_history( namespace_reveal, block_id )
+          ret.append( rec )
+
+      return ret
+
+
    def get_all_names( self, offset=None, count=None ):
       """
       Get the set of all registered names, with optional pagination
@@ -400,17 +567,29 @@ class BlockstoreDB( virtualchain.StateEngine ):
 
    def get_all_preordered_namespace_hashes( self ):
       """
-      Get all namespace hashes
+      Get all outstanding namespace hashes
       """
-      return self.namespace_preorders.keys()
+      namespace_hashes = self.namespace_preorders.keys()
+      ret = []
+      for nh in namespace_hashes:
+          if not self.namespace_preorders[nh]['expired']:
+              ret.append( nh )
+
+      return ret
 
    
    def get_all_revealed_namespace_ids( self ):
       """
-      Get the IDs of all revealed namespaces.
+      Get the IDs of all outsanding revealed namespaces.
       """
-      
-      return self.namespace_reveals.keys()
+      namespace_ids = self.namespace_reveals.keys()
+      ret = []
+      for nsid in namespace_ids:
+          if not self.namespace_reveals[nsid]['expired']:
+              ret.append( nsid )
+
+      return ret
+
    
    def get_all_importing_namespace_hashes( self ):
       """
@@ -419,6 +598,11 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       revealed_namespace_hashes = []
       for (namespace_id, revealed_namespace) in self.namespace_reveals.items():
+
+          # skip expired namespace reveals
+          if self.namespace_reveals[namespace_id]['expired']:
+              continue 
+
           revealed_namespace_hashes.append( revealed_namespace['namespace_id_hash'] )
       
       return self.namespace_preorders.keys() + revealed_namespace_hashes
@@ -434,36 +618,51 @@ class BlockstoreDB( virtualchain.StateEngine ):
       This is useful for name updates--we need to ensure that updates are timely, and on 
       the majority fork of the blockchain.
       
-      Return the fully-qualified name on success
-      Return None if not found.
+      Return the (fully-qualified name, consensus hash) on success
+      Return (None, None) if not found.
       """
       
       names = self.owner_names.get( sender, None )
       if names is None:
          
          # invalid name owner
-         return None 
+         return None, None 
       
       possible_consensus_hashes = []
       
-      for i in xrange( block_id - virtualchain.config.BLOCKS_CONSENSUS_HASH_IS_VALID, block_id ):
+      for i in xrange( block_id - virtualchain.config.BLOCKS_CONSENSUS_HASH_IS_VALID, block_id+1 ):
          consensus_hash = self.get_consensus_at( i )
          if consensus_hash is not None and consensus_hash not in possible_consensus_hashes:
-            possible_consensus_hashes.append( consensus_hash )
+            possible_consensus_hashes.append( str(consensus_hash) )
       
       for name in names:
          for consensus_hash in possible_consensus_hashes:
             
             # what would have been the name/consensus_hash?
-            test_name_consensus_hash = hash256_trunc128( name + consensus_hash )
+            test_name_consensus_hash = hash256_trunc128( str(name) + consensus_hash )
             if test_name_consensus_hash == name_consensus_hash:
                
                # found!
-               return name 
+               return name, consensus_hash
       
-      return None
+      return None, None
    
    
+   def get_name_preorder( self, name, sender_script_pubkey, register_addr ):
+      """
+      Get the preorder for a name, given the name, the sender's script_pubkey string, and the 
+      registration address used to calculate the preorder hash.
+      Return the nameop on success
+      Return None if not found.
+      """
+      preorder_hash = hash_name(name, sender_script_pubkey, register_addr=register_addr)
+      if preorder_hash not in self.preorders.keys():
+          return None
+      
+      else:
+          return self.preorders[ preorder_hash ]
+     
+
    def get_namespace_preorder( self, namespace_id_hash ):
       """
       Given the hash(namespace_id, sender_script_pubkey) for a namespace that is 
@@ -507,13 +706,13 @@ class BlockstoreDB( virtualchain.StateEngine ):
       return self.namespace_reveals.get( namespace_id, None )
       
    
-   def find_renewed_at( self, block_id ):
+   def find_expiring_at( self, block_id ):
       """
-      Find all names registered at a particular block.
+      Find all names that will expire at a particular block.
       
       Returns a list of names on success (which can be empty)
       """
-      return self.block_name_renewals.get( block_id, [] )
+      return self.block_name_expires.get( block_id, [] )
    
    
    def is_name_registered(self, name):
@@ -605,13 +804,19 @@ class BlockstoreDB( virtualchain.StateEngine ):
    def is_name_expired_at( self, name, block_id ):
       """
       Given a name and a block ID, is the name flagged to 
-      expire at exactly EXPIRATION_PERIOD blocks ago.
+      expire?
       
       Return True if so
       Return False if not.
       """
       
-      expiring_block_number = block_id - EXPIRATION_PERIOD
+      ns_id = get_namespace_from_name( name )
+      namespace = self.namespaces.get( ns_id, None )
+      if namespace is None:
+          raise Exception("Name with no namespace: '%s'" % name)
+
+      expiration_period = namespace['lifetime']
+      expiring_block_number = block_id - expiration_period
       names_expiring = self.find_renewed_at( expiring_block_number )
       return (name in names_expiring)
    
@@ -629,7 +834,71 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       return self.name_records[name]['revoked']
   
+
+   @classmethod
+   def restore_from_history( cls, rec, block_number ):
+      """
+      Given a name or a namespace record, replay its 
+      history diffs "back in time" to a particular block
+      number.  Return the record as it was just *before*
+      the given block was processed.
+
+      The returned record will *not* have a 'history' key.
+      """
+ 
+      block_history = list( reversed( sorted( rec['history'].keys() ) ) )
+
+      historical_rec = copy.deepcopy( rec )
+      del historical_rec['history']
+      
+      if block_number > block_history[0]:
+          # current record is valid
+          return historical_rec
+
+      # find the latest block prior to block_number
+      last_block = len(block_history)
+      for i in xrange( 0, len(block_history) ):
+          if block_number >= block_history[i]:
+              last_block = i
+              break
+
+      i = 0 
+      while i < last_block:
+          diff = rec['history'][ block_history[i] ]
+          
+          if diff.has_key('history_snapshot'):
+              # wholly new state
+              historical_rec = copy.deepcopy( diff )
+          
+          else:
+              # delta in current state
+              historical_rec.update( diff )
+
+          i += 1
+
+      return historical_rec
    
+
+   @classmethod
+   def save_diff( self, rec, block_id, field_list ):
+      """
+      Back up a set of fields that will change for a given record.
+      Update the record to include the modified fields in its 
+      'history' dict.  Add the 'history' dict if it doesn't exist.
+      """
+
+      diff_rec = {}
+      for field in field_list:
+          if field in rec:
+              diff_rec[field] = copy.deepcopy( rec[field] )
+
+      if not rec.has_key('history'):
+          rec['history'] = {}
+
+      rec['history'][block_id] = diff_rec 
+      return rec 
+
+
    def save_name_diff( self, name, block_id, field_list):
       """
       Back up a set of fields that will change for a name record.
@@ -640,12 +909,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
       if not self.name_records.has_key(name):
           return False
       
-      diff_rec = {}
-      for field in field_list:
-          diff_rec[field] = self.name_records[name][field]
-      
-      self.name_records[name]['history'][ block_id ] = diff_rec
-      
+      self.name_records[name] = BlockstoreDB.save_diff( self.name_records[name], block_id, field_list )
+
    
    def commit_name_expire( self, name, block_id ):
       """
@@ -663,7 +928,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
          return False
       
       # save the name at its current state...
-      self.save_name_diff( name, block_id, ["expired"] )
+      self.save_name_diff( name, block_id, ["expired", "txid", "opcode"] )
       
       owner = self.name_records[name]['sender']
       
@@ -676,75 +941,102 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       if self.hash_names.has_key( name_hash ):
          del self.hash_names[ name_hash ]
-         
-      return True
-   
+     
    
    def commit_preorder_expire_all( self, block_id ):
       """
       Given the block ID, go find and remove all expired preorders
+
+      Return the list of expired name hashes
       """
       
+      expired = []
       for (name_hash, nameop) in self.preorders.items():
-          if nameop['block_number'] + NAME_PREORDER_EXPIRE <= block_id:
+          if nameop['block_number'] + NAME_PREORDER_EXPIRE == block_id:
               # expired 
               log.debug("Expire name preorder '%s'" % name_hash)
-              del self.preorders[name_hash]
+
+              self.preorders[name_hash] = BlockstoreDB.save_diff( self.preorders[name_hash], block_id, ['expired'] )
+              self.preorders[name_hash]['expired'] = True
+
+              expired.append( name_hash )
               
+      return expired
       
       
    def commit_namespace_preorder_expire_all( self, block_id ):
       """
       Given the block ID, go find and remove all expired namespace preorders
-      """
       
+      Return the list of expired namespace hashes
+      """
+     
+      expired = []
       for (namespace_id_hash, preorder_nameop) in self.namespace_preorders.items():
           
-          if preorder_nameop['block_number'] + NAMESPACE_PREORDER_EXPIRE <= block_id:
+          if preorder_nameop['block_number'] + NAMESPACE_PREORDER_EXPIRE == block_id:
               # expired 
               log.debug("Expire namespace preorder '%s'" % namespace_id_hash)
-              del self.namespace_preorders[ namespace_id_hash ]
+
+              self.namespace_preorders[namespace_id_hash] = BlockstoreDB.save_diff( preorder_nameop, block_id, ['expired'] ) 
+              self.namespace_preorders[namespace_id_hash]['expired'] = True
+
+              expired.append( namespace_id_hash )
       
+      return expired
   
               
    def commit_namespace_reveal_expire_all( self, block_id ):
       """
       Given the block ID, go find and remove all expired namespace reveals 
-      that have not been made ready.  Remove their associated name imports
+      that have not been made ready.  Remove their associated name imports.
+
+      Return a dict that maps an expired namespace_id to the list of names expired.
       """
       
+      expired = {}
       for (namespace_id, reveal_op) in self.namespace_reveals.items():
           
-          if reveal_op['block_number'] + NAMESPACE_REVEAL_EXPIRE <= block_id:
+          if reveal_op['block_number'] + NAMESPACE_REVEAL_EXPIRE == block_id:
               
               # expired 
               log.debug("Expire incomplete namespace '%s'" % namespace_id)
               del self.namespace_reveals[ namespace_id ]
-              del self.namespace_hash_to_id[ namespace_id ]
+              del self.namespace_id_to_hash[ namespace_id ]
               del self.import_addresses[ namespace_id ]
               
+              expired[namespace_id] = []
+
               for name in self.name_records.keys():
                  
                  if namespace_id == get_namespace_from_name( name ):
                      # part of this namespace 
                      log.debug("Expire imported name '%s'" % name)
                      self.commit_name_expire( name, block_id )
+                    
+                     expired[namespace_id].append( name )
+
+      return expired
+
   
    
    def commit_name_expire_all( self, block_id ):
       """
       Given a block ID, remove all name records that expired 
-      exactly EXPIRATION_PERIOD blocks ago.
+      at this block.
+
+      Return the list of expired names.
       """
-      
-      expiring_block_number = block_id - EXPIRATION_PERIOD
-      expired_names = self.find_renewed_at( expiring_block_number )
+       
+      expired_names = self.find_expiring_at( block_id )
       for name in expired_names:
          log.debug("Expire name '%s'" % name)
          self.commit_name_expire( name, block_id )
          
-      if expiring_block_number in self.block_name_renewals.keys():
-         del self.block_name_renewals[ expiring_block_number ]
+      if block_id in self.block_name_expires.keys():
+         del self.block_name_expires[ block_id ]
+
+      return expired_names
          
 
    def commit_remove_preorder( self, name, script_pubkey, register_addr ):
@@ -765,8 +1057,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
             return old_preorder 
         
          else:
-            log.warning("BUG: No preorder found for '%s' from '%s'" % (name, script_pubkey))
-            return None
+            log.error("BUG: No preorder found for '%s' from '%s'" % (name, script_pubkey))
+            raise Exception("BUG: no preorder found for '%s' from '%s'" % (name, script_pubkey))
 
 
    def commit_remove_namespace_import( self, namespace_id, namespace_id_hash ):
@@ -781,10 +1073,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
       if self.namespace_reveals.has_key( namespace_id ):
           del self.namespace_reveals[ namespace_id ]
       
-      if self.namespace_hash_to_id.has_key( namespace_id_hash ):
-          del self.namespace_hash_to_id[ namespace_id_hash ]
-      else:
-          log.warning("BUG: no such namespace hash '%s' (for '%s')" % (namespace_id_hash, namespace_id))
+      if self.namespace_id_to_hash.has_key( namespace_id ):
+          del self.namespace_id_to_hash[ namespace_id ]
           
       if self.import_addresses.has_key( namespace_id ):
           del self.import_addresses[ namespace_id ]
@@ -799,12 +1089,13 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       name_hash = nameop['preorder_name_hash']
       nameop['block_number'] = current_block_number
-      
-      nameop['txid'] = nameop['virtualchain_txid']
-      del nameop['virtualchain_txid']
-
+      nameop['history'] = {}
       self.preorders[ name_hash ] = nameop
-      
+     
+      # propagate information back to virtualchain for snapshotting 
+      nameop.update( self.preorders[name_hash] )
+      return nameop
+
 
    def commit_registration( self, nameop, current_block_number ):
       """
@@ -817,7 +1108,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       name = nameop['name']
       sender = nameop['sender']
       address = nameop['address']
-      
+
       # NOTE: on renewals, these fields should match the above two fields.
       recipient = nameop['recipient']
       recipient_address = nameop['recipient_address']
@@ -836,8 +1127,14 @@ class BlockstoreDB( virtualchain.StateEngine ):
     
           # registered!
           preorder = self.commit_remove_preorder( name, sender, recipient_address )
-    
+          del preorder['history']
+          
+          # preorder becomes a history snapshot
+          preorder = self.sanitize_op( preorder )
+          preorder['history_snapshot'] = True
+
           name_record = {
+            'name': name,
             'value_hash': None,             # i.e. the hex hash of profile data in immutable storage.
             'sender': str(recipient),       # the recipient is the expected future sender
             'first_registered': current_block_number,
@@ -846,42 +1143,75 @@ class BlockstoreDB( virtualchain.StateEngine ):
             'revoked': False,
             'expired': False,
             'sender_pubkey': nameop['sender_pubkey'],
-            'block_number': current_block_number,
-            'txid': nameop['virtualchain_txid'],
+            'block_number': preorder['block_number'],
+            'txid': nameop['txid'],
+            'opcode': nameop['opcode'],
+            'fee': nameop['fee'],
+            'op_fee': preorder['op_fee'],
             'history': {
-                
                 # history of this name so far: its preorder
-                preorder['block_number']: preorder
+                current_block_number: preorder
             }
           }
-    
+
+          ns_id = get_namespace_from_name( name )
+          namespace = self.namespaces.get( ns_id, None )
+          if namespace is None:
+              raise Exception("Name without namespace: '%s'" % name)
+
+          expires = current_block_number + namespace['lifetime']
+
           self.name_records[ name ] = name_record 
           self.owner_names[ recipient ].append( str(name) )
           self.hash_names[ hash256_trunc128( name ) ] = name 
-          self.block_name_renewals[ current_block_number ].append( name )
-      
-      
+
+          if not self.block_name_expires.has_key( expires ):
+              self.block_name_expires[ expires ] = [name]
+          else:
+              self.block_name_expires[ expires ].append( name )
+
+      # propagate information back to virtualchain for snapshotting
+      nameop.update( self.name_records[ name ] )
+      return nameop
+
+
    def commit_renewal( self, nameop, current_block_number ):
       """
       Commit a name renewal.  Push back its expiration.
       """
       
       name = nameop['name']
-      txid = nameop['virtualchain_txid']
+      txid = nameop['txid']
       block_last_renewed = self.name_records[name]['last_renewed']
       
-      # name no longer expires at last renewal time...
-      if name in self.block_name_renewals[ block_last_renewed ]:
-         self.block_name_renewals[ block_last_renewed ].remove( name )
-         
-      self.block_name_renewals[ current_block_number ].append( name )
-      
+      ns_id = get_namespace_from_name( name )
+      namespace = self.namespaces.get( ns_id, None )
+      if namespace is None:
+          raise Exception("Name without namespace: '%s'" % name)
+
+      old_expires = block_last_renewed + namespace['lifetime']
+      expires = current_block_number + namespace['lifetime']
+
+      # name no longer expires at the current expiry time
+      if self.block_name_expires.has_key( old_expires ):
+          if name in self.block_name_expires[ old_expires ]:
+              self.block_name_expires[ old_expires ].remove( name )
+
+      if not self.block_name_expires.has_key( expires ):
+          self.block_name_expires[ expires ] = [name]
+      else:
+          self.block_name_expires[ expires ].append( name )
+
       # save diff
       self.save_name_diff( name, current_block_number, ['last_renewed', 'txid'] )
       
       # apply diff
       self.name_records[name]['last_renewed'] = current_block_number
       self.name_records[name]['txid'] = txid
+
+      # propagate information back to virtualchian for snapshotting
+      nameop.update( self.name_records[name] )
+      return nameop
       
    
    def commit_update( self, nameop, current_block_number ):
@@ -892,7 +1222,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       sender = nameop['sender']
       name_consensus_hash = nameop['name_hash']
-      txid = nameop['virtualchain_txid']
+      txid = nameop['txid']
       
       try:
          name = nameop['name']
@@ -902,11 +1232,19 @@ class BlockstoreDB( virtualchain.StateEngine ):
          del self.name_consensus_hash_name[ name_consensus_hash ]
       
       # save diff 
-      self.save_name_diff( name, current_block_number, ['update_hash', 'txid'] )
+      self.save_name_diff( name, current_block_number, ['value_hash', 'txid', 'opcode', 'consensus_hash'] )
       
       # apply diff 
       self.name_records[name]['value_hash'] = nameop['update_hash']
-      self.name_records[name]['txid'] = nameop['txid']
+      self.name_records[name]['txid'] = txid
+      self.name_records[name]['opcode'] = nameop['opcode']
+
+      # NOTE: obtained from log_update
+      self.name_records[name]['consensus_hash'] = nameop['consensus_hash']
+
+      # propagate information back to virtualchain for snapshotting 
+      nameop.update( self.name_records[name] )
+      return nameop
 
       
    def commit_transfer( self, nameop, current_block_number ):
@@ -914,13 +1252,15 @@ class BlockstoreDB( virtualchain.StateEngine ):
       Commit a transfer--update the name record to indicate the recipient of the 
       transaction as the new owner.
       """
-      
+     
+
       name = nameop['name']
       owner = nameop['sender']
       recipient = nameop['recipient']
       recipient_address = nameop['recipient_address']
       keep_data = nameop['keep_data']
-      txid = nameop['virtualchain_txid']
+      txid = nameop['txid']
+      opcode = nameop['opcode']
       
       op = TRANSFER_KEEP_DATA
       if not keep_data:
@@ -928,24 +1268,31 @@ class BlockstoreDB( virtualchain.StateEngine ):
           
       log.debug("Name '%s': %s >%s %s" % (name, owner, op, recipient))
       
-      self.owner_names[owner].remove( name )
-      self.owner_names[recipient].append( name )
       
       # save diff 
-      changed = ['sender', 'address', 'txid']
+      changed = ['sender', 'address', 'txid', 'opcode']
       if not keep_data:
           changed.append( 'value_hash' )
-          
+         
       self.save_name_diff( name, current_block_number, changed )
       
       # apply diff
       self.name_records[name]['sender'] = recipient
       self.name_records[name]['address'] = recipient_address
       self.name_records[name]['txid'] = txid
+      self.name_records[name]['opcode'] = opcode
       
       if not keep_data:
          self.name_records[name]['value_hash'] = None
-      
+     
+      # update secondary indexes
+      self.owner_names[owner].remove( name )
+      self.owner_names[recipient].append( name )
+
+      # propagate information back to virtualchain for snapshotting 
+      nameop.update( self.name_records[name] )
+      return nameop
+
    
    def commit_revoke( self, nameop, current_block_number ):
       """
@@ -953,14 +1300,20 @@ class BlockstoreDB( virtualchain.StateEngine ):
       """
       
       name = nameop['name']
-      txid = nameop['virtualchain_txid']
+      txid = nameop['txid']
+      opcode = nameop['opcode']
       
       # save diff 
-      self.save_name_diff( name, current_block_number, ['revoked', 'txid'] )
+      self.save_name_diff( name, current_block_number, ['revoked', 'txid', 'opcode'] )
       
       # apply diff
       self.name_records[name]['revoked'] = True
       self.name_records[name]['txid'] = txid
+      self.name_records[name]['opcode'] = opcode
+
+      # propagate information back to virtualchain for snapshotting 
+      nameop.update( self.name_records[name] )
+      return nameop
       
       
    def commit_name_import( self, nameop, current_block_number ):
@@ -973,11 +1326,18 @@ class BlockstoreDB( virtualchain.StateEngine ):
       recipient_address = nameop['recipient_address']
       update_hash = nameop['update_hash']
 
-      txid = nameop['virtualchain_txid']
-      del nameop['virtualchain_txid']
-      nameop['txid'] = txid
-    
+      name_without_namespace = get_name_from_fq_name( name )
+      namepace_id = get_namespace_from_name( name )
+      namespace = self.get_namespace( namespace_id )
+      if namespace is None:
+          raise Exception("Name without namespace: '%s'" % name )
+
+      # nameop becomes a history snapshot 
+      nameop = self.sanitize_nameop( nameop )
+      nameop['history_snapshot'] = True
+
       name_record = {
+        'name': name,
         'value_hash': update_hash,
         'sender': recipient,
         'first_registered': current_block_number,
@@ -988,6 +1348,9 @@ class BlockstoreDB( virtualchain.StateEngine ):
         'sender_pubkey': nameop['sender_pubkey'],
         'block_number': current_block_number,
         'txid': nameop['txid'],
+        'opcode': nameop['opcode'],
+        'op_fee': price_name( name_without_namespace, namespace ),
+        'fee': nameop['fee'],
         'history': {
             
             # history for this name starts at the import
@@ -999,8 +1362,17 @@ class BlockstoreDB( virtualchain.StateEngine ):
       self.name_records[ name ] = name_record 
       self.owner_names[ recipient ].append( str(name) )
       self.hash_names[ hash256_trunc128( name ) ] = name 
-      self.block_name_renewals[ current_block_number ].append( name )
-      
+
+      expires = current_block_number + namespace['lifetime']
+      if not self.block_name_expires.has_key( expires ):
+          self.block_name_expires[ expires ] = [name]
+      else:
+          self.block_name_expires( expires ).append( name )
+     
+      # propagate information back to virtualchain for snapshotting
+      nameop.update( self.name_records[name] )
+      return nameop
+
    
    def commit_namespace_preorder( self, nameop, block_number ):
       """
@@ -1013,15 +1385,15 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       namespace_id_hash = nameop['namespace_id_hash']
       sender = nameop['sender']
-      txid = nameop['virtualchain_txid']
-      
-      del nameop['virtualchain_txid']
-      nameop['txid'] = txid
-
+      nameop['history'] = {}
       nameop['block_number'] = block_number
+      nameop['expired'] = False
       
       # this namespace is preordered, but not yet defined
-      self.namespace_preorders[ namespace_id_hash ] = nameop
+      self.namespace_preorders[ namespace_id_hash ] = self.sanitize_op( nameop )
+
+      # propagate information back to virtualchain for snapshotting
+      return nameop
    
    
    def commit_namespace_reveal( self, nameop, block_number ):
@@ -1041,27 +1413,36 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       namespace_id = nameop['namespace_id']
       namespace_id_hash = nameop['namespace_id_hash']
-      txid = nameop['virtualchain_txid']
-      
-      del nameop['virtualchain_txid']
-      nameop['txid'] = txid
 
-      nameop['block_number'] = block_number
-      self.namespace_reveals[ namespace_id ] = nameop
-      self.namespace_hash_to_id[ nameop['namespace_id'] ] = namespace_id_hash
+      self.namespace_reveals[ namespace_id ] = self.sanitize_op( nameop )
+      self.namespace_id_to_hash[ nameop['namespace_id'] ] = namespace_id_hash
    
       if namespace_id_hash in self.namespace_preorders:
           # preserve the old namespace preorder
           old_preorder = self.namespace_preorders[namespace_id_hash]
+          del old_preorder['history']
           
+          # old preorder becomes a history snapshot 
+          old_preorder = self.sanitize_op( old_preorder )
+          old_preorder['history_snapshot'] = True 
+
           self.namespace_reveals[ namespace_id ]['history'] = {
-             old_preorder['block_number']: old_preorder
+             block_number: old_preorder
           }
+
+          self.namespace_reveals[ namespace_id ]['block_number'] = old_preorder['block_number']
+          self.namespace_reveals[ namespace_id ]['reveal_block'] = block_number
+          self.namespace_reveals[ namespace_id ]['expired'] = False
           
           del self.namespace_preorders[namespace_id_hash]
+
+          # propagate information back to virtualchain for snapshotting
+          nameop.update( self.namespace_reveals[ namespace_id ] )
+          return nameop
           
       else:
-          log.debug("BUG: no namespace preorder for '%s' (hash '%s')" % (namespace_id, namespace_id_hash))
+          log.error("BUG: no namespace preorder for '%s' (hash '%s')" % (namespace_id, namespace_id_hash))
+          raise Exception("BUG: no namespace preorder for '%s' (hash '%s')" % (namespace_id, namespace_id_hash))
       
         
    def commit_namespace_ready( self, nameop, block_number ):
@@ -1072,23 +1453,31 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       namespace_id = nameop['namespace_id']
       sender = nameop['sender']
-      txid = nameop['virtualchain_txid']
-
-      del nameop['virtualchain_txid']
-      nameop['txid'] = txid
-
+      
       namespace = self.namespace_reveals[ namespace_id ]
       
       # save to history (duplicate it)
       namespace_reveal = copy.deepcopy( namespace )
-      namespace['history'][ namespace_reveal['block_number'] ] = [ namespace_reveal ]
+      del namespace_reveal['history']
+
+      # namespace reveal becomes history snapshot 
+      namespace_reveal = self.sanitize_op( namespace_reveal )
+      namespace_reveal['history_snapshot'] = True
       
+      namespace['history'][ block_number ] = namespace_reveal
+      namespace['opcode'] = nameop['opcode']
       namespace['ready_block'] = block_number
+      namespace['sender'] = sender
+      namespace['txid'] = nameop['txid']
       
       self.commit_remove_namespace_import( namespace_id, namespace['namespace_id_hash'] )
       
       # namespace is ready!
-      self.namespaces[ namespace_id ] = namespace 
+      self.namespaces[ namespace_id ] = namespace
+          
+      # propagate information back to virtualchain for snapshotting
+      nameop.update( self.namespaces[ namespace_id ] )
+      return nameop
       
 
    def is_name_collision( self, pending_nameops, name ):
@@ -1174,7 +1563,9 @@ class BlockstoreDB( virtualchain.StateEngine ):
       Return True if accepted 
       Return False if not.
       """
-      
+     
+      'preorder_name_hash', 'consensus_hash', 'sender', 'op_fee'
+
       preorder_name_hash = nameop['preorder_name_hash']
       consensus_hash = nameop['consensus_hash']
       sender = nameop['sender']
@@ -1335,14 +1726,14 @@ class BlockstoreDB( virtualchain.StateEngine ):
       Return True if accepted
       Return False if not.
       """
-      
+     
       name_consensus_hash = nameop['name_hash']
       sender = nameop['sender']
       
-      name = self.get_name_from_name_consensus_hash( name_consensus_hash, sender, block_id )
+      name, consensus_hash = self.get_name_from_name_consensus_hash( name_consensus_hash, sender, block_id )
       
-      if name is None:
-         log.debug("Unable to resolve name consensus hash '%s' to name" % name_consensus_hash)
+      if name is None or consensus_hash is None:
+         log.debug("Unable to resolve name consensus hash '%s' to a name owned by '%s'" % (name_consensus_hash, sender))
          # nothing to do--write is stale or on a fork
          return False
       
@@ -1370,9 +1761,10 @@ class BlockstoreDB( virtualchain.StateEngine ):
           log.debug("Name '%s' is not owned by '%s'" % (name, sender))
           return False 
       
-      # remember the name, so we don't have to re-calculate it...
+      # remember the name and consensus hash, so we don't have to re-calculate it...
       self.name_consensus_hash_name[ name_consensus_hash ] = name
       nameop['name'] = name
+      nameop['consensus_hash'] = consensus_hash
       
       return True 
   
@@ -1466,7 +1858,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       Return True if accepted
       Return False if not
       """
-      
+     
       name = nameop['name']
       sender = nameop['sender']
       
@@ -1494,7 +1886,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
           
       # the sender must own this name 
       if not self.is_name_owner( name, sender ):
-         log.debug("Name '%s' is not owned by %s (but %s)" % (name, sender, self.get_name_owner(name)))
+         log.debug("Name '%s' is not owned by %s" % (name, sender))
          return False 
           
       return True
@@ -1556,7 +1948,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       # sender must be the same as the the person who revealed the namespace
       # (i.e. sender's address must be from one of the valid import addresses)
       if sender_address not in import_addresses:
-          log.debug("Sender address '%s' is not in the import keychain (%s)" % (sender_address, import_addresses))
+          log.debug("Sender address '%s' is not in the import keychain" % (sender_address))
           return False 
       
       # we can overwrite, but emit a warning 
@@ -1575,7 +1967,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       Return True if accepted.
       Return False if not.
       """
-      
+     
       namespace_id_hash = nameop['namespace_id_hash']
       consensus_hash = nameop['consensus_hash']
       
@@ -1615,6 +2007,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       Return True if accepted 
       Return False if not
       """
+
       
       namespace_id = nameop['namespace_id']
       namespace_id_hash = nameop['namespace_id_hash']
@@ -1640,7 +2033,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
          log.debug("Malformed namespace ID '%s': non-base-38 characters")
          return False
-      
+     
       # can't be revealed already
       if self.is_namespace_revealed( namespace_id ):
          # this namespace was already revealed
@@ -1672,8 +2065,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
          return False
       
       # must be a version we support 
-      if nameop['version'] != BLOCKSTORE_VERSION:
-         log.debug("Namespace '%s' requires version %s, but this blockstore is version %s" % (nameop['version'], BLOCKSTORE_VERSION))
+      if int(nameop['version']) != BLOCKSTORE_VERSION:
+         log.debug("Namespace '%s' requires version %s, but this blockstore is version %s" % (namespace_id, nameop['version'], BLOCKSTORE_VERSION))
          return False
       
       # check fee...
@@ -1712,7 +2105,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       # must have been sent by the same person who revealed it
       revealed_namespace = self.get_namespace_reveal( namespace_id )
       if revealed_namespace['recipient'] != sender:
-         log.debug("Namespace '%s' is not owned by '%s'" % (namespace_id, sender))
+         log.debug("Namespace '%s' is not owned by '%s' (but by %s)" % (namespace_id, sender, revealed_namespace['recipient']))
          return False 
       
       # can't be ready yet
@@ -1821,4 +2214,3 @@ def price_namespace( namespace_id ):
        else:
            return NAMESPACE_8UP_CHAR_COST
    
-    
