@@ -53,7 +53,8 @@ class MockUTXOProvider(object):
         """
         Broadcast a transaction.
         By this, we mean 'update our set of UTXOs using this tx,
-        and forward the tx along to the mock bitcoind connection.'
+        and optionally forward the tx along to the mock bitcoind
+        connection.'
 
         Return {"transaction_hash": txid}
         """
