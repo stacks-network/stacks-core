@@ -32,7 +32,7 @@ B40_REGEX = '^[a-z0-9\-_.+]*$'
 
 
 def is_b40(s):
-    return (isinstance(s, str) and re.match(B40_REGEX, s))
+    return (isinstance(s, str) and (re.match(B40_REGEX, s) is not None))
 
 
 def b40_to_bin(s):
