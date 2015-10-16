@@ -144,7 +144,7 @@ class MockBitcoindConnection( object ):
         """
         Get the number of blocks processed
         """
-        return self.end_block
+        return self.end_block - 1
 
 
     def getstartblock( self ):
@@ -300,13 +300,13 @@ def connect_mock_bitcoind( mock_opts, reset=False ):
         mock_bitcoind = MockBitcoindConnection( **mock_opts )
         return mock_bitcoind
 
+
 def get_mock_bitcoind():
     """
     Get the global singleton mock bitcoind
     """
     global mock_bitcoind
     return mock_bitcoind
-
     
 
 def make_txid( tx_hex ):
