@@ -40,6 +40,7 @@ def scenario( wallets, **kw ):
     testlib.blockstore_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
+    testlib.next_block( **kw )
     # do a sequence of updates, every other block
     for i in xrange( 0, 20 ):
 
@@ -87,6 +88,15 @@ def check( state_engine ):
     if name_rec['value_hash'] != '13' * 20:
         return False 
 
+    """
+    for i in xrange( name_rec['first_registered'] - 2, name_rec['first_registered'] + 25 ):
+        print "At block %s" % i
+        print json.dumps( state_engine.get_name_at('foo.test', i ), indent=4 )
+
+    print "whole object"
+    print json.dumps( state_engine.name_records['foo.test'], indent=4 )
+    """
+
     # name didn't exist before its preorder
     before_registration = state_engine.get_name_at( "foo.test", name_rec['first_registered'] - 2 )
     if before_registration is not None:
@@ -100,7 +110,7 @@ def check( state_engine ):
         print "no preorder"
         return False
 
-    if not preorder.has_key('nameop') or preorder['nameop'] != 'NAME_PREORDER':
+    if not preorder.has_key('opcode') or preorder['opcode'] != 'NAME_PREORDER':
         print "not a preorder"
         print json.dumps( preorder, indent=4 )
         print "history"
@@ -120,11 +130,11 @@ def check( state_engine ):
         return False
 
     # get history...
-    name_history = state_engine.get_name_history( "foo.test", name_rec['first_registered'], state_engine.get_current_block() )
+    name_history = state_engine.get_name_history( "foo.test", name_rec['first_registered'], state_engine.get_current_block()+1 )
 
-    # did 10 updates and 1 register
+    # did 10 updates, 1 register
     if len(name_history) != 11:
-        print "history" 
+        print "history (%s)" % len(name_history)
         print json.dumps(name_history, indent=4 )
         return False 
 
@@ -141,6 +151,5 @@ def check( state_engine ):
             print "Invalid txid '%s'" % snapshot['txid']
             print json.dumps( name_history, indent=4 )
             return False 
-
 
     return True
