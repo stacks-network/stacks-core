@@ -34,15 +34,22 @@ from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import *
 from ..hashing import hash256_trunc128
+from ..nameset import NAMEREC_FIELDS
+
+# consensus hash fields
+FIELDS = NAMEREC_FIELDS + [
+    'recipient',
+    'recipient_address'
+]
 
 def get_registration_recipient_from_outputs( outputs ):
     """
     There are three or four outputs:  the OP_RETURN, the registration 
     address, the change address (i.e. from the name preorderer), and 
-    (for renwals) the burn for the renewal fee.
+    (for renwals) the burn address for the renewal fee.
     
     Given the outputs from a name register operation,
-    find the registration address.
+    find the registration address's script hex.
     
     By construction, it will be the first non-OP_RETURN 
     output (i.e. the second output).
@@ -59,7 +66,8 @@ def get_registration_recipient_from_outputs( outputs ):
         if output_asm[0:9] != 'OP_RETURN' and output_hex is not None:
             
             # recipient's script_pubkey and address
-            ret = (output_hex, output_addresses[0])
+            # ret = (output_hex, output_addresses[0])
+            ret = output_hex
             break
             
     if ret is None:
@@ -288,11 +296,3 @@ def get_fees( inputs, outputs ):
     
     return (dust_fee, op_fee)
     
-    
-def serialize( nameop ):
-    """
-    Convert the set of data obtained from parsing the registration into a unique string.
-    """
-    
-    return NAME_REGISTRATION + ":" + nameop['name']
-

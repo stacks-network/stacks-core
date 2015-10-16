@@ -34,6 +34,14 @@ from ..config import *
 from ..scripts import *
 from ..hashing import hash256_trunc128
 
+from ..nameset import NAMEREC_FIELDS
+
+# consensus hash fields 
+FIELDS = NAMEREC_FIELDS + [
+    'recipient', 
+    'recipient_address'
+]
+
 def get_import_update_hash_from_outputs( outputs, recipient ):
     """
     This is meant for NAME_IMPORT operations, which 
@@ -190,4 +198,4 @@ def serialize( nameop ):
     Convert the set of data obtained from parsing the name import into a unique string.
     """
     
-    return NAME_IMPORT + ":" + nameop['name'] + "," + nameop['recipient'] + "," + nameop['update_hash']
+    return NAME_IMPORT + ":" + str(nameop['name']) + "," + str(nameop['sender']) + "," + str(nameop['recipient']) + "," + str(nameop['recipient_address']) + "," + str(nameop['update_hash'])

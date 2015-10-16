@@ -29,13 +29,36 @@ from pybitcoin.transactions.outputs import calculate_change_amount
 
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
+import types
+import json
 
 from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import blockstore_script_to_hex, add_magic_bytes
 from ..hashing import hash_name
    
-   
+# consensus hash fields
+FIELDS = [
+    'namespace_id',
+    'namespace_id_hash',
+    'sender',
+    'sender_pubkey',
+    'recipient',
+    'recipient_address',
+    'version',
+    'txid',
+    'block_number',
+    'reveal_block',
+    'lifetime',
+    'coeff',
+    'base',
+    'buckets',
+    'nonalpha_discount',
+    'no_vowel_discount',
+    'fee',
+    'address'
+]
+
 def serialize_int( int_field, numbytes ):
    """
    Serialize an integer to a hex string that is padlen characters long.
@@ -297,20 +320,3 @@ def get_fees( inputs, outputs ):
     """
     return (None, None)
 
-
-def serialize( nameop ):
-    """
-    Convert the set of data obtained from parsing the namespace_reveal into a unique string.
-    """
-    
-    bucket_str = ",".join( [str(i) for i in nameop['buckets']] )
-    return NAMESPACE_REVEAL + ":" + nameop['namespace_id'] + "," + \
-                                    str(nameop['lifetime']) + "," + \
-                                    str(nameop['coeff']) + "," + \
-                                    str(nameop['base']) + "," + \
-                                    bucket_str + "," + \
-                                    str(nameop['version']) + "," + \
-                                    str(nameop['nonalpha_discount']) + "," + \
-                                    str(nameop['no_vowel_discount']) 
-                          
-                                  

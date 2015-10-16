@@ -29,6 +29,11 @@ from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import *
 
+from ..nameset import NAMEREC_FIELDS
+
+# consensus hash fields
+FIELDS = NAMEREC_FIELDS
+
 def build(name, testset=False):
     """
     Takes in the name, including the namespace ID (but not the id: scheme)
@@ -147,12 +152,4 @@ def get_fees( inputs, outputs ):
     op_fee = 0
     
     return (dust_fee, op_fee)
-
-
-def serialize( nameop ):
-    """
-    Convert the set of data obtained from parsing the revoke into a unique string.
-    """
-    
-    return NAME_REVOKE + ":" + nameop['name']
 

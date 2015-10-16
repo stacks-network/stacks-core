@@ -29,6 +29,13 @@ from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import *
 
+from namespacereveal import FIELDS as NAMESPACE_REVEAL_FIELDS
+
+# consensus hash fields 
+FIELDS = NAMESPACE_REVEAL_FIELDS + [
+    'ready_block'
+]
+
 def build( namespace_id, testset=False ):
    """
    Record to mark the end of a namespace import in the blockchain.
@@ -102,12 +109,4 @@ def get_fees( inputs, outputs ):
     the subsidization of namespaces.
     """
     return (None, None)
-
-
-def serialize( nameop ):
-    """
-    Convert the set of data obtained from parsing the namespace_ready into a unique string.
-    """
-    
-    return NAMESPACE_READY + ":" + nameop['namespace_id']
 

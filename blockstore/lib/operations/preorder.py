@@ -37,8 +37,19 @@ from ..config import *
 from ..scripts import *
 from ..hashing import hash_name
 
+FIELDS = [
+     'block_number',
+     'preorder_name_hash',
+     'consensus_hash',
+     'sender',
+     'sender_pubkey',
+     'address',
+     'fee',
+     'op_fee',
+     'txid'
+]
 
-def build(name, script_pubkey, register_addr, consensus_hash, testset=False):
+def build(name, script_pubkey, register_addr, consensus_hash, name_hash=None, testset=False):
     """
     Takes a name, including the namespace ID (but not the id: scheme), a script_publickey to prove ownership
     of the subsequent NAME_REGISTER operation, and the current consensus hash for this block (to prove that the 
@@ -54,14 +65,17 @@ def build(name, script_pubkey, register_addr, consensus_hash, testset=False):
     
     """
     
-    if not is_b40( name ) or "+" in name or name.count(".") > 1:
-       raise Exception("Name '%s' has non-base-38 characters" % name)
+    if name_hash is None:
+
+        # expect inputs to the hash
+        if not is_b40( name ) or "+" in name or name.count(".") > 1:
+           raise Exception("Name '%s' has non-base-38 characters" % name)
+        
+        # name itself cannot exceed LENGTHS['blockchain_id_name']
+        if len(NAME_SCHEME) + len(name) > LENGTHS['blockchain_id_name']:
+           raise Exception("Name '%s' is too long; exceeds %s bytes" % (name, LENGTHS['blockchain_id_name'] - len(NAME_SCHEME)))
     
-    # name itself cannot exceed LENGTHS['blockchain_id_name']
-    if len(NAME_SCHEME) + len(name) > LENGTHS['blockchain_id_name']:
-       raise Exception("Name '%s' is too long; exceeds %s bytes" % (name, LENGTHS['blockchain_id_name'] - len(NAME_SCHEME)))
-    
-    name_hash = hash_name(name, script_pubkey, register_addr=register_addr)
+        name_hash = hash_name(name, script_pubkey, register_addr=register_addr)
 
     script = 'NAME_PREORDER 0x%s 0x%s' % (name_hash, consensus_hash)
     hex_script = blockstore_script_to_hex(script)
@@ -215,11 +229,3 @@ def get_fees( inputs, outputs ):
     op_fee = outputs[2]["value"]
     
     return (dust_fee, op_fee)
-    
-
-def serialize( nameop ):
-    """
-    Convert the set of data obtained from parsing the preorder into a unique string.
-    """
-    
-    return NAME_PREORDER + ":" + nameop['preorder_name_hash'] + "," + nameop['consensus_hash']

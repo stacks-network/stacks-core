@@ -34,10 +34,19 @@ from ..config import *
 from ..scripts import *
 from ..hashing import hash256_trunc128
 
+from ..nameset import NAMEREC_FIELDS
+
+# consensus hash fields 
+FIELDS = NAMEREC_FIELDS + [
+    'name_hash',
+    'consensus_hash',
+    'keep_data'
+]
+
 def get_transfer_recipient_from_outputs( outputs ):
     """
     Given the outputs from a name transfer operation,
-    find the recipient's script_pubkey string and address
+    find the recipient's script hex.
     
     By construction, it will be the first non-OP_RETURN 
     output (i.e. the second output).
@@ -53,7 +62,8 @@ def get_transfer_recipient_from_outputs( outputs ):
         
         if output_asm[0:9] != 'OP_RETURN' and output_hex:
             
-            ret = (output_hex, output_addresses[0])
+            # ret = (output_hex, output_addresses[0])
+            ret = output_hex
             break
             
     if ret is None:
@@ -234,13 +244,4 @@ def get_fees( inputs, outputs ):
     op_fee = DEFAULT_DUST_FEE
     
     return (dust_fee, op_fee)
-
-
-
-def serialize( nameop ):
-    """
-    Convert the set of data obtained from parsing the transfer into a unique string.
-    """
-    
-    return NAME_TRANSFER + ":" + nameop['name_hash'] + "," + nameop['consensus_hash'] + "," + nameop['recipient'] + "," + str(nameop['keep_data'])
 
