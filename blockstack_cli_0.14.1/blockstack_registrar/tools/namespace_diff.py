@@ -23,58 +23,17 @@ This file is part of Registrar.
     along with Registrar. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os
-import json
+from pybitcoin import address_to_new_cryptocurrency
 
-from pymongo import MongoClient
-from basicrpc import Proxy
-from pybitcoin import hex_hash160, address_to_new_cryptocurrency
-
-from registrar.nameops import get_blockchain_record
-from registrar.nameops import get_dht_profile
+from registrar.network import get_blockchain_record
+from registrar.network import get_dht_profile
+from registrar.network import bs_client
 
 from registrar.config import DEFAULT_NAMESPACE
-from registrar.config import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
-from registrar.config import DHT_MIRROR, DHT_MIRROR_PORT
 from registrar.config import IGNORE_USERNAMES
-from registrar.config import MONGODB_URI, INDEXDB_URI
+from registrar.db import users, registrations, state_diff
 
-remote_db = MongoClient(MONGODB_URI).get_default_database()
-users = remote_db.user
-registrations = remote_db.user_registration
-
-
-c = MongoClient(INDEXDB_URI)
-state_diff = c['namespace'].state_diff
-
-
-def get_hash(profile):
-
-    if type(profile) is not dict:
-        try:
-            # print "WARNING: converting to json"
-            profile = json.loads(profile)
-        except:
-            print "WARNING: not valid json"
-
-    return hex_hash160(json.dumps(profile, sort_keys=True))
-
-
-def check_ownership(username):
-    """ return True if user account in DB owns the username
-    """
-
-    check_user = users.find_one({"username": username})
-
-    nmc_address = str(check_user['namecoin_address'])
-    btc_address = address_to_new_cryptocurrency(nmc_address, 0)
-
-    record = get_blockchain_record(username)
-
-    if record['address'] == btc_address:
-        return True
-    else:
-        return False
+from registrar.utils import get_hash
 
 
 def insert_state_diff(username, profile, nmc_address):
@@ -113,11 +72,10 @@ def populate_diff_db():
         if username in IGNORE_USERNAMES:
             continue
 
-        blockstore_client = Proxy(BLOCKSTORED_SERVER, BLOCKSTORED_PORT)
-        blockstore_resp = blockstore_client.lookup(username + "." + DEFAULT_NAMESPACE)
-        blockstore_resp = blockstore_resp[0]
+        resp = bs_client.lookup(username + "." + DEFAULT_NAMESPACE)
+        resp = resp[0]
 
-        if blockstore_resp is None:
+        if resp is None:
             insert_state_diff(username, user['profile'], str(user['namecoin_address']))
             counter += 1
 
