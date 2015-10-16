@@ -29,35 +29,54 @@ import json
 from pymongo import MongoClient
 from basicrpc import Proxy
 
-from .nameops import get_blockchain_record
-from .nameops import get_dht_profile
+from .network import get_blockchain_record, get_dht_profile
+from .network import bs_client, dht_client
 
 from .config import DEFAULT_NAMESPACE
-from .config import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
-from .config import DHT_MIRROR, DHT_MIRROR_PORT
 from .config import IGNORE_USERNAMES
-from .config import MONGODB_URI, INDEXDB_URI
 from .config import BTC_PRIV_KEY
 
-from .utils import get_hash
+from .utils import get_hash, check_banned_email, nmc_to_btc_address
 
-from registrar.db import state_diff, users
+from .db import state_diff, users, registrations, register_queue
+
+from time import sleep
 
 
-def refresh_profile(username):
+def register_user(user):
 
-    update_user = state_diff.find_one({"username": username})
+    fqu = user['username'] + "." + DEFAULT_NAMESPACE
 
-    print get_hash(update_user['profile'])
+    resp = bs_client.lookup(fqu)
+    resp = resp[0]
 
-    user = users.find_one({"username": username})
+    if resp is None:
+        print "Not registered: %s" % fqu
+    else:
+        print "Already registered %s" % fqu
+        return
 
     profile_hash = get_hash(user['profile'])
-    btc_address = update_user['btc_address']
-    fqu = username + ".id"
+    btc_address = nmc_to_btc_address(user['namecoin_address'])
 
-    c = Proxy('54.82.121.156', 6264)
-    print c.name_import(fqu, btc_address, profile_hash, PRIVKEY)
+    print profile_hash
+    print btc_address
+    print fqu
+
+    resp = bs_client.name_import(fqu, btc_address, profile_hash, BTC_PRIV_KEY)
+    resp = resp[0]
+
+    if 'transaction_hash' in resp:
+        new_entry = {}
+        new_entry["fqu"] = fqu
+        new_entry['transaction_hash'] = resp['transaction_hash']
+        new_entry['profile_hash'] = profile_hash
+        new_entry['btc_address'] = btc_address
+    else:
+        print "Error registering: %s" % fqu
+        print resp
+
+    sleep(3)
 
 
 def get_latest_diff():
@@ -70,16 +89,42 @@ def get_latest_diff():
             print user
 
 
+def register_new_users(spam_protection=False):
+
+    for new_user in registrations.find():
+
+        user_id = new_user['user_id']
+        user = users.find_one({"_id": user_id})
+
+        if user is None:
+            continue
+
+        if not user['username_activated']:
+            continue
+
+        # for spam protection
+        if check_banned_email(user['email']):
+            if spam_protection:
+                #users.remove({"email": user['email']})
+                print "Deleting spam %s, %s" % (user['email'], user['username'])
+            else:
+                print "Need to delete %s, %s" % (user['email'], user['username'])
+
+        register_user(user)
+
+
 if __name__ == '__main__':
 
     username = 'clone355'
 
-    refresh_profile(username)
+    print bs_client.lookup('waydans.id')
+    #register_new_users()
+    #refresh_profile(username)
     #get_latest_diff()
 
-    c = Proxy('54.82.121.156', 6264)
+    #c = Proxy('54.82.121.156', 6264)
 
-    print c.lookup(username + ".id")
+    #print c.lookup(username + ".id")
     #print c.ping()
 
     #name_import(username, btc_address, profile_hash, privkey_str)
