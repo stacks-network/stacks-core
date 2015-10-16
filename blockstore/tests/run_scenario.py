@@ -2,6 +2,7 @@
 
 import os
 import sys 
+import shutil
 
 # hack around absolute paths 
 current_dir =  os.path.abspath(os.path.dirname(__file__) + "/../..")
@@ -111,12 +112,12 @@ def run_scenario( scenario, config_file ):
     blockstored.set_utxo_opts( utxo_opts )
 
     db = blockstored.get_state_engine()
-
     bitcoind = mock_bitcoind.connect_mock_bitcoind( utxo_opts )
-    
-    # count blocks as given (needs to be by ref)
     sync_virtualchain_upcall = lambda: virtualchain.sync_virtualchain( utxo_opts, bitcoind.getblockcount(), db )
-   
+  
+    # sync initial utxos 
+    testlib.next_block( bitcoind=bitcoind, sync_virtualchain_upcall=sync_virtualchain_upcall, state_engine=db )
+
     # load the scenario into the mock blockchain and mock utxo provider
     try:
         scenario.scenario( scenario.wallets, bitcoind=bitcoind, sync_virtualchain_upcall=sync_virtualchain_upcall, state_engine=db )
@@ -126,18 +127,23 @@ def run_scenario( scenario, config_file ):
         log.error("Failed to run scenario '%s'" % scenario.__name__)
         return False
 
-    # one more, just to cap it off
-    testlib.next_block( bitcoind=bitcoind, sync_virtualchain_upcall=sync_virtualchain_upcall )
-
     # run the checks on the database
     try:
         rc = scenario.check( db )
-        return rc 
     except Exception, e:
         log.exception(e)
         log.error("Failed to run tests '%s'" % scenario.__name__)
         return False 
+    
+    if not rc:
+        return rc
 
+    log.info("Scenario checks passed; verifying history")
+
+    # run database integrity check at each block 
+    rc = testlib.check_history( db )
+    if rc:
+        testlib.cleanup()
     return rc 
 
 
@@ -174,13 +180,7 @@ if __name__ == "__main__":
     # run the test 
     rc = run_scenario( scenario, config_file )
     
-    # clean up 
-    try:
-        os.system("rm %s/*" % blockstore_state_engine.working_dir )
-        os.rmdir( blockstore_state_engine.working_dir )
-    except:
-        log.warning("Failed to remove '%s' and/or its parent directory" % config_file )
-        pass
+    shutil.rmtree( working_dir )
 
     if rc:
         print "SUCCESS %s" % scenario.__name__
