@@ -33,6 +33,14 @@ from ..config import *
 from ..scripts import *
 from ..hashing import hash256_trunc128
 
+from ..nameset import NAMEREC_FIELDS
+
+# consensus hash fields 
+FIELDS = NAMEREC_FIELDS + [
+    'name_hash',
+    'consensus_hash'
+]
+
 def build(name, consensus_hash, data_hash=None, testset=False):
     """
     Takes in the name to update the data for and the data update itself.
@@ -166,4 +174,4 @@ def serialize( nameop ):
     Convert the set of data obtained from parsing the update into a unique string.
     """
     
-    return NAME_UPDATE + ":" + nameop['name_hash'] + "," + nameop['update_hash']
+    return NAME_UPDATE + ":" + str(nameop['name_hash']) + "," + str(nameop['update_hash'])
