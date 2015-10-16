@@ -48,6 +48,7 @@ except Exception as e:
     print e
     print "using default config"
 
+    email_regrex = ''  # if it's not defined in config_local
 
     # --------------------------------------------------
 
