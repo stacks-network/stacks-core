@@ -21,6 +21,23 @@
     along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
 """
 
+# all fields in a name record
+NAMEREC_FIELDS = [
+    'name',
+    'value_hash',
+    'sender',
+    'first_registered',
+    'last_renewed',
+    'address',
+    'revoked',
+    'expired',
+    'sender_pubkey',
+    'block_number',
+    'txid',
+    'fee',
+    'op_fee'
+]
+
 import namedb 
 import virtualchain_hooks
 
