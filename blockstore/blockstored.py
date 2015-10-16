@@ -35,6 +35,10 @@ import time
 import socket
 import math
 import random
+import shutil
+import tempfile
+import binascii
+import copy
 
 from ConfigParser import SafeConfigParser
 
@@ -45,6 +49,9 @@ from lib import nameset as blockstore_state_engine
 from lib import get_db_state
 from lib.config import REINDEX_FREQUENCY, DEFAULT_DUST_FEE
 from lib import *
+
+import lib.nameset.virtualchain_hooks as virtualchain_hooks
+import lib.config as config
 
 import virtualchain 
 log = virtualchain.session.log 
@@ -347,7 +354,7 @@ def broadcast_subsidized_tx( subsidized_tx ):
     return response
 
 
-def blockstore_name_preorder( name, privatekey, register_addr, tx_only=False, pay_fee=True, subsidy_key=None, public_key=None, testset=False ):
+def blockstore_name_preorder( name, privatekey, register_addr, tx_only=False, pay_fee=True, subsidy_key=None, public_key=None, testset=False, consensus_hash=None ):
     """
     Preorder a name.
     
@@ -374,9 +381,11 @@ def blockstore_name_preorder( name, privatekey, register_addr, tx_only=False, pa
         return {"error": "Failed to connect to blockchain UTXO provider"}
     
     db = get_state_engine()
-    consensus_hash = db.get_current_consensus()
+
+    if consensus_hash is None:
+        consensus_hash = db.get_current_consensus()
     
-    if not consensus_hash:
+    if consensus_hash is None:
         # consensus hash must exist
         return {"error": "Nameset snapshot not found."}
         
@@ -404,12 +413,12 @@ def blockstore_name_preorder( name, privatekey, register_addr, tx_only=False, pa
         # subsidize the transaction 
         resp = make_subsidized_tx( resp['unsigned_tx'], preorder_fees, blockstore_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
         
-    log.debug('preorder <%s, %s>' % (name, privatekey))
+    log.debug('preorder <%s, %s, %s>' % (name, privatekey, consensus_hash))
 
     return resp
 
 
-def blockstore_name_register( name, privatekey, register_addr, renewal_fee=None, tx_only=False, pay_fee=True, subsidy_key=None, public_key=None, testset=False ):
+def blockstore_name_register( name, privatekey, register_addr, renewal_fee=None, tx_only=False, pay_fee=True, subsidy_key=None, public_key=None, testset=False, consensus_hash=None ):
     """
     Register or renew a name
     
@@ -443,7 +452,6 @@ def blockstore_name_register( name, privatekey, register_addr, renewal_fee=None,
     if broadcaster_client_inst is None:
         return {"error": "Failed to connect to blockchain transaction broadcaster"}
     
-    log.info("name: %s" % name)
     db = get_state_engine()
     
     if db.is_name_registered( name ) and renewal_fee is None:
@@ -461,10 +469,11 @@ def blockstore_name_register( name, privatekey, register_addr, renewal_fee=None,
         # subsidize the transaction 
         resp = make_subsidized_tx( resp['unsigned_tx'], registration_fees, blockstore_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
         
+    log.debug("name register/renew: %s" % name)
     return resp
 
 
-def blockstore_name_update( name, data_hash, privatekey, tx_only=False, pay_fee=True, public_key=None, subsidy_key=None, testset=False ):
+def blockstore_name_update( name, data_hash, privatekey, tx_only=False, pay_fee=True, public_key=None, subsidy_key=None, testset=False, consensus_hash=None ):
     """
     Update a name with new data.
     
@@ -484,7 +493,6 @@ def blockstore_name_update( name, data_hash, privatekey, tx_only=False, pay_fee=
     if is_indexing():
         return {"error": "Indexing blockchain"}
     
-    log.debug('update <%s, %s, %s>' % (name, data_hash, privatekey))
     
     blockchain_client_inst = get_utxo_provider_client()
     if blockchain_client_inst is None:
@@ -496,11 +504,15 @@ def blockstore_name_update( name, data_hash, privatekey, tx_only=False, pay_fee=
     
     db = get_state_engine()
     
-    consensus_hash = db.get_current_consensus()
-    
+    if consensus_hash is None:
+        consensus_hash = db.get_current_consensus()
+
+    if consensus_hash is None:
+        return {"error": "Nameset snapshot not found."}
+
     if blockchain_client_inst is None:
         return {"error": "Failed to connect to blockchain UTXO provider"}
-    
+
     try:
         resp = update_name(str(name), str(data_hash), str(consensus_hash), privatekey, blockchain_client_inst, \
             tx_only=tx_only, pay_fee=pay_fee, blockchain_broadcaster=broadcaster_client_inst, public_key=public_key, testset=blockstore_opts['testset'])
@@ -511,10 +523,11 @@ def blockstore_name_update( name, data_hash, privatekey, tx_only=False, pay_fee=
         # subsidize the transaction 
         resp = make_subsidized_tx( resp['unsigned_tx'], update_fees, blockstore_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
     
+    log.debug('name update <%s, %s, %s, %s>' % (name, data_hash, privatekey, consensus_hash))
     return resp
 
 
-def blockstore_name_transfer( name, address, keepdata, privatekey, public_key=None, subsidy_key=None, tx_only=False, pay_fee=True, testset=False ):
+def blockstore_name_transfer( name, address, keepdata, privatekey, public_key=None, subsidy_key=None, tx_only=False, pay_fee=True, testset=False, consensus_hash=None ):
     """
     Transfer a name to a new address.
     
@@ -545,7 +558,11 @@ def blockstore_name_transfer( name, address, keepdata, privatekey, public_key=No
     
     db = get_state_engine()
     
-    consensus_hash = db.get_current_consensus()
+    if consensus_hash is None:
+        consensus_hash = db.get_current_consensus()
+
+    if consensus_hash is None:
+        return {"error": "Nameset snapshot not found."}
     
     if blockchain_client_inst is None:
         return {"error": "Failed to connect to blockchain UTXO provider"}
@@ -559,14 +576,13 @@ def blockstore_name_transfer( name, address, keepdata, privatekey, public_key=No
     if tx_only and not pay_fee and subsidy_key is not None:
         # subsidize the transaction 
         resp = make_subsidized_tx( resp['unsigned_tx'], transfer_fees, blockstore_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
-
-    
-    log.debug('transfer <%s, %s, %s>' % (name, address, privatekey))
+ 
+    log.debug('name transfer <%s, %s, %s>' % (name, address, privatekey))
 
     return resp
 
 
-def blockstore_name_renew( name, privatekey, tx_only=False, pay_fee=True, subsidy_key=None, public_key=None, testset=False ):
+def blockstore_name_renew( name, privatekey, tx_only=False, pay_fee=True, subsidy_key=None, public_key=None, testset=False, consensus_hash=None ):
     """
     Renew a name
     
@@ -597,7 +613,7 @@ def blockstore_name_renew( name, privatekey, tx_only=False, pay_fee=True, subsid
     return blockstore_name_register( name, privatekey, register_addr, renewal_fee=renewal_fee, tx_only=tx_only, pay_fee=pay_fee, subsidy_key=subsidy_key, public_key=public_key, testset=testset )
 
 
-def blockstore_name_revoke( name, privatekey, tx_only=False, pay_fee=True, subsidy_key=None, public_key=None, testset=False ):
+def blockstore_name_revoke( name, privatekey, tx_only=False, pay_fee=True, subsidy_key=None, public_key=None, testset=False, consensus_hash=None ):
     """
     Revoke a name and all its data.
     
@@ -635,12 +651,12 @@ def blockstore_name_revoke( name, privatekey, tx_only=False, pay_fee=True, subsi
         # subsidize the transaction 
         resp = make_subsidized_tx( resp['unsigned_tx'], revoke_fees, blockstore_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
 
-    log.debug("revoke <%s>" % name )
+    log.debug("name revoke <%s>" % name )
     
     return resp
 
 
-def blockstore_name_import( name, recipient_address, update_hash, privatekey, tx_only=False, testset=False ):
+def blockstore_name_import( name, recipient_address, update_hash, privatekey, tx_only=False, testset=False, consensus_hash=None ):
     """
     Import a name into a namespace.
     """
@@ -672,7 +688,7 @@ def blockstore_name_import( name, recipient_address, update_hash, privatekey, tx
     return resp
     
 
-def blockstore_namespace_preorder( namespace_id, register_addr, privatekey, tx_only=False, testset=False ):
+def blockstore_namespace_preorder( namespace_id, register_addr, privatekey, tx_only=False, testset=False, consensus_hash=None ):
     """
     Define the properties of a namespace.
     Between the namespace definition and the "namespace begin" operation, only the 
@@ -695,8 +711,12 @@ def blockstore_namespace_preorder( namespace_id, register_addr, privatekey, tx_o
     if broadcaster_client_inst is None:
         return {"error": "Failed to connect to blockchain transaction broadcaster"}
     
-    consensus_hash = db.get_current_consensus()
+    if consensus_hash is None:
+        consensus_hash = db.get_current_consensus()
     
+    if consensus_hash is None:
+        return {"error": "Nameset snapshot not found."}
+
     namespace_fee = price_namespace( namespace_id )
     
     log.debug("Namespace '%s' will cost %s satoshis" % (namespace_id, namespace_fee))
@@ -712,7 +732,7 @@ def blockstore_namespace_preorder( namespace_id, register_addr, privatekey, tx_o
     return resp 
 
 
-def blockstore_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, tx_only=False, testset=False ):
+def blockstore_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, tx_only=False, testset=False, consensus_hash=None ):
     """
     Reveal and define the properties of a namespace.
     Between the namespace definition and the "namespace begin" operation, only the 
@@ -746,7 +766,7 @@ def blockstore_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
     return resp 
     
     
-def blockstore_namespace_ready( namespace_id, privatekey, tx_only=False, testset=False ):
+def blockstore_namespace_ready( namespace_id, privatekey, tx_only=False, testset=False, consensus_hash=None ):
     """
     Declare that a namespace is open to accepting new names.
     """
@@ -802,41 +822,53 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
 
     def jsonrpc_get_name_blockchain_record(self, name):
         """
-        Lookup the profile for a name.
+        Lookup the blockchain-derived profile for a name.
         """
-        
-        # are we doing our initial indexing?
-        if is_indexing():
-            return {"error": "Indexing blockchain"}
         
         blockstore_state_engine = get_state_engine()
         name_record = blockstore_state_engine.get_name( name )
         
-        if name is None:
-           return {"error": "Not found."}
+        if name_record is None:
+           if is_indexing():
+               return {"error": "Indexing blockchain"}
+           else:
+               return {"error": "Not found."}
         
         else:
            return name_record 
+      
+
+    def jsonrpc_get_name_blockchain_history( self, name, start_block, end_block ):
+        """
+        Get the sequence of name operations processed for a given name.
+        """
+        blockstore_state_engine = get_state_engine()
+        name_history = blockstore_state_engine.get_name_history( name, start_block, end_block )
         
+        if name_history is None:
+            if is_indexing():
+                return {"error": "Indexing blockchain"}
+            else:
+                return {"error": "Not found."}
+
+        else:
+            return name_history
         
+
     def jsonrpc_getinfo(self):
         """
+        Get the number of blocks the
         """
-        
-        # are we doing our initial indexing?
-        if is_indexing():
-            return {"error": "Indexing blockchain"}
-        
         bitcoind_opts = default_bitcoind_opts( virtualchain.get_config_filename() )
-        
         bitcoind = get_bitcoind( new_bitcoind_opts=bitcoind_opts, new=True )
         
         info = bitcoind.getinfo()
         reply = {}
-        reply['blocks'] = info['blocks']
+        reply['bitcoind_blocks'] = info['blocks']
         
         db = get_state_engine()
         reply['consensus'] = db.get_current_consensus()
+        reply['blocks'] = db.get_current_block()
         return reply
 
 
@@ -1151,15 +1183,17 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         """
         
         # are we doing our initial indexing?
-        if is_indexing():
-           return {"error": "Indexing blockchain"}
         
         if len(name) > LENGTHS['blockchain_id_name']:
             return {"error": "Name too long"}
         
         ret = get_name_cost( name )
         if ret is None:
-            return {"error": "Unknown/invalid namespace"}
+            if is_indexing():
+               return {"error": "Indexing blockchain"}
+            
+            else:
+               return {"error": "Unknown/invalid namespace"}
         
         return {"satoshis": int(math.ceil(ret))}
         
@@ -1169,10 +1203,6 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Return the cost of a given namespace, including fees.
         Return value is in satoshis
         """
-        
-        # are we doing our initial indexing?
-        if is_indexing():
-            return {"error": "Indexing blockchain"}
         
         if len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
             return {"error": "Namespace ID too long"}
@@ -1186,14 +1216,13 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Return the readied namespace with the given namespace_id
         """
         
-        # are we doing our initial indexing?
-        if is_indexing():
-            return {"error": "Indexing blockchain"}
-        
         db = get_state_engine()
         ns = db.get_namespace( namespace_id )
         if ns is None:
-            return {"error": "No such ready namespace"}
+            if is_indexing():
+                return {"error": "Indexing blockchain"}
+            else:
+                return {"error": "No such ready namespace"}
         else:
             return ns
         
@@ -1226,10 +1255,6 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         """
         Return the consensus hash at a block number 
         """
-        # are we doing our initial indexing?
-        if is_indexing():
-            return {"error": "Indexing blockchain"}
-        
         db = get_state_engine()
         return db.get_consensus_at( block_id )
     
@@ -1572,6 +1597,209 @@ def clean( testset=False, confirm=True ):
     sys.exit(exit_status)
 
 
+def rec_to_virtualchain_op( name_rec, block_number, untrusted_db, testset=False ):
+    """
+    Given a record from the blockstore database,
+    convert it into a virtualchain operation to 
+    process.
+    """
+
+    # apply opcodes so we can consume them with virtualchain
+    opcode_name = str(name_rec['opcode'])
+    ret_op = {}
+
+    if name_rec.has_key('expired') and name_rec['expired']:
+        # don't care
+        return None
+
+    if opcode_name == "NAME_PREORDER":
+        name_rec_script = build_preorder( None, None, None, str(name_rec['consensus_hash']), name_hash=str(name_rec['preorder_name_hash']), testset=testset )
+        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
+        ret_op = parse_preorder( name_rec_payload ) 
+
+    elif opcode_name == "NAME_REGISTRATION":
+        name_rec_script = build_registration( str(name_rec['name']), testset=testset )
+        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
+        ret_op = parse_registration( name_rec_payload )
+
+        # reconstruct the registration op...
+        ret_op['recipient'] = str(name_rec['sender'])
+        ret_op['recipient_address'] = str(name_rec['address'])
+        ret_op['sender'] = pybitcoin.make_pay_to_address_script( pybitcoin.BitcoinPublicKey( str(name_rec['sender_pubkey']) ).address() )
+
+    elif opcode_name == "NAME_UPDATE":
+        data_hash = None
+        if name_rec['value_hash'] is not None:
+            data_hash = str(name_rec['value_hash'])
+
+        name_rec_script = build_update( str(name_rec['name']), str(name_rec['consensus_hash']), data_hash=data_hash, testset=testset )
+        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
+        ret_op = parse_update(name_rec_payload)
+
+    elif opcode_name == "NAME_TRANSFER": 
+
+        # reconstruct the transport op...
+        if name_rec['value_hash'] is None:
+            name_rec['keep_data'] = False 
+        else:
+            name_rec['keep_data'] = True 
+
+        # what was the previous owner?
+        recipient = name_rec['sender']
+        recipient_address = name_rec['address']
+
+        # restore history
+        untrusted_name_rec = untrusted_db.get_name( name_rec['name'] )
+        name_rec['history'] = untrusted_name_rec['history']
+
+        # get previous owner
+        name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number - 1 )
+        sender = name_rec_prev['sender']
+        address = name_rec_prev['address']
+
+        # reconstruct recipient and sender
+        name_rec['recipient'] = recipient
+        name_rec['recipient_address'] = recipient_address 
+
+        name_rec['sender'] = sender
+        name_rec['address'] = address
+
+        name_rec_script = build_transfer( str(name_rec['name']), name_rec['keep_data'], str(name_rec['consensus_hash']), testset=testset )
+        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
+        ret_op = parse_transfer(name_rec_payload, name_rec['recipient'] )
+
+    elif opcode_name == "NAME_REVOKE":
+        name_rec_script = build_revoke( str(name_rec['name']), testset=testset )
+        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
+        ret_op = parse_revoke( name_rec_payload )
+
+    elif opcode_name == "NAME_IMPORT":
+        name_rec_script = build_name_import( str(name_rec['name']), testset=testset )
+        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
+        ret_op = parse_name_import( name_rec_payload, name_rec['recipient'], name_rec['value_hash'] )
+        
+        # reconstruct the import op...
+        ret_op['recipient'] = str(name_rec['sender'])
+        ret_op['recipient_address'] = str(name_rec['address'])
+        ret_op['sender'] = pybitcoin.make_pay_to_address_script( pybitcoin.BitcoinPublicKey( str(name_rec['sender_pubkey']) ).address() )
+
+    elif opcode_name == "NAMESPACE_PREORDER":
+        name_rec_script = build_namespace_preorder( None, None, None, str(name_rec['consensus_hash']), namespace_id_hash=str(name_rec['namespace_id_hash']), testset=testset )
+        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
+        ret_op = parse_namespace_preorder(name_rec_payload)
+
+    elif opcode_name == "NAMESPACE_REVEAL":
+        name_rec_script = build_namespace_reveal( str(name_rec['namespace_id']), name_rec['version'], str(name_rec['recipient_address']), \
+                                                  name_rec['lifetime'], name_rec['coeff'], name_rec['base'], name_rec['buckets'],
+                                                  name_rec['nonalpha_discount'], name_rec['no_vowel_discount'], testset=testset )
+
+        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
+        ret_op = parse_namespace_reveal( name_rec_payload, str(name_rec['sender']), str(name_rec['recipient_address']) )
+
+    elif opcode_name == "NAMESPACE_READY":
+        name_rec_script = build_namespace_ready( str(name_rec['namespace_id']), testset=testset )
+        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
+        ret_op = parse_namespace_ready( name_rec_payload )
+
+    ret_op = virtualchain.virtualchain_set_opfields( ret_op, virtualchain_opcode=getattr( config, opcode_name ), virtualchain_txid=str(name_rec['txid']) )
+    ret_op['opcode'] = opcode_name
+
+    merged_ret_op = copy.deepcopy( name_rec )
+    merged_ret_op.update( ret_op )
+    return merged_ret_op
+
+
+def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_path, working_db_path=None, start_block=None, testset=False ):
+    """
+    Verify that a database is consistent with a 
+    known-good consensus hash.
+
+    This algorithm works by creating a new database,
+    parsing the untrusted database, and feeding the untrusted 
+    operations into the new database block-by-block.  If we
+    derive the same consensus hash, then we can trust the 
+    database.
+    """
+
+    if start_block is None:
+        start_block = virtualchain.get_first_block_id()
+
+    # reconfigure the virtualchain to use a temporary directory,
+    # so we don't interfere with this instance's primary database
+    working_dir = tempfile.mkdtemp( prefix='blockstore-verify-database-' )
+    blockstore_state_engine.working_dir = working_dir
+
+    virtualchain.setup_virtualchain( blockstore_state_engine, testset=testset )
+
+    # feed in operations, block by block, from the untrusted database
+    untrusted_db = BlockstoreDB( untrusted_db_path )
+
+    # working db, to build up the operations in the untrusted db block-by-block
+    working_db = None
+    if working_db_path is None:
+        working_db_path = virtualchain.get_db_filename()
+
+    working_db = BlockstoreDB( working_db_path )
+
+    # map block ID to consensus hashes
+    consensus_hashes = {}
+    rc = True
+
+    for block_id in xrange( start_block, consensus_block_id+1 ):
+
+        # all operations at this block
+        nameops = untrusted_db.get_all_nameops_at( block_id )
+        for i in xrange(0, len(nameops)):
+
+            # only trusted fields
+            opcode_name = nameops[i]['opcode']
+            consensus_fields = SERIALIZE_FIELDS.get( opcode_name, None )
+            if consensus_fields is None:
+                raise Exception("BUG: no consensus fields defined for '%s'" % opcode_name )
+
+            # remove virtualchain-related fields--they won't be trusted
+            nameops[i] = working_db.sanitize_op( nameops[i] )
+
+            for field in nameops[i].keys():
+
+                # remove untrusted fields, except for 'opcode' (which will be fed into the consensus hash
+                # indirectly, once the fields are successfully processed and thus proven consistent with 
+                # the fields.)
+                if field not in consensus_fields and field not in ['opcode']:
+                    log.warning("OP '%s': Removing untrusted field '%s'" % (opcode_name, field))
+                    del nameops[i][field]
+
+            try:
+                # generate virtualchain op
+                nameops[i] = rec_to_virtualchain_op( nameops[i], block_id, untrusted_db )
+            except:
+                print json.dumps( nameops[i], indent=4 )
+                raise
+
+        # filter dead ops 
+        nameops = filter( lambda x: x is not None, nameops )
+
+        # feed ops to virtualchain to try to reconstruct the db at this block
+        consensus_hash = working_db.process_block( block_id, nameops )
+        log.debug("VERIFY CONSENSUS(%s): %s" % (block_id, consensus_hash))
+
+        consensus_hashes[block_id] = consensus_hash 
+
+
+    # did we reach the consensus hash we expected?
+    if rc and consensus_hashes[consensus_block_id] == trusted_consensus_hash:
+        # clean up
+        shutil.rmtree( working_dir )
+        if os.path.exists( working_dir ):
+            os.rmdir( working_dir )
+
+        return True 
+
+    else:
+        log.error("Unverifiable database state stored in '%s'" % working_dir)
+        return False
+    
+
 def check_testset_enabled():
     """
     Check sys.argv to see if testset is enabled.
@@ -1638,6 +1866,16 @@ def run_blockstored():
       help='required if the daemon is using the testing set of name operations')
    
    parser = subparsers.add_parser(
+      'verify',
+      help='verify an untrusted database against a known-good consensus hash')
+   parser.add_argument(
+      'consensus_hash',
+      help='the known-good consensus hash')
+   parser.add_argument(
+      'db_path',
+      help='the path to the database file')
+
+   parser = subparsers.add_parser(
       'version',
       help='Print version and exit')
    
@@ -1679,6 +1917,9 @@ def run_blockstored():
       
    elif args.action == 'indexer':
       run_indexer( testset=args.testset )
+
+   elif args.action == 'verify':
+      verify_database( args.consensus_hash, args.db_path )
 
 if __name__ == '__main__':
     
