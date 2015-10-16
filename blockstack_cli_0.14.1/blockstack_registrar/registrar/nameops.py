@@ -35,44 +35,13 @@ from registrar.config import MAIN_SERVER
 from registrar.config import DEFAULT_HOST, MEMCACHED_PORT, MEMCACHED_TIMEOUT
 
 from registrar.config import DEFAULT_NAMESPACE
-from registrar.config import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
-from registrar.config import DHT_MIRROR, DHT_MIRROR_PORT
+from registrar.config import BLOCKSTORED_IP, BLOCKSTORED_PORT
+from registrar.config import DHT_MIRROR_IP, DHT_MIRROR_PORT
 
 mc = pylibmc.Client([DEFAULT_HOST + ':' + MEMCACHED_PORT], binary=True)
 log = logging.getLogger()
 
-aws_db = MongoClient(AWSDB_URI)['registrar']
-register_queue = aws_db.queue
-
-
-def get_blockchain_record(username):
-
-    client = Proxy(BLOCKSTORED_SERVER, BLOCKSTORED_PORT)
-    resp = client.lookup(username + "." + DEFAULT_NAMESPACE)
-    return resp[0]
-
-
-def get_dht_profile(username):
-
-    resp = get_blockchain_record(username)
-
-    if resp is None:
-        return None
-
-    profile_hash = resp['value_hash']
-
-    dht_mirror = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
-
-    profile = None
-
-    try:
-        resp = dht_mirror.get(profile_hash)
-        profile = resp[0]['value']
-    except Exception as e:
-        print "Error: %s" % username
-        print e
-
-    return profile
+from registrar.db import register_queue
 
 
 def register_name(username, profile, server=MAIN_SERVER):
