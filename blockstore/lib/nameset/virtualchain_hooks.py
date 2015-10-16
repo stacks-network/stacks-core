@@ -29,6 +29,7 @@ import time
 
 import pybitcoin 
 import traceback
+import json
 
 from .namedb import BlockstoreDB
 
@@ -36,8 +37,7 @@ from ..config import *
 from ..operations import parse_preorder, parse_registration, parse_update, parse_transfer, parse_revoke, \
     parse_name_import, parse_namespace_preorder, parse_namespace_reveal, parse_namespace_ready, \
     get_transfer_recipient_from_outputs, get_import_update_hash_from_outputs, get_registration_recipient_from_outputs, \
-    serialize_namespace_preorder, serialize_namespace_reveal, serialize_namespace_ready, serialize_preorder, serialize_registration, \
-    serialize_update, serialize_transfer, serialize_revoke, serialize_name_import
+    SERIALIZE_FIELDS
 
 import virtualchain
 
@@ -332,7 +332,8 @@ def db_parse( block_id, opcode, data, senders, inputs, outputs, fee, db_state=No
    if opcode in [NAME_REGISTRATION, NAMESPACE_REVEAL]:
       # these operations have a separate change address from the sender 
       try:
-         recipient, recipient_address = get_registration_recipient_from_outputs( outputs )
+         recipient = get_registration_recipient_from_outputs( outputs )
+         recipient_address = pybitcoin.script_hex_to_address( recipient )
       except Exception, e:
          log.exception(e)
          raise Exception("No registration address for (%s, %s)" % (opcode, hexlify(data)))
@@ -341,7 +342,8 @@ def db_parse( block_id, opcode, data, senders, inputs, outputs, fee, db_state=No
    if opcode in [NAME_IMPORT, NAME_TRANSFER]:
       # these operations have a designated recipient
       try:
-         recipient, recipient_address = get_transfer_recipient_from_outputs( outputs )
+         recipient = get_transfer_recipient_from_outputs( outputs )
+         recipient_address = pybitcoin.script_hex_to_address( recipient )
       except Exception, e:
          log.exception(e)
          raise Exception("No recipient for (%s, %s)" % (opcode, hexlify(data)))
@@ -444,7 +446,7 @@ def db_check( block_id, checked_ops, opcode, op, db_state=None ):
       return False
    
    
-def db_commit( block_id, opcode, op, db_state=None ):
+def db_commit( block_id, opcode, op, txid, db_state=None ):
    """
    (required by virtualchain state engine)
    
@@ -452,72 +454,92 @@ def db_commit( block_id, opcode, op, db_state=None ):
    part of the database.  This does *not* need to write 
    the data to persistent storage, since save() will be 
    called once per block processed.
-   
-   Return True if the state of the virtual chain has changed.
-   Return False if not.
+  
+   Returns a new name record on success, which will 
+   be fed into db_serialize to translate into a string
+   to be used to generate this block's consensus hash.
    """
    
+   new_namerec = None 
+
    if db_state is not None:
       
       db = db_state
       
-      if opcode is not None:
+      if op is not None:
 
         # committing an operation
-        if opcode not in OPCODES:
-            log.error("Unrecognized opcode '%s'" % (opcode))
-            return False 
-
+        # pass along txid 
+        op['txid'] = txid
         log.debug("COMMIT op '%s' (%s)" % (opcode, op))
             
         if opcode == NAME_PREORDER:
-            db.commit_preorder( op, block_id )
+            new_namerec = db.commit_preorder( op, block_id )
 
         elif opcode == NAME_REGISTRATION:
-            db.commit_registration( op, block_id )
+            new_namerec = db.commit_registration( op, block_id )
 
         elif opcode == NAME_UPDATE:
-            db.commit_update( op, block_id )
+            new_namerec = db.commit_update( op, block_id )
 
         elif opcode == NAME_TRANSFER:
-            db.commit_transfer( op, block_id )
+            new_namerec = db.commit_transfer( op, block_id )
 
         elif opcode == NAME_REVOKE:
-            db.commit_revoke( op, block_id )
+            new_namerec = db.commit_revoke( op, block_id )
             
         elif opcode == NAME_IMPORT:
-            db.commit_name_import( op, block_id )
+            new_namerec = db.commit_name_import( op, block_id )
             
         elif opcode == NAMESPACE_PREORDER:
-            db.commit_namespace_preorder( op, block_id )
+            new_namerec = db.commit_namespace_preorder( op, block_id )
             
         elif opcode == NAMESPACE_REVEAL:
-            db.commit_namespace_reveal( op, block_id )
+            new_namerec = db.commit_namespace_reveal( op, block_id )
 
         elif opcode == NAMESPACE_READY:
-            db.commit_namespace_ready( op, block_id )
+            new_namerec = db.commit_namespace_ready( op, block_id )
       
       else:
 
-        # last commit before save
+        # final commit before save
         # do expirations
         log.debug("Clear all expired names at %s" % block_id )
-        db.commit_name_expire_all( block_id )
+        expired_names = db.commit_name_expire_all( block_id )
         
         log.debug("Clear all expired preorders at %s" % block_id )
-        db.commit_preorder_expire_all( block_id )
+        expired_name_hashes = db.commit_preorder_expire_all( block_id )
         
         log.debug("Clear all expired namespace preorders at %s" % block_id )
-        db.commit_namespace_preorder_expire_all( block_id )
+        expired_namespace_hashes = db.commit_namespace_preorder_expire_all( block_id )
         
         log.debug("Clear all expired partial namespace imports at %s" % block_id )
-        db.commit_namespace_reveal_expire_all( block_id )
+        expired_namespaces = db.commit_namespace_reveal_expire_all( block_id )
+
+        # merge expired namespaces...
+        expired_namespace_ids = expired_namespaces.keys()[:]
+        for nsid in expired_namespace_ids:
+            expired_names += expired_namespaces[ nsid ]
+
+        expired_names.sort()
+        expired_name_hashes.sort()
+        expired_namespace_hashes.sort()
+        expired_namespace_ids.sort()
+
+        # create a virtual nameop that encompasses the above expirations
+        new_namerec = {
+            "opcode": "VIRTUAL_EXPIRE",
+            "expired_names": str(len(expired_names)) + ":" + ",".join( expired_names ),
+            "expired_name_hashes": str(len(expired_name_hashes)) + ":" + ",".join( expired_name_hashes ),
+            "expired_namespace_hashes": str(len(expired_namespace_hashes)) + ":" + ",".join( expired_namespace_hashes ),
+            "expired_namespace_ids": str(len(expired_namespace_ids)) + ":" + ",".join( expired_namespace_ids )
+        }
         
    else:
       log.error("No state engine defined")
-      return False
+      return None
   
-   return True
+   return new_namerec
 
 
 def db_serialize( op, nameop, db_state=None ):
@@ -528,47 +550,32 @@ def db_serialize( op, nameop, db_state=None ):
    """
    
    if db_state is not None:
-         
-      sr = None
-      
-      if op == NAMESPACE_PREORDER:
-          sr = serialize_namespace_preorder( nameop )
-      
-      elif op == NAMESPACE_REVEAL:
-          sr = serialize_namespace_reveal( nameop )
-      
-      elif op == NAMESPACE_READY:
-          sr = serialize_namespace_ready( nameop )
-      
-      elif op == NAME_PREORDER:
-          sr = serialize_preorder( nameop )
-      
-      elif op == NAME_REGISTRATION:
-          sr = serialize_registration( nameop )
-      
-      elif op == NAME_UPDATE:
-          sr = serialize_update( nameop )
-      
-      elif op == NAME_TRANSFER:
-          sr = serialize_transfer( nameop )
-      
-      elif op == NAME_REVOKE:
-          sr = serialize_revoke( nameop )
-      
-      elif op == NAME_IMPORT:
-          sr = serialize_name_import( nameop )
+
+      fields = None
+
+      # special case: final nameop
+      if nameop.has_key('opcode') and nameop['opcode'] == 'VIRTUAL_EXPIRE':
+          fields = ['expired_names', 'expired_name_hashes', 'expired_namespace_hashes', 'expired_namespace_ids']
       
       else:
-          log.error("Unrecognized opcode '%s'" % op)
-          return None 
+          opcode_name = OPCODE_NAMES.get( op, None )
+          if opcode_name is None:
+              log.error("No such opcode '%s'" % op)
+              return None 
+
+          fields = SERIALIZE_FIELDS.get( opcode_name, None )
+          if fields is None:
+              log.error("BUG: unrecongnized opcode '%s'" % opcode_name )
+              return None 
+
+      fields = sorted( fields )
+      field_values = ",".join( [ str(nameop[field]) for field in fields ] )
+
+      return op + ":" + field_values
       
-      # always include the transaction ID 
-      sr = sr + nameop['virtualchain_txid']
-      return sr
-   
    else:
       log.error("No state engine defined")
-      return []
+      return None
 
 
 def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
