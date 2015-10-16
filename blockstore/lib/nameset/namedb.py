@@ -1564,8 +1564,6 @@ class BlockstoreDB( virtualchain.StateEngine ):
       Return False if not.
       """
      
-      'preorder_name_hash', 'consensus_hash', 'sender', 'op_fee'
-
       preorder_name_hash = nameop['preorder_name_hash']
       consensus_hash = nameop['consensus_hash']
       sender = nameop['sender']
