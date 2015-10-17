@@ -1645,11 +1645,11 @@ def rec_to_virtualchain_op( name_rec, block_number, untrusted_db, testset=False 
             name_rec['keep_data'] = True 
 
         # what was the previous owner?
-        recipient = name_rec['sender']
-        recipient_address = name_rec['address']
+        recipient = str(name_rec['sender'])
+        recipient_address = str(name_rec['address'])
 
         # restore history
-        untrusted_name_rec = untrusted_db.get_name( name_rec['name'] )
+        untrusted_name_rec = untrusted_db.get_name( str(name_rec['name']) )
         name_rec['history'] = untrusted_name_rec['history']
 
         # get previous owner
@@ -1676,12 +1676,20 @@ def rec_to_virtualchain_op( name_rec, block_number, untrusted_db, testset=False 
     elif opcode_name == "NAME_IMPORT":
         name_rec_script = build_name_import( str(name_rec['name']), testset=testset )
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
+        
+        # restore history 
+        untrusted_name_rec = untrusted_db.get_name( str(name_rec['name']) )
+        name_rec['history'] = untrusted_name_rec['history']
+
+        # reconstruct recipient and sender 
+        name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number - 1 )
+        name_rec['sender'] = name_rec_prev['sender']    # name importer
+        name_rec['address'] = name_rec_prev['address']
+        name_rec['recipient'] = name_rec_prev['recipient']
+        name_rec['recipient_address'] = name_rec_prev['recipient_address']
+
         ret_op = parse_name_import( name_rec_payload, name_rec['recipient'], name_rec['value_hash'] )
         
-        # reconstruct the import op...
-        ret_op['recipient'] = str(name_rec['sender'])
-        ret_op['recipient_address'] = str(name_rec['address'])
-        ret_op['sender'] = pybitcoin.make_pay_to_address_script( pybitcoin.BitcoinPublicKey( str(name_rec['sender_pubkey']) ).address() )
 
     elif opcode_name == "NAMESPACE_PREORDER":
         name_rec_script = build_namespace_preorder( None, None, None, str(name_rec['consensus_hash']), namespace_id_hash=str(name_rec['namespace_id_hash']), testset=testset )
