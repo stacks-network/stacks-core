@@ -1416,7 +1416,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       # collision?
       if nameop.get('collision'):
-          return 
+          return False 
       
       namespace_id = nameop['namespace_id']
       namespace_id_hash = nameop['namespace_id_hash']
