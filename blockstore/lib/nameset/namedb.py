@@ -1123,7 +1123,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       # did this name collide with another name?
       if nameop.get('collision') is not None:
          # do nothing--this name collided 
-         return 
+         return False 
 
       # is this a renewal?
       if self.is_name_registered( name ):
