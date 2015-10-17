@@ -154,7 +154,10 @@ class BlockstoreDB( virtualchain.StateEngine ):
          ns_id = get_namespace_from_name( name )
          namespace = self.namespaces.get( ns_id, None )
          if namespace is None:
-             raise Exception("Name with no namespace: '%s'" % name)
+             # maybe its revealing?
+             namespace = self.namespace_reveals.get( ns_id, None )
+             if namespace is None:
+                 raise Exception("Name with no namespace: '%s'" % name)
 
          expires = name_record['last_renewed'] + namespace['lifetime']
          if not self.block_name_expires.has_key( expires ):
@@ -434,7 +437,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
 
       # all name records
       for (name, name_rec) in self.name_records.items():
-          if block_id < name_rec['block_number'] or block_id not in name_rec['history'].keys() + [name_rec['block_number']]:
+          if block_id < name_rec['block_number'] or block_id not in (name_rec['history'].keys() + [name_rec['block_number']]):
               # neither created nor altered at this block
               continue
        
@@ -455,7 +458,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
           if namespace_id is None or len(namespace_id) == 0:
               continue 
 
-          if block_id < namespace['block_number'] or block_id not in namespace['history'].keys() + [namespace['block_number']]:
+          if block_id < namespace['block_number'] or block_id not in (namespace['history'].keys() + [namespace['block_number']]):
               # neither created nor altered at this block 
               continue 
 
@@ -472,7 +475,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       # all current namespace reveals 
       for (namespace_id, namespace_reveal) in self.namespace_reveals.items():
 
-          if block_id < namespace_reveal['block_number']:
+          if block_id < namespace_reveal['block_number'] or block_id not in namespace_reveal['history'].keys() + [namespace_reveal['block_number']]:
               continue 
 
           rec = BlockstoreDB.restore_from_history( namespace_reveal, block_id )
@@ -810,6 +813,10 @@ class BlockstoreDB( virtualchain.StateEngine ):
       Return False if not.
       """
       
+      if name not in self.name_records.keys():
+          # doens't exist
+          return False 
+
       ns_id = get_namespace_from_name( name )
       namespace = self.namespaces.get( ns_id, None )
       if namespace is None:
@@ -1157,7 +1164,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
           ns_id = get_namespace_from_name( name )
           namespace = self.namespaces.get( ns_id, None )
           if namespace is None:
-              raise Exception("Name without namespace: '%s'" % name)
+              raise Exception("Name with no namespace: '%s'" % name)
 
           expires = current_block_number + namespace['lifetime']
 
@@ -1187,7 +1194,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       ns_id = get_namespace_from_name( name )
       namespace = self.namespaces.get( ns_id, None )
       if namespace is None:
-          raise Exception("Name without namespace: '%s'" % name)
+          raise Exception("Name with no namespace: '%s'" % name)
 
       old_expires = block_last_renewed + namespace['lifetime']
       expires = current_block_number + namespace['lifetime']
@@ -1327,34 +1334,34 @@ class BlockstoreDB( virtualchain.StateEngine ):
       update_hash = nameop['update_hash']
 
       name_without_namespace = get_name_from_fq_name( name )
-      namepace_id = get_namespace_from_name( name )
-      namespace = self.get_namespace( namespace_id )
+      namespace_id = get_namespace_from_name( name )
+      namespace = self.get_namespace_reveal( namespace_id )
       if namespace is None:
-          raise Exception("Name without namespace: '%s'" % name )
+          raise Exception("Name without revealed namespace: '%s'" % name )
 
       # nameop becomes a history snapshot 
-      nameop = self.sanitize_nameop( nameop )
+      nameop = self.sanitize_op( nameop )
       nameop['history_snapshot'] = True
 
       name_record = {
-        'name': name,
-        'value_hash': update_hash,
-        'sender': recipient,
+        'name': str(name),
+        'value_hash': str(update_hash),
+        'sender': str(recipient),   # recipient is expected future sender
         'first_registered': current_block_number,
         'last_renewed': current_block_number,
-        'address': recipient_address,
+        'address': str(recipient_address),
         'revoked': False,
         'expired': False,
-        'sender_pubkey': nameop['sender_pubkey'],
+        'sender_pubkey': str(nameop['sender_pubkey']),
         'block_number': current_block_number,
-        'txid': nameop['txid'],
-        'opcode': nameop['opcode'],
+        'txid': str(nameop['txid']),
+        'opcode': str(nameop['opcode']),
         'op_fee': price_name( name_without_namespace, namespace ),
         'fee': nameop['fee'],
         'history': {
             
             # history for this name starts at the import
-            current_block_number: nameop
+            current_block_number: copy.deepcopy( nameop )
         }
       }
       
@@ -1367,7 +1374,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       if not self.block_name_expires.has_key( expires ):
           self.block_name_expires[ expires ] = [name]
       else:
-          self.block_name_expires( expires ).append( name )
+          self.block_name_expires[ expires ].append( name )
      
       # propagate information back to virtualchain for snapshotting
       nameop.update( self.name_records[name] )
