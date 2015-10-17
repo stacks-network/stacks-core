@@ -67,7 +67,7 @@ def get_import_update_hash_from_outputs( outputs, recipient ):
         
         if output_asm[0:9] != 'OP_RETURN' and output_hex is not None and output_hex != recipient:
             
-            ret = b58check_decode( str(output_addresses[0]) )
+            ret = hexlify( b58check_decode( str(output_addresses[0]) ) )
             break
             
     if ret is None:
@@ -180,8 +180,8 @@ def parse(bin_payload, recipient, update_hash ):
     return {
         'opcode': 'NAME_IMPORT',
         'name': fqn,
-        'recipient': hexlify(recipient),
-        'update_hash': hexlify(update_hash)
+        'recipient': recipient,
+        'update_hash': update_hash
     }
 
 
@@ -191,11 +191,3 @@ def get_fees( inputs, outputs ):
     the subsidization of namespaces.
     """
     return (None, None)
-
-
-def serialize( nameop ):
-    """
-    Convert the set of data obtained from parsing the name import into a unique string.
-    """
-    
-    return NAME_IMPORT + ":" + str(nameop['name']) + "," + str(nameop['sender']) + "," + str(nameop['recipient']) + "," + str(nameop['recipient_address']) + "," + str(nameop['update_hash'])
