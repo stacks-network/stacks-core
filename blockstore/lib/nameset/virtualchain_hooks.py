@@ -569,7 +569,7 @@ def db_serialize( op, nameop, db_state=None ):
               return None 
 
       fields = sorted( fields )
-      field_values = ",".join( str(nameop[field]) for field in fields ] )
+      field_values = ",".join( [ str(nameop[field]) for field in fields ] )
 
       return op + ":" + field_values
       
