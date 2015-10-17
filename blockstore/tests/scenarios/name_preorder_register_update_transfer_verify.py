@@ -37,14 +37,6 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
-    """
-    resp = testlib.blockstore_name_import( "bar.test", wallets[2].addr, "22" * 20, wallets[1].privkey )
-    if debug or 'error' in resp:
-        print json.dumps( resp, indent=4 )
-
-    testlib.next_block( **kw )
-    """
-
     resp = testlib.blockstore_namespace_ready( "test", wallets[1].privkey )
     if debug or  'error' in resp:
         print json.dumps( resp, indent=4 )
@@ -110,14 +102,4 @@ def check( state_engine ):
     if name_rec['address'] != wallets[4].addr:
         return False 
 
-    # imported as-is 
-    """
-    name_rec2 = state_engine.get_name( "bar.test" )
-    if name_rec2 is None:
-        return False 
-
-    # data is preserved 
-    if name_rec2['value_hash'] != '22' * 20:
-        return False 
-    """
     return True
