@@ -65,24 +65,6 @@ def warmup_mirror():
             print value
 
 
-def refresh_entry(username):
-
-    entry = users.find_one({"username": username})
-
-    print entry['username']
-    key = get_hash(entry['profile'])
-    value = json.dumps(entry['profile'], sort_keys=True)
-
-    print key
-    print value
-
-    try:
-        resp = dht_client.set(key, value)
-        pretty_print(resp)
-    except Exception as e:
-        print e
-        print "problem %s" % entry['username']
-
 # ------------------------------
 if __name__ == '__main__':
 
