@@ -27,10 +27,25 @@ from registrar.config import MONGODB_URI, INDEXDB_URI, AWSDB_URI
 remote_db = MongoClient(MONGODB_URI).get_default_database()
 users = remote_db.user
 registrations = remote_db.user_registration
-
+updates = remote_db.profile_update
 
 c = MongoClient(INDEXDB_URI)
 state_diff = c['namespace'].state_diff
 
 aws_db = MongoClient(AWSDB_URI)['registrar']
-register_queue = aws_db.queue
+register_queue = aws_db.register_queue
+update_queue = aws_db.update_queue
+
+
+def get_db_user_from_id(entry):
+
+    user_id = entry['user_id']
+    user = users.find_one({"_id": user_id})
+
+    if user is None:
+        return None
+
+    if not user['username_activated']:
+        return None
+
+    return user
