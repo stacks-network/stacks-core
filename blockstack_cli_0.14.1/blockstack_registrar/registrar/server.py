@@ -30,7 +30,7 @@ from pymongo import MongoClient
 from basicrpc import Proxy
 
 from .nameops import get_blockchain_record, get_dht_profile
-from .nameops import usernameRegistered
+from .nameops import usernameRegistered, check_ownership
 from .nameops import write_dht_profile
 
 from .config import DEFAULT_NAMESPACE
@@ -40,7 +40,9 @@ from .config import BTC_PRIV_KEY
 from .utils import get_hash, check_banned_email, nmc_to_btc_address
 
 from .network import get_bs_client, get_dht_client
-from .db import state_diff, users, registrations, register_queue
+from .db import state_diff, users, registrations, updates
+from .db import get_db_user_from_id
+from .db import register_queue, update_queue
 
 from time import sleep
 
@@ -87,9 +89,49 @@ def register_user(user, fqu):
     sleep(3)
 
 
-def cleanup_register_queue():
+def update_user(user, fqu):
 
-    for entry in register_queue.find():
+    bs_client = get_bs_client()
+
+    check_queue = update_queue.find_one({"fqu": fqu})
+
+    if check_queue is not None:
+        print "Already in queue: %s" % fqu
+        return
+
+    profile_hash = get_hash(user['profile'])
+    btc_address = nmc_to_btc_address(user['namecoin_address'])
+
+    if not check_ownership(fqu, btc_address):
+        print "Don't own this name"
+        return
+
+    print "Updating (%s, %s, %s)" % (fqu, btc_address, profile_hash)
+
+    resp = bs_client.name_import(fqu, btc_address, profile_hash, BTC_PRIV_KEY)
+    resp = resp[0]
+    #except Exception as e:
+    #    print e
+    #    return
+
+    if 'transaction_hash' in resp:
+        new_entry = {}
+        new_entry["fqu"] = fqu
+        new_entry['transaction_hash'] = resp['transaction_hash']
+        new_entry['profile_hash'] = profile_hash
+        new_entry['profile'] = user['profile']
+        new_entry['btc_address'] = btc_address
+        update_queue.save(new_entry)
+    else:
+        print "Error updating: %s" % fqu
+        print resp
+
+    sleep(3)
+
+
+def cleanup_queue(queue):
+
+    for entry in queue.find():
 
         if usernameRegistered(entry['fqu']):
             print "registered on blockchain: %s" % entry['fqu']
@@ -103,8 +145,8 @@ def cleanup_register_queue():
                 if profile is None:
                     print "data not in DHT"
                     write_dht_profile(entry['profile'])
-                else:
 
+                else:
                     if get_hash(profile) == entry['profile_hash']:
                         print "data in DHT"
                         print "removing from queue: %s" % entry['fqu']
@@ -125,13 +167,9 @@ def register_new_users(spam_protection=False):
 
     for new_user in registrations.find():
 
-        user_id = new_user['user_id']
-        user = users.find_one({"_id": user_id})
+        user = get_db_user_from_id(new_user)
 
         if user is None:
-            continue
-
-        if not user['username_activated']:
             continue
 
         # for spam protection
@@ -142,6 +180,7 @@ def register_new_users(spam_protection=False):
                 continue
             else:
                 print "Need to delete %s, %s" % (user['email'], user['username'])
+                continue
 
         bs_client = get_bs_client()
 
@@ -163,9 +202,48 @@ def register_new_users(spam_protection=False):
             print "Not registered: %s" % fqu
             register_user(user, fqu)
 
+
+def update_users_bulk():
+
+    for new_user in updates.find():
+
+        user = get_db_user_from_id(new_user)
+
+        if user is None:
+            continue
+
+        bs_client = get_bs_client()
+
+        fqu = user['username'] + "." + DEFAULT_NAMESPACE
+
+        if fqu == "yannis.id":
+            continue
+
+        if usernameRegistered(fqu):
+
+            resp = get_blockchain_record(fqu)
+
+            if 'error' in resp:
+                print fqu, resp
+                continue
+
+            if resp['value_hash'] == get_hash(user['profile']):
+                print "profile match, removing: %s" % fqu
+                updates.remove({"user_id": new_user['user_id']})
+            else:
+                btc_address = nmc_to_btc_address(user['namecoin_address'])
+                if check_ownership(fqu, btc_address):
+                    update_user(user, fqu)
+                else:
+                    print "cannot update (wrong owner): %s " % fqu
+
+        else:
+
+            print "Not registered: %s" % fqu
+
+
 if __name__ == '__main__':
 
     #register_new_users()
-    cleanup_register_queue()
-    #refresh_profile(username)
-    #get_latest_diff()
+    #cleanup_register_queue()
+    update_users_bulk()
