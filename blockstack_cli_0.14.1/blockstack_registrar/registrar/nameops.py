@@ -26,11 +26,14 @@ import json
 
 from registrar.utils import get_hash, pretty_print
 from registrar.network import bs_client, dht_client
+from registrar.network import get_bs_client
 
 from registrar.config import DEFAULT_NAMESPACE
 
 
 def get_blockchain_record(fqu):
+
+    bs_client = get_bs_client()
 
     data = {}
 
@@ -69,8 +72,7 @@ def get_dht_profile(fqu):
         resp = dht_client.get(profile_hash)
         profile = resp[0]['value']
     except Exception as e:
-        print "Error: %s" % fqu
-        print e
+        print "Error DHT get: (%s, %s)" % (fqu, profile_hash)
 
     return profile
 
