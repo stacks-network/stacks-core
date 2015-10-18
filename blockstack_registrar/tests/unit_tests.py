@@ -36,14 +36,13 @@ current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
 sys.path.insert(0, parent_dir)
 
-from registrar.network import get_blockchain_record
-from registrar.network import get_dht_profile
+from registrar.nameops import usernameRegistered
+from registrar.nameops import get_dht_profile
 
-from registrar.config import DEFAULT_NAMESPACE
-from registrar.config import BLOCKSTORED_IP, BLOCKSTORED_PORT
-from registrar.config import DHT_MIRROR_IP, DHT_MIRROR_PORT
+from registrar.network import get_bs_client, get_dht_client
 
-test_users = ['muneeb', 'fredwilson', 'fred']
+
+test_users = ['muneeb.id', 'fredwilson.id']
 
 
 def get_db():
@@ -72,7 +71,7 @@ class RegistrarTestCase(unittest.TestCase):
         """ Check connection to blockstore node
         """
 
-        client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+        client = get_bs_client()
         resp = client.ping()[0]
 
         self.assertDictContainsSubset({'status': 'alive'}, resp)
@@ -81,7 +80,7 @@ class RegistrarTestCase(unittest.TestCase):
         """ Check connection to DHT
         """
 
-        client = Proxy(DHT_MIRROR_IP, DHT_MIRROR_PORT)
+        client = get_dht_client()
         resp = client.ping()[0]
 
         self.assertDictContainsSubset({'status': 'alive'}, resp)
@@ -90,16 +89,11 @@ class RegistrarTestCase(unittest.TestCase):
         """ Check if username is registered on blockchain
         """
 
-        for username in test_users:
+        for fqu in test_users:
 
-            resp = get_blockchain_record(username)
+            resp = usernameRegistered(fqu)
 
-            try:
-                last_renewed = resp['last_renewed']
-            except:
-                last_renewed = 0
-
-            self.assertGreater(last_renewed, 100, msg="Username not registered")
+            self.assertTrue(resp, msg="Username not registered")
 
     def test_profile_data(self):
         """ Check if:
@@ -107,9 +101,9 @@ class RegistrarTestCase(unittest.TestCase):
             2) data can be fetched from DHT
         """
 
-        for username in test_users:
+        for fqu in test_users:
 
-            profile = get_dht_profile(username)
+            profile = get_dht_profile(fqu)
 
             profile = json.loads(profile)
 
