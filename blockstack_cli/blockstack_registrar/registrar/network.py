@@ -25,34 +25,16 @@ from basicrpc import Proxy
 
 from registrar.config import BLOCKSTORED_IP, BLOCKSTORED_PORT
 from registrar.config import DHT_MIRROR_IP, DHT_MIRROR_PORT
-from registrar.config import DEFAULT_NAMESPACE
 
 bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
 dht_client = Proxy(DHT_MIRROR_IP, DHT_MIRROR_PORT)
 
 
-def get_blockchain_record(username):
+def get_bs_client():
 
-    resp = bs_client.lookup(username + "." + DEFAULT_NAMESPACE)
-    return resp[0]
+    return Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
 
 
-def get_dht_profile(username):
+def get_dht_client():
 
-    resp = get_blockchain_record(username)
-
-    if resp is None:
-        return None
-
-    profile_hash = resp['value_hash']
-
-    profile = None
-
-    try:
-        resp = dht_client.get(profile_hash)
-        profile = resp[0]['value']
-    except Exception as e:
-        print "Error: %s" % username
-        print e
-
-    return profile
+    return Proxy(DHT_MIRROR_IP, DHT_MIRROR_PORT)
