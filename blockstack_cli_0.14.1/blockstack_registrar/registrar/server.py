@@ -29,8 +29,9 @@ import json
 from pymongo import MongoClient
 from basicrpc import Proxy
 
-from .network import get_blockchain_record, get_dht_profile
-from .network import bs_client, dht_client
+from .nameops import get_blockchain_record, get_dht_profile
+from .nameops import usernameRegistered
+from .nameops import write_dht_profile
 
 from .config import DEFAULT_NAMESPACE
 from .config import IGNORE_USERNAMES
@@ -38,45 +39,76 @@ from .config import BTC_PRIV_KEY
 
 from .utils import get_hash, check_banned_email, nmc_to_btc_address
 
+from .network import get_bs_client, get_dht_client
 from .db import state_diff, users, registrations, register_queue
 
 from time import sleep
 
 
-def register_user(user):
+def register_user(user, fqu):
 
-    fqu = user['username'] + "." + DEFAULT_NAMESPACE
+    bs_client = get_bs_client()
 
-    resp = bs_client.lookup(fqu)
-    resp = resp[0]
+    check_queue = register_queue.find_one({"fqu": fqu})
 
-    if resp is None:
-        print "Not registered: %s" % fqu
-    else:
+    if check_queue is not None:
+        print "Already in queue"
+        return
+
+    if usernameRegistered(fqu):
         print "Already registered %s" % fqu
         return
 
     profile_hash = get_hash(user['profile'])
     btc_address = nmc_to_btc_address(user['namecoin_address'])
 
-    print profile_hash
-    print btc_address
-    print fqu
+    print "Registering (%s, %s, %s)" % (fqu, btc_address, profile_hash)
 
-    resp = bs_client.name_import(fqu, btc_address, profile_hash, BTC_PRIV_KEY)
-    resp = resp[0]
+    return
+    try:
+        resp = bs_client.name_import(fqu, btc_address, profile_hash, BTC_PRIV_KEY)
+        resp = resp[0]
+    except Exception as e:
+        print e
+        return
 
     if 'transaction_hash' in resp:
         new_entry = {}
         new_entry["fqu"] = fqu
         new_entry['transaction_hash'] = resp['transaction_hash']
         new_entry['profile_hash'] = profile_hash
+        new_entry['profile'] = user['profile']
         new_entry['btc_address'] = btc_address
+        register_queue.save(new_entry)
     else:
         print "Error registering: %s" % fqu
         print resp
 
     sleep(3)
+
+
+def cleanup_register_queue():
+
+    for entry in register_queue.find():
+
+        if usernameRegistered(entry['fqu']):
+            print "registered on blockchain: %s" % entry['fqu']
+
+            record = get_blockchain_record(entry['fqu'])
+
+            if record['value_hash'] == entry['profile_hash']:
+
+                profile = get_dht_profile(entry['fqu'])
+
+                if profile is None:
+                    print "data not in DHT"
+                    write_dht_profile(entry['profile'])
+                else:
+
+                    if get_hash(profile) == entry['profile_hash']:
+                        print "data in DHT"
+                        print "removing from queue: %s" % entry['fqu']
+                        register_queue.remove({"fqu": entry['fqu']})
 
 
 def get_latest_diff():
@@ -107,24 +139,33 @@ def register_new_users(spam_protection=False):
             if spam_protection:
                 #users.remove({"email": user['email']})
                 print "Deleting spam %s, %s" % (user['email'], user['username'])
+                continue
             else:
                 print "Need to delete %s, %s" % (user['email'], user['username'])
 
-        register_user(user)
+        bs_client = get_bs_client()
 
+        fqu = user['username'] + "." + DEFAULT_NAMESPACE
+
+        if usernameRegistered(fqu):
+            print "Already registered %s" % fqu
+
+            resp = get_blockchain_record(fqu)
+
+            if resp['value_hash'] == get_hash(user['profile']):
+                #registrations.remove({"user_id": new_user['user_id']})
+                print "got here"
+            else:
+                print "Latest profile not on blockchain, need to update"
+
+        else:
+
+            print "Not registered: %s" % fqu
+            register_user(user, fqu)
 
 if __name__ == '__main__':
 
-    username = 'clone355'
-
-    print bs_client.lookup('waydans.id')
     #register_new_users()
+    cleanup_register_queue()
     #refresh_profile(username)
     #get_latest_diff()
-
-    #c = Proxy('54.82.121.156', 6264)
-
-    #print c.lookup(username + ".id")
-    #print c.ping()
-
-    #name_import(username, btc_address, profile_hash, privkey_str)
