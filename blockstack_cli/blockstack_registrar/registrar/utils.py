@@ -26,8 +26,6 @@ from pybitcoin import hex_hash160, address_to_new_cryptocurrency
 
 from .config import email_regrex
 
-from .network import get_blockchain_record
-
 
 def get_hash(profile):
 
@@ -61,20 +59,6 @@ def pretty_print(data):
 def check_banned_email(email):
 
     if email_regrex in email:
-        return True
-    else:
-        return False
-
-
-def check_ownership(user):
-    """ return True if user account in DB owns the username
-    """
-
-    btc_address = nmc_to_btc_address(user['namecoin_address'])
-
-    record = get_blockchain_record(user['username'])
-
-    if record['address'] == btc_address:
         return True
     else:
         return False
