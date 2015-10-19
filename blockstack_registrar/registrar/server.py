@@ -108,11 +108,12 @@ def update_user(user, fqu):
 
     print "Updating (%s, %s, %s)" % (fqu, btc_address, profile_hash)
 
-    resp = bs_client.name_import(fqu, btc_address, profile_hash, BTC_PRIV_KEY)
-    resp = resp[0]
-    #except Exception as e:
-    #    print e
-    #    return
+    try:
+        resp = bs_client.name_import(fqu, btc_address, profile_hash, BTC_PRIV_KEY)
+        resp = resp[0]
+    except Exception as e:
+        print e
+        return
 
     if 'transaction_hash' in resp:
         new_entry = {}
@@ -216,9 +217,6 @@ def update_users_bulk():
 
         fqu = user['username'] + "." + DEFAULT_NAMESPACE
 
-        if fqu == "yannis.id":
-            continue
-
         if usernameRegistered(fqu):
 
             resp = get_blockchain_record(fqu)
@@ -236,7 +234,7 @@ def update_users_bulk():
                     update_user(user, fqu)
                 else:
                     print "cannot update (wrong owner): %s " % fqu
-
+                    updates.remove({"user_id": new_user['user_id']})
         else:
 
             print "Not registered: %s" % fqu
