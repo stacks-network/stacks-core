@@ -115,7 +115,11 @@ def get_profile_from_dht(profile_hash):
     dht_client = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
     dht_resp = dht_client.get(profile_hash)
     dht_resp = dht_resp[0]
-    profile = json.loads(dht_resp['value'])
+
+    try:
+        profile = json.loads(dht_resp['value'])
+    except:
+        profile = {}
 
     return profile
 
