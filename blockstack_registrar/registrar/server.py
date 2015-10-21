@@ -24,6 +24,7 @@ This file is part of Registrar.
 """
 
 import os
+import sys
 import json
 
 from pymongo import MongoClient
@@ -36,6 +37,7 @@ from .nameops import write_dht_profile
 from .config import DEFAULT_NAMESPACE
 from .config import IGNORE_USERNAMES
 from .config import BTC_PRIV_KEY
+from .config import DHT_IGNORE
 
 from .utils import get_hash, check_banned_email, nmc_to_btc_address
 
@@ -132,6 +134,9 @@ def update_user(user, fqu):
 def cleanup_queue(queue):
 
     for entry in queue.find():
+
+        if entry['fqu'] in DHT_IGNORE:
+            continue
 
         if usernameRegistered(entry['fqu']):
             print "registered on blockchain: %s" % entry['fqu']
@@ -247,7 +252,16 @@ def update_users_bulk():
 
 if __name__ == '__main__':
 
-    register_new_users()
-    #cleanup_queue(update_queue)
-    #cleanup_queue(register_queue)
-    #update_users_bulk()
+    try:
+        command = sys.argv[1]
+    except:
+        print "Options are register, update, clean"
+        exit(0)
+
+    if command == "register":
+        register_new_users()
+    elif command == "update":
+        update_users_bulk()
+    elif command == "clean":
+        cleanup_queue(update_queue)
+        cleanup_queue(register_queue)
