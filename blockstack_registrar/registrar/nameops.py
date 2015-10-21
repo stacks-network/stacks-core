@@ -26,7 +26,7 @@ import json
 
 from registrar.utils import get_hash, pretty_print
 from registrar.network import bs_client, dht_client
-from registrar.network import get_bs_client
+from registrar.network import get_bs_client, get_dht_client
 
 from registrar.config import DEFAULT_NAMESPACE
 
@@ -80,6 +80,7 @@ def get_dht_profile(fqu):
 def write_dht_profile(profile):
 
     resp = None
+    dht_client = get_dht_client()
 
     key = get_hash(profile)
     value = json.dumps(profile, sort_keys=True)
