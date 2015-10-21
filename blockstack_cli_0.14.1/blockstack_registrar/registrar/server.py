@@ -66,7 +66,6 @@ def register_user(user, fqu):
 
     print "Registering (%s, %s, %s)" % (fqu, btc_address, profile_hash)
 
-    return
     try:
         resp = bs_client.name_import(fqu, btc_address, profile_hash, BTC_PRIV_KEY)
         resp = resp[0]
@@ -151,7 +150,12 @@ def cleanup_queue(queue):
                     if get_hash(profile) == entry['profile_hash']:
                         print "data in DHT"
                         print "removing from queue: %s" % entry['fqu']
-                        register_queue.remove({"fqu": entry['fqu']})
+                        queue.remove({"fqu": entry['fqu']})
+
+            else:
+
+                print "blockchain hash is different than write attempt, try again"
+                #queue.remove({"fqu": entry['fqu']})
 
 
 def get_latest_diff():
@@ -193,10 +197,11 @@ def register_new_users(spam_protection=False):
             resp = get_blockchain_record(fqu)
 
             if resp['value_hash'] == get_hash(user['profile']):
-                #registrations.remove({"user_id": new_user['user_id']})
-                print "got here"
+                registrations.remove({"user_id": new_user['user_id']})
+                print "removing registration"
             else:
                 print "Latest profile not on blockchain, need to update"
+                update_user(user, fqu)
 
         else:
 
@@ -242,6 +247,7 @@ def update_users_bulk():
 
 if __name__ == '__main__':
 
-    #register_new_users()
-    #cleanup_register_queue()
-    update_users_bulk()
+    register_new_users()
+    #cleanup_queue(update_queue)
+    #cleanup_queue(register_queue)
+    #update_users_bulk()
