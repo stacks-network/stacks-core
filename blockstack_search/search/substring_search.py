@@ -14,7 +14,7 @@ This file is part of Search.
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    Resolver is distributed in the hope that it will be useful,
+    Search is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
@@ -23,14 +23,13 @@ This file is part of Search.
     along with Search. If not, see <http://www.gnu.org/licenses/>.
 """
 
-'''
-	functions for substring search  
-	usage: './substring_search --create_cache --search <query>'
-'''
+""" functions for substring search
+    usage: './substring_search --create_cache --search <query>'
+"""
 
 import sys
 import json
-from common import log 
+from common import log
 from commontools import get_json
 
 from pymongo import MongoClient
@@ -40,473 +39,439 @@ local_users = db.users
 
 from config import DEFAULT_LIMIT
 
-import requests 
+import requests
 import re
 
-#---------------------------------
+
 def get_namespace():
 
-	url = 'http://ons-server.halfmoonlabs.com/resolver/namespace'
+    url = 'http://ons-server.halfmoonlabs.com/ons/namespace'
 
-	auth_user = 'opennamesystem'
-	auth_passwd = 'opennamesystem'
+    auth_user = 'opennamesystem'
+    auth_passwd = 'opennamesystem'
 
-	headers = {'Content-type': 'application/json'}
+    headers = {'Content-type': 'application/json'}
 
-	try:
-		r = requests.get(url, headers=headers, auth=(auth_user,auth_passwd))
+    r = requests.get(url, headers=headers, auth=(auth_user,auth_passwd))
 
-	except requests.exceptions.RequestException as e:
-		log.debug(e)
-		log.debug('reindexing failed...exiting..')
-		sys.exit(1)
+    return r.json()['results']
 
-	if (r.status_code == requests.codes.ok):
-		resp = r.json()
 
-		#preventing a response with a small dataset
-		if ('results' in resp) and (len(resp['results']) > 20000):
-			return resp['results']
-		else:
-			return None
-	else:
-		return None
-
-#-------------------------
 def valid_username(username):
 
-	a = re.compile("^[a-z0-9_]{1,60}$")
+    a = re.compile("^[a-z0-9_]{1,60}$")
 
-	if a.match(username):
-		return True
-	else:
-		return False
+    if a.match(username):
+        return True
+    else:
+        return False
 
-#-------------------------
-def create_search_index(): 
 
-	'''
-		takes people names from blockchain and writes deduped names in a 'cache'
-	'''
+def create_search_index():
+    """ takes people names from blockchain and writes deduped names in a 'cache'
+    """
 
-	user_data = get_namespace()
+    # delete any old cache/index
+    client.drop_database('search_db')
+    client.drop_database('search_cache')
 
-	if not user_data:
-		log.debug('reindexing failed...exiting now...')
-		sys.exit(1)
+    search_db = client['search_db']
+    search_profiles = search_db.profiles
 
-	#delete any old cache/index
-	client.drop_database('search_db')
-	client.drop_database('search_cache')
+    search_cache = client['search_cache']
+    people_cache = search_cache.people_cache
+    twitter_cache = search_cache.twitter_cache
+    username_cache = search_cache.username_cache
 
-	search_db = client['search_db']
-	search_profiles = search_db.profiles 
+    # create people name cache
+    counter = 0
 
-	search_cache = client['search_cache']
-	people_cache = search_cache.people_cache
-	twitter_cache = search_cache.twitter_cache
-	username_cache = search_cache.username_cache
+    people_names = []
+    twitter_handles = []
+    usernames = []
 
-	#------------------------------
-	# create people name cache 
+    for user in get_namespace():
 
-	counter = 0
+        # the profile/info to be inserted
+        search_profile = {}
 
-	people_names = []
-	twitter_handles = []
-	usernames = []
+        counter += 1
 
+        if(counter % 1000 == 0):
+            print counter
 
-	for user in user_data:
+        if valid_username(user['username']):
+            pass
+        else:
+            # print "ignoring: " + user['username']
+            continue
 
-		#the profile/info to be inserted
-		search_profile = {} 
-		
-		counter += 1
+        profile = get_json(user['profile'])
 
-		if(counter % 1000 == 0):
-			print str(counter) + ' items indexed so far..' 
+        if 'name' in profile:
+            name = profile['name']
 
-		if valid_username(user['username']):
-			pass
-		else:
-			#print "ignoring: " + user['username']
-			continue 
-			
+            try:
+                name = name['formatted'].lower()
+            except:
+                name = name.lower()
 
-		profile = get_json(user['profile'])
+            people_names.append(name)
+            search_profile['name'] = name
 
-		if 'name' in profile:
-			name = profile['name']
+        else:
+            search_profile['name'] = None
 
-			try:
-				name = name['formatted'].lower()
-			except:
-				name = name.lower()
 
-			people_names.append(name)
-			search_profile['name'] = name
+        if 'twitter' in profile:
+            twitter_handle = profile['twitter']
 
-		else:
-			search_profile['name'] = None
+            try:
+                twitter_handle = twitter_handle['username'].lower()
+            except:
+                try:
+                    twitter_handle = profile['twitter'].lower()
+                except:
+                    continue
 
+            twitter_handles.append(twitter_handle)
+            search_profile['twitter_handle'] = twitter_handle
 
-		if 'twitter' in profile:
-			twitter_handle = profile['twitter']
+        else:
+            search_profile['twitter_handle'] = None
 
-			try:
-				twitter_handle = twitter_handle['username'].lower()
-			except:
-				try:
-					twitter_handle = profile['twitter'].lower()
-				except:
-					continue 
+        search_profile['username'] = user['username']
+        usernames.append(user['username'])
 
-			twitter_handles.append(twitter_handle)
-			search_profile['twitter_handle'] = twitter_handle
+        search_profile['profile'] = profile
+        search_profiles.save(search_profile)
 
-		else:
-			search_profile['twitter_handle'] = None
+    # dedup names
+    people_names = list(set(people_names))
+    people_names = {'name':people_names}
 
-		search_profile['username'] = user['username']
-		usernames.append(user['username'])
+    twitter_handles = list(set(twitter_handles))
+    twitter_handles = {'twitter_handle':twitter_handles}
 
-		search_profile['profile'] = profile
-		search_profiles.save(search_profile)
+    usernames = list(set(usernames))
+    usernames = {'username':usernames}
 
+    # save final dedup results to mongodb (using it as a cache)
+    people_cache.save(people_names)
+    twitter_cache.save(twitter_handles)
+    username_cache.save(usernames)
 
-	#dedup names
-	people_names = list(set(people_names))
-	people_names = {'name':people_names}
+    search_cache.people_cache.ensure_index('name')
+    search_cache.twitter_cache.ensure_index('twitter_handle')
+    search_cache.username_cache.ensure_index('username')
 
-	twitter_handles = list(set(twitter_handles))
-	twitter_handles = {'twitter_handle':twitter_handles}
+    search_db.profiles.ensure_index('name')
+    search_db.profiles.ensure_index('twitter_handle')
+    search_db.profiles.ensure_index('username')
 
-	usernames = list(set(usernames))
-	usernames = {'username':usernames}
+    log.debug('Created name/twitter/username search index')
 
-	#save final dedup results to mongodb (using it as a cache)
-	people_cache.save(people_names)
-	twitter_cache.save(twitter_handles)
-	username_cache.save(usernames)
 
-	search_cache.people_cache.ensure_index('name')
-	search_cache.twitter_cache.ensure_index('twitter_handle')
-	search_cache.username_cache.ensure_index('username')
+def anyword_substring_search_inner(query_word, target_words):
+    """ return True if ANY target_word matches a query_word
+    """
 
-	search_db.profiles.ensure_index('name')
-	search_db.profiles.ensure_index('twitter_handle')
-	search_db.profiles.ensure_index('username')
-	
-	log.debug('Created name/twitter/username search index')
+    for target_word in target_words:
 
-#-------------------------
-def anyword_substring_search_inner(query_word,target_words):
+        if(target_word.startswith(query_word)):
+            return query_word
 
-	'''
-		return True if ANY target_word matches a query_word 
-	''' 
+    return False
 
-	for target_word in target_words:
 
-		if(target_word.startswith(query_word)):
-			return query_word
+def anyword_substring_search(target_words, query_words):
+    """ return True if all query_words match
+    """
 
-	return False 
+    matches_required = len(query_words)
+    matches_found = 0
 
-#-------------------------
-def anyword_substring_search(target_words,query_words):
+    for query_word in query_words:
 
-	'''
-		return True if all query_words match 
-	'''
+        reply = anyword_substring_search_inner(query_word, target_words)
 
-	matches_required = len(query_words)
-	matches_found = 0
+        if reply is not False:
 
-	for query_word in query_words:
+            matches_found += 1
 
-		reply = anyword_substring_search_inner(query_word,target_words) 
+        else:
+            # this is imp, otherwise will keep checking
+            # when the final answer is already False
+            return False
 
-		if reply is not False:
+    if(matches_found == matches_required):
+        return True
+    else:
+        return False
 
-			matches_found += 1
 
-		else:
-			#this is imp, otherwise will keep checking when the final answer is already False
-			return False
+def substring_search(query, list_of_strings, limit_results=DEFAULT_LIMIT):
+    """ main function to call for searching
+    """
 
-	if(matches_found == matches_required):
-		return True  
-	else:
-		return False
+    matching = []
 
-#-------------------------
-def substring_search(query,list_of_strings,limit_results=DEFAULT_LIMIT): 
+    query_words = query.split(' ')
 
-	'''
-		main function to call for searching
-	'''
+    # sort by longest word (higest probability of not finding a match)
+    query_words.sort(key=len, reverse=True)
 
-	matching = []
+    counter = 0
 
-	query_words = query.split(' ')
-	#sort by longest word (higest probability of not finding a match)
-	query_words.sort(key=len, reverse=True)
+    for s in list_of_strings:
 
-	counter = 0
+        target_words = s.split(' ')
 
-	for s in list_of_strings:
+        # the anyword searching function is separate
+        if(anyword_substring_search(target_words, query_words)):
+            matching.append(s)
 
-		target_words = s.split(' ')
-	
-		#the anyword searching function is separate
-		if(anyword_substring_search(target_words,query_words)):
-			matching.append(s)
+            # limit results
+            counter += 1
+            if(counter == limit_results):
+                break
 
-			#limit results
-			counter += 1
-			if(counter == limit_results):
-				break
+    return matching
 
-	return matching
 
-#-------------------------
-def search_people_by_name(query,limit_results=DEFAULT_LIMIT):
+def search_people_by_name(query, limit_results=DEFAULT_LIMIT):
 
-	query = query.lower()
+    query = query.lower()
 
-	#---------------------
-	#using mongodb as a cache, load data in people_names
-	search_cache = client['search_cache']
+    # using mongodb as a cache, load data in people_names
+    search_cache = client['search_cache']
 
-	people_names = []
+    people_names = []
 
-	for i in search_cache.people_cache.find():
-		people_names += i['name']
-	
-	results = substring_search(query,people_names,limit_results)
+    for i in search_cache.people_cache.find():
+        people_names += i['name']
 
-	return order_search_results(query,results)
+    results = substring_search(query, people_names, limit_results)
 
-#-------------------------
-def search_people_by_twitter(query,limit_results=DEFAULT_LIMIT):
+    return order_search_results(query, results)
 
-	query = query.lower()
 
-	#---------------------
-	#using mongodb as a cache, load data 
-	search_cache = client['search_cache']
+def search_people_by_twitter(query, limit_results=DEFAULT_LIMIT):
 
-	twitter_handles = []
+    query = query.lower()
 
-	for i in search_cache.twitter_cache.find():
-		twitter_handles += i['twitter_handle']
-	#---------------------
+    # using mongodb as a cache, load data
+    search_cache = client['search_cache']
 
-	results = substring_search(query,twitter_handles,limit_results)
+    twitter_handles = []
 
-	return results
+    for i in search_cache.twitter_cache.find():
+        twitter_handles += i['twitter_handle']
 
-#-------------------------------------
-def search_people_by_username(query,limit_results=DEFAULT_LIMIT):
+    results = substring_search(query, twitter_handles, limit_results)
 
-	query = query.lower()
+    return results
 
-	#---------------------
-	#using mongodb as a cache, load data 
-	search_cache = client['search_cache']
 
-	usernames = []
+def search_people_by_username(query, limit_results=DEFAULT_LIMIT):
 
-	for i in search_cache.username_cache.find():
-		usernames += i['username']
-	#---------------------
+    query = query.lower()
 
-	results = substring_search(query,usernames,limit_results)
+    # using mongodb as a cache, load data
+    search_cache = client['search_cache']
 
-	return results
+    usernames = []
 
-#---------------------------------------
-def search_people_by_bio(query,limit_results=DEFAULT_LIMIT,index=['onename_people_index']):
-	'''queries lucene index to find a nearest match, output is profile username''' 
+    for i in search_cache.username_cache.find():
+        usernames += i['username']
 
-	from pyes import QueryStringQuery, ES 
-	conn =  ES()
+    results = substring_search(query, usernames, limit_results)
 
-	q = QueryStringQuery(query, search_fields = ['username','profile_bio'], default_operator = 'and')
-	results = conn.search(query = q, size=20, indices=index)
-	count = conn.count(query = q)
-	count = count.count
+    return results
 
-	#having or gives more results but results quality goes down
-	if(count == 0):
-		q = QueryStringQuery(query, search_fields = ['username','profile_bio'], default_operator = 'or')
-		results = conn.search(query = q, size=20, indices=index)		
 
+def search_people_by_bio(query, limit_results=DEFAULT_LIMIT,
+                         index=['onename_people_index']):
+    """ queries lucene index to find a nearest match, output is profile username
+    """
 
-	results_list = []
-	counter = 0
+    from pyes import QueryStringQuery, ES
+    conn = ES()
 
-	for profile in results:
+    q = QueryStringQuery(query,
+                         search_fields=['username', 'profile_bio'],
+                         default_operator='and')
 
-		username = profile['username']
-		results_list.append(username)
+    results = conn.search(query=q, size=20, indices=index)
+    count = conn.count(query=q)
+    count = count.count
 
-		counter += 1
+    # having 'or' gives more results but results quality goes down
+    if(count == 0):
 
-		if(counter == limit_results):
-			break
+        q = QueryStringQuery(query,
+                             search_fields=['username', 'profile_bio'],
+                             default_operator='or')
 
-	return results_list
-#-------------------------
-def fetch_profiles(search_results,search_type="name"):
+        results = conn.search(query=q, size=20, indices=index)
 
-	search_db = client['search_db']
-	search_profiles = search_db.profiles 
+    results_list = []
+    counter = 0
 
-	results = [] 
+    for profile in results:
 
-	for search_result in search_results:
+        username = profile['username']
+        results_list.append(username)
 
-		if search_type == 'name':
-			response = search_profiles.find({"name":search_result})
-			
-		elif search_type == 'twitter':
-			response = search_profiles.find({"twitter_handle":search_result})
-		
-		elif search_type == 'username':
-			response = search_profiles.find({"username":search_result})
-		
-		for result in response:
+        counter += 1
 
-			try:
-				del result['name']
-				del result['twitter_handle']
-				del result['_id']
-			except:
-				pass 
+        if(counter == limit_results):
+            break
 
-			results.append(result)
+    return results_list
 
-	return results 
 
-#-------------------------
+def fetch_profiles(search_results, search_type="name"):
+
+    search_db = client['search_db']
+    search_profiles = search_db.profiles
+
+    results = []
+
+    for search_result in search_results:
+
+        if search_type == 'name':
+            response = search_profiles.find({"name": search_result})
+
+        elif search_type == 'twitter':
+            response = search_profiles.find({"twitter_handle": search_result})
+
+        elif search_type == 'username':
+            response = search_profiles.find({"username": search_result})
+
+        for result in response:
+
+            try:
+                del result['name']
+                del result['twitter_handle']
+                del result['_id']
+            except:
+                pass
+
+            results.append(result)
+
+    return results
+
+
 def order_search_results(query, search_results):
+    """ order of results should be a) query in first name, b) query in last name
+    """
 
-	'''
-		order of results should be a) query in first name, b) query in last name
-	'''
+    results = search_results
 
-	results = search_results
+    results_names = []
+    old_query = query
+    query = query.split(' ')
 
-	results_names = []
-	old_query = query
-	query = query.split(' ')
+    first_word = ''
+    second_word = ''
+    third_word = ''
 
-	first_word = ''
-	second_word = ''
-	third_word = ''
+    if(len(query) < 2):
+        first_word = old_query
+    else:
+        first_word = query[0]
+        second_word = query[1]
 
-	if(len(query) < 2):
-		first_word = old_query
-	else:
-		first_word = query[0]
-		second_word = query[1]
+        if(len(query) > 2):
+            third_word = query[2]
 
-		if(len(query) > 2): 
-			third_word = query[2]
+    # save results for multiple passes
+    results_second = []
+    results_third = []
 
-	#save results for multiple passes 
-	results_second = []
-	results_third = []
+    for result in results:
 
-	#------------------------
-	for result in results:
+        result_list = result.split(' ')
 
-		result_list = result.split(' ')
+        try:
+            if(result_list[0].startswith(first_word)):
+                results_names.append(result)
+            else:
+                results_second.append(result)
+        except:
+            results_second.append(result)
 
-		try:
-			if(result_list[0].startswith(first_word)):
-				results_names.append(result)
-			else:
-				results_second.append(result)
-		except:
-			results_second.append(result)
+    for result in results_second:
 
-	#------------------------
-	for result in results_second:
+        result_list = result.split(' ')
 
-		result_list = result.split(' ')
+        try:
+            if(result_list[1].startswith(first_word)):
+                results_names.append(result)
+            else:
+                results_third.append(result)
+        except:
+            results_third.append(result)
 
-		try:
-			if(result_list[1].startswith(first_word)):
-				results_names.append(result)
-			else:
-				results_third.append(result)
-		except:
-			results_third.append(result)
-	#------------------------
+    # results are either in results_names (filtered)
+    # or unprocessed in results_third (last pass)
+    return results_names + results_third
 
-	#results are either in results_names (filtered) or unprocessed in results_third (last pass)
-	return results_names + results_third
 
-#-------------------------
 def dedup_search_results(search_results):
-	'''
-		dedup results
-	'''
+    """ dedup results
+    """
 
-	known = set()
-	deduped_results = []
+    known = set()
+    deduped_results = []
 
-	for i in search_results:
+    for i in search_results:
 
-		username = i['username']
-			
-  		if username in known:
-  			continue
-  		
-  		deduped_results.append(i)
+        username = i['username']
 
-  		known.add(username)
+        if username in known:
+            continue
 
-	return deduped_results
+        deduped_results.append(i)
 
-#-------------------------    
+        known.add(username)
+
+    return deduped_results
+
+
 if __name__ == "__main__":
 
-	if(len(sys.argv) < 2): 
-		print "Usage error"
+    if(len(sys.argv) < 2):
+        print "Usage error"
 
-	option = sys.argv[1]
+    option = sys.argv[1]
 
-	if(option == '--create_index'):
-		create_search_index()
-	elif(option == '--search_name'):
-		query = sys.argv[2]
-		name_search_results = search_people_by_name(query,DEFAULT_LIMIT)
-		print name_search_results
-		print '-' * 5
-		print fetch_profiles(name_search_results,search_type="name")
-	elif(option == '--search_twitter'):
-		query = sys.argv[2]
-		twitter_search_results = search_people_by_twitter(query,DEFAULT_LIMIT)
-		print twitter_search_results
-		print '-' * 5
-		print fetch_profiles(twitter_search_results,search_type="twitter")
-	elif(option == '--search_username'):
-		query = sys.argv[2]
-		username_search_results = search_people_by_username(query,DEFAULT_LIMIT)
-		print username_search_results
-		print '-' * 5
-		print fetch_profiles(username_search_results,search_type="username")
-	elif(option == '--search_bio'):
-		query = sys.argv[2]
-		usernames_list = search_people_by_bio(query,DEFAULT_LIMIT)
-		print usernames_list
-		print '-' * 5
-		print fetch_profiles(usernames_list,search_type="username")
-	else:
-		print "Usage error"
-
+    if(option == '--create_index'):
+        create_search_index()
+    elif(option == '--search_name'):
+        query = sys.argv[2]
+        name_search_results = search_people_by_name(query, DEFAULT_LIMIT)
+        print name_search_results
+        print '-' * 5
+        print fetch_profiles(name_search_results, search_type="name")
+    elif(option == '--search_twitter'):
+        query = sys.argv[2]
+        twitter_search_results = search_people_by_twitter(query, DEFAULT_LIMIT)
+        print twitter_search_results
+        print '-' * 5
+        print fetch_profiles(twitter_search_results, search_type="twitter")
+    elif(option == '--search_username'):
+        query = sys.argv[2]
+        username_search_results = search_people_by_username(query, DEFAULT_LIMIT)
+        print username_search_results
+        print '-' * 5
+        print fetch_profiles(username_search_results, search_type="username")
+    elif(option == '--search_bio'):
+        query = sys.argv[2]
+        usernames_list = search_people_by_bio(query, DEFAULT_LIMIT)
+        print usernames_list
+        print '-' * 5
+        print fetch_profiles(usernames_list, search_type="username")
+    else:
+        print "Usage error"
