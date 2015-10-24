@@ -1,78 +1,35 @@
-#opename-search
+#search
 ========
 
-about:
-
-Search API for OpenName
+Search server for blockchain ID
 
 Currently has two search sub-systems to handle search queries:
 
-* Substring search on people usernames,full names,twitter_handle(powered by mongodb)
+* Substring search on people usernames,full names,twitter_handle (powered by mongodb)
 * raw lucene index which handles profile bio search
 
-Search will currently return upto a max of 20 results (can be less depending on the query) with data that follows structure of OneName profiles described here:
+Search will currently return upto a max of 20 results (can be less depending on the query) with data that follows structure of [blockchain IDs](https://github.com/blockstack/blockchain-id):
 
-https://github.com/onenameio/onename
+### Creating index:
 
-### Requirements:
----------------------
-	
-	sudo apt-get install mongodb
-	sudo apt-get install memcached libmemcached-dev
-	sudo apt-get install python2.7-dev
-	pip install -r requirements.txt 
+  python search/substring_search.py --create_index
+  python create_search_index --create index
 
-You'll also need to install elastic search:
-
-on mac:
-	brew install elasticsearch(requires java sdk)
-
-
-Ensure that mongodb and elastic search are running 
-starting elastic search:
-
-
-     just enter
-     	 $elasticsearch (on mac)
-     	 bin/elasticsearch -d(on linux)
-
-To test if elastic search is running:
-
-     curl -X GET http://localhost:9200/
-
-returns:
-
-{
-  "ok" : true,
-  "status" : 200,
-  "name" : "Angler",
-  "version" : {
-    "number" : "0.90.2",
-    "snapshot_build" : false,
-    "lucene_version" : "4.3.1"
-  },
-
-###creating index:
-
-	python search/substring_search.py --create_index
-	python create_search_index --create index
-
-###Quick Testing
+### Quick Testing
 
 Using search from command line
----------------------
 
-	python search/substring_search.py --search_name "Fred Wil"
-	python search/substring_search.py --search_twitter fredwil
+> python search/substring_search.py --search_name "Fred Wil"
+> python search/substring_search.py --search_twitter fredwil
 
 
-API usage:
+Usage:
 
-	curl -G {machine_ip}:port/search/name -d "query=ryan" 
+> curl -G {machine_ip}:port/search/name -d "query=ryan" 
 
 Sample Response:
 
--------------------------------------------------------
+```
 {
   "people": [
     {
@@ -109,4 +66,4 @@ Sample Response:
     }
   ]
 }
-
+```
