@@ -27,16 +27,31 @@ import re
 #---------------------------------
 def get_namespace():
 
-	url = 'http://ons-server.halfmoonlabs.com/ons/namespace'
+	url = 'http://ons-server.halfmoonlabs.com/resolver/namespace'
 
 	auth_user = 'opennamesystem'
 	auth_passwd = 'opennamesystem'
 
 	headers = {'Content-type': 'application/json'}
 
-	r = requests.get(url, headers=headers, auth=(auth_user,auth_passwd))
+	try:
+		r = requests.get(url, headers=headers, auth=(auth_user,auth_passwd))
 
-	return r.json()['results']
+	except requests.exceptions.RequestException as e:
+		log.debug(e)
+		log.debug('reindexing failed...exiting..')
+		sys.exit(1)
+
+	if (r.status_code == requests.codes.ok):
+		resp = r.json()
+
+		#preventing a response with a small dataset
+		if ('results' in resp) and (len(resp['results']) > 20000):
+			return resp['results']
+		else:
+			return None
+	else:
+		return None
 
 #-------------------------
 def valid_username(username):
@@ -48,13 +63,18 @@ def valid_username(username):
 	else:
 		return False
 
-
 #-------------------------
 def create_search_index(): 
 
 	'''
 		takes people names from blockchain and writes deduped names in a 'cache'
 	'''
+
+	user_data = get_namespace()
+
+	if not user_data:
+		log.debug('reindexing failed...exiting now...')
+		sys.exit(1)
 
 	#delete any old cache/index
 	client.drop_database('search_db')
@@ -77,7 +97,8 @@ def create_search_index():
 	twitter_handles = []
 	usernames = []
 
-	for user in get_namespace():
+
+	for user in user_data:
 
 		#the profile/info to be inserted
 		search_profile = {} 
@@ -85,7 +106,7 @@ def create_search_index():
 		counter += 1
 
 		if(counter % 1000 == 0):
-			print counter
+			print str(counter) + ' items indexed so far..' 
 
 		if valid_username(user['username']):
 			pass
