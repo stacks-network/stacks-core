@@ -1,5 +1,4 @@
-#search
-========
+#Search
 
 Search server for blockchain ID
 
