@@ -18,9 +18,10 @@ Search will currently return upto a max of 20 results (can be less depending on 
 
 Using search from command line
 
-> python search/substring_search.py --search_name "Fred Wil"
-> python search/substring_search.py --search_twitter fredwil
-
+```
+python search/substring_search.py --search_name "Fred Wil"
+python search/substring_search.py --search_twitter fredwil
+```
 
 Usage:
 
