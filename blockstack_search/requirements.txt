@@ -2,7 +2,16 @@ Flask==0.10.1
 Jinja2==2.8
 MarkupSafe==0.23
 Werkzeug==0.10.4
+beautifulsoup4==4.4.1
+commontools==0.1.0
+dnspython==1.12.0
+ecdsa==0.13
 itsdangerous==0.24
+proofchecker==0.0.2
+pybitcoin==0.9.5
+pybitcointools==1.1.15
 pylibmc==1.5.0
 pymongo==3.0.3
+python-bitcoinrpc==0.1
 requests==2.8.1
+utilitybelt==0.2.6
