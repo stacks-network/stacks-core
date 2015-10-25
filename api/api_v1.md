@@ -87,7 +87,7 @@ _end_
 search_users
 
 #### description:
-Takes in a search query and returns a list of results that match the search. The query is matched against +passnames, full names, and twitter handles.
+Takes in a search query and returns a list of results that match the search. The query is matched against +usernames, full names, and twitter handles.
 
 #### response_description:
 Returns an array of results, where each result has a \"profile\" object.
@@ -106,6 +106,85 @@ GET
 
 #### example_request_bash:
 curl https://api.onename.com/v1/search?query=wenger \
+    -u 'YOUR-API-ID:YOUR-API-SECRET'
+
+#### example_response:
+{
+  "results": [
+    {
+      "profile": {
+        "avatar": {
+          "url": "https://pbs.twimg.com/profile_images/1773890030/aew_artistic_bigger.gif"
+        },
+        "bio": "VC at USV.com",
+        "bitcoin": {
+          "address": "1QHDGGLEKK7FZWsBEL78acV9edGCTarqXt"
+        },
+        "cover": {
+          "url": "https://s3.amazonaws.com/dx3/albertwenger"
+        },
+        "facebook": {
+          "proof": {
+            "url": "https://www.facebook.com/albertwenger/posts/10152554952070219"
+          },
+          "username": "albertwenger"
+        },
+        "github": {
+          "proof": {
+            "url": "https://gist.github.com/albertwenger/03c1b5db3880998115fa"
+          },
+          "username": "albertwenger"
+        },
+        "graph": {
+          "url": "https://s3.amazonaws.com/grph/albertwenger"
+        },
+        "location": {
+          "formatted": "New York"
+        },
+        "name": {
+          "formatted": "Albert Wenger"
+        },
+        "twitter": {
+          "proof": {
+            "url": "https://twitter.com/albertwenger/status/499594071401197568"
+          },
+          "username": "albertwenger"
+        },
+        "v": "0.2",
+        "website": "http://continuations.com"
+      },
+      "username": "albertwenger"
+    }
+  ]
+}
+
+_end_
+
+## Search payment
+
+#### anchor_tag:
+search_payment
+
+#### description:
+Takes in a search query and returns a list of results that match the search. The query searches for verified twitter handles, facebook usernames, Github usernames, and domain names and takes the format twitter:<handle>, domain:<domain_url> and so on. Profiles are returned on an exact match to the respective verified account and only if the profile has a valid bitcoin address as well.
+
+#### response_description:
+Returns an array of results, where each result has a \"profile\" object.
+
+#### method:
+GET
+
+#### path_template:
+/search/payment
+
+#### parameters[]:
+{"name": "query", "description": "The text to search for."}
+
+#### tryit_pathname:
+/v1/search/payment?query=twitter:albertwenger&app-id=demo-1234&app-secret=demo-1234
+
+#### example_request_bash:
+curl https://api.onename.com/v1/search/payment?query=twitter:albertwenger \
     -u 'YOUR-API-ID:YOUR-API-SECRET'
 
 #### example_response:
