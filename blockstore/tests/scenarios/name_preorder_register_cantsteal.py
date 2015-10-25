@@ -26,7 +26,8 @@ def scenario( wallets, **kw ):
 
     testlib.blockstore_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
-    
+   
+    # only wallets[3] should get it
     testlib.blockstore_name_register( "foo.test", wallets[4].privkey, wallets[3].addr )
     testlib.blockstore_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
@@ -56,7 +57,7 @@ def check( state_engine ):
     if name_rec is None:
         return False 
 
-    if name_rec['address'] != wallets[3].addr:
+    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[3].addr):
         return False 
 
     return True
