@@ -29,11 +29,14 @@ from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import *
 
+import virtualchain
+log = virtualchain.session.log
+
 from namespacereveal import FIELDS as NAMESPACE_REVEAL_FIELDS
 
-# consensus hash fields 
+# consensus hash fields (ORDER MATTERS!) 
 FIELDS = NAMESPACE_REVEAL_FIELDS + [
-    'ready_block'
+    'ready_block',      # block number at which the namespace was readied
 ]
 
 def build( namespace_id, testset=False ):
@@ -95,8 +98,21 @@ def parse( bin_payload ):
    NOTE: the first byte in bin_payload is a '.'
    """
    
+   if bin_payload[0] != '.':
+       log.error("Missing namespace delimiter .")
+       return None 
+
    namespace_id = bin_payload[ 1: ]
    
+   # sanity check
+   if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
+       log.error("Invalid namespace ID '%s'" % namespace_id)
+       return None
+
+   if len(namespace_id) <= 0 or len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
+       log.error("Invalid namespace of length %s" % len(namespace_id))
+       return None 
+
    return {
       'opcode': 'NAMESPACE_READY',
       'namespace_id': namespace_id
