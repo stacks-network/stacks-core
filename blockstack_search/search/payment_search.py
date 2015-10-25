@@ -102,7 +102,7 @@ def create_twitter_payment_index():
 
     counter = 0
 
-    for entry in namespace.find():
+    for entry in namespace.find(no_cursor_timeout=True):
 
         profile = json.loads(entry['profile'])
 
@@ -149,7 +149,7 @@ def create_facebook_payment_index():
 
     counter = 0
 
-    for entry in namespace.find():
+    for entry in namespace.find(timeout=False):
 
         profile = json.loads(entry['profile'])
 
@@ -196,7 +196,7 @@ def create_github_payment_index():
 
     counter = 0
 
-    for entry in namespace.find():
+    for entry in namespace.find(no_cursor_timeout=True):
 
         profile = json.loads(entry['profile'])
 
@@ -241,11 +241,11 @@ def create_github_payment_index():
 
 def create_domain_payment_index():
 
-    TEST_DOMAIN_VERIFICATIONS = ['muneeb', 'blockstack']
+    TEST_DOMAIN_VERIFICATIONS = ['muneeb', 'blockstack', 'ryan']
 
     counter = 0
 
-    for entry in namespace.find():
+    for entry in namespace.find(no_cursor_timeout=True):
 
         if entry['username'] not in TEST_DOMAIN_VERIFICATIONS:
             continue
