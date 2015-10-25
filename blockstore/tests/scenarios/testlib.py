@@ -7,12 +7,14 @@ import sys
 import tempfile
 import errno
 import shutil
+import bitcoin
 
 # hack around absolute paths
 current_dir =  os.path.abspath(os.path.dirname(__file__) + "/../../..")
 sys.path.insert(0, current_dir)
 
 import blockstore.blockstored as blockstored
+import blockstore
 import pybitcoin
 
 class Wallet(object):
@@ -28,6 +30,15 @@ class Wallet(object):
 # store the database after each block, under this directory
 snapshots_dir = None
 
+# bitcoind connection 
+bitcoind = None 
+
+# utxo connection
+utxo_client = None
+
+# state engine ref
+state_engine = None
+
 # consensus hash at each block
 all_consensus_hashes = {}
 
@@ -42,33 +53,33 @@ def log_consensus( **kw ):
     all_consensus_hashes[ block_id ] = ch
 
 
-def blockstore_name_preorder( name, privatekey, register_addr, tx_only=False, pay_fee=True, subsidy_key=None, public_key=None, testset=False, consensus_hash=None ):
-    resp = blockstored.blockstore_name_preorder( name, privatekey, register_addr, tx_only=tx_only, pay_fee=pay_fee, subsidy_key=subsidy_key, public_key=public_key, testset=testset, consensus_hash=consensus_hash )
+def blockstore_name_preorder( name, privatekey, register_addr, tx_only=False, subsidy_key=None, testset=False, consensus_hash=None ):
+    resp = blockstored.blockstore_name_preorder( name, privatekey, register_addr, tx_only=tx_only, subsidy_key=subsidy_key, testset=testset, consensus_hash=consensus_hash )
     return resp
 
 
-def blockstore_name_register( name, privatekey, register_addr, renewal_fee=None, tx_only=False, pay_fee=True, subsidy_key=None, public_key=None, testset=False, consensus_hash=None ):
-    resp = blockstored.blockstore_name_register( name, privatekey, register_addr, renewal_fee=renewal_fee, tx_only=tx_only, pay_fee=pay_fee, subsidy_key=subsidy_key, public_key=public_key, testset=testset, consensus_hash=consensus_hash)
+def blockstore_name_register( name, privatekey, register_addr, renewal_fee=None, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
+    resp = blockstored.blockstore_name_register( name, privatekey, register_addr, renewal_fee=renewal_fee, tx_only=tx_only, subsidy_key=subsidy_key, user_public_key=user_public_key, testset=testset, consensus_hash=consensus_hash)
     return resp
 
 
-def blockstore_name_update( name, data_hash, privatekey, tx_only=False, pay_fee=True, public_key=None, subsidy_key=None, testset=False, consensus_hash=None ):
-    resp = blockstored.blockstore_name_update( name, data_hash, privatekey, tx_only=tx_only, pay_fee=pay_fee, subsidy_key=subsidy_key, public_key=public_key, testset=testset, consensus_hash=consensus_hash )
+def blockstore_name_update( name, data_hash, privatekey, user_public_key=None, tx_only=False, subsidy_key=None, testset=False, consensus_hash=None ):
+    resp = blockstored.blockstore_name_update( name, data_hash, privatekey, tx_only=tx_only, subsidy_key=subsidy_key, user_public_key=user_public_key, testset=testset, consensus_hash=consensus_hash )
     return resp
 
 
-def blockstore_name_transfer( name, address, keepdata, privatekey, public_key=None, subsidy_key=None, tx_only=False, pay_fee=True, testset=False, consensus_hash=None ):
-    resp = blockstored.blockstore_name_transfer( name, address, keepdata, privatekey, tx_only=tx_only, pay_fee=pay_fee, subsidy_key=subsidy_key, public_key=public_key, testset=testset, consensus_hash=consensus_hash )
+def blockstore_name_transfer( name, address, keepdata, privatekey, tx_only=False, user_public_key=None, subsidy_key=None, testset=False, consensus_hash=None ):
+    resp = blockstored.blockstore_name_transfer( name, address, keepdata, privatekey, tx_only=tx_only, subsidy_key=subsidy_key, user_public_key=user_public_key, testset=testset, consensus_hash=consensus_hash )
     return resp
 
 
-def blockstore_name_renew( name, privatekey, tx_only=False, pay_fee=True, subsidy_key=None, public_key=None, testset=False, consensus_hash=None ):
-    resp = blockstored.blockstore_name_renew( name, privatekey, tx_only=tx_only, pay_fee=pay_fee, subsidy_key=subsidy_key, public_key=public_key, testset=testset, consensus_hash=consensus_hash )
+def blockstore_name_renew( name, privatekey, register_addr=None, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
+    resp = blockstored.blockstore_name_renew( name, privatekey, register_addr=register_addr, tx_only=tx_only, subsidy_key=subsidy_key, user_public_key=user_public_key, testset=testset, consensus_hash=consensus_hash )
     return resp
 
 
-def blockstore_name_revoke( name, privatekey, tx_only=False, pay_fee=True, subsidy_key=None, public_key=None, testset=False, consensus_hash=None ):
-    resp = blockstored.blockstore_name_revoke( name, privatekey, tx_only=tx_only, pay_fee=pay_fee, subsidy_key=subsidy_key, public_key=public_key, testset=testset, consensus_hash=consensus_hash )
+def blockstore_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
+    resp = blockstored.blockstore_name_revoke( name, privatekey, tx_only=tx_only, subsidy_key=subsidy_key, user_public_key=user_public_key, testset=testset, consensus_hash=consensus_hash )
     return resp
 
 
@@ -97,14 +108,41 @@ def blockstore_verify_database( consensus_hash, consensus_block_id, db_path, wor
 
 
 def blockstore_export_db( path, **kw ):
-    db = kw['state_engine']
+    global state_engine
     try:
-        db.export_db( path )
+        state_engine.export_db( path )
     except IOError, ie:
         if ie.errno == errno.ENOENT:
             pass
         else:
             raise
+
+def tx_sign_all_unsigned_inputs( tx_hex, privkey ):
+    """
+    Sign a serialized transaction's unsigned inputs
+    """
+    inputs, outputs, locktime, version = blockstore.tx_deserialize( tx_hex )
+    for i in xrange( 0, len(inputs)):
+        if len(inputs[i]['script_sig']) == 0:
+            tx_hex = bitcoin.sign( tx_hex, i, privkey )
+
+    return tx_hex
+
+
+def sendrawtransaction( tx_hex, **kw ):
+    """
+    Send a raw transaction to the mock bitcoind
+    """
+    global bitcoind
+    return bitcoind.sendrawtransaction( tx_hex )
+
+
+def getrawtransaction( txid, verbose, **kw ):
+    """
+    Get a raw transaction from the mock bitcoind
+    """
+    global bitcoind
+    return bitcoind.getrawtransaction( txid, verbose )
 
 
 def get_all_transactions( **kw ):
@@ -113,7 +151,8 @@ def get_all_transactions( **kw ):
     Requires:
     * bitcoind: the mock bitcoind
     """
-    return kw['bitcoind'].getrawtransactions( 1 )
+    global bitcoind
+    return bitcoind.getrawtransactions( 1 )
 
 
 def next_block( **kw ):
@@ -125,13 +164,13 @@ def next_block( **kw ):
     the blockstore db with the virtual chain
     """
 
-    global snapshots_dir 
+    global snapshots_dir, bitcoind
     
     if snapshots_dir is None:
         snapshots_dir = tempfile.mkdtemp( prefix='blockstore-test-databases-' )
 
     # flush all transactions
-    kw['bitcoind'].flush_transactions() 
+    bitcoind.flush_transactions() 
     kw['sync_virtualchain_upcall']()
 
     # snapshot the database
@@ -145,8 +184,8 @@ def get_consensus_at( block_id, **kw ):
     Required keyword arguments:
     * state_engine:  a reference to the virtualchain state engine.
     """
-
-    return kw['state_engine'].get_consensus_at( block_id )
+    global state_engine
+    return state_engine.get_consensus_at( block_id )
 
 
 def get_current_block( **kw ):
@@ -155,8 +194,8 @@ def get_current_block( **kw ):
     Required keyword arguments:
     * state_engine:  a reference to the virtualchain state engine.
     """
-    
-    return kw['state_engine'].get_current_block()
+    global state_engine
+    return state_engine.get_current_block()
 
 
 def cleanup():
@@ -167,8 +206,10 @@ def cleanup():
     global snapshots_dir
     global all_consensus_hashes 
 
-    shutil.rmtree( snapshots_dir )
-    snapshots_dir = None
+    if snapshots_dir is not None:
+        shutil.rmtree( snapshots_dir )
+        snapshots_dir = None
+
     all_consensus_hashes = {}
     
 
@@ -180,6 +221,10 @@ def check_history( state_engine ):
 
     global all_consensus_hashes
     global snapshots_dir
+
+    if snapshots_dir is None:
+        # no snapshots to deal with 
+        return True
 
     block_ids = sorted( all_consensus_hashes.keys() )
     db_path = state_engine.get_db_path()
@@ -200,3 +245,51 @@ def check_history( state_engine ):
     return True
 
 
+def get_unspents( addr ):
+    """
+    Get the list of unspent outputs for an address.
+    """
+    global utxo_client
+    return pybitcoin.get_unspents( addr, utxo_client )
+
+
+def broadcast_transaction( tx_hex ):
+    """
+    Send out a raw transaction to the mock framework.
+    """
+    global utxo_client
+    return pybitcoin.broadcast_transaction( tx_hex, utxo_client )
+
+
+def decoderawtransaction( tx_hex ):
+    """
+    Decode a raw transaction 
+    """
+    global bitcoind
+    return bitcoind.decoderawtransaction( tx_hex )
+
+# setters for the test enviroment
+def set_utxo_client( c ):
+    global utxo_client
+    utxo_client = c
+
+def set_bitcoind( b ):
+    global bitcoind
+    bitcoind = b
+
+def set_state_engine( s ):
+    global state_engine
+    state_engine = s
+
+# getters for the test environment
+def get_utxo_client():
+    global utxo_client
+    return utxo_client
+
+def get_bitcoind():
+    global bitcoind
+    return bitcoind
+
+def get_state_engine():
+    global state_engine
+    return state_engine
