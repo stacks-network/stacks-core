@@ -38,8 +38,8 @@ def check( state_engine ):
     if ns.get('opcode', None) != 'NAMESPACE_READY':
         return False 
 
-    ns_preorder = state_engine.get_namespace_at( "test", ns['block_number'] )
-    ns_reveal = state_engine.get_namespace_at( "test", ns['block_number'] + 1 )
+    ns_preorder = state_engine.get_namespace_at( "test", ns['block_number'] )[0]
+    ns_reveal = state_engine.get_namespace_at( "test", ns['block_number'] + 1 )[0]
   
     if ns_preorder is None:
         return False 
