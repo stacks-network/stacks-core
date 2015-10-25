@@ -7,4 +7,4 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
-from search.search_api import app as application
+from search.server import app as application
