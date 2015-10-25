@@ -40,7 +40,7 @@ def scenario( wallets, **kw ):
     for i in xrange(0, 50):
         testlib.next_block( **kw )
 
-    # update with stale consensus hash
+    # update with stale consensus hash (should fail)
     testlib.blockstore_name_update( "foo.test", "22" * 20, wallets[3].privkey, consensus_hash=consensus_hash )
     testlib.next_block( **kw )
 
@@ -68,6 +68,10 @@ def check( state_engine ):
     name_rec = state_engine.get_name( "foo.test" )
     if name_rec is None:
         return False 
+
+    # owned 
+    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[3].addr):
+        return False
 
     # updated, but not the stale update hash
     if name_rec['value_hash'] != '11' * 20:
