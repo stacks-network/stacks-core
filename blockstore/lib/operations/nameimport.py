@@ -36,10 +36,10 @@ from ..hashing import hash256_trunc128
 
 from ..nameset import NAMEREC_FIELDS
 
-# consensus hash fields 
+# consensus hash fields (ORDER MATTERS!) 
 FIELDS = NAMEREC_FIELDS + [
-    'recipient', 
-    'recipient_address'
+    'recipient',            # scriptPubKey hex that identifies the name recipient 
+    'recipient_address'     # address of the recipient
 ]
 
 def get_import_update_hash_from_outputs( outputs, recipient ):
@@ -91,14 +91,9 @@ def build(name, testset=False):
     * the hash of the name's associated data
     """
     
-    if not is_b40( name ) or "+" in name or name.count(".") > 1:
-       raise Exception("Name '%s' has non-base-38 characters" % name)
-    
-    name_hex = hexlify(name)
-    if len(name_hex) > LENGTHS['blockchain_id_name'] * 2:
-       # too long
-      raise Exception("Name '%s' too long (exceeds %d bytes)" % (name, LENGTHS['blockchain_id_name']))
-    
+    if not is_name_valid( name ):
+        raise Exception("Invalid name '%s'" % name)
+
     readable_script = "NAME_IMPORT 0x%s" % (hexlify(name))
     hex_script = blockstore_script_to_hex(readable_script)
     packaged_script = add_magic_bytes(hex_script, testset=testset)
@@ -176,7 +171,9 @@ def parse(bin_payload, recipient, update_hash ):
     """
     
     fqn = bin_payload
-    
+    if not is_name_valid( fqn ):
+        return None 
+
     return {
         'opcode': 'NAME_IMPORT',
         'name': fqn,
