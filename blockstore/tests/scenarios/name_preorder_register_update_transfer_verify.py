@@ -21,10 +21,6 @@ debug = True
 
 def scenario( wallets, **kw ):
 
-    # temporary directory for holding snapshots 
-    global snapshots_dir
-    snapshots_dir = tempfile.mkdtemp( prefix='blockstore-test-databases-' )
-
     resp = testlib.blockstore_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
@@ -99,7 +95,7 @@ def check( state_engine ):
         return False 
 
     # transferred 
-    if name_rec['address'] != wallets[4].addr:
+    if name_rec['address'] != wallets[4].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[4].addr):
         return False 
 
     return True
