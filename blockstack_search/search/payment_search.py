@@ -47,6 +47,14 @@ def flush_collection():
     search_db.drop_collection('domain_payment')
 
 
+def optimize_db():
+
+    search_db.twitter_payment.ensure_index('twitter_handle')
+    search_db.facebook_payment.ensure_index('facebook_username')
+    search_db.github_payment.ensure_index('github_username')
+    search_db.domain_payment.ensure_index('domain_url')
+
+
 def get_btc_address(profile):
 
     addressValid = False
@@ -336,6 +344,9 @@ if __name__ == "__main__":
 
     if(option == '--flush'):
         flush_collection()
+
+    elif(option == '--optimize'):
+        optimize_db()
 
     elif(option == '--create_twitter'):
         create_twitter_payment_index()
