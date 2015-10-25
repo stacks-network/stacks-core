@@ -220,7 +220,7 @@ def create_github_payment_index():
             if 'proof' not in github_username:
                 continue
 
-            proofs = profile_to_proofs(profile, entry['username'])
+            proofs = get_proofs(entry['username'], profile)
 
             for proof in proofs:
                 if 'service' in proof and proof['service'] == 'github':
