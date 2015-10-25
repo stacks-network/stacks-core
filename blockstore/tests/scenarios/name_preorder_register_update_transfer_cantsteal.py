@@ -72,7 +72,7 @@ def check( state_engine ):
         return False 
 
     # NOT transferred 
-    if name_rec['address'] != wallets[3].addr:
+    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[3].addr):
         return False 
 
     return True
