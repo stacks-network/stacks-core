@@ -36,12 +36,14 @@ import json
 
 try:
     from .config import *
+    from .b40 import *
 except:
     # hack around relative paths
     import sys 
     import os
     sys.path.append(os.path.dirname(__file__))
     from config import *
+    from b40 import *
 
 def add_magic_bytes(hex_script, testset=False):
     if not testset:
@@ -49,6 +51,35 @@ def add_magic_bytes(hex_script, testset=False):
     else:
         magic_bytes = MAGIC_BYTES_TESTSET
     return hexlify(magic_bytes) + hex_script
+
+
+def is_name_valid( fqn ):
+    """
+    Is a fully-qualified name acceptable?
+    Return True if so
+    Return False if not
+    """
+
+    if fqn.count( "." ) != 1:
+        return False
+
+    name, namespace_id = fqn.split(".")
+
+    if len(name) == 0 or len(namespace_id) == 0:
+        return False 
+
+    if not is_b40( name ) or "+" in name or "." in name:
+        return False 
+
+    if not is_b40( namespace_id ) or "+" in namespace_id or "." in namespace_id:
+        return False
+    
+    name_hex = hexlify(name)
+    if len(name_hex) > LENGTHS['blockchain_id_name'] * 2:
+       # too long
+       return False 
+
+    return True
 
 
 def blockstore_script_to_hex(script):
@@ -323,11 +354,12 @@ def tx_make_subsidizable( blockstore_tx, fee_cb, max_fee, subsidy_key, utxo_clie
     * Make sure the subsidy does not exceed the maximum subsidy fee
     * Sign our inputs with SIGHASH_ANYONECANPAY
     """
-    
+   
+    # get subsidizer key info
     private_key_obj, payer_address, payer_utxo_inputs = analyze_private_key(subsidy_key, utxo_client)
     
     tx_inputs, tx_outputs, locktime, version = tx_deserialize( blockstore_tx )
-    
+
     # what's the fee?  does it exceed the subsidy?
     dust_fee, op_fee = fee_cb( tx_inputs, tx_outputs )
     if dust_fee is None or op_fee is None:
@@ -343,12 +375,13 @@ def tx_make_subsidizable( blockstore_tx, fee_cb, max_fee, subsidy_key, utxo_clie
     
     subsidy_output = tx_make_subsidization_output( payer_utxo_inputs, payer_address, op_fee, dust_fee )
     
-    # add our inputs and output 
+    # add our inputs and output
     subsidized_tx = tx_extend( blockstore_tx, payer_utxo_inputs, [subsidy_output] )
-    
-    # sign each of our inputs with our key, but use SIGHASH_ANYONECANPAY
-    for i in xrange( len(tx_inputs), len(tx_inputs + payer_utxo_inputs)):
-        subsidized_tx = bitcoin.sign( subsidized_tx, i, private_key_obj.to_hex(), hashcode=bitcoin.SIGHASH_ANYONECANPAY )
+   
+    # sign each of our inputs with our key, but use SIGHASH_ANYONECANPAY so the client can sign its inputs
+    for i in xrange( 0, len(payer_utxo_inputs)):
+        idx = i + len(tx_inputs)
+        subsidized_tx = bitcoin.sign( subsidized_tx, idx, private_key_obj.to_hex(), hashcode=bitcoin.SIGHASH_ANYONECANPAY )
     
     return subsidized_tx
     
