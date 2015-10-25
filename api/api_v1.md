@@ -87,7 +87,7 @@ _end_
 search_users
 
 #### description:
-Takes in a search query and returns a list of results that match the search. The query is matched against +passnames, full names, and twitter handles.
+Takes in a search query and returns a list of results that match the search. The query is matched against +usernames, full names, and twitter handles.
 
 #### response_description:
 Returns an array of results, where each result has a \"profile\" object.
@@ -160,18 +160,102 @@ curl https://api.onename.com/v1/search?query=wenger \
 
 _end_
 
+## Search payment
+
+#### anchor_tag:
+search_payment
+
+#### description:
+Takes in a search query and returns a list of results that match the search. The query searches for verified twitter handles, facebook usernames, Github usernames, and domain names and takes the format twitter:<handle>, domain:<domain_url> and so on. Profiles are returned on an exact match to the respective verified account and only if the profile has a valid bitcoin address as well.
+
+#### response_description:
+Returns an array of results, where each result has a \"profile\" object.
+
+#### method:
+GET
+
+#### path_template:
+/search/payment
+
+#### parameters[]:
+{"name": "query", "description": "The text to search for."}
+
+#### tryit_pathname:
+/v1/search/payment?query=twitter:albertwenger&app-id=demo-1234&app-secret=demo-1234
+
+#### example_request_bash:
+curl https://api.onename.com/v1/search/payment?query=twitter:albertwenger \
+    -u 'YOUR-API-ID:YOUR-API-SECRET'
+
+#### example_response:
+{
+  "results": [
+    {
+      "profile": {
+        "avatar": {
+          "url": "https://pbs.twimg.com/profile_images/1773890030/aew_artistic_bigger.gif"
+        },
+        "bio": "VC at USV.com",
+        "bitcoin": {
+          "address": "1QHDGGLEKK7FZWsBEL78acV9edGCTarqXt"
+        },
+        "cover": {
+          "url": "https://s3.amazonaws.com/dx3/albertwenger"
+        },
+        "facebook": {
+          "proof": {
+            "url": "https://www.facebook.com/albertwenger/posts/10152554952070219"
+          },
+          "username": "albertwenger"
+        },
+        "github": {
+          "proof": {
+            "url": "https://gist.github.com/albertwenger/03c1b5db3880998115fa"
+          },
+          "username": "albertwenger"
+        },
+        "graph": {
+          "url": "https://s3.amazonaws.com/grph/albertwenger"
+        },
+        "location": {
+          "formatted": "New York"
+        },
+        "name": {
+          "formatted": "Albert Wenger"
+        },
+        "twitter": {
+          "proof": {
+            "url": "https://twitter.com/albertwenger/status/499594071401197568"
+          },
+          "username": "albertwenger"
+        },
+        "v": "0.2",
+        "website": "http://continuations.com"
+      },
+      "username": "albertwenger"
+    }
+  ]
+}
+
+_end_
+
 ## Register users
 
 #### anchor_tag:
 register_users
 
-#### description:
-Takes in a passname to be registered along with the address that will own the passname. Optionally, takes in the passcard data that should be associated with the passname being registered. Returns a status object that shows if the request was successfully received. It takes on the order of hours to actually complete the registration.
+#### description: 
+Registers a new blockchain ID and transfers the ownership to
+a bitcoin address. Takes in a username to be registered along with the address
+that will own the blockchain ID. Optionally, takes in the profile data that should
+be associated with the blockchain ID being registered. Returns a status object that
+shows if the request was successfully received. It takes on the order of hours
+to actually complete the registration.
 
 #### parameters[]:
-{"name": "passname", "description": "The passname (passcard username) that is to be registered."}
-{"name": "recipient_address", "description": "The namecoin address that the passcard will be transferred to once it has been registered."}
-{"name": "passcard", "description": "The data to be associated with the passcard.", "optional": true}
+{"name": "username", "description": "The username (blockchain ID username) that is to be registered."}
+{"name": "recipient_address", "description": "The bitcoin address that the blockchain ID will be transferred to once it has been registered."}
+{"name": "profile", "description": "The data to be associated with the blockchain ID.", "optional": true}
 
 #### response_description:
 Returns an object with a status that is either "success" or "error".
@@ -185,9 +269,9 @@ POST
 #### example_request_bash:
 curl https://api.onename.com/v1/users \
     -u 'YOUR-API-ID:YOUR-API-SECRET' \
-    -d '{"passname": "fredwilson",
-         "recipient_address": "N6zdUCKq1gJaps76gagBbC5Vc6xBxMdvHc",
-         "passcard": {"bio": "I am a VC"}}' \
+    -d '{"username": "fredwilson",
+         "recipient_address": "152f1muMCNa7goXYhYAQC61hxEgGacmncB",
+         "profile": {"bio": "I am a VC"}}' \
     -H 'Content-type: application/json' \
     -X POST
 
@@ -290,42 +374,23 @@ GET
 /addresses/{address}/unspents
 
 #### tryit_pathname:
-/v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4/unspents?app-id=demo-1234&app-secret=demo-1234
+/v1/addresses/19bXfGsGEXewR6TyAV3b89cSHBtFFewXt6/unspents?app-id=demo-1234&app-secret=demo-1234
 
 #### example_request_bash:
-curl https://api.onename.com/v1/addresses/N8PcBQnL4oMuM6aLsQow6iG59yks1AtQX4/unspents \
+curl https://api.onename.com/v1/addresses/19bXfGsGEXewR6TyAV3b89cSHBtFFewXt6/unspents \
     -u 'YOUR-API-ID:YOUR-API-SECRET'
 
 #### example_response:
 {
-  "unspent_outputs": [
+  "unspents": [
     {
-      "amount": 99.995, 
-      "scriptPubKey": {
-        "addresses": [
-          "NBSffD6N6sABDxNooLZxL26jwGetiFHN6H"
-        ], 
-        "asm": "OP_DUP OP_HASH160 a31521da4d3df0d48a7aa7e1d8dadf0e0e862d8d OP_EQUALVERIFY OP_CHECKSIG", 
-        "hex": "76a914a31521da4d3df0d48a7aa7e1d8dadf0e0e862d8d88ac", 
-        "reqSigs": 1, 
-        "type": "pubkeyhash"
-      }, 
-      "txid": "e06501a48267c26e0ccf85823531be2301291cf582d1e422a69db5a59033e6e5", 
-      "vout": "1"
-    }, 
-    {
-      "amount": 378.26213117, 
-      "scriptPubKey": {
-        "addresses": [
-          "NBSffD6N6sABDxNooLZxL26jwGetiFHN6H"
-        ], 
-        "asm": "OP_DUP OP_HASH160 a31521da4d3df0d48a7aa7e1d8dadf0e0e862d8d OP_EQUALVERIFY OP_CHECKSIG", 
-        "hex": "76a914a31521da4d3df0d48a7aa7e1d8dadf0e0e862d8d88ac", 
-        "reqSigs": 1, 
-        "type": "pubkeyhash"
-      }, 
-      "txid": "3e3926dd5dc42a3f2d41139bf650d15becfe77bd2143071b09b9b22ca88ad55d", 
-      "vout": "1"
+      "confirmations": 6, 
+      "output_index": 0, 
+      "script_hex": "76a9145e48be183fbb5c3990e29aedd3b44367c28a5e4388ac", 
+      "script_opcodes": "OP_DUP OP_HASH160 5e48be183fbb5c3990e29aedd3b44367c28a5e43 OP_EQUALVERIFY OP_CHECKSIG", 
+      "script_type": "pubkeyhash", 
+      "transaction_hash": "abe4a6b3196bae419567d5d800674d61415483c4a3f4261886f9ca4e83a5027f", 
+      "value": 18416206261
     }
   ]
 }

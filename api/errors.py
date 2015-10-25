@@ -70,12 +70,17 @@ class InvalidProfileDataError(APIError):
                "an error with the way the data was handled.")
 
 
-class PassnameTakenError(APIError):
+class UsernameTakenError(APIError):
     status_code = 403
-    message = ("There already exists a passcard with the passname provided.")
+    message = ("There already exists a passcard with the username provided.")
 
 
-class PassnameNotRegisteredError(APIError):
+class UsernameTakenError(APIError):
+    status_code = 403
+    message = ("There already exists a profile with the username provided.")
+
+
+class UsernameNotRegisteredError(APIError):
     status_code = 404
     message = ("This username is not registered.")
 
@@ -114,6 +119,11 @@ class ResolverConnectionError(APIError):
 class DKIMPubkeyError(APIError):
     status_code = 404
     message = ("Public key record for domain not found")
+
+
+class UpgradeInprogressError(APIError):
+    status_code = 403
+    message = ("This end-point is currently being upgraded and is temporarily unavailable")
 
 
 class BroadcastTransactionError(APIError):
