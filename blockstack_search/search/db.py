@@ -37,7 +37,7 @@ search_profiles = search_db.profiles
 people_cache = search_cache.people_cache
 twitter_cache = search_cache.twitter_cache
 username_cache = search_cache.username_cache
-
+proofs_cache = search_cache.proofs_cache
 
 # these are used by payment_search
 twitter_payment = search_db.twitter_payment
