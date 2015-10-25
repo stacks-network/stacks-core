@@ -130,13 +130,13 @@ def flush_db():
 
 def optimize_db():
 
-    search_cache.people_cache.ensure_index('name')
-    search_cache.twitter_cache.ensure_index('twitter_handle')
-    search_cache.username_cache.ensure_index('username')
+    people_cache.ensure_index('name')
+    twitter_cache.ensure_index('twitter_handle')
+    username_cache.ensure_index('username')
 
-    search_db.profiles.ensure_index('name')
-    search_db.profiles.ensure_index('twitter_handle')
-    search_db.profiles.ensure_index('username')
+    search_profiles.ensure_index('name')
+    search_profiles.ensure_index('twitter_handle')
+    search_profiles.ensure_index('username')
 
 
 def create_search_index():
@@ -231,6 +231,8 @@ def create_search_index():
 
 if __name__ == "__main__":
 
+    optimize_db()
+
     if(len(sys.argv) < 2):
         print "Usage error"
         exit(0)
@@ -249,6 +251,9 @@ if __name__ == "__main__":
     elif(option == '--create_index'):
         # Step 3
         create_search_index()
+
+    elif(option == '--optimize'):
+        optimize_db()
 
     else:
         print "Usage error"
