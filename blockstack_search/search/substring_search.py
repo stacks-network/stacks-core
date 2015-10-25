@@ -29,8 +29,8 @@ This file is part of Search.
 
 import sys
 import json
-from common import log
-from commontools import get_json
+from search.utils import log
+from search.utils import get_json
 
 from pymongo import MongoClient
 client = MongoClient()

@@ -30,7 +30,6 @@ app = Flask(__name__)
 from config import DEFAULT_HOST, DEFAULT_PORT, DEBUG, MEMCACHED_TIMEOUT
 import json
 from time import time
-from bson import json_util
 
 import sys
 from config import DEFAULT_LIMIT
@@ -184,8 +183,8 @@ def search_by_name():
 
 @app.route('/')
 def index():
-    return 'Welcome to this blockchain ID search server. \
-            See <a href="https://github.com/blockstack/search">this</a> for details.'
+    return 'Welcome to this search server for blockchain IDs. \
+            See <a href="https://github.com/blockstack/search">this repo</a> for details.'
 
 
 @app.errorhandler(500)

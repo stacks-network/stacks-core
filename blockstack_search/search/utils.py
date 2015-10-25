@@ -25,7 +25,6 @@ This file is part of Search.
 
 import json
 from json import JSONEncoder
-from bson.objectid import ObjectId
 import logging
 from config import DEBUG
 
@@ -50,18 +49,20 @@ def get_logger(log_name=None, log_type='stream'):
 # common logger
 log = get_logger()
 
-
+"""
+from bson.objectid import ObjectId
 class MongoEncoder(JSONEncoder):
     def default(self, obj, **kwargs):
         if isinstance(obj, ObjectId):
             return str(obj)
-        else:           
+        else:
             return JSONEncoder.default(obj, **kwargs)
+"""
 
 
 def pretty_dump(input):
 
-    return json.dumps(input, cls=MongoEncoder, sort_keys=False, indent=4,
+    return json.dumps(input, sort_keys=True, indent=4,
                       separators=(',', ': '))
 
 
@@ -74,3 +75,16 @@ def error_reply(msg):
     reply['status'] = -1
     reply['message'] = "ERROR: " + msg
     return pretty_dump(reply)
+
+
+def get_json(data):
+
+    if isinstance(data, dict):
+        pass
+    else:
+        try:
+            data = json.loads(data)
+        except:
+            return error_reply("input data is not JSON")
+
+    return data
