@@ -25,7 +25,7 @@ This file is part of Search.
 
 DEBUG = True
 
-MEMCACHED_ENABLED = False
+MEMCACHED_ENABLED = True
 LUCENE_ENABLED = False
 
 DEFAULT_PORT = 5000
@@ -36,9 +36,14 @@ DEFAULT_LIMIT = 50
 MEMCACHED_TIMEOUT = 6 * 60 * 60
 
 
-
 RESOLVER_URL = 'http://resolver.onename.com'
 ALL_USERS_ENDPOINT = '/v2/users'
 
 BLOCKCHAIN_STATE_FILE = "data/blockchain_state.json"
 DHT_STATE_FILE = "data/dht_state.json"
+
+try:
+    # to overrite things like MEMCACHED_ENABLED
+    from config_local import *
+except:
+    pass
