@@ -37,6 +37,7 @@ from .db import search_db
 from .db import namespace
 from .db import twitter_payment, facebook_payment
 from .db import github_payment, domain_payment
+from .db import proofs_cache
 
 
 def flush_collection():
@@ -49,10 +50,11 @@ def flush_collection():
 
 def optimize_db():
 
-    search_db.twitter_payment.ensure_index('twitter_handle')
-    search_db.facebook_payment.ensure_index('facebook_username')
-    search_db.github_payment.ensure_index('github_username')
-    search_db.domain_payment.ensure_index('domain_url')
+    twitter_payment.ensure_index('twitter_handle')
+    facebook_payment.ensure_index('facebook_username')
+    github_payment.ensure_index('github_username')
+    domain_payment.ensure_index('domain_url')
+    proofs_cache.ensure_index('username')
 
 
 def get_btc_address(profile):
@@ -76,6 +78,24 @@ def get_btc_address(profile):
         return btc_address
     else:
         return None
+
+
+def get_proofs(username, profile):
+
+    check_proofs = proofs_cache.find_one({"username": username})
+
+    if check_proofs is None:
+        proofs = profile_to_proofs(profile, username)
+
+        new_entry = {}
+        new_entry['username'] = username
+        new_entry['proofs'] = proofs
+        proofs_cache.save(new_entry)
+    else:
+        print "hitting cache!"
+        proofs = check_proofs['proofs']
+
+    return proofs
 
 
 def create_twitter_payment_index():
@@ -102,7 +122,7 @@ def create_twitter_payment_index():
             if 'proof' not in twitter_handle:
                 continue
 
-            proofs = profile_to_proofs(profile, entry['username'])
+            proofs = get_proofs(entry['username'], profile)
 
             for proof in proofs:
                 if 'service' in proof and proof['service'] == 'twitter':
@@ -113,7 +133,7 @@ def create_twitter_payment_index():
                         new_entry['twitter_handle'] = proof['identifier'].lower()
                         new_entry['profile'] = profile
 
-                        check_entry = twitter_payment.find_one({"twitter_handle": new_entry['twitter_handle']})
+                        check_entry = twitter_payment.find_one({"username": entry['username']})
 
                         if check_entry is not None:
                             print "already in index"
@@ -149,7 +169,7 @@ def create_facebook_payment_index():
             if 'proof' not in facebook_username:
                 continue
 
-            proofs = profile_to_proofs(profile, entry['username'])
+            proofs = get_proofs(entry['username'], profile)
 
             for proof in proofs:
                 if 'service' in proof and proof['service'] == 'facebook':
@@ -160,7 +180,7 @@ def create_facebook_payment_index():
                         new_entry['facebook_username'] = proof['identifier'].lower()
                         new_entry['profile'] = profile
 
-                        check_entry = facebook_payment.find_one({"facebook_username": new_entry['facebook_username']})
+                        check_entry = facebook_payment.find_one({"username": entry['username']})
 
                         if check_entry is not None:
                             print "already in index"
@@ -207,7 +227,7 @@ def create_github_payment_index():
                         new_entry['github_username'] = proof['identifier'].lower()
                         new_entry['profile'] = profile
 
-                        check_entry = github_payment.find_one({"github_username": new_entry['github_username']})
+                        check_entry = github_payment.find_one({"username": entry['username']})
 
                         if check_entry is not None:
                             print "already in index"
@@ -265,7 +285,7 @@ def create_domain_payment_index():
                 new_entry['domain_url'] = domain
                 new_entry['profile'] = profile
 
-                check_entry = domain_payment.find_one({"domain_url": new_entry['domain_url']})
+                check_entry = domain_payment.find_one({"username": entry['username']})
 
                 if check_entry is not None:
                     print "already in index"
@@ -351,7 +371,7 @@ if __name__ == "__main__":
     elif(option == '--create_twitter'):
         create_twitter_payment_index()
 
-    elif(option == '--create_faceboook'):
+    elif(option == '--create_facebook'):
         create_facebook_payment_index()
 
     elif(option == '--create_github'):
