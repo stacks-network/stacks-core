@@ -123,6 +123,8 @@ def fetch_namespace_from_file():
 
 def flush_db():
 
+    client = MongoClient()
+
     # delete any old cache/index
     client.drop_database('search_db')
     client.drop_database('search_cache')
