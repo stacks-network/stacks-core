@@ -35,17 +35,18 @@ from ..config import *
 from ..scripts import *
 from ..hashing import hash_name
 
-# consensus hash fields 
+# consensus hash fields (ORDER MATTERS!) 
 FIELDS = [
-    'namespace_id_hash',
-    'consensus_hash',
-    'fee',
-    'op_fee',
-    'txid',
-    'block_number',
-    'sender',
-    'sender_pubkey',
-    'address'
+    'namespace_id_hash',    # hash(namespace_id,sender,reveal_addr)
+    'consensus_hash',       # consensus hash at the time issued
+    'op',                   # bytecode describing the operation (not necessarily 1 byte)
+    'op_fee',               # fee paid for the namespace to the burn address
+    'txid',                 # transaction ID
+    'vtxindex',             # the index in the virtual block where the tx occurs
+    'block_number',         # block number at which this transaction occurred
+    'sender',               # scriptPubKey hex from the principal that issued this preorder (identifies the preorderer)
+    'sender_pubkey',        # if sender is a p2pkh script, this is the public key
+    'address'               # address from the scriptPubKey
 ]
 
 def build( namespace_id, script_pubkey, register_addr, consensus_hash, namespace_id_hash=None, testset=False ):
@@ -63,7 +64,7 @@ def build( namespace_id, script_pubkey, register_addr, consensus_hash, namespace
    
    0     2   3                                      23               39
    |-----|---|--------------------------------------|----------------|
-   magic op  hash(ns_id,script_pubkey,register_addr) consensus hash
+   magic op  hash(ns_id,script_pubkey,reveal_addr)   consensus hash
    """
    
    # sanity check 
@@ -165,11 +166,16 @@ def parse( bin_payload ):
    NOTE: the first three bytes will be missing
    """
    
+   if len(bin_payload) != LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']:
+       log.error("Invalid namespace preorder payload length %s" % len(bin_payload))
+       return None
+
    namespace_id_hash = bin_payload[ :LENGTHS['preorder_name_hash'] ]
    consensus_hash = bin_payload[ LENGTHS['preorder_name_hash']: LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] ]
    
    namespace_id_hash = hexlify( namespace_id_hash )
    consensus_hash = hexlify( consensus_hash )
+
    
    return {
       'opcode': 'NAMESPACE_PREORDER',
