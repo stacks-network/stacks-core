@@ -23,6 +23,7 @@ This file is part of Search.
     along with Search. If not, see <http://www.gnu.org/licenses/>.
 """
 
+import sys
 import json
 import requests
 
@@ -329,6 +330,7 @@ if __name__ == "__main__":
 
     if(len(sys.argv) < 2):
         print "Usage error"
+        exit(0)
 
     option = sys.argv[1]
 

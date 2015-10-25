@@ -26,8 +26,9 @@ This file is part of Search.
 """ create the basic index
 """
 
-import requests
+import sys
 import json
+import requests
 
 from pymongo import MongoClient
 
@@ -232,6 +233,7 @@ if __name__ == "__main__":
 
     if(len(sys.argv) < 2):
         print "Usage error"
+        exit(0)
 
     option = sys.argv[1]
 
