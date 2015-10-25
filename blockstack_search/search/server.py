@@ -114,7 +114,7 @@ def test_alphanumeric(query):
     return True
 
 
-@app.route('/search')
+@app.route('/search/name')
 def search_by_name():
 
     query = request.args.get('query')
@@ -197,6 +197,8 @@ def search_by_name():
 @app.route('/search/payment')
 def search_for_payment():
 
+    results = {}
+
     query = request.args.get('query')
 
     if query is None:
@@ -204,7 +206,19 @@ def search_for_payment():
     elif query == '' or query == ' ':
         return json.dumps({})
 
-    results = search_payment(query)
+    if MEMCACHED_ENABLED:
+
+        cache_key = str('search_cache_' + query.lower())
+        cache_reply = mc.get(cache_key)
+
+        # if a cache hit, respond straight away
+        if(cache_reply is not None):
+            return jsonify(cache_reply)
+
+    results['results'] = search_payment(query)
+
+    if MEMCACHED_ENABLED:
+        mc.set(cache_key, results, int(time() + MEMCACHED_TIMEOUT))
 
     return jsonify(results)
 
