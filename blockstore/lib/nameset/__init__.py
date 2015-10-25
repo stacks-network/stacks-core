@@ -21,21 +21,28 @@
     along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-# all fields in a name record
+# all fields common to a name record
+# NOTE: this order must be preserved for all eternity
 NAMEREC_FIELDS = [
-    'name',
-    'value_hash',
-    'sender',
-    'first_registered',
-    'last_renewed',
-    'address',
-    'revoked',
-    'expired',
-    'sender_pubkey',
-    'block_number',
-    'txid',
-    'fee',
-    'op_fee'
+    'name',                 # the name itself
+    'value_hash',           # the hash of the name's associated profile
+    'sender',               # the scriptPubKey hex that owns this name (identifies ownership)
+    'sender_pubkey',        # (OPTIONAL) the public key 
+    'address',              # the address of the sender
+    
+    'block_number',         # the block number when this name record was created (preordered for the first time)
+    'preorder_block_number', # the block number when this name was last preordered
+    'first_registered',     # the block number when this name was registered by the current owner
+    'last_renewed',         # the block number when this name was renewed by the current owner
+    'revoked',              # whether or not the name is revoked
+
+    'op',                   # byte sequence describing the last operation to affect this name
+    'txid',                 # the ID of the last transaction to affect this name
+    'vtxindex',             # the index in the virtual block where the transaction occurs.  Respects actual tx order.
+    'op_fee',               # the value of the last Blockstore-specific burn fee paid for this name (i.e. from preorder or renew)
+
+    'importer',             # (OPTIONAL) if this name was imported, this is the importer's scriptPubKey hex
+    'importer_address',     # (OPTIONAL) if this name was imported, this is the importer's address
 ]
 
 import namedb 
