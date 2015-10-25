@@ -24,6 +24,8 @@ This file is part of Search.
 """
 
 import json
+import re
+
 from json import JSONEncoder
 import logging
 from config import DEBUG
@@ -88,3 +90,13 @@ def get_json(data):
             return error_reply("input data is not JSON")
 
     return data
+
+
+def validUsername(username):
+
+    a = re.compile("^[a-z0-9_]{1,60}$")
+
+    if a.match(username):
+        return True
+    else:
+        return False
