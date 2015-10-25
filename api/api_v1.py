@@ -157,6 +157,28 @@ def search_people():
     return jsonify(data), 200
 
 
+@app.route('/v1/search/payment', methods=['GET'])
+@auth_required(exception_queries=['twitter:albertwenger', 'github:muneeb-ali'])
+@parameters_required(parameters=['query'])
+@crossdomain(origin='*')
+def search_payment():
+
+    search_url = SEARCH_URL + '/search/payment'
+
+    name = request.values['query']
+
+    try:
+        resp = requests.get(url=search_url, params={'query': name})
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        raise InternalProcessingError()
+
+    data = resp.json()
+    if not ('results' in data and isinstance(data['results'], list)):
+        data = {'results': []}
+
+    return jsonify(data), 200
+
+
 @app.route('/v1/transactions', methods=['POST'])
 @auth_required()
 @parameters_required(['signed_hex'])
