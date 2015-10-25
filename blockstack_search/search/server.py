@@ -39,6 +39,8 @@ from .substring_search import search_people_by_name, search_people_by_twitter
 from .substring_search import search_people_by_username, search_people_by_bio
 from .substring_search import fetch_profiles
 
+from .payment_search import search_payment
+
 
 app = Flask(__name__)
 
@@ -188,6 +190,21 @@ def search_by_name():
 
     if MEMCACHED_ENABLED:
         mc.set(cache_key, results, int(time() + MEMCACHED_TIMEOUT))
+
+    return jsonify(results)
+
+
+@app.route('/search/payment')
+def search_for_payment():
+
+    query = request.args.get('query')
+
+    if query is None:
+        return error_reply("No query given")
+    elif query == '' or query == ' ':
+        return json.dumps({})
+
+    results = search_payment(query)
 
     return jsonify(results)
 
