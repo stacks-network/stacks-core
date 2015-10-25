@@ -29,147 +29,11 @@ This file is part of Search.
 
 import sys
 import json
-from search.utils import log
-from search.utils import get_json
 
-from pymongo import MongoClient
-client = MongoClient()
-db = client['onename_user_db']
-local_users = db.users
+from server.db_index import search_db, search_profiles
+from server.db_index import search_cache
 
 from config import DEFAULT_LIMIT
-
-import requests
-import re
-
-
-def get_namespace():
-
-    url = 'http://ons-server.halfmoonlabs.com/ons/namespace'
-
-    auth_user = 'opennamesystem'
-    auth_passwd = 'opennamesystem'
-
-    headers = {'Content-type': 'application/json'}
-
-    r = requests.get(url, headers=headers, auth=(auth_user,auth_passwd))
-
-    return r.json()['results']
-
-
-def valid_username(username):
-
-    a = re.compile("^[a-z0-9_]{1,60}$")
-
-    if a.match(username):
-        return True
-    else:
-        return False
-
-
-def create_search_index():
-    """ takes people names from blockchain and writes deduped names in a 'cache'
-    """
-
-    # delete any old cache/index
-    client.drop_database('search_db')
-    client.drop_database('search_cache')
-
-    search_db = client['search_db']
-    search_profiles = search_db.profiles
-
-    search_cache = client['search_cache']
-    people_cache = search_cache.people_cache
-    twitter_cache = search_cache.twitter_cache
-    username_cache = search_cache.username_cache
-
-    # create people name cache
-    counter = 0
-
-    people_names = []
-    twitter_handles = []
-    usernames = []
-
-    for user in get_namespace():
-
-        # the profile/info to be inserted
-        search_profile = {}
-
-        counter += 1
-
-        if(counter % 1000 == 0):
-            print counter
-
-        if valid_username(user['username']):
-            pass
-        else:
-            # print "ignoring: " + user['username']
-            continue
-
-        profile = get_json(user['profile'])
-
-        if 'name' in profile:
-            name = profile['name']
-
-            try:
-                name = name['formatted'].lower()
-            except:
-                name = name.lower()
-
-            people_names.append(name)
-            search_profile['name'] = name
-
-        else:
-            search_profile['name'] = None
-
-
-        if 'twitter' in profile:
-            twitter_handle = profile['twitter']
-
-            try:
-                twitter_handle = twitter_handle['username'].lower()
-            except:
-                try:
-                    twitter_handle = profile['twitter'].lower()
-                except:
-                    continue
-
-            twitter_handles.append(twitter_handle)
-            search_profile['twitter_handle'] = twitter_handle
-
-        else:
-            search_profile['twitter_handle'] = None
-
-        search_profile['username'] = user['username']
-        usernames.append(user['username'])
-
-        search_profile['profile'] = profile
-        search_profiles.save(search_profile)
-
-    # dedup names
-    people_names = list(set(people_names))
-    people_names = {'name':people_names}
-
-    twitter_handles = list(set(twitter_handles))
-    twitter_handles = {'twitter_handle':twitter_handles}
-
-    usernames = list(set(usernames))
-    usernames = {'username':usernames}
-
-    # save final dedup results to mongodb (using it as a cache)
-    people_cache.save(people_names)
-    twitter_cache.save(twitter_handles)
-    username_cache.save(usernames)
-
-    search_cache.people_cache.ensure_index('name')
-    search_cache.twitter_cache.ensure_index('twitter_handle')
-    search_cache.username_cache.ensure_index('username')
-
-    search_db.profiles.ensure_index('name')
-    search_db.profiles.ensure_index('twitter_handle')
-    search_db.profiles.ensure_index('username')
-
-    log.debug('Created name/twitter/username search index')
 
 
 def anyword_substring_search_inner(query_word, target_words):
@@ -244,7 +108,6 @@ def search_people_by_name(query, limit_results=DEFAULT_LIMIT):
     query = query.lower()
 
     # using mongodb as a cache, load data in people_names
-    search_cache = client['search_cache']
 
     people_names = []
 
@@ -260,11 +123,9 @@ def search_people_by_twitter(query, limit_results=DEFAULT_LIMIT):
 
     query = query.lower()
 
-    # using mongodb as a cache, load data
-    search_cache = client['search_cache']
-
     twitter_handles = []
 
+    # using mongodb as a cache, load data
     for i in search_cache.twitter_cache.find():
         twitter_handles += i['twitter_handle']
 
@@ -277,11 +138,9 @@ def search_people_by_username(query, limit_results=DEFAULT_LIMIT):
 
     query = query.lower()
 
-    # using mongodb as a cache, load data
-    search_cache = client['search_cache']
-
     usernames = []
 
+    # using mongodb as a cache, load data
     for i in search_cache.username_cache.find():
         usernames += i['username']
 
@@ -332,9 +191,6 @@ def search_people_by_bio(query, limit_results=DEFAULT_LIMIT,
 
 
 def fetch_profiles(search_results, search_type="name"):
-
-    search_db = client['search_db']
-    search_profiles = search_db.profiles
 
     results = []
 
@@ -447,9 +303,7 @@ if __name__ == "__main__":
 
     option = sys.argv[1]
 
-    if(option == '--create_index'):
-        create_search_index()
-    elif(option == '--search_name'):
+    if(option == '--search_name'):
         query = sys.argv[2]
         name_search_results = search_people_by_name(query, DEFAULT_LIMIT)
         print name_search_results
