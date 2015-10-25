@@ -153,7 +153,7 @@ def create_facebook_payment_index():
 
     counter = 0
 
-    for entry in namespace.find(timeout=False):
+    for entry in namespace.find(no_cursor_timeout=True):
 
         profile = json.loads(entry['profile'])
 
