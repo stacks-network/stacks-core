@@ -34,3 +34,6 @@ MEMCACHED_TIMEOUT = 6 * 60 * 60
 
 RESOLVER_URL = 'http://resolver.onename.com'
 ALL_USERS_ENDPOINT = '/v2/users'
+
+BLOCKCHAIN_STATE_FILE = "data/blockchain_state.json"
+DHT_STATE_FILE = "data/dht_state.json"
