@@ -144,17 +144,19 @@ NAMESPACE_OPCODES = [
     NAMESPACE_READY
 ]
 
+# extra bytes affecting a transfer
 TRANSFER_KEEP_DATA = '>'
 TRANSFER_REMOVE_DATA = '~'
 
 # list of opcodes we support
+# ORDER MATTERS--it determines processing order, and determines collision priority
+# (i.e. earlier operations in this list are preferred over later operations)
 OPCODES = [
    NAME_PREORDER,
+   NAME_REVOKE,
    NAME_REGISTRATION,
    NAME_UPDATE,
    NAME_TRANSFER,
-   NAME_RENEWAL,
-   NAME_REVOKE,
    NAME_IMPORT,
    NAMESPACE_PREORDER,
    NAMESPACE_REVEAL,
@@ -173,7 +175,6 @@ OPCODE_NAMES = {
     NAMESPACE_REVEAL: "NAMESPACE_REVEAL",
     NAMESPACE_READY: "NAMESPACE_READY"
 }
-
 
 NAMESPACE_LIFE_INFINITE = 0xffffffff
 
@@ -196,7 +197,8 @@ LENGTHS = {
     'blockchain_id_namespace_buckets': 8,
     'blockchain_id_namespace_discounts': 1,
     'blockchain_id_namespace_version': 2,
-    'blockchain_id_namespace_id': 19
+    'blockchain_id_namespace_id': 19,
+    'max_op_length': 40
 }
 
 MIN_OP_LENGTHS = {
@@ -248,6 +250,8 @@ TESTSET_NAMESPACE_8UP_CHAR_COST = 10000
 NAMESPACE_PREORDER_EXPIRE = BLOCKS_PER_DAY      # namespace preorders expire after 1 day, if not revealed
 NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_YEAR       # namespace reveals expire after 1 year, if not readied.
 
+# FIXME: testing
+# NAME_IMPORT_KEYRING_SIZE = 5                  # number of keys to derive from the import key
 NAME_IMPORT_KEYRING_SIZE = 300                  # number of keys to derive from the import key
 
 NUM_CONFIRMATIONS = 6                         # number of blocks to wait for before accepting names
@@ -328,7 +332,11 @@ def default_blockstore_opts( config_file=None, testset=False ):
          utxo_provider = parser.get('blockstore', 'utxo_provider')
       
       if parser.has_option('blockstore', 'testset'):
-         testset = bool(parser.get('blockstore', 'testset'))
+         testset_val = parser.get('blockstore', 'testset')
+         if tesetset_val.lower() in ['true', 'yes', 'y', '1']:
+             testset = True 
+         else:
+             testset = False
          
       if parser.has_option('blockstore', 'testset_first_block'):
          testset_first_block = int( parser.get('blockstore', 'testset_first_block') )
@@ -797,10 +805,10 @@ def default_dht_opts( config_file=None ):
       if servers is None:
          servers = DEFAULT_DHT_SERVERS
          
-      try:
-         disable = bool(disable)
-      except:
-         raise Exception("Invalid field value for dht.disable: expected bool")
+      if disable.lower() in ['no', 'n', '0', 'false']:
+          disable = False
+      else:
+          disable = True
       
       try:
          port = int(port)
