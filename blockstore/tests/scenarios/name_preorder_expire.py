@@ -42,6 +42,13 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
+    # register it 
+    resp = testlib.blockstore_name_register( "foo.test", wallets[3].privkey, wallets[4].addr )
+    if 'error' in resp:
+        print json.dumps( resp )
+
+    testlib.next_block( **kw )
+
 def check( state_engine ):
 
     # not revealed, but ready 
@@ -56,9 +63,20 @@ def check( state_engine ):
     if ns['namespace_id'] != 'test':
         return False 
 
-    # preordered by wallet 3, destined to wallet 4
+    # not preoredered (should get back nothing, no matter what, since the name was registered)
     preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[3].addr), wallets[4].addr )
-    if preorder is None:
+    if preorder is not None:
+        print "preorder is not none"
         return False
+
+    # registered to the right owner 
+    namerec = state_engine.get_name( "foo.test" )
+    if namerec is None:
+        print "namerec is none"
+        return False 
+
+    if namerec['address'] != wallets[4].addr:
+        print "namerec address is %s" % namerec['address']
+        return False 
 
     return True
