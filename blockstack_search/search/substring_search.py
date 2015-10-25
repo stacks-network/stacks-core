@@ -30,8 +30,8 @@ This file is part of Search.
 import sys
 import json
 
-from .db_index import search_db, search_profiles
-from .db_index import search_cache
+from .db import search_db, search_profiles
+from .db import search_cache
 
 from .config import DEFAULT_LIMIT
 
