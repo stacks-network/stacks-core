@@ -23,22 +23,16 @@ This file is part of Search.
     along with Search. If not, see <http://www.gnu.org/licenses/>.
 """
 
-DEBUG = True
 
-MEMCACHED_ENABLED = False
-LUCENE_ENABLED = False
+import requests
 
-DEFAULT_PORT = 5000
-DEFAULT_HOST = '127.0.0.1'
-
-BULK_INSERT_LIMIT = 1000
-DEFAULT_LIMIT = 50
-MEMCACHED_TIMEOUT = 6 * 60 * 60
+from .db import namespace
 
 
+def create_twitter_payment_index():
 
-RESOLVER_URL = 'http://resolver.onename.com'
-ALL_USERS_ENDPOINT = '/v2/users'
+    return
 
-BLOCKCHAIN_STATE_FILE = "data/blockchain_state.json"
-DHT_STATE_FILE = "data/dht_state.json"
+if __name__ == "__main__":
+
+    create_twitter_payment_index()

@@ -23,22 +23,17 @@ This file is part of Search.
     along with Search. If not, see <http://www.gnu.org/licenses/>.
 """
 
-DEBUG = True
+from pymongo import MongoClient
 
-MEMCACHED_ENABLED = False
-LUCENE_ENABLED = False
+client = MongoClient()
+search_db = client['search_db']
+search_cache = client['search_cache']
 
-DEFAULT_PORT = 5000
-DEFAULT_HOST = '127.0.0.1'
+namespace = search_db.namespace
+profile_data = search_db.profile_data
 
-BULK_INSERT_LIMIT = 1000
-DEFAULT_LIMIT = 50
-MEMCACHED_TIMEOUT = 6 * 60 * 60
-
-
-
-RESOLVER_URL = 'http://resolver.onename.com'
-ALL_USERS_ENDPOINT = '/v2/users'
-
-BLOCKCHAIN_STATE_FILE = "data/blockchain_state.json"
-DHT_STATE_FILE = "data/dht_state.json"
+# these are used by substring_search
+search_profiles = search_db.profiles
+people_cache = search_cache.people_cache
+twitter_cache = search_cache.twitter_cache
+username_cache = search_cache.username_cache

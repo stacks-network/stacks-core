@@ -33,6 +33,7 @@ from flask import request, jsonify, Flask, make_response
 
 from .config import DEFAULT_HOST, DEFAULT_PORT, DEBUG, MEMCACHED_TIMEOUT
 from .config import DEFAULT_LIMIT
+from .config import MEMCACHED_ENABLED, LUCENE_ENABLED
 
 from .substring_search import search_people_by_name, search_people_by_twitter
 from .substring_search import search_people_by_username, search_people_by_bio
@@ -123,12 +124,14 @@ def search_by_name():
     elif query == '' or query == ' ':
         return json.dumps({})
 
-    cache_key = str('search_cache_' + query.lower())
-    cache_reply = mc.get(cache_key)
+    if MEMCACHED_ENABLED:
 
-    # if a cache hit, respond straight away
-    if(cache_reply is not None):
-        return jsonify(cache_reply)
+        cache_key = str('search_cache_' + query.lower())
+        cache_reply = mc.get(cache_key)
+
+        # if a cache hit, respond straight away
+        if(cache_reply is not None):
+            return jsonify(cache_reply)
 
     new_limit = DEFAULT_LIMIT
 
@@ -146,12 +149,16 @@ def search_by_name():
         t1 = QueryThread(query, 'username_search', new_limit)
         t2 = QueryThread(query, 'twitter_search', new_limit)
         t3 = QueryThread(query, 'people_search', new_limit)
-        t4 = QueryThread(query, 'lucene_search', new_limit)
+
+        if LUCENE_ENABLED:
+            t4 = QueryThread(query, 'lucene_search', new_limit)
 
         threads.append(t1)
         threads.append(t2)
         threads.append(t3)
-        threads.append(t4)
+
+        if LUCENE_ENABLED:
+            threads.append(t4)
 
         # start all threads
         [x.start() for x in threads]
@@ -164,9 +171,13 @@ def search_by_name():
         results_username = t1.results
         results_twitter = t2.results
         results_people = t3.results
-        results_bio = t4.results
 
-        results_people += results_username + results_twitter + results_people + results_bio
+        if LUCENE_ENABLED:
+            results_bio = t4.results
+
+        results_people += results_username + results_twitter
+        if LUCENE_ENABLED:
+            results_people += results_bio
 
         # dedup all results before sending out
         from substring_search import dedup_search_results
@@ -175,8 +186,8 @@ def search_by_name():
     results = {}
     results['results'] = results_people[:new_limit]
 
-    # print results
-    mc.set(cache_key, results, int(time() + MEMCACHED_TIMEOUT))
+    if MEMCACHED_ENABLED:
+        mc.set(cache_key, results, int(time() + MEMCACHED_TIMEOUT))
 
     return jsonify(results)
 

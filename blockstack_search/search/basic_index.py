@@ -37,18 +37,9 @@ from .utils import get_json, log
 from .config import RESOLVER_URL, ALL_USERS_ENDPOINT
 from .config import BLOCKCHAIN_STATE_FILE, DHT_STATE_FILE
 
-client = MongoClient()
-search_db = client['search_db']
-search_cache = client['search_cache']
-
-namespace = search_db.namespace
-profile_data = search_db.profile_data
-
-search_profiles = search_db.profiles
-
-people_cache = search_cache.people_cache
-twitter_cache = search_cache.twitter_cache
-username_cache = search_cache.username_cache
+from .db import namespace, profile_data
+from .db import search_profiles
+from .db import people_cache, twitter_cache, username_cache
 
 
 def get_namespace_from_resolver(url=RESOLVER_URL, endpoint=ALL_USERS_ENDPOINT):
@@ -239,25 +230,23 @@ def create_search_index():
 
 if __name__ == "__main__":
 
-    # Step 0
-    # flush_db()
-
-    # Step 1
-    #fetch_dht_state_from_file()
-
-    # Step 2
-    #fetch_namespace_from_file()
-
-    # Step 3
-    create_search_index()
-    exit(0)
-
     if(len(sys.argv) < 2):
         print "Usage error"
 
     option = sys.argv[1]
 
-    if(option == '--create_index'):
+    if(option == '--flush'):
+        # Step 0
+        flush_db()
+
+    elif(option == '--create_namespace'):
+        # Step 2
+        fetch_dht_state_from_file()
+        fetch_namespace_from_file()
+
+    elif(option == '--create_index'):
+        # Step 3
         create_search_index()
+
     else:
         print "Usage error"
