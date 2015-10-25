@@ -25,12 +25,17 @@ This file is part of Search.
 
 DEBUG = True
 
+MEMCACHED_ENABLED = False
+LUCENE_ENABLED = False
+
 DEFAULT_PORT = 5000
 DEFAULT_HOST = '127.0.0.1'
 
 BULK_INSERT_LIMIT = 1000
 DEFAULT_LIMIT = 50
 MEMCACHED_TIMEOUT = 6 * 60 * 60
+
+
 
 RESOLVER_URL = 'http://resolver.onename.com'
 ALL_USERS_ENDPOINT = '/v2/users'
