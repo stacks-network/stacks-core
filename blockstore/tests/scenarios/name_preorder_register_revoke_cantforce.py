@@ -59,6 +59,10 @@ def check( state_engine ):
     if name_rec is None:
         return False 
 
+    # owned 
+    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[3].addr):
+        return False 
+
     # NOT revoked 
     if name_rec['revoked']:
         return False 
