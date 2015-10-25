@@ -23,26 +23,7 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
 debug = True
 
-"""
-all_consensus_hashes = {}
-
-def log_consensus( **kw ):
-
-    global all_consensus_hashes 
-
-    block_id = testlib.get_current_block( **kw ) 
-    ch = testlib.get_consensus_at( block_id, **kw )
-    all_consensus_hashes[ block_id ] = ch
-
-snapshots_dir = None
-"""
-
 def scenario( wallets, **kw ):
-
-    # temporary directory for holding snapshots 
-
-    global snapshots_dir
-    snapshots_dir = tempfile.mkdtemp( prefix='blockstore-test-databases-' )
 
     # make a test namespace
     resp = testlib.blockstore_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
@@ -141,9 +122,6 @@ def scenario( wallets, **kw ):
 
 def check( state_engine ):
 
-    global all_consensus_hashes 
-    global snapshots_dir
-
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "test" )
     if ns is not None:
@@ -178,12 +156,12 @@ def check( state_engine ):
         if name_rec is None:
             return False 
 
-        # updated, and data is preserved
-        if name_rec['value_hash'] != str(i+1) * 40:
+        # updated, and data is gone
+        if name_rec['value_hash'] is not None:
             return False 
 
         # owned by the right transfer wallet 
-        if name_rec['address'] != name_transfer_wallet.addr:
+        if name_rec['address'] != name_transfer_wallet.addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(name_transfer_wallet.addr):
             return False
 
         # revoked 
