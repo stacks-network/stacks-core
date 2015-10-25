@@ -25,11 +25,6 @@ debug = True
 
 def scenario( wallets, **kw ):
 
-    # temporary directory for holding snapshots 
-
-    global snapshots_dir
-    snapshots_dir = tempfile.mkdtemp( prefix='blockstore-test-databases-' )
-
     # make a test namespace
     resp = testlib.blockstore_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     if debug or 'error' in resp:
@@ -115,9 +110,6 @@ def scenario( wallets, **kw ):
 
 def check( state_engine ):
 
-    global all_consensus_hashes 
-    global snapshots_dir
-
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "test" )
     if ns is not None:
@@ -145,23 +137,28 @@ def check( state_engine ):
         # not preordered
         preorder = state_engine.get_name_preorder( name, pybitcoin.make_pay_to_address_script(name_preorder_wallet.addr), name_register_wallet.addr )
         if preorder is not None:
+            print "%s still preordered" % name
             return False
         
         # registered 
         name_rec = state_engine.get_name( name )
         if name_rec is None:
+            print "not registered %s" % name
             return False 
 
-        # updated, and data is preserved
-        if name_rec['value_hash'] != str(i+1) * 40:
+        # updated, and data is gone (since revoked)
+        if name_rec['value_hash'] is not None:
+            print "invalid value hash %s: %s" % (name, name_rec['value_hash'])
             return False 
 
         # owned by the right transfer wallet 
-        if name_rec['address'] != name_transfer_wallet.addr:
+        if name_rec['address'] != name_transfer_wallet.addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(name_transfer_wallet.addr):
+            print "%s owned by %s" % (name, name_transfer_wallet.addr)
             return False
 
         # revoked 
         if not name_rec['revoked']:
+            print "%s not revoked" % name
             return False 
 
     return True
