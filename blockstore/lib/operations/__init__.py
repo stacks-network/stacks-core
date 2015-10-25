@@ -80,30 +80,4 @@ SERIALIZE_FIELDS = {
 }
 
 
-def is_name_valid( fqn ):
-    """
-    Is a fully-qualified name acceptable?
-    Return True if so
-    Return False if not
-    """
-
-    if fqn.count( "." ) != 1:
-        return False
-
-    name, namespace_id = fqn.split(".")
-
-    if not is_b40( name ) or "+" in name or "." in name:
-        return False 
-
-    if not is_b40( namespace_id ) or "+" in namespace_id or "." in namespace_id:
-        return False
-    
-    name_hex = binascii.hexlify(name)
-    if len(name_hex) > LENGTHS['blockchain_id_name'] * 2:
-       # too long
-       return False 
-
-    return True
-
-
 
