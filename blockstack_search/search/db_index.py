@@ -27,15 +27,22 @@ This file is part of Search.
 """
 
 import requests
-
-from search.config import RESOLVER_URL, ALL_USERS_ENDPOINT
-from search.utils import validUsername
-from search.utils import get_json, log
+import json
 
 from pymongo import MongoClient
+
+from .utils import validUsername
+from .utils import get_json, log
+
+from .config import RESOLVER_URL, ALL_USERS_ENDPOINT
+from .config import BLOCKCHAIN_STATE_FILE, DHT_STATE_FILE
+
 client = MongoClient()
 search_db = client['search_db']
 search_cache = client['search_cache']
+
+namespace = search_db.namespace
+profile_data = search_db.profile_data
 
 search_profiles = search_db.profiles
 
@@ -55,8 +62,70 @@ def get_namespace_from_resolver(url=RESOLVER_URL, endpoint=ALL_USERS_ENDPOINT):
     return r.json()['results']
 
 
-def get_namespace_from_file():
+def fetch_dht_state_from_file():
+    """ takes dht state from file and saves in profile_data DB
+    """
 
+    dht_file = open(DHT_STATE_FILE, 'r')
+
+    dht_state = dht_file.read()
+    dht_state = json.loads(dht_state)
+
+    counter = 0
+
+    for entry in dht_state:
+
+        new_entry = {}
+        new_entry['key'] = entry['key']
+        new_entry['value'] = entry['value']
+
+        profile_data.save(new_entry)
+
+        counter += 1
+
+        print counter
+
+    dht_file.close()
+
+    profile_data.ensure_index('key')
+
+    return
+
+
+def fetch_namespace_from_file():
+
+    blockchain_file = open(BLOCKCHAIN_STATE_FILE, 'r')
+
+    blockchain_state = blockchain_file.read()
+    blockchain_state = json.loads(blockchain_state)
+    blockchain_state = blockchain_state['registrations']
+
+    counter = 0
+
+    for entry in blockchain_state:
+
+        new_entry = {}
+
+        username = entry.rstrip('id')
+        username = username.rstrip('.')
+
+        key = blockchain_state[entry]['value_hash']
+
+        check_entry = profile_data.find_one({"key": key})
+
+        if check_entry is None:
+
+            # data not in DHT, skip
+            continue
+
+        new_entry['username'] = username
+        new_entry['profile'] = check_entry['value']
+        namespace.save(new_entry)
+        counter += 1
+
+        print counter
+
+    blockchain_file.close()
     return
 
 
@@ -123,7 +192,6 @@ def create_search_index(namespace):
         else:
             search_profile['name'] = None
 
-
         if 'twitter' in profile:
             twitter_handle = profile['twitter']
 
@@ -168,6 +236,14 @@ def create_search_index(namespace):
 
 
 if __name__ == "__main__":
+
+    # Step 1
+    # fetch_dht_state_from_file()
+
+    # Step 2
+    fetch_namespace_from_file()
+
+    exit(0)
 
     if(len(sys.argv) < 2):
         print "Usage error"

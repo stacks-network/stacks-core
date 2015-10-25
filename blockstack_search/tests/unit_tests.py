@@ -23,17 +23,37 @@ This file is part of Search.
     along with Search. If not, see <http://www.gnu.org/licenses/>.
 """
 
-DEBUG = True
+import os
+import sys
+import json
+import unittest
 
-DEFAULT_PORT = 5000
-DEFAULT_HOST = '127.0.0.1'
+from pymongo import MongoClient
 
-BULK_INSERT_LIMIT = 1000
-DEFAULT_LIMIT = 50
-MEMCACHED_TIMEOUT = 6 * 60 * 60
+# Hack around absolute paths
+current_dir = os.path.abspath(os.path.dirname(__file__))
+parent_dir = os.path.abspath(current_dir + "/../")
+sys.path.insert(0, parent_dir)
 
-RESOLVER_URL = 'http://resolver.onename.com'
-ALL_USERS_ENDPOINT = '/v2/users'
+from search.db_index import namespace
 
-BLOCKCHAIN_STATE_FILE = "data/blockchain_state.json"
-DHT_STATE_FILE = "data/dht_state.json"
+test_users = ['muneeb.id', 'fredwilson.id']
+
+
+class SearchTestCase(unittest.TestCase):
+
+    def tearDown(self):
+        pass
+
+    def test_namespace_state(self):
+        """ Check if namespace was correctly fetched
+        """
+
+        for entry in namespace.find():
+
+            self.assertIsNotNone(entry['profile'], msg="Error in fetching profile")
+
+
+if __name__ == '__main__':
+
+    unittest.main()

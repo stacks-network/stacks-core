@@ -30,10 +30,10 @@ This file is part of Search.
 import sys
 import json
 
-from server.db_index import search_db, search_profiles
-from server.db_index import search_cache
+from .db_index import search_db, search_profiles
+from .db_index import search_cache
 
-from config import DEFAULT_LIMIT
+from .config import DEFAULT_LIMIT
 
 
 def anyword_substring_search_inner(query_word, target_words):
