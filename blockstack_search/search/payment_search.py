@@ -23,15 +23,94 @@ This file is part of Search.
     along with Search. If not, see <http://www.gnu.org/licenses/>.
 """
 
-
+import json
 import requests
 
-from .db import namespace
+from proofchecker import profile_to_proofs
+from pybitcoin import is_b58check_address
+
+from .db import search_db
+from .db import namespace, twitter_payment
+
+
+def flush_collection():
+
+    search_db.drop_collection('twitter_payment')
+
+
+def get_btc_address(profile):
+
+    addressValid = False
+
+    if 'bitcoin' in profile:
+
+        try:
+            btc_address = profile['bitcoin']
+            btc_address = btc_address['address']
+        except:
+            pass
+
+    try:
+        addressValid = is_b58check_address(str(btc_address))
+    except Exception as e:
+        pass
+
+    if addressValid:
+        return btc_address
+    else:
+        return None
 
 
 def create_twitter_payment_index():
 
-    return
+    counter = 0
+
+    for entry in namespace.find():
+
+        profile = json.loads(entry['profile'])
+
+        btc_address = get_btc_address(profile)
+
+        if btc_address is None:
+            continue
+        else:
+            print btc_address
+            continue
+
+        if 'twitter' in profile:
+
+            try:
+                twitter_handle = profile['twitter']
+            except:
+                continue
+
+            if 'proof' not in twitter_handle:
+                continue
+
+            proofs = profile_to_proofs(profile, entry['username'])
+
+            for proof in proofs:
+                if 'service' in proof and proof['service'] == 'twitter':
+                    if proof['valid']:
+                        print proof
+
+            counter += 1
+            continue
+
+            try:
+                twitter_handle = twitter_handle['username'].lower()
+            except:
+                try:
+                    twitter_handle = profile['twitter'].lower()
+                except:
+                    continue
+
+            if twitter_handle != '':
+                print twitter_handle
+                counter += 1
+
+    print counter
+
 
 if __name__ == "__main__":
 

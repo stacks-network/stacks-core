@@ -23,7 +23,7 @@ This file is part of Search.
     along with Search. If not, see <http://www.gnu.org/licenses/>.
 """
 
-""" create the DB index
+""" create the basic index
 """
 
 import requests
