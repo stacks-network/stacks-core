@@ -41,3 +41,6 @@ username_cache = search_cache.username_cache
 
 # these are used by payment_search
 twitter_payment = search_db.twitter_payment
+facebook_payment = search_db.facebook_payment
+github_payment = search_db.github_payment
+domain_payment = search_db.domain_payment
