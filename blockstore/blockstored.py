@@ -354,22 +354,24 @@ def broadcast_subsidized_tx( subsidized_tx ):
     return response
 
 
-def blockstore_name_preorder( name, privatekey, register_addr, tx_only=False, pay_fee=True, subsidy_key=None, public_key=None, testset=False, consensus_hash=None ):
+def blockstore_name_preorder( name, privatekey, register_addr, tx_only=False, subsidy_key=None, testset=False, consensus_hash=None ):
     """
     Preorder a name.
     
     @name: the name to preorder 
     @register_addr: the address that will own the name upon registration 
-    @privatekey: the private key that will pay for the preorder. Can be None if we're subsidizing (in which case subsidy_key and public_key are required)
+    @privatekey: the private key that will pay for the preorder. Can be None if we're subsidizing (in which case subsidy_key is required)
     @tx_only: if True, then return only the unsigned serialized transaction.  Do not broadcast it.
     @pay_fee: if False, then return a subsidized serialized transaction, where we have signed our 
     inputs/outputs with SIGHASH_ANYONECANPAY.  The caller will need to sign their input and then 
     broadcast it.
-    
+    @subsidy_key: if given, then this transaction will be subsidized with this key and returned (but not broadcasted)
+    This forcibly sets tx_only=True and pay_fee=False.
+
     Return a JSON object on success.
     Return a JSON object with 'error' set on error.
     """
-    
+   
     blockstore_opts = default_blockstore_opts( virtualchain.get_config_filename(), testset=testset )
     
     # are we doing our initial indexing?
@@ -402,23 +404,40 @@ def blockstore_name_preorder( name, privatekey, register_addr, tx_only=False, pa
     name_fee = get_name_cost( name )
         
     log.debug("The price of '%s' is %s satoshis" % (name, name_fee))
-    
+   
+    if privatekey is not None:
+        privatekey = str(privatekey)
+
+    public_key = None
+    if subsidy_key is not None:
+        subsidy_key = str(subsidy_key)
+        tx_only = True
+
+        # the sender will be the subsidizer (otherwise it will be the given private key's owner)
+        public_key = BitcoinPrivateKey( subsidy_key ).public_key().to_hex()
+
     try:
         resp = preorder_name(str(name), privatekey, str(register_addr), str(consensus_hash), blockchain_client_inst, \
-            name_fee, testset=blockstore_opts['testset'], pay_fee=pay_fee, public_key=public_key, tx_only=tx_only)
+            name_fee, testset=blockstore_opts['testset'], subsidy_public_key=public_key, tx_only=tx_only )
     except:
         return json_traceback()
 
-    if tx_only and not pay_fee and subsidy_key is not None:
-        # subsidize the transaction 
-        resp = make_subsidized_tx( resp['unsigned_tx'], preorder_fees, blockstore_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
-        
+    if subsidy_key is not None:
+        # sign each input
+        inputs, outputs, _, _ = tx_deserialize( resp['unsigned_tx'] )
+        tx_signed = tx_serialize_and_sign( inputs, outputs, subsidy_key )
+
+        resp = {
+            'subsidized_tx': tx_signed
+        }
+
+
     log.debug('preorder <%s, %s, %s>' % (name, privatekey, consensus_hash))
 
     return resp
 
 
-def blockstore_name_register( name, privatekey, register_addr, renewal_fee=None, tx_only=False, pay_fee=True, subsidy_key=None, public_key=None, testset=False, consensus_hash=None ):
+def blockstore_name_register( name, privatekey, register_addr, renewal_fee=None, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
     """
     Register or renew a name
     
@@ -457,23 +476,40 @@ def blockstore_name_register( name, privatekey, register_addr, renewal_fee=None,
     if db.is_name_registered( name ) and renewal_fee is None:
         # *must* be given, so we don't accidentally charge
         return {"error": "Name already registered"}
-    
+   
+    public_key = None
+    if subsidy_key is not None:
+        subsidy_key = str(subsidy_key)
+        tx_only = True
+
+        # the sender will be the subsidizer (otherwise it will be the given private key's owner)
+        public_key = BitcoinPrivateKey( subsidy_key ).public_key().to_hex()
+
     try:
         resp = register_name(str(name), privatekey, str(register_addr), blockchain_client_inst, renewal_fee=renewal_fee, \
-            tx_only=tx_only, pay_fee=pay_fee, blockchain_broadcaster=broadcaster_client_inst, testset=blockstore_opts['testset'], \
-            public_key=public_key )
+            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, testset=blockstore_opts['testset'], \
+            subsidy_public_key=public_key, user_public_key=user_public_key )
     except:
         return json_traceback()
     
-    if tx_only and not pay_fee and subsidy_key is not None:
-        # subsidize the transaction 
+    if subsidy_key is not None and renewal_fee is not None:
         resp = make_subsidized_tx( resp['unsigned_tx'], registration_fees, blockstore_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
-        
+    
+    elif subsidy_key is not None:
+        # sign each input
+        inputs, outputs, _, _ = tx_deserialize( resp['unsigned_tx'] )
+        tx_signed = tx_serialize_and_sign( inputs, outputs, subsidy_key )
+
+        resp = {
+            'subsidized_tx': tx_signed
+        }
+
+
     log.debug("name register/renew: %s" % name)
     return resp
 
 
-def blockstore_name_update( name, data_hash, privatekey, tx_only=False, pay_fee=True, public_key=None, subsidy_key=None, testset=False, consensus_hash=None ):
+def blockstore_name_update( name, data_hash, privatekey, tx_only=False, user_public_key=None, subsidy_key=None, testset=False, consensus_hash=None ):
     """
     Update a name with new data.
     
@@ -515,11 +551,11 @@ def blockstore_name_update( name, data_hash, privatekey, tx_only=False, pay_fee=
 
     try:
         resp = update_name(str(name), str(data_hash), str(consensus_hash), privatekey, blockchain_client_inst, \
-            tx_only=tx_only, pay_fee=pay_fee, blockchain_broadcaster=broadcaster_client_inst, public_key=public_key, testset=blockstore_opts['testset'])
+            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, user_public_key=user_public_key, testset=blockstore_opts['testset'])
     except:
         return json_traceback()
 
-    if tx_only and not pay_fee and subsidy_key is not None:
+    if subsidy_key is not None:
         # subsidize the transaction 
         resp = make_subsidized_tx( resp['unsigned_tx'], update_fees, blockstore_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
     
@@ -527,7 +563,7 @@ def blockstore_name_update( name, data_hash, privatekey, tx_only=False, pay_fee=
     return resp
 
 
-def blockstore_name_transfer( name, address, keepdata, privatekey, public_key=None, subsidy_key=None, tx_only=False, pay_fee=True, testset=False, consensus_hash=None ):
+def blockstore_name_transfer( name, address, keepdata, privatekey, user_public_key=None, subsidy_key=None, tx_only=False, testset=False, consensus_hash=None ):
     """
     Transfer a name to a new address.
     
@@ -566,14 +602,20 @@ def blockstore_name_transfer( name, address, keepdata, privatekey, public_key=No
     
     if blockchain_client_inst is None:
         return {"error": "Failed to connect to blockchain UTXO provider"}
-    
+   
+    if type(keepdata) != bool:
+        if str(keepdata) == "True":
+            keepdata = True 
+        else:
+            keepdata = False
+
     try:
-        resp = transfer_name(str(name), str(address), bool(keepdata), str(consensus_hash), privatekey, blockchain_client_inst, \
-            tx_only=tx_only, pay_fee=pay_fee, blockchain_broadcaster=broadcaster_client_inst, public_key=public_key, testset=blockstore_opts['testset'])
+        resp = transfer_name(str(name), str(address), keepdata, str(consensus_hash), privatekey, blockchain_client_inst, \
+            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, user_public_key=user_public_key, testset=blockstore_opts['testset'])
     except:
         return json_traceback()
 
-    if tx_only and not pay_fee and subsidy_key is not None:
+    if subsidy_key is not None:
         # subsidize the transaction 
         resp = make_subsidized_tx( resp['unsigned_tx'], transfer_fees, blockstore_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
  
@@ -582,7 +624,7 @@ def blockstore_name_transfer( name, address, keepdata, privatekey, public_key=No
     return resp
 
 
-def blockstore_name_renew( name, privatekey, tx_only=False, pay_fee=True, subsidy_key=None, public_key=None, testset=False, consensus_hash=None ):
+def blockstore_name_renew( name, privatekey, register_addr=None, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
     """
     Renew a name
     
@@ -606,14 +648,19 @@ def blockstore_name_renew( name, privatekey, tx_only=False, pay_fee=True, subsid
     if name_rec is None:
         return {"error": "Name is not registered"}
     
-    # renew to the caller
-    register_addr = name_rec['address']
+    # renew to the caller (should be the same as the sender)
+    if register_addr is None:
+        register_addr = name_rec['address']
+
+    if str(register_addr) != str(pybitcoin.BitcoinPrivateKey( privatekey ).public_key().address()):
+        return {"error": "Only the name's owner can send a renew request"}
+
     renewal_fee = get_name_cost( name )
     
-    return blockstore_name_register( name, privatekey, register_addr, renewal_fee=renewal_fee, tx_only=tx_only, pay_fee=pay_fee, subsidy_key=subsidy_key, public_key=public_key, testset=testset )
+    return blockstore_name_register( name, privatekey, register_addr, renewal_fee=renewal_fee, tx_only=tx_only, subsidy_key=subsidy_key, user_public_key=user_public_key, testset=testset )
 
 
-def blockstore_name_revoke( name, privatekey, tx_only=False, pay_fee=True, subsidy_key=None, public_key=None, testset=False, consensus_hash=None ):
+def blockstore_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
     """
     Revoke a name and all its data.
     
@@ -643,11 +690,12 @@ def blockstore_name_revoke( name, privatekey, tx_only=False, pay_fee=True, subsi
     
     try:
         resp = revoke_name(str(name), privatekey, blockchain_client_inst, \
-            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, public_key=public_key, testset=blockstore_opts['testset'])
+            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, \
+            user_public_key=user_public_key, testset=blockstore_opts['testset'])
     except:
         return json_traceback()
     
-    if tx_only and not pay_fee and subsidy_key is not None:
+    if subsidy_key is not None:
         # subsidize the transaction 
         resp = make_subsidized_tx( resp['unsigned_tx'], revoke_fees, blockstore_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
 
@@ -900,18 +948,18 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         return blockstore_name_preorder( str(name), str(privatekey), str(register_addr), tx_only=True, testset=self.testset )
     
     
-    def jsonrpc_preorder_tx_subsidized( self, name, public_key, register_addr, subsidy_key ):
+    def jsonrpc_preorder_tx_subsidized( self, name, user_public_key, register_addr, subsidy_key ):
         """
         Generate a transaction that preorders a name, but without paying fees.
         @name is the name to preorder 
         @register_addr is the address of the key pair that will own the name 
-        public_key is the client's public key that will sign the preorder transaction
+        @public_key is the client's public key that will sign the preorder transaction
         (it must be *different* from the register_addr keypair)
         
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
         """
-        return blockstore_name_preorder( str(name), None, str(register_addr), tx_only=True, pay_fee=False, subsidy_key=str(subsidy_key), public_key=str(public_key), testset=self.testset )
+        return blockstore_name_preorder( str(name), None, str(register_addr), tx_only=True, subsidy_key=str(subsidy_key), user_public_key=str(user_public_key), testset=self.testset )
     
     
     def jsonrpc_register( self, name, privatekey, register_addr ):
@@ -942,7 +990,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         return blockstore_name_register( str(name), str(privatekey), str(register_addr), tx_only=True, testset=self.testset )
     
     
-    def jsonrpc_register_tx_subsidized( self, name, public_key, register_addr, subsidy_key ):
+    def jsonrpc_register_tx_subsidized( self, name, user_public_key, register_addr, subsidy_key ):
         """
         Generate a subsidizable transaction that will register a name
         @name is the name to register 
@@ -953,7 +1001,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
         """
-        return blockstore_name_register( str(name), None, str(register_addr), tx_only=True, pay_fee=False, public_key=str(public_key), subsidy_key=str(subsidy_key), testset=self.testset )
+        return blockstore_name_register( str(name), None, str(register_addr), tx_only=True, public_key=str(user_public_key), subsidy_key=str(subsidy_key), testset=self.testset )
     
     
     def jsonrpc_update( self, name, data_hash, privatekey ):
@@ -982,7 +1030,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         return blockstore_name_update( str(name), str(data_hash), str(privatekey), tx_only=True, testset=self.testset )
     
     
-    def jsonrpc_update_tx_subsidized( self, name, data_hash, public_key, subsidy_key ):
+    def jsonrpc_update_tx_subsidized( self, name, data_hash, user_public_key, subsidy_key ):
         """
         Generate a subsidizable transaction that will update a name's name record hash.
         @name is the name to update 
@@ -992,7 +1040,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
         """
-        return blockstore_name_update( str(name), str(data_hash), None, public_key=str(public_key), subsidy_key=str(subsidy_key), tx_only=True, pay_fee=False, testset=self.testset )
+        return blockstore_name_update( str(name), str(data_hash), None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
     
     
     def jsonrpc_transfer( self, name, address, keepdata, privatekey ):
@@ -1007,7 +1055,15 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Returns a JSON object with the transaction ID on success.
         Returns a JSON object with 'error' on error.
         """
-        return blockstore_name_transfer( str(name), str(address), bool(keepdata), str(privatekey), testset=self.testset )
+
+        # coerce boolean 
+        if type(keepdata) != bool:
+            if str(keepdata) == "True":
+                keepdata = True 
+            else:
+                keepdata = False
+
+        return blockstore_name_transfer( str(name), str(address), keepdata, str(privatekey), testset=self.testset )
     
     
     def jsonrpc_transfer_tx( self, name, address, keepdata, privatekey ):
@@ -1022,10 +1078,18 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
         """
-        return blockstore_name_transfer( str(name), str(address), bool(keepdata), str(privatekey), tx_only=True, testset=self.testset )
+        
+        # coerce boolean 
+        if type(keepdata) != bool:
+            if str(keepdata) == "True":
+                keepdata = True 
+            else:
+                keepdata = False
+
+        return blockstore_name_transfer( str(name), str(address), keepdata, str(privatekey), tx_only=True, testset=self.testset )
     
     
-    def jsonrpc_transfer_tx_subsidized( self, name, address, keepdata, public_key, subsidy_key ):
+    def jsonrpc_transfer_tx_subsidized( self, name, address, keepdata, user_public_key, subsidy_key ):
         """
         Generate a subsidizable transaction that will transfer a name to a new address
         @name is the name to transfer 
@@ -1037,7 +1101,15 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
         """
-        return blockstore_name_transfer( str(name), str(address), bool(keepdata), None, public_key=str(public_key), subsidy_key=str(subsidy_key), tx_only=True, pay_fee=False, testset=self.testset )
+
+        # coerce boolean 
+        if type(keepdata) != bool:
+            if str(keepdata) == "True":
+                keepdata = True 
+            else:
+                keepdata = False
+
+        return blockstore_name_transfer( str(name), str(address), keepdata, None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
     
    
     def jsonrpc_renew( self, name, privatekey ):
@@ -1064,7 +1136,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         return blockstore_name_renew( str(name), str(privatekey), tx_only=True, testset=self.testset )
     
     
-    def jsonrpc_renew_tx_subsidized( self, name, public_key, subsidy_key ):
+    def jsonrpc_renew_tx_subsidized( self, name, user_public_key, subsidy_key ):
         """
         Generate a subsidizable transaction that will register a name
         @name is the name to renew 
@@ -1073,7 +1145,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
         """
-        return blockstore_name_renew( name, None, public_key=str(public_key), subsidy_key=str(subsidy_key), tx_only=True, pay_fee=False, testset=self.testset )
+        return blockstore_name_renew( name, None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
     
     
     def jsonrpc_revoke( self, name, privatekey ):
@@ -1109,7 +1181,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
         """
-        return blockstore_name_revoke( str(name), None, public_key=str(public_key), subsidy_key=str(subsidy_key), tx_only=True, pay_fee=False, testset=self.testset )
+        return blockstore_name_revoke( str(name), None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
     
     
     def jsonrpc_name_import( self, name, recipient_address, update_hash, privatekey ):
@@ -1597,7 +1669,7 @@ def clean( testset=False, confirm=True ):
     sys.exit(exit_status)
 
 
-def rec_to_virtualchain_op( name_rec, block_number, untrusted_db, testset=False ):
+def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db, testset=False ):
     """
     Given a record from the blockstore database,
     convert it into a virtualchain operation to 
@@ -1625,7 +1697,25 @@ def rec_to_virtualchain_op( name_rec, block_number, untrusted_db, testset=False 
         # reconstruct the registration op...
         ret_op['recipient'] = str(name_rec['sender'])
         ret_op['recipient_address'] = str(name_rec['address'])
-        ret_op['sender'] = pybitcoin.make_pay_to_address_script( pybitcoin.BitcoinPublicKey( str(name_rec['sender_pubkey']) ).address() )
+
+        # restore history to find prevoius sender and address
+        untrusted_name_rec = untrusted_db.get_name( str(name_rec['name']) )
+        name_rec['history'] = untrusted_name_rec['history']
+
+        if history_index > 0:
+            print "restore from %s" % block_number
+            name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number )[ history_index - 1 ]
+        else:
+            print "restore from %s" % (block_number - 1)
+            name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number - 1 )[ history_index - 1 ]
+
+        sender = name_rec_prev['sender']
+        address = name_rec_prev['address']
+
+        ret_op['sender'] = sender
+        ret_op['address'] = address
+
+        del name_rec['history']
 
     elif opcode_name == "NAME_UPDATE":
         data_hash = None
@@ -1638,11 +1728,13 @@ def rec_to_virtualchain_op( name_rec, block_number, untrusted_db, testset=False 
 
     elif opcode_name == "NAME_TRANSFER": 
 
-        # reconstruct the transport op...
-        if name_rec['value_hash'] is None:
-            name_rec['keep_data'] = False 
+        # reconstruct the transfer op...
+        
+        KEEPDATA_OP = "%s%s" % (NAME_TRANSFER, TRANSFER_KEEP_DATA)
+        if name_rec['op'] == KEEPDATA_OP:
+            name_rec['keep_data'] = True
         else:
-            name_rec['keep_data'] = True 
+            name_rec['keep_data'] = False
 
         # what was the previous owner?
         recipient = str(name_rec['sender'])
@@ -1653,7 +1745,11 @@ def rec_to_virtualchain_op( name_rec, block_number, untrusted_db, testset=False 
         name_rec['history'] = untrusted_name_rec['history']
 
         # get previous owner
-        name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number - 1 )
+        if history_index > 0:
+            name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number )[history_index - 1]
+        else:
+            name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number - 1 )[history_index - 1]
+
         sender = name_rec_prev['sender']
         address = name_rec_prev['address']
 
@@ -1663,10 +1759,13 @@ def rec_to_virtualchain_op( name_rec, block_number, untrusted_db, testset=False 
 
         name_rec['sender'] = sender
         name_rec['address'] = address
+        name_rec['consensus_hash'] = untrusted_db.get_consensus_at( block_number - 1 )
 
         name_rec_script = build_transfer( str(name_rec['name']), name_rec['keep_data'], str(name_rec['consensus_hash']), testset=testset )
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         ret_op = parse_transfer(name_rec_payload, name_rec['recipient'] )
+
+        del name_rec['history']
 
     elif opcode_name == "NAME_REVOKE":
         name_rec_script = build_revoke( str(name_rec['name']), testset=testset )
@@ -1677,20 +1776,14 @@ def rec_to_virtualchain_op( name_rec, block_number, untrusted_db, testset=False 
         name_rec_script = build_name_import( str(name_rec['name']), testset=testset )
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         
-        # restore history 
-        untrusted_name_rec = untrusted_db.get_name( str(name_rec['name']) )
-        name_rec['history'] = untrusted_name_rec['history']
-
-        # reconstruct recipient and sender 
-        name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number - 1 )
-        name_rec['sender'] = name_rec_prev['sender']    # name importer
-        name_rec['address'] = name_rec_prev['address']
-        name_rec['recipient'] = name_rec_prev['recipient']
-        name_rec['recipient_address'] = name_rec_prev['recipient_address']
-
-        ret_op = parse_name_import( name_rec_payload, name_rec['recipient'], name_rec['value_hash'] )
+        # reconstruct recipient and importer
+        name_rec['recipient'] = str(name_rec['sender'])
+        name_rec['recipient_address'] = str(name_rec['address'])
+        name_rec['sender'] = str(name_rec['importer'])
+        name_rec['address'] = str(name_rec['importer_address'])
         
-
+        ret_op = parse_name_import( name_rec_payload, str(name_rec['recipient']), str(name_rec['value_hash']) )
+      
     elif opcode_name == "NAMESPACE_PREORDER":
         name_rec_script = build_namespace_preorder( None, None, None, str(name_rec['consensus_hash']), namespace_id_hash=str(name_rec['namespace_id_hash']), testset=testset )
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
@@ -1755,8 +1848,33 @@ def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_pa
 
     for block_id in xrange( start_block, consensus_block_id+1 ):
 
-        # all operations at this block
+        # all sequences of operations at this block, in tx order
         nameops = untrusted_db.get_all_nameops_at( block_id )
+        virtualchain_ops = []
+
+        # each name record has its own history, and their interleaving in tx order
+        # is what makes up nameops.  However, when restoring a name record to 
+        # a previous state, we need to know the *relative* order of operations
+        # that changed it during this block.  This is called the history index,
+        # and it maps names to a dict, which maps the the virtual tx index (vtxindex)
+        # to integer h such that nameops[name][vtxindex] is the hth update to the name
+        # record.
+
+        history_index = {}
+        for i in xrange(0, len(nameops)):
+            nameop = nameops[i]
+
+            if 'name' not in nameop.keys():
+                continue
+
+            name = str(nameop['name'])
+            if name not in history_index.keys():
+                history_index[name] = { i: 0 }
+
+            else:
+                history_index[name][i] = max( history_index[name].values() ) + 1
+
+
         for i in xrange(0, len(nameops)):
 
             # only trusted fields
@@ -1765,7 +1883,12 @@ def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_pa
             if consensus_fields is None:
                 raise Exception("BUG: no consensus fields defined for '%s'" % opcode_name )
 
-            # remove virtualchain-related fields--they won't be trusted
+            # coerse string, not unicode
+            for k in nameops[i].keys():
+                if type(nameops[i][k]) == unicode:
+                    nameops[i][k] = str(nameops[i][k])
+
+            # remove virtualchain-specific fields--they won't be trusted
             nameops[i] = working_db.sanitize_op( nameops[i] )
 
             for field in nameops[i].keys():
@@ -1778,17 +1901,22 @@ def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_pa
                     del nameops[i][field]
 
             try:
-                # generate virtualchain op
-                nameops[i] = rec_to_virtualchain_op( nameops[i], block_id, untrusted_db )
+                # recover virtualchain op from name record
+                h = 0
+                if 'name' in nameops[i]:
+                    if nameops[i]['name'] in history_index:
+                        h = history_index[ nameops[i]['name'] ][i]
+
+                virtualchain_op = rec_to_virtualchain_op( nameops[i], block_id, h, untrusted_db )
             except:
                 print json.dumps( nameops[i], indent=4 )
                 raise
 
-        # filter dead ops 
-        nameops = filter( lambda x: x is not None, nameops )
+            if virtualchain_op is not None:
+                virtualchain_ops.append( virtualchain_op )
 
         # feed ops to virtualchain to try to reconstruct the db at this block
-        consensus_hash = working_db.process_block( block_id, nameops )
+        consensus_hash = working_db.process_block( block_id, virtualchain_ops )
         log.debug("VERIFY CONSENSUS(%s): %s" % (block_id, consensus_hash))
 
         consensus_hashes[block_id] = consensus_hash 
@@ -1874,11 +2002,14 @@ def run_blockstored():
       help='required if the daemon is using the testing set of name operations')
    
    parser = subparsers.add_parser(
-      'verify',
-      help='verify an untrusted database against a known-good consensus hash')
+      'importdb',
+      help='verify an untrusted database against a known-good consensus hash, and import it if it is valid')
    parser.add_argument(
       'consensus_hash',
       help='the known-good consensus hash')
+   parser.add_argument(
+      'block_id',
+      help='the block ID of the known-good consensus hash')
    parser.add_argument(
       'db_path',
       help='the path to the database file')
@@ -1926,8 +2057,18 @@ def run_blockstored():
    elif args.action == 'indexer':
       run_indexer( testset=args.testset )
 
-   elif args.action == 'verify':
-      verify_database( args.consensus_hash, args.db_path )
+   elif args.action == 'importdb':
+      rc = verify_database( args.consensus_hash, int(args.block_id), args.db_path )
+      if rc:
+          # success!
+          db_path = virtualchain.get_db_filename()
+
+          if os.path.exists( db_path ):
+              print "Backing up existing database to %s.bak" % db_path
+              shutil.move( db_path, db_path + ".bak" )
+
+          print "Importing database from %s" % args.path_db
+          shutil.move( args.path_db, db_path )
 
 if __name__ == '__main__':
     
