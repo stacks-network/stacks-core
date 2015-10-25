@@ -136,7 +136,7 @@ def register_user():
 
 
 @app.route('/v1/search', methods=['GET'])
-@auth_required(exception_queries=['fredwilson', 'wenger'])
+#@auth_required(exception_queries=['fredwilson', 'wenger'])
 @parameters_required(parameters=['query'])
 @crossdomain(origin='*')
 def search_people():
@@ -158,7 +158,7 @@ def search_people():
 
 
 @app.route('/v1/search/payment', methods=['GET'])
-@auth_required(exception_queries=['twitter:albertwenger', 'github:muneeb-ali'])
+#@auth_required(exception_queries=['twitter:albertwenger', 'github:muneeb-ali'])
 @parameters_required(parameters=['query'])
 @crossdomain(origin='*')
 def search_payment():
