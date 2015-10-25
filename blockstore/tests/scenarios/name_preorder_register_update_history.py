@@ -88,15 +88,6 @@ def check( state_engine ):
     if name_rec['value_hash'] != '13' * 20:
         return False 
 
-    """
-    for i in xrange( name_rec['first_registered'] - 2, name_rec['first_registered'] + 25 ):
-        print "At block %s" % i
-        print json.dumps( state_engine.get_name_at('foo.test', i ), indent=4 )
-
-    print "whole object"
-    print json.dumps( state_engine.name_records['foo.test'], indent=4 )
-    """
-
     # name didn't exist before its preorder
     before_registration = state_engine.get_name_at( "foo.test", name_rec['first_registered'] - 2 )
     if before_registration is not None:
@@ -105,7 +96,7 @@ def check( state_engine ):
         return False 
 
     # name was preordered just prior to its registration 
-    preorder = state_engine.get_name_at( "foo.test", name_rec['block_number'] )
+    preorder = state_engine.get_name_at( "foo.test", name_rec['block_number'] )[0]
     if preorder is None:
         print "no preorder"
         return False
@@ -118,7 +109,7 @@ def check( state_engine ):
         return False
 
     # name existed at the first point of its registration
-    at_registration = state_engine.get_name_at( "foo.test", name_rec['first_registered'] )
+    at_registration = state_engine.get_name_at( "foo.test", name_rec['first_registered'] )[0]
     if at_registration is None:
         print "at_registration is None"
         return False 
