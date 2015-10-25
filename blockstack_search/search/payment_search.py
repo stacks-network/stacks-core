@@ -27,15 +27,23 @@ import json
 import requests
 
 from proofchecker import profile_to_proofs
+from proofchecker import contains_valid_proof_statement
+from proofchecker.domain import get_proof_from_txt_record
+
 from pybitcoin import is_b58check_address
 
 from .db import search_db
-from .db import namespace, twitter_payment
+from .db import namespace
+from .db import twitter_payment, facebook_payment
+from .db import github_payment, domain_payment
 
 
 def flush_collection():
 
     search_db.drop_collection('twitter_payment')
+    search_db.drop_collection('facebook_payment')
+    search_db.drop_collection('github_payment')
+    search_db.drop_collection('domain_payment')
 
 
 def get_btc_address(profile):
@@ -108,9 +116,161 @@ def create_twitter_payment_index():
                             print counter
 
 
+def create_facebook_payment_index():
+
+    counter = 0
+
+    for entry in namespace.find():
+
+        profile = json.loads(entry['profile'])
+
+        btc_address = get_btc_address(profile)
+
+        # if no valid btc address, ignore
+        if btc_address is None:
+            continue
+
+        if 'facebook' in profile:
+
+            try:
+                facebook_username = profile['facebook']
+            except:
+                continue
+
+            if 'proof' not in facebook_username:
+                continue
+
+            proofs = profile_to_proofs(profile, entry['username'])
+
+            for proof in proofs:
+                if 'service' in proof and proof['service'] == 'facebook':
+                    if proof['valid']:
+                        #print proof
+                        new_entry = {}
+                        new_entry['username'] = entry['username']
+                        new_entry['facebook_username'] = proof['identifier'].lower()
+                        new_entry['profile'] = profile
+
+                        check_entry = facebook_payment.find_one({"facebook_username": new_entry['facebook_username']})
+
+                        if check_entry is not None:
+                            print "already in index"
+                        else:
+                            print new_entry
+                            facebook_payment.save(new_entry)
+
+                            counter += 1
+                            print counter
+
+
+def create_github_payment_index():
+
+    counter = 0
+
+    for entry in namespace.find():
+
+        profile = json.loads(entry['profile'])
+
+        btc_address = get_btc_address(profile)
+
+        # if no valid btc address, ignore
+        if btc_address is None:
+            continue
+
+        if 'github' in profile:
+
+            try:
+                github_username = profile['github']
+            except:
+                continue
+
+            if 'proof' not in github_username:
+                continue
+
+            proofs = profile_to_proofs(profile, entry['username'])
+
+            for proof in proofs:
+                if 'service' in proof and proof['service'] == 'github':
+                    if proof['valid']:
+                        #print proof
+                        new_entry = {}
+                        new_entry['username'] = entry['username']
+                        new_entry['github_username'] = proof['identifier'].lower()
+                        new_entry['profile'] = profile
+
+                        check_entry = github_payment.find_one({"github_username": new_entry['github_username']})
+
+                        if check_entry is not None:
+                            print "already in index"
+                        else:
+                            print new_entry
+                            github_payment.save(new_entry)
+
+                            counter += 1
+                            print counter
+
+
+def create_domain_payment_index():
+
+    TEST_DOMAIN_VERIFICATIONS = ['muneeb', 'blockstack']
+
+    counter = 0
+
+    for entry in namespace.find():
+
+        if entry['username'] not in TEST_DOMAIN_VERIFICATIONS:
+            continue
+
+        profile = json.loads(entry['profile'])
+
+        btc_address = get_btc_address(profile)
+
+        # if no valid btc address, ignore
+        if btc_address is None:
+            continue
+
+        if 'website' in profile:
+
+            try:
+                website_url = profile['website']
+            except:
+                continue
+
+            print website_url
+
+            domain = website_url.lstrip('https')
+            domain = domain.lstrip('://')
+            domain = domain.lstrip('www')
+            domain = domain.lstrip('.')
+
+            print domain
+
+            proof_txt = get_proof_from_txt_record(domain)
+
+            validProof = contains_valid_proof_statement(proof_txt, entry['username'])
+
+            if validProof:
+
+                new_entry = {}
+                new_entry['username'] = entry['username']
+                new_entry['domain_url'] = domain
+                new_entry['profile'] = profile
+
+                check_entry = domain_payment.find_one({"domain_url": new_entry['domain_url']})
+
+                if check_entry is not None:
+                    print "already in index"
+                else:
+                    print new_entry
+                    domain_payment.save(new_entry)
+
+                    counter += 1
+                    print counter
+
+
 def search_payment(query):
 
-    data = {}
+    data = []
 
     query = query.rsplit(':')
 
@@ -122,18 +282,70 @@ def search_payment(query):
 
     if query_type == 'twitter':
 
-        check_entry = twitter_payment.find_one({"twitter_handle": query_keyword})
+        check_entry = twitter_payment.find({"twitter_handle": query_keyword})
 
-        if check_entry is not None:
-            del check_entry['twitter_handle']
-            del check_entry['_id']
-            return check_entry
+        for entry in check_entry:
+            new_result = {}
+            new_result[entry['username']] = entry['profile']
+            data.append(new_result)
 
-    return data
+        return data
+
+    elif query_type == 'facebook':
+
+        check_entry = facebook_payment.find({"facebook_username": query_keyword})
+
+        for entry in check_entry:
+            new_result = {}
+            new_result[entry['username']] = entry['profile']
+            data.append(new_result)
+
+        return data
+
+    elif query_type == 'github':
+
+        check_entry = github_payment.find({"github_username": query_keyword})
+
+        for entry in check_entry:
+            new_result = {}
+            new_result[entry['username']] = entry['profile']
+            data.append(new_result)
+
+        return data
+
+    elif query_type == 'domain':
+
+        check_entry = domain_payment.find({"domain_url": query_keyword})
+
+        for entry in check_entry:
+            new_result = {}
+            new_result[entry['username']] = entry['profile']
+            data.append(new_result)
+
+        return data
 
 
 if __name__ == "__main__":
 
-    #flush_collection()
+    if(len(sys.argv) < 2):
+        print "Usage error"
 
-    create_twitter_payment_index()
+    option = sys.argv[1]
+
+    if(option == '--flush'):
+        flush_collection()
+
+    elif(option == '--create_twitter'):
+        create_twitter_payment_index()
+
+    elif(option == '--create_faceboook'):
+        create_facebook_payment_index()
+
+    elif(option == '--create_github'):
+        create_github_payment_index()
+
+    elif(option == '--create_domain'):
+        create_domain_payment_index()
+
+    else:
+        print "Usage error"
