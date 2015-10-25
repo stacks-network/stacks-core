@@ -85,7 +85,11 @@ def get_proofs(username, profile):
     check_proofs = proofs_cache.find_one({"username": username})
 
     if check_proofs is None:
-        proofs = profile_to_proofs(profile, username)
+
+        try:
+            proofs = profile_to_proofs(profile, username)
+        except:
+            proofs = []
 
         new_entry = {}
         new_entry['username'] = username
