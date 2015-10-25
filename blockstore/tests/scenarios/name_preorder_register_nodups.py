@@ -27,10 +27,15 @@ def scenario( wallets, **kw ):
 
     testlib.blockstore_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.blockstore_name_preorder( "foo.test", wallets[4].privkey, wallets[5].addr )
+    testlib.blockstore_name_preorder( "foo.test", wallets[0].privkey, wallets[1].addr )
+    testlib.blockstore_name_preorder( "foo.test", wallets[5].privkey, wallets[2].addr )
     testlib.next_block( **kw )
 
+    # all of these should fail, since they're in the same block
     testlib.blockstore_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.blockstore_name_register( "foo.test", wallets[4].privkey, wallets[5].addr )
+    testlib.blockstore_name_register( "foo.test", wallets[0].privkey, wallets[1].addr )
+    testlib.blockstore_name_register( "foo.test", wallets[5].privkey, wallets[2].addr )
     testlib.next_block( **kw )
 
 def check( state_engine ):
@@ -47,7 +52,7 @@ def check( state_engine ):
     if ns['namespace_id'] != 'test':
         return False 
 
-    # both preordered
+    # all preordered
     preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
     if preorder is None:
         return False
@@ -56,7 +61,15 @@ def check( state_engine ):
     if preorder is None:
         return False 
 
-    # neither registered 
+    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[0].addr), wallets[1].addr )
+    if preorder is None:
+        return False
+    
+    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[5].addr), wallets[2].addr )
+    if preorder is None:
+        return False
+    
+    # neone registered 
     name = state_engine.get_name( "foo.test" )
     if name is not None:
         return False 
