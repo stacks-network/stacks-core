@@ -147,11 +147,9 @@ def optimize_db():
     search_db.profiles.ensure_index('username')
 
 
-def create_search_index(namespace):
+def create_search_index():
     """ takes people names from blockchain and writes deduped names in a 'cache'
     """
-
-    flush_db()
 
     # create people name cache
     counter = 0
@@ -160,7 +158,7 @@ def create_search_index(namespace):
     twitter_handles = []
     usernames = []
 
-    for user in namespace:
+    for user in namespace.find():
 
         # the profile/info to be inserted
         search_profile = {}
@@ -179,7 +177,11 @@ def create_search_index(namespace):
         profile = get_json(user['profile'])
 
         if 'name' in profile:
-            name = profile['name']
+
+            try:
+                name = profile['name']
+            except:
+                continue
 
             try:
                 name = name['formatted'].lower()
@@ -237,12 +239,17 @@ def create_search_index(namespace):
 
 if __name__ == "__main__":
 
+    # Step 0
+    # flush_db()
+
     # Step 1
-    # fetch_dht_state_from_file()
+    #fetch_dht_state_from_file()
 
     # Step 2
-    fetch_namespace_from_file()
+    #fetch_namespace_from_file()
 
+    # Step 3
+    create_search_index()
     exit(0)
 
     if(len(sys.argv) < 2):

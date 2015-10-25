@@ -107,10 +107,9 @@ def search_people_by_name(query, limit_results=DEFAULT_LIMIT):
 
     query = query.lower()
 
-    # using mongodb as a cache, load data in people_names
-
     people_names = []
 
+    # using mongodb as a cache, load data in people_names
     for i in search_cache.people_cache.find():
         people_names += i['name']
 

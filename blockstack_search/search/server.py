@@ -23,28 +23,28 @@ This file is part of Search.
     along with Search. If not, see <http://www.gnu.org/licenses/>.
 """
 
+import sys
+import json
+import threading
+import pylibmc
+
+from time import time
 from flask import request, jsonify, Flask, make_response
+
+from .config import DEFAULT_HOST, DEFAULT_PORT, DEBUG, MEMCACHED_TIMEOUT
+from .config import DEFAULT_LIMIT
+
+from .substring_search import search_people_by_name, search_people_by_twitter
+from .substring_search import search_people_by_username, search_people_by_bio
+from .substring_search import fetch_profiles
+
 
 app = Flask(__name__)
 
-from config import DEFAULT_HOST, DEFAULT_PORT, DEBUG, MEMCACHED_TIMEOUT
-import json
-from time import time
-
-import sys
-from config import DEFAULT_LIMIT
-
-import pylibmc
 mc = pylibmc.Client(["127.0.0.1:11211"], binary=True,
                     behaviors={'tcp_nodelay': True,
                                'connect_timeout': 100,
                                'no_block': True})
-
-import threading
-
-from substring_search import search_people_by_name, search_people_by_twitter
-from substring_search import search_people_by_username, search_people_by_bio
-from substring_search import fetch_profiles
 
 
 class QueryThread(threading.Thread):
@@ -111,7 +111,7 @@ def test_alphanumeric(query):
     return True
 
 
-@app.route('/search/name')
+@app.route('/search')
 def search_by_name():
 
     query = request.args.get('query')
@@ -123,7 +123,7 @@ def search_by_name():
     elif query == '' or query == ' ':
         return json.dumps({})
 
-    cache_key = str('onename_cache_' + query.lower())
+    cache_key = str('search_cache_' + query.lower())
     cache_reply = mc.get(cache_key)
 
     # if a cache hit, respond straight away
