@@ -71,10 +71,8 @@ def create_twitter_payment_index():
 
         btc_address = get_btc_address(profile)
 
+        # if no valid btc address, ignore
         if btc_address is None:
-            continue
-        else:
-            print btc_address
             continue
 
         if 'twitter' in profile:
@@ -92,26 +90,50 @@ def create_twitter_payment_index():
             for proof in proofs:
                 if 'service' in proof and proof['service'] == 'twitter':
                     if proof['valid']:
-                        print proof
+                        #print proof
+                        new_entry = {}
+                        new_entry['username'] = entry['username']
+                        new_entry['twitter_handle'] = proof['identifier'].lower()
+                        new_entry['profile'] = profile
 
-            counter += 1
-            continue
+                        check_entry = twitter_payment.find_one({"twitter_handle": new_entry['twitter_handle']})
 
-            try:
-                twitter_handle = twitter_handle['username'].lower()
-            except:
-                try:
-                    twitter_handle = profile['twitter'].lower()
-                except:
-                    continue
+                        if check_entry is not None:
+                            print "already in index"
+                        else:
+                            print new_entry
+                            twitter_payment.save(new_entry)
 
-            if twitter_handle != '':
-                print twitter_handle
-                counter += 1
+                            counter += 1
+                            print counter
 
-    print counter
+
+def search_payment(query):
+
+    data = {}
+
+    query = query.rsplit(':')
+
+    try:
+        query_type = query[0]
+        query_keyword = query[1].lower()
+    except:
+        return data
+
+    if query_type == 'twitter':
+
+        check_entry = twitter_payment.find_one({"twitter_handle": query_keyword})
+
+        if check_entry is not None:
+            del check_entry['twitter_handle']
+            del check_entry['_id']
+            return check_entry
+
+    return data
 
 
 if __name__ == "__main__":
+
+    #flush_collection()
 
     create_twitter_payment_index()
