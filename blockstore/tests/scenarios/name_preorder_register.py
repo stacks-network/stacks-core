@@ -55,4 +55,8 @@ def check( state_engine ):
     if name_rec is None:
         return False 
 
+    # owned by
+    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[3].addr):
+        return False 
+
     return True
