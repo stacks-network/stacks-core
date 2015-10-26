@@ -312,7 +312,10 @@ def default_blockstore_opts( config_file=None, testset=False ):
          utxo_provider = parser.get('blockstore', 'utxo_provider')
       
       if parser.has_option('blockstore', 'testset'):
-         testset = bool(parser.get('blockstore', 'testset'))
+         if parser.get('blockstore', 'testset').lower() in ['y', 'yes', 'true']:
+            testset = True
+         else:
+            testset = False
          
       if parser.has_option('blockstore', 'testset_first_block'):
          testset_first_block = int( parser.get('blockstore', 'testset_first_block') )
