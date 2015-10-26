@@ -1236,6 +1236,9 @@ class BlockstoreDB( virtualchain.StateEngine ):
                  "history_snapshot": True
               }]
 
+              if 'consensus_hash' in name_rec.keys():
+                  prior_history[ preorder['block_number'] ][0]['consensus_hash'] = name_rec['consensus_hash']
+
 
           name_record = {
             'name': name,
@@ -1319,7 +1322,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
           self.block_name_expires[ expires ].append( name )
 
       # save diff
-      self.save_name_diff( name, current_block_number, ['last_renewed', 'txid', 'vtxindex', 'op', 'opcode'] )
+      self.save_name_diff( name, current_block_number, ['last_renewed', 'txid', 'vtxindex', 'op', 'opcode', 'consensus_hash'] )
       
       # apply diff
       self.name_records[name]['last_renewed'] = current_block_number
@@ -1327,6 +1330,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
       self.name_records[name]['vtxindex'] = nameop['vtxindex']
       self.name_records[name]['op'] = op
       self.name_records[name]['opcode'] = nameop['opcode']
+      if self.name_records.has_key('consensus_hash'):
+          del self.name_records['consensus_hash']
 
       # propagate information back to virtualchian for snapshotting
       nameop.update( self.name_records[name] )
@@ -1388,7 +1393,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       log.debug("Name '%s': %s >%s %s" % (name, sender, op, recipient))
        
       # save diff 
-      changed = ['sender', 'address', 'txid', 'vtxindex', 'opcode', 'op', 'sender_pubkey']
+      changed = ['sender', 'address', 'txid', 'vtxindex', 'opcode', 'op', 'sender_pubkey', 'consensus_hash']
       if not keep_data:
           changed.append( 'value_hash' )
          
@@ -1429,7 +1434,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       op = NAME_REVOKE
       
       # save diff 
-      self.save_name_diff( name, current_block_number, ['revoked', 'txid', 'vtxindex', 'opcode', 'op', 'value_hash'] )
+      self.save_name_diff( name, current_block_number, ['revoked', 'txid', 'vtxindex', 'opcode', 'op', 'value_hash', 'consensus_hash'] )
       
       # apply diff
       self.name_records[name]['revoked'] = True
@@ -1483,6 +1488,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
             'vtxindex',
             'importer',
             'importer_address',
+            'consensus_hash'
           ]
 
           # save diff
