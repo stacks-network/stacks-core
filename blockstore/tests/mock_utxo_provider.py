@@ -28,10 +28,11 @@ class MockUTXOProvider(object):
     def __init__(self, bitcoind ):
         
         self.unspents = {}  # map address to unspent outputs
+        self.tx_addrs = {}  # map txid to list of addresses
         self.bitcoind = bitcoind
 
         # crawl blocks and build up utxo set 
-        for i in xrange( bitcoind.getstartblock(), bitcoind.getblockcount() ):
+        for i in xrange( bitcoind.getstartblock(), bitcoind.getblockcount()+1 ):
             block_hash = bitcoind.getblockhash( i )
             block = bitcoind.getblock( block_hash )
             txids = block['tx']
@@ -41,13 +42,14 @@ class MockUTXOProvider(object):
                # synchronize utxos
                self.broadcast_transaction( tx, utxos_only=True )
 
-    
+
     def get_unspents( self, address ):
         """
         Get UTXOs for an address.
         Returns a list of transaction outputs.
         """
         return self.unspents.get(address, [])
+
 
     def broadcast_transaction( self, hex_tx, utxos_only=False ):
         """
@@ -56,18 +58,24 @@ class MockUTXOProvider(object):
         and optionally forward the tx along to the mock bitcoind
         connection.'
 
+        NOTE: assumes that the tx outputs use *only* pay-to-pubkey-hash scripts.
+
         Return {"transaction_hash": txid}
         """
 
         # update the current unspent set.
         inputs, outputs, locktime, version = tx_deserialize( hex_tx )
-        
+        txid = mock_bitcoind.make_txid( hex_tx )
+
         for i in xrange(0, len(outputs)):
 
-            txid = mock_bitcoind.make_txid( hex_tx )
             out = outputs[i]
             value = out['value']
             script_hex = out['script_hex']
+
+            if value < DEFAULT_DUST_FEE and script_hex[0:2].lower() != '6a':
+                # non-OP_RETURN insufficent fee
+                raise Exception("Value of %s[vout][%s] is %s" % (txid, i, value))
 
             utxo = {
                "transaction_hash": txid,
@@ -76,6 +84,7 @@ class MockUTXOProvider(object):
                "script_hex": script_hex,
             }
 
+            # NOTE: assumes p2pkh
             addr = pybitcoin.script_hex_to_address( script_hex )
             if not self.unspents.has_key( addr ):
                 self.unspents[addr] = [utxo]
@@ -86,7 +95,11 @@ class MockUTXOProvider(object):
             
             transaction_hash = inp['transaction_hash']
             output_index = inp['output_index']
+
+            # NOTE: we don't check the signature; just verify that it's there
             script_sig = inp.get('script_sig', None)
+            if script_sig is None or len(script_sig) == 0:
+                raise Exception("Unsigned input for output %s in tx %s" % (output_index, transaction_hash))
 
             if transaction_hash == '00' * 32:
                 # coinbase transaction.  ignore.
@@ -101,16 +114,17 @@ class MockUTXOProvider(object):
             if output_index >= len(ref_outputs):
                 raise Exception("Invalid output index (%s) for %s-length inputs" % (output_index, len(ref_outputs)))
 
+            # NOTE: assumes p2pkh
             ref_out = ref_outputs[output_index]
             ref_addr = pybitcoin.script_hex_to_address( ref_out['script_hex'] ) 
 
             # unspent output was consumed by this transaction
-            if self.unspents.has_key( ref_addr):
+            if self.unspents.has_key( ref_addr ):
                 for utxo in self.unspents[ref_addr]:
                     if utxo['transaction_hash'] == transaction_hash:
                         self.unspents[ref_addr].remove( utxo )
-                        break
-        
+
+
         if not utxos_only:
             self.bitcoind.sendrawtransaction( hex_tx )
 
