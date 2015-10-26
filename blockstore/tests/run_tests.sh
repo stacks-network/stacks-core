@@ -29,23 +29,29 @@ while IFS= read SCENARIO_FILE; do
    SCENARIO_MODULE_BASE="$(echo "$SCENARIO_FILE" | sed 's/\.py//g')"
    SCENARIO_MODULE="$SCENARIOS_PYTHON.$SCENARIO_MODULE_BASE"
 
-   echo -n "$SCENARIO_MODULE ... "
 
    TESTDIR="/tmp/blockstore-test"
 
-   mkdir -p "$TESTDIR"
-   ./run_scenario.py "$SCENARIO_MODULE" "$TESTDIR" > "$OUTPUTS/$SCENARIO_MODULE_BASE.log" 2>&1
+   if ! [ -f "$OUTPUTS/$SCENARIO_MODULE_BASE.log" ]; then 
+   
+      echo -n "$SCENARIO_MODULE ... "
 
-   RC=$?
+      mkdir -p "$TESTDIR"
+      ./run_scenario.py "$SCENARIO_MODULE" "$TESTDIR" > "$OUTPUTS/$SCENARIO_MODULE_BASE.log" 2>&1
 
-   if [ $RC -eq 0 ]; then 
-      echo " SUCCESS"
-      rm -rf "$TESTDIR"
+      RC=$?
 
-   else
-      echo " FAILURE"
-      mv "$TESTDIR" "$OUTPUTS/$SCENARIO_MODULE_BASE.d"
-   fi
+      if [ $RC -eq 0 ]; then 
+         echo " SUCCESS"
+         rm -rf "$TESTDIR"
+
+      else
+         echo " FAILURE"
+         mv "$TESTDIR" "$OUTPUTS/$SCENARIO_MODULE_BASE.d"
+         exit 1
+      fi
+    fi
+
 done <<EOF
 $(ls "$SCENARIOS")
 EOF
