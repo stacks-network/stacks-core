@@ -207,6 +207,13 @@ class MockBitcoindConnection( object ):
         inputs, outputs, locktime, version = tx_deserialize( tx_hex )
         self.next_block_txs.append( tx_hex )
 
+    
+    def decoderawtransaction( self, tx_hex ):
+        """
+        Decode a raw transaction, as bitcoind would.
+        """
+        return btc_decoderawtransaction_compat( tx_hex )
+
 
     def get_num_pending_transactions( self ):
         """
@@ -506,6 +513,7 @@ def btc_decoderawtransaction_compat( tx_hex ):
 
         vout_out = {
             "value": float(out['value']) / 10e7,
+            "mock_bitcoind_value_satoshi": out['value'],  # NOTE: extra
             "n": i,
             "scriptPubKey": {
                 'asm': btc_decoderawtransaction_script_hex_to_asm( out['script_hex'] ),
