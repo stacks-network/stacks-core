@@ -31,6 +31,10 @@ import unittest
 from basicrpc import Proxy
 from pymongo import MongoClient
 
+import pybitcoin
+from pybitcoin import BlockcypherClient
+from pybitcoin.services.blockcypher import get_unspents
+
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
@@ -41,6 +45,9 @@ from registrar.nameops import get_dht_profile
 
 from registrar.network import get_bs_client, get_dht_client
 
+from registrar.config import BLOCKCYPHER_TOKEN
+
+from registrar.utils import satoshis_to_btc, get_address_from_pvtkey
 
 test_users = ['muneeb.id', 'fredwilson.id']
 
@@ -108,6 +115,31 @@ class RegistrarTestCase(unittest.TestCase):
             profile = json.loads(profile)
 
             self.assertIsInstance(profile, dict, msg="Profile not found")
+
+    def test_inputs(self):
+        """ Check if BTC key being used has enough inputs
+        """
+
+        from registrar.config import BTC_PRIV_KEY
+        btc_address = get_address_from_pvtkey(BTC_PRIV_KEY)
+
+        #print "Testing address: %s" % btc_address
+
+        client = BlockcypherClient(api_key=BLOCKCYPHER_TOKEN)
+
+        unspents = get_unspents(btc_address, client)
+
+        total_satoshis = 0
+        counter = 0
+        for unspent in unspents:
+
+            counter += 1
+            total_satoshis += unspent['value']
+
+        btc_amount = satoshis_to_btc(total_satoshis)
+        btc_amount = float(btc_amount)
+
+        self.assertGreater(btc_amount, 0.01, msg="Don't have enough inputs in btc address")
 
 if __name__ == '__main__':
 
