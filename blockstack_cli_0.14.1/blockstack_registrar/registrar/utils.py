@@ -23,6 +23,7 @@ This file is part of Registrar.
 
 import json
 from pybitcoin import hex_hash160, address_to_new_cryptocurrency
+from pybitcoin import BitcoinPrivateKey
 
 from .config import email_regrex
 
@@ -67,3 +68,15 @@ def check_banned_email(email):
 def nmc_to_btc_address(nmc_address):
 
     return address_to_new_cryptocurrency(str(nmc_address), 0)
+
+
+def get_address_from_pvtkey(hex_pvtkey):
+
+    priv = BitcoinPrivateKey(hex_pvtkey)
+    pub = priv.public_key()
+    return pub.address()
+
+
+def satoshis_to_btc(satoshis):
+
+    return satoshis * 0.00000001
