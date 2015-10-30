@@ -181,7 +181,25 @@ def get_state_engine():
    """
    return get_db_state()
    
-   
+ 
+def get_lastblock():
+    """ 
+    Get the last block processed.
+    """
+    lastblock_filename = virtualchain.get_lastblock_filename()
+    if not os.path.exists( lastblock_filename ):
+        return None 
+
+    try:
+        with open(lastblock_filename, "r") as f:
+           lastblock_txt = f.read()
+
+        lastblock = int(lastblock_txt.strip())
+        return lastblock
+    except:
+        return None
+ 
+
 def get_index_range():
     """
     Get the bitcoin block index range.
@@ -873,8 +891,8 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Lookup the blockchain-derived profile for a name.
         """
         
-        blockstore_state_engine = get_state_engine()
-        name_record = blockstore_state_engine.get_name( name )
+        db = get_state_engine()
+        name_record = db.get_name( str(name) )
         
         if name_record is None:
            if is_indexing():
@@ -890,8 +908,8 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         """
         Get the sequence of name operations processed for a given name.
         """
-        blockstore_state_engine = get_state_engine()
-        name_history = blockstore_state_engine.get_name_history( name, start_block, end_block )
+        db = get_state_engine()
+        name_history = db.get_name_history( name, start_block, end_block )
         
         if name_history is None:
             if is_indexing():
@@ -902,6 +920,18 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         else:
             return name_history
         
+    
+    def jsonrpc_get_nameops_at( self, block_id ):
+        """
+        Get the sequence of names and namespaces altered at the given block.
+        Used by SNV clients.
+        """
+        blockstore_state_engine = get_state_engine()
+        ops = blockstore_state_engine.get_all_nameops_at( block_id )
+        if ops is None:
+            ops = []
+        return {'result': ops}
+
 
     def jsonrpc_getinfo(self):
         """
@@ -917,7 +947,21 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         db = get_state_engine()
         reply['consensus'] = db.get_current_consensus()
         reply['blocks'] = db.get_current_block()
+        reply['blockstore_version'] = "%s.%s" % (VERSION, BLOCKSTORE_VERSION)
+        reply['testset'] = str(self.testset)
         return reply
+
+
+    def jsonrpc_get_names_owned_by_address(self, address):
+        """
+        Get the list of names owned by an address.
+        Valid only for names with p2pkh sender scripts.
+        """
+        blockstore_state_engine = get_state_engine()
+        names = blockstore_state_engine.get_names_owned_by_address( address )
+        if names is None:
+            names = []
+        return {'result': names}
 
 
     def jsonrpc_preorder( self, name, privatekey, register_addr ):
@@ -1361,7 +1405,7 @@ def stop_server():
     """
     Stop the blockstored server.
     """
-    global indexer_pid 
+    global indexer_pid
     
     # Quick hack to kill a background daemon
     pid_file = get_pidfile_path()
@@ -1449,6 +1493,7 @@ def run_server( testset=False, foreground=False ):
     access_log_file = get_logfile_path() + ".access"
     indexer_log_file = get_logfile_path() + ".indexer"
     pid_file = get_pidfile_path()
+    working_dir = virtualchain.get_working_dir()
     
     start_block, current_block = get_index_range()
     
@@ -1456,16 +1501,18 @@ def run_server( testset=False, foreground=False ):
     
     if os.path.exists("./%s" % argv0 ):
         if testset:
-            indexer_command = ("%s indexer --testset" % (os.path.join( os.getcwd(), argv0))).split()
+            indexer_command = ("%s indexer --testset --working-dir=%s" % (os.path.join( os.getcwd(), argv0), working_dir)).split()
         else:
-            indexer_command = ("%s indexer" % (os.path.join( os.getcwd(), argv0))).split()
+            indexer_command = ("%s indexer --working-dir=%s" % (os.path.join( os.getcwd(), argv0), working_dir)).split()
     else:
         # hope its in the $PATH
         if testset:
-            indexer_command = ("%s indexer --testset" % argv0).split()
+            indexer_command = ("%s indexer --testset --working-dir=%s" % (argv0, working_dir)).split()
         else:
-            indexer_command = ("%s indexer" % argv0).split()
-    
+            indexer_command = ("%s indexer --working-dir=%s" % (argv0, working_dir)).split()
+   
+    log.debug("Start indexer: '%s'" % (' '.join(indexer_command)))
+
     logfile = None
     if not foreground:
 
@@ -1530,8 +1577,8 @@ def run_server( testset=False, foreground=False ):
         # bring us up to speed 
         set_indexing( True )
     
-        blockstore_state_engine = get_state_engine()
-        virtualchain.sync_virtualchain( bt_opts, current_block, blockstore_state_engine )
+        db = get_state_engine()
+        virtualchain.sync_virtualchain( bt_opts, current_block, db )
         
         set_indexing( False )
     
@@ -1563,7 +1610,7 @@ def run_server( testset=False, foreground=False ):
     return blockstored.returncode 
 
 
-def setup( testset=False, return_parser=False ):
+def setup( working_dir=None, testset=False, return_parser=False ):
    """
    Do one-time initialization.
    Call this to set up global state and set signal handlers.
@@ -1583,15 +1630,40 @@ def setup( testset=False, return_parser=False ):
    global dht_opts
    
    # set up our implementation 
+   if working_dir is not None:
+       if not os.path.exists( working_dir ):
+           os.makedirs( working_dir, 0700 )
+
+       blockstore_state_engine.working_dir = working_dir
+
    virtualchain.setup_virtualchain( blockstore_state_engine, testset=testset )
+
+   testset_path = get_testset_filename( working_dir )
+   if testset:
+       # flag testset so our subprocesses see it
+       if not os.path.exists( testset_path ):
+           with open( testset_path, "w+" ) as f:
+              pass
+
+   else:
+       # flag not set 
+       if os.path.exists( testset_path ):
+           os.unlink( testset_path )
    
    # acquire configuration, and store it globally
    blockstore_opts, bitcoin_opts, utxo_opts, dht_opts = configure( interactive=True, testset=testset )
-   
-   # ensure testset intent
-   if blockstore_opts['testset'] != testset:
-       raise Exception("Blockstore configured to run with testset=%s, but given testset=%s via command-line" % (blockstore_opts['testset'], testset))
-   
+
+   # do we need to enable testset?
+   if blockstore_opts['testset']:
+       virtualchain.setup_virtualchain( blockstore_state_engine, testset=True )
+       testset = True
+
+   # if we're using the mock UTXO provider, then switch to the mock bitcoind node as well
+   if utxo_opts['utxo_provider'] == 'mock_utxo':
+       import tests.mock_bitcoind
+       virtualchain.setup_virtualchain( blockstore_state_engine, testset=testset, bitcoind_connection_factory=tests.mock_bitcoind.connect_mock_bitcoind )
+       virtualchain.connect_bitcoind = tests.mock_bitcoind.connect_mock_bitcoind
+
    # merge in command-line bitcoind options 
    config_file = virtualchain.get_config_filename()
    
@@ -1638,6 +1710,7 @@ def clean( testset=False, confirm=True ):
     
     if confirm:
         warning = "WARNING: THIS WILL DELETE YOUR BLOCKSTORE DATABASE!\n"
+        warning+= "Database: '%s'\n" % blockstore_state_engine.working_dir
         warning+= "Are you sure you want to proceed?\n"
         warning+= "Type 'YES' if so: "
         value = raw_input( warning )
@@ -1810,27 +1883,34 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
     return merged_ret_op
 
 
-def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_path, working_db_path=None, start_block=None, testset=False ):
+def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, resume_dir=None, start_block=None, testset=False ):
     """
-    Verify that a database is consistent with a 
-    known-good consensus hash.
+    Given a target block ID and a path to an (untrusted) db, reconstruct it in a temporary directory by
+    replaying all the nameops it contains.
 
-    This algorithm works by creating a new database,
-    parsing the untrusted database, and feeding the untrusted 
-    operations into the new database block-by-block.  If we
-    derive the same consensus hash, then we can trust the 
-    database.
+    Return the consensus hash calculated at the target block.
     """
-
-    if start_block is None:
-        start_block = virtualchain.get_first_block_id()
 
     # reconfigure the virtualchain to use a temporary directory,
     # so we don't interfere with this instance's primary database
-    working_dir = tempfile.mkdtemp( prefix='blockstore-verify-database-' )
+    working_dir = None
+    if resume_dir is None:
+        working_dir = tempfile.mkdtemp( prefix='blockstore-verify-database-' )
+    else:
+        working_dir = resume_dir 
+
     blockstore_state_engine.working_dir = working_dir
 
     virtualchain.setup_virtualchain( blockstore_state_engine, testset=testset )
+
+    if resume_dir is None:
+        # not resuming
+        start_block = virtualchain.get_first_block_id()
+    else:
+        # resuming 
+        start_block = get_lastblock()
+
+    log.debug( "Rebuilding database from %s to %s" % (start_block, target_block_id) )
 
     # feed in operations, block by block, from the untrusted database
     untrusted_db = BlockstoreDB( untrusted_db_path )
@@ -1844,9 +1924,8 @@ def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_pa
 
     # map block ID to consensus hashes
     consensus_hashes = {}
-    rc = True
 
-    for block_id in xrange( start_block, consensus_block_id+1 ):
+    for block_id in xrange( start_block, target_block_id+1 ):
 
         # all sequences of operations at this block, in tx order
         nameops = untrusted_db.get_all_nameops_at( block_id )
@@ -1883,7 +1962,7 @@ def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_pa
             if consensus_fields is None:
                 raise Exception("BUG: no consensus fields defined for '%s'" % opcode_name )
 
-            # coerse string, not unicode
+            # coerce string, not unicode
             for k in nameops[i].keys():
                 if type(nameops[i][k]) == unicode:
                     nameops[i][k] = str(nameops[i][k])
@@ -1915,26 +1994,38 @@ def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_pa
             if virtualchain_op is not None:
                 virtualchain_ops.append( virtualchain_op )
 
-        # feed ops to virtualchain to try to reconstruct the db at this block
+        # feed ops to virtualchain to reconstruct the db at this block
         consensus_hash = working_db.process_block( block_id, virtualchain_ops )
         log.debug("VERIFY CONSENSUS(%s): %s" % (block_id, consensus_hash))
 
         consensus_hashes[block_id] = consensus_hash 
 
+    # final consensus hash 
+    return consensus_hashes[ target_block_id ]
+
+
+def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_path, working_db_path=None, start_block=None, testset=False ):
+    """
+    Verify that a database is consistent with a 
+    known-good consensus hash.
+
+    This algorithm works by creating a new database,
+    parsing the untrusted database, and feeding the untrusted 
+    operations into the new database block-by-block.  If we
+    derive the same consensus hash, then we can trust the 
+    database.
+    """
+
+    final_consensus_hash = rebuild_database( consensus_block_id, untrusted_db_path, working_db_path=working_db_path, start_block=start_block, testset=testset )
 
     # did we reach the consensus hash we expected?
-    if rc and consensus_hashes[consensus_block_id] == trusted_consensus_hash:
-        # clean up
-        shutil.rmtree( working_dir )
-        if os.path.exists( working_dir ):
-            os.rmdir( working_dir )
-
+    if final_consensus_hash == trusted_consensus_hash:
         return True 
 
     else:
-        log.error("Unverifiable database state stored in '%s'" % working_dir)
+        log.error("Unverifiable database state stored in '%s'" % blockstore_state_engine.working_dir )
         return False
-    
+   
 
 def check_testset_enabled():
     """
@@ -1948,13 +2039,39 @@ def check_testset_enabled():
     return False
 
 
+def check_alternate_working_dir():
+    """
+    Check sys.argv to see if there is an alternative
+    working directory selected.  We need to know this
+    before setting up the virtual chain.
+    """
+
+    path = None
+    for i in xrange(0, len(sys.argv)):
+        arg = sys.argv[i]
+        if arg.startswith('--working-dir'):
+            if '=' in arg:
+                argparts = arg.split("=")
+                arg = argparts[0]
+                parts = argparts[1:]
+                path = "=".join(parts)
+            elif i + 1 < len(sys.argv):
+                path = sys.argv[i+1]
+            else:
+                print >> sys.stderr, "--working-dir requires an argument"
+                return None
+
+    return path
+
+
 def run_blockstored():
    """
    run blockstored
    """
    
    testset = check_testset_enabled()
-   argparser = setup( testset=testset, return_parser=True )
+   working_dir = check_alternate_working_dir()
+   argparser = setup( testset=testset, working_dir=working_dir, return_parser=True )
    
    # get RPC server options
    subparsers = argparser.add_subparsers(
@@ -1969,13 +2086,19 @@ def run_blockstored():
    parser.add_argument(
       '--testset', action='store_true',
       help='run with the set of name operations used for testing, instead of the main set')
-   
+   parser.add_argument(
+      '--working-dir', action='store',
+      help='use an alternative working directory')
+
    parser = subparsers.add_parser(
       'stop',
       help='stop the blockstored server')
    parser.add_argument(
       '--testset', action='store_true',
       help='required if the daemon is using the testing set of name operations')
+   parser.add_argument(
+      '--working-dir', action='store',
+      help='use an alternative working directory')
    
    parser = subparsers.add_parser(
       'reconfigure',
@@ -1983,6 +2106,9 @@ def run_blockstored():
    parser.add_argument(
       '--testset', action='store_true',
       help='required if the daemon is using the testing set of name operations')
+   parser.add_argument(
+      '--working-dir', action='store',
+      help='use an alternative working directory')
    
    parser = subparsers.add_parser(
       'clean',
@@ -1993,6 +2119,9 @@ def run_blockstored():
    parser.add_argument(
       '--testset', action='store_true',
       help='required if the daemon is using the testing set of name operations')
+   parser.add_argument(
+      '--working-dir', action='store',
+      help='use an alternative working directory')
    
    parser = subparsers.add_parser(
       'indexer',
@@ -2000,19 +2129,54 @@ def run_blockstored():
    parser.add_argument(
       '--testset', action='store_true',
       help='required if the daemon is using the testing set of name operations')
+   parser.add_argument(
+      '--working-dir', action='store',
+      help='use an alternative working directory')
    
    parser = subparsers.add_parser(
-      'importdb',
-      help='verify an untrusted database against a known-good consensus hash, and import it if it is valid')
+      'rebuilddb',
+      help='Reconstruct the current database from particular block number by replaying all prior name operations')
    parser.add_argument(
-      'consensus_hash',
-      help='the known-good consensus hash')
+      'db_path',
+      help='the path to the database')
+   parser.add_argument(
+      'start_block_id',
+      help='the block ID from which to start rebuilding')
+   parser.add_argument(
+      'end_block_id',
+      help='the block ID at which to stop rebuilding')
+   parser.add_argument(
+      '--resume-dir', nargs='?',
+      help='the temporary directory to store the database state as it is being rebuilt.  Blockstored will resume working from this directory if it is interrupted.')
+   parser.add_argument(
+      '--working-dir', action='store',
+      help='use an alternative working directory')
+
+   parser = subparsers.add_parser(
+      'verifydb',
+      help='verify an untrusted database against a known-good consensus hash')
    parser.add_argument(
       'block_id',
       help='the block ID of the known-good consensus hash')
    parser.add_argument(
+      'consensus_hash',
+      help='the known-good consensus hash')
+   parser.add_argument(
       'db_path',
-      help='the path to the database file')
+      help='the path to the database')
+   parser.add_argument(
+      '--working-dir', action='store',
+      help='use an alternative working directory')
+
+   parser = subparsers.add_parser(
+      'importdb',
+      help='import an existing trusted database')
+   parser.add_argument(
+      'db_path',
+      help='the path to the database')
+   parser.add_argument(
+      '--working-dir', action='store',
+      help='use an alternative working directory')
 
    parser = subparsers.add_parser(
       'version',
@@ -2023,8 +2187,7 @@ def run_blockstored():
    log.debug( "bitcoin options: %s" % bitcoin_opts )
    
    if args.action == 'version':
-      print "Blockstore version: %s" % VERSION
-      print "Namespace ruleset version: %s" % BLOCKSTORE_VERSION
+      print "Blockstore version: %s.%s" % (VERSION, BLOCKSTORE_VERSION)
       print "Testset: %s" % testset
       sys.exit(0)
        
@@ -2036,7 +2199,7 @@ def run_blockstored():
           
       if args.foreground:
          
-         log.info('Initializing blockstored server in foreground (testset = %s)...' % testset)
+         log.info('Initializing blockstored server in foreground (testset = %s, working dir = \'%s\')...' % (testset, working_dir))
          exit_status = run_server( foreground=True, testset=testset )
          log.info("Service endpoint exited with status code %s" % exit_status )
          
@@ -2057,18 +2220,53 @@ def run_blockstored():
    elif args.action == 'indexer':
       run_indexer( testset=args.testset )
 
-   elif args.action == 'importdb':
+   elif args.action == 'rebuilddb':
+
+      resume_dir = None
+      if hasattr(args, 'resume_dir') and args.resume_dir is not None:
+          resume_dir = args.resume_dir
+
+      final_consensus_hash = rebuild_database( int(args.end_block_id), args.db_path, start_block=int(args.start_block_id), resume_dir=resume_dir )
+      print "Rebuilt database in '%s'" % blockstore_state_engine.working_dir
+      print "The final consensus hash is '%s'" % final_consensus_hash
+
+   elif args.action == 'verifydb':
       rc = verify_database( args.consensus_hash, int(args.block_id), args.db_path )
       if rc:
           # success!
-          db_path = virtualchain.get_db_filename()
+          print "Database is consistent with %s" % args.consensus_hash
+          print "Verified files are in '%s'" % blockstore_state_engine.working_dir
 
-          if os.path.exists( db_path ):
-              print "Backing up existing database to %s.bak" % db_path
-              shutil.move( db_path, db_path + ".bak" )
+      else:
+          # failure!
+          print "Database is NOT CONSISTENT"
 
-          print "Importing database from %s" % args.path_db
-          shutil.move( args.path_db, db_path )
+   elif args.action == 'importdb':
+      old_working_dir = blockstore_state_engine.working_dir
+      blockstore_state_engine.working_dir = None 
+      virtualchain.setup_virtualchain( blockstore_state_engine, testset=testset )
+
+      db_path = virtualchain.get_db_filename()
+      old_snapshots_path = os.path.join( old_working_dir, os.path.basename( virtualchain.get_snapshots_filename() ) )
+      old_lastblock_path = os.path.join( old_working_dir, os.path.basename( virtualchain.get_lastblock_filename() ) )
+
+      if os.path.exists( db_path ):
+          print "Backing up existing database to %s.bak" % db_path
+          shutil.move( db_path, db_path + ".bak" )
+
+      print "Importing database from %s to %s" % (args.db_path, db_path)
+      shutil.copy( args.db_path, db_path )
+
+      print "Importing snapshots from %s to %s" % (old_snapshots_path, virtualchain.get_snapshots_filename() )
+      shutil.copy( old_snapshots_path, virtualchain.get_snapshots_filename() )
+
+      print "Importing lastblock from %s to %s" % (old_lastblock_path, virtualchain.get_lastblock_filename() )
+      shutil.copy( old_lastblock_path, virtualchain.get_lastblock_filename() )
+
+      # clean up
+      shutil.rmtree( old_working_dir )
+      if os.path.exists( old_working_dir ):
+          os.rmdir( old_working_dir )
 
 if __name__ == '__main__':
     
