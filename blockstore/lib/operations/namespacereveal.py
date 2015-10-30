@@ -134,10 +134,10 @@ def namespacereveal_sanity_check( namespace_id, version, lifetime, coeff, base, 
        if bucket_exponents[i] < 0 or bucket_exponents[i] > 15:
           raise Exception("Invalid bucket exponent %s (must be in range [0, 16)" % bucket_exponents[i])
    
-   if nonalpha_discount < 0 or nonalpha_discount > 15:
+   if nonalpha_discount <= 0 or nonalpha_discount > 15:
         raise Exception("Invalid non-alpha discount %s: must be in range [0, 16)" % nonalpha_discount)
     
-   if no_vowel_discount < 0 or no_vowel_discount > 15:
+   if no_vowel_discount <= 0 or no_vowel_discount > 15:
         raise Exception("Invalid no-vowel discount %s: must be in range [0, 16)" % no_vowel_discount)
 
    return True
