@@ -685,6 +685,26 @@ def db_serialize( op, nameop, db_state=None ):
       return None
 
 
+def has_savable_data( pending_ops ):
+   """
+   Do we really need to write the db?
+   """
+   ops = pending_ops.get('virtualchain_ordered', [])
+   if len(ops) > 1:
+       return True
+
+   if len(ops) == 0:
+       raise Exception("Missing expiry")
+
+   if ops[0]['opcode'] != 'VIRTUAL_EXPIRE':
+       raise Exception("Missing expiry")
+
+   for expiry in ['expired_name_hashes', 'expired_namespace_hashes', 'expired_names', 'expired_namespace_ids']:
+       if ops[0][expiry] != '0:':
+           return True 
+
+   return False
+
 def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
    """
    (required by virtualchain state engine)
@@ -702,10 +722,11 @@ def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
    # remove expired names before saving
    if db is not None:
       
-      # see if anything actually changed 
-      if len(pending_ops) > 0:
-          
+      # see if anything actually changed
+      # (we're guaranteed at least one nameop--the expiry one, and if it's empty, we can skip this step)
+      if has_savable_data( pending_ops ): 
           # state has changed 
+          log.debug("Save database %s" % filename)
           return db.save_db( filename )
       
       else:
