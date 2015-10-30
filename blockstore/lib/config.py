@@ -31,7 +31,7 @@ import virtualchain
 DEBUG = True
 TESTNET = False
 
-VERSION = "0.04"
+VERSION = "0.05"
 
 # namespace version 
 BLOCKSTORE_VERSION = 1
@@ -87,12 +87,14 @@ DEFAULT_BITCOIND_PASSWD = 'opennamesystem'
 REINDEX_FREQUENCY = 300 # seconds
 
 FIRST_BLOCK_MAINNET = 373601
-FIRST_BLOCK_MAINNET_TESTSET = 374201
+FIRST_BLOCK_MAINNET_TESTSET = 380960
 # FIRST_BLOCK_TESTNET = 343883
 FIRST_BLOCK_TESTNET = 529008
 FIRST_BLOCK_TESTNET_TESTSET = FIRST_BLOCK_TESTNET
 
 GENESIS_SNAPSHOT = {
+    str(FIRST_BLOCK_MAINNET-4): "17ac43c1d8549c3181b200f1bf97eb7d",
+    str(FIRST_BLOCK_MAINNET-3): "17ac43c1d8549c3181b200f1bf97eb7d",
     str(FIRST_BLOCK_MAINNET-2): "17ac43c1d8549c3181b200f1bf97eb7d",
     str(FIRST_BLOCK_MAINNET-1): "17ac43c1d8549c3181b200f1bf97eb7d",
     # str(FIRST_BLOCK_MAINNET): "17ac43c1d8549c3181b200f1bf97eb7d",
@@ -101,7 +103,7 @@ GENESIS_SNAPSHOT = {
 GENESIS_SNAPSHOT_TESTSET = {
     str(FIRST_BLOCK_MAINNET_TESTSET-2): "9e938749294b8019f9857cda93e7e73f",
     str(FIRST_BLOCK_MAINNET_TESTSET-1): "9e938749294b8019f9857cda93e7e73f",
-    str(FIRST_BLOCK_MAINNET_TESTSET): "9e938749294b8019f9857cda93e7e73f",
+    #str(FIRST_BLOCK_MAINNET_TESTSET): "9e938749294b8019f9857cda93e7e73f",
 }
 
 """ magic bytes configs
@@ -174,6 +176,18 @@ OPCODE_NAMES = {
     NAMESPACE_PREORDER: "NAMESPACE_PREORDER",
     NAMESPACE_REVEAL: "NAMESPACE_REVEAL",
     NAMESPACE_READY: "NAMESPACE_READY"
+}
+
+NAME_OPCODES = {
+    "NAME_PREORDER": NAME_PREORDER,
+    "NAME_REGISTRATION": NAME_REGISTRATION,
+    "NAME_UPDATE": NAME_UPDATE,
+    "NAME_TRANSFER": NAME_TRANSFER,
+    "NAME_RENEWAL": NAME_REGISTRATION,
+    "NAME_IMPORT": NAME_IMPORT,
+    "NAMESPACE_PREORDER": NAMESPACE_PREORDER,
+    "NAMESPACE_REVEAL": NAMESPACE_REVEAL,
+    "NAMESPACE_READY": NAMESPACE_READY
 }
 
 NAMESPACE_LIFE_INFINITE = 0xffffffff
@@ -250,8 +264,6 @@ TESTSET_NAMESPACE_8UP_CHAR_COST = 10000
 NAMESPACE_PREORDER_EXPIRE = BLOCKS_PER_DAY      # namespace preorders expire after 1 day, if not revealed
 NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_YEAR       # namespace reveals expire after 1 year, if not readied.
 
-# FIXME: testing
-# NAME_IMPORT_KEYRING_SIZE = 5                  # number of keys to derive from the import key
 NAME_IMPORT_KEYRING_SIZE = 300                  # number of keys to derive from the import key
 
 NUM_CONFIRMATIONS = 6                         # number of blocks to wait for before accepting names
@@ -305,6 +317,19 @@ SUPPORTED_UTXO_PROMPT_MESSAGES = {
 """ Validation 
 """
 
+def get_testset_filename( working_dir=None ):
+   """
+   Determine whether or not the runtime-set testset file 
+   exists.
+   """
+
+   if working_dir is None:
+       working_dir = virtualchain.get_working_dir()
+
+   testset_filepath = os.path.join( working_dir, virtualchain.get_implementation().get_virtual_chain_name() ) + ".testset"
+   return testset_filepath
+
+
 def default_blockstore_opts( config_file=None, testset=False ):
    """
    Get our default blockstore opts from a config file
@@ -313,7 +338,8 @@ def default_blockstore_opts( config_file=None, testset=False ):
    
    if config_file is None:
       config_file = virtualchain.get_config_filename()
-   
+  
+   testset_path = get_testset_filename( virtualchain.get_working_dir() )
    parser = SafeConfigParser()
    parser.read( config_file )
    
@@ -330,20 +356,16 @@ def default_blockstore_opts( config_file=None, testset=False ):
       
       if parser.has_option('blockstore', 'utxo_provider'):
          utxo_provider = parser.get('blockstore', 'utxo_provider')
-      
-      if parser.has_option('blockstore', 'testset'):
-         testset_val = parser.get('blockstore', 'testset')
-         if tesetset_val.lower() in ['true', 'yes', 'y', '1']:
-             testset = True 
-         else:
-             testset = False
-         
+     
       if parser.has_option('blockstore', 'testset_first_block'):
          testset_first_block = int( parser.get('blockstore', 'testset_first_block') )
          
       if parser.has_option('blockstore', 'max_subsidy'):
          max_subsidy = int( parser.get('blockstore', 'max_subsidy'))
-         
+    
+   if os.path.exists( testset_path ):
+       # testset file flag set
+       testset = True
          
    blockstore_opts = {
        'tx_broadcaster': tx_broadcaster,
@@ -372,7 +394,7 @@ def default_bitcoind_opts( config_file=None ):
    bitcoind_user = None 
    bitcoind_passwd = None 
    bitcoind_use_https = None 
-  
+   
    loaded = False 
    
    if config_file is not None:
@@ -977,7 +999,7 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
    
    if not os.path.exists( config_file ):
        # definitely ask for everything
-       force = True 
+       force = True
        
    # get blockstore opts 
    blockstore_opts = {}
@@ -999,7 +1021,7 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
        utxo_provider = default_utxo_provider( config_file=config_file )
    
    bitcoind_message  = "Blockstore does not have enough information to connect\n"
-   bitcoind_message += "to bitcoind.  Please supply the following parameters, or"
+   bitcoind_message += "to bitcoind.  Please supply the following parameters, or\n"
    bitcoind_message += "press [ENTER] to select the default value."
    
    bitcoind_opts = {}
