@@ -131,7 +131,7 @@ def make_outputs( data, change_inputs, register_addr, change_addr, renewal_fee=N
             dust_fee = (len(change_inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
             dust_value = DEFAULT_DUST_FEE
             op_fee = 0
-            bill = 0
+            bill = DEFAULT_DUST_FEE * 2
             
     else:
         
@@ -149,7 +149,7 @@ def make_outputs( data, change_inputs, register_addr, change_addr, renewal_fee=N
             dust_value = 0
             op_fee = 0
             bill = 0
-   
+  
     outputs = [
         # main output
         {"script_hex": make_op_return_script(data, format=format),
@@ -221,7 +221,7 @@ def broadcast(name, private_key, register_addr, blockchain_client, renewal_fee=N
         
     nulldata = build(name, testset=testset)
     outputs = make_outputs(nulldata, change_inputs, register_addr, from_address, renewal_fee=renewal_fee, pay_fee=(not subsidized_renewal), format='hex')
-    
+   
     if tx_only:
         
         unsigned_tx = serialize_transaction( change_inputs, outputs )
