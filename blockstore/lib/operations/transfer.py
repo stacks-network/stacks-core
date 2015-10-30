@@ -64,7 +64,6 @@ def get_transfer_recipient_from_outputs( outputs ):
         
         if output_asm[0:9] != 'OP_RETURN' and output_hex:
             
-            # ret = (output_hex, output_addresses[0])
             ret = output_hex
             break
             
