@@ -92,18 +92,21 @@ class BlockstoreDB( virtualchain.StateEngine ):
       self.namespace_preorders = {}           # map namespace ID hash (as the hex string of ns_id+script_pubkey hash) to its NAMESPACE_PREORDER operation 
       self.namespace_reveals = {}             # map namesapce ID to its NAMESPACE_REVEAL operation 
       
-      self.owner_names = defaultdict(list)    # map sender_script_pubkey hex string to list of names owned by the principal it represents
-      self.hash_names = {}                    # map hex_hash160(name) to name
+      self.owner_names = defaultdict(list)    # secondary index: map sender_script_pubkey hex string to list of names owned by the principal it represents
+      self.hash_names = {}                    # secondary index: map hex_hash160(name) to name
       
-      self.namespace_id_to_hash = {}          # map the namespace ID of a revealed namespace to its namespace hash.  Entries here only exist until the namespace is ready 
+      self.namespace_id_to_hash = {}          # secondary index: map the namespace ID of a revealed namespace to its namespace hash.  Entries here only exist until the namespace is ready 
       
-      self.block_name_expires = defaultdict(list)        # map a block ID to the list of names that expire at that block.
+      self.block_name_expires = defaultdict(list)  # secondary index: map a block ID to the list of names that expire at that block.
       
-      self.name_consensus_hash_name = {}      # temporary table for mapping the hash(name + consensus_hash) in an update to its name
+      self.name_consensus_hash_name = {}      # secondary index: temporary table for mapping the hash(name + consensus_hash) in an update to its name
       
-      self.import_addresses = {}              # temporary table for mapping a NAMESPACE_REVEAL's root public key address to the set of all derived public key addresses.
+      self.import_addresses = {}              # secondary index: temporary table for mapping a NAMESPACE_REVEAL's root public key address to the set of all derived public key addresses.
                                               # each NAME_IMPORT must come from one of these derived public key addresses.
-                                      
+      
+      self.address_names = defaultdict(list)  # secondary index: map each address to the list of names registered to it.
+                                              # valid only for names where there is exactly one address (i.e. the sender is a p2pkh script)
+
       # default namespace (empty string)
       self.namespaces[""] = NAMESPACE_DEFAULT
       self.namespaces[None] = NAMESPACE_DEFAULT
@@ -150,23 +153,35 @@ class BlockstoreDB( virtualchain.StateEngine ):
                  raise Exception("Name with no namespace: '%s'" % name)
 
          expires = name_record['last_renewed'] + namespace['lifetime']
+
+         # build expiration dates
          if not self.block_name_expires.has_key( expires ):
              self.block_name_expires[ expires ] = [name]
          else:
              self.block_name_expires[ expires ].append( name )
 
+         # build sender --> names
          if not self.owner_names.has_key( name_record['sender'] ):
              self.owner_names[ name_record['sender'] ] = [name]
          else:
              self.owner_names[ name_record['sender'] ].append( name )
              
+         # build hash --> name
          self.hash_names[ hash256_trunc128( name ) ] = name
+
+         # build address --> names 
+         if name_record.has_key('address'):
+             if not self.address_names.has_key( name_record['address'] ):
+                 self.address_names[ name_record['address'] ] = [name]
+             else:
+                 self.address_names[ name_record['address'] ].append( name )
 
          # convert history to int
          self.name_records[name]['history'] = BlockstoreDB.sanitize_history( self.name_records[name]['history'] )
 
          # convert vtxindex 
          self.name_records[name]['vtxindex'] = int(self.name_records[name]['vtxindex'])
+
 
       for (namespace_id, namespace_reveal) in self.namespace_reveals.items():
       
@@ -353,10 +368,10 @@ class BlockstoreDB( virtualchain.StateEngine ):
           ns = self.get_namespace_reveal( ns_id )
           if ns is None:
               # doesn't exist 
-              return False
+              return True
           else:
               # imported into non-ready namespace
-              return True
+              return False
 
       else:
           if max( ns['ready_block'], namerec['last_renewed'] ) + ns['lifetime'] < block_number:
@@ -444,6 +459,18 @@ class BlockstoreDB( virtualchain.StateEngine ):
              name_snapshots += historical_recs
 
       return name_snapshots
+
+
+   def get_names_owned_by_address( self, address ):
+      """
+      Get the set of names owned by a particular address.
+      Only valid if the name was sent by a p2pkh script.
+      """
+
+      if self.address_names.has_key( address ):
+          return self.address_names[address]
+      else:
+          return None
 
 
    def _rec_dup( self, rec ):
@@ -1015,10 +1042,20 @@ class BlockstoreDB( virtualchain.StateEngine ):
       # anyone can claim the name now
       self.name_records[name]['revoked'] = False
 
+      owner = self.name_records[name].get('sender', None)
+      address = self.name_records[name].get('address', None)
+
       # update secondary indexes
-      if self.owner_names.has_key( owner ):
-         del self.owner_names[ owner ]
-      
+      if owner is not None and self.owner_names.has_key( owner ) and name in self.owner_names[owner]:
+         self.owner_names[ owner ].remove( name )
+         if len(self.owner_names[owner]) == 0:
+             del self.owner_names[owner]
+     
+      if address is not None and self.address_names.has_key( address ) and name in self.address_names[address]:
+         self.address_names[ address ].remove( name )
+         if len(self.address_names[address]) == 0:
+             del self.address_names[address]
+
       if self.hash_names.has_key( name_hash ):
          del self.hash_names[ name_hash ]
 
@@ -1280,7 +1317,10 @@ class BlockstoreDB( virtualchain.StateEngine ):
           expires = current_block_number + namespace['lifetime']
 
           self.name_records[ name ] = name_record 
+
+          # update secondary indexes
           self.owner_names[ recipient ].append( str(name) )
+          self.address_names[ recipient_address ].append( str(name) )
           self.hash_names[ hash256_trunc128( name ) ] = name 
 
           if not self.block_name_expires.has_key( expires ):
@@ -1380,6 +1420,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
 
       name = nameop['name']
       sender = nameop['sender']
+      address = nameop.get('address', None)
       recipient = nameop['recipient']
       recipient_address = nameop['recipient_address']
       keep_data = nameop['keep_data']
@@ -1414,8 +1455,16 @@ class BlockstoreDB( virtualchain.StateEngine ):
       # update secondary indexes
       if self.owner_names.has_key(sender) and name in self.owner_names[sender]:
           self.owner_names[sender].remove( name )
+          if len(self.owner_names[sender]) == 0:
+              del self.owner_names[sender]
+
+      if self.address_names.has_key(address) and name in self.address_names[address]:
+          self.address_names[address].remove( name )
+          if len(self.address_names[address]) == 0:
+              del self.address_names[address]
 
       self.owner_names[recipient].append( name )
+      self.address_names[recipient_address].append( name )
 
       # propagate information back to virtualchain for snapshotting 
       nameop.update( self.name_records[name] )
@@ -1430,6 +1479,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       name = nameop['name']
       txid = nameop['txid']
       sender = nameop['sender']
+      address = nameop.get('address', None)
       opcode = nameop['opcode']
       op = NAME_REVOKE
       
@@ -1445,8 +1495,15 @@ class BlockstoreDB( virtualchain.StateEngine ):
       self.name_records[name]['value_hash'] = None
 
       # update secondary indexes 
-      if name in self.owner_names[sender]:
+      if self.owner_names.has_key( sender ) and name in self.owner_names[sender]:
           self.owner_names[sender].remove( name )
+          if len(self.owner_names[sender]) == 0:
+              del self.owner_names[sender]
+
+      if self.address_names.has_key( address ) and name in self.address_names[address]:
+          self.address_names[address].remove( name )
+          if len(self.address_names[address]) == 0:
+              del self.address_names[address]
 
       # propagate information back to virtualchain for snapshotting 
       nameop.update( self.name_records[name] )
@@ -1476,6 +1533,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
           raise Exception("Name without revealed namespace: '%s'" % name )
       
       old_recipient = None 
+      old_recipient_address = None
 
       if self.name_records.has_key( name ):
 
@@ -1494,7 +1552,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
           # save diff
           self.save_name_diff( name, current_block_number, name_rec_fields )
 
-          old_recipient = self.name_records[name]['sender'][0]
+          old_recipient = self.name_records[name]['sender']
+          old_recipient_address = self.name_records[name]['address']
 
           # apply diff 
           self.name_records[name]['value_hash'] = update_hash
@@ -1558,6 +1617,15 @@ class BlockstoreDB( virtualchain.StateEngine ):
       if old_recipient is not None:
           if self.owner_names.has_key( old_recipient ) and name in self.owner_names[old_recipient]:
               self.owner_names[ old_recipient ].remove( name )
+              if len(self.owner_names[old_recipient]) == 0:
+                  del self.owner_names[old_recipient]
+
+      self.address_names[ recipient_address ].append( str(name) )
+      if old_recipient_address is not None:
+          if self.address_names.has_key( old_recipient_address ) and name in self.address_names[old_recipient_address]:
+              self.address_names[ old_recipient_address ].remove( name )
+              if len(self.address_names[old_recipient_address]) == 0:
+                  del self.address_names[old_recipient_address]
 
       self.hash_names[ hash256_trunc128( name ) ] = name 
 
@@ -1976,7 +2044,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
          log.debug("Name '%s' does not exist" % name)
          return False
       
-     # namespace must be ready
+      # namespace must be ready
       if not self.is_namespace_ready( namespace_id ):
          # non-existent namespace
          log.debug("Namespace '%s' is not ready" % (namespace_id))
