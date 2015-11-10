@@ -38,7 +38,7 @@ NAMEREC_FIELDS = [
 
     'op',                   # byte sequence describing the last operation to affect this name
     'txid',                 # the ID of the last transaction to affect this name
-    'vtxindex',             # the index in the virtual block where the transaction occurs.  Respects actual tx order.
+    'vtxindex',             # the index in the block of the transaction.
     'op_fee',               # the value of the last Blockstore-specific burn fee paid for this name (i.e. from preorder or renew)
 
     'importer',             # (OPTIONAL) if this name was imported, this is the importer's scriptPubKey hex
