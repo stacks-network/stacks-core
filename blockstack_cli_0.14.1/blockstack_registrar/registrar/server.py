@@ -38,13 +38,17 @@ from .config import DEFAULT_NAMESPACE
 from .config import IGNORE_USERNAMES
 from .config import BTC_PRIV_KEY
 from .config import DHT_IGNORE
+from .config import RATE_LIMIT_TX, RETRY_INTERVAL, TX_CONFIRMATIONS_NEEDED
 
 from .utils import get_hash, check_banned_email, nmc_to_btc_address
+from .utils import pretty_print as pprint
 
 from .network import get_bs_client, get_dht_client
 from .db import state_diff, users, registrations, updates
 from .db import get_db_user_from_id
 from .db import register_queue, update_queue
+
+from .blockchain import get_block_height, get_tx_confirmations
 
 from time import sleep
 
@@ -82,6 +86,7 @@ def register_user(user, fqu):
         new_entry['profile_hash'] = profile_hash
         new_entry['profile'] = user['profile']
         new_entry['btc_address'] = btc_address
+        new_entry['block_height'] = get_block_height()
         register_queue.save(new_entry)
     else:
         print "Error registering: %s" % fqu
@@ -123,12 +128,36 @@ def update_user(user, fqu):
         new_entry['profile_hash'] = profile_hash
         new_entry['profile'] = user['profile']
         new_entry['btc_address'] = btc_address
+        new_entry['block_height'] = get_block_height()
         update_queue.save(new_entry)
     else:
         print "Error updating: %s" % fqu
         print resp
 
     sleep(3)
+
+
+def txRejected(queue_obj):
+
+    tx_hash = queue_obj['transaction_hash']
+    tx_sent_at_height = queue_obj['block_height']
+
+    current_height = get_block_height()
+    tx_confirmations = get_tx_confirmations(tx_hash)
+
+    if (current_height - tx_sent_at_height) > RETRY_INTERVAL:
+
+        # if no confirmations and retry limit hits
+        if tx_confirmations == 0:
+            return True
+    else:
+
+        if tx_confirmations > TX_CONFIRMATIONS_NEEDED:
+            print "confirmed on the network"
+        else:
+            print "waiting: (tx: %s, confirmations: %s)" % (queue_obj['transaction_hash'], tx_confirmations)
+
+    return False
 
 
 def cleanup_queue(queue):
@@ -141,11 +170,12 @@ def cleanup_queue(queue):
             continue
 
         if usernameRegistered(entry['fqu']):
-            print "registered on blockchain: %s" % entry['fqu']
 
             record = get_blockchain_record(entry['fqu'])
 
             if record['value_hash'] == entry['profile_hash']:
+
+                print "registered on blockchain: %s" % entry['fqu']
 
                 profile = get_dht_profile(entry['fqu'])
 
@@ -159,12 +189,8 @@ def cleanup_queue(queue):
                         print "removing from queue: %s" % entry['fqu']
                         queue.remove({"fqu": entry['fqu']})
 
-            else:
-
-                print "blockchain hash is different than write attempt, try again: %s" % entry['transaction_hash']
-                #queue.remove({"fqu": entry['fqu']})
-        else:
-            print "not yet registered, tx: %s" % entry['transaction_hash']
+        if txRejected(entry):
+            print "tx rejected by network, removing tx: %s" % entry['transaction_hash']
             #queue.remove({"fqu": entry['fqu']})
 
 
@@ -180,7 +206,6 @@ def get_latest_diff():
 
 def register_new_users(spam_protection=False):
 
-    limit = 100
     counter = 0
 
     for new_user in registrations.find(no_cursor_timeout=True):
@@ -232,14 +257,13 @@ def register_new_users(spam_protection=False):
 
             counter += 1
 
-            if counter == limit:
+            if counter == RATE_LIMIT_TX:
                 print "reached limit"
                 break
 
 
 def update_users_bulk():
 
-    limit = 1000
     counter = 0
 
     for new_user in updates.find(no_cursor_timeout=True):
@@ -271,7 +295,7 @@ def update_users_bulk():
 
                     counter += 1
 
-                    if counter == limit:
+                    if counter == RATE_LIMIT_TX:
                         print "reached limit"
                         break
                 else:
