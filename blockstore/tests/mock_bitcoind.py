@@ -69,6 +69,17 @@ class MockBitcoindConnection( object ):
         self.block_hashes[ start_block - 1 ] = '00' * 32
         self.blocks[ '00' * 32 ] = {}
         
+        # the initial utxos might be a serialized CSV (i.e. loaded directly from the config file).
+        # if so, then parse it 
+        if type(initial_utxos) in [str, unicode]:
+            tmp = {}
+            parts = initial_utxos.split(",")
+            for utxo in parts:
+                privkey, value = utxo.split(':')
+                tmp[ privkey ] = int(value)
+
+            initial_utxos = tmp
+            
         tx_recs = []
         if tx_path is not None:
             with open( tx_path, "r" ) as f:
@@ -117,6 +128,14 @@ class MockBitcoindConnection( object ):
             if i >= len(tx_recs):
                 break
 
+
+    def getinfo( self ):
+        """
+        Mock getinfo
+        """
+
+        return {"errors": "Mock bitcoind",
+                "blocks": len(self.blocks)}
 
     def getblockhash( self, block_id ):
         """
