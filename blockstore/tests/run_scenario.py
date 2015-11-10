@@ -13,6 +13,7 @@ from blockstore.lib import *
 from blockstore.tests import *
 import virtualchain 
 import importlib
+import traceback
 
 from blockstore.lib import nameset as blockstore_state_engine
 
@@ -24,7 +25,8 @@ from blockstore.blockstored import get_state_engine
 
 import scenarios.testlib as testlib
 
-log = virtualchain.session.log
+if not globals().has_key('log'):
+    log = virtualchain.session.log
 
 mock_bitcoind_connection = None
 
@@ -124,6 +126,7 @@ def run_scenario( scenario, config_file ):
     bitcoind = mock_bitcoind.connect_mock_bitcoind( utxo_opts )
     sync_virtualchain_upcall = lambda: virtualchain.sync_virtualchain( utxo_opts, bitcoind.getblockcount(), db )
     mock_utxo = blockstore.lib.connect_utxo_provider( utxo_opts )
+    working_dir = virtualchain.get_working_dir()
  
     # set up test environment
     testlib.set_utxo_client( mock_utxo )
@@ -132,6 +135,7 @@ def run_scenario( scenario, config_file ):
 
     test_env = {
         "sync_virtualchain_upcall": sync_virtualchain_upcall,
+        "working_dir": working_dir
     }
 
     # sync initial utxos 
@@ -143,6 +147,7 @@ def run_scenario( scenario, config_file ):
 
     except Exception, e:
         log.exception(e)
+        traceback.print_exc()
         log.error("Failed to run scenario '%s'" % scenario.__name__)
         return False
 
@@ -151,6 +156,7 @@ def run_scenario( scenario, config_file ):
         rc = scenario.check( db )
     except Exception, e:
         log.exception(e)
+        traceback.print_exc()
         log.error("Failed to run tests '%s'" % scenario.__name__)
         return False 
     
