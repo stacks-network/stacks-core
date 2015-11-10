@@ -34,6 +34,8 @@ BITCOIND_USER = 'openname'
 BITCOIND_PASSWD = 'opennamesystem'
 BITCOIND_USE_HTTPS = True
 
+MAX_PROFILE_LIMIT = (8 * 1024) - 50  # roughly 8kb max limit
+
 try:
     from .secrets import *
 except:

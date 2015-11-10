@@ -24,13 +24,14 @@ from .errors import InvalidProfileDataError, UsernameTakenError, \
     InternalProcessingError, ResolverConnectionError, \
     BroadcastTransactionError, DatabaseLookupError, InternalSSLError, \
     DatabaseSaveError, DKIMPubkeyError, UsernameNotRegisteredError, \
-    UpgradeInprogressError
+    UpgradeInprogressError, InvalidProfileSize
 
 from .parameters import parameters_required
 from .auth import auth_required
 from .db import utxo_index, address_to_utxo, address_to_keys
 from .models import User
 from .dkim import dns_resolver, parse_pubkey_from_data, DKIM_RECORD_PREFIX
+from .utils import sizeInvalid
 
 from .settings import RESOLVER_URL, SEARCH_URL
 from .settings import CHAIN_API_ID, CHAIN_API_SECRET
@@ -113,6 +114,9 @@ def register_user():
             }
     else:
         raise UsernameTakenError()
+
+    if sizeInvalid(profile):
+        raise InvalidProfileSize()
 
     matching_profiles = User.objects(username=username)
 
