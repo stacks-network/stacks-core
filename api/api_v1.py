@@ -40,6 +40,10 @@ from .settings import DHT_MIRROR, DHT_MIRROR_PORT
 from .settings import BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER
 from .settings import BITCOIND_PASSWD, BITCOIND_USE_HTTPS
 
+from basicrpc import Proxy
+from .settings import DHT_MIRROR, DHT_MIRROR_PORT
+
+proxy = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
 
 bitcoind = BitcoindClient(BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER,
                           BITCOIND_PASSWD, BITCOIND_USE_HTTPS)
@@ -273,5 +277,26 @@ def get_dkim_pubkey(domain):
         raise DKIMPubkeyError()
 
     resp = public_key_data
+
+    return jsonify(resp), 200
+
+
+@app.route('/v1/data/<hash>', methods=['GET'])
+@auth_required()
+@crossdomain(origin='*')
+def get_immutable_data(hash):
+
+    resp = proxy.get(hash)
+
+    return jsonify(resp), 200
+
+
+@app.route('/v1/data', methods=['POST'])
+@auth_required()
+@parameters_required(['hash', 'payload'])
+@crossdomain(origin='*')
+def write_immutable_data():
+
+    resp = proxy.set(hash, payload)
 
     return jsonify(resp), 200
