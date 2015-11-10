@@ -8,6 +8,7 @@ import tempfile
 import errno
 import shutil
 import bitcoin
+import sys
 
 # hack around absolute paths
 current_dir =  os.path.abspath(os.path.dirname(__file__) + "/../../..")
@@ -26,6 +27,24 @@ class Wallet(object):
         self.pubkey_hex = pk.public_key().to_hex()
         self.addr = pk.public_key().address()
         self.value = int(value_str)
+
+
+class TestAPIProxy(object):
+    def __init__(self):
+        self.api = blockstore.blockstored.BlockstoredRPC() 
+
+    def __getattr__(self, name):
+        if hasattr( self.api, "jsonrpc_" + name):
+
+            def inner(*args, **kw):
+                c = getattr( self.api, "jsonrpc_" + name)
+                r = c(*args, **kw)
+                return [r]
+
+            return inner
+        else:
+            return getattr( self, name )
+
 
 # store the database after each block, under this directory
 snapshots_dir = None
@@ -102,6 +121,10 @@ def blockstore_namespace_ready( namespace_id, privatekey, tx_only=False, testset
     resp = blockstored.blockstore_namespace_ready( namespace_id, privatekey, tx_only=tx_only, testset=testset, consensus_hash=consensus_hash )
     return resp
 
+
+def blockstore_announce( message, privatekey, tx_only=False, testset=False ):
+    resp = blockstored.blockstore_announce( message, privatekey, testset=testset )
+    return resp
 
 def blockstore_verify_database( consensus_hash, consensus_block_id, db_path, working_db_path=None, start_block=None, testset=False ):
     return blockstored.verify_database( consensus_hash, consensus_block_id, db_path, working_db_path=working_db_path, start_block=start_block, testset=testset )
@@ -196,6 +219,15 @@ def get_current_block( **kw ):
     """
     global state_engine
     return state_engine.get_current_block()
+
+
+def get_working_dir( **kw ):
+    """
+    Get the current working directory.
+    Requires:
+    * working_dir
+    """
+    return str(kw['working_dir'])
 
 
 def cleanup():
