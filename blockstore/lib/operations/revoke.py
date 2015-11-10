@@ -62,7 +62,7 @@ def build(name, testset=False):
 
 def make_outputs( data, inputs, change_address, pay_fee=True ):
     """
-    Make outputs for an update.
+    Make outputs for a revoke.
     """
 
     dust_fee = None

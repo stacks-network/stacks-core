@@ -48,7 +48,7 @@ FIELDS = [
 
      'op',                  # blockstore bytestring describing the operation
      'txid',                # transaction ID
-     'vtxindex',            # the location in the virtual block where the tx occurs
+     'vtxindex',            # the index in the block where the tx occurs
      'op_fee',              # blockstore fee (sent to burn address)
 ]
 

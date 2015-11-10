@@ -42,7 +42,7 @@ FIELDS = [
     'op',                   # bytecode describing the operation (not necessarily 1 byte)
     'op_fee',               # fee paid for the namespace to the burn address
     'txid',                 # transaction ID
-    'vtxindex',             # the index in the virtual block where the tx occurs
+    'vtxindex',             # the index in the block where the tx occurs
     'block_number',         # block number at which this transaction occurred
     'sender',               # scriptPubKey hex from the principal that issued this preorder (identifies the preorderer)
     'sender_pubkey',        # if sender is a p2pkh script, this is the public key

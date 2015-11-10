@@ -36,7 +36,9 @@ from ..hashing import hash256_trunc128
 from ..nameset import NAMEREC_FIELDS
 
 import virtualchain
-log = virtualchain.session.log
+
+if not globals().has_key('log'):
+    log = virtualchain.session.log
 
 # consensus hash fields (ORDER MATTERS!) 
 FIELDS = NAMEREC_FIELDS + [

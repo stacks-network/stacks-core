@@ -30,7 +30,9 @@ from ..config import *
 from ..scripts import *
 
 import virtualchain
-log = virtualchain.session.log
+
+if not globals().has_key('log'):
+    log = virtualchain.session.log
 
 from namespacereveal import FIELDS as NAMESPACE_REVEAL_FIELDS
 

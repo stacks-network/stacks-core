@@ -30,6 +30,7 @@ import nameimport
 import namespacepreorder
 import namespacereveal
 import namespaceready
+import announce
 import binascii
 
 from .preorder import build as build_preorder, \
@@ -60,6 +61,9 @@ from .namespacereveal import build as build_namespace_reveal, \
 from .namespaceready import build as build_namespace_ready, \
     broadcast as namespace_ready, parse as parse_namespace_ready, \
     get_fees as namespace_ready_fees
+from .announce import build as build_announce, \
+    broadcast as send_announce, parse as parse_announce, \
+    get_fees as announce_fees
 
 from .register import get_registration_recipient_from_outputs 
 
@@ -76,7 +80,8 @@ SERIALIZE_FIELDS = {
     "NAME_IMPORT": nameimport.FIELDS,
     "NAMESPACE_PREORDER": namespacepreorder.FIELDS,
     "NAMESPACE_REVEAL": namespacereveal.FIELDS,
-    "NAMESPACE_READY": namespaceready.FIELDS
+    "NAMESPACE_READY": namespaceready.FIELDS,
+    "ANNOUNCE": announce.FIELDS
 }
 
 

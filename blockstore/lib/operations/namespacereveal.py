@@ -38,7 +38,9 @@ from ..scripts import blockstore_script_to_hex, add_magic_bytes
 from ..hashing import hash_name
    
 import virtualchain
-log = virtualchain.session.log
+
+if not globals().has_key('log'):
+    log = virtualchain.session.log
 
 # consensus hash fields (ORDER MATTERS!)
 FIELDS = [
@@ -56,7 +58,7 @@ FIELDS = [
 
     'op',                   # byte code identifying this operation to Blockstore
     'txid',                 # transaction ID at which this namespace was revealed
-    'vtxindex',             # the index in the virtual block where the tx occurs
+    'vtxindex',             # the index in the block where the tx occurs
 
     'lifetime',             # how long names last in this namespace (in number of blocks)
     'coeff',                # constant multiplicative coefficient on a name's price
