@@ -46,7 +46,9 @@ from ..hashing import *
 from ..b40 import is_b40
 
 import virtualchain
-log = virtualchain.session.log
+
+if not globals().has_key('log'):
+    log = virtualchain.session.log
 
 
 class BlockstoreDB( virtualchain.StateEngine ):
@@ -80,7 +82,9 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       
       super( BlockstoreDB, self ).__init__( virtualchain_hooks.get_magic_bytes(), OPCODES, impl=virtualchain_hooks, initial_snapshots=initial_snapshots, state=self )
-      
+     
+      self.announce_ids = blockstore_opts['announcers'].split(",")
+
       self.db_filename = db_filename 
       
       self.name_records = {}                  # map name.ns_id to a dict containing the name record
@@ -381,7 +385,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
               return False
 
    
-   def get_name( self, name ):
+   def get_name( self, name, include_expired=False ):
       """
       Given a name, return the latest version and history of 
       the metadata gleaned from the blockchain.
@@ -394,7 +398,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       
       else:
          # don't return expired names
-         if self.is_name_expired( name, self.lastblock ):
+         if not include_expired and self.is_name_expired( name, self.lastblock ):
              return None 
          
          else:
@@ -1841,6 +1845,37 @@ class BlockstoreDB( virtualchain.StateEngine ):
       self.prescanned = False
       self.colliding_names = None 
       self.colliding_namespaces = None
+
+
+   def log_announce( self, pending_nameops, nameop, block_id ):
+      """
+      Log an announcement from the blockstore developers.
+      Return (True, blockchain_id) if it is well-formed, and came from one of the blockchain IDs
+      listed in the config file.
+      Return (False, None) otherwise.
+      """
+
+      sender = nameop['sender']
+      sending_blockchain_id = nameop['sender']
+      found = False
+      
+      for blockchain_id in self.announce_ids:
+          blockchain_namerec = self.get_name( blockchain_id )
+          if blockchain_namerec is None:
+              # this name doesn't exist yet, or is expired or revoked
+              continue
+
+          if str(sender) == str(blockchain_namerec['sender']):
+              # yup!
+              found = True 
+              sending_blockchain_id = blockchain_id
+              break
+
+      if not found:
+          log.debug("Announcement not sent from our whitelist of blockchain IDs")
+          return (False, None)
+
+      return (True, str(sending_blockchain_id))
 
    
    def log_preorder( self, pending_nameops, nameop, block_id ):
