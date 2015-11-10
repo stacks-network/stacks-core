@@ -29,7 +29,8 @@ from pybitcoin.transactions.outputs import calculate_change_amount
 import virtualchain
 from virtualchain import getrawtransaction 
 
-log = virtualchain.session.log 
+if not globals().has_key('log'):
+    log = virtualchain.session.log
 
 import bitcoin
 import json
@@ -89,9 +90,9 @@ def blockstore_script_to_hex(script):
     parts = script.split(' ')
     for part in parts:
        
-        if part.startswith("NAME_") or part.startswith("NAMESPACE_"):
+        if part in NAME_OPCODES.keys():
             try:
-                hex_script += '%0.2x' % ord(eval(part))
+                hex_script += '%0.2x' % ord(NAME_OPCODES[part])
             except:
                 raise Exception('Invalid opcode: %s' % part)
         
