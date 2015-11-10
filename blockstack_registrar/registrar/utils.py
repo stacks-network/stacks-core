@@ -22,6 +22,8 @@ This file is part of Registrar.
 """
 
 import json
+from bson import json_util
+
 from pybitcoin import hex_hash160, address_to_new_cryptocurrency
 from pybitcoin import BitcoinPrivateKey
 
@@ -54,7 +56,7 @@ def pretty_print(data):
             print "got here"
             print e
 
-    print json.dumps(data, sort_keys=True, indent=4, separators=(',', ': '))
+    print json.dumps(data, sort_keys=True, indent=4, separators=(',', ': '), default=json_util.default)
 
 
 def check_banned_email(email):
