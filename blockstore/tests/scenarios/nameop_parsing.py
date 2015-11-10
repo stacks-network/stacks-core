@@ -184,6 +184,19 @@ def check( state_engine ):
     
     all_tests[";"] = compile_test( ";", name_imports )
 
+    # announce wire format 
+    # 0    2  3                             23
+    # |----|--|-----------------------------|
+    # magic op   message hash (160-bit)
+    
+    announces = {
+        "valid":    "11" * 20,
+        "too-short": "11" * 19,
+        "too-long": "11" * 21
+    }
+
+    all_tests["#"] = compile_test( "#", announces )
+
     fake_sender = pybitcoin.make_pay_to_address_script( wallets[0].addr )
     fake_recipient = pybitcoin.make_pay_to_address_script( wallets[1].addr )
     fake_recipient_address = wallets[1].addr
