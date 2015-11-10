@@ -21,7 +21,8 @@ import virtualchain
 
 mock_utxo_client = None
 
-log = virtualchain.session.log
+if not globals().has_key('log'):
+    log = virtualchain.session.log
 
 class MockUTXOProvider(object):
 
