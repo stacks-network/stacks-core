@@ -4,6 +4,7 @@ server = btcd.onename.com
 port = 8332
 use_https = True
 user = openname
+mock = True
 
 [mock_utxo]
 initial_utxos = @MOCK_INITIAL_UTXOS@
