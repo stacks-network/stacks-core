@@ -40,6 +40,17 @@ import tempfile
 import binascii
 import copy
 
+import virtualchain
+
+if not globals().has_key('log'):
+    log = virtualchain.session.log
+
+try:
+    import blockstore_client
+except:
+    # storage API won't work
+    blockstore_client = None
+
 from ConfigParser import SafeConfigParser
 
 import pybitcoin
@@ -53,9 +64,6 @@ from lib import *
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
 
-import virtualchain 
-log = virtualchain.session.log 
-
 # global variables, for use with the RPC server and the twisted callback
 blockstore_opts = None
 bitcoind = None
@@ -64,6 +72,7 @@ utxo_opts = None
 blockchain_client = None 
 blockchain_broadcaster = None
 indexer_pid = None
+
 
 def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
    """
@@ -85,7 +94,13 @@ def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
       
       new_bitcoind = None
       try:
-         new_bitcoind = virtualchain.connect_bitcoind( bitcoin_opts )
+         if bitcoin_opts.has_key('bitcoind_mock') and bitcoin_opts['bitcoind_mock']:
+            # make a mock connection 
+            import tests.mock_bitcoind
+            new_bitcoind = tests.mock_bitcoind.connect_mock_bitcoind( bitcoin_opts, reset=reset )
+
+         else:
+            new_bitcoind = virtualchain.connect_bitcoind( bitcoin_opts )
          
          if new:
              return new_bitcoind
@@ -99,7 +114,7 @@ def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
          log.exception( e )
          return None 
       
-      
+
 def get_bitcoin_opts():
    """
    Get the bitcoind connection arguments.
@@ -861,9 +876,60 @@ def blockstore_namespace_ready( namespace_id, privatekey, tx_only=False, testset
     return resp
 
 
+def blockstore_announce( message, privatekey, tx_only=False, subsidy_key=None, user_public_key=None, testset=False ):
+    """
+    Send an announcement via the blockchain.
+    If we're sending the tx out, then also replicate the message text to storage providers, via the blockstore_client library
+    """
+
+    blockstore_opts = default_blockstore_opts( virtualchain.get_config_filename(), testset=testset )
+
+    # are we doing our initial indexing?
+    if is_indexing():
+        return {"error": "Indexing blockchain"}
+    
+    blockchain_client_inst = get_utxo_provider_client()
+    if blockchain_client_inst is None:
+        return {"error": "Failed to connect to blockchain UTXO provider"}
+    
+    broadcaster_client_inst = get_tx_broadcaster()
+    if broadcaster_client_inst is None:
+        return {"error": "Failed to connect to blockchain transaction broadcaster"}
+
+    message_hash = pybitcoin.hex_hash160( message )
+
+    try:
+        resp = send_announce( message_hash, privatekey, blockchain_client_inst, \
+            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, \
+            user_public_key=user_public_key, testset=blockstore_opts['testset'])
+
+    except:
+        return json_traceback()
+
+    if subsidy_key is not None:
+        # subsidize the transaction 
+        resp = make_subsidized_tx( resp['unsigned_tx'], announce_fees, blockstore_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
+
+    elif not tx_only:
+        # propagate the data to back-end storage 
+        data_hash = put_announcement( message, resp['transaction_hash'] )
+        if data_hash is None:
+            resp = {
+                'error': 'failed to storage message text',
+                'transaction_hash': resp['transaction_hash']
+            }
+        
+        else:
+            resp['data_hash'] = data_hash
+
+    log.debug("announce <%s>" % message_hash )
+    
+    return resp
+
+
 class BlockstoredRPC(jsonrpc.JSONRPC, object):
     """
-    Blockstored not-quote-JSON-RPC server.
+    Blockstored not-quite-JSON-RPC server.
     
     We say "not quite" because the implementation serves data 
     via Netstrings, not HTTP, and does not pay attention to 
@@ -924,13 +990,40 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
     def jsonrpc_get_nameops_at( self, block_id ):
         """
         Get the sequence of names and namespaces altered at the given block.
+        Returns the list of name operations to be fed into virtualchain.
         Used by SNV clients.
         """
-        blockstore_state_engine = get_state_engine()
-        ops = blockstore_state_engine.get_all_nameops_at( block_id )
+        db = get_state_engine()
+
+        all_ops = db.get_all_nameops_at( block_id )
+        ret = []
+        for op in all_ops:
+            restored_op = nameop_restore_consensus_fields( op, block_id )
+            ret.append( restored_op )
+
+        return ret
+
+    
+    def jsonrpc_get_nameops_hash_at( self, block_id ):
+        """
+        Get the hash over the sequence of names and namespaces altered at the given block.
+        Used by SNV clients.
+        """
+        db = get_state_engine()
+        # ops = block_to_virtualchain_ops( block_id, db )
+        
+        ops = db.get_all_nameops_at( block_id )
         if ops is None:
             ops = []
-        return {'result': ops}
+        
+        restored_ops = []
+        for op in ops:
+            restored_op = nameop_restore_consensus_fields( op, block_id )
+            restored_ops.append( restored_op )
+
+        serialized_ops = [ db_serialize( str(op['op'][0]), op, verbose=False ) for op in restored_ops ]
+        ops_hash = virtualchain.StateEngine.make_ops_snapshot( serialized_ops )
+        return ops_hash
 
 
     def jsonrpc_getinfo(self):
@@ -957,11 +1050,11 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Get the list of names owned by an address.
         Valid only for names with p2pkh sender scripts.
         """
-        blockstore_state_engine = get_state_engine()
-        names = blockstore_state_engine.get_names_owned_by_address( address )
+        db = get_state_engine()
+        names = db.get_names_owned_by_address( address )
         if names is None:
             names = []
-        return {'result': names}
+        return names
 
 
     def jsonrpc_preorder( self, name, privatekey, register_addr ):
@@ -1290,6 +1383,42 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Create a signed transaction that will declare that a namespace is open to accepting new names.
         """
         return blockstore_namespace_ready( namespace_id, privatekey, tx_only=True, testset=self.testset )
+   
+
+    def jsonrpc_announce( self, message, privatekey ):
+        """
+        announce a message to all blockstore nodes on the blockchain
+        @message is the message to send
+        @privatekey is the private key that will sign the announcement
+        
+        Returns a JSON object with the transaction ID on success.
+        Returns a JSON object with 'error' on error.
+        """
+        return blockstore_announce( str(message), str(privatekey), testset=self.testset )
+    
+    
+    def jsonrpc_announce_tx( self, message, privatekey ):
+        """
+        Generate a transaction that will make an announcement:
+        @message is the message text to send
+        @privatekey is the private key that signs the message
+        
+        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
+        Return a JSON object with 'error' on error.
+        """
+        return blockstore_announce( str(message), str(privatekey), tx_only=True, testset=self.testset )
+    
+    
+    def jsonrpc_announce_tx_subsidized( self, message, public_key, subsidy_key ):
+        """
+        Generate a subsidizable transaction that will make an announcement
+        @message is hte message text to send
+        @privatekey is the private key that signs the message
+        
+        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
+        Return a JSON object with 'error' on error.
+        """
+        return blockstore_announce( str(message), None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
     
     
     def jsonrpc_get_name_cost( self, name ):
@@ -1373,9 +1502,24 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         """
         db = get_state_engine()
         return db.get_consensus_at( block_id )
+   
+
+    def jsonrpc_get_mutable_data( self, blockchain_id, data_name ):
+        """
+        Get a mutable data record written by a given user.
+        """
+        client = get_blockstore_client_session()
+        return client.get_mutable( str(blockchain_id), str(data_name) )
+
+
+    def jsonrpc_get_immutable_data( self, blockchain_id, data_hash ):
+        """
+        Get immutable data record written by a given user.
+        """
+        client = get_blockstore_client_session()
+        return client.get_immutable( str(blockchain_id), str(data_hash) )
+
     
-            
-        
 def run_indexer( testset=False ):
     """
     Continuously reindex the blockchain, but as a subprocess.
@@ -1389,12 +1533,12 @@ def run_indexer( testset=False ):
     bitcoind_opts = get_bitcoin_opts()
     
     _, last_block_id = get_index_range()
-    blockstore_state_engine = get_state_engine()
+    db = get_state_engine()
     
     while True:
         
         time.sleep( REINDEX_FREQUENCY )
-        virtualchain.sync_virtualchain( bitcoind_opts, last_block_id, blockstore_state_engine )
+        virtualchain.sync_virtualchain( bitcoind_opts, last_block_id, db )
         
         _, last_block_id = get_index_range()
         
@@ -1875,12 +2019,151 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         ret_op = parse_namespace_ready( name_rec_payload )
 
-    ret_op = virtualchain.virtualchain_set_opfields( ret_op, virtualchain_opcode=getattr( config, opcode_name ), virtualchain_txid=str(name_rec['txid']) )
+    ret_op = virtualchain.virtualchain_set_opfields( ret_op, virtualchain_opcode=getattr( config, opcode_name ), virtualchain_txid=str(name_rec['txid']), virtualchain_txindex=int(name_rec['vtxindex']) )
     ret_op['opcode'] = opcode_name
 
     merged_ret_op = copy.deepcopy( name_rec )
     merged_ret_op.update( ret_op )
     return merged_ret_op
+
+
+def nameop_restore_consensus_fields( name_rec, block_id ):
+    """
+    Given a nameop at a point in time, ensure 
+    that all of its consensus fields are present.
+    Because they can be reconstructed directly from the nameop,
+    but they are not always stored in the db.
+    """
+
+    opcode_name = str(name_rec['opcode'])
+    ret_op = {}
+
+    if opcode_name == "NAME_REGISTRATION":
+
+        # reconstruct the recipient information
+        ret_op['recipient'] = str(name_rec['sender'])
+        ret_op['recipient_address'] = str(name_rec['address'])
+
+    elif opcode_name == "NAME_IMPORT":
+
+        # reconstruct the recipient information 
+        ret_op['recipient'] = str(name_rec['sender'])
+        ret_op['recipient_address'] = str(name_rec['address'])
+    
+    elif opcode_name == "NAME_TRANSFER":
+
+        db = get_state_engine()
+
+        # reconstruct the recipient information 
+        ret_op['recipient'] = str(name_rec['sender'])
+        ret_op['recipient_address'] = str(name_rec['address'])
+        
+        # reconstruct name_hash, consensus_hash, keep_data
+        keep_data = None
+        if name_rec['op'][-1] == TRANSFER_KEEP_DATA:
+            keep_data = True 
+        else:
+            keep_data = False 
+
+        ret_op['keep_data'] = keep_data
+        ret_op['consensus_hash'] = db.get_consensus_at( block_id - 1 )
+        ret_op['name_hash'] = hash256_trunc128( str(name_rec['name']) )  
+
+    elif opcode_name == "NAME_UPDATE":
+
+        # reconstruct name_hash 
+        ret_op['name_hash'] = hash256_trunc128( str(name_rec['name']) + str(name_rec['consensus_hash']) )
+
+    ret_op = virtualchain.virtualchain_set_opfields( ret_op, virtualchain_opcode=getattr( config, opcode_name ), virtualchain_txid=str(name_rec['txid']), virtualchain_txindex=int(name_rec['vtxindex']) )
+    ret_op['opcode'] = opcode_name
+
+    merged_op = copy.deepcopy( name_rec )
+    merged_op.update( ret_op )
+
+    return merged_op
+
+
+def block_to_virtualchain_ops( block_id, db ):
+    """
+    convert a block's name ops to virtualchain ops.
+    This is needed in order to recreate the virtualchain 
+    transactions that generated the block's name operations,
+    such as for re-building the db or serving SNV clients.
+    
+    Returns the list of virtualchain ops.
+    """
+
+    # all sequences of operations at this block, in tx order
+    nameops = db.get_all_nameops_at( block_id )
+    virtualchain_ops = []
+
+    # process nameops in order by vtxindex 
+    nameops = sorted( nameops, key=lambda op: op['vtxindex'] )
+
+    # each name record has its own history, and their interleaving in tx order
+    # is what makes up nameops.  However, when restoring a name record to 
+    # a previous state, we need to know the *relative* order of operations
+    # that changed it during this block.  This is called the history index,
+    # and it maps names to a dict, which maps the the virtual tx index (vtxindex)
+    # to integer h such that nameops[name][vtxindex] is the hth update to the name
+    # record.
+
+    history_index = {}
+    for i in xrange(0, len(nameops)):
+        nameop = nameops[i]
+
+        if 'name' not in nameop.keys():
+            continue
+
+        name = str(nameop['name'])
+        if name not in history_index.keys():
+            history_index[name] = { i: 0 }
+
+        else:
+            history_index[name][i] = max( history_index[name].values() ) + 1
+
+
+    for i in xrange(0, len(nameops)):
+
+        # only trusted fields
+        opcode_name = nameops[i]['opcode']
+        consensus_fields = SERIALIZE_FIELDS.get( opcode_name, None )
+        if consensus_fields is None:
+            raise Exception("BUG: no consensus fields defined for '%s'" % opcode_name )
+
+        # coerce string, not unicode
+        for k in nameops[i].keys():
+            if type(nameops[i][k]) == unicode:
+                nameops[i][k] = str(nameops[i][k])
+
+        # remove virtualchain-specific fields--they won't be trusted
+        nameops[i] = db.sanitize_op( nameops[i] )
+
+        for field in nameops[i].keys():
+
+            # remove untrusted fields, except for 'opcode' (which will be fed into the consensus hash
+            # indirectly, once the fields are successfully processed and thus proven consistent with 
+            # the fields.)
+            if field not in consensus_fields and field not in ['opcode']:
+                log.warning("OP '%s': Removing untrusted field '%s'" % (opcode_name, field))
+                del nameops[i][field]
+
+        try:
+            # recover virtualchain op from name record
+            h = 0
+            if 'name' in nameops[i]:
+                if nameops[i]['name'] in history_index:
+                    h = history_index[ nameops[i]['name'] ][i]
+
+            virtualchain_op = rec_to_virtualchain_op( nameops[i], block_id, h, db )
+        except:
+            print json.dumps( nameops[i], indent=4 )
+            raise
+
+        if virtualchain_op is not None:
+            virtualchain_ops.append( virtualchain_op )
+
+    return virtualchain_ops
 
 
 def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, resume_dir=None, start_block=None, testset=False ):
@@ -1908,7 +2191,10 @@ def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, 
         start_block = virtualchain.get_first_block_id()
     else:
         # resuming 
+        old_start_block = start_block
         start_block = get_lastblock()
+        if start_block is None:
+            start_block = old_start_block
 
     log.debug( "Rebuilding database from %s to %s" % (start_block, target_block_id) )
 
@@ -1927,78 +2213,13 @@ def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, 
 
     for block_id in xrange( start_block, target_block_id+1 ):
 
-        # all sequences of operations at this block, in tx order
-        nameops = untrusted_db.get_all_nameops_at( block_id )
-        virtualchain_ops = []
-
-        # each name record has its own history, and their interleaving in tx order
-        # is what makes up nameops.  However, when restoring a name record to 
-        # a previous state, we need to know the *relative* order of operations
-        # that changed it during this block.  This is called the history index,
-        # and it maps names to a dict, which maps the the virtual tx index (vtxindex)
-        # to integer h such that nameops[name][vtxindex] is the hth update to the name
-        # record.
-
-        history_index = {}
-        for i in xrange(0, len(nameops)):
-            nameop = nameops[i]
-
-            if 'name' not in nameop.keys():
-                continue
-
-            name = str(nameop['name'])
-            if name not in history_index.keys():
-                history_index[name] = { i: 0 }
-
-            else:
-                history_index[name][i] = max( history_index[name].values() ) + 1
-
-
-        for i in xrange(0, len(nameops)):
-
-            # only trusted fields
-            opcode_name = nameops[i]['opcode']
-            consensus_fields = SERIALIZE_FIELDS.get( opcode_name, None )
-            if consensus_fields is None:
-                raise Exception("BUG: no consensus fields defined for '%s'" % opcode_name )
-
-            # coerce string, not unicode
-            for k in nameops[i].keys():
-                if type(nameops[i][k]) == unicode:
-                    nameops[i][k] = str(nameops[i][k])
-
-            # remove virtualchain-specific fields--they won't be trusted
-            nameops[i] = working_db.sanitize_op( nameops[i] )
-
-            for field in nameops[i].keys():
-
-                # remove untrusted fields, except for 'opcode' (which will be fed into the consensus hash
-                # indirectly, once the fields are successfully processed and thus proven consistent with 
-                # the fields.)
-                if field not in consensus_fields and field not in ['opcode']:
-                    log.warning("OP '%s': Removing untrusted field '%s'" % (opcode_name, field))
-                    del nameops[i][field]
-
-            try:
-                # recover virtualchain op from name record
-                h = 0
-                if 'name' in nameops[i]:
-                    if nameops[i]['name'] in history_index:
-                        h = history_index[ nameops[i]['name'] ][i]
-
-                virtualchain_op = rec_to_virtualchain_op( nameops[i], block_id, h, untrusted_db )
-            except:
-                print json.dumps( nameops[i], indent=4 )
-                raise
-
-            if virtualchain_op is not None:
-                virtualchain_ops.append( virtualchain_op )
+        virtualchain_ops = block_to_virtualchain_ops( block_id, untrusted_db )
 
         # feed ops to virtualchain to reconstruct the db at this block
         consensus_hash = working_db.process_block( block_id, virtualchain_ops )
         log.debug("VERIFY CONSENSUS(%s): %s" % (block_id, consensus_hash))
 
-        consensus_hashes[block_id] = consensus_hash 
+        consensus_hashes[block_id] = consensus_hash
 
     # final consensus hash 
     return consensus_hashes[ target_block_id ]
@@ -2230,6 +2451,17 @@ def run_blockstored():
       print "Rebuilt database in '%s'" % blockstore_state_engine.working_dir
       print "The final consensus hash is '%s'" % final_consensus_hash
 
+   elif args.action == 'repair':
+      
+      resume_dir = None 
+      if hasattr(args, 'resume_dir') and args.resume_dir is not None:
+          resume_dir = args.resume_dir 
+ 
+      restart_block_id = int(args.restart_block_id)
+
+      # roll the db back in time 
+      # TODO
+      
    elif args.action == 'verifydb':
       rc = verify_database( args.consensus_hash, int(args.block_id), args.db_path )
       if rc:
