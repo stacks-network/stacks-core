@@ -28,6 +28,14 @@ import pybitcoin
 
 import virtualchain
 
+if not globals().has_key('log'):
+    log = virtualchain.session.log
+
+try:
+    import blockstore_client
+except:
+    blockstore_client = None
+
 DEBUG = True
 TESTNET = False
 
@@ -97,13 +105,11 @@ GENESIS_SNAPSHOT = {
     str(FIRST_BLOCK_MAINNET-3): "17ac43c1d8549c3181b200f1bf97eb7d",
     str(FIRST_BLOCK_MAINNET-2): "17ac43c1d8549c3181b200f1bf97eb7d",
     str(FIRST_BLOCK_MAINNET-1): "17ac43c1d8549c3181b200f1bf97eb7d",
-    # str(FIRST_BLOCK_MAINNET): "17ac43c1d8549c3181b200f1bf97eb7d",
 }
 
 GENESIS_SNAPSHOT_TESTSET = {
     str(FIRST_BLOCK_MAINNET_TESTSET-2): "9e938749294b8019f9857cda93e7e73f",
     str(FIRST_BLOCK_MAINNET_TESTSET-1): "9e938749294b8019f9857cda93e7e73f",
-    #str(FIRST_BLOCK_MAINNET_TESTSET): "9e938749294b8019f9857cda93e7e73f",
 }
 
 """ magic bytes configs
@@ -146,6 +152,8 @@ NAMESPACE_OPCODES = [
     NAMESPACE_READY
 ]
 
+ANNOUNCE = '#'
+
 # extra bytes affecting a transfer
 TRANSFER_KEEP_DATA = '>'
 TRANSFER_REMOVE_DATA = '~'
@@ -162,7 +170,8 @@ OPCODES = [
    NAME_IMPORT,
    NAMESPACE_PREORDER,
    NAMESPACE_REVEAL,
-   NAMESPACE_READY
+   NAMESPACE_READY,
+   ANNOUNCE
 ]
 
 OPCODE_NAMES = {
@@ -175,7 +184,8 @@ OPCODE_NAMES = {
     NAME_IMPORT: "NAME_IMPORT",
     NAMESPACE_PREORDER: "NAMESPACE_PREORDER",
     NAMESPACE_REVEAL: "NAMESPACE_REVEAL",
-    NAMESPACE_READY: "NAMESPACE_READY"
+    NAMESPACE_READY: "NAMESPACE_READY",
+    ANNOUNCE: "ANNOUNCE"
 }
 
 NAME_OPCODES = {
@@ -187,7 +197,8 @@ NAME_OPCODES = {
     "NAME_IMPORT": NAME_IMPORT,
     "NAMESPACE_PREORDER": NAMESPACE_PREORDER,
     "NAMESPACE_REVEAL": NAMESPACE_REVEAL,
-    "NAMESPACE_READY": NAMESPACE_READY
+    "NAMESPACE_READY": NAMESPACE_READY,
+    "ANNOUNCE": ANNOUNCE
 }
 
 NAMESPACE_LIFE_INFINITE = 0xffffffff
@@ -212,6 +223,7 @@ LENGTHS = {
     'blockchain_id_namespace_discounts': 1,
     'blockchain_id_namespace_version': 2,
     'blockchain_id_namespace_id': 19,
+    'announce': 20,
     'max_op_length': 40
 }
 
@@ -227,7 +239,8 @@ MIN_OP_LENGTHS = {
                         LENGTHS['blockchain_id_namespace_base'] + LENGTHS['blockchain_id_namespace_buckets'] + \
                         LENGTHS['blockchain_id_namespace_discounts'] + LENGTHS['blockchain_id_namespace_version'] + \
                         LENGTHS['name_min'],
-    'namespace_ready': 1 + LENGTHS['name_min']
+    'namespace_ready': 1 + LENGTHS['name_min'],
+    'announce': LENGTHS['announce']
 }
 
 OP_RETURN_MAX_SIZE = 40
@@ -314,13 +327,21 @@ SUPPORTED_UTXO_PROMPT_MESSAGES = {
 }
 
 
-""" Validation 
 """
+Which announcements has this blockstore node seen so far?
+Announcements encode CVEs, bugs, and new features.  This list will be 
+updated in Blockstore releases to describe which of them have been
+incorporated into the codebase.
+"""
+ANNOUNCEMENTS = []
+
+
+blockstore_client_session = None
+blockstore_client_session_opts = None
 
 def get_testset_filename( working_dir=None ):
    """
-   Determine whether or not the runtime-set testset file 
-   exists.
+   Get the path to the file to determine whether or not we're in testset.
    """
 
    if working_dir is None:
@@ -328,6 +349,186 @@ def get_testset_filename( working_dir=None ):
 
    testset_filepath = os.path.join( working_dir, virtualchain.get_implementation().get_virtual_chain_name() ) + ".testset"
    return testset_filepath
+
+
+def get_announce_filename( working_dir=None ):
+   """
+   Get the path to the file that stores all of the announcements.
+   """
+
+   if working_dir is None:
+       working_dir = virtualchain.get_working_dir()
+
+   announce_filepath = os.path.join( working_dir, virtualchain.get_implementation().get_virtual_chain_name() ) + ".announce"
+   return announce_filepath
+
+
+def get_blockstore_client_session( new_blockstore_client_session_opts=None ):
+    """
+    Get or instantiate our storage API session.
+    """
+    global blockstore_client_session
+    global blockstore_client_session_opts
+
+    # do we have storage?
+    if blockstore_client is None:
+        return None 
+
+    opts = None 
+    if new_blockstore_client_session_opts is not None:
+        opts = new_blockstore_client_session_opts 
+    else:
+        opts = blockstore_client.config.get_config()
+
+    if opts is None:
+        return None 
+
+    blockstore_client_session = blockstore_client.session( conf=opts )
+    if blockstore_client_session is not None:
+
+        if new_blockstore_client_session_opts is not None:
+            blockstore_client_session_opts = new_blockstore_client_session_opts
+
+    return blockstore_client_session
+
+
+def store_announcement( announcement_hash, announcement_text, working_dir=None, force=False ):
+   """
+   Store a new announcement locally, atomically.
+   """
+
+   if working_dir is None:
+       working_dir = virtualchain.get_working_dir()
+
+   if not force:
+       # don't store unless we haven't seen it before
+       if announcement_hash in ANNOUNCEMENTS:
+           return 
+
+   announce_filename = get_announce_filename( working_dir )
+   announce_filename_tmp = announce_filename + ".tmp"
+   announce_text = ""
+   announce_cleanup_list = []
+
+   # did we try (and fail) to store a previous announcement?  If so, merge them all
+   if os.path.exists( announce_filename_tmp ):
+
+       log.debug("Merge announcement list %s" % announce_filename_tmp )
+
+       with open(announce_filename, "r") as f:
+           announce_text += f.read()
+
+       i = 1
+       failed_path = announce_filename_tmp + (".%s" % i)
+       while os.path.exists( failed_path ):
+
+           log.debug("Merge announcement list %s" % failed_paht )
+           with open(failed_path, "r") as f:
+               announce_text += f.read()
+
+           announce_cleanup_list.append( failed_path )
+
+           i += 1
+           failed_path = announce_filename_tmp + (".%s" % i)
+       
+       announce_filename_tmp = failed_path
+
+   if os.path.exists( announce_filename ):
+       with open(announce_filename, "r" ) as f:
+           announce_text += f.read()
+
+   announce_text += ("\n%s\n" % announcement_hash)
+
+   # filter
+   if not force:
+       announcement_list = announce_text.split("\n")
+       unseen_announcements = filter( lambda a: a not in ANNOUNCEMENTS, announcement_list )
+       announce_text = "\n".join( unseen_announcements ).strip() + "\n"
+   
+   log.debug("Store announcement hash to %s" % announce_filename )
+
+   with open(announce_filename_tmp, "w" ) as f:
+       f.write( announce_text )
+       f.flush()
+
+   # NOTE: rename doesn't remove the old file on Windows
+   if sys.platform == 'win32' and os.path.exists( announcement_filename_tmp ):
+       try:
+           os.unlink( announcement_filename_tmp )
+       except:
+           pass
+    
+   try:
+       os.rename( announce_filename_tmp, announce_filename )
+   except:
+       log.error("Failed to save announcement %s to %s" % (announcement_hash, announce_filename ))
+       raise
+
+   # clean up
+   for tmp_path in announce_cleanup_list:
+       try:
+           os.unlink( tmp_path )
+       except:
+           pass
+
+   # put the announcement text 
+   announcement_text_dir = os.path.join( working_dir, "announcements" )
+   if not os.path.exists( announcement_text_dir ):
+       try:
+           os.makedirs( announcement_text_dir )
+       except:
+           log.error("Failed to make directory %s" % announcement_text_dir )
+           raise
+
+   announcement_text_path = os.path.join( announcement_text_dir, "%s.txt" % announcement_hash )
+
+   try:
+       with open( announcement_text_path, "w" ) as f:
+           f.write( announcement_text )
+
+   except:
+       log.error("Failed to save announcement text to %s" % announcement_text_path )
+       raise
+ 
+   log.debug("Stored announcement to %s" % (announcement_text_path))
+
+
+def get_announcement( announcement_hash ):
+    """
+    Go get an announcement's text, given its hash.
+    Use the blockstore client library, so we can get at
+    the storage drivers for the storage systems the sender used
+    to host it.
+
+    Return the data on success
+    """
+
+    session = get_blockstore_client_session()   # has the side-effect of initializing all storage drivers, if they're not already.
+    data = blockstore_client.storage.get_immutable_data( announcement_hash )
+    if data is None:
+        log.error("Failed to get announcement '%s'" % (announcement_hash))
+        return None 
+
+    return data
+
+
+def put_announcement( announcement_text, txid ):
+    """
+    Go put an announcement into back-end storage.
+    Use the blockstore client library, so we can get at 
+    the storage drivers for the storage systems this host
+    is configured to use.
+
+    Return the data's hash
+    """
+
+    session = get_blockstore_client_session()   # has the side-effect of initializing all storage drivers, if they're not already
+    data_hash = blockstore_client.storage.put_immutable_data( announcement_text, txid )
+    if data_hash is None:
+        log.error("Failed to put announcement '%s'" % (pybitcoin.hex_hash160(announcement_text)))
+        return None 
+
+    return data_hash
 
 
 def default_blockstore_opts( config_file=None, testset=False ):
@@ -340,6 +541,8 @@ def default_blockstore_opts( config_file=None, testset=False ):
       config_file = virtualchain.get_config_filename()
   
    testset_path = get_testset_filename( virtualchain.get_working_dir() )
+   announce_path = get_announce_filename( virtualchain.get_working_dir() )
+
    parser = SafeConfigParser()
    parser.read( config_file )
    
@@ -348,6 +551,9 @@ def default_blockstore_opts( config_file=None, testset=False ):
    utxo_provider = None
    testset_first_block = None
    max_subsidy = 0
+   contact_email = None
+   announcers = "judecn.id,muneeb.id,shea256.id"
+   announcements = None
    
    if parser.has_section('blockstore'):
       
@@ -362,24 +568,62 @@ def default_blockstore_opts( config_file=None, testset=False ):
          
       if parser.has_option('blockstore', 'max_subsidy'):
          max_subsidy = int( parser.get('blockstore', 'max_subsidy'))
+
+      if parser.has_option('blockstore', 'email'):
+         contact_email = parser.get('blockstore', 'email')
     
+      if parser.has_option('blockstore', 'announcers'):
+         # must be a CSV of blockchain IDs 
+         announcer_list_str = parser.get('blockstore', 'announcers')
+         announcer_list = announcer_list_str.split(",")
+         
+         import scripts 
+
+         # validate each one 
+         valid = True
+         for bid in announcer_list:
+             if not scripts.is_name_valid( bid ):
+                 log.error("Invalid blockchain ID '%s'" % bid)
+                 valid = False
+
+         if valid:
+             announcers = ",".join(announcer_list)
+
    if os.path.exists( testset_path ):
        # testset file flag set
        testset = True
+
+   if os.path.exists( announce_path ):
+       # load announcement list 
+       with open( announce_path, "r" ) as f:
+           announce_text = f.readlines()
+
+       all_announcements = [ a.strip() for a in announce_text ]
+       unseen_announcements = []
+
+       # find announcements we haven't seen yet 
+       for a in all_announcements:
+           if a not in ANNOUNCEMENTS:
+               unseen_announcements.append( a )
+
+       announcements = ",".join( unseen_announcements )
          
    blockstore_opts = {
        'tx_broadcaster': tx_broadcaster,
        'utxo_provider': utxo_provider,
        'testset': testset,
        'testset_first_block': testset_first_block,
-       'max_subsidy': max_subsidy
+       'max_subsidy': max_subsidy,
+       'email': contact_email,
+       'announcers': announcers,
+       'announcements': announcements
    }
    
    # strip Nones 
    for (k, v) in blockstore_opts.items():
       if v is None:
          del blockstore_opts[k]
-   
+  
    return blockstore_opts
    
 
@@ -393,7 +637,8 @@ def default_bitcoind_opts( config_file=None ):
    bitcoind_port = None 
    bitcoind_user = None 
    bitcoind_passwd = None 
-   bitcoind_use_https = None 
+   bitcoind_use_https = None
+   bitcoind_mock = False
    
    loaded = False 
    
@@ -421,10 +666,20 @@ def default_bitcoind_opts( config_file=None ):
          else:
             use_https = 'no'
 
+         if parser.has_option('bitcoind', 'mock'):
+            mock = parser.get('bitcoind', 'mock')
+         else:
+            mock = 'no'
+
          if use_https.lower() in ["yes", "y", "true"]:
             bitcoind_use_https = True
          else:
             bitcoind_use_https = False
+
+         if mock.lower() in ['yes', 'y', 'true']:
+            bitcoind_mock = True 
+         else:
+            bitcoind_mock = False
             
          loaded = True
 
@@ -450,6 +705,7 @@ def default_bitcoind_opts( config_file=None ):
       "bitcoind_server": bitcoind_server,
       "bitcoind_port": bitcoind_port,
       "bitcoind_use_https": bitcoind_use_https,
+      "bitcoind_mock": bitcoind_mock
    }
    
    # strip None's
@@ -761,13 +1017,15 @@ def default_mock_utxo_opts( config_file=None ):
          if parser.has_option('mock_utxo', 'initial_utxos'):
             # should be a csv of privatekey:int 
             try:
+                # verify that we can parse this
                 wallet_info = parser.get('mock_utxo', 'initial_utxos').split(',')
                 wallets = {}
                 for wi in wallet_info:
                     privkey, value = wi.split(':')
                     wallets[ privkey ] = int(value)
 
-                mock_initial_utxos = wallets 
+                #mock_initial_utxos = wallets 
+                mock_initial_utxos = parser.get('mock_utxo', 'initial_utxos')
 
             except:
                 print >> sys.stderr, "Invalid 'mock_initial_utxos' value: expected CSV of wif_private_key:int"
@@ -1012,6 +1270,8 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
        blockstore_opts = default_blockstore_opts( config_file=config_file, testset=testset )
        
    blockstore_msg = "ADVANCED USERS ONLY.\nPlease enter blockstore configuration hints."
+
+   # NOTE: disabled
    blockstore_opts, missing_blockstore_opts, num_blockstore_opts_prompted = find_missing( blockstore_msg, blockstore_params, blockstore_opts, blockstore_opts_defaults, prompt_missing=False )
    
    utxo_provider = None 
@@ -1077,13 +1337,30 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
        dht_opts = default_dht_opts( config_file=config_file )
        
    dht_msg = "Please enter your DHT node configuration.\nUnless you plan on leaving Blockstore\nrunning, you should disable the DHT feature."
+
+   # NOTE: disabled
    dht_opts, missing_dht_opts, num_dht_opts_prompted = find_missing( dht_msg, dht_params, dht_opts, dht_opts_defaults, prompt_missing=False )
    
    if not interactive and (len(missing_bitcoin_opts) > 0 or len(missing_utxo_opts) > 0 or len(missing_dht_opts) > 0 or len(missing_blockstore_opts) > 0):
        
        # cannot continue 
        raise Exception("Missing configuration fields: %s" % (",".join( missing_bitcoin_opts + missing_utxo_opts )) )
-                       
+
+   # ask for contact info, so we can send out notifications for bugfixes and upgrades 
+   if blockstore_opts.get('email', None) is None:
+       email_msg = "Would you like to receive notifications\n"
+       email_msg+= "from the developers when there are critical\n"
+       email_msg+= "updates available to install?\n\n"
+       email_msg+= "If so, please enter your email address here.\n"
+       email_msg+= "If not, leave this field blank.\n\n"
+       email_msg+= "Your email address will be used solely\n"
+       email_msg+= "for this purpose.\n"
+       email_opts, _, email_prompted = find_missing( email_msg, ['email'], {}, {'email': ''}, prompt_missing=interactive )
+       
+       # merge with blockstore section 
+       num_blockstore_opts_prompted += 1
+       blockstore_opts['email'] = email_opts['email']
+
    # if we prompted, then save 
    if num_bitcoind_prompted > 0 or num_utxo_opts_prompted > 0 or num_dht_opts_prompted > 0 or num_blockstore_opts_prompted > 0:
        print >> sys.stderr, "Saving configuration to %s" % config_file
@@ -1210,4 +1487,4 @@ def connect_utxo_provider( utxo_opts ):
 
    else:
        raise Exception("Unrecognized UTXO provider '%s'" % utxo_provider )
-   
+  
