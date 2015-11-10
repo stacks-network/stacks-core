@@ -36,13 +36,15 @@ from .namedb import BlockstoreDB
 
 from ..config import *
 from ..operations import parse_preorder, parse_registration, parse_update, parse_transfer, parse_revoke, \
-    parse_name_import, parse_namespace_preorder, parse_namespace_reveal, parse_namespace_ready, \
+    parse_name_import, parse_namespace_preorder, parse_namespace_reveal, parse_namespace_ready, parse_announce, \
     get_transfer_recipient_from_outputs, get_import_update_hash_from_outputs, get_registration_recipient_from_outputs, \
     SERIALIZE_FIELDS
 
 import virtualchain
 
-log = virtualchain.session.log
+if not globals().has_key('log'):
+    log = virtualchain.session.log
+
 blockstore_db = None
 last_load_time = 0
 
@@ -198,7 +200,14 @@ def parse_blockstore_op_data( opcode, payload, sender, recipient=None, recipient
             op = parse_namespace_ready( payload )
         else:
             log.error( "NAMESPACE_READY: invalid length %s" % len(payload))
-    
+   
+    elif opcode == ANNOUNCE:
+        if len(payload) == MIN_OP_LENGTHS['announce']:
+            log.debug( "Parse ANNOUNCE: %s" % data )
+            op = parse_announce( payload )
+        else:
+            log.error( "ANNOUNCE: invalid length %s" % (len(payload)))
+
     else:
         log.warning("Unrecognized op: code='%s', data=%s, len=%s" % (opcode, data, len(payload)))
         
@@ -499,7 +508,22 @@ def db_check( block_id, checked_ops, opcode, op, txid, vtxindex, db_state=None )
       
       elif opcode == NAMESPACE_READY:
          rc = db.log_namespace_ready( checked_ops, op, block_id )
-          
+         
+      elif opcode == ANNOUNCE:
+         rc, announcer_id = db.log_announce( checked_ops, op, block_id )
+         if rc:
+             # valid announcement
+             announce_hash = op['message_hash']
+
+             # go get the text...
+             announcement_text = get_announcement( announce_hash ) 
+             log.critical("ANNOUNCEMENT (from %s): %s\n------BEGIN MESSAGE------\n%s\n------END MESSAGE------\n" % (announcer_id, announce_hash, announcement_text))
+             
+             store_announcement( announce_hash, announcement_text )
+
+         # we do not process ANNOUNCEs, since they won't be fed into the consensus hash
+         return False 
+
       debug_op = copy.deepcopy( op )
       if debug_op.has_key('history'):
          del debug_op['history']
@@ -598,25 +622,6 @@ def db_commit( block_id, opcode, op, txid, vtxindex, db_state=None ):
         log.debug("Clear all expired partial namespace imports at %s" % block_id )
         expired_namespaces = db.commit_namespace_reveal_expire_all( block_id )
 
-        # merge expired namespaces...
-        expired_namespace_ids = expired_namespaces.keys()[:]
-        for nsid in expired_namespace_ids:
-            expired_names += expired_namespaces[ nsid ]
-
-        expired_names.sort()
-        expired_name_hashes.sort()
-        expired_namespace_hashes.sort()
-        expired_namespace_ids.sort()
-
-        # create a virtual nameop that encompasses the above expirations
-        new_namerec = {
-            "opcode": "VIRTUAL_EXPIRE",
-            "expired_names": str(len(expired_names)) + ":" + ",".join( expired_names ),
-            "expired_name_hashes": str(len(expired_name_hashes)) + ":" + ",".join( expired_name_hashes ),
-            "expired_namespace_hashes": str(len(expired_namespace_hashes)) + ":" + ",".join( expired_namespace_hashes ),
-            "expired_namespace_ids": str(len(expired_namespace_ids)) + ":" + ",".join( expired_namespace_ids )
-        }
-
         # reset for next block
         db.log_prescan_reset()
         
@@ -627,83 +632,54 @@ def db_commit( block_id, opcode, op, txid, vtxindex, db_state=None ):
    return new_namerec
 
 
-def db_serialize( op, nameop, db_state=None ):
-   """
-   (required by virtualchain state engine)
+def db_serialize( op, nameop, db_state=None, verbose=True ):
+    """
+    (required by virtualchain state engine)
+
+    Serialize a given name operation
+    """
    
-   Serialize a given name operation
-   """
-   
-   if db_state is not None:
+    fields = None
+    op = op[0]  # the first byte of the op string identifies the operation
 
-      fields = None
+    opcode_name = OPCODE_NAMES.get( op, None )
+    if opcode_name is None:
+        log.error("No such opcode '%s'" % op)
+        return None 
 
-      # special case: final nameop
-      if nameop.has_key('opcode') and nameop['opcode'] == 'VIRTUAL_EXPIRE':
-          fields = ['expired_names', 'expired_name_hashes', 'expired_namespace_hashes', 'expired_namespace_ids']
+    fields = SERIALIZE_FIELDS.get( opcode_name, None )
+    if fields is None:
+        log.error("BUG: unrecongnized opcode '%s'" % opcode_name )
+        return None 
+
+    all_values = []
+    debug_all_values = []
+    missing = []
+    for field in fields:
+      if not nameop.has_key(field):
+          missing.append( field )
+
+      field_value = nameop.get(field, None)
+      if field_value is None:
+          field_value = ""
       
-      else:
-          opcode_name = OPCODE_NAMES.get( op, None )
-          if opcode_name is None:
-              log.error("No such opcode '%s'" % op)
-              return None 
+      # netstring format
+      debug_all_values.append( str(field) + "=" + str(len(str(field_value))) + ":" + str(field_value) )
+      all_values.append( str(len(str(field_value))) + ":" + str(field_value) )
 
-          fields = SERIALIZE_FIELDS.get( opcode_name, None )
-          if fields is None:
-              log.error("BUG: unrecongnized opcode '%s'" % opcode_name )
-              return None 
+    if len(missing) > 0:
+      print json.dumps( nameop, indent=4 )
+      raise Exception("BUG: missing fields '%s'" % (",".join(missing)))
 
-      all_values = []
-      debug_all_values = []
-      missing = []
-      for field in fields:
-          if not nameop.has_key(field):
-              missing.append( field )
+    debug_field_values = ",".join( debug_all_values )
 
-          field_value = nameop.get(field, None)
-          if field_value is None:
-              field_value = ""
-          
-          # netstring format
-          debug_all_values.append( str(field) + "=" + str(len(str(field_value))) + ":" + str(field_value) )
-          all_values.append( str(len(str(field_value))) + ":" + str(field_value) )
+    if verbose:
+        log.debug("SERIALIZE: %s:%s" % (op, debug_field_values ))
 
-      if len(missing) > 0:
-          print json.dumps( nameop, indent=4 )
-          raise Exception("BUG: missing fields '%s'" % (",".join(missing)))
+    field_values = ",".join( all_values )
 
-      debug_field_values = ",".join( debug_all_values )
+    return op + ":" + field_values
 
-      log.debug("SERIALIZE: %s:%s" % (op, debug_field_values ))
-
-      field_values = ",".join( all_values )
-
-      return op + ":" + field_values
-      
-   else:
-      log.error("No state engine defined")
-      return None
-
-
-def has_savable_data( pending_ops ):
-   """
-   Do we really need to write the db?
-   """
-   ops = pending_ops.get('virtualchain_ordered', [])
-   if len(ops) > 1:
-       return True
-
-   if len(ops) == 0:
-       raise Exception("Missing expiry")
-
-   if ops[0]['opcode'] != 'VIRTUAL_EXPIRE':
-       raise Exception("Missing expiry")
-
-   for expiry in ['expired_name_hashes', 'expired_namespace_hashes', 'expired_names', 'expired_namespace_ids']:
-       if ops[0][expiry] != '0:':
-           return True 
-
-   return False
 
 def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
    """
@@ -723,8 +699,7 @@ def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
    if db is not None:
       
       # see if anything actually changed
-      # (we're guaranteed at least one nameop--the expiry one, and if it's empty, we can skip this step)
-      if has_savable_data( pending_ops ): 
+      if len(pending_ops.get('virtualchain_ordered', [])) > 0:
           # state has changed 
           log.debug("Save database %s" % filename)
           return db.save_db( filename )
