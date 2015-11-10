@@ -133,7 +133,9 @@ def update_user(user, fqu):
 
 def cleanup_queue(queue):
 
-    for entry in queue.find():
+    for entry in queue.find(no_cursor_timeout=True):
+
+        print "checking: %s" % entry['fqu']
 
         if entry['fqu'] in DHT_IGNORE:
             continue
@@ -159,8 +161,11 @@ def cleanup_queue(queue):
 
             else:
 
-                print "blockchain hash is different than write attempt, try again"
+                print "blockchain hash is different than write attempt, try again: %s" % entry['transaction_hash']
                 #queue.remove({"fqu": entry['fqu']})
+        else:
+            print "not yet registered, tx: %s" % entry['transaction_hash']
+            #queue.remove({"fqu": entry['fqu']})
 
 
 def get_latest_diff():
@@ -175,11 +180,16 @@ def get_latest_diff():
 
 def register_new_users(spam_protection=False):
 
-    for new_user in registrations.find():
+    limit = 100
+    counter = 0
+
+    for new_user in registrations.find(no_cursor_timeout=True):
 
         user = get_db_user_from_id(new_user)
 
         if user is None:
+            print "No such user, need to remove: %s" % new_user['_id']
+            #registrations.remove({'_id': new_user['_id']})
             continue
 
         # for spam protection
@@ -196,10 +206,17 @@ def register_new_users(spam_protection=False):
 
         fqu = user['username'] + "." + DEFAULT_NAMESPACE
 
+        print "-" * 5
+        print "Processing: %s" % fqu
+
         if usernameRegistered(fqu):
             print "Already registered %s" % fqu
 
             resp = get_blockchain_record(fqu)
+
+            if 'value_hash' not in resp:
+                print resp
+                break
 
             if resp['value_hash'] == get_hash(user['profile']):
                 registrations.remove({"user_id": new_user['user_id']})
@@ -213,10 +230,19 @@ def register_new_users(spam_protection=False):
             print "Not registered: %s" % fqu
             register_user(user, fqu)
 
+            counter += 1
+
+            if counter == limit:
+                print "reached limit"
+                break
+
 
 def update_users_bulk():
 
-    for new_user in updates.find():
+    limit = 1000
+    counter = 0
+
+    for new_user in updates.find(no_cursor_timeout=True):
 
         user = get_db_user_from_id(new_user)
 
@@ -242,6 +268,12 @@ def update_users_bulk():
                 btc_address = nmc_to_btc_address(user['namecoin_address'])
                 if check_ownership(fqu, btc_address):
                     update_user(user, fqu)
+
+                    counter += 1
+
+                    if counter == limit:
+                        print "reached limit"
+                        break
                 else:
                     print "cannot update (wrong owner): %s " % fqu
                     updates.remove({"user_id": new_user['user_id']})
