@@ -56,19 +56,19 @@ def register_user(fqu, profile, btc_address):
         return
 
     if usernameRegistered(fqu):
-        print "Already registered %s" % fqu
+        log.debug("Already registered %s" % fqu)
         return
 
     profile_hash = get_hash(profile)
 
-    print "Registering (%s, %s, %s)" % (fqu, btc_address, profile_hash)
+    log.debug("Registering (%s, %s, %s)" % (fqu, btc_address, profile_hash))
 
     try:
         resp = bs_client.name_import(fqu, btc_address, profile_hash,
                                      BTC_PRIV_KEY)
         resp = resp[0]
     except Exception as e:
-        print e
+        log.debug(e)
         return
 
     if 'transaction_hash' in resp:
@@ -101,7 +101,7 @@ def update_user(fqu, profile, btc_address):
         resp = bs_client.name_import(fqu, btc_address, profile_hash, BTC_PRIV_KEY)
         resp = resp[0]
     except Exception as e:
-        print e
+        log.debug(e)
         return
 
     if 'transaction_hash' in resp:
@@ -197,7 +197,7 @@ def update_users_bulk():
             resp = get_blockchain_record(fqu)
 
             if 'error' in resp:
-                print fqu, resp
+                log.debug("ERROR: %s, %s" % (fqu, resp))
                 continue
 
             if resp['value_hash'] == get_hash(user['profile']):
