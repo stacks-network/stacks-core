@@ -42,9 +42,9 @@ DEFAULT_HOST = '127.0.0.1'
 MEMCACHED_PORT = '11211'
 MEMCACHED_TIMEOUT = 15 * 60
 
-DEBUG = True
+DEBUG = False  # can change in config_local
 
-RATE_LIMIT_TX = 24   # target tx per block
+RATE_LIMIT_TX = 10   # target tx per block
 RETRY_INTERVAL = 15  # if a tx is not picked up by x blocks
 TX_CONFIRMATIONS_NEEDED = 10
 
