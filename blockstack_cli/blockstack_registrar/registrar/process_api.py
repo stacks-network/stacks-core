@@ -22,32 +22,22 @@ This file is part of Registrar.
     along with Registrar. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os
 import json
 import requests
 
-from pymongo import MongoClient
+from .db import api_db
 
-from pybitcoin.rpc import NamecoindClient
-from pybitcoin.rpc.namecoind_cluster import check_address
-
-from registrar.nameops import process_user, update_name, register_name
-
-from registrar.config import MONGOLAB_URI
-
-
-api_db = MongoClient(MONGOLAB_URI).get_default_database()
-#api_db = MongoClient()['onename_api8']
+BASE_URL = 'http://resolver.onename.com/v1/users/'
 
 
 def process_api_registraions(LIVE=False):
 
-    base_url = 'http://resolver.onename.com/v1/users/'
+    new_users = api_db['user']
 
-    new_users = api_db['passcard']
+    print api_db.collection_names()
 
     for entry in new_users.find():
-        print entry
+        print entry['email']
         continue
         username = entry['passname']
         transfer_address = entry['transfer_address']
