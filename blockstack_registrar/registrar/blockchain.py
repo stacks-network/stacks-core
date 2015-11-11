@@ -27,11 +27,15 @@ from pybitcoin import BlockcypherClient
 from pybitcoin.services.blockcypher import get_unspents
 
 from .config import BLOCKCYPHER_TOKEN
+from .config import RETRY_INTERVAL, TX_CONFIRMATIONS_NEEDED
 
 from .utils import satoshis_to_btc, get_address_from_pvtkey
 from .utils import pretty_print as pprint
+from .utils import config_log
 
 from blockcypher import get_transaction_details, get_blockchain_overview
+
+log = config_log(__name__)
 
 
 def get_block_height():
@@ -52,6 +56,8 @@ def get_block_height():
 
 
 def get_tx_confirmations(tx_hash):
+    """ Return block height (currently uses BlockCypher API)
+    """
 
     resp = None
 
@@ -66,6 +72,26 @@ def get_tx_confirmations(tx_hash):
     return resp
 
 
+def txRejected(tx_hash, tx_sent_at_height):
+
+    current_height = get_block_height()
+    tx_confirmations = get_tx_confirmations(tx_hash)
+
+    if (current_height - tx_sent_at_height) > RETRY_INTERVAL:
+
+        # if no confirmations and retry limit hits
+        if tx_confirmations == 0:
+            return True
+    else:
+
+        if tx_confirmations > TX_CONFIRMATIONS_NEEDED:
+            log.debug("confirmed on the network")
+        else:
+            log.debug("waiting: (tx: %s, confirmations: %s)" % (queue_obj['transaction_hash'], tx_confirmations))
+
+    return False
+
+
 def test_inputs():
         """ Check if BTC key being used has enough inputs
         """
@@ -73,7 +99,7 @@ def test_inputs():
         from registrar.config import BTC_PRIV_KEY
         btc_address = get_address_from_pvtkey(BTC_PRIV_KEY)
 
-        print "Testing address: %s" % btc_address
+        log.debug("Testing address: %s" % btc_address)
 
         client = BlockcypherClient(api_key=BLOCKCYPHER_TOKEN)
 
@@ -82,9 +108,6 @@ def test_inputs():
         total_satoshis = 0
         counter = 0
         for unspent in unspents:
-
-            #if unspent['confirmations'] == 0:
-            #    continue
 
             counter += 1
             total_satoshis += unspent['value']

@@ -22,12 +22,34 @@ This file is part of Registrar.
 """
 
 import json
+import logging
+
 from bson import json_util
 
 from pybitcoin import hex_hash160, address_to_new_cryptocurrency
 from pybitcoin import BitcoinPrivateKey
 
-from .config import email_regrex
+from .config import email_regrex, DEBUG
+
+
+def config_log(name):
+
+    from commontools import setup_logging
+    setup_logging()
+
+    log = logging.getLogger(name)
+
+    if DEBUG:
+        log.setLevel(level=logging.DEBUG)
+    else:
+        log.setLevel(level=logging.INFO)
+
+    blockcypher_log = logging.getLogger("blockcypher.api")
+    blockcypher_log.setLevel(logging.WARNING)
+
+    return log
+
+log = config_log(__name__)
 
 
 def get_hash(profile):
@@ -37,7 +59,7 @@ def get_hash(profile):
             # print "WARNING: converting to json"
             profile = json.loads(profile)
         except:
-            print "WARNING: not valid json"
+            log.debug("WARNING: not valid json")
 
     return hex_hash160(json.dumps(profile, sort_keys=True))
 
@@ -53,8 +75,7 @@ def pretty_print(data):
         try:
             data = json.loads(data)
         except Exception as e:
-            print "got here"
-            print e
+            log.debug("ERROR in pretty print: %s" % e)
 
     print json.dumps(data, sort_keys=True, indent=4, separators=(',', ': '), default=json_util.default)
 
