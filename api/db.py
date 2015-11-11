@@ -11,14 +11,5 @@ from . import app
 from mongoengine import connect
 from flask.ext.mongoengine import MongoEngine
 
-connect(app.config['MONGODB_DB'], host=app.config['MONGODB_URI'])
+connect(app.config['API_DB_NAME'], host=app.config['API_DB_URI'])
 db = MongoEngine(app)
-
-# MongoDB database for register queue, utxo index, etc.
-from pymongo import MongoClient
-from .settings import INDEX_DB_URI
-
-namecoin_index = MongoClient(INDEX_DB_URI)['namecoin_index']
-utxo_index = namecoin_index.utxo
-address_to_utxo = namecoin_index.address_to_utxo
-address_to_keys = namecoin_index.address_to_keys_new
