@@ -23,96 +23,79 @@ This file is part of Registrar.
     along with Registrar. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os
 import sys
-import json
-
-from pymongo import MongoClient
-from basicrpc import Proxy
-
-from .nameops import get_blockchain_record, get_dht_profile
-from .nameops import usernameRegistered, check_ownership
-from .nameops import write_dht_profile
-
-from .config import DEFAULT_NAMESPACE
-from .config import IGNORE_USERNAMES
-from .config import BTC_PRIV_KEY
-from .config import DHT_IGNORE
-from .config import RATE_LIMIT_TX, RETRY_INTERVAL, TX_CONFIRMATIONS_NEEDED
-
-from .utils import get_hash, check_banned_email, nmc_to_btc_address
-from .utils import pretty_print as pprint
-
-from .network import get_bs_client, get_dht_client
-from .db import state_diff, users, registrations, updates
-from .db import get_db_user_from_id
-from .db import register_queue, update_queue
-
-from .blockchain import get_block_height, get_tx_confirmations
 
 from time import sleep
 
+from .nameops import get_blockchain_record
+from .nameops import usernameRegistered, ownerUsername
 
-def register_user(user, fqu):
+from .config import DEFAULT_NAMESPACE
+from .config import BTC_PRIV_KEY
+from .config import RATE_LIMIT_TX
+
+from .utils import get_hash, check_banned_email, nmc_to_btc_address
+from .utils import config_log
+
+from .network import get_bs_client
+from .db import users, registrations, updates
+from .db import get_db_user_from_id
+from .db import register_queue, update_queue
+
+from .queue import cleanup_queue, add_to_queue, alreadyinQueue
+
+log = config_log(__name__)
+
+
+def register_user(fqu, profile, btc_address):
 
     bs_client = get_bs_client()
 
-    check_queue = register_queue.find_one({"fqu": fqu})
-
-    if check_queue is not None:
-        print "Already in queue"
+    if alreadyinQueue(register_queue, fqu):
+        log.debug("Already in queue: %s" % fqu)
         return
 
     if usernameRegistered(fqu):
         print "Already registered %s" % fqu
         return
 
-    profile_hash = get_hash(user['profile'])
-    btc_address = nmc_to_btc_address(user['namecoin_address'])
+    profile_hash = get_hash(profile)
 
     print "Registering (%s, %s, %s)" % (fqu, btc_address, profile_hash)
 
     try:
-        resp = bs_client.name_import(fqu, btc_address, profile_hash, BTC_PRIV_KEY)
+        resp = bs_client.name_import(fqu, btc_address, profile_hash,
+                                     BTC_PRIV_KEY)
         resp = resp[0]
     except Exception as e:
         print e
         return
 
     if 'transaction_hash' in resp:
-        new_entry = {}
-        new_entry["fqu"] = fqu
-        new_entry['transaction_hash'] = resp['transaction_hash']
-        new_entry['profile_hash'] = profile_hash
-        new_entry['profile'] = user['profile']
-        new_entry['btc_address'] = btc_address
-        new_entry['block_height'] = get_block_height()
-        register_queue.save(new_entry)
+        add_to_queue(register_queue, fqu, profile, profile_hash, btc_address,
+                     resp['transaction_hash'])
     else:
-        print "Error registering: %s" % fqu
-        print resp
+        log.debug("Error registering: %s" % fqu)
+        log.debug(resp)
 
     sleep(3)
 
 
-def update_user(user, fqu):
+def update_user(fqu, profile, btc_address):
 
     bs_client = get_bs_client()
 
-    check_queue = update_queue.find_one({"fqu": fqu})
-
-    if check_queue is not None:
-        print "Already in queue: %s" % fqu
+    if alreadyinQueue(update_queue, fqu):
+        log.debug("Already in queue: %s" % fqu)
         return
 
-    profile_hash = get_hash(user['profile'])
-    btc_address = nmc_to_btc_address(user['namecoin_address'])
-
-    if not check_ownership(fqu, btc_address):
-        print "Don't own this name"
+    if not ownerUsername(fqu, btc_address):
+        log.debug("Don't own this name")
         return
 
-    print "Updating (%s, %s, %s)" % (fqu, btc_address, profile_hash)
+    profile_hash = get_hash(profile)
+
+    log.debug("Updating (%s, %s, %s)" % (fqu, btc_address, profile_hash))
 
     try:
         resp = bs_client.name_import(fqu, btc_address, profile_hash, BTC_PRIV_KEY)
@@ -122,86 +105,13 @@ def update_user(user, fqu):
         return
 
     if 'transaction_hash' in resp:
-        new_entry = {}
-        new_entry["fqu"] = fqu
-        new_entry['transaction_hash'] = resp['transaction_hash']
-        new_entry['profile_hash'] = profile_hash
-        new_entry['profile'] = user['profile']
-        new_entry['btc_address'] = btc_address
-        new_entry['block_height'] = get_block_height()
-        update_queue.save(new_entry)
+        add_to_queue(update_queue, fqu, profile, profile_hash, btc_address,
+                     resp['transaction_hash'])
     else:
-        print "Error updating: %s" % fqu
-        print resp
+        log.debug("Error updating: %s" % fqu)
+        log.debug(resp)
 
     sleep(3)
-
-
-def txRejected(queue_obj):
-
-    tx_hash = queue_obj['transaction_hash']
-    tx_sent_at_height = queue_obj['block_height']
-
-    current_height = get_block_height()
-    tx_confirmations = get_tx_confirmations(tx_hash)
-
-    if (current_height - tx_sent_at_height) > RETRY_INTERVAL:
-
-        # if no confirmations and retry limit hits
-        if tx_confirmations == 0:
-            return True
-    else:
-
-        if tx_confirmations > TX_CONFIRMATIONS_NEEDED:
-            print "confirmed on the network"
-        else:
-            print "waiting: (tx: %s, confirmations: %s)" % (queue_obj['transaction_hash'], tx_confirmations)
-
-    return False
-
-
-def cleanup_queue(queue):
-
-    for entry in queue.find(no_cursor_timeout=True):
-
-        print "checking: %s" % entry['fqu']
-
-        if entry['fqu'] in DHT_IGNORE:
-            continue
-
-        if usernameRegistered(entry['fqu']):
-
-            record = get_blockchain_record(entry['fqu'])
-
-            if record['value_hash'] == entry['profile_hash']:
-
-                print "registered on blockchain: %s" % entry['fqu']
-
-                profile = get_dht_profile(entry['fqu'])
-
-                if profile is None:
-                    print "data not in DHT"
-                    write_dht_profile(entry['profile'])
-
-                else:
-                    if get_hash(profile) == entry['profile_hash']:
-                        print "data in DHT"
-                        print "removing from queue: %s" % entry['fqu']
-                        queue.remove({"fqu": entry['fqu']})
-
-        if txRejected(entry):
-            print "tx rejected by network, removing tx: %s" % entry['transaction_hash']
-            queue.remove({"fqu": entry['fqu']})
-
-
-def get_latest_diff():
-
-    for user in state_diff.find():
-
-        username = user['username']
-
-        if username == 'fboya':
-            print user
 
 
 def register_new_users(spam_protection=False):
@@ -213,7 +123,7 @@ def register_new_users(spam_protection=False):
         user = get_db_user_from_id(new_user)
 
         if user is None:
-            print "No such user, need to remove: %s" % new_user['_id']
+            log.debug("No such user, need to remove: %s" % new_user['_id'])
             #registrations.remove({'_id': new_user['_id']})
             continue
 
@@ -221,44 +131,47 @@ def register_new_users(spam_protection=False):
         if check_banned_email(user['email']):
             if spam_protection:
                 #users.remove({"email": user['email']})
-                print "Deleting spam %s, %s" % (user['email'], user['username'])
+                log.debug("Deleting spam %s, %s" % (user['email'], user['username']))
                 continue
             else:
-                print "Need to delete %s, %s" % (user['email'], user['username'])
+                log.debug("Need to delete %s, %s" % (user['email'], user['username']))
                 continue
 
         bs_client = get_bs_client()
 
         fqu = user['username'] + "." + DEFAULT_NAMESPACE
+        btc_address = nmc_to_btc_address(user['namecoin_address'])
+        profile = user['profile']
 
-        print "-" * 5
-        print "Processing: %s" % fqu
+        log.debug("-" * 5)
+        log.debug("Processing: %s" % fqu)
 
         if usernameRegistered(fqu):
-            print "Already registered %s" % fqu
+            log.debug("Already registered %s" % fqu)
 
             resp = get_blockchain_record(fqu)
 
             if 'value_hash' not in resp:
-                print resp
+                log.debug("ERROR in resp")
+                log.debug(resp)
                 break
 
             if resp['value_hash'] == get_hash(user['profile']):
                 registrations.remove({"user_id": new_user['user_id']})
-                print "removing registration"
+                log.debug("Removing registration")
             else:
-                print "Latest profile not on blockchain, need to update"
-                update_user(user, fqu)
+                log.debug("Latest profile not on blockchain, need to update")
+                update_user(fqu, profile, btc_address)
 
         else:
 
-            print "Not registered: %s" % fqu
-            register_user(user, fqu)
+            log.debug("Not registered: %s" % fqu)
+            register_user(fqu, profile, btc_address)
 
             counter += 1
 
             if counter == RATE_LIMIT_TX:
-                print "reached limit"
+                log.debug("Reached limit. Breaking.")
                 break
 
 
@@ -276,6 +189,8 @@ def update_users_bulk():
         bs_client = get_bs_client()
 
         fqu = user['username'] + "." + DEFAULT_NAMESPACE
+        btc_address = nmc_to_btc_address(user['namecoin_address'])
+        profile = user['profile']
 
         if usernameRegistered(fqu):
 
@@ -286,24 +201,23 @@ def update_users_bulk():
                 continue
 
             if resp['value_hash'] == get_hash(user['profile']):
-                print "profile match, removing: %s" % fqu
+                log.debug("profile match, removing: %s" % fqu)
                 updates.remove({"user_id": new_user['user_id']})
             else:
-                btc_address = nmc_to_btc_address(user['namecoin_address'])
-                if check_ownership(fqu, btc_address):
-                    update_user(user, fqu)
+                if ownerUsername(fqu, btc_address):
+                    update_user(fqu, profile, btc_address)
 
                     counter += 1
 
                     if counter == RATE_LIMIT_TX:
-                        print "reached limit"
+                        log.debug("Reached limit. Breaking.")
                         break
                 else:
-                    print "cannot update (wrong owner): %s " % fqu
+                    log.debug("Cannot update (wrong owner): %s " % fqu)
                     updates.remove({"user_id": new_user['user_id']})
         else:
 
-            print "Not registered: %s" % fqu
+            log.debug("Not registered: %s" % fqu)
 
 
 if __name__ == '__main__':
@@ -311,7 +225,7 @@ if __name__ == '__main__':
     try:
         command = sys.argv[1]
     except:
-        print "Options are register, update, clean"
+        log.info("Options are register, update, clean")
         exit(0)
 
     if command == "register":

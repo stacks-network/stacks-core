@@ -97,7 +97,7 @@ def write_dht_profile(profile):
     return resp
 
 
-def check_ownership(fqu, btc_address):
+def ownerUsername(fqu, btc_address):
     """ return True if btc_address owns the username
     """
 
