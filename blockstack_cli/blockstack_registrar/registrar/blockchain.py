@@ -87,7 +87,7 @@ def txRejected(tx_hash, tx_sent_at_height):
         if tx_confirmations > TX_CONFIRMATIONS_NEEDED:
             log.debug("confirmed on the network")
         else:
-            log.debug("waiting: (tx: %s, confirmations: %s)" % (queue_obj['transaction_hash'], tx_confirmations))
+            log.debug("waiting: (tx: %s, confirmations: %s)" % (tx_hash, tx_confirmations))
 
     return False
 
