@@ -43,7 +43,7 @@ except:
 
 # Secret settings
 secrets_list = [
-    'MAILGUN_API_KEY',
+    'MAILGUN_API_KEY', 'SECRET_KEY',
     'API_DB_URI', 'API_DB_NAME',
     'CHAIN_API_ID', 'CHAIN_API_SECRET'
 ]
