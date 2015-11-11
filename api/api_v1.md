@@ -6,16 +6,16 @@
 lookup_users
 
 #### description:
-Looks up the data for one or more users by their passnames. In order to perform more than one lookup at once, include a set of comma-separated passnames in the URL in place of the single passname.
+Looks up the data for one or more users by their usernames. In order to perform more than one lookup at once, include a set of comma-separated usernames in the URL in place of the single username.
 
 #### response_description:
-Returns an object with a top-level key for each passname looked up. Each top-level key contains an sub-object that has a "profile" field and a "verifications" field.
+Returns an object with a top-level key for each username looked up. Each top-level key contains an sub-object that has a "profile" field and a "verifications" field.
 
 #### method:
 GET
 
 #### path_template:
-/users/{passnames}
+/users/{usernames}
 
 #### tryit_pathname:
 /v1/users/fredwilson?app-id=demo-app-id&app-secret=demo-app-secret

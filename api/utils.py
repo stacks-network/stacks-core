@@ -7,6 +7,7 @@
 
 import re
 import json
+from .settings import MAX_PROFILE_LIMIT
 
 
 def build_api_call_object(text):
@@ -52,3 +53,18 @@ def get_api_calls(filename):
 def camelcase_to_snakecase(name):
     s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
     return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+
+
+def utf8len(s):
+    if type(s) == unicode:
+        return len(s)
+    else:
+        return len(s.encode('utf-8'))
+
+
+def sizeInvalid(profile):
+
+    if utf8len(json.dumps(profile)) > MAX_PROFILE_LIMIT:
+        return True
+    else:
+        return False

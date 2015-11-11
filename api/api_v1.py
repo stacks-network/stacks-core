@@ -24,13 +24,13 @@ from .errors import InvalidProfileDataError, UsernameTakenError, \
     InternalProcessingError, ResolverConnectionError, \
     BroadcastTransactionError, DatabaseLookupError, InternalSSLError, \
     DatabaseSaveError, DKIMPubkeyError, UsernameNotRegisteredError, \
-    UpgradeInprogressError
+    UpgradeInprogressError, InvalidProfileSize
 
 from .parameters import parameters_required
 from .auth import auth_required
-from .db import utxo_index, address_to_utxo, address_to_keys
-from .models import User
+from .models import BlockchainID
 from .dkim import dns_resolver, parse_pubkey_from_data, DKIM_RECORD_PREFIX
+from .utils import sizeInvalid
 
 from .settings import RESOLVER_URL, SEARCH_URL
 from .settings import CHAIN_API_ID, CHAIN_API_SECRET
@@ -39,6 +39,10 @@ from .settings import DHT_MIRROR, DHT_MIRROR_PORT
 from .settings import BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER
 from .settings import BITCOIND_PASSWD, BITCOIND_USE_HTTPS
 
+from basicrpc import Proxy
+from .settings import DHT_MIRROR, DHT_MIRROR_PORT
+
+proxy = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
 
 bitcoind = BitcoindClient(BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER,
                           BITCOIND_PASSWD, BITCOIND_USE_HTTPS)
@@ -114,7 +118,10 @@ def register_user():
     else:
         raise UsernameTakenError()
 
-    matching_profiles = User.objects(username=username)
+    if sizeInvalid(profile):
+        raise InvalidProfileSize()
+
+    matching_profiles = BlockchainID.objects(username=username)
 
     if len(matching_profiles):
         """ Someone else already tried registering this name
@@ -123,10 +130,10 @@ def register_user():
         """
         pass
     else:
-        profile = User(username=username, profile=json.dumps(profile),
+        new_entry = BlockchainID(username=username, profile=json.dumps(profile),
                             transfer_address=data['recipient_address'])
         try:
-            profile.save()
+            new_entry.save()
         except Exception as e:
             raise DatabaseSaveError()
 
@@ -269,5 +276,26 @@ def get_dkim_pubkey(domain):
         raise DKIMPubkeyError()
 
     resp = public_key_data
+
+    return jsonify(resp), 200
+
+
+@app.route('/v1/data/<hash>', methods=['GET'])
+@auth_required()
+@crossdomain(origin='*')
+def get_immutable_data(hash):
+
+    resp = proxy.get(hash)
+
+    return jsonify(resp), 200
+
+
+@app.route('/v1/data', methods=['POST'])
+@auth_required()
+@parameters_required(['hash', 'payload'])
+@crossdomain(origin='*')
+def write_immutable_data():
+
+    resp = proxy.set(hash, payload)
 
     return jsonify(resp), 200

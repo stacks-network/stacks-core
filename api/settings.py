@@ -34,6 +34,8 @@ BITCOIND_USER = 'openname'
 BITCOIND_PASSWD = 'opennamesystem'
 BITCOIND_USE_HTTPS = True
 
+MAX_PROFILE_LIMIT = (8 * 1024) - 50  # roughly 8kb max limit
+
 try:
     from .secrets import *
 except:
@@ -41,8 +43,8 @@ except:
 
 # Secret settings
 secrets_list = [
-    'INDEX_DB_URI', 'SECRET_KEY', 'MONGODB_PASSWORD',
-    'MAILGUN_API_KEY', 'MONGODB_URI', 'MONGODB_DB',
+    'MAILGUN_API_KEY',
+    'API_DB_URI', 'API_DB_NAME',
     'CHAIN_API_ID', 'CHAIN_API_SECRET'
 ]
 
@@ -58,6 +60,11 @@ else:
     DEBUG = True
     APP_URL = 'localhost:5000'
 
-    MONGODB_DB = 'onename-api-test'
-    MONGODB_URI = 'mongodb://%s:%s/%s' % (
-        'localhost', str(27017), MONGODB_DB)
+    API_DB_NAME = 'onename-api-test'
+    API_DB_URI = 'mongodb://%s:%s/%s' % ('localhost', str(27017), API_DB_NAME)
+
+
+MONGODB_SETTINGS = {
+    'db': API_DB_NAME,
+    'host': API_DB_URI
+}

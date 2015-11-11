@@ -23,6 +23,12 @@ APP_ID, APP_SECRET = new_id, new_id
 register_user(new_id + '@domain.com', app_id=APP_ID, app_secret=APP_SECRET,
               email_user=False)
 
+# to use credentials from env variables instead
+#APP_ID = os.environ['ONENAME_API_ID']
+#APP_SECRET = os.environ['ONENAME_API_SECRET']
+#register_user('m@ali.vc', app_id=APP_ID, app_secret=APP_SECRET,
+#               email_user=False)
+
 
 def random_username():
     username = hexlify(dev_urandom_entropy(16))
