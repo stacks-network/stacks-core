@@ -23,54 +23,27 @@ This file is part of Registrar.
 """
 
 import json
-import requests
 
 from .db import api_db
-
-BASE_URL = 'http://resolver.onename.com/v1/users/'
+from .server import register_user
+from .config import DEFAULT_NAMESPACE
 
 
 def process_api_registraions(LIVE=False):
 
-    new_users = api_db['user']
+    new_users = api_db['blockchain_i_d']
 
     print api_db.collection_names()
 
     for entry in new_users.find():
-        print entry['email']
-        continue
-        username = entry['passname']
-        transfer_address = entry['transfer_address']
-        profile = json.loads(entry['payload'])
 
-        resp = requests.get(base_url + username)
+        fqu = entry['username'] + "." + DEFAULT_NAMESPACE
+        btc_address = entry['transfer_address']
+        profile = json.loads(entry['profile'])
 
-        data = resp.json()
+        print "Processing: %s" % fqu
 
-        if 'error' in data:
-
-            # if not registered on the blockchain
-            print "register: " + username
-            if LIVE:
-                process_user(username, profile)
-        else:
-            # if registered and not in our DBs
-            check_user_db1 = users.find_one({"username": username})
-            check_user_db2 = old_users.find_one({"username": username})
-
-            if check_user_db1 is None and check_user_db2 is None:
-                profile = namecoind.name_show('u/' + username)
-                check_address = profile['address']
-                if check_address == transfer_address:
-                    print "already transferred"
-                    if LIVE:
-                        new_users.remove(entry)
-                else:
-                    print "transfer: " + username
-                    print transfer_address
-                    if LIVE:
-                        #transfer_name(username, transfer_address, live=True)
-                        pass
+        register_user(fqu, profile, btc_address)
 
 if __name__ == '__main__':
 
