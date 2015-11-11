@@ -23,7 +23,7 @@ This file is part of Registrar.
 """
 import os
 
-BLOCKSTORED_IP = '52.20.98.85'
+BLOCKSTORED_IP = '127.0.0.1'
 BLOCKSTORED_PORT = 6264
 DHT_MIRROR_IP = '52.20.98.85'
 DHT_MIRROR_PORT = 6266
@@ -32,6 +32,7 @@ DEFAULT_NAMESPACE = "id"
 
 IGNORE_USERNAMES = []
 MONGODB_URI = os.environ['MONGODB_URI']
+MONGOLAB_URI = os.environ['MONGOLAB_URI']
 INDEXDB_URI = os.environ['INDEXDB_URI']
 BTC_PRIV_KEY = os.environ['BTC_PRIV_KEY']
 
@@ -41,7 +42,11 @@ DEFAULT_HOST = '127.0.0.1'
 MEMCACHED_PORT = '11211'
 MEMCACHED_TIMEOUT = 15 * 60
 
-DEBUG = True
+DEBUG = False  # can change in config_local
+
+RATE_LIMIT_TX = 10   # target tx per block
+RETRY_INTERVAL = 15  # if a tx is not picked up by x blocks
+TX_CONFIRMATIONS_NEEDED = 10
 
 try:
     from config_local import *
@@ -63,8 +68,6 @@ except Exception as e:
     #WALLET_PASSPHRASE = os.environ['WALLET_PASSPHRASE']
     #--------------------------------------------------
 
-    #MONGODB_URI = os.environ['MONGODB_URI']
-    #OLD_DB = os.environ['OLD_DB']
     AWSDB_URI = os.environ['AWSDB_URI']
     #MONGOLAB_URI = os.environ['MONGOLAB_URI']
 
