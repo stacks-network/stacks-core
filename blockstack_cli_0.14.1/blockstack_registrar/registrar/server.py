@@ -191,7 +191,7 @@ def cleanup_queue(queue):
 
         if txRejected(entry):
             print "tx rejected by network, removing tx: %s" % entry['transaction_hash']
-            #queue.remove({"fqu": entry['fqu']})
+            queue.remove({"fqu": entry['fqu']})
 
 
 def get_latest_diff():

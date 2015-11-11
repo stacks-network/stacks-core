@@ -22,7 +22,9 @@ This file is part of Registrar.
 """
 
 from pymongo import MongoClient
-from registrar.config import MONGODB_URI, INDEXDB_URI, AWSDB_URI
+
+from .config import MONGODB_URI, INDEXDB_URI, AWSDB_URI
+from .config import MONGOLAB_URI
 
 remote_db = MongoClient(MONGODB_URI).get_default_database()
 users = remote_db.user
@@ -35,6 +37,8 @@ state_diff = c['namespace'].state_diff
 aws_db = MongoClient(AWSDB_URI)['registrar']
 register_queue = aws_db.register_queue
 update_queue = aws_db.update_queue
+
+api_db = MongoClient(MONGOLAB_URI).get_default_database()
 
 
 def get_db_user_from_id(entry):
