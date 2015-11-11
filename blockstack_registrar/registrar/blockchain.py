@@ -52,6 +52,8 @@ def get_block_height():
 
 
 def get_tx_confirmations(tx_hash):
+    """ Return block height (currently uses BlockCypher API)
+    """
 
     resp = None
 

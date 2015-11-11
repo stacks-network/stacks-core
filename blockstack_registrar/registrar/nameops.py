@@ -38,6 +38,7 @@ def get_blockchain_record(fqu):
     data = {}
 
     try:
+        #resp = bs_client.get_name_blockchain_record(fqu)
         resp = bs_client.lookup(fqu)
         resp = resp[0]
     except Exception as e:
