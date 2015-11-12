@@ -58,11 +58,17 @@ def get_sorted_commands():
                     'transfer', 'renew', 'name_import', 'namespace_preorder',
                     'namespace_ready', 'namespace_reveal', 'put_mutable',
                     'put_immutable', 'get_mutable', 'get_immutable',
-                    'get_name_cost', 'get_namespace_cost',
+                    'get_name_cost', 'get_namespace_cost', 'get_nameops_at',
                     'get_name_blockchain_record', 'get_namespace_blockchain_record',
                     'get_name_record', 'lookup',
                     'get_all_names', 'get_names_in_namespace', 'get_consensus_at',
-                    'preorder_tx', 'preorder_subsidized']
+                    'lookup_snv', 'get_names_owned_by_address',
+                    'preorder_tx', 'preorder_subsidized',
+                    'register_tx', 'register_subsidized',
+                    'update_tx', 'update_subsidized',
+                    'transfer_tx', 'transfer_subsidized',
+                    'revoke_tx', 'revoke_subsidized',
+                    'renew_tx', 'renew_subsidized']
 
     for cmd in sorted(command_list):
         print cmd
@@ -188,8 +194,15 @@ def run_cli():
     subparser.add_argument(
       'count', nargs='?',
       help='The maximum number of names to return')
-    
-    
+     
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'get_names_owned_by_address',
+      help='<address> | get all names owned by an address')
+    subparser.add_argument(
+      'address', type=str,
+      help='The address to query')
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'get_namespace_cost',
@@ -227,7 +240,6 @@ def run_cli():
       'namespace_id', type=str,
       help='the namespace to look up')
 
-
     # ------------------------------------
     subparser = subparsers.add_parser(
       'lookup',
@@ -235,7 +247,29 @@ def run_cli():
     subparser.add_argument(
       'name', type=str,
       help='the name to look up')
-    
+  
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'lookup_snv',
+      help='<name> <block_id> <consensus_hash> | Look up a name as it existed at a particular block, using SNV protocol')
+    subparser.add_argument(
+      'name', type=str,
+      help='the name to look up')
+    subparser.add_argument(
+      'block_id', type=int,
+      help='the block ID in the desired point in the past')
+    subparser.add_argument(
+      'consensus_hash', type=str,
+      help='the trusted consensus hash at the given block')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'get_nameops_at',
+      help='<block_id> | Look up all name operations that occurred at a block')
+    subparser.add_argument(
+      'block_id', type=int,
+      help='the block ID in the desired point in the past')
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'name_import',
@@ -851,11 +885,17 @@ def run_cli():
     elif args.action == 'lookup':
         result = client.lookup(str(args.name))
 
+    elif args.action == 'lookup_snv':
+        result = client.lookup_snv(str(args.name), int(args.block_id), str(args.consensus_hash) )
+
     elif args.action == 'get_name_record':
         result = client.get_name_record( str(args.name) )
         
     elif args.action == 'get_name_cost':
         result = client.get_name_cost(str(args.name))
+
+    elif args.action == 'get_names_owned_by_address':
+        result = client.get_names_owned_by_address(str(args.address))
 
     elif args.action == 'get_namespace_cost':
         result = client.get_namespace_cost(str(args.namespace_id))
@@ -887,6 +927,9 @@ def run_cli():
     elif args.action == 'get_consensus_at':
         result = client.get_consensus_at( int(args.block_id) )
         
+    elif args.action == 'get_nameops_at':
+        result = client.get_nameops_at( int(args.block_id) )
+
     print_result(result)
 
 if __name__ == '__main__':
