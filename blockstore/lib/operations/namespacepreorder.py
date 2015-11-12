@@ -35,7 +35,21 @@ from ..config import *
 from ..scripts import *
 from ..hashing import hash_name
 
-def build( namespace_id, script_pubkey, register_addr, consensus_hash, testset=False ):
+# consensus hash fields (ORDER MATTERS!) 
+FIELDS = [
+    'namespace_id_hash',    # hash(namespace_id,sender,reveal_addr)
+    'consensus_hash',       # consensus hash at the time issued
+    'op',                   # bytecode describing the operation (not necessarily 1 byte)
+    'op_fee',               # fee paid for the namespace to the burn address
+    'txid',                 # transaction ID
+    'vtxindex',             # the index in the block where the tx occurs
+    'block_number',         # block number at which this transaction occurred
+    'sender',               # scriptPubKey hex from the principal that issued this preorder (identifies the preorderer)
+    'sender_pubkey',        # if sender is a p2pkh script, this is the public key
+    'address'               # address from the scriptPubKey
+]
+
+def build( namespace_id, script_pubkey, register_addr, consensus_hash, namespace_id_hash=None, testset=False ):
    """
    Preorder a namespace with the given consensus hash.  This records that someone has begun to create 
    a namespace, while blinding all other peers to its ID.  This operation additionally records the 
@@ -50,17 +64,20 @@ def build( namespace_id, script_pubkey, register_addr, consensus_hash, testset=F
    
    0     2   3                                      23               39
    |-----|---|--------------------------------------|----------------|
-   magic op  hash(ns_id,script_pubkey,register_addr) consensus hash
+   magic op  hash(ns_id,script_pubkey,reveal_addr)   consensus hash
    """
    
    # sanity check 
-   if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
-      raise Exception("Namespace identifier '%s' has non-base-38 characters" % namespace_id)
+   if namespace_id_hash is None:
+
+       # expect inputs to the hash...
+       if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
+          raise Exception("Namespace identifier '%s' has non-base-38 characters" % namespace_id)
+       
+       if len(namespace_id) == 0 or len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
+          raise Exception("Invalid namespace ID length '%s (expected length between 1 and %s)" % (namespace_id, LENGTHS['blockchain_id_namespace_id']))
    
-   if len(namespace_id) == 0 or len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
-      raise Exception("Invalid namespace ID length '%s (expected length between 1 and %s)" % (namespace_id, LENGTHS['blockchain_id_namespace_id']))
-   
-   namespace_id_hash = hash_name(namespace_id, script_pubkey, register_addr=register_addr)
+       namespace_id_hash = hash_name(namespace_id, script_pubkey, register_addr=register_addr)
    
    readable_script = "NAMESPACE_PREORDER 0x%s 0x%s" % (namespace_id_hash, consensus_hash)
    hex_script = blockstore_script_to_hex(readable_script)
@@ -114,8 +131,7 @@ def broadcast( namespace_id, register_addr, consensus_hash, private_key, blockch
    register_addr        the addr of the key that will reveal the namespace (mixed into the preorder to prevent name preimage attack races)
    private_key          the Bitcoin address that created this namespace, and can populate it.
    """
-   
-   
+  
    if blockchain_broadcaster is None:
        blockchain_broadcaster = blockchain_client 
    
@@ -150,11 +166,16 @@ def parse( bin_payload ):
    NOTE: the first three bytes will be missing
    """
    
+   if len(bin_payload) != LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']:
+       log.error("Invalid namespace preorder payload length %s" % len(bin_payload))
+       return None
+
    namespace_id_hash = bin_payload[ :LENGTHS['preorder_name_hash'] ]
    consensus_hash = bin_payload[ LENGTHS['preorder_name_hash']: LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] ]
    
    namespace_id_hash = hexlify( namespace_id_hash )
    consensus_hash = hexlify( consensus_hash )
+
    
    return {
       'opcode': 'NAMESPACE_PREORDER',
@@ -170,10 +191,3 @@ def get_fees( inputs, outputs ):
     """
     return (None, None)
 
-
-def serialize( nameop ):
-    """
-    Convert the set of data obtained from parsing the namespace preorder into a unique string.
-    """
-    
-    return NAMESPACE_PREORDER + ":" + nameop['namespace_id_hash'] + "," + nameop['consensus_hash']

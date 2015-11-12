@@ -34,6 +34,14 @@ from ..config import *
 from ..scripts import *
 from ..hashing import hash256_trunc128
 
+from ..nameset import NAMEREC_FIELDS
+
+# consensus hash fields (ORDER MATTERS!) 
+FIELDS = NAMEREC_FIELDS + [
+    'recipient',            # scriptPubKey hex that identifies the name recipient 
+    'recipient_address'     # address of the recipient
+]
+
 def get_import_update_hash_from_outputs( outputs, recipient ):
     """
     This is meant for NAME_IMPORT operations, which 
@@ -59,7 +67,7 @@ def get_import_update_hash_from_outputs( outputs, recipient ):
         
         if output_asm[0:9] != 'OP_RETURN' and output_hex is not None and output_hex != recipient:
             
-            ret = b58check_decode( str(output_addresses[0]) )
+            ret = hexlify( b58check_decode( str(output_addresses[0]) ) )
             break
             
     if ret is None:
@@ -83,14 +91,9 @@ def build(name, testset=False):
     * the hash of the name's associated data
     """
     
-    if not is_b40( name ) or "+" in name or name.count(".") > 1:
-       raise Exception("Name '%s' has non-base-38 characters" % name)
-    
-    name_hex = hexlify(name)
-    if len(name_hex) > LENGTHS['blockchain_id_name'] * 2:
-       # too long
-      raise Exception("Name '%s' too long (exceeds %d bytes)" % (name, LENGTHS['blockchain_id_name']))
-    
+    if not is_name_valid( name ):
+        raise Exception("Invalid name '%s'" % name)
+
     readable_script = "NAME_IMPORT 0x%s" % (hexlify(name))
     hex_script = blockstore_script_to_hex(readable_script)
     packaged_script = add_magic_bytes(hex_script, testset=testset)
@@ -168,12 +171,14 @@ def parse(bin_payload, recipient, update_hash ):
     """
     
     fqn = bin_payload
-    
+    if not is_name_valid( fqn ):
+        return None 
+
     return {
         'opcode': 'NAME_IMPORT',
         'name': fqn,
-        'recipient': hexlify(recipient),
-        'update_hash': hexlify(update_hash)
+        'recipient': recipient,
+        'update_hash': update_hash
     }
 
 
@@ -183,11 +188,3 @@ def get_fees( inputs, outputs ):
     the subsidization of namespaces.
     """
     return (None, None)
-
-
-def serialize( nameop ):
-    """
-    Convert the set of data obtained from parsing the name import into a unique string.
-    """
-    
-    return NAME_IMPORT + ":" + nameop['name'] + "," + nameop['recipient'] + "," + nameop['update_hash']

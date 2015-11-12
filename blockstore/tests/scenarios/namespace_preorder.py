@@ -1,6 +1,7 @@
 #!/usr/bin/env python 
 
 import testlib 
+import json
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -10,8 +11,11 @@ wallets = [
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
 def scenario( wallets, **kw ): 
-    testlib.blockstore_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
+    resp = testlib.blockstore_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
+
+    if 'error' in resp:
+        print json.dumps(resp, indent=4)
 
 def check( state_engine ):
     

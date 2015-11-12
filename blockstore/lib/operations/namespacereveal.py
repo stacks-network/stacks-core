@@ -29,13 +29,45 @@ from pybitcoin.transactions.outputs import calculate_change_amount
 
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
+import types
+import json
 
 from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import blockstore_script_to_hex, add_magic_bytes
 from ..hashing import hash_name
    
-   
+import virtualchain
+
+if not globals().has_key('log'):
+    log = virtualchain.session.log
+
+# consensus hash fields (ORDER MATTERS!)
+FIELDS = [
+    'namespace_id',         # human-readable namespace ID
+    'namespace_id_hash',    # hash(namespace_id,sender,reveal_addr) from the preorder (binds this namespace to its preorder)
+    'version',              # namespace rules version
+
+    'sender',               # the scriptPubKey hex script that identifies the preorderer
+    'sender_pubkey',        # if sender is a p2pkh script, this is the public key
+    'address',              # address of the sender, from the scriptPubKey
+    'recipient',            # the scriptPubKey hex script that identifies the revealer.
+    'recipient_address',    # the address of the revealer
+    'block_number',         # block number at which this namespace was preordered
+    'reveal_block',         # block number at which this namespace was revealed
+
+    'op',                   # byte code identifying this operation to Blockstore
+    'txid',                 # transaction ID at which this namespace was revealed
+    'vtxindex',             # the index in the block where the tx occurs
+
+    'lifetime',             # how long names last in this namespace (in number of blocks)
+    'coeff',                # constant multiplicative coefficient on a name's price
+    'base',                 # exponential base of a name's price
+    'buckets',              # array that maps name length to the exponent to which to raise 'base' to
+    'nonalpha_discount',    # multiplicative coefficient that drops a name's price if it has non-alpha characters 
+    'no_vowel_discount',    # multiplicative coefficient that drops a name's price if it has no vowels
+]
+
 def serialize_int( int_field, numbytes ):
    """
    Serialize an integer to a hex string that is padlen characters long.
@@ -73,6 +105,44 @@ def serialize_discounts( nonalpha_discount, no_vowel_discount ):
     They must be between 0 and 15
     """
     return "%X%X" % (nonalpha_discount, no_vowel_discount)
+
+
+def namespacereveal_sanity_check( namespace_id, version, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount ):
+   """
+   Verify the validity of a namespace reveal.
+   Return True if valid
+   Raise an Exception if not valid.
+   """
+   # sanity check 
+   if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
+      raise Exception("Namespace ID '%s' has non-base-38 characters" % namespace_id)
+   
+   if len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
+      raise Exception("Invalid namespace ID length for '%s' (expected length between 1 and %s)" % (namespace_id, LENGTHS['blockchain_id_namespace_id']))
+   
+   if lifetime < 0 or lifetime > (2**32 - 1):
+      lifetime = NAMESPACE_LIFE_INFINITE 
+
+   if coeff < 0 or coeff > 255:
+      raise Exception("Invalid cost multiplier %s: must be in range [0, 256)" % coeff)
+  
+   if base < 0 or base > 255:
+      raise Exception("Invalid base price %s: must be in range [0, 256)" % base)
+  
+   if len(bucket_exponents) != 16:
+        raise Exception("Exactly 16 buckets required")
+
+   for i in xrange(0, len(bucket_exponents)):
+       if bucket_exponents[i] < 0 or bucket_exponents[i] > 15:
+          raise Exception("Invalid bucket exponent %s (must be in range [0, 16)" % bucket_exponents[i])
+   
+   if nonalpha_discount <= 0 or nonalpha_discount > 15:
+        raise Exception("Invalid non-alpha discount %s: must be in range [0, 16)" % nonalpha_discount)
+    
+   if no_vowel_discount <= 0 or no_vowel_discount > 15:
+        raise Exception("Invalid no-vowel discount %s: must be in range [0, 16)" % no_vowel_discount)
+
+   return True
 
 
 # version: 2 bytes
@@ -113,34 +183,9 @@ def build( namespace_id, version, reveal_addr, lifetime, coeff, base, bucket_exp
    
    """
    
-   # sanity check 
-   if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
-      raise Exception("Namespace ID '%s' has non-base-38 characters" % namespace_id)
-   
-   if len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
-      raise Exception("Invalid namespace ID length for '%s' (expected length between 1 and %s)" % (namespace_id, LENGTHS['blockchain_id_namespace_id']))
-   
-   if lifetime < 0 or lifetime > (2**32 - 1):
-      lifetime = NAMESPACE_LIFE_INFINITE 
-
-   if coeff < 0 or coeff > 255:
-      raise Exception("Invalid cost multiplier %s: must be in range [0, 256)" % coeff)
-  
-   if base < 0 or base > 255:
-      raise Exception("Invalid base price %s: must be in range [0, 256)" % base)
-  
-   if len(bucket_exponents) != 16:
-        raise Exception("Exactly 16 buckets required")
-
-   for i in xrange(0, len(bucket_exponents)):
-       if bucket_exponents[i] < 0 or bucket_exponents[i] > 15:
-          raise Exception("Invalid bucket exponent %s (must be in range [0, 16)" % bucket_exponents[i])
-   
-   if nonalpha_discount < 0 or nonalpha_discount > 15:
-        raise Exception("Invalid non-alpha discount %s: must be in range [0, 16)" % nonalpha_discount)
-    
-   if no_vowel_discount < 0 or no_vowel_discount > 15:
-        raise Exception("Invalid no-vowel discount %s: must be in range [0, 16)" % no_vowel_discount)
+   rc = namespacereveal_sanity_check( namespace_id, version, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount )
+   if not rc:
+       raise Exception("Invalid namespace parameters")
     
    # good to go!
    life_hex = serialize_int( lifetime, 4 )
@@ -267,7 +312,12 @@ def parse( bin_payload, sender, recipient_address ):
    off += LENGTHS['blockchain_id_namespace_version']
    
    namespace_id = bin_payload[off:]
-   namespace_id_hash = hash_name( namespace_id, sender, register_addr=recipient_address )
+   namespace_id_hash = None
+   try:
+       namespace_id_hash = hash_name( namespace_id, sender, register_addr=recipient_address )
+   except:
+       log.error("Invalid namespace ID and/or sender")
+       return None
    
    # extract buckets 
    buckets = [int(x, 16) for x in list(bucket_hex)]
@@ -275,7 +325,16 @@ def parse( bin_payload, sender, recipient_address ):
    # extract discounts
    nonalpha_discount = int( list(discount_hex)[0], 16 )
    no_vowel_discount = int( list(discount_hex)[1], 16 )
-   
+  
+   try:
+       rc = namespacereveal_sanity_check( namespace_id, version, life, coeff, base, buckets, nonalpha_discount, no_vowel_discount )
+       if not rc:
+           raise Exception("Invalid namespace parameters")
+
+   except Exception, e:
+       log.error("Invalid namespace parameters")
+       return None 
+
    return {
       'opcode': 'NAMESPACE_REVEAL',
       'lifetime': life,
@@ -297,20 +356,3 @@ def get_fees( inputs, outputs ):
     """
     return (None, None)
 
-
-def serialize( nameop ):
-    """
-    Convert the set of data obtained from parsing the namespace_reveal into a unique string.
-    """
-    
-    bucket_str = ",".join( [str(i) for i in nameop['buckets']] )
-    return NAMESPACE_REVEAL + ":" + nameop['namespace_id'] + "," + \
-                                    str(nameop['lifetime']) + "," + \
-                                    str(nameop['coeff']) + "," + \
-                                    str(nameop['base']) + "," + \
-                                    bucket_str + "," + \
-                                    str(nameop['version']) + "," + \
-                                    str(nameop['nonalpha_discount']) + "," + \
-                                    str(nameop['no_vowel_discount']) 
-                          
-                                  

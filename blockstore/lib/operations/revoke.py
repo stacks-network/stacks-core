@@ -21,13 +21,21 @@
     along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pybitcoin import embed_data_in_blockchain, make_op_return_tx, make_op_return_outputs, broadcast_transaction, serialize_transaction, script_hex_to_address, get_unspents
+from pybitcoin import embed_data_in_blockchain, make_op_return_tx, make_op_return_outputs, \
+        make_op_return_script, broadcast_transaction, serialize_transaction, \
+        script_hex_to_address, get_unspents
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
 from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import *
+
+from ..nameset import NAMEREC_FIELDS
+
+# consensus hash fields (ORDER MATTERS!)
+FIELDS = NAMEREC_FIELDS
+
 
 def build(name, testset=False):
     """
@@ -42,14 +50,9 @@ def build(name, testset=False):
     
     """
     
-    if not is_b40( name ) or "+" in name or name.count(".") > 1:
-       raise Exception("Name '%s' has non-base-38 characters" % name)
-    
-    name_hex = hexlify(name)
-    if len(name_hex) > LENGTHS['blockchain_id_name'] * 2:
-       # too long
-      raise Exception("Name '%s' too long (exceeds %d bytes)" % (fqn, LENGTHS['blockchain_id_name']))
-    
+    if not is_name_valid( name ):
+       raise Exception("Invalid name '%s'" % name)
+
     readable_script = "NAME_REVOKE 0x%s" % (hexlify(name))
     hex_script = blockstore_script_to_hex(readable_script)
     packaged_script = add_magic_bytes(hex_script, testset=testset)
@@ -57,10 +60,46 @@ def build(name, testset=False):
     return packaged_script 
 
 
-def broadcast(name, private_key, blockchain_client, testset=False, blockchain_broadcaster=None, pay_fee=True, public_key=None, tx_only=False):
+def make_outputs( data, inputs, change_address, pay_fee=True ):
+    """
+    Make outputs for a revoke.
+    """
+
+    dust_fee = None
+    op_fee = None
+    dust_value = None 
+    
+    if pay_fee:
+        dust_fee = (len(inputs) + 1) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
+        op_fee = DEFAULT_DUST_FEE
+        dust_value = DEFAULT_DUST_FEE
+    
+    else:
+        # will be subsidized
+        dust_fee = 0
+        op_fee = 0
+        dust_value = 0
+   
+    return [
+        # main output
+        {"script_hex": make_op_return_script(data, format='hex'),
+         "value": 0},
+        
+        # change output
+        {"script_hex": make_pay_to_address_script(change_address),
+         "value": calculate_change_amount(inputs, op_fee, dust_fee)}
+    ]
+
+
+def broadcast(name, private_key, blockchain_client, testset=False, blockchain_broadcaster=None, user_public_key=None, tx_only=False):
     
     # sanity check 
-    if public_key is None and private_key is None:
+    pay_fee = True
+    if user_public_key is not None:
+        pay_fee = False
+        tx_only = True
+
+    if user_public_key is None and private_key is None:
         raise Exception("Missing both public and private key")
     
     if not tx_only and private_key is None:
@@ -73,24 +112,22 @@ def broadcast(name, private_key, blockchain_client, testset=False, blockchain_br
     inputs = None
     private_key_obj = None
     
-    if private_key is not None:
+    if user_public_key is not None:
+        # subsidizing 
+        pubk = BitcoinPublicKey( user_public_key )
+
+        from_address = pubk.address()
+        inputs = get_unspents( from_address, blockchain_client )
+
+    elif private_key is not None:
         # ordering directly 
         pubk = BitcoinPrivateKey( private_key ).public_key()
         public_key = pubk.to_hex()
         
-        # get inputs and from address using private key
         private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
-        
-    elif public_key is not None:
-        # subsidizing 
-        pubk = BitcoinPublicKey( public_key )
-        from_address = pubk.address()
-        
-        # get inputs from utxo provider 
-        inputs = get_unspents( from_address, blockchain_client )
-        
+         
     nulldata = build(name, testset=testset)
-    outputs = make_op_return_outputs( nulldata, inputs, from_address, fee=DEFAULT_OP_RETURN_FEE, format='hex' )
+    outputs = make_outputs( nulldata, inputs, from_address, pay_fee=pay_fee )
    
     if tx_only:
        
@@ -100,7 +137,7 @@ def broadcast(name, private_key, blockchain_client, testset=False, blockchain_br
     else:
        
         signed_tx = tx_serialize_and_sign( inputs, outputs, private_key_obj )
-        response = broadcast_transaction( signed_tx, blockchain_broadcaster, format='hex')
+        response = broadcast_transaction( signed_tx, blockchain_broadcaster )
         response.update({'data': nulldata})
         return response
 
@@ -114,7 +151,9 @@ def parse(bin_payload):
     """
     
     fqn = bin_payload
-    
+    if not is_name_valid( fqn ):
+        return None 
+
     return {
        'opcode': 'NAME_REVOKE',
        'name': fqn
@@ -147,12 +186,4 @@ def get_fees( inputs, outputs ):
     op_fee = 0
     
     return (dust_fee, op_fee)
-
-
-def serialize( nameop ):
-    """
-    Convert the set of data obtained from parsing the revoke into a unique string.
-    """
-    
-    return NAME_REVOKE + ":" + nameop['name']
 

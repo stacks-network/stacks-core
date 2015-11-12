@@ -34,15 +34,27 @@ from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import *
 from ..hashing import hash256_trunc128
+from ..nameset import NAMEREC_FIELDS
+
+import virtualchain
+
+if not globals().has_key('log'):
+    log = virtualchain.session.log
+
+# consensus hash fields (ORDER MATTERS!)
+FIELDS = NAMEREC_FIELDS + [
+    'recipient',            # scriptPubKey hex script that identifies the principal to own this name
+    'recipient_address'     # principal's address from the scriptPubKey in the transaction
+]
 
 def get_registration_recipient_from_outputs( outputs ):
     """
     There are three or four outputs:  the OP_RETURN, the registration 
     address, the change address (i.e. from the name preorderer), and 
-    (for renwals) the burn for the renewal fee.
+    (for renwals) the burn address for the renewal fee.
     
     Given the outputs from a name register operation,
-    find the registration address.
+    find the registration address's script hex.
     
     By construction, it will be the first non-OP_RETURN 
     output (i.e. the second output).
@@ -59,7 +71,8 @@ def get_registration_recipient_from_outputs( outputs ):
         if output_asm[0:9] != 'OP_RETURN' and output_hex is not None:
             
             # recipient's script_pubkey and address
-            ret = (output_hex, output_addresses[0])
+            # ret = (output_hex, output_addresses[0])
+            ret = output_hex
             break
             
     if ret is None:
@@ -81,14 +94,9 @@ def build(name, testset=False):
     
     """
     
-    if not is_b40( name ) or "+" in name or name.count(".") > 1:
-       raise Exception("Name '%s' has non-base-38 characters" % name)
-    
-    name_hex = hexlify(name)
-    if len(name_hex) > LENGTHS['blockchain_id_name'] * 2:
-       # too long
-      raise Exception("Name '%s' too long (exceeds %d bytes)" % (fqn, LENGTHS['blockchain_id_name']))
-    
+    if not is_name_valid( name ):
+        raise Exception("Invalid name '%s'" % name)
+
     readable_script = "NAME_REGISTRATION 0x%s" % (hexlify(name))
     hex_script = blockstore_script_to_hex(readable_script)
     packaged_script = add_magic_bytes(hex_script, testset=testset)
@@ -96,7 +104,7 @@ def build(name, testset=False):
     return packaged_script 
 
 
-def make_outputs( data, inputs, register_addr, change_addr, renewal_fee=None, pay_fee=True, format='bin' ):
+def make_outputs( data, change_inputs, register_addr, change_addr, renewal_fee=None, pay_fee=True, format='bin' ):
     """
     Make outputs for a register:
     [0] OP_RETURN with the name 
@@ -115,17 +123,17 @@ def make_outputs( data, inputs, register_addr, change_addr, renewal_fee=None, pa
         # sender pays
         if renewal_fee is not None:
             # renewing
-            dust_fee = (len(inputs) + 3) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
+            dust_fee = (len(change_inputs) + 3) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
             dust_value = DEFAULT_DUST_FEE
             op_fee = max(renewal_fee, DEFAULT_DUST_FEE)
             bill = op_fee
             
         else:
             # registering
-            dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
+            dust_fee = (len(change_inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
             dust_value = DEFAULT_DUST_FEE
             op_fee = 0
-            bill = 0
+            bill = DEFAULT_DUST_FEE * 2
             
     else:
         
@@ -143,7 +151,7 @@ def make_outputs( data, inputs, register_addr, change_addr, renewal_fee=None, pa
             dust_value = 0
             op_fee = 0
             bill = 0
-    
+  
     outputs = [
         # main output
         {"script_hex": make_op_return_script(data, format=format),
@@ -151,11 +159,11 @@ def make_outputs( data, inputs, register_addr, change_addr, renewal_fee=None, pa
     
         # register address
         {"script_hex": make_pay_to_address_script(register_addr),
-         "value": dust_value},
+         "value": dust_fee},
         
-        # change address
+        # change address (can be the subsidy address)
         {"script_hex": make_pay_to_address_script(change_addr),
-         "value": calculate_change_amount(inputs, bill, dust_fee)},
+         "value": calculate_change_amount(change_inputs, bill, dust_fee)},
     ]
     
     if renewal_fee is not None:
@@ -169,10 +177,14 @@ def make_outputs( data, inputs, register_addr, change_addr, renewal_fee=None, pa
     return outputs
     
 
-def broadcast(name, private_key, register_addr, blockchain_client, renewal_fee=None, blockchain_broadcaster=None, tx_only=False, pay_fee=True, public_key=None, testset=False):
+def broadcast(name, private_key, register_addr, blockchain_client, renewal_fee=None, blockchain_broadcaster=None, tx_only=False, user_public_key=None, subsidy_public_key=None, testset=False):
     
     # sanity check 
-    if public_key is None and private_key is None:
+    if subsidy_public_key is not None:
+        # if subsidizing, we're only giving back a tx to be signed
+        tx_only = True
+
+    if subsidy_public_key is None and private_key is None:
         raise Exception("Missing both public and private key")
     
     if not tx_only and private_key is None:
@@ -182,40 +194,45 @@ def broadcast(name, private_key, register_addr, blockchain_client, renewal_fee=N
         blockchain_broadcaster = blockchain_client 
     
     from_address = None 
-    inputs = None
+    change_inputs = None
     private_key_obj = None
+    subsidized_renewal = False
     
-    if private_key is not None:
-        # ordering directly 
+    if subsidy_public_key is not None:
+        # subsidizing
+        pubk = BitcoinPublicKey( subsidy_public_key )
+        
+        if user_public_key is not None and renewal_fee is not None:
+            # renewing, and subsidizing the renewal
+            from_address = BitcoinPublicKey( user_public_key ).address() 
+            subsidized_renewal = True
+
+        else:
+            # registering or renewing under the subsidy key
+            from_address = pubk.address()
+
+        change_inputs = get_unspents( from_address, blockchain_client )
+
+    elif private_key is not None:
+        # ordering directly
         pubk = BitcoinPrivateKey( private_key ).public_key()
         public_key = pubk.to_hex()
         
         # get inputs and from address using private key
-        private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
+        private_key_obj, from_address, change_inputs = analyze_private_key(private_key, blockchain_client)
         
-    elif public_key is not None:
-        # subsidizing 
-        pubk = BitcoinPublicKey( public_key )
-        from_address = pubk.address()
-        
-        # get inputs from utxo provider 
-        inputs = get_unspents( from_address, blockchain_client )
-    
-    
     nulldata = build(name, testset=testset)
-    
-    # build custom outputs here
-    outputs = make_outputs(nulldata, inputs, register_addr, from_address, renewal_fee=renewal_fee, pay_fee=pay_fee, format='hex')
-    
+    outputs = make_outputs(nulldata, change_inputs, register_addr, from_address, renewal_fee=renewal_fee, pay_fee=(not subsidized_renewal), format='hex')
+   
     if tx_only:
         
-        unsigned_tx = serialize_transaction( inputs, outputs )
+        unsigned_tx = serialize_transaction( change_inputs, outputs )
         return {"unsigned_tx": unsigned_tx}
     
     else:
         
         # serialize, sign, and broadcast the tx
-        response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_broadcaster)
+        response = serialize_sign_and_broadcast(change_inputs, outputs, private_key_obj, blockchain_broadcaster)
         response.update({'data': nulldata})
         return response
 
@@ -230,7 +247,10 @@ def parse(bin_payload):
     """
     
     fqn = bin_payload
-    
+ 
+    if not is_name_valid( fqn ):
+        return None
+
     return {
        'opcode': 'NAME_REGISTRATION',
        'name': fqn
@@ -288,11 +308,3 @@ def get_fees( inputs, outputs ):
     
     return (dust_fee, op_fee)
     
-    
-def serialize( nameop ):
-    """
-    Convert the set of data obtained from parsing the registration into a unique string.
-    """
-    
-    return NAME_REGISTRATION + ":" + nameop['name']
-

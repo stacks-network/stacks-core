@@ -29,19 +29,22 @@ import time
 
 import pybitcoin 
 import traceback
+import json
+import copy
 
 from .namedb import BlockstoreDB
 
 from ..config import *
 from ..operations import parse_preorder, parse_registration, parse_update, parse_transfer, parse_revoke, \
-    parse_name_import, parse_namespace_preorder, parse_namespace_reveal, parse_namespace_ready, \
+    parse_name_import, parse_namespace_preorder, parse_namespace_reveal, parse_namespace_ready, parse_announce, \
     get_transfer_recipient_from_outputs, get_import_update_hash_from_outputs, get_registration_recipient_from_outputs, \
-    serialize_namespace_preorder, serialize_namespace_reveal, serialize_namespace_ready, serialize_preorder, serialize_registration, \
-    serialize_update, serialize_transfer, serialize_revoke, serialize_name_import
+    SERIALIZE_FIELDS
 
 import virtualchain
 
-log = virtualchain.session.log
+if not globals().has_key('log'):
+    log = virtualchain.session.log
+
 blockstore_db = None
 last_load_time = 0
 
@@ -73,8 +76,10 @@ def get_burn_fee_from_outputs( outputs ):
 
 def get_public_key_hex_from_tx( inputs, address ):
     """
-    Given a list of inputs and outputs and the address of one of the inputs,
+    Given a list of inputs and the address of one of the inputs,
     find the public key.
+
+    This only works for p2sh and p2pkh scripts.
     """
     
     ret = None 
@@ -128,43 +133,81 @@ def parse_blockstore_op_data( opcode, payload, sender, recipient=None, recipient
 
     op = None 
     data = hexlify(payload)
+
+    if len(payload) > LENGTHS['max_op_length'] - 3:
+        log.error("Data too long: %s" % len(payload))
+        return None
     
-    if opcode == NAME_PREORDER and len(payload) >= MIN_OP_LENGTHS['preorder']:
-        log.debug( "Parse NAME_PREORDER: %s" % data )
-        op = parse_preorder(payload)
+    if opcode == NAME_PREORDER:
+        if len(payload) >= MIN_OP_LENGTHS['preorder']:
+            log.debug( "Parse NAME_PREORDER: %s" % data )
+            op = parse_preorder(payload)
+        else:
+            log.error( "NAME_PREORDER: invalid length %s" % len(payload) )
         
-    elif (opcode == NAME_REGISTRATION and len(payload) >= MIN_OP_LENGTHS['registration']):
-        log.debug( "Parse NAME_REGISTRATION: %s" % data )
-        op = parse_registration(payload)
+    elif opcode == NAME_REGISTRATION:
+        if len(payload) >= MIN_OP_LENGTHS['registration']:
+            log.debug( "Parse NAME_REGISTRATION: %s" % data )
+            op = parse_registration(payload)
+        else:
+            log.error( "NAME_REGISTRATION: invalid length %s" % len(payload) )
         
-    elif opcode == NAME_UPDATE and len(payload) >= MIN_OP_LENGTHS['update']:
-        log.debug( "Parse NAME_UPDATE: %s" % data )
-        op = parse_update(payload)
+    elif opcode == NAME_UPDATE:
+        if len(payload) >= MIN_OP_LENGTHS['update']:
+            log.debug( "Parse NAME_UPDATE: %s" % data )
+            op = parse_update(payload)
+        else:
+            log.error( "NAME_UPDATE: invalid length %s" % len(payload))
         
-    elif (opcode == NAME_TRANSFER and len(payload) >= MIN_OP_LENGTHS['transfer']):
-        log.debug( "Parse NAME_TRANSFER: %s" % data )
-        op = parse_transfer(payload, recipient )
+    elif opcode == NAME_TRANSFER:
+        if len(payload) >= MIN_OP_LENGTHS['transfer']:
+            log.debug( "Parse NAME_TRANSFER: %s" % data )
+            op = parse_transfer(payload, recipient )
+        else:
+            log.error( "NAME_TRANSFER: invalid length %s" % len(payload))
     
-    elif (opcode == NAME_REVOKE and len(payload) >= MIN_OP_LENGTHS['revoke']):
-        log.debug( "Parse NAME_REVOKE: %s" % data )
-        op = parse_revoke(payload)
+    elif opcode == NAME_REVOKE:
+        if len(payload) >= MIN_OP_LENGTHS['revoke']:
+            log.debug( "Parse NAME_REVOKE: %s" % data )
+            op = parse_revoke(payload)
+        else:
+            log.error( "NAME_REVOKE: invalid length %s" % len(payload))
         
-    elif opcode == NAME_IMPORT and len(payload) >= MIN_OP_LENGTHS['name_import']:
-        log.debug( "Parse NAME_IMPORT: %s" % data )
-        op = parse_name_import( payload, recipient, import_update_hash )
+    elif opcode == NAME_IMPORT:
+        if len(payload) >= MIN_OP_LENGTHS['name_import']:
+            log.debug( "Parse NAME_IMPORT: %s" % data )
+            op = parse_name_import( payload, recipient, import_update_hash )
+        else:
+            log.error( "NAME_IMPORT: invalid length %s" % len(payload))
         
-    elif opcode == NAMESPACE_PREORDER and len(payload) >= MIN_OP_LENGTHS['namespace_preorder']:
-        log.debug( "Parse NAMESPACE_PREORDER: %s" % data)
-        op = parse_namespace_preorder( payload )
+    elif opcode == NAMESPACE_PREORDER:
+        if len(payload) >= MIN_OP_LENGTHS['namespace_preorder']:
+            log.debug( "Parse NAMESPACE_PREORDER: %s" % data)
+            op = parse_namespace_preorder( payload )
+        else:
+            log.error( "NAMESPACE_PREORDER: invalid length %s" % len(payload))
         
-    elif opcode == NAMESPACE_REVEAL and len(payload) >= MIN_OP_LENGTHS['namespace_reveal']:
-        log.debug( "Parse NAMESPACE_REVEAL: %s" % data )
-        op = parse_namespace_reveal( payload, sender, recipient_address )
+    elif opcode == NAMESPACE_REVEAL:
+        if len(payload) >= MIN_OP_LENGTHS['namespace_reveal']:
+            log.debug( "Parse NAMESPACE_REVEAL: %s" % data )
+            op = parse_namespace_reveal( payload, sender, recipient_address )
+        else:
+            log.error( "NAMESPACE_REVEAL: invalid length %s" % len(payload))
          
-    elif opcode == NAMESPACE_READY and len(payload) >= MIN_OP_LENGTHS['namespace_ready']:
-        log.debug( "Parse NAMESPACE_READY: %s" % data )
-        op = parse_namespace_ready( payload )
-    
+    elif opcode == NAMESPACE_READY:
+        if len(payload) >= MIN_OP_LENGTHS['namespace_ready']:
+            log.debug( "Parse NAMESPACE_READY: %s" % data )
+            op = parse_namespace_ready( payload )
+        else:
+            log.error( "NAMESPACE_READY: invalid length %s" % len(payload))
+   
+    elif opcode == ANNOUNCE:
+        if len(payload) == MIN_OP_LENGTHS['announce']:
+            log.debug( "Parse ANNOUNCE: %s" % data )
+            op = parse_announce( payload )
+        else:
+            log.error( "ANNOUNCE: invalid length %s" % (len(payload)))
+
     else:
         log.warning("Unrecognized op: code='%s', data=%s, len=%s" % (opcode, data, len(payload)))
         
@@ -209,7 +252,7 @@ def get_op_processing_order():
    
    Give a hint as to the order in which we process operations 
    """
-   return None 
+   return OPCODES 
 
 
 def get_magic_bytes():
@@ -293,55 +336,63 @@ def db_parse( block_id, opcode, data, senders, inputs, outputs, fee, db_state=No
    * "address": the sender's bitcoin address
    * "fee": the total fee paid for this record.
    * "recipient": the first non-OP_RETURN output's script_pubkey.
-   * "sender_pubkey": the sender's public key (hex string)
+   * "sender_pubkey": the sender's public key (hex string), if this is a p2pkh transaction
+
+   Return None on error
    
    NOTE: the transactions that our tools put have a single sender, and a single output address.
-   This is assumed by this code.  An exception will be raised if these criteria are not met.
+   This is assumed by this code.
    """
 
    sender = None 
    recipient = None
+   recipient_address = None
    import_update_hash = None
    address = None
    sender_pubkey_hex = None
    
    if len(senders) == 0:
       raise Exception("No senders for (%s, %s)" % (opcode, hexlify(data)))
-   
+  
+   # the first sender is always the first non-nulldata output script hex, and by construction
+   # of Blockstore, this is always the principal that issued the operation.
    if 'script_pubkey' not in senders[0].keys():
       raise Exception("No script_pubkey in sender of (%s, %s)" % (opcode, hexlify(data)))
    
    if 'addresses' not in senders[0].keys():
-      raise Exception("No addresses in sender of (%s, %s)" % (opcode, hexlify(data)))
+      log.error("No addresses in sender of (%s, %s)" % (opcode, hexlify(data)))
+      return None
    
    if len(senders[0]['addresses']) != 1:
-      raise Exception("Multiple addresses are unsupported for (%s, %s)" % (opcode, hexlify(data)))
+      log.error("Multisig transactions are unsupported for (%s, %s)" % (opcode, hexlify(data)))
+      return None
    
    sender = str(senders[0]['script_pubkey'])
    address = str(senders[0]['addresses'][0])
-   sender_pubkey_hex = get_public_key_hex_from_tx( inputs, address )
+
+   if str(senders[0]['script_type']) == 'pubkeyhash':
+      sender_pubkey_hex = get_public_key_hex_from_tx( inputs, address )
    
    if sender_pubkey_hex is None:
-      raise Exception("Could not determine public key for '%s'" % address)
-   
-   recipient = None 
-   recipient_address = None 
+      log.warning("No public key found for (%s, %s)" % (opcode, hexlify(data)))
    
    op_fee = get_burn_fee_from_outputs( outputs )
    
    if opcode in [NAME_REGISTRATION, NAMESPACE_REVEAL]:
-      # these operations have a separate change address from the sender 
+      # these operations have a designated recipient that is *not* the sender
       try:
-         recipient, recipient_address = get_registration_recipient_from_outputs( outputs )
+         recipient = get_registration_recipient_from_outputs( outputs )
+         recipient_address = pybitcoin.script_hex_to_address( recipient )
       except Exception, e:
          log.exception(e)
          raise Exception("No registration address for (%s, %s)" % (opcode, hexlify(data)))
      
    
    if opcode in [NAME_IMPORT, NAME_TRANSFER]:
-      # these operations have a designated recipient
+      # these operations have a designated recipient that is *not* the sender
       try:
-         recipient, recipient_address = get_transfer_recipient_from_outputs( outputs )
+         recipient = get_transfer_recipient_from_outputs( outputs )
+         recipient_address = pybitcoin.script_hex_to_address( recipient )
       except Exception, e:
          log.exception(e)
          raise Exception("No recipient for (%s, %s)" % (opcode, hexlify(data)))
@@ -367,7 +418,6 @@ def db_parse( block_id, opcode, data, senders, inputs, outputs, fee, db_state=No
       if op_fee is not None:
          op['op_fee'] = op_fee 
       
-      # sender script_pubkey, change address, and sender's public key
       op['sender'] = sender 
       op['address'] = address 
       
@@ -379,11 +429,12 @@ def db_parse( block_id, opcode, data, senders, inputs, outputs, fee, db_state=No
       
       if sender_pubkey_hex is not None:
          op['sender_pubkey'] = sender_pubkey_hex
-         
+       
+ 
    return op
 
 
-def db_check( block_id, checked_ops, opcode, op, db_state=None ):
+def db_check( block_id, checked_ops, opcode, op, txid, vtxindex, db_state=None ):
    """
    (required by virtualchain state engine)
    
@@ -393,24 +444,46 @@ def db_check( block_id, checked_ops, opcode, op, db_state=None ):
    checked_ops is a dict that maps opcodes to operations already checked by
    this method for this block.
    
+   A name or namespace can be affected at most once per block.  If it is 
+   affected more than once, then the opcode priority rules take effect, and
+   the lower priority opcodes are rejected.
+
    Return True if it's valid; False if not.
    """
-   
+
    if db_state is not None:
-         
+    
       db = db_state
       rc = False
+    
+      all_ops = checked_ops['virtualchain_all_ops']
+
+      # find any collisions and mark them
+      colliding_names, colliding_namespaces = db.log_prescan_find_collisions( checked_ops, all_ops, block_id )
       
+      # sanity check...
       if opcode not in OPCODES:
          log.error("Unrecognized opcode '%s'" % (opcode))
          return False 
       
+      # propagate txid and vtxindex data
+      if not op.has_key('txid'):
+          op['txid'] = str(txid)
+     
+      if not op.has_key('vtxindex'):
+          op['vtxindex'] = vtxindex
+
+      # check op for correctness
       if opcode == NAME_PREORDER:
          rc = db.log_preorder( checked_ops, op, block_id )
-      
+
       elif opcode == NAME_REGISTRATION:
-         rc = db.log_registration( checked_ops, op, block_id )
-      
+         if op['name'] not in colliding_names:
+             rc = db.log_registration( checked_ops, op, block_id )
+         else:
+             rc = False
+             log.error("COLLISION %s" % op['name'])
+
       elif opcode == NAME_UPDATE:
          rc = db.log_update( checked_ops, op, block_id )
       
@@ -427,15 +500,39 @@ def db_check( block_id, checked_ops, opcode, op, db_state=None ):
          rc = db.log_namespace_preorder( checked_ops, op, block_id )
       
       elif opcode == NAMESPACE_REVEAL:
-         rc = db.log_namespace_reveal( checked_ops, op, block_id )
+         if op['namespace_id'] not in colliding_namespaces:
+             rc = db.log_namespace_reveal( checked_ops, op, block_id )
+         else:
+             rc = False 
+             log.error("COLLISION %s" % op['namespace_id'])
       
       elif opcode == NAMESPACE_READY:
          rc = db.log_namespace_ready( checked_ops, op, block_id )
-      
+         
+      elif opcode == ANNOUNCE:
+         rc, announcer_id = db.log_announce( checked_ops, op, block_id )
+         if rc:
+             # valid announcement
+             announce_hash = op['message_hash']
+
+             # go get the text...
+             announcement_text = get_announcement( announce_hash ) 
+             log.critical("ANNOUNCEMENT (from %s): %s\n------BEGIN MESSAGE------\n%s\n------END MESSAGE------\n" % (announcer_id, announce_hash, announcement_text))
+             
+             store_announcement( announce_hash, announcement_text )
+
+         # we do not process ANNOUNCEs, since they won't be fed into the consensus hash
+         return False 
+
+      debug_op = copy.deepcopy( op )
+      if debug_op.has_key('history'):
+         del debug_op['history']
+
       if rc:
-         log.debug("ACCEPT op '%s' (%s)" % (opcode, op))
+         log.debug("ACCEPT op '%s' (%s)" % (opcode, json.dumps(debug_op, sort_keys=True)))
+
       else:
-         log.debug("REJECT op '%s' (%s)" % (opcode, op))
+         log.debug("REJECT op '%s' (%s)" % (opcode, json.dumps(debug_op, sort_keys=True)))
          
       return rc
    
@@ -444,7 +541,7 @@ def db_check( block_id, checked_ops, opcode, op, db_state=None ):
       return False
    
    
-def db_commit( block_id, opcode, op, db_state=None ):
+def db_commit( block_id, opcode, op, txid, vtxindex, db_state=None ):
    """
    (required by virtualchain state engine)
    
@@ -452,123 +549,136 @@ def db_commit( block_id, opcode, op, db_state=None ):
    part of the database.  This does *not* need to write 
    the data to persistent storage, since save() will be 
    called once per block processed.
-   
-   Return True if the state of the virtual chain has changed.
-   Return False if not.
+  
+   Returns a new name record on success, which will 
+   be fed into db_serialize to translate into a string
+   to be used to generate this block's consensus hash.
    """
    
+   new_namerec = None 
+
    if db_state is not None:
       
       db = db_state
       
-      if opcode is not None:
+      if op is not None:
 
         # committing an operation
-        if opcode not in OPCODES:
-            log.error("Unrecognized opcode '%s'" % (opcode))
-            return False 
+        # pass along tx info
+        if not op.has_key('txid') and txid is not None:
+            op['txid'] = txid
 
-        log.debug("COMMIT op '%s' (%s)" % (opcode, op))
+        if not op.has_key('vtxindex') and vtxindex is not None:
+            op['vtxindex'] = vtxindex
             
         if opcode == NAME_PREORDER:
-            db.commit_preorder( op, block_id )
+            new_namerec = db.commit_preorder( op, block_id )
 
         elif opcode == NAME_REGISTRATION:
-            db.commit_registration( op, block_id )
+            new_namerec = db.commit_registration( op, block_id )
 
         elif opcode == NAME_UPDATE:
-            db.commit_update( op, block_id )
+            new_namerec = db.commit_update( op, block_id )
 
         elif opcode == NAME_TRANSFER:
-            db.commit_transfer( op, block_id )
+            new_namerec = db.commit_transfer( op, block_id )
 
         elif opcode == NAME_REVOKE:
-            db.commit_revoke( op, block_id )
+            new_namerec = db.commit_revoke( op, block_id )
             
         elif opcode == NAME_IMPORT:
-            db.commit_name_import( op, block_id )
+            new_namerec = db.commit_name_import( op, block_id )
             
         elif opcode == NAMESPACE_PREORDER:
-            db.commit_namespace_preorder( op, block_id )
+            new_namerec = db.commit_namespace_preorder( op, block_id )
             
         elif opcode == NAMESPACE_REVEAL:
-            db.commit_namespace_reveal( op, block_id )
+            new_namerec = db.commit_namespace_reveal( op, block_id )
 
         elif opcode == NAMESPACE_READY:
-            db.commit_namespace_ready( op, block_id )
-      
+            new_namerec = db.commit_namespace_ready( op, block_id )
+     
+        if new_namerec:
+            
+            debug_op = copy.deepcopy( op )
+            if debug_op.has_key('history'):
+                del debug_op['history']
+
+            log.debug("COMMIT op '%s' (%s)" % (opcode, json.dumps(debug_op, sort_keys=True)))
+
       else:
 
-        # last commit before save
+        # final commit before save
         # do expirations
         log.debug("Clear all expired names at %s" % block_id )
-        db.commit_name_expire_all( block_id )
+        expired_names = db.commit_name_expire_all( block_id )
         
         log.debug("Clear all expired preorders at %s" % block_id )
-        db.commit_preorder_expire_all( block_id )
+        expired_name_hashes = db.commit_preorder_expire_all( block_id )
         
         log.debug("Clear all expired namespace preorders at %s" % block_id )
-        db.commit_namespace_preorder_expire_all( block_id )
+        expired_namespace_hashes = db.commit_namespace_preorder_expire_all( block_id )
         
         log.debug("Clear all expired partial namespace imports at %s" % block_id )
-        db.commit_namespace_reveal_expire_all( block_id )
+        expired_namespaces = db.commit_namespace_reveal_expire_all( block_id )
+
+        # reset for next block
+        db.log_prescan_reset()
         
    else:
       log.error("No state engine defined")
-      return False
+      return None
   
-   return True
+   return new_namerec
 
 
-def db_serialize( op, nameop, db_state=None ):
-   """
-   (required by virtualchain state engine)
+def db_serialize( op, nameop, db_state=None, verbose=True ):
+    """
+    (required by virtualchain state engine)
+
+    Serialize a given name operation
+    """
    
-   Serialize a given name operation
-   """
-   
-   if db_state is not None:
-         
-      sr = None
+    fields = None
+    op = op[0]  # the first byte of the op string identifies the operation
+
+    opcode_name = OPCODE_NAMES.get( op, None )
+    if opcode_name is None:
+        log.error("No such opcode '%s'" % op)
+        return None 
+
+    fields = SERIALIZE_FIELDS.get( opcode_name, None )
+    if fields is None:
+        log.error("BUG: unrecongnized opcode '%s'" % opcode_name )
+        return None 
+
+    all_values = []
+    debug_all_values = []
+    missing = []
+    for field in fields:
+      if not nameop.has_key(field):
+          missing.append( field )
+
+      field_value = nameop.get(field, None)
+      if field_value is None:
+          field_value = ""
       
-      if op == NAMESPACE_PREORDER:
-          sr = serialize_namespace_preorder( nameop )
-      
-      elif op == NAMESPACE_REVEAL:
-          sr = serialize_namespace_reveal( nameop )
-      
-      elif op == NAMESPACE_READY:
-          sr = serialize_namespace_ready( nameop )
-      
-      elif op == NAME_PREORDER:
-          sr = serialize_preorder( nameop )
-      
-      elif op == NAME_REGISTRATION:
-          sr = serialize_registration( nameop )
-      
-      elif op == NAME_UPDATE:
-          sr = serialize_update( nameop )
-      
-      elif op == NAME_TRANSFER:
-          sr = serialize_transfer( nameop )
-      
-      elif op == NAME_REVOKE:
-          sr = serialize_revoke( nameop )
-      
-      elif op == NAME_IMPORT:
-          sr = serialize_name_import( nameop )
-      
-      else:
-          log.error("Unrecognized opcode '%s'" % op)
-          return None 
-      
-      # always include the transaction ID 
-      sr = sr + nameop['virtualchain_txid']
-      return sr
-   
-   else:
-      log.error("No state engine defined")
-      return []
+      # netstring format
+      debug_all_values.append( str(field) + "=" + str(len(str(field_value))) + ":" + str(field_value) )
+      all_values.append( str(len(str(field_value))) + ":" + str(field_value) )
+
+    if len(missing) > 0:
+      print json.dumps( nameop, indent=4 )
+      raise Exception("BUG: missing fields '%s'" % (",".join(missing)))
+
+    debug_field_values = ",".join( debug_all_values )
+
+    if verbose:
+        log.debug("SERIALIZE: %s:%s" % (op, debug_field_values ))
+
+    field_values = ",".join( all_values )
+
+    return op + ":" + field_values
 
 
 def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
@@ -588,10 +698,10 @@ def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
    # remove expired names before saving
    if db is not None:
       
-      # see if anything actually changed 
-      if len(pending_ops) > 0:
-          
+      # see if anything actually changed
+      if len(pending_ops.get('virtualchain_ordered', [])) > 0:
           # state has changed 
+          log.debug("Save database %s" % filename)
           return db.save_db( filename )
       
       else:

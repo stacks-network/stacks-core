@@ -1,0 +1,76 @@
+#!/usr/bin/env python 
+
+import testlib 
+import json
+import pybitcoin
+
+wallets = [
+    testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
+    testlib.Wallet( "5KHqsiU9qa77frZb6hQy9ocV7Sus9RWJcQGYYBJJBb2Efj1o77e", 100000000000 ),
+    testlib.Wallet( "KwEaiBYPRnbSYf1QWrytMjw8BSjeGd2rUu61k7bzQHjU2aZvqBA1", 100000000000 ),  # NOTE: derived from wallets[1].privkey (first child)
+    testlib.Wallet( "KyHBQKCDF5jRaAL1LNvDEvYAp5UKJpyqp591uXJX9z881StZWhCE", 100000000000 ),   # NOTE: derived from wallets[1].privkey (second child)
+    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 100000000000 )
+]
+
+consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
+
+def scenario( wallets, **kw ):
+
+    testlib.blockstore_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
+    testlib.next_block( **kw )
+
+    testlib.blockstore_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
+    testlib.next_block( **kw )
+
+    resp = testlib.blockstore_name_import( "foo.test", "1BKufFedDrueBBFBXtiATB2PSdsBGZxf3N", "11" * 20, wallets[1].privkey )    # master
+    if 'error' in resp:
+        print json.dumps(resp, indent=4 )
+
+    testlib.next_block( **kw )
+
+    resp = testlib.blockstore_name_import( "foo.test", "1ARVjrtKnUVWt2GNrpuFLnNCL2WGUhKdkW", "33" * 20, wallets[3].privkey )    # derived child 2
+    if 'error' in resp:
+        print json.dumps(resp, indent=4 )
+
+    testlib.next_block( **kw )
+
+    resp = testlib.blockstore_name_import( "foo.test", "1PYu4vKB3g2QLDFdurxqYSJ9aJSed7tne1", "22" * 20, wallets[2].privkey )    # derived child 1
+    if 'error' in resp:
+        print json.dumps(resp, indent=4 )
+
+    testlib.next_block( **kw )
+
+    
+    testlib.blockstore_namespace_ready( "test", wallets[1].privkey )
+    testlib.next_block( **kw )
+
+
+def check( state_engine ):
+
+    # not revealed, but ready 
+    ns = state_engine.get_namespace_reveal( "test" )
+    if ns is not None:
+        return False 
+
+    ns = state_engine.get_namespace( "test" )
+    if ns is None:
+        return False 
+
+    if ns['namespace_id'] != 'test':
+        return False 
+
+    # each name must exist 
+    foo = state_engine.get_name( "foo.test" )
+
+    if foo is None:
+        print "foo doesn't exist"
+        return False
+
+    if foo['value_hash'] != "22" * 20:
+        print "invalid update hash"
+        return False
+
+    if foo['address'] != "1PYu4vKB3g2QLDFdurxqYSJ9aJSed7tne1" or foo['sender'] != pybitcoin.make_pay_to_address_script("1PYu4vKB3g2QLDFdurxqYSJ9aJSed7tne1"):
+        return False 
+    
+    return True

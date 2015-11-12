@@ -34,13 +34,24 @@ from ..config import *
 from ..scripts import *
 from ..hashing import hash256_trunc128
 
+from ..nameset import NAMEREC_FIELDS
+
+# consensus hash fields (ORDER MATTERS!) 
+FIELDS = NAMEREC_FIELDS + [
+    'name_hash',            # hash(name)
+    'consensus_hash',       # consensus hash when this operation was sent
+    'keep_data'             # whether or not to keep the profile data associated with the name when transferred
+]
+
 def get_transfer_recipient_from_outputs( outputs ):
     """
     Given the outputs from a name transfer operation,
-    find the recipient's script_pubkey string and address
+    find the recipient's script hex.
     
     By construction, it will be the first non-OP_RETURN 
     output (i.e. the second output).
+
+    This also applies to a NAME_IMPORT.
     """
     
     ret = None
@@ -53,13 +64,30 @@ def get_transfer_recipient_from_outputs( outputs ):
         
         if output_asm[0:9] != 'OP_RETURN' and output_hex:
             
-            ret = (output_hex, output_addresses[0])
+            ret = output_hex
             break
             
     if ret is None:
        raise Exception("No recipients found")
     
     return ret 
+
+
+def transfer_sanity_check( name, consensus_hash ):
+    """
+    Verify that data for a transfer is valid.
+
+    Return True on success
+    Raise Exception on error
+    """
+    if name is not None and (not is_b40( name ) or "+" in name or name.count(".") > 1):
+       raise Exception("Name '%s' has non-base-38 characters" % name)
+    
+    # without the scheme, name must be 37 bytes 
+    if name is not None and (len(name) > LENGTHS['blockchain_id_name']):
+       raise Exception("Name '%s' is too long; expected %s bytes" % (name, LENGTHS['blockchain_id_name']))
+    
+    return True
 
 
 def build(name, keepdata, consensus_hash, testset=False):
@@ -74,13 +102,10 @@ def build(name, keepdata, consensus_hash, testset=False):
              data?
     """
     
-    if not is_b40( name ) or "+" in name or name.count(".") > 1:
-       raise Exception("Name '%s' has non-base-38 characters" % name)
-    
-    # without the scheme, name must be 34 bytes 
-    if len(name) > LENGTHS['blockchain_id_name']:
-       raise Exception("Name '%s' is too long; expected %s bytes" % (name, LENGTHS['blockchain_id_name']))
-    
+    rc = transfer_sanity_check( name, consensus_hash )
+    if not rc:
+        raise Exception("Invalid transfer data")
+
     data_disposition = None 
     
     if keepdata:
@@ -105,18 +130,15 @@ def make_outputs( data, inputs, new_name_owner_address, change_address, pay_fee=
     
     dust_fee = None
     op_fee = None
-    dust_value = None 
+    dust_value = DEFAULT_DUST_FEE
     
     if pay_fee:
         dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
         op_fee = DEFAULT_DUST_FEE
-        dust_value = DEFAULT_DUST_FEE
-        bill = op_fee
     
     else:
         dust_fee = 0
         op_fee = 0
-        dust_value = 0
     
     return [
         # main output
@@ -131,10 +153,15 @@ def make_outputs( data, inputs, new_name_owner_address, change_address, pay_fee=
     ]
 
 
-def broadcast(name, destination_address, keepdata, consensus_hash, private_key, blockchain_client, blockchain_broadcaster=None, pay_fee=True, tx_only=False, public_key=None, testset=False):
+def broadcast(name, destination_address, keepdata, consensus_hash, private_key, blockchain_client, blockchain_broadcaster=None, tx_only=False, user_public_key=None, testset=False):
     
     # sanity check 
-    if public_key is None and private_key is None:
+    pay_fee = True
+    if user_public_key is not None:
+        pay_fee = False
+        tx_only = True 
+
+    if user_public_key is None and private_key is None:
         raise Exception("Missing both public and private key")
     
     if not tx_only and private_key is None:
@@ -147,21 +174,20 @@ def broadcast(name, destination_address, keepdata, consensus_hash, private_key, 
     inputs = None
     private_key_obj = None
     
-    if private_key is not None:
+    if user_public_key is not None:
+        # subsidizing 
+        pubk = BitcoinPublicKey( user_public_key )
+
+        from_address = pubk.address()
+        inputs = get_unspents( from_address, blockchain_client )
+
+    elif private_key is not None:
         # ordering directly 
         pubk = BitcoinPrivateKey( private_key ).public_key()
         public_key = pubk.to_hex()
         
         # get inputs and from address using private key
         private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
-        
-    elif public_key is not None:
-        # subsidizing 
-        pubk = BitcoinPublicKey( public_key )
-        from_address = pubk.address()
-        
-        # get inputs from utxo provider 
-        inputs = get_unspents( from_address, blockchain_client )
         
     nulldata = build(name, keepdata, consensus_hash, testset=testset)
     outputs = make_outputs(nulldata, inputs, destination_address, from_address, pay_fee=pay_fee, format='hex')
@@ -183,16 +209,33 @@ def parse(bin_payload, recipient):
     # NOTE: first three bytes were stripped
     """
     
+    if len(bin_payload) != 1 + LENGTHS['name_hash'] + LENGTHS['consensus_hash']:
+        log.error("Invalid transfer payload length %s" % len(bin_payload))
+        return None 
+
     disposition_char = bin_payload[0:1]
     name_hash = bin_payload[1:1+LENGTHS['name_hash']]
     consensus_hash = bin_payload[1+LENGTHS['name_hash']:]
-    
+   
+    if disposition_char not in [TRANSFER_REMOVE_DATA, TRANSFER_KEEP_DATA]:
+        log.error("Invalid disposition character")
+        return None 
+
     # keep data by default 
     disposition = True 
     
     if disposition_char == TRANSFER_REMOVE_DATA:
        disposition = False 
-    
+   
+    try:
+       rc = transfer_sanity_check( None, consensus_hash )
+       if not rc:
+           raise Exception("Invalid transfer data")
+
+    except Exception, e:
+       log.error("Invalid transfer data")
+       return None
+
     return {
         'opcode': 'NAME_TRANSFER',
         'name_hash': hexlify( name_hash ),
@@ -234,13 +277,4 @@ def get_fees( inputs, outputs ):
     op_fee = DEFAULT_DUST_FEE
     
     return (dust_fee, op_fee)
-
-
-
-def serialize( nameop ):
-    """
-    Convert the set of data obtained from parsing the transfer into a unique string.
-    """
-    
-    return NAME_TRANSFER + ":" + nameop['nam_hash'] + "," + nameop['consensus_hash'] + "," + nameop['recipient'] + "," + str(nameop['keep_data'])
 

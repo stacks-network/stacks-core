@@ -1,0 +1,95 @@
+#!/usr/bin/env python 
+
+import testlib
+import pybitcoin
+import json
+
+wallets = [
+    testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
+    testlib.Wallet( "5KHqsiU9qa77frZb6hQy9ocV7Sus9RWJcQGYYBJJBb2Efj1o77e", 100000000000 ),
+    testlib.Wallet( "5Kg5kJbQHvk1B64rJniEmgbD83FpZpbw2RjdAZEzTefs9ihN3Bz", 100000000000 ),
+    testlib.Wallet( "5JuVsoS9NauksSkqEjbUZxWwgGDQbMwPsEfoRBSpLpgDX1RtLX7", 100000000000 ),
+    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 100000000000 ),
+    testlib.Wallet( "5K5hDuynZ6EQrZ4efrchCwy6DLhdsEzuJtTDAf3hqdsCKbxfoeD", 100000000000 ),
+    testlib.Wallet( "5J39aXEeHh9LwfQ4Gy5Vieo7sbqiUMBXkPH7SaMHixJhSSBpAqz", 100000000000 ),
+    testlib.Wallet( "5K9LmMQskQ9jP1p7dyieLDAeB6vsAj4GK8dmGNJAXS1qHDqnWhP", 100000000000 ),
+    testlib.Wallet( "5KcNen67ERBuvz2f649t9F2o1ddTjC5pVUEqcMtbxNgHqgxG2gZ", 100000000000 ),
+    testlib.Wallet( "5Jyq6RH7H42aPasyrvobvLvZGPDGYrq9m2Gq5qPEkAwDD7fqNHu", 100000000000 ),
+    testlib.Wallet( "5KBc5xk9Rk3qmYg1PXPzsJ1kPfJkvzShK5ZGEn3q4Gzw4JWqMuy", 100000000000 ),
+    testlib.Wallet( "5K6Nou64uUXg8YzuiVuRQswuGRfH1tdb9GUC9NBEV1xmKxWMJ54", 100000000000 )
+]
+
+consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
+
+def scenario( wallets, **kw ):
+
+    testlib.blockstore_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
+    testlib.next_block( **kw )
+
+    testlib.blockstore_namespace_reveal( "test", wallets[1].addr, 1, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
+    testlib.next_block( **kw )
+
+    testlib.blockstore_namespace_ready( "test", wallets[1].privkey )
+    testlib.next_block( **kw )
+
+    # preorder, register, update, expire (multiple times)
+    for i in xrange(2, 11):
+        resp = testlib.blockstore_name_preorder( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr )
+        if 'error' in resp:
+            print json.dumps( resp, indent=4 )
+
+        testlib.next_block( **kw )
+   
+        resp = testlib.blockstore_name_register( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr )
+        if 'error' in resp:
+            print json.dumps( resp, indent=4 )
+
+        testlib.next_block( **kw )
+
+        resp = testlib.blockstore_name_update( "foo.test", ("%02x" % i) * 20, wallets[(i+1)%11].privkey )
+        if 'error' in resp:
+            print json.dumps( resp, indent=4 )
+
+        testlib.next_block( **kw )
+
+        if i == 10:
+            break
+
+        testlib.next_block( **kw )
+
+def check( state_engine ):
+
+    # not revealed, but ready 
+    ns = state_engine.get_namespace_reveal( "test" )
+    if ns is not None:
+        return False 
+
+    ns = state_engine.get_namespace( "test" )
+    if ns is None:
+        return False 
+
+    if ns['namespace_id'] != 'test':
+        return False 
+
+    # not preordered
+    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
+    if preorder is not None:
+        print json.dumps(name_rec, indent=4)
+        return False
+    
+    # registered to new owner
+    name_rec = state_engine.get_name( "foo.test" )
+    if name_rec is None:
+        print "name rec is None"
+        return False 
+
+    # updated 
+    if name_rec['value_hash'] != '0a' * 20:
+        print "invalid value hash"
+        return False 
+
+    if name_rec['address'] != wallets[0].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[0].addr):
+        print json.dumps(name_rec, indent=4 )
+        return False
+
+    return True

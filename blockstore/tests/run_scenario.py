@@ -2,6 +2,7 @@
 
 import os
 import sys 
+import shutil
 
 # hack around absolute paths 
 current_dir =  os.path.abspath(os.path.dirname(__file__) + "/../..")
@@ -12,6 +13,7 @@ from blockstore.lib import *
 from blockstore.tests import *
 import virtualchain 
 import importlib
+import traceback
 
 from blockstore.lib import nameset as blockstore_state_engine
 
@@ -23,7 +25,8 @@ from blockstore.blockstored import get_state_engine
 
 import scenarios.testlib as testlib
 
-log = virtualchain.session.log
+if not globals().has_key('log'):
+    log = virtualchain.session.log
 
 mock_bitcoind_connection = None
 
@@ -48,7 +51,7 @@ def load_scenario( scenario_name ):
     try:
         scenario = importlib.import_module( scenario_name )
     except ImportError, ie:
-        raise Exception("Failed to import 'scenarios.%s'.  Please verify that the 'scenarios/' directory is in your import path" % scenario_name )
+        raise Exception("Failed to import '%s'." % scenario_name )
 
     # validate 
     if not hasattr( scenario, "wallets" ):
@@ -81,9 +84,18 @@ def write_config_file( scenario, path ):
     """
 
     initial_utxo_str = ",".join( ["%s:%s" % (w.privkey, w.value) for w in scenario.wallets] )
+    config_file_in = "blockstore.ini.in"
 
-    rc = os.system( './gen_config_file.sh blockstore.ini.in "%s" > "%s"' % (initial_utxo_str, path))
-    return rc
+    config_txt = None
+    with open( config_file_in, "r" ) as f:
+        config_txt = f.read()
+        config_txt = config_txt.replace( "@MOCK_INITIAL_UTXOS@", initial_utxo_str )
+
+    with open( path, "w" ) as f:
+        f.write( config_txt )
+        f.flush()
+
+    return 0
 
 
 def run_scenario( scenario, config_file ):
@@ -111,42 +123,59 @@ def run_scenario( scenario, config_file ):
     blockstored.set_utxo_opts( utxo_opts )
 
     db = blockstored.get_state_engine()
-
     bitcoind = mock_bitcoind.connect_mock_bitcoind( utxo_opts )
-    
-    # count blocks as given (needs to be by ref)
-    block_counter = {'count': virtualchain.get_first_block_id() }
-   
+    sync_virtualchain_upcall = lambda: virtualchain.sync_virtualchain( utxo_opts, bitcoind.getblockcount(), db )
+    mock_utxo = blockstore.lib.connect_utxo_provider( utxo_opts )
+    working_dir = virtualchain.get_working_dir()
+ 
+    # set up test environment
+    testlib.set_utxo_client( mock_utxo )
+    testlib.set_bitcoind( bitcoind )
+    testlib.set_state_engine( db )
+
+    test_env = {
+        "sync_virtualchain_upcall": sync_virtualchain_upcall,
+        "working_dir": working_dir
+    }
+
+    # sync initial utxos 
+    testlib.next_block( **test_env )
+
     # load the scenario into the mock blockchain and mock utxo provider
     try:
-        scenario.scenario( scenario.wallets, bitcoind=bitcoind, block_counter=block_counter )
+        scenario.scenario( scenario.wallets, **test_env )
+
     except Exception, e:
         log.exception(e)
+        traceback.print_exc()
         log.error("Failed to run scenario '%s'" % scenario.__name__)
         return False
-
-    # one more, just to cap it off
-    testlib.next_block( bitcoind=bitcoind, block_counter=block_counter )
-
-    # crawl the mock blockchain
-    virtualchain.sync_virtualchain( utxo_opts, block_counter['count'], db )
 
     # run the checks on the database
     try:
         rc = scenario.check( db )
-        return rc 
     except Exception, e:
         log.exception(e)
+        traceback.print_exc()
         log.error("Failed to run tests '%s'" % scenario.__name__)
         return False 
+    
+    if not rc:
+        return rc
 
+    log.info("Scenario checks passed; verifying history")
+
+    # run database integrity check at each block 
+    rc = testlib.check_history( db )
+    if rc:
+        testlib.cleanup()
     return rc 
 
 
 if __name__ == "__main__":
 
-    if len(sys.argv) != 2:
-        print >> sys.stderr, "Usage: %s [scenario.import.path]"
+    if len(sys.argv) < 2:
+        print >> sys.stderr, "Usage: %s [scenario.import.path] [OPTIONAL: working dir]"
         sys.exit(1)
  
     # load up the scenario 
@@ -155,8 +184,14 @@ if __name__ == "__main__":
         print "Failed to load '%s'" % sys.argv[1]
         sys.exit(1)
 
+    working_dir = None
+    if len(sys.argv) > 2:
+        working_dir = sys.argv[2]
+    else:
+        working_dir = "/tmp/blockstore-run-scenario.%s" % scenario.__name__
+
     # patch state engine implementation
-    blockstore_state_engine.working_dir = "/tmp/blockstore-run-scenario.%s" % scenario.__name__
+    blockstore_state_engine.working_dir = working_dir
     if not os.path.exists( blockstore_state_engine.working_dir ):
         os.makedirs( blockstore_state_engine.working_dir )
 
@@ -169,20 +204,14 @@ if __name__ == "__main__":
 
     # run the test 
     rc = run_scenario( scenario, config_file )
-    
-    # clean up 
-    try:
-        os.system("rm %s/*" % blockstore_state_engine.working_dir )
-        os.rmdir( blockstore_state_engine.working_dir )
-    except:
-        log.warning("Failed to remove '%s' and/or its parent directory" % config_file )
-        pass
-
+   
     if rc:
         print "SUCCESS %s" % scenario.__name__
+        shutil.rmtree( working_dir )
         sys.exit(0)
     else:
         print >> sys.stderr, "FAILURE %s" % scenario.__name__
+        print >> sys.stderr, "Test output in %s" % working_dir
         sys.exit(1)
 
     
