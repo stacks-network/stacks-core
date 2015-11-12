@@ -31,8 +31,8 @@ import uuid
 import os
 import importlib
 
-from . import parsing, schemas, storage, drivers, config
-from . import user as user_db
+import parsing, schemas, storage, drivers, config
+import user as user_db
 
 import pybitcoin
 import bitcoin as pybitcointools
@@ -40,6 +40,8 @@ import binascii
 
 from config import log, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTORED_SERVER, \
     BLOCKSTORED_PORT, BLOCKSTORE_METADATA_DIR, BLOCKSTORE_DEFAULT_STORAGE_DRIVERS
+
+import blockstore
 
 # default API endpoint proxy to blockstored
 default_proxy = None
@@ -177,7 +179,7 @@ class BlockstoreRPCClient(object):
 
 
 def session(conf=None, server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_PORT,
-            username=None, password=None, storage_drivers=BLOCKSTORE_DEFAULT_STORAGE_DRIVERS,
+            storage_drivers=BLOCKSTORE_DEFAULT_STORAGE_DRIVERS,
             metadata_dir=BLOCKSTORE_METADATA_DIR, set_global=True):
     
     """
@@ -408,6 +410,14 @@ def remove_name_record(user, txid):
     return (rc, data_hash)
 
 
+def json_traceback():
+    exception_data = traceback.format_exc().splitlines()
+    return {
+        "error": exception_data[-1],
+        "traceback": exception_data
+    }
+
+
 def getinfo(proxy=None):
     """
     getinfo
@@ -421,7 +431,7 @@ def getinfo(proxy=None):
     try:
         resp = proxy.getinfo()
     except Exception as e:
-        resp['error'] = str(e)
+        resp = json_traceback()
 
     return resp
 
@@ -484,6 +494,17 @@ def get_names_in_namespace( namespace_id, offset, count, proxy=None ):
     return proxy.get_names_in_namespace( namespace_id, offset, count )
 
 
+def get_names_owned_by_address( address, proxy=None ):
+    """
+    Get the names owned by an address.
+    Only works for p2pkh scripts.
+    """
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    return proxy.get_names_owned_by_address( address )
+
+
 def get_consensus_at( block_id, proxy=None ):
     """
     Get consensus at a block 
@@ -492,6 +513,153 @@ def get_consensus_at( block_id, proxy=None ):
         proxy = get_default_proxy()
     
     return proxy.get_consensus_at( block_id )
+
+
+def get_nameops_at( block_id, proxy=None ):
+    """
+    Get the set of records as they were at a particular block.
+    """
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    return proxy.get_nameops_at( block_id )
+
+
+def get_nameops_hash_at( block_id, proxy=None ):
+    """
+    Get the hash of a set of records as they were at a particular block.
+    """
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    return proxy.get_nameops_hash_at( block_id )
+
+
+def lookup_snv( name, block_id, consensus_hash, proxy=None ):
+    """
+    Simple name verification (snv) lookup:
+    Look up a name as it was in the past, given the previous
+    point in time's block ID and consensus hash.
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    # get current consensus hash and block ID
+    current_info = getinfo( proxy=proxy )
+    if 'error' in current_info:
+        return current_info
+
+    current_info = current_info[0]
+
+    current_block_id = int(current_info['blocks'])
+    current_consensus_hash = str(current_info['consensus'])
+
+    # work backwards in time, using a Merkle skip-list constructed
+    # by blockstored over the set of consensus hashes.
+    next_block_id = current_block_id
+
+    prev_nameops_hashes = {}
+    prev_consensus_hashes = {
+        next_block_id: current_consensus_hash
+    }
+
+    while next_block_id >= block_id:
+
+        # get nameops_at[ next_block_id ], and all consensus_hash[ next_block_id - 2^i ] such that block_id - 2*i > block_id (start at i = 1)
+        i = 0
+        nameops_hash = None 
+
+        if not prev_nameops_hashes.has_key(next_block_id):
+            nameops_resp = get_nameops_hash_at( next_block_id, proxy=proxy )
+
+            if 'error' in nameops_resp:
+                log.error("get_nameops_hash_at: %s" % nameops_resp['error'])
+                return {'error': 'Failed to get nameops: %s' % nameops_resp['error']}
+
+            nameops_hash = str( nameops_resp[0] )
+            prev_nameops_hashes[ next_block_id ] = nameops_hash
+
+        else:
+            nameops_hash = prev_nameops_hashes[ next_block_id ]
+
+        ch_block_ids = []
+        while next_block_id - (2**(i+1) - 1) >= blockstore.lib.config.FIRST_BLOCK_MAINNET:
+            
+            i += 1
+            ch_block_ids.append( next_block_id - (2**i - 1))
+
+            if not prev_consensus_hashes.has_key( next_block_id - (2**i - 1) ):
+                ch = str( get_consensus_at( next_block_id - (2**i - 1), proxy=proxy )[0] )
+                
+                if ch != "None":
+                    prev_consensus_hashes[ next_block_id - (2**i - 1) ] = ch
+
+                else:
+                    # skip this one
+                    ch_block_ids.pop()
+                    break
+
+        prev_consensus_hashes_list = [ prev_consensus_hashes[b] for b in ch_block_ids ]
+        
+        # calculate the snapshot, and see if it matches
+        ch = blockstore.BlockstoreDB.make_snapshot_from_ops_hash( nameops_hash, prev_consensus_hashes_list )
+        expected_ch = prev_consensus_hashes[ next_block_id ]
+        if ch != expected_ch:
+            log.error("Consensus hash mismatch at %s: expected %s, got %s" % (next_block_id, expected_ch, ch ))
+            return {'error': 'Consensus hash mismatch'}
+
+        # advance!
+        # find the smallest known consensus hash whose block is greater than block_id
+        current_candidate = next_block_id
+        found_any = False
+        for candidate_block_id in prev_consensus_hashes.keys():
+            if candidate_block_id < block_id:
+                continue 
+
+            if candidate_block_id < current_candidate:
+                current_candidate = candidate_block_id
+                found_any = True
+
+        if not found_any:
+            break
+
+        next_block_id = current_candidate
+
+    # get the final nameops 
+    historic_nameops = get_nameops_at( block_id, proxy=proxy )
+    if 'error' in historic_nameops:
+        return {'error': 'BUG: no nameops found:'}
+   
+    historic_nameops = historic_nameops[0]
+
+    # sanity check...
+    for historic_op in historic_nameops:
+        if not historic_op.has_key('opcode'):
+            return {'error': 'Invalid/corrupt name operations detected'}
+
+        # recover binary op string
+        if not historic_op.has_key('op'):
+            historic_op['op'] = blockstore.lib.config.NAME_OPCODES[ str(historic_op['opcode']) ]
+
+    # check integrity
+    serialized_historic_nameops = [blockstore.db_serialize( op['op'], op ) for op in historic_nameops]
+    historic_nameops_hash = blockstore.BlockstoreDB.make_ops_snapshot( serialized_historic_nameops )
+
+    if historic_nameops_hash != prev_nameops_hashes[ block_id ]:
+        return {'error': 'Hash mismatch: name is not consistent with consensus hash'}
+
+    # find the one we asked for
+    for nameop in historic_nameops:
+        if str(nameop['name']) == str(name):
+            return nameop
+
+    sys.stdout.flush()
+
+    # not found
+    log.error("Not found at block %s: '%s'" % (block_id, name))
+    return {'error': 'Name not found'}
+    
 
 def get_name_blockchain_record(name, proxy=None):
     """
