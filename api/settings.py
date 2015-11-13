@@ -64,6 +64,7 @@ else:
     API_DB_URI = 'mongodb://%s:%s/%s' % ('localhost', str(27017), API_DB_NAME)
 
 
+# Needed for mongoengine
 MONGODB_SETTINGS = {
     'db': API_DB_NAME,
     'host': API_DB_URI
