@@ -43,7 +43,7 @@ except:
 
 # Secret settings
 secrets_list = [
-    'MAILGUN_API_KEY',
+    'MAILGUN_API_KEY', 'SECRET_KEY',
     'API_DB_URI', 'API_DB_NAME',
     'CHAIN_API_ID', 'CHAIN_API_SECRET'
 ]
@@ -64,6 +64,7 @@ else:
     API_DB_URI = 'mongodb://%s:%s/%s' % ('localhost', str(27017), API_DB_NAME)
 
 
+# Needed for mongoengine
 MONGODB_SETTINGS = {
     'db': API_DB_NAME,
     'host': API_DB_URI

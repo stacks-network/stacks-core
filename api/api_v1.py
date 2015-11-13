@@ -28,7 +28,7 @@ from .errors import InvalidProfileDataError, UsernameTakenError, \
 
 from .parameters import parameters_required
 from .auth import auth_required
-from .models import BlockchainID
+from .models import Blockchainid
 from .dkim import dns_resolver, parse_pubkey_from_data, DKIM_RECORD_PREFIX
 from .utils import sizeInvalid
 
@@ -121,7 +121,7 @@ def register_user():
     if sizeInvalid(profile):
         raise InvalidProfileSize()
 
-    matching_profiles = BlockchainID.objects(username=username)
+    matching_profiles = Blockchainid.objects(username=username)
 
     if len(matching_profiles):
         """ Someone else already tried registering this name
@@ -130,7 +130,7 @@ def register_user():
         """
         pass
     else:
-        new_entry = BlockchainID(username=username, profile=json.dumps(profile),
+        new_entry = Blockchainid(username=username, profile=json.dumps(profile),
                             transfer_address=data['recipient_address'])
         try:
             new_entry.save()
