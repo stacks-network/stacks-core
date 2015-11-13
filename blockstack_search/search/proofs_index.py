@@ -39,6 +39,8 @@ from .db import twitter_payment, facebook_payment
 from .db import github_payment, domain_payment
 from .db import proofs_cache
 
+from .config import SUPPORTED_PROOFS
+
 
 def flush_collection():
 
@@ -59,7 +61,7 @@ def optimize_db():
 
 def get_btc_address(profile):
 
-    addressValid = False
+    validAddress = False
 
     if 'bitcoin' in profile:
 
@@ -70,11 +72,11 @@ def get_btc_address(profile):
             pass
 
     try:
-        addressValid = is_b58check_address(str(btc_address))
+        validAddress = is_b58check_address(str(btc_address))
     except Exception as e:
         pass
 
-    if addressValid:
+    if validAddress:
         return btc_address
     else:
         return None
@@ -102,7 +104,7 @@ def get_proofs(username, profile):
     return proofs
 
 
-def create_twitter_payment_index():
+def create_twitter_proofs_index():
 
     counter = 0
 
@@ -149,7 +151,7 @@ def create_twitter_payment_index():
                             print counter
 
 
-def create_facebook_payment_index():
+def create_facebook_proofs_index():
 
     counter = 0
 
@@ -196,7 +198,7 @@ def create_facebook_payment_index():
                             print counter
 
 
-def create_github_payment_index():
+def create_github_proofs_index():
 
     counter = 0
 
@@ -243,7 +245,7 @@ def create_github_payment_index():
                             print counter
 
 
-def create_domain_payment_index():
+def create_domain_proofs_index():
 
     TEST_DOMAIN_VERIFICATIONS = ['muneeb', 'blockstack', 'ryan']
 
@@ -301,7 +303,23 @@ def create_domain_payment_index():
                     print counter
 
 
-def search_payment(query):
+def validProofQuery(query):
+
+    query = query.rsplit(':')
+
+    try:
+        query_type = query[0]
+        query_keyword = query[1].lower()
+    except:
+        return False
+
+    if query_type in SUPPORTED_PROOFS:
+        return True
+
+    return False
+
+
+def search_proofs(query):
 
     data = []
 
@@ -373,16 +391,16 @@ if __name__ == "__main__":
         optimize_db()
 
     elif(option == '--create_twitter'):
-        create_twitter_payment_index()
+        create_twitter_proofs_index()
 
     elif(option == '--create_facebook'):
-        create_facebook_payment_index()
+        create_facebook_proofs_index()
 
     elif(option == '--create_github'):
-        create_github_payment_index()
+        create_github_proofs_index()
 
     elif(option == '--create_domain'):
-        create_domain_payment_index()
+        create_domain_proofs_index()
 
     else:
         print "Usage error"

@@ -39,7 +39,7 @@ from .substring_search import search_people_by_name, search_people_by_twitter
 from .substring_search import search_people_by_username, search_people_by_bio
 from .substring_search import fetch_profiles
 
-from .payment_search import search_payment
+from .proofs_index import search_proofs, validProofQuery
 
 
 app = Flask(__name__)
@@ -114,7 +114,7 @@ def test_alphanumeric(query):
     return True
 
 
-@app.route('/search/name')
+@app.route('/search')
 def search_by_name():
 
     query = request.args.get('query')
@@ -142,8 +142,12 @@ def search_by_name():
     except:
         pass
 
-    if test_alphanumeric(query) is False:
+    if validProofQuery(query):
+        return search_proofs_index(query)
+
+    elif test_alphanumeric(query) is False:
         pass
+
     else:
 
         threads = []
@@ -194,8 +198,7 @@ def search_by_name():
     return jsonify(results)
 
 
-@app.route('/search/payment')
-def search_for_payment():
+def search_proofs_index(query):
 
     results = {}
 
@@ -215,7 +218,7 @@ def search_for_payment():
         if(cache_reply is not None):
             return jsonify(cache_reply)
 
-    results['results'] = search_payment(query)
+    results['results'] = search_proofs(query)
 
     if MEMCACHED_ENABLED:
         mc.set(cache_key, results, int(time() + MEMCACHED_TIMEOUT))
