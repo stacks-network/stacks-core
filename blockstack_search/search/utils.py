@@ -31,25 +31,25 @@ import logging
 from config import DEBUG
 
 
-def get_logger(log_name=None, log_type='stream'):
+def config_log(name):
 
-    if(DEBUG):
-        log = logging.getLogger(log_name)
-        log.setLevel(logging.DEBUG)
+    from commontools import setup_logging
+    setup_logging()
 
-        formatter_stream = logging.Formatter('[%(levelname)s] %(message)s')
-        handler_stream = logging.StreamHandler()
-        handler_stream.setFormatter(formatter_stream)
+    log = logging.getLogger(name)
 
-        log.addHandler(handler_stream)
-
+    if DEBUG:
+        log.setLevel(level=logging.DEBUG)
     else:
-        log = None
+        log.setLevel(level=logging.INFO)
+
+    blockcypher_log = logging.getLogger("blockcypher.api")
+    blockcypher_log.setLevel(logging.WARNING)
 
     return log
 
-# common logger
-log = get_logger()
+log = config_log(__name__)
+
 
 """
 from bson.objectid import ObjectId
