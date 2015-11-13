@@ -148,29 +148,7 @@ def register_user():
 @crossdomain(origin='*')
 def search_people():
 
-    search_url = SEARCH_URL + '/search/name'
-
-    name = request.values['query']
-
-    try:
-        resp = requests.get(url=search_url, params={'query': name})
-    except (RequestsConnectionError, RequestsTimeout) as e:
-        raise InternalProcessingError()
-
-    data = resp.json()
-    if not ('results' in data and isinstance(data['results'], list)):
-        data = {'results': []}
-
-    return jsonify(data), 200
-
-
-@app.route('/v1/search/payment', methods=['GET'])
-#@auth_required(exception_queries=['twitter:albertwenger', 'github:muneeb-ali'])
-@parameters_required(parameters=['query'])
-@crossdomain(origin='*')
-def search_payment():
-
-    search_url = SEARCH_URL + '/search/payment'
+    search_url = SEARCH_URL + '/search'
 
     name = request.values['query']
 
