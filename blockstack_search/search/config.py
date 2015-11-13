@@ -42,6 +42,8 @@ ALL_USERS_ENDPOINT = '/v2/users'
 BLOCKCHAIN_STATE_FILE = "data/blockchain_state.json"
 DHT_STATE_FILE = "data/dht_state.json"
 
+SUPPORTED_PROOFS = ['twitter', 'facebook', 'github', 'domain']
+
 try:
     # to overrite things like MEMCACHED_ENABLED
     from config_local import *

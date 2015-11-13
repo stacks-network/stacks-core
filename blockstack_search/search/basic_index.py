@@ -23,9 +23,6 @@ This file is part of Search.
     along with Search. If not, see <http://www.gnu.org/licenses/>.
 """
 
-""" create the basic index
-"""
-
 import sys
 import json
 import requests
@@ -33,7 +30,7 @@ import requests
 from pymongo import MongoClient
 
 from .utils import validUsername
-from .utils import get_json, log
+from .utils import get_json, config_log
 
 from .config import RESOLVER_URL, ALL_USERS_ENDPOINT
 from .config import BLOCKCHAIN_STATE_FILE, DHT_STATE_FILE
@@ -41,6 +38,11 @@ from .config import BLOCKCHAIN_STATE_FILE, DHT_STATE_FILE
 from .db import namespace, profile_data
 from .db import search_profiles
 from .db import people_cache, twitter_cache, username_cache
+
+""" create the basic index
+"""
+
+log = config_log(__name__)
 
 
 def get_namespace_from_resolver(url=RESOLVER_URL, endpoint=ALL_USERS_ENDPOINT):
@@ -65,6 +67,9 @@ def fetch_dht_state_from_file():
 
     counter = 0
 
+    log.debug("-" * 5)
+    log.debug("Fetching DHT state from file")
+
     for entry in dht_state:
 
         new_entry = {}
@@ -75,7 +80,8 @@ def fetch_dht_state_from_file():
 
         counter += 1
 
-        print counter
+        if counter % 1000 == 0:
+            log.debug("Processed entries: %s" % counter)
 
     dht_file.close()
 
@@ -93,6 +99,9 @@ def fetch_namespace_from_file():
     blockchain_state = blockchain_state['registrations']
 
     counter = 0
+
+    log.debug("-" * 5)
+    log.debug("Fetching namespace from file")
 
     for entry in blockchain_state:
 
@@ -115,7 +124,8 @@ def fetch_namespace_from_file():
         namespace.save(new_entry)
         counter += 1
 
-        print counter
+        if counter % 1000 == 0:
+            log.debug("Processed entries: %s" % counter)
 
     blockchain_file.close()
     return
@@ -129,6 +139,8 @@ def flush_db():
     client.drop_database('search_db')
     client.drop_database('search_cache')
 
+    log.debug("Flushed DB")
+
 
 def optimize_db():
 
@@ -139,6 +151,8 @@ def optimize_db():
     search_profiles.ensure_index('name')
     search_profiles.ensure_index('twitter_handle')
     search_profiles.ensure_index('username')
+
+    log.debug("Optimized DB")
 
 
 def create_search_index():
@@ -152,6 +166,9 @@ def create_search_index():
     twitter_handles = []
     usernames = []
 
+    log.debug("-" * 5)
+    log.debug("Creating search index")
+
     for user in namespace.find():
 
         # the profile/info to be inserted
@@ -160,7 +177,7 @@ def create_search_index():
         counter += 1
 
         if(counter % 1000 == 0):
-            print counter
+            log.debug("Processed entries: %s" % counter)
 
         if validUsername(user['username']):
             pass
@@ -233,8 +250,6 @@ def create_search_index():
 
 if __name__ == "__main__":
 
-    optimize_db()
-
     if(len(sys.argv) < 2):
         print "Usage error"
         exit(0)
@@ -256,6 +271,12 @@ if __name__ == "__main__":
 
     elif(option == '--optimize'):
         optimize_db()
+
+    elif(option == '--refresh'):
+        flush_db()
+        fetch_dht_state_from_file()
+        fetch_namespace_from_file()
+        create_search_index()
 
     else:
         print "Usage error"
