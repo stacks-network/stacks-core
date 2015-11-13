@@ -25,6 +25,7 @@ This file is part of Registrar.
 
 from .nameops import get_blockchain_record
 from .nameops import get_dht_profile, write_dht_profile
+from .nameops import usernameRegistered
 
 from .blockchain import get_block_height, txRejected
 
