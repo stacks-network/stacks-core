@@ -46,11 +46,12 @@ def get_block_height():
 
     try:
         data = get_blockchain_overview()
-    except Exception as e:
-        print e
 
-    if 'height' in data:
-        resp = data['height']
+        if 'height' in data:
+            resp = data['height']
+
+    except Exception as e:
+        log.debug(e)
 
     return resp
 
@@ -63,11 +64,12 @@ def get_tx_confirmations(tx_hash):
 
     try:
         data = get_transaction_details(tx_hash)
-    except Exception as e:
-        print e
 
-    if 'confirmations' in data:
-        resp = data['confirmations']
+        if 'confirmations' in data:
+            resp = data['confirmations']
+
+    except Exception as e:
+        log.debug(e)
 
     return resp
 
@@ -112,12 +114,10 @@ def test_inputs():
             counter += 1
             total_satoshis += unspent['value']
 
-        print counter
-
         btc_amount = satoshis_to_btc(total_satoshis)
         btc_amount = float(btc_amount)
 
-        print "btc_amount: %s" % btc_amount
+        log.debug("btc_amount: %s" % btc_amount)
 
 if __name__ == '__main__':
 

@@ -78,8 +78,6 @@ def register_user(fqu, profile, btc_address):
         log.debug("Error registering: %s" % fqu)
         log.debug(resp)
 
-    sleep(3)
-
 
 def update_user(fqu, profile, btc_address):
 
@@ -110,8 +108,6 @@ def update_user(fqu, profile, btc_address):
     else:
         log.debug("Error updating: %s" % fqu)
         log.debug(resp)
-
-    sleep(3)
 
 
 def register_new_users(spam_protection=False):
