@@ -77,6 +77,11 @@ def get_tx_confirmations(tx_hash):
 def txRejected(tx_hash, tx_sent_at_height):
 
     current_height = get_block_height()
+
+    if type(current_height) is not int:
+        log.debug("ERROR: getting current height")
+        return False
+
     tx_confirmations = get_tx_confirmations(tx_hash)
 
     if (current_height - tx_sent_at_height) > RETRY_INTERVAL:
