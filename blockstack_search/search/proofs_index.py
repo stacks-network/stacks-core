@@ -319,6 +319,19 @@ def validProofQuery(query):
     return False
 
 
+def format_results(list):
+
+    data = []
+
+    for entry in list:
+        new_result = {}
+        new_result['profile'] = entry['profile']
+        new_result['username'] = entry['username']
+        data.append(new_result)
+
+    return data
+
+
 def search_proofs(query):
 
     data = []
@@ -334,47 +347,22 @@ def search_proofs(query):
     if query_type == 'twitter':
 
         check_entry = twitter_payment.find({"twitter_handle": query_keyword})
-
-        for entry in check_entry:
-            new_result = {}
-            new_result[entry['username']] = entry['profile']
-            data.append(new_result)
-
-        return data
+        return format_results(check_entry)
 
     elif query_type == 'facebook':
 
         check_entry = facebook_payment.find({"facebook_username": query_keyword})
-
-        for entry in check_entry:
-            new_result = {}
-            new_result[entry['username']] = entry['profile']
-            data.append(new_result)
-
-        return data
+        return format_results(check_entry)
 
     elif query_type == 'github':
 
         check_entry = github_payment.find({"github_username": query_keyword})
-
-        for entry in check_entry:
-            new_result = {}
-            new_result[entry['username']] = entry['profile']
-            data.append(new_result)
-
-        return data
+        return format_results(check_entry)
 
     elif query_type == 'domain':
 
         check_entry = domain_payment.find({"domain_url": query_keyword})
-
-        for entry in check_entry:
-            new_result = {}
-            new_result[entry['username']] = entry['profile']
-            data.append(new_result)
-
-        return data
-
+        return format_results(check_entry)       
 
 if __name__ == "__main__":
 
