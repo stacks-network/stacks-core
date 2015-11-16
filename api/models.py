@@ -18,3 +18,10 @@ class Blockchainid(db.Document):
     username = db.StringField(max_length=255, required=True)
     profile = db.StringField(required=True)
     transfer_address = db.StringField(max_length=255, required=True)
+
+
+class Email(db.Document):
+    # metadata
+    created_at = db.DateTimeField(default=datetime.datetime.now, required=True)
+    # account data
+    address = db.EmailField(required=True, unique=True)

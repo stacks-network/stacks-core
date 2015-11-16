@@ -9,6 +9,7 @@ import json
 import traceback
 import requests
 import ssl
+import re
 
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import Timeout as RequestsTimeout
@@ -24,25 +25,21 @@ from .errors import InvalidProfileDataError, UsernameTakenError, \
     InternalProcessingError, ResolverConnectionError, \
     BroadcastTransactionError, DatabaseLookupError, InternalSSLError, \
     DatabaseSaveError, DKIMPubkeyError, UsernameNotRegisteredError, \
-    UpgradeInprogressError, InvalidProfileSize
+    UpgradeInprogressError, InvalidProfileSize, \
+    EmailTokenError, InvalidEmailError
 
 from .parameters import parameters_required
 from .auth import auth_required
-from .models import Blockchainid
+from .models import Blockchainid, Email
 from .dkim import dns_resolver, parse_pubkey_from_data, DKIM_RECORD_PREFIX
 from .utils import sizeInvalid
 
 from .settings import RESOLVER_URL, SEARCH_URL
 from .settings import CHAIN_API_ID, CHAIN_API_SECRET
 from .settings import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
-from .settings import DHT_MIRROR, DHT_MIRROR_PORT
 from .settings import BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER
 from .settings import BITCOIND_PASSWD, BITCOIND_USE_HTTPS
-
-from basicrpc import Proxy
-from .settings import DHT_MIRROR, DHT_MIRROR_PORT
-
-proxy = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
+from .settings import EMAILS_TOKEN, EMAIL_REGREX
 
 bitcoind = BitcoindClient(BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER,
                           BITCOIND_PASSWD, BITCOIND_USE_HTTPS)
@@ -258,22 +255,42 @@ def get_dkim_pubkey(domain):
     return jsonify(resp), 200
 
 
-@app.route('/v1/data/<hash>', methods=['GET'])
-@auth_required()
+@app.route('/v1/emails', methods=['GET'])
 @crossdomain(origin='*')
-def get_immutable_data(hash):
+def get_emails_info():
 
-    resp = proxy.get(hash)
+    resp = {}
+    resp["message"] = "This endpoint is for emails re blockstore critical updates. Use the given token for submitting new emails"
+
+    resp["token"] = EMAILS_TOKEN
 
     return jsonify(resp), 200
 
 
-@app.route('/v1/data', methods=['POST'])
-@auth_required()
-@parameters_required(['hash', 'payload'])
+@app.route('/v1/emails', methods=['POST'])
+@parameters_required(['email', 'token'])
 @crossdomain(origin='*')
-def write_immutable_data():
+def submit_emails():
 
-    resp = proxy.set(hash, payload)
+    resp = {}
+
+    data = json.loads(request.data)
+
+    token = data['token']
+    email = data['email']
+
+    if token != EMAILS_TOKEN:
+        raise EmailTokenError
+
+    if not re.match(EMAIL_REGREX, email):
+        raise InvalidEmailError
+
+    new_entry = Email(address=email)
+
+    try:
+        new_entry.save()
+        resp['status'] = 'success'
+    except Exception as e:
+        raise DatabaseSaveError()
 
     return jsonify(resp), 200
