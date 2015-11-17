@@ -1660,9 +1660,10 @@ def run_server( testset=False, foreground=False ):
     logfile = None
     if not foreground:
 
-        api_server_command = ('twistd --pidfile=%s --logfile=%s -noy %s' % (pid_file,
-                                                                            access_log_file,
-                                                                            tac_file)).split()
+        api_server_command = ('twistd --pidfile=%s --logfile=%s -noy' % (pid_file,
+                                                                         access_log_file)).split()
+        api_server_command.append(tac_file)
+
 
         try:
             if os.path.exists( indexer_log_file ):
@@ -1709,8 +1710,8 @@ def run_server( testset=False, foreground=False ):
     else:
         
         # foreground
-        api_server_command = ('twistd --pidfile=%s -noy %s' % (pid_file, tac_file)).split()
-        
+        api_server_command = ('twistd --pidfile=%s -noy' % pid_file).split()
+        api_server_command.append(tac_file)    
     
     # start API server
     blockstored = subprocess.Popen( api_server_command, shell=False)    
