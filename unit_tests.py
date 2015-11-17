@@ -52,7 +52,6 @@ def test_get_request(cls, endpoint, headers={}, status_code=200):
 def test_post_request(cls, endpoint, payload, headers={}, status_code=200):
     resp = app.post(endpoint, data=json.dumps(payload), headers=headers)
     data = json.loads(resp.data)
-    print data
     cls.assertTrue(isinstance(data, dict))
     cls.assertTrue(resp.status_code == status_code)
     return data
@@ -166,7 +165,7 @@ class UserbaseStatsTest(unittest.TestCase):
         check_data(self, data, required_keys=required_keys)
 
 
-class SearchTest(unittest.TestCase):
+class SearchUsersTest(unittest.TestCase):
     def setUp(self):
         self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
         self.required_keys = {'results': []}
@@ -180,15 +179,18 @@ class SearchTest(unittest.TestCase):
                                 headers=self.headers)
         check_data(self, data, required_keys=self.required_keys)
 
-    def test_twitter_search_query(self):
-        query = 'twitter:albertwenger'
-        data = test_get_request(self, build_url('/search?query=' + query),
-                                headers=self.headers)
-        check_data(self, data, required_keys=self.required_keys)
 
-    def test_domain_search_query(self):
-        query = 'domain:muneebali.com'
-        data = test_get_request(self, build_url('/search?query=' + query),
+class SearchPaymentTest(unittest.TestCase):
+    def setUp(self):
+        self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
+        self.required_keys = {'results': []}
+
+    def tearDown(self):
+        pass
+
+    def test_simple_search_query(self):
+        query = 'twitter:albertwenger'
+        data = test_get_request(self, build_url('/search/payment?query=' + query),
                                 headers=self.headers)
         check_data(self, data, required_keys=self.required_keys)
 
@@ -291,17 +293,38 @@ class DKIMPubkeyTest(unittest.TestCase):
         check_data(self, data, required_keys=self.required_keys)
 
 
+class EmailSaveTest(unittest.TestCase):
+    def setUp(self):
+        self.required_keys = {'status': []}
+
+    def tearDown(self):
+        pass
+
+    def get_email_token(self):
+
+        data = test_get_request(self, build_url('/emails'))
+        return data['token']
+
+    def test_email_save(self):
+        email = 'test@onename.com'
+        token = self.get_email_token()
+        payload = {'email': email, 'token': token}
+        data = test_post_request(self, build_url('/emails'), payload)
+        check_data(self, data, required_keys=self.required_keys)
+
+
 def test_main():
     test_support.run_unittest(
         LookupUsersTest,
         #UserbaseTest,
         #UserbaseStatsTest,
-        SearchTest,
+        SearchUsersTest,
         LookupUnspentsTest,
         #LookupNamesOwnedTest,
         RegisterUserTest,
         #BroadcastTransactionTest,
         DKIMPubkeyTest,
+        EmailSaveTest,
     )
 
 
