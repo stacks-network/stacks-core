@@ -294,18 +294,37 @@ class DKIMPubkeyTest(unittest.TestCase):
         check_data(self, data, required_keys=self.required_keys)
 
 
+class EmailSaveTest(unittest.TestCase):
+    def setUp(self):
+        self.required_keys = {'status': []}
+
+    def tearDown(self):
+        pass
+
+    def get_email_token(self):
+
+        data = test_get_request(self, build_url('/emails'))
+        return data['token']
+
+    def test_address_lookup(self):
+        email = 'test@onename.com'
+        token = self.get_email_token()
+        data = test_get_request(self, build_url('/emails'))
+        check_data(self, data, required_keys=self.required_keys)
+
+
 def test_main():
     test_support.run_unittest(
         LookupUsersTest,
         #UserbaseTest,
         #UserbaseStatsTest,
         SearchUsersTest,
-        SearchPaymentTest,
         LookupUnspentsTest,
         #LookupNamesOwnedTest,
         RegisterUserTest,
         #BroadcastTransactionTest,
         DKIMPubkeyTest,
+        EmailSaveTest,
     )
 
 
