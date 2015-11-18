@@ -1642,18 +1642,25 @@ def run_server( testset=False, foreground=False ):
     start_block, current_block = get_index_range()
     
     argv0 = os.path.normpath( sys.argv[0] )
-    
+    blockstored_path = os.path.join(os.getcwd(), argv0)
+
     if os.path.exists("./%s" % argv0 ):
         if testset:
-            indexer_command = ("%s indexer --testset --working-dir=%s" % (os.path.join( os.getcwd(), argv0), working_dir)).split()
+
+            indexer_command = ("indexer --testset --working-dir=%s" % working_dir).split()
+            indexer_command = [blockstored_path] + indexer_command
         else:
-            indexer_command = ("%s indexer --working-dir=%s" % (os.path.join( os.getcwd(), argv0), working_dir)).split()
+            indexer_command = ("indexer --working-dir=%s" % working_dir).split()
+            indexer_command = [blockstored_path] + indexer_command
     else:
         # hope its in the $PATH
         if testset:
-            indexer_command = ("%s indexer --testset --working-dir=%s" % (argv0, working_dir)).split()
+            indexer_command = ("indexer --testset --working-dir=%s" % working_dir).split()
+            indexer_command = [argv0] + indexer_command
         else:
-            indexer_command = ("%s indexer --working-dir=%s" % (argv0, working_dir)).split()
+            indexer_command = ("indexer --working-dir=%s" % working_dir).split()
+            indexer_command = [argv0] + indexer_command
+
    
     log.debug("Start indexer: '%s'" % (' '.join(indexer_command)))
 
