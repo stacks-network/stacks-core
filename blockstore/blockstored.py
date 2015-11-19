@@ -465,7 +465,7 @@ def blockstore_name_preorder( name, privatekey, register_addr, tx_only=False, su
         }
 
 
-    log.debug('preorder <%s, %s, %s>' % (name, privatekey, consensus_hash))
+    log.debug('preorder <name, consensus_hash>: <%s, %s>' % (name, consensus_hash))
 
     return resp
 
@@ -592,7 +592,7 @@ def blockstore_name_update( name, data_hash, privatekey, tx_only=False, user_pub
         # subsidize the transaction
         resp = make_subsidized_tx( resp['unsigned_tx'], update_fees, blockstore_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
 
-    log.debug('name update <%s, %s, %s, %s>' % (name, data_hash, privatekey, consensus_hash))
+    log.debug('name update <name, data_hash, consensus_hash>: <%s, %s, %s>' % (name, data_hash, consensus_hash))
     return resp
 
 
@@ -652,7 +652,7 @@ def blockstore_name_transfer( name, address, keepdata, privatekey, user_public_k
         # subsidize the transaction
         resp = make_subsidized_tx( resp['unsigned_tx'], transfer_fees, blockstore_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
 
-    log.debug('name transfer <%s, %s, %s>' % (name, address, privatekey))
+    log.debug('name transfer <name, address>: <%s, %s>' % (name, address))
 
     return resp
 
