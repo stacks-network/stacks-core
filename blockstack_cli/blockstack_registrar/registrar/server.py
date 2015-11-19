@@ -78,7 +78,7 @@ def register_user(fqu, profile, btc_address):
         log.debug("Error registering: %s" % fqu)
         log.debug(resp)
 
-    sleep(3)
+    sleep(1)
 
 
 def update_user(fqu, profile, btc_address):
@@ -111,7 +111,7 @@ def update_user(fqu, profile, btc_address):
         log.debug("Error updating: %s" % fqu)
         log.debug(resp)
 
-    sleep(3)
+    sleep(1)
 
 
 def register_new_users(spam_protection=False):
@@ -220,6 +220,16 @@ def update_users_bulk():
             log.debug("Not registered: %s" % fqu)
 
 
+def reprocess_user(username):
+
+    user = users.find_one({"username": username})
+    fqu = user['username'] + "." + DEFAULT_NAMESPACE
+    btc_address = nmc_to_btc_address(user['namecoin_address'])
+    profile = user['profile']
+
+    log.debug("Reprocessing update: %s" % fqu)
+    update_user(fqu, profile, btc_address)
+
 if __name__ == '__main__':
 
     try:
@@ -235,3 +245,12 @@ if __name__ == '__main__':
     elif command == "clean":
         cleanup_queue(update_queue)
         cleanup_queue(register_queue)
+    elif command == "reprocess":
+
+        try:
+            username = sys.argv[2]
+        except:
+            log.info("Usage error: reprocess <username>")
+            exit(0)
+
+        reprocess_user(username)
