@@ -23,6 +23,7 @@ This file is part of Registrar.
     along with Registrar. If not, see <http://www.gnu.org/licenses/>.
 """
 
+import sys
 from pybitcoin import BlockcypherClient
 from pybitcoin.services.blockcypher import get_unspents
 
@@ -126,5 +127,18 @@ def test_inputs():
 
 if __name__ == '__main__':
 
-    print get_block_height()
-    print get_tx_confirmations('0b0fd5c26d877e129281777c9c2eda5d399ac3b26b9f82fb3bc8f64545a2a67f')
+    try:
+        command = sys.argv[1]
+    except Exception as e:
+        log.info("Options are block_height, tx_confirmations")
+        exit(0)
+
+    if command == "block_height":
+        log.info("Block height: %s" % get_block_height())
+    elif command == "tx_confirmations":
+        try:
+            tx_hash = sys.argv[2]
+        except:
+            log.info("Tx hash missing")
+
+        log.info("(tx, confirmations): (%s, %s)" % (tx_hash, get_tx_confirmations(tx_hash)))

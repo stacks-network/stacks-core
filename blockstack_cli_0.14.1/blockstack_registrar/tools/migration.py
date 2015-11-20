@@ -62,7 +62,7 @@ namecoind = NamecoindClient(NAMECOIND_SERVER, NAMECOIND_PORT,
                             NAMECOIND_USER, NAMECOIND_PASSWD,
                             NAMECOIND_WALLET_PASSPHRASE, NAMECOIND_USE_HTTPS)
 
-MIGRATION_SECRET = os.environ['MIGRATION_SECRET']
+SECRET_KEY = os.environ['SECRET_KEY']
 
 # -----------------------------------
 remote_db = MongoClient(MONGODB_URI).get_default_database()
@@ -121,9 +121,9 @@ def add_migration_user(username, profile):
     new_entry['profile_hash'] = get_hash(profile)
     privkey = BitcoinPrivateKey()
     hex_privkey = privkey.to_hex()
-    new_entry['encrypted_privkey'] = aes_encrypt(hex_privkey, MIGRATION_SECRET)
+    new_entry['encrypted_privkey'] = aes_encrypt(hex_privkey, SECRET_KEY)
 
-    #hex_privkey_test = aes_decrypt(new_entry['encrypted_privkey'], MIGRATION_SECRET)
+    #hex_privkey_test = aes_decrypt(new_entry['encrypted_privkey'], SECRET_KEY)
     #print hex_privkey
     #print hex_privkey_test
 
@@ -143,14 +143,14 @@ def test_migration_user(check_user):
         if entry['username'] != check_user:
             continue
 
-        hex_privkey = aes_decrypt(entry['encrypted_privkey'], MIGRATION_SECRET)
+        hex_privkey = aes_decrypt(entry['encrypted_privkey'], SECRET_KEY)
         nmc_privkey = NamecoinPrivateKey(hex_privkey)
         btc_privkey = BitcoinPrivateKey(hex_privkey)
         print hex_privkey
         print nmc_privkey.to_wif()
         print get_addresses_from_privkey(hex_privkey)
 
-        #encrypted_privkey = aes_encrypt(entry['hex_privkey'], MIGRATION_SECRET)
+        #encrypted_privkey = aes_encrypt(entry['hex_privkey'], SECRET_KEY)
 
 
 def add_users_from_db(list_of_users_to_add):
@@ -248,7 +248,7 @@ def test_btc_migration(blockstore_db_file, check_username, namespace):
     entry = migration_users.find_one({"username": check_username})
     print entry['btc_address']
 
-    hex_privkey = aes_decrypt(entry['encrypted_privkey'], MIGRATION_SECRET)
+    hex_privkey = aes_decrypt(entry['encrypted_privkey'], SECRET_KEY)
     nmc_address, btc_address = get_addresses_from_privkey(hex_privkey)
     print btc_address
     print nmc_address
@@ -513,4 +513,4 @@ def check_user_state(username):
 
 if __name__ == '__main__':
 
-    test_namespace()
+    print_reserved_users()

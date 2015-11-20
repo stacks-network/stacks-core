@@ -63,6 +63,8 @@ def aes_decrypt(payload, secret):
 
 
 def get_addresses_from_privkey(hex_privkey):
+    """ get both bitcoin and namecoin addresses
+    """
 
     nmc_privkey = NamecoinPrivateKey(hex_privkey)
     btc_privkey = BitcoinPrivateKey(hex_privkey)
@@ -74,3 +76,13 @@ def get_addresses_from_privkey(hex_privkey):
     btc_address = btc_pubkey.address()
 
     return nmc_address, btc_address
+
+
+def get_address_from_privkey(hex_privkey):
+    """ get bitcoin address from private key
+    """
+
+    privkey = BitcoinPrivateKey(hex_privkey)
+
+    pubkey = privkey.public_key()
+    return pubkey.address()
