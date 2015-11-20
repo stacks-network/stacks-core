@@ -168,6 +168,7 @@ class BlockstoreRPCClient(object):
         # parse the response
         try:
             result = json.loads(response)
+            result = result[0]
         except Exception, e:
 
             # try to clean up
