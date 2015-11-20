@@ -23,22 +23,21 @@ This file is part of Registrar.
 
 from pymongo import MongoClient
 
-from .config import MONGODB_URI, INDEXDB_URI, AWSDB_URI
-from .config import MONGOLAB_URI
+from .config import WEBAPP_DB_URI, API_DB_URI, QUEUE_DB_URI
 
-remote_db = MongoClient(MONGODB_URI).get_default_database()
-users = remote_db.user
-registrations = remote_db.user_registration
-updates = remote_db.profile_update
+webapp_db = MongoClient(WEBAPP_DB_URI).get_default_database()
+users = webapp_db.user
+registrations = webapp_db.user_registration
+updates = webapp_db.profile_update
 
-c = MongoClient(INDEXDB_URI)
+c = MongoClient()
 state_diff = c['namespace'].state_diff
 
-aws_db = MongoClient(AWSDB_URI)['registrar']
-register_queue = aws_db.register_queue
-update_queue = aws_db.update_queue
+# to-do: rename this from 'migration'
+registrar_users = c['migration'].migration_users
+registrar_addresses = c['migration'].registrar_addresses
 
-api_db = MongoClient(MONGOLAB_URI).get_default_database()
+api_db = MongoClient(API_DB_URI).get_default_database()
 
 
 def get_db_user_from_id(entry):

@@ -44,6 +44,8 @@ from .db import register_queue, update_queue
 
 from .queue import cleanup_queue, add_to_queue, alreadyinQueue
 
+from .utils import pretty_print as pprint
+
 log = config_log(__name__)
 
 

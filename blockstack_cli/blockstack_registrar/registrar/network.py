@@ -29,6 +29,10 @@ from registrar.config import DHT_MIRROR_IP, DHT_MIRROR_PORT
 bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
 dht_client = Proxy(DHT_MIRROR_IP, DHT_MIRROR_PORT)
 
+from blockstore_client.client import BlockstoreRPCClient
+from config import BLOCKSTORED_IP, BLOCKSTORED_PORT
+blockstore_client = BlockstoreRPCClient(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+
 
 def get_bs_client():
 
