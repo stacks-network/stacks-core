@@ -942,15 +942,14 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
     to data, via an ancillary storage provider.
     """
 
-    def __init__(self, testset=False ):
+    def __init__(self, testset=False):
         self.testset = testset
-        super( BlockstoredRPC, self ).__init__()
+        super(BlockstoredRPC, self).__init__()
 
     def jsonrpc_ping(self):
         reply = {}
         reply['status'] = "alive"
         return reply
-
 
     def jsonrpc_get_name_blockchain_record(self, name):
         """
@@ -958,17 +957,22 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         """
 
         db = get_state_engine()
-        name_record = db.get_name( str(name) )
+
+        try:
+            name = str(name)
+        except Exception as e:
+            return {"error": str(e)}
+
+        name_record = db.get_name(str(name))
 
         if name_record is None:
-           if is_indexing():
-               return {"error": "Indexing blockchain"}
-           else:
-               return {"error": "Not found."}
+            if is_indexing():
+                return {"error": "Indexing blockchain"}
+            else:
+                return {"error": "Not found."}
 
         else:
-           return name_record
-
+            return name_record
 
     def jsonrpc_get_name_blockchain_history( self, name, start_block, end_block ):
         """
