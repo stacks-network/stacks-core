@@ -34,19 +34,11 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
-from blockstore_client import config, client, schemas, parsing, user, storage, drivers
+from blockstore_client import config, client, schemas, parsing, user
+from blockstore_client import storage, drivers
+from blockstore_client.utils import pretty_dump, print_result
 
 log = config.log
-
-
-def pretty_dump(json_str):
-    """ pretty dump
-    """
-    return json.dumps(json_str, sort_keys=True, indent=4, separators=(',', ': '))
-
-
-def print_result(json_str):
-    print pretty_dump(json_str)
 
 
 def get_sorted_commands():
