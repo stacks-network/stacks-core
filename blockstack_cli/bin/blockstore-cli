@@ -34,19 +34,11 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
-from blockstore_client import config, client, schemas, parsing, user, storage, drivers
+from blockstore_client import config, client, schemas, parsing, user
+from blockstore_client import storage, drivers
+from blockstore_client.utils import pretty_dump, print_result
 
 log = config.log
-
-
-def pretty_dump(json_str):
-    """ pretty dump
-    """
-    return json.dumps(json_str, sort_keys=True, indent=4, separators=(',', ': '))
-
-
-def print_result(json_str):
-    print pretty_dump(json_str)
 
 
 def get_sorted_commands():
@@ -82,7 +74,7 @@ def run_cli():
     if conf is None:
         log.error("Failed to load config")
         sys.exit(1)
-    
+
     parser = argparse.ArgumentParser(
       description='Blockstore Cli version {}'.format(config.VERSION))
 
@@ -133,24 +125,24 @@ def run_cli():
       help='the privatekey of the user')
 
     # ------------------------------------
-    subparser = subparsers.add_parser( 
+    subparser = subparsers.add_parser(
       'get_all_names',
       help='[offset] [count] | get all names that exist')
-    subparser.add_argument( 
+    subparser.add_argument(
       'offset', nargs='?',
       help='The offset into the list at which to start reading')
     subparser.add_argument(
       'count', nargs='?',
       help='The maximum number of names to return')
-    
+
     # ------------------------------------
-    subparser = subparsers.add_parser( 
+    subparser = subparsers.add_parser(
       'get_consensus_at',
       help='<block ID> | get the consensus hash at a particular block')
-    subparser.add_argument( 
+    subparser.add_argument(
       'block_id', type=int,
       help='The block ID.')
-    
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'get_immutable',
@@ -182,19 +174,19 @@ def run_cli():
       help="The fully-qualified name to check")
 
     # ------------------------------------
-    subparser = subparsers.add_parser( 
+    subparser = subparsers.add_parser(
       'get_names_in_namespace',
       help='<namespace ID> [offset] [count] | get all names in a particular namespace')
     subparser.add_argument(
       'namespace_id', type=str,
       help='The namespace to search')
-    subparser.add_argument( 
+    subparser.add_argument(
       'offset', nargs='?',
       help='The offset into the list at which to start reading')
     subparser.add_argument(
       'count', nargs='?',
       help='The maximum number of names to return')
-     
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'get_names_owned_by_address',
@@ -247,7 +239,7 @@ def run_cli():
     subparser.add_argument(
       'name', type=str,
       help='the name to look up')
-  
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'lookup_snv',
@@ -364,7 +356,7 @@ def run_cli():
       'address', type=str, nargs='?',
       help='[OPTIONAL] the address that will own the name (should be different from the address of the private key given here). \
       If not given, a new private key will be generated, and its address must be submitted upon register.')
-    
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'preorder_tx',
@@ -397,7 +389,7 @@ def run_cli():
     subparser.add_argument(
       'subsidy_key', type=str,
       help='the private key of the Bitcoin account to pay for the name')
-    
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'put_immutable',
@@ -442,7 +434,7 @@ def run_cli():
     subparser.add_argument(
       'addr', type=str,
       help='the address that will own the name (given in the preorder)')
-    
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'register_tx',
@@ -456,7 +448,7 @@ def run_cli():
     subparser.add_argument(
       'addr', type=str,
       help='the address that will own the name (given in the preorder)')
-    
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'register_subsidized',
@@ -473,7 +465,7 @@ def run_cli():
     subparser.add_argument(
       'subsidy_key', type=str,
       help='the private key used to pay for this transaction')
-    
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'renew',
@@ -495,7 +487,7 @@ def run_cli():
     subparser.add_argument(
       'privatekey', type=str,
       help='the privatekey of the owner Bitcoin address')
-    
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'renew_subsidized',
@@ -509,7 +501,7 @@ def run_cli():
     subparser.add_argument(
       'subsidy_key', type=str,
       help='the key to subsidize the transaction')
-    
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'revoke',
@@ -579,7 +571,7 @@ def run_cli():
     subparser.add_argument(
       'privatekey', type=str,
       help='the privatekey of the owner Bitcoin address')
-    
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'transfer_subsidized',
@@ -599,7 +591,7 @@ def run_cli():
     subparser.add_argument(
       'subsidy_key', type=str,
       help='the key to subsidize the transaction.')
-    
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'update',
@@ -616,7 +608,7 @@ def run_cli():
     subparser.add_argument(
       'txid', type=str, nargs='?',
       help='[OPTIONAL] the transaction ID of the previously-attempted, partially-successful update')
-    
+
     # ------------------------------------
     subparser = subparsers.add_parser(
       'update_tx',
@@ -665,15 +657,15 @@ def run_cli():
 
     blockstore_server = args.blockstored_server
     blockstore_port = args.blockstored_port
-    
+
     if blockstore_server is None:
-        blockstore_server = config.BLOCKSTORED_SERVER 
-    
+        blockstore_server = config.BLOCKSTORED_SERVER
+
     if blockstore_port is None:
         blockstore_port = config.BLOCKSTORED_PORT
-        
+
     proxy = client.session(conf=conf, server_host=blockstore_server, server_port=blockstore_port )
-    
+
     if args.action == 'getinfo':
         result = client.getinfo()
 
@@ -687,9 +679,9 @@ def run_cli():
             register_addr = str(args.address)
 
         result = client.preorder(str(args.name), str(args.privatekey), register_addr=register_addr )
-        
+
     elif args.action == 'preorder_tx':
-        
+
         register_addr = None
         if args.address is not None:
             register_addr = str(args.address)
@@ -699,7 +691,7 @@ def run_cli():
     elif args.action == 'preorder_subsidized':
 
         result = client.preorder_subsidized( str(args.name), str(args.public_key), str(args.address), str(args.subsidy_key) )
-        
+
     elif args.action == 'register':
         result = client.register(str(args.name), str(args.privatekey), str(args.addr))
 
@@ -708,7 +700,7 @@ def run_cli():
 
     elif args.action == 'register_subsidized':
         result = client.register_subsidized(str(args.name), str(args.privatekey), str(args.addr), str(args.subsidy_key) )
-        
+
     elif args.action == 'update':
 
         txid = None
@@ -720,7 +712,7 @@ def run_cli():
                                str(args.privatekey),
                                txid=txid)
 
-    
+
     elif args.action == 'update_tx':
 
         txid = None
@@ -732,7 +724,7 @@ def run_cli():
                                str(args.privatekey),
                                txid=txid, tx_only=True)
 
-    
+
     elif args.action == 'update_subsidized':
 
         txid = None
@@ -744,13 +736,13 @@ def run_cli():
                                           str(args.public_key),
                                           str(args.subsidy_key),
                                           txid=txid)
-        
+
     elif args.action == 'transfer':
         keepdata = False
         if args.keepdata.lower() not in ["true", "false"]:
             print >> sys.stderr, "Pass 'true' or 'false' for keepdata"
             sys.exit(1)
-            
+
         if args.keepdata.lower() == "true":
             keepdata = True
 
@@ -765,7 +757,7 @@ def run_cli():
         if args.keepdata.lower() not in ["true", "false"]:
             print >> sys.stderr, "Pass 'true' or 'false' for keepdata"
             sys.exit(1)
-            
+
         if args.keepdata.lower() == "true":
             keepdata = True
 
@@ -774,14 +766,14 @@ def run_cli():
                                  keepdata,
                                  str(args.privatekey),
                                  tx_only=True)
-        
-        
+
+
     elif args.action == 'transfer_subsidized':
         keepdata = False
         if args.keepdata.lower() not in ["true", "false"]:
             print >> sys.stderr, "Pass 'true' or 'false' for keepdata"
             sys.exit(1)
-            
+
         if args.keepdata.lower() == "true":
             keepdata = True
 
@@ -790,25 +782,25 @@ def run_cli():
                                             keepdata,
                                             str(args.public_key),
                                             str(args.subsidy_key))
-        
+
     elif args.action == 'renew':
         result = client.renew(str(args.name), str(args.privatekey))
-        
+
     elif args.action == 'renew_tx':
         result = client.renew(str(args.name), str(args.privatekey), tx_only=True)
 
     elif args.action == 'renew_subsidized':
         result = client.renew_subsidized(str(args.name), str(args.public_key), str(args.subsidy_key))
-        
+
     elif args.action == 'revoke':
         result = client.revoke(str(args.name), str(args.privatekey))
-        
+
     elif args.action == 'revoke_tx':
         result = client.revoke(str(args.name), str(args.privatekey), tx_only=True)
 
     elif args.action == 'revoke_subsidized':
         result = client.revoke_subsidized(str(args.name), str(args.public_key), str(args.subsidy_key))
-        
+
     elif args.action == 'name_import':
         result = client.name_import(str(args.name), str(args.address), str(args.hash), str(args.privatekey))
 
@@ -878,7 +870,7 @@ def run_cli():
 
     elif args.action == 'get_name_blockchain_record':
         result = client.get_name_blockchain_record(str(args.name))
-        
+
     elif args.action == 'get_namespace_blockchain_record':
         result = client.get_namespace_blockchain_record(str(args.namespace_id))
 
@@ -890,7 +882,7 @@ def run_cli():
 
     elif args.action == 'get_name_record':
         result = client.get_name_record( str(args.name) )
-        
+
     elif args.action == 'get_name_cost':
         result = client.get_name_cost(str(args.name))
 
@@ -901,32 +893,32 @@ def run_cli():
         result = client.get_namespace_cost(str(args.namespace_id))
 
     elif args.action == 'get_all_names':
-        offset = None 
-        count = None 
-        
+        offset = None
+        count = None
+
         if args.offset is not None:
             offset = int(args.offset)
-        
+
         if args.count is not None:
             count = int(args.count)
-        
+
         result = client.get_all_names( offset, count )
-        
+
     elif args.action == 'get_names_in_namespace':
-        offset = None 
-        count = None 
-        
+        offset = None
+        count = None
+
         if args.offset is not None:
             offset = int(args.offset)
-        
+
         if args.count is not None:
             count = int(args.count)
-        
+
         result = client.get_names_in_namespace( str(args.namespace_id), offset, count )
-        
+
     elif args.action == 'get_consensus_at':
         result = client.get_consensus_at( int(args.block_id) )
-        
+
     elif args.action == 'get_nameops_at':
         result = client.get_nameops_at( int(args.block_id) )
 
