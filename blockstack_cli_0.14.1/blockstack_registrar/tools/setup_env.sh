@@ -16,4 +16,8 @@ echo "Enter BTC_PRIV_KEY:"
 read input
 export BTC_PRIV_KEY=$input
 
+echo "Enter SECRET_KEY:"
+read input
+export SECRET_KEY=$input
+
 echo "Done"
