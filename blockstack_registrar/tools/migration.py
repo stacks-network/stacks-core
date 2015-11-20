@@ -513,4 +513,4 @@ def check_user_state(username):
 
 if __name__ == '__main__':
 
-    test_namespace()
+    print_reserved_users()
