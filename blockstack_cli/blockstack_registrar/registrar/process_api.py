@@ -28,23 +28,37 @@ from .db import api_db
 from .server import register_user
 from .config import DEFAULT_NAMESPACE
 
+from .config import REGISTRAR_ADDRESS, REGISTRAR_ADDRESS_KEY, BTC_PRIV_KEY
+
+from .network import blockstore_client as c
+
+from .utils import pretty_print as pprint
+from .utils import get_hash
 
 def process_api_registraions(LIVE=False):
 
-    new_users = api_db['blockchain_i_d']
-
-    print api_db.collection_names()
+    new_users = api_db['blockchainid']
 
     for entry in new_users.find():
 
         fqu = entry['username'] + "." + DEFAULT_NAMESPACE
         btc_address = entry['transfer_address']
         profile = json.loads(entry['profile'])
+        profile_hash = get_hash(profile)
 
         print "Processing: %s" % fqu
 
-        register_user(fqu, profile, btc_address)
+        if fqu != "testington5.id":
+            continue
+
+        #print c.preorder(temp_fqu, BTC_PRIV_KEY, REGISTRAR_ADDRESS)
+        #print c.register(temp_fqu, BTC_PRIV_KEY, REGISTRAR_ADDRESS)
+
+        pprint(c.update(fqu, profile_hash, REGISTRAR_ADDRESS_KEY))
+
+        #register_user(fqu, profile, btc_address)
 
 if __name__ == '__main__':
 
     process_api_registraions()
+
