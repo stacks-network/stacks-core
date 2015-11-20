@@ -31,10 +31,19 @@ DHT_MIRROR_PORT = 6266
 DEFAULT_NAMESPACE = "id"
 
 IGNORE_USERNAMES = []
-MONGODB_URI = os.environ['MONGODB_URI']
-MONGOLAB_URI = os.environ['MONGOLAB_URI']
-INDEXDB_URI = os.environ['INDEXDB_URI']
+
+# incoming requests from a web app or API
+WEBAPP_DB_URI = os.environ['WEBAPP_DB_URI']
+API_DB_URI = os.environ['API_DB_URI']
+
+# for registrar's internal queue
+QUEUE_DB_URI = os.environ['QUEUE_DB_URI']
+
 BTC_PRIV_KEY = os.environ['BTC_PRIV_KEY']
+SECRET_KEY = os.environ['SECRET_KEY']
+
+REGISTRAR_ADDRESS = os.environ['REGISTRAR_ADDRESS']
+REGISTRAR_ADDRESS_KEY = os.environ['REGISTRAR_ADDRESS_KEY']
 
 BLOCKCYPHER_TOKEN = os.environ['BLOCKCYPHER_TOKEN']
 
@@ -67,8 +76,3 @@ except Exception as e:
     #BITCOIND_PASSWD = os.environ['BITCOIND_PASSWD']
     #WALLET_PASSPHRASE = os.environ['WALLET_PASSPHRASE']
     #--------------------------------------------------
-
-    AWSDB_URI = os.environ['AWSDB_URI']
-    #MONGOLAB_URI = os.environ['MONGOLAB_URI']
-
-    #FRONTEND_SECRET = os.environ['FRONTEND_SECRET']
