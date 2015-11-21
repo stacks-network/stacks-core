@@ -26,7 +26,7 @@ This file is part of Registrar.
 from pybitcoin import BitcoinPrivateKey
 
 from tools.crypto_tools import aes_encrypt, aes_decrypt
-from tools.crypto_tools import get_address_from_privkey
+from .utils import get_address_from_privkey
 
 from .utils import pretty_print as pprint
 from .utils import config_log
