@@ -33,6 +33,10 @@ updates = webapp_db.profile_update
 c = MongoClient()
 state_diff = c['namespace'].state_diff
 
+queue_db = MongoClient(QUEUE_DB_URI)['registrar']
+register_queue = queue_db.register_queue
+update_queue = queue_db.update_queue
+
 # to-do: rename this from 'migration'
 registrar_users = c['migration'].migration_users
 registrar_addresses = c['migration'].registrar_addresses
