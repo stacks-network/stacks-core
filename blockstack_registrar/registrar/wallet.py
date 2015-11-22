@@ -26,7 +26,7 @@ This file is part of Registrar.
 from pybitcoin import BitcoinPrivateKey
 
 from tools.crypto_tools import aes_encrypt, aes_decrypt
-from .utils import get_address_from_privkey
+from tools.crypto_tools import get_address_from_privkey
 
 from .utils import pretty_print as pprint
 from .utils import config_log
@@ -35,7 +35,7 @@ from .db import registrar_users, registrar_addresses
 
 from .config import SECRET_KEY
 
-from .network import blockstore_client as c
+from .network import bs_client as c
 
 log = config_log(__name__)
 
@@ -110,16 +110,28 @@ def get_privkey(address):
     return hex_privkey
 
 
-def get_all_addresses():
+def get_addresses(count=50, offset=0):
     """ return all bitcoin addresses registrar is using
     """
 
     addresses = []
 
+    counter = 0
+
     for entry in registrar_addresses.find():
+
+        if counter < offset:
+            counter += 1
+            continue
 
         addresses.append(entry['address'])
 
+        counter += 1
+
+        if counter >= count:
+            break
+
+    print len(addresses)
     return addresses
 
 
@@ -158,5 +170,7 @@ if __name__ == '__main__':
     #get_registrar_users()
     #test_registrar_users()
     #generate_bitcoin_keypairs()
-    print get_all_addresses()
+    print get_addresses(count=5, offset=0)
+
+    #print get_privkey('1GLLDAgrnamL8Qz5bjXFcEu7D9E5kvE6nu')
     log.debug("see options")
