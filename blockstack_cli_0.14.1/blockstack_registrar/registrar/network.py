@@ -22,21 +22,23 @@ This file is part of Registrar.
 """
 
 from basicrpc import Proxy
+from blockstore_client import client as bs_client
 
 from registrar.config import BLOCKSTORED_IP, BLOCKSTORED_PORT
 from registrar.config import DHT_MIRROR_IP, DHT_MIRROR_PORT
 
-bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+# direct client, using Proxy
+# bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
 dht_client = Proxy(DHT_MIRROR_IP, DHT_MIRROR_PORT)
 
-from blockstore_client.client import BlockstoreRPCClient
-from config import BLOCKSTORED_IP, BLOCKSTORED_PORT
-blockstore_client = BlockstoreRPCClient(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+# start session using blockstore_client
+bs_client.session(server_host=BLOCKSTORED_IP, server_port=BLOCKSTORED_PORT)
 
 
 def get_bs_client():
 
-    return Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+    # return Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+    return bs_client
 
 
 def get_dht_client():
