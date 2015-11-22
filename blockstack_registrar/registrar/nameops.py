@@ -24,16 +24,14 @@ This file is part of Registrar.
 
 import json
 
-from registrar.utils import get_hash, pretty_print
-from registrar.network import bs_client, dht_client
-from registrar.network import get_bs_client, get_dht_client
+from .utils import get_hash, pretty_print
+from .network import bs_client, dht_client
+from .network import get_bs_client, get_dht_client
 
 from registrar.config import DEFAULT_NAMESPACE
 
 
 def get_blockchain_record(fqu):
-
-    bs_client = get_bs_client()
 
     data = {}
 

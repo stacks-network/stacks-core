@@ -28,7 +28,7 @@ from registrar.config import BLOCKSTORED_IP, BLOCKSTORED_PORT
 from registrar.config import DHT_MIRROR_IP, DHT_MIRROR_PORT
 
 # direct client, using Proxy
-# bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+#bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
 dht_client = Proxy(DHT_MIRROR_IP, DHT_MIRROR_PORT)
 
 # start session using blockstore_client
