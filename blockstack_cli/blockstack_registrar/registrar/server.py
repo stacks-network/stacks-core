@@ -228,12 +228,18 @@ def reprocess_user(username):
     log.debug("Reprocessing update: %s" % fqu)
     update_user(fqu, profile, btc_address)
 
+
+def display_stats():
+
+    log.debug("Pending registrations: %s" % registrations.find().count())
+    log.debug("Pending updates: %s" % updates.find().count())
+
 if __name__ == '__main__':
 
     try:
         command = sys.argv[1]
     except:
-        log.info("Options are register, update, clean")
+        log.info("Options are register, update, clean, stats, reprocess")
         exit(0)
 
     if command == "register":
@@ -243,6 +249,10 @@ if __name__ == '__main__':
     elif command == "clean":
         cleanup_queue(update_queue)
         cleanup_queue(register_queue)
+
+    elif command == "stats":
+        display_stats()
+
     elif command == "reprocess":
 
         try:
