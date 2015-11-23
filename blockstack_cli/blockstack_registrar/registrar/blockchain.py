@@ -66,6 +66,10 @@ def get_tx_confirmations(tx_hash):
     try:
         data = get_transaction_details(tx_hash)
 
+        # hack around bug where chain_com keeps broadcasting double spends
+        if 'double_spend_tx' in data:
+            data = get_transaction_details(data['double_spend_tx'])
+
         if 'confirmations' in data:
             resp = data['confirmations']
 
