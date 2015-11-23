@@ -74,6 +74,8 @@ def cleanup_queue(queue):
             record = get_blockchain_record(entry['fqu'])
             print record
 
+            """
+
             if record['value_hash'] == entry['profile_hash']:
 
                 log.debug("Registered on blockchain: %s" % entry['fqu'])
@@ -89,6 +91,7 @@ def cleanup_queue(queue):
                         log.debug("data in DHT")
                         log.debug("removing from queue: %s" % entry['fqu'])
                         queue.remove({"fqu": entry['fqu']})
+            """
 
         if txRejected(entry['tx_hash'], entry['block_height']):
 
