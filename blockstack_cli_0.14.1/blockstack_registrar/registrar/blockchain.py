@@ -109,8 +109,6 @@ def get_balance(address):
     """ Check if BTC key being used has enough balance on unspents
     """
 
-    log.debug("Checking address: %s" % address)
-
     client = BlockcypherClient(api_key=BLOCKCYPHER_TOKEN)
 
     unspents = get_unspents(address, client)
@@ -125,8 +123,6 @@ def get_balance(address):
 
     btc_amount = satoshis_to_btc(total_satoshis)
     btc_amount = float(btc_amount)
-
-    log.debug("btc_amount: %s" % btc_amount)
 
     return btc_amount
 
