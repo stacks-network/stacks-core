@@ -93,13 +93,6 @@ def nmc_to_btc_address(nmc_address):
     return address_to_new_cryptocurrency(str(nmc_address), 0)
 
 
-def get_address_from_pvtkey(hex_pvtkey):
-
-    priv = BitcoinPrivateKey(hex_pvtkey)
-    pub = priv.public_key()
-    return pub.address()
-
-
 def satoshis_to_btc(satoshis):
 
     return satoshis * 0.00000001
