@@ -609,7 +609,13 @@ class BlockstoreDB( virtualchain.StateEngine ):
           else:
               offset -= 1
 
-      return dict( zip( namespace_names, [self.name_records[name] for name in namespace_names] ) )
+      data = {}
+      data['results'] = namespace_names
+
+      # old format that returned data on individual records as well
+      #return dict( zip( namespace_names, [self.name_records[name] for name in namespace_names] ) )
+      return data
+
 
 
    def get_namespace( self, namespace_id ):
