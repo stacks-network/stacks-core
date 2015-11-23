@@ -131,7 +131,6 @@ def get_addresses(count=50, offset=0):
         if counter >= count:
             break
 
-    print len(addresses)
     return addresses
 
 

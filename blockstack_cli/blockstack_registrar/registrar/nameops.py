@@ -25,10 +25,12 @@ This file is part of Registrar.
 import json
 
 from .utils import get_hash, pretty_print
-from .network import bs_client, dht_client
-from .network import get_bs_client, get_dht_client
+from .network import bs_client
+from .network import get_dht_client
 
-from registrar.config import DEFAULT_NAMESPACE
+from .utils import config_log
+
+log = config_log(__name__)
 
 
 def get_blockchain_record(fqu):
@@ -45,16 +47,6 @@ def get_blockchain_record(fqu):
     return resp
 
 
-def usernameRegistered(fqu):
-
-    data = get_blockchain_record(fqu)
-
-    if data is None:
-        return False
-    else:
-        return True
-
-
 def get_dht_profile(fqu):
 
     resp = get_blockchain_record(fqu)
@@ -65,6 +57,8 @@ def get_dht_profile(fqu):
     profile_hash = resp['value_hash']
 
     profile = None
+
+    dht_client = get_dht_client()
 
     try:
         resp = dht_client.get(profile_hash)
@@ -94,6 +88,16 @@ def write_dht_profile(profile):
     return resp
 
 
+def usernameRegistered(fqu):
+
+    data = get_blockchain_record(fqu)
+
+    if "error" in data:
+        return False
+    else:
+        return True
+
+
 def ownerUsername(fqu, btc_address):
     """ return True if btc_address owns the username
     """
@@ -104,3 +108,25 @@ def ownerUsername(fqu, btc_address):
         return True
     else:
         return False
+
+
+def registrationComplete(fqu, profile, btc_address):
+    """ return True if properly registered
+    """
+
+    record = get_blockchain_record(fqu)
+
+    if 'address' not in record or 'value_hash' not in record:
+        log.debug("ERROR in resp")
+        log.debug(record)
+        return False
+
+    if record['address'] != btc_address:
+        # if incorrect owner address
+        return False
+
+    if record['value_hash'] == get_hash(profile):
+        # if hash of profile is in correct
+        return False
+
+    return True
