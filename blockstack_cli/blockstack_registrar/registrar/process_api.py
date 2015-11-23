@@ -30,10 +30,11 @@ from .config import DEFAULT_NAMESPACE
 
 from .config import REGISTRAR_ADDRESS, REGISTRAR_ADDRESS_KEY, BTC_PRIV_KEY
 
-from .network import blockstore_client as c
+from .network import bs_client as c
 
 from .utils import pretty_print as pprint
 from .utils import get_hash
+
 
 def process_api_registraions(LIVE=False):
 
@@ -54,7 +55,7 @@ def process_api_registraions(LIVE=False):
         #print c.preorder(temp_fqu, BTC_PRIV_KEY, REGISTRAR_ADDRESS)
         #print c.register(temp_fqu, BTC_PRIV_KEY, REGISTRAR_ADDRESS)
 
-        pprint(c.update(fqu, profile_hash, REGISTRAR_ADDRESS_KEY))
+        #pprint(c.update(fqu, profile_hash, REGISTRAR_ADDRESS_KEY))
 
         #register_user(fqu, profile, btc_address)
 

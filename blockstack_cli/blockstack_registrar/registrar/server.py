@@ -28,32 +28,89 @@ import sys
 from time import sleep
 
 from .nameops import get_blockchain_record
-from .nameops import usernameRegistered, ownerUsername
+from .nameops import usernameRegistered, ownerUsername, registrationComplete
 
 from .config import DEFAULT_NAMESPACE
 from .config import BTC_PRIV_KEY
-from .config import RATE_LIMIT_TX
+from .config import RATE_LIMIT_TX, PREORDER_CONFIRMATIONS
 
 from .utils import get_hash, check_banned_email, nmc_to_btc_address
 from .utils import config_log
 
-from .network import get_bs_client
+from .network import bs_client
 from .db import users, registrations, updates
 from .db import get_db_user_from_id
 from .db import register_queue, update_queue
 
 from .queue import cleanup_queue, add_to_queue, alreadyinQueue
 
+from .wallet import get_addresses, get_privkey
+from .blockchain import get_tx_confirmations
+
 from .utils import pretty_print as pprint
 
 log = config_log(__name__)
 
+index = 0
+payment_addresses = []
+owner_addresses = []
 
-def register_user(fqu, profile, btc_address):
 
-    bs_client = get_bs_client()
+def init_addresses_in_use():
 
-    if alreadyinQueue(register_queue, fqu):
+    global payment_addresses
+    global owner_addresses
+
+    payment_addresses = get_addresses(count=RATE_LIMIT_TX)
+
+    # change the positions by 1, so that different payment and owner addresses
+    # are at a given index for the two lists
+    owner_addresses = [payment_addresses[-1]] + payment_addresses[:-1]
+
+
+def get_next_index():
+
+    global index
+
+    index += 1
+
+    if index >= RATE_LIMIT_TX:
+
+        index = 0
+
+    return index
+
+
+def preorder_user(fqu, payment_privkey, owner_address):
+
+    if alreadyinQueue(register_queue, fqu, 'preorder'):
+        log.debug("Already in queue: %s" % fqu)
+        return
+
+    log.debug("Preordering (%s, %s)" % (fqu, owner_address))
+
+    resp = bs_client.preorder(fqu, payment_privkey, owner_address)
+    try:
+        resp = resp[0]
+    except Exception as e:
+        log.debug(e)
+        log.debug(resp)
+
+    if 'transaction_hash' in resp:
+        add_to_queue(register_queue, fqu, owner_address,
+                     "preorder", resp['transaction_hash'])
+    else:
+        log.debug("Error preordering: %s" % fqu)
+        log.debug(pprint(resp))
+
+
+def register_user(fqu, payment_privkey, owner_address):
+
+    if not alreadyinQueue(register_queue, fqu, 'preorder'):
+        log. debug("Preorder first: %s" % fqu)
+        return
+
+    if alreadyinQueue(register_queue, fqu, 'register'):
         log.debug("Already in queue: %s" % fqu)
         return
 
@@ -61,29 +118,34 @@ def register_user(fqu, profile, btc_address):
         log.debug("Already registered %s" % fqu)
         return
 
-    profile_hash = get_hash(profile)
+    preorder_entry = register_queue.find_one({"fqu": fqu, "state": "preorder"})
+    preorder_tx = preorder_entry['tx_hash']
 
-    log.debug("Registering (%s, %s, %s)" % (fqu, btc_address, profile_hash))
+    tx_confirmations = get_tx_confirmations(preorder_tx)
+
+    if tx_confirmations < PREORDER_CONFIRMATIONS:
+        log.debug("Waiting on preorder confirmations: (%s, %s)"
+                  % (preorder_tx, tx_confirmations))
+        return
+
+    log.debug("Registering (%s, %s)" % (fqu, owner_address))
 
     try:
-        resp = bs_client.name_import(fqu, btc_address, profile_hash,
-                                     BTC_PRIV_KEY)
+        resp = bs_client.register(fqu, payment_privkey, owner_address)
         resp = resp[0]
     except Exception as e:
         log.debug(e)
         return
 
     if 'transaction_hash' in resp:
-        add_to_queue(register_queue, fqu, profile, profile_hash, btc_address,
+        add_to_queue(register_queue, fqu, owner_address, "register",
                      resp['transaction_hash'])
     else:
         log.debug("Error registering: %s" % fqu)
-        log.debug(resp)
+        log.debug(pprint(resp))
 
 
 def update_user(fqu, profile, btc_address):
-
-    bs_client = get_bs_client()
 
     if alreadyinQueue(update_queue, fqu):
         log.debug("Already in queue: %s" % fqu)
@@ -135,8 +197,6 @@ def register_new_users(spam_protection=False):
                 log.debug("Need to delete %s, %s" % (user['email'], user['username']))
                 continue
 
-        bs_client = get_bs_client()
-
         fqu = user['username'] + "." + DEFAULT_NAMESPACE
         btc_address = nmc_to_btc_address(user['namecoin_address'])
         profile = user['profile']
@@ -144,33 +204,27 @@ def register_new_users(spam_protection=False):
         log.debug("-" * 5)
         log.debug("Processing: %s" % fqu)
 
-        if usernameRegistered(fqu):
-            log.debug("Already registered %s" % fqu)
-
-            resp = get_blockchain_record(fqu)
-
-            if 'value_hash' not in resp:
-                log.debug("ERROR in resp")
-                log.debug(resp)
-                break
-
-            if resp['value_hash'] == get_hash(user['profile']):
-                registrations.remove({"user_id": new_user['user_id']})
-                log.debug("Removing registration")
-            else:
-                log.debug("Latest profile not on blockchain, need to update")
-                update_user(fqu, profile, btc_address)
-
-        else:
-
+        if not usernameRegistered(fqu):
             log.debug("Not registered: %s" % fqu)
-            register_user(fqu, profile, btc_address)
 
-            counter += 1
+            global index
 
-            if counter == RATE_LIMIT_TX:
-                log.debug("Reached limit. Breaking.")
+            payment_address = payment_addresses[index]
+            owner_address = owner_addresses[index]
+            payment_privkey = get_privkey(payment_address)
+
+            #preorder_user(fqu, payment_privkey, owner_address)
+            register_user(fqu, payment_privkey, owner_address)
+
+            index = get_next_index()
+
+            if index == 0:
+                log.debug("Reached rate limit. Breaking.")
                 break
+
+        elif registrationComplete(fqu, profile, btc_address):
+            registrations.remove({"user_id": new_user['user_id']})
+            log.debug("Removing registration")
 
 
 def update_users_bulk():
@@ -183,8 +237,6 @@ def update_users_bulk():
 
         if user is None:
             continue
-
-        bs_client = get_bs_client()
 
         fqu = user['username'] + "." + DEFAULT_NAMESPACE
         btc_address = nmc_to_btc_address(user['namecoin_address'])
@@ -228,12 +280,20 @@ def reprocess_user(username):
     log.debug("Reprocessing update: %s" % fqu)
     update_user(fqu, profile, btc_address)
 
+
+def display_stats():
+
+    log.debug("Pending registrations: %s" % registrations.find().count())
+    log.debug("Pending updates: %s" % updates.find().count())
+
 if __name__ == '__main__':
+
+    init_addresses_in_use()
 
     try:
         command = sys.argv[1]
     except:
-        log.info("Options are register, update, clean")
+        log.info("Options are register, update, clean, stats, reprocess")
         exit(0)
 
     if command == "register":
@@ -243,6 +303,10 @@ if __name__ == '__main__':
     elif command == "clean":
         cleanup_queue(update_queue)
         cleanup_queue(register_queue)
+
+    elif command == "stats":
+        display_stats()
+
     elif command == "reprocess":
 
         try:

@@ -30,7 +30,7 @@ from pybitcoin.services.blockcypher import get_unspents
 from .config import BLOCKCYPHER_TOKEN
 from .config import RETRY_INTERVAL, TX_CONFIRMATIONS_NEEDED
 
-from .utils import satoshis_to_btc, get_address_from_pvtkey
+from .utils import satoshis_to_btc
 from .utils import pretty_print as pprint
 from .utils import config_log
 
@@ -66,6 +66,10 @@ def get_tx_confirmations(tx_hash):
     try:
         data = get_transaction_details(tx_hash)
 
+        # hack around bug where chain_com keeps broadcasting double spends
+        if 'double_spend_tx' in data:
+            data = get_transaction_details(data['double_spend_tx'])
+
         if 'confirmations' in data:
             resp = data['confirmations']
 
@@ -95,35 +99,36 @@ def txRejected(tx_hash, tx_sent_at_height):
         if tx_confirmations > TX_CONFIRMATIONS_NEEDED:
             log.debug("confirmed on the network")
         else:
-            log.debug("waiting: (tx: %s, confirmations: %s)" % (tx_hash, tx_confirmations))
+            log.debug("waiting: (tx: %s, confirmations: %s)"
+                      % (tx_hash, tx_confirmations))
 
     return False
 
 
-def test_inputs():
-        """ Check if BTC key being used has enough inputs
-        """
+def get_balance(address):
+    """ Check if BTC key being used has enough balance on unspents
+    """
 
-        from registrar.config import BTC_PRIV_KEY
-        btc_address = get_address_from_pvtkey(BTC_PRIV_KEY)
+    log.debug("Checking address: %s" % address)
 
-        log.debug("Testing address: %s" % btc_address)
+    client = BlockcypherClient(api_key=BLOCKCYPHER_TOKEN)
 
-        client = BlockcypherClient(api_key=BLOCKCYPHER_TOKEN)
+    unspents = get_unspents(address, client)
 
-        unspents = get_unspents(btc_address, client)
+    total_satoshis = 0
+    counter = 0
 
-        total_satoshis = 0
-        counter = 0
-        for unspent in unspents:
+    for unspent in unspents:
 
-            counter += 1
-            total_satoshis += unspent['value']
+        counter += 1
+        total_satoshis += unspent['value']
 
-        btc_amount = satoshis_to_btc(total_satoshis)
-        btc_amount = float(btc_amount)
+    btc_amount = satoshis_to_btc(total_satoshis)
+    btc_amount = float(btc_amount)
 
-        log.debug("btc_amount: %s" % btc_amount)
+    log.debug("btc_amount: %s" % btc_amount)
+
+    return btc_amount
 
 if __name__ == '__main__':
 
@@ -135,10 +140,18 @@ if __name__ == '__main__':
 
     if command == "block_height":
         log.info("Block height: %s" % get_block_height())
+
     elif command == "tx_confirmations":
         try:
             tx_hash = sys.argv[2]
+            log.info("(tx, confirmations): (%s, %s)"
+                     % (tx_hash, get_tx_confirmations(tx_hash)))
         except:
             log.info("Tx hash missing")
 
-        log.info("(tx, confirmations): (%s, %s)" % (tx_hash, get_tx_confirmations(tx_hash)))
+    elif command == "get_balance":
+        try:
+            address = sys.argv[2]
+            get_balance(address)
+        except:
+            log.info("Address is missing")
