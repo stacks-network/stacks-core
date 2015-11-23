@@ -1,5 +1,5 @@
 base58==0.2.2
-bitcoin==1.1.36
+bitcoin==1.1.39
 bitmerchant==0.1.8
 cachetools==1.1.3
 commontools==0.1.0
