@@ -54,7 +54,7 @@ MEMCACHED_TIMEOUT = 15 * 60
 DEBUG = False  # can change in config_local
 
 PREORDER_CONFIRMATIONS = 4
-RATE_LIMIT_TX = 5   # target tx per block
+RATE_LIMIT = 10   # target tx per block
 RETRY_INTERVAL = 10  # if a tx is not picked up by x blocks
 TX_CONFIRMATIONS_NEEDED = 10
 
