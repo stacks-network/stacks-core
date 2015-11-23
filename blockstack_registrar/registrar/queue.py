@@ -37,9 +37,9 @@ from .config import DHT_IGNORE
 log = config_log(__name__)
 
 
-def alreadyinQueue(queue, fqu):
+def alreadyinQueue(queue, fqu, state):
 
-    check_queue = queue.find_one({"fqu": fqu})
+    check_queue = queue.find_one({"fqu": fqu, "state": state})
 
     if check_queue is not None:
         return True
@@ -47,14 +47,13 @@ def alreadyinQueue(queue, fqu):
     return False
 
 
-def add_to_queue(queue, fqu, profile, profile_hash, btc_address, tx_hash):
+def add_to_queue(queue, fqu, owner_address, state, tx_hash):
 
     new_entry = {}
     new_entry["fqu"] = fqu
+    new_entry['owner_address'] = owner_address
+    new_entry['state'] = state
     new_entry['tx_hash'] = tx_hash
-    new_entry['profile_hash'] = profile_hash
-    new_entry['profile'] = profile
-    new_entry['btc_address'] = btc_address
     new_entry['block_height'] = get_block_height()
 
     queue.save(new_entry)
@@ -71,7 +70,9 @@ def cleanup_queue(queue):
 
         if usernameRegistered(entry['fqu']):
 
+            print entry['fqu']
             record = get_blockchain_record(entry['fqu'])
+            print record
 
             if record['value_hash'] == entry['profile_hash']:
 
