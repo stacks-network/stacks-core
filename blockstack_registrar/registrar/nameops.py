@@ -125,7 +125,7 @@ def registrationComplete(fqu, profile, btc_address):
         # if incorrect owner address
         return False
 
-    if record['value_hash'] == get_hash(profile):
+    if record['value_hash'] != get_hash(profile):
         # if hash of profile is in correct
         return False
 
