@@ -33,9 +33,10 @@ from .utils import config_log
 
 from .db import registrar_users, registrar_addresses
 
-from .config import SECRET_KEY
+from .config import SECRET_KEY, RATE_LIMIT
 
 from .network import bs_client as c
+from .blockchain import get_balance
 
 log = config_log(__name__)
 
@@ -164,12 +165,19 @@ def generate_bitcoin_keypairs(number_of_addresses=50):
 
     log.debug("")
 
+
+def display_wallet_info(number_of_addresses=RATE_LIMIT):
+
+    addresses = get_addresses(count=number_of_addresses)
+
+    for address in addresses:
+        log.debug("(%s, %s)" % (address, get_balance(address)))
+
+    log.debug("Total addresses: %s" % len(addresses))
+
 if __name__ == '__main__':
 
     #get_registrar_users()
     #test_registrar_users()
     #generate_bitcoin_keypairs()
-    print get_addresses(count=5, offset=0)
-
-    #print get_privkey('1GLLDAgrnamL8Qz5bjXFcEu7D9E5kvE6nu')
-    log.debug("see options")
+    display_wallet_info()
