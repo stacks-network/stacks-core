@@ -62,8 +62,10 @@ def init_addresses_in_use():
     global owner_addresses
 
     payment_addresses = get_addresses(count=RATE_LIMIT_TX)
-    for address in reversed(payment_addresses):
-        owner_addresses.append(address)
+
+    # change the positions by 1, so that different payment and owner addresses
+    # are at a given index for the two lists
+    owner_addresses = [payment_addresses[-1]] + payment_addresses[:-1]
 
 
 def get_next_index():
@@ -81,14 +83,18 @@ def get_next_index():
 
 def preorder_user(fqu, payment_privkey, owner_address):
 
-    if alreadyinQueue(register_queue, fqu):
+    if alreadyinQueue(register_queue, fqu, 'preorder'):
         log.debug("Already in queue: %s" % fqu)
         return
 
     log.debug("Preordering (%s, %s)" % (fqu, owner_address))
 
     resp = bs_client.preorder(fqu, payment_privkey, owner_address)
-    resp = resp[0]
+    try:
+        resp = resp[0]
+    except Exception as e:
+        log.debug(e)
+        log.debug(resp)
 
     if 'transaction_hash' in resp:
         add_to_queue(register_queue, fqu, owner_address,
@@ -104,6 +110,10 @@ def register_user(fqu, payment_privkey, owner_address):
         log. debug("Preorder first: %s" % fqu)
         return
 
+    if alreadyinQueue(register_queue, fqu, 'register'):
+        log.debug("Already in queue: %s" % fqu)
+        return
+
     if usernameRegistered(fqu):
         log.debug("Already registered %s" % fqu)
         return
@@ -113,14 +123,12 @@ def register_user(fqu, payment_privkey, owner_address):
 
     tx_confirmations = get_tx_confirmations(preorder_tx)
 
-    if tx_confirmations <= PREORDER_CONFIRMATIONS:
-        log.debug("Waiting on preorder conformations: (%s, %s)"
+    if tx_confirmations < PREORDER_CONFIRMATIONS:
+        log.debug("Waiting on preorder confirmations: (%s, %s)"
                   % (preorder_tx, tx_confirmations))
         return
 
     log.debug("Registering (%s, %s)" % (fqu, owner_address))
-
-    return
 
     try:
         resp = bs_client.register(fqu, payment_privkey, owner_address)
@@ -196,19 +204,27 @@ def register_new_users(spam_protection=False):
         log.debug("-" * 5)
         log.debug("Processing: %s" % fqu)
 
-        if registrationComplete(fqu, profile, btc_address):
+        if not usernameRegistered(fqu):
+            log.debug("Not registered: %s" % fqu)
+
+            global index
+
+            payment_address = payment_addresses[index]
+            owner_address = owner_addresses[index]
+            payment_privkey = get_privkey(payment_address)
+
+            #preorder_user(fqu, payment_privkey, owner_address)
+            register_user(fqu, payment_privkey, owner_address)
+
+            index = get_next_index()
+
+            if index == 0:
+                log.debug("Reached rate limit. Breaking.")
+                break
+
+        elif registrationComplete(fqu, profile, btc_address):
             registrations.remove({"user_id": new_user['user_id']})
             log.debug("Removing registration")
-        else:
-
-            log.debug("Not registered: %s" % fqu)
-            register_user(fqu, profile, btc_address)
-
-            counter += 1
-
-            if counter == RATE_LIMIT_TX:
-                log.debug("Reached limit. Breaking.")
-                break
 
 
 def update_users_bulk():
@@ -273,19 +289,6 @@ def display_stats():
 if __name__ == '__main__':
 
     init_addresses_in_use()
-
-    fqu = "clone534534636.id"
-
-    index += 1
-
-    payment_address = payment_addresses[index]
-    owner_address = owner_addresses[index]
-    payment_privkey = get_privkey(payment_address)
-
-    #preorder_user(fqu, payment_privkey, owner_address)
-    register_user(fqu, payment_privkey, owner_address)
-
-    exit(0)
 
     try:
         command = sys.argv[1]
