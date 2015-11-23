@@ -47,17 +47,10 @@ from registrar.network import get_bs_client, get_dht_client
 
 from registrar.config import BLOCKCYPHER_TOKEN
 
-from registrar.utils import satoshis_to_btc, get_address_from_pvtkey
+from registrar.utils import satoshis_to_btc
+from tools.crypto_tools import get_address_from_privkey
 
 test_users = ['muneeb.id', 'fredwilson.id']
-
-
-def get_db():
-
-    MONGODB_URI = os.environ['MONGODB_URI']
-    remote_db = MongoClient(MONGODB_URI).get_default_database()
-
-    return remote_db.user
 
 
 class RegistrarTestCase(unittest.TestCase):
@@ -69,7 +62,7 @@ class RegistrarTestCase(unittest.TestCase):
         """ Check connection to databases
         """
 
-        users = get_db()
+        from registrar.db import users
         count = users.count()
 
         self.assertGreater(count, 100, msg="Cannot connect to DB")
@@ -121,7 +114,7 @@ class RegistrarTestCase(unittest.TestCase):
         """
 
         from registrar.config import BTC_PRIV_KEY
-        btc_address = get_address_from_pvtkey(BTC_PRIV_KEY)
+        btc_address = get_address_from_privkey(BTC_PRIV_KEY)
 
         #print "Testing address: %s" % btc_address
 
