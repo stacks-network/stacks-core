@@ -29,6 +29,7 @@ from .network import bs_client
 from .network import get_dht_client
 
 from .utils import config_log
+from .utils import pretty_print as pprint
 
 log = config_log(__name__)
 
@@ -39,7 +40,6 @@ def get_blockchain_record(fqu):
 
     try:
         resp = bs_client.get_name_blockchain_record(fqu)
-        resp = resp[0]
     except Exception as e:
         data['error'] = e
         return data
@@ -92,10 +92,10 @@ def usernameRegistered(fqu):
 
     data = get_blockchain_record(fqu)
 
-    if "error" in data:
-        return False
-    else:
+    if "first_registered" in data:
         return True
+    else:
+        return False
 
 
 def ownerUsername(fqu, btc_address):

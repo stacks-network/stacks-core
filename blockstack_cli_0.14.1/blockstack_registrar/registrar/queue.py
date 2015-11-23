@@ -63,16 +63,24 @@ def cleanup_queue(queue):
 
     for entry in queue.find(no_cursor_timeout=True):
 
-        log.debug("checking: %s" % entry['fqu'])
+        fqu = entry['fqu']
+
+        log.debug("checking: %s" % fqu)
+
+        if 'state' in entry:
+            if entry['state'] is 'preorder' or 'register':
+                if usernameRegistered(fqu):
+                    log.debug("Record on blockchain, removing from queue: %s"
+                              % fqu)
+
+                    queue.remove({"fqu": fqu, "state": entry['state']})
 
         if entry['fqu'] in DHT_IGNORE:
             continue
 
         if usernameRegistered(entry['fqu']):
 
-            print entry['fqu']
             record = get_blockchain_record(entry['fqu'])
-            print record
 
             """
 

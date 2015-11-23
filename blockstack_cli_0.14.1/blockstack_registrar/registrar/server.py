@@ -32,7 +32,7 @@ from .nameops import usernameRegistered, ownerUsername, registrationComplete
 
 from .config import DEFAULT_NAMESPACE
 from .config import BTC_PRIV_KEY
-from .config import RATE_LIMIT_TX, PREORDER_CONFIRMATIONS
+from .config import RATE_LIMIT, PREORDER_CONFIRMATIONS
 
 from .utils import get_hash, check_banned_email, nmc_to_btc_address
 from .utils import config_log
@@ -61,7 +61,7 @@ def init_addresses_in_use():
     global payment_addresses
     global owner_addresses
 
-    payment_addresses = get_addresses(count=RATE_LIMIT_TX)
+    payment_addresses = get_addresses(count=RATE_LIMIT)
 
     # change the positions by 1, so that different payment and owner addresses
     # are at a given index for the two lists
@@ -108,6 +108,7 @@ def register_user(fqu, payment_privkey, owner_address):
 
     if not alreadyinQueue(register_queue, fqu, 'preorder'):
         log. debug("Preorder first: %s" % fqu)
+        preorder_user(fqu, payment_privkey, owner_address)
         return
 
     if alreadyinQueue(register_queue, fqu, 'register'):
@@ -213,7 +214,6 @@ def register_new_users(spam_protection=False):
             owner_address = owner_addresses[index]
             payment_privkey = get_privkey(payment_address)
 
-            #preorder_user(fqu, payment_privkey, owner_address)
             register_user(fqu, payment_privkey, owner_address)
 
             index = get_next_index()
