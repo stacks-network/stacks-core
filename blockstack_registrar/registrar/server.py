@@ -74,7 +74,7 @@ def get_next_index():
 
     index += 1
 
-    if index >= RATE_LIMIT_TX:
+    if index >= RATE_LIMIT:
 
         index = 0
 
@@ -89,16 +89,14 @@ def preorder_user(fqu, payment_privkey, owner_address):
 
     log.debug("Preordering (%s, %s)" % (fqu, owner_address))
 
-    resp = bs_client.preorder(fqu, payment_privkey, owner_address)
     try:
-        resp = resp[0]
+        resp = bs_client.preorder(fqu, payment_privkey, owner_address)
     except Exception as e:
         log.debug(e)
-        log.debug(resp)
 
-    if 'transaction_hash' in resp:
+    if 'tx_hash' in resp:
         add_to_queue(register_queue, fqu, owner_address,
-                     "preorder", resp['transaction_hash'])
+                     "preorder", resp['tx_hash'])
     else:
         log.debug("Error preordering: %s" % fqu)
         log.debug(pprint(resp))
@@ -107,7 +105,6 @@ def preorder_user(fqu, payment_privkey, owner_address):
 def register_user(fqu, payment_privkey, owner_address):
 
     if not alreadyinQueue(register_queue, fqu, 'preorder'):
-        log. debug("Preorder first: %s" % fqu)
         preorder_user(fqu, payment_privkey, owner_address)
         return
 
@@ -133,14 +130,12 @@ def register_user(fqu, payment_privkey, owner_address):
 
     try:
         resp = bs_client.register(fqu, payment_privkey, owner_address)
-        resp = resp[0]
     except Exception as e:
         log.debug(e)
-        return
 
-    if 'transaction_hash' in resp:
-        add_to_queue(register_queue, fqu, owner_address, "register",
-                     resp['transaction_hash'])
+    if 'tx_hash' in resp:
+        add_to_queue(register_queue, fqu, owner_address,
+                     "register", resp['transaction_hash'])
     else:
         log.debug("Error registering: %s" % fqu)
         log.debug(pprint(resp))
@@ -167,7 +162,7 @@ def update_user(fqu, profile, btc_address):
         log.debug(e)
         return
 
-    if 'transaction_hash' in resp:
+    if 'tx_hash' in resp:
         add_to_queue(update_queue, fqu, profile, profile_hash, btc_address,
                      resp['transaction_hash'])
     else:
@@ -215,7 +210,7 @@ def register_new_users(spam_protection=False):
             payment_privkey = get_privkey(payment_address)
 
             register_user(fqu, payment_privkey, owner_address)
-
+            
             index = get_next_index()
 
             if index == 0:
@@ -259,7 +254,7 @@ def update_users_bulk():
 
                     counter += 1
 
-                    if counter == RATE_LIMIT_TX:
+                    if counter == RATE_LIMIT:
                         log.debug("Reached limit. Breaking.")
                         break
                 else:
