@@ -1,11 +1,10 @@
 #!/usr/bin/python
 
 from setuptools import setup, find_packages
-from blockstore_client.config import VERSION
 
 setup(
     name='blockstore-client',
-    version=VERSION,
+    version='0.0.7',
     url='https://github.com/blockstack/blockstore-client',
     license='GPLv3',
     author='Blockstack.org',
