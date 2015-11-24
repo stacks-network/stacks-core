@@ -23,21 +23,28 @@
 
 import json
 
+from config import log
+
 
 def pretty_dump(data):
     """ format data
     """
-    try:
-        # Netstring server responds with [{data}]
-        data = data[0]
-    except:
-        pass
+
+    if type(data) is list:
+
+        if len(data) == 0:
+            # we got an empty array
+            data = {}
+        else:
+            # Netstring server responds with [{data}]
+            data = data[0]
 
     if type(data) is not dict:
         try:
             data = json.loads(data)
         except Exception as e:
-            log.debug("ERROR in pretty print: %s" % e)
+            # data is not valid json, convert to json
+            data = {'result': data}
 
     return json.dumps(data, sort_keys=True, indent=4, separators=(',', ': '))
 
