@@ -35,21 +35,55 @@ from blockstore_client.config import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
 # start session
 client.session(server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_PORT)
 
+test_names = ["muneeb.id", "fredwilson.id"]
+
 
 class BlockstoreClientTest(unittest.TestCase):
 
     def tearDown(self):
         pass
 
-    def test_blockstore_connectivity(self):
-        """ Check connection to blockstore node
+    def test_ping(self):
+        """ Check ping
         """
 
         resp = client.ping()
 
-        pprint(resp)
-
         self.assertDictContainsSubset({'status': 'alive'}, resp)
+
+    def test_getinfo(self):
+        """ Check getinfo
+        """
+
+        resp = client.getinfo()
+
+        if 'blocks' not in resp:
+            raise ValueError('blocks not in response')
+
+        self.assertIsInstance(resp, dict, msg="Not json")
+
+    def test_lookup(self):
+        """ Check lookup
+        """
+
+        for fqu in test_names:
+            resp = client.lookup(fqu)
+
+            if 'v' not in resp:
+                raise ValueError('version info not in response')
+
+            self.assertIsInstance(resp, dict, msg="Not json")
+
+    def test_name_cost(self):
+        """ Check name cost
+        """
+
+        resp = client.get_name_cost(test_names[0])
+
+        if 'satoshis' not in resp:
+            raise ValueError('satoshis not in response')
+
+        self.assertIsInstance(resp, dict, msg="Not json")
 
 if __name__ == '__main__':
 
