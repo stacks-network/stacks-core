@@ -168,6 +168,8 @@ class BlockstoreRPCClient(object):
         # parse the response
         try:
             result = json.loads(response)
+
+            # Netstrings responds with [{}] instead of {}
             result = result[0]
         except Exception, e:
 
@@ -551,8 +553,7 @@ def lookup_snv( name, block_id, consensus_hash, proxy=None ):
     if 'error' in current_info:
         return current_info
 
-    current_info = current_info[0]
-
+    print current_info
     current_block_id = int(current_info['blocks'])
     current_consensus_hash = str(current_info['consensus'])
 
@@ -578,7 +579,7 @@ def lookup_snv( name, block_id, consensus_hash, proxy=None ):
                 log.error("get_nameops_hash_at: %s" % nameops_resp['error'])
                 return {'error': 'Failed to get nameops: %s' % nameops_resp['error']}
 
-            nameops_hash = str( nameops_resp[0] )
+            nameops_hash = str( nameops_resp )
             prev_nameops_hashes[ next_block_id ] = nameops_hash
 
         else:
@@ -591,7 +592,7 @@ def lookup_snv( name, block_id, consensus_hash, proxy=None ):
             ch_block_ids.append( next_block_id - (2**i - 1))
 
             if not prev_consensus_hashes.has_key( next_block_id - (2**i - 1) ):
-                ch = str( get_consensus_at( next_block_id - (2**i - 1), proxy=proxy )[0] )
+                ch = str( get_consensus_at( next_block_id - (2**i - 1), proxy=proxy ))
 
                 if ch != "None":
                     prev_consensus_hashes[ next_block_id - (2**i - 1) ] = ch
@@ -631,8 +632,6 @@ def lookup_snv( name, block_id, consensus_hash, proxy=None ):
     historic_nameops = get_nameops_at( block_id, proxy=proxy )
     if 'error' in historic_nameops:
         return {'error': 'BUG: no nameops found:'}
-
-    historic_nameops = historic_nameops[0]
 
     # sanity check...
     for historic_op in historic_nameops:
@@ -684,8 +683,8 @@ def get_namespace_blockchain_record( namespace_id, proxy=None ):
     ret = proxy.get_namespace_blockchain_record(namespace_id)
     if ret is not None:
         # this isn't needed
-        if 'opcode' in ret[0]:
-            del ret[0]['opcode']
+        if 'opcode' in ret:
+            del ret['opcode']
 
     return ret
 
@@ -737,7 +736,7 @@ def preorder(name, privatekey, register_addr=None, proxy=None, tx_only=False ):
 
     # give the client back the key to the addr we used
     if register_privkey_wif is not None:
-        resp[0]['register_privatekey'] = register_privkey_wif
+        resp['register_privatekey'] = register_privkey_wif
 
     return resp
 
@@ -1047,7 +1046,7 @@ def namespace_preorder(namespace_id, privatekey, reveal_addr=None, proxy=None):
         return result
 
     if reveal_privkey_wif is not None:
-        result[0]['reveal_privatekey'] = reveal_privkey_wif
+        result['reveal_privatekey'] = reveal_privkey_wif
 
     return result
 

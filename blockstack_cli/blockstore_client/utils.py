@@ -37,6 +37,7 @@ def pretty_dump(data):
             data = {}
         else:
             # Netstring server responds with [{data}]
+            log.debug("converting [] to {}")
             data = data[0]
 
     if type(data) is not dict:
