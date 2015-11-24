@@ -2,7 +2,9 @@
 
 """
    Copyright: (c) 2013 The Trustees of Princeton University
-   Copyright: (c) 2015 by Blockstack.org
+   Copyright: (c) 2015 by Halfmoon Labs, Inc.
+   Copyright: (c) 2016 by Blockstack.org
+
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
