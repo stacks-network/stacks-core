@@ -553,7 +553,6 @@ def lookup_snv( name, block_id, consensus_hash, proxy=None ):
     if 'error' in current_info:
         return current_info
 
-    print current_info
     current_block_id = int(current_info['blocks'])
     current_consensus_hash = str(current_info['consensus'])
 
@@ -872,7 +871,6 @@ def update(name, user_json_or_hash, privatekey, txid=None, proxy=None, tx_only=F
 
         else:
             result = proxy.update(name, user_record_hash, privatekey)
-            result = result
 
         if 'error' in result:
             # failed
