@@ -28,9 +28,11 @@ from .nameops import get_dht_profile, write_dht_profile
 from .nameops import usernameRegistered
 
 from .blockchain import get_block_height, txRejected
+from .blockchain import get_tx_confirmations
 
 from .utils import get_hash
 from .utils import config_log
+from .utils import pretty_print as pprint
 
 from .config import DHT_IGNORE
 
@@ -65,6 +67,7 @@ def cleanup_queue(queue):
 
         fqu = entry['fqu']
 
+        log.debug("-" * 5)
         log.debug("checking: %s" % fqu)
 
         if 'state' in entry:
@@ -74,6 +77,10 @@ def cleanup_queue(queue):
                               % fqu)
 
                     queue.remove({"fqu": fqu, "state": entry['state']})
+                else:
+                    log.debug("(%s, %s, %s)" %
+                              (entry['state'], entry['tx_hash'],
+                               get_tx_confirmations(entry['tx_hash'])))
 
         if entry['fqu'] in DHT_IGNORE:
             continue
