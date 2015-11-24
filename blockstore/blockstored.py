@@ -3,8 +3,8 @@
 """
     Blockstore
     ~~~~~
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
 
     This file is part of Blockstore
 
@@ -18,7 +18,7 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstore. If not, see <http://www.gnu.org/licenses/>.
 """
 
 import argparse
