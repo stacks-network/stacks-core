@@ -38,10 +38,10 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'virtualchain>=0.0.5',
+        'virtualchain>=0.0.6',
         'kademlia>=0.5',
-        'keychain>=0.1.3',
-        'blockstore-client>=0.0.6'
+        'keychain>=0.1.4',
+        'blockstore-client>=0.0.8'
     ],
     classifiers=[
         'Intended Audience :: Developers',
