@@ -25,7 +25,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='blockstore',
-    version='0.0.7',
+    version='0.0.8',
     url='https://github.com/blockstack/blockstore',
     license='GPLv3',
     author='Blockstack.org',
