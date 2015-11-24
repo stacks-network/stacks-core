@@ -313,7 +313,7 @@ def get_name_record(name, create_if_absent=False):
     if 'error' in name_record:
         return name_record
 
-    name_record = name_record[0]
+    name_record = name_record
     if name_record is None:
         # failed to look up
         return {'error': "No such name"}
@@ -873,7 +873,7 @@ def update(name, user_json_or_hash, privatekey, txid=None, proxy=None, tx_only=F
 
         else:
             result = proxy.update(name, user_record_hash, privatekey)
-            result = result[0]
+            result = result
 
         if 'error' in result:
             # failed
