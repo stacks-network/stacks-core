@@ -32,7 +32,7 @@ BLOCKSTORE_METADATA_DIR = os.path.expanduser("~/.blockstore-client/metadata")
 BLOCKSTORE_DEFAULT_STORAGE_DRIVERS = "dht"
 
 DEBUG = True
-VERSION = '0.0.7'
+VERSION = '0.0.8'
 MAX_RPC_LEN = 1024 * 1024 * 1024
 
 CONFIG_PATH = os.path.expanduser("~/.blockstore-client/blockstore-client.ini")
