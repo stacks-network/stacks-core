@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='blockstore-client',
-    version='0.0.7',
+    version='0.0.9',
     url='https://github.com/blockstack/blockstore-client',
     license='GPLv3',
     author='Blockstack.org',
