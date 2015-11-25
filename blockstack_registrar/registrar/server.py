@@ -48,6 +48,7 @@ from .queue import cleanup_rejected_tx
 
 from .wallet import get_addresses, get_privkey
 from .blockchain import get_tx_confirmations, dontuseAddress
+from .blockchain import preorderRejected
 
 from .utils import pretty_print as pprint
 
@@ -218,6 +219,12 @@ def cleanup_register_queue():
         if usernameRegistered(entry['fqu']):
             log.debug("%s registered. Removing preorder: " % entry['fqu'])
             preorder_queue.remove({"fqu": entry['fqu']})
+
+        if preorderRejected(entry['tx_hash']):
+            log.debug("Stale preorder %s. Removing preorder (and register)."
+                      % entry['fqu'])
+            preorder_queue.remove({"fqu": entry['fqu']})
+            register_queue.remove({"fqu": entry['fqu']})
 
     for entry in register_queue.find():
 
