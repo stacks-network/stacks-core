@@ -2,8 +2,8 @@
     Registrar
     ~~~~~
 
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
 
 This file is part of Registrar.
 
@@ -34,8 +34,10 @@ c = MongoClient()
 state_diff = c['namespace'].state_diff
 
 queue_db = MongoClient(QUEUE_DB_URI)['registrar']
+preorder_queue = queue_db.preorder_queue
 register_queue = queue_db.register_queue
 update_queue = queue_db.update_queue
+transfer_queue = queue_db.transfer_queue
 
 # to-do: rename this from 'migration'
 registrar_users = c['migration'].migration_users
