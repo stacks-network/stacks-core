@@ -4,8 +4,8 @@
     Registrar
     ~~~~~
 
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
 
 This file is part of Registrar.
 
@@ -28,13 +28,15 @@ from pybitcoin import BlockcypherClient
 from pybitcoin.services.blockcypher import get_unspents
 
 from .config import BLOCKCYPHER_TOKEN
-from .config import RETRY_INTERVAL, TX_CONFIRMATIONS_NEEDED
+from .config import RETRY_INTERVAL, TX_CONFIRMATIONS_NEEDED, PREORDER_REJECTED
 
 from .utils import satoshis_to_btc
 from .utils import pretty_print as pprint
 from .utils import config_log
 
 from blockcypher import get_transaction_details, get_blockchain_overview
+from blockcypher import get_address_details
+from blockcypher import simple_spend_tx
 
 log = config_log(__name__)
 
@@ -52,6 +54,7 @@ def get_block_height():
             resp = data['height']
 
     except Exception as e:
+        log.debug("ERROR: block height")
         log.debug(e)
 
     return resp
@@ -74,6 +77,7 @@ def get_tx_confirmations(tx_hash):
             resp = data['confirmations']
 
     except Exception as e:
+        log.debug("ERROR: tx details: %s" % tx_hash)
         log.debug(e)
 
     return resp
@@ -94,13 +98,16 @@ def txRejected(tx_hash, tx_sent_at_height):
         # if no confirmations and retry limit hits
         if tx_confirmations == 0:
             return True
-    else:
 
-        if tx_confirmations > TX_CONFIRMATIONS_NEEDED:
-            log.debug("confirmed on the network")
-        else:
-            log.debug("waiting: (tx: %s, confirmations: %s)"
-                      % (tx_hash, tx_confirmations))
+    return False
+
+
+def preorderRejected(tx_hash):
+
+    tx_confirmations = get_tx_confirmations(tx_hash)
+
+    if tx_confirmations > PREORDER_REJECTED:
+        return True
 
     return False
 
@@ -108,8 +115,6 @@ def txRejected(tx_hash, tx_sent_at_height):
 def get_balance(address):
     """ Check if BTC key being used has enough balance on unspents
     """
-
-    log.debug("Checking address: %s" % address)
 
     client = BlockcypherClient(api_key=BLOCKCYPHER_TOKEN)
 
@@ -126,9 +131,22 @@ def get_balance(address):
     btc_amount = satoshis_to_btc(total_satoshis)
     btc_amount = float(btc_amount)
 
-    log.debug("btc_amount: %s" % btc_amount)
-
     return btc_amount
+
+
+def dontuseAddress(address):
+    """ Check if an address has unconfirmed TX and should not be used
+    """
+
+    data = get_address_details(address)
+
+    unconfirmed_n_tx = data['unconfirmed_n_tx']
+
+    if int(unconfirmed_n_tx) is 0:
+        return False
+    else:
+        return True
+
 
 if __name__ == '__main__':
 
