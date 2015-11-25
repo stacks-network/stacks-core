@@ -4,8 +4,8 @@
     Registrar
     ~~~~~
 
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
 
 This file is part of Registrar.
 
@@ -23,23 +23,21 @@ This file is part of Registrar.
     along with Registrar. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from .nameops import get_blockchain_record
-from .nameops import get_dht_profile, write_dht_profile
-from .nameops import usernameRegistered
-
 from .blockchain import get_block_height, txRejected
+from .blockchain import get_tx_confirmations
 
 from .utils import get_hash
 from .utils import config_log
+from .utils import pretty_print as pprint
 
 from .config import DHT_IGNORE
 
 log = config_log(__name__)
 
 
-def alreadyinQueue(queue, fqu, state):
+def alreadyinQueue(queue, fqu):
 
-    check_queue = queue.find_one({"fqu": fqu, "state": state})
+    check_queue = queue.find_one({"fqu": fqu})
 
     if check_queue is not None:
         return True
@@ -47,35 +45,79 @@ def alreadyinQueue(queue, fqu, state):
     return False
 
 
-def add_to_queue(queue, fqu, owner_address, state, tx_hash):
+def add_to_queue(queue, fqu, payment_address, tx_hash,
+                 owner_address=None, profile=None, profile_hash=None):
 
     new_entry = {}
-    new_entry["fqu"] = fqu
-    new_entry['owner_address'] = owner_address
-    new_entry['state'] = state
+
+    # required for all queues
+    new_entry['fqu'] = fqu
+    new_entry['payment_address'] = payment_address
     new_entry['tx_hash'] = tx_hash
+
     new_entry['block_height'] = get_block_height()
+
+    # optional, depending on queue
+    new_entry['owner_address'] = owner_address
+    new_entry['profile'] = profile
+    new_entry['profile_hash'] = profile_hash
 
     queue.save(new_entry)
 
 
-def cleanup_queue(queue):
+def cleanup_rejected_tx(queue):
 
     for entry in queue.find(no_cursor_timeout=True):
 
-        log.debug("checking: %s" % entry['fqu'])
+        if txRejected(entry['tx_hash'], entry['block_height']):
+
+            log.debug("TX rejected by network, removing TX: \
+                      %s" % entry['tx_hash'])
+            queue.remove({"fqu": entry['fqu']})
+
+
+def display_queue(queue):
+
+    for entry in queue.find():
+
+        confirmations = get_tx_confirmations(entry['tx_hash'])
+
+        log.debug('-' * 5)
+        log.debug("%s %s" % (queue.name, entry['fqu']))
+        log.debug("(%s, confirmations %s)" % (entry['tx_hash'],
+                                              confirmations))
+        log.debug("payment: %s" % entry['payment_address'])
+
+
+def remove_from_queue(queue):
+
+    for entry in queue.find():
+        fqu = entry['fqu']
+
+        log.debug("-" * 5)
+        log.debug("checking: %s" % fqu)
+
+        if 'state' in entry:
+            if entry['state'] is 'preorder' or 'register':
+                if usernameRegistered(fqu):
+                    log.debug("Record on blockchain, removing from queue: %s"
+                              % fqu)
+
+                    queue.remove({"fqu": fqu, "state": entry['state']})
+                else:
+                    log.debug("(%s, %s, confirmations %s)" %
+                              (entry['state'], entry['tx_hash'],
+                               get_tx_confirmations(entry['tx_hash'])))
 
         if entry['fqu'] in DHT_IGNORE:
             continue
 
+        """
         if usernameRegistered(entry['fqu']):
 
-            print entry['fqu']
             record = get_blockchain_record(entry['fqu'])
-            print record
 
-            """
-
+           
             if record['value_hash'] == entry['profile_hash']:
 
                 log.debug("Registered on blockchain: %s" % entry['fqu'])
@@ -92,9 +134,3 @@ def cleanup_queue(queue):
                         log.debug("removing from queue: %s" % entry['fqu'])
                         queue.remove({"fqu": entry['fqu']})
             """
-
-        if txRejected(entry['tx_hash'], entry['block_height']):
-
-            log.debug("TX rejected by network, removing TX: \
-                      %s" % entry['tx_hash'])
-            queue.remove({"fqu": entry['fqu']})

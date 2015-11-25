@@ -2,8 +2,8 @@
     Registrar
     ~~~~~
 
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
 
 This file is part of Registrar.
 
@@ -64,6 +64,16 @@ def get_hash(profile):
     return hex_hash160(json.dumps(profile, sort_keys=True))
 
 
+def pretty_dump(data):
+
+    try:
+        del data['_id']
+    except:
+        pass
+
+    return json.dumps(data, sort_keys=True, indent=4, separators=(',', ': '), default=json_util.default)
+
+
 def pretty_print(data):
 
     try:
@@ -77,7 +87,7 @@ def pretty_print(data):
         except Exception as e:
             log.debug("ERROR in pretty print: %s" % e)
 
-    print json.dumps(data, sort_keys=True, indent=4, separators=(',', ': '), default=json_util.default)
+    print pretty_dump(data)
 
 
 def check_banned_email(email):
@@ -96,3 +106,8 @@ def nmc_to_btc_address(nmc_address):
 def satoshis_to_btc(satoshis):
 
     return satoshis * 0.00000001
+
+
+def btc_to_satoshis(btc):
+
+    return int(btc / 0.00000001)
