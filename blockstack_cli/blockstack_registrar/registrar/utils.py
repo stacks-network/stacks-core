@@ -106,3 +106,8 @@ def nmc_to_btc_address(nmc_address):
 def satoshis_to_btc(satoshis):
 
     return satoshis * 0.00000001
+
+
+def btc_to_satoshis(btc):
+
+    return int(btc / 0.00000001)
