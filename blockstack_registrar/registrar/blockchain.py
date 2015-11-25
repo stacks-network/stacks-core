@@ -28,7 +28,7 @@ from pybitcoin import BlockcypherClient
 from pybitcoin.services.blockcypher import get_unspents
 
 from .config import BLOCKCYPHER_TOKEN
-from .config import RETRY_INTERVAL, TX_CONFIRMATIONS_NEEDED
+from .config import RETRY_INTERVAL, TX_CONFIRMATIONS_NEEDED, PREORDER_REJECTED
 
 from .utils import satoshis_to_btc
 from .utils import pretty_print as pprint
@@ -36,6 +36,7 @@ from .utils import config_log
 
 from blockcypher import get_transaction_details, get_blockchain_overview
 from blockcypher import get_address_details
+from blockcypher import simple_spend_tx
 
 log = config_log(__name__)
 
@@ -101,6 +102,16 @@ def txRejected(tx_hash, tx_sent_at_height):
     return False
 
 
+def preorderRejected(tx_hash):
+
+    tx_confirmations = get_tx_confirmations(tx_hash)
+
+    if tx_confirmations > PREORDER_REJECTED:
+        return True
+
+    return False
+
+
 def get_balance(address):
     """ Check if BTC key being used has enough balance on unspents
     """
@@ -135,6 +146,7 @@ def dontuseAddress(address):
         return False
     else:
         return True
+
 
 if __name__ == '__main__':
 
