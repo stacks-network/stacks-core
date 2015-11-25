@@ -4,8 +4,8 @@
     Registrar
     ~~~~~
 
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
 
 This file is part of Registrar.
 
@@ -35,6 +35,7 @@ from .utils import pretty_print as pprint
 from .utils import config_log
 
 from blockcypher import get_transaction_details, get_blockchain_overview
+from blockcypher import get_address_details
 
 log = config_log(__name__)
 
@@ -52,6 +53,7 @@ def get_block_height():
             resp = data['height']
 
     except Exception as e:
+        log.debug("ERROR: block height")
         log.debug(e)
 
     return resp
@@ -74,6 +76,7 @@ def get_tx_confirmations(tx_hash):
             resp = data['confirmations']
 
     except Exception as e:
+        log.debug("ERROR: tx details: %s" % tx_hash)
         log.debug(e)
 
     return resp
@@ -94,13 +97,6 @@ def txRejected(tx_hash, tx_sent_at_height):
         # if no confirmations and retry limit hits
         if tx_confirmations == 0:
             return True
-    else:
-
-        if tx_confirmations > TX_CONFIRMATIONS_NEEDED:
-            log.debug("confirmed on the network")
-        else:
-            log.debug("waiting: (tx: %s, confirmations: %s)"
-                      % (tx_hash, tx_confirmations))
 
     return False
 
@@ -125,6 +121,20 @@ def get_balance(address):
     btc_amount = float(btc_amount)
 
     return btc_amount
+
+
+def dontuseAddress(address):
+    """ Check if an address has unconfirmed TX and should not be used
+    """
+
+    data = get_address_details(address)
+
+    unconfirmed_n_tx = data['unconfirmed_n_tx']
+
+    if int(unconfirmed_n_tx) is 0:
+        return False
+    else:
+        return True
 
 if __name__ == '__main__':
 
