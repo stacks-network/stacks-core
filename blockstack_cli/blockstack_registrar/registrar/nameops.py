@@ -119,7 +119,7 @@ def register(fqu, payment_address=None, owner_address=None,
             log.debug("No preorder sent yet: %s" % fqu)
             return False
 
-    if usernameRegistered(fqu):
+    if nameRegistered(fqu):
         log.debug("Already registered %s" % fqu)
         return False
 
@@ -189,7 +189,7 @@ def update(fqu, profile):
         log.debug("Already in update queue: %s" % fqu)
         return False
 
-    if not usernameRegistered(fqu):
+    if not nameRegistered(fqu):
         log.debug("Not yet registered %s" % fqu)
         return False
 
@@ -198,6 +198,10 @@ def update(fqu, profile):
     owner_address = data['address']
     profile_hash = get_hash(profile)
     owner_privkey = get_privkey(owner_address)
+
+    if owner_privkey is None:
+        log.debug("Registrar doens't own this name.")
+        return False
 
     log.debug("Updating (%s, %s)" % (fqu, profile_hash))
 
@@ -213,7 +217,6 @@ def update(fqu, profile):
         resp = bs_client.update(fqu, profile_hash, owner_privkey)
     except Exception as e:
         log.debug(e)
-        return
 
     if 'tx_hash' in resp:
         add_to_queue(update_queue, fqu, profile=profile,
@@ -222,11 +225,63 @@ def update(fqu, profile):
     else:
         log.debug("Error updating: %s" % fqu)
         log.debug(resp)
+        return False
+
+    return True
 
 
-def transfer(fqu, profile, btc_address):
+def transfer(fqu, transfer_address):
+    """
+        Transfer a previously registered fqu (step #4)
 
-    return None
+        @fqu: fully qualified name e.g., muneeb.id
+        @transfer_address: new owner address of @fqu
+
+        Internal use:
+        @owner_address: fetches the owner_address that can transfer
+
+        Returns True/False and stores tx_hash in queue
+    """
+
+    if alreadyinQueue(transfer_queue, fqu):
+        log.debug("Already in transfer queue: %s" % fqu)
+        return False
+
+    if ownerName(fqu, transfer_address):
+        log.debug("Already transferred %s" % fqu)
+        return True
+
+    data = get_blockchain_record(fqu)
+
+    owner_address = data['address']
+    owner_privkey = get_privkey(owner_address)
+
+    log.debug("Transferring (%s, %s)" % (fqu, transfer_address))
+
+    if dontuseAddress(owner_address):
+        log.debug("Owner address not ready")
+        return False
+
+    elif underfundedAddress(owner_address):
+        log.debug("Owner address under funded")
+        return False
+
+    try:
+        # format for transfer RPC call is (name, address, keepdata, privatekey)
+        resp = bs_client.transfer(fqu, transfer_address, True, owner_privkey)
+    except Exception as e:
+        log.debug(e)
+
+    if 'tx_hash' in resp:
+        add_to_queue(transfer_queue, fqu,
+                     owner_address=owner_address,
+                     tx_hash=resp['tx_hash'])
+    else:
+        log.debug("Error transferring: %s" % fqu)
+        log.debug(resp)
+        return False
+
+    return True
 
 """
     These are helper functions to the 4 main nameops
@@ -287,7 +342,9 @@ def write_dht_profile(profile):
     return resp
 
 
-def usernameRegistered(fqu):
+def nameRegistered(fqu):
+    """ return True if @fqu registered on blockchain
+    """
 
     data = get_blockchain_record(fqu)
 
@@ -297,35 +354,78 @@ def usernameRegistered(fqu):
         return False
 
 
-def ownerUsername(fqu, btc_address):
-    """ return True if btc_address owns the username
+def profileonBlockchain(fqu, profile):
+    """ return True if hash(@profile) published on blockchain
     """
 
     record = get_blockchain_record(fqu)
 
-    if record['address'] == btc_address:
+    profile_hash = get_hash(profile)
+
+    if 'value_hash' in record and record['value_hash'] != profile_hash:
+        # if hash of profile is in correct
+        return False
+
+    return True
+
+
+def profileonDHT(fqu, profile):
+    """ return True if hash(@profile) published on DHT
+    """
+
+    profile_hash = get_hash(profile)
+
+    dht_profile = get_dht_profile(fqu)
+
+    if dht_profile is None:
+        return False
+    else:
+        if get_hash(dht_profile) == profile_hash:
+            return True
+        else:
+            return False
+
+
+def profilePublished(fqu, profile):
+    """ return True if:
+        1) hash(@profile) published on blockchain, and
+        2) @profile published on DHT
+    """
+
+    if profileonBlockchain(fqu, profile) and profileonDHT(fqu, profile):
         return True
     else:
         return False
 
 
-def registrationComplete(fqu, profile, btc_address):
-    """ return True if properly registered
+def ownerName(fqu, address):
+    """ return True if @btc_address owns @fqu
     """
 
     record = get_blockchain_record(fqu)
 
-    if 'address' not in record or 'value_hash' not in record:
-        log.debug("ERROR in resp")
-        log.debug(record)
+    if 'address' in record and record['address'] == address:
+        return True
+    else:
         return False
 
-    if record['address'] != btc_address:
-        # if incorrect owner address
+
+def registrationComplete(fqu, profile, transfer_address):
+    """ return True if properly registered
+
+        Three conditions that need to be met:
+        1) @fqu is registered on blockchain
+        2) correct hash(@profile) is published
+        3) @owner_address owns the fqu
+    """
+
+    if not nameRegistered(fqu):
         return False
 
-    if record['value_hash'] != get_hash(profile):
-        # if hash of profile is in correct
+    if not profilePublished(fqu, profile):
+        return False
+
+    if not ownerName(fqu, transfer_address):
         return False
 
     return True
