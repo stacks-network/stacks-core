@@ -47,7 +47,8 @@ from .queue import display_queue, add_to_queue, alreadyinQueue
 from .queue import cleanup_rejected_tx
 
 from .wallet import get_addresses, get_privkey
-from .blockchain import get_tx_confirmations, dontuseAddress
+from .blockchain import get_tx_confirmations
+from .blockchain import dontuseAddress, underfundedAddress
 from .blockchain import preorderRejected
 
 from .utils import pretty_print as pprint
@@ -93,7 +94,6 @@ def get_next_addresses():
             index += 1
 
     log.debug("Getting new payment address")
-    num_of_tries = RATE_LIMIT
     counter = 0
 
     while(1):
@@ -103,6 +103,12 @@ def get_next_addresses():
             increment_index()
 
             payment_address = payment_addresses[index]
+
+        elif underfundedAddress(payment_address):
+            print "underfunded %s: " % payment_address
+            increment_index()
+            payment_address = payment_addresses[index]
+
         else:
             break
 
@@ -118,16 +124,15 @@ def get_next_addresses():
     return payment_address, owner_address
 
 
-def register_load_balancer(fqu):
+def load_balancer(fqu, nameop, profile=None, transfer_address=None):
 
-    if usernameRegistered(fqu):
-        log.debug("Already registered: %s" % fqu)
-        return
+    if nameop == "preorder":
+        payment_address, owner_address = get_next_addresses()
 
-    payment_address, owner_address = get_next_addresses()
-    payment_privkey = get_privkey(payment_address)
+        preorder(fqu, payment_address, owner_address)
 
-    register(fqu, payment_address, payment_privkey, owner_address)
+    elif nameop == "register":
+        register(fqu, auto_preorder=False)
 
 
 def register_webapp_users(spam_protection=False):
@@ -160,9 +165,12 @@ def register_webapp_users(spam_protection=False):
         log.debug("-" * 5)
         log.debug("Processing: %s" % fqu)
 
+        if usernameRegistered(fqu):
+            update(fqu, profile)
+
         if not usernameRegistered(fqu):
             log.debug("Not registered: %s" % fqu)
-            register_load_balancer(fqu)
+            #load_balancer(fqu, 'register')
 
         elif registrationComplete(fqu, profile, btc_address):
             registrations.remove({"user_id": new_user['user_id']})
@@ -220,16 +228,23 @@ def cleanup_register_queue():
             log.debug("%s registered. Removing preorder: " % entry['fqu'])
             preorder_queue.remove({"fqu": entry['fqu']})
 
+        # clear stale preorder
         if preorderRejected(entry['tx_hash']):
-            log.debug("Stale preorder %s. Removing preorder (and register)."
+            log.debug("Stale preorder %s. Removing preorder."
                       % entry['fqu'])
             preorder_queue.remove({"fqu": entry['fqu']})
-            register_queue.remove({"fqu": entry['fqu']})
 
     for entry in register_queue.find():
 
         if usernameRegistered(entry['fqu']):
             log.debug("%s registered. Removing register: " % entry['fqu'])
+            register_queue.remove({"fqu": entry['fqu']})
+
+        # need logic to remove registrations > say 140 confirmations
+        # need better name for func than preorderRejected
+        if preorderRejected(entry['tx_hash']):
+            log.debug("Stale register op %s. Removing."
+                      % entry['fqu'])
             register_queue.remove({"fqu": entry['fqu']})
 
     cleanup_rejected_tx(preorder_queue)
@@ -271,8 +286,9 @@ if __name__ == '__main__':
         #cleanup_queue(register_queue)
 
     elif command == "getinfo":
-        display_queue(preorder_queue)
-        display_queue(register_queue)
+        #display_queue(preorder_queue)
+        #display_queue(register_queue)
+        display_queue(update_queue)
 
     elif command == "stats":
         display_stats()
