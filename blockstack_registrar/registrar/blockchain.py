@@ -38,6 +38,8 @@ from blockcypher import get_transaction_details, get_blockchain_overview
 from blockcypher import get_address_details
 from blockcypher import simple_spend_tx
 
+from .config import MINIMUM_BALANCE
+
 log = config_log(__name__)
 
 
@@ -146,6 +148,16 @@ def dontuseAddress(address):
         return False
     else:
         return True
+
+
+def underfundedAddress(address):
+
+    balance = get_balance(address)
+
+    if float(balance) <= MINIMUM_BALANCE:
+        return True
+    else:
+        return False
 
 
 if __name__ == '__main__':
