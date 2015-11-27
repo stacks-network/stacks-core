@@ -45,7 +45,7 @@ def alreadyinQueue(queue, fqu):
     return False
 
 
-def add_to_queue(queue, fqu, payment_address, tx_hash,
+def add_to_queue(queue, fqu, payment_address=None, tx_hash=None,
                  owner_address=None, profile=None, profile_hash=None):
 
     new_entry = {}
@@ -80,13 +80,20 @@ def display_queue(queue):
 
     for entry in queue.find():
 
-        confirmations = get_tx_confirmations(entry['tx_hash'])
+        try:
+            confirmations = get_tx_confirmations(entry['tx_hash'])
+        except:
+            continue
 
         log.debug('-' * 5)
         log.debug("%s %s" % (queue.name, entry['fqu']))
         log.debug("(%s, confirmations %s)" % (entry['tx_hash'],
                                               confirmations))
         log.debug("payment: %s" % entry['payment_address'])
+        log.debug("owner: %s" % entry['owner_address'])
+
+        if entry['payment_address'] == entry['owner_address']:
+            log.debug("problem")
 
 
 def remove_from_queue(queue):

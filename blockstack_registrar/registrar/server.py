@@ -27,9 +27,11 @@ import sys
 
 from time import sleep
 
-from .nameops import get_blockchain_record
-from .nameops import usernameRegistered, ownerUsername, registrationComplete
 from .nameops import preorder, register, update, transfer
+from .nameops import nameRegistered
+from .nameops import profileonBlockchain, profileonDHT
+from .nameops import ownerName, registrationComplete
+from .nameops import write_dht_profile
 
 from .config import DEFAULT_NAMESPACE
 from .config import BTC_PRIV_KEY
@@ -43,11 +45,12 @@ from .db import users, registrations, updates
 from .db import get_db_user_from_id
 from .db import preorder_queue, register_queue, update_queue, transfer_queue
 
-from .queue import display_queue, add_to_queue, alreadyinQueue
+from .queue import display_queue, alreadyinQueue
 from .queue import cleanup_rejected_tx
 
 from .wallet import get_addresses, get_privkey
-from .blockchain import get_tx_confirmations, dontuseAddress
+from .blockchain import get_tx_confirmations
+from .blockchain import dontuseAddress, underfundedAddress
 from .blockchain import preorderRejected
 
 from .utils import pretty_print as pprint
@@ -93,7 +96,6 @@ def get_next_addresses():
             index += 1
 
     log.debug("Getting new payment address")
-    num_of_tries = RATE_LIMIT
     counter = 0
 
     while(1):
@@ -103,6 +105,12 @@ def get_next_addresses():
             increment_index()
 
             payment_address = payment_addresses[index]
+
+        elif underfundedAddress(payment_address):
+            print "underfunded %s: " % payment_address
+            increment_index()
+            payment_address = payment_addresses[index]
+
         else:
             break
 
@@ -118,16 +126,31 @@ def get_next_addresses():
     return payment_address, owner_address
 
 
-def register_load_balancer(fqu):
+def process_nameop(fqu, profile, transfer_address):
+    """ Given the state of the name, process new nameop
+    """
 
-    if usernameRegistered(fqu):
-        log.debug("Already registered: %s" % fqu)
-        return
+    if not nameRegistered(fqu):
+        log.debug("Not registered: %s" % fqu)
 
-    payment_address, owner_address = get_next_addresses()
-    payment_privkey = get_privkey(payment_address)
+        if alreadyinQueue(preorder_queue, fqu):
+            register(fqu, auto_preorder=False)
+        else:
+            # loadbalancing happens in get_next_addresses()
+            payment_address, owner_address = get_next_addresses()
+            preorder(fqu, payment_address, owner_address)
 
-    register(fqu, payment_address, payment_privkey, owner_address)
+    elif not profileonBlockchain(fqu, profile):
+        log.debug("Updating profile on blockchain: %s" % fqu)
+        update(fqu, profile)
+
+    elif not profileonDHT(fqu, profile):
+        log.debug("Writing profile to DHT: %s" % fqu)
+        write_dht_profile(profile)
+
+    elif not ownerName(fqu, transfer_address):
+        log.debug("Transferring name: %s" % fqu)
+        transfer(fqu, transfer_address)
 
 
 def register_webapp_users(spam_protection=False):
@@ -154,19 +177,17 @@ def register_webapp_users(spam_protection=False):
                 continue
 
         fqu = user['username'] + "." + DEFAULT_NAMESPACE
-        btc_address = nmc_to_btc_address(user['namecoin_address'])
+        transfer_address = nmc_to_btc_address(user['namecoin_address'])
         profile = user['profile']
 
         log.debug("-" * 5)
         log.debug("Processing: %s" % fqu)
 
-        if not usernameRegistered(fqu):
-            log.debug("Not registered: %s" % fqu)
-            register_load_balancer(fqu)
-
-        elif registrationComplete(fqu, profile, btc_address):
+        if registrationComplete(fqu, profile, transfer_address):
+            log.debug("Registration complete %s. Removing." % fqu)
             registrations.remove({"user_id": new_user['user_id']})
-            log.debug("Removing registration")
+        else:
+            process_nameop(fqu, profile, transfer_address)
 
 
 def update_users_bulk():
@@ -184,29 +205,13 @@ def update_users_bulk():
         btc_address = nmc_to_btc_address(user['namecoin_address'])
         profile = user['profile']
 
-        if usernameRegistered(fqu):
+        if nameRegistered(fqu):
 
-            resp = get_blockchain_record(fqu)
-
-            if 'error' in resp:
-                log.debug("ERROR: %s, %s" % (fqu, resp))
-                continue
-
-            if resp['value_hash'] == get_hash(user['profile']):
-                log.debug("profile match, removing: %s" % fqu)
+            if profilePublished(fqu, profile):
+                log.debug("Profile match, removing: %s" % fqu)
                 updates.remove({"user_id": new_user['user_id']})
             else:
-                if ownerUsername(fqu, btc_address):
-                    update(fqu, profile, btc_address)
-
-                    counter += 1
-
-                    if counter == RATE_LIMIT:
-                        log.debug("Reached limit. Breaking.")
-                        break
-                else:
-                    log.debug("Cannot update (wrong owner): %s " % fqu)
-                    updates.remove({"user_id": new_user['user_id']})
+                update(fqu, profile)
         else:
 
             log.debug("Not registered: %s" % fqu)
@@ -216,20 +221,27 @@ def cleanup_register_queue():
 
     for entry in preorder_queue.find():
 
-        if usernameRegistered(entry['fqu']):
+        if nameRegistered(entry['fqu']):
             log.debug("%s registered. Removing preorder: " % entry['fqu'])
             preorder_queue.remove({"fqu": entry['fqu']})
 
+        # clear stale preorder
         if preorderRejected(entry['tx_hash']):
-            log.debug("Stale preorder %s. Removing preorder (and register)."
+            log.debug("Stale preorder %s. Removing preorder."
                       % entry['fqu'])
             preorder_queue.remove({"fqu": entry['fqu']})
-            register_queue.remove({"fqu": entry['fqu']})
 
     for entry in register_queue.find():
 
-        if usernameRegistered(entry['fqu']):
+        if nameRegistered(entry['fqu']):
             log.debug("%s registered. Removing register: " % entry['fqu'])
+            register_queue.remove({"fqu": entry['fqu']})
+
+        # need logic to remove registrations > say 140 confirmations
+        # need better name for func than preorderRejected
+        if preorderRejected(entry['tx_hash']):
+            log.debug("Stale register op %s. Removing."
+                      % entry['fqu'])
             register_queue.remove({"fqu": entry['fqu']})
 
     cleanup_rejected_tx(preorder_queue)
@@ -273,6 +285,7 @@ if __name__ == '__main__':
     elif command == "getinfo":
         display_queue(preorder_queue)
         display_queue(register_queue)
+        display_queue(update_queue)
 
     elif command == "stats":
         display_stats()
