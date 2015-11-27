@@ -80,8 +80,6 @@ def display_queue(queue):
 
     for entry in queue.find():
 
-        pprint(entry)
-
         try:
             confirmations = get_tx_confirmations(entry['tx_hash'])
         except:
