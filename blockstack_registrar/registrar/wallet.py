@@ -37,7 +37,7 @@ from .db import registrar_users, registrar_addresses
 
 from .config import SECRET_KEY, RATE_LIMIT
 from .config import BLOCKCYPHER_TOKEN
-from .config import MINIMUM_BALANCE_PER_ADDRESS, TX_FEE
+from .config import TARGET_BALANCE_PER_ADDRESS, TX_FEE
 
 from .network import bs_client as c
 from .blockchain import get_balance, dontuseAddress
@@ -155,7 +155,7 @@ def get_underfunded_addresses(count=50):
         address = entry['address']
         balance = get_balance(address)
 
-        if balance <= float(MINIMUM_BALANCE_PER_ADDRESS):
+        if balance <= float(TARGET_BALANCE_PER_ADDRESS):
             log.debug("address %s needs refill: %s"
                       % (address, balance))
 
@@ -312,4 +312,3 @@ if __name__ == '__main__':
     #generate_bitcoin_keypairs()
 
     display_wallet_info(20)
-
