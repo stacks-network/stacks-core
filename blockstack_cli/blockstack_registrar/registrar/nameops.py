@@ -29,9 +29,13 @@ from .network import bs_client
 from .network import get_dht_client
 
 from .queue import alreadyinQueue, add_to_queue
-from .db import register_queue, preorder_queue
+from .db import preorder_queue, register_queue
+from .db import update_queue, transfer_queue
 
 from .blockchain import get_tx_confirmations
+from .blockchain import dontuseAddress, underfundedAddress
+
+from .wallet import get_privkey
 
 from .utils import config_log
 from .utils import pretty_print as pprint
@@ -46,17 +50,21 @@ log = config_log(__name__)
 """
 
 
-def preorder(fqu, payment_address, payment_privkey, owner_address):
+def preorder(fqu, payment_address, owner_address):
     """
         Preorder a fqu (step #1)
 
         @fqu: fully qualified name e.g., muneeb.id
         @payment_address: used for making the payment
-        @payment_privkey: privkey for paying address
         @owner_address: will own the fqu
 
         Returns True/False and stores tx_hash in queue
     """
+
+    # stale preorder will get removed from preorder_queue
+    if alreadyinQueue(register_queue, fqu):
+        log.debug("Already in register queue: %s" % fqu)
+        return False
 
     if alreadyinQueue(preorder_queue, fqu):
         log.debug("Already in preorder queue: %s" % fqu)
@@ -64,14 +72,17 @@ def preorder(fqu, payment_address, payment_privkey, owner_address):
 
     log.debug("Preordering (%s, %s, %s)" % (fqu, payment_address, owner_address))
 
+    payment_privkey = get_privkey(payment_address)
+
     try:
         resp = bs_client.preorder(fqu, payment_privkey, owner_address)
     except Exception as e:
         log.debug(e)
 
     if 'tx_hash' in resp:
-        add_to_queue(preorder_queue, fqu, payment_address, resp['tx_hash'],
-                     owner_address)
+        add_to_queue(preorder_queue, fqu, payment_address=payment_address,
+                     tx_hash=resp['tx_hash'],
+                     owner_address=owner_address)
     else:
         log.debug("Error preordering: %s" % fqu)
         log.debug(pprint(resp))
@@ -80,24 +91,33 @@ def preorder(fqu, payment_address, payment_privkey, owner_address):
     return True
 
 
-def register(fqu, payment_address, payment_privkey, owner_address=None):
+def register(fqu, payment_address=None, owner_address=None,
+             auto_preorder=True):
     """
         Register a previously preordered fqu (step #2)
 
         @fqu: fully qualified name e.g., muneeb.id
+        @auto_preorder: automatically preorder, if true
+
+        Uses from preorder queue:
         @payment_address: used for making the payment
-        @payment_privkey: privkey for paying address
         @owner_address: will own the fqu (must be same as preorder owner_address)
 
         Returns True/False and stores tx_hash in queue
     """
 
-    if not alreadyinQueue(preorder_queue, fqu):
-        return preorder(fqu, payment_address, payment_privkey, owner_address)
-
+    # check register_queue first
+    # stale preorder will get removed from preorder_queue
     if alreadyinQueue(register_queue, fqu):
         log.debug("Already in register queue: %s" % fqu)
         return False
+
+    if not alreadyinQueue(preorder_queue, fqu):
+        if auto_preorder:
+            return preorder(fqu, payment_address, owner_address)
+        else:
+            log.debug("No preorder sent yet: %s" % fqu)
+            return False
 
     if usernameRegistered(fqu):
         log.debug("Already registered %s" % fqu)
@@ -117,10 +137,21 @@ def register(fqu, payment_address, payment_privkey, owner_address=None):
     # use the correct owner_address from preorder operation
     try:
         owner_address = preorder_entry['owner_address']
+        payment_address = preorder_entry['payment_address']
 
     except:
-        log.debug("Error getting preorder owner_address")
+        log.debug("Error getting preorder addresses")
         return False
+
+    if dontuseAddress(payment_address):
+        log.debug("Payment address not ready")
+        return False
+
+    elif underfundedAddress(payment_address):
+        log.debug("Payment address under funded")
+        return False
+
+    payment_privkey = get_privkey(payment_address)
 
     log.debug("Registering (%s, %s, %s)" % (fqu, payment_address, owner_address))
 
@@ -130,8 +161,9 @@ def register(fqu, payment_address, payment_privkey, owner_address=None):
         log.debug(e)
 
     if 'tx_hash' in resp:
-        add_to_queue(register_queue, fqu, payment_address, resp['tx_hash'],
-                     owner_address)
+        add_to_queue(register_queue, fqu, payment_address=payment_address,
+                     tx_hash=resp['tx_hash'],
+                     owner_address=owner_address)
     else:
         log.debug("Error registering: %s" % fqu)
         log.debug(pprint(resp))
@@ -140,30 +172,53 @@ def register(fqu, payment_address, payment_privkey, owner_address=None):
     return True
 
 
-def update(fqu, profile, btc_address):
+def update(fqu, profile):
+    """
+        Update a previously registered fqu (step #3)
+
+        @fqu: fully qualified name e.g., muneeb.id
+        @profile: new profile json, hash(profile) goes to blockchain
+
+        Internal use:
+        @owner_address: fetches the owner_address that can update
+
+        Returns True/False and stores tx_hash in queue
+    """
 
     if alreadyinQueue(update_queue, fqu):
-        log.debug("Already in queue: %s" % fqu)
-        return
+        log.debug("Already in update queue: %s" % fqu)
+        return False
 
-    if not ownerUsername(fqu, btc_address):
-        log.debug("Don't own this name")
-        return
+    if not usernameRegistered(fqu):
+        log.debug("Not yet registered %s" % fqu)
+        return False
 
+    data = get_blockchain_record(fqu)
+
+    owner_address = data['address']
     profile_hash = get_hash(profile)
+    owner_privkey = get_privkey(owner_address)
 
-    log.debug("Updating (%s, %s, %s)" % (fqu, btc_address, profile_hash))
+    log.debug("Updating (%s, %s)" % (fqu, profile_hash))
+
+    if dontuseAddress(owner_address):
+        log.debug("Owner address not ready")
+        return False
+
+    elif underfundedAddress(owner_address):
+        log.debug("Owner address under funded")
+        return False
 
     try:
-        resp = bs_client.name_import(fqu, btc_address, profile_hash, BTC_PRIV_KEY)
-        resp = resp[0]
+        resp = bs_client.update(fqu, profile_hash, owner_privkey)
     except Exception as e:
         log.debug(e)
         return
 
     if 'tx_hash' in resp:
-        add_to_queue(update_queue, fqu, profile, profile_hash, btc_address,
-                     resp['tx_hash'])
+        add_to_queue(update_queue, fqu, profile=profile,
+                     profile_hash=profile_hash, owner_address=owner_address,
+                     tx_hash=resp['tx_hash'])
     else:
         log.debug("Error updating: %s" % fqu)
         log.debug(resp)

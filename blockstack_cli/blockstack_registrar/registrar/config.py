@@ -52,13 +52,14 @@ MEMCACHED_PORT = '11211'
 MEMCACHED_TIMEOUT = 15 * 60
 
 TX_FEE = 0.0002  # around 7 cents
-MINIMUM_BALANCE_PER_ADDRESS = 0.009
+TARGET_BALANCE_PER_ADDRESS = 0.009
+MINIMUM_BALANCE = 0.002
 
 DEBUG = False  # can change in config_local
 
 PREORDER_CONFIRMATIONS = 6
 PREORDER_REJECTED = 110  # no. of blocks after which preorder should be removed
-RATE_LIMIT = 10   # target tx per block
+RATE_LIMIT = 20   # target tx per block
 RETRY_INTERVAL = 10  # if a tx is not picked up by x blocks
 TX_CONFIRMATIONS_NEEDED = 10
 
