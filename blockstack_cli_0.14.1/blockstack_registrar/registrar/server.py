@@ -123,7 +123,7 @@ def get_next_addresses():
         counter += 1
 
         if counter == RATE_LIMIT:
-            log.debug("All addresses were recently used. Sleeping")
+            log.debug("All addresses were recently used. Sleeping.")
             sleep(SLEEP_INTERVAL)
             counter = 0
 
@@ -147,16 +147,22 @@ def process_nameop(fqu, profile, transfer_address, nameop=None):
     """
 
     if not nameRegistered(fqu):
-        log.debug("Not registered: %s" % fqu)
+        #log.debug("Not registered: %s" % fqu)
 
         if alreadyinQueue(preorder_queue, fqu):
             if nameop is None or nameop is 'register':
+                log.debug("Registering: %s" % fqu)
                 return register(fqu, auto_preorder=False)
         else:
             if nameop is None or nameop is 'preorder':
+                log.debug("Preordering: %s" % fqu)
                 # loadbalancing happens in get_next_addresses()
                 payment_address, owner_address = get_next_addresses()
-                return preorder(fqu, payment_address, owner_address)
+
+                if payment_address is None:
+                    return False
+                else:
+                    return preorder(fqu, payment_address, owner_address)
 
     elif not profileonBlockchain(fqu, profile):
 
@@ -178,5 +184,5 @@ def process_nameop(fqu, profile, transfer_address, nameop=None):
             log.debug("Transferring name: %s" % fqu)
             return transfer(fqu, transfer_address)
 
-    log.debug("Nameop didn't meet any conditions")
+    #log.debug("Nameop didn't meet any conditions")
     return False  # no blockchain tx was sent
