@@ -306,7 +306,7 @@ if __name__ == '__main__':
 
     # example usage
 
-    #refill_wallet('your_address', live=True)
+    refill_wallet('your_address', live=False)
     #get_registrar_users()
     #test_registrar_users()
     #generate_bitcoin_keypairs()
