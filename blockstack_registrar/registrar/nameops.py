@@ -22,11 +22,11 @@ This file is part of Registrar.
     along with Registrar. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import json
-
 from .utils import get_hash, pretty_print
 from .network import bs_client
-from .network import get_dht_client
+from .network import get_blockchain_record
+
+from .states import ownerName, nameRegistered
 
 from .queue import alreadyinQueue, add_to_queue
 from .db import preorder_queue, register_queue
@@ -275,157 +275,11 @@ def transfer(fqu, transfer_address):
     if 'tx_hash' in resp:
         add_to_queue(transfer_queue, fqu,
                      owner_address=owner_address,
+                     transfer_address=transfer_address,
                      tx_hash=resp['tx_hash'])
     else:
         log.debug("Error transferring: %s" % fqu)
         log.debug(resp)
-        return False
-
-    return True
-
-"""
-    These are helper functions to the 4 main nameops
-"""
-
-
-def get_blockchain_record(fqu):
-
-    data = {}
-
-    try:
-        resp = bs_client.get_name_blockchain_record(fqu)
-    except Exception as e:
-        data['error'] = e
-        return data
-
-    return resp
-
-
-def get_dht_profile(fqu):
-
-    resp = get_blockchain_record(fqu)
-
-    if resp is None:
-        return None
-
-    profile_hash = resp['value_hash']
-
-    profile = None
-
-    dht_client = get_dht_client()
-
-    try:
-        resp = dht_client.get(profile_hash)
-        profile = resp[0]['value']
-    except Exception as e:
-        print "Error DHT get: (%s, %s)" % (fqu, profile_hash)
-
-    return profile
-
-
-def write_dht_profile(profile):
-
-    resp = None
-    dht_client = get_dht_client()
-
-    key = get_hash(profile)
-    value = json.dumps(profile, sort_keys=True)
-
-    print "DHT write (%s, %s)" % (key, value)
-
-    try:
-        resp = dht_client.set(key, value)
-        pretty_print(resp)
-    except Exception as e:
-        print e
-
-    return resp
-
-
-def nameRegistered(fqu):
-    """ return True if @fqu registered on blockchain
-    """
-
-    data = get_blockchain_record(fqu)
-
-    if "first_registered" in data:
-        return True
-    else:
-        return False
-
-
-def profileonBlockchain(fqu, profile):
-    """ return True if hash(@profile) published on blockchain
-    """
-
-    record = get_blockchain_record(fqu)
-
-    profile_hash = get_hash(profile)
-
-    if 'value_hash' in record and record['value_hash'] != profile_hash:
-        # if hash of profile is in correct
-        return False
-
-    return True
-
-
-def profileonDHT(fqu, profile):
-    """ return True if hash(@profile) published on DHT
-    """
-
-    profile_hash = get_hash(profile)
-
-    dht_profile = get_dht_profile(fqu)
-
-    if dht_profile is None:
-        return False
-    else:
-        if get_hash(dht_profile) == profile_hash:
-            return True
-        else:
-            return False
-
-
-def profilePublished(fqu, profile):
-    """ return True if:
-        1) hash(@profile) published on blockchain, and
-        2) @profile published on DHT
-    """
-
-    if profileonBlockchain(fqu, profile) and profileonDHT(fqu, profile):
-        return True
-    else:
-        return False
-
-
-def ownerName(fqu, address):
-    """ return True if @btc_address owns @fqu
-    """
-
-    record = get_blockchain_record(fqu)
-
-    if 'address' in record and record['address'] == address:
-        return True
-    else:
-        return False
-
-
-def registrationComplete(fqu, profile, transfer_address):
-    """ return True if properly registered
-
-        Three conditions that need to be met:
-        1) @fqu is registered on blockchain
-        2) correct hash(@profile) is published
-        3) @owner_address owns the fqu
-    """
-
-    if not nameRegistered(fqu):
-        return False
-
-    if not profilePublished(fqu, profile):
-        return False
-
-    if not ownerName(fqu, transfer_address):
         return False
 
     return True

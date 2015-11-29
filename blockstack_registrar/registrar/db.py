@@ -23,12 +23,7 @@ This file is part of Registrar.
 
 from pymongo import MongoClient
 
-from .config import WEBAPP_DB_URI, API_DB_URI, QUEUE_DB_URI
-
-webapp_db = MongoClient(WEBAPP_DB_URI).get_default_database()
-users = webapp_db.user
-registrations = webapp_db.user_registration
-updates = webapp_db.profile_update
+from .config import QUEUE_DB_URI
 
 c = MongoClient()
 state_diff = c['namespace'].state_diff
@@ -42,19 +37,3 @@ transfer_queue = queue_db.transfer_queue
 # to-do: rename this from 'migration'
 registrar_users = c['migration'].migration_users
 registrar_addresses = c['migration'].registrar_addresses
-
-api_db = MongoClient(API_DB_URI).get_default_database()
-
-
-def get_db_user_from_id(entry):
-
-    user_id = entry['user_id']
-    user = users.find_one({"_id": user_id})
-
-    if user is None:
-        return None
-
-    if not user['username_activated']:
-        return None
-
-    return user
