@@ -26,6 +26,8 @@ This file is part of Registrar.
 import sys
 import os
 
+from time import sleep
+
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
@@ -36,15 +38,91 @@ from registrar.utils import config_log
 
 from registrar.drivers import WebappDriver, APIDriver
 
+from registrar.config import SLEEP_INTERVAL
+
 from registrar.queue import display_queue_info
 from registrar.queue import cleanup_transfer_queue, cleanup_update_queue
-from registrar.queue import cleanup_register_queue
+from registrar.queue import cleanup_register_queue, cleanup_preorder_queue
+
+from registrar.wallet import display_wallet_info, refill_wallet
+
+from registrar.blockchain import get_block_height
 
 log = config_log(__name__)
 
 # currently configured for the following drivers
 webapp_data = WebappDriver()
 api_data = APIDriver()
+
+
+def run_cli(command, argv=None):
+
+    if command == "preorder":
+        api_data.process_new_users(nameop='preorder')
+        webapp_data.process_new_users(nameop='preorder')
+
+    elif command == "register":
+        api_data.process_new_users(nameop='register')
+        webapp_data.process_new_users(nameop='register')
+
+    elif command == "update":
+        api_data.process_new_users(nameop='update')
+        webapp_data.process_new_users(nameop='update')
+        #webapp_data.update_users()
+
+    elif command == "transfer":
+        api_data.process_new_users(nameop='transfer')
+        webapp_data.process_new_users(nameop='transfer')
+
+    elif command == "clean":
+        cleanup_transfer_queue()
+        cleanup_update_queue()
+        cleanup_register_queue()
+        cleanup_preorder_queue()
+
+    elif command == "getinfo":
+        display_queue_info()
+
+    elif command == "stats":
+        webapp_data.display_stats()
+        api_data.display_stats()
+
+    elif command == "wallet":
+        display_wallet_info()
+        #refill_wallet('your_address', live=False)
+
+    elif command == "reprocess":
+
+        try:
+            username = argv[2]
+        except:
+            log.info("Usage error: reprocess <username>")
+            exit(0)
+
+        webapp_data.reprocess_user(username)
+
+
+def run_loop():
+
+    current_block = get_block_height()
+    last_block = current_block - 1
+
+    while(1):
+
+        log.debug("At block: %s" % current_block)
+
+        if last_block == current_block:
+            log.debug("No new blocks. Sleeping")
+            sleep(SLEEP_INTERVAL)
+            current_block = get_block_height()
+        else:
+            # empty queues in reverse
+            run_cli('transfer')
+            run_cli('update')
+            run_cli('register')
+            run_cli('preorder')
+
+            last_block = current_block
 
 if __name__ == '__main__':
 
@@ -54,37 +132,10 @@ if __name__ == '__main__':
         log.info("Options are register, update, clean, stats, reprocess")
         exit(0)
 
-    if command == "preorder":
-        webapp_data.register_users(nameop='preorder')
-
-    elif command == "register":
-        webapp_data.register_users(nameop='register')
-
-    elif command == "update":
-        webapp_data.register_users(nameop='update')
-        #webapp_data.update_users()
-
-    elif command == "transfer":
-        webapp_data.register_users(nameop='transfer')
-
-    elif command == "clean":
-        cleanup_register_queue()
-        cleanup_update_queue()
-        cleanup_transfer_queue()
-
-    elif command == "getinfo":
-        display_queue_info()
-
-    elif command == "stats":
-        webapp_data.display_stats()
-        api_data.display_stats()
-
-    elif command == "reprocess":
-
+    if command == "loop":
         try:
-            username = sys.argv[2]
-        except:
-            log.info("Usage error: reprocess <username>")
-            exit(0)
-
-        webapp_data.reprocess_user(username)
+            run_loop()
+        except KeyboardInterrupt:
+            log.debug("Exiting loop.")
+    else:
+        run_cli(command, sys.argv)
