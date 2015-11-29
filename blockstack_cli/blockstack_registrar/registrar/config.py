@@ -30,20 +30,16 @@ DHT_MIRROR_PORT = 6266
 
 DEFAULT_NAMESPACE = "id"
 
-IGNORE_USERNAMES = []
+# current defined drivers being used for registrar
+REGISTRAR_DRIVERS = ['webapp', 'api']
 
-# incoming requests from a web app or API
-WEBAPP_DB_URI = os.environ['WEBAPP_DB_URI']
-API_DB_URI = os.environ['API_DB_URI']
+IGNORE_USERNAMES = []
 
 # for registrar's internal queue
 QUEUE_DB_URI = os.environ['QUEUE_DB_URI']
 
-BTC_PRIV_KEY = os.environ['BTC_PRIV_KEY']
+# for encrypting DB entries like privkeys
 SECRET_KEY = os.environ['SECRET_KEY']
-
-REGISTRAR_ADDRESS = os.environ['REGISTRAR_ADDRESS']
-REGISTRAR_ADDRESS_KEY = os.environ['REGISTRAR_ADDRESS_KEY']
 
 BLOCKCYPHER_TOKEN = os.environ['BLOCKCYPHER_TOKEN']
 
@@ -60,6 +56,7 @@ DEBUG = False  # can change in config_local
 PREORDER_CONFIRMATIONS = 6
 PREORDER_REJECTED = 110  # no. of blocks after which preorder should be removed
 RATE_LIMIT = 20   # target tx per block
+SLEEP_INTERVAL = 10  # in seconds
 RETRY_INTERVAL = 10  # if a tx is not picked up by x blocks
 TX_CONFIRMATIONS_NEEDED = 10
 
@@ -71,14 +68,3 @@ except Exception as e:
     print "using default config"
 
     email_regrex = ''  # if it's not defined in config_local
-
-    # --------------------------------------------------
-
-    #BITCOIND_USE_HTTPS = True
-
-    #BITCOIND_PORT = os.environ['BITCOIND_PORT']
-    #BITCOIND_SERVER = os.environ['BITCOIND_SERVER']
-    #BITCOIND_USER = os.environ['BITCOIND_USER']
-    #BITCOIND_PASSWD = os.environ['BITCOIND_PASSWD']
-    #WALLET_PASSPHRASE = os.environ['WALLET_PASSPHRASE']
-    #--------------------------------------------------
