@@ -77,7 +77,7 @@ class WebappDriver(object):
         self.registrations = webapp_db.user_registration
         self.updates = webapp_db.profile_update
 
-    def register_users(self, nameop=None, spam_protection=False):
+    def process_new_users(self, nameop=None, spam_protection=False):
 
         counter = 0
 
@@ -104,7 +104,6 @@ class WebappDriver(object):
             transfer_address = nmc_to_btc_address(user['namecoin_address'])
             profile = user['profile']
 
-            log.debug("-" * 5)
             log.debug("Processing: %s" % fqu)
 
             if registrationComplete(fqu, profile, transfer_address):
@@ -115,10 +114,6 @@ class WebappDriver(object):
 
                 if tx_sent:
                     counter += 1
-
-                if counter == RATE_LIMIT:
-                    log.debug("Hit rate limit. Sleeping.")
-                    sleep(SLEEP_INTERVAL)
 
     def update_users(self):
 
