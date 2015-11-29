@@ -38,6 +38,7 @@ from .db import registrar_users, registrar_addresses
 from .config import SECRET_KEY, RATE_LIMIT
 from .config import BLOCKCYPHER_TOKEN
 from .config import TARGET_BALANCE_PER_ADDRESS, TX_FEE
+from .config import CHAINED_PAYMENT_AMOUNT
 
 from .network import bs_client as c
 from .blockchain import get_balance, dontuseAddress
@@ -300,15 +301,5 @@ def display_wallet_info(number_of_addresses=RATE_LIMIT):
 def refill_wallet(source_address, live=False):
 
     list_of_addresses, list_of_privkeys = construct_payment_chain(source_address, 10)
-    send_chained_payment(0.01, list_of_addresses, list_of_privkeys, live=live)
-
-if __name__ == '__main__':
-
-    # example usage
-
-    refill_wallet('your_address', live=False)
-    #get_registrar_users()
-    #test_registrar_users()
-    #generate_bitcoin_keypairs()
-
-    display_wallet_info(20)
+    send_chained_payment(CHAINED_PAYMENT_AMOUNT, list_of_addresses,
+                         list_of_privkeys, live=live)

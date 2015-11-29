@@ -32,6 +32,9 @@ from ..config import DEFAULT_NAMESPACE
 from ..utils import pretty_print as pprint
 from ..utils import get_hash, config_log
 
+from ..server import process_nameop
+from ..states import registrationComplete
+
 """
     API Driver file that has all necessary functions for
     using registrar with API data
@@ -57,7 +60,7 @@ class APIDriver(object):
 
         self.registrations = api_db['blockchainid']
 
-    def process_api_registraions(self):
+    def process_new_users(self, nameop=None):
 
         for entry in self.registrations.find():
 
@@ -67,6 +70,12 @@ class APIDriver(object):
             profile_hash = get_hash(profile)
 
             log.debug("Processing: %s" % fqu)
+
+            if registrationComplete(fqu, profile, transfer_address):
+                log.debug("Registration complete %s. Removing." % fqu)
+                self.registrations.remove({"username": entry['username']})
+            else:
+                process_nameop(fqu, profile, transfer_address, nameop=nameop)
 
     def display_stats(self):
 

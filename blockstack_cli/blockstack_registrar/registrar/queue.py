@@ -103,13 +103,14 @@ def display_queue(queue):
             log.debug("problem")
 
 
-def cleanup_register_queue():
+def cleanup_preorder_queue():
 
     for entry in preorder_queue.find():
 
         if nameRegistered(entry['fqu']):
             log.debug("Name registered. Removing preorder: %s" % entry['fqu'])
             preorder_queue.remove({"fqu": entry['fqu']})
+            continue
 
         # clear stale preorder
         if preorderRejected(entry['tx_hash']):
@@ -117,11 +118,17 @@ def cleanup_register_queue():
                       % entry['fqu'])
             preorder_queue.remove({"fqu": entry['fqu']})
 
+    cleanup_rejected_tx(preorder_queue)
+
+
+def cleanup_register_queue():
+
     for entry in register_queue.find():
 
         if nameRegistered(entry['fqu']):
             log.debug("Name registered. Removing register: %s" % entry['fqu'])
             register_queue.remove({"fqu": entry['fqu']})
+            continue
 
         # logic to remove registrations > say 140 confirmations
         # need better name for func than preorderRejected
@@ -130,7 +137,6 @@ def cleanup_register_queue():
                       % entry['fqu'])
             register_queue.remove({"fqu": entry['fqu']})
 
-    cleanup_rejected_tx(preorder_queue)
     cleanup_rejected_tx(register_queue)
 
 
