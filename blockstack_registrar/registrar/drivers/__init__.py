@@ -21,19 +21,5 @@ This file is part of Registrar.
     along with Registrar. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pymongo import MongoClient
-
-from .config import QUEUE_DB_URI
-
-c = MongoClient()
-state_diff = c['namespace'].state_diff
-
-queue_db = MongoClient(QUEUE_DB_URI)['registrar']
-preorder_queue = queue_db.preorder_queue
-register_queue = queue_db.register_queue
-update_queue = queue_db.update_queue
-transfer_queue = queue_db.transfer_queue
-
-# to-do: rename this from 'migration'
-registrar_users = c['migration'].migration_users
-registrar_addresses = c['migration'].registrar_addresses
+from webapp_driver import WebappDriver
+from api_driver import APIDriver

@@ -1,0 +1,90 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+    Registrar
+    ~~~~~
+
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
+
+This file is part of Registrar.
+
+    Registrar is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Registrar is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Registrar. If not, see <http://www.gnu.org/licenses/>.
+"""
+
+import sys
+import os
+
+# Hack around absolute paths
+current_dir = os.path.abspath(os.path.dirname(__file__))
+parent_dir = os.path.abspath(current_dir + "/../")
+sys.path.insert(0, parent_dir)
+
+from registrar.utils import pretty_print as pprint
+from registrar.utils import config_log
+
+from registrar.drivers import WebappDriver, APIDriver
+
+from registrar.queue import display_queue_info
+from registrar.queue import cleanup_transfer_queue, cleanup_update_queue
+from registrar.queue import cleanup_register_queue
+
+log = config_log(__name__)
+
+# currently configured for the following drivers
+webapp_data = WebappDriver()
+api_data = APIDriver()
+
+if __name__ == '__main__':
+
+    try:
+        command = sys.argv[1]
+    except:
+        log.info("Options are register, update, clean, stats, reprocess")
+        exit(0)
+
+    if command == "preorder":
+        webapp_data.register_users(nameop='preorder')
+
+    elif command == "register":
+        webapp_data.register_users(nameop='register')
+
+    elif command == "update":
+        webapp_data.register_users(nameop='update')
+        #webapp_data.update_users()
+
+    elif command == "transfer":
+        webapp_data.register_users(nameop='transfer')
+
+    elif command == "clean":
+        cleanup_register_queue()
+        cleanup_update_queue()
+        cleanup_transfer_queue()
+
+    elif command == "getinfo":
+        display_queue_info()
+
+    elif command == "stats":
+        webapp_data.display_stats()
+        api_data.display_stats()
+
+    elif command == "reprocess":
+
+        try:
+            username = sys.argv[2]
+        except:
+            log.info("Usage error: reprocess <username>")
+            exit(0)
+
+        webapp_data.reprocess_user(username)

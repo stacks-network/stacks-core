@@ -28,32 +28,24 @@ import sys
 from time import sleep
 
 from .nameops import preorder, register, update, transfer
-from .nameops import nameRegistered
-from .nameops import profileonBlockchain, profileonDHT
-from .nameops import ownerName, registrationComplete
-from .nameops import write_dht_profile
 
-from .config import DEFAULT_NAMESPACE
-from .config import BTC_PRIV_KEY
-from .config import RATE_LIMIT
+from .states import nameRegistered
+from .states import profileonBlockchain, profileonDHT
+from .states import ownerName, registrationComplete
 
-from .utils import get_hash, check_banned_email, nmc_to_btc_address
+from .network import write_dht_profile
+
+from .config import RATE_LIMIT, DHT_IGNORE
+from .config import SLEEP_INTERVAL
+
 from .utils import config_log
 
-from .network import bs_client
-from .db import users, registrations, updates
-from .db import get_db_user_from_id
-from .db import preorder_queue, register_queue, update_queue, transfer_queue
+from .db import preorder_queue
 
-from .queue import display_queue, alreadyinQueue
-from .queue import cleanup_rejected_tx
+from .queue import alreadyinQueue
 
-from .wallet import get_addresses, get_privkey
-from .blockchain import get_tx_confirmations
+from .wallet import get_addresses
 from .blockchain import dontuseAddress, underfundedAddress
-from .blockchain import preorderRejected
-
-from .utils import pretty_print as pprint
 
 log = config_log(__name__)
 
@@ -61,8 +53,18 @@ index = 0
 payment_addresses = []
 owner_addresses = []
 
+"""
+    Registrar/server handles loadbalancing and is the entry
+    point for sending nameops
+"""
+
 
 def init_addresses_in_use():
+    """ Initialize registrar addresses
+
+        @payment_addresses: used for funding transactions
+        @owner_addresses: intermediate owner for names registered
+    """
 
     global payment_addresses
     global owner_addresses
@@ -79,6 +81,10 @@ init_addresses_in_use()
 
 
 def get_next_addresses():
+    """ Get next set of addresses that are ready to use
+
+        Returns (payment_address, owner_address)
+    """
 
     global index
     global payment_addresses
@@ -118,7 +124,7 @@ def get_next_addresses():
 
         if counter == RATE_LIMIT:
             log.debug("All addresses were recently used. Sleeping")
-            sleep(10)
+            sleep(SLEEP_INTERVAL)
             counter = 0
 
     owner_address = owner_addresses[index]
@@ -126,176 +132,51 @@ def get_next_addresses():
     return payment_address, owner_address
 
 
-def process_nameop(fqu, profile, transfer_address):
+def process_nameop(fqu, profile, transfer_address, nameop=None):
     """ Given the state of the name, process new nameop
+
+        @fqu: the fully qualified name
+        @profile: json profile associated with fqu
+        @transfer_address: address that should own fqu after transfer
+
+        Optional parameter:
+        @nameop: process all nameop types or only a specific type
+                 values can be 'preorder', 'register', 'update', 'transfer'
+
+        Returns True, if sent a tx on blockchain (for tracking rate limiting)
     """
 
     if not nameRegistered(fqu):
         log.debug("Not registered: %s" % fqu)
 
         if alreadyinQueue(preorder_queue, fqu):
-            register(fqu, auto_preorder=False)
+            if nameop is None or nameop is 'register':
+                return register(fqu, auto_preorder=False)
         else:
-            # loadbalancing happens in get_next_addresses()
-            payment_address, owner_address = get_next_addresses()
-            preorder(fqu, payment_address, owner_address)
+            if nameop is None or nameop is 'preorder':
+                # loadbalancing happens in get_next_addresses()
+                payment_address, owner_address = get_next_addresses()
+                return preorder(fqu, payment_address, owner_address)
 
     elif not profileonBlockchain(fqu, profile):
-        log.debug("Updating profile on blockchain: %s" % fqu)
-        update(fqu, profile)
+
+        if nameop is None or nameop is 'update':
+            log.debug("Updating profile on blockchain: %s" % fqu)
+            return update(fqu, profile)
 
     elif not profileonDHT(fqu, profile):
-        log.debug("Writing profile to DHT: %s" % fqu)
-        write_dht_profile(profile)
+
+        if fqu not in DHT_IGNORE:
+            log.debug("Writing profile to DHT: %s" % fqu)
+            write_dht_profile(profile)
+
+        return False  # because not a blockchain operation
 
     elif not ownerName(fqu, transfer_address):
-        log.debug("Transferring name: %s" % fqu)
-        transfer(fqu, transfer_address)
 
+        if nameop is None or nameop is 'transfer':
+            log.debug("Transferring name: %s" % fqu)
+            return transfer(fqu, transfer_address)
 
-def register_webapp_users(spam_protection=False):
-
-    counter = 0
-
-    for new_user in registrations.find(no_cursor_timeout=True):
-
-        user = get_db_user_from_id(new_user)
-
-        if user is None:
-            log.debug("No such user, need to remove: %s" % new_user['_id'])
-            #registrations.remove({'_id': new_user['_id']})
-            continue
-
-        # for spam protection
-        if check_banned_email(user['email']):
-            if spam_protection:
-                #users.remove({"email": user['email']})
-                log.debug("Deleting spam %s, %s" % (user['email'], user['username']))
-                continue
-            else:
-                log.debug("Need to delete %s, %s" % (user['email'], user['username']))
-                continue
-
-        fqu = user['username'] + "." + DEFAULT_NAMESPACE
-        transfer_address = nmc_to_btc_address(user['namecoin_address'])
-        profile = user['profile']
-
-        log.debug("-" * 5)
-        log.debug("Processing: %s" % fqu)
-
-        if registrationComplete(fqu, profile, transfer_address):
-            log.debug("Registration complete %s. Removing." % fqu)
-            registrations.remove({"user_id": new_user['user_id']})
-        else:
-            process_nameop(fqu, profile, transfer_address)
-
-
-def update_users_bulk():
-
-    counter = 0
-
-    for new_user in updates.find(no_cursor_timeout=True):
-
-        user = get_db_user_from_id(new_user)
-
-        if user is None:
-            continue
-
-        fqu = user['username'] + "." + DEFAULT_NAMESPACE
-        btc_address = nmc_to_btc_address(user['namecoin_address'])
-        profile = user['profile']
-
-        if nameRegistered(fqu):
-
-            if profilePublished(fqu, profile):
-                log.debug("Profile match, removing: %s" % fqu)
-                updates.remove({"user_id": new_user['user_id']})
-            else:
-                update(fqu, profile)
-        else:
-
-            log.debug("Not registered: %s" % fqu)
-
-
-def cleanup_register_queue():
-
-    for entry in preorder_queue.find():
-
-        if nameRegistered(entry['fqu']):
-            log.debug("%s registered. Removing preorder: " % entry['fqu'])
-            preorder_queue.remove({"fqu": entry['fqu']})
-
-        # clear stale preorder
-        if preorderRejected(entry['tx_hash']):
-            log.debug("Stale preorder %s. Removing preorder."
-                      % entry['fqu'])
-            preorder_queue.remove({"fqu": entry['fqu']})
-
-    for entry in register_queue.find():
-
-        if nameRegistered(entry['fqu']):
-            log.debug("%s registered. Removing register: " % entry['fqu'])
-            register_queue.remove({"fqu": entry['fqu']})
-
-        # need logic to remove registrations > say 140 confirmations
-        # need better name for func than preorderRejected
-        if preorderRejected(entry['tx_hash']):
-            log.debug("Stale register op %s. Removing."
-                      % entry['fqu'])
-            register_queue.remove({"fqu": entry['fqu']})
-
-    cleanup_rejected_tx(preorder_queue)
-    cleanup_rejected_tx(register_queue)
-
-
-def reprocess_user(username):
-
-    user = users.find_one({"username": username})
-    fqu = user['username'] + "." + DEFAULT_NAMESPACE
-    btc_address = nmc_to_btc_address(user['namecoin_address'])
-    profile = user['profile']
-
-    log.debug("Reprocessing update: %s" % fqu)
-    update(fqu, profile, btc_address)
-
-
-def display_stats():
-
-    log.debug("Pending registrations: %s" % registrations.find().count())
-    log.debug("Pending updates: %s" % updates.find().count())
-
-if __name__ == '__main__':
-
-    try:
-        command = sys.argv[1]
-    except:
-        log.info("Options are register, update, clean, stats, reprocess")
-        exit(0)
-
-    if command == "register":
-        register_webapp_users()
-
-    elif command == "update":
-        update_users_bulk()
-
-    elif command == "clean":
-        cleanup_register_queue()
-        #cleanup_queue(register_queue)
-
-    elif command == "getinfo":
-        display_queue(preorder_queue)
-        display_queue(register_queue)
-        display_queue(update_queue)
-
-    elif command == "stats":
-        display_stats()
-
-    elif command == "reprocess":
-
-        try:
-            username = sys.argv[2]
-        except:
-            log.info("Usage error: reprocess <username>")
-            exit(0)
-
-        reprocess_user(username)
+    log.debug("Nameop didn't meet any conditions")
+    return False  # no blockchain tx was sent

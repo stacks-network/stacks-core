@@ -23,8 +23,13 @@ This file is part of Registrar.
     along with Registrar. If not, see <http://www.gnu.org/licenses/>.
 """
 
+from .states import nameRegistered, profileonBlockchain, ownerName
+
 from .blockchain import get_block_height, txRejected
 from .blockchain import get_tx_confirmations
+from .blockchain import preorderRejected
+
+from .db import preorder_queue, register_queue, update_queue, transfer_queue
 
 from .utils import get_hash
 from .utils import config_log
@@ -46,7 +51,8 @@ def alreadyinQueue(queue, fqu):
 
 
 def add_to_queue(queue, fqu, payment_address=None, tx_hash=None,
-                 owner_address=None, profile=None, profile_hash=None):
+                 owner_address=None, transfer_address=None,
+                 profile=None, profile_hash=None):
 
     new_entry = {}
 
@@ -59,6 +65,7 @@ def add_to_queue(queue, fqu, payment_address=None, tx_hash=None,
 
     # optional, depending on queue
     new_entry['owner_address'] = owner_address
+    new_entry['transfer_address'] = transfer_address
     new_entry['profile'] = profile
     new_entry['profile_hash'] = profile_hash
 
@@ -96,48 +103,68 @@ def display_queue(queue):
             log.debug("problem")
 
 
-def remove_from_queue(queue):
+def cleanup_register_queue():
 
-    for entry in queue.find():
+    for entry in preorder_queue.find():
+
+        if nameRegistered(entry['fqu']):
+            log.debug("Name registered. Removing preorder: %s" % entry['fqu'])
+            preorder_queue.remove({"fqu": entry['fqu']})
+
+        # clear stale preorder
+        if preorderRejected(entry['tx_hash']):
+            log.debug("Removing stale preorder: %s"
+                      % entry['fqu'])
+            preorder_queue.remove({"fqu": entry['fqu']})
+
+    for entry in register_queue.find():
+
+        if nameRegistered(entry['fqu']):
+            log.debug("Name registered. Removing register: %s" % entry['fqu'])
+            register_queue.remove({"fqu": entry['fqu']})
+
+        # logic to remove registrations > say 140 confirmations
+        # need better name for func than preorderRejected
+        if preorderRejected(entry['tx_hash']):
+            log.debug("Removing stale register op: %s"
+                      % entry['fqu'])
+            register_queue.remove({"fqu": entry['fqu']})
+
+    cleanup_rejected_tx(preorder_queue)
+    cleanup_rejected_tx(register_queue)
+
+
+def cleanup_update_queue():
+
+    for entry in update_queue.find():
+
         fqu = entry['fqu']
+        profile = entry['profile']
 
-        log.debug("-" * 5)
-        log.debug("checking: %s" % fqu)
+        if profileonBlockchain(fqu, profile):
+            log.debug("Profile hash updated: %s" % fqu)
+            update_queue.remove({"fqu": entry['fqu']})
 
-        if 'state' in entry:
-            if entry['state'] is 'preorder' or 'register':
-                if usernameRegistered(fqu):
-                    log.debug("Record on blockchain, removing from queue: %s"
-                              % fqu)
 
-                    queue.remove({"fqu": fqu, "state": entry['state']})
-                else:
-                    log.debug("(%s, %s, confirmations %s)" %
-                              (entry['state'], entry['tx_hash'],
-                               get_tx_confirmations(entry['tx_hash'])))
+def cleanup_transfer_queue():
 
-        if entry['fqu'] in DHT_IGNORE:
-            continue
+    for entry in transfer_queue.find():
 
-        """
-        if usernameRegistered(entry['fqu']):
+        fqu = entry['fqu']
+        try:
+            transfer_address = entry['transfer_address']
+        except:
+            log.debug("Transfer address not saved")
+            exit(0)
 
-            record = get_blockchain_record(entry['fqu'])
+        if ownerName(fqu, transfer_address):
+            log.debug("Transferred: %s" % fqu)
+            transfer_queue.remove({"fqu": entry['fqu']})
 
-           
-            if record['value_hash'] == entry['profile_hash']:
 
-                log.debug("Registered on blockchain: %s" % entry['fqu'])
+def display_queue_info():
 
-                profile = get_dht_profile(entry['fqu'])
-
-                if profile is None:
-                    log.debug("data not in DHT")
-                    write_dht_profile(entry['profile'])
-
-                else:
-                    if get_hash(profile) == entry['profile_hash']:
-                        log.debug("data in DHT")
-                        log.debug("removing from queue: %s" % entry['fqu'])
-                        queue.remove({"fqu": entry['fqu']})
-            """
+    display_queue(preorder_queue)
+    display_queue(register_queue)
+    display_queue(update_queue)
+    display_queue(transfer_queue)

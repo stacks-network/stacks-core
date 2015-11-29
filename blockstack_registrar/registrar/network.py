@@ -21,11 +21,13 @@ This file is part of Registrar.
     along with Registrar. If not, see <http://www.gnu.org/licenses/>.
 """
 
+import json
 from basicrpc import Proxy
 from blockstore_client import client as bs_client
 
-from registrar.config import BLOCKSTORED_IP, BLOCKSTORED_PORT
-from registrar.config import DHT_MIRROR_IP, DHT_MIRROR_PORT
+from .config import BLOCKSTORED_IP, BLOCKSTORED_PORT
+from .config import DHT_MIRROR_IP, DHT_MIRROR_PORT
+from .utils import get_hash
 
 # direct client, using Proxy
 #bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
@@ -44,3 +46,57 @@ def get_bs_client():
 def get_dht_client():
 
     return Proxy(DHT_MIRROR_IP, DHT_MIRROR_PORT)
+
+
+def get_blockchain_record(fqu):
+
+    data = {}
+
+    try:
+        resp = bs_client.get_name_blockchain_record(fqu)
+    except Exception as e:
+        data['error'] = e
+        return data
+
+    return resp
+
+
+def get_dht_profile(fqu):
+
+    resp = get_blockchain_record(fqu)
+
+    if resp is None:
+        return None
+
+    profile_hash = resp['value_hash']
+
+    profile = None
+
+    dht_client = get_dht_client()
+
+    try:
+        resp = dht_client.get(profile_hash)
+        profile = resp[0]['value']
+    except Exception as e:
+        print "Error DHT get: (%s, %s)" % (fqu, profile_hash)
+
+    return profile
+
+
+def write_dht_profile(profile):
+
+    resp = None
+    dht_client = get_dht_client()
+
+    key = get_hash(profile)
+    value = json.dumps(profile, sort_keys=True)
+
+    print "DHT write (%s, %s)" % (key, value)
+
+    try:
+        resp = dht_client.set(key, value)
+        pretty_print(resp)
+    except Exception as e:
+        print e
+
+    return resp
