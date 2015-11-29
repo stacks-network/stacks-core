@@ -27,7 +27,10 @@ from blockstore_client import client as bs_client
 
 from .config import BLOCKSTORED_IP, BLOCKSTORED_PORT
 from .config import DHT_MIRROR_IP, DHT_MIRROR_PORT
-from .utils import get_hash
+from .utils import get_hash, config_log
+from .utils import pretty_dump as pprint
+
+log = config_log(__name__)
 
 # direct client, using Proxy
 #bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
@@ -78,7 +81,7 @@ def get_dht_profile(fqu):
         resp = dht_client.get(profile_hash)
         profile = resp[0]['value']
     except Exception as e:
-        print "Error DHT get: (%s, %s)" % (fqu, profile_hash)
+        log.debug("Error DHT get: (%s, %s)" % (fqu, profile_hash))
 
     return profile
 
@@ -91,12 +94,12 @@ def write_dht_profile(profile):
     key = get_hash(profile)
     value = json.dumps(profile, sort_keys=True)
 
-    print "DHT write (%s, %s)" % (key, value)
+    log.debug("DHT write (%s, %s)" % (key, value))
 
     try:
         resp = dht_client.set(key, value)
-        pretty_print(resp)
+        log.debug(pprint(resp))
     except Exception as e:
-        print e
+        log.debug(e)
 
     return resp
