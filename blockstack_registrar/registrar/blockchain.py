@@ -140,7 +140,10 @@ def dontuseAddress(address):
     """ Check if an address has unconfirmed TX and should not be used
     """
 
-    data = get_address_details(address)
+    try:
+        data = get_address_details(address)
+    except:
+        return True
 
     unconfirmed_n_tx = data['unconfirmed_n_tx']
 
