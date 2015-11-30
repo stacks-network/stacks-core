@@ -33,7 +33,8 @@ from ..utils import get_hash, check_banned_email, nmc_to_btc_address
 from ..utils import config_log
 
 from ..states import registrationComplete
-from ..server import process_nameop
+from ..server import RegistrarServer
+
 
 """
     Webapp Driver file that has all necessary functions for
@@ -77,10 +78,12 @@ class WebappDriver(object):
         self.users = webapp_db.user
         self.registrations = webapp_db.user_registration
         self.updates = webapp_db.profile_update
+        self.registrar_server = RegistrarServer()
 
     def process_new_users(self, nameop=None, spam_protection=False):
 
         counter = 0
+        self.registrar_server.reset_flag()
 
         for new_user in self.registrations.find(no_cursor_timeout=True):
 
@@ -115,10 +118,9 @@ class WebappDriver(object):
                 log.debug("Registration complete %s. Removing." % fqu)
                 self.registrations.remove({"user_id": new_user['user_id']})
             else:
-                tx_sent = process_nameop(fqu, profile, transfer_address, nameop=nameop)
-
-                if tx_sent:
-                    counter += 1
+                self.registrar_server.process_nameop(fqu, profile,
+                                                     transfer_address,
+                                                     nameop=nameop)
 
     def update_users(self):
 
