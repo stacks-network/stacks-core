@@ -27,6 +27,7 @@ import os
 from pymongo import MongoClient
 
 from ..config import DEFAULT_NAMESPACE, RATE_LIMIT
+from ..config import MINIMUM_LENGTH_NAME
 
 from ..utils import get_hash, check_banned_email, nmc_to_btc_address
 from ..utils import config_log
@@ -99,6 +100,10 @@ class WebappDriver(object):
                 else:
                     log.debug("Need to delete %s, %s" % (user['email'], user['username']))
                     continue
+
+            if len(user['username']) < MINIMUM_LENGTH_NAME:
+                log.debug("Expensive name %s. Skipping." % user['username'])
+                continue
 
             fqu = user['username'] + "." + DEFAULT_NAMESPACE
             transfer_address = nmc_to_btc_address(user['namecoin_address'])
