@@ -166,6 +166,12 @@ def cleanup_transfer_queue():
         if ownerName(fqu, transfer_address):
             log.debug("Transferred: %s" % fqu)
             transfer_queue.remove({"fqu": entry['fqu']})
+        else:
+            confirmations = get_tx_confirmations(entry['tx_hash'])
+
+            if confirmations > 7:
+                log.debug('-' * 5)
+                log.debug("ERROR: (%s, %s)" % (fqu, transfer_address))
 
 
 def display_queue_info():
