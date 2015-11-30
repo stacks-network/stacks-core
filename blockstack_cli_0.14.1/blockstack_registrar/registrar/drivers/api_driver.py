@@ -34,7 +34,7 @@ from ..utils import pretty_print as pprint
 from ..utils import get_hash, config_log
 from ..utils import validAddress
 
-from ..server import process_nameop
+from ..server import RegistrarServer
 from ..states import registrationComplete
 
 """
@@ -61,8 +61,11 @@ class APIDriver(object):
     def __init__(self):
 
         self.registrations = api_db['blockchainid']
+        self.registrar_server = RegistrarServer()
 
     def process_new_users(self, nameop=None):
+
+        self.registrar_server.reset_flag()
 
         for entry in self.registrations.find():
 
@@ -85,7 +88,9 @@ class APIDriver(object):
                 log.debug("Registration complete %s. Removing." % fqu)
                 self.registrations.remove({"username": entry['username']})
             else:
-                process_nameop(fqu, profile, transfer_address, nameop=nameop)
+                self.registrar_server.process_nameop(fqu, profile,
+                                                     transfer_address,
+                                                     nameop=nameop)
 
     def display_stats(self):
 
