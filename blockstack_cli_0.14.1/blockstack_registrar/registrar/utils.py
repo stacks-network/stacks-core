@@ -28,6 +28,7 @@ from bson import json_util
 
 from pybitcoin import hex_hash160, address_to_new_cryptocurrency
 from pybitcoin import BitcoinPrivateKey
+from pybitcoin import is_b58check_address
 
 from .config import email_regrex, DEBUG
 
@@ -111,3 +112,16 @@ def satoshis_to_btc(satoshis):
 def btc_to_satoshis(btc):
 
     return int(btc / 0.00000001)
+
+
+def validAddress(address):
+
+    try:
+        validAddress = is_b58check_address(str(address))
+    except Exception as e:
+        log.debug(e)
+
+    if validAddress:
+        return True
+    else:
+        return False

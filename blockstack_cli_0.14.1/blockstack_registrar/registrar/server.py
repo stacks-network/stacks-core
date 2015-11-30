@@ -49,140 +49,129 @@ from .blockchain import dontuseAddress, underfundedAddress
 
 log = config_log(__name__)
 
-index = 0
-payment_addresses = []
-owner_addresses = []
 
-"""
-    Registrar/server handles loadbalancing and is the entry
-    point for sending nameops
-"""
-
-
-def init_addresses_in_use():
-    """ Initialize registrar addresses
-
-        @payment_addresses: used for funding transactions
-        @owner_addresses: intermediate owner for names registered
+class RegistrarServer(object):
+    """
+        Registrar/server handles loadbalancing and is the entry
+        point for sending nameops
     """
 
-    global payment_addresses
-    global owner_addresses
+    def __init__(self):
+        """ Initialize registrar addresses
 
-    payment_addresses = get_addresses(count=RATE_LIMIT)
+            @payment_addresses: used for funding transactions
+            @owner_addresses: intermediate owner for names registered
+        """
 
-    # change the positions by 1, so that different payment and owner addresses
-    # are at a given index for the two lists
-    owner_addresses = [payment_addresses[-1]] + payment_addresses[:-1]
+        self.index = 0
+        self.all_addresses_in_use = False
+        self.payment_addresses = get_addresses(count=RATE_LIMIT)
 
+        # change the positions by 1, so that different payment and
+        # owner addresses are at a given index for the two lists
+        self.owner_addresses = [self.payment_addresses[-1]] + self.payment_addresses[:-1]
 
-# initialize the list of addresses
-init_addresses_in_use()
+    def increment_index(self):
 
-
-def get_next_addresses():
-    """ Get next set of addresses that are ready to use
-
-        Returns (payment_address, owner_address)
-    """
-
-    global index
-    global payment_addresses
-    global owner_addresses
-
-    payment_address = payment_addresses[index]
-
-    def increment_index():
-
-        global index
-
-        if index == RATE_LIMIT - 1:
-            index = 0
+        if self.index == RATE_LIMIT - 1:
+            self.index = 0
         else:
-            index += 1
+            self.index += 1
 
-    log.debug("Getting new payment address")
-    counter = 0
+    def get_next_addresses(self):
+        """ Get next set of addresses that are ready to use
 
-    while(1):
-        # find an address that can be used for payment
+            Returns (payment_address, owner_address)
+        """
 
-        if dontuseAddress(payment_address):
-            increment_index()
+        if(self.all_addresses_in_use):
+            return None, None
 
-            payment_address = payment_addresses[index]
+        payment_address = self.payment_addresses[self.index]
 
-        elif underfundedAddress(payment_address):
-            print "underfunded %s: " % payment_address
-            increment_index()
-            payment_address = payment_addresses[index]
+        #log.debug("Getting new payment address")
+        counter = 0
 
-        else:
-            break
+        while(1):
+            # find an address that can be used for payment
 
-        counter += 1
+            if dontuseAddress(payment_address):
+                self.increment_index()
+                payment_address = self.payment_addresses[self.index]
 
-        if counter == RATE_LIMIT:
-            log.debug("All addresses were recently used. Sleeping.")
-            sleep(SLEEP_INTERVAL)
-            counter = 0
+            elif underfundedAddress(payment_address):
+                log.debug("Underfunded address: %s" % payment_address)
+                self.increment_index()
+                payment_address = self.payment_addresses[self.index]
 
-    owner_address = owner_addresses[index]
+            else:
+                break
 
-    return payment_address, owner_address
+            counter += 1
 
+            if counter == RATE_LIMIT:
+                log.debug("All addresses were recently used.")
+                self.all_addresses_in_use = True
+                return None, None
 
-def process_nameop(fqu, profile, transfer_address, nameop=None):
-    """ Given the state of the name, process new nameop
+        owner_address = self.owner_addresses[self.index]
 
-        @fqu: the fully qualified name
-        @profile: json profile associated with fqu
-        @transfer_address: address that should own fqu after transfer
+        return payment_address, owner_address
 
-        Optional parameter:
-        @nameop: process all nameop types or only a specific type
-                 values can be 'preorder', 'register', 'update', 'transfer'
+    def reset_flag(self):
+        self.all_addresses_in_use = False
 
-        Returns True, if sent a tx on blockchain (for tracking rate limiting)
-    """
+    def process_nameop(self, fqu, profile, transfer_address, nameop=None):
+        """ Given the state of the name, process new nameop
 
-    if not nameRegistered(fqu):
-        #log.debug("Not registered: %s" % fqu)
+            @fqu: the fully qualified name
+            @profile: json profile associated with fqu
+            @transfer_address: address that should own fqu after transfer
 
-        if alreadyinQueue(preorder_queue, fqu):
-            if nameop is None or nameop is 'register':
-                log.debug("Registering: %s" % fqu)
-                return register(fqu, auto_preorder=False)
-        else:
-            if nameop is None or nameop is 'preorder':
-                log.debug("Preordering: %s" % fqu)
-                # loadbalancing happens in get_next_addresses()
-                payment_address, owner_address = get_next_addresses()
+            Optional parameter:
+            @nameop: process all nameop types or only a specific type
+                     values can be 'preorder', 'register', 'update', 'transfer'
 
-                if payment_address is None:
-                    return False
-                else:
-                    return preorder(fqu, payment_address, owner_address)
+            Returns True, if sent a tx on blockchain (for tracking rate limiting)
+        """
 
-    elif not profileonBlockchain(fqu, profile):
+        if not nameRegistered(fqu):
+            #log.debug("Not registered: %s" % fqu)
 
-        if nameop is None or nameop is 'update':
-            log.debug("Updating profile on blockchain: %s" % fqu)
-            return update(fqu, profile)
+            if alreadyinQueue(preorder_queue, fqu):
+                if nameop is None or nameop is 'register':
+                    log.debug("Registering: %s" % fqu)
+                    return register(fqu, auto_preorder=False)
+            else:
+                if nameop is None or nameop is 'preorder':
+                    log.debug("Preordering: %s" % fqu)
+                    # loadbalancing happens in get_next_addresses()
+                    payment_address, owner_address = self.get_next_addresses()
 
-    elif not profileonDHT(fqu, profile):
+                    if payment_address is None:
+                        return False
+                    else:
+                        return preorder(fqu, payment_address, owner_address)
 
-        if fqu not in DHT_IGNORE:
-            log.debug("Writing profile to DHT: %s" % fqu)
-            write_dht_profile(profile)
+        elif not profileonBlockchain(fqu, profile):
 
-        return False  # because not a blockchain operation
+            if nameop is None or nameop is 'update':
+                log.debug("Updating profile on blockchain: %s" % fqu)
+                return update(fqu, profile)
 
-    elif not ownerName(fqu, transfer_address):
+        elif not profileonDHT(fqu, profile):
 
-        if nameop is None or nameop is 'transfer':
-            log.debug("Transferring name: %s" % fqu)
-            return transfer(fqu, transfer_address)
+            if fqu not in DHT_IGNORE:
+                log.debug("Writing profile to DHT: %s" % fqu)
+                write_dht_profile(profile)
 
-    #log.debug("Nameop didn't meet any conditions")
-    return False  # no blockchain tx was sent
+            return False  # because not a blockchain operation
+
+        elif not ownerName(fqu, transfer_address):
+
+            if nameop is None or nameop is 'transfer':
+                log.debug("Transferring name: %s" % fqu)
+                return transfer(fqu, transfer_address)
+
+        #log.debug("Nameop didn't meet any conditions")
+        return False  # no blockchain tx was sent

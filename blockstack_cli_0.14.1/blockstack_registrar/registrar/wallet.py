@@ -38,7 +38,7 @@ from .db import registrar_users, registrar_addresses
 from .config import SECRET_KEY, RATE_LIMIT
 from .config import BLOCKCYPHER_TOKEN
 from .config import TARGET_BALANCE_PER_ADDRESS, TX_FEE
-from .config import CHAINED_PAYMENT_AMOUNT
+from .config import CHAINED_PAYMENT_AMOUNT, MINIMUM_BALANCE
 
 from .network import bs_client as c
 from .blockchain import get_balance, dontuseAddress
@@ -156,7 +156,7 @@ def get_underfunded_addresses(count=50):
         address = entry['address']
         balance = get_balance(address)
 
-        if balance <= float(TARGET_BALANCE_PER_ADDRESS):
+        if balance <= float(MINIMUM_BALANCE):
             log.debug("address %s needs refill: %s"
                       % (address, balance))
 
@@ -220,7 +220,7 @@ def send_payment(hex_privkey, to_address, btc_amount):
         return resp
 
 
-def send_chained_payment(btc_per_address, list_of_addresses, list_of_privkeys, 
+def send_chained_payment(btc_per_address, list_of_addresses, list_of_privkeys,
                          live=False):
     """ Sends BTC from head of chain to rest of address list
 
@@ -300,6 +300,7 @@ def display_wallet_info(number_of_addresses=RATE_LIMIT):
 
 def refill_wallet(source_address, live=False):
 
-    list_of_addresses, list_of_privkeys = construct_payment_chain(source_address, 10)
+    list_of_addresses, list_of_privkeys = construct_payment_chain(source_address,
+                                                                  RATE_LIMIT)
     send_chained_payment(CHAINED_PAYMENT_AMOUNT, list_of_addresses,
                          list_of_privkeys, live=live)
