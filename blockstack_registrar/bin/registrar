@@ -74,11 +74,26 @@ def run_cli(command, argv=None):
         api_data.process_new_users(nameop='transfer')
         webapp_data.process_new_users(nameop='transfer')
 
-    elif command == "clean":
-        cleanup_transfer_queue()
-        cleanup_update_queue()
-        cleanup_register_queue()
-        cleanup_preorder_queue()
+    elif command == "cleanup":
+
+        try:
+            queue = argv[2]
+        except:
+            queue = "all"
+
+        if queue == "transfer":
+            cleanup_transfer_queue()
+        elif queue == "update":
+            cleanup_update_queue()
+        elif queue == "register":
+            cleanup_register_queue()
+        elif queue == "preorder":
+            cleanup_preorder_queue()
+        elif queue == "all":
+            cleanup_transfer_queue()
+            cleanup_update_queue()
+            cleanup_register_queue()
+            cleanup_preorder_queue()
 
     elif command == "getinfo":
         display_queue_info()
@@ -88,8 +103,24 @@ def run_cli(command, argv=None):
         api_data.display_stats()
 
     elif command == "wallet":
+
+        try:
+            command = argv[2]
+
+            if command == "refill":
+                address = argv[3]
+                live = False
+                try:
+                    live_command = argv[4]
+                    if live_command == "live":
+                        live = True
+                except:
+                    pass
+                refill_wallet(address, live=live)
+        except:
+            pass
+
         display_wallet_info()
-        #refill_wallet('your_address', live=False)
 
     elif command == "reprocess":
 

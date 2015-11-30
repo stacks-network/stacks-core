@@ -28,11 +28,13 @@ import json
 from pymongo import MongoClient
 
 from ..config import DEFAULT_NAMESPACE
+from ..config import MINIMUM_LENGTH_NAME
 
 from ..utils import pretty_print as pprint
 from ..utils import get_hash, config_log
+from ..utils import validAddress
 
-from ..server import process_nameop
+from ..server import RegistrarServer
 from ..states import registrationComplete
 
 """
@@ -59,15 +61,26 @@ class APIDriver(object):
     def __init__(self):
 
         self.registrations = api_db['blockchainid']
+        self.registrar_server = RegistrarServer()
 
     def process_new_users(self, nameop=None):
 
+        self.registrar_server.reset_flag()
+
         for entry in self.registrations.find():
+
+            if len(entry['username']) < MINIMUM_LENGTH_NAME:
+                log.debug("Expensive name %s. Skipping." % entry['username'])
+                continue
 
             fqu = entry['username'] + "." + DEFAULT_NAMESPACE
             transfer_address = entry['transfer_address']
             profile = json.loads(entry['profile'])
             profile_hash = get_hash(profile)
+
+            if not validAddress(transfer_address):
+                log.debug("Invalid transfer address for: %s. Skipping." % fqu)
+                continue
 
             log.debug("Processing: %s" % fqu)
 
@@ -75,7 +88,9 @@ class APIDriver(object):
                 log.debug("Registration complete %s. Removing." % fqu)
                 self.registrations.remove({"username": entry['username']})
             else:
-                process_nameop(fqu, profile, transfer_address, nameop=nameop)
+                self.registrar_server.process_nameop(fqu, profile,
+                                                     transfer_address,
+                                                     nameop=nameop)
 
     def display_stats(self):
 
