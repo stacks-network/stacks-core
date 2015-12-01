@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='blockstore-client',
-    version='0.0.5',
+    version='0.0.9',
     url='https://github.com/blockstack/blockstore-client',
     license='GPLv3',
     author='Blockstack.org',
@@ -17,10 +17,10 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'pybitcoin>=0.9.5',
+        'pybitcoin>=0.9.7',
         'boto>=2.38.0',
         'basicrpc>=0.0.1',
-        'bitcoin>=1.1'
+        'bitcoin>=1.1.39'
     ],
     classifiers=[
         'Intended Audience :: Developers',
