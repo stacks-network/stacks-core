@@ -39,6 +39,7 @@ from .config import SECRET_KEY, RATE_LIMIT
 from .config import BLOCKCYPHER_TOKEN
 from .config import TARGET_BALANCE_PER_ADDRESS, TX_FEE
 from .config import CHAINED_PAYMENT_AMOUNT, MINIMUM_BALANCE
+from .config import MAX_LENGTH_CHAINED_PAYMENT
 
 from .network import bs_client as c
 from .blockchain import get_balance, dontuseAddress
@@ -145,7 +146,7 @@ def get_addresses(count=50, offset=0):
     return addresses
 
 
-def get_underfunded_addresses(count=50):
+def get_underfunded_addresses(length_chain=MAX_LENGTH_CHAINED_PAYMENT):
 
     addresses = []
 
@@ -167,7 +168,12 @@ def get_underfunded_addresses(count=50):
 
         counter += 1
 
-        if counter == count:
+        # can't use more addresses from wallet than rate limit
+        if counter == RATE_LIMIT:
+            break
+
+        # can't be more than intended length of chained payment
+        if len(addresses) == length_chain:
             break
 
     return addresses
@@ -301,6 +307,6 @@ def display_wallet_info(number_of_addresses=RATE_LIMIT):
 def refill_wallet(source_address, live=False):
 
     list_of_addresses, list_of_privkeys = construct_payment_chain(source_address,
-                                                                  RATE_LIMIT)
+                                                                  MAX_LENGTH_CHAINED_PAYMENT)
     send_chained_payment(CHAINED_PAYMENT_AMOUNT, list_of_addresses,
                          list_of_privkeys, live=live)
