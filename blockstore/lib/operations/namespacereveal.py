@@ -34,7 +34,7 @@ import json
 
 from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
-from ..scripts import blockstore_script_to_hex, add_magic_bytes
+from ..scripts import * 
 from ..hashing import hash_name
    
 import virtualchain
@@ -211,9 +211,7 @@ def make_outputs( data, inputs, reveal_addr, change_addr, format='bin', testset=
     [2] change address with the NAMESPACE_PREORDER sender's address
     """
     
-    total_to_send = DEFAULT_OP_RETURN_FEE + DEFAULT_DUST_FEE
-    
-    return [
+    outputs = [
         # main output
         {"script_hex": make_op_return_script(data, format=format),
          "value": 0},
@@ -224,8 +222,12 @@ def make_outputs( data, inputs, reveal_addr, change_addr, format='bin', testset=
         
         # change address
         {"script_hex": make_pay_to_address_script(change_addr),
-         "value": calculate_change_amount(inputs, total_to_send, DEFAULT_DUST_FEE * (len(inputs) + 3))},
+         "value": calculate_change_amount(inputs, 0, 0)},
     ]
+
+    dust_fee = tx_dust_fee_from_inputs_and_outputs( inputs, outputs )
+    outputs[-1]['value'] = calculate_change_amount( inputs, DEFAULT_DUST_FEE, dust_fee )
+    return outputs
     
     
 

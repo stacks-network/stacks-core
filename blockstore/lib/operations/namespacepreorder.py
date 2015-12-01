@@ -86,43 +86,37 @@ def build( namespace_id, script_pubkey, register_addr, consensus_hash, namespace
    return packaged_script
 
 
-def make_outputs( data, inputs, change_addr, fee, pay_fee=True, format='bin' ):
+def make_outputs( data, inputs, change_addr, op_fee, format='bin' ):
     """
     Make outputs for a namespace preorder:
     [0] OP_RETURN with the name 
     [1] change address with the NAME_PREORDER sender's address
     [2] pay-to-address with the *burn address* with the fee
     """
-    
-    dust_fee = DEFAULT_OP_RETURN_FEE + (len(inputs) + 2) * DEFAULT_DUST_FEE
-    op_fee = max(fee, DEFAULT_DUST_FEE)
-    dust_value = DEFAULT_DUST_FEE
-    
-    bill = op_fee
    
-    if not pay_fee:
-        # subsidized
-        dust_fee = 0
-        op_fee = 0
-        dust_value = 0
-        bill = 0
-    
-    return [
+    op_fee = max( op_fee, DEFAULT_DUST_FEE )
+
+    outputs =  [
         # main output
         {"script_hex": make_op_return_script(data, format=format),
          "value": 0},
         
         # change address
         {"script_hex": make_pay_to_address_script(change_addr),
-         "value": calculate_change_amount(inputs, bill, dust_fee)},
+         "value": calculate_change_amount(inputs, 0, 0)},
         
         # burn address
         {"script_hex": make_pay_to_address_script(BLOCKSTORE_BURN_ADDRESS),
          "value": op_fee}
     ]
     
+    dust_fee = tx_dust_fee_from_inputs_and_outputs( inputs, outputs )
+    outputs[1]['value'] = calculate_change_amount( inputs, op_fee, dust_fee )
 
-def broadcast( namespace_id, register_addr, consensus_hash, private_key, blockchain_client, fee, pay_fee=True, tx_only=False, testset=False, blockchain_broadcaster=None ):
+    return outputs 
+    
+
+def broadcast( namespace_id, register_addr, consensus_hash, private_key, blockchain_client, fee, tx_only=False, testset=False, blockchain_broadcaster=None ):
    """
    Propagate a namespace.
    
