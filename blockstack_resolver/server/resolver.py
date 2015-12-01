@@ -149,7 +149,7 @@ def get_user_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
     username = username.lower()
 
     blockstore_client = Proxy(BLOCKSTORED_SERVER, BLOCKSTORED_PORT)
-    blockstore_resp = blockstore_client.lookup(username + "." + namespace)
+    blockstore_resp = blockstore_client.get_name_blockchain_record(username + "." + namespace)
     blockstore_resp = blockstore_resp[0]
 
     if blockstore_resp is None:
@@ -162,13 +162,16 @@ def get_user_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
 
     if cache_reply is None:
 
-        profile_hash = blockstore_resp['value_hash']
-        profile = get_profile_from_dht(profile_hash)
-        data = format_profile(profile, username)
+        if 'value_hash' in blockstore_resp:
+            profile_hash = blockstore_resp['value_hash']
+            profile = get_profile_from_dht(profile_hash)
+            data = format_profile(profile, username)
 
-        if MEMCACHED_ENABLED or refresh:
-            mc.set("profile_" + str(username), json.dumps(data),
-                   int(time() + MEMCACHED_TIMEOUT))
+            if MEMCACHED_ENABLED or refresh:
+                mc.set("profile_" + str(username), json.dumps(data),
+                       int(time() + MEMCACHED_TIMEOUT))
+        else:
+            data = {"error": "Not found"}
     else:
         data = json.loads(cache_reply)
 
@@ -190,10 +193,12 @@ def get_users(usernames):
         username = usernames
 
         info = get_user_profile(username)
-        reply[username] = info
 
         if 'error' in info:
+            reply = {"error": "Not found"}
             return jsonify(reply), 502
+        else:
+            reply[username] = info
 
         return jsonify(reply), 200
 
@@ -206,7 +211,12 @@ def get_users(usernames):
     for username in usernames:
 
         try:
-            reply[username] = get_user_profile(username)
+            profile = get_user_profile(username)
+
+            if 'error' in profile:
+                pass
+            else:
+                reply[username] = profile
         except:
             pass
 
