@@ -435,7 +435,7 @@ def blockstore_name_preorder( name, privatekey, register_addr, tx_only=False, su
         return {"error": "Namespace is not ready"}
     
     name_fee = get_name_cost( name )
-        
+     
     log.debug("The price of '%s' is %s satoshis" % (name, name_fee))
    
     if privatekey is not None:
@@ -1039,7 +1039,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         
         db = get_state_engine()
         reply['consensus'] = db.get_current_consensus()
-        reply['blocks'] = db.get_current_block()
+        reply['last_block'] = db.get_current_block()
         reply['blockstore_version'] = "%s.%s" % (VERSION, BLOCKSTORE_VERSION)
         reply['testset'] = str(self.testset)
         return reply
@@ -1470,8 +1470,24 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
                 return {"error": "No such ready namespace"}
         else:
             return ns
-        
+   
     
+    def jsonrpc_get_namespace_reveal_blockchain_record( self, namespace_id ):
+        """
+        Return the revealed namespace with the given namespace_id
+        """
+        
+        db = get_state_engine()
+        ns = db.get_namespace_reveal( namespace_id )
+        if ns is None:
+            if is_indexing():
+                return {"error": "Indexing blockchain"}
+            else:
+                return {"error": "No such revealed namespace"}
+        else:
+            return ns
+   
+
     def jsonrpc_get_all_names( self, offset, count ):
         """
         Return all names 
@@ -1502,7 +1518,15 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         """
         db = get_state_engine()
         return db.get_consensus_at( block_id )
-   
+ 
+
+    def jsonrpc_get_block_from_consensus( self, consensus_hash ):
+        """
+        Given the consensus hash, find the block number
+        """
+        db = get_state_engine()
+        return db.get_block_from_consensus( consensus_hash )
+
 
     def jsonrpc_get_mutable_data( self, blockchain_id, data_name ):
         """
@@ -1533,12 +1557,14 @@ def run_indexer( testset=False ):
     bitcoind_opts = get_bitcoin_opts()
     
     _, last_block_id = get_index_range()
-    db = get_state_engine()
     
     while True:
         
         time.sleep( REINDEX_FREQUENCY )
+    
+        db = get_state_engine()
         virtualchain.sync_virtualchain( bitcoind_opts, last_block_id, db )
+        del db
         
         _, last_block_id = get_index_range()
         
@@ -1725,7 +1751,8 @@ def run_server( testset=False, foreground=False ):
         virtualchain.sync_virtualchain( bt_opts, current_block, db )
         
         set_indexing( False )
-    
+   
+    """
     # fork the indexer 
     if foreground:
         indexer = subprocess.Popen( indexer_command, shell=False )
@@ -1733,6 +1760,7 @@ def run_server( testset=False, foreground=False ):
         indexer = subprocess.Popen( indexer_command, shell=False, stdout=logfile, stderr=logfile )
         
     indexer_pid = indexer.pid
+    """
     
     # wait for the API server to die (we kill it with `blockstored stop`)
     blockstored.wait()
@@ -1920,10 +1948,8 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
         name_rec['history'] = untrusted_name_rec['history']
 
         if history_index > 0:
-            print "restore from %s" % block_number
             name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number )[ history_index - 1 ]
         else:
-            print "restore from %s" % (block_number - 1)
             name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number - 1 )[ history_index - 1 ]
 
         sender = name_rec_prev['sender']
