@@ -3,8 +3,8 @@
 """
     Blockstore-client
     ~~~~~
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
 
     This file is part of Blockstore-client.
 
@@ -104,7 +104,7 @@ class BlockstoreRPCClient(object):
 
         data = json.dumps(parameters)
         data_netstring = str(len(data)) + ":" + data + ","
-        
+
         # send request
         try:
             self.sock.sendall(data_netstring)
@@ -116,7 +116,7 @@ class BlockstoreRPCClient(object):
         # get response: expect comma-ending netstring
         # get the length first
         len_buf = ""
-        
+
         while True:
             c = self.sock.recv(1)
             if len(c) == 0:
@@ -151,7 +151,7 @@ class BlockstoreRPCClient(object):
         # receive message
         num_received = 0
         response = ""
-        
+
         while num_received < buf_len+1:
             buf = self.sock.recv( 4096 )
             num_received += len(buf)
@@ -169,6 +169,9 @@ class BlockstoreRPCClient(object):
         # parse the response
         try:
             result = json.loads(response)
+
+            # Netstrings responds with [{}] instead of {}
+            result = result[0]
         except Exception, e:
 
             # try to clean up
@@ -182,35 +185,35 @@ class BlockstoreRPCClient(object):
 def session(conf=None, server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_PORT,
             storage_drivers=BLOCKSTORE_DEFAULT_STORAGE_DRIVERS,
             metadata_dir=BLOCKSTORE_METADATA_DIR, set_global=True):
-    
+
     """
-    Create a blockstore session: 
+    Create a blockstore session:
     * validate the configuration
-    * load all storage drivers 
+    * load all storage drivers
     * initialize all storage drivers
     * load an API proxy to blockstore
-    
+
     Returns the API proxy object.
     """
-    
+
     global default_proxy
     proxy = BlockstoreRPCClient(server_host, server_port)
 
     if default_proxy is None and set_global:
         default_proxy = proxy
-      
+
     if conf is not None:
-        
+
         missing = find_missing( conf )
         if len(missing) > 0:
             log.error("Missing blockstore configuration fields: %s" % (", ".join(missing)))
             sys.exit(1)
-            
+
         server_host = conf['server']
         server_port = conf['port']
         storage_drivers = conf['storage_drivers']
         metadata_dir = conf['metadata']
-    
+
     if storage_drivers is None:
         log.error("No storage driver(s) defined in the config file.  Please set 'storage=' to a comma-separated list of %s" % ", ".join(drivers.DRIVERS))
         sys.exit(1)
@@ -226,7 +229,7 @@ def session(conf=None, server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_P
         if not rc:
             log.error("Failed to initialize storage driver '%s'" % (storage_driver))
             sys.exit(1)
-    
+
     return proxy
 
 
@@ -469,11 +472,11 @@ def get_name_record(name, create_if_absent=False):
     name_record = get_name_blockchain_record(name)
     if len(name_record) == 0:
         return {"error": "No such name"}
-   
+
     if 'error' in name_record:
-        return name_record 
-    
-    name_record = name_record[0]
+        return name_record
+
+    name_record = name_record
     if name_record is None:
         # failed to look up
         return {'error': "No such name"}
@@ -641,17 +644,17 @@ def get_all_names( offset, count, proxy=None ):
     """
     if proxy is None:
         proxy = get_default_proxy()
-    
+
     return proxy.get_all_names( offset, count )
 
 
 def get_names_in_namespace( namespace_id, offset, count, proxy=None ):
     """
-    Get names in a namespace 
+    Get names in a namespace
     """
     if proxy is None:
         proxy = get_default_proxy()
-        
+
     return proxy.get_names_in_namespace( namespace_id, offset, count )
 
 
@@ -668,11 +671,11 @@ def get_names_owned_by_address( address, proxy=None ):
 
 def get_consensus_at( block_id, proxy=None ):
     """
-    Get consensus at a block 
+    Get consensus at a block
     """
     if proxy is None:
         proxy = get_default_proxy()
-    
+
     return proxy.get_consensus_at( block_id )
 
 
@@ -706,6 +709,14 @@ def snv( name, current_block_id, current_consensus_hash, block_id, consensus_has
     if proxy is None:
         proxy = get_default_proxy()
 
+    # get current consensus hash and block ID
+    current_info = getinfo( proxy=proxy )
+    if 'error' in current_info:
+        return current_info
+
+    current_block_id = int(current_info['blocks'])
+    current_consensus_hash = str(current_info['consensus'])
+
     # work backwards in time, using a Merkle skip-list constructed
     # by blockstored over the set of consensus hashes.
     next_block_id = current_block_id
@@ -719,7 +730,7 @@ def snv( name, current_block_id, current_consensus_hash, block_id, consensus_has
 
         # get nameops_at[ next_block_id ], and all consensus_hash[ next_block_id - 2^i ] such that block_id - 2*i > block_id (start at i = 1)
         i = 0
-        nameops_hash = None 
+        nameops_hash = None
 
         if not prev_nameops_hashes.has_key(next_block_id):
             nameops_resp = get_nameops_hash_at( next_block_id, proxy=proxy )
@@ -728,7 +739,7 @@ def snv( name, current_block_id, current_consensus_hash, block_id, consensus_has
                 log.error("get_nameops_hash_at: %s" % nameops_resp['error'])
                 return {'error': 'Failed to get nameops: %s' % nameops_resp['error']}
 
-            nameops_hash = str( nameops_resp[0] )
+            nameops_hash = str( nameops_resp )
             prev_nameops_hashes[ next_block_id ] = nameops_hash
 
         else:
@@ -736,13 +747,13 @@ def snv( name, current_block_id, current_consensus_hash, block_id, consensus_has
 
         ch_block_ids = []
         while next_block_id - (2**(i+1) - 1) >= blockstore.lib.config.FIRST_BLOCK_MAINNET:
-            
+
             i += 1
             ch_block_ids.append( next_block_id - (2**i - 1))
 
             if not prev_consensus_hashes.has_key( next_block_id - (2**i - 1) ):
-                ch = str( get_consensus_at( next_block_id - (2**i - 1), proxy=proxy )[0] )
-                
+                ch = str( get_consensus_at( next_block_id - (2**i - 1), proxy=proxy ))
+
                 if ch != "None":
                     prev_consensus_hashes[ next_block_id - (2**i - 1) ] = ch
 
@@ -752,7 +763,7 @@ def snv( name, current_block_id, current_consensus_hash, block_id, consensus_has
                     break
 
         prev_consensus_hashes_list = [ prev_consensus_hashes[b] for b in ch_block_ids ]
-        
+
         # calculate the snapshot, and see if it matches
         ch = virtualchain.StateEngine.make_snapshot_from_ops_hash( nameops_hash, prev_consensus_hashes_list )
         expected_ch = prev_consensus_hashes[ next_block_id ]
@@ -766,7 +777,7 @@ def snv( name, current_block_id, current_consensus_hash, block_id, consensus_has
         found_any = False
         for candidate_block_id in prev_consensus_hashes.keys():
             if candidate_block_id < block_id:
-                continue 
+                continue
 
             if candidate_block_id < current_candidate:
                 current_candidate = candidate_block_id
@@ -777,12 +788,10 @@ def snv( name, current_block_id, current_consensus_hash, block_id, consensus_has
 
         next_block_id = current_candidate
 
-    # get the final nameops 
+    # get the final nameops
     historic_nameops = get_nameops_at( block_id, proxy=proxy )
     if 'error' in historic_nameops:
         return {'error': 'BUG: no nameops found:'}
-   
-    historic_nameops = historic_nameops[0]
 
     # sanity check...
     for historic_op in historic_nameops:
@@ -810,7 +819,7 @@ def snv( name, current_block_id, current_consensus_hash, block_id, consensus_has
     # not found
     log.error("Not found at block %s: '%s'" % (block_id, name))
     return {'error': 'Name not found'}
-    
+
 
 def get_name_blockchain_record(name, proxy=None):
     """
@@ -834,8 +843,8 @@ def get_namespace_blockchain_record( namespace_id, proxy=None ):
     ret = proxy.get_namespace_blockchain_record(namespace_id)
     if ret is not None:
         # this isn't needed
-        if 'opcode' in ret[0]:
-            del ret[0]['opcode']
+        if 'opcode' in ret:
+            del ret['opcode']
 
     return ret
 
@@ -871,14 +880,14 @@ def preorder(name, privatekey, register_addr=None, proxy=None, tx_only=False ):
 
     try:
         if tx_only:
-            
+
             # get unsigned preorder
             resp = proxy.preorder_tx( name, privatekey, register_addr )
-            
+
         else:
             # send preorder
             resp = proxy.preorder(name, privatekey, register_addr)
-            
+
     except Exception as e:
         resp['error'] = str(e)
 
@@ -887,7 +896,7 @@ def preorder(name, privatekey, register_addr=None, proxy=None, tx_only=False ):
 
     # give the client back the key to the addr we used
     if register_privkey_wif is not None:
-        resp[0]['register_privatekey'] = register_privkey_wif
+        resp['register_privatekey'] = register_privkey_wif
 
     return resp
 
@@ -895,7 +904,7 @@ def preorder(name, privatekey, register_addr=None, proxy=None, tx_only=False ):
 def preorder_subsidized( name, public_key, register_addr, subsidy_key, proxy=None ):
     """
     preorder a name, but subsidize it with the given subsidy_key.
-    Return a SIGHASH_ANYONECANPAY transaction, where the client must sign each 
+    Return a SIGHASH_ANYONECANPAY transaction, where the client must sign each
     input originating from register_addr
     """
     resp = {}
@@ -906,10 +915,10 @@ def preorder_subsidized( name, public_key, register_addr, subsidy_key, proxy=Non
     try:
         # get preorder tx
         resp = proxy.preorder_tx_subsidized( name, public_key, register_addr, subsidy_key )
-        
+
     except Exception as e:
         resp['error'] = str(e)
-    
+
     return resp
 
 
@@ -923,14 +932,14 @@ def register(name, privatekey, register_addr, proxy=None, tx_only=False ):
 
     try:
         if tx_only:
-            
+
             # get unsigned preorder
             resp = proxy.register_tx( name, privatekey, register_addr )
-            
+
         else:
             # send preorder
             resp = proxy.register(name, privatekey, register_addr)
-            
+
     except Exception as e:
         resp['error'] = str(e)
 
@@ -941,7 +950,7 @@ def register(name, privatekey, register_addr, proxy=None, tx_only=False ):
 def register_subsidized( name, public_key, register_addr, subsidy_key, proxy=None ):
     """
     make a transaction that will register a name, but subsidize it with the given subsidy_key.
-    Return a SIGHASH_ANYONECANPAY transaction, where the client must sign each 
+    Return a SIGHASH_ANYONECANPAY transaction, where the client must sign each
     input originating from register_addr
     """
     resp = {}
@@ -952,10 +961,10 @@ def register_subsidized( name, public_key, register_addr, subsidy_key, proxy=Non
     try:
         # get register tx
         resp = proxy.register_tx_subsidized( name, public_key, register_addr, subsidy_key )
-        
+
     except Exception as e:
         resp['error'] = str(e)
-    
+
     return resp
 
 
@@ -967,11 +976,11 @@ def update(name, user_json_or_hash, privatekey, txid=None, proxy=None, tx_only=F
     data to new storage systems, or to recover from a transient error encountered
     earlier.
     """
-    
-    # sanity check 
+
+    # sanity check
     if privatekey is None and public_key is None:
         return {'error': 'Missing public and private key'}
-    
+
     if proxy is None:
         proxy = get_default_proxy()
 
@@ -1003,27 +1012,26 @@ def update(name, user_json_or_hash, privatekey, txid=None, proxy=None, tx_only=F
     result = {}
 
     old_hash = pybitcoin.hash.hex_hash160(user_db.serialize_user(user_data))
-    
+
     # only want transaction?
     if tx_only:
-        
+
         if privatekey is None and public_key is not None and subsidy_key is not None:
             return proxy.update_tx_subsidized( name, user_record_hash, public_key, subsidy_key )
-        
+
         else:
             return proxy.update_tx( name, user_record_hash, privatekey )
-            
-    
+
+
     # no transaction: go put one
     if txid is None:
-        
+
         if tx_only:
             result = proxy.update_tx( name, user_record_hash, privatekey )
-            return result 
-        
+            return result
+
         else:
             result = proxy.update(name, user_record_hash, privatekey)
-            result = result[0]
 
         if 'error' in result:
             # failed
@@ -1079,7 +1087,7 @@ def transfer(name, address, keep_data, privatekey, proxy=None, tx_only=False):
 
     if tx_only:
         return proxy.transfer_tx( name, address, keep_data, privatekey )
-    
+
     else:
         return proxy.transfer(name, address, keep_data, privatekey)
 
@@ -1104,7 +1112,7 @@ def renew(name, privatekey, proxy=None, tx_only=False):
 
     if tx_only:
         return proxy.renew_tx( name, privatekey )
-    
+
     else:
         return proxy.renew(name, privatekey)
 
@@ -1113,7 +1121,7 @@ def renew_subsidized( name, public_key, subsidy_key, proxy=None ):
     """
     renew_subsidized
     """
-    
+
     if proxy is None:
         proxy = get_default_proxy()
 
@@ -1130,11 +1138,11 @@ def revoke(name, privatekey, proxy=None, tx_only=False):
 
     if tx_only:
         return proxy.revoke_tx( name, privatekey )
-    
+
     else:
         return proxy.revoke(name, privatekey)
-    
-    
+
+
 def revoke_subsidized( name, public_key, subsidy_key, proxy=None ):
     """
     revoke_subsidized
@@ -1151,7 +1159,7 @@ def send_subsidized( privatekey, subsidized_tx, proxy=None ):
     """
     if proxy is None:
         proxy = get_default_proxy()
-        
+
     return proxy.send_subsidized( privatekey, subsidized_tx )
 
 
@@ -1197,7 +1205,7 @@ def namespace_preorder(namespace_id, privatekey, reveal_addr=None, proxy=None):
         return result
 
     if reveal_privkey_wif is not None:
-        result[0]['reveal_privatekey'] = reveal_privkey_wif
+        result['reveal_privatekey'] = reveal_privkey_wif
 
     return result
 
