@@ -24,10 +24,6 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
-from blockstore import client, config
-
-log = config.log
-
 AVG_BLOCK_TIME = 600    # average number of seconds between blocks 
 CONFIRM_DELAY = 10      # number of blocks to wait to pass before confirming that the name was registered
 MAX_UNCONFIRMED = 50000000
