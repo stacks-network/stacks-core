@@ -309,6 +309,7 @@ def get_db_state():
    
    # force invalidation
    if now - last_load_time > REINDEX_FREQUENCY:
+       del blockstore_db
        blockstore_db = None
        
    if blockstore_db is not None:
