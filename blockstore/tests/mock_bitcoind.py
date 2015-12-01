@@ -17,6 +17,7 @@ import time
 import socket
 import hashlib 
 import binascii
+import cPickle as pickle
 from decimal import *
 
 from utilitybelt import is_valid_int
@@ -47,11 +48,13 @@ class MockBitcoindConnection( object ):
     API for virtualchain to use it for testing.
     """
 
-    def __init__(self, tx_path=None, tx_list=None, tx_grouping=1, start_block=0, start_time=0x11111111, difficulty=1.0, initial_utxos={}, **kw ):
+    def __init__(self, save_file=None, tx_path=None, tx_list=None, tx_grouping=1, start_block=0, start_time=0x11111111, difficulty=1.0, initial_utxos={}, **kw ):
         """
         Create a mock bitcoind connection, either from a 
         list of serialized transactions on-file, or a given Python
         list of serialized transactions.
+
+        If possible, restore from a saved file.  This trumps all other options.
 
         Transactions will be bundled into blocks in groups of size tx_grouping.
         """
@@ -60,73 +63,79 @@ class MockBitcoindConnection( object ):
         self.blocks = {}        # map block hash to block info (including transaction IDs)
         self.txs = {}       # map tx hash to a list of transactions
         self.next_block_txs = []    # next block's transactions
-
         self.difficulty = difficulty 
         self.time = start_time 
-        self.start_block = start_block 
+        self.start_block = start_block
         self.end_block = start_block
         
         self.block_hashes[ start_block - 1 ] = '00' * 32
         self.blocks[ '00' * 32 ] = {}
+
+        self.save_file = save_file
+
+        if save_file is not None and os.path.exists( save_file ):
+            self.restore( save_file )
         
-        # the initial utxos might be a serialized CSV (i.e. loaded directly from the config file).
-        # if so, then parse it 
-        if type(initial_utxos) in [str, unicode]:
-            tmp = {}
-            parts = initial_utxos.split(",")
-            for utxo in parts:
-                privkey, value = utxo.split(':')
-                tmp[ privkey ] = int(value)
+        else:
+            # the initial utxos might be a serialized CSV (i.e. loaded directly from the config file).
+            # if so, then parse it 
+            if type(initial_utxos) in [str, unicode]:
+                tmp = {}
+                parts = initial_utxos.split(",")
+                for utxo in parts:
+                    privkey, value = utxo.split(':')
+                    tmp[ privkey ] = int(value)
 
-            initial_utxos = tmp
-            
-        tx_recs = []
-        if tx_path is not None:
-            with open( tx_path, "r" ) as f:
-                tmp = f.readlines()
-                tx_recs = [l.strip() for l in tmp]
-
-        elif tx_list is not None:
-            tx_recs = tx_list 
-
-        # prepend utxos
-        if len(initial_utxos) > 0:
-            initial_outputs = []
-            for (privkey, value) in initial_utxos.items():
+                initial_utxos = tmp
                 
-                addr = pybitcoin.BitcoinPrivateKey( privkey ).public_key().address()
-                out = {
-                    'value': value,
-                    'script_hex': pybitcoin.make_pay_to_address_script( addr )
+            tx_recs = []
+            if tx_path is not None:
+                with open( tx_path, "r" ) as f:
+                    tmp = f.readlines()
+                    tx_recs = [l.strip() for l in tmp]
+
+            elif tx_list is not None:
+                tx_recs = tx_list 
+
+            # prepend utxos
+            if len(initial_utxos) > 0:
+                initial_outputs = []
+                for (privkey, value) in initial_utxos.items():
+                    
+                    addr = pybitcoin.BitcoinPrivateKey( privkey ).public_key().address()
+                    out = {
+                        'value': value,
+                        'script_hex': pybitcoin.make_pay_to_address_script( addr )
+                    }
+                    initial_outputs.append( out )
+
+                tx = {
+                    'inputs': [],
+                    'outputs': initial_outputs,
+                    'locktime': 0,
+                    'version': 0xff
                 }
-                initial_outputs.append( out )
+                
+                tx_hex = tx_serialize( tx['inputs'], tx['outputs'], tx['locktime'], tx['version'] )
+                tx_recs = [tx_hex] + tx_recs
+          
+            # feed all txs
+            i = 0 
+            while True:
+                
+                txs = []
+                count = 0
+                while i < len(tx_recs) and count < tx_grouping:
+                    txs.append( tx_recs[i] )
+                    i += 1
 
-            tx = {
-                'inputs': [],
-                'outputs': initial_outputs,
-                'locktime': 0,
-                'version': 0xff
-            }
-            
-            tx_hex = tx_serialize( tx['inputs'], tx['outputs'], tx['locktime'], tx['version'] )
-            tx_recs = [tx_hex] + tx_recs
-       
-        i = 0 
-        while True:
-            
-            txs = []
-            count = 0
-            while i < len(tx_recs) and count < tx_grouping:
-                txs.append( tx_recs[i] )
-                i += 1
-
-            if len(txs) > 0:
-                for tx in txs:
-                    self.sendrawtransaction( tx )
-                self.flush_transactions()
-            
-            if i >= len(tx_recs):
-                break
+                if len(txs) > 0:
+                    for tx in txs:
+                        self.sendrawtransaction( tx )
+                    self.flush_transactions()
+                
+                if i >= len(tx_recs):
+                    break
 
 
     def getinfo( self ):
@@ -223,7 +232,6 @@ class MockBitcoindConnection( object ):
         TODO: we don't check for transaction validity here...
         """
 
-        inputs, outputs, locktime, version = tx_deserialize( tx_hex )
         self.next_block_txs.append( tx_hex )
 
     
@@ -248,6 +256,7 @@ class MockBitcoindConnection( object ):
         TESTING ONLY
 
         Send the bufferred list of transactions as a block.
+        Save the resulting transactions to a temporary file.
         """
         
         # next block
@@ -305,13 +314,63 @@ class MockBitcoindConnection( object ):
         self.difficulty += 1
         self.end_block += 1
 
+        if self.save_file is not None:
+            self.save( self.save_file )
+
         return [ make_txid( tx ) for tx in txs ]
 
+
+    def save( self, path ):
+        """
+        Save the contents of this mock bitcoind connection to disk.
+        """
+
+        to_save = {
+            "block_hashes": self.block_hashes,
+            "blocks": self.blocks,
+            "txs": self.txs,
+            "next_block_txs": self.next_block_txs,
+            "difficulty": self.difficulty,
+            "time": self.time,
+            "start_block": self.start_block,
+            "end_block": self.end_block,
+            "block_hashes": self.block_hashes,
+            "blocks": self.blocks
+        }
+
+        serialized_data = pickle.dumps( to_save )
+        with open( path, "w" ) as f:
+            f.write( serialized_data )
+            f.flush()
+
+
+    def restore( self, path ):
+        """
+        Restore the contents of this mock bitcoind connection from disk.
+        """
+        
+        with open(path, "r") as f:
+            serialized_data = f.read()
+
+        data = pickle.loads( serialized_data )
+        
+        self.block_hashes = data['block_hashes']
+        self.blocks = data['blocks']
+        self.txs = data['txs']
+        self.next_block_txs = data['next_block_txs']
+        self.difficulty = data['difficulty']
+        self.time = data['time']
+        self.start_block = data['start_block']
+        self.end_block = data['end_block']
+        self.block_hashes = data['block_hashes']
+        self.blocks = data['blocks']
 
 
 def connect_mock_bitcoind( mock_opts, reset=False ):
     """
-    Mock connection factory for bitcoind
+    Mock connection factory for bitcoind.
+    if MOCK_BITCOIND_SAVE_PATH is set in the environment,
+    then use that path to save/restore the mock blockchain.
     """
 
     global mock_bitcoind
@@ -325,6 +384,10 @@ def connect_mock_bitcoind( mock_opts, reset=False ):
     else:
         mock_bitcoind = MockBitcoindConnection( **mock_opts )
         return mock_bitcoind
+
+
+def connect_bitcoind( mock_opts ):
+    return connect_mock_bitcoind( mock_opts )
 
 
 def get_mock_bitcoind():
