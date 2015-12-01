@@ -346,7 +346,48 @@ def tx_analyze_inputs( inputs, bitcoind_opts ):
         
     return ret_inputs
     
+
+def tx_dust_fee( tx_hex ):
+    """
+    Given a serialized transaction, calculate a minimum dust fee
+    """
+
+    # fee in BTC is 0.0001 * num_kilobytes
+    # fee in satoshis:
+    # 10**8 * 0.0001 * (len(tx_hex) / 1000) == 10**4 * len(tx_hex) / 1000 == 10 * len(tx_hex)
+    return 10 * len(tx_hex)
+
+
+def tx_dust_fee_from_inputs_and_outputs( inputs, outputs ):
+    """
+    Calculate (about) how much dust to provide, given a list of inputs and outputs
+    """
+
+    # throw-away key to use as a place-holder
+    pk = pybitcoin.BitcoinPrivateKey('5HsbxjxLx1gTzvhWTPZ7DZ91xbGvHHuVxCXJqfruCc6tEog3M2k')
+    serialized_tx = tx_serialize_and_sign( inputs, outputs, pk )
+    return tx_dust_fee( serialized_tx )
     
+   
+def tx_serialize_subsidized_tx( blockstore_tx, payer_privkey_hex, payer_utxo_inputs, payer_address, dust_fee, op_fee ):
+    """
+    Make a signed serialized transaction with the given operation and dust fees
+    """
+    tx_inputs, tx_outputs, locktime, version = tx_deserialize( blockstore_tx )
+
+    subsidy_output = tx_make_subsidization_output( payer_utxo_inputs, payer_address, op_fee, dust_fee )
+    
+    # add our inputs and output
+    subsidized_tx = tx_extend( blockstore_tx, payer_utxo_inputs, [subsidy_output] )
+   
+    # sign each of our inputs with our key, but use SIGHASH_ANYONECANPAY so the client can sign its inputs
+    for i in xrange( 0, len(payer_utxo_inputs)):
+        idx = i + len(tx_inputs)
+        subsidized_tx = bitcoin.sign( subsidized_tx, idx, payer_privkey_hex, hashcode=bitcoin.SIGHASH_ANYONECANPAY )
+    
+    return subsidized_tx
+
+
 def tx_make_subsidizable( blockstore_tx, fee_cb, max_fee, subsidy_key, utxo_client ):
     """
     Given an unsigned serialized transaction from Blockstore, make it into a subsidized transaction 
@@ -374,16 +415,11 @@ def tx_make_subsidizable( blockstore_tx, fee_cb, max_fee, subsidy_key, utxo_clie
     else:
         log.debug("%s will subsidize %s satoshi" % (pybitcoin.BitcoinPrivateKey( subsidy_key ).public_key().address(), dust_fee + op_fee ))
     
-    subsidy_output = tx_make_subsidization_output( payer_utxo_inputs, payer_address, op_fee, dust_fee )
-    
-    # add our inputs and output
-    subsidized_tx = tx_extend( blockstore_tx, payer_utxo_inputs, [subsidy_output] )
-   
-    # sign each of our inputs with our key, but use SIGHASH_ANYONECANPAY so the client can sign its inputs
-    for i in xrange( 0, len(payer_utxo_inputs)):
-        idx = i + len(tx_inputs)
-        subsidized_tx = bitcoin.sign( subsidized_tx, idx, private_key_obj.to_hex(), hashcode=bitcoin.SIGHASH_ANYONECANPAY )
-    
+    # calculate how much the dust fee needs to be 
+    subsidized_tx = tx_serialize_subsidized_tx( blockstore_tx, private_key_obj.to_hex(), payer_utxo_inputs, payer_address, 0, op_fee )
+    dust_fee = tx_dust_fee( subsidized_tx )
+
+    # *now* make the transaction
+    subsidized_tx = tx_serialize_subsidized_tx( blockstore_tx, private_key_obj.to_hex(), payer_utxo_inputs, payer_address, dust_fee, op_fee )
     return subsidized_tx
-    
-    
+
