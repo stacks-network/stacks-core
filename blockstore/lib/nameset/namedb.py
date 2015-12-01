@@ -70,6 +70,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
       blockstore database state.
       """
       
+      log.debug("Initialize database from '%s'" % db_filename)
+
       import virtualchain_hooks
       blockstore_opts = default_blockstore_opts( virtualchain.get_config_filename() )
       initial_snapshots = None 
