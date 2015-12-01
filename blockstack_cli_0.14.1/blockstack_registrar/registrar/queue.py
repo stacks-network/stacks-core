@@ -35,7 +35,7 @@ from .utils import get_hash
 from .utils import config_log
 from .utils import pretty_print as pprint
 
-from .config import DHT_IGNORE
+from .config import DHT_IGNORE, TX_CONFIRMATIONS_NEEDED
 
 log = config_log(__name__)
 
@@ -169,9 +169,10 @@ def cleanup_transfer_queue():
         else:
             confirmations = get_tx_confirmations(entry['tx_hash'])
 
-            if confirmations > 7:
-                log.debug('-' * 5)
-                log.debug("ERROR: (%s, %s)" % (fqu, transfer_address))
+            if confirmations > TX_CONFIRMATIONS_NEEDED:
+                pass
+                #log.debug('-' * 5)
+                #log.debug("ERROR: (%s, %s)" % (fqu, transfer_address))
 
 
 def display_queue_info():
