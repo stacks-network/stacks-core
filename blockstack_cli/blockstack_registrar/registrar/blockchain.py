@@ -161,30 +161,3 @@ def underfundedAddress(address):
         return True
     else:
         return False
-
-
-if __name__ == '__main__':
-
-    try:
-        command = sys.argv[1]
-    except Exception as e:
-        log.info("Options are block_height, tx_confirmations")
-        exit(0)
-
-    if command == "block_height":
-        log.info("Block height: %s" % get_block_height())
-
-    elif command == "tx_confirmations":
-        try:
-            tx_hash = sys.argv[2]
-            log.info("(tx, confirmations): (%s, %s)"
-                     % (tx_hash, get_tx_confirmations(tx_hash)))
-        except:
-            log.info("Tx hash missing")
-
-    elif command == "get_balance":
-        try:
-            address = sys.argv[2]
-            get_balance(address)
-        except:
-            log.info("Address is missing")
