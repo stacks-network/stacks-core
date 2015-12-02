@@ -236,7 +236,7 @@ def get_namespace():
     namespace = 'xx'  # get namespace info
 
     results['usernames'] = namespace['namespace']
-    results['profiles'] = namespace['profiles'] 
+    results['profiles'] = namespace['profiles']
 
     return jsonify(results)
 
