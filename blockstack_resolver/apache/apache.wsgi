@@ -2,8 +2,8 @@
     Resolver
     ~~~~~
 
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-15 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
 
 This file is part of Resolver.
 
@@ -30,4 +30,4 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
-from server.resolver import app as application
+from resolver.server import app as application

@@ -2,8 +2,8 @@
     Resolver
     ~~~~~
 
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
 
 This file is part of Resolver.
 
