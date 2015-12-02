@@ -34,6 +34,7 @@ DEFAULT_NAMESPACE = "id"
 REGISTRAR_DRIVERS = ['webapp', 'api']
 
 IGNORE_USERNAMES = []
+IGNORE_NAMES_STARTING_WITH = []
 
 # for registrar's internal queue
 QUEUE_DB_URI = os.environ['QUEUE_DB_URI']
