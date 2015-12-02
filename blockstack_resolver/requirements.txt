@@ -1,9 +1,12 @@
+basicrpc==0.0.2
+beautifulsoup4==4.4.1
+dnspython==1.12.0
 Flask==0.10.1
+itsdangerous==0.24
 Jinja2==2.8
 MarkupSafe==0.23
-Werkzeug==0.10.4
-basicrpc==0.0.1
-beautifulsoup4==4.4.0
-itsdangerous==0.24
+proofchecker==0.0.2
 pylibmc==1.5.0
-requests==2.7.0
+pymongo==3.0.3
+requests==2.8.1
+Werkzeug==0.10.4
