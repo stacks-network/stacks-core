@@ -33,7 +33,7 @@ from ..config import IGNORE_NAMES_STARTING_WITH
 
 from ..utils import pretty_print as pprint
 from ..utils import get_hash, config_log
-from ..utils import validAddress
+from ..utils import validAddress, ignoreRegistration
 
 from ..server import RegistrarServer
 from ..states import registrationComplete
@@ -76,11 +76,9 @@ class APIDriver(object):
                 continue
 
             # test for ignoring names starting with certain patterns
-            for pattern in IGNORE_NAMES_STARTING_WITH:
-
-                if entry['username'].startswith(pattern):
-                    log.debug("Ignoring: %s" % entry['username'])
-                    continue
+            if ignoreRegistration(entry['username'], IGNORE_NAMES_STARTING_WITH):
+                log.debug("Ignoring: %s" % entry['username'])
+                continue
 
             fqu = entry['username'] + "." + DEFAULT_NAMESPACE
             transfer_address = entry['transfer_address']
