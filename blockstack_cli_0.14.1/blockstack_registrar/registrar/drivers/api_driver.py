@@ -29,10 +29,11 @@ from pymongo import MongoClient
 
 from ..config import DEFAULT_NAMESPACE
 from ..config import MINIMUM_LENGTH_NAME
+from ..config import IGNORE_NAMES_STARTING_WITH
 
 from ..utils import pretty_print as pprint
 from ..utils import get_hash, config_log
-from ..utils import validAddress
+from ..utils import validAddress, ignoreRegistration
 
 from ..server import RegistrarServer
 from ..states import registrationComplete
@@ -69,8 +70,14 @@ class APIDriver(object):
 
         for entry in self.registrations.find():
 
+            # test for minimum name length
             if len(entry['username']) < MINIMUM_LENGTH_NAME:
                 log.debug("Expensive name %s. Skipping." % entry['username'])
+                continue
+
+            # test for ignoring names starting with certain patterns
+            if ignoreRegistration(entry['username'], IGNORE_NAMES_STARTING_WITH):
+                log.debug("Ignoring: %s" % entry['username'])
                 continue
 
             fqu = entry['username'] + "." + DEFAULT_NAMESPACE

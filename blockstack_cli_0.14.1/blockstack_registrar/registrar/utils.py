@@ -99,6 +99,16 @@ def check_banned_email(email):
         return False
 
 
+def ignoreRegistration(name, ignore_patterns):
+
+    for pattern in ignore_patterns:
+
+        if name.startswith(pattern):
+            return True
+
+    return False
+
+
 def nmc_to_btc_address(nmc_address):
 
     return address_to_new_cryptocurrency(str(nmc_address), 0)

@@ -144,7 +144,7 @@ class RegistrarServer(object):
                     return register(fqu, auto_preorder=False)
             else:
                 if nameop is None or nameop is 'preorder':
-                    log.debug("Preordering: %s" % fqu)
+                    #log.debug("Preordering: %s" % fqu)
                     # loadbalancing happens in get_next_addresses()
                     payment_address, owner_address = self.get_next_addresses()
 
@@ -154,20 +154,23 @@ class RegistrarServer(object):
                         return preorder(fqu, payment_address, owner_address)
 
         elif not profileonBlockchain(fqu, profile):
+            #log.debug("Not updated: %s" % fqu)
 
             if nameop is None or nameop is 'update':
                 log.debug("Updating profile on blockchain: %s" % fqu)
                 return update(fqu, profile)
 
         elif not profileonDHT(fqu, profile):
+            #log.debug("Not on DHT: %s" % fqu)
 
             if fqu not in DHT_IGNORE:
-                log.debug("Writing profile to DHT: %s" % fqu)
+                #log.debug("Writing profile to DHT: %s" % fqu)
                 write_dht_profile(profile)
 
             return False  # because not a blockchain operation
 
         elif not ownerName(fqu, transfer_address):
+            #log.debug("Not transferred: %s" % fqu)
 
             if nameop is None or nameop is 'transfer':
                 log.debug("Transferring name: %s" % fqu)
