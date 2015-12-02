@@ -164,7 +164,7 @@ class MockBitcoindConnection( object ):
         """
 
         return {"errors": "Mock bitcoind",
-                "blocks": len(self.blocks)}
+                "blocks": len(self.blocks) + self.start_block - 1}
 
     def getblockhash( self, block_id ):
         """
@@ -383,7 +383,6 @@ class MockBitcoindConnection( object ):
         self.start_block = data['start_block']
         self.end_block = data['end_block']
         self.block_hashes = data['block_hashes']
-        self.blocks = data['blocks']
 
 
 def connect_mock_bitcoind( mock_opts, reset=False ):
