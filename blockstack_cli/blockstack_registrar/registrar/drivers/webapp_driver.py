@@ -28,6 +28,7 @@ from pymongo import MongoClient
 
 from ..config import DEFAULT_NAMESPACE, RATE_LIMIT
 from ..config import MINIMUM_LENGTH_NAME
+from ..config import IGNORE_NAMES_STARTING_WITH
 
 from ..utils import get_hash, check_banned_email, nmc_to_btc_address
 from ..utils import config_log
@@ -104,9 +105,17 @@ class WebappDriver(object):
                     log.debug("Need to delete %s, %s" % (user['email'], user['username']))
                     continue
 
+            # test for minimum name length
             if len(user['username']) < MINIMUM_LENGTH_NAME:
                 log.debug("Expensive name %s. Skipping." % user['username'])
                 continue
+
+            # test for ignoring names starting with certain patterns
+            for pattern in IGNORE_NAMES_STARTING_WITH:
+
+                if user['username'].startswith(pattern):
+                    log.debug("Ignoring: %s" % user['username'])
+                    continue
 
             fqu = user['username'] + "." + DEFAULT_NAMESPACE
             transfer_address = nmc_to_btc_address(user['namecoin_address'])
