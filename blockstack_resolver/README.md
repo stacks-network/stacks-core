@@ -13,7 +13,7 @@ Resolver is a highly scalable server for [blockchain IDs](https://github.com/blo
 We welcome all contributions! to this open-source software! Some things to note: 
 
 * The [v0.3](https://github.com/blockstack/resolver/tree/v0.3) branch is the most active one and uses Bitcoin. Please use that branch for submitting pull requests.
-* The last stable release with support for Namecoin is [v0.2](https://github.com/blockstack/resolver/releases/tag/v0.2). Use the [namecoin](https://github.com/blockstack/resolver/tree/namecoin) branch for further development on it.
+* The last stable release with support for Namecoin is [v0.2](https://github.com/blockstack/resolver/releases/tag/v0.2). We no longer support Namecoin.
 
 ## API Calls:
 
