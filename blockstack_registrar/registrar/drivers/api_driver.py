@@ -29,6 +29,7 @@ from pymongo import MongoClient
 
 from ..config import DEFAULT_NAMESPACE
 from ..config import MINIMUM_LENGTH_NAME
+from ..config import IGNORE_NAMES_STARTING_WITH
 
 from ..utils import pretty_print as pprint
 from ..utils import get_hash, config_log
@@ -69,9 +70,17 @@ class APIDriver(object):
 
         for entry in self.registrations.find():
 
+            # test for minimum name length
             if len(entry['username']) < MINIMUM_LENGTH_NAME:
                 log.debug("Expensive name %s. Skipping." % entry['username'])
                 continue
+
+            # test for ignoring names starting with certain patterns
+            for pattern in IGNORE_NAMES_STARTING_WITH:
+
+                if entry['username'].startswith(pattern):
+                    log.debug("Ignoring: %s" % entry['username'])
+                    continue
 
             fqu = entry['username'] + "." + DEFAULT_NAMESPACE
             transfer_address = entry['transfer_address']
