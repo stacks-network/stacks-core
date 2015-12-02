@@ -55,6 +55,11 @@ webapp_data = WebappDriver()
 api_data = APIDriver()
 
 
+def usage():
+
+    log.info("Options are register, update, cleanup, stats, reprocess")
+
+
 def run_cli(command, argv=None):
 
     if command == "preorder":
@@ -102,6 +107,9 @@ def run_cli(command, argv=None):
         webapp_data.display_stats()
         api_data.display_stats()
 
+    elif command == "blocks":
+        log.info("Block height: %s" % get_block_height())
+
     elif command == "wallet":
 
         try:
@@ -131,6 +139,8 @@ def run_cli(command, argv=None):
             exit(0)
 
         webapp_data.reprocess_user(username)
+    else:
+        usage()
 
 
 def run_loop():
@@ -160,7 +170,7 @@ if __name__ == '__main__':
     try:
         command = sys.argv[1]
     except:
-        log.info("Options are register, update, clean, stats, reprocess")
+        usage()
         exit(0)
 
     if command == "loop":
