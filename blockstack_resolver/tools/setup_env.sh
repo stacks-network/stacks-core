@@ -1,27 +1,19 @@
 #!/bin/bash
 
-echo "Enter API_USERNAME:"
+echo "Enter BLOCKSTORED_IP:"
 read input
-export API_USERNAME=$input
+export BLOCKSTORED_IP=$input
 
-echo "Enter API_PASSWORD:"
+echo "Enter BLOCKSTORED_PORT:"
 read input
-export API_PASSWORD=$input
+export BLOCKSTORED_PORT=$input
 
-echo "Enter NAMECOIND_SERVER:"
+echo "Enter DHT_MIRROR_IP:"
 read input
-export NAMECOIND_SERVER=$input
+export DHT_MIRROR_IP=$input
 
-echo "Enter NAMECOIND_PORT:"
+echo "Enter DHT_MIRROR_PORT:"
 read input
-export NAMECOIND_PORT=$input
-
-echo "Enter NAMECOIND_USER:"
-read input
-export NAMECOIND_USER=$input
-
-echo "Enter NAMECOIND_PASSWD:"
-read input
-export NAMECOIND_PASSWD=$input
+export DHT_MIRROR_PORT=$input
 
 echo "Done"
