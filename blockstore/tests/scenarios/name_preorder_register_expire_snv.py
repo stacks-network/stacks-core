@@ -94,9 +94,10 @@ def check( state_engine ):
     test_proxy = testlib.TestAPIProxy()
     lastblock = state_engine.get_current_block()
     lastconsensus = state_engine.get_current_consensus()
-    snv_rec = snv_client.snv( "foo.test", lastblock, lastconsensus, snv_block_id, snv_consensus,  proxy=test_proxy )
+    snv_rec = snv_client.snv( "foo.test", lastblock, lastconsensus, snv_block_id, snv_consensus, proxy=test_proxy )
     if 'error' in snv_rec:
         print json.dumps(snv_rec, indent=4 )
+        print "Expected (%s, %s) from (%s, %s)" % (snv_block_id, snv_consensus, lastblock, lastconsensus)
         return False
 
     print snv_rec 
