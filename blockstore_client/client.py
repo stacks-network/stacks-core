@@ -374,8 +374,6 @@ def lookup( name, proxy=None ):
 
     # get zonefile data
     zone_file = get_zone_file(name)
-    if type(zone_file) == list:
-        zone_file = zone_file[0]
 
     # get blockchain data 
     blockchain_result = get_name_blockchain_record(name, proxy=proxy )
@@ -594,6 +592,12 @@ def getinfo(proxy=None):
 
     try:
         resp = proxy.getinfo()
+        if type(resp) == list:
+            if len(resp) == 0:
+                resp = {'error': 'No data returned'}
+            else:
+                resp = resp[0]
+
     except Exception as e:
         resp = json_traceback()
 
@@ -612,6 +616,12 @@ def ping(proxy=None):
 
     try:
         resp = proxy.ping()
+        if type(resp) == list:
+            if len(resp) == 0:
+                resp = {'error': 'No data returned'}
+            else:
+                resp = resp[0]
+
     except Exception as e:
         resp['error'] = str(e)
 
@@ -625,7 +635,14 @@ def get_name_cost( name, proxy=None ):
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.get_name_cost(name)
+    resp = proxy.get_name_cost(name)
+    if type(resp) == list:
+        if len(resp) == 0:
+            resp = {'error': 'No data returned'}
+        else:
+            resp = resp[0]
+
+    return resp
 
 
 def get_namespace_cost( namespace_id, proxy=None ):
@@ -635,7 +652,14 @@ def get_namespace_cost( namespace_id, proxy=None ):
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.get_namespace_cost(namespace_id)
+    resp = proxy.get_namespace_cost(namespace_id)
+    if type(resp) == list:
+        if len(resp) == 0:
+            resp = {'error': 'No data returned'}
+        else:
+            resp = resp[0]
+
+    return resp
 
 
 def get_all_names( offset, count, proxy=None ):
@@ -676,7 +700,14 @@ def get_consensus_at( block_id, proxy=None ):
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.get_consensus_at( block_id )
+    resp = proxy.get_consensus_at( block_id )
+    if type(resp) == list:
+        if len(resp) == 0:
+            resp = {'error': 'No data returned'}
+        else:
+            resp = resp[0]
+
+    return resp
 
 
 def get_nameops_at( block_id, proxy=None ):
@@ -686,7 +717,14 @@ def get_nameops_at( block_id, proxy=None ):
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.get_nameops_at( block_id )
+    resp = proxy.get_nameops_at( block_id )
+    if type(resp) == list:
+        if len(resp) == 0:
+            resp = {'error': 'No data returned'}
+        else:
+            resp = resp[0]
+    
+    return resp
 
 
 def get_nameops_hash_at( block_id, proxy=None ):
@@ -696,7 +734,14 @@ def get_nameops_hash_at( block_id, proxy=None ):
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.get_nameops_hash_at( block_id )
+    resp = proxy.get_nameops_hash_at( block_id )
+    if type(resp) == list:
+        if len(resp) == 0:
+            resp = {'error': 'No data returned'}
+        else:
+            resp = resp[0]
+
+    return resp
 
 
 def snv( name, current_block_id, current_consensus_hash, block_id, consensus_hash, proxy=None ):
@@ -714,9 +759,6 @@ def snv( name, current_block_id, current_consensus_hash, block_id, consensus_has
     if 'error' in current_info:
         return current_info
 
-    current_block_id = int(current_info['blocks'])
-    current_consensus_hash = str(current_info['consensus'])
-
     # work backwards in time, using a Merkle skip-list constructed
     # by blockstored over the set of consensus hashes.
     next_block_id = current_block_id
@@ -726,6 +768,7 @@ def snv( name, current_block_id, current_consensus_hash, block_id, consensus_has
         next_block_id: current_consensus_hash
     }
 
+    # print "next_block_id = %s, block_id = %s" % (next_block_id, block_id)
     while next_block_id >= block_id:
 
         # get nameops_at[ next_block_id ], and all consensus_hash[ next_block_id - 2^i ] such that block_id - 2*i > block_id (start at i = 1)
@@ -745,6 +788,8 @@ def snv( name, current_block_id, current_consensus_hash, block_id, consensus_has
         else:
             nameops_hash = prev_nameops_hashes[ next_block_id ]
 
+        # print "prev_nameops_hashes[%s] = %s" % (next_block_id, nameops_hash)
+
         ch_block_ids = []
         while next_block_id - (2**(i+1) - 1) >= blockstore.lib.config.FIRST_BLOCK_MAINNET:
 
@@ -756,6 +801,7 @@ def snv( name, current_block_id, current_consensus_hash, block_id, consensus_has
 
                 if ch != "None":
                     prev_consensus_hashes[ next_block_id - (2**i - 1) ] = ch
+                    # print "prev_consensus_hashes[%s] = %s" % (next_block_id - (2**i - 1), ch)
 
                 else:
                     # skip this one
@@ -805,12 +851,14 @@ def snv( name, current_block_id, current_consensus_hash, block_id, consensus_has
     # check integrity
     serialized_historic_nameops = [blockstore.db_serialize( op['op'], op ) for op in historic_nameops]
     historic_nameops_hash = virtualchain.StateEngine.make_ops_snapshot( serialized_historic_nameops )
-
     if historic_nameops_hash != prev_nameops_hashes[ block_id ]:
         return {'error': 'Hash mismatch: name is not consistent with consensus hash'}
 
     # find the one we asked for
     for nameop in historic_nameops:
+        if 'name' not in nameop:
+            continue
+
         if str(nameop['name']) == str(name):
             return nameop
 
@@ -829,7 +877,14 @@ def get_name_blockchain_record(name, proxy=None):
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.get_name_blockchain_record(name)
+    resp = proxy.get_name_blockchain_record(name)
+    if type(resp) == list:
+        if len(resp) == 0:
+            resp = {'error': 'No data returned'}
+        else:
+            resp = resp[0]
+
+    return resp
 
 
 def get_namespace_blockchain_record( namespace_id, proxy=None ):
@@ -841,6 +896,13 @@ def get_namespace_blockchain_record( namespace_id, proxy=None ):
         proxy = get_default_proxy()
 
     ret = proxy.get_namespace_blockchain_record(namespace_id)
+    if type(ret) == list:
+        if len(ret) == 0:
+            ret = {'error': 'No data returned'}
+            return ret
+        else:
+            ret = ret[0]
+
     if ret is not None:
         # this isn't needed
         if 'opcode' in ret:
