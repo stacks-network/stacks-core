@@ -4,6 +4,9 @@ import os
 import sys 
 import shutil
 
+# enable all tests
+os.environ['BLOCKSTORE_TEST'] = '1'
+
 # hack around absolute paths 
 current_dir =  os.path.abspath(os.path.dirname(__file__) + "/../..")
 sys.path.insert(0, current_dir)
@@ -119,7 +122,8 @@ def run_scenario( scenario, config_file ):
     worker_env = {
         # use mock_bitcoind to connect to bitcoind (but it has to import it in order to use it)
         "VIRTUALCHAIN_MOD_CONNECT_BLOCKCHAIN": mock_bitcoind.__file__,
-        "MOCK_BITCOIND_SAVE_PATH": mock_bitcoind_save_path
+        "MOCK_BITCOIND_SAVE_PATH": mock_bitcoind_save_path,
+        "BLOCKSTORE_TEST": "1"
     }
 
     virtualchain.setup_virtualchain( blockstore_state_engine, bitcoind_connection_factory=mock_bitcoind.connect_mock_bitcoind, index_worker_env=worker_env ) 
@@ -132,7 +136,7 @@ def run_scenario( scenario, config_file ):
     utxo_opts['multiprocessing_num_procs'] = 1 
     utxo_opts['multiprocessing_num_blocks'] = 10
 
-    # pass along path 
+    # pass along extra arguments
     utxo_opts['save_file'] = mock_bitcoind_save_path
 
     blockstored.set_bitcoin_opts( bitcoin_opts )
