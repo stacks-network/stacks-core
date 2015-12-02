@@ -39,7 +39,7 @@ except:
 DEBUG = True
 TESTNET = False
 
-VERSION = "0.05"
+VERSION = "0.0.10"
 
 # namespace version
 BLOCKSTORE_VERSION = 1
@@ -278,7 +278,12 @@ TESTSET_NAMESPACE_8UP_CHAR_COST = 10000
 NAMESPACE_PREORDER_EXPIRE = BLOCKS_PER_DAY      # namespace preorders expire after 1 day, if not revealed
 NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_YEAR       # namespace reveals expire after 1 year, if not readied.
 
-NAME_IMPORT_KEYRING_SIZE = 300                  # number of keys to derive from the import key
+if os.getenv("BLOCKSTORE_TEST") is not None:
+    # testing 
+    NAME_IMPORT_KEYRING_SIZE = 5                  # number of keys to derive from the import key
+
+else:
+    NAME_IMPORT_KEYRING_SIZE = 300                  # number of keys to derive from the import key
 
 NUM_CONFIRMATIONS = 6                         # number of blocks to wait for before accepting names
 
@@ -1111,7 +1116,7 @@ def default_dht_opts( config_file=None ):
       dht_opts = {
          'disable': disable,
          'port': port,
-         'servers': parsed_servers
+         'servers': ",".join( ["%s:%s" % (s[0], s[1]) for s in parsed_servers] )
       }
 
       return dht_opts
@@ -1377,7 +1382,6 @@ def write_config_file( blockstore_opts=None, bitcoind_opts=None, utxo_opts=None,
    Return False on failure
    """
 
-   print dht_opts
    if config_file is None:
       try:
          config_file = virtualchain.get_config_filename()
