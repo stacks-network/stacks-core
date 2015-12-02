@@ -31,7 +31,7 @@ from ..config import MINIMUM_LENGTH_NAME
 from ..config import IGNORE_NAMES_STARTING_WITH
 
 from ..utils import get_hash, check_banned_email, nmc_to_btc_address
-from ..utils import config_log
+from ..utils import config_log, ignoreRegistration
 
 from ..states import registrationComplete
 from ..server import RegistrarServer
@@ -111,11 +111,9 @@ class WebappDriver(object):
                 continue
 
             # test for ignoring names starting with certain patterns
-            for pattern in IGNORE_NAMES_STARTING_WITH:
-
-                if user['username'].startswith(pattern):
-                    log.debug("Ignoring: %s" % user['username'])
-                    continue
+            if ignoreRegistration(user['username'], IGNORE_NAMES_STARTING_WITH):
+                log.debug("Ignoring: %s" % user['username'])
+                continue
 
             fqu = user['username'] + "." + DEFAULT_NAMESPACE
             transfer_address = nmc_to_btc_address(user['namecoin_address'])
