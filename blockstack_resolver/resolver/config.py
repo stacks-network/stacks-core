@@ -3,8 +3,8 @@
     Resolver
     ~~~~~
 
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
 
 This file is part of Resolver.
 
@@ -70,18 +70,16 @@ except:
             memcached_server = MEMCACHED_SERVER + ':' + str(MEMCACHED_PORT)
             MEMCACHED_SERVERS = [memcached_server]
 
-    # --------------------------------------------------
-
     try:
-        BLOCKSTORED_SERVER = os.environ['BLOCKSTORED_SERVER']
+        BLOCKSTORED_IP = os.environ['BLOCKSTORED_IP']
         BLOCKSTORED_PORT = os.environ['BLOCKSTORED_PORT']
-        DHT_MIRROR = os.environ['DHT_MIRROR']
+        DHT_MIRROR_IP = os.environ['DHT_MIRROR_IP']
         DHT_MIRROR_PORT = os.environ['DHT_MIRROR_PORT']
     except:
         log.debug("Blockstored or DHT-mirror not configured properly")
         exit(1)
 
-    # --------------------------------------------------
+    # if password protecting the resolver
     try:
         API_USERNAME = os.environ['API_USERNAME']
         API_PASSWORD = os.environ['API_PASSWORD']

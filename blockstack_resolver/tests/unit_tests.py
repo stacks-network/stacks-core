@@ -35,9 +35,9 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
-from server.resolver import app
+from resolver.server import app
 
-VERSION = '1'
+VERSION = '2'
 
 c = app.test_client()
 
@@ -72,7 +72,7 @@ class ResolverTestCase(unittest.TestCase):
         except Exception as e:
             pass
 
-        self.assertIn('Welcome to this resolver', html, msg="resolver is not online")
+        self.assertIn('Welcome to this', html, msg="resolver is not online")
 
     def test_valid_profiles(self):
         """ Check valid profiles

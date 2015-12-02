@@ -3,8 +3,8 @@
     Resolver
     ~~~~~
 
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
 
 This file is part of Resolver.
 
@@ -30,7 +30,7 @@ from flask import Flask, make_response, jsonify, abort, request
 from time import time
 from basicrpc import Proxy
 
-from .proofcheck import profile_to_proofs
+from proofchecker import profile_to_proofs
 from .crossdomain import crossdomain
 
 from .config import DEBUG
@@ -38,8 +38,8 @@ from .config import DEFAULT_HOST, MEMCACHED_SERVERS, MEMCACHED_USERNAME
 from .config import MEMCACHED_PASSWORD, MEMCACHED_TIMEOUT, MEMCACHED_ENABLED
 from .config import USERSTATS_TIMEOUT
 from .config import VALID_BLOCKS, RECENT_BLOCKS
-from .config import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
-from .config import DHT_MIRROR, DHT_MIRROR_PORT
+from .config import BLOCKSTORED_IP, BLOCKSTORED_PORT
+from .config import DHT_MIRROR_IP, DHT_MIRROR_PORT
 from .config import DEFAULT_NAMESPACE
 
 app = Flask(__name__)
@@ -50,11 +50,14 @@ mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
                                "connect_timeout": 500})
 
 
-def username_is_valid(username):
+def validName(name):
+    """ Return True if valid name
+    """
 
+    # current regrex doesn't account for .namespace
     regrex = re.compile('^[a-z0-9_]{1,60}$')
 
-    if regrex.match(username):
+    if regrex.match(name):
         return True
     else:
         return False
@@ -110,9 +113,11 @@ def get_user_count():
     return jsonify(info)
 
 
-def get_profile_from_dht(profile_hash):
+def fetch_from_dht(profile_hash):
+    """ Given a @profile_hash fetch full profile JSON
+    """
 
-    dht_client = Proxy(DHT_MIRROR, DHT_MIRROR_PORT)
+    dht_client = Proxy(DHT_MIRROR_IP, DHT_MIRROR_PORT)
     dht_resp = dht_client.get(profile_hash)
     dht_resp = dht_resp[0]
 
@@ -125,6 +130,10 @@ def get_profile_from_dht(profile_hash):
 
 
 def format_profile(profile, username):
+    """ Process profile data and
+        1) Insert verifications
+        2) Check if profile data is valid JSON
+    """
 
     data = {}
 
@@ -139,16 +148,17 @@ def format_profile(profile, username):
     return data
 
 
-def get_user_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
+def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
 
     global MEMCACHED_ENABLED
 
     if refresh:
+        # refresh is on, turning off memcache
         MEMCACHED_ENABLED = False
 
     username = username.lower()
 
-    blockstore_client = Proxy(BLOCKSTORED_SERVER, BLOCKSTORED_PORT)
+    blockstore_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
     blockstore_resp = blockstore_client.get_name_blockchain_record(username + "." + namespace)
     blockstore_resp = blockstore_resp[0]
 
@@ -164,7 +174,7 @@ def get_user_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
 
         if 'value_hash' in blockstore_resp:
             profile_hash = blockstore_resp['value_hash']
-            profile = get_profile_from_dht(profile_hash)
+            profile = fetch_from_dht(profile_hash)
             data = format_profile(profile, username)
 
             if MEMCACHED_ENABLED or refresh:
@@ -183,6 +193,12 @@ def get_user_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
 def get_users(usernames):
 
     reply = {}
+    refresh = False
+
+    try:
+        refresh = request.args.get('refresh')
+    except:
+        pass
 
     if usernames is None:
         reply['error'] = "No usernames given"
@@ -192,7 +208,7 @@ def get_users(usernames):
 
         username = usernames
 
-        info = get_user_profile(username)
+        info = get_profile(username, refresh=refresh)
 
         if 'error' in info:
             reply = {"error": "Not found"}
@@ -211,7 +227,7 @@ def get_users(usernames):
     for username in usernames:
 
         try:
-            profile = get_user_profile(username)
+            profile = get_profile(username, refresh=refresh)
 
             if 'error' in profile:
                 pass
@@ -236,7 +252,7 @@ def get_namespace():
     namespace = 'xx'  # get namespace info
 
     results['usernames'] = namespace['namespace']
-    results['profiles'] = namespace['profiles'] 
+    results['profiles'] = namespace['profiles']
 
     return jsonify(results)
 
