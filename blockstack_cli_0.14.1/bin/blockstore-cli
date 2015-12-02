@@ -876,33 +876,21 @@ def run_cli():
 
     elif args.action == 'get_name_blockchain_record':
         result = client.get_name_blockchain_record(str(args.name))
-        if type(result) == list:
-            result = result[0]
         
     elif args.action == 'get_namespace_blockchain_record':
         result = client.get_namespace_blockchain_record(str(args.namespace_id))
-        if type(result) == list:
-            result = result[0]
 
     elif args.action == 'lookup':
         result = client.lookup( str(args.name) )
-        if type(result) == list:
-            result = result[0]
 
     elif args.action == 'lookup_snv':
         result = client.lookup_snv(str(args.name), int(args.current_block_id), str(args.current_consensus_hash), int(args.past_block_id), str(args.past_consensus_hash) )
-        if type(result) == list:
-            result = result[0]
 
     elif args.action == 'get_name_record':
         result = client.get_name_record( str(args.name) )
-        if type(result) == list:
-            result = result[0]
        
     elif args.action == 'get_zone_file':
         result = client.get_zone_file( str(args.name) )
-        if type(result) == list:
-            result = result[0]
 
     elif args.action == 'get_name_cost':
         result = client.get_name_cost(str(args.name))
