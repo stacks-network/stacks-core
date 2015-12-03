@@ -133,7 +133,8 @@ def run_cli(command, argv=None):
     elif command == "test":
 
         # commands for testing go here
-        webapp_data.process_new_users(nameop='update', spam_protection=False)
+        #webapp_data.process_new_users(nameop='update', spam_protection=False)
+        webapp_data.update_users()
 
     elif command == "reprocess":
 

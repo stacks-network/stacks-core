@@ -70,9 +70,17 @@ def preorder(fqu, payment_address, owner_address):
         log.debug("Already in preorder queue: %s" % fqu)
         return False
 
-    log.debug("Preordering (%s, %s, %s)" % (fqu, payment_address, owner_address))
+    if dontuseAddress(payment_address):
+        log.debug("Payment address not ready: %s" % payment_address)
+        return False
+
+    elif underfundedAddress(payment_address):
+        log.debug("Payment address under funded: %s" % payment_address)
+        return False
 
     payment_privkey = get_privkey(payment_address)
+
+    log.debug("Preordering (%s, %s, %s)" % (fqu, payment_address, owner_address))
 
     try:
         resp = bs_client.preorder(fqu, payment_privkey, owner_address)
@@ -144,11 +152,11 @@ def register(fqu, payment_address=None, owner_address=None,
         return False
 
     if dontuseAddress(payment_address):
-        log.debug("Payment address not ready")
+        log.debug("Payment address not ready: %s" % payment_address)
         return False
 
     elif underfundedAddress(payment_address):
-        log.debug("Payment address under funded")
+        log.debug("Payment address under funded: %s" % payment_address)
         return False
 
     payment_privkey = get_privkey(payment_address)
@@ -203,15 +211,15 @@ def update(fqu, profile):
         log.debug("Registrar doens't own this name.")
         return False
 
-    log.debug("Updating (%s, %s)" % (fqu, profile_hash))
-
     if dontuseAddress(owner_address):
-        log.debug("Owner address not ready")
+        log.debug("Owner address not ready: %s" % owner_address)
         return False
 
     elif underfundedAddress(owner_address):
-        log.debug("Owner address under funded")
+        log.debug("Owner address under funded: %s" % owner_address)
         return False
+
+    log.debug("Updating (%s, %s)" % (fqu, profile_hash))
 
     try:
         resp = bs_client.update(fqu, profile_hash, owner_privkey)
@@ -256,15 +264,15 @@ def transfer(fqu, transfer_address):
     owner_address = data['address']
     owner_privkey = get_privkey(owner_address)
 
-    log.debug("Transferring (%s, %s)" % (fqu, transfer_address))
-
     if dontuseAddress(owner_address):
-        log.debug("Owner address not ready")
+        log.debug("Owner address not ready: %s" % owner_address)
         return False
 
     elif underfundedAddress(owner_address):
-        log.debug("Owner address under funded")
+        log.debug("Owner address under funded: %s" % owner_address)
         return False
+
+    log.debug("Transferring (%s, %s)" % (fqu, transfer_address))
 
     try:
         # format for transfer RPC call is (name, address, keepdata, privatekey)

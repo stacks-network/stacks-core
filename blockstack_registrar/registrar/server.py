@@ -28,6 +28,7 @@ import sys
 from time import sleep
 
 from .nameops import preorder, register, update, transfer
+from .subsidized_nameops import subsidized_update
 
 from .states import nameRegistered
 from .states import profileonBlockchain, profileonDHT
@@ -181,3 +182,21 @@ class RegistrarServer(object):
 
         #log.debug("Nameop didn't meet any conditions")
         return False  # no blockchain tx was sent
+
+    def subsidized_nameop(self, fqu, profile, hex_privkey, nameop=None):
+
+        if not profileonBlockchain(fqu, profile):
+
+            if nameop is None or nameop is 'update':
+                if fqu not in DHT_IGNORE:
+                    log.debug("Updating profile on blockchain: %s" % fqu)
+
+                    payment_address, other_address = self.get_next_addresses()
+
+                    if payment_address is None:
+                        return False
+
+                    return subsidized_update(fqu, profile, hex_privkey,
+                                             payment_address)
+                else:
+                    log.debug("In DHT IGNORE list: %s" % fqu)
