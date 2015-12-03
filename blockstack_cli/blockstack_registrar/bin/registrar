@@ -71,9 +71,9 @@ def run_cli(command, argv=None):
         webapp_data.process_new_users(nameop='register')
 
     elif command == "update":
-        #api_data.process_new_users(nameop='update')
-        #webapp_data.process_new_users(nameop='update')
-        webapp_data.update_users()
+        api_data.process_new_users(nameop='update')
+        webapp_data.process_new_users(nameop='update')
+        #webapp_data.update_users()
 
     elif command == "transfer":
         api_data.process_new_users(nameop='transfer')
@@ -129,6 +129,11 @@ def run_cli(command, argv=None):
             pass
 
         display_wallet_info()
+
+    elif command == "test":
+
+        # commands for testing go here
+        webapp_data.process_new_users(nameop='update', spam_protection=False)
 
     elif command == "reprocess":
 

@@ -38,6 +38,8 @@ from ..utils import validAddress, ignoreRegistration
 from ..server import RegistrarServer
 from ..states import registrationComplete
 
+from ..network import refresh_resolver
+
 """
     API Driver file that has all necessary functions for
     using registrar with API data
@@ -94,6 +96,8 @@ class APIDriver(object):
             if registrationComplete(fqu, profile, transfer_address):
                 log.debug("Registration complete %s. Removing." % fqu)
                 self.registrations.remove({"username": entry['username']})
+
+                refresh_resolver(entry['username'])
             else:
                 self.registrar_server.process_nameop(fqu, profile,
                                                      transfer_address,

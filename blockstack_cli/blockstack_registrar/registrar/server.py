@@ -157,8 +157,11 @@ class RegistrarServer(object):
             #log.debug("Not updated: %s" % fqu)
 
             if nameop is None or nameop is 'update':
-                log.debug("Updating profile on blockchain: %s" % fqu)
-                return update(fqu, profile)
+                if fqu not in DHT_IGNORE:
+                    log.debug("Updating profile on blockchain: %s" % fqu)
+                    return update(fqu, profile)
+                else:
+                    log.debug("In DHT IGNORE list: %s" % fqu)
 
         elif not profileonDHT(fqu, profile):
             #log.debug("Not on DHT: %s" % fqu)
