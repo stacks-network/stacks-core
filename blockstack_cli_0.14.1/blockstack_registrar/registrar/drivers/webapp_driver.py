@@ -24,18 +24,31 @@ This file is part of Registrar.
 """
 
 import os
+import sys
 from pymongo import MongoClient
 
-from ..config import DEFAULT_NAMESPACE, RATE_LIMIT
-from ..config import MINIMUM_LENGTH_NAME
-from ..config import IGNORE_NAMES_STARTING_WITH
+# hack around absolute paths
+current_dir = os.path.abspath(os.path.dirname(__file__))
+parent_dir = os.path.abspath(current_dir + "/../../")
 
-from ..utils import get_hash, check_banned_email, nmc_to_btc_address
-from ..utils import config_log, ignoreRegistration
+sys.path.insert(0, parent_dir)
 
-from ..states import registrationComplete
-from ..server import RegistrarServer
+from registrar.config import DEFAULT_NAMESPACE, RATE_LIMIT
+from registrar.config import MINIMUM_LENGTH_NAME
+from registrar.config import IGNORE_NAMES_STARTING_WITH
+from registrar.config import SECRET_KEY
 
+from registrar.utils import get_hash, check_banned_email, nmc_to_btc_address
+from registrar.utils import config_log, ignoreRegistration
+from registrar.utils import pretty_print as pprint
+
+from registrar.states import registrationComplete, nameRegistered
+from registrar.states import profilePublished
+from registrar.server import RegistrarServer
+
+from registrar.network import refresh_resolver
+
+from tools.bip38 import bip38_decrypt
 
 """
     Webapp Driver file that has all necessary functions for
@@ -47,8 +60,9 @@ log = config_log(__name__)
 try:
     # incoming requests from a web app
     WEBAPP_DB_URI = os.environ['WEBAPP_DB_URI']
+    WALLET_SECRET = os.environ['WALLET_SECRET']
 except:
-    log.debug("WEBAPP_DB_URI not defined")
+    log.debug("webapp_driver env variables not defined")
     exit(0)
 
 webapp_db = MongoClient(WEBAPP_DB_URI).get_default_database()
@@ -82,6 +96,9 @@ class WebappDriver(object):
         self.registrar_server = RegistrarServer()
 
     def process_new_users(self, nameop=None, spam_protection=False):
+        """
+            Process new registrations coming in on the webapp
+        """
 
         counter = 0
         self.registrar_server.reset_flag()
@@ -92,14 +109,15 @@ class WebappDriver(object):
 
             if user is None:
                 log.debug("No such user, need to remove: %s" % new_user['_id'])
-                #registrations.remove({'_id': new_user['_id']})
+                self.registrations.remove({'_id': new_user['_id']})
                 continue
 
             # for spam protection
             if check_banned_email(user['email']):
+
                 if spam_protection:
-                    #users.remove({"email": user['email']})
                     log.debug("Deleting spam %s, %s" % (user['email'], user['username']))
+                    self.users.remove({"email": user['email']})
                     continue
                 else:
                     log.debug("Need to delete %s, %s" % (user['email'], user['username']))
@@ -124,18 +142,23 @@ class WebappDriver(object):
             if registrationComplete(fqu, profile, transfer_address):
                 log.debug("Registration complete %s. Removing." % fqu)
                 self.registrations.remove({"user_id": new_user['user_id']})
+
+                refresh_resolver(user['username'])
             else:
                 self.registrar_server.process_nameop(fqu, profile,
                                                      transfer_address,
                                                      nameop=nameop)
 
     def update_users(self):
+        """
+            Process new profile updates from the webapp
+        """
 
         counter = 0
 
         for new_user in self.updates.find(no_cursor_timeout=True):
 
-            user = get_db_user_from_id(new_user)
+            user = get_db_user_from_id(new_user, self.users)
 
             if user is None:
                 continue
@@ -143,17 +166,26 @@ class WebappDriver(object):
             fqu = user['username'] + "." + DEFAULT_NAMESPACE
             btc_address = nmc_to_btc_address(user['namecoin_address'])
             profile = user['profile']
+            encrypted_privkey = new_user['encrypted_private_key']
+            hex_privkey = bip38_decrypt(str(encrypted_privkey), WALLET_SECRET)
 
             if nameRegistered(fqu):
 
                 if profilePublished(fqu, profile):
                     log.debug("Profile match, removing: %s" % fqu)
-                    updates.remove({"user_id": new_user['user_id']})
+                    self.updates.remove({"user_id": new_user['user_id']})
+
+                    refresh_resolver(user['username'])
                 else:
-                    update(fqu, profile)
+                    log.debug("Processing: %s" % fqu)
+                    self.registrar_server.subsidized_nameop(fqu, profile,
+                                                            hex_privkey=hex_privkey,
+                                                            nameop='update')
             else:
 
                 log.debug("Not registered: %s" % fqu)
+
+            exit(0)
 
     def reprocess_user(self, username):
 
