@@ -38,6 +38,8 @@ from ..utils import validAddress, ignoreRegistration
 from ..server import RegistrarServer
 from ..states import registrationComplete
 
+from ..network import refresh_resolver
+
 """
     API Driver file that has all necessary functions for
     using registrar with API data
@@ -64,7 +66,7 @@ class APIDriver(object):
         self.registrations = api_db['blockchainid']
         self.registrar_server = RegistrarServer()
 
-    def process_new_users(self, nameop=None):
+    def process_new_users(self, nameop=None, live_delete=False):
 
         self.registrar_server.reset_flag()
 
@@ -78,6 +80,10 @@ class APIDriver(object):
             # test for ignoring names starting with certain patterns
             if ignoreRegistration(entry['username'], IGNORE_NAMES_STARTING_WITH):
                 log.debug("Ignoring: %s" % entry['username'])
+
+                if live_delete:
+                    self.registrations.remove({"username": entry['username']})
+
                 continue
 
             fqu = entry['username'] + "." + DEFAULT_NAMESPACE
@@ -94,6 +100,8 @@ class APIDriver(object):
             if registrationComplete(fqu, profile, transfer_address):
                 log.debug("Registration complete %s. Removing." % fqu)
                 self.registrations.remove({"username": entry['username']})
+
+                refresh_resolver(entry['username'])
             else:
                 self.registrar_server.process_nameop(fqu, profile,
                                                      transfer_address,
