@@ -22,11 +22,15 @@ This file is part of Registrar.
 """
 
 import json
+import requests
+
 from basicrpc import Proxy
 from blockstore_client import client as bs_client
 
 from .config import BLOCKSTORED_IP, BLOCKSTORED_PORT
 from .config import DHT_MIRROR_IP, DHT_MIRROR_PORT
+from .config import RESOLVER_URL, RESOLVER_USERS_ENDPOINT
+
 from .utils import get_hash, config_log
 from .utils import pretty_dump as pprint
 
@@ -81,7 +85,7 @@ def get_dht_profile(fqu):
         resp = dht_client.get(profile_hash)
         profile = resp[0]['value']
     except Exception as e:
-        log.debug("Error DHT get: (%s, %s)" % (fqu, profile_hash))
+        log.debug("<key, value> not in DHT: (%s, %s)" % (fqu, profile_hash))
 
     return profile
 
@@ -103,3 +107,24 @@ def write_dht_profile(profile):
         log.debug(e)
 
     return resp
+
+
+def refresh_resolver(name):
+    """ Given a @name force refresh the resolver entry
+
+        This is meant to force update resolver cache,
+        after updating an entry
+
+        Should use fqu here instead of name.
+        Resolver doesn't support that yet.
+    """
+
+    url = RESOLVER_URL + RESOLVER_USERS_ENDPOINT + name + '?refresh=True'
+
+    try:
+        resp = requests.get(url, verify=False)
+    except:
+        log.debug("Error refreshing resolver: %s")
+        return False
+
+    return True
