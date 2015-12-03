@@ -22,9 +22,12 @@ This file is part of Registrar.
     along with Registrar. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from blockcypher import push_tx
+import bitcoin
+
+from blockcypher import pushtx
 
 from tools.crypto_tools import get_address_from_privkey
+from tools.crypto_tools import get_pubkey_from_privkey
 
 from .utils import get_hash, pretty_print
 from .network import bs_client
@@ -68,7 +71,7 @@ def tx_deserialize(tx_hex):
         * script_hex: string
     """
 
-    tx = bitcoin.deserialize(tx_hex)
+    tx = bitcoin.deserialize(str(tx_hex))
 
     inputs = tx["ins"]
     outputs = tx["outs"]
@@ -101,25 +104,27 @@ def tx_deserialize(tx_hex):
     return ret_inputs, ret_outputs, tx["locktime"], tx["version"]
 
 
-def tx_sign_all_unsigned_inputs(tx_hex, hex_privkey):
+def tx_sign_all_unsigned_inputs(hex_privkey, unsigned_tx_hex):
     """
         Sign a serialized transaction's unsigned inputs
     """
-    inputs, outputs, locktime, version = tx_deserialize(tx_hex)
+    inputs, outputs, locktime, version = tx_deserialize(unsigned_tx_hex)
 
-    for i in xrange(0, len(inputs)):
-        if len(inputs[i]['script_sig']) == 0:
-            tx_hex = bitcoin.sign(tx_hex, i, hex_privkey)
+    for index in xrange(0, len(inputs)):
+        if len(inputs[index]['script_sig']) == 0:
+
+            # tx with index i signed with privkey
+            tx_hex = bitcoin.sign(str(unsigned_tx_hex), index, hex_privkey)
 
     return tx_hex
 
 
-def send_subsidized(hex_privkey, unsigned_tx):
+def send_subsidized(hex_privkey, unsigned_tx_hex):
 
     reply = {}
 
     # sign all unsigned inputs
-    signed_tx = tx_sign_all_unsigned_inputs(unsigned_tx, hex_privkey)
+    signed_tx = tx_sign_all_unsigned_inputs(hex_privkey, unsigned_tx_hex)
 
     resp = pushtx(tx_hex=signed_tx)
 
@@ -162,21 +167,26 @@ def subsidized_update(fqu, profile, owner_privkey, payment_address):
         log.debug("Given privkey/address doens't own this name.")
         return False
 
-    log.debug("Updating (%s, %s)" % (fqu, profile_hash))
-
     if dontuseAddress(payment_address):
-        log.debug("Payment address not ready")
+        log.debug("Payment address not ready: %s" % payment_address)
         return False
 
     elif underfundedAddress(payment_address):
-        log.debug("Payment address under funded")
+        log.debug("Payment address under funded: %s" % payment_address)
         return False
 
+    owner_public_key = get_pubkey_from_privkey(owner_privkey)
     payment_privkey = get_privkey(payment_address)
 
+    log.debug("Updating (%s, %s)" % (fqu, profile_hash))
+    log.debug("<owner, payment> (%s, %s)" % (owner_address, payment_address))
+
+    resp = {}
+
     try:
-        resp = bs_client.update(fqu, profile_hash, owner_privkey,
-                                subsidy_key=payment_privkey)
+        resp = bs_client.update_subsidized(fqu, profile_hash,
+                                           public_key=owner_public_key,
+                                           subsidy_key=payment_privkey)
     except Exception as e:
         log.debug(e)
 
