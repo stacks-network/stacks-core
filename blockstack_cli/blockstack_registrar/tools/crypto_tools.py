@@ -86,3 +86,13 @@ def get_address_from_privkey(hex_privkey):
 
     pubkey = privkey.public_key()
     return pubkey.address()
+
+
+def get_pubkey_from_privkey(hex_privkey):
+    """ get bitcoin address from private key
+    """
+
+    privkey = BitcoinPrivateKey(hex_privkey)
+
+    pubkey = privkey.public_key()
+    return pubkey.to_hex()
