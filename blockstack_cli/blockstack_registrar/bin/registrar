@@ -57,7 +57,7 @@ api_data = APIDriver()
 
 def usage():
 
-    log.info("Options are register, update, cleanup, stats, reprocess")
+    log.info("Options are register, update, clean, stats, reprocess")
 
 
 def run_cli(command, argv=None):
@@ -79,7 +79,7 @@ def run_cli(command, argv=None):
         api_data.process_new_users(nameop='transfer')
         webapp_data.process_new_users(nameop='transfer')
 
-    elif command == "cleanup":
+    elif command == "clean":
 
         try:
             queue = argv[2]
@@ -129,6 +129,12 @@ def run_cli(command, argv=None):
             pass
 
         display_wallet_info()
+
+    elif command == "test":
+
+        # commands for testing go here
+        #webapp_data.process_new_users(nameop='update', spam_protection=False)
+        webapp_data.update_users()
 
     elif command == "reprocess":
 
