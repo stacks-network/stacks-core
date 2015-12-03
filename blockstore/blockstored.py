@@ -1607,8 +1607,8 @@ def stop_server( from_signal ):
             except Exception, e:
                pass
 
-            # takes at most 2 seconds 
-            time.sleep(2.0)
+            # takes at most 3 seconds 
+            time.sleep(3.0)
     
     log.debug("Blockstore server stopped")
 
@@ -1720,7 +1720,7 @@ class IndexerThread( threading.Thread ):
 
             deadline = time.time() + REINDEX_FREQUENCY
             while time.time() < deadline and self.running:
-                time.sleep(1.0)
+                time.sleep(0.5)
 
 
     def request_stop( self ):
