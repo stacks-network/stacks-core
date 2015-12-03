@@ -57,7 +57,7 @@ api_data = APIDriver()
 
 def usage():
 
-    log.info("Options are register, update, cleanup, stats, reprocess")
+    log.info("Options are register, update, clean, stats, reprocess")
 
 
 def run_cli(command, argv=None):
@@ -71,15 +71,15 @@ def run_cli(command, argv=None):
         webapp_data.process_new_users(nameop='register')
 
     elif command == "update":
-        api_data.process_new_users(nameop='update')
-        webapp_data.process_new_users(nameop='update')
-        #webapp_data.update_users()
+        #api_data.process_new_users(nameop='update')
+        #webapp_data.process_new_users(nameop='update')
+        webapp_data.update_users()
 
     elif command == "transfer":
         api_data.process_new_users(nameop='transfer')
         webapp_data.process_new_users(nameop='transfer')
 
-    elif command == "cleanup":
+    elif command == "clean":
 
         try:
             queue = argv[2]
