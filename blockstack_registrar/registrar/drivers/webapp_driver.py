@@ -46,6 +46,8 @@ from registrar.states import registrationComplete, nameRegistered
 from registrar.states import profilePublished
 from registrar.server import RegistrarServer
 
+from registrar.network import refresh_resolver
+
 from tools.bip38 import bip38_decrypt
 
 """
@@ -107,14 +109,15 @@ class WebappDriver(object):
 
             if user is None:
                 log.debug("No such user, need to remove: %s" % new_user['_id'])
-                #registrations.remove({'_id': new_user['_id']})
+                self.registrations.remove({'_id': new_user['_id']})
                 continue
 
             # for spam protection
             if check_banned_email(user['email']):
+
                 if spam_protection:
-                    #users.remove({"email": user['email']})
                     log.debug("Deleting spam %s, %s" % (user['email'], user['username']))
+                    self.users.remove({"email": user['email']})
                     continue
                 else:
                     log.debug("Need to delete %s, %s" % (user['email'], user['username']))
@@ -139,6 +142,8 @@ class WebappDriver(object):
             if registrationComplete(fqu, profile, transfer_address):
                 log.debug("Registration complete %s. Removing." % fqu)
                 self.registrations.remove({"user_id": new_user['user_id']})
+
+                refresh_resolver(user['username'])
             else:
                 self.registrar_server.process_nameop(fqu, profile,
                                                      transfer_address,
@@ -169,6 +174,8 @@ class WebappDriver(object):
                 if profilePublished(fqu, profile):
                     log.debug("Profile match, removing: %s" % fqu)
                     self.updates.remove({"user_id": new_user['user_id']})
+
+                    refresh_resolver(user['username'])
                 else:
                     log.debug("Processing: %s" % fqu)
                     #self.registrar_server.subsidized_update(fqu, profile,
