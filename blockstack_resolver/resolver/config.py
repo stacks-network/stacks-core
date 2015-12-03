@@ -27,7 +27,7 @@ import os
 import logging
 log = logging.getLogger()
 
-DEBUG = True
+DEBUG = False
 
 DEFAULT_PORT = 5000
 DEFAULT_HOST = '0.0.0.0'

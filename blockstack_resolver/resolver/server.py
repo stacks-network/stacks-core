@@ -25,6 +25,7 @@ This file is part of Resolver.
 import json
 import re
 import pylibmc
+import logging
 
 from flask import Flask, make_response, jsonify, abort, request
 from time import time
@@ -48,6 +49,14 @@ mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
                     username=MEMCACHED_USERNAME, password=MEMCACHED_PASSWORD,
                     behaviors={"no_block": True,
                                "connect_timeout": 500})
+
+logging.basicConfig()
+log = logging.getLogger('resolver')
+
+if DEBUG:
+    log.setLevel(level=logging.DEBUG)
+else:
+    log.setLevel(level=logging.INFO)
 
 
 def validName(name):
@@ -153,19 +162,24 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
     global MEMCACHED_ENABLED
 
     if refresh:
+        log.debug("Forcing refresh: %s" % username)
         # refresh is on, turning off memcache
         MEMCACHED_ENABLED = False
 
     username = username.lower()
 
-    blockstore_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
-    blockstore_resp = blockstore_client.get_name_blockchain_record(username + "." + namespace)
-    blockstore_resp = blockstore_resp[0]
+    try:
+        blockstore_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+        blockstore_resp = blockstore_client.get_name_blockchain_record(username + "." + namespace)
+        blockstore_resp = blockstore_resp[0]
+    except:
+        return {}
 
     if blockstore_resp is None:
         abort(404)
 
     if MEMCACHED_ENABLED:
+        log.debug("Memcache get: %s" % username)
         cache_reply = mc.get("profile_" + str(username))
     else:
         cache_reply = None
@@ -178,6 +192,7 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
             data = format_profile(profile, username)
 
             if MEMCACHED_ENABLED or refresh:
+                log.debug("Memcache set: %s" % username)
                 mc.set("profile_" + str(username), json.dumps(data),
                        int(time() + MEMCACHED_TIMEOUT))
         else:
