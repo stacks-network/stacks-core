@@ -72,7 +72,8 @@ bitcoin_opts = None
 utxo_opts = None
 blockchain_client = None
 blockchain_broadcaster = None
-indexer_thread = None
+indexer_thread = None           # indexer thread handle
+blockstored_api_server = None   # API server subprocess handle
 
 def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
    """
@@ -240,44 +241,12 @@ def get_lastblock():
         return None
 
 
-def get_index_range():
-    """
-    Get the bitcoin block index range.
-    Mask connection failures with timeouts.
-    Always try to reconnect.
-
-    The last block will be the last block to search for names.
-    This will be NUM_CONFIRMATIONS behind the actual last-block the
-    cryptocurrency node knows about.
-    """
-
-    bitcoind_session = get_bitcoind( new=True )
-
-    first_block = None
-    last_block = None
-    while last_block is None:
-
-        first_block, last_block = virtualchain.get_index_range( bitcoind_session )
-
-        if last_block is None:
-
-            # try to reconnnect
-            time.sleep(1)
-            log.error("Reconnect to bitcoind")
-            bitcoind_session = get_bitcoind( new=True )
-            continue
-
-        else:
-            return first_block, last_block - NUM_CONFIRMATIONS
-
-
 def die_handler_server(signal, frame):
     """
     Handle Ctrl+C for server subprocess
     """
 
-    log.info('Exiting blockstored server')
-    stop_server()
+    stop_server( True )
     sys.exit(0)
 
 
@@ -1561,36 +1530,87 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         return client.get_immutable( str(blockchain_id), str(data_hash) )
 
 
-def stop_server():
+def stop_server( from_signal ):
     """
     Stop the blockstored server.
     """
 
-    # stop building new state if we're in the middle of it
-    db = get_state_engine()
-    virtualchain.stop_sync_virtualchain( db )
-
-    set_indexing( False )
+    global indexer_thread, blockstored_api_server
 
     # kill the main supervisor
-    pid_file = get_pidfile_path() + ".mainloop"
+    pid_file = get_pidfile_path()
 
-    try:
-        fin = open(pid_file, "r")
-    except Exception, e:
-        return
+    if from_signal:
+    
+        log.info('Caught fatal signal; exiting blockstored server')
+
+        # from signal handler
+        # fatal signal; shutdown
+        try:
+            os.unlink(pid_file)
+        except:
+            # already handled 
+            return
+
+        # stop building new state if we're in the middle of it
+        db = get_state_engine()
+        virtualchain.stop_sync_virtualchain( db )
+
+        # stop API server 
+        if blockstored_api_server is not None:
+            log.debug("Stopping API server")
+            blockstored_api_server.send_signal( signal.SIGTERM )
+            blockstored_api_server.wait()
+            log.debug("Stopped API server")
+
+        else:
+            raise Exception("BUG: blockstored_api_server not initialized")
+
+        # stop indexing thread
+        # NOTE: this can delay for a while, so wait for a little bit and then simply kill ourselves.
+        # the fact that the virtualchain database commit logic guarantees atomicity means that this
+        # is safe for us to do.
+        if indexer_thread is not None:
+            log.debug("Stopping indexer thread")
+            rc = stop_indexer_thread( indexer_thread, 1.0 )
+            if not rc:
+                # probably stuck on a network delay
+                # kill ourselves
+                log.debug("Stop indexer thread time-out; aborting")
+                set_indexing( False )
+
+                os.kill( os.getpid(), signal.SIGKILL )
+
+            log.debug("Stopped indexer thread")
+
+        else:
+            raise Exception("BUG: indexer_thread not initialized")
+
+        set_indexing( False )
 
     else:
-        pid_data = fin.read()
-        fin.close()
-        os.remove(pid_file)
-
-        pid = int(pid_data)
-
+        # from command-line invocation.
+        # kill main supervisor.
         try:
-           os.kill(pid, signal.SIGTERM)
+            fin = open(pid_file, "r")
         except Exception, e:
-           return
+            pass
+
+        else:
+            pid_data = fin.read().strip()
+            fin.close()
+
+            pid = int(pid_data)
+
+            try:
+               os.kill(pid, signal.SIGTERM)
+            except Exception, e:
+               pass
+
+            # takes at most 2 seconds 
+            time.sleep(2.0)
+    
+    log.debug("Blockstore server stopped")
 
 
 def get_indexing_lockfile():
@@ -1638,17 +1658,57 @@ class IndexerThread( threading.Thread ):
 
     def __init__(self):
         super( IndexerThread, self ).__init__()
-        self.running = True 
+        self.running = True
+
+    
+    def get_index_range( self ):
+        """
+        Get the bitcoin block index range.
+        Mask connection failures with timeouts.
+        Always try to reconnect.
+
+        The last block will be the last block to search for names.
+        This will be NUM_CONFIRMATIONS behind the actual last-block the
+        cryptocurrency node knows about.
+        """
+
+        bitcoind_conn = get_bitcoind( new=True )
+
+        first_block = None
+        last_block = None
+        while last_block is None and self.running:
+
+            first_block, last_block = virtualchain.get_index_range( bitcoind_conn )
+
+            if last_block is None:
+
+                # try to reconnnect
+                time.sleep(1)
+                if not self.running:
+                    break
+
+                log.error("Reconnect to bitcoind")
+                bitcoind_conn = get_bitcoind( new=True )
+                continue
+
+            else:
+                return first_block, last_block - NUM_CONFIRMATIONS
+
+        return (None, None)
 
 
-    def run():
+    def run( self ):
         """
         Periodically re-index the blockchain
         """
         while self.running:
 
             bt_opts = get_bitcoin_opts() 
-            start_block, current_block = get_index_range()
+            start_block, current_block = self.get_index_range()
+
+            # NOTE: the above can take a while to complete, so check again 
+            if not self.running or (start_block is None and current_block is None):
+                break
 
             # bring us up to speed
             set_indexing( True )
@@ -1659,15 +1719,17 @@ class IndexerThread( threading.Thread ):
             set_indexing( False )
 
             deadline = time.time() + REINDEX_FREQUENCY
-            while deadline < time.time() and self.running:
+            while time.time() < deadline and self.running:
                 time.sleep(1.0)
 
 
-    def request_stop():
+    def request_stop( self ):
         """
         Request to stop the thread
         """
         self.running = False
+        db = get_state_engine()
+        virtualchain.stop_sync_virtualchain( db )
 
 
 def start_indexer_thread():
@@ -1676,18 +1738,25 @@ def start_indexer_thread():
     Return the thread handle.
     """
 
+    log.debug("Starting indexer thread")
     thread = IndexerThread()
     thread.start()
     return thread
 
 
-def stop_indexer_thread( thread ):
+def stop_indexer_thread( thread, join_timeout ):
     """
     Stop an indexer thread.
+    Return True if it stopped in the alloted time
+    Return False if not
     """
     thread.request_stop()
-    thread.join()
-    return True
+    thread.join( timeout=join_timeout )
+    if thread.isAlive():
+        return False 
+
+    else:
+        return True
 
 
 def run_server( testset=False, foreground=False ):
@@ -1695,24 +1764,20 @@ def run_server( testset=False, foreground=False ):
     Run the blockstored RPC server, optionally in the foreground.
     """
 
-    global running, indexer_thread
+    global running, indexer_thread, blockstored_api_server
 
     bt_opts = get_bitcoin_opts()
 
     tac_file = get_tacfile_path( testset=testset )
     access_log_file = get_logfile_path() + ".access"
     indexer_log_file = get_logfile_path() + ".indexer"
-    api_pid_file = get_pidfile_path() + ".api"
-    main_pid_file = get_pidfile_path() + ".mainloop"
+    pid_file = get_pidfile_path()
     working_dir = virtualchain.get_working_dir()
-
-    start_block, current_block = get_index_range()
 
     logfile = None
     if not foreground:
 
-        api_server_command = ('twistd --pidfile=%s --logfile=%s -noy' % (api_pid_file,
-                                                                         access_log_file)).split()
+        api_server_command = ('twistd --pidfile= --logfile=%s -noy' % (access_log_file)).split()
         api_server_command.append(tac_file)
 
         try:
@@ -1742,7 +1807,7 @@ def run_server( testset=False, foreground=False ):
 
             elif daemon_pid > 0:
 
-                # parent!
+                # parent (intermediate child)
                 sys.exit(0)
 
             else:
@@ -1752,45 +1817,33 @@ def run_server( testset=False, foreground=False ):
 
         elif child_pid > 0:
 
-            # parent
-            # wait for child
+            # grand-parent
+            # wait for intermediate child
             pid, status = os.waitpid( child_pid, 0 )
             sys.exit(status)
 
     else:
 
         # foreground
-        api_server_command = ('twistd --pidfile=%s -noy' % api_pid_file).split()
+        api_server_command = ('twistd --pidfile= -noy').split()
         api_server_command.append(tac_file)
 
-    # put *our* pid file
-    put_pidfile( main_pid_file, os.getpid() )
+    # correctly die on fatal signals
+    for sig in [signal.SIGINT, signal.SIGQUIT, signal.SIGTERM]:
+        signal.signal( sig, die_handler_server )
+
+    # put supervisor pid file
+    put_pidfile( pid_file, os.getpid() )
 
     # start API server
-    blockstored = subprocess.Popen( api_server_command, shell=False)
+    blockstored_api_server = subprocess.Popen( api_server_command, shell=False)
 
-    set_indexing( False )
-
-    if start_block != current_block:
-        # bring us up to speed
-        set_indexing( True )
-
-        db = get_state_engine()
-        virtualchain.sync_virtualchain( bt_opts, current_block, db )
-
-        set_indexing( False )
- 
     # start indexing 
+    set_indexing( False )
     indexer_thread = start_indexer_thread()
 
-    # wait for the API server to die (we kill it with `blockstored stop`)
-    blockstored.wait()
-
-    indexer_thread.request_stop()
-
-    # stop building new state if we're in the middle of it
-    db = get_state_engine()
-    virtualchain.stop_sync_virtualchain( db )
+    # wait for the API server to die
+    blockstored_api_server.wait()
 
     # stop the indexer thread
     stop_indexer_thread( indexer_thread )
@@ -1805,7 +1858,6 @@ def run_server( testset=False, foreground=False ):
 def setup( working_dir=None, testset=False, return_parser=False ):
    """
    Do one-time initialization.
-   Call this to set up global state and set signal handlers.
 
    If return_parser is True, return a partially-
    setup argument parser to be populated with
@@ -1853,8 +1905,15 @@ def setup( working_dir=None, testset=False, return_parser=False ):
    # if we're using the mock UTXO provider, then switch to the mock bitcoind node as well
    if utxo_opts['utxo_provider'] == 'mock_utxo':
        import tests.mock_bitcoind
-       virtualchain.setup_virtualchain( blockstore_state_engine, testset=testset, bitcoind_connection_factory=tests.mock_bitcoind.connect_mock_bitcoind )
-       virtualchain.connect_bitcoind = tests.mock_bitcoind.connect_mock_bitcoind
+       mock_bitcoind_save_path = os.path.join( get_working_dir(), "mock_blockchain.dat" )
+       worker_env = {
+            # use mock_bitcoind to connect to bitcoind (but it has to import it in order to use it)
+            "VIRTUALCHAIN_MOD_CONNECT_BLOCKCHAIN": tests.mock_bitcoind.__file__,
+            "MOCK_BITCOIND_SAVE_PATH": mock_bitcoind_save_path,
+            "BLOCKSTORE_TEST": "1"
+       }
+
+       virtualchain.setup_virtualchain( blockstore_state_engine, testset=testset, bitcoind_connection_factory=tests.mock_bitcoind.connect_mock_bitcoind, index_worker_env=worker_env )
 
    # merge in command-line bitcoind options
    config_file = virtualchain.get_config_filename()
@@ -1939,6 +1998,8 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
     Given a record from the blockstore database,
     convert it into a virtualchain operation to
     process.
+
+    TODO: refactor; put op-specific code into each name op definition
     """
 
     # apply opcodes so we can consume them with virtualchain
@@ -2079,6 +2140,8 @@ def nameop_restore_consensus_fields( name_rec, block_id ):
     that all of its consensus fields are present.
     Because they can be reconstructed directly from the nameop,
     but they are not always stored in the db.
+
+    TODO: refactor; put each op-specific code block into the name op definition.
     """
 
     opcode_name = str(name_rec['opcode'])
@@ -2476,7 +2539,7 @@ def run_blockstored():
          run_server( testset=testset )
 
    elif args.action == 'stop':
-      stop_server()
+      stop_server( False )
 
    elif args.action == 'reconfigure':
       reconfigure( testset=testset )
