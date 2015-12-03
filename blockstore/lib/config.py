@@ -645,6 +645,7 @@ def default_bitcoind_opts( config_file=None ):
    bitcoind_passwd = None
    bitcoind_use_https = None
    bitcoind_mock = False
+   bitcoind_timeout = 300
 
    loaded = False
 
@@ -676,6 +677,9 @@ def default_bitcoind_opts( config_file=None ):
             mock = parser.get('bitcoind', 'mock')
          else:
             mock = 'no'
+
+         if parser.has_option('bitcoind', 'timeout'):
+            bitcoind_timeout = parser.get('bitcoind', 'timeout')
 
          if use_https.lower() in ["yes", "y", "true"]:
             bitcoind_use_https = True
@@ -711,7 +715,8 @@ def default_bitcoind_opts( config_file=None ):
       "bitcoind_server": bitcoind_server,
       "bitcoind_port": bitcoind_port,
       "bitcoind_use_https": bitcoind_use_https,
-      "bitcoind_mock": bitcoind_mock
+      "bitcoind_mock": bitcoind_mock,
+      "bitcoind_timeout": bitcoind_timeout
    }
 
    # strip None's
