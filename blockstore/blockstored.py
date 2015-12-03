@@ -1913,6 +1913,9 @@ def setup( working_dir=None, testset=False, return_parser=False ):
             "BLOCKSTORE_TEST": "1"
        }
 
+       if os.environ.get("PYTHONPATH", None) is not None:
+           worker_env["PYTHONPATH"] = os.environ["PYTHONPATH"]
+
        virtualchain.setup_virtualchain( blockstore_state_engine, testset=testset, bitcoind_connection_factory=tests.mock_bitcoind.connect_mock_bitcoind, index_worker_env=worker_env )
 
    # merge in command-line bitcoind options
