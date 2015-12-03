@@ -66,7 +66,7 @@ class APIDriver(object):
         self.registrations = api_db['blockchainid']
         self.registrar_server = RegistrarServer()
 
-    def process_new_users(self, nameop=None):
+    def process_new_users(self, nameop=None, live_delete=False):
 
         self.registrar_server.reset_flag()
 
@@ -80,6 +80,10 @@ class APIDriver(object):
             # test for ignoring names starting with certain patterns
             if ignoreRegistration(entry['username'], IGNORE_NAMES_STARTING_WITH):
                 log.debug("Ignoring: %s" % entry['username'])
+
+                if live_delete:
+                    self.registrations.remove({"username": entry['username']})
+
                 continue
 
             fqu = entry['username'] + "." + DEFAULT_NAMESPACE

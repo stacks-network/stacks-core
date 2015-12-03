@@ -178,11 +178,14 @@ class WebappDriver(object):
                     refresh_resolver(user['username'])
                 else:
                     log.debug("Processing: %s" % fqu)
-                    #self.registrar_server.subsidized_update(fqu, profile,
-                    #                                        hex_privkey=hex_privkey)
+                    self.registrar_server.subsidized_nameop(fqu, profile,
+                                                            hex_privkey=hex_privkey,
+                                                            nameop='update')
             else:
 
                 log.debug("Not registered: %s" % fqu)
+
+            exit(0)
 
     def reprocess_user(self, username):
 
