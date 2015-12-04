@@ -1007,7 +1007,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
             restored_op = nameop_restore_consensus_fields( op, block_id )
             restored_ops.append( restored_op )
 
-        serialized_ops = [ db_serialize( str(op['op'][0]), op, verbose=False ) for op in restored_ops ]
+        serialized_ops = [ virtualchain.StateEngine.serialize_op( str(op['op'][0]), op, BlockstoreDB.make_opfields(), verbose=False ) for op in restored_ops ]
         ops_hash = virtualchain.StateEngine.make_ops_snapshot( serialized_ops )
         return ops_hash
 
