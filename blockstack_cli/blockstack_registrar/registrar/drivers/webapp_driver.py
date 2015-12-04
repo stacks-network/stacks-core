@@ -185,8 +185,6 @@ class WebappDriver(object):
 
                 log.debug("Not registered: %s" % fqu)
 
-            exit(0)
-
     def reprocess_user(self, username):
 
         user = self.users.find_one({"username": username})
