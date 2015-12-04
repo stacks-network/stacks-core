@@ -39,9 +39,9 @@ import bitcoin as pybitcointools
 import binascii
 
 from config import log, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTORED_SERVER, \
-    BLOCKSTORED_PORT, BLOCKSTORE_METADATA_DIR, BLOCKSTORE_DEFAULT_STORAGE_DRIVERS
+    BLOCKSTORED_PORT, BLOCKSTORE_METADATA_DIR, BLOCKSTORE_DEFAULT_STORAGE_DRIVERS, \
+    FIRST_BLOCK_MAINNET, NAME_OPCODES, OPFIELDS
 
-import blockstore
 import virtualchain
 
 # default API endpoint proxy to blockstored
@@ -49,7 +49,6 @@ default_proxy = None
 
 # ancillary storage providers
 STORAGE_IMPL = None
-
 
 class BlockstoreRPCClient(object):
     """
@@ -791,7 +790,7 @@ def snv( name, current_block_id, current_consensus_hash, block_id, consensus_has
         # print "prev_nameops_hashes[%s] = %s" % (next_block_id, nameops_hash)
 
         ch_block_ids = []
-        while next_block_id - (2**(i+1) - 1) >= blockstore.lib.config.FIRST_BLOCK_MAINNET:
+        while next_block_id - (2**(i+1) - 1) >= FIRST_BLOCK_MAINNET:
 
             i += 1
             ch_block_ids.append( next_block_id - (2**i - 1))
@@ -846,10 +845,10 @@ def snv( name, current_block_id, current_consensus_hash, block_id, consensus_has
 
         # recover binary op string
         if not historic_op.has_key('op'):
-            historic_op['op'] = blockstore.lib.config.NAME_OPCODES[ str(historic_op['opcode']) ]
+            historic_op['op'] = NAME_OPCODES[ str(historic_op['opcode']) ]
 
     # check integrity
-    serialized_historic_nameops = [blockstore.db_serialize( op['op'], op ) for op in historic_nameops]
+    serialized_historic_nameops = [virtualchain.StateEngine.serialize_op( str(op['op'][0]), op, OPFIELDS, verbose=False ) for op in historic_nameops]
     historic_nameops_hash = virtualchain.StateEngine.make_ops_snapshot( serialized_historic_nameops )
     if historic_nameops_hash != prev_nameops_hashes[ block_id ]:
         return {'error': 'Hash mismatch: name is not consistent with consensus hash'}
