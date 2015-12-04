@@ -39,9 +39,9 @@ from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAX_NAMES_PER_S
     NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTORE_VERSION, \
     NAMESPACE_1_CHAR_COST, NAMESPACE_23_CHAR_COST, NAMESPACE_4567_CHAR_COST, NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
     TESTSET_NAMESPACE_1_CHAR_COST, TESTSET_NAMESPACE_23_CHAR_COST, TESTSET_NAMESPACE_4567_CHAR_COST, TESTSET_NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
-    NAME_IMPORT_KEYRING_SIZE, GENESIS_SNAPSHOT, GENESIS_SNAPSHOT_TESTSET, default_blockstore_opts, NAMESPACE_READY
+    NAME_IMPORT_KEYRING_SIZE, GENESIS_SNAPSHOT, GENESIS_SNAPSHOT_TESTSET, default_blockstore_opts, NAMESPACE_READY, NAME_OPCODES
 
-from ..operations import build_namespace_reveal
+from ..operations import build_namespace_reveal, SERIALIZE_FIELDS
 from ..hashing import *
 from ..b40 import is_b40
 
@@ -81,8 +81,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       else:
           initial_snapshots = GENESIS_SNAPSHOT
 
-
-      super( BlockstoreDB, self ).__init__( virtualchain_hooks.get_magic_bytes(), OPCODES, impl=virtualchain_hooks, initial_snapshots=initial_snapshots, state=self )
+      super( BlockstoreDB, self ).__init__( virtualchain_hooks.get_magic_bytes(), OPCODES, BlockstoreDB.make_opfields(), impl=virtualchain_hooks, initial_snapshots=initial_snapshots, state=self )
 
       self.announce_ids = blockstore_opts['announcers'].split(",")
 
@@ -230,6 +229,20 @@ class BlockstoreDB( virtualchain.StateEngine ):
          self.namespaces[namespace_id]['history'] = BlockstoreDB.sanitize_history( namespace['history'] )
 
       self.prescanned = False
+
+
+   @classmethod 
+   def make_opfields( cls ):
+      """
+      Calculate the virtulachain-required opfields dict.
+      """
+      # construct fields 
+      opfields = {}
+      for opname in SERIALIZE_FIELDS.keys():
+          opcode = NAME_OPCODES[opname]
+          opfields[opcode] = SERIALIZE_FIELDS[opname]
+
+      return opfields
 
 
    def save_db(self, filename):
