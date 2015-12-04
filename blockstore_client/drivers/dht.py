@@ -92,17 +92,28 @@ def dht_init(local_server=False):
     return True
 
 
+def get_dht_client(local_server=False):
+    """
+    Get a new connection to DHT
+    """
+    if local_server:
+        return Proxy(DEFAULT_DHT_SERVERS[0], DHT_SERVER_PORT)
+    else:
+        return Proxy(DEFAULT_MIRROR, MIRROR_TCP_PORT)
+
+
 def dht_get_key(data_key):
     """
     Given a key (a hash of data), go fetch the data.
     """
 
-    global dht_server
-    ret = dht_server.get( data_key )
+    dht_client = get_dht_client()
+
+    ret = dht_client.get(data_key)
     if ret is not None:
         if type(ret) == types.ListType:
             ret = ret[0]
-            
+
         if type(ret) == types.DictType and ret.has_key("value"):
             ret = ret["value"]
 
@@ -113,8 +124,8 @@ def dht_put_data(data_key, data_value):
     """
     Given a key and value, put it into the DHT.
     """
-    global dht_server
-    return dht_server.set(data_key, data_value)
+    dht_client = get_dht_client()
+    return dht_client.set(data_key, data_value)
 
 
 # ---------------------------------------------------------
