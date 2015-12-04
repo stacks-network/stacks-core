@@ -27,6 +27,7 @@ import base64
 
 from Crypto.Cipher import AES
 from pybitcoin import BitcoinPrivateKey, NamecoinPrivateKey
+from pybitcoin import BitcoinPublicKey
 from binascii import hexlify, unhexlify
 
 # modified from example at https://gist.github.com/sekondus/4322469
@@ -76,6 +77,15 @@ def get_addresses_from_privkey(hex_privkey):
     btc_address = btc_pubkey.address()
 
     return nmc_address, btc_address
+
+
+def get_address_from_pubkey(hex_pubkey):
+    """ get bitcoin address from pub key
+    """
+
+    pubkey = BitcoinPublicKey(hex_pubkey)
+
+    return pubkey.address()
 
 
 def get_address_from_privkey(hex_privkey):
