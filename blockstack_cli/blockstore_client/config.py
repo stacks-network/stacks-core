@@ -21,18 +21,29 @@
     along with Blockstore-client.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import logging
 import os
-from ConfigParser import SafeConfigParser
+import sys
 import traceback
+import logging
+
+from ConfigParser import SafeConfigParser
+
+# Hack around absolute paths
+current_dir = os.path.abspath(os.path.dirname(__file__))
+parent_dir = os.path.abspath(current_dir + "/../")
+
+sys.path.insert(0, parent_dir)
+
+from setup.py import PACKAGE_VERSION
+
+DEBUG = True
+VERSION = PACKAGE_VERSION
 
 BLOCKSTORED_PORT = 6264
 BLOCKSTORED_SERVER = "127.0.0.1"
 BLOCKSTORE_METADATA_DIR = os.path.expanduser("~/.blockstore-client/metadata")
 BLOCKSTORE_DEFAULT_STORAGE_DRIVERS = "dht"
 
-DEBUG = True
-VERSION = '0.0.8'
 MAX_RPC_LEN = 1024 * 1024 * 1024
 
 CONFIG_PATH = os.path.expanduser("~/.blockstore-client/blockstore-client.ini")
