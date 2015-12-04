@@ -60,12 +60,14 @@ MAX_LENGTH_CHAINED_PAYMENT = 10
 MINIMUM_LENGTH_NAME = 6
 DEBUG = False  # can change in config_local
 
-PREORDER_CONFIRMATIONS = 6
-PREORDER_REJECTED = 110  # no. of blocks after which preorder should be removed
 RATE_LIMIT = 20   # target tx per block
 SLEEP_INTERVAL = 20  # in seconds
 RETRY_INTERVAL = 10  # if a tx is not picked up by x blocks
+
+PREORDER_CONFIRMATIONS = 6
+PREORDER_REJECTED = 120  # no. of blocks after which preorder should be removed
 TX_CONFIRMATIONS_NEEDED = 10
+MAX_TX_CONFIRMATIONS = 150
 
 try:
     from config_local import *

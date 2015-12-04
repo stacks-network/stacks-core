@@ -200,3 +200,12 @@ class RegistrarServer(object):
                                              payment_address)
                 else:
                     log.debug("In DHT IGNORE list: %s" % fqu)
+
+        elif not profileonDHT(fqu, profile):
+            #log.debug("Not on DHT: %s" % fqu)
+
+            if fqu not in DHT_IGNORE:
+                #log.debug("Writing profile to DHT: %s" % fqu)
+                write_dht_profile(profile)
+
+            return False  # because not a blockchain operation
