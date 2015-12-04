@@ -28,16 +28,10 @@ import logging
 
 from ConfigParser import SafeConfigParser
 
-# Hack around absolute paths
-current_dir = os.path.abspath(os.path.dirname(__file__))
-parent_dir = os.path.abspath(current_dir + "/../")
-
-sys.path.insert(0, parent_dir)
-
-from setup.py import PACKAGE_VERSION
+from .version import __version__
 
 DEBUG = True
-VERSION = PACKAGE_VERSION
+VERSION = __version__
 
 BLOCKSTORED_PORT = 6264
 BLOCKSTORED_SERVER = "127.0.0.1"
