@@ -3,22 +3,22 @@
 """
     Blockstore
     ~~~~~
-    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
-    copyright: (c) 2016 by Blockstack.org
-
+    copyright: (c) 2014 by Halfmoon Labs, Inc.
+    copyright: (c) 2015 by Blockstack.org
+    
     This file is part of Blockstore
-
+    
     Blockstore is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
-
+    
     Blockstore is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstore. If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 # Hooks to the virtual chain's state engine that bind our namedb to the virtualchain package.
@@ -552,7 +552,7 @@ def db_commit( block_id, opcode, op, txid, vtxindex, db_state=None ):
    called once per block processed.
   
    Returns a new name record on success, which will 
-   be fed into db_serialize to translate into a string
+   be fed into virtualchain to translate into a string
    to be used to generate this block's consensus hash.
    """
    
@@ -631,55 +631,6 @@ def db_commit( block_id, opcode, op, txid, vtxindex, db_state=None ):
       return None
   
    return new_namerec
-
-
-def db_serialize( op, nameop, db_state=None, verbose=True ):
-    """
-    (required by virtualchain state engine)
-
-    Serialize a given name operation
-    """
-   
-    fields = None
-    op = op[0]  # the first byte of the op string identifies the operation
-
-    opcode_name = OPCODE_NAMES.get( op, None )
-    if opcode_name is None:
-        log.error("No such opcode '%s'" % op)
-        return None 
-
-    fields = SERIALIZE_FIELDS.get( opcode_name, None )
-    if fields is None:
-        log.error("BUG: unrecongnized opcode '%s'" % opcode_name )
-        return None 
-
-    all_values = []
-    debug_all_values = []
-    missing = []
-    for field in fields:
-      if not nameop.has_key(field):
-          missing.append( field )
-
-      field_value = nameop.get(field, None)
-      if field_value is None:
-          field_value = ""
-      
-      # netstring format
-      debug_all_values.append( str(field) + "=" + str(len(str(field_value))) + ":" + str(field_value) )
-      all_values.append( str(len(str(field_value))) + ":" + str(field_value) )
-
-    if len(missing) > 0:
-      print json.dumps( nameop, indent=4 )
-      raise Exception("BUG: missing fields '%s'" % (",".join(missing)))
-
-    debug_field_values = ",".join( debug_all_values )
-
-    if verbose:
-        log.debug("SERIALIZE: %s:%s" % (op, debug_field_values ))
-
-    field_values = ",".join( all_values )
-
-    return op + ":" + field_values
 
 
 def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
