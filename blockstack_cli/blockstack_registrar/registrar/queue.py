@@ -35,7 +35,7 @@ from .utils import get_hash
 from .utils import config_log
 from .utils import pretty_print as pprint
 
-from .config import DHT_IGNORE, TX_CONFIRMATIONS_NEEDED
+from .config import DHT_IGNORE, TX_CONFIRMATIONS_NEEDED, MAX_TX_CONFIRMATIONS
 
 log = config_log(__name__)
 
@@ -169,10 +169,10 @@ def cleanup_transfer_queue():
         else:
             confirmations = get_tx_confirmations(entry['tx_hash'])
 
-            if confirmations > TX_CONFIRMATIONS_NEEDED:
-                pass
-                #log.debug('-' * 5)
-                #log.debug("ERROR: (%s, %s)" % (fqu, transfer_address))
+            if confirmations > MAX_TX_CONFIRMATIONS:
+                log.debug("Removing tx with > max confirmations: (%s, %s, confirmations %s)"
+                          % (fqu, transfer_address, confirmations))
+                transfer_queue.remove({"fqu": entry['fqu']})
 
 
 def display_queue_info():

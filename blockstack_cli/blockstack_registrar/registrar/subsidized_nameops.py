@@ -110,11 +110,12 @@ def tx_sign_all_unsigned_inputs(hex_privkey, unsigned_tx_hex):
     """
     inputs, outputs, locktime, version = tx_deserialize(unsigned_tx_hex)
 
-    for index in xrange(0, len(inputs)):
-        if len(inputs[index]['script_sig']) == 0:
+    for i in xrange(0, len(inputs)):
+        if len(inputs[i]['script_sig']) == 0:
 
             # tx with index i signed with privkey
-            tx_hex = bitcoin.sign(str(unsigned_tx_hex), index, hex_privkey)
+            tx_hex = bitcoin.sign(str(unsigned_tx_hex), i, hex_privkey)
+            unsigned_tx_hex = tx_hex
 
     return tx_hex
 
@@ -132,6 +133,7 @@ def send_subsidized(hex_privkey, unsigned_tx_hex):
         reply['tx_hash'] = resp['tx']['hash']
     else:
         reply['error'] = "ERROR: broadcasting tx"
+        log.debug(pprint(resp))
 
     return reply
 
