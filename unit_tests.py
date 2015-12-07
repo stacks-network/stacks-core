@@ -222,7 +222,7 @@ class LookupNamesOwnedTest(unittest.TestCase):
         return build_url('/addresses/' + address + '/names')
 
     def test_address_lookup(self):
-        address = 'NBSffD6N6sABDxNooLZxL26jwGetiFHN6H'
+        address = '1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP'
         data = test_get_request(self, self.build_url(address),
                                 headers=self.headers)
         check_data(self, data, required_keys=self.required_keys)
@@ -317,7 +317,7 @@ def test_main():
         #UserbaseStatsTest,
         SearchTest,
         LookupUnspentsTest,
-        #LookupNamesOwnedTest,
+        LookupNamesOwnedTest,
         RegisterUserTest,
         #BroadcastTransactionTest,
         DKIMPubkeyTest,

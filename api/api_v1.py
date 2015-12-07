@@ -37,13 +37,15 @@ from .db import db_client
 
 from .settings import RESOLVER_URL, SEARCH_URL
 from .settings import CHAIN_API_ID, CHAIN_API_SECRET
-from .settings import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
+from .settings import BLOCKSTORED_IP, BLOCKSTORED_PORT
 from .settings import BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER
 from .settings import BITCOIND_PASSWD, BITCOIND_USE_HTTPS
 from .settings import EMAILS_TOKEN, EMAIL_REGREX
 
 bitcoind = BitcoindClient(BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER,
                           BITCOIND_PASSWD, BITCOIND_USE_HTTPS)
+
+bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
 
 
 @app.route('/v1/users/<usernames>', methods=['GET'])
@@ -203,13 +205,17 @@ def get_address_unspents(address):
 
 @app.route('/v1/addresses/<address>/names', methods=['GET'])
 @auth_required(exception_paths=[
-    '/v1/addresses/MyVZe4nwF45jeooXw2v1VtXyNCPczbL2EE/names'])
+    '/v1/addresses/1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP/names'])
 @crossdomain(origin='*')
 def get_address_names(address):
 
-    raise UpgradeInprogressError()
-
     names_owned = []
+
+    try:
+        resp = bs_client.get_names_owned_by_address(address)
+        names_owned = resp[0]
+    except:
+        pass
 
     resp = {'names': names_owned}
 
