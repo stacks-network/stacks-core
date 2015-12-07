@@ -1542,15 +1542,8 @@ def stop_server( from_signal, clean=False, kill=False ):
 
     if from_signal:
     
-        log.info('Caught fatal signal; exiting blockstored server')
-
         # from signal handler
-        # fatal signal; shutdown
-        try:
-            os.unlink(pid_file)
-        except:
-            # already handled 
-            return
+        log.info('Caught fatal signal; exiting blockstored server')
 
         # stop building new state if we're in the middle of it
         db = get_state_engine()
@@ -1578,6 +1571,10 @@ def stop_server( from_signal, clean=False, kill=False ):
                 # kill ourselves
                 log.debug("Stop indexer thread time-out; aborting")
                 set_indexing( False )
+                try:
+                    os.unlink(pid_file)
+                except:
+                    pass
 
                 os.kill( os.getpid(), signal.SIGKILL )
 
@@ -1587,6 +1584,12 @@ def stop_server( from_signal, clean=False, kill=False ):
             raise Exception("BUG: indexer_thread not initialized")
 
         set_indexing( False )
+        try:
+            os.unlink(pid_file)
+        except:
+            # already handled 
+            return
+
 
     else:
         # from command-line invocation.
