@@ -1530,7 +1530,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         return client.get_immutable( str(blockchain_id), str(data_hash) )
 
 
-def stop_server( from_signal ):
+def stop_server( from_signal, clean=False, kill=False ):
     """
     Stop the blockstored server.
     """
@@ -1609,7 +1609,20 @@ def stop_server( from_signal ):
 
             # takes at most 3 seconds 
             time.sleep(3.0)
-    
+
+            if kill:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except Exception, e:
+                    pass
+   
+    if clean:
+        # always blow away the pid file 
+        try:
+            os.unlink(pid_file)
+        except:
+            pass
+
     log.debug("Blockstore server stopped")
 
 
@@ -2432,6 +2445,12 @@ def run_blockstored():
    parser.add_argument(
       '--working-dir', action='store',
       help='use an alternative working directory')
+   parser.add_argument(
+      '--clean', action='store_true',
+      help='clear out old runtime state from a failed blockstored process')
+   parser.add_argument(
+      '--kill', action='store_true',
+      help='send SIGKILL to the blockstored process')
 
    parser = subparsers.add_parser(
       'reconfigure',
@@ -2527,7 +2546,7 @@ def run_blockstored():
    if args.action == 'start':
 
       if os.path.exists( get_pidfile_path() ):
-          log.error("Blockstored appears to be running already.  If not, please run '%s stop'" % (sys.argv[0]))
+          log.error("Blockstored appears to be running already.  If not, please run '%s stop --clean'" % (sys.argv[0]))
           sys.exit(1)
 
       if args.foreground:
@@ -2542,7 +2561,7 @@ def run_blockstored():
          run_server( testset=testset )
 
    elif args.action == 'stop':
-      stop_server( False )
+      stop_server( False, clean=args.clean, kill=args.kill )
 
    elif args.action == 'reconfigure':
       reconfigure( testset=testset )
