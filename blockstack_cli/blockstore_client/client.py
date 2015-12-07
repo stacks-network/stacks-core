@@ -192,15 +192,12 @@ def session(conf=None, server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_P
     * initialize all storage drivers
     * load an API proxy to blockstore
 
+    conf's fields override specific keyword arguments.
+
     Returns the API proxy object.
     """
 
     global default_proxy
-    proxy = BlockstoreRPCClient(server_host, server_port)
-
-    if default_proxy is None and set_global:
-        default_proxy = proxy
-
     if conf is not None:
 
         missing = find_missing( conf )
@@ -216,6 +213,12 @@ def session(conf=None, server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_P
     if storage_drivers is None:
         log.error("No storage driver(s) defined in the config file.  Please set 'storage=' to a comma-separated list of %s" % ", ".join(drivers.DRIVERS))
         sys.exit(1)
+
+    # create proxy
+    proxy = BlockstoreRPCClient(server_host, server_port)
+
+    if default_proxy is None and set_global:
+        default_proxy = proxy
 
     # load all storage drivers
     for storage_driver in storage_drivers.split(","):
