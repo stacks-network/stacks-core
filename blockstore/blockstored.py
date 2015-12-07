@@ -1846,7 +1846,7 @@ def run_server( testset=False, foreground=False ):
     blockstored_api_server.wait()
 
     # stop the indexer thread
-    stop_indexer_thread( indexer_thread )
+    stop_indexer_thread( indexer_thread, 1.0 )
 
     if logfile is not None:
         logfile.flush()
