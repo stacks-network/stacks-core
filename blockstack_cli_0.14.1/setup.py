@@ -20,10 +20,9 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'pybitcoin>=0.9.7',
         'boto>=2.38.0',
-        'basicrpc>=0.0.1',
-        'bitcoin>=1.1.39'
+        'basicrpc>=0.0.2',
+        'virtualchain>=0.0.7'
     ],
     classifiers=[
         'Intended Audience :: Developers',
