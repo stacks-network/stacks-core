@@ -14,12 +14,13 @@ flask-mongoengine==0.7.1
 gunicorn==19.1.1
 itsdangerous==0.24
 mongoengine==0.8.7
-pybitcoin==0.8.2
+pybitcoin==0.9.7
 pybitcointools==1.1.15
 pymongo==2.7.2
 python-bitcoinrpc==0.1
 requests==2.3.0
-utilitybelt==0.1.6
+utilitybelt==0.2.6
 wsgiref==0.1.2
 dnspython==1.12.0
-basicrpc==0.0.1
+basicrpc==0.0.2
+blockstore-client==0.0.10
