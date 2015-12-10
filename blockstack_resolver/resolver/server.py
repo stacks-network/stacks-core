@@ -32,6 +32,9 @@ from time import time
 from basicrpc import Proxy
 
 from proofchecker import profile_to_proofs
+
+from blockstore_client import client as bs_client
+
 from .crossdomain import crossdomain
 
 from .config import DEBUG
@@ -58,6 +61,9 @@ if DEBUG:
 else:
     log.setLevel(level=logging.INFO)
 
+# start session using blockstore_client
+bs_client.session(server_host=BLOCKSTORED_IP, server_port=BLOCKSTORED_PORT)
+
 
 def validName(name):
     """ Return True if valid name
@@ -81,45 +87,6 @@ def refresh_user_count():
         mc.set("total_users_old", str(len(active_users_list)), 0)
 
     return len(active_users_list)
-
-
-@app.route('/v2/users', methods=['GET'])
-@crossdomain(origin='*')
-def get_user_count():
-
-    resp = {}
-    resp['error'] = "not yet supported"
-    return jsonify(resp)
-
-    active_users = []
-
-    if MEMCACHED_ENABLED:
-
-        total_user_count = mc.get("total_users")
-
-        if total_user_count is None:
-
-            total_user_count = mc.get("total_users_old")
-
-            if total_user_count is None:
-
-                total_user_count = refresh_user_count()
-
-            else:
-
-                thread = Thread(target=refresh_user_count)
-                thread.start()
-    else:
-
-        total_user_count = refresh_user_count()
-
-    info = {}
-    stats = {}
-
-    stats['registrations'] = total_user_count
-    info['stats'] = stats
-
-    return jsonify(info)
 
 
 def fetch_from_dht(profile_hash):
@@ -189,7 +156,10 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
         if 'value_hash' in blockstore_resp:
             profile_hash = blockstore_resp['value_hash']
             profile = fetch_from_dht(profile_hash)
+
             data = format_profile(profile, username)
+            data['owner_address'] = blockstore_resp['address']
+            print blockstore_resp['address']
 
             if MEMCACHED_ENABLED or refresh:
                 log.debug("Memcache set: %s" % username)
@@ -201,6 +171,56 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
         data = json.loads(cache_reply)
 
     return data
+
+
+def get_all_users(namespace):
+
+    global MEMCACHED_ENABLED
+
+    all_users = []
+
+    def fetch_users(offset):
+
+        received_users = []
+        batch_size = 20000  # usernames per call
+
+        try:
+            resp = bs_client.get_names_in_namespace(namespace, offset, batch_size)
+            received_users = resp['results']
+
+        except Exception as e:
+            pass
+
+        return received_users
+
+    if MEMCACHED_ENABLED:
+        log.debug("Memcache all_users: %s" % namespace)
+        cache_reply = mc.get("all_users_" + str(namespace))
+    else:
+        cache_reply = None
+
+    if cache_reply is None:
+
+        offset = 0
+
+        while(1):
+
+            received_users = fetch_users(offset)
+
+            if len(received_users) == 0:
+                break
+
+            all_users += received_users
+            offset = len(all_users)
+
+        if MEMCACHED_ENABLED:
+            log.debug("Memcache set all_users: %s" % namespace)
+            mc.set("all_users_" + str(namespace), json.dumps(all_users),
+                   int(time() + MEMCACHED_TIMEOUT))
+    else:
+        all_users = json.loads(cache_reply)
+
+    return all_users
 
 
 @app.route('/v2/users/<usernames>', methods=['GET'])
@@ -258,18 +278,23 @@ def get_users(usernames):
 @crossdomain(origin='*')
 def get_namespace():
 
-    resp = {}
-    resp['error'] = "not yet supported"
-    return jsonify(resp)
+    reply = {}
+    total_users = get_all_users('id')
+    reply['stats'] = {'registrations': len(total_users)}
+    reply['usernames'] = total_users
 
-    results = {}
+    return jsonify(reply)
 
-    namespace = 'xx'  # get namespace info
 
-    results['usernames'] = namespace['namespace']
-    results['profiles'] = namespace['profiles']
+@app.route('/v2/users', methods=['GET'])
+@crossdomain(origin='*')
+def get_user_count():
 
-    return jsonify(results)
+    reply = {}
+    total_users = get_all_users('id')
+    reply['stats'] = {'registrations': len(total_users)}
+
+    return jsonify(reply)
 
 
 @app.route('/')
