@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
     Blockstore-client
@@ -21,18 +20,5 @@
     along with Blockstore-client.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import client
-import config
-import schemas
-import parsing
-import user
-import drivers
-
-from parsing import json_stable_serialize
-
-from client import getinfo, lookup, snv, get_name_record, ping, get_name_blockchain_record, get_namespace_blockchain_record
-from client import preorder, update, transfer, renew, revoke, get_nameops_at
-from client import namespace_preorder, namespace_reveal, namespace_ready
-from client import get_immutable, get_mutable
-from client import put_immutable, put_mutable, delete_immutable, delete_mutable
-from client import session, register_storage
+# this is the only place where version should be updated
+__version__ = '0.0.10'
