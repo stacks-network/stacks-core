@@ -230,38 +230,16 @@ def get_address_names(address):
 @crossdomain(origin='*')
 def get_all_users():
 
-    all_users = []
+    BASE_URL = RESOLVER_URL + '/v2/namespace'
 
-    def fetch_users(offset):
+    try:
+        resp = requests.get(BASE_URL, timeout=10, verify=False)
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        raise ResolverConnectionError()
 
-        received_users = []
-        batch_size = 20000  # usernames per call
+    data = resp.json()
 
-        try:
-            resp = bs_client.get_names_in_namespace('id', offset, batch_size)
-            received_users = resp['results']
-
-        except Exception as e:
-            pass
-
-        return received_users
-
-    offset = 0
-
-    while(1):
-
-        received_users = fetch_users(offset)
-
-        if len(received_users) == 0:
-            break
-
-        all_users += received_users
-        offset = len(all_users)
-
-    resp = {'usernames': all_users}
-    resp['stats'] = {'registrations': len(all_users)}
-
-    return jsonify(resp), 200
+    return jsonify(data), 200
 
 
 @app.route('/v1/stats/users', methods=['GET'])
