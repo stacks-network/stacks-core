@@ -30,14 +30,14 @@ from .errors import InvalidProfileDataError, UsernameTakenError, \
 
 from .parameters import parameters_required
 from .auth import auth_required
-from .models import Blockchainid
+from .models import Blockchainid, Email
 from .dkim import dns_resolver, parse_pubkey_from_data, DKIM_RECORD_PREFIX
 from .utils import sizeInvalid
 from .db import db_client
 
 from .settings import RESOLVER_URL, SEARCH_URL
 from .settings import CHAIN_API_ID, CHAIN_API_SECRET
-from .settings import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
+from .settings import BLOCKSTORED_IP, BLOCKSTORED_PORT
 from .settings import BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER
 from .settings import BITCOIND_PASSWD, BITCOIND_USE_HTTPS
 from .settings import EMAILS_TOKEN, EMAIL_REGREX
@@ -45,6 +45,10 @@ from .settings import EMAILS_TOKEN, EMAIL_REGREX
 bitcoind = BitcoindClient(BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER,
                           BITCOIND_PASSWD, BITCOIND_USE_HTTPS)
 
+from blockstore_client import client as bs_client
+
+# start session using blockstore_client
+bs_client.session(server_host=BLOCKSTORED_IP, server_port=BLOCKSTORED_PORT)
 
 @app.route('/v1/users/<usernames>', methods=['GET'])
 # @auth_required(exception_paths=['/v1/users/fredwilson'])
@@ -203,13 +207,18 @@ def get_address_unspents(address):
 
 @app.route('/v1/addresses/<address>/names', methods=['GET'])
 @auth_required(exception_paths=[
-    '/v1/addresses/MyVZe4nwF45jeooXw2v1VtXyNCPczbL2EE/names'])
+    '/v1/addresses/1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP/names'])
 @crossdomain(origin='*')
 def get_address_names(address):
 
-    raise UpgradeInprogressError()
-
     names_owned = []
+    bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+
+    try:
+        resp = bs_client.get_names_owned_by_address(address)
+        names_owned = resp[0]
+    except:
+        pass
 
     resp = {'names': names_owned}
 
@@ -217,26 +226,54 @@ def get_address_names(address):
 
 
 @app.route('/v1/users', methods=['GET'])
-@auth_required()
+#@auth_required()
 @crossdomain(origin='*')
 def get_all_users():
 
-    raise UpgradeInprogressError()
+    all_users = []
 
-    resp_json = {}
+    def fetch_users(offset):
 
-    return jsonify(resp_json), 200
+        received_users = []
+        batch_size = 20000  # usernames per call
+
+        try:
+            resp = bs_client.get_names_in_namespace('id', offset, batch_size)
+            received_users = resp['results']
+
+        except Exception as e:
+            pass
+
+        return received_users
+
+    offset = 0
+
+    while(1):
+
+        received_users = fetch_users(offset)
+
+        if len(received_users) == 0:
+            break
+
+        all_users += received_users
+        offset = len(all_users)
+
+    resp = {'usernames': all_users}
+    resp['stats'] = {'registrations': len(all_users)}
+
+    return jsonify(resp), 200
 
 
 @app.route('/v1/stats/users', methods=['GET'])
 @crossdomain(origin='*')
 def get_user_stats():
 
-    raise UpgradeInprogressError()
+    data = get_all_users().data
+    data = json.loads(data)
 
-    resp_json = {}
+    resp = {'stats': data['stats']}
 
-    return jsonify(resp_json), 200
+    return jsonify(resp), 200
 
 
 @app.route('/v1/domains/<domain>/dkim', methods=['GET'])
@@ -279,6 +316,12 @@ def submit_emails():
 
     token = data['token']
     email = data['email']
+    email_list = "default"
+
+    try:
+        email_list = data['list']
+    except:
+        pass
 
     if token != EMAILS_TOKEN:
         raise EmailTokenError
@@ -293,7 +336,7 @@ def submit_emails():
         resp['status'] = 'success'
         return jsonify(resp), 200
 
-    new_entry = Email(address=email)
+    new_entry = Email(address=email, email_list=email_list)
 
     try:
         new_entry.save()

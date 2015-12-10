@@ -20,9 +20,9 @@ MEMCACHED_TIMEOUT = 30*60
 MAIL_USERNAME = 'support@onename.com'
 
 SEARCH_URL = 'http://search.onename.com'
-RESOLVER_URL = 'http://resolver-btc.onename.com'
+RESOLVER_URL = 'http://resolver.onename.com'
 
-BLOCKSTORED_SERVER = '52.20.98.85'
+BLOCKSTORED_IP = '54.147.138.188'
 BLOCKSTORED_PORT = 6264
 
 BITCOIND_SERVER = 'btcd.onename.com'

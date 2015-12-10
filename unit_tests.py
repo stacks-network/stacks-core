@@ -52,7 +52,6 @@ def test_get_request(cls, endpoint, headers={}, status_code=200):
 def test_post_request(cls, endpoint, payload, headers={}, status_code=200):
     resp = app.post(endpoint, data=json.dumps(payload), headers=headers)
     data = json.loads(resp.data)
-    print data
     cls.assertTrue(isinstance(data, dict))
     cls.assertTrue(resp.status_code == status_code)
     return data
@@ -137,7 +136,6 @@ class UserbaseTest(unittest.TestCase):
     def test_userbase_lookup(self):
         required_keys = {
             'usernames': [],
-            'profiles': []
         }
         data = test_get_request(self, build_url('/users'),
                                 headers=self.headers, status_code=200)
@@ -145,7 +143,7 @@ class UserbaseTest(unittest.TestCase):
 
     def test_recent_userbase_lookup(self):
         required_keys = {'usernames': []}
-        data = test_get_request(self, build_url('/users?recent_blocks=100'),
+        data = test_get_request(self, build_url('/users'),
                                 headers=self.headers, status_code=200)
         check_data(self, data, required_keys=required_keys)
 
@@ -223,7 +221,7 @@ class LookupNamesOwnedTest(unittest.TestCase):
         return build_url('/addresses/' + address + '/names')
 
     def test_address_lookup(self):
-        address = 'NBSffD6N6sABDxNooLZxL26jwGetiFHN6H'
+        address = '1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP'
         data = test_get_request(self, self.build_url(address),
                                 headers=self.headers)
         check_data(self, data, required_keys=self.required_keys)
@@ -303,21 +301,22 @@ class EmailSaveTest(unittest.TestCase):
         data = test_get_request(self, build_url('/emails'))
         return data['token']
 
-    def test_address_lookup(self):
+    def test_email_save(self):
         email = 'test@onename.com'
         token = self.get_email_token()
-        data = test_get_request(self, build_url('/emails'))
+        payload = {'email': email, 'token': token}
+        data = test_post_request(self, build_url('/emails'), payload)
         check_data(self, data, required_keys=self.required_keys)
 
 
 def test_main():
     test_support.run_unittest(
         LookupUsersTest,
-        #UserbaseTest,
-        #UserbaseStatsTest,
+        UserbaseTest,
+        UserbaseStatsTest,
         SearchTest,
         LookupUnspentsTest,
-        #LookupNamesOwnedTest,
+        LookupNamesOwnedTest,
         RegisterUserTest,
         #BroadcastTransactionTest,
         DKIMPubkeyTest,

@@ -25,3 +25,4 @@ class Email(db.Document):
     created_at = db.DateTimeField(default=datetime.datetime.now, required=True)
     # account data
     address = db.EmailField(required=True, unique=True)
+    email_list = db.StringField(max_length=255, required=True)
