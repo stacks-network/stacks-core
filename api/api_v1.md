@@ -342,16 +342,16 @@ GET
 /addresses/{address}/names
 
 #### tryit_pathname:
-/v1/addresses/MyVZe4nwF45jeooXw2v1VtXyNCPczbL2EE/names?app-id=demo-1234&app-secret=demo-1234
+/v1/addresses/1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP/names?app-id=demo-1234&app-secret=demo-1234
 
 #### example_request_bash:
-curl https://api.onename.com/v1/addresses/MyVZe4nwF45jeooXw2v1VtXyNCPczbL2EE/names \
+curl https://api.onename.com/v1/addresses/1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP/names \
     -u 'YOUR-API-ID:YOUR-API-SECRET'
 
 #### example_response:
 {
   "names": [
-    "u/fredwilson"
+    "muneeb.id"
   ]
 }
 

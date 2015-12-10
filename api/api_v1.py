@@ -45,8 +45,10 @@ from .settings import EMAILS_TOKEN, EMAIL_REGREX
 bitcoind = BitcoindClient(BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER,
                           BITCOIND_PASSWD, BITCOIND_USE_HTTPS)
 
-bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+from blockstore_client import client as bs_client
 
+# start session using blockstore_client
+bs_client.session(server_host=BLOCKSTORED_IP, server_port=BLOCKSTORED_PORT)
 
 @app.route('/v1/users/<usernames>', methods=['GET'])
 # @auth_required(exception_paths=['/v1/users/fredwilson'])
@@ -210,6 +212,7 @@ def get_address_unspents(address):
 def get_address_names(address):
 
     names_owned = []
+    bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
 
     try:
         resp = bs_client.get_names_owned_by_address(address)
@@ -223,26 +226,54 @@ def get_address_names(address):
 
 
 @app.route('/v1/users', methods=['GET'])
-@auth_required()
+#@auth_required()
 @crossdomain(origin='*')
 def get_all_users():
 
-    raise UpgradeInprogressError()
+    all_users = []
 
-    resp_json = {}
+    def fetch_users(offset):
 
-    return jsonify(resp_json), 200
+        received_users = []
+        batch_size = 20000  # usernames per call
+
+        try:
+            resp = bs_client.get_names_in_namespace('id', offset, batch_size)
+            received_users = resp['results']
+
+        except Exception as e:
+            pass
+
+        return received_users
+
+    offset = 0
+
+    while(1):
+
+        received_users = fetch_users(offset)
+
+        if len(received_users) == 0:
+            break
+
+        all_users += received_users
+        offset = len(all_users)
+
+    resp = {'usernames': all_users}
+    resp['stats'] = {'registrations': len(all_users)}
+
+    return jsonify(resp), 200
 
 
 @app.route('/v1/stats/users', methods=['GET'])
 @crossdomain(origin='*')
 def get_user_stats():
 
-    raise UpgradeInprogressError()
+    data = get_all_users().data
+    data = json.loads(data)
 
-    resp_json = {}
+    resp = {'stats': data['stats']}
 
-    return jsonify(resp_json), 200
+    return jsonify(resp), 200
 
 
 @app.route('/v1/domains/<domain>/dkim', methods=['GET'])
@@ -285,6 +316,12 @@ def submit_emails():
 
     token = data['token']
     email = data['email']
+    email_list = "default"
+
+    try:
+        email_list = data['list']
+    except:
+        pass
 
     if token != EMAILS_TOKEN:
         raise EmailTokenError
@@ -299,7 +336,7 @@ def submit_emails():
         resp['status'] = 'success'
         return jsonify(resp), 200
 
-    new_entry = Email(address=email)
+    new_entry = Email(address=email, email_list=email_list)
 
     try:
         new_entry.save()
