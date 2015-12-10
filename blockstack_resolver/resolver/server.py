@@ -173,9 +173,14 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
     return data
 
 
-def get_all_users(namespace):
+def get_all_users(namespace, refresh=False):
 
     global MEMCACHED_ENABLED
+
+    if refresh:
+        log.debug("Forcing refresh: %s" % namespace)
+        # refresh is on, turning off memcache
+        MEMCACHED_ENABLED = False
 
     all_users = []
 
@@ -213,7 +218,7 @@ def get_all_users(namespace):
             all_users += received_users
             offset = len(all_users)
 
-        if MEMCACHED_ENABLED:
+        if MEMCACHED_ENABLED or refresh:
             log.debug("Memcache set all_users: %s" % namespace)
             mc.set("all_users_" + str(namespace), json.dumps(all_users),
                    int(time() + MEMCACHED_TIMEOUT))
@@ -278,8 +283,15 @@ def get_users(usernames):
 @crossdomain(origin='*')
 def get_namespace():
 
+    refresh = False
+
+    try:
+        refresh = request.args.get('refresh')
+    except:
+        pass
+
     reply = {}
-    total_users = get_all_users('id')
+    total_users = get_all_users('id', refresh)
     reply['stats'] = {'registrations': len(total_users)}
     reply['usernames'] = total_users
 
@@ -290,8 +302,15 @@ def get_namespace():
 @crossdomain(origin='*')
 def get_user_count():
 
+    refresh = False
+
+    try:
+        refresh = request.args.get('refresh')
+    except:
+        pass
+
     reply = {}
-    total_users = get_all_users('id')
+    total_users = get_all_users('id', refresh)
     reply['stats'] = {'registrations': len(total_users)}
 
     return jsonify(reply)
