@@ -39,16 +39,16 @@ import bitcoin as pybitcointools
 import binascii
 
 from config import log, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTORED_SERVER, \
-    BLOCKSTORED_PORT, BLOCKSTORE_METADATA_DIR, BLOCKSTORE_DEFAULT_STORAGE_DRIVERS
+    BLOCKSTORED_PORT, BLOCKSTORE_METADATA_DIR, BLOCKSTORE_DEFAULT_STORAGE_DRIVERS, \
+    FIRST_BLOCK_MAINNET, NAME_OPCODES, OPFIELDS
 
-import blockstore
+import virtualchain
 
 # default API endpoint proxy to blockstored
 default_proxy = None
 
 # ancillary storage providers
 STORAGE_IMPL = None
-
 
 class BlockstoreRPCClient(object):
     """
@@ -192,15 +192,12 @@ def session(conf=None, server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_P
     * initialize all storage drivers
     * load an API proxy to blockstore
 
+    conf's fields override specific keyword arguments.
+
     Returns the API proxy object.
     """
 
     global default_proxy
-    proxy = BlockstoreRPCClient(server_host, server_port)
-
-    if default_proxy is None and set_global:
-        default_proxy = proxy
-
     if conf is not None:
 
         missing = find_missing( conf )
@@ -216,6 +213,12 @@ def session(conf=None, server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_P
     if storage_drivers is None:
         log.error("No storage driver(s) defined in the config file.  Please set 'storage=' to a comma-separated list of %s" % ", ".join(drivers.DRIVERS))
         sys.exit(1)
+
+    # create proxy
+    proxy = BlockstoreRPCClient(server_host, server_port)
+
+    if default_proxy is None and set_global:
+        default_proxy = proxy
 
     # load all storage drivers
     for storage_driver in storage_drivers.split(","):
@@ -294,8 +297,166 @@ def load_user(record_hash):
     return user
 
 
-def lookup( name ):
+def get_zone_file( name ):
+    # or whatever else we're going to call this
     return get_name_record( name )
+
+
+def get_serial_number( blockchain_record ):
+    """
+    Calculate the serial number from a name's blockchain record
+    """
+    create_block_number = blockchain_record['preorder_block_number']
+    history = blockchain_record['history']
+    preorder_rec = history[str(create_block_number)][0]
+    create_tx_index = preorder_rec['vtxindex']
+
+    serial_number = None
+
+    # find preorder consensus hash, if preordered
+    if str(preorder_rec['opcode']) == "NAME_PREORDER":
+
+        # find the oldest registration
+        update_order = sorted( history.keys() )
+        for block_num in update_order:
+            if history[block_num]['opcode'] == "NAME_REGISTRATION":
+
+                serial_number = str(block_num) + '-' + str(history[block_num]['vtxindex'])
+                break
+
+        if serial_number is None:
+            raise Exception("No NAME_REGISTRATION found for '%s'" % blockchain_record.get('name', 'UNKNOWN_NAME'))
+
+    else:
+        # serial number is the first NAME_IMPORT block + txindex
+        serial_number = str(create_block_number) + '-' + str(create_tx_index)
+
+    return serial_number
+
+
+def serial_number_to_txid( serial_number, bitcoind_proxy ):
+    """
+    Convert a serial number into a txid
+    """
+    
+    parts = serial_number.split("-")
+    block_id = int(parts[0])
+    tx_index = int(parts[1])
+
+    block_hash = bitcoind_proxy.getblockhash( block_id )
+    block_txids = bitcoind_proxy.getblock( block_hash )
+
+    return block_txids[tx_index]
+
+
+def name_txid_to_consensus_hash( txid, bitcoind_proxy, blockstore_proxy=None ):
+    """
+    Convert a txid that refers to a name's creation transaction
+    (i.e. a NAME_IMPORT or a NAME_PREORDER) into a consensus hash.
+    """
+
+    if blockstore_proxy is None:
+        blockstore_proxy = get_default_proxy()
+
+    tx = bitcoind_proxy.getrawtransaction( txid, 1 )
+    # TODO 
+    
+
+def lookup( name, proxy=None ):
+    """
+    Get the name and (some) blockchain data:
+    * zone file
+    * serial number
+    * consensus hash (if preordered)
+    * address
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    # get zonefile data
+    zone_file = get_zone_file(name)
+
+    # get blockchain data 
+    blockchain_result = get_name_blockchain_record(name, proxy=proxy )
+    if type(blockchain_result) == list:
+        blockchain_result = blockchain_result[0]
+
+    create_block_number = blockchain_result['preorder_block_number']
+    history = blockchain_result['history']
+    preorder_rec = history[str(create_block_number)][0]
+
+    serial_number = get_serial_number( blockchain_result )
+    creation_consensus_hash = None
+    creation_consensus_type = None
+    modified_consensus_hash = None 
+    modified_consensus_type = None
+    modified_consensus_block_id = None
+
+    # find creation consensus hash, if preordered
+    if str(preorder_rec['opcode']) == "NAME_PREORDER":
+        creation_consensus_hash = preorder_rec['consensus_hash']
+        creation_consensus_type = 'NAME_PREORDER'
+
+    # otherwise, use namespace_preorder consensus hash as the creation consensus hash
+    else:
+
+        namespace_id = name.split(".")[-1]
+        namespace_result = proxy.get_namespace_blockchain_record( namespace_id )
+        if type(namespace_result) == list:
+            namespace_result = namespace_result[0]
+
+        if namespace_result.has_key('error') and str(namespace_result['error']) == 'No such ready namespace':
+            # might not be ready yet 
+            namespace_result = proxy.get_namespace_reveal_blockchain_record( namespace_id )
+            if type(namespace_result) == list:
+                namespace_result = namespace_result[0]
+
+        if namespace_result is None:
+            # not possible
+            return {'error': 'No namespace found'}
+       
+        # find namespace preorder
+        namespace_history = namespace_result['history']
+        namespace_preorder = namespace_history[ sorted(namespace_history.keys())[0] ][0]
+        creation_consensus_hash = namespace_preorder['consensus_hash']
+        creation_consensus_type = 'NAME_IMPORT'
+        
+    # what's the creation consensus hash's block number?
+    creation_consensus_block_id = proxy.get_block_from_consensus( creation_consensus_hash )
+    if type(creation_consensus_block_id) == list:
+        creation_consensus_block_id = creation_consensus_block_id[0]
+
+    # has the name been updated or transferred?  If so, use that  
+    if blockchain_result.has_key('consensus_hash'):
+        modified_consensus_hash = str(blockchain_result['consensus_hash'])
+        modified_consensus_type = str(blockchain_result['opcode'])
+        modified_consensus_block_id = proxy.get_block_from_consensus( modified_consensus_hash )
+        
+        if type(modified_consensus_block_id) == list:
+            modified_consensus_block_id = int(modified_consensus_block_id[0])
+    
+    # fill in serial number, address 
+    result = {
+        'zone_file': zone_file,
+        'serial_number': serial_number,
+        'address': blockchain_result.get('address', None),
+        'creation': {
+            'type': creation_consensus_type,
+            'consensus_hash': creation_consensus_hash,
+            'consensus_block_id': creation_consensus_block_id
+        }
+    }
+
+    # consensus hash from most-recent modification
+    if modified_consensus_hash is not None:
+        result['modified'] = {
+            'type': modified_consensus_hash,
+            'consensus_hash': modified_consensus_hash,
+            'consensus_block_id': modified_consensus_block_id
+        }
+
+    return result
 
 
 def get_name_record(name, create_if_absent=False):
@@ -433,6 +594,12 @@ def getinfo(proxy=None):
 
     try:
         resp = proxy.getinfo()
+        if type(resp) == list:
+            if len(resp) == 0:
+                resp = {'error': 'No data returned'}
+            else:
+                resp = resp[0]
+
     except Exception as e:
         resp = json_traceback()
 
@@ -451,6 +618,12 @@ def ping(proxy=None):
 
     try:
         resp = proxy.ping()
+        if type(resp) == list:
+            if len(resp) == 0:
+                resp = {'error': 'No data returned'}
+            else:
+                resp = resp[0]
+
     except Exception as e:
         resp['error'] = str(e)
 
@@ -464,7 +637,14 @@ def get_name_cost( name, proxy=None ):
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.get_name_cost(name)
+    resp = proxy.get_name_cost(name)
+    if type(resp) == list:
+        if len(resp) == 0:
+            resp = {'error': 'No data returned'}
+        else:
+            resp = resp[0]
+
+    return resp
 
 
 def get_namespace_cost( namespace_id, proxy=None ):
@@ -474,7 +654,14 @@ def get_namespace_cost( namespace_id, proxy=None ):
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.get_namespace_cost(namespace_id)
+    resp = proxy.get_namespace_cost(namespace_id)
+    if type(resp) == list:
+        if len(resp) == 0:
+            resp = {'error': 'No data returned'}
+        else:
+            resp = resp[0]
+
+    return resp
 
 
 def get_all_names( offset, count, proxy=None ):
@@ -515,7 +702,14 @@ def get_consensus_at( block_id, proxy=None ):
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.get_consensus_at( block_id )
+    resp = proxy.get_consensus_at( block_id )
+    if type(resp) == list:
+        if len(resp) == 0:
+            resp = {'error': 'No data returned'}
+        else:
+            resp = resp[0]
+
+    return resp
 
 
 def get_nameops_at( block_id, proxy=None ):
@@ -525,7 +719,14 @@ def get_nameops_at( block_id, proxy=None ):
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.get_nameops_at( block_id )
+    resp = proxy.get_nameops_at( block_id )
+    if type(resp) == list:
+        if len(resp) == 0:
+            resp = {'error': 'No data returned'}
+        else:
+            resp = resp[0]
+    
+    return resp
 
 
 def get_nameops_hash_at( block_id, proxy=None ):
@@ -535,10 +736,17 @@ def get_nameops_hash_at( block_id, proxy=None ):
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.get_nameops_hash_at( block_id )
+    resp = proxy.get_nameops_hash_at( block_id )
+    if type(resp) == list:
+        if len(resp) == 0:
+            resp = {'error': 'No data returned'}
+        else:
+            resp = resp[0]
+
+    return resp
 
 
-def lookup_snv( name, block_id, consensus_hash, proxy=None ):
+def snv( name, current_block_id, current_consensus_hash, block_id, consensus_hash, proxy=None ):
     """
     Simple name verification (snv) lookup:
     Look up a name as it was in the past, given the previous
@@ -553,9 +761,6 @@ def lookup_snv( name, block_id, consensus_hash, proxy=None ):
     if 'error' in current_info:
         return current_info
 
-    current_block_id = int(current_info['blocks'])
-    current_consensus_hash = str(current_info['consensus'])
-
     # work backwards in time, using a Merkle skip-list constructed
     # by blockstored over the set of consensus hashes.
     next_block_id = current_block_id
@@ -565,6 +770,7 @@ def lookup_snv( name, block_id, consensus_hash, proxy=None ):
         next_block_id: current_consensus_hash
     }
 
+    # print "next_block_id = %s, block_id = %s" % (next_block_id, block_id)
     while next_block_id >= block_id:
 
         # get nameops_at[ next_block_id ], and all consensus_hash[ next_block_id - 2^i ] such that block_id - 2*i > block_id (start at i = 1)
@@ -584,8 +790,10 @@ def lookup_snv( name, block_id, consensus_hash, proxy=None ):
         else:
             nameops_hash = prev_nameops_hashes[ next_block_id ]
 
+        # print "prev_nameops_hashes[%s] = %s" % (next_block_id, nameops_hash)
+
         ch_block_ids = []
-        while next_block_id - (2**(i+1) - 1) >= blockstore.lib.config.FIRST_BLOCK_MAINNET:
+        while next_block_id - (2**(i+1) - 1) >= FIRST_BLOCK_MAINNET:
 
             i += 1
             ch_block_ids.append( next_block_id - (2**i - 1))
@@ -595,6 +803,7 @@ def lookup_snv( name, block_id, consensus_hash, proxy=None ):
 
                 if ch != "None":
                     prev_consensus_hashes[ next_block_id - (2**i - 1) ] = ch
+                    # print "prev_consensus_hashes[%s] = %s" % (next_block_id - (2**i - 1), ch)
 
                 else:
                     # skip this one
@@ -604,7 +813,7 @@ def lookup_snv( name, block_id, consensus_hash, proxy=None ):
         prev_consensus_hashes_list = [ prev_consensus_hashes[b] for b in ch_block_ids ]
 
         # calculate the snapshot, and see if it matches
-        ch = blockstore.BlockstoreDB.make_snapshot_from_ops_hash( nameops_hash, prev_consensus_hashes_list )
+        ch = virtualchain.StateEngine.make_snapshot_from_ops_hash( nameops_hash, prev_consensus_hashes_list )
         expected_ch = prev_consensus_hashes[ next_block_id ]
         if ch != expected_ch:
             log.error("Consensus hash mismatch at %s: expected %s, got %s" % (next_block_id, expected_ch, ch ))
@@ -639,17 +848,19 @@ def lookup_snv( name, block_id, consensus_hash, proxy=None ):
 
         # recover binary op string
         if not historic_op.has_key('op'):
-            historic_op['op'] = blockstore.lib.config.NAME_OPCODES[ str(historic_op['opcode']) ]
+            historic_op['op'] = NAME_OPCODES[ str(historic_op['opcode']) ]
 
     # check integrity
-    serialized_historic_nameops = [blockstore.db_serialize( op['op'], op ) for op in historic_nameops]
-    historic_nameops_hash = blockstore.BlockstoreDB.make_ops_snapshot( serialized_historic_nameops )
-
+    serialized_historic_nameops = [virtualchain.StateEngine.serialize_op( str(op['op'][0]), op, OPFIELDS, verbose=False ) for op in historic_nameops]
+    historic_nameops_hash = virtualchain.StateEngine.make_ops_snapshot( serialized_historic_nameops )
     if historic_nameops_hash != prev_nameops_hashes[ block_id ]:
         return {'error': 'Hash mismatch: name is not consistent with consensus hash'}
 
     # find the one we asked for
     for nameop in historic_nameops:
+        if 'name' not in nameop:
+            continue
+
         if str(nameop['name']) == str(name):
             return nameop
 
@@ -668,7 +879,14 @@ def get_name_blockchain_record(name, proxy=None):
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.get_name_blockchain_record(name)
+    resp = proxy.get_name_blockchain_record(name)
+    if type(resp) == list:
+        if len(resp) == 0:
+            resp = {'error': 'No data returned'}
+        else:
+            resp = resp[0]
+
+    return resp
 
 
 def get_namespace_blockchain_record( namespace_id, proxy=None ):
@@ -680,6 +898,13 @@ def get_namespace_blockchain_record( namespace_id, proxy=None ):
         proxy = get_default_proxy()
 
     ret = proxy.get_namespace_blockchain_record(namespace_id)
+    if type(ret) == list:
+        if len(ret) == 0:
+            ret = {'error': 'No data returned'}
+            return ret
+        else:
+            ret = ret[0]
+
     if ret is not None:
         # this isn't needed
         if 'opcode' in ret:
