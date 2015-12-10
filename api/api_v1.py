@@ -30,7 +30,7 @@ from .errors import InvalidProfileDataError, UsernameTakenError, \
 
 from .parameters import parameters_required
 from .auth import auth_required
-from .models import Blockchainid, Email
+from .models import Blockchainid
 from .dkim import dns_resolver, parse_pubkey_from_data, DKIM_RECORD_PREFIX
 from .utils import sizeInvalid
 from .db import db_client

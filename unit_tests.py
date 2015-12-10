@@ -166,7 +166,7 @@ class UserbaseStatsTest(unittest.TestCase):
         check_data(self, data, required_keys=required_keys)
 
 
-class SearchUsersTest(unittest.TestCase):
+class SearchTest(unittest.TestCase):
     def setUp(self):
         self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
         self.required_keys = {'results': []}
@@ -180,18 +180,15 @@ class SearchUsersTest(unittest.TestCase):
                                 headers=self.headers)
         check_data(self, data, required_keys=self.required_keys)
 
-
-class SearchPaymentTest(unittest.TestCase):
-    def setUp(self):
-        self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
-        self.required_keys = {'results': []}
-
-    def tearDown(self):
-        pass
-
-    def test_simple_search_query(self):
+    def test_twitter_search_query(self):
         query = 'twitter:albertwenger'
-        data = test_get_request(self, build_url('/search/payment?query=' + query),
+        data = test_get_request(self, build_url('/search?query=' + query),
+                                headers=self.headers)
+        check_data(self, data, required_keys=self.required_keys)
+
+    def test_domain_search_query(self):
+        query = 'domain:muneebali.com'
+        data = test_get_request(self, build_url('/search?query=' + query),
                                 headers=self.headers)
         check_data(self, data, required_keys=self.required_keys)
 
@@ -318,7 +315,7 @@ def test_main():
         LookupUsersTest,
         #UserbaseTest,
         #UserbaseStatsTest,
-        SearchUsersTest,
+        SearchTest,
         LookupUnspentsTest,
         #LookupNamesOwnedTest,
         RegisterUserTest,
