@@ -136,7 +136,6 @@ class UserbaseTest(unittest.TestCase):
     def test_userbase_lookup(self):
         required_keys = {
             'usernames': [],
-            'profiles': []
         }
         data = test_get_request(self, build_url('/users'),
                                 headers=self.headers, status_code=200)
@@ -144,7 +143,7 @@ class UserbaseTest(unittest.TestCase):
 
     def test_recent_userbase_lookup(self):
         required_keys = {'usernames': []}
-        data = test_get_request(self, build_url('/users?recent_blocks=100'),
+        data = test_get_request(self, build_url('/users'),
                                 headers=self.headers, status_code=200)
         check_data(self, data, required_keys=required_keys)
 
@@ -313,8 +312,8 @@ class EmailSaveTest(unittest.TestCase):
 def test_main():
     test_support.run_unittest(
         LookupUsersTest,
-        #UserbaseTest,
-        #UserbaseStatsTest,
+        UserbaseTest,
+        UserbaseStatsTest,
         SearchTest,
         LookupUnspentsTest,
         LookupNamesOwnedTest,
