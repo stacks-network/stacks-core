@@ -56,7 +56,6 @@ class BlockstoreClientTest(unittest.TestCase):
         """
 
         resp = client.getinfo()
-        pprint(resp)
 
         if 'blocks' not in resp:
             raise ValueError('blocks not in response')
