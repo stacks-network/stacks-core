@@ -218,7 +218,10 @@ get_userbase
 Gets all data for the decentralized namespace, including the total number of users registered.
 
 #### response_description:
-Returns an object with "stats", "usernames" and "profiles". "stats" is a sub-object which in turn contains a "registrations" field that reflects a running count of the total users registered. "usernames" is a list of all usernames in the namespace. "profiles" is a sub-object with data for each profile.
+Returns an object with "stats", and "usernames". "stats" is a sub-object which in turn contains a "registrations" field that reflects a running count of the total users registered. "usernames" is a list of all usernames in the namespace.
+
+#### tryit_pathname:
+/v1/users
 
 #### method:
 GET
@@ -233,18 +236,12 @@ curl https://api.onename.com/v1/users \
 #### example_response:
 {
   "stats": {
-    "registrations": "29235"
+    "registrations": "37000"
   },
   "usernames": [
     "fredwilson",
     ...
-  ],
-  "profiles": {
-    "fredwilson": {
-       ...
-    },
-    ...
-  }
+  ]
 }
 
 _end_
@@ -342,16 +339,16 @@ GET
 /addresses/{address}/names
 
 #### tryit_pathname:
-/v1/addresses/MyVZe4nwF45jeooXw2v1VtXyNCPczbL2EE/names?app-id=demo-1234&app-secret=demo-1234
+/v1/addresses/1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP/names?app-id=demo-1234&app-secret=demo-1234
 
 #### example_request_bash:
-curl https://api.onename.com/v1/addresses/MyVZe4nwF45jeooXw2v1VtXyNCPczbL2EE/names \
+curl https://api.onename.com/v1/addresses/1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP/names \
     -u 'YOUR-API-ID:YOUR-API-SECRET'
 
 #### example_response:
 {
   "names": [
-    "u/fredwilson"
+    "muneeb.id"
   ]
 }
 

@@ -126,6 +126,17 @@ class DKIMPubkeyError(APIError):
     message = ("Public key record for domain not found")
 
 
+class EmailTokenError(APIError):
+    status_code = 401
+    message = ("Missing or invalid token. A valid token is required for "
+               "submitting emails")
+
+
+class InvalidEmailError(APIError):
+    status_code = 400
+    message = ("Invalid email address.")
+
+
 class UpgradeInprogressError(APIError):
     status_code = 403
     message = ("This end-point is currently being upgraded and is temporarily unavailable")

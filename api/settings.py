@@ -20,13 +20,10 @@ MEMCACHED_TIMEOUT = 30*60
 MAIL_USERNAME = 'support@onename.com'
 
 SEARCH_URL = 'http://search.onename.com'
-RESOLVER_URL = 'http://resolver-btc.onename.com'
+RESOLVER_URL = 'http://resolver.onename.com'
 
-BLOCKSTORED_SERVER = '52.20.98.85'
+BLOCKSTORED_IP = '54.147.138.188'
 BLOCKSTORED_PORT = 6264
-
-DHT_MIRROR = '52.20.98.85'
-DHT_MIRROR_PORT = 6266
 
 BITCOIND_SERVER = 'btcd.onename.com'
 BITCOIND_PORT = 8332
@@ -35,6 +32,8 @@ BITCOIND_PASSWD = 'opennamesystem'
 BITCOIND_USE_HTTPS = True
 
 MAX_PROFILE_LIMIT = (8 * 1024) - 50  # roughly 8kb max limit
+
+EMAIL_REGREX = r'[^@]+@[^@]+\.[^@]+'
 
 try:
     from .secrets import *
@@ -45,7 +44,8 @@ except:
 secrets_list = [
     'MAILGUN_API_KEY', 'SECRET_KEY',
     'API_DB_URI', 'API_DB_NAME',
-    'CHAIN_API_ID', 'CHAIN_API_SECRET'
+    'CHAIN_API_ID', 'CHAIN_API_SECRET',
+    'EMAILS_TOKEN'
 ]
 
 for env_variable in os.environ:
