@@ -22,9 +22,8 @@
 """
 
 import os
-import sys
-import traceback
 import logging
+import traceback
 
 from ConfigParser import SafeConfigParser
 
@@ -38,6 +37,141 @@ BLOCKSTORED_SERVER = "127.0.0.1"
 BLOCKSTORE_METADATA_DIR = os.path.expanduser("~/.blockstore-client/metadata")
 BLOCKSTORE_DEFAULT_STORAGE_DRIVERS = "dht"
 
+# borrowed from Blockstore
+FIRST_BLOCK_MAINNET = 373601
+
+# borrowed from Blockstore
+# Opcodes
+ANNOUNCE = '#'
+NAME_PREORDER = '?'
+NAME_REGISTRATION = ':'
+NAME_UPDATE = '+'
+NAME_TRANSFER = '>'
+NAME_RENEWAL = NAME_REGISTRATION
+NAME_REVOKE = '~'
+NAME_IMPORT = ';'
+NAMESPACE_PREORDER = '*'
+NAMESPACE_REVEAL = '&'
+NAMESPACE_READY = '!'
+
+# borrowed from Blockstore
+NAME_OPCODES = {
+    "NAME_PREORDER": NAME_PREORDER,
+    "NAME_REGISTRATION": NAME_REGISTRATION,
+    "NAME_UPDATE": NAME_UPDATE,
+    "NAME_TRANSFER": NAME_TRANSFER,
+    "NAME_RENEWAL": NAME_REGISTRATION,
+    "NAME_IMPORT": NAME_IMPORT,
+    "NAME_REVOKE": NAME_REVOKE,
+    "NAMESPACE_PREORDER": NAMESPACE_PREORDER,
+    "NAMESPACE_REVEAL": NAMESPACE_REVEAL,
+    "NAMESPACE_READY": NAMESPACE_READY,
+    "ANNOUNCE": ANNOUNCE
+}
+
+# borrowed from Blockstore
+NAMEREC_FIELDS = [
+    'name',                 # the name itself
+    'value_hash',           # the hash of the name's associated profile
+    'sender',               # the scriptPubKey hex that owns this name (identifies ownership)
+    'sender_pubkey',        # (OPTIONAL) the public key
+    'address',              # the address of the sender
+
+    'block_number',         # the block number when this name record was created (preordered for the first time)
+    'preorder_block_number', # the block number when this name was last preordered
+    'first_registered',     # the block number when this name was registered by the current owner
+    'last_renewed',         # the block number when this name was renewed by the current owner
+    'revoked',              # whether or not the name is revoked
+
+    'op',                   # byte sequence describing the last operation to affect this name
+    'txid',                 # the ID of the last transaction to affect this name
+    'vtxindex',             # the index in the block of the transaction.
+    'op_fee',               # the value of the last Blockstore-specific burn fee paid for this name (i.e. from preorder or renew)
+
+    'importer',             # (OPTIONAL) if this name was imported, this is the importer's scriptPubKey hex
+    'importer_address',     # (OPTIONAL) if this name was imported, this is the importer's address
+]
+
+# borrowed from Blockstore
+NAMESPACE_FIELDS = [
+    'namespace_id',         # human-readable namespace ID
+    'namespace_id_hash',    # hash(namespace_id,sender,reveal_addr) from the preorder (binds this namespace to its preorder)
+    'version',              # namespace rules version
+
+    'sender',               # the scriptPubKey hex script that identifies the preorderer
+    'sender_pubkey',        # if sender is a p2pkh script, this is the public key
+    'address',              # address of the sender, from the scriptPubKey
+    'recipient',            # the scriptPubKey hex script that identifies the revealer.
+    'recipient_address',    # the address of the revealer
+    'block_number',         # block number at which this namespace was preordered
+    'reveal_block',         # block number at which this namespace was revealed
+
+    'op',                   # byte code identifying this operation to Blockstore
+    'txid',                 # transaction ID at which this namespace was revealed
+    'vtxindex',             # the index in the block where the tx occurs
+
+    'lifetime',             # how long names last in this namespace (in number of blocks)
+    'coeff',                # constant multiplicative coefficient on a name's price
+    'base',                 # exponential base of a name's price
+    'buckets',              # array that maps name length to the exponent to which to raise 'base' to
+    'nonalpha_discount',    # multiplicative coefficient that drops a name's price if it has non-alpha characters
+    'no_vowel_discount',    # multiplicative coefficient that drops a name's price if it has no vowels
+]
+
+# borrowed from Blockstore
+OPFIELDS = {
+    NAME_IMPORT: NAMEREC_FIELDS + [
+        'recipient',            # scriptPubKey hex that identifies the name recipient
+        'recipient_address'     # address of the recipient
+    ],
+    NAMESPACE_PREORDER: [
+        'namespace_id_hash',    # hash(namespace_id,sender,reveal_addr)
+        'consensus_hash',       # consensus hash at the time issued
+        'op',                   # bytecode describing the operation (not necessarily 1 byte)
+        'op_fee',               # fee paid for the namespace to the burn address
+        'txid',                 # transaction ID
+        'vtxindex',             # the index in the block where the tx occurs
+        'block_number',         # block number at which this transaction occurred
+        'sender',               # scriptPubKey hex from the principal that issued this preorder (identifies the preorderer)
+        'sender_pubkey',        # if sender is a p2pkh script, this is the public key
+        'address'               # address from the scriptPubKey
+    ],
+    NAMESPACE_REVEAL: NAMESPACE_FIELDS,
+    NAMESPACE_READY: NAMESPACE_FIELDS + [
+        'ready_block',      # block number at which the namespace was readied
+    ],
+    NAME_PREORDER: [
+         'preorder_name_hash',  # hash(name,sender,register_addr)
+         'consensus_hash',      # consensus hash at time of send
+         'sender',              # scriptPubKey hex that identifies the principal that issued the preorder
+         'sender_pubkey',       # if sender is a pubkeyhash script, then this is the public key
+         'address',             # address from the sender's scriptPubKey
+         'block_number',        # block number at which this name was preordered for the first time
+
+         'op',                  # blockstore bytestring describing the operation
+         'txid',                # transaction ID
+         'vtxindex',            # the index in the block where the tx occurs
+         'op_fee',              # blockstore fee (sent to burn address)
+    ],
+    NAME_REGISTRATION: NAMEREC_FIELDS + [
+        'recipient',            # scriptPubKey hex script that identifies the principal to own this name
+        'recipient_address'     # principal's address from the scriptPubKey in the transaction
+    ],
+    NAME_REVOKE: NAMEREC_FIELDS,
+    NAME_TRANSFER: NAMEREC_FIELDS +  [
+        'name_hash',            # hash(name)
+        'consensus_hash',       # consensus hash when this operation was sent
+        'keep_data'             # whether or not to keep the profile data associated with the name when transferred
+    ],
+    NAME_UPDATE: NAMEREC_FIELDS + [
+        'name_hash',            # hash(name,consensus_hash)
+        'consensus_hash'        # consensus hash when this update was sent
+    ]
+}
+
+
+DEBUG = True
+VERSION = "v0.01-beta"
 MAX_RPC_LEN = 1024 * 1024 * 1024
 
 CONFIG_PATH = os.path.expanduser("~/.blockstore-client/blockstore-client.ini")
