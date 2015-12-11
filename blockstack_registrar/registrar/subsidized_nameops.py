@@ -22,8 +22,7 @@ This file is part of Registrar.
     along with Registrar. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import bitcoin
-
+from pybitcoin import sign_all_unsigned_inputs
 from blockcypher import pushtx
 
 from tools.crypto_tools import get_address_from_privkey
@@ -52,80 +51,12 @@ from .config import PREORDER_CONFIRMATIONS
 log = config_log(__name__)
 
 
-def tx_deserialize(tx_hex):
-    """
-        Given a serialized transaction, return its inputs, outputs,
-        locktime, and version
-
-        This func is also defined in blockstore package.
-        Included here for completeness.
-
-        Each input will have:
-        * transaction_hash: string
-        * output_index: int
-        * [optional] sequence: int
-        * [optional] script_sig: string
-
-        Each output will have:
-        * value: int
-        * script_hex: string
-    """
-
-    tx = bitcoin.deserialize(str(tx_hex))
-
-    inputs = tx["ins"]
-    outputs = tx["outs"]
-
-    ret_inputs = []
-    ret_outputs = []
-
-    for inp in inputs:
-        ret_inp = {
-            "transaction_hash": inp["outpoint"]["hash"],
-            "output_index": int(inp["outpoint"]["index"]),
-        }
-
-        if "sequence" in inp:
-            ret_inp["sequence"] = int(inp["sequence"])
-
-        if "script" in inp:
-            ret_inp["script_sig"] = inp["script"]
-
-        ret_inputs.append(ret_inp)
-
-    for out in outputs:
-        ret_out = {
-            "value": out["value"],
-            "script_hex": out["script"]
-        }
-
-        ret_outputs.append(ret_out)
-
-    return ret_inputs, ret_outputs, tx["locktime"], tx["version"]
-
-
-def tx_sign_all_unsigned_inputs(hex_privkey, unsigned_tx_hex):
-    """
-        Sign a serialized transaction's unsigned inputs
-    """
-    inputs, outputs, locktime, version = tx_deserialize(unsigned_tx_hex)
-
-    for i in xrange(0, len(inputs)):
-        if len(inputs[i]['script_sig']) == 0:
-
-            # tx with index i signed with privkey
-            tx_hex = bitcoin.sign(str(unsigned_tx_hex), i, hex_privkey)
-            unsigned_tx_hex = tx_hex
-
-    return tx_hex
-
-
 def send_subsidized(hex_privkey, unsigned_tx_hex):
 
     reply = {}
 
     # sign all unsigned inputs
-    signed_tx = tx_sign_all_unsigned_inputs(hex_privkey, unsigned_tx_hex)
+    signed_tx = sign_all_unsigned_inputs(hex_privkey, unsigned_tx_hex)
 
     resp = pushtx(tx_hex=signed_tx)
 
