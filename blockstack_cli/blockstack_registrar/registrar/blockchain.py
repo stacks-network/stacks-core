@@ -142,11 +142,10 @@ def get_balance(address):
 
     data = get_address_details(address, api_key=BLOCKCYPHER_TOKEN)
 
-    if 'balance' not in data:
-        pprint(data)
+    if 'final_balance' not in data:
         return None
 
-    btc_amount = satoshis_to_btc(data['balance'])
+    btc_amount = satoshis_to_btc(data['final_balance'])
     btc_amount = float(btc_amount)
 
     return btc_amount
