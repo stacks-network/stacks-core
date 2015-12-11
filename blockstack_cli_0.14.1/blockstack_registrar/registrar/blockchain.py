@@ -114,7 +114,7 @@ def preorderRejected(tx_hash):
     return False
 
 
-def get_balance(address):
+def get_balance_from_unspents(address):
     """ Check if BTC key being used has enough balance on unspents
     """
 
@@ -136,6 +136,21 @@ def get_balance(address):
     return btc_amount
 
 
+def get_balance(address):
+    """ Check if BTC key being used has enough balance on unspents
+    """
+
+    data = get_address_details(address, api_key=BLOCKCYPHER_TOKEN)
+
+    if 'final_balance' not in data:
+        return None
+
+    btc_amount = satoshis_to_btc(data['final_balance'])
+    btc_amount = float(btc_amount)
+
+    return btc_amount
+
+
 def dontuseAddress(address):
     """ Check if an address has unconfirmed TX and should not be used
     """
@@ -145,7 +160,10 @@ def dontuseAddress(address):
     except:
         return True
 
-    unconfirmed_n_tx = data['unconfirmed_n_tx']
+    try:
+        unconfirmed_n_tx = data['unconfirmed_n_tx']
+    except:
+        return True
 
     if int(unconfirmed_n_tx) is 0:
         return False
