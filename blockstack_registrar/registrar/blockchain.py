@@ -114,7 +114,7 @@ def preorderRejected(tx_hash):
     return False
 
 
-def get_balance(address):
+def get_balance_from_unspents(address):
     """ Check if BTC key being used has enough balance on unspents
     """
 
@@ -131,6 +131,21 @@ def get_balance(address):
         total_satoshis += unspent['value']
 
     btc_amount = satoshis_to_btc(total_satoshis)
+    btc_amount = float(btc_amount)
+
+    return btc_amount
+
+
+def get_balance(address):
+    """ Check if BTC key being used has enough balance on unspents
+    """
+
+    data = get_address_details(address, api_key=BLOCKCYPHER_TOKEN)
+
+    if 'final_balance' not in data:
+        return None
+
+    btc_amount = satoshis_to_btc(data['final_balance'])
     btc_amount = float(btc_amount)
 
     return btc_amount
