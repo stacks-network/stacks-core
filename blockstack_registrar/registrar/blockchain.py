@@ -145,7 +145,10 @@ def dontuseAddress(address):
     except:
         return True
 
-    unconfirmed_n_tx = data['unconfirmed_n_tx']
+    try:
+        unconfirmed_n_tx = data['unconfirmed_n_tx']
+    except:
+        return True
 
     if int(unconfirmed_n_tx) is 0:
         return False
