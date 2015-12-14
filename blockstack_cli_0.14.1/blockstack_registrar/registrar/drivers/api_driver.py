@@ -70,7 +70,7 @@ class APIDriver(object):
 
         self.registrar_server.reset_flag()
 
-        for entry in self.registrations.find():
+        for entry in self.registrations.find(no_cursor_timeout=True):
 
             # test for minimum name length
             if len(entry['username']) < MINIMUM_LENGTH_NAME:
@@ -103,9 +103,12 @@ class APIDriver(object):
 
                 refresh_resolver(entry['username'])
             else:
-                self.registrar_server.process_nameop(fqu, profile,
-                                                     transfer_address,
-                                                     nameop=nameop)
+                try:
+                    self.registrar_server.process_nameop(fqu, profile,
+                                                         transfer_address,
+                                                         nameop=nameop)
+                except Exception as e:
+                    log.debug(e)
 
     def display_stats(self):
 
