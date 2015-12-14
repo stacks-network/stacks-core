@@ -145,9 +145,12 @@ class WebappDriver(object):
 
                 refresh_resolver(user['username'])
             else:
-                self.registrar_server.process_nameop(fqu, profile,
-                                                     transfer_address,
-                                                     nameop=nameop)
+                try:
+                    self.registrar_server.process_nameop(fqu, profile,
+                                                         transfer_address,
+                                                         nameop=nameop)
+                except Exception as e:
+                    log.debug(e)
 
     def update_users(self):
         """
@@ -155,6 +158,7 @@ class WebappDriver(object):
         """
 
         counter = 0
+        self.registrar_server.reset_flag()
 
         for new_user in self.updates.find(no_cursor_timeout=True):
 
@@ -178,9 +182,12 @@ class WebappDriver(object):
                     refresh_resolver(user['username'])
                 else:
                     log.debug("Processing: %s" % fqu)
-                    self.registrar_server.subsidized_nameop(fqu, profile,
-                                                            hex_privkey=hex_privkey,
-                                                            nameop='update')
+                    try:
+                        self.registrar_server.subsidized_nameop(fqu, profile,
+                                                                hex_privkey=hex_privkey,
+                                                                nameop='update')
+                    except Exception as e:
+                        log.debug(e)
             else:
 
                 log.debug("Not registered: %s" % fqu)
