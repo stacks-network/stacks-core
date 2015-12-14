@@ -69,6 +69,8 @@ PREORDER_REJECTED = 120  # no. of blocks after which preorder should be removed
 TX_CONFIRMATIONS_NEEDED = 10
 MAX_TX_CONFIRMATIONS = 150
 
+DEFAULT_CHILD_ADDRESSES = 5
+
 try:
     from config_local import *
 except Exception as e:
