@@ -41,6 +41,7 @@ from .settings import BLOCKSTORED_IP, BLOCKSTORED_PORT
 from .settings import BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER
 from .settings import BITCOIND_PASSWD, BITCOIND_USE_HTTPS
 from .settings import EMAILS_TOKEN, EMAIL_REGREX
+from .settings import DEFAULT_NAMESPACE, HEX_PRIV_KEY
 
 bitcoind = BitcoindClient(BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER,
                           BITCOIND_PASSWD, BITCOIND_USE_HTTPS)
@@ -49,6 +50,7 @@ from blockstore_client import client as bs_client
 
 # start session using blockstore_client
 bs_client.session(server_host=BLOCKSTORED_IP, server_port=BLOCKSTORED_PORT)
+
 
 @app.route('/v1/users/<usernames>', methods=['GET'])
 # @auth_required(exception_paths=['/v1/users/fredwilson'])
@@ -142,6 +144,38 @@ def register_user():
     resp = {'status': 'success'}
 
     return jsonify(resp), 200
+
+
+@app.route('/v1/users/<username>/update', methods=['POST'])
+@auth_required()
+@parameters_required(['profile', 'owner_pubkey'])
+@crossdomain(origin='*')
+def update_user(username):
+
+    reply = {}
+
+    data = json.loads(request.data)
+
+    fqu = username + "." + DEFAULT_NAMESPACE
+    profile = data['profile']
+    owner_pubkey = data['owner_pubkey']
+    payment_privkey = HEX_PRIV_KEY
+
+    resp = {}
+
+    try:
+        resp = bs_client.update_subsidized(fqu, profile_hash,
+                                           public_key=owner_public_key,
+                                           subsidy_key=payment_privkey)
+    except Exception as e:
+        reply['error'] = e
+
+    if 'subsidized_tx' in resp:
+        reply['unsigned_tx'] = resp['subsidized_tx']
+    else:
+        reply['error'] = resp
+
+    return jsonify(reply), 200
 
 
 @app.route('/v1/search', methods=['GET'])

@@ -35,6 +35,13 @@ MAX_PROFILE_LIMIT = (8 * 1024) - 50  # roughly 8kb max limit
 
 EMAIL_REGREX = r'[^@]+@[^@]+\.[^@]+'
 
+DEFAULT_NAMESPACE = "id"
+
+try:
+    HEX_PRIV_KEY = os.environ['HEX_PRIV_KEY']
+except:
+    HEX_PRIV_KEY = ""
+
 try:
     from .secrets import *
 except:
