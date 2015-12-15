@@ -45,7 +45,7 @@ from .db import preorder_queue
 
 from .queue import alreadyinQueue
 
-from .wallet import get_addresses
+from .basic_wallet import get_addresses
 from .blockchain import dontuseAddress, underfundedAddress
 
 log = config_log(__name__)
