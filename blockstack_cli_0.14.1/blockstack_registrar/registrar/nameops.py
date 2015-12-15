@@ -35,7 +35,7 @@ from .db import update_queue, transfer_queue
 from .blockchain import get_tx_confirmations
 from .blockchain import dontuseAddress, underfundedAddress
 
-from .wallet import get_privkey
+from .basic_wallet import get_privkey
 
 from .utils import config_log
 from .utils import pretty_print as pprint
