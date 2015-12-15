@@ -26,8 +26,8 @@ This file is part of Registrar.
 from pybitcoin import BitcoinPrivateKey, make_send_to_address_tx
 from pybitcoin import BlockcypherClient
 
-from tools.crypto_tools import aes_encrypt, aes_decrypt
-from tools.crypto_tools import get_address_from_privkey
+from crypto.utils import aes_encrypt, aes_decrypt
+from crypto.utils import get_address_from_privkey
 
 from .utils import pretty_print as pprint
 from .utils import config_log
