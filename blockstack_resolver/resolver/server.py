@@ -135,16 +135,6 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
 
     username = username.lower()
 
-    try:
-        blockstore_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
-        blockstore_resp = blockstore_client.get_name_blockchain_record(username + "." + namespace)
-        blockstore_resp = blockstore_resp[0]
-    except:
-        return {}
-
-    if blockstore_resp is None:
-        abort(404)
-
     if MEMCACHED_ENABLED:
         log.debug("Memcache get: %s" % username)
         cache_reply = mc.get("profile_" + str(username))
@@ -152,6 +142,16 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
         cache_reply = None
 
     if cache_reply is None:
+
+        try:
+            blockstore_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+            blockstore_resp = blockstore_client.get_name_blockchain_record(username + "." + namespace)
+            blockstore_resp = blockstore_resp[0]
+        except:
+            return {}
+
+        if blockstore_resp is None:
+            abort(404)
 
         if 'value_hash' in blockstore_resp:
             profile_hash = blockstore_resp['value_hash']
