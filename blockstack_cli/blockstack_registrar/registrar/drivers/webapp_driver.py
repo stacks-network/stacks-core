@@ -118,10 +118,9 @@ class WebappDriver(object):
                 if spam_protection:
                     log.debug("Deleting spam %s, %s" % (user['email'], user['username']))
                     self.users.remove({"email": user['email']})
-                    continue
                 else:
                     log.debug("Need to delete %s, %s" % (user['email'], user['username']))
-                    continue
+                continue
 
             # test for minimum name length
             if len(user['username']) < MINIMUM_LENGTH_NAME:
@@ -152,7 +151,7 @@ class WebappDriver(object):
                 except Exception as e:
                     log.debug(e)
 
-    def update_users(self):
+    def update_users(self, spam_protection=False):
         """
             Process new profile updates from the webapp
         """
@@ -165,6 +164,15 @@ class WebappDriver(object):
             user = get_db_user_from_id(new_user, self.users)
 
             if user is None:
+                continue
+
+            # for spam protection
+            if check_banned_email(user['email']):
+                if spam_protection:
+                    log.debug("Deleting spam: %s, %s" % (user['email'], user['username']))
+                    self.updates.remove({"user_id": new_user['user_id']})
+                else:
+                    log.debug("Need to delete %s, %s" % (user['email'], user['username']))
                 continue
 
             fqu = user['username'] + "." + DEFAULT_NAMESPACE
@@ -181,7 +189,7 @@ class WebappDriver(object):
 
                     refresh_resolver(user['username'])
                 else:
-                    log.debug("Processing: %s" % fqu)
+                    log.debug("Processing: %s, %s" % (fqu, user['email']))
                     try:
                         self.registrar_server.subsidized_nameop(fqu, profile,
                                                                 hex_privkey=hex_privkey,
