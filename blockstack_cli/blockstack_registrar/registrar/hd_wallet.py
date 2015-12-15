@@ -30,7 +30,7 @@ from keychain import PrivateKeychain
 from pybitcoin import make_send_to_address_tx
 from pybitcoin import BlockcypherClient
 
-from tools.crypto_tools import get_address_from_privkey
+from crypto.utils import get_address_from_privkey
 
 from .utils import pretty_print as pprint
 from .utils import config_log
