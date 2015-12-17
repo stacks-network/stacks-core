@@ -36,7 +36,6 @@ from .utils import config_log
 
 from blockcypher import get_transaction_details, get_blockchain_overview
 from blockcypher import get_address_details
-from blockcypher import simple_spend_tx
 
 from .config import MINIMUM_BALANCE
 

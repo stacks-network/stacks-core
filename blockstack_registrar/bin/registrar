@@ -44,7 +44,7 @@ from registrar.queue import display_queue_info
 from registrar.queue import cleanup_transfer_queue, cleanup_update_queue
 from registrar.queue import cleanup_register_queue, cleanup_preorder_queue
 
-from registrar.wallet import display_wallet_info, refill_wallet
+from registrar.basic_wallet import display_wallet_info, refill_wallet
 
 from registrar.blockchain import get_block_height
 
@@ -167,7 +167,7 @@ def run_loop():
             run_cli('transfer')
             run_cli('update')
             run_cli('register')
-            run_cli('preorder')
+            #run_cli('preorder')
 
             last_block = current_block
 
