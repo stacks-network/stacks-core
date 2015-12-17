@@ -29,7 +29,7 @@ import requests
 from registrar.config import MONGODB_URI, OLD_DB
 from registrar.config_local import CHAIN_API_KEY
 
-from .bip38 import bip38_decrypt
+from registrar.crypto.bip38 import bip38_decrypt
 from coinkit import BitcoinKeypair, NamecoinKeypair
 
 from commontools import log
