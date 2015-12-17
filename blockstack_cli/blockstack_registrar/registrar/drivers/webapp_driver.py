@@ -199,8 +199,13 @@ class WebappDriver(object):
         btc_address = nmc_to_btc_address(user['namecoin_address'])
         profile = user['profile']
 
+        pprint(user)
+
+        encrypted_privkey = user['encrypted_secret']
+        hex_privkey = bip38_decrypt(str(encrypted_privkey), WALLET_SECRET)
+        print hex_privkey
         log.debug("Reprocessing update: %s" % fqu)
-        update(fqu, profile, btc_address)
+        #update(fqu, profile, btc_address)
 
     def display_stats(self):
 
