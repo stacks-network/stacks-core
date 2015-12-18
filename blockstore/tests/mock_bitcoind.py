@@ -53,6 +53,7 @@ sys.path.insert(0, current_dir)
 import blockstore
 from blockstore.lib import *
 import virtualchain
+import bitcoin
 
 # global singleton
 mock_bitcoind = None
@@ -296,24 +297,17 @@ class MockBitcoindConnection( object ):
         version = '01000000'
         t_hex = "%08X" % self.time
         difficulty_hex = "%08X" % self.difficulty
-        tx_merkle_tree = pybitcoin.MerkleTree( block_txs )
-        tx_merkle_root = binascii.hexlify( tx_merkle_tree.root() )
+        tx_merkle_tree = pybitcoin.MerkleTree( block_txids )
+        tx_merkle_root = tx_merkle_tree.root()
         prev_block_hash = self.block_hashes[ self.end_block - 1 ]        
 
         block_header = version + prev_block_hash + tx_merkle_root + t_hex + difficulty_hex + '00000000'
-
-        # NOTE: not accurate; just get *a* hash
-        block_hash = make_txid( block_header )
-
-        # update nextblockhash at least 
-        self.blocks[prev_block_hash]['nextblockhash'] = block_hash 
         
         # next block
         block = {
             'merkleroot': tx_merkle_root,
             'nonce': 0,                 # mock
             'previousblockhash': prev_block_hash,
-            'hash': block_hash,
             'version': 3,
             'tx': block_txids,
             'chainwork': '00' * 32,     # mock
@@ -322,12 +316,23 @@ class MockBitcoindConnection( object ):
             'nextblockhash': None,      # to be filled in
             'confirmations': None,      # to be filled in 
             'time': self.time,          # mock
-            'bits': 0x00000000,         # mock
-            'size': sum( [len(tx) for tx in txs] ) + len(block_hash)    # mock
+            'bits': "0x00000000",       # mock
+            'size': sum( [len(tx) for tx in txs] ) + 32    # mock
         }
-        
-        self.block_hashes[ self.end_block ] = block_hash
-        self.blocks[ block_hash ] = block
+
+        block_header = bitcoin.main.encode(block['version'], 256, 4)[::-1] + \
+                       block['previousblockhash'].decode('hex')[::-1] + \
+                       block['merkleroot'].decode('hex')[::-1] + \
+                       bitcoin.main.encode(block['time'], 256, 4)[::-1] + \
+                       bitcoin.main.encode(int(block['bits'], 16), 256, 4)[::-1] + \
+                       bitcoin.main.encode(block['nonce'], 256, 4)[::-1] 
+
+        block['hash'] = pybitcoin.bin_double_sha256( block_header )[::-1].encode('hex')
+
+        # update nextblockhash at least 
+        self.blocks[prev_block_hash]['nextblockhash'] = block['hash']
+        self.block_hashes[ self.end_block ] = block['hash']
+        self.blocks[ block['hash'] ] = block
         self.txs.update( block_txs )
 
         self.time += 600    # 10 minutes
