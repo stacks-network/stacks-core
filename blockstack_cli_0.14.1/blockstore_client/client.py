@@ -537,11 +537,11 @@ def parse_tx_op_return( tx ):
         #pp = pprint.PrettyPrinter()
         #pp.pprint(tx)
         log.error("transaction has no OP_RETURN output")
-        return None
+        return (None, None)
 
     if len(op_return) < 20:
         log.error("OP_RETURN output is too short to encode a valid blockchain ID operation")
-        return None
+        return (None, None)
 
     # [0] is OP_RETURN, [1] is the length; [2:4] are 'id', [4] is opcode
     magic = op_return[2:4]
@@ -551,7 +551,7 @@ def parse_tx_op_return( tx ):
         #print SPVClient.tx_hash( tx )
         #print op_return.encode('hex')
         log.error("OP_RETURN output does not encode a blockchain ID operation")
-        return None
+        return (None, None)
 
     opcode = op_return[4]
     payload = op_return[5:]
