@@ -937,7 +937,6 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         """
         Lookup the blockchain-derived profile for a name.
         """
-
         db = get_state_engine()
 
         try:
@@ -955,6 +954,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
 
         else:
             return name_record
+
 
     def jsonrpc_get_name_blockchain_history( self, name, start_block, end_block ):
         """
@@ -1504,7 +1504,23 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         """
         db = get_state_engine()
         return db.get_consensus_at( block_id )
- 
+
+
+    def jsonrpc_get_consensus_range( self, block_id_start, block_id_end ):
+        """
+        Get a range of consensus hashes.  The range is inclusive.
+        """
+        db = get_state_engine()
+        ret = []
+        for b in xrange(block_id_start, block_id_end+1):
+            ch = db.get_consensus_at( b )
+            if ch is None:
+                break
+
+            ret.append(ch)
+
+        return ret
+
 
     def jsonrpc_get_block_from_consensus( self, consensus_hash ):
         """
@@ -1546,9 +1562,8 @@ def stop_server( from_signal, clean=False, kill=False ):
         log.info('Caught fatal signal; exiting blockstored server')
 
         # stop building new state if we're in the middle of it
-        db = get_state_engine()
-        virtualchain.stop_sync_virtualchain( db )
-
+        virtualchain_hooks.stop_sync_blockchain()
+        
         # stop API server 
         if blockstored_api_server is not None:
             log.debug("Stopping API server")
@@ -1729,8 +1744,7 @@ class IndexerThread( threading.Thread ):
             # bring us up to speed
             set_indexing( True )
 
-            db = get_state_engine()
-            virtualchain.sync_virtualchain( bt_opts, current_block, db )
+            virtualchain_hooks.sync_blockchain( bt_opts, current_block )
 
             set_indexing( False )
 
@@ -1744,8 +1758,7 @@ class IndexerThread( threading.Thread ):
         Request to stop the thread
         """
         self.running = False
-        db = get_state_engine()
-        virtualchain.stop_sync_virtualchain( db )
+        virtualchain_hooks.stop_sync_blockchain()
 
 
 def start_indexer_thread():
