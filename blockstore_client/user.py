@@ -76,19 +76,8 @@ def parse_user( user_json ):
    except Exception, e:
       # not valid json 
       traceback.print_exc()
-      print "Can't load '%s'" % user_json
+      print >> sys.stderr, "Can't load '%s'" % user_json
       return None 
-   
-   # verify that this is a valid user record 
-   valid = schema_match( USER_SCHEMA, user )
-   if not valid:
-      
-      # could be reserved 
-      valid = schema_match( RESERVED_USER_SCHEMA, user )
-      if not valid:
-          
-         print "invalid schema '%s'" % user_json
-         return None 
    
    return user 
 
