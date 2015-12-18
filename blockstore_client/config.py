@@ -25,6 +25,7 @@ import logging
 import os 
 from ConfigParser import SafeConfigParser
 import traceback
+import virtualchain
 
 BLOCKSTORED_PORT = 6264
 BLOCKSTORED_SERVER = "127.0.0.1"
@@ -49,6 +50,7 @@ NAMESPACE_REVEAL = '&'
 NAMESPACE_READY = '!'
 
 # borrowed from Blockstore
+# these never change, so it's fine to duplicate them here
 NAME_OPCODES = {
     "NAME_PREORDER": NAME_PREORDER,
     "NAME_REGISTRATION": NAME_REGISTRATION,
@@ -64,6 +66,7 @@ NAME_OPCODES = {
 }
 
 # borrowed from Blockstore 
+# these never change, so it's fine to duplicate them here
 NAMEREC_FIELDS = [
     'name',                 # the name itself
     'value_hash',           # the hash of the name's associated profile
@@ -87,6 +90,7 @@ NAMEREC_FIELDS = [
 ]
 
 # borrowed from Blockstore 
+# these never change, so it's fine to duplicate them here
 NAMESPACE_FIELDS = [
     'namespace_id',         # human-readable namespace ID
     'namespace_id_hash',    # hash(namespace_id,sender,reveal_addr) from the preorder (binds this namespace to its preorder)
@@ -113,6 +117,7 @@ NAMESPACE_FIELDS = [
 ]
 
 # borrowed from Blockstore
+# these never change, so it's fine to duplicate them here
 OPFIELDS = {
     NAME_IMPORT: NAMEREC_FIELDS + [
         'recipient',            # scriptPubKey hex that identifies the name recipient 
@@ -163,23 +168,27 @@ OPFIELDS = {
     ]
 }
 
-
 DEBUG = True
 VERSION = "v0.01-beta"
 MAX_RPC_LEN = 1024 * 1024 * 1024
 
-CONFIG_PATH = os.path.expanduser("~/.blockstore-client/blockstore-client.ini")
+CONFIG_DIR = os.path.expanduser("~/.blockstore-client")
+CONFIG_PATH = os.path.join( CONFIG_DIR, "blockstore-client.ini" )
 
-if not globals().has_key('log'):
-    log = logging.getLogger()
+SPV_HEADERS_PATH = os.path.join( CONFIG_DIR, "blockchain-headers.dat" )
+
+BLOCKCHAIN_ID_MAGIC = 'id'
+
+log = logging.getLogger()
+if len(log.handlers) == 0:
     log.setLevel(logging.DEBUG if DEBUG else logging.INFO)
     console = logging.StreamHandler()
     console.setLevel(logging.DEBUG if DEBUG else logging.INFO)
-    log_format = ('[%(levelname)s] [%(module)s:%(lineno)d] %(message)s' if DEBUG else '%(message)s')
-    formatter = logging.Formatter(log_format)
+    log_format = ('[%(levelname)s] [%(module)s:%(lineno)d] (' + str(os.getpid()) + ') %(message)s' if DEBUG else '%(message)s')
+    formatter = logging.Formatter( log_format )
     console.setFormatter(formatter)
-    # log.addHandler(console)
-
+    log.propagate = False
+    log.addHandler(console)
 
 def make_default_config( path=CONFIG_PATH ):
     """
@@ -203,7 +212,8 @@ def make_default_config( path=CONFIG_PATH ):
         parser.set('blockstore-client', 'server', BLOCKSTORED_SERVER)
         parser.set('blockstore-client', 'port', BLOCKSTORED_PORT)
         parser.set('blockstore-client', 'metadata', BLOCKSTORE_METADATA_DIR)
-        parser.set('blockstred-client', 'storage_drivers', BLOCKSTORE_DEFAULT_STORAGE_DRIVERS )
+        parser.set('blockstore-client', 'storage_drivers', BLOCKSTORE_DEFAULT_STORAGE_DRIVERS )
+        parser.set('blockstore-client', 'blockchain_headers', SPV_HEADERS_PATH )
         
         try:
             with open(path, "w") as f:
@@ -253,9 +263,9 @@ def get_config( path=CONFIG_PATH ):
         "server": BLOCKSTORED_SERVER,
         "port": BLOCKSTORED_PORT,
         "storage_drivers": BLOCKSTORE_DEFAULT_STORAGE_DRIVERS,
-        "metadata": BLOCKSTORE_METADATA_DIR
+        "metadata": BLOCKSTORE_METADATA_DIR,
+        "blockchain_headers": SPV_HEADERS_PATH,
     }
-    
     
     parser = SafeConfigParser()
     
@@ -282,7 +292,14 @@ def get_config( path=CONFIG_PATH ):
             
         if parser.has_option("blockstore-client", "metadata"):
             config['metadata'] = parser.get("blockstore-client", "metadata")
-            
+
+        if parser.has_option("blockstore-client", "blockchain_headers"):
+            config['blockchain_headers'] = parser.get("blockstore-client", "blockchain_headers" )
+
+    # import bitcoind options
+    bitcoind_config = virtualchain.get_bitcoind_config( path )
+    config.update( bitcoind_config )
+
     if not os.path.isdir(config['metadata']):
         if config['metadata'].startswith( os.path.expanduser("~/.blockstore-client") ):
             try:
