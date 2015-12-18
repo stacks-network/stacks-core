@@ -133,7 +133,7 @@ def register_user():
     if sizeInvalid(profile):
         raise InvalidProfileSize()
 
-    if not is_b58check_address(data['recipient_address']):
+    if not is_b58check_address(str(data['recipient_address'])):
         raise InvalidAddressError(data['recipient_address'])
 
     matching_profiles = Blockchainid.objects(username=username)
