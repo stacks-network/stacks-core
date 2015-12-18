@@ -30,7 +30,7 @@ import hashlib
 import binascii
 import scrypt
 from hashlib import sha256
-from coinkit import BitcoinKeypair, b58check_encode, b58check_decode
+from pybitcoin import BitcoinKeypair, b58check_encode, b58check_decode
 from Crypto.Cipher import AES
 
 
