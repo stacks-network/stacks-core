@@ -619,6 +619,8 @@ def default_bitcoind_opts( config_file=None ):
    """
    Get our default bitcoind options, such as from a config file,
    or from sane defaults
+
+   TODO: deprecate in favor of virtualchain's code
    """
 
    bitcoind_server = None

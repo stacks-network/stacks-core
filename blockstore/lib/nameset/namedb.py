@@ -1472,6 +1472,12 @@ class BlockstoreDB( virtualchain.StateEngine ):
       self.name_records[name]['vtxindex'] = nameop['vtxindex']
       self.name_records[name]['opcode'] = opcode
       self.name_records[name]['op'] = "%s%s" % (NAME_TRANSFER, op)
+      
+      # NOTE: this was omitted by mistake, but we cannot add it without breaking consensus
+      # self.name_records[name]['consensus_hash'] = nameop['consensus_hash']
+
+      # NOTE: this might work instead
+      # self.name_records[name]['consensus_hash_transfer'] = nameop['consensus_hash']
 
       if not keep_data:
          self.name_records[name]['value_hash'] = None
