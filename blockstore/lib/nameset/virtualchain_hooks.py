@@ -31,6 +31,7 @@ import pybitcoin
 import traceback
 import json
 import copy
+import threading
 
 from .namedb import BlockstoreDB
 
@@ -46,7 +47,7 @@ if not globals().has_key('log'):
     log = virtualchain.session.log
 
 blockstore_db = None
-last_load_time = 0
+blockstore_db_lock = threading.Lock()
 
 def get_burn_fee_from_outputs( outputs ):
     """
@@ -302,17 +303,14 @@ def get_db_state():
    (i.e. our name database)
    """
    
-   global blockstore_db
-   global last_load_time
+   global blockstore_db, blockstore_db_lock
    
    now = time.time()
    
-   # force invalidation
-   if now - last_load_time > REINDEX_FREQUENCY:
-       del blockstore_db
-       blockstore_db = None
-       
+   blockstore_db_lock.acquire()
+
    if blockstore_db is not None:
+      blockstore_db_lock.release()
       return blockstore_db 
    
    db_filename = virtualchain.get_db_filename()
@@ -320,8 +318,7 @@ def get_db_state():
    log.info("(Re)Loading blockstore state from '%s'" % db_filename )
    blockstore_db = BlockstoreDB( db_filename )
    
-   last_load_time = time.time()
-   
+   blockstore_db_lock.release()
    return blockstore_db
 
 
@@ -664,4 +661,43 @@ def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
    else:
       log.error("No state engine defined")
       return False 
+
+
+def sync_blockchain( bt_opts, last_block ):
+    """
+    synchronize state with the blockchain.
+    build up the next blockstore_db
+    """
+
+    global blockstore_db, blockstore_db_lock
+
+    log.info("Synchronizing database up to block %s" % last_block)
+    db_filename = virtualchain.get_db_filename()
+    new_db = BlockstoreDB( db_filename )
+
+    virtualchain.sync_virtualchain( bt_opts, last_block, new_db )
+
+    # refresh
+    blockstore_db_lock.acquire()
+    del blockstore_db
+    blockstore_db = new_db
+    
+    blockstore_db_lock.release()
+
+
+def stop_sync_blockchain():
+    """
+    stop synchronizing with the blockchain
+    """
+    global blockstore_db, blockstore_db_lock
+
+    if blockstore_db is None:
+        return
+
+    blockstore_db_lock.acquire()
+    if blockstore_db is None:
+        return 
+
+    blockstore_db.stop_build()
+    blockstore_db_lock.release()
 
