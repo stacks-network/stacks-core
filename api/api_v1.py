@@ -19,6 +19,12 @@ from flask_crossdomain import crossdomain
 from basicrpc import Proxy
 from pybitcoin import get_unspents, ChainComClient
 from pybitcoin.rpc import BitcoindClient
+from pybitcoin import is_b58check_address
+
+from registrar.wallet import HDWallet
+from registrar.crypto import aes_decrypt, get_address_from_pubkey
+from registrar.config import DEFAULT_CHILD_ADDRESSES
+from registrar.utils import get_hash
 
 from . import app
 from .errors import InvalidProfileDataError, UsernameTakenError, \
@@ -26,10 +32,11 @@ from .errors import InvalidProfileDataError, UsernameTakenError, \
     BroadcastTransactionError, DatabaseLookupError, InternalSSLError, \
     DatabaseSaveError, DKIMPubkeyError, UsernameNotRegisteredError, \
     UpgradeInprogressError, InvalidProfileSize, \
-    EmailTokenError, InvalidEmailError
+    EmailTokenError, InvalidEmailError, \
+    GenericError, PaymentError, InvalidAddressError
 
 from .parameters import parameters_required
-from .auth import auth_required
+from .auth import auth_required, get_authenticated_user
 from .models import Blockchainid, Email
 from .dkim import dns_resolver, parse_pubkey_from_data, DKIM_RECORD_PREFIX
 from .utils import sizeInvalid
@@ -42,6 +49,7 @@ from .settings import BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER
 from .settings import BITCOIND_PASSWD, BITCOIND_USE_HTTPS
 from .settings import EMAILS_TOKEN, EMAIL_REGREX
 from .settings import DEFAULT_NAMESPACE, HEX_PRIV_KEY
+from .settings import SECRET_KEY
 
 bitcoind = BitcoindClient(BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER,
                           BITCOIND_PASSWD, BITCOIND_USE_HTTPS)
@@ -125,6 +133,9 @@ def register_user():
     if sizeInvalid(profile):
         raise InvalidProfileSize()
 
+    if not is_b58check_address(data['recipient_address']):
+        raise InvalidAddressError(data['recipient_address'])
+
     matching_profiles = Blockchainid.objects(username=username)
 
     if len(matching_profiles):
@@ -154,26 +165,132 @@ def update_user(username):
 
     reply = {}
 
+    try:
+        user = get_authenticated_user(request.authorization)
+    except Exception as e:
+        raise GenericError(str(e))
+
+    try:
+        hex_privkey = aes_decrypt(user.encrypted_privkey, SECRET_KEY)
+    except Exception as e:
+        raise GenericError(str(e))
+
+    wallet = HDWallet(hex_privkey)
     data = json.loads(request.data)
 
     fqu = username + "." + DEFAULT_NAMESPACE
     profile = data['profile']
+    profile_hash = get_hash(profile)
     owner_pubkey = data['owner_pubkey']
-    payment_privkey = HEX_PRIV_KEY
+
+    try:
+        blockchain_record = bs_client.get_name_blockchain_record(fqu)
+    except Exception as e:
+        raise GenericError(str(e))
+
+    if 'value_hash' not in blockchain_record:
+        raise GenericError("Not yet registered %s" % fqu)
+
+    owner_address = blockchain_record['address']
+
+    check_address = get_address_from_pubkey(str(owner_pubkey))
+
+    if check_address != owner_address:
+        raise GenericError("Given pubkey/address doesn't own this name.")
+
+    #pubkey, payment_privkey = wallet.get_next_keypair()
+    payment_privkey = None
+    if payment_privkey is None:
+        #raise PaymentError(addresses=wallet.get_keypairs(DEFAULT_CHILD_ADDRESSES))
+        payment_privkey = HEX_PRIV_KEY
 
     resp = {}
 
     try:
         resp = bs_client.update_subsidized(fqu, profile_hash,
-                                           public_key=owner_public_key,
+                                           public_key=owner_pubkey,
                                            subsidy_key=payment_privkey)
     except Exception as e:
-        reply['error'] = e
+        reply['error'] = str(e)
+        return jsonify(reply), 200
 
     if 'subsidized_tx' in resp:
         reply['unsigned_tx'] = resp['subsidized_tx']
     else:
-        reply['error'] = resp
+        if 'error' in resp:
+            reply['error'] = resp['error']
+        else:
+            reply['error'] = resp
+
+    return jsonify(reply), 200
+
+
+@app.route('/v1/users/<username>/transfer', methods=['POST'])
+@auth_required()
+@parameters_required(['transfer_address', 'owner_pubkey'])
+@crossdomain(origin='*')
+def transfer_user(username):
+
+    reply = {}
+
+    try:
+        user = get_authenticated_user(request.authorization)
+    except Exception as e:
+        raise GenericError(str(e))
+
+    try:
+        hex_privkey = aes_decrypt(user.encrypted_privkey, SECRET_KEY)
+    except Exception as e:
+        raise GenericError(str(e))
+
+    wallet = HDWallet(hex_privkey)
+    data = json.loads(request.data)
+
+    fqu = username + "." + DEFAULT_NAMESPACE
+    transfer_address = data['transfer_address']
+    owner_pubkey = data['owner_pubkey']
+
+    try:
+        blockchain_record = bs_client.get_name_blockchain_record(fqu)
+    except Exception as e:
+        raise GenericError(str(e))
+
+    if 'value_hash' not in blockchain_record:
+        raise GenericError("Not yet registered %s" % fqu)
+
+    owner_address = blockchain_record['address']
+
+    check_address = get_address_from_pubkey(str(owner_pubkey))
+
+    if check_address != owner_address:
+        raise GenericError("Given pubkey/address doesn't own this name.")
+
+    if not is_b58check_address(transfer_address):
+        raise InvalidAddressError(transfer_address)
+
+    pubkey, payment_privkey = wallet.get_next_keypair()
+
+    if payment_privkey is None:
+        raise PaymentError(addresses=wallet.get_keypairs(DEFAULT_CHILD_ADDRESSES))
+
+    resp = {}
+
+    try:
+        resp = bs_client.transfer_subsidized(fqu, transfer_address,
+                                             keep_data=True,
+                                             public_key=owner_pubkey,
+                                             subsidy_key=payment_privkey)
+    except Exception as e:
+        reply['error'] = str(e)
+        return jsonify(reply), 200
+
+    if 'subsidized_tx' in resp:
+        reply['unsigned_tx'] = resp['subsidized_tx']
+    else:
+        if 'error' in resp:
+            reply['error'] = resp['error']
+        else:
+            reply['error'] = resp
 
     return jsonify(reply), 200
 
