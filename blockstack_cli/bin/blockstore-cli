@@ -243,22 +243,19 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
       'lookup_snv',
-      help='<name> <block_id> <consensus_hash> | Look up a name as it existed at a particular block, using SNV protocol')
+      help='<name> <serial_number> <untrusted_name> <untrusted_serial_number> | Use a trusted name/serial number to verify a previously-created name/serial number')
     subparser.add_argument(
       'name', type=str,
-      help='the name to look up')
+      help='a name you know to be authentic')
     subparser.add_argument(
-      'current_block_id', type=int,
-      help='a recent block number')
+      'serial_number', type=str,
+      help='the trusted name\'s serial number')
     subparser.add_argument(
-      'current_consensus_hash', type=str,
-      help='the trusted consensus hash for the recent block number')
+      'untrusted_name', type=str,
+      help='the name you wish to verify')
     subparser.add_argument(
-      'past_block_id', type=int,
-      help='the block number in the desired point in the past')
-    subparser.add_argument(
-      'past_consensus_hash', type=str,
-      help='the claimed consensus hash at the past block number')
+      'untrusted_serial_number', type=str,
+      help='the serial number you wish to verify')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -884,7 +881,7 @@ def run_cli():
         result = client.lookup( str(args.name) )
 
     elif args.action == 'lookup_snv':
-        result = client.lookup_snv(str(args.name), int(args.current_block_id), str(args.current_consensus_hash), int(args.past_block_id), str(args.past_consensus_hash) )
+        result = client.lookup_snv(str(args.name), str(args.serial_number), str(args.untrusted_name), str(args.untrusted_serial_number) )
 
     elif args.action == 'get_name_record':
         result = client.get_name_record( str(args.name) )
