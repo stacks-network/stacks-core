@@ -11,5 +11,5 @@ v1auth = Blueprint('v1auth', __name__, url_prefix='')
 
 import views
 
-from .authentication import auth_required
+from .authentication import auth_required, get_authenticated_user
 from .registration import register_user

@@ -10,6 +10,7 @@ from ..errors import MissingCredentialsError, InvalidCredentialsError
 def authenticate_user(app_id, app_secret):
     app_secret_hash = sha256(app_secret).hexdigest()
     users = User.objects(app_id=app_id, app_secret=app_secret)
+
     if users and len(users) == 1:
         user = users[0]
         user.request_count = user.request_count + 1
@@ -20,6 +21,24 @@ def authenticate_user(app_id, app_secret):
 
         return True
     return False
+
+
+def get_authenticated_user(auth):
+    """
+        Given a request auth object, fetch the user
+    """
+
+    app_id = auth.username
+    app_secret = auth.password
+
+    users = User.objects(app_id=app_id, app_secret=app_secret)
+
+    if users and len(users) == 1:
+        user = users[0]
+
+        return user
+    else:
+        return None
 
 
 def auth_required(exception_paths=None, exception_queries=None):
