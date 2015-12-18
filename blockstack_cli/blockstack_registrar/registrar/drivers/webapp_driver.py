@@ -48,7 +48,7 @@ from registrar.server import RegistrarServer
 
 from registrar.network import refresh_resolver
 
-from tools.bip38 import bip38_decrypt
+from registrar.crypto.bip38 import bip38_decrypt
 
 """
     Webapp Driver file that has all necessary functions for
