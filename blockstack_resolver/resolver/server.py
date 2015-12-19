@@ -228,7 +228,7 @@ def get_all_users(namespace, refresh=False):
     return all_users
 
 
-@app.route('/v2/users/<usernames>', methods=['GET'])
+@app.route('/v2/users/<usernames>', methods=['GET'], strict_slashes=False)
 @crossdomain(origin='*')
 def get_users(usernames):
 
@@ -279,7 +279,7 @@ def get_users(usernames):
     return jsonify(reply), 200
 
 
-@app.route('/v2/namespace')
+@app.route('/v2/namespace', strict_slashes=False)
 @crossdomain(origin='*')
 def get_namespace():
 
@@ -298,7 +298,7 @@ def get_namespace():
     return jsonify(reply)
 
 
-@app.route('/v2/users', methods=['GET'])
+@app.route('/v2/users/', methods=['GET'], strict_slashes=False)
 @crossdomain(origin='*')
 def get_user_count():
 
