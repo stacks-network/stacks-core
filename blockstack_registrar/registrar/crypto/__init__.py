@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
     Registrar
     ~~~~~
@@ -21,7 +22,8 @@ This file is part of Registrar.
     along with Registrar. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from .bip38 import bip38_encrypt, bip38_decrypt
+from utils import aes_encrypt, aes_decrypt
 
-from .utils import aes_encrypt, aes_decrypt
-
+from utils import get_address_from_pubkey
+from utils import get_address_from_privkey
+from utils import get_pubkey_from_privkey
