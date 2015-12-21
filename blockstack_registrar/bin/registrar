@@ -133,8 +133,8 @@ def run_cli(command, argv=None):
     elif command == "test":
 
         # commands for testing go here
-        #webapp_data.process_new_users(nameop='update', spam_protection=False)
-        webapp_data.update_users()
+        #webapp_data.update_users()
+        api_data.remove_entry('testington8')
 
     elif command == "reprocess":
 
@@ -167,7 +167,7 @@ def run_loop():
             run_cli('transfer')
             run_cli('update')
             run_cli('register')
-            #run_cli('preorder')
+            run_cli('preorder')
 
             last_block = current_block
 
