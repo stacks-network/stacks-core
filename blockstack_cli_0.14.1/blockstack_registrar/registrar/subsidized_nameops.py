@@ -25,8 +25,8 @@ This file is part of Registrar.
 from pybitcoin import sign_all_unsigned_inputs
 from blockcypher import pushtx
 
-from tools.crypto_tools import get_address_from_privkey
-from tools.crypto_tools import get_pubkey_from_privkey
+from crypto.utils import get_address_from_privkey
+from crypto.utils import get_pubkey_from_privkey
 
 from .utils import get_hash, pretty_print
 from .network import bs_client
