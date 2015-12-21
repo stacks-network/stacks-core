@@ -114,3 +114,13 @@ class APIDriver(object):
 
         log.debug("Pending registrations: %s" % self.registrations.find().count())
         #log.debug("Pending updates: %s" % self.updates.find().count())
+
+    def remove_entry(self, username):
+
+        check_entry = self.registrations.find_one({"username": username})
+
+        if check_entry is None:
+            log.debug("No such user")
+        else:
+            log.debug("Removing: %s" % username)
+            self.registrations.remove({"username": username})
