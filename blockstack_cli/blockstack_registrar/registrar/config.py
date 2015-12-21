@@ -39,13 +39,22 @@ REGISTRAR_DRIVERS = ['webapp', 'api']
 IGNORE_USERNAMES = []
 IGNORE_NAMES_STARTING_WITH = []
 
-# for registrar's internal queue
-QUEUE_DB_URI = os.environ['QUEUE_DB_URI']
+try:
+    # for registrar's internal queue
+    QUEUE_DB_URI = os.environ['QUEUE_DB_URI']
+except:
+    QUEUE_DB_URI = None
 
-# for encrypting DB entries like privkeys
-SECRET_KEY = os.environ['SECRET_KEY']
+try:
+    # for encrypting DB entries like privkeys
+    SECRET_KEY = os.environ['SECRET_KEY']
+except:
+    SECRET_KEY = None
 
-BLOCKCYPHER_TOKEN = os.environ['BLOCKCYPHER_TOKEN']
+try:
+    BLOCKCYPHER_TOKEN = os.environ['BLOCKCYPHER_TOKEN']
+except:
+    BLOCKCYPHER_TOKEN = None
 
 DEFAULT_HOST = '127.0.0.1'
 MEMCACHED_PORT = '11211'
