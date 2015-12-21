@@ -14,7 +14,12 @@ sudo pip install mod_wsgi
 
 Then configure the server:
 ```
-sudo mod_wsgi-express setup-server apache/apache.wsgi --port=80 --user www-data --group www-data --server-root=/etc/mod_wsgi-express-80 --httpd-executable=/usr/sbin/apache2 --processes=5
+sudo mod_wsgi-express setup-server apache/apache.wsgi \
+        --port=80 \
+        --user www-data --group www-data \
+        --server-root=/etc/mod_wsgi-express-80 \
+        --httpd-executable=/usr/sbin/apache2 \
+        --processes=5
 ```
 
 Now, you can start and stop the server with:
