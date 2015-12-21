@@ -30,6 +30,8 @@ pip install -r requirements.txt
 ./runserver
 ```
 
+For deploying the resolver in production, see [this page](https://github.com/blockstack/resolver/tree/master/apache).
+
 ## License:
 
 GPL v3. See LICENSE.
