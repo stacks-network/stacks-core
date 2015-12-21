@@ -22,6 +22,8 @@ This file is part of Registrar.
     along with Registrar. If not, see <http://www.gnu.org/licenses/>.
 """
 
+from bip38 import bip38_encrypt, bip38_decrypt
+
 from utils import aes_encrypt, aes_decrypt
 
 from utils import get_address_from_pubkey
