@@ -1,3 +1,8 @@
+Flask==0.10.1
+Jinja2==2.8
+MarkupSafe==0.23
+Twisted==15.5.0
+Werkzeug==0.10.4
 base58==0.2.2
 basicrpc==0.0.2
 beautifulsoup4==4.4.1
@@ -9,11 +14,9 @@ cachetools==1.1.5
 commontools==0.1.0
 dnspython==1.12.0
 ecdsa==0.13
-Flask==0.10.1
 itsdangerous==0.24
-Jinja2==2.8
 keychain==0.1.4
-MarkupSafe==0.23
+mod-wsgi==4.4.21
 proofchecker==0.0.2
 pybitcoin==0.9.7
 pybitcointools==1.1.15
@@ -22,9 +25,7 @@ pymongo==3.0.3
 python-bitcoinrpc==0.1
 requests==2.8.1
 six==1.10.0
-Twisted==15.5.0
 txJSON-RPC==0.3.1
 utilitybelt==0.2.6
 virtualchain==0.0.7
-Werkzeug==0.10.4
 zope.interface==4.1.3

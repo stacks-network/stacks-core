@@ -199,7 +199,7 @@ def get_all_users(namespace, refresh=False):
         return received_users
 
     if MEMCACHED_ENABLED:
-        log.debug("Memcache all_users: %s" % namespace)
+        log.debug("Memcache get all_users: %s" % namespace)
         cache_reply = mc.get("all_users_" + str(namespace))
     else:
         cache_reply = None
