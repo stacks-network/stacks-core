@@ -24,3 +24,5 @@ class User(db.Document):
     app_secret_hash = db.StringField(
         max_length=255, unique=True, required=True)
     request_count = db.IntField(min_value=0, default=0)
+    # HD wallet master key
+    encrypted_privkey = db.StringField(max_length=255, required=True)

@@ -22,7 +22,8 @@ MAIL_USERNAME = 'support@onename.com'
 SEARCH_URL = 'http://search.onename.com'
 RESOLVER_URL = 'http://resolver.onename.com'
 
-BLOCKSTORED_IP = '54.147.138.188'
+#BLOCKSTORED_IP = '54.147.138.188'
+BLOCKSTORED_IP = '172.30.1.199'
 BLOCKSTORED_PORT = 6264
 
 BITCOIND_SERVER = 'btcd.onename.com'
@@ -34,6 +35,14 @@ BITCOIND_USE_HTTPS = True
 MAX_PROFILE_LIMIT = (8 * 1024) - 50  # roughly 8kb max limit
 
 EMAIL_REGREX = r'[^@]+@[^@]+\.[^@]+'
+
+DEFAULT_NAMESPACE = "id"
+USE_DEFAULT_PAYMENT = False
+
+try:
+    PAYMENT_PRIVKEY = os.environ['PAYMENT_PRIVKEY']
+except:
+    PAYMENT_PRIVKEY = None
 
 try:
     from .secrets import *

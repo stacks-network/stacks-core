@@ -209,6 +209,88 @@ curl https://api.onename.com/v1/users \
 
 _end_
 
+## Update users
+
+#### anchor_tag:
+update_users
+
+#### description: 
+Update a blockchain ID profile on the blockchain. For a given username, takes in
+the new profile data and public key of the bitcoin owner address. Returns an unsigned
+transaction that needs to be signed client side and broadcasted using the
+transaction broadcast endpoint. The unsigned transaction already contains the
+signed transaction fee and only name update input needs to be signed. It takes
+on the order of hours to update the profile data on the blockchain.
+
+#### parameters[]:
+{"name": "profile", "description": "JSON profile data that should be associated with the username."}
+{"name": "owner_pubkey", "description": "Public key of the bitcoin address that owns the username."}
+
+#### response_description:
+Returns an object with an unsigned transaction "unsigned_tx" in hex format.
+
+#### method:
+POST
+
+#### path_template:
+/users/{username}/update
+
+#### example_request_bash:
+curl https://api.onename.com/v1/users/fredwilson/update \
+    -u 'YOUR-API-ID:YOUR-API-SECRET' \
+    -d '{"profile": {"bio": "I am a VC"}, 
+         "owner_pubkey": "02b262e2bdb4fee2834115aab77..."}' \
+    -H 'Content-type: application/json' \
+    -X POST
+
+#### example_response:
+{
+    "unsigned_tx": "01000000027757f96d886019cf8307e3b3c35bee845...."
+}
+
+_end_
+
+## Transfer users
+
+#### anchor_tag:
+transfer_users
+
+#### description: 
+Transfer the ownership of a blockchain ID to a new bitcoin address. For a given username, takes in
+the new address that should own the blockchain ID and public key of the current bitcoin owner address.
+Returns an unsigned transaction that needs to be signed client side and broadcasted using the
+transaction broadcast endpoint. The unsigned transaction already contains the
+signed transaction fee and only name transfer input needs to be signed. It takes
+on the order of hours to transfer the blockchain ID on the blockchain.
+
+#### parameters[]:
+{"name": "transfer_address", "description": "Bitcoin address of the new owner address."}
+{"name": "owner_pubkey", "description": "Public key of the bitcoin address that currently owns the username."}
+
+#### response_description:
+Returns an object with an unsigned transaction "unsigned_tx" in hex format.
+
+#### method:
+POST
+
+#### path_template:
+/users/{username}/transfer
+
+#### example_request_bash:
+curl https://api.onename.com/v1/users/fredwilson/transfer \
+    -u 'YOUR-API-ID:YOUR-API-SECRET' \
+    -d '{"transfer_address": "19bXfGsGEXewR6TyAV3b89cSHBtFFewXt6", 
+         "owner_pubkey": "02b262e2bdb4fee2834115aab77..."}' \
+    -H 'Content-type: application/json' \
+    -X POST
+
+#### example_response:
+{
+    "unsigned_tx": "01000000027757f96d886019cf8307e3b3c35bee845...."
+}
+
+_end_
+
 ## Get all users
 
 #### anchor_tag:
