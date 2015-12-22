@@ -19,12 +19,13 @@ from flask_crossdomain import crossdomain
 from basicrpc import Proxy
 from pybitcoin import get_unspents, ChainComClient
 from pybitcoin.rpc import BitcoindClient
-from pybitcoin import is_b58check_address
+from pybitcoin import is_b58check_address, BitcoinPrivateKey
 
 from registrar.wallet import HDWallet
 from registrar.crypto import aes_decrypt, get_address_from_pubkey
-from registrar.config import DEFAULT_CHILD_ADDRESSES
 from registrar.utils import get_hash
+from registrar.utils import pretty_print as pprint
+from registrar.config import DEFAULT_CHILD_ADDRESSES
 
 from . import app
 from .errors import InvalidProfileDataError, UsernameTakenError, \
@@ -48,8 +49,8 @@ from .settings import BLOCKSTORED_IP, BLOCKSTORED_PORT
 from .settings import BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER
 from .settings import BITCOIND_PASSWD, BITCOIND_USE_HTTPS
 from .settings import EMAILS_TOKEN, EMAIL_REGREX
-from .settings import DEFAULT_NAMESPACE, HEX_PRIV_KEY
-from .settings import SECRET_KEY
+from .settings import DEFAULT_NAMESPACE, PAYMENT_PRIVKEY
+from .settings import SECRET_KEY, USE_DEFAULT_PAYMENT
 
 bitcoind = BitcoindClient(BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER,
                           BITCOIND_PASSWD, BITCOIND_USE_HTTPS)
@@ -198,11 +199,15 @@ def update_user(username):
     if check_address != owner_address:
         raise GenericError("Given pubkey/address doesn't own this name.")
 
-    #pubkey, payment_privkey = wallet.get_next_keypair()
-    payment_privkey = None
-    if payment_privkey is None:
-        #raise PaymentError(addresses=wallet.get_keypairs(DEFAULT_CHILD_ADDRESSES))
-        payment_privkey = HEX_PRIV_KEY
+    if USE_DEFAULT_PAYMENT and PAYMENT_PRIVKEY is not None:
+
+        payment_privkey = BitcoinPrivateKey(PAYMENT_PRIVKEY)
+        payment_privkey = payment_privkey.to_hex()
+    else:
+        pubkey, payment_privkey = wallet.get_next_keypair()
+
+        if payment_privkey is None:
+            raise PaymentError(addresses=wallet.get_keypairs(DEFAULT_CHILD_ADDRESSES))
 
     resp = {}
 
@@ -268,10 +273,15 @@ def transfer_user(username):
     if not is_b58check_address(transfer_address):
         raise InvalidAddressError(transfer_address)
 
-    pubkey, payment_privkey = wallet.get_next_keypair()
+    if USE_DEFAULT_PAYMENT and PAYMENT_PRIVKEY is not None:
 
-    if payment_privkey is None:
-        raise PaymentError(addresses=wallet.get_keypairs(DEFAULT_CHILD_ADDRESSES))
+        payment_privkey = BitcoinPrivateKey(PAYMENT_PRIVKEY)
+        payment_privkey = payment_privkey.to_hex()
+    else:
+        pubkey, payment_privkey = wallet.get_next_keypair()
+
+        if payment_privkey is None:
+            raise PaymentError(addresses=wallet.get_keypairs(DEFAULT_CHILD_ADDRESSES))
 
     resp = {}
 
