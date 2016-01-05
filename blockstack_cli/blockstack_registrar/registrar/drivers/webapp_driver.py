@@ -200,20 +200,37 @@ class WebappDriver(object):
 
                 log.debug("Not registered: %s" % fqu)
 
-    def reprocess_user(self, username):
+    def remove_entry(self, username):
+
+        check_user = self.users.find_one({"username": username})
+
+        user_id = check_user['_id']
+
+        check_register = self.registrations.find_one({"user_id": user_id})
+
+        if check_register is None or check_user is None:
+            log.debug("No such user")
+        else:
+            log.debug("Removing: %s" % username)
+            self.registrations.remove({"user_id": user_id})
+
+    def reprocess_user(self, username, nameop):
 
         user = self.users.find_one({"username": username})
         fqu = user['username'] + "." + DEFAULT_NAMESPACE
-        btc_address = nmc_to_btc_address(user['namecoin_address'])
+        transfer_address = nmc_to_btc_address(user['namecoin_address'])
         profile = user['profile']
 
-        pprint(user)
+        log.debug("Reprocessing user: %s" % fqu)
+        self.registrar_server.process_nameop(fqu, profile,
+                                             transfer_address,
+                                             nameop=nameop)
 
-        encrypted_privkey = user['encrypted_secret']
-        hex_privkey = bip38_decrypt(str(encrypted_privkey), WALLET_SECRET)
-        print hex_privkey
-        log.debug("Reprocessing update: %s" % fqu)
-        #update(fqu, profile, btc_address)
+    def rename_user(self, username, new_username):
+
+        user = self.users.find_one({"username": username})
+        user['username'] = new_username
+        self.users.save(user)
 
     def display_stats(self):
 
