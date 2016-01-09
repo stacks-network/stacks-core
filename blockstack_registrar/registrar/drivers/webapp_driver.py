@@ -200,6 +200,20 @@ class WebappDriver(object):
 
                 log.debug("Not registered: %s" % fqu)
 
+    def remove_entry(self, username):
+
+        check_user = self.users.find_one({"username": username})
+
+        user_id = check_user['_id']
+
+        check_register = self.registrations.find_one({"user_id": user_id})
+
+        if check_register is None or check_user is None:
+            log.debug("No such user")
+        else:
+            log.debug("Removing: %s" % username)
+            self.registrations.remove({"user_id": user_id})
+
     def reprocess_user(self, username):
 
         user = self.users.find_one({"username": username})
