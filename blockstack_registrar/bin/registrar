@@ -133,8 +133,6 @@ def run_cli(command, argv=None):
     elif command == "test":
 
         # commands for testing go here
-        #webapp_data.update_users()
-        #webapp_data.remove_entry('tetests')
         api_data.remove_entry('testington8')
 
     elif command == "reprocess":
