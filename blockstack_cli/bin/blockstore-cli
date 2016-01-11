@@ -54,7 +54,7 @@ def get_sorted_commands():
                     'get_name_blockchain_record', 'get_namespace_blockchain_record',
                     'get_name_record', 'lookup',
                     'get_all_names', 'get_names_in_namespace', 'get_consensus_at',
-                    'lookup_snv', 'get_names_owned_by_address',
+                    'snv_lookup', 'get_names_owned_by_address',
                     'preorder_tx', 'preorder_subsidized',
                     'register_tx', 'register_subsidized',
                     'update_tx', 'update_subsidized',
@@ -242,20 +242,17 @@ def run_cli():
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-      'lookup_snv',
-      help='<name> <serial_number> <untrusted_name> <untrusted_serial_number> | Use a trusted name/serial number to verify a previously-created name/serial number')
+      'snv_lookup',
+      help='<name> <block_id> <trust_anchor> | Use a trusted anchor (a known-good newer serial number, txid, or consensus hash) to verify an untrusted name\'s ownership at a particular block')
     subparser.add_argument(
       'name', type=str,
-      help='a name you know to be authentic')
+      help='a name you want to verify')
     subparser.add_argument(
-      'serial_number', type=str,
-      help='the trusted name\'s serial number')
+      'block_id', type=str,
+      help='the block number containing the unverified preorder or transfer transaction')
     subparser.add_argument(
-      'untrusted_name', type=str,
-      help='the name you wish to verify')
-    subparser.add_argument(
-      'untrusted_serial_number', type=str,
-      help='the serial number you wish to verify')
+      'trust_anchor', type=str,
+      help='a subsequent known-good serial number, txid, or consensus hash')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -880,8 +877,8 @@ def run_cli():
     elif args.action == 'lookup':
         result = client.lookup( str(args.name) )
 
-    elif args.action == 'lookup_snv':
-        result = client.lookup_snv(str(args.name), str(args.serial_number), str(args.untrusted_name), str(args.untrusted_serial_number) )
+    elif args.action == 'snv_lookup':
+        result = client.snv_lookup(str(args.name), str(args.block_id), str(args.trust_anchor) )
 
     elif args.action == 'get_name_record':
         result = client.get_name_record( str(args.name) )
