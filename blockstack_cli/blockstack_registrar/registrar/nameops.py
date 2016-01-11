@@ -3,8 +3,8 @@
     Registrar
     ~~~~~
 
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
 
 This file is part of Registrar.
 
@@ -22,78 +22,272 @@ This file is part of Registrar.
     along with Registrar. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import json
-import logging
-import pylibmc
+from .utils import get_hash, pretty_print
+from .network import bs_client
+from .network import get_blockchain_record
 
-from time import time
-from pymongo import MongoClient
-from basicrpc import Proxy
+from .states import ownerName, nameRegistered
 
-from registrar.config import AWSDB_URI
-from registrar.config import MAIN_SERVER
-from registrar.config import DEFAULT_HOST, MEMCACHED_PORT, MEMCACHED_TIMEOUT
+from .queue import alreadyinQueue, add_to_queue
+from .db import preorder_queue, register_queue
+from .db import update_queue, transfer_queue
 
-from registrar.config import DEFAULT_NAMESPACE
-from registrar.config import BLOCKSTORED_IP, BLOCKSTORED_PORT
-from registrar.config import DHT_MIRROR_IP, DHT_MIRROR_PORT
+from .blockchain import get_tx_confirmations
+from .blockchain import dontuseAddress, underfundedAddress
 
-mc = pylibmc.Client([DEFAULT_HOST + ':' + MEMCACHED_PORT], binary=True)
-log = logging.getLogger()
+from .basic_wallet import get_privkey
 
-from registrar.db import register_queue
+from .utils import config_log
+from .utils import pretty_print as pprint
+
+from .config import PREORDER_CONFIRMATIONS
+
+log = config_log(__name__)
 
 
-def register_name(username, profile, server=MAIN_SERVER):
+"""
+    There are 4 main nameops (preorder, register, update, transfer)
+"""
 
-    reply = {}
 
-    # check if already in register queue (name_new)
-    check_queue = register_queue.find_one({"username": username})
+def preorder(fqu, payment_address, owner_address):
+    """
+        Preorder a fqu (step #1)
 
-    if check_queue is not None:
-        reply['message'] = "ERROR: " + "already in register queue: %s" % username
+        @fqu: fully qualified name e.g., muneeb.id
+        @payment_address: used for making the payment
+        @owner_address: will own the fqu
+
+        Returns True/False and stores tx_hash in queue
+    """
+
+    # stale preorder will get removed from preorder_queue
+    if alreadyinQueue(register_queue, fqu):
+        log.debug("Already in register queue: %s" % fqu)
+        return False
+
+    if alreadyinQueue(preorder_queue, fqu):
+        log.debug("Already in preorder queue: %s" % fqu)
+        return False
+
+    if dontuseAddress(payment_address):
+        log.debug("Payment address not ready: %s" % payment_address)
+        return False
+
+    elif underfundedAddress(payment_address):
+        log.debug("Payment address under funded: %s" % payment_address)
+        return False
+
+    payment_privkey = get_privkey(payment_address)
+
+    log.debug("Preordering (%s, %s, %s)" % (fqu, payment_address, owner_address))
+
+    try:
+        resp = bs_client.preorder(fqu, payment_privkey, owner_address)
+    except Exception as e:
+        log.debug(e)
+
+    if 'tx_hash' in resp:
+        add_to_queue(preorder_queue, fqu, payment_address=payment_address,
+                     tx_hash=resp['tx_hash'],
+                     owner_address=owner_address)
     else:
+        log.debug("Error preordering: %s" % fqu)
+        log.debug(pprint(resp))
+        return False
 
-        # register functionality here
-
-        # save this data to Mongodb...
-        register_queue.insert(reply)
-
-    log.debug(reply)
-    log.debug('-' * 5)
-
-    return reply
+    return True
 
 
-def update_name(username, profile, new_address=None):
+def register(fqu, payment_address=None, owner_address=None,
+             auto_preorder=True):
+    """
+        Register a previously preordered fqu (step #2)
 
-    reply = {}
+        @fqu: fully qualified name e.g., muneeb.id
+        @auto_preorder: automatically preorder, if true
 
-    cache_reply = mc.get("name_update_" + str(username))
+        Uses from preorder queue:
+        @payment_address: used for making the payment
+        @owner_address: will own the fqu (must be same as preorder owner_address)
 
-    if cache_reply is None:
+        Returns True/False and stores tx_hash in queue
+    """
 
-        # update name func here
-        pass
+    # check register_queue first
+    # stale preorder will get removed from preorder_queue
+    if alreadyinQueue(register_queue, fqu):
+        log.debug("Already in register queue: %s" % fqu)
+        return False
+
+    if not alreadyinQueue(preorder_queue, fqu):
+        if auto_preorder:
+            return preorder(fqu, payment_address, owner_address)
+        else:
+            log.debug("No preorder sent yet: %s" % fqu)
+            return False
+
+    if nameRegistered(fqu):
+        log.debug("Already registered %s" % fqu)
+        return False
+
+    preorder_entry = preorder_queue.find_one({"fqu": fqu})
+    preorder_tx = preorder_entry['tx_hash']
+
+    tx_confirmations = get_tx_confirmations(preorder_tx)
+
+    if tx_confirmations < PREORDER_CONFIRMATIONS:
+        log.debug("Waiting on preorder confirmations: (%s, %s)"
+                  % (preorder_tx, tx_confirmations))
+
+        return False
+
+    # use the correct owner_address from preorder operation
+    try:
+        owner_address = preorder_entry['owner_address']
+        payment_address = preorder_entry['payment_address']
+
+    except:
+        log.debug("Error getting preorder addresses")
+        return False
+
+    if dontuseAddress(payment_address):
+        log.debug("Payment address not ready: %s" % payment_address)
+        return False
+
+    elif underfundedAddress(payment_address):
+        log.debug("Payment address under funded: %s" % payment_address)
+        return False
+
+    payment_privkey = get_privkey(payment_address)
+
+    log.debug("Registering (%s, %s, %s)" % (fqu, payment_address, owner_address))
+
+    try:
+        resp = bs_client.register(fqu, payment_privkey, owner_address)
+    except Exception as e:
+        log.debug(e)
+
+    if 'tx_hash' in resp:
+        add_to_queue(register_queue, fqu, payment_address=payment_address,
+                     tx_hash=resp['tx_hash'],
+                     owner_address=owner_address)
     else:
-        reply['message'] = "ERROR: " + "recently sent name_update: %s" % username
+        log.debug("Error registering: %s" % fqu)
+        log.debug(pprint(resp))
+        return False
 
-    log.debug(reply)
-    log.debug('-' * 5)
+    return True
 
 
-def process_user(username, profile, server=MAIN_SERVER, new_address=None):
+def update(fqu, profile):
+    """
+        Update a previously registered fqu (step #3)
 
-    master_key = 'u/' + username
+        @fqu: fully qualified name e.g., muneeb.id
+        @profile: new profile json, hash(profile) goes to blockchain
 
-    if namecoind.check_registration(key1):
+        Internal use:
+        @owner_address: fetches the owner_address that can update
 
-        # if name is registered
-        log.debug("name update: %s", username)
-        #update_name()
+        Returns True/False and stores tx_hash in queue
+    """
 
+    if alreadyinQueue(update_queue, fqu):
+        log.debug("Already in update queue: %s" % fqu)
+        return False
+
+    if not nameRegistered(fqu):
+        log.debug("Not yet registered %s" % fqu)
+        return False
+
+    data = get_blockchain_record(fqu)
+
+    owner_address = data['address']
+    profile_hash = get_hash(profile)
+    owner_privkey = get_privkey(owner_address)
+
+    if owner_privkey is None:
+        log.debug("Registrar doens't own this name.")
+        return False
+
+    if dontuseAddress(owner_address):
+        log.debug("Owner address not ready: %s" % owner_address)
+        return False
+
+    elif underfundedAddress(owner_address):
+        log.debug("Owner address under funded: %s" % owner_address)
+        return False
+
+    log.debug("Updating (%s, %s)" % (fqu, profile_hash))
+
+    try:
+        resp = bs_client.update(fqu, profile_hash, owner_privkey)
+    except Exception as e:
+        log.debug(e)
+
+    if 'tx_hash' in resp:
+        add_to_queue(update_queue, fqu, profile=profile,
+                     profile_hash=profile_hash, owner_address=owner_address,
+                     tx_hash=resp['tx_hash'])
     else:
-        # if not registered
-        log.debug("name new: %s", username)
-        #register_name()
+        log.debug("Error updating: %s" % fqu)
+        log.debug(resp)
+        return False
+
+    return True
+
+
+def transfer(fqu, transfer_address):
+    """
+        Transfer a previously registered fqu (step #4)
+
+        @fqu: fully qualified name e.g., muneeb.id
+        @transfer_address: new owner address of @fqu
+
+        Internal use:
+        @owner_address: fetches the owner_address that can transfer
+
+        Returns True/False and stores tx_hash in queue
+    """
+
+    if alreadyinQueue(transfer_queue, fqu):
+        log.debug("Already in transfer queue: %s" % fqu)
+        return False
+
+    if ownerName(fqu, transfer_address):
+        log.debug("Already transferred %s" % fqu)
+        return True
+
+    data = get_blockchain_record(fqu)
+
+    owner_address = data['address']
+    owner_privkey = get_privkey(owner_address)
+
+    if dontuseAddress(owner_address):
+        log.debug("Owner address not ready: %s" % owner_address)
+        return False
+
+    elif underfundedAddress(owner_address):
+        log.debug("Owner address under funded: %s" % owner_address)
+        return False
+
+    log.debug("Transferring (%s, %s)" % (fqu, transfer_address))
+
+    try:
+        # format for transfer RPC call is (name, address, keepdata, privatekey)
+        resp = bs_client.transfer(fqu, transfer_address, True, owner_privkey)
+    except Exception as e:
+        log.debug(e)
+
+    if 'tx_hash' in resp:
+        add_to_queue(transfer_queue, fqu,
+                     owner_address=owner_address,
+                     transfer_address=transfer_address,
+                     tx_hash=resp['tx_hash'])
+    else:
+        log.debug("Error transferring: %s" % fqu)
+        log.debug(resp)
+        return False
+
+    return True

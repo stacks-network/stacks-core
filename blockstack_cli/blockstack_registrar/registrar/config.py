@@ -23,47 +23,65 @@ This file is part of Registrar.
 """
 import os
 
-BLOCKSTORED_IP = '52.20.98.85'
+BLOCKSTORED_IP = '127.0.0.1'
 BLOCKSTORED_PORT = 6264
 DHT_MIRROR_IP = '52.20.98.85'
 DHT_MIRROR_PORT = 6266
 
+RESOLVER_URL = 'http://resolver.onename.com'
+RESOLVER_USERS_ENDPOINT = "/v2/users/"
+
 DEFAULT_NAMESPACE = "id"
 
+# current defined drivers being used for registrar
+REGISTRAR_DRIVERS = ['webapp', 'api']
+
 IGNORE_USERNAMES = []
-MONGODB_URI = os.environ['MONGODB_URI']
-INDEXDB_URI = os.environ['INDEXDB_URI']
-BTC_PRIV_KEY = os.environ['BTC_PRIV_KEY']
+IGNORE_NAMES_STARTING_WITH = []
+
+try:
+    # for registrar's internal queue
+    QUEUE_DB_URI = os.environ['QUEUE_DB_URI']
+except:
+    QUEUE_DB_URI = None
+
+try:
+    # for encrypting DB entries like privkeys
+    SECRET_KEY = os.environ['SECRET_KEY']
+except:
+    SECRET_KEY = None
+
+try:
+    BLOCKCYPHER_TOKEN = os.environ['BLOCKCYPHER_TOKEN']
+except:
+    BLOCKCYPHER_TOKEN = None
 
 DEFAULT_HOST = '127.0.0.1'
 MEMCACHED_PORT = '11211'
 MEMCACHED_TIMEOUT = 15 * 60
 
-DEBUG = True
+TX_FEE = 0.0002  # around 7 cents
+TARGET_BALANCE_PER_ADDRESS = 0.009
+MINIMUM_BALANCE = 0.002
+CHAINED_PAYMENT_AMOUNT = 0.02
+MAX_LENGTH_CHAINED_PAYMENT = 10
+
+MINIMUM_LENGTH_NAME = 6
+DEBUG = False  # can change in config_local
+
+RATE_LIMIT = 20   # target tx per block
+SLEEP_INTERVAL = 20  # in seconds
+RETRY_INTERVAL = 10  # if a tx is not picked up by x blocks
+
+PREORDER_CONFIRMATIONS = 6
+PREORDER_REJECTED = 120  # no. of blocks after which preorder should be removed
+TX_CONFIRMATIONS_NEEDED = 10
+MAX_TX_CONFIRMATIONS = 150
+
+DEFAULT_CHILD_ADDRESSES = 5
 
 try:
     from config_local import *
 except Exception as e:
 
-    print e
-    print "using default config"
-
     email_regrex = ''  # if it's not defined in config_local
-
-    # --------------------------------------------------
-
-    #BITCOIND_USE_HTTPS = True
-
-    #BITCOIND_PORT = os.environ['BITCOIND_PORT']
-    #BITCOIND_SERVER = os.environ['BITCOIND_SERVER']
-    #BITCOIND_USER = os.environ['BITCOIND_USER']
-    #BITCOIND_PASSWD = os.environ['BITCOIND_PASSWD']
-    #WALLET_PASSPHRASE = os.environ['WALLET_PASSPHRASE']
-    #--------------------------------------------------
-
-    #MONGODB_URI = os.environ['MONGODB_URI']
-    #OLD_DB = os.environ['OLD_DB']
-    AWSDB_URI = os.environ['AWSDB_URI']
-    #MONGOLAB_URI = os.environ['MONGOLAB_URI']
-
-    #FRONTEND_SECRET = os.environ['FRONTEND_SECRET']
