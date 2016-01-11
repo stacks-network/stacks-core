@@ -22,13 +22,14 @@ This file is part of Registrar.
     along with Registrar. If not, see <http://www.gnu.org/licenses/>.
 """
 
+import os
 import json
 import requests
 
-from registrar.config import MONGODB_URI, OLD_DB, FRONTEND_SECRET
+from registrar.config import MONGODB_URI, OLD_DB
 from registrar.config_local import CHAIN_API_KEY
 
-from .bip38 import bip38_decrypt
+from registrar.crypto.bip38 import bip38_decrypt
 from coinkit import BitcoinKeypair, NamecoinKeypair
 
 from commontools import log
@@ -44,6 +45,12 @@ transfer = remote_db.name_transfer
 
 old_db = MongoClient(OLD_DB).get_default_database()
 old_users = old_db.user
+
+try:
+    WALLET_SECRET = os.environ['WALLET_SECRET']
+except:
+    log.debug("ERROR: WALLET_SECRET not set (check web app env variables)")
+    WALLET_SECRET = ''
 
 
 def sweep_btc(transfer_user, LIVE=False):
@@ -62,7 +69,7 @@ def sweep_btc(transfer_user, LIVE=False):
     new_btc_address = new_user['bitcoin_address']
     old_btc_address = json.loads(old_user['profile'])['bitcoin']['address']
 
-    wif_pk = bip38_decrypt(str(transfer_user['encrypted_private_key']), FRONTEND_SECRET)
+    wif_pk = bip38_decrypt(str(transfer_user['encrypted_private_key']), WALLET_SECRET)
 
     keypair = BitcoinKeypair.from_private_key(wif_pk)
 

@@ -4,8 +4,8 @@
     Registrar
     ~~~~~
 
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
 
 This file is part of Registrar.
 
@@ -23,108 +23,189 @@ This file is part of Registrar.
     along with Registrar. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os
-import json
-
-from pymongo import MongoClient
-from basicrpc import Proxy
-
-from .network import get_blockchain_record, get_dht_profile
-from .network import bs_client, dht_client
-
-from .config import DEFAULT_NAMESPACE
-from .config import IGNORE_USERNAMES
-from .config import BTC_PRIV_KEY
-
-from .utils import get_hash, check_banned_email, nmc_to_btc_address
-
-from .db import state_diff, users, registrations, register_queue
+import sys
 
 from time import sleep
 
+from .nameops import preorder, register, update, transfer
+from .subsidized_nameops import subsidized_update
 
-def register_user(user):
+from .states import nameRegistered
+from .states import profileonBlockchain, profileonDHT
+from .states import ownerName, registrationComplete
 
-    fqu = user['username'] + "." + DEFAULT_NAMESPACE
+from .network import write_dht_profile
 
-    resp = bs_client.lookup(fqu)
-    resp = resp[0]
+from .config import RATE_LIMIT, DHT_IGNORE
+from .config import SLEEP_INTERVAL
 
-    if resp is None:
-        print "Not registered: %s" % fqu
-    else:
-        print "Already registered %s" % fqu
-        return
+from .utils import config_log
 
-    profile_hash = get_hash(user['profile'])
-    btc_address = nmc_to_btc_address(user['namecoin_address'])
+from .db import preorder_queue
 
-    print profile_hash
-    print btc_address
-    print fqu
+from .queue import alreadyinQueue
 
-    resp = bs_client.name_import(fqu, btc_address, profile_hash, BTC_PRIV_KEY)
-    resp = resp[0]
+from .basic_wallet import get_addresses
+from .blockchain import dontuseAddress, underfundedAddress
 
-    if 'transaction_hash' in resp:
-        new_entry = {}
-        new_entry["fqu"] = fqu
-        new_entry['transaction_hash'] = resp['transaction_hash']
-        new_entry['profile_hash'] = profile_hash
-        new_entry['btc_address'] = btc_address
-    else:
-        print "Error registering: %s" % fqu
-        print resp
-
-    sleep(3)
+log = config_log(__name__)
 
 
-def get_latest_diff():
+class RegistrarServer(object):
+    """
+        Registrar/server handles loadbalancing and is the entry
+        point for sending nameops
+    """
 
-    for user in state_diff.find():
+    def __init__(self):
+        """ Initialize registrar addresses
 
-        username = user['username']
+            @payment_addresses: used for funding transactions
+            @owner_addresses: intermediate owner for names registered
+        """
 
-        if username == 'fboya':
-            print user
+        self.index = 0
+        self.all_addresses_in_use = False
+        self.payment_addresses = get_addresses(count=RATE_LIMIT)
 
+        # change the positions by 1, so that different payment and
+        # owner addresses are at a given index for the two lists
+        self.owner_addresses = [self.payment_addresses[-1]] + self.payment_addresses[:-1]
 
-def register_new_users(spam_protection=False):
+    def increment_index(self):
 
-    for new_user in registrations.find():
+        if self.index == RATE_LIMIT - 1:
+            self.index = 0
+        else:
+            self.index += 1
 
-        user_id = new_user['user_id']
-        user = users.find_one({"_id": user_id})
+    def get_next_addresses(self):
+        """ Get next set of addresses that are ready to use
 
-        if user is None:
-            continue
+            Returns (payment_address, owner_address)
+        """
 
-        if not user['username_activated']:
-            continue
+        if(self.all_addresses_in_use):
+            return None, None
 
-        # for spam protection
-        if check_banned_email(user['email']):
-            if spam_protection:
-                #users.remove({"email": user['email']})
-                print "Deleting spam %s, %s" % (user['email'], user['username'])
+        payment_address = self.payment_addresses[self.index]
+
+        #log.debug("Getting new payment address")
+        counter = 0
+
+        while(1):
+            # find an address that can be used for payment
+
+            if dontuseAddress(payment_address):
+                self.increment_index()
+                payment_address = self.payment_addresses[self.index]
+
+            elif underfundedAddress(payment_address):
+                log.debug("Underfunded address: %s" % payment_address)
+                self.increment_index()
+                payment_address = self.payment_addresses[self.index]
+
             else:
-                print "Need to delete %s, %s" % (user['email'], user['username'])
+                break
 
-        register_user(user)
+            counter += 1
 
+            if counter == RATE_LIMIT:
+                log.debug("All addresses were recently used.")
+                self.all_addresses_in_use = True
+                return None, None
 
-if __name__ == '__main__':
+        owner_address = self.owner_addresses[self.index]
 
-    username = 'clone355'
+        return payment_address, owner_address
 
-    print bs_client.lookup('waydans.id')
-    #register_new_users()
-    #refresh_profile(username)
-    #get_latest_diff()
+    def reset_flag(self):
+        self.all_addresses_in_use = False
 
-    #c = Proxy('54.82.121.156', 6264)
+    def process_nameop(self, fqu, profile, transfer_address, nameop=None):
+        """ Given the state of the name, process new nameop
 
-    #print c.lookup(username + ".id")
-    #print c.ping()
+            @fqu: the fully qualified name
+            @profile: json profile associated with fqu
+            @transfer_address: address that should own fqu after transfer
 
-    #name_import(username, btc_address, profile_hash, privkey_str)
+            Optional parameter:
+            @nameop: process all nameop types or only a specific type
+                     values can be 'preorder', 'register', 'update', 'transfer'
+
+            Returns True, if sent a tx on blockchain (for tracking rate limiting)
+        """
+
+        if not nameRegistered(fqu):
+            #log.debug("Not registered: %s" % fqu)
+
+            if alreadyinQueue(preorder_queue, fqu):
+                if nameop is None or nameop is 'register':
+                    log.debug("Registering: %s" % fqu)
+                    return register(fqu, auto_preorder=False)
+            else:
+                if nameop is None or nameop is 'preorder':
+                    #log.debug("Preordering: %s" % fqu)
+                    # loadbalancing happens in get_next_addresses()
+                    payment_address, owner_address = self.get_next_addresses()
+
+                    if payment_address is None:
+                        return False
+                    else:
+                        return preorder(fqu, payment_address, owner_address)
+
+        elif not profileonBlockchain(fqu, profile):
+            #log.debug("Not updated: %s" % fqu)
+
+            if nameop is None or nameop is 'update':
+                if fqu not in DHT_IGNORE:
+                    log.debug("Updating profile on blockchain: %s" % fqu)
+                    return update(fqu, profile)
+                else:
+                    log.debug("In DHT IGNORE list: %s" % fqu)
+
+        elif not profileonDHT(fqu, profile):
+            #log.debug("Not on DHT: %s" % fqu)
+
+            if fqu not in DHT_IGNORE:
+                #log.debug("Writing profile to DHT: %s" % fqu)
+                write_dht_profile(profile)
+
+            return False  # because not a blockchain operation
+
+        elif not ownerName(fqu, transfer_address):
+            #log.debug("Not transferred: %s" % fqu)
+
+            if nameop is None or nameop is 'transfer':
+                log.debug("Transferring name: %s" % fqu)
+                return transfer(fqu, transfer_address)
+
+        #log.debug("Nameop didn't meet any conditions")
+        return False  # no blockchain tx was sent
+
+    def subsidized_nameop(self, fqu, profile, hex_privkey, nameop=None):
+
+        if not profileonBlockchain(fqu, profile):
+
+            if nameop is None or nameop is 'update':
+                if fqu not in DHT_IGNORE:
+                    log.debug("Updating profile on blockchain: %s" % fqu)
+
+                    payment_address, other_address = self.get_next_addresses()
+
+                    if payment_address is None:
+                        return False
+
+                    return subsidized_update(fqu, profile, hex_privkey,
+                                             payment_address)
+                else:
+                    log.debug("In DHT IGNORE list: %s" % fqu)
+
+        elif not profileonDHT(fqu, profile):
+            #log.debug("Not on DHT: %s" % fqu)
+
+            if fqu not in DHT_IGNORE:
+                #log.debug("Writing profile to DHT: %s" % fqu)
+                write_dht_profile(profile)
+
+            return False  # because not a blockchain operation

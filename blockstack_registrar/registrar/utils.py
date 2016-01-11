@@ -2,8 +2,8 @@
     Registrar
     ~~~~~
 
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
 
 This file is part of Registrar.
 
@@ -22,11 +22,35 @@ This file is part of Registrar.
 """
 
 import json
+import logging
+
+from bson import json_util
+
 from pybitcoin import hex_hash160, address_to_new_cryptocurrency
+from pybitcoin import BitcoinPrivateKey
+from pybitcoin import is_b58check_address
 
-from .config import email_regrex
+from .config import email_regrex, DEBUG
 
-from .network import get_blockchain_record
+
+def config_log(name):
+
+    from commontools import setup_logging
+    setup_logging()
+
+    log = logging.getLogger(name)
+
+    if DEBUG:
+        log.setLevel(level=logging.DEBUG)
+    else:
+        log.setLevel(level=logging.INFO)
+
+    blockcypher_log = logging.getLogger("blockcypher.api")
+    blockcypher_log.setLevel(logging.WARNING)
+
+    return log
+
+log = config_log(__name__)
 
 
 def get_hash(profile):
@@ -36,9 +60,19 @@ def get_hash(profile):
             # print "WARNING: converting to json"
             profile = json.loads(profile)
         except:
-            print "WARNING: not valid json"
+            log.debug("WARNING: not valid json")
 
     return hex_hash160(json.dumps(profile, sort_keys=True))
+
+
+def pretty_dump(data):
+
+    try:
+        del data['_id']
+    except:
+        pass
+
+    return json.dumps(data, sort_keys=True, indent=4, separators=(',', ': '), default=json_util.default)
 
 
 def pretty_print(data):
@@ -52,10 +86,9 @@ def pretty_print(data):
         try:
             data = json.loads(data)
         except Exception as e:
-            print "got here"
-            print e
+            log.debug("ERROR in pretty print: %s" % e)
 
-    print json.dumps(data, sort_keys=True, indent=4, separators=(',', ': '))
+    print pretty_dump(data)
 
 
 def check_banned_email(email):
@@ -66,20 +99,39 @@ def check_banned_email(email):
         return False
 
 
-def check_ownership(user):
-    """ return True if user account in DB owns the username
-    """
+def ignoreRegistration(name, ignore_patterns):
 
-    btc_address = nmc_to_btc_address(user['namecoin_address'])
+    for pattern in ignore_patterns:
 
-    record = get_blockchain_record(user['username'])
+        if name.startswith(pattern):
+            return True
 
-    if record['address'] == btc_address:
-        return True
-    else:
-        return False
+    return False
 
 
 def nmc_to_btc_address(nmc_address):
 
     return address_to_new_cryptocurrency(str(nmc_address), 0)
+
+
+def satoshis_to_btc(satoshis):
+
+    return satoshis * 0.00000001
+
+
+def btc_to_satoshis(btc):
+
+    return int(btc / 0.00000001)
+
+
+def validAddress(address):
+
+    try:
+        validAddress = is_b58check_address(str(address))
+    except Exception as e:
+        log.debug(e)
+
+    if validAddress:
+        return True
+    else:
+        return False

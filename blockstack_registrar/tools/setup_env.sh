@@ -1,43 +1,23 @@
 #!/bin/bash
 
-echo "Enter MONGODB_URI:"
+echo "Enter WEBAPP_DB_URI:"
 read input
-export MONGODB_URI=$input
+export WEBAPP_DB_URI=$input
 
-echo "Enter OLD_DB:"
+echo "Enter API_DB_URI:"
 read input
-export OLD_DB=$input
+export API_DB_URI=$input
 
-echo "Enter AWSDB_URI:"
+echo "Enter QUEUE_DB_URI:"
 read input
-export AWSDB_URI=$input
+export QUEUE_DB_URI=$input
 
-echo "Enter MONGOLAB_URI:"
+echo "Enter BTC_PRIV_KEY:"
 read input
-export MONGOLAB_URI=$input
+export BTC_PRIV_KEY=$input
 
-echo "Enter FRONTEND_SECRET:"
+echo "Enter SECRET_KEY:"
 read input
-export FRONTEND_SECRET=$input
-
-echo "Enter NAMECOIND_SERVER:"
-read input
-export NAMECOIND_SERVER=$input
-
-echo "Enter NAMECOIND_PORT:"
-read input
-export NAMECOIND_PORT=$input
-
-echo "Enter NAMECOIND_USER:"
-read input
-export NAMECOIND_USER=$input
-
-echo "Enter NAMECOIND_PASSWD:"
-read input
-export NAMECOIND_PASSWD=$input
-
-echo "Enter NAMECOIND_WALLET_PASSPHRASE:"
-read input
-export NAMECOIND_WALLET_PASSPHRASE=$input
+export SECRET_KEY=$input
 
 echo "Done"
