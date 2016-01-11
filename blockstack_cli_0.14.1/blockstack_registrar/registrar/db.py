@@ -2,8 +2,8 @@
     Registrar
     ~~~~~
 
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
 
 This file is part of Registrar.
 
@@ -22,15 +22,18 @@ This file is part of Registrar.
 """
 
 from pymongo import MongoClient
-from registrar.config import MONGODB_URI, INDEXDB_URI, AWSDB_URI
 
-remote_db = MongoClient(MONGODB_URI).get_default_database()
-users = remote_db.user
-registrations = remote_db.user_registration
+from .config import QUEUE_DB_URI
 
-
-c = MongoClient(INDEXDB_URI)
+c = MongoClient()
 state_diff = c['namespace'].state_diff
 
-aws_db = MongoClient(AWSDB_URI)['registrar']
-register_queue = aws_db.queue
+queue_db = MongoClient(QUEUE_DB_URI)['registrar']
+preorder_queue = queue_db.preorder_queue
+register_queue = queue_db.register_queue
+update_queue = queue_db.update_queue
+transfer_queue = queue_db.transfer_queue
+
+# to-do: rename this from 'migration'
+registrar_users = c['migration'].migration_users
+registrar_addresses = c['migration'].registrar_addresses

@@ -1,0 +1,187 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+    Registrar
+    ~~~~~
+
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
+
+This file is part of Registrar.
+
+    Registrar is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Registrar is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Registrar. If not, see <http://www.gnu.org/licenses/>.
+"""
+
+import sys
+import os
+
+from time import sleep
+
+# Hack around absolute paths
+current_dir = os.path.abspath(os.path.dirname(__file__))
+parent_dir = os.path.abspath(current_dir + "/../")
+sys.path.insert(0, parent_dir)
+
+from registrar.utils import pretty_print as pprint
+from registrar.utils import config_log
+
+from registrar.drivers import WebappDriver, APIDriver
+
+from registrar.config import SLEEP_INTERVAL
+
+from registrar.queue import display_queue_info
+from registrar.queue import cleanup_transfer_queue, cleanup_update_queue
+from registrar.queue import cleanup_register_queue, cleanup_preorder_queue
+
+from registrar.basic_wallet import display_wallet_info, refill_wallet
+
+from registrar.blockchain import get_block_height
+
+log = config_log(__name__)
+
+# currently configured for the following drivers
+webapp_data = WebappDriver()
+api_data = APIDriver()
+
+
+def usage():
+
+    log.info("Options are register, update, clean, stats, reprocess")
+
+
+def run_cli(command, argv=None):
+
+    if command == "preorder":
+        api_data.process_new_users(nameop='preorder')
+        webapp_data.process_new_users(nameop='preorder')
+
+    elif command == "register":
+        api_data.process_new_users(nameop='register')
+        webapp_data.process_new_users(nameop='register')
+
+    elif command == "update":
+        api_data.process_new_users(nameop='update')
+        webapp_data.process_new_users(nameop='update')
+        #webapp_data.update_users()
+
+    elif command == "transfer":
+        api_data.process_new_users(nameop='transfer')
+        webapp_data.process_new_users(nameop='transfer')
+
+    elif command == "clean":
+
+        try:
+            queue = argv[2]
+        except:
+            queue = "all"
+
+        if queue == "transfer":
+            cleanup_transfer_queue()
+        elif queue == "update":
+            cleanup_update_queue()
+        elif queue == "register":
+            cleanup_register_queue()
+        elif queue == "preorder":
+            cleanup_preorder_queue()
+        elif queue == "all":
+            cleanup_transfer_queue()
+            cleanup_update_queue()
+            cleanup_register_queue()
+            cleanup_preorder_queue()
+
+    elif command == "getinfo":
+        display_queue_info()
+
+    elif command == "stats":
+        webapp_data.display_stats()
+        api_data.display_stats()
+
+    elif command == "blocks":
+        log.info("Block height: %s" % get_block_height())
+
+    elif command == "wallet":
+
+        try:
+            command = argv[2]
+
+            if command == "refill":
+                address = argv[3]
+                live = False
+                try:
+                    live_command = argv[4]
+                    if live_command == "live":
+                        live = True
+                except:
+                    pass
+                refill_wallet(address, live=live)
+        except:
+            pass
+
+        display_wallet_info()
+
+    elif command == "test":
+
+        # commands for testing go here
+        api_data.remove_entry('testington8')
+
+    elif command == "reprocess":
+
+        try:
+            username = argv[2]
+        except:
+            log.info("Usage error: reprocess <username>")
+            exit(0)
+
+        webapp_data.reprocess_user(username)
+    else:
+        usage()
+
+
+def run_loop():
+
+    current_block = get_block_height()
+    last_block = current_block - 1
+
+    while(1):
+
+        log.debug("At block: %s" % current_block)
+
+        if last_block == current_block:
+            log.debug("No new blocks. Sleeping")
+            sleep(SLEEP_INTERVAL)
+            current_block = get_block_height()
+        else:
+            # empty queues in reverse
+            run_cli('transfer')
+            run_cli('update')
+            run_cli('register')
+            run_cli('preorder')
+
+            last_block = current_block
+
+if __name__ == '__main__':
+
+    try:
+        command = sys.argv[1]
+    except:
+        usage()
+        exit(0)
+
+    if command == "loop":
+        try:
+            run_loop()
+        except KeyboardInterrupt:
+            log.debug("Exiting loop.")
+    else:
+        run_cli(command, sys.argv)

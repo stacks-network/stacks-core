@@ -31,27 +31,26 @@ import unittest
 from basicrpc import Proxy
 from pymongo import MongoClient
 
+import pybitcoin
+from pybitcoin import BlockcypherClient
+from pybitcoin.services.blockcypher import get_unspents
+
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
 sys.path.insert(0, parent_dir)
 
-from registrar.network import get_blockchain_record
-from registrar.network import get_dht_profile
+from registrar.nameops import usernameRegistered
+from registrar.nameops import get_dht_profile
 
-from registrar.config import DEFAULT_NAMESPACE
-from registrar.config import BLOCKSTORED_IP, BLOCKSTORED_PORT
-from registrar.config import DHT_MIRROR_IP, DHT_MIRROR_PORT
+from registrar.network import get_bs_client, get_dht_client
 
-test_users = ['muneeb', 'fredwilson', 'fred']
+from registrar.config import BLOCKCYPHER_TOKEN
 
+from registrar.utils import satoshis_to_btc
+from tools.crypto_tools import get_address_from_privkey
 
-def get_db():
-
-    MONGODB_URI = os.environ['MONGODB_URI']
-    remote_db = MongoClient(MONGODB_URI).get_default_database()
-
-    return remote_db.user
+test_users = ['muneeb.id', 'fredwilson.id']
 
 
 class RegistrarTestCase(unittest.TestCase):
@@ -63,7 +62,7 @@ class RegistrarTestCase(unittest.TestCase):
         """ Check connection to databases
         """
 
-        users = get_db()
+        from registrar.db import users
         count = users.count()
 
         self.assertGreater(count, 100, msg="Cannot connect to DB")
@@ -72,7 +71,7 @@ class RegistrarTestCase(unittest.TestCase):
         """ Check connection to blockstore node
         """
 
-        client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+        client = get_bs_client()
         resp = client.ping()[0]
 
         self.assertDictContainsSubset({'status': 'alive'}, resp)
@@ -81,7 +80,7 @@ class RegistrarTestCase(unittest.TestCase):
         """ Check connection to DHT
         """
 
-        client = Proxy(DHT_MIRROR_IP, DHT_MIRROR_PORT)
+        client = get_dht_client()
         resp = client.ping()[0]
 
         self.assertDictContainsSubset({'status': 'alive'}, resp)
@@ -90,16 +89,11 @@ class RegistrarTestCase(unittest.TestCase):
         """ Check if username is registered on blockchain
         """
 
-        for username in test_users:
+        for fqu in test_users:
 
-            resp = get_blockchain_record(username)
+            resp = usernameRegistered(fqu)
 
-            try:
-                last_renewed = resp['last_renewed']
-            except:
-                last_renewed = 0
-
-            self.assertGreater(last_renewed, 100, msg="Username not registered")
+            self.assertTrue(resp, msg="Username not registered")
 
     def test_profile_data(self):
         """ Check if:
@@ -107,13 +101,38 @@ class RegistrarTestCase(unittest.TestCase):
             2) data can be fetched from DHT
         """
 
-        for username in test_users:
+        for fqu in test_users:
 
-            profile = get_dht_profile(username)
+            profile = get_dht_profile(fqu)
 
             profile = json.loads(profile)
 
             self.assertIsInstance(profile, dict, msg="Profile not found")
+
+    def test_inputs(self):
+        """ Check if BTC key being used has enough inputs
+        """
+
+        from registrar.config import BTC_PRIV_KEY
+        btc_address = get_address_from_privkey(BTC_PRIV_KEY)
+
+        #print "Testing address: %s" % btc_address
+
+        client = BlockcypherClient(api_key=BLOCKCYPHER_TOKEN)
+
+        unspents = get_unspents(btc_address, client)
+
+        total_satoshis = 0
+        counter = 0
+        for unspent in unspents:
+
+            counter += 1
+            total_satoshis += unspent['value']
+
+        btc_amount = satoshis_to_btc(total_satoshis)
+        btc_amount = float(btc_amount)
+
+        self.assertGreater(btc_amount, 0.01, msg="Don't have enough inputs in btc address")
 
 if __name__ == '__main__':
 

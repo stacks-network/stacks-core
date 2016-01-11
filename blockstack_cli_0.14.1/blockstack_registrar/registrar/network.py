@@ -21,25 +21,56 @@ This file is part of Registrar.
     along with Registrar. If not, see <http://www.gnu.org/licenses/>.
 """
 
+import json
+import requests
+
 from basicrpc import Proxy
+from blockstore_client import client as bs_client
 
-from registrar.config import BLOCKSTORED_IP, BLOCKSTORED_PORT
-from registrar.config import DHT_MIRROR_IP, DHT_MIRROR_PORT
-from registrar.config import DEFAULT_NAMESPACE
+from .config import BLOCKSTORED_IP, BLOCKSTORED_PORT
+from .config import DHT_MIRROR_IP, DHT_MIRROR_PORT
+from .config import RESOLVER_URL, RESOLVER_USERS_ENDPOINT
 
-bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+from .utils import get_hash, config_log
+from .utils import pretty_dump as pprint
+
+log = config_log(__name__)
+
+# direct client, using Proxy
+#bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
 dht_client = Proxy(DHT_MIRROR_IP, DHT_MIRROR_PORT)
 
-
-def get_blockchain_record(username):
-
-    resp = bs_client.lookup(username + "." + DEFAULT_NAMESPACE)
-    return resp[0]
+# start session using blockstore_client
+bs_client.session(server_host=BLOCKSTORED_IP, server_port=BLOCKSTORED_PORT)
 
 
-def get_dht_profile(username):
+def get_bs_client():
 
-    resp = get_blockchain_record(username)
+    # return Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+    return bs_client
+
+
+def get_dht_client():
+
+    return Proxy(DHT_MIRROR_IP, DHT_MIRROR_PORT)
+
+
+def get_blockchain_record(fqu):
+
+    data = {}
+
+    try:
+        resp = bs_client.get_name_blockchain_record(fqu)
+    except Exception as e:
+        data['error'] = e
+        return data
+
+    return resp
+
+
+def get_dht_profile(fqu):
+
+    resp = get_blockchain_record(fqu)
 
     if resp is None:
         return None
@@ -48,11 +79,52 @@ def get_dht_profile(username):
 
     profile = None
 
+    dht_client = get_dht_client()
+
     try:
         resp = dht_client.get(profile_hash)
         profile = resp[0]['value']
     except Exception as e:
-        print "Error: %s" % username
-        print e
+        log.debug("<key, value> not in DHT: (%s, %s)" % (fqu, profile_hash))
 
     return profile
+
+
+def write_dht_profile(profile):
+
+    resp = None
+    dht_client = get_dht_client()
+
+    key = get_hash(profile)
+    value = json.dumps(profile, sort_keys=True)
+
+    log.debug("DHT write (%s, %s)" % (key, value))
+
+    try:
+        resp = dht_client.set(key, value)
+        log.debug(pprint(resp))
+    except Exception as e:
+        log.debug(e)
+
+    return resp
+
+
+def refresh_resolver(name):
+    """ Given a @name force refresh the resolver entry
+
+        This is meant to force update resolver cache,
+        after updating an entry
+
+        Should use fqu here instead of name.
+        Resolver doesn't support that yet.
+    """
+
+    url = RESOLVER_URL + RESOLVER_USERS_ENDPOINT + name + '?refresh=True'
+
+    try:
+        resp = requests.get(url, verify=False)
+    except:
+        log.debug("Error refreshing resolver: %s")
+        return False
+
+    return True
