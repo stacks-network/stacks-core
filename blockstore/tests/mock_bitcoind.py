@@ -69,7 +69,9 @@ class MockBitcoindConnection( object ):
     API for virtualchain to use it for testing.
     """
 
-    def __init__(self, save_file=None, tx_path=None, tx_list=None, tx_grouping=1, start_block=0, start_time=0x11111111, difficulty=1.0, initial_utxos={}, **kw ):
+    def __init__(self, save_file=None, tx_path=None, tx_list=None, tx_grouping=1, \
+                 start_block=0, start_time=0x11111111, difficulty=1.0, initial_utxos={}, \
+                 spv_headers_path=None, **kw ):
         """
         Create a mock bitcoind connection, either from a 
         list of serialized transactions on-file, or a given Python
@@ -80,14 +82,22 @@ class MockBitcoindConnection( object ):
         Transactions will be bundled into blocks in groups of size tx_grouping.
         """
 
-        self.block_hashes = {}    # map block ID to block hash 
-        self.blocks = {}        # map block hash to block info (including transaction IDs)
-        self.txs = {}       # map tx hash to a list of transactions
+        self.block_hashes = {}      # map block ID to block hash 
+        self.blocks = {}            # map block hash to block info (including transaction IDs)
+        self.txs = {}               # map tx hash to a list of transactions
+        self.txid_to_blockhash = {} # map tx hash to block hash
         self.next_block_txs = []    # next block's transactions
         self.difficulty = difficulty 
         self.time = start_time 
         self.start_block = start_block
         self.end_block = start_block
+        self.spv_headers_path = spv_headers_path
+
+        # for compatibility with blockstore_client
+        self.opts = {
+            'bitcoind_server': "localhost",
+            'bitcoind_port': 31113
+        }
         
         self.block_hashes[ start_block - 1 ] = '00' * 32
         self.blocks[ '00' * 32 ] = {}
@@ -218,12 +228,11 @@ class MockBitcoindConnection( object ):
             return raw_tx
 
         # parse like how bitcoind would have
-        """
-        btcd = virtualchain.create_bitcoind_connection( "openname", "opennamesystem", "btcd.onename.com", 8332, True )
-        ret = btcd.decoderawtransaction( raw_tx )
-        """
         ret = btc_decoderawtransaction_compat( raw_tx )
-
+        if ret is None:
+            return None
+        
+        ret['blockhash'] = self.txid_to_blockhash[ txid ]
         return ret
 
 
@@ -301,8 +310,6 @@ class MockBitcoindConnection( object ):
         tx_merkle_root = tx_merkle_tree.root()
         prev_block_hash = self.block_hashes[ self.end_block - 1 ]        
 
-        block_header = version + prev_block_hash + tx_merkle_root + t_hex + difficulty_hex + '00000000'
-        
         # next block
         block = {
             'merkleroot': tx_merkle_root,
@@ -317,7 +324,7 @@ class MockBitcoindConnection( object ):
             'confirmations': None,      # to be filled in 
             'time': self.time,          # mock
             'bits': "0x00000000",       # mock
-            'size': sum( [len(tx) for tx in txs] ) + 32    # mock
+            'size': sum( [len(tx) for tx in txs] ) + 32   # mock
         }
 
         block_header = bitcoin.main.encode(block['version'], 256, 4)[::-1] + \
@@ -328,6 +335,11 @@ class MockBitcoindConnection( object ):
                        bitcoin.main.encode(block['nonce'], 256, 4)[::-1] 
 
         block['hash'] = pybitcoin.bin_double_sha256( block_header )[::-1].encode('hex')
+        block['header'] = block_header
+
+        for txid in block['tx']:
+            # update txid --> blockhash map 
+            self.txid_to_blockhash[ txid ] = block['hash']
 
         # update nextblockhash at least 
         self.blocks[prev_block_hash]['nextblockhash'] = block['hash']
@@ -341,6 +353,11 @@ class MockBitcoindConnection( object ):
 
         if self.save_file is not None:
             self.save( self.save_file )
+
+        if self.spv_headers_path is not None:
+            with open(self.spv_headers_path, "a+") as f:
+                f.write( block_header )
+                f.write( "00".decode('hex') )    # our SPV client expects varint for tx count to be zero
 
         return [ make_txid( tx ) for tx in txs ]
 
@@ -388,6 +405,13 @@ class MockBitcoindConnection( object ):
         self.start_block = data['start_block']
         self.end_block = data['end_block']
         self.block_hashes = data['block_hashes']
+
+        for block_hash, block_data in self.blocks.items():
+            if not block_data.has_key('tx'):
+                continue
+            
+            for txid in block_data['tx']:
+                self.txid_to_blockhash[ txid ] = block_hash
 
 
 def connect_mock_bitcoind( mock_opts, reset=False ):
