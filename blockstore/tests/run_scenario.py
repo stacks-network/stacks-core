@@ -142,6 +142,14 @@ def run_scenario( scenario, config_file ):
     # pass along extra arguments
     utxo_opts['save_file'] = mock_bitcoind_save_path
 
+    # save headers as well 
+    utxo_opts['spv_headers_path'] = mock_bitcoind_save_path + ".spvheaders"
+    with open( utxo_opts['spv_headers_path'], "w" ) as f:
+        # write out "initial" headers, up to the first block
+        empty_header = ("00" * 81).decode('hex')
+        for i in xrange(0, blockstore.FIRST_BLOCK_MAINNET ): 
+            f.write( empty_header )
+
     blockstored.set_bitcoin_opts( bitcoin_opts )
     blockstored.set_utxo_opts( utxo_opts )
 
@@ -152,6 +160,7 @@ def run_scenario( scenario, config_file ):
     working_dir = virtualchain.get_working_dir()
  
     # set up test environment
+    testlib.set_utxo_opts( utxo_opts )
     testlib.set_utxo_client( mock_utxo )
     testlib.set_bitcoind( bitcoind )
     testlib.set_state_engine( db )
