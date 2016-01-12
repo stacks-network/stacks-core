@@ -38,7 +38,6 @@ from .utils import satoshis_to_btc
 from .utils import pretty_print as pprint
 from .utils import config_log
 
-from blockcypher import get_blockchain_overview
 from blockcypher import get_address_details
 
 from .config import MINIMUM_BALANCE
@@ -58,10 +57,10 @@ def get_block_height():
     resp = None
 
     try:
-        data = get_blockchain_overview()
+        data = bicoind_client.getinfo()
 
-        if 'height' in data:
-            resp = data['height']
+        if 'blocks' in data:
+            resp = data['blocks']
 
     except Exception as e:
         log.debug("ERROR: block height")
@@ -96,6 +95,10 @@ def txRejected(tx_hash, tx_sent_at_height):
 
     if type(current_height) is not int:
         log.debug("ERROR: getting current height")
+        return False
+
+    if tx_sent_at_height is None:
+        log.debug("ERROR: stored height is incorrect")
         return False
 
     tx_confirmations = get_tx_confirmations(tx_hash)
