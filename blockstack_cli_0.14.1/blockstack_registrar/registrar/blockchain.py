@@ -81,6 +81,8 @@ def get_tx_confirmations(tx_hash):
 
         if 'confirmations' in tx_data:
             resp = tx_data['confirmations']
+        elif 'txid' in tx_data:
+            resp = 0
 
     except Exception as e:
         log.debug("ERROR: tx details: %s" % tx_hash)
