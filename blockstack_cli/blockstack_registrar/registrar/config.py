@@ -80,6 +80,14 @@ MAX_TX_CONFIRMATIONS = 150
 
 DEFAULT_CHILD_ADDRESSES = 5
 
+# default settings for bitcoind, can override in config_local
+BITCOIND_SERVER = 'btcd.onename.com'
+BITCOIND_PORT = 8332
+BITCOIND_USER = 'openname'
+BITCOIND_PASSWD = 'opennamesystem'
+BITCOIND_WALLET_PASSPHRASE = ''
+BITCOIND_USE_HTTPS = True
+
 try:
     from config_local import *
 except Exception as e:
