@@ -44,17 +44,25 @@ from .config import MINIMUM_BALANCE
 
 log = config_log(__name__)
 
-bicoind_client = BitcoindClient(server=BITCOIND_SERVER, port=BITCOIND_PORT,
+
+def get_bitcoind_client():
+
+    client = BitcoindClient(server=BITCOIND_SERVER, port=BITCOIND_PORT,
                                 user=BITCOIND_USER, passwd=BITCOIND_PASSWD,
                                 use_https=BITCOIND_USE_HTTPS,
                                 passphrase=BITCOIND_WALLET_PASSPHRASE)
 
+    return client
+
 
 def get_block_height():
-    """ Return block height (currently uses BlockCypher API)
+    """ Return block height (currently uses bitcoind)
     """
 
     resp = None
+
+    # get a fresh local client (needed after waking up from sleep)
+    bicoind_client = get_bitcoind_client()
 
     try:
         data = bicoind_client.getinfo()
@@ -70,10 +78,13 @@ def get_block_height():
 
 
 def get_tx_confirmations(tx_hash):
-    """ Return block height (currently uses BlockCypher API)
+    """ Return block height (currently uses bitcoind)
     """
 
     resp = None
+
+    # get a fresh local client (needed after waking up from sleep)
+    bicoind_client = get_bitcoind_client()
 
     try:
         # second argument of '1' asks for results in JSON

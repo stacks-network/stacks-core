@@ -25,8 +25,6 @@ This file is part of Registrar.
 
 import sys
 
-from time import sleep
-
 from .nameops import preorder, register, update, transfer
 from .subsidized_nameops import subsidized_update
 
