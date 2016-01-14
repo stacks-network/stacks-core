@@ -41,6 +41,7 @@ from .config import BLOCKCYPHER_TOKEN
 from .config import TARGET_BALANCE_PER_ADDRESS, TX_FEE
 from .config import CHAINED_PAYMENT_AMOUNT, MINIMUM_BALANCE
 from .config import DEFAULT_CHILD_ADDRESSES
+from .config import HD_WALLET_PRIVKEY
 
 from .blockchain import get_balance, dontuseAddress, underfundedAddress
 
@@ -71,44 +72,43 @@ class HDWallet(object):
         else:
             self.priv_keychain = PrivateKeychain()
 
-    def get_privkey(self, index=None):
+    def get_master_privkey(self):
+
+        return self.priv_keychain.private_key()
+
+    def get_child_privkey(self, index=0):
         """
             @index is the child index
 
             Returns:
-            master/root privkey by default
-            or child privkey for given @index
+            child privkey for given @index
         """
-
-        if index is None:
-            return self.priv_keychain.private_key()
 
         child = self.priv_keychain.hardened_child(index)
         return child.private_key()
 
-    def get_address(self, index=None):
+    def get_master_address(self):
+
+        hex_privkey = self.get_master_privkey()
+        return get_address_from_privkey(hex_privkey)
+
+    def get_child_address(self, index=0):
         """
             @index is the child index
 
             Returns:
-            master/root address by default
-            or child address for given @index
+            child address for given @index
         """
 
-        if index is None:
-            hex_privkey = self.get_privkey()
-            return get_address_from_privkey(hex_privkey)
-
-        hex_privkey = self.get_privkey(index)
+        hex_privkey = self.get_child_privkey(index)
         return get_address_from_privkey(hex_privkey)
 
-    def get_keypairs(self, count=None, include_privkey=False):
+    def get_child_keypairs(self, count=1, offset=0, include_privkey=False):
         """
             Returns (privkey, address) keypairs
 
             Returns:
-            master/root pair by default
-            if count is given, then returns child keypairs
+            returns child keypairs
 
             @include_privkey: toggles between option to return
                              privkeys along with addresses or not
@@ -116,18 +116,9 @@ class HDWallet(object):
 
         keypairs = []
 
-        if count is None:
-
-            if include_privkey:
-                keypairs.append((self.get_address(), self.get_privkey()))
-            else:
-                keypairs.append(self.get_address())
-
-            return keypairs
-
-        for index in range(count):
-            hex_privkey = self.get_privkey(index)
-            address = self.get_address(index)
+        for index in range(offset, offset+count):
+            hex_privkey = self.get_child_privkey(index)
+            address = self.get_child_address(index)
 
             if include_privkey:
                 keypairs.append((address, hex_privkey))
@@ -142,7 +133,7 @@ class HDWallet(object):
             Returns (payment_address, hex_privkey)
         """
 
-        addresses = self.get_keypairs(count=count)
+        addresses = self.get_child_keypairs(count=count)
         index = 0
 
         for payment_address in addresses:
@@ -156,13 +147,35 @@ class HDWallet(object):
                 log.debug("Underfunded address: %s" % payment_address)
 
             else:
-                return payment_address, self.get_privkey(index)
+                return payment_address, self.get_child_privkey(index)
 
             index += 1
 
         log.debug("No valid address available.")
 
         return None, None
+
+    def get_privkey_from_address(self, target_address,
+                                 count=DEFAULT_CHILD_ADDRESSES):
+        """ Given a child address, return priv key of that address
+        """
+
+        addresses = self.get_child_keypairs(count=count)
+
+        index = 0
+
+        for address in addresses:
+
+            if address == target_address:
+
+                return self.get_child_privkey(index)
+
+            index += 1
+
+        return None
+
+# global default wallet
+wallet = HDWallet(HD_WALLET_PRIVKEY)
 
 
 def get_underfunded_addresses(list_of_addresses):
@@ -234,8 +247,6 @@ def send_multi_payment(payment_privkey, list_of_addresses, payment_per_address):
 
     unsigned_tx = create_unsigned_tx(inputs=inputs, outputs=outputs)
 
-    pprint(unsigned_tx)
-
     # iterate through unsigned_tx['tx']['inputs'] to find each address in order
     # need to include duplicates as many times as they may appear
     privkey_list = []
@@ -253,19 +264,25 @@ def send_multi_payment(payment_privkey, list_of_addresses, payment_per_address):
                                         signatures=tx_signatures,
                                         pubkeys=pubkey_list)
 
-    if 'hash' in resp:
-        return resp['hash']
+    pprint(resp)
+
+    if 'tx' in resp:
+        return resp['tx']['hash']
     else:
         return None
 
 if __name__ == '__main__':
 
-    HEX_PRIV_KEY = os.environ['HEX_PRIV_KEY']
-    wallet = HDWallet(HEX_PRIV_KEY)
+    live = False
 
-    list_of_addresses = wallet.get_keypairs(10, include_privkey=False)
-    #send_multi_payment(HEX_PRIV_KEY, list_of_addresses, '0.01')
-    addresses = wallet.get_keypairs()
+    list_of_addresses = wallet.get_child_keypairs(count=10, offset=10)
+
+    if live:
+        tx_hash = send_multi_payment(HD_WALLET_PRIVKEY, list_of_addresses, '0.04')
+        log.debug("Sent: %s" % tx_hash)
+
+    addresses = []
+    addresses.append(wallet.get_master_address())
 
     addresses += list_of_addresses
     #print get_underfunded_addresses(addresses)
