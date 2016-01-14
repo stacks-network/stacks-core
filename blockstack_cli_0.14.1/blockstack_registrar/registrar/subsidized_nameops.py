@@ -41,7 +41,7 @@ from .db import update_queue, transfer_queue
 from .blockchain import get_tx_confirmations
 from .blockchain import dontuseAddress, underfundedAddress
 
-from .basic_wallet import get_privkey
+from .wallet import wallet
 
 from .utils import config_log
 from .utils import pretty_print as pprint
@@ -109,7 +109,7 @@ def subsidized_update(fqu, profile, owner_privkey, payment_address):
         return False
 
     owner_public_key = get_pubkey_from_privkey(owner_privkey)
-    payment_privkey = get_privkey(payment_address)
+    payment_privkey = wallet.get_privkey_from_address(payment_address)
 
     log.debug("Updating (%s, %s)" % (fqu, profile_hash))
     log.debug("<owner, payment> (%s, %s)" % (owner_address, payment_address))

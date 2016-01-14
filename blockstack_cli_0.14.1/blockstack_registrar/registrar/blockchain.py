@@ -26,15 +26,18 @@ This file is part of Registrar.
 import sys
 from pybitcoin import BlockcypherClient
 from pybitcoin.services.blockcypher import get_unspents
+from pybitcoin.rpc.bitcoind_client import BitcoindClient
 
 from .config import BLOCKCYPHER_TOKEN
 from .config import RETRY_INTERVAL, TX_CONFIRMATIONS_NEEDED, PREORDER_REJECTED
+from .config import BITCOIND_SERVER, BITCOIND_PORT
+from .config import BITCOIND_USER, BITCOIND_PASSWD
+from .config import BITCOIND_WALLET_PASSPHRASE, BITCOIND_USE_HTTPS
 
 from .utils import satoshis_to_btc
 from .utils import pretty_print as pprint
 from .utils import config_log
 
-from blockcypher import get_transaction_details, get_blockchain_overview
 from blockcypher import get_address_details
 
 from .config import MINIMUM_BALANCE
@@ -42,17 +45,30 @@ from .config import MINIMUM_BALANCE
 log = config_log(__name__)
 
 
+def get_bitcoind_client():
+
+    client = BitcoindClient(server=BITCOIND_SERVER, port=BITCOIND_PORT,
+                                user=BITCOIND_USER, passwd=BITCOIND_PASSWD,
+                                use_https=BITCOIND_USE_HTTPS,
+                                passphrase=BITCOIND_WALLET_PASSPHRASE)
+
+    return client
+
+
 def get_block_height():
-    """ Return block height (currently uses BlockCypher API)
+    """ Return block height (currently uses bitcoind)
     """
 
     resp = None
 
-    try:
-        data = get_blockchain_overview()
+    # get a fresh local client (needed after waking up from sleep)
+    bicoind_client = get_bitcoind_client()
 
-        if 'height' in data:
-            resp = data['height']
+    try:
+        data = bicoind_client.getinfo()
+
+        if 'blocks' in data:
+            resp = data['blocks']
 
     except Exception as e:
         log.debug("ERROR: block height")
@@ -62,20 +78,22 @@ def get_block_height():
 
 
 def get_tx_confirmations(tx_hash):
-    """ Return block height (currently uses BlockCypher API)
+    """ Return block height (currently uses bitcoind)
     """
 
     resp = None
 
+    # get a fresh local client (needed after waking up from sleep)
+    bicoind_client = get_bitcoind_client()
+
     try:
-        data = get_transaction_details(tx_hash)
+        # second argument of '1' asks for results in JSON
+        tx_data = bicoind_client.getrawtransaction(tx_hash, 1)
 
-        # hack around bug where chain_com keeps broadcasting double spends
-        if 'double_spend_tx' in data:
-            data = get_transaction_details(data['double_spend_tx'])
-
-        if 'confirmations' in data:
-            resp = data['confirmations']
+        if 'confirmations' in tx_data:
+            resp = tx_data['confirmations']
+        elif 'txid' in tx_data:
+            resp = 0
 
     except Exception as e:
         log.debug("ERROR: tx details: %s" % tx_hash)
@@ -90,6 +108,10 @@ def txRejected(tx_hash, tx_sent_at_height):
 
     if type(current_height) is not int:
         log.debug("ERROR: getting current height")
+        return False
+
+    if tx_sent_at_height is None:
+        log.debug("ERROR: stored height is incorrect")
         return False
 
     tx_confirmations = get_tx_confirmations(tx_hash)

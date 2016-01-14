@@ -294,14 +294,18 @@ def construct_payment_chain(source_address, no_of_addresses, offset=None):
 def display_wallet_info(number_of_addresses=RATE_LIMIT):
 
     addresses = get_addresses(count=number_of_addresses)
+    total_balance = 0
 
     for address in addresses:
         has_pending_tx = dontuseAddress(address)
+        balance_on_address = get_balance(address)
         log.debug("(%s, balance %s,\t pending %s)" % (address,
-                                                      get_balance(address),
+                                                      balance_on_address,
                                                       has_pending_tx))
+        total_balance += balance_on_address
 
     log.debug("Total addresses: %s" % len(addresses))
+    log.debug("Total balance: %s" % total_balance)
 
 
 def refill_wallet(source_address, live=False):

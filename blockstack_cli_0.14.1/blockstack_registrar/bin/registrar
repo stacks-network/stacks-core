@@ -50,10 +50,6 @@ from registrar.blockchain import get_block_height
 
 log = config_log(__name__)
 
-# currently configured for the following drivers
-webapp_data = WebappDriver()
-api_data = APIDriver()
-
 
 def usage():
 
@@ -61,6 +57,10 @@ def usage():
 
 
 def run_cli(command, argv=None):
+
+    # currently configured for the following drivers
+    webapp_data = WebappDriver()
+    api_data = APIDriver()
 
     if command == "preorder":
         api_data.process_new_users(nameop='preorder')
@@ -163,9 +163,9 @@ def run_loop():
             current_block = get_block_height()
         else:
             # empty queues in reverse
-            run_cli('transfer')
-            run_cli('update')
-            run_cli('register')
+            #run_cli('transfer')
+            #run_cli('update')
+            #run_cli('register')
             run_cli('preorder')
 
             last_block = current_block
