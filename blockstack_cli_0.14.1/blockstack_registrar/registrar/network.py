@@ -30,6 +30,7 @@ from blockstore_client import client as bs_client
 from .config import BLOCKSTORED_IP, BLOCKSTORED_PORT
 from .config import DHT_MIRROR_IP, DHT_MIRROR_PORT
 from .config import RESOLVER_URL, RESOLVER_USERS_ENDPOINT
+from .config import MAX_DHT_WRITE
 
 from .utils import get_hash, config_log
 from .utils import pretty_dump as pprint
@@ -75,7 +76,11 @@ def get_dht_profile(fqu):
     if resp is None:
         return None
 
-    profile_hash = resp['value_hash']
+    try:
+        profile_hash = resp['value_hash']
+    except Exception as e:
+        log.debug(e)
+        return None
 
     profile = None
 
@@ -97,6 +102,10 @@ def write_dht_profile(profile):
 
     key = get_hash(profile)
     value = json.dumps(profile, sort_keys=True)
+
+    if len(value) > MAX_DHT_WRITE:
+        log.debug("DHT value too large: %s, %s" % (key, len(value)))
+        return resp
 
     log.debug("DHT write (%s, %s)" % (key, value))
 
