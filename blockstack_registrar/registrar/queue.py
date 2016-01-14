@@ -103,7 +103,7 @@ def display_queue(queue):
             log.debug("problem")
 
 
-def cleanup_preorder_queue():
+def cleanup_preorder_queue(cleanup_rejected=False):
 
     for entry in preorder_queue.find():
 
@@ -118,10 +118,11 @@ def cleanup_preorder_queue():
                       % entry['fqu'])
             preorder_queue.remove({"fqu": entry['fqu']})
 
-    cleanup_rejected_tx(preorder_queue)
+    if cleanup_rejected:
+        cleanup_rejected_tx(preorder_queue)
 
 
-def cleanup_register_queue():
+def cleanup_register_queue(cleanup_rejected=False):
 
     for entry in register_queue.find():
 
@@ -137,7 +138,8 @@ def cleanup_register_queue():
                       % entry['fqu'])
             register_queue.remove({"fqu": entry['fqu']})
 
-    cleanup_rejected_tx(register_queue)
+    if cleanup_rejected:
+        cleanup_rejected_tx(register_queue)
 
 
 def cleanup_update_queue():

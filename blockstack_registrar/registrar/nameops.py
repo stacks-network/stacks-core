@@ -208,7 +208,7 @@ def update(fqu, profile):
     owner_privkey = wallet.get_privkey_from_address(owner_address)
 
     if owner_privkey is None:
-        log.debug("Registrar doens't own this name.")
+        log.debug("Registrar doesn't own this name.")
         return False
 
     if dontuseAddress(owner_address):
