@@ -4,8 +4,8 @@
     Registrar
     ~~~~~
 
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
 
 This file is part of Registrar.
 
@@ -40,17 +40,19 @@ current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
 sys.path.insert(0, parent_dir)
 
-from registrar.nameops import usernameRegistered
-from registrar.nameops import get_dht_profile
+from registrar.states import nameRegistered
 
+from registrar.network import get_dht_profile
 from registrar.network import get_bs_client, get_dht_client
+
+from registrar.utils import satoshis_to_btc
+from registrar.blockchain import get_tx_confirmations
+from registrar.crypto.utils import get_address_from_privkey
 
 from registrar.config import BLOCKCYPHER_TOKEN
 
-from registrar.utils import satoshis_to_btc
-from tools.crypto_tools import get_address_from_privkey
-
 test_users = ['muneeb.id', 'fredwilson.id']
+test_tx_hash = '30c2ccd9141dc21fcf9a6da508e528bc88a952efb7a1053821195f5d7db46587'
 
 
 class RegistrarTestCase(unittest.TestCase):
@@ -58,21 +60,12 @@ class RegistrarTestCase(unittest.TestCase):
     def tearDown(self):
         pass
 
-    def test_db_connectivity(self):
-        """ Check connection to databases
-        """
-
-        from registrar.db import users
-        count = users.count()
-
-        self.assertGreater(count, 100, msg="Cannot connect to DB")
-
     def test_blockstore_connectivity(self):
         """ Check connection to blockstore node
         """
 
         client = get_bs_client()
-        resp = client.ping()[0]
+        resp = client.ping()
 
         self.assertDictContainsSubset({'status': 'alive'}, resp)
 
@@ -91,7 +84,7 @@ class RegistrarTestCase(unittest.TestCase):
 
         for fqu in test_users:
 
-            resp = usernameRegistered(fqu)
+            resp = nameRegistered(fqu)
 
             self.assertTrue(resp, msg="Username not registered")
 
@@ -110,9 +103,12 @@ class RegistrarTestCase(unittest.TestCase):
             self.assertIsInstance(profile, dict, msg="Profile not found")
 
     def test_inputs(self):
-        """ Check if BTC key being used has enough inputs
+        """ Check if registrar's wallet has enough inputs
         """
 
+        pass
+
+        """
         from registrar.config import BTC_PRIV_KEY
         btc_address = get_address_from_privkey(BTC_PRIV_KEY)
 
@@ -133,6 +129,31 @@ class RegistrarTestCase(unittest.TestCase):
         btc_amount = float(btc_amount)
 
         self.assertGreater(btc_amount, 0.01, msg="Don't have enough inputs in btc address")
+        """
+
+    def test_tx_confirmations(self):
+        """ Check if registrar can get tx confirmations from bitcoind
+        """
+
+        confirmations = get_tx_confirmations(test_tx_hash)
+
+        self.assertGreater(confirmations, 10, msg="Error getting tx confirmations")
+
+
+class WebappTestCase(unittest.TestCase):
+
+    def tearDown(self):
+        pass
+
+    def test_db_connectivity(self):
+        """ Check connection to databases
+        """
+
+        from registrar.drivers.webapp_driver import webapp_db
+        users = webapp_db.user
+        count = users.count()
+
+        self.assertGreater(count, 100, msg="Cannot connect to DB")
 
 if __name__ == '__main__':
 

@@ -35,7 +35,7 @@ from .db import update_queue, transfer_queue
 from .blockchain import get_tx_confirmations
 from .blockchain import dontuseAddress, underfundedAddress
 
-from .basic_wallet import get_privkey
+from .wallet import wallet
 
 from .utils import config_log
 from .utils import pretty_print as pprint
@@ -78,7 +78,7 @@ def preorder(fqu, payment_address, owner_address):
         log.debug("Payment address under funded: %s" % payment_address)
         return False
 
-    payment_privkey = get_privkey(payment_address)
+    payment_privkey = wallet.get_privkey_from_address(payment_address)
 
     log.debug("Preordering (%s, %s, %s)" % (fqu, payment_address, owner_address))
 
@@ -159,7 +159,7 @@ def register(fqu, payment_address=None, owner_address=None,
         log.debug("Payment address under funded: %s" % payment_address)
         return False
 
-    payment_privkey = get_privkey(payment_address)
+    payment_privkey = wallet.get_privkey_from_address(payment_address)
 
     log.debug("Registering (%s, %s, %s)" % (fqu, payment_address, owner_address))
 
@@ -205,7 +205,7 @@ def update(fqu, profile):
 
     owner_address = data['address']
     profile_hash = get_hash(profile)
-    owner_privkey = get_privkey(owner_address)
+    owner_privkey = wallet.get_privkey_from_address(owner_address)
 
     if owner_privkey is None:
         log.debug("Registrar doens't own this name.")
@@ -262,7 +262,7 @@ def transfer(fqu, transfer_address):
     data = get_blockchain_record(fqu)
 
     owner_address = data['address']
-    owner_privkey = get_privkey(owner_address)
+    owner_privkey = wallet.get_privkey_from_address(owner_address)
 
     if dontuseAddress(owner_address):
         log.debug("Owner address not ready: %s" % owner_address)
