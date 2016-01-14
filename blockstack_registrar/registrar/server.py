@@ -25,8 +25,6 @@ This file is part of Registrar.
 
 import sys
 
-from time import sleep
-
 from .nameops import preorder, register, update, transfer
 from .subsidized_nameops import subsidized_update
 
@@ -45,7 +43,7 @@ from .db import preorder_queue
 
 from .queue import alreadyinQueue
 
-from .basic_wallet import get_addresses
+from .wallet import wallet
 from .blockchain import dontuseAddress, underfundedAddress
 
 log = config_log(__name__)
@@ -66,7 +64,7 @@ class RegistrarServer(object):
 
         self.index = 0
         self.all_addresses_in_use = False
-        self.payment_addresses = get_addresses(count=RATE_LIMIT)
+        self.payment_addresses = wallet.get_child_keypairs(count=RATE_LIMIT)
 
         # change the positions by 1, so that different payment and
         # owner addresses are at a given index for the two lists

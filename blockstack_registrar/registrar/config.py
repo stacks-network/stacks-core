@@ -56,6 +56,11 @@ try:
 except:
     BLOCKCYPHER_TOKEN = None
 
+try:
+    HD_WALLET_PRIVKEY = os.environ['HD_WALLET_PRIVKEY']
+except:
+    HD_WALLET_PRIVKEY = None
+
 DEFAULT_HOST = '127.0.0.1'
 MEMCACHED_PORT = '11211'
 MEMCACHED_TIMEOUT = 15 * 60
@@ -63,13 +68,13 @@ MEMCACHED_TIMEOUT = 15 * 60
 TX_FEE = 0.0002  # around 7 cents
 TARGET_BALANCE_PER_ADDRESS = 0.009
 MINIMUM_BALANCE = 0.002
-CHAINED_PAYMENT_AMOUNT = 0.02
+CHAINED_PAYMENT_AMOUNT = 0.04
 MAX_LENGTH_CHAINED_PAYMENT = 10
 
 MINIMUM_LENGTH_NAME = 6
 DEBUG = False  # can change in config_local
 
-RATE_LIMIT = 20   # target tx per block
+RATE_LIMIT = 10   # target tx per block
 SLEEP_INTERVAL = 20  # in seconds
 RETRY_INTERVAL = 10  # if a tx is not picked up by x blocks
 
@@ -78,7 +83,15 @@ PREORDER_REJECTED = 120  # no. of blocks after which preorder should be removed
 TX_CONFIRMATIONS_NEEDED = 10
 MAX_TX_CONFIRMATIONS = 150
 
-DEFAULT_CHILD_ADDRESSES = 5
+DEFAULT_CHILD_ADDRESSES = 50
+
+# default settings for bitcoind, can override in config_local
+BITCOIND_SERVER = 'btcd.onename.com'
+BITCOIND_PORT = 8332
+BITCOIND_USER = 'openname'
+BITCOIND_PASSWD = 'opennamesystem'
+BITCOIND_WALLET_PASSPHRASE = ''
+BITCOIND_USE_HTTPS = True
 
 try:
     from config_local import *
