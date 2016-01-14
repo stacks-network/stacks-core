@@ -41,7 +41,7 @@ from .config import BLOCKCYPHER_TOKEN
 from .config import TARGET_BALANCE_PER_ADDRESS, TX_FEE
 from .config import CHAINED_PAYMENT_AMOUNT, MINIMUM_BALANCE
 from .config import DEFAULT_CHILD_ADDRESSES
-from .config import HD_WALLET_PRIVKEY
+from .config import HD_WALLET_PRIVKEY, DEFAULT_REFILL_AMOUNT
 
 from .blockchain import get_balance, dontuseAddress, underfundedAddress
 
@@ -219,22 +219,6 @@ def send_payment(hex_privkey, to_address, btc_amount):
         return resp
 
 
-def display_wallet_info(list_of_addresses):
-
-    total_balance = 0
-
-    for address in list_of_addresses:
-        has_pending_tx = dontuseAddress(address)
-        balance_on_address = get_balance(address)
-        log.debug("(%s, balance %s,\t pending %s)" % (address,
-                                                      balance_on_address,
-                                                      has_pending_tx))
-        total_balance += balance_on_address
-
-    log.debug("Total addresses: %s" % len(list_of_addresses))
-    log.debug("Total balance: %s" % total_balance)
-
-
 def send_multi_payment(payment_privkey, list_of_addresses, payment_per_address):
 
     payment_address = get_address_from_privkey(payment_privkey)
@@ -264,27 +248,58 @@ def send_multi_payment(payment_privkey, list_of_addresses, payment_per_address):
                                         signatures=tx_signatures,
                                         pubkeys=pubkey_list)
 
-    pprint(resp)
-
     if 'tx' in resp:
         return resp['tx']['hash']
     else:
         return None
 
-if __name__ == '__main__':
 
-    live = False
-
-    list_of_addresses = wallet.get_child_keypairs(count=10, offset=10)
-
-    if live:
-        tx_hash = send_multi_payment(HD_WALLET_PRIVKEY, list_of_addresses, '0.04')
-        log.debug("Sent: %s" % tx_hash)
+def display_wallet_info(list_of_addresses):
 
     addresses = []
     addresses.append(wallet.get_master_address())
-
     addresses += list_of_addresses
-    #print get_underfunded_addresses(addresses)
-    display_wallet_info(addresses)
-    #print wallet.get_next_keypair()
+
+    total_balance = 0
+
+    for address in addresses:
+        has_pending_tx = dontuseAddress(address)
+        balance_on_address = get_balance(address)
+        log.debug("(%s, balance %s,\t pending %s)" % (address,
+                                                      balance_on_address,
+                                                      has_pending_tx))
+        if balance_on_address is not None:
+            total_balance += balance_on_address
+
+    log.debug("Total addresses: %s" % len(addresses))
+    log.debug("Total balance: %s" % total_balance)
+
+
+def refill_wallet(count=DEFAULT_CHILD_ADDRESSES, offset=0,
+                  payment=DEFAULT_REFILL_AMOUNT,
+                  live=False):
+
+    list_of_addresses = wallet.get_child_keypairs(count=count, offset=offset)
+
+    if live:
+        tx_hash = send_multi_payment(HD_WALLET_PRIVKEY, list_of_addresses, payment)
+        log.debug("Sent: %s" % tx_hash)
+
+    display_wallet_info(list_of_addresses)
+
+
+def display_names_wallet_owns(list_of_addresses):
+
+    for address in list_of_addresses:
+
+        names_owned = c.get_names_owned_by_address(address)
+
+        if len(names_owned) is not 0:
+            log.debug("Address: %s" % address)
+            log.debug("Names owned: %s" % names_owned)
+            log.debug('-' * 5)
+
+if __name__ == '__main__':
+
+    log.debug("wallet.py")
+    refill_wallet(count=10, offset=40, payment=DEFAULT_REFILL_AMOUNT, live=False)
