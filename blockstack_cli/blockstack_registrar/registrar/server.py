@@ -138,7 +138,7 @@ class RegistrarServer(object):
             #log.debug("Not registered: %s" % fqu)
 
             if alreadyinQueue(preorder_queue, fqu):
-                if nameop is None or nameop is 'register':
+                if nameop is None or nameop == 'register':
                     log.debug("Registering: %s" % fqu)
                     return register(fqu, auto_preorder=False)
             else:
@@ -155,7 +155,7 @@ class RegistrarServer(object):
         elif not profileonBlockchain(fqu, profile):
             #log.debug("Not updated: %s" % fqu)
 
-            if nameop is None or nameop is 'update':
+            if nameop is None or nameop == 'update':
                 if fqu not in DHT_IGNORE:
                     log.debug("Updating profile on blockchain: %s" % fqu)
                     return update(fqu, profile)
@@ -174,7 +174,7 @@ class RegistrarServer(object):
         elif not ownerName(fqu, transfer_address):
             #log.debug("Not transferred: %s" % fqu)
 
-            if nameop is None or nameop is 'transfer':
+            if nameop is None or nameop == 'transfer':
                 log.debug("Transferring name: %s" % fqu)
                 return transfer(fqu, transfer_address)
 
