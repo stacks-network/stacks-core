@@ -82,24 +82,34 @@ def run_cli(command, argv=None):
 
     elif command == "clean":
 
+        cleanup_rejected = False
+
         try:
             queue = argv[2]
         except:
             queue = "all"
+
+        try:
+            rejected = argv[3]
+
+            if rejected == "rejected":
+                cleanup_rejected = True
+        except:
+            pass
 
         if queue == "transfer":
             cleanup_transfer_queue()
         elif queue == "update":
             cleanup_update_queue()
         elif queue == "register":
-            cleanup_register_queue()
+            cleanup_register_queue(cleanup_rejected)
         elif queue == "preorder":
-            cleanup_preorder_queue()
+            cleanup_preorder_queue(cleanup_rejected)
         elif queue == "all":
             cleanup_transfer_queue()
             cleanup_update_queue()
-            cleanup_register_queue()
-            cleanup_preorder_queue()
+            cleanup_register_queue(cleanup_rejected)
+            cleanup_preorder_queue(cleanup_rejected)
 
     elif command == "getinfo":
         display_queue_info()
