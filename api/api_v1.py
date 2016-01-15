@@ -120,7 +120,7 @@ def register_user():
 
     profile_lookup = api_user(username)
 
-    if 'error' in profile_lookup.data and profile_lookup.status_code == 404:
+    if 'error' in profile_lookup.data and profile_lookup.status_code == 200:
 
         if 'profile' in data:
             profile = data['profile']
