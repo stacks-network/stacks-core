@@ -22,6 +22,7 @@
 """
 
 import preorder
+import preorder_multi
 import register
 import transfer
 import update
@@ -36,6 +37,9 @@ import binascii
 from .preorder import build as build_preorder, \
     broadcast as preorder_name, parse as parse_preorder, \
     get_fees as preorder_fees
+from .preorder_multi import build as build_preorder_multi, \
+    broadcast as preorder_name_multi, parse as parse_preorder_multi, \
+    get_fees as preorder_multi_fees, hash_names as preorder_multi_hash_names
 from .register import build as build_registration, \
     broadcast as register_name, parse as parse_registration, \
     get_fees as registration_fees
