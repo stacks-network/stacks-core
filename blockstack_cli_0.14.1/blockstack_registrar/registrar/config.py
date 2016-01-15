@@ -77,7 +77,7 @@ MAX_LENGTH_CHAINED_PAYMENT = 10
 MINIMUM_LENGTH_NAME = 6
 MAX_DHT_WRITE = (8 * 1024) - 1
 
-RATE_LIMIT = 50   # target tx per block
+RATE_LIMIT = 20   # target tx per block
 SLEEP_INTERVAL = 20  # in seconds
 RETRY_INTERVAL = 10  # if a tx is not picked up by x blocks
 
@@ -86,7 +86,8 @@ PREORDER_REJECTED = 120  # no. of blocks after which preorder should be removed
 TX_CONFIRMATIONS_NEEDED = 10
 MAX_TX_CONFIRMATIONS = 150
 
-DEFAULT_CHILD_ADDRESSES = 50
+DEFAULT_CHILD_ADDRESSES = RATE_LIMIT
+QUEUE_LENGTH_TO_MONITOR = 50
 
 # default settings for bitcoind, can override in config_local
 BITCOIND_SERVER = 'btcd.onename.com'
