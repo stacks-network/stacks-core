@@ -36,6 +36,7 @@ from .utils import config_log
 from .utils import pretty_print as pprint
 
 from .config import DHT_IGNORE, TX_CONFIRMATIONS_NEEDED, MAX_TX_CONFIRMATIONS
+from .config import QUEUE_LENGTH_TO_MONITOR
 
 log = config_log(__name__)
 
@@ -83,7 +84,12 @@ def cleanup_rejected_tx(queue):
             queue.remove({"fqu": entry['fqu']})
 
 
-def display_queue(queue):
+def display_queue(queue, display_details=False):
+
+    track_confirmations = []
+
+    for index in range(QUEUE_LENGTH_TO_MONITOR):
+        track_confirmations.append(0)
 
     for entry in queue.find():
 
@@ -92,15 +98,25 @@ def display_queue(queue):
         except:
             continue
 
-        log.debug('-' * 5)
-        log.debug("%s %s" % (queue.name, entry['fqu']))
-        log.debug("(%s, confirmations %s)" % (entry['tx_hash'],
-                                              confirmations))
-        log.debug("payment: %s" % entry['payment_address'])
-        log.debug("owner: %s" % entry['owner_address'])
+        try:
+            track_confirmations[confirmations] += 1
+        except:
+            pass
 
-        if entry['payment_address'] == entry['owner_address']:
-            log.debug("problem")
+        if display_details:
+            log.debug('-' * 5)
+            log.debug("%s %s" % (queue.name, entry['fqu']))
+            log.debug("(%s, confirmations %s)" % (entry['tx_hash'],
+                                              confirmations))
+            log.debug("payment: %s" % entry['payment_address'])
+            log.debug("owner: %s" % entry['owner_address'])
+
+            if entry['payment_address'] == entry['owner_address']:
+                log.debug("problem")
+
+    log.debug(queue.name)
+    log.debug(track_confirmations)
+    log.debug(print '-' * 5)
 
 
 def cleanup_preorder_queue(cleanup_rejected=False):
