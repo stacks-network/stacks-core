@@ -374,28 +374,35 @@ def get_address_unspents(address):
 def get_address_names(addresses):
 
     resp = {}
-    names_owned = []
     results = []
 
     addresses = addresses.split(',')
 
     for address in addresses:
 
+        data = {}
+        names_owned = []
+
+        invalid_address = False
+
         try:
             is_b58check_address(str(address))
         except:
-            continue
+            data['error'] = "Invalid address"
+            invalid_address = True
 
-        bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+        if not invalid_address:
+            bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
 
-        try:
-            resp = bs_client.get_names_owned_by_address(address)
-            names_owned = resp[0]
-        except:
-            pass
+            try:
+                resp = bs_client.get_names_owned_by_address(address)
+                names_owned = resp[0]
+            except:
+                pass
 
-        data = {'address': address,
-                'names': names_owned}
+        data['address'] = address
+        data['names'] = names_owned
+
         results.append(data)
 
     resp = {'results': results}
