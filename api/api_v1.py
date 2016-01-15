@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
     Onename API
-    Copyright 2015 Halfmoon Labs, Inc.
+    Copyright 2016 Halfmoon Labs, Inc.
     ~~~~~
 """
 
@@ -17,7 +17,7 @@ from flask import request, jsonify
 from flask_crossdomain import crossdomain
 
 from basicrpc import Proxy
-from pybitcoin import get_unspents, ChainComClient
+from pybitcoin import get_unspents, BlockcypherClient
 from pybitcoin.rpc import BitcoindClient
 from pybitcoin import is_b58check_address, BitcoinPrivateKey
 
@@ -44,7 +44,7 @@ from .utils import sizeInvalid
 from .db import db_client
 
 from .settings import RESOLVER_URL, SEARCH_URL
-from .settings import CHAIN_API_ID, CHAIN_API_SECRET
+from .settings import BLOCKCYPHER_TOKEN
 from .settings import BLOCKSTORED_IP, BLOCKSTORED_PORT
 from .settings import BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER
 from .settings import BITCOIND_PASSWD, BITCOIND_USE_HTTPS
@@ -80,11 +80,12 @@ def api_user(usernames):
     if len(usernames) is 1:
         username = usernames[0]
         if 'error' in data:
+            del data['error']
             error = UsernameNotRegisteredError('')
             data[username] = {
                 'error': error.to_dict()
             }
-            return jsonify(data), 404
+            return jsonify(data), 200
 
     for username in usernames:
         if username not in data:
@@ -358,7 +359,7 @@ def broadcast_tx():
 @crossdomain(origin='*')
 def get_address_unspents(address):
 
-    client = ChainComClient(api_key_id=CHAIN_API_ID, api_key_secret=CHAIN_API_SECRET)
+    client = BlockcypherClient(api_key=BLOCKCYPHER_TOKEN)
     unspent_outputs = get_unspents(address, blockchain_client=client)
 
     resp = {'unspents': unspent_outputs}
@@ -366,22 +367,38 @@ def get_address_unspents(address):
     return jsonify(resp), 200
 
 
-@app.route('/v1/addresses/<address>/names', methods=['GET'])
+@app.route('/v1/addresses/<addresses>/names', methods=['GET'])
 @auth_required(exception_paths=[
     '/v1/addresses/1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP/names'])
 @crossdomain(origin='*')
-def get_address_names(address):
+def get_address_names(addresses):
 
+    resp = {}
     names_owned = []
-    bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+    results = []
 
-    try:
-        resp = bs_client.get_names_owned_by_address(address)
-        names_owned = resp[0]
-    except:
-        pass
+    addresses = addresses.split(',')
 
-    resp = {'names': names_owned}
+    for address in addresses:
+
+        try:
+            is_b58check_address(str(address))
+        except:
+            continue
+
+        bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+
+        try:
+            resp = bs_client.get_names_owned_by_address(address)
+            names_owned = resp[0]
+        except:
+            pass
+
+        data = {'address': address,
+                'names': names_owned}
+        results.append(data)
+
+    resp = {'results': results}
 
     return jsonify(resp), 200
 
