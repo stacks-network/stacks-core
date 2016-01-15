@@ -232,7 +232,19 @@ class WebappDriver(object):
         user['username'] = new_username
         self.users.save(user)
 
+    def change_email(self, current_email, new_email):
+
+        user = self.users.find_one({"email": current_email})
+        user['email'] = new_email
+        self.users.save(user)
+
     def display_stats(self):
 
         log.debug("Pending registrations: %s" % self.registrations.find().count())
         log.debug("Pending updates: %s" % self.updates.find().count())
+
+    def display_userinfo(self, username):
+
+        user = self.users.find_one({"username": username})
+
+        pprint(user)
