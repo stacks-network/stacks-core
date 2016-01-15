@@ -22,8 +22,7 @@ MAIL_USERNAME = 'support@onename.com'
 SEARCH_URL = 'http://search.onename.com'
 RESOLVER_URL = 'http://resolver.onename.com'
 
-#BLOCKSTORED_IP = '54.147.138.188'
-BLOCKSTORED_IP = '172.30.1.199'
+BLOCKSTORED_IP = 'blockstore.onename.com'
 BLOCKSTORED_PORT = 6264
 
 BITCOIND_SERVER = 'btcd.onename.com'
@@ -53,7 +52,7 @@ except:
 secrets_list = [
     'MAILGUN_API_KEY', 'SECRET_KEY',
     'API_DB_URI', 'API_DB_NAME',
-    'CHAIN_API_ID', 'CHAIN_API_SECRET',
+    'BLOCKCYPHER_TOKEN',
     'EMAILS_TOKEN'
 ]
 
