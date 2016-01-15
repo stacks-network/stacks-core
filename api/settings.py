@@ -22,7 +22,7 @@ MAIL_USERNAME = 'support@onename.com'
 SEARCH_URL = 'http://search.onename.com'
 RESOLVER_URL = 'http://resolver.onename.com'
 
-BLOCKSTORED_IP = '54.147.138.188'
+BLOCKSTORED_IP = 'blockstore.onename.com'
 BLOCKSTORED_PORT = 6264
 
 BITCOIND_SERVER = 'btcd.onename.com'
@@ -35,6 +35,14 @@ MAX_PROFILE_LIMIT = (8 * 1024) - 50  # roughly 8kb max limit
 
 EMAIL_REGREX = r'[^@]+@[^@]+\.[^@]+'
 
+DEFAULT_NAMESPACE = "id"
+USE_DEFAULT_PAYMENT = False
+
+try:
+    PAYMENT_PRIVKEY = os.environ['PAYMENT_PRIVKEY']
+except:
+    PAYMENT_PRIVKEY = None
+
 try:
     from .secrets import *
 except:
@@ -44,7 +52,7 @@ except:
 secrets_list = [
     'MAILGUN_API_KEY', 'SECRET_KEY',
     'API_DB_URI', 'API_DB_NAME',
-    'CHAIN_API_ID', 'CHAIN_API_SECRET',
+    'BLOCKCYPHER_TOKEN',
     'EMAILS_TOKEN'
 ]
 

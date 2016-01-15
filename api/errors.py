@@ -35,6 +35,33 @@ class APIError(Exception):
         return self.message
 
 
+class GenericError(APIError):
+    status_code = 403
+    message = "Internal server error"
+
+    def __init__(self, error_message):
+        super(self.__class__, self).__init__()
+        self.message = error_message
+
+
+class PaymentError(APIError):
+    status_code = 402
+    message = "Payment addresses are either under funded or have pending transactions: "
+
+    def __init__(self, addresses):
+        super(self.__class__, self).__init__()
+        self.message += str(addresses)
+
+
+class InvalidAddressError(APIError):
+    status_code = 403
+    message = "Given address is not a valid cryptocurrency address: "
+
+    def __init__(self, address):
+        super(self.__class__, self).__init__()
+        self.message += str(address)
+
+
 class MethodNotAllowedError(APIError):
     status_code = 405
     message = ("The HTTP method used in this request is not allowed by this "
@@ -77,7 +104,7 @@ class InvalidProfileSize(APIError):
 
 class UsernameTakenError(APIError):
     status_code = 403
-    message = ("There already exists a passcard with the username provided.")
+    message = ("There already exists a profile with the username provided.")
 
 
 class UsernameTakenError(APIError):
