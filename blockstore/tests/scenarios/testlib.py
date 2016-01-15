@@ -107,6 +107,11 @@ def blockstore_name_preorder( name, privatekey, register_addr, tx_only=False, su
     return resp
 
 
+def blockstore_name_preorder_multi( names, privatekey, register_addrs, tx_only=False, subsidy_key=None, testset=False, consensus_hash=None ):
+    resp = blockstored.blockstore_name_preorder_multi( names, privatekey, register_addrs, tx_only=tx_only, subsidy_key=subsidy_key, testset=testset, consensus_hash=consensus_hash )
+    return resp
+
+
 def blockstore_name_register( name, privatekey, register_addr, renewal_fee=None, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
     resp = blockstored.blockstore_name_register( name, privatekey, register_addr, renewal_fee=renewal_fee, tx_only=tx_only, subsidy_key=subsidy_key, user_public_key=user_public_key, testset=testset, consensus_hash=consensus_hash)
     return resp
@@ -169,6 +174,7 @@ def blockstore_export_db( path, **kw ):
             pass
         else:
             raise
+
 
 def tx_sign_all_unsigned_inputs( tx_hex, privkey ):
     """
