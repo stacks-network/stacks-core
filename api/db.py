@@ -13,7 +13,12 @@ from pymongo import MongoClient
 from mongoengine import connect
 from flask.ext.mongoengine import MongoEngine
 
-connect(app.config['API_DB_NAME'], host=app.config['API_DB_URI'])
-db = MongoEngine(app)
+try:
+    connect(app.config['API_DB_NAME'], host=app.config['API_DB_URI'])
+    db = MongoEngine(app)
 
-db_client = MongoClient(app.config['API_DB_URI'])[app.config['API_DB_NAME']]
+    db_client = MongoClient(app.config['API_DB_URI'])[app.config['API_DB_NAME']]
+except Exception as e:
+    print e
+    print app.config['API_DB_NAME']
+    print app.config['API_DB_URI']

@@ -206,13 +206,14 @@ class LookupUnspentsTest(unittest.TestCase):
         address = '19bXfGsGEXewR6TyAV3b89cSHBtFFewXt6'
         data = test_get_request(self, self.build_url(address),
                                 headers=self.headers)
+
         check_data(self, data, required_keys=self.required_keys)
 
 
 class LookupNamesOwnedTest(unittest.TestCase):
     def setUp(self):
         self.headers = {'Authorization': basic_auth(APP_ID, APP_SECRET)}
-        self.required_keys = {'names': []}
+        self.required_keys = {'results': []}
 
     def tearDown(self):
         pass
@@ -241,7 +242,7 @@ class RegisterUserTest(unittest.TestCase):
     def test_user_registration(self):
 
         payload = dict(
-            recipient_address='Mx73vJcnF4Xq7AawfePRKzYCoGivw87BmY',
+            recipient_address='19MoWG8u88L6t766j7Vne21Mg4wHsCQ7vk',
             username=random_username(),
             profile={'name': {'formatted': 'John Doe'}}
         )
@@ -249,6 +250,7 @@ class RegisterUserTest(unittest.TestCase):
         data = test_post_request(self, build_url('/users'), payload,
                                  headers=self.headers)
 
+        print data
         check_data(self, data, required_keys=self.required_keys)
 
 
