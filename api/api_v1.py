@@ -368,8 +368,8 @@ def get_address_unspents(address):
 
 
 @app.route('/v1/addresses/<addresses>/names', methods=['GET'])
-@auth_required(exception_paths=[
-    '/v1/addresses/1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP/names'])
+#@auth_required(exception_paths=[
+#    '/v1/addresses/1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP/names'])
 @crossdomain(origin='*')
 def get_address_names(addresses):
 
