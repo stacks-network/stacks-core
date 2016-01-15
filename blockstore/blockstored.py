@@ -452,6 +452,105 @@ def blockstore_name_preorder( name, privatekey, register_addr, tx_only=False, su
     return resp
 
 
+def blockstore_name_preorder_multi( name_list, privatekey, register_addr_list, tx_only=False, subsidy_key=None, testset=False, consensus_hash=None ):
+    """
+    Preorder a list of names.  They must each be registered with the same private key
+
+    @name_list: the names to preorder
+    @register_addr_list: the addresses that will own the names upon registration.  register_addr_list[i] will own name_list[i].
+    @privatekey: the private key that will pay for the preorder. Can be None if we're subsidizing (in which case subsidy_key is required)
+    @tx_only: if True, then return only the unsigned serialized transaction.  Do not broadcast it.
+    @pay_fee: if False, then return a subsidized serialized transaction, where we have signed our
+    inputs/outputs with SIGHASH_ANYONECANPAY.  The caller will need to sign their input and then
+    broadcast it.
+    @subsidy_key: if given, then this transaction will be subsidized with this key and returned (but not broadcasted)
+    This forcibly sets tx_only=True and pay_fee=False.
+
+    Return a JSON object on success.
+    Return a JSON object with 'error' set on error.
+    """
+
+    blockstore_opts = default_blockstore_opts( virtualchain.get_config_filename(), testset=testset )
+
+    # are we doing our initial indexing?
+    if is_indexing():
+        return {"error": "Indexing blockchain"}
+
+    blockchain_client_inst = get_utxo_provider_client()
+    if blockchain_client_inst is None:
+        return {"error": "Failed to connect to blockchain UTXO provider"}
+
+    if len(name_list) != len(register_addr_list):
+        return {"error": "Need equal numbers of names and registration addresses"}
+
+    if len(name_list) != len(set(name_list)):
+        return {"error": "Duplicate names"}
+
+    db = get_state_engine()
+
+    if consensus_hash is None:
+        consensus_hash = db.get_current_consensus()
+
+    if consensus_hash is None:
+        # consensus hash must exist
+        return {"error": "Nameset snapshot not found."}
+
+    name_fee_total = 0
+
+    for i in xrange( 0, len(name_list) ):
+
+        name_list[i] = str(name_list[i])
+        register_addr_list[i] = str(register_addr_list[i])
+
+        name = name_list[i]
+        if db.is_name_registered( name ):
+            # name can't be registered
+            return {"error": "At least one name already registered"}
+
+        namespace_id = get_namespace_from_name( name )
+
+        if not db.is_namespace_ready( namespace_id ):
+            # namespace must be ready; otherwise this is a waste
+            return {"error": "Namespace is not ready"}
+
+        name_fee = get_name_cost( name )
+        name_fee_total += name_fee
+
+        log.debug("The price of %s is %s satoshis" % (name, name_fee))
+
+
+    if privatekey is not None:
+        privatekey = str(privatekey)
+
+    public_key = None
+    if subsidy_key is not None:
+        subsidy_key = str(subsidy_key)
+        tx_only = True
+
+        # the sender will be the subsidizer (otherwise it will be the given private key's owner)
+        public_key = BitcoinPrivateKey( subsidy_key ).public_key().to_hex()
+
+    try:
+        resp = preorder_name_multi(name_list, privatekey, register_addr_list, str(consensus_hash), blockchain_client_inst, \
+            name_fee_total, testset=blockstore_opts['testset'], subsidy_public_key=public_key, tx_only=tx_only )
+    except:
+        return json_traceback()
+
+    if subsidy_key is not None:
+        # sign each input
+        inputs, outputs, _, _ = tx_deserialize( resp['unsigned_tx'] )
+        tx_signed = tx_serialize_and_sign( inputs, outputs, subsidy_key )
+
+        resp = {
+            'subsidized_tx': tx_signed
+        }
+
+
+    log.debug('preorder_multi <names, consensus_hash>: <%s, %s>' % (", ".join(name_list), consensus_hash))
+
+    return resp
+
+
 def blockstore_name_register( name, privatekey, register_addr, renewal_fee=None, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
     """
     Register or renew a name
@@ -1354,7 +1453,8 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Between the namespace definition and the "namespace begin" operation, only the
         user who created the namespace can create names in it.
         """
-        return blockstore_namespace_reveal( namespace_id, reveal_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, tx_only=True, testset=self.testset )
+        return blockstore_namespace_reveal( namespace_id, reveal_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, \
+                privatekey, tx_only=True, testset=self.testset )
 
 
     def jsonrpc_namespace_ready( self, namespace_id, privatekey ):
@@ -2043,9 +2143,30 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
         return None
 
     if opcode_name == "NAME_PREORDER":
-        name_rec_script = build_preorder( None, None, None, str(name_rec['consensus_hash']), name_hash=str(name_rec['preorder_name_hash']), testset=testset )
-        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
-        ret_op = parse_preorder( name_rec_payload )
+
+        # reconstruct the preorder op...
+        # how many names preordered?
+        quantity = 1
+        if len(name_rec['op']) == 3:
+            # multi-preorder 
+            # quantity encoded in the opcode data
+            quantity = ord( name_rec['op'][2] )
+
+        if quantity == 1:
+            # singular preorder
+            name_rec_script = build_preorder( None, None, None, str(name_rec['consensus_hash']), \
+                    name_hash=str(name_rec['preorder_name_hash']), testset=testset )
+
+            name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
+            ret_op = parse_preorder( name_rec_payload )
+
+        else:
+            # multi-preorder
+            name_rec_script = build_preorder_multi( None, None, None, str(name_rec['consensus_hash']), \
+                    name_hash=str(name_rec['preorder_name_hash']), num_names=quantity, testset=testset )
+
+            name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
+            ret_op = parse_preorder_multi( name_rec_payload )
 
     elif opcode_name == "NAME_REGISTRATION":
         name_rec_script = build_registration( str(name_rec['name']), testset=testset )
@@ -2085,7 +2206,6 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
     elif opcode_name == "NAME_TRANSFER":
 
         # reconstruct the transfer op...
-
         KEEPDATA_OP = "%s%s" % (NAME_TRANSFER, TRANSFER_KEEP_DATA)
         if name_rec['op'] == KEEPDATA_OP:
             name_rec['keep_data'] = True
@@ -2158,7 +2278,11 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         ret_op = parse_namespace_ready( name_rec_payload )
 
-    ret_op = virtualchain.virtualchain_set_opfields( ret_op, virtualchain_opcode=getattr( config, opcode_name ), virtualchain_txid=str(name_rec['txid']), virtualchain_txindex=int(name_rec['vtxindex']) )
+    ret_op = virtualchain.virtualchain_set_opfields( ret_op, \
+            virtualchain_opcode=getattr( config, opcode_name ), \
+            virtualchain_txid=str(name_rec['txid']), \
+            virtualchain_txindex=int(name_rec['vtxindex']) )
+
     ret_op['opcode'] = opcode_name
 
     merged_ret_op = copy.deepcopy( name_rec )
