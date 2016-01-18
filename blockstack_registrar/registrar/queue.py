@@ -116,7 +116,7 @@ def display_queue(queue, display_details=False):
 
     log.debug(queue.name)
     log.debug(track_confirmations)
-    log.debug(print '-' * 5)
+    log.debug('-' * 5)
 
 
 def cleanup_preorder_queue(cleanup_rejected=False):
