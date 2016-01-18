@@ -193,6 +193,10 @@ We welcome any small or big contributions! Please take a moment to
 [review the following guidelines](https://guides.github.com/activities/contributing-to-open-source/)
 in order to make the contribution process easy and effective for everyone involved.
 
+We follow the [git flow model](https://github.com/nvie/gitflow)
+for managing development. This means that the [develop branch](https://github.com/blockstack/blockstore/tree/develop)
+has the most recent version under development and master has the last stable release.
+
 The main authors of Blockstore are:
 
 **[Jude Nelson](http://onename.com/judecn)** ([@judecnelson](https://twitter.com/judecnelson))
