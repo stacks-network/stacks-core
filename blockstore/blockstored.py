@@ -2417,7 +2417,9 @@ def run_blockstored():
 
    args, _ = argparser.parse_known_args()
 
-   log.debug( "bitcoin options: %s" % bitcoin_opts )
+   log.debug("bitcoin options: (%s, %s, %s)" % (bitcoin_opts['bitcoind_server'],
+                                                bitcoin_opts['bitcoind_port'],
+                                                bitcoin_opts['bitcoind_user']))
 
    if args.action == 'version':
       print "Blockstore version: %s.%s" % (VERSION, BLOCKSTORE_VERSION)
