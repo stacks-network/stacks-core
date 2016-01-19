@@ -2,9 +2,12 @@
 
 from setuptools import setup, find_packages
 
+# to set __version__
+exec(open('blockstore_client/version.py').read())
+
 setup(
     name='blockstore-client',
-    version='0.0.9',
+    version=__version__,
     url='https://github.com/blockstack/blockstore-client',
     license='GPLv3',
     author='Blockstack.org',
@@ -12,15 +15,14 @@ setup(
     description='Python client library for Blockstore',
     keywords='blockchain bitcoin btc cryptocurrency name key value store data',
     packages=find_packages(),
-    scripts=['bin/blockstore-cli'],
+    scripts=['bin/blockstore-cli', 'bin/blockstore'],
     download_url='https://github.com/blockstack/blockstore-client/archive/master.zip',
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'pybitcoin>=0.9.7',
         'boto>=2.38.0',
-        'basicrpc>=0.0.1',
-        'bitcoin>=1.1.39'
+        'basicrpc>=0.0.2',
+        'virtualchain>=0.0.7'
     ],
     classifiers=[
         'Intended Audience :: Developers',

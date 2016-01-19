@@ -67,10 +67,10 @@ class BlockstoreClientTest(unittest.TestCase):
         """
 
         for fqu in test_names:
-            resp = client.lookup(fqu)
+            resp = client.get_name_blockchain_record(fqu)
 
-            if 'v' not in resp:
-                raise ValueError('version info not in response')
+            if 'value_hash' not in resp:
+                raise ValueError('value_hash not in response')
 
             self.assertIsInstance(resp, dict, msg="Not json")
 

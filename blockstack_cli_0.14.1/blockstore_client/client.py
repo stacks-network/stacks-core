@@ -1019,6 +1019,9 @@ def get_name_record(name, create_if_absent=False, proxy=None ):
 
         return {"error": "Name has no user record hash defined"}
 
+    if check_only_blockchain:
+        return name_record
+
     # is there a user record loaded?
     if name_record['value_hash'] in [None, "null", ""]:
 
@@ -1758,8 +1761,8 @@ def update(name, user_json_or_hash, privatekey, txid=None, proxy=None, tx_only=F
 
         user_record_hash = pybitcoin.hash.hex_hash160(user_db.serialize_user(user_data))
 
-    # go get the current user record
-    current_user_record = get_name_record( name, create_if_absent=True )
+    # go get the current user record (blockchain only)
+    current_user_record = get_name_record(name, check_only_blockchain=True)
     if current_user_record is None:
         return {'error': 'No such user'}
 
