@@ -3,25 +3,26 @@
 """
     Blockstore
     ~~~~~
-    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
-    copyright: (c) 2016 by Blockstack.org
-
+    copyright: (c) 2014 by Halfmoon Labs, Inc.
+    copyright: (c) 2015 by Blockstack.org
+    
     This file is part of Blockstore
-
+    
     Blockstore is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
-
+    
     Blockstore is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstore. If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 import preorder
+import preorder_multi
 import register
 import transfer
 import update
@@ -36,6 +37,9 @@ import binascii
 from .preorder import build as build_preorder, \
     broadcast as preorder_name, parse as parse_preorder, \
     get_fees as preorder_fees
+from .preorder_multi import build as build_preorder_multi, \
+    broadcast as preorder_name_multi, parse as parse_preorder_multi, \
+    get_fees as preorder_multi_fees, hash_names as preorder_multi_hash_names
 from .register import build as build_registration, \
     broadcast as register_name, parse as parse_registration, \
     get_fees as registration_fees

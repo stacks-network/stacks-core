@@ -1,6 +1,6 @@
 base58==0.2.2
+bitcoin==1.1.39
 basicrpc==0.0.2
-bitcoin==1.1.36
 bitmerchant==0.1.8
 blockstore-client==0.0.6
 boto==2.38.0

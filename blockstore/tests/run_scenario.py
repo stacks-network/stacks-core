@@ -4,6 +4,9 @@ import os
 import sys 
 import shutil
 
+# enable all tests
+os.environ['BLOCKSTORE_TEST'] = '1'
+
 # hack around absolute paths 
 current_dir =  os.path.abspath(os.path.dirname(__file__) + "/../..")
 sys.path.insert(0, current_dir)
@@ -108,8 +111,25 @@ def run_scenario( scenario, config_file ):
     * run the check method
     """
 
+    mock_bitcoind_save_path = "/tmp/mock_bitcoind.dat"
+    if os.path.exists( mock_bitcoind_save_path ):
+        try:
+            os.unlink(mock_bitcoind_save_path)
+        except:
+            pass
+
     # use mock bitcoind
-    virtualchain.setup_virtualchain( blockstore_state_engine, bitcoind_connection_factory=mock_bitcoind.connect_mock_bitcoind ) 
+    worker_env = {
+        # use mock_bitcoind to connect to bitcoind (but it has to import it in order to use it)
+        "VIRTUALCHAIN_MOD_CONNECT_BLOCKCHAIN": mock_bitcoind.__file__,
+        "MOCK_BITCOIND_SAVE_PATH": mock_bitcoind_save_path,
+        "BLOCKSTORE_TEST": "1"
+    }
+
+    if os.environ.get("PYTHONPATH", None) is not None:
+        worker_env["PYTHONPATH"] = os.environ["PYTHONPATH"]
+
+    virtualchain.setup_virtualchain( blockstore_state_engine, bitcoind_connection_factory=mock_bitcoind.connect_mock_bitcoind, index_worker_env=worker_env ) 
 
     # set up blockstore
     # NOTE: utxo_opts encodes the mock-bitcoind options 
@@ -117,7 +137,18 @@ def run_scenario( scenario, config_file ):
    
     # override multiprocessing options to ensure single-process behavior 
     utxo_opts['multiprocessing_num_procs'] = 1 
-    utxo_opts['multiprocessing_num_blocks'] = 64
+    utxo_opts['multiprocessing_num_blocks'] = 10
+
+    # pass along extra arguments
+    utxo_opts['save_file'] = mock_bitcoind_save_path
+
+    # save headers as well 
+    utxo_opts['spv_headers_path'] = mock_bitcoind_save_path + ".spvheaders"
+    with open( utxo_opts['spv_headers_path'], "w" ) as f:
+        # write out "initial" headers, up to the first block
+        empty_header = ("00" * 81).decode('hex')
+        for i in xrange(0, blockstore.FIRST_BLOCK_MAINNET ): 
+            f.write( empty_header )
 
     blockstored.set_bitcoin_opts( bitcoin_opts )
     blockstored.set_utxo_opts( utxo_opts )
@@ -129,17 +160,25 @@ def run_scenario( scenario, config_file ):
     working_dir = virtualchain.get_working_dir()
  
     # set up test environment
+    testlib.set_utxo_opts( utxo_opts )
     testlib.set_utxo_client( mock_utxo )
     testlib.set_bitcoind( bitcoind )
     testlib.set_state_engine( db )
 
     test_env = {
         "sync_virtualchain_upcall": sync_virtualchain_upcall,
-        "working_dir": working_dir
+        "working_dir": working_dir,
+        "bitcoind": bitcoind,
+        "bitcoind_save_path": mock_bitcoind_save_path
     }
 
     # sync initial utxos 
     testlib.next_block( **test_env )
+
+    try:
+        os.unlink( mock_bitcoind_save_path )
+    except:
+        pass
 
     # load the scenario into the mock blockchain and mock utxo provider
     try:

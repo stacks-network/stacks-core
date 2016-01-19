@@ -35,10 +35,13 @@ wallets = [
 ]
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
-snv_consensus = None 
 snv_block_id = None
+last_consensus = None 
+last_block_id = None
 
 def scenario( wallets, **kw ):
+
+    global snv_block_id, last_consensus, last_block_id
 
     testlib.blockstore_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
@@ -51,9 +54,11 @@ def scenario( wallets, **kw ):
 
     testlib.blockstore_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
-
+    
     testlib.blockstore_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
+
+    snv_block_id = testlib.get_current_block()
 
     # wait for a bit...
     for i in xrange(0, 10):
@@ -64,14 +69,15 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
-
-    global snv_consensus, snv_block_id
-    snv_block_id = testlib.get_current_block()
-    snv_consensus = testlib.get_consensus_at( snv_block_id )
-
     testlib.next_block( **kw )
 
+    last_block_id = testlib.get_current_block()
+    last_consensus = testlib.get_consensus_at( last_block_id )
+
+
 def check( state_engine ):
+
+    global snv_block_id, last_block_id, last_consensus
 
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "test" )
@@ -107,7 +113,10 @@ def check( state_engine ):
 
     # snv lookup works
     test_proxy = testlib.TestAPIProxy()
-    snv_rec = snv_client.lookup_snv( "foo.test", snv_block_id, snv_consensus, proxy=test_proxy )
+    snv_client.client.set_default_proxy( test_proxy )
+
+    # snv_rec = snv_client.snv( "foo.test", lastblock, lastconsensus, snv_block_id, snv_consensus, proxy=test_proxy )
+    snv_rec = snv_client.client.snv_lookup( "foo.test", snv_block_id, last_consensus, proxy=test_proxy ) 
     if 'error' in snv_rec:
         print json.dumps(snv_rec, indent=4 )
         return False

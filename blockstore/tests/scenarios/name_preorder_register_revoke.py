@@ -53,6 +53,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
     
     resp = testlib.blockstore_name_revoke( "foo.test", wallets[3].privkey )
+    print json.dumps( resp, indent=4 )
     testlib.next_block( **kw )
 
 

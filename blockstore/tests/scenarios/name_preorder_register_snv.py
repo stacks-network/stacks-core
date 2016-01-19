@@ -60,11 +60,13 @@ def scenario( wallets, **kw ):
 
     snv_block_id = testlib.get_current_block()
     snv_consensus = testlib.get_consensus_at( snv_block_id )
+    
 
 def check( state_engine ):
 
     global snv_block_id 
     global snv_consensus 
+    global snv_serial_number
 
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "test" )
@@ -94,7 +96,9 @@ def check( state_engine ):
 
     # snv lookup works
     test_proxy = testlib.TestAPIProxy()
-    snv_rec = snv_client.lookup_snv( "foo.test", snv_block_id, snv_consensus, proxy=test_proxy )
+    snv_client.client.set_default_proxy( test_proxy )
+
+    snv_rec = snv_client.client.snv_lookup( "foo.test", snv_block_id, snv_consensus, proxy=test_proxy ) 
     if 'error' in snv_rec:
         print json.dumps(snv_rec, indent=4 )
         return False

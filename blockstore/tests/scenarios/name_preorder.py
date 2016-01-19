@@ -23,6 +23,7 @@
 
 import testlib
 import pybitcoin
+import blockstore.blockstored as blockstored
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -67,4 +68,9 @@ def check( state_engine ):
     if preorder is None:
         return False
     
+    # paid fee 
+    if preorder['op_fee'] < blockstored.get_name_cost( 'foo.test' ):
+        print "Insufficient fee"
+        return False 
+
     return True

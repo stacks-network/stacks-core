@@ -112,46 +112,14 @@ def make_outputs( data, change_inputs, register_addr, change_addr, renewal_fee=N
     [2] change address with the NAME_PREORDER sender's address
     [3] (OPTIONAL) renewal fee, sent to the burn address
     """
-    
-    dust_fee = None
-    dust_value = None
-    op_fee = None
-    bill = None 
-    
+
+    bill = 0
     if pay_fee:
-        
-        # sender pays
         if renewal_fee is not None:
-            # renewing
-            dust_fee = (len(change_inputs) + 3) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
-            dust_value = DEFAULT_DUST_FEE
-            op_fee = max(renewal_fee, DEFAULT_DUST_FEE)
-            bill = op_fee
-            
+            bill = max( renewal_fee, DEFAULT_DUST_FEE ) + DEFAULT_DUST_FEE
         else:
-            # registering
-            dust_fee = (len(change_inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
-            dust_value = DEFAULT_DUST_FEE
-            op_fee = 0
-            bill = DEFAULT_DUST_FEE * 2
-            
-    else:
-        
-        # subsidized by another address
-        if renewal_fee is not None:
-            # renewing
-            dust_fee = 0
-            dust_value = 0
-            op_fee = max(renewal_fee, DEFAULT_DUST_FEE)
-            bill = 0
-            
-        else:
-            # registering
-            dust_fee = 0
-            dust_value = 0
-            op_fee = 0
-            bill = 0
-  
+            bill = DEFAULT_DUST_FEE
+    
     outputs = [
         # main output
         {"script_hex": make_op_return_script(data, format=format),
@@ -159,11 +127,11 @@ def make_outputs( data, change_inputs, register_addr, change_addr, renewal_fee=N
     
         # register address
         {"script_hex": make_pay_to_address_script(register_addr),
-         "value": dust_fee},
+         "value": DEFAULT_DUST_FEE},
         
         # change address (can be the subsidy address)
         {"script_hex": make_pay_to_address_script(change_addr),
-         "value": calculate_change_amount(change_inputs, bill, dust_fee)},
+         "value": calculate_change_amount(change_inputs, 0, 0)},
     ]
     
     if renewal_fee is not None:
@@ -171,8 +139,12 @@ def make_outputs( data, change_inputs, register_addr, change_addr, renewal_fee=N
             
             # burn address (when renewing)
             {"script_hex": make_pay_to_address_script(BLOCKSTORE_BURN_ADDRESS),
-             "value": op_fee}
+             "value": renewal_fee}
         )
+
+    if pay_fee:
+        dust_fee = tx_dust_fee_from_inputs_and_outputs( change_inputs, outputs )
+        outputs[2]['value'] = calculate_change_amount( change_inputs, bill, dust_fee )
 
     return outputs
     
