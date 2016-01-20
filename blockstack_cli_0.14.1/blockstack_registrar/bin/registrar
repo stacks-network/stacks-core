@@ -145,7 +145,7 @@ def run_cli(command, argv=None):
     elif command == "test":
 
         # commands for testing go here
-        api_data.remove_entry('testington8')
+        webapp_data.display_current_states()
 
     elif command == "reprocess":
 
