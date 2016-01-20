@@ -43,7 +43,8 @@ from registrar.utils import config_log, ignoreRegistration
 from registrar.utils import pretty_print as pprint
 
 from registrar.states import registrationComplete, nameRegistered
-from registrar.states import profilePublished
+from registrar.states import profileonBlockchain, profileonDHT
+from registrar.states import profilePublished, ownerName
 from registrar.server import RegistrarServer
 
 from registrar.network import refresh_resolver
@@ -107,29 +108,7 @@ class WebappDriver(object):
 
             user = get_db_user_from_id(new_user, self.users)
 
-            if user is None:
-                log.debug("No such user, need to remove: %s" % new_user['_id'])
-                self.registrations.remove({'_id': new_user['_id']})
-                continue
-
-            # for spam protection
-            if check_banned_email(user['email']):
-
-                if spam_protection:
-                    log.debug("Deleting spam %s, %s" % (user['email'], user['username']))
-                    self.users.remove({"email": user['email']})
-                else:
-                    log.debug("Need to delete %s, %s" % (user['email'], user['username']))
-                continue
-
-            # test for minimum name length
-            if len(user['username']) < MINIMUM_LENGTH_NAME:
-                log.debug("Expensive name %s. Skipping." % user['username'])
-                continue
-
-            # test for ignoring names starting with certain patterns
-            if ignoreRegistration(user['username'], IGNORE_NAMES_STARTING_WITH):
-                log.debug("Ignoring: %s" % user['username'])
+            if not self.validUser(user):
                 continue
 
             fqu = user['username'] + "." + DEFAULT_NAMESPACE
@@ -150,6 +129,35 @@ class WebappDriver(object):
                                                          nameop=nameop)
                 except Exception as e:
                     log.debug(e)
+
+    def validUser(self, user):
+        """
+            Check if the given @user should be processed or ignored
+
+            Returns True or False
+        """
+
+        if user is None:
+            log.debug("No such user, need to remove: %s" % new_user['_id'])
+            #self.registrations.remove({'_id': new_user['_id']})
+            return False
+
+        # for spam protection
+        if check_banned_email(user['email']):
+            log.debug("SPAM: Need to delete %s, %s" % (user['email'], user['username']))
+            return False
+
+        # test for minimum name length
+        if len(user['username']) < MINIMUM_LENGTH_NAME:
+            log.debug("Expensive name %s. Skipping." % user['username'])
+            return False
+
+        # test for ignoring names starting with certain patterns
+        if ignoreRegistration(user['username'], IGNORE_NAMES_STARTING_WITH):
+            log.debug("Ignoring: %s" % user['username'])
+            return False
+
+        return True
 
     def update_users(self, spam_protection=False):
         """
@@ -248,3 +256,41 @@ class WebappDriver(object):
         user = self.users.find_one({"username": username})
 
         pprint(user)
+
+    def display_current_states(self):
+        """
+            Display current states of all pending registrations
+        """
+
+        counter_register = 0
+        counter_update = 0
+        counter_dht = 0
+        counter_transfer = 0
+
+        for new_user in self.registrations.find(no_cursor_timeout=True):
+
+            user = get_db_user_from_id(new_user, self.users)
+
+            if not self.validUser(user):
+                continue
+
+            fqu = user['username'] + "." + DEFAULT_NAMESPACE
+            transfer_address = nmc_to_btc_address(user['namecoin_address'])
+            profile = user['profile']
+
+            if not nameRegistered(fqu):
+                counter_register += 1
+
+            elif not profileonBlockchain(fqu, profile):
+                counter_update += 1
+
+            elif not profileonDHT(fqu, profile):
+                counter_dht += 1
+
+            elif not ownerName(fqu, transfer_address):
+                counter_transfer += 1
+
+        log.debug("Pending registrations: %s" % counter_register)
+        log.debug("Pending updates: %s" % counter_update)
+        log.debug("Pending DHT writes: %s" % counter_dht)
+        log.debug("Pending transfers: %s" % counter_transfer)
