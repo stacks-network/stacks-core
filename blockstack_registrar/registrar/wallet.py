@@ -302,4 +302,4 @@ def display_names_wallet_owns(list_of_addresses):
 if __name__ == '__main__':
 
     log.debug("wallet.py")
-    refill_wallet(count=10, offset=40, payment=DEFAULT_REFILL_AMOUNT, live=False)
+    refill_wallet(count=10, offset=90, payment=DEFAULT_REFILL_AMOUNT, live=False)
