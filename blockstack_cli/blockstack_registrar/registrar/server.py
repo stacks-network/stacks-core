@@ -65,6 +65,7 @@ class RegistrarServer(object):
         self.index = 0
         self.all_addresses_in_use = False
         self.payment_addresses = wallet.get_child_keypairs(count=RATE_LIMIT)
+	self.ignore_addresses = []
 
         # change the positions by 1, so that different payment and
         # owner addresses are at a given index for the two lists
@@ -88,7 +89,7 @@ class RegistrarServer(object):
 
         payment_address = self.payment_addresses[self.index]
 
-        #log.debug("Getting new payment address")
+        # log.debug("Getting new payment address")
         counter = 0
 
         while(1):
@@ -103,6 +104,10 @@ class RegistrarServer(object):
                 self.increment_index()
                 payment_address = self.payment_addresses[self.index]
 
+            elif(payment_address in self.ignore_addresses):
+                log.debug("Ignoring address: %s" % payment_address)
+                self.increment_index()
+                payment_address = self.payment_addresses[self.index]
             else:
                 break
 
@@ -142,15 +147,24 @@ class RegistrarServer(object):
                     log.debug("Registering: %s" % fqu)
                     return register(fqu, auto_preorder=False)
             else:
-                if nameop is None or nameop is 'preorder':
-                    #log.debug("Preordering: %s" % fqu)
+                if nameop is None or nameop == 'preorder':
                     # loadbalancing happens in get_next_addresses()
                     payment_address, owner_address = self.get_next_addresses()
 
                     if payment_address is None:
                         return False
-                    else:
-                        return preorder(fqu, payment_address, owner_address)
+
+                    reply = None
+
+                    try:
+                        log.debug("Preordering: %s" % fqu)
+                        reply = preorder(fqu, payment_address, owner_address)
+                    except:
+                        log.debug("Got exception: %s" % payment_address)
+                        self.ignore_addresses.append(payment_address)
+                        log.debug("List of ignored addresses: %s" % self.ignore_addresses)
+
+                    return reply
 
         elif not profileonBlockchain(fqu, profile):
             #log.debug("Not updated: %s" % fqu)

@@ -37,7 +37,7 @@ from .blockchain import dontuseAddress, underfundedAddress
 
 from .wallet import wallet
 
-from .utils import config_log, pretty_dump
+from .utils import config_log
 from .utils import pretty_print as pprint
 
 from .config import PREORDER_CONFIRMATIONS
@@ -94,7 +94,8 @@ def preorder(fqu, payment_address, owner_address):
     else:
         log.debug("Error preordering: %s" % fqu)
         log.debug(pprint(resp))
-        return False
+        raise ValueError('Error preordering')
+	return False
 
     return True
 
@@ -208,7 +209,7 @@ def update(fqu, profile):
     owner_privkey = wallet.get_privkey_from_address(owner_address)
 
     if owner_privkey is None:
-        log.debug("Registrar doesn't own this name.")
+        log.debug("Registrar doens't own this name.")
         return False
 
     if dontuseAddress(owner_address):
@@ -287,7 +288,7 @@ def transfer(fqu, transfer_address):
                      tx_hash=resp['tx_hash'])
     else:
         log.debug("Error transferring: %s" % fqu)
-        log.debug(pretty_dump(resp))
+        log.debug(resp)
         return False
 
     return True
