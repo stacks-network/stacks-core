@@ -37,7 +37,7 @@ from .blockchain import dontuseAddress, underfundedAddress
 
 from .wallet import wallet
 
-from .utils import config_log
+from .utils import config_log, pretty_dump
 from .utils import pretty_print as pprint
 
 from .config import PREORDER_CONFIRMATIONS
@@ -287,7 +287,7 @@ def transfer(fqu, transfer_address):
                      tx_hash=resp['tx_hash'])
     else:
         log.debug("Error transferring: %s" % fqu)
-        log.debug(resp)
+        log.debug(pretty_dump(resp))
         return False
 
     return True
