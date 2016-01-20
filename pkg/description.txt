@@ -1,0 +1,1 @@
+Name registrations on the Bitcoin blockchain with external storage
