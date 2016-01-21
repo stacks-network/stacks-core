@@ -41,7 +41,7 @@ from blockstore_client.utils import pretty_dump, print_result
 log = config.log
 
 
-def get_sorted_commands():
+def get_sorted_commands(display_commands=False):
     """ when adding new commands to the parser, use this function to
         check the correct sorted order
     """
@@ -62,8 +62,11 @@ def get_sorted_commands():
                     'revoke_tx', 'revoke_subsidized',
                     'renew_tx', 'renew_subsidized']
 
-    for cmd in sorted(command_list):
-        print cmd
+    if display_commands:
+        for cmd in sorted(command_list):
+            log.debug(cmd)
+
+    return command_list
 
 
 def run_cli():
@@ -77,22 +80,9 @@ def run_cli():
         sys.exit(1)
 
     advanced_mode = conf['advanced_mode']
-    print advanced_mode
 
     parser = argparse.ArgumentParser(
       description='Blockstore Cli version {}'.format(config.VERSION))
-
-    parser.add_argument(
-      '--blockstored-server',
-      help="""the hostname/IP of server (default: {})""".format(config.BLOCKSTORED_SERVER))
-
-    parser.add_argument(
-      '--blockstored-port', type=int,
-      help="""the server port to connect to (default: {})""".format(config.BLOCKSTORED_PORT))
-
-    parser.add_argument(
-      '--txid', type=str,
-      help="tx hash of a partially-failed storage operation")
 
     subparsers = parser.add_subparsers(
       dest='action',
@@ -102,139 +92,165 @@ def run_cli():
     # start commands
 
     subparser = subparsers.add_parser(
-      'delete_immutable',
-      help='<name> <hash> <privatekey> | Delete immutable data from the storage providers.')
+      'server',
+      help='')
+
     subparser.add_argument(
-      'name', type=str,
-      help='the name of the user')
+      '--server',
+      action='store',
+      help="""the hostname/IP of blockstored server (default: {})""".format(config.BLOCKSTORED_SERVER))
+
     subparser.add_argument(
-      'hash', type=str,
-      help='the hash of the data')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the privatekey of the user')
+      '--port', type=int,
+      action='store',
+      help="""the server port to connect to (default: {})""".format(config.BLOCKSTORED_PORT))
+
+    # ------------------------------------
+    if advanced_mode == "on":
+      subparser = subparsers.add_parser(
+        'delete_immutable',
+        help='<name> <hash> <privatekey> | Delete immutable data from the storage providers.')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name of the user')
+      subparser.add_argument(
+        'hash', type=str,
+        help='the hash of the data')
+      subparser.add_argument(
+        'privatekey', type=str,
+        help='the privatekey of the user')
+
+    # ------------------------------------
+    if advanced_mode == "on":
+      subparser = subparsers.add_parser(
+        'delete_mutable',
+        help='<name> <data_id> <privatekey> | Delete mutable data from the storage providers.')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name of the user')
+      subparser.add_argument(
+        'data_id', type=str,
+        help='the unchanging identifier for this data')
+      subparser.add_argument(
+        'privatekey', type=str,
+        help='the privatekey of the user')
+
+    # ------------------------------------
+    if advanced_mode == "on":
+      subparser = subparsers.add_parser(
+        'get_all_names',
+        help='[offset] [count] | get all names that exist')
+      subparser.add_argument(
+        'offset', nargs='?',
+        help='The offset into the list at which to start reading')
+      subparser.add_argument(
+        'count', nargs='?',
+        help='The maximum number of names to return')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-      'delete_mutable',
-      help='<name> <data_id> <privatekey> | Delete mutable data from the storage providers.')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name of the user')
-    subparser.add_argument(
-      'data_id', type=str,
-      help='the unchanging identifier for this data')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the privatekey of the user')
-
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'get_all_names',
-      help='[offset] [count] | get all names that exist')
-    subparser.add_argument(
-      'offset', nargs='?',
-      help='The offset into the list at which to start reading')
-    subparser.add_argument(
-      'count', nargs='?',
-      help='The maximum number of names to return')
-
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'get_consensus_at',
+      'consensus',
       help='<block ID> | get the consensus hash at a particular block')
     subparser.add_argument(
       'block_id', type=int,
       help='The block ID.')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'get_immutable',
-      help='<name> <hash> | get immutable data from storage')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name of the user')
-    subparser.add_argument(
-      'hash', type=str,
-      help='the hash of the data')
+    if advanced_mode == "on":
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'get_immutable',
+        help='<name> <hash> | get immutable data from storage')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name of the user')
+      subparser.add_argument(
+        'hash', type=str,
+        help='the hash of the data')
+
+    if advanced_mode == "on":
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'get_mutable',
+        help='<name> <data_id> | get mutable data from storage')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name associated with the data')
+      subparser.add_argument(
+        'data_id', type=str,
+        help='the unchanging identifier for this data')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-      'get_mutable',
-      help='<name> <data_id> | get mutable data from storage')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name associated with the data')
-    subparser.add_argument(
-      'data_id', type=str,
-      help='the unchanging identifier for this data')
-
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'get_name_cost',
+      'cost',
       help="<name> | get the cost of a name")
     subparser.add_argument(
       'name', type=str,
       help="The fully-qualified name to check")
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'get_names_in_namespace',
-      help='<namespace ID> [offset] [count] | get all names in a particular namespace')
-    subparser.add_argument(
-      'namespace_id', type=str,
-      help='The namespace to search')
-    subparser.add_argument(
-      'offset', nargs='?',
-      help='The offset into the list at which to start reading')
-    subparser.add_argument(
-      'count', nargs='?',
-      help='The maximum number of names to return')
+    if advanced_mode == "on":
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'get_names_in_namespace',
+        help='<namespace ID> [offset] [count] | get all names in a particular namespace')
+      subparser.add_argument(
+        'namespace_id', type=str,
+        help='The namespace to search')
+      subparser.add_argument(
+        'offset', nargs='?',
+        help='The offset into the list at which to start reading')
+      subparser.add_argument(
+        'count', nargs='?',
+        help='The maximum number of names to return')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'get_names_owned_by_address',
-      help='<address> | get all names owned by an address')
-    subparser.add_argument(
-      'address', type=str,
-      help='The address to query')
+    if advanced_mode == "on":
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'get_names_owned_by_address',
+        help='<address> | get all names owned by an address')
+      subparser.add_argument(
+        'address', type=str,
+        help='The address to query')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'get_namespace_cost',
-      help="<namespace_id> | get the cost of a namespace")
-    subparser.add_argument(
-      'namespace_id', type=str,
-      help="The namespace ID to check")
+    if advanced_mode == "on":
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'get_namespace_cost',
+        help="<namespace_id> | get the cost of a namespace")
+      subparser.add_argument(
+        'namespace_id', type=str,
+        help="The namespace ID to check")
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'get_name_record',
-      help='<name> | get the off-blockchain record for a given name')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name to look up')
+    if advanced_mode == "on":
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'get_name_record',
+        help='<name> | get the off-blockchain record for a given name')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name to look up')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
       'getinfo',
       help='get basic info from the blockstored server')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'get_name_blockchain_record',
-      help='<name> | get the blockchain-hosted information for a particular name')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name to query')
+    if advanced_mode == "on":
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'get_name_blockchain_record',
+        help='<name> | get the blockchain-hosted information for a particular name')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name to query')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'get_namespace_blockchain_record',
-      help='<namespace_id> | get the blockchain-hosted information for a particular namespace')
-    subparser.add_argument(
-      'namespace_id', type=str,
-      help='the namespace to look up')
+    if advanced_mode == "on":
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'get_namespace_blockchain_record',
+        help='<namespace_id> | get the blockchain-hosted information for a particular namespace')
+      subparser.add_argument(
+        'namespace_id', type=str,
+        help='the namespace to look up')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -244,102 +260,108 @@ def run_cli():
       'name', type=str,
       help='the name to look up')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'lookup_snv',
-      help='<name> <block_id> <consensus_hash> | Look up a name as it existed at a particular block, using SNV protocol')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name to look up')
-    subparser.add_argument(
-      'block_id', type=int,
-      help='the block ID in the desired point in the past')
-    subparser.add_argument(
-      'consensus_hash', type=str,
-      help='the trusted consensus hash at the given block')
+    if advanced_mode == "on":
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'lookup_snv',
+        help='<name> <block_id> <consensus_hash> | Look up a name as it existed at a particular block, using SNV protocol')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name to look up')
+      subparser.add_argument(
+        'block_id', type=int,
+        help='the block ID in the desired point in the past')
+      subparser.add_argument(
+        'consensus_hash', type=str,
+        help='the trusted consensus hash at the given block')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'get_nameops_at',
-      help='<block_id> | Look up all name operations that occurred at a block')
-    subparser.add_argument(
-      'block_id', type=int,
-      help='the block ID in the desired point in the past')
+    if advanced_mode == "on":
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'get_nameops_at',
+        help='<block_id> | Look up all name operations that occurred at a block')
+      subparser.add_argument(
+        'block_id', type=int,
+        help='the block ID in the desired point in the past')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'name_import',
-      help='import a name into a revealed namespace')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name that you want to import')
-    subparser.add_argument(
-      'address', type=str,
-      help='the new owner\'s Bitcoin address')
-    subparser.add_argument(
-      'hash', type=str,
-      help='hash of the storage index to associate with the name')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the private key of the namespace revealer\'s address')
+    if advanced_mode == "on":
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'name_import',
+        help='import a name into a revealed namespace')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name that you want to import')
+      subparser.add_argument(
+        'address', type=str,
+        help='the new owner\'s Bitcoin address')
+      subparser.add_argument(
+        'hash', type=str,
+        help='hash of the storage index to associate with the name')
+      subparser.add_argument(
+        'privatekey', type=str,
+        help='the private key of the namespace revealer\'s address')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'namespace_preorder',
-      help='preorder a namespace and claim the name')
-    subparser.add_argument(
-      'namespace_id', type=str,
-      help='the human-readable namespace identifier')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the privatekey of the namespace creator')
-    subparser.add_argument(
-      'address', type=str, nargs='?',
-      help='[OPTIONAL] the address of private key that will import names into this namespace (should be different from the private key given here).  \
-      If not given, a new private key will be generated.  The private key must be used to sign name_import requests, and the address must be submitted on namespace_reveal')
+    if advanced_mode == "on":
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'namespace_preorder',
+        help='preorder a namespace and claim the name')
+      subparser.add_argument(
+        'namespace_id', type=str,
+        help='the human-readable namespace identifier')
+      subparser.add_argument(
+        'privatekey', type=str,
+        help='the privatekey of the namespace creator')
+      subparser.add_argument(
+        'address', type=str, nargs='?',
+        help='[OPTIONAL] the address of private key that will import names into this namespace (should be different from the private key given here).  \
+        If not given, a new private key will be generated.  The private key must be used to sign name_import requests, and the address must be submitted on namespace_reveal')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'namespace_reveal',
-      help='define a namespace\'s parameters once preorder succeeds')
-    subparser.add_argument(
-      'namespace_id', type=str,
-      help='the human-readable namespace identifier')
-    subparser.add_argument(
-      'addr', type=str,
-      help='the address that will import names into the namespace, and open it for registration')
-    subparser.add_argument(
-      'lifetime', type=int,
-      help='the number of blocks for which a name will be valid (any value less than zero means "forever")')
-    subparser.add_argument(
-      'coeff', type=int,
-      help='constant cost multipler for names (in range [0, 256))')
-    subparser.add_argument(
-      'base', type=int,
-      help='base cost for names (in range [0, 256))')
-    subparser.add_argument(
-      'bucket_exponents', type=str,
-      help='per-name-length cost exponents (CSV string of 16 values in range [0, 16))')
-    subparser.add_argument(
-      'nonalpha_discount', type=int,
-      help='non-alpha discount multipler (in range [0, 16))')
-    subparser.add_argument(
-      'no_vowel_discount', type=int,
-      help='no-vowel discount multipler (in range [0, 16))')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the privatekey of the namespace creator (from namespace_preorder)')
+    if advanced_mode == "on":
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'namespace_reveal',
+        help='define a namespace\'s parameters once preorder succeeds')
+      subparser.add_argument(
+        'namespace_id', type=str,
+        help='the human-readable namespace identifier')
+      subparser.add_argument(
+        'addr', type=str,
+        help='the address that will import names into the namespace, and open it for registration')
+      subparser.add_argument(
+        'lifetime', type=int,
+        help='the number of blocks for which a name will be valid (any value less than zero means "forever")')
+      subparser.add_argument(
+        'coeff', type=int,
+        help='constant cost multipler for names (in range [0, 256))')
+      subparser.add_argument(
+        'base', type=int,
+        help='base cost for names (in range [0, 256))')
+      subparser.add_argument(
+        'bucket_exponents', type=str,
+        help='per-name-length cost exponents (CSV string of 16 values in range [0, 16))')
+      subparser.add_argument(
+        'nonalpha_discount', type=int,
+        help='non-alpha discount multipler (in range [0, 16))')
+      subparser.add_argument(
+        'no_vowel_discount', type=int,
+        help='no-vowel discount multipler (in range [0, 16))')
+      subparser.add_argument(
+        'privatekey', type=str,
+        help='the privatekey of the namespace creator (from namespace_preorder)')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'namespace_ready',
-      help='open namespace for registrations')
-    subparser.add_argument(
-      'namespace_id', type=str,
-      help='the human-readable namespace identifier')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the privatekey of the namespace creator')
+    if advanced_mode == "on":
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'namespace_ready',
+        help='open namespace for registrations')
+      subparser.add_argument(
+        'namespace_id', type=str,
+        help='the human-readable namespace identifier')
+      subparser.add_argument(
+        'privatekey', type=str,
+        help='the privatekey of the namespace creator')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -361,22 +383,23 @@ def run_cli():
       help='[OPTIONAL] the address that will own the name (should be different from the address of the private key given here). \
       If not given, a new private key will be generated, and its address must be submitted upon register.')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'preorder_tx',
-      help='<name> <privatekey> [address] | create an unsigned serialized transaction that will preorder a name.')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name that you want to preorder')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the private key of the Bitcoin account to pay for the name and register it')
-    subparser.add_argument(
-      'address', type=str, nargs='?',
-      help='[OPTIONAL] the address that will own the name (should be different from the address of the private key given here). \
-      If not given, a new private key will be generated, and its address must be submitted upon register.')
+    if advanced_mode == "on":
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'preorder_tx',
+        help='<name> <privatekey> [address] | create an unsigned serialized transaction that will preorder a name.')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name that you want to preorder')
+      subparser.add_argument(
+        'privatekey', type=str,
+        help='the private key of the Bitcoin account to pay for the name and register it')
+      subparser.add_argument(
+        'address', type=str, nargs='?',
+        help='[OPTIONAL] the address that will own the name (should be different from the address of the private key given here). \
+        If not given, a new private key will be generated, and its address must be submitted upon register.')
 
-    if advanced_mode:
+    if advanced_mode == "on":
       # ------------------------------------
       subparser = subparsers.add_parser(
         'preorder_subsidized',
@@ -395,7 +418,7 @@ def run_cli():
         'subsidy_key', type=str,
         help='the private key of the Bitcoin account to pay for the name')
 
-    if advanced_mode:
+    if advanced_mode == "on":
       # ------------------------------------
       subparser = subparsers.add_parser(
         'put_immutable',
@@ -410,7 +433,7 @@ def run_cli():
         'privatekey', type=str,
         help='the private key associated with the name')
 
-    if advanced_mode:
+    if advanced_mode == "on":
       # ------------------------------------
       put_mutable_parser = subparsers.add_parser(
         'put_mutable',
@@ -442,7 +465,7 @@ def run_cli():
       'addr', type=str,
       help='the address that will own the name (given in the preorder)')
 
-    if advanced_mode:
+    if advanced_mode == "on":
       # ------------------------------------
       subparser = subparsers.add_parser(
         'register_tx',
@@ -457,7 +480,7 @@ def run_cli():
         'addr', type=str,
         help='the address that will own the name (given in the preorder)')
 
-    if advanced_mode:
+    if advanced_mode == "on":
       # ------------------------------------
       subparser = subparsers.add_parser(
         'register_subsidized',
@@ -486,18 +509,19 @@ def run_cli():
       'privatekey', type=str,
       help='the privatekey of the owner Bitcoin address')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'renew_tx',
-      help='<name> <privatekey> | create an unsigned transaction to renew a name')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name that you want to renew')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the privatekey of the owner Bitcoin address')
+    if advanced_mode == "on":
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'renew_tx',
+        help='<name> <privatekey> | create an unsigned transaction to renew a name')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name that you want to renew')
+      subparser.add_argument(
+        'privatekey', type=str,
+        help='the privatekey of the owner Bitcoin address')
 
-    if advanced_mode:
+    if advanced_mode == "on":
       # ------------------------------------
       subparser = subparsers.add_parser(
         'renew_subsidized',
@@ -523,7 +547,7 @@ def run_cli():
       'privatekey', type=str,
       help='the privatekey of the owner Bitcoin address')
 
-    if advanced_mode:
+    if advanced_mode == "on":
       # ------------------------------------
       subparser = subparsers.add_parser(
         'revoke_tx',
@@ -535,7 +559,7 @@ def run_cli():
         'privatekey', type=str,
         help='the privatekey of the owner Bitcoin address')
 
-    if advanced_mode:
+    if advanced_mode == "on":
       # ------------------------------------
       subparser = subparsers.add_parser(
         'revoke_subsidized',
@@ -567,7 +591,7 @@ def run_cli():
       'privatekey', type=str,
       help='the privatekey of the owner Bitcoin address')
 
-    if advanced_mode:
+    if advanced_mode == "on":
       # ------------------------------------
       subparser = subparsers.add_parser(
         'transfer_tx',
@@ -585,7 +609,7 @@ def run_cli():
         'privatekey', type=str,
         help='the privatekey of the owner Bitcoin address')
 
-    if advanced_mode:
+    if advanced_mode == "on":
       # ------------------------------------
       subparser = subparsers.add_parser(
         'transfer_subsidized',
@@ -670,18 +694,22 @@ def run_cli():
     args, unknown_args = parser.parse_known_args()
     result = {}
 
-    blockstore_server = args.blockstored_server
-    blockstore_port = args.blockstored_port
+    blockstore_server = config.BLOCKSTORED_SERVER
 
-    if blockstore_server is None:
-        blockstore_server = config.BLOCKSTORED_SERVER
-
-    if blockstore_port is None:
-        blockstore_port = config.BLOCKSTORED_PORT
+    blockstore_port = config.BLOCKSTORED_PORT
 
     proxy = client.session(conf=conf, server_host=blockstore_server, server_port=blockstore_port )
 
-    if args.action == 'getinfo':
+    if args.action == 'server':
+        if args.server is None and args.port is None:
+            data = {}
+            data['server'] = blockstore_server
+            data['port'] = blockstore_port
+            result = data
+
+    elif args.action == 'advanced':
+        pass
+    elif args.action == 'getinfo':
         result = client.getinfo()
 
     elif args.action == 'ping':
@@ -754,11 +782,11 @@ def run_cli():
 
     elif args.action == 'transfer':
         keepdata = False
-        if args.keepdata.lower() not in ["true", "false"]:
+        if args.keepdata.lower() not in ["on", "false"]:
             print >> sys.stderr, "Pass 'true' or 'false' for keepdata"
             sys.exit(1)
 
-        if args.keepdata.lower() == "true":
+        if args.keepdata.lower() == "on":
             keepdata = True
 
         result = client.transfer(str(args.name),
@@ -769,11 +797,11 @@ def run_cli():
 
     elif args.action == 'transfer_tx':
         keepdata = False
-        if args.keepdata.lower() not in ["true", "false"]:
+        if args.keepdata.lower() not in ["on", "false"]:
             print >> sys.stderr, "Pass 'true' or 'false' for keepdata"
             sys.exit(1)
 
-        if args.keepdata.lower() == "true":
+        if args.keepdata.lower() == "on":
             keepdata = True
 
         result = client.transfer(str(args.name),
@@ -785,11 +813,11 @@ def run_cli():
 
     elif args.action == 'transfer_subsidized':
         keepdata = False
-        if args.keepdata.lower() not in ["true", "false"]:
+        if args.keepdata.lower() not in ["on", "false"]:
             print >> sys.stderr, "Pass 'true' or 'false' for keepdata"
             sys.exit(1)
 
-        if args.keepdata.lower() == "true":
+        if args.keepdata.lower() == "on":
             keepdata = True
 
         result = client.transfer_subsidized(str(args.name),
@@ -931,7 +959,7 @@ def run_cli():
 
         result = client.get_names_in_namespace( str(args.namespace_id), offset, count )
 
-    elif args.action == 'get_consensus_at':
+    elif args.action == 'consensus':
         result = client.get_consensus_at( int(args.block_id) )
 
     elif args.action == 'get_nameops_at':
