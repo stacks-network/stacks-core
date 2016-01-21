@@ -67,11 +67,14 @@ class BlockstoreRPCClient(object):
     not guarantee that the "result" and "error" keywords will be present.
     """
 
-    def __init__(self, server, port, max_rpc_len=MAX_RPC_LEN):
+    def __init__(self, server, port,
+                 max_rpc_len=MAX_RPC_LEN,
+                 timeout=config.DEFAULT_TIMEOUT):
         self.server = server
         self.port = port
         self.sock = None
         self.max_rpc_len = max_rpc_len
+        self.timeout = timeout
 
     def __getattr__(self, key):
         try:
@@ -93,6 +96,7 @@ class BlockstoreRPCClient(object):
     def ensure_connected(self):
         if self.sock is None:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
+            self.sock.settimeout(self.timeout)
             self.sock.connect((self.server, self.port))
 
         return True
