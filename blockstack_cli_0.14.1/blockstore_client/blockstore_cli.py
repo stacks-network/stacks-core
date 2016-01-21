@@ -50,10 +50,10 @@ def get_sorted_commands(display_commands=False):
                     'transfer', 'renew', 'name_import', 'namespace_preorder',
                     'namespace_ready', 'namespace_reveal', 'put_mutable',
                     'put_immutable', 'get_mutable', 'get_immutable',
-                    'get_name_cost', 'get_namespace_cost', 'get_nameops_at',
+                    'cost', 'get_namespace_cost', 'get_nameops_at',
                     'get_name_blockchain_record', 'get_namespace_blockchain_record',
                     'get_name_record', 'lookup',
-                    'get_all_names', 'get_names_in_namespace', 'get_consensus_at',
+                    'get_all_names', 'get_names_in_namespace', 'consensus',
                     'lookup_snv', 'get_names_owned_by_address',
                     'preorder_tx', 'preorder_subsidized',
                     'register_tx', 'register_subsidized',
@@ -82,28 +82,27 @@ def run_cli():
     advanced_mode = conf['advanced_mode']
 
     parser = argparse.ArgumentParser(
-      description='Blockstore Cli version {}'.format(config.VERSION))
+      description='Blockstore cli version {}'.format(config.VERSION))
 
     subparsers = parser.add_subparsers(
-      dest='action',
-      help='the action to be taken')
+      dest='action')
 
     # ------------------------------------
     # start commands
 
     subparser = subparsers.add_parser(
       'server',
-      help='')
+      help='display server:port | update using --server --port')
 
     subparser.add_argument(
       '--server',
       action='store',
-      help="""the hostname/IP of blockstored server (default: {})""".format(config.BLOCKSTORED_SERVER))
+      help="""the hostname/IP of blockstored (current: {})""".format(config.BLOCKSTORED_SERVER))
 
     subparser.add_argument(
       '--port',
       action='store',
-      help="""the server port to connect to (default: {})""".format(config.BLOCKSTORED_PORT))
+      help="""the server port to connect to (current: {})""".format(config.BLOCKSTORED_PORT))
 
     # ------------------------------------
     if advanced_mode == "on":
@@ -150,10 +149,10 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
       'consensus',
-      help='<block ID> | get the consensus hash at a particular block')
+      help='<block height> | get consensus hash at given block')
     subparser.add_argument(
-      'block_id', type=int,
-      help='The block ID.')
+      'block_height', type=int, nargs='?',
+      help='The block height.')
 
     if advanced_mode == "on":
       # ------------------------------------
@@ -371,7 +370,7 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
       'preorder',
-      help='<name> <privatekey> | preorder a name')
+      help='<name> <private_key> | preorder a name')
     subparser.add_argument(
       'name', type=str,
       help='the name that you want to preorder')
@@ -454,7 +453,7 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
       'register',
-      help='<name> <privatekey> <addr> | register/claim a name')
+      help='<name> <private_key> <addr> | register/claim a name')
     subparser.add_argument(
       'name', type=str,
       help='the name that you want to register/claim')
@@ -498,16 +497,17 @@ def run_cli():
         'subsidy_key', type=str,
         help='the private key used to pay for this transaction')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'renew',
-      help='<name> <privatekey> | renew a name')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name that you want to renew')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the privatekey of the owner Bitcoin address')
+    if advanced_mode == "on":
+        # ------------------------------------
+        subparser = subparsers.add_parser(
+          'renew',
+          help='<name> <privatekey> | renew a name')
+        subparser.add_argument(
+          'name', type=str,
+          help='the name that you want to renew')
+        subparser.add_argument(
+          'privatekey', type=str,
+          help='the privatekey of the owner Bitcoin address')
 
     if advanced_mode == "on":
       # ------------------------------------
@@ -536,16 +536,17 @@ def run_cli():
         'subsidy_key', type=str,
         help='the key to subsidize the transaction')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'revoke',
-      help='<name> <privatekey> | revoke a name and its data')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name that you want to revoke')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the privatekey of the owner Bitcoin address')
+    if advanced_mode == "on":
+        # ------------------------------------
+        subparser = subparsers.add_parser(
+          'revoke',
+          help='<name> <privatekey> | revoke a name and its data')
+        subparser.add_argument(
+          'name', type=str,
+          help='the name that you want to revoke')
+        subparser.add_argument(
+          'privatekey', type=str,
+          help='the privatekey of the owner Bitcoin address')
 
     if advanced_mode == "on":
       # ------------------------------------
@@ -577,7 +578,7 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
       'transfer',
-      help='<name> <address> <keepdata> <privatekey> | transfer a name')
+      help='<name> <address> <private_key> | transfer a name')
     subparser.add_argument(
       'name', type=str,
       help='the name that you want to register/claim')
@@ -633,7 +634,7 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
       'update',
-      help='<name> <record_json> <private_key> [txid] | update and store a name record')
+      help='<name> <data> <private_key> | update a name record')
     subparser.add_argument(
       'name', type=str,
       help='the name that you want to update')
@@ -929,7 +930,16 @@ def run_cli():
         result = client.get_namespace_blockchain_record(str(args.namespace_id))
 
     elif args.action == 'lookup':
-        result = client.lookup(str(args.name))
+        data = {}
+        data['blockchain_record'] = client.get_name_blockchain_record(str(args.name))
+
+        try:
+            data_id = data['blockchain_record']['value_hash']
+            data['data_record'] = json.loads(client.get_immutable(str(args.name), data_id)['data'])
+        except:
+            data['data_record'] = None
+
+        result = data
 
     elif args.action == 'lookup_snv':
         result = client.lookup_snv(str(args.name), int(args.block_id), str(args.consensus_hash) )
@@ -937,7 +947,7 @@ def run_cli():
     elif args.action == 'get_name_record':
         result = client.get_name_record( str(args.name) )
 
-    elif args.action == 'get_name_cost':
+    elif args.action == 'cost':
         result = client.get_name_cost(str(args.name))
 
     elif args.action == 'get_names_owned_by_address':
@@ -971,7 +981,18 @@ def run_cli():
         result = client.get_names_in_namespace( str(args.namespace_id), offset, count )
 
     elif args.action == 'consensus':
-        result = client.get_consensus_at( int(args.block_id) )
+
+        if args.block_height is None:
+            # by default get last indexed block
+            args.block_height = client.getinfo()['last_block']
+
+        resp = client.get_consensus_at( int(args.block_height) )
+
+        data = {}
+        data['consensus'] = resp
+        data['block_height'] = args.block_height
+
+        result = data
 
     elif args.action == 'get_nameops_at':
         result = client.get_nameops_at( int(args.block_id) )

@@ -1232,14 +1232,14 @@ def get_names_owned_by_address(address, proxy=None):
     return proxy.get_names_owned_by_address(address)
 
 
-def get_consensus_at(block_id, proxy=None):
+def get_consensus_at(block_height, proxy=None):
     """
     Get consensus at a block
     """
     if proxy is None:
         proxy = get_default_proxy()
 
-    resp = proxy.get_consensus_at(block_id)
+    resp = proxy.get_consensus_at(block_height)
     if type(resp) == list:
         if len(resp) == 0:
             resp = {'error': 'No data returned'}
@@ -2149,10 +2149,10 @@ def get_immutable(name, data_key):
         # no user data
         return {'error': "Unable to load user record: %s" % user['error']}
 
-    if not user_db.has_immutable_data(user, data_key):
+    #if not user_db.has_immutable_data(user, data_key):
 
         # no data
-        return {'error': 'Profile has no such immutable data'}
+    #    return {'error': 'Profile has no such immutable data'}
 
     data = storage.get_immutable_data(data_key)
     if data is None:
