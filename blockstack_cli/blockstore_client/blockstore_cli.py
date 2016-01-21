@@ -71,9 +71,13 @@ def run_cli():
     """
 
     conf = config.get_config()
+
     if conf is None:
         log.error("Failed to load config")
         sys.exit(1)
+
+    advanced_mode = conf['advanced_mode']
+    print advanced_mode
 
     parser = argparse.ArgumentParser(
       description='Blockstore Cli version {}'.format(config.VERSION))
@@ -372,54 +376,57 @@ def run_cli():
       help='[OPTIONAL] the address that will own the name (should be different from the address of the private key given here). \
       If not given, a new private key will be generated, and its address must be submitted upon register.')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'preorder_subsidized',
-      help='<name> <public_key> <address> <subsidy_key> | create an "anyone-can-pay" transaction to preorder a name, subsidized with a separate key.  The client must sign the <public_key>\'s address input separately to complete the transaction.')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name that you want to preorder')
-    subparser.add_argument(
-      'public_key', type=str,
-      help='the client\'s public key, whose private counterpart will sign the subsidized transaction.')
-    subparser.add_argument(
-      'address', type=str,
-      help='The address that will own the name (should be different from the address of the public key given here). \
-      If not given, a new private key will be generated, and its address must be submitted upon register.')
-    subparser.add_argument(
-      'subsidy_key', type=str,
-      help='the private key of the Bitcoin account to pay for the name')
+    if advanced_mode:
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'preorder_subsidized',
+        help='<name> <public_key> <address> <subsidy_key> | create an "anyone-can-pay" transaction to preorder a name, subsidized with a separate key.  The client must sign the <public_key>\'s address input separately to complete the transaction.')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name that you want to preorder')
+      subparser.add_argument(
+        'public_key', type=str,
+        help='the client\'s public key, whose private counterpart will sign the subsidized transaction.')
+      subparser.add_argument(
+        'address', type=str,
+        help='The address that will own the name (should be different from the address of the public key given here). \
+        If not given, a new private key will be generated, and its address must be submitted upon register.')
+      subparser.add_argument(
+        'subsidy_key', type=str,
+        help='the private key of the Bitcoin account to pay for the name')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'put_immutable',
-      help='store immutable data into storage')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name that owns this data')
-    subparser.add_argument(
-      'data', type=str,
-      help='the data to store')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the private key associated with the name')
+    if advanced_mode:
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'put_immutable',
+        help='store immutable data into storage')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name that owns this data')
+      subparser.add_argument(
+        'data', type=str,
+        help='the data to store')
+      subparser.add_argument(
+        'privatekey', type=str,
+        help='the private key associated with the name')
 
-    # ------------------------------------
-    put_mutable_parser = subparsers.add_parser(
-      'put_mutable',
-      help='<name> <data_id> <data> <privatekey> [<nonce>] | Store mutable data into the storage providers, creating it if it does not exist.')
-    put_mutable_parser.add_argument(
-      'name', type=str,
-      help='the name that owns this data')
-    put_mutable_parser.add_argument(
-      'data_id', type=str,
-      help='the unchanging identifier for this data')
-    put_mutable_parser.add_argument(
-      'data', type=str,
-      help='the data to store')
-    put_mutable_parser.add_argument(
-      'privatekey', type=str,
-      help='the private key assocated with the name')
+    if advanced_mode:
+      # ------------------------------------
+      put_mutable_parser = subparsers.add_parser(
+        'put_mutable',
+        help='<name> <data_id> <data> <privatekey> [<nonce>] | Store mutable data into the storage providers, creating it if it does not exist.')
+      put_mutable_parser.add_argument(
+        'name', type=str,
+        help='the name that owns this data')
+      put_mutable_parser.add_argument(
+        'data_id', type=str,
+        help='the unchanging identifier for this data')
+      put_mutable_parser.add_argument(
+        'data', type=str,
+        help='the data to store')
+      put_mutable_parser.add_argument(
+        'privatekey', type=str,
+        help='the private key assocated with the name')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -435,36 +442,38 @@ def run_cli():
       'addr', type=str,
       help='the address that will own the name (given in the preorder)')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'register_tx',
-      help='<name> <privatekey> <addr> | Generate an unsigned transaction to register/claim a name')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name that you want to register/claim')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the private key used to preorder the name')
-    subparser.add_argument(
-      'addr', type=str,
-      help='the address that will own the name (given in the preorder)')
+    if advanced_mode:
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'register_tx',
+        help='<name> <privatekey> <addr> | Generate an unsigned transaction to register/claim a name')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name that you want to register/claim')
+      subparser.add_argument(
+        'privatekey', type=str,
+        help='the private key used to preorder the name')
+      subparser.add_argument(
+        'addr', type=str,
+        help='the address that will own the name (given in the preorder)')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'register_subsidized',
-      help='<name> <public_key> <addr> <subsidy_key> | create an "anyone-can-pay" transaction to register/claim a name, subsidized by a separate key.  The client must sign the <public_key>\'s address inputs before broadcasting it.')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name that you want to register/claim')
-    subparser.add_argument(
-      'public_key', type=str,
-      help='the private key used to preorder the name')
-    subparser.add_argument(
-      'addr', type=str,
-      help='the address that will own the name (given in the preorder)')
-    subparser.add_argument(
-      'subsidy_key', type=str,
-      help='the private key used to pay for this transaction')
+    if advanced_mode:
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'register_subsidized',
+        help='<name> <public_key> <addr> <subsidy_key> | create an "anyone-can-pay" transaction to register/claim a name, subsidized by a separate key.  The client must sign the <public_key>\'s address inputs before broadcasting it.')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name that you want to register/claim')
+      subparser.add_argument(
+        'public_key', type=str,
+        help='the private key used to preorder the name')
+      subparser.add_argument(
+        'addr', type=str,
+        help='the address that will own the name (given in the preorder)')
+      subparser.add_argument(
+        'subsidy_key', type=str,
+        help='the private key used to pay for this transaction')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -488,19 +497,20 @@ def run_cli():
       'privatekey', type=str,
       help='the privatekey of the owner Bitcoin address')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'renew_subsidized',
-      help='<name> <public_key> <subsidy_key> | create an "anyone-can-pay" transaction to renew a name, subsidized by a separate key.  The client must sign the <public_key>\'s address inputs before broadcasting it.')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name that you want to renew')
-    subparser.add_argument(
-      'public_key', type=str,
-      help='the public key of the owner')
-    subparser.add_argument(
-      'subsidy_key', type=str,
-      help='the key to subsidize the transaction')
+    if advanced_mode:
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'renew_subsidized',
+        help='<name> <public_key> <subsidy_key> | create an "anyone-can-pay" transaction to renew a name, subsidized by a separate key.  The client must sign the <public_key>\'s address inputs before broadcasting it.')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name that you want to renew')
+      subparser.add_argument(
+        'public_key', type=str,
+        help='the public key of the owner')
+      subparser.add_argument(
+        'subsidy_key', type=str,
+        help='the key to subsidize the transaction')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -513,30 +523,32 @@ def run_cli():
       'privatekey', type=str,
       help='the privatekey of the owner Bitcoin address')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'revoke_tx',
-      help='<name> <privatekey> | generate an unsigned transaction to revoke a name and its data')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name that you want to revoke')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the privatekey of the owner Bitcoin address')
+    if advanced_mode:
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'revoke_tx',
+        help='<name> <privatekey> | generate an unsigned transaction to revoke a name and its data')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name that you want to revoke')
+      subparser.add_argument(
+        'privatekey', type=str,
+        help='the privatekey of the owner Bitcoin address')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'revoke_subsidized',
-      help='<name> <public_key> <subsidy_key> | create an "anyone-can-pay" transaction to revoke a name and its data, subsidized by a separate key.  The client must sign the <public_key>\'s address inputs before broadcasting it.')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name that you want to revoke')
-    subparser.add_argument(
-      'public_key', type=str,
-      help='the public key of the owner Bitcoin address')
-    subparser.add_argument(
-      'subsidy_key', type=str,
-      help='the key to subsidize the transaction')
+    if advanced_mode:
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'revoke_subsidized',
+        help='<name> <public_key> <subsidy_key> | create an "anyone-can-pay" transaction to revoke a name and its data, subsidized by a separate key.  The client must sign the <public_key>\'s address inputs before broadcasting it.')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name that you want to revoke')
+      subparser.add_argument(
+        'public_key', type=str,
+        help='the public key of the owner Bitcoin address')
+      subparser.add_argument(
+        'subsidy_key', type=str,
+        help='the key to subsidize the transaction')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -555,42 +567,44 @@ def run_cli():
       'privatekey', type=str,
       help='the privatekey of the owner Bitcoin address')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'transfer_tx',
-      help='<name> <address> <keepdata> <privatekey> | create an unsigned transaction that will transfer a name')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name that you want to register/claim')
-    subparser.add_argument(
-      'address', type=str,
-      help='the new owner Bitcoin address')
-    subparser.add_argument(
-      'keepdata', type=str,
-      help='whether or not the storage index should remain associated with the name [true|false]')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the privatekey of the owner Bitcoin address')
+    if advanced_mode:
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'transfer_tx',
+        help='<name> <address> <keepdata> <privatekey> | create an unsigned transaction that will transfer a name')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name that you want to register/claim')
+      subparser.add_argument(
+        'address', type=str,
+        help='the new owner Bitcoin address')
+      subparser.add_argument(
+        'keepdata', type=str,
+        help='whether or not the storage index should remain associated with the name [true|false]')
+      subparser.add_argument(
+        'privatekey', type=str,
+        help='the privatekey of the owner Bitcoin address')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'transfer_subsidized',
-      help='<name> <address> <keepdata> <public_key> <subsidy_key> | create an "anyone-can-pay" transaction that will transfer a name, subsidized by a separate key.  The client must sign the <public_key>\s address inputs before broadcasting it.')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name that you want to register/claim')
-    subparser.add_argument(
-      'address', type=str,
-      help='the new owner Bitcoin address')
-    subparser.add_argument(
-      'keepdata', type=str,
-      help='whether or not the storage index should remain associated with the name [true|false]')
-    subparser.add_argument(
-      'public_key', type=str,
-      help='the public key of the owner Bitcoin address')
-    subparser.add_argument(
-      'subsidy_key', type=str,
-      help='the key to subsidize the transaction.')
+    if advanced_mode:
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'transfer_subsidized',
+        help='<name> <address> <keepdata> <public_key> <subsidy_key> | create an "anyone-can-pay" transaction that will transfer a name, subsidized by a separate key.  The client must sign the <public_key>\s address inputs before broadcasting it.')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name that you want to register/claim')
+      subparser.add_argument(
+        'address', type=str,
+        help='the new owner Bitcoin address')
+      subparser.add_argument(
+        'keepdata', type=str,
+        help='whether or not the storage index should remain associated with the name [true|false]')
+      subparser.add_argument(
+        'public_key', type=str,
+        help='the public key of the owner Bitcoin address')
+      subparser.add_argument(
+        'subsidy_key', type=str,
+        help='the key to subsidize the transaction.')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -609,42 +623,43 @@ def run_cli():
       'txid', type=str, nargs='?',
       help='[OPTIONAL] the transaction ID of the previously-attempted, partially-successful update')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'update_tx',
-      help='<name> <record_json> <private_key> [txid] | generate an unsigned transaction to update and store a name record')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name that you want to update')
-    subparser.add_argument(
-      'record_json', type=str,
-      help='the JSON-encoded user record to associate with the name')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the privatekey of the owner Bitcoin address')
-    subparser.add_argument(
-      'txid', type=str, nargs='?',
-      help='[OPTIONAL] the transaction ID of the previously-attempted, partially-successful update')
+    if advanced_mode == 'true':
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'update_tx',
+        help='<name> <record_json> <private_key> [txid] | generate an unsigned transaction to update and store a name record')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name that you want to update')
+      subparser.add_argument(
+        'record_json', type=str,
+        help='the JSON-encoded user record to associate with the name')
+      subparser.add_argument(
+        'privatekey', type=str,
+        help='the privatekey of the owner Bitcoin address')
+      subparser.add_argument(
+        'txid', type=str, nargs='?',
+        help='[OPTIONAL] the transaction ID of the previously-attempted, partially-successful update')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'update_subsidized',
-      help='<name> <record_json> <public_key> <subsidy_key> [txid] | generate an "anyone-can-pay" transaction to update and store a name record, subsidized by a separate key.  The client will need to sign the <public_key>\'s address inputs before broadcasting it.')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name that you want to update')
-    subparser.add_argument(
-      'record_json', type=str,
-      help='the JSON-encoded user record to associate with the name')
-    subparser.add_argument(
-      'public_key', type=str,
-      help='the public key of the owner Bitcoin address')
-    subparser.add_argument(
-      'subsidy_key', type=str,
-      help='the key to subsidize the transaction')
-    subparser.add_argument(
-      'txid', type=str, nargs='?',
-      help='[OPTIONAL] the transaction ID of the previously-attempted, partially-successful update')
+      # ------------------------------------
+      subparser = subparsers.add_parser(
+        'update_subsidized',
+        help='<name> <record_json> <public_key> <subsidy_key> [txid] | generate an "anyone-can-pay" transaction to update and store a name record, subsidized by a separate key.  The client will need to sign the <public_key>\'s address inputs before broadcasting it.')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name that you want to update')
+      subparser.add_argument(
+        'record_json', type=str,
+        help='the JSON-encoded user record to associate with the name')
+      subparser.add_argument(
+        'public_key', type=str,
+        help='the public key of the owner Bitcoin address')
+      subparser.add_argument(
+        'subsidy_key', type=str,
+        help='the key to subsidize the transaction')
+      subparser.add_argument(
+        'txid', type=str, nargs='?',
+        help='[OPTIONAL] the transaction ID of the previously-attempted, partially-successful update')
 
 
     # Print default help message, if no argument is given
