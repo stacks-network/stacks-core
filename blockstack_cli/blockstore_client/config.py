@@ -43,6 +43,8 @@ BLOCKSTORED_PORT = DEFAULT_BLOCKSTORED_PORT
 BLOCKSTORE_METADATA_DIR = os.path.expanduser("~/.blockstore-client/metadata")
 BLOCKSTORE_DEFAULT_STORAGE_DRIVERS = "dht"
 
+DEFAULT_TIMEOUT = 5  # in secs
+
 # borrowed from Blockstore
 FIRST_BLOCK_MAINNET = 373601
 
