@@ -33,8 +33,13 @@ from .version import __version__
 DEBUG = True
 VERSION = __version__
 
-BLOCKSTORED_PORT = 6264
-BLOCKSTORED_SERVER = "127.0.0.1"
+DEFAULT_BLOCKSTORED_PORT = 6264
+DEFAULT_BLOCKSTORED_SERVER = "blockstore.blockstack.org"
+
+# initialize to default settings
+BLOCKSTORED_SERVER = DEFAULT_BLOCKSTORED_SERVER
+BLOCKSTORED_PORT = DEFAULT_BLOCKSTORED_PORT
+
 BLOCKSTORE_METADATA_DIR = os.path.expanduser("~/.blockstore-client/metadata")
 BLOCKSTORE_DEFAULT_STORAGE_DRIVERS = "dht"
 
@@ -325,3 +330,20 @@ def get_config(path=CONFIG_PATH):
             return None
 
     return config
+
+
+def update_config(section, option, value, path=CONFIG_PATH):
+
+    parser = SafeConfigParser()
+
+    try:
+        parser.read(path)
+    except Exception, e:
+        log.exception(e)
+        return None
+
+    if parser.has_option(section, option):
+        parser.set(section, option, value)
+
+        with open(path, 'wb') as configfile:
+            parser.write(configfile)

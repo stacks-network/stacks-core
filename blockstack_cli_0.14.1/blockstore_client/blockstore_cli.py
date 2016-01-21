@@ -101,7 +101,7 @@ def run_cli():
       help="""the hostname/IP of blockstored server (default: {})""".format(config.BLOCKSTORED_SERVER))
 
     subparser.add_argument(
-      '--port', type=int,
+      '--port',
       action='store',
       help="""the server port to connect to (default: {})""".format(config.BLOCKSTORED_PORT))
 
@@ -694,18 +694,33 @@ def run_cli():
     args, unknown_args = parser.parse_known_args()
     result = {}
 
-    blockstore_server = config.BLOCKSTORED_SERVER
+    conf = config.get_config()
 
-    blockstore_port = config.BLOCKSTORED_PORT
+    blockstore_server = conf['server']
+    blockstore_port = conf['port']
 
     proxy = client.session(conf=conf, server_host=blockstore_server, server_port=blockstore_port )
 
     if args.action == 'server':
-        if args.server is None and args.port is None:
-            data = {}
-            data['server'] = blockstore_server
-            data['port'] = blockstore_port
-            result = data
+        data = {}
+
+        if args.server is not None and args.port is not None:
+            config.update_config('blockstore-client', 'server', args.server)
+            config.update_config('blockstore-client', 'port', args.port)
+            data["message"] = "Updated server and port"
+        elif args.server is not None:
+            config.update_config('blockstore-client', 'server', args.server)
+            data["message"] = "Updated server"
+        elif args.port is not None:
+            config.update_config('blockstore-client', 'port', args.port)
+            data["message"] = "Updated port"
+
+        # reload conf
+        conf = config.get_config()
+
+        data['server'] = conf['server']
+        data['port'] = conf['port']
+        result = data
 
     elif args.action == 'advanced':
         pass
@@ -755,7 +770,6 @@ def run_cli():
                                str(args.privatekey),
                                txid=txid)
 
-
     elif args.action == 'update_tx':
 
         txid = None
@@ -766,7 +780,6 @@ def run_cli():
                                str(args.record_json),
                                str(args.privatekey),
                                txid=txid, tx_only=True)
-
 
     elif args.action == 'update_subsidized':
 
@@ -794,7 +807,6 @@ def run_cli():
                                  keepdata,
                                  str(args.privatekey))
 
-
     elif args.action == 'transfer_tx':
         keepdata = False
         if args.keepdata.lower() not in ["on", "false"]:
@@ -809,7 +821,6 @@ def run_cli():
                                  keepdata,
                                  str(args.privatekey),
                                  tx_only=True)
-
 
     elif args.action == 'transfer_subsidized':
         keepdata = False
