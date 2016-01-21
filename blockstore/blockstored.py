@@ -1981,7 +1981,7 @@ def run_server( testset=False, foreground=False ):
         logfile.flush()
         logfile.close()
 
-    return blockstored.returncode
+    return blockstore_api_server.returncode
 
 
 def setup( working_dir=None, testset=False, return_parser=False ):
