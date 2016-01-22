@@ -211,7 +211,7 @@ def make_default_config(path=CONFIG_PATH):
     global CONFIG_PATH, BLOCKSTORED_SERVER, BLOCKSTORED_PORT
 
     # try to create
-    dirname = os.path.dirname(CONFIG_DIR)
+    dirname = os.path.dirname(CONFIG_PATH)
     if not os.path.isdir(dirname):
         try:
             os.makedirs(dirname)
