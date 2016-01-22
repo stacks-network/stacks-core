@@ -33,10 +33,17 @@ from .version import __version__
 DEBUG = True
 VERSION = __version__
 
-BLOCKSTORED_PORT = 6264
-BLOCKSTORED_SERVER = "127.0.0.1"
+DEFAULT_BLOCKSTORED_PORT = 6264
+DEFAULT_BLOCKSTORED_SERVER = "blockstore.blockstack.org"
+
+# initialize to default settings
+BLOCKSTORED_SERVER = DEFAULT_BLOCKSTORED_SERVER
+BLOCKSTORED_PORT = DEFAULT_BLOCKSTORED_PORT
+
 BLOCKSTORE_METADATA_DIR = os.path.expanduser("~/.blockstore-client/metadata")
 BLOCKSTORE_DEFAULT_STORAGE_DRIVERS = "dht"
+
+DEFAULT_TIMEOUT = 5  # in secs
 
 # borrowed from Blockstore
 FIRST_BLOCK_MAINNET = 373601
@@ -71,7 +78,7 @@ NAME_OPCODES = {
     "ANNOUNCE": ANNOUNCE
 }
 
-# borrowed from Blockstore 
+# borrowed from Blockstore
 # these never change, so it's fine to duplicate them here
 NAMEREC_FIELDS = [
     'name',                 # the name itself
@@ -95,7 +102,7 @@ NAMEREC_FIELDS = [
     'importer_address',     # (OPTIONAL) if this name was imported, this is the importer's address
 ]
 
-# borrowed from Blockstore 
+# borrowed from Blockstore
 # these never change, so it's fine to duplicate them here
 NAMESPACE_FIELDS = [
     'namespace_id',         # human-readable namespace ID
@@ -175,13 +182,12 @@ OPFIELDS = {
 }
 
 DEBUG = True
-VERSION = "v0.01-beta"
 MAX_RPC_LEN = 1024 * 1024 * 1024
 
 CONFIG_DIR = os.path.expanduser("~/.blockstore-client")
-CONFIG_PATH = os.path.join( CONFIG_DIR, "blockstore-client.ini" )
+CONFIG_PATH = os.path.join(CONFIG_DIR, "blockstore-client.ini")
 
-SPV_HEADERS_PATH = os.path.join( CONFIG_DIR, "blockchain-headers.dat" )
+SPV_HEADERS_PATH = os.path.join(CONFIG_DIR, "blockchain-headers.dat")
 
 BLOCKCHAIN_ID_MAGIC = 'id'
 
@@ -191,12 +197,13 @@ if len(log.handlers) == 0:
     console = logging.StreamHandler()
     console.setLevel(logging.DEBUG if DEBUG else logging.INFO)
     log_format = ('[%(levelname)s] [%(module)s:%(lineno)d] (' + str(os.getpid()) + ') %(message)s' if DEBUG else '%(message)s')
-    formatter = logging.Formatter( log_format )
+    formatter = logging.Formatter(log_format)
     console.setFormatter(formatter)
     log.propagate = False
     log.addHandler(console)
 
-def make_default_config( path=CONFIG_PATH ):
+
+def make_default_config(path=CONFIG_PATH):
     """
     Make a new config file with sane defaults.
     Return True on success
@@ -205,10 +212,10 @@ def make_default_config( path=CONFIG_PATH ):
     global CONFIG_PATH, BLOCKSTORED_SERVER, BLOCKSTORED_PORT
 
     # try to create
-    dirname = os.path.dirname( path )
-    if not os.path.isdir( dirname ):
+    dirname = os.path.dirname(path)
+    if not os.path.isdir(dirname):
         try:
-            os.makedirs( dirname )
+            os.makedirs(dirname)
         except:
             traceback.print_exc()
             log.error("Failed to make configuration directory '%s'." % path)
@@ -218,9 +225,10 @@ def make_default_config( path=CONFIG_PATH ):
         parser.set('blockstore-client', 'server', BLOCKSTORED_SERVER)
         parser.set('blockstore-client', 'port', BLOCKSTORED_PORT)
         parser.set('blockstore-client', 'metadata', BLOCKSTORE_METADATA_DIR)
-        parser.set('blockstore-client', 'storage_drivers', BLOCKSTORE_DEFAULT_STORAGE_DRIVERS )
-        parser.set('blockstore-client', 'blockchain_headers', SPV_HEADERS_PATH )
-        
+        parser.set('blockstore-client', 'storage_drivers', BLOCKSTORE_DEFAULT_STORAGE_DRIVERS)
+        parser.set('blockstore-client', 'blockchain_headers', SPV_HEADERS_PATH)
+        parser.set('blockstore-client', 'advanced_mode', 'false')
+
         try:
             with open(path, "w") as f:
                 parser.write(f)
@@ -233,7 +241,7 @@ def make_default_config( path=CONFIG_PATH ):
     return True
 
 
-def find_missing( conf ):
+def find_missing(conf):
     """
     Find and return the list of missing configuration keys.
     """
@@ -241,12 +249,12 @@ def find_missing( conf ):
     missing = []
     for k in ['server', 'port', 'metadata', 'storage_drivers']:
         if k not in conf.keys():
-            missing.append( k )
+            missing.append(k)
 
     return missing
 
 
-def get_config( path=CONFIG_PATH ):
+def get_config(path=CONFIG_PATH):
 
     """
     Read our config file.
@@ -258,7 +266,7 @@ def get_config( path=CONFIG_PATH ):
 
     global BLOCKSTORED_SERVER, BLOCKSTORED_PORT
 
-    if not os.path.exists( path ):
+    if not os.path.exists(path):
         rc = make_default_config()
         if not rc:
             log.error("No configuration file loaded from '%s'.  Cannot proceed." % path)
@@ -271,8 +279,9 @@ def get_config( path=CONFIG_PATH ):
         "storage_drivers": BLOCKSTORE_DEFAULT_STORAGE_DRIVERS,
         "metadata": BLOCKSTORE_METADATA_DIR,
         "blockchain_headers": SPV_HEADERS_PATH,
+        "advanced_mode": 'false',
     }
-    
+
     parser = SafeConfigParser()
 
     try:
@@ -300,16 +309,19 @@ def get_config( path=CONFIG_PATH ):
             config['metadata'] = parser.get("blockstore-client", "metadata")
 
         if parser.has_option("blockstore-client", "blockchain_headers"):
-            config['blockchain_headers'] = parser.get("blockstore-client", "blockchain_headers" )
+            config['blockchain_headers'] = parser.get("blockstore-client", "blockchain_headers")
+
+        if parser.has_option("blockstore-client", "advanced_mode"):
+            config['advanced_mode'] = parser.get("blockstore-client", "advanced_mode")
 
     # import bitcoind options
-    bitcoind_config = virtualchain.get_bitcoind_config( path )
-    config.update( bitcoind_config )
+    bitcoind_config = virtualchain.get_bitcoind_config(path)
+    config.update(bitcoind_config)
 
     if not os.path.isdir(config['metadata']):
-        if config['metadata'].startswith( os.path.expanduser("~/.blockstore-client") ):
+        if config['metadata'].startswith(os.path.expanduser("~/.blockstore-client")):
             try:
-                os.makedirs( config['metadata'] )
+                os.makedirs(config['metadata'])
             except:
                 log.error("Failed to make directory '%s'" % (config['metadata']))
                 return None
@@ -319,3 +331,20 @@ def get_config( path=CONFIG_PATH ):
             return None
 
     return config
+
+
+def update_config(section, option, value, path=CONFIG_PATH):
+
+    parser = SafeConfigParser()
+
+    try:
+        parser.read(path)
+    except Exception, e:
+        log.exception(e)
+        return None
+
+    if parser.has_option(section, option):
+        parser.set(section, option, value)
+
+        with open(path, 'wb') as configfile:
+            parser.write(configfile)

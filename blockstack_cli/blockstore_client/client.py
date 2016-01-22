@@ -67,11 +67,14 @@ class BlockstoreRPCClient(object):
     not guarantee that the "result" and "error" keywords will be present.
     """
 
-    def __init__(self, server, port, max_rpc_len=MAX_RPC_LEN):
+    def __init__(self, server, port,
+                 max_rpc_len=MAX_RPC_LEN,
+                 timeout=config.DEFAULT_TIMEOUT):
         self.server = server
         self.port = port
         self.sock = None
         self.max_rpc_len = max_rpc_len
+        self.timeout = timeout
 
     def __getattr__(self, key):
         try:
@@ -93,6 +96,7 @@ class BlockstoreRPCClient(object):
     def ensure_connected(self):
         if self.sock is None:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
+            self.sock.settimeout(self.timeout)
             self.sock.connect((self.server, self.port))
 
         return True
@@ -1228,14 +1232,14 @@ def get_names_owned_by_address(address, proxy=None):
     return proxy.get_names_owned_by_address(address)
 
 
-def get_consensus_at(block_id, proxy=None):
+def get_consensus_at(block_height, proxy=None):
     """
     Get consensus at a block
     """
     if proxy is None:
         proxy = get_default_proxy()
 
-    resp = proxy.get_consensus_at(block_id)
+    resp = proxy.get_consensus_at(block_height)
     if type(resp) == list:
         if len(resp) == 0:
             resp = {'error': 'No data returned'}
@@ -2145,10 +2149,10 @@ def get_immutable(name, data_key):
         # no user data
         return {'error': "Unable to load user record: %s" % user['error']}
 
-    if not user_db.has_immutable_data(user, data_key):
+    #if not user_db.has_immutable_data(user, data_key):
 
         # no data
-        return {'error': 'Profile has no such immutable data'}
+    #    return {'error': 'Profile has no such immutable data'}
 
     data = storage.get_immutable_data(data_key)
     if data is None:
