@@ -30,17 +30,23 @@ import socket
 import uuid
 import os
 import importlib
+import pprint
+import random
+import time
 
-import parsing, schemas, storage, drivers, config
+import parsing, schemas, storage, drivers, config, spv, utils
 import user as user_db
+from spv import SPVClient
 
 import pybitcoin
-import bitcoin as pybitcointools
+import bitcoin
 import binascii
+from utilitybelt import is_hex
 
 from config import log, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTORED_SERVER, \
     BLOCKSTORED_PORT, BLOCKSTORE_METADATA_DIR, BLOCKSTORE_DEFAULT_STORAGE_DRIVERS, \
-    FIRST_BLOCK_MAINNET, NAME_OPCODES, OPFIELDS
+    FIRST_BLOCK_MAINNET, NAME_OPCODES, OPFIELDS, CONFIG_DIR, SPV_HEADERS_PATH, BLOCKCHAIN_ID_MAGIC, \
+    NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER, NAMESPACE_PREORDER, NAME_IMPORT
 
 import virtualchain
 
@@ -49,6 +55,7 @@ default_proxy = None
 
 # ancillary storage providers
 STORAGE_IMPL = None
+
 
 class BlockstoreRPCClient(object):
     """
@@ -60,11 +67,14 @@ class BlockstoreRPCClient(object):
     not guarantee that the "result" and "error" keywords will be present.
     """
 
-    def __init__(self, server, port, max_rpc_len=MAX_RPC_LEN):
+    def __init__(self, server, port,
+                 max_rpc_len=MAX_RPC_LEN,
+                 timeout=config.DEFAULT_TIMEOUT):
         self.server = server
         self.port = port
         self.sock = None
         self.max_rpc_len = max_rpc_len
+        self.timeout = timeout
 
     def __getattr__(self, key):
         try:
@@ -86,6 +96,7 @@ class BlockstoreRPCClient(object):
     def ensure_connected(self):
         if self.sock is None:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
+            self.sock.settimeout(self.timeout)
             self.sock.connect((self.server, self.port))
 
         return True
@@ -152,7 +163,7 @@ class BlockstoreRPCClient(object):
         response = ""
 
         while num_received < buf_len+1:
-            buf = self.sock.recv( 4096 )
+            buf = self.sock.recv(4096)
             num_received += len(buf)
             response += buf
 
@@ -183,7 +194,7 @@ class BlockstoreRPCClient(object):
 
 def session(conf=None, server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_PORT,
             storage_drivers=BLOCKSTORE_DEFAULT_STORAGE_DRIVERS,
-            metadata_dir=BLOCKSTORE_METADATA_DIR, set_global=True):
+            metadata_dir=BLOCKSTORE_METADATA_DIR, spv_headers_path=SPV_HEADERS_PATH, set_global=True):
 
     """
     Create a blockstore session:
@@ -200,7 +211,7 @@ def session(conf=None, server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_P
     global default_proxy
     if conf is not None:
 
-        missing = find_missing( conf )
+        missing = find_missing(conf)
         if len(missing) > 0:
             log.error("Missing blockstore configuration fields: %s" % (", ".join(missing)))
             sys.exit(1)
@@ -222,15 +233,20 @@ def session(conf=None, server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_P
 
     # load all storage drivers
     for storage_driver in storage_drivers.split(","):
-        storage_impl = load_storage( storage_driver )
+        storage_impl = load_storage(storage_driver)
         if storage_impl is None:
             log.error("Failed to load storage driver '%s'" % (storage_driver))
             sys.exit(1)
 
-        rc = register_storage( storage_impl )
+        rc = register_storage(storage_impl)
         if not rc:
             log.error("Failed to initialize storage driver '%s'" % (storage_driver))
             sys.exit(1)
+
+    # initialize SPV
+    SPVClient.init(spv_headers_path)
+    default_proxy.spv_headers_path = spv_headers_path
+    default_proxy.conf = conf
 
     return proxy
 
@@ -244,7 +260,15 @@ def get_default_proxy():
     return default_proxy
 
 
-def load_storage( module_name ):
+def set_default_proxy(proxy):
+    """
+    Set the default API proxy
+    """
+    global default_proxy
+    default_proxy = proxy
+
+
+def load_storage(module_name):
     """
     Load a storage implementation, given its module name.
     Valid options can be found in blockstore.drivers.DRIVERS
@@ -290,176 +314,684 @@ def load_user(record_hash):
     # verify integrity
     user_record_hash = storage.get_data_hash(user_json)
     if user_record_hash != record_hash:
-        log.error("Profile hash mismatch: expected '%s', got '%s'" % record_hash, user_record_hash)
+        log.error("Profile hash mismatch: expected '%s', got '%s'" % (record_hash, user_record_hash))
         return None
 
     user = user_db.parse_user(user_json)
     return user
 
 
-def get_zone_file( name ):
+def get_zone_file(name):
     # or whatever else we're going to call this
-    return get_name_record( name )
+    return get_name_record(name)
 
 
-def get_serial_number( blockchain_record ):
+def get_create_diff(blockchain_record):
     """
-    Calculate the serial number from a name's blockchain record
+    Given a blockchain record, find its earliest history diff and its creation block number.
     """
-    create_block_number = blockchain_record['preorder_block_number']
+
+    preorder_block_number = blockchain_record['preorder_block_number']
     history = blockchain_record['history']
-    preorder_rec = history[str(create_block_number)][0]
-    create_tx_index = preorder_rec['vtxindex']
+    create_block_number = None
+
+    if str(preorder_block_number) in history.keys():
+        # was preordered
+        create_block_number = preorder_block_number
+    else:
+        # was imported
+        create_block_number = int(sorted(history.keys())[0])
+
+    create_diff = history[str(create_block_number)][0]
+    return (create_block_number, create_diff)
+
+
+def get_reveal_txid(blockchain_record):
+    """
+    Given a blockchain record, find the transaction ID that revealed it
+    as well as the associated block number.
+    """
+
+    history = blockchain_record['history']
+    reveal_block_number = None
+
+    # find the earliest history record with NAME_IMPORT or NAME_REGISTRATION
+    for block_number_str in sorted(history.keys()):
+        for i in xrange(0, len(history[block_number_str])):
+            if history[block_number_str][i].has_key('opcode'):
+                if str(history[block_number_str][i]['opcode']) in ['NAME_IMPORT', 'NAME_REGISTRATION']:
+
+                    reveal_block_number = int(block_number_str)
+                    return reveal_block_number, str(history[block_number_str][i]['txid'])
+
+    return (None, None)
+
+
+def get_serial_number(blockchain_record):
+    """
+    Calculate the serial number from a name's blockchain record.
+    * If the name was preordered, then this is first such $preorder_block-$vtxindex
+    * If the name was imported, then this is the first such $import_block-$vtxindex
+    """
+
+    create_block_number, create_diff = get_create_diff(blockchain_record)
+    create_tx_index = create_diff['vtxindex']
+    history = blockchain_record['history']
 
     serial_number = None
 
-    # find preorder consensus hash, if preordered
-    if str(preorder_rec['opcode']) == "NAME_PREORDER":
+    if str(create_diff['opcode']) == "NAME_PREORDER":
 
+        # name was preordered; use preorder block_id/tx_index
         # find the oldest registration
-        update_order = sorted( history.keys() )
+        update_order = sorted(history.keys())
         for block_num in update_order:
-            if history[block_num]['opcode'] == "NAME_REGISTRATION":
-
-                serial_number = str(block_num) + '-' + str(history[block_num]['vtxindex'])
-                break
+            for tx_op in history[block_num]:
+                if tx_op['opcode'] == "NAME_PREORDER":
+                    serial_number = str(tx_op['block_number']) + '-' + str(tx_op['vtxindex'])
+                    break
 
         if serial_number is None:
             raise Exception("No NAME_REGISTRATION found for '%s'" % blockchain_record.get('name', 'UNKNOWN_NAME'))
 
     else:
+        # name was imported.
         # serial number is the first NAME_IMPORT block + txindex
         serial_number = str(create_block_number) + '-' + str(create_tx_index)
 
     return serial_number
 
 
-def serial_number_to_txid( serial_number, bitcoind_proxy ):
+def get_block_from_consensus(consensus_hash, proxy=None):
     """
-    Convert a serial number into a txid
+    Get a block ID from a consensus hash
     """
-    
-    parts = serial_number.split("-")
-    block_id = int(parts[0])
-    tx_index = int(parts[1])
+    if proxy is None:
+        proxy = get_default_proxy()
 
-    block_hash = bitcoind_proxy.getblockhash( block_id )
-    block_txids = bitcoind_proxy.getblock( block_hash )
+    resp = proxy.get_block_from_consensus(consensus_hash)
+    if type(resp) == list:
+        if len(resp) == 0:
+            resp = {'error': 'No data returned'}
+        else:
+            resp = resp[0]
 
-    return block_txids[tx_index]
+    return resp
 
 
-def name_txid_to_consensus_hash( txid, bitcoind_proxy, blockstore_proxy=None ):
+def txid_to_block_data(txid, bitcoind_proxy, proxy=None):
     """
-    Convert a txid that refers to a name's creation transaction
-    (i.e. a NAME_IMPORT or a NAME_PREORDER) into a consensus hash.
-    """
+    Given a txid, get its block's data.
 
-    if blockstore_proxy is None:
-        blockstore_proxy = get_default_proxy()
+    Use SPV to verify the information we receive from the (untrusted)
+    bitcoind host.
 
-    tx = bitcoind_proxy.getrawtransaction( txid, 1 )
-    # TODO 
-    
+    @bitcoind_proxy must be a BitcoindConnection (from virtualchain.lib.session)
 
-def lookup( name, proxy=None ):
-    """
-    Get the name and (some) blockchain data:
-    * zone file
-    * serial number
-    * consensus hash (if preordered)
-    * address
+    Return the (block hash, block data, txdata) on success
+    Return (None, None, None) on error
     """
 
     if proxy is None:
         proxy = get_default_proxy()
 
+    timeout = 1.0
+    while True:
+        try:
+            untrusted_tx_data = bitcoind_proxy.getrawtransaction(txid, 1)
+            untrusted_block_hash = untrusted_tx_data['blockhash']
+            untrusted_block_data = bitcoind_proxy.getblock(untrusted_block_hash)
+            break
+        except Exception, e:
+            log.exception(e)
+            log.error("Unable to obtain block data; retrying...")
+            time.sleep(timeout)
+            timeout = timeout * 2 + random.random() * timeout
+
+    # first, can we trust this block? is it in the SPV headers?
+    untrusted_block_header_hex = virtualchain.block_header_to_hex(untrusted_block_data, untrusted_block_data['previousblockhash'])
+    block_id = SPVClient.block_header_index(proxy.spv_headers_path, (untrusted_block_header_hex + "00").decode('hex'))
+    if block_id < 0:
+        # bad header
+        log.error("Block header '%s' is not in the SPV headers" % untrusted_block_header_hex)
+        return (None, None, None)
+
+    # block header is trusted.  Is the transaction data consistent with it?
+    if not virtualchain.block_verify(untrusted_block_data):
+        log.error("Block transaction IDs are not consistent with the trusted header's Merkle root")
+        return (None, None, None)
+
+    # verify block hash
+    if not virtualchain.block_header_verify(untrusted_block_data, untrusted_block_data['previousblockhash'], untrusted_block_hash):
+        log.error("Block hash is not consistent with block header")
+        return (None, None, None)
+
+    # we trust the block hash, block data, and txids
+    block_hash = untrusted_block_hash
+    block_data = untrusted_block_data
+    tx_data = untrusted_tx_data
+
+    return (block_hash, block_data, tx_data)
+
+
+
+def txid_to_serial_number(txid, bitcoind_proxy, proxy=None):
+    """
+    Given a transaction ID, convert it into a serial number
+    (defined as $block_id-$tx_index).
+
+    Use SPV to verify the information we receive from the (untrusted)
+    bitcoind host.
+
+    @bitcoind_proxy must be a BitcoindConnection (from virtualchain.lib.session)
+
+    Return the serial number on success
+    Return None on error
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    block_hash, block_data, _ = txid_to_block_data(txid, bitcoind_proxy, proxy=proxy)
+    if block_hash is None or block_data is None:
+        return None
+
+    # What's the tx index?
+    try:
+        tx_index = block_data['tx'].index(txid)
+    except:
+        # not actually present
+        log.error("Transaction %s is not present in block %s (%s)" % (txid, block_id, block_hash))
+
+    return "%s-%s" % (block_id, tx_index)
+
+
+
+def serial_number_to_tx(serial_number, bitcoind_proxy, proxy=None):
+    """
+    Convert a serial number into its transaction in the blockchain.
+    Use an untrusted bitcoind connection to get the list of transactions,
+    and use trusted SPV headers to ensure that the transaction obtained is on the main chain.
+    @bitcoind_proxy must be a BitcoindConnection (from virtualchain.lib.session)
+
+    Return the SPV-verified transaction object (as a dict) on success
+    Return None on error
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    parts = serial_number.split("-")
+    block_id = int(parts[0])
+    tx_index = int(parts[1])
+
+    timeout = 1.0
+    while True:
+        try:
+            block_hash = bitcoind_proxy.getblockhash(block_id)
+            block_data = bitcoind_proxy.getblock(block_hash)
+            break
+        except Exception, e:
+            log.error("Unable to obtain block data; retrying...")
+            time.sleep(timeout)
+            timeout = timeout * 2 + random.random() * timeout
+
+    rc = SPVClient.sync_header_chain(proxy.spv_headers_path, bitcoind_proxy.opts['bitcoind_server'], block_id)
+    if not rc:
+        log.error("Failed to synchronize SPV header chain up to %s" % block_id)
+        return None
+
+    # verify block header
+    rc = SPVClient.block_header_verify(proxy.spv_headers_path, block_id, block_hash, block_data)
+    if not rc:
+        log.error("Failed to verify block header for %s against SPV headers" % block_id)
+        return None
+
+    # verify block txs
+    rc = SPVClient.block_verify(block_data, block_data['tx'])
+    if not rc:
+        log.error("Failed to verify block transaction IDs for %s against SPV headers" % block_id)
+        return None
+
+    # sanity check
+    if tx_index >= len(block_data['tx']):
+        log.error("Serial number %s references non-existant transaction %s (out of %s txs)" % (serial_number, tx_index, len(block_data['tx'])))
+        return None
+
+    # obtain transaction
+    txid = block_data['tx'][tx_index]
+    tx = bitcoind_proxy.getrawtransaction(txid, 1)
+
+    # verify tx
+    rc = SPVClient.tx_verify(block_data['tx'], tx)
+    if not rc:
+        log.error("Failed to verify block transaction %s against SPV headers" % txid)
+        return None
+
+    # verify tx index
+    if tx_index != SPVClient.tx_index(block_data['tx'], tx):
+        log.error("TX index mismatch: serial number identifies transaction number %s (%s), but got transaction %s" % \
+                (tx_index, block_data['tx'][tx_index], block_data['tx'][ SPVClient.tx_index(block_data['tx'], tx) ]))
+        return None
+
+    # success!
+    return tx
+
+
+def parse_tx_op_return(tx):
+    """
+    Given a transaction, locate its OP_RETURN and parse
+    out its opcode and payload.
+    Return (opcode, payload) on success
+    Return (None, None) if there is no OP_RETURN, or if it's not a blockchain ID operation.
+    """
+
+    # find OP_RETURN output
+    op_return = None
+    outputs = tx['vout']
+    for out in outputs:
+        if int(out["scriptPubKey"]['hex'][0:2], 16) == pybitcoin.opcodes.OP_RETURN:
+            op_return = out['scriptPubKey']['hex'].decode('hex')
+            break
+
+    if op_return is None:
+        pp = pprint.PrettyPrinter()
+        pp.pprint(tx)
+        log.error("transaction has no OP_RETURN output")
+        return (None, None)
+
+    # [0] is OP_RETURN, [1] is the length; [2:4] are 'id', [4] is opcode
+    magic = op_return[2:4]
+
+    if magic != BLOCKCHAIN_ID_MAGIC:
+        # not a blockchain ID operation
+        #print SPVClient.tx_hash(tx)
+        #print op_return.encode('hex')
+        log.error("OP_RETURN output does not encode a blockchain ID operation")
+        return (None, None)
+
+    opcode = op_return[4]
+    payload = op_return[5:]
+
+    return (opcode, payload)
+
+
+def get_consensus_hash_from_tx(tx):
+    """
+    Given an SPV-verified transaction, extract its consensus hash.
+    Only works of the tx encodes a NAME_PREORDER, NAMESPACE_PREORDER,
+    or NAME_TRANSFER.
+
+    Return hex-encoded consensus hash on success.
+    Return None on error.
+    """
+
+    opcode, payload = parse_tx_op_return(tx)
+    if opcode is None or payload is None:
+        return None
+
+    # only present in NAME_PREORDER, NAMESPACE_PREORDER, NAME_TRANSFER
+    if opcode not in [NAME_PREORDER, NAMESPACE_PREORDER, NAME_TRANSFER]:
+        log.error("Blockchain ID transaction is not a NAME_PREORDER, NAMESPACE_PROERDER or NAME_TRANSFER")
+        return None
+
+    else:
+        consensus_hash = payload[-16:].encode('hex')
+        return consensus_hash
+
+
+def verify_consensus_hash_from_tx(tx, fqname, candidate_consensus_hash):
+    """
+    Given the SPV-verified transaction that encodes a consensus hash-bearing OP_RETURN,
+    the fully qualified name, and the list of candidate consensus hashes from Blockstore,
+    verify the consensus hash against the transaction.
+
+    Return the consensus hash on success
+    Return None if there was no OP_RETURN output in the tx, or the OP_RETURN output
+    does not encode one of the valid opcodes, or there is a mismatch.
+    """
+
+    opcode, payload = parse_tx_op_return(tx)
+    if opcode is None or payload is None:
+        return None
+
+    if opcode not in [NAME_PREORDER, NAMESPACE_PREORDER, NAME_UPDATE, NAME_TRANSFER]:
+        # no consensus hash will be present
+        log.error("Blockchain ID transaction is not a NAME_PREORDER, NAMESPACE_PROERDER, NAME_UPDATE, or NAME_TRANSFER")
+        return None
+
+    elif opcode != NAME_UPDATE:
+        # in all but NAME_UPDATE, the consensus hash is the last 16 bytes
+        consensus_hash = payload[-16:].encode('hex')
+        if str(consensus_hash) == str(candidate_consensus_hash):
+            return consensus_hash
+
+        else:
+            # nope
+            log.error("Consensus hash mismatch: expected %s, got %s" % (candidate_consensus_hash, consensus_hash))
+            return None
+
+    else:
+        # In NAME_UPDATE, the consensus hash *at the time of the operation* is mixed with the name,
+        # truncated to 16 bytes, and appended after the opcode.
+        name_consensus_hash_mix = pybitcoin.hash.bin_sha256(fqname + candidate_consensus_hash)[0:16]
+        tx_name_consensus_hash_mix = payload[0:16]
+
+        if name_consensus_hash_mix == tx_name_consensus_hash_mix:
+            return candidate_consensus_hash
+
+        log.error("NAME_UPDATE consensus hash mix mismatch: expected %s from %s, got %s" % (name_consensus_hash_mix.encode('hex'), candidate_consensus_hash, tx_name_consensus_hash_mix.encode('hex')))
+        return None
+
+
+def get_name_creation_consensus_info(name, blockchain_record, bitcoind_proxy, proxy=None, serial_number=None):
+    """
+    Given the result of a call to get_name_blockchain_record,
+    obtain the creation consensus hash, type, and block number.
+    Verify them with SPV.
+
+    On success, return a dict with:
+    * type: if the name was preordered, then this is NAME_PREORDER.  If the name was instead
+        imported, then this is NAME_IMPORT.
+    * block_id: the block ID of the NAME_PREORDER or NAME_IMPORT
+    * anchor: an object containing:
+        * consensus_hash: if the name was preordered, then this is the consensus hash at the time
+            the preorder operation was issued.  Otherwise, if the name was imported, then this is
+            the consensus hash at the time the namespace preorder of the namespace into which the
+            was imported was issued.  Note that in both cases, this is the consensus hash
+            from the block *at the time of issue*--this is NOT the block at which the name
+            operation was incorporated into the blockchain.
+        * block_id: the block id from which the consensus hash was taken.  Note that this
+            is *not* the block at which the name operation was incorporated into the blockchain
+            (i.e. this block ID may *not* match the serial number).
+        * txid: the transaction ID that contains the consensus hash
+
+    'anchor' will not be given on NAMESPACE_PREORDER
+
+    On error, return a dict with 'error' defined as a key, mapped to an error message.
+    """
+    create_block_number, create_diff = get_create_diff(blockchain_record)
+    create_consensus_tx = None
+
+    # consensus info for when the name was created (NAMESPACE_PREORDER or NAME_PREORDER)
+    creation_consensus_hash = None
+    creation_consensus_type = str(create_diff['opcode'])
+
+    # find preorder consensus hash, if preordered
+    if creation_consensus_type == "NAME_PREORDER":
+        creation_consensus_hash = create_diff['consensus_hash']
+
+        # transaction with the consensus hash comes from the NAME_PREORDER
+        preorder_serial_number = None
+        if serial_number is None:
+            preorder_serial_number = get_serial_number(blockchain_record)
+        else:
+            preorder_serial_number = serial_number
+
+        create_consensus_tx = serial_number_to_tx(preorder_serial_number, bitcoind_proxy, proxy=proxy)
+
+        if create_consensus_tx is None:
+           return {'error': 'Failed to verify name creation consensus-bearing transaction against SPV headers'}
+
+        # we can trust that the consensus-bearing transaction is on the blockchain.
+        # now, what's the creation consensus hash's block number?
+        # (NOTE: this trusts Blockstore)
+        creation_consensus_block_id = get_block_from_consensus(creation_consensus_hash, proxy=proxy)
+        if type(creation_consensus_hash_id) == dict and 'error' in ret:
+            return ret
+
+        # verify that the given consensus hash is present in the trusted consensus-bearing transaction
+        tx_consensus_hash = verify_consensus_hash_from_tx(create_consensus_tx, name, creation_consensus_hash)
+        if tx_consensus_hash is None:
+            # !!! Blockstored lied to us--we got the wrong consensus hash
+            return {'error': 'Blockstore consensus hash does not match the SPV block headers'}
+
+
+    creation_info = {
+        'type': creation_consensus_type,
+        'block_id': create_block_number,
+    }
+
+    if creation_consensus_type == 'NAME_PREORDER':
+
+        # have trust anchor
+        creation_info['anchor'] = {
+            'consensus_hash': creation_consensus_hash,
+            'block_id': creation_consensus_block_id,
+            'txid': create_consensus_tx['txid']
+        }
+
+    return creation_info
+
+
+def get_name_reveal_consensus_info(name, blockchain_record, bitcoind_proxy, proxy=None):
+    """
+    Given a name, its blockchain record, and a bitcoind proxy, get information
+    about the name's revelation (i.e. the Blockstore state transition that exposed
+    the name's plaintext).  That is, get information about a name's NAME_REGISTRATION,
+    or its NAME_IMPORT.
+
+    The transaction that performed the revelation will be fetched
+    from the underlying blockchain, and verified with SPV.
+
+    Return a dict with the following:
+    * type: either NAME_REGISTRATION or NAME_IMPORT
+    * block_id: the block ID of the name op that revealed the name
+    * txid: the transaction ID of the revelation
+    """
+
+    reveal_block_number, reveal_txid = get_reveal_txid(blockchain_record)
+
+    # consensus info for when the name was revealed to the world (NAME_IMPORT or NAME_REGISTRATION)
+    reveal_consensus_tx = None
+    reveal_consensus_hash = None
+    reveal_consensus_type = None
+
+    # get verified name revelation data
+    reveal_block_hash, reveal_block_data, reveal_tx = txid_to_block_data(reveal_txid, bitcoind_proxy, proxy=proxy)
+    if reveal_block_hash is None or reveal_block_data is None:
+        return {'error': 'Failed to look up name revelation information'}
+
+    reveal_op, reveal_payload = parse_tx_op_return(reveal_tx)
+    if reveal_op is None or reveal_payload is None:
+        return {'error': 'Transaction is not a valid Blockstore operation'}
+
+    if reveal_op not in [NAME_REGISTRATION, NAME_IMPORT]:
+        return {'error': 'Transaction is not a NAME_REGISTRATION or a NAME_IMPORT'}
+
+    if reveal_payload != name:
+        log.error("Reveal payload is '%s'; expected '%s'" % (reveal_payload, name))
+        return {'error': 'Transaction does not reveal the given name'}
+
+    # NOTE: trusts Blockstore
+    if reveal_op == NAME_REGISTRATION:
+        reveal_op = "NAME_REGISTRATION"
+    elif reveal_op == NAME_IMPORT:
+        reveal_op = "NAME_IMPORT"
+    else:
+        return {'error': 'Unrecognized reveal opcode'}
+
+    ret = {
+        'type': reveal_op,
+        'block_id': reveal_block_number,
+        'txid': reveal_tx['txid']
+    }
+
+    return ret
+
+
+def find_last_historical_op(history, opcode):
+    """
+    Given the blockchain history of a name, and the desired opcode name,
+    find the last history record for the opcode.  This returns a dict of the
+    old values for the fields.
+
+    Return (block number, dict of records that changed at that block number) on success.
+      block number will be -1 if the dict of records is the oldest historical record, which
+      indicates that the caller should use the preorder_block_number field as the block to
+      which the history record applies.
+
+    Return (None, None) on error
+    """
+
+    prev_blocks = sorted(history.keys())[::-1] + [-1]
+    prev_opcode = None
+    for i in xrange(0, len(prev_blocks)-1):
+
+        prev_block = prev_blocks[i]
+        prev_ops = history[prev_block]
+        for prev_op in reversed(prev_ops):
+
+            if prev_op.has_key('opcode'):
+                prev_opcode = str(prev_op['opcode'])
+
+            if prev_opcode == opcode:
+                return (int(prev_blocks[i + 1]), prev_op)
+
+    return (None, None)
+
+
+def get_name_update_consensus_info(name, blockchain_record, bitcoind_proxy, proxy=None):
+    """
+    Given the result of a call to get_name_blockchain_record (an untrusted database record for a name),
+    obtain the last-modification consensus hash, type, and block number.  Use SPV to verify that
+    (1) the consensus hash is in the blockchain,
+    (2)
+
+    On success, and the name was modified since it was registered, return a dict with:
+    * type: NAME_UPDATE
+    * anchor: an object with:
+        * consensus_hash: the consensus hash obtained from the NAME_UPDATE transaction.  Note
+            that this is the consensus hash *at the time of issue*--it is *not* guaranteed to
+            correspond to the block at which the NAME_UPDATE was incorporated into the blockchain.
+        * block_id: the block id at which the operation was issued (*not* the block ID
+            at which the NAME_UPDATE was incorporated into the blockchain).
+
+    If the name has never been updated, then return None.
+
+    On error, return a dict with 'error' defined as a key, mapped to an error message.
+    """
+
+    update_consensus_hash = None
+    update_record = None
+    update_block_id = None
+    update_consensus_block_id = None
+
+    # find the latest NAME_UPDATE
+    if str(blockchain_record['opcode']) == "NAME_UPDATE":
+        update_consensus_hash = str(blockchain_record['consensus_hash'])
+        update_record = blockchain_record
+        update_block_id = int(sorted(blockchain_record['history'].keys())[-1])
+
+    else:
+        update_block_id, update_record = find_last_historical_op(blockchain_record['history'], "NAME_UPDATE")
+        if update_record is not None:
+            update_consensus_hash = str(update_record['consensus_hash'])
+
+    if update_consensus_hash is None:
+        # never updated
+        return None
+
+    # get update tx data and verify it via SPV
+    update_serial = "%s-%s" % (update_block_id, update_record['vtxindex'])
+    update_tx = serial_number_to_tx(update_serial, bitcoind_proxy, proxy=proxy)
+
+    # update_tx is now known to be on the main blockchain.
+    tx_consensus_hash = None
+
+    # the consensus hash will be between when we accepted the update (update_block_id), and up to BLOCKS_CONSENSUS_HASH_IS_VALID blocks in the past.
+    candidate_consensus_hashes = get_consensus_range(update_block_id, update_block_id - virtualchain.lib.BLOCKS_CONSENSUS_HASH_IS_VALID)
+    for i in xrange(0, len(candidate_consensus_hashes)):
+
+        ch = candidate_consensus_hashes[i]
+        tx_consensus_hash = verify_consensus_hash_from_tx(update_tx, name, ch)
+        if tx_consensus_hash is not None:
+            # the update_tx contains the untrusted consensus hash.
+            # success!
+            update_consensus_block_id = update_block_id + i
+            break
+
+    if tx_consensus_hash is None:
+        # !!! Blockstored lied to us--we got the wrong consensus hash
+        return {'error': 'Blockstore consensus hash does not match the SPV block headers'}
+
+    else:
+        update_info = {
+            'type': 'NAME_UPDATE',
+            'block_id': update_block_id,
+            'anchor': {
+                'consensus_hash': update_consensus_hash,
+                'block_id': update_consensus_block_id,
+                'txid': update_tx['txid']
+            }
+        }
+
+        return update_info
+
+
+def lookup(name, proxy=None):
+    """
+    Get the name and (some) blockchain data:
+    * zone file
+    * serial number
+    * consensus hash at block of creation (NAME_IMPORT or NAME_PREORDER)
+    * consensus hash at block of last modification
+    * address
+
+    Use SPV to verify that we're getting the right consensus hash.
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    bitcoind_proxy = virtualchain.connect_bitcoind(proxy.conf)
+
     # get zonefile data
     zone_file = get_zone_file(name)
+    if 'error' in zone_file:
+        return zone_file
 
-    # get blockchain data 
-    blockchain_result = get_name_blockchain_record(name, proxy=proxy )
-    if type(blockchain_result) == list:
-        blockchain_result = blockchain_result[0]
+    # get blockchain-obtained data
+    blockchain_result = get_name_blockchain_record(name, proxy=proxy)
 
-    create_block_number = blockchain_result['preorder_block_number']
-    history = blockchain_result['history']
-    preorder_rec = history[str(create_block_number)][0]
+    # get creation consensus data
+    creation_info = get_name_creation_consensus_info(name, blockchain_result, bitcoind_proxy, proxy=proxy)
+    if 'error' in creation_info:
+        return creation_info
 
-    serial_number = get_serial_number( blockchain_result )
-    creation_consensus_hash = None
-    creation_consensus_type = None
-    modified_consensus_hash = None 
-    modified_consensus_type = None
-    modified_consensus_block_id = None
+    # get revelation consensus data
+    reveal_info = get_name_reveal_consensus_info(name, blockchain_result, bitcoind_proxy, proxy=proxy)
+    if reveal_info is not None and 'error' in reveal_info:
+        return reveal_info
 
-    # find creation consensus hash, if preordered
-    if str(preorder_rec['opcode']) == "NAME_PREORDER":
-        creation_consensus_hash = preorder_rec['consensus_hash']
-        creation_consensus_type = 'NAME_PREORDER'
+    # get update consensus data
+    update_info = get_name_update_consensus_info(name, blockchain_result, bitcoind_proxy, proxy=proxy)
+    if update_info is not None and 'error' in update_info:
+        return update_info
 
-    # otherwise, use namespace_preorder consensus hash as the creation consensus hash
-    else:
+    # get serial number
+    serial_number = get_serial_number(blockchain_result)
 
-        namespace_id = name.split(".")[-1]
-        namespace_result = proxy.get_namespace_blockchain_record( namespace_id )
-        if type(namespace_result) == list:
-            namespace_result = namespace_result[0]
-
-        if namespace_result.has_key('error') and str(namespace_result['error']) == 'No such ready namespace':
-            # might not be ready yet 
-            namespace_result = proxy.get_namespace_reveal_blockchain_record( namespace_id )
-            if type(namespace_result) == list:
-                namespace_result = namespace_result[0]
-
-        if namespace_result is None:
-            # not possible
-            return {'error': 'No namespace found'}
-       
-        # find namespace preorder
-        namespace_history = namespace_result['history']
-        namespace_preorder = namespace_history[ sorted(namespace_history.keys())[0] ][0]
-        creation_consensus_hash = namespace_preorder['consensus_hash']
-        creation_consensus_type = 'NAME_IMPORT'
-        
-    # what's the creation consensus hash's block number?
-    creation_consensus_block_id = proxy.get_block_from_consensus( creation_consensus_hash )
-    if type(creation_consensus_block_id) == list:
-        creation_consensus_block_id = creation_consensus_block_id[0]
-
-    # has the name been updated or transferred?  If so, use that  
-    if blockchain_result.has_key('consensus_hash'):
-        modified_consensus_hash = str(blockchain_result['consensus_hash'])
-        modified_consensus_type = str(blockchain_result['opcode'])
-        modified_consensus_block_id = proxy.get_block_from_consensus( modified_consensus_hash )
-        
-        if type(modified_consensus_block_id) == list:
-            modified_consensus_block_id = int(modified_consensus_block_id[0])
-    
-    # fill in serial number, address 
+    # fill in serial number, address
     result = {
+        'blockchain_id': name,
         'zone_file': zone_file,
         'serial_number': serial_number,
         'address': blockchain_result.get('address', None),
-        'creation': {
-            'type': creation_consensus_type,
-            'consensus_hash': creation_consensus_hash,
-            'consensus_block_id': creation_consensus_block_id
-        }
+        'created': creation_info
     }
 
-    # consensus hash from most-recent modification
-    if modified_consensus_hash is not None:
-        result['modified'] = {
-            'type': modified_consensus_hash,
-            'consensus_hash': modified_consensus_hash,
-            'consensus_block_id': modified_consensus_block_id
-        }
+    if reveal_info is not None:
+        result['revealed'] = reveal_info
+
+    if update_info is not None:
+        result['updated'] = update_info
 
     return result
 
 
-def get_name_record(name, create_if_absent=False):
+def get_name_record(name, create_if_absent=False, proxy=None,
+                    check_only_blockchain=False):
     """
     Given the name of the user, look up the user's record hash,
     and then get the record itself from storage.
@@ -468,15 +1000,17 @@ def get_name_record(name, create_if_absent=False):
     or a dict with "error" defined and a message.
     """
 
+    if proxy is None:
+        proxy = get_default_proxy()
+
     # find name record first
-    name_record = get_name_blockchain_record(name)
+    name_record = get_name_blockchain_record(name, proxy=proxy)
     if len(name_record) == 0:
         return {"error": "No such name"}
 
     if 'error' in name_record:
         return name_record
 
-    name_record = name_record
     if name_record is None:
         # failed to look up
         return {'error': "No such name"}
@@ -490,6 +1024,9 @@ def get_name_record(name, create_if_absent=False):
     if 'value_hash' not in name_record:
 
         return {"error": "Name has no user record hash defined"}
+
+    if check_only_blockchain:
+        return name_record
 
     # is there a user record loaded?
     if name_record['value_hash'] in [None, "null", ""]:
@@ -533,7 +1070,7 @@ def store_name_record(user, txid):
         return False
 
     data_hash = storage.get_data_hash(user_json)
-    result = storage.put_immutable_data(user_json, txid )
+    result = storage.put_immutable_data(user_json, txid)
 
     rc = None
     if result is None:
@@ -630,7 +1167,7 @@ def ping(proxy=None):
     return resp
 
 
-def get_name_cost( name, proxy=None ):
+def get_name_cost(name, proxy=None):
     """
     name_cost
     """
@@ -647,7 +1184,7 @@ def get_name_cost( name, proxy=None ):
     return resp
 
 
-def get_namespace_cost( namespace_id, proxy=None ):
+def get_namespace_cost(namespace_id, proxy=None):
     """
     namespace_cost
     """
@@ -664,27 +1201,27 @@ def get_namespace_cost( namespace_id, proxy=None ):
     return resp
 
 
-def get_all_names( offset, count, proxy=None ):
+def get_all_names(offset, count, proxy=None):
     """
     get all names
     """
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.get_all_names( offset, count )
+    return proxy.get_all_names(offset, count)
 
 
-def get_names_in_namespace( namespace_id, offset, count, proxy=None ):
+def get_names_in_namespace(namespace_id, offset, count, proxy=None):
     """
     Get names in a namespace
     """
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.get_names_in_namespace( namespace_id, offset, count )
+    return proxy.get_names_in_namespace(namespace_id, offset, count)
 
 
-def get_names_owned_by_address( address, proxy=None ):
+def get_names_owned_by_address(address, proxy=None):
     """
     Get the names owned by an address.
     Only works for p2pkh scripts.
@@ -692,17 +1229,17 @@ def get_names_owned_by_address( address, proxy=None ):
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.get_names_owned_by_address( address )
+    return proxy.get_names_owned_by_address(address)
 
 
-def get_consensus_at( block_id, proxy=None ):
+def get_consensus_at(block_height, proxy=None):
     """
     Get consensus at a block
     """
     if proxy is None:
         proxy = get_default_proxy()
 
-    resp = proxy.get_consensus_at( block_id )
+    resp = proxy.get_consensus_at(block_height)
     if type(resp) == list:
         if len(resp) == 0:
             resp = {'error': 'No data returned'}
@@ -712,31 +1249,36 @@ def get_consensus_at( block_id, proxy=None ):
     return resp
 
 
-def get_nameops_at( block_id, proxy=None ):
+def get_consensus_range(block_id_start, block_id_end, proxy=None):
+    """
+    Get a range of consensus hashes.  The range is inclusive.
+    """
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    resp = proxy.get_consensus_range(block_id_start, block_id_end)
+    return resp
+
+
+def get_nameops_at(block_id, proxy=None):
     """
     Get the set of records as they were at a particular block.
     """
     if proxy is None:
         proxy = get_default_proxy()
 
-    resp = proxy.get_nameops_at( block_id )
-    if type(resp) == list:
-        if len(resp) == 0:
-            resp = {'error': 'No data returned'}
-        else:
-            resp = resp[0]
-    
+    resp = proxy.get_nameops_at(block_id)
     return resp
 
 
-def get_nameops_hash_at( block_id, proxy=None ):
+def get_nameops_hash_at(block_id, proxy=None):
     """
     Get the hash of a set of records as they were at a particular block.
     """
     if proxy is None:
         proxy = get_default_proxy()
 
-    resp = proxy.get_nameops_hash_at( block_id )
+    resp = proxy.get_nameops_hash_at(block_id)
     if type(resp) == list:
         if len(resp) == 0:
             resp = {'error': 'No data returned'}
@@ -746,18 +1288,21 @@ def get_nameops_hash_at( block_id, proxy=None ):
     return resp
 
 
-def snv( name, current_block_id, current_consensus_hash, block_id, consensus_hash, proxy=None ):
+def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, consensus_hash, proxy=None):
     """
     Simple name verification (snv) lookup:
-    Look up a name as it was in the past, given the previous
-    point in time's block ID and consensus hash.
+    Use a known-good "current" consensus hash and block ID to
+    look up a set of name operations from the past, given the previous
+    point in time's untrusted block ID and consensus hash.
     """
+
+    log.debug("verify %s-%s to %s-%s" % (current_block_id, current_consensus_hash, block_id, consensus_hash))
 
     if proxy is None:
         proxy = get_default_proxy()
 
     # get current consensus hash and block ID
-    current_info = getinfo( proxy=proxy )
+    current_info = getinfo(proxy=proxy)
     if 'error' in current_info:
         return current_info
 
@@ -778,13 +1323,13 @@ def snv( name, current_block_id, current_consensus_hash, block_id, consensus_has
         nameops_hash = None
 
         if not prev_nameops_hashes.has_key(next_block_id):
-            nameops_resp = get_nameops_hash_at( next_block_id, proxy=proxy )
+            nameops_resp = get_nameops_hash_at(next_block_id, proxy=proxy)
 
             if 'error' in nameops_resp:
                 log.error("get_nameops_hash_at: %s" % nameops_resp['error'])
                 return {'error': 'Failed to get nameops: %s' % nameops_resp['error']}
 
-            nameops_hash = str( nameops_resp )
+            nameops_hash = str(nameops_resp)
             prev_nameops_hashes[ next_block_id ] = nameops_hash
 
         else:
@@ -796,10 +1341,10 @@ def snv( name, current_block_id, current_consensus_hash, block_id, consensus_has
         while next_block_id - (2**(i+1) - 1) >= FIRST_BLOCK_MAINNET:
 
             i += 1
-            ch_block_ids.append( next_block_id - (2**i - 1))
+            ch_block_ids.append(next_block_id - (2**i - 1))
 
-            if not prev_consensus_hashes.has_key( next_block_id - (2**i - 1) ):
-                ch = str( get_consensus_at( next_block_id - (2**i - 1), proxy=proxy ))
+            if not prev_consensus_hashes.has_key(next_block_id - (2**i - 1)):
+                ch = str(get_consensus_at(next_block_id - (2**i - 1), proxy=proxy))
 
                 if ch != "None":
                     prev_consensus_hashes[ next_block_id - (2**i - 1) ] = ch
@@ -813,10 +1358,10 @@ def snv( name, current_block_id, current_consensus_hash, block_id, consensus_has
         prev_consensus_hashes_list = [ prev_consensus_hashes[b] for b in ch_block_ids ]
 
         # calculate the snapshot, and see if it matches
-        ch = virtualchain.StateEngine.make_snapshot_from_ops_hash( nameops_hash, prev_consensus_hashes_list )
+        ch = virtualchain.StateEngine.make_snapshot_from_ops_hash(nameops_hash, prev_consensus_hashes_list)
         expected_ch = prev_consensus_hashes[ next_block_id ]
         if ch != expected_ch:
-            log.error("Consensus hash mismatch at %s: expected %s, got %s" % (next_block_id, expected_ch, ch ))
+            log.error("Consensus hash mismatch at %s: expected %s, got %s" % (next_block_id, expected_ch, ch))
             return {'error': 'Consensus hash mismatch'}
 
         # advance!
@@ -837,9 +1382,11 @@ def snv( name, current_block_id, current_consensus_hash, block_id, consensus_has
         next_block_id = current_candidate
 
     # get the final nameops
-    historic_nameops = get_nameops_at( block_id, proxy=proxy )
+    historic_nameops = get_nameops_at(block_id, proxy=proxy)
     if 'error' in historic_nameops:
-        return {'error': 'BUG: no nameops found:'}
+        return {'error': 'BUG: no nameops found'}
+
+    historic_nameops = historic_nameops[0]
 
     # sanity check...
     for historic_op in historic_nameops:
@@ -851,10 +1398,34 @@ def snv( name, current_block_id, current_consensus_hash, block_id, consensus_has
             historic_op['op'] = NAME_OPCODES[ str(historic_op['opcode']) ]
 
     # check integrity
-    serialized_historic_nameops = [virtualchain.StateEngine.serialize_op( str(op['op'][0]), op, OPFIELDS, verbose=False ) for op in historic_nameops]
-    historic_nameops_hash = virtualchain.StateEngine.make_ops_snapshot( serialized_historic_nameops )
+    serialized_historic_nameops = [virtualchain.StateEngine.serialize_op(str(op['op'][0]), op, OPFIELDS, verbose=False) for op in historic_nameops]
+    historic_nameops_hash = virtualchain.StateEngine.make_ops_snapshot(serialized_historic_nameops)
+
+    if not prev_nameops_hashes.has_key(block_id):
+        return {'error': 'Previous block/consensus hash is unreachable from trusted block/consensus hash'}
+
     if historic_nameops_hash != prev_nameops_hashes[ block_id ]:
         return {'error': 'Hash mismatch: name is not consistent with consensus hash'}
+
+    return historic_nameops
+
+
+def snv_name_verify(name, current_block_id, current_consensus_hash, block_id, consensus_hash, proxy=None):
+    """
+    Use SNV to verify that a name existed at a particular block ID in the past,
+    given a later known-good block ID and consensus hash (as well as the previous
+    untrusted consensus hash)
+
+    Return the name's historic nameop on success
+    Return a dict with {'error'} on error
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    historic_nameops = snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, consensus_hash, proxy=proxy)
+    if 'error' in historic_nameops:
+        return historic_nameops
 
     # find the one we asked for
     for nameop in historic_nameops:
@@ -862,13 +1433,122 @@ def snv( name, current_block_id, current_consensus_hash, block_id, consensus_has
             continue
 
         if str(nameop['name']) == str(name):
+            # success!
             return nameop
-
-    sys.stdout.flush()
 
     # not found
     log.error("Not found at block %s: '%s'" % (block_id, name))
     return {'error': 'Name not found'}
+
+
+
+def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_consensus_hash, proxy=None):
+    """
+    High-level call to simple name verification:
+    Given a trusted serial number, txid, or consensus_hash, use it as a trust root to verify that
+    a previously-registered but untrusted name (@verify_name) exists and was processed
+    at a given block (@verify_block_id)
+
+    Basically, use the trust root to derive a "current" block ID and consensus hash, and
+    use the untrusted (name, block_id) pair to derive an earlier untrusted block ID and
+    consensus hash.  Then, use the snv_get_nameops_at() method to verify that the name
+    existed at the given block ID.
+
+    The Blockstore node is not trusted.  This algorithm prevents a malicious Blockstore node
+    from getting the caller to falsely trust @verify_name and @verify_block_id by
+    using SNV to confirm that:
+    * the consensus hash at the trust root's block is consistent with @verify_name's
+    corresponding NAMESPACE_PREORDER or NAME_PREORDER;
+    * the consensus hash at @trusted_serial_number's block is consistent with @verify_name's
+    consensus hash (from @verify_serial_number)
+
+    The only way a Blockstore node working with a malicious Sybil can trick the caller is if
+    both can create a parallel history of name operations such that the final consensus hash
+    at @trusted_serial_number's block collides.  This is necessary, since the client uses
+    the hash over a block's operations and prior consensus hashes to transitively trust
+    prior consensus hashes--if the later consensus hash is assumed out-of-band to be valid,
+    then the transitive closure of all prior consensus hashes will be assumed valid as well.
+    This means that the only way to drive the valid consensus hash from a prior invalid
+    consensus hash is to force a hash collision somewhere in the transitive closure, which is infeasible.
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    bitcoind_proxy = virtualchain.connect_bitcoind(proxy.conf)
+    trusted_serial_number = None
+    trusted_txid = None
+    trusted_consensus_hash = None
+    trusted_block_id = None
+
+    # what did we get?
+    if len(trusted_serial_number_or_txid_or_consensus_hash) == 64 and is_hex(trusted_serial_number_or_txid_or_consensus_hash):
+        # txid: convert to trusted block ID and consensus hash
+        trusted_txid = trusted_serial_number_or_txid_or_consensus_hash
+        trusted_block_hash, trusted_block_data, trusted_tx = txid_to_block_data(trusted_txid, bitcoind_proxy)
+        if trusted_block_hash is None or trusted_block_data is None or trusted_tx is None:
+            return {'error': 'Unable to look up given transaction ID'}
+
+        # must have a consensus hash
+        op, payload = parse_tx_op_return(trusted_tx)
+        trusted_consensus_hash = get_consensus_hash_from_tx(trusted_tx)
+        if trusted_consensus_hash is None:
+            return {'error': 'Tx does not refer to a consensus-bearing transaction'}
+
+        # find the block for this consensus hash (it's not the same as the serial number's block ID,
+        # but that's okay--if the consensus hash in this tx is inauthentic, it will be unreachable
+        # from the other consensus hash [short of a SHA256 collision])
+        trusted_block_id = get_block_from_consensus(trusted_consensus_hash, proxy=proxy)
+
+
+    elif len(trusted_serial_number_or_txid_or_consensus_hash) == 32 and is_hex(trusted_serial_number_or_txid_or_consensus_hash):
+        # consensus hash
+        trusted_consensus_hash = trusted_serial_number_or_txid_or_consensus_hash
+        trusted_block_id = get_block_from_consensus(trusted_consensus_hash, proxy=proxy)
+        if type(trusted_block_id) == dict and 'error' in trusted_block_id:
+            # got error back
+            return trusted_block_id
+
+
+    elif len(trusted_serial_number_or_txid_or_consensus_hash.split("-")) == 2:
+        # must be a serial number
+        parts = trusted_serial_number_or_txid_or_consensus_hash.split("-")
+        try:
+            trusted_block_id = int(parts[0])
+            trusted_tx_index = int(parts[1])
+        except:
+            log.error("Malformed serial number '%s'" % trusted_serial_number_or_txid_or_consensus_hash)
+            return {'error': 'Did not receive a valid serial number'}
+
+        trusted_tx = serial_number_to_tx(trusted_serial_number_or_txid_or_consensus_hash, bitcoind_proxy)
+        if trusted_tx is None:
+            return {'error': 'Unable to convert given serial number into transaction'}
+
+        # tx must have a consensus hash
+        op, payload = parse_tx_op_return(trusted_tx)
+        trusted_consensus_hash = get_consensus_hash_from_tx(trusted_tx)
+        if trusted_consensus_hash is None:
+            return {'error': 'Tx does not refer to a consensus-bearing transaction'}
+
+        # find the block for this consensus hash (it's not the same as the serial number's block ID,
+        # but that's okay--if the consensus hash in this tx is inauthentic, it will be unreachable
+        # from the other consensus hash [short of a SHA256 collision])
+        trusted_block_id = get_block_from_consensus(trusted_consensus_hash, proxy=proxy)
+        if type(trusted_block_id) == dict and 'error' in trusted_block_id:
+            # got error back
+            return trusted_block_id
+
+    else:
+        return {'error': 'Did not receive a valid txid, consensus hash, or serial number'}
+
+    if trusted_block_id < verify_block_id:
+        return {'error': 'Trusted block/consensus hash came before the untrusted block/consensus hash'}
+
+    # go verify the name
+    verify_consensus_hash = get_consensus_at(verify_block_id, proxy=proxy)
+    historic_namerec = snv_name_verify(verify_name, trusted_block_id, trusted_consensus_hash, verify_block_id, verify_consensus_hash)
+
+    return historic_namerec
 
 
 def get_name_blockchain_record(name, proxy=None):
@@ -889,7 +1569,7 @@ def get_name_blockchain_record(name, proxy=None):
     return resp
 
 
-def get_namespace_blockchain_record( namespace_id, proxy=None ):
+def get_namespace_blockchain_record(namespace_id, proxy=None):
     """
     get_namespace_blockchain_record
     """
@@ -913,7 +1593,30 @@ def get_namespace_blockchain_record( namespace_id, proxy=None ):
     return ret
 
 
-def preorder(name, privatekey, register_addr=None, proxy=None, tx_only=False ):
+def get_namespace_reveal_blockchain_record(namespace_id, proxy=None):
+    """
+    Get a revealed (but not readied) namespace's information
+    """
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    ret = proxy.get_namespace_reveal_blockchain_record(namespace_id)
+    if type(ret) == list:
+        if len(ret) == 0:
+            ret = {'error': 'No data returned'}
+            return ret
+        else:
+            ret = ret[0]
+
+    if ret is not None:
+        # this isn't needed
+        if 'opcode' in ret:
+            del ret['opcode']
+
+    return ret
+
+
+def preorder(name, privatekey, register_addr=None, proxy=None, tx_only=False):
     """
     preorder.
     Generate a private key to derive a change address for the register,
@@ -933,7 +1636,7 @@ def preorder(name, privatekey, register_addr=None, proxy=None, tx_only=False ):
         print register_addr
 
     # make sure the reveal address is *not* the address of this private key
-    privkey = pybitcoin.BitcoinPrivateKey( privatekey )
+    privkey = pybitcoin.BitcoinPrivateKey(privatekey)
     if register_addr == privkey.public_key().address():
         return {"error": "Register address derived from private key"}
 
@@ -946,7 +1649,7 @@ def preorder(name, privatekey, register_addr=None, proxy=None, tx_only=False ):
         if tx_only:
 
             # get unsigned preorder
-            resp = proxy.preorder_tx( name, privatekey, register_addr )
+            resp = proxy.preorder_tx(name, privatekey, register_addr)
 
         else:
             # send preorder
@@ -965,7 +1668,7 @@ def preorder(name, privatekey, register_addr=None, proxy=None, tx_only=False ):
     return resp
 
 
-def preorder_subsidized( name, public_key, register_addr, subsidy_key, proxy=None ):
+def preorder_subsidized(name, public_key, register_addr, subsidy_key, proxy=None):
     """
     preorder a name, but subsidize it with the given subsidy_key.
     Return a SIGHASH_ANYONECANPAY transaction, where the client must sign each
@@ -978,7 +1681,7 @@ def preorder_subsidized( name, public_key, register_addr, subsidy_key, proxy=Non
 
     try:
         # get preorder tx
-        resp = proxy.preorder_tx_subsidized( name, public_key, register_addr, subsidy_key )
+        resp = proxy.preorder_tx_subsidized(name, public_key, register_addr, subsidy_key)
 
     except Exception as e:
         resp['error'] = str(e)
@@ -986,7 +1689,7 @@ def preorder_subsidized( name, public_key, register_addr, subsidy_key, proxy=Non
     return resp
 
 
-def register(name, privatekey, register_addr, proxy=None, tx_only=False ):
+def register(name, privatekey, register_addr, proxy=None, tx_only=False):
     """
     register
     """
@@ -998,7 +1701,7 @@ def register(name, privatekey, register_addr, proxy=None, tx_only=False ):
         if tx_only:
 
             # get unsigned preorder
-            resp = proxy.register_tx( name, privatekey, register_addr )
+            resp = proxy.register_tx(name, privatekey, register_addr)
 
         else:
             # send preorder
@@ -1011,7 +1714,7 @@ def register(name, privatekey, register_addr, proxy=None, tx_only=False ):
 
 
 
-def register_subsidized( name, public_key, register_addr, subsidy_key, proxy=None ):
+def register_subsidized(name, public_key, register_addr, subsidy_key, proxy=None):
     """
     make a transaction that will register a name, but subsidize it with the given subsidy_key.
     Return a SIGHASH_ANYONECANPAY transaction, where the client must sign each
@@ -1024,7 +1727,7 @@ def register_subsidized( name, public_key, register_addr, subsidy_key, proxy=Non
 
     try:
         # get register tx
-        resp = proxy.register_tx_subsidized( name, public_key, register_addr, subsidy_key )
+        resp = proxy.register_tx_subsidized(name, public_key, register_addr, subsidy_key)
 
     except Exception as e:
         resp['error'] = str(e)
@@ -1064,8 +1767,8 @@ def update(name, user_json_or_hash, privatekey, txid=None, proxy=None, tx_only=F
 
         user_record_hash = pybitcoin.hash.hex_hash160(user_db.serialize_user(user_data))
 
-    # go get the current user record
-    current_user_record = get_name_record( name, create_if_absent=True )
+    # go get the current user record (blockchain only)
+    current_user_record = get_name_record(name, check_only_blockchain=True)
     if current_user_record is None:
         return {'error': 'No such user'}
 
@@ -1081,17 +1784,17 @@ def update(name, user_json_or_hash, privatekey, txid=None, proxy=None, tx_only=F
     if tx_only:
 
         if privatekey is None and public_key is not None and subsidy_key is not None:
-            return proxy.update_tx_subsidized( name, user_record_hash, public_key, subsidy_key )
+            return proxy.update_tx_subsidized(name, user_record_hash, public_key, subsidy_key)
 
         else:
-            return proxy.update_tx( name, user_record_hash, privatekey )
+            return proxy.update_tx(name, user_record_hash, privatekey)
 
 
     # no transaction: go put one
     if txid is None:
 
         if tx_only:
-            result = proxy.update_tx( name, user_record_hash, privatekey )
+            result = proxy.update_tx(name, user_record_hash, privatekey)
             return result
 
         else:
@@ -1134,11 +1837,11 @@ def update(name, user_json_or_hash, privatekey, txid=None, proxy=None, tx_only=F
     return result
 
 
-def update_subsidized( name, user_json_or_hash, public_key, subsidy_key, txid=None ):
+def update_subsidized(name, user_json_or_hash, public_key, subsidy_key, txid=None):
     """
     update_subsidized
     """
-    return update( name, user_json_or_hash, None, txid=txid, public_key=public_key, subsidy_key=subsidy_key, tx_only=True )
+    return update(name, user_json_or_hash, None, txid=txid, public_key=public_key, subsidy_key=subsidy_key, tx_only=True)
 
 
 def transfer(name, address, keep_data, privatekey, proxy=None, tx_only=False):
@@ -1150,20 +1853,20 @@ def transfer(name, address, keep_data, privatekey, proxy=None, tx_only=False):
         proxy = get_default_proxy()
 
     if tx_only:
-        return proxy.transfer_tx( name, address, keep_data, privatekey )
+        return proxy.transfer_tx(name, address, keep_data, privatekey)
 
     else:
         return proxy.transfer(name, address, keep_data, privatekey)
 
 
-def transfer_subsidized( name, address, keep_data, public_key, subsidy_key, proxy=None ):
+def transfer_subsidized(name, address, keep_data, public_key, subsidy_key, proxy=None):
     """
     transfer_subsidized
     """
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.transfer_tx_subsidized( name, address, keep_data, public_key, subsidy_key )
+    return proxy.transfer_tx_subsidized(name, address, keep_data, public_key, subsidy_key)
 
 
 def renew(name, privatekey, proxy=None, tx_only=False):
@@ -1175,13 +1878,13 @@ def renew(name, privatekey, proxy=None, tx_only=False):
         proxy = get_default_proxy()
 
     if tx_only:
-        return proxy.renew_tx( name, privatekey )
+        return proxy.renew_tx(name, privatekey)
 
     else:
         return proxy.renew(name, privatekey)
 
 
-def renew_subsidized( name, public_key, subsidy_key, proxy=None ):
+def renew_subsidized(name, public_key, subsidy_key, proxy=None):
     """
     renew_subsidized
     """
@@ -1189,7 +1892,7 @@ def renew_subsidized( name, public_key, subsidy_key, proxy=None ):
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.renew_tx_subsidized( name, public_key, subsidy_key )
+    return proxy.renew_tx_subsidized(name, public_key, subsidy_key)
 
 
 def revoke(name, privatekey, proxy=None, tx_only=False):
@@ -1201,30 +1904,30 @@ def revoke(name, privatekey, proxy=None, tx_only=False):
         proxy = get_default_proxy()
 
     if tx_only:
-        return proxy.revoke_tx( name, privatekey )
+        return proxy.revoke_tx(name, privatekey)
 
     else:
         return proxy.revoke(name, privatekey)
 
 
-def revoke_subsidized( name, public_key, subsidy_key, proxy=None ):
+def revoke_subsidized(name, public_key, subsidy_key, proxy=None):
     """
     revoke_subsidized
     """
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.revoke_tx_subsidized( name, public_key, subsidy_key )
+    return proxy.revoke_tx_subsidized(name, public_key, subsidy_key)
 
 
-def send_subsidized( privatekey, subsidized_tx, proxy=None ):
+def send_subsidized(privatekey, subsidized_tx, proxy=None):
     """
     send_subsidized
     """
     if proxy is None:
         proxy = get_default_proxy()
 
-    return proxy.send_subsidized( privatekey, subsidized_tx )
+    return proxy.send_subsidized(privatekey, subsidized_tx)
 
 
 def name_import(name, address, update_hash, privatekey, proxy=None):
@@ -1259,11 +1962,11 @@ def namespace_preorder(namespace_id, privatekey, reveal_addr=None, proxy=None):
         print reveal_addr
 
     # make sure the reveal address is *not* the address of this private key
-    privkey = pybitcoin.BitcoinPrivateKey( privatekey )
+    privkey = pybitcoin.BitcoinPrivateKey(privatekey)
     if reveal_addr == privkey.public_key().address():
         return {"error": "Reveal address derived from private key"}
 
-    result = proxy.namespace_preorder(namespace_id, reveal_addr, privatekey )
+    result = proxy.namespace_preorder(namespace_id, reveal_addr, privatekey)
 
     if 'error' in result:
         return result
@@ -1286,7 +1989,7 @@ def namespace_reveal(namespace_id, reveal_addr, lifetime, coeff, base_cost,
 
     return proxy.namespace_reveal(namespace_id, reveal_addr, lifetime, coeff,
                                   base_cost, bucket_exponents, nonalpha_discount,
-                                  no_vowel_discount, privatekey )
+                                  no_vowel_discount, privatekey)
 
 
 def namespace_ready(namespace_id, privatekey, proxy=None):
@@ -1300,7 +2003,7 @@ def namespace_ready(namespace_id, privatekey, proxy=None):
     return proxy.namespace_ready(namespace_id, privatekey)
 
 
-def load_mutable_data_version( conf, name, data_id, try_remote=True ):
+def load_mutable_data_version(conf, name, data_id, try_remote=True):
     """
     Get the version field of a piece of mutable data.
     Check the local cache first, and if we need to,
@@ -1315,26 +2018,26 @@ def load_mutable_data_version( conf, name, data_id, try_remote=True ):
     if conf is not None:
 
         metadata_dir = conf.get('metadata', None)
-        if metadata_dir is not None and os.path.isdir( metadata_dir ):
+        if metadata_dir is not None and os.path.isdir(metadata_dir):
 
             # find the version file for this data
             serialized_data_id = data_id.replace("/", "\x2f").replace('\0', "\\0")
-            version_file_path = os.path.join( metadata_dir, serialized_data_id + ".ver")
+            version_file_path = os.path.join(metadata_dir, serialized_data_id + ".ver")
 
-            if os.path.exists( version_file_path ):
+            if os.path.exists(version_file_path):
 
                 ver = None
                 try:
-                    with open( version_file_path, "r" ) as f:
+                    with open(version_file_path, "r") as f:
                         ver_txt = f.read()
-                        ver = int( ver_txt.strip() )
+                        ver = int(ver_txt.strip())
 
                     # success!
                     return ver
 
                 except ValueError, ve:
                     # not an int
-                    log.warn("Not an integer: '%s'" % version_file_path )
+                    log.warn("Not an integer: '%s'" % version_file_path)
 
                 except Exception, e:
                     # can't read
@@ -1365,7 +2068,7 @@ def load_mutable_data_version( conf, name, data_id, try_remote=True ):
     return ver
 
 
-def store_mutable_data_version( conf, data_id, ver ):
+def store_mutable_data_version(conf, data_id, ver):
     """
     Locally store the version of a piece of mutable data,
     so we can ensure that its version is incremented on
@@ -1383,16 +2086,16 @@ def store_mutable_data_version( conf, data_id, ver ):
         return False
 
     metadata_dir = conf['metadata']
-    if not os.path.isdir( metadata_dir ):
+    if not os.path.isdir(metadata_dir):
         log.warning("No metadata directory found; cannot store version of '%s'" % data_id)
         return False
 
     serialized_data_id = data_id.replace("/", "\x2f").replace('\0', "\\0")
-    version_file_path = os.path.join( metadata_dir, serialized_data_id + ".ver")
+    version_file_path = os.path.join(metadata_dir, serialized_data_id + ".ver")
 
     try:
-        with open( version_file_path, "w+" ) as f:
-            f.write("%s" % ver )
+        with open(version_file_path, "w+") as f:
+            f.write("%s" % ver)
 
         return True
 
@@ -1402,7 +2105,7 @@ def store_mutable_data_version( conf, data_id, ver ):
         return False
 
 
-def delete_mutable_data_version( conf, data_id ):
+def delete_mutable_data_version(conf, data_id):
     """
     Locally delete the version of a piece of mutable data.
 
@@ -1418,15 +2121,15 @@ def delete_mutable_data_version( conf, data_id ):
         return False
 
     metadata_dir = conf['metadata']
-    if not os.path.isdir( metadata_dir ):
+    if not os.path.isdir(metadata_dir):
         log.warning("No metadata directory found; cannot store version of '%s'" % data_id)
         return False
 
     serialized_data_id = data_id.replace("/", "\x2f").replace('\0', "\\0")
-    version_file_path = os.path.join( metadata_dir, serialized_data_id + ".ver")
+    version_file_path = os.path.join(metadata_dir, serialized_data_id + ".ver")
 
     try:
-        os.unlink( version_file_path )
+        os.unlink(version_file_path)
         return True
 
     except Exception, e:
@@ -1446,10 +2149,10 @@ def get_immutable(name, data_key):
         # no user data
         return {'error': "Unable to load user record: %s" % user['error']}
 
-    if not user_db.has_immutable_data(user, data_key):
+    #if not user_db.has_immutable_data(user, data_key):
 
         # no data
-        return {'error': 'Profile has no such immutable data'}
+    #    return {'error': 'Profile has no such immutable data'}
 
     data = storage.get_immutable_data(data_key)
     if data is None:
@@ -1491,7 +2194,7 @@ def get_mutable(name, data_id, ver_min=None, ver_max=None, ver_check=None, conf=
         return {'error': 'No mutable data found'}
 
     # what's the expected version of this data?
-    expected_version = load_mutable_data_version( conf, name, data_id, try_remote=False )
+    expected_version = load_mutable_data_version(conf, name, data_id, try_remote=False)
     if expected_version is not None:
         if expected_version > data['ver']:
             return {'error': 'Stale data', 'ver_minimum': expected_version, 'ver_received': data['ver']}
@@ -1503,7 +2206,7 @@ def get_mutable(name, data_id, ver_min=None, ver_max=None, ver_check=None, conf=
 
     # remember latest version
     if data['ver'] > expected_version:
-        store_mutable_data_version( conf, data_id, data['ver'] )
+        store_mutable_data_version(conf, data_id, data['ver'])
 
     # include the route
     data['route'] = data_route
@@ -1530,7 +2233,7 @@ def put_immutable(name, data, privatekey, txid=None, proxy=None):
         # no user data
         return {'error': "Unable to load user record: %s" % user['error']}
 
-    data_hash = storage.get_data_hash( data )
+    data_hash = storage.get_data_hash(data)
     rc = user_db.add_immutable_data(user, data_hash)
     if not rc:
         return {'error': 'Invalid hash'}
@@ -1576,7 +2279,7 @@ def put_immutable(name, data, privatekey, txid=None, proxy=None):
 
 
 def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
-                txid=None, ver=None, make_ver=None, conf=None ):
+                txid=None, ver=None, make_ver=None, conf=None):
     """
     put_mutable
 
@@ -1616,14 +2319,14 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
             # use the existing locally-stored version,
             # and fall back to using the last-known version
             # from the existing mutable data record.
-            new_ver = load_mutable_data_version( config.get_config(), name, data_id, try_remote=True )
+            new_ver = load_mutable_data_version(config.get_config(), name, data_id, try_remote=True)
             if new_ver is None:
                 # data exists, but we couldn't figure out the version
                 return {'error': "Unable to determine version"}
 
         if make_ver is not None:
             # generate version
-            new_ver = make_ver( data_id, data_text, new_ver )
+            new_ver = make_ver(data_id, data_text, new_ver)
 
         else:
             # no version known, and no way to generate it.
@@ -1646,7 +2349,7 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
         if len(urls) == 0:
             return {"error": "No routes constructed"}
 
-        writer_pubkey = pybitcointools.privkey_to_pubkey(privatekey)
+        writer_pubkey = bitcoin.privkey_to_pubkey(privatekey)
 
         route = storage.mutable_data_route(data_id, urls,
                                            writer_pubkey=writer_pubkey)
@@ -1681,7 +2384,7 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
     data_json = parsing.json_stable_serialize(data)
 
     # replicate...
-    store_rc = storage.put_mutable_data( data, privatekey )
+    store_rc = storage.put_mutable_data(data, privatekey)
     if not store_rc:
         result['error'] = "Failed to store mutable data"
 
@@ -1695,7 +2398,7 @@ def put_mutable(name, data_id, data_text, privatekey, proxy=None, create=True,
         result['value_hash'] = cur_hash
 
     # cache new version
-    store_mutable_data_version( conf, data_id, new_ver )
+    store_mutable_data_version(conf, data_id, new_ver)
 
     return result
 
@@ -1812,6 +2515,6 @@ def delete_mutable(name, data_id, privatekey, proxy=default_proxy, txid=None,
         result['value_hash'] = update_status['value_hash']
 
     # uncache local version
-    delete_mutable_data_version( config.get_config(), data_id )
+    delete_mutable_data_version(config.get_config(), data_id)
 
     return result
