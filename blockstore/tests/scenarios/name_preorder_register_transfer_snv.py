@@ -85,6 +85,8 @@ def scenario( wallets, **kw ):
 
 def check( state_engine ):
 
+    global snv_block_id, snv_consensus
+
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "test" )
     if ns is not None:
@@ -117,8 +119,12 @@ def check( state_engine ):
         print "'foo.test' invalid owner"
         return False 
 
+    # snv lookup works
     test_proxy = testlib.TestAPIProxy()
-    snv_rec = snv_client.lookup_snv( "foo.test", snv_block_id, snv_consensus, proxy=test_proxy )
+    snv_client.client.set_default_proxy( test_proxy )
+
+    # snv_rec = snv_client.snv( "foo.test", lastblock, lastconsensus, snv_block_id, snv_consensus, proxy=test_proxy )
+    snv_rec = snv_client.client.snv_lookup( "foo.test", snv_block_id, snv_consensus, proxy=test_proxy ) 
     if 'error' in snv_rec:
         print json.dumps(snv_rec, indent=4 )
         return False

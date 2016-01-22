@@ -98,28 +98,23 @@ def make_outputs( data, inputs, change_address, pay_fee=True ):
 
     dust_fee = None
     op_fee = None
-    dust_value = None 
-    
-    if pay_fee:
-        dust_fee = (len(inputs) + 1) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
-        op_fee = DEFAULT_DUST_FEE
-        dust_value = DEFAULT_DUST_FEE
-    
-    else:
-        # will be subsidized
-        dust_fee = 0
-        op_fee = 0
-        dust_value = 0
-   
-    return [
+    dust_value = None
+
+    outputs = [
         # main output
         {"script_hex": make_op_return_script(data, format='hex'),
          "value": 0},
         
         # change output
         {"script_hex": make_pay_to_address_script(change_address),
-         "value": calculate_change_amount(inputs, op_fee, dust_fee)}
+         "value": calculate_change_amount(inputs, 0, 0)}
     ]
+
+    if pay_fee:
+        dust_fee = tx_dust_fee_from_inputs_and_outputs( inputs, outputs )
+        outputs[-1]['value'] = calculate_change_amount( inputs, 0, dust_fee )
+
+    return outputs
 
 
 def broadcast(name, data_hash, consensus_hash, private_key, blockchain_client, blockchain_broadcaster=None, tx_only=False, user_public_key=None, testset=False):

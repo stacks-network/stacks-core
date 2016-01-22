@@ -1,8 +1,8 @@
 base58==0.2.2
+bitcoin==1.1.39
 basicrpc==0.0.2
-bitcoin==1.1.36
 bitmerchant==0.1.8
-blockstore-client==0.0.6
+blockstore-client==0.0.12
 boto==2.38.0
 cachetools==1.1.5
 commontools==0.1.0
@@ -19,5 +19,5 @@ Twisted==15.4.0
 txJSON-RPC==0.3.1
 u-msgpack-python==2.1
 utilitybelt==0.2.6
-virtualchain==0.0.5
+virtualchain==0.0.8
 zope.interface==4.1.3

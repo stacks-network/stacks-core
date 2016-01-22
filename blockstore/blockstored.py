@@ -39,6 +39,7 @@ import shutil
 import tempfile
 import binascii
 import copy
+import threading 
 
 import virtualchain
 
@@ -71,8 +72,8 @@ bitcoin_opts = None
 utxo_opts = None
 blockchain_client = None
 blockchain_broadcaster = None
-indexer_pid = None
-
+indexer_thread = None           # indexer thread handle
+blockstored_api_server = None   # API server subprocess handle
 
 def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
    """
@@ -165,6 +166,31 @@ def get_pidfile_path():
    return os.path.join( working_dir, pid_filename )
 
 
+def get_pid_from_pidfile( pidfile_path ):
+    """
+    Get the PID from a pidfile
+    """
+    with open( pidfile_path, "r" ) as f:
+        txt = f.read()
+
+    try:
+        pid = int( txt.strip() )
+    except:
+        raise Exception("Invalid PID '%s'" % pid)
+
+    return pid
+
+
+def put_pidfile( pidfile_path, pid ):
+    """
+    Put a PID into a pidfile
+    """
+    with open( pidfile_path, "w" ) as f:
+        f.write("%s" % pid)
+
+    return 
+
+
 def get_tacfile_path( testset=False ):
    """
    Get the TAC file path for our service endpoint.
@@ -215,55 +241,12 @@ def get_lastblock():
         return None
 
 
-def get_index_range():
-    """
-    Get the bitcoin block index range.
-    Mask connection failures with timeouts.
-    Always try to reconnect.
-
-    The last block will be the last block to search for names.
-    This will be NUM_CONFIRMATIONS behind the actual last-block the
-    cryptocurrency node knows about.
-    """
-
-    bitcoind_session = get_bitcoind( new=True )
-
-    first_block = None
-    last_block = None
-    while last_block is None:
-
-        first_block, last_block = virtualchain.get_index_range( bitcoind_session )
-
-        if last_block is None:
-
-            # try to reconnnect
-            time.sleep(1)
-            log.error("Reconnect to bitcoind")
-            bitcoind_session = get_bitcoind( new=True )
-            continue
-
-        else:
-            return first_block, last_block - NUM_CONFIRMATIONS
-
-
 def die_handler_server(signal, frame):
     """
     Handle Ctrl+C for server subprocess
     """
 
-    log.info('Exiting blockstored server')
-    stop_server()
-    sys.exit(0)
-
-
-
-def die_handler_indexer(signal, frame):
-    """
-    Handle Ctrl+C for indexer processe
-    """
-
-    db = get_state_engine()
-    virtualchain.stop_sync_virtualchain( db )
+    stop_server( True )
     sys.exit(0)
 
 
@@ -313,7 +296,6 @@ def get_tx_broadcaster():
    except:
        log.exception(e)
        return None
-
 
 
 def get_name_cost( name ):
@@ -435,7 +417,7 @@ def blockstore_name_preorder( name, privatekey, register_addr, tx_only=False, su
         return {"error": "Namespace is not ready"}
 
     name_fee = get_name_cost( name )
-
+    
     log.debug("The price of '%s' is %s satoshis" % (name, name_fee))
 
     if privatekey is not None:
@@ -466,6 +448,105 @@ def blockstore_name_preorder( name, privatekey, register_addr, tx_only=False, su
 
 
     log.debug('preorder <name, consensus_hash>: <%s, %s>' % (name, consensus_hash))
+
+    return resp
+
+
+def blockstore_name_preorder_multi( name_list, privatekey, register_addr_list, tx_only=False, subsidy_key=None, testset=False, consensus_hash=None ):
+    """
+    Preorder a list of names.  They must each be registered with the same private key
+
+    @name_list: the names to preorder
+    @register_addr_list: the addresses that will own the names upon registration.  register_addr_list[i] will own name_list[i].
+    @privatekey: the private key that will pay for the preorder. Can be None if we're subsidizing (in which case subsidy_key is required)
+    @tx_only: if True, then return only the unsigned serialized transaction.  Do not broadcast it.
+    @pay_fee: if False, then return a subsidized serialized transaction, where we have signed our
+    inputs/outputs with SIGHASH_ANYONECANPAY.  The caller will need to sign their input and then
+    broadcast it.
+    @subsidy_key: if given, then this transaction will be subsidized with this key and returned (but not broadcasted)
+    This forcibly sets tx_only=True and pay_fee=False.
+
+    Return a JSON object on success.
+    Return a JSON object with 'error' set on error.
+    """
+
+    blockstore_opts = default_blockstore_opts( virtualchain.get_config_filename(), testset=testset )
+
+    # are we doing our initial indexing?
+    if is_indexing():
+        return {"error": "Indexing blockchain"}
+
+    blockchain_client_inst = get_utxo_provider_client()
+    if blockchain_client_inst is None:
+        return {"error": "Failed to connect to blockchain UTXO provider"}
+
+    if len(name_list) != len(register_addr_list):
+        return {"error": "Need equal numbers of names and registration addresses"}
+
+    if len(name_list) != len(set(name_list)):
+        return {"error": "Duplicate names"}
+
+    db = get_state_engine()
+
+    if consensus_hash is None:
+        consensus_hash = db.get_current_consensus()
+
+    if consensus_hash is None:
+        # consensus hash must exist
+        return {"error": "Nameset snapshot not found."}
+
+    name_fee_total = 0
+
+    for i in xrange( 0, len(name_list) ):
+
+        name_list[i] = str(name_list[i])
+        register_addr_list[i] = str(register_addr_list[i])
+
+        name = name_list[i]
+        if db.is_name_registered( name ):
+            # name can't be registered
+            return {"error": "At least one name already registered"}
+
+        namespace_id = get_namespace_from_name( name )
+
+        if not db.is_namespace_ready( namespace_id ):
+            # namespace must be ready; otherwise this is a waste
+            return {"error": "Namespace is not ready"}
+
+        name_fee = get_name_cost( name )
+        name_fee_total += name_fee
+
+        log.debug("The price of %s is %s satoshis" % (name, name_fee))
+
+
+    if privatekey is not None:
+        privatekey = str(privatekey)
+
+    public_key = None
+    if subsidy_key is not None:
+        subsidy_key = str(subsidy_key)
+        tx_only = True
+
+        # the sender will be the subsidizer (otherwise it will be the given private key's owner)
+        public_key = BitcoinPrivateKey( subsidy_key ).public_key().to_hex()
+
+    try:
+        resp = preorder_name_multi(name_list, privatekey, register_addr_list, str(consensus_hash), blockchain_client_inst, \
+            name_fee_total, testset=blockstore_opts['testset'], subsidy_public_key=public_key, tx_only=tx_only )
+    except:
+        return json_traceback()
+
+    if subsidy_key is not None:
+        # sign each input
+        inputs, outputs, _, _ = tx_deserialize( resp['unsigned_tx'] )
+        tx_signed = tx_serialize_and_sign( inputs, outputs, subsidy_key )
+
+        resp = {
+            'subsidized_tx': tx_signed
+        }
+
+
+    log.debug('preorder_multi <names, consensus_hash>: <%s, %s>' % (", ".join(name_list), consensus_hash))
 
     return resp
 
@@ -955,7 +1036,6 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         """
         Lookup the blockchain-derived profile for a name.
         """
-
         db = get_state_engine()
 
         try:
@@ -973,6 +1053,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
 
         else:
             return name_record
+
 
     def jsonrpc_get_name_blockchain_history( self, name, start_block, end_block ):
         """
@@ -1025,7 +1106,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
             restored_op = nameop_restore_consensus_fields( op, block_id )
             restored_ops.append( restored_op )
 
-        serialized_ops = [ db_serialize( str(op['op'][0]), op, verbose=False ) for op in restored_ops ]
+        serialized_ops = [ virtualchain.StateEngine.serialize_op( str(op['op'][0]), op, BlockstoreDB.make_opfields(), verbose=False ) for op in restored_ops ]
         ops_hash = virtualchain.StateEngine.make_ops_snapshot( serialized_ops )
         return ops_hash
 
@@ -1043,7 +1124,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
 
         db = get_state_engine()
         reply['consensus'] = db.get_current_consensus()
-        reply['blocks'] = db.get_current_block()
+        reply['last_block'] = db.get_current_block()
         reply['blockstore_version'] = "%s.%s" % (VERSION, BLOCKSTORE_VERSION)
         reply['testset'] = str(self.testset)
         return reply
@@ -1372,7 +1453,8 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Between the namespace definition and the "namespace begin" operation, only the
         user who created the namespace can create names in it.
         """
-        return blockstore_namespace_reveal( namespace_id, reveal_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, tx_only=True, testset=self.testset )
+        return blockstore_namespace_reveal( namespace_id, reveal_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, \
+                privatekey, tx_only=True, testset=self.testset )
 
 
     def jsonrpc_namespace_ready( self, namespace_id, privatekey ):
@@ -1474,8 +1556,24 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
                 return {"error": "No such ready namespace"}
         else:
             return ns
+    
 
-
+    def jsonrpc_get_namespace_reveal_blockchain_record( self, namespace_id ):
+        """
+        Return the revealed namespace with the given namespace_id
+        """
+        
+        db = get_state_engine()
+        ns = db.get_namespace_reveal( namespace_id )
+        if ns is None:
+            if is_indexing():
+                return {"error": "Indexing blockchain"}
+            else:
+                return {"error": "No such revealed namespace"}
+        else:
+            return ns
+   
+    
     def jsonrpc_get_all_names( self, offset, count ):
         """
         Return all names
@@ -1508,6 +1606,30 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         return db.get_consensus_at( block_id )
 
 
+    def jsonrpc_get_consensus_range( self, block_id_start, block_id_end ):
+        """
+        Get a range of consensus hashes.  The range is inclusive.
+        """
+        db = get_state_engine()
+        ret = []
+        for b in xrange(block_id_start, block_id_end+1):
+            ch = db.get_consensus_at( b )
+            if ch is None:
+                break
+
+            ret.append(ch)
+
+        return ret
+
+
+    def jsonrpc_get_block_from_consensus( self, consensus_hash ):
+        """
+        Given the consensus hash, find the block number
+        """
+        db = get_state_engine()
+        return db.get_block_from_consensus( consensus_hash )
+
+
     def jsonrpc_get_mutable_data( self, blockchain_id, data_name ):
         """
         Get a mutable data record written by a given user.
@@ -1524,69 +1646,102 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         return client.get_immutable( str(blockchain_id), str(data_hash) )
 
 
-def run_indexer( testset=False ):
-    """
-    Continuously reindex the blockchain, but as a subprocess.
-    """
-
-    # set up this process
-    signal.signal( signal.SIGINT, die_handler_indexer )
-    signal.signal( signal.SIGQUIT, die_handler_indexer )
-    signal.signal( signal.SIGTERM, die_handler_indexer )
-
-    bitcoind_opts = get_bitcoin_opts()
-
-    _, last_block_id = get_index_range()
-    db = get_state_engine()
-
-    while True:
-
-        time.sleep( REINDEX_FREQUENCY )
-        virtualchain.sync_virtualchain( bitcoind_opts, last_block_id, db )
-
-        _, last_block_id = get_index_range()
-
-    return
-
-
-def stop_server():
+def stop_server( from_signal, clean=False, kill=False ):
     """
     Stop the blockstored server.
     """
-    global indexer_pid
 
-    # Quick hack to kill a background daemon
+    global indexer_thread, blockstored_api_server
+
+    # kill the main supervisor
     pid_file = get_pidfile_path()
 
-    try:
-        fin = open(pid_file, "r")
-    except Exception, e:
-        return
+    if from_signal:
+    
+        # from signal handler
+        log.info('Caught fatal signal; exiting blockstored server')
+
+        # stop building new state if we're in the middle of it
+        virtualchain_hooks.stop_sync_blockchain()
+        
+        # stop API server 
+        if blockstored_api_server is not None:
+            log.debug("Stopping API server")
+            blockstored_api_server.send_signal( signal.SIGTERM )
+            blockstored_api_server.wait()
+            log.debug("Stopped API server")
+
+        else:
+            raise Exception("BUG: blockstored_api_server not initialized")
+
+        # stop indexing thread
+        # NOTE: this can delay for a while, so wait for a little bit and then simply kill ourselves.
+        # the fact that the virtualchain database commit logic guarantees atomicity means that this
+        # is safe for us to do.
+        if indexer_thread is not None:
+            log.debug("Stopping indexer thread")
+            rc = stop_indexer_thread( indexer_thread, 1.0 )
+            if not rc:
+                # probably stuck on a network delay
+                # kill ourselves
+                log.debug("Stop indexer thread time-out; aborting")
+                set_indexing( False )
+                try:
+                    os.unlink(pid_file)
+                except:
+                    pass
+
+                os.kill( os.getpid(), signal.SIGKILL )
+
+            log.debug("Stopped indexer thread")
+
+        else:
+            raise Exception("BUG: indexer_thread not initialized")
+
+        set_indexing( False )
+        try:
+            os.unlink(pid_file)
+        except:
+            # already handled 
+            return
+
 
     else:
-        pid_data = fin.read()
-        fin.close()
-        os.remove(pid_file)
-
-        pid = int(pid_data)
-
+        # from command-line invocation.
+        # kill main supervisor.
         try:
-           os.kill(pid, signal.SIGKILL)
+            fin = open(pid_file, "r")
         except Exception, e:
-           return
+            pass
 
+        else:
+            pid_data = fin.read().strip()
+            fin.close()
 
-    if indexer_pid is not None:
+            pid = int(pid_data)
+
+            try:
+               os.kill(pid, signal.SIGTERM)
+            except Exception, e:
+               pass
+
+            # takes at most 3 seconds 
+            time.sleep(3.0)
+
+            if kill:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except Exception, e:
+                    pass
+   
+    if clean:
+        # always blow away the pid file 
         try:
-           os.kill(indexer_pid, signal.SIGTERM)
-        except Exception, e:
-           return
+            os.unlink(pid_file)
+        except:
+            pass
 
-    # stop building new state if we're in the middle of it
-    db = get_state_engine()
-    virtualchain.stop_sync_virtualchain( db )
-
-    set_indexing( False )
+    log.debug("Blockstore server stopped")
 
 
 def get_indexing_lockfile():
@@ -1610,12 +1765,14 @@ def is_indexing():
 def set_indexing( flag ):
     """
     Set a flag in the filesystem as to whether or not we're indexing.
+    Return True if we succeed in carrying out the operation.
+    Return False if not.
     """
     indexing_path = get_indexing_lockfile()
     if flag:
         try:
-            fd = open( indexing_path, "w+" )
-            fd.close()
+            fd = os.open( indexing_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_TRUNC )
+            os.close( fd )
             return True
         except:
             return False
@@ -1628,12 +1785,115 @@ def set_indexing( flag ):
             return False
 
 
+class IndexerThread( threading.Thread ):
+
+    def __init__(self):
+        super( IndexerThread, self ).__init__()
+        self.running = True
+
+    
+    def get_index_range( self ):
+        """
+        Get the bitcoin block index range.
+        Mask connection failures with timeouts.
+        Always try to reconnect.
+
+        The last block will be the last block to search for names.
+        This will be NUM_CONFIRMATIONS behind the actual last-block the
+        cryptocurrency node knows about.
+        """
+
+        bitcoind_conn = get_bitcoind( new=True )
+
+        first_block = None
+        last_block = None
+        while last_block is None and self.running:
+
+            first_block, last_block = virtualchain.get_index_range( bitcoind_conn )
+
+            if last_block is None:
+
+                # try to reconnnect
+                time.sleep(1)
+                if not self.running:
+                    break
+
+                log.error("Reconnect to bitcoind")
+                bitcoind_conn = get_bitcoind( new=True )
+                continue
+
+            else:
+                return first_block, last_block - NUM_CONFIRMATIONS
+
+        return (None, None)
+
+
+    def run( self ):
+        """
+        Periodically re-index the blockchain
+        """
+        while self.running:
+
+            bt_opts = get_bitcoin_opts() 
+            start_block, current_block = self.get_index_range()
+
+            # NOTE: the above can take a while to complete, so check again 
+            if not self.running or (start_block is None and current_block is None):
+                break
+
+            # bring us up to speed
+            set_indexing( True )
+
+            virtualchain_hooks.sync_blockchain( bt_opts, current_block )
+
+            set_indexing( False )
+
+            deadline = time.time() + REINDEX_FREQUENCY
+            while time.time() < deadline and self.running:
+                time.sleep(0.5)
+
+
+    def request_stop( self ):
+        """
+        Request to stop the thread
+        """
+        self.running = False
+        virtualchain_hooks.stop_sync_blockchain()
+
+
+def start_indexer_thread():
+    """
+    Start the indexer thread.
+    Return the thread handle.
+    """
+
+    log.debug("Starting indexer thread")
+    thread = IndexerThread()
+    thread.start()
+    return thread
+
+
+def stop_indexer_thread( thread, join_timeout ):
+    """
+    Stop an indexer thread.
+    Return True if it stopped in the alloted time
+    Return False if not
+    """
+    thread.request_stop()
+    thread.join( timeout=join_timeout )
+    if thread.isAlive():
+        return False 
+
+    else:
+        return True
+
+
 def run_server( testset=False, foreground=False ):
     """
     Run the blockstored RPC server, optionally in the foreground.
     """
 
-    global indexer_pid
+    global running, indexer_thread, blockstored_api_server
 
     bt_opts = get_bitcoin_opts()
 
@@ -1643,38 +1903,11 @@ def run_server( testset=False, foreground=False ):
     pid_file = get_pidfile_path()
     working_dir = virtualchain.get_working_dir()
 
-    start_block, current_block = get_index_range()
-
-    argv0 = os.path.normpath( sys.argv[0] )
-    blockstored_path = os.path.join(os.getcwd(), argv0)
-
-    if os.path.exists("./%s" % argv0 ):
-        if testset:
-
-            indexer_command = ("indexer --testset --working-dir=%s" % working_dir).split()
-            indexer_command = [blockstored_path] + indexer_command
-        else:
-            indexer_command = ("indexer --working-dir=%s" % working_dir).split()
-            indexer_command = [blockstored_path] + indexer_command
-    else:
-        # hope its in the $PATH
-        if testset:
-            indexer_command = ("indexer --testset --working-dir=%s" % working_dir).split()
-            indexer_command = [argv0] + indexer_command
-        else:
-            indexer_command = ("indexer --working-dir=%s" % working_dir).split()
-            indexer_command = [argv0] + indexer_command
-
-
-    log.debug("Start indexer: '%s'" % (' '.join(indexer_command)))
-
     logfile = None
     if not foreground:
 
-        api_server_command = ('twistd --pidfile=%s --logfile=%s -noy' % (pid_file,
-                                                                         access_log_file)).split()
+        api_server_command = ('twistd --pidfile= --logfile=%s -noy' % (access_log_file)).split()
         api_server_command.append(tac_file)
-
 
         try:
             if os.path.exists( indexer_log_file ):
@@ -1703,7 +1936,7 @@ def run_server( testset=False, foreground=False ):
 
             elif daemon_pid > 0:
 
-                # parent!
+                # parent (intermediate child)
                 sys.exit(0)
 
             else:
@@ -1713,63 +1946,47 @@ def run_server( testset=False, foreground=False ):
 
         elif child_pid > 0:
 
-            # parent
-            # wait for child
+            # grand-parent
+            # wait for intermediate child
             pid, status = os.waitpid( child_pid, 0 )
             sys.exit(status)
 
     else:
 
         # foreground
-        api_server_command = ('twistd --pidfile=%s -noy' % pid_file).split()
+        api_server_command = ('twistd --pidfile= -noy').split()
         api_server_command.append(tac_file)
 
+    # correctly die on fatal signals
+    for sig in [signal.SIGINT, signal.SIGQUIT, signal.SIGTERM]:
+        signal.signal( sig, die_handler_server )
+
+    # put supervisor pid file
+    put_pidfile( pid_file, os.getpid() )
+
     # start API server
-    blockstored = subprocess.Popen( api_server_command, shell=False)
+    blockstored_api_server = subprocess.Popen( api_server_command, shell=False)
 
+    # start indexing 
     set_indexing( False )
+    indexer_thread = start_indexer_thread()
 
-    if start_block != current_block:
-        # bring us up to speed
-        set_indexing( True )
+    # wait for the API server to die
+    blockstored_api_server.wait()
 
-        db = get_state_engine()
-        virtualchain.sync_virtualchain( bt_opts, current_block, db )
-
-        set_indexing( False )
-
-    # fork the indexer
-    if foreground:
-        indexer = subprocess.Popen( indexer_command, shell=False )
-    else:
-        indexer = subprocess.Popen( indexer_command, shell=False, stdout=logfile, stderr=logfile )
-
-    indexer_pid = indexer.pid
-
-    # wait for the API server to die (we kill it with `blockstored stop`)
-    blockstored.wait()
-
-    # stop our indexer subprocess
-    indexer_pid = None
-
-    os.kill( indexer.pid, signal.SIGINT )
-    indexer.wait()
+    # stop the indexer thread
+    stop_indexer_thread( indexer_thread, 1.0 )
 
     if logfile is not None:
         logfile.flush()
         logfile.close()
 
-    # stop building new state if we're in the middle of it
-    db = get_state_engine()
-    virtualchain.stop_sync_virtualchain( db )
-
-    return blockstored.returncode
+    return blockstore_api_server.returncode
 
 
 def setup( working_dir=None, testset=False, return_parser=False ):
    """
    Do one-time initialization.
-   Call this to set up global state and set signal handlers.
 
    If return_parser is True, return a partially-
    setup argument parser to be populated with
@@ -1817,8 +2034,18 @@ def setup( working_dir=None, testset=False, return_parser=False ):
    # if we're using the mock UTXO provider, then switch to the mock bitcoind node as well
    if utxo_opts['utxo_provider'] == 'mock_utxo':
        import tests.mock_bitcoind
-       virtualchain.setup_virtualchain( blockstore_state_engine, testset=testset, bitcoind_connection_factory=tests.mock_bitcoind.connect_mock_bitcoind )
-       virtualchain.connect_bitcoind = tests.mock_bitcoind.connect_mock_bitcoind
+       mock_bitcoind_save_path = os.path.join( get_working_dir(), "mock_blockchain.dat" )
+       worker_env = {
+            # use mock_bitcoind to connect to bitcoind (but it has to import it in order to use it)
+            "VIRTUALCHAIN_MOD_CONNECT_BLOCKCHAIN": tests.mock_bitcoind.__file__,
+            "MOCK_BITCOIND_SAVE_PATH": mock_bitcoind_save_path,
+            "BLOCKSTORE_TEST": "1"
+       }
+
+       if os.environ.get("PYTHONPATH", None) is not None:
+           worker_env["PYTHONPATH"] = os.environ["PYTHONPATH"]
+
+       virtualchain.setup_virtualchain( blockstore_state_engine, testset=testset, bitcoind_connection_factory=tests.mock_bitcoind.connect_mock_bitcoind, index_worker_env=worker_env )
 
    # merge in command-line bitcoind options
    config_file = virtualchain.get_config_filename()
@@ -1903,6 +2130,8 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
     Given a record from the blockstore database,
     convert it into a virtualchain operation to
     process.
+
+    TODO: refactor; put op-specific code into each name op definition
     """
 
     # apply opcodes so we can consume them with virtualchain
@@ -1914,9 +2143,30 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
         return None
 
     if opcode_name == "NAME_PREORDER":
-        name_rec_script = build_preorder( None, None, None, str(name_rec['consensus_hash']), name_hash=str(name_rec['preorder_name_hash']), testset=testset )
-        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
-        ret_op = parse_preorder( name_rec_payload )
+
+        # reconstruct the preorder op...
+        # how many names preordered?
+        quantity = 1
+        if len(name_rec['op']) == 3:
+            # multi-preorder 
+            # quantity encoded in the opcode data
+            quantity = ord( name_rec['op'][2] )
+
+        if quantity == 1:
+            # singular preorder
+            name_rec_script = build_preorder( None, None, None, str(name_rec['consensus_hash']), \
+                    name_hash=str(name_rec['preorder_name_hash']), testset=testset )
+
+            name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
+            ret_op = parse_preorder( name_rec_payload )
+
+        else:
+            # multi-preorder
+            name_rec_script = build_preorder_multi( None, None, None, str(name_rec['consensus_hash']), \
+                    name_hash=str(name_rec['preorder_name_hash']), num_names=quantity, testset=testset )
+
+            name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
+            ret_op = parse_preorder_multi( name_rec_payload )
 
     elif opcode_name == "NAME_REGISTRATION":
         name_rec_script = build_registration( str(name_rec['name']), testset=testset )
@@ -1932,10 +2182,8 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
         name_rec['history'] = untrusted_name_rec['history']
 
         if history_index > 0:
-            print "restore from %s" % block_number
             name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number )[ history_index - 1 ]
         else:
-            print "restore from %s" % (block_number - 1)
             name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number - 1 )[ history_index - 1 ]
 
         sender = name_rec_prev['sender']
@@ -1958,7 +2206,6 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
     elif opcode_name == "NAME_TRANSFER":
 
         # reconstruct the transfer op...
-
         KEEPDATA_OP = "%s%s" % (NAME_TRANSFER, TRANSFER_KEEP_DATA)
         if name_rec['op'] == KEEPDATA_OP:
             name_rec['keep_data'] = True
@@ -2031,7 +2278,11 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         ret_op = parse_namespace_ready( name_rec_payload )
 
-    ret_op = virtualchain.virtualchain_set_opfields( ret_op, virtualchain_opcode=getattr( config, opcode_name ), virtualchain_txid=str(name_rec['txid']), virtualchain_txindex=int(name_rec['vtxindex']) )
+    ret_op = virtualchain.virtualchain_set_opfields( ret_op, \
+            virtualchain_opcode=getattr( config, opcode_name ), \
+            virtualchain_txid=str(name_rec['txid']), \
+            virtualchain_txindex=int(name_rec['vtxindex']) )
+
     ret_op['opcode'] = opcode_name
 
     merged_ret_op = copy.deepcopy( name_rec )
@@ -2045,6 +2296,8 @@ def nameop_restore_consensus_fields( name_rec, block_id ):
     that all of its consensus fields are present.
     Because they can be reconstructed directly from the nameop,
     but they are not always stored in the db.
+
+    TODO: refactor; put each op-specific code block into the name op definition.
     """
 
     opcode_name = str(name_rec['opcode'])
@@ -2332,6 +2585,12 @@ def run_blockstored():
    parser.add_argument(
       '--working-dir', action='store',
       help='use an alternative working directory')
+   parser.add_argument(
+      '--clean', action='store_true',
+      help='clear out old runtime state from a failed blockstored process')
+   parser.add_argument(
+      '--kill', action='store_true',
+      help='send SIGKILL to the blockstored process')
 
    parser = subparsers.add_parser(
       'reconfigure',
@@ -2417,7 +2676,9 @@ def run_blockstored():
 
    args, _ = argparser.parse_known_args()
 
-   log.debug( "bitcoin options: %s" % bitcoin_opts )
+   log.debug("bitcoin options: (%s, %s, %s)" % (bitcoin_opts['bitcoind_server'],
+                                                bitcoin_opts['bitcoind_port'],
+                                                bitcoin_opts['bitcoind_user']))
 
    if args.action == 'version':
       print "Blockstore version: %s.%s" % (VERSION, BLOCKSTORE_VERSION)
@@ -2427,7 +2688,7 @@ def run_blockstored():
    if args.action == 'start':
 
       if os.path.exists( get_pidfile_path() ):
-          log.error("Blockstored appears to be running already.  If not, please run '%s stop'" % (sys.argv[0]))
+          log.error("Blockstored appears to be running already.  If not, please run '%s stop --clean'" % (sys.argv[0]))
           sys.exit(1)
 
       if args.foreground:
@@ -2437,12 +2698,12 @@ def run_blockstored():
          log.info("Service endpoint exited with status code %s" % exit_status )
 
       else:
-
+    
          log.info('Starting blockstored server (testset = %s) ...' % testset)
          run_server( testset=testset )
 
    elif args.action == 'stop':
-      stop_server()
+      stop_server( False, clean=args.clean, kill=args.kill )
 
    elif args.action == 'reconfigure':
       reconfigure( testset=testset )

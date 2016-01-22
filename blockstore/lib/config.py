@@ -39,7 +39,7 @@ except:
 DEBUG = True
 TESTNET = False
 
-VERSION = "0.05"
+VERSION = "0.0.11"
 
 # namespace version
 BLOCKSTORE_VERSION = 1
@@ -58,6 +58,7 @@ BLOCKS_PER_YEAR = int(round(MINUTES_PER_YEAR/AVERAGE_MINUTES_PER_BLOCK))
 BLOCKS_PER_DAY = int(round(float(MINUTES_PER_HOUR * HOURS_PER_DAY)/AVERAGE_MINUTES_PER_BLOCK))
 EXPIRATION_PERIOD = BLOCKS_PER_YEAR*1
 NAME_PREORDER_EXPIRE = BLOCKS_PER_DAY
+NAME_PREORDER_MULTI_EXPIRE = 7 * BLOCKS_PER_DAY
 # EXPIRATION_PERIOD = 10
 AVERAGE_BLOCKS_PER_HOUR = MINUTES_PER_HOUR/AVERAGE_MINUTES_PER_BLOCK
 
@@ -122,6 +123,7 @@ MAGIC_BYTES_MAINSET = 'id'
 """
 
 # Opcodes
+ANNOUNCE = '#'
 NAME_PREORDER = '?'
 NAME_REGISTRATION = ':'
 NAME_UPDATE = '+'
@@ -129,30 +131,14 @@ NAME_TRANSFER = '>'
 NAME_RENEWAL = NAME_REGISTRATION
 NAME_REVOKE = '~'
 NAME_IMPORT = ';'
-
-NAME_OPCODES = [
-    NAME_PREORDER,
-    NAME_REGISTRATION,
-    NAME_UPDATE,
-    NAME_TRANSFER,
-    NAME_RENEWAL,
-    NAME_REVOKE,
-    NAME_IMPORT
-]
-
-NAME_SCHEME = MAGIC_BYTES_MAINSET + NAME_REGISTRATION
-
 NAMESPACE_PREORDER = '*'
 NAMESPACE_REVEAL = '&'
 NAMESPACE_READY = '!'
 
-NAMESPACE_OPCODES = [
-    NAMESPACE_PREORDER,
-    NAMESPACE_REVEAL,
-    NAMESPACE_READY
-]
+NAME_SCHEME = MAGIC_BYTES_MAINSET + NAME_REGISTRATION
 
-ANNOUNCE = '#'
+# extra bytes affecting a preorder
+NAME_PREORDER_MULTI = '*'
 
 # extra bytes affecting a transfer
 TRANSFER_KEEP_DATA = '>'
@@ -278,7 +264,12 @@ TESTSET_NAMESPACE_8UP_CHAR_COST = 10000
 NAMESPACE_PREORDER_EXPIRE = BLOCKS_PER_DAY      # namespace preorders expire after 1 day, if not revealed
 NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_YEAR       # namespace reveals expire after 1 year, if not readied.
 
-NAME_IMPORT_KEYRING_SIZE = 300                  # number of keys to derive from the import key
+if os.getenv("BLOCKSTORE_TEST") is not None:
+    # testing 
+    NAME_IMPORT_KEYRING_SIZE = 5                  # number of keys to derive from the import key
+
+else:
+    NAME_IMPORT_KEYRING_SIZE = 300                  # number of keys to derive from the import key
 
 NUM_CONFIRMATIONS = 6                         # number of blocks to wait for before accepting names
 
@@ -632,6 +623,8 @@ def default_bitcoind_opts( config_file=None ):
    """
    Get our default bitcoind options, such as from a config file,
    or from sane defaults
+
+   TODO: deprecate in favor of virtualchain's code
    """
 
    bitcoind_server = None
@@ -640,6 +633,7 @@ def default_bitcoind_opts( config_file=None ):
    bitcoind_passwd = None
    bitcoind_use_https = None
    bitcoind_mock = False
+   bitcoind_timeout = 300
 
    loaded = False
 
@@ -672,6 +666,9 @@ def default_bitcoind_opts( config_file=None ):
          else:
             mock = 'no'
 
+         if parser.has_option('bitcoind', 'timeout'):
+            bitcoind_timeout = float(parser.get('bitcoind', 'timeout'))
+
          if use_https.lower() in ["yes", "y", "true"]:
             bitcoind_use_https = True
          else:
@@ -692,6 +689,7 @@ def default_bitcoind_opts( config_file=None ):
          bitcoind_user = DEFAULT_BITCOIND_USERNAME
          bitcoind_passwd = DEFAULT_BITCOIND_PASSWD
          bitcoind_use_https = False
+         bitcoind_timeout = 300
 
       else:
          bitcoind_server = DEFAULT_BITCOIND_SERVER
@@ -699,6 +697,7 @@ def default_bitcoind_opts( config_file=None ):
          bitcoind_user = DEFAULT_BITCOIND_USERNAME
          bitcoind_passwd = DEFAULT_BITCOIND_PASSWD
          bitcoind_use_https = True
+         bitcoind_timeout = 300
 
    default_bitcoin_opts = {
       "bitcoind_user": bitcoind_user,
@@ -706,7 +705,8 @@ def default_bitcoind_opts( config_file=None ):
       "bitcoind_server": bitcoind_server,
       "bitcoind_port": bitcoind_port,
       "bitcoind_use_https": bitcoind_use_https,
-      "bitcoind_mock": bitcoind_mock
+      "bitcoind_mock": bitcoind_mock,
+      "bitcoind_timeout": bitcoind_timeout
    }
 
    # strip None's
@@ -1111,7 +1111,7 @@ def default_dht_opts( config_file=None ):
       dht_opts = {
          'disable': disable,
          'port': port,
-         'servers': parsed_servers
+         'servers': ",".join( ["%s:%s" % (s[0], s[1]) for s in parsed_servers] )
       }
 
       return dht_opts
@@ -1377,7 +1377,6 @@ def write_config_file( blockstore_opts=None, bitcoind_opts=None, utxo_opts=None,
    Return False on failure
    """
 
-   print dht_opts
    if config_file is None:
       try:
          config_file = virtualchain.get_config_filename()

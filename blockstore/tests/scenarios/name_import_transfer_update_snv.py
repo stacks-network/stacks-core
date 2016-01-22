@@ -24,22 +24,34 @@
 import testlib
 import pybitcoin
 import json
+import shutil
+import tempfile
+import os
+import blockstore_client as snv_client
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
     testlib.Wallet( "5KHqsiU9qa77frZb6hQy9ocV7Sus9RWJcQGYYBJJBb2Efj1o77e", 100000000000 ),
     testlib.Wallet( "5Kg5kJbQHvk1B64rJniEmgbD83FpZpbw2RjdAZEzTefs9ihN3Bz", 100000000000 ),
     testlib.Wallet( "5JuVsoS9NauksSkqEjbUZxWwgGDQbMwPsEfoRBSpLpgDX1RtLX7", 100000000000 ),
-    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 100000000000 )
+    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 100000000000 ),
+    testlib.Wallet( "5K5hDuynZ6EQrZ4efrchCwy6DLhdsEzuJtTDAf3hqdsCKbxfoeD", 100000000000 ),
+    testlib.Wallet( "5J39aXEeHh9LwfQ4Gy5Vieo7sbqiUMBXkPH7SaMHixJhSSBpAqz", 100000000000 ),
+    testlib.Wallet( "5K9LmMQskQ9jP1p7dyieLDAeB6vsAj4GK8dmGNJAXS1qHDqnWhP", 100000000000 ),
+    testlib.Wallet( "5KcNen67ERBuvz2f649t9F2o1ddTjC5pVUEqcMtbxNgHqgxG2gZ", 100000000000 )
 ]
 
-debug = True
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
+
+debug = True
+last_consensus = None 
+snv_block_id = None
 
 def scenario( wallets, **kw ):
 
-    global debug
-
+    global last_consensus, snv_block_id 
+    
+    # make a test namespace
     resp = testlib.blockstore_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
@@ -52,63 +64,82 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
+    resp = testlib.blockstore_name_import( "foo.test", wallets[3].addr, "11" * 20, wallets[1].privkey )
+    if 'error' in resp:
+        print json.dumps( resp, indent=4 )
+
+    testlib.next_block( **kw )
+
+    snv_block_id = testlib.get_current_block()
+
     resp = testlib.blockstore_namespace_ready( "test", wallets[1].privkey )
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
-    resp = testlib.blockstore_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
-    if debug or 'error' in resp:
-        print json.dumps( resp, indent=4 )
-
-    testlib.next_block( **kw )
-    
-    resp = testlib.blockstore_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
-    if debug or 'error' in resp:
+    resp = testlib.blockstore_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey )
+    if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
-    resp = testlib.blockstore_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey ) 
-    if debug or 'error' in resp:
+    resp = testlib.blockstore_name_update( "foo.test", "22" * 20, wallets[4].privkey )
+    if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    last_consensus = testlib.get_consensus_at( testlib.get_current_block() )
 
 
 def check( state_engine ):
 
+    global last_consensus, snv_block_id
+
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "test" )
     if ns is not None:
-        print "'test' not revealed"
         return False 
 
     ns = state_engine.get_namespace( "test" )
     if ns is None:
-        print "'test' not found"
         return False 
 
     if ns['namespace_id'] != 'test':
-        print "'test' not returned"
         return False 
 
-    # not preordered
-    preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
-    if preorder is not None:
-        print "'foo.test' still preordered"
-        return False
-    
+    # not preordered 
+    for i in xrange(0, len(wallets)):
+        preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[i].addr), wallets[(i+1)%5].addr )
+        if preorder is not None:
+            print "preordered"
+            return False
+
     # registered 
     name_rec = state_engine.get_name( "foo.test" )
     if name_rec is None:
-        print "'foo.test' not registered"
+        print "no name"
+        return False 
+
+    # updated, and data preserved
+    if name_rec['value_hash'] != "22" * 20:
+        print "wrong value hash"
         return False 
 
     # transferred 
-    if name_rec['address'] != wallets[4].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[4].addr):
-        print "'foo.test' invalid owner"
-        return False 
+    if name_rec['address'] != wallets[4].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script( wallets[4].addr ):
+        print "wrong owner"
+        return False
+
+    # snv lookup works
+    test_proxy = testlib.TestAPIProxy()
+    snv_client.client.set_default_proxy( test_proxy )
+
+    snv_rec = snv_client.client.snv_lookup( "foo.test", snv_block_id, last_consensus, proxy=test_proxy )
+    if 'error' in snv_rec:
+        print json.dumps(snv_rec, indent=4 )
+        return False
+
+    print snv_rec 
 
     return True

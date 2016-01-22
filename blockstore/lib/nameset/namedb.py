@@ -29,19 +29,20 @@ import math
 import keychain
 import pybitcoin
 import os
+import sys
 import copy
 import shutil
 
 from collections import defaultdict
 from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAX_NAMES_PER_SENDER, \
     NAME_PREORDER, NAMESPACE_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER, TRANSFER_KEEP_DATA, \
-    TRANSFER_REMOVE_DATA, NAME_REVOKE, NAME_IMPORT, NAME_PREORDER_EXPIRE, \
+    TRANSFER_REMOVE_DATA, NAME_PREORDER_MULTI, NAME_REVOKE, NAME_IMPORT, NAME_PREORDER_EXPIRE, \
     NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTORE_VERSION, \
     NAMESPACE_1_CHAR_COST, NAMESPACE_23_CHAR_COST, NAMESPACE_4567_CHAR_COST, NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
     TESTSET_NAMESPACE_1_CHAR_COST, TESTSET_NAMESPACE_23_CHAR_COST, TESTSET_NAMESPACE_4567_CHAR_COST, TESTSET_NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
-    NAME_IMPORT_KEYRING_SIZE, GENESIS_SNAPSHOT, GENESIS_SNAPSHOT_TESTSET, default_blockstore_opts, NAMESPACE_READY
+    NAME_IMPORT_KEYRING_SIZE, GENESIS_SNAPSHOT, GENESIS_SNAPSHOT_TESTSET, default_blockstore_opts, NAMESPACE_READY, NAME_OPCODES, NAME_PREORDER_MULTI_EXPIRE
 
-from ..operations import build_namespace_reveal
+from ..operations import build_namespace_reveal, SERIALIZE_FIELDS, preorder_multi_hash_names
 from ..hashing import *
 from ..b40 import is_b40
 
@@ -69,6 +70,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       Construct a blockstore state engine, optionally from locally-cached
       blockstore database state.
       """
+      log.debug("Initialize database from '%s'" % db_filename)
 
       import virtualchain_hooks
       blockstore_opts = default_blockstore_opts( virtualchain.get_config_filename() )
@@ -80,8 +82,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       else:
           initial_snapshots = GENESIS_SNAPSHOT
 
-
-      super( BlockstoreDB, self ).__init__( virtualchain_hooks.get_magic_bytes(), OPCODES, impl=virtualchain_hooks, initial_snapshots=initial_snapshots, state=self )
+      super( BlockstoreDB, self ).__init__( virtualchain_hooks.get_magic_bytes(), OPCODES, BlockstoreDB.make_opfields(), impl=virtualchain_hooks, initial_snapshots=initial_snapshots, state=self )
 
       self.announce_ids = blockstore_opts['announcers'].split(",")
 
@@ -91,7 +92,13 @@ class BlockstoreDB( virtualchain.StateEngine ):
                                               # in addition to containing all of the NAME_REC fields, it contains
                                               # a 'history' dict that maps a block ID to the old values of fields changed at that block,
 
-      self.preorders = {}                     # map preorder name.ns_id+script_pubkey hash (as a hex string) to its first "preorder" nameop
+      self.preorders = {}                     # map hash(sorted(csvlist(name.ns_id))+script_pubkey+sorted(csvlist(register_addr)))
+                                              # (as a hex string) to its first "preorder" nameop
+      self.preorder_multis = defaultdict(list)     # map hash(sorted(csvlist(name.ns_id))+script_pubkey+sorted(csvlist(register_addr)))
+                                                   # (as a hex string) to a list of NAME_REGISTRATION nameops (the multi-preorder is in self.preorders)
+      self.preorder_multi_senders = defaultdict(list)        # map sender's script_pubkey to list( hash(sorted(csvlist(name.ns_id))+script_pubkey+sorted(csvlist(register_addr))) )
+                                                             # (i.e. the list of all multi-preorders in-flight by this sender)
+
       self.namespaces = {}                    # map namespace ID to first instance of NAMESPACE_REVEAL op (a dict) combined with the namespace ID and sender script_pubkey
       self.namespace_preorders = {}           # map namespace ID hash (as the hex string of ns_id+script_pubkey hash) to its NAMESPACE_PREORDER operation
       self.namespace_reveals = {}             # map namesapce ID to its NAMESPACE_REVEAL operation
@@ -140,6 +147,12 @@ class BlockstoreDB( virtualchain.StateEngine ):
 
                if 'preorders' in db_dict:
                   self.preorders = db_dict['preorders']
+
+               if 'preorder_multis' in db_dict:
+                  self.preorder_multis = db_dict['preorder_multis']
+
+               if 'preorder_multi_senders' in db_dict:
+                  self.preorder_mulit_senders = db_dict['preorder_multi_senders']
 
          except Exception as e:
             log.warning("Failed to open '%s'; creating a new database" % db_filename)
@@ -228,7 +241,31 @@ class BlockstoreDB( virtualchain.StateEngine ):
          # sanitize history on import
          self.namespaces[namespace_id]['history'] = BlockstoreDB.sanitize_history( namespace['history'] )
 
+      for (name_hash, nameop) in self.preorders.items():
+
+          quantity = 1
+          if len(nameop['op']) == 3 and nameop['op'][1] == NAME_PREORDER_MULTI:
+              # multi-preorder 
+              quantity = ord(nameop['op'][2])
+
+          nameop['quantity'] = quantity
+
+      # have not yet scanned for collisions
       self.prescanned = False
+
+
+   @classmethod 
+   def make_opfields( cls ):
+      """
+      Calculate the virtulachain-required opfields dict.
+      """
+      # construct fields 
+      opfields = {}
+      for opname in SERIALIZE_FIELDS.keys():
+          opcode = NAME_OPCODES[opname]
+          opfields[opcode] = SERIALIZE_FIELDS[opname]
+
+      return opfields
 
 
    def save_db(self, filename):
@@ -244,6 +281,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
             db_dict = {
                'registrations': self.name_records,
                'preorders': self.preorders,
+               'preorder_multis': self.preorder_multis,
+               'preorder_multi_senders': self.preorder_multi_senders,
                'namespaces': self.namespaces,
                'namespace_preorders': self.namespace_preorders,
                'namespace_reveals': self.namespace_reveals
@@ -612,8 +651,6 @@ class BlockstoreDB( virtualchain.StateEngine ):
       data = {}
       data['results'] = namespace_names
 
-      # old format that returned data on individual records as well
-      #return dict( zip( namespace_names, [self.name_records[name] for name in namespace_names] ) )
       return data
 
 
@@ -742,6 +779,28 @@ class BlockstoreDB( virtualchain.StateEngine ):
 
       else:
           return self.preorders[ preorder_hash ]
+
+
+   def get_name_multi_preorder( self, names, sender_script_pubkey, register_addrs ):
+       """
+       Get the multi-preorder for a list of names and their register addresses, given them and
+       the preorderer's public key.
+       Return the nameop on succes
+       Return None if not found, or if the preorder is expired, or if the preorder is already registered.
+       """
+
+       # do any of these names exist already?
+       for name in names:
+           name_rec = self.get_name( name )
+           if name_rec is not None:
+               return None 
+
+       preorder_hash = preorder_multi_hash_names( names, sender_script_pubkey, register_addrs )
+       if preorder_hash not in self.preorders.keys():
+           return None 
+
+       else:
+           return self.preorders[ preorder_hash ]
 
 
    def get_namespace_preorder( self, namespace_id_hash ):
@@ -896,6 +955,31 @@ class BlockstoreDB( virtualchain.StateEngine ):
       return self.name_records[name]['revoked']
 
 
+   def is_sender_multi_preordering( self, sender_script_pubkey ):
+       """
+       Is a sender in the process of doing a multi-preorder?
+       """
+       return (sender_script_pubkey in self.preorder_multi_senders.keys())
+   
+
+   def is_multi_preorder_complete( self, sender_script_pubkey, multi_name_hash, name_registrations ):
+       """
+       Given a sender's script-pubkey, list of name registrations and a multi-preorder's name hash, 
+       do the registrations' names and addresses hash to it?
+
+       Return True if so; False if not
+       """
+       
+       names = [n['name'] for n in name_registrations]
+       addrs = [n['recipient_address'] for n in name_registrations]
+
+       names_hash = preorder_multi_hash_names( names, sender_script_pubkey, addrs )
+       if names_hash == multi_name_hash:
+           return True
+       else:
+           return False
+
+
    @classmethod
    def restore_from_history( cls, rec, block_number ):
       """
@@ -1037,6 +1121,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
    def commit_name_expire( self, name, block_id ):
       """
       Remove an expired name.
+      TODO: is it safe to actually remove the data?
       The caller must verify that the expiration criteria have been met.
       Return True if expired
       Return False if not
@@ -1074,24 +1159,38 @@ class BlockstoreDB( virtualchain.StateEngine ):
 
    def commit_preorder_expire_all( self, block_id ):
       """
-      Given the block ID, go find and remove all expired preorders
+      Given the block ID, go find all expired preorders
+      TODO: is it safe to actually remove the data here, if the name was never claimed?
 
       Return the list of expired name hashes
       """
 
       expired = []
       for (name_hash, nameop) in self.preorders.items():
-          if nameop['block_number'] + NAME_PREORDER_EXPIRE == block_id:
+          expiry_time = NAME_PREORDER_EXPIRE 
+          if nameop['quantity'] > 1:
+              # multi-preorders expire in a week
+              expiry_time = NAME_PREORDER_MULTI_EXPIRE
+
+          if nameop['block_number'] + (expiry_time) == block_id:
               # expired
               log.debug("Expire name preorder '%s'" % name_hash)
               expired.append( name_hash )
+
+              # all pending registrations fail too 
+              if self.preorder_multis.has_key( name_hash ):
+                  del self.preorder_multis[ name_hash ]
+
+              if self.preorder_multi_senders.has_key( nameop['sender'] ):
+                  del self.preorder_multi_senders[ nameop['sender'] ]
 
       return expired
 
 
    def commit_namespace_preorder_expire_all( self, block_id ):
       """
-      Given the block ID, go find and remove all expired namespace preorders
+      Given the block ID, go find all expired namespace preorders
+      TODO: is it safe to actually remove data here, if the namespace was never claimed?
 
       Return the list of expired namespace hashes
       """
@@ -1165,21 +1264,30 @@ class BlockstoreDB( virtualchain.StateEngine ):
       Given the fully-qualified name (name.ns_id) and a script_pubkey hex string,
       remove the preorder.
 
-      Return the old preorder
+      Only works if the name was *not* part of a multi-preorder
+
+      Return the old preorder on success
+      Return None if not found.
       """
-      try:
-         name_hash = hash_name(name, script_pubkey, register_addr=register_addr)
-      except ValueError:
-         return None
+      
+      name_hash = hash_name(name, script_pubkey, register_addr=register_addr)
+
+      if self.preorders.has_key(name_hash):
+         # was preordered
+         old_preorder = self.preorders[name_hash]
+         del self.preorders[name_hash]
+         return old_preorder
+
       else:
-         if self.preorders.has_key(name_hash):
-            old_preorder = self.preorders[name_hash]
-            del self.preorders[name_hash]
-            return old_preorder
+         # could refer to a multi-preorder
+         if script_pubkey in self.preorder_multi_senders.keys():
+             log.debug("'%s' not preordered individually by '%s', but possibly as part of a multi-preorder" % (name, script_pubkey))
+             return None
 
          else:
-            log.error("BUG: No preorder found for '%s' from '%s'" % (name, script_pubkey))
-            raise Exception("BUG: no preorder found for '%s' from '%s'" % (name, script_pubkey))
+             # should never reach here: tried to remove a preorder for a name without a registration
+             log.error("BUG: No preorder found for '%s' from '%s'" % (name, script_pubkey))
+             raise Exception("BUG: no preorder found for '%s' from '%s'" % (name, script_pubkey))
 
 
    def commit_remove_namespace_import( self, namespace_id, namespace_id_hash ):
@@ -1205,14 +1313,25 @@ class BlockstoreDB( virtualchain.StateEngine ):
 
    def commit_preorder( self, nameop, current_block_number ):
       """
-      Record that a name was preordered.
+      Record a preorder.
+      Identify multi-preorders by extending the opcode string with the extra information.
       """
 
       name_hash = nameop['preorder_name_hash']
+      sender = nameop['sender']
       commit_nameop = self.sanitize_op( nameop )
       commit_nameop['block_number'] = current_block_number
       commit_nameop['history'] = {}
+      commit_nameop['quantity'] = nameop['quantity']
       commit_nameop['op'] = NAME_PREORDER
+
+      if nameop['quantity'] > 1:
+          # this is a multi-preorder 
+          self.preorder_multi_senders[ sender ].append( name_hash )
+
+          # serialize quantity into the op string, so it's covered by the consensus hash 
+          commit_nameop['op'] = str(NAME_PREORDER) + str(NAME_PREORDER_MULTI) + str(chr( nameop['quantity'] ))
+
       self.preorders[ name_hash ] = commit_nameop
 
       # propagate information back to virtualchain for snapshotting
@@ -1220,7 +1339,51 @@ class BlockstoreDB( virtualchain.StateEngine ):
       return nameop
 
 
-   def commit_registration( self, nameop, current_block_number ):
+   def commit_registration_multi_preorder( self, nameop, current_block_number ):
+      """
+      A registration is part of a multi-preorder.
+      Record the registration along with the others, and see if we have accumulated all registrations.
+      If we have, then return the list of them.  They are all said to have been registered
+      at the last registration that "completes" the multi-preorder.
+
+      Return the (multi_preorder, sequence of regstrations) if the multi-preorder is now satisfied.
+      Return (True, None) if not (but save the registration)
+      Return (False, None) on invalid input
+      """
+
+      name = nameop['name']
+      sender = nameop['sender']
+      address = nameop['address']
+      recipient = nameop['recipient']
+      recipient_address = nameop['recipient_address']
+
+      if not self.is_sender_multi_preordering( sender ):
+          # this sender hasn't issued any multi-preorders
+          log.error("Sender '%s' has issued no multi-preorders" % sender)
+          return False, None
+
+      self.preorder_multis[ sender ].append( nameop )
+
+      for multi_name_hash in self.preorder_multi_senders[ sender ]:
+          if self.is_multi_preorder_complete( sender, multi_name_hash, self.preorder_multis[ sender ] ):
+              # finished a preorder!
+              old_preorder = self.preorders[ multi_name_hash ]
+              registrations = self.preorder_multis[ sender ]
+              
+              # clear out preorder state
+              self.preorder_multi_senders[ sender ].remove( multi_name_hash )
+              if len(self.preorder_multi_senders[sender]) == 0:
+                  del self.preorder_multi_senders[sender]
+
+              del self.preorders[ multi_name_hash ]
+              del self.preorder_multis[ sender ]
+
+              return old_preorder, registrations
+
+      return True, None
+
+
+   def commit_registration( self, nameop, current_block_number, multi_preorder=None ):
       """
       Record a name registration to have taken place at a particular
       block number.
@@ -1238,13 +1401,49 @@ class BlockstoreDB( virtualchain.StateEngine ):
 
       # is this a renewal?
       if self.is_name_registered( name ):
-
           self.commit_renewal( nameop, current_block_number )
 
       else:
 
           # registered!
-          preorder = self.commit_remove_preorder( name, sender, recipient_address )
+          if multi_preorder is None:
+              
+              # maybe preordered?
+              preorder = self.commit_remove_preorder( name, sender, recipient_address )
+              if preorder is None:
+                  # either not preordered, or part of a multi-preorder 
+                  # remember the nameop, and do nothing more (we'll replay this later)
+                  preorder_result, registrations = self.commit_registration_multi_preorder( nameop, current_block_number )
+                  if preorder_result in [True, False]:
+
+                      # still have some names to come
+                      if not preorder_result:
+                          # invalid registration
+                          log.error("'%s' is an invalid registration" % (nameop['name']))
+                          return None
+                      else:
+                          # saved, but not (yet) registered
+                          log.debug("'%s' saved for future mass-registration" % (nameop['name']))
+                          return None
+
+                  else:
+                      # this was the last registration we needed to complete a multi-preorder.
+                      # now we have all of them.
+                      preorder = preorder_result
+                      reg_ops = []
+
+                      # do each registration
+                      for name_reg in registrations:
+                          op = self.commit_registration( name_reg, current_block_number, multi_preorder=preorder )
+                          reg_ops.append( op )
+
+                      # done!
+                      return reg_ops
+
+          else:
+              # registering one of many names as part of a multi-preorder
+              preorder = copy.deepcopy( multi_preorder )
+
           del preorder['history']
 
           # preorder becomes a history snapshot
@@ -1458,6 +1657,12 @@ class BlockstoreDB( virtualchain.StateEngine ):
       self.name_records[name]['vtxindex'] = nameop['vtxindex']
       self.name_records[name]['opcode'] = opcode
       self.name_records[name]['op'] = "%s%s" % (NAME_TRANSFER, op)
+      
+      # NOTE: this was omitted by mistake, but we cannot add it without breaking consensus
+      # self.name_records[name]['consensus_hash'] = nameop['consensus_hash']
+
+      # NOTE: this might work instead
+      # self.name_records[name]['consensus_hash_transfer'] = nameop['consensus_hash']
 
       if not keep_data:
          self.name_records[name]['value_hash'] = None
@@ -1778,6 +1983,9 @@ class BlockstoreDB( virtualchain.StateEngine ):
       Return ([list of colliding names], [list of colliding namespace_ids])
       """
 
+      colliding_names = []
+      colliding_namespaces = []
+
       if not self.prescanned:
 
           valid_registrations = {}  # map name to indexes in all_nameops
@@ -1820,9 +2028,6 @@ class BlockstoreDB( virtualchain.StateEngine ):
                       # valid, not yet collided
                       valid_namespaces[nameop['namespace_id']] = [i]
 
-          colliding_names = []
-          colliding_namespaces = []
-
           for name, namelist in valid_registrations.items():
               if len(namelist) > 1:
                   # all collided
@@ -1841,7 +2046,12 @@ class BlockstoreDB( virtualchain.StateEngine ):
           self.colliding_names = colliding_names
           self.colliding_namespaces = colliding_namespaces
 
-      return (self.colliding_names, self.colliding_namespaces)
+      else:
+          # use cached collision list
+          colliding_names = self.colliding_names 
+          colliding_namespaces = self.colliding_namespaces
+
+      return (colliding_names, colliding_namespaces)
 
 
    def log_prescan_reset( self ):
@@ -1944,7 +2154,9 @@ class BlockstoreDB( virtualchain.StateEngine ):
 
       NAME_REGISTRATION is not allowed during a namespace import, so the namespace must be ready.
 
-      NOTE: it is *imperative* that this method does *not* modify nameop.
+      NOTE: it is *imperative* that this method be idempotent!
+      * it does *not* modify nameop.
+      * it does *not* store any state in a non-idempotent way.
 
       Return True if accepted.
       Return False if not.
@@ -1987,6 +2199,11 @@ class BlockstoreDB( virtualchain.StateEngine ):
       # get namespace...
       namespace = self.get_namespace( namespace_id )
 
+      # cannot exceed quota
+      if len( self.owner_names.get( recipient, [] ) ) >= MAX_NAMES_PER_SENDER:
+          log.debug("Recipient '%s' has exceeded quota" % recipient)
+          return False
+
       # preordered?
       name_preorder = self.get_name_preorder( name, sender, register_addr )
       if name_preorder is not None:
@@ -2008,7 +2225,6 @@ class BlockstoreDB( virtualchain.StateEngine ):
 
           name_fee = name_preorder['op_fee']
 
-
       elif self.is_name_registered( name ):
 
           # name must be owned by the recipient already
@@ -2028,15 +2244,15 @@ class BlockstoreDB( virtualchain.StateEngine ):
 
           name_fee = nameop['op_fee']
 
+      elif self.is_sender_multi_preordering( sender ):
+          # not explicitly preordered, but could be part of a multi-preorder 
+          log.debug("Name '%s' could be part of a multi-preorder from '%s'" % (name, sender))
+          return True
+
       else:
 
           # does not exist and not preordered
           log.debug("Name '%s' does not exist, or is not preordered by %s" % (name, sender))
-          return False
-
-      # cannot exceed quota
-      if len( self.owner_names.get( recipient, [] ) ) >= MAX_NAMES_PER_SENDER:
-          log.debug("Recipient '%s' has exceeded quota" % recipient)
           return False
 
       # check name fee
@@ -2375,7 +2591,9 @@ class BlockstoreDB( virtualchain.StateEngine ):
       for this namespace, and if it was sent by the same
       sender who sent the NAMESPACE_PREORDER.
 
-      It is *imperative* that this method not modify nameop
+      It is *imperative* that this method be idempotent:
+      * it must not modify nameop
+      * it must not store any state in a non-idempotent way
 
       Return True if accepted
       Return False if not

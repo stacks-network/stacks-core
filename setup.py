@@ -22,10 +22,12 @@
 """
 
 from setuptools import setup, find_packages
+import sys
+import os
 
 setup(
     name='blockstore',
-    version='0.0.10',
+    version='0.0.11',
     url='https://github.com/blockstack/blockstore',
     license='GPLv3',
     author='Blockstack.org',
@@ -38,10 +40,10 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'virtualchain>=0.0.6',
+        'virtualchain>=0.0.8',
         'kademlia>=0.5',
         'keychain>=0.1.4',
-        'blockstore-client>=0.0.9'
+        'blockstore-client>=0.0.12'
     ],
     classifiers=[
         'Intended Audience :: Developers',

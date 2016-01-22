@@ -3,22 +3,22 @@
 """
     Blockstore
     ~~~~~
-    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
-    copyright: (c) 2016 by Blockstack.org
-
+    copyright: (c) 2014 by Halfmoon Labs, Inc.
+    copyright: (c) 2015 by Blockstack.org
+    
     This file is part of Blockstore
-
+    
     Blockstore is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
-
+    
     Blockstore is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstore. If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstore.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 # Hooks to the virtual chain's state engine that bind our namedb to the virtualchain package.
@@ -31,6 +31,7 @@ import pybitcoin
 import traceback
 import json
 import copy
+import threading
 
 from .namedb import BlockstoreDB
 
@@ -38,6 +39,7 @@ from ..config import *
 from ..operations import parse_preorder, parse_registration, parse_update, parse_transfer, parse_revoke, \
     parse_name_import, parse_namespace_preorder, parse_namespace_reveal, parse_namespace_ready, parse_announce, \
     get_transfer_recipient_from_outputs, get_import_update_hash_from_outputs, get_registration_recipient_from_outputs, \
+    parse_preorder_multi, \
     SERIALIZE_FIELDS
 
 import virtualchain
@@ -46,7 +48,7 @@ if not globals().has_key('log'):
     log = virtualchain.session.log
 
 blockstore_db = None
-last_load_time = 0
+blockstore_db_lock = threading.Lock()
 
 def get_burn_fee_from_outputs( outputs ):
     """
@@ -140,8 +142,17 @@ def parse_blockstore_op_data( opcode, payload, sender, recipient=None, recipient
     
     if opcode == NAME_PREORDER:
         if len(payload) >= MIN_OP_LENGTHS['preorder']:
-            log.debug( "Parse NAME_PREORDER: %s" % data )
+
             op = parse_preorder(payload)
+            if op is not None:
+                # singular preorder
+                log.debug( "Parse NAME_PREORDER: %s" % data )
+
+            else:
+                # might be a multi-preorder
+                log.debug( "Parse NAME_PREORDER_MULTI: %s" % data )
+                op = parse_preorder_multi( payload )
+
         else:
             log.error( "NAME_PREORDER: invalid length %s" % len(payload) )
         
@@ -302,16 +313,14 @@ def get_db_state():
    (i.e. our name database)
    """
    
-   global blockstore_db
-   global last_load_time
+   global blockstore_db, blockstore_db_lock
    
    now = time.time()
    
-   # force invalidation
-   if now - last_load_time > REINDEX_FREQUENCY:
-       blockstore_db = None
-       
+   blockstore_db_lock.acquire()
+
    if blockstore_db is not None:
+      blockstore_db_lock.release()
       return blockstore_db 
    
    db_filename = virtualchain.get_db_filename()
@@ -319,8 +328,7 @@ def get_db_state():
    log.info("(Re)Loading blockstore state from '%s'" % db_filename )
    blockstore_db = BlockstoreDB( db_filename )
    
-   last_load_time = time.time()
-   
+   blockstore_db_lock.release()
    return blockstore_db
 
 
@@ -429,7 +437,9 @@ def db_parse( block_id, opcode, data, senders, inputs, outputs, fee, db_state=No
       
       if sender_pubkey_hex is not None:
          op['sender_pubkey'] = sender_pubkey_hex
-       
+      
+   else:
+       log.error("Invalid opcode '%s'" % opcode)
  
    return op
 
@@ -544,19 +554,22 @@ def db_check( block_id, checked_ops, opcode, op, txid, vtxindex, db_state=None )
 def db_commit( block_id, opcode, op, txid, vtxindex, db_state=None ):
    """
    (required by virtualchain state engine)
+
+   Advance the state of the state engine: get a list of all
+   externally visible state transitions.
    
    Given a block ID and checked opcode, record it as 
    part of the database.  This does *not* need to write 
    the data to persistent storage, since save() will be 
    called once per block processed.
   
-   Returns a new name record on success, which will 
-   be fed into db_serialize to translate into a string
+   Returns one or more new name operations on success, which will 
+   be fed into virtualchain to translate into a string
    to be used to generate this block's consensus hash.
    """
    
-   new_namerec = None 
 
+   op_seq = None    # sequence of resulting operations from this tx
    if db_state is not None:
       
       db = db_state
@@ -571,56 +584,62 @@ def db_commit( block_id, opcode, op, txid, vtxindex, db_state=None ):
         if not op.has_key('vtxindex') and vtxindex is not None:
             op['vtxindex'] = vtxindex
             
+        op_seq = None
+
         if opcode == NAME_PREORDER:
-            new_namerec = db.commit_preorder( op, block_id )
+            op_seq = db.commit_preorder( op, block_id )
 
         elif opcode == NAME_REGISTRATION:
-            new_namerec = db.commit_registration( op, block_id )
+            op_seq = db.commit_registration( op, block_id )
 
         elif opcode == NAME_UPDATE:
-            new_namerec = db.commit_update( op, block_id )
+            op_seq = db.commit_update( op, block_id )
 
         elif opcode == NAME_TRANSFER:
-            new_namerec = db.commit_transfer( op, block_id )
+            op_seq = db.commit_transfer( op, block_id )
 
         elif opcode == NAME_REVOKE:
-            new_namerec = db.commit_revoke( op, block_id )
+            op_seq = db.commit_revoke( op, block_id )
             
         elif opcode == NAME_IMPORT:
-            new_namerec = db.commit_name_import( op, block_id )
+            op_seq = db.commit_name_import( op, block_id )
             
         elif opcode == NAMESPACE_PREORDER:
-            new_namerec = db.commit_namespace_preorder( op, block_id )
+            op_seq = db.commit_namespace_preorder( op, block_id )
             
         elif opcode == NAMESPACE_REVEAL:
-            new_namerec = db.commit_namespace_reveal( op, block_id )
+            op_seq = db.commit_namespace_reveal( op, block_id )
 
         elif opcode == NAMESPACE_READY:
-            new_namerec = db.commit_namespace_ready( op, block_id )
+            op_seq = db.commit_namespace_ready( op, block_id )
      
-        if new_namerec:
-            
-            debug_op = copy.deepcopy( op )
-            if debug_op.has_key('history'):
-                del debug_op['history']
+        if type(op_seq) != list:
+            op_seq = [op_seq]
 
-            log.debug("COMMIT op '%s' (%s)" % (opcode, json.dumps(debug_op, sort_keys=True)))
+        if op_seq and op_seq[0]:
+
+            for commit_op in op_seq:
+                debug_op = copy.deepcopy( commit_op )
+                if debug_op.has_key('history'):
+                    del debug_op['history']
+
+                log.debug("COMMIT op '%s' (%s)" % (opcode, json.dumps(debug_op, sort_keys=True)))
 
       else:
 
         # final commit before save
         # do expirations
         log.debug("Clear all expired names at %s" % block_id )
-        expired_names = db.commit_name_expire_all( block_id )
+        db.commit_name_expire_all( block_id )
         
         log.debug("Clear all expired preorders at %s" % block_id )
-        expired_name_hashes = db.commit_preorder_expire_all( block_id )
+        db.commit_preorder_expire_all( block_id )
         
         log.debug("Clear all expired namespace preorders at %s" % block_id )
-        expired_namespace_hashes = db.commit_namespace_preorder_expire_all( block_id )
+        db.commit_namespace_preorder_expire_all( block_id )
         
         log.debug("Clear all expired partial namespace imports at %s" % block_id )
-        expired_namespaces = db.commit_namespace_reveal_expire_all( block_id )
+        db.commit_namespace_reveal_expire_all( block_id )
 
         # reset for next block
         db.log_prescan_reset()
@@ -629,56 +648,7 @@ def db_commit( block_id, opcode, op, txid, vtxindex, db_state=None ):
       log.error("No state engine defined")
       return None
   
-   return new_namerec
-
-
-def db_serialize( op, nameop, db_state=None, verbose=True ):
-    """
-    (required by virtualchain state engine)
-
-    Serialize a given name operation
-    """
-   
-    fields = None
-    op = op[0]  # the first byte of the op string identifies the operation
-
-    opcode_name = OPCODE_NAMES.get( op, None )
-    if opcode_name is None:
-        log.error("No such opcode '%s'" % op)
-        return None 
-
-    fields = SERIALIZE_FIELDS.get( opcode_name, None )
-    if fields is None:
-        log.error("BUG: unrecongnized opcode '%s'" % opcode_name )
-        return None 
-
-    all_values = []
-    debug_all_values = []
-    missing = []
-    for field in fields:
-      if not nameop.has_key(field):
-          missing.append( field )
-
-      field_value = nameop.get(field, None)
-      if field_value is None:
-          field_value = ""
-      
-      # netstring format
-      debug_all_values.append( str(field) + "=" + str(len(str(field_value))) + ":" + str(field_value) )
-      all_values.append( str(len(str(field_value))) + ":" + str(field_value) )
-
-    if len(missing) > 0:
-      print json.dumps( nameop, indent=4 )
-      raise Exception("BUG: missing fields '%s'" % (",".join(missing)))
-
-    debug_field_values = ",".join( debug_all_values )
-
-    if verbose:
-        log.debug("SERIALIZE: %s:%s" % (op, debug_field_values ))
-
-    field_values = ",".join( all_values )
-
-    return op + ":" + field_values
+   return op_seq
 
 
 def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
@@ -712,4 +682,43 @@ def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
    else:
       log.error("No state engine defined")
       return False 
+
+
+def sync_blockchain( bt_opts, last_block ):
+    """
+    synchronize state with the blockchain.
+    build up the next blockstore_db
+    """
+
+    global blockstore_db, blockstore_db_lock
+
+    log.info("Synchronizing database up to block %s" % last_block)
+    db_filename = virtualchain.get_db_filename()
+    new_db = BlockstoreDB( db_filename )
+
+    virtualchain.sync_virtualchain( bt_opts, last_block, new_db )
+
+    # refresh
+    blockstore_db_lock.acquire()
+    del blockstore_db
+    blockstore_db = new_db
+    
+    blockstore_db_lock.release()
+
+
+def stop_sync_blockchain():
+    """
+    stop synchronizing with the blockchain
+    """
+    global blockstore_db, blockstore_db_lock
+
+    if blockstore_db is None:
+        return
+
+    blockstore_db_lock.acquire()
+    if blockstore_db is None:
+        return 
+
+    blockstore_db.stop_build()
+    blockstore_db_lock.release()
 

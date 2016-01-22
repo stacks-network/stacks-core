@@ -52,7 +52,13 @@ class Wallet(object):
 
 class TestAPIProxy(object):
     def __init__(self):
-        self.api = blockstore.blockstored.BlockstoredRPC() 
+        global utxo_opts
+        self.api = blockstore.blockstored.BlockstoredRPC()
+        self.conf = {
+            "start_block": blockstore.FIRST_BLOCK_MAINNET,
+            "initial_utxos": utxo_opts
+        }
+        self.spv_headers_path = utxo_opts['spv_headers_path']
 
     def __getattr__(self, name):
         if hasattr( self.api, "jsonrpc_" + name):
@@ -64,7 +70,7 @@ class TestAPIProxy(object):
 
             return inner
         else:
-            return getattr( self, name )
+            raise Exception("No such attribute or API call: '%s'" % name)
 
 
 # store the database after each block, under this directory
@@ -75,6 +81,9 @@ bitcoind = None
 
 # utxo connection
 utxo_client = None
+
+# initial utxos and options 
+utxo_opts = None
 
 # state engine ref
 state_engine = None
@@ -95,6 +104,11 @@ def log_consensus( **kw ):
 
 def blockstore_name_preorder( name, privatekey, register_addr, tx_only=False, subsidy_key=None, testset=False, consensus_hash=None ):
     resp = blockstored.blockstore_name_preorder( name, privatekey, register_addr, tx_only=tx_only, subsidy_key=subsidy_key, testset=testset, consensus_hash=consensus_hash )
+    return resp
+
+
+def blockstore_name_preorder_multi( names, privatekey, register_addrs, tx_only=False, subsidy_key=None, testset=False, consensus_hash=None ):
+    resp = blockstored.blockstore_name_preorder_multi( names, privatekey, register_addrs, tx_only=tx_only, subsidy_key=subsidy_key, testset=testset, consensus_hash=consensus_hash )
     return resp
 
 
@@ -160,6 +174,7 @@ def blockstore_export_db( path, **kw ):
             pass
         else:
             raise
+
 
 def tx_sign_all_unsigned_inputs( tx_hex, privkey ):
     """
@@ -325,6 +340,10 @@ def decoderawtransaction( tx_hex ):
 def set_utxo_client( c ):
     global utxo_client
     utxo_client = c
+
+def set_utxo_opts( opts ):
+    global utxo_opts 
+    utxo_opts = opts
 
 def set_bitcoind( b ):
     global bitcoind
