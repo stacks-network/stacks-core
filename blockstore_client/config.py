@@ -33,7 +33,7 @@ from .version import __version__
 DEBUG = True
 VERSION = __version__
 
-DEFAULT_BLOCKSTORED_PORT = 6264
+DEFAULT_BLOCKSTORED_PORT = '6264'
 DEFAULT_BLOCKSTORED_SERVER = "blockstore.blockstack.org"
 
 # initialize to default settings
@@ -186,7 +186,6 @@ MAX_RPC_LEN = 1024 * 1024 * 1024
 
 CONFIG_DIR = os.path.expanduser("~/.blockstore-client")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "blockstore-client.ini")
-
 SPV_HEADERS_PATH = os.path.join(CONFIG_DIR, "blockchain-headers.dat")
 
 BLOCKCHAIN_ID_MAGIC = 'id'
@@ -212,7 +211,7 @@ def make_default_config(path=CONFIG_PATH):
     global CONFIG_PATH, BLOCKSTORED_SERVER, BLOCKSTORED_PORT
 
     # try to create
-    dirname = os.path.dirname(path)
+    dirname = os.path.dirname(CONFIG_DIR)
     if not os.path.isdir(dirname):
         try:
             os.makedirs(dirname)
@@ -221,7 +220,10 @@ def make_default_config(path=CONFIG_PATH):
             log.error("Failed to make configuration directory '%s'." % path)
             return False
 
+    if not os.path.exists(path):
+
         parser = SafeConfigParser()
+        parser.add_section('blockstore-client')
         parser.set('blockstore-client', 'server', BLOCKSTORED_SERVER)
         parser.set('blockstore-client', 'port', BLOCKSTORED_PORT)
         parser.set('blockstore-client', 'metadata', BLOCKSTORE_METADATA_DIR)
@@ -279,7 +281,7 @@ def get_config(path=CONFIG_PATH):
         "storage_drivers": BLOCKSTORE_DEFAULT_STORAGE_DRIVERS,
         "metadata": BLOCKSTORE_METADATA_DIR,
         "blockchain_headers": SPV_HEADERS_PATH,
-        "advanced_mode": 'false',
+        "advanced_mode": 'off',
     }
 
     parser = SafeConfigParser()
