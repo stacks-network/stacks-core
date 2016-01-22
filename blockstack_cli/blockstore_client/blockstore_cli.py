@@ -105,6 +105,17 @@ def run_cli():
       help="""the server port to connect to (current: {})""".format(config.BLOCKSTORED_PORT))
 
     # ------------------------------------
+
+    subparser = subparsers.add_parser(
+      'advanced',
+      help='check advanced mode | turn --mode=off or --mode=on')
+
+    subparser.add_argument(
+      '--mode',
+      action='store',
+      help="can be 'on' or 'off'")
+
+    # ------------------------------------
     if advanced_mode == "on":
       subparser = subparsers.add_parser(
         'delete_immutable',
@@ -724,7 +735,24 @@ def run_cli():
         result = data
 
     elif args.action == 'advanced':
-        pass
+        data = {}
+        data["advanced_mode"] = advanced_mode
+
+        if args.mode is not None:
+
+            if args.mode != "on" and args.mode != "off":
+                data['error'] = "Valid values are 'on' or 'off'"
+            else:
+                config.update_config('blockstore-client', 'advanced_mode', args.mode)
+                data["message"] = "Updated advanced_mode"
+
+        # reload conf
+        conf = config.get_config()
+
+        data['advanced_mode'] = conf['advanced_mode']
+
+        result = data
+
     elif args.action == 'getinfo':
         result = client.getinfo()
 
@@ -868,7 +896,6 @@ def run_cli():
         result = client.namespace_preorder(str(args.namespace_id),
                                            str(args.privatekey),
                                            reveal_addr=reveal_addr)
-
 
     elif args.action == 'namespace_reveal':
         bucket_exponents = args.bucket_exponents.split(',')
