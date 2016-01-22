@@ -25,12 +25,9 @@ from setuptools import setup, find_packages
 import sys
 import os
 
-sys.path.insert( 0, os.path.abspath( os.path.dirname(__file__) ) )
-from blockstore.lib.config import VERSION
-
 setup(
     name='blockstore',
-    version=VERSION,
+    version='0.0.11',
     url='https://github.com/blockstack/blockstore',
     license='GPLv3',
     author='Blockstack.org',

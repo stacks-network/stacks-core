@@ -39,7 +39,7 @@ except:
 DEBUG = True
 TESTNET = False
 
-VERSION = "0.0.10"
+VERSION = "0.0.11"
 
 # namespace version
 BLOCKSTORE_VERSION = 1
