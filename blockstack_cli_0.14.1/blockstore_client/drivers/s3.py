@@ -434,6 +434,3 @@ if __name__ == "__main__":
       rc = delete_mutable_handler( d_id, "unused" )
       if not rc:
          raise Exception("delete_mutable_handler('%s') failed" % d_id)
-      
-   
-   
