@@ -17,10 +17,6 @@ Blockstore uses the Bitcoin blockchain for storing name operations and data
 hashes, and the Kademlia-based distributed hash table (DHT) and other external
 datastores for storing the full data files outside of the blockchain.
 
-**NOTE: This repo is going through rapid development. If you notice any issues
-during installation etc please report them in Github issues. We hope to have
-a stable, easy to install version out very soon!**
-
 ## Table of contents
 
 * [Overview](#overview)
@@ -54,6 +50,22 @@ pip install blockstore
 
 If you encounter any problems during the pip install, see the [detailed install
 instructions](https://github.com/blockstack/blockstore/wiki/Installation).
+
+## Debian package
+
+We also release blockstore as a debian package. First get GPG key of one of our developers:
+
+> wget -O - http://packages.blockstack.org/jude@onename.com.gpg.key | sudo apt-key add -
+
+Then add packages.blockstack.org to your sources list:
+
+>  sudo vi /etc/apt/sources.list
+
+and add "deb http://packages.blockstack.org jessie main" at the end of the file.
+
+Now you can install blockstore through apt-get:
+
+> sudo apt-get update && sudo apt-get install blockstore
 
 ## Getting started
 
