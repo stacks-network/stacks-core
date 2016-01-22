@@ -3,7 +3,6 @@ base58==0.2.2
 basicrpc==0.0.2
 bitcoin==1.1.39
 bitmerchant==0.1.8
-blockstore-client==0.0.11
 boto==2.39.0
 cachetools==1.1.5
 commontools==0.1.0
