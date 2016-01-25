@@ -169,6 +169,14 @@ def cleanup_update_queue():
             log.debug("Profile hash updated: %s" % fqu)
             update_queue.remove({"fqu": entry['fqu']})
 
+        else:
+            confirmations = get_tx_confirmations(entry['tx_hash'])
+
+            if confirmations > MAX_TX_CONFIRMATIONS:
+                log.debug("Removing tx with > max confirmations: (%s, confirmations %s)"
+                          % (fqu, confirmations))
+                update_queue.remove({"fqu": entry['fqu']})
+
 
 def cleanup_transfer_queue():
 
