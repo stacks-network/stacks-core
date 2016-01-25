@@ -24,6 +24,7 @@ This file is part of Registrar.
 """
 
 import os
+import json
 
 from keychain import PrivateKeychain
 
@@ -37,6 +38,7 @@ from .utils import config_log
 from .utils import btc_to_satoshis
 
 from .config import RATE_LIMIT
+from .config import CACHE_DIR, CACHE_FILE_FULLPATH
 from .config import BLOCKCYPHER_TOKEN
 from .config import TARGET_BALANCE_PER_ADDRESS, TX_FEE
 from .config import CHAINED_PAYMENT_AMOUNT, MINIMUM_BALANCE
@@ -70,7 +72,59 @@ class HDWallet(object):
         if hex_privkey:
             self.priv_keychain = PrivateKeychain.from_private_key(hex_privkey)
         else:
+            log.debug("No privatekey given, starting new wallet")
             self.priv_keychain = PrivateKeychain()
+
+        self.master_address = self.get_master_address()
+        self.child_addresses = None
+
+        cache = self.get_cache()
+
+        if cache is not None:
+
+            if cache['master_address'] == self.master_address:
+                self.child_addresses = cache['child_addresses']
+            else:
+                log.debug("Cached master_address is different: %s" % cached['master_address'])
+        else:
+            log.debug("Creating cache of HD wallet addresses ...")
+            self.create_addresses_cache()
+
+    def create_addresses_cache(self, count=DEFAULT_CHILD_ADDRESSES):
+
+        if self.get_cache() is not None:
+            return True
+
+        child_addresses = []
+
+        for index in range(0, count):
+            hex_privkey = self.get_child_privkey(index)
+            address = self.get_child_address(index)
+
+            child_addresses.append(address)
+
+        if not os.path.exists(CACHE_DIR):
+            os.makedirs(CACHE_DIR)
+
+        with open(CACHE_FILE_FULLPATH, 'w') as cache_file:
+            data = {'child_addresses': child_addresses}
+            data['master_address'] = self.get_master_address()
+            cache_file.write(json.dumps(data))
+
+        return True
+
+    def get_cache(self):
+
+        if not os.path.isfile(CACHE_FILE_FULLPATH):
+            return None
+
+        try:
+            with open(CACHE_FILE_FULLPATH, 'r') as cache_file:
+                data = json.loads(cache_file.read())
+
+            return data
+        except:
+            return None
 
     def get_master_privkey(self):
 
@@ -100,6 +154,9 @@ class HDWallet(object):
             child address for given @index
         """
 
+        if self.child_addresses is not None:
+            return self.child_addresses[index]
+
         hex_privkey = self.get_child_privkey(index)
         return get_address_from_privkey(hex_privkey)
 
@@ -117,10 +174,10 @@ class HDWallet(object):
         keypairs = []
 
         for index in range(offset, offset+count):
-            hex_privkey = self.get_child_privkey(index)
             address = self.get_child_address(index)
 
             if include_privkey:
+                hex_privkey = self.get_child_privkey(index)
                 keypairs.append((address, hex_privkey))
             else:
                 keypairs.append(address)
