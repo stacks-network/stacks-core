@@ -30,6 +30,7 @@ from keychain import PrivateKeychain
 
 from pybitcoin import make_send_to_address_tx
 from pybitcoin import BlockcypherClient
+from pybitcoin.rpc.bitcoind_client import BitcoindClient
 
 from crypto.utils import get_address_from_privkey, get_pubkey_from_privkey
 
@@ -356,7 +357,29 @@ def display_names_wallet_owns(list_of_addresses):
             log.debug("Names owned: %s" % names_owned)
             log.debug('-' * 5)
 
+
+def initialize_watch_only_addresses(bicoind_server, bitcoind_port,
+                                    bitcoind_user, bicoind_passwd,
+                                    use_https):
+    """
+        Add all addresses from HD Wallet as watch-only addresses
+        at the given bitcoind server (UTXO provider)
+    """
+
+    child_addresses = wallet.get_child_keypairs(count=DEFAULT_CHILD_ADDRESSES)
+
+    client = BitcoindClient(server=bitcoind_server, port=bitcoind_port,
+                            user=bitcoind_user,
+                            passwd=bitcoind_passwd,
+                            use_https=use_https)
+
+    for address in child_addresses:
+        resp = client.importaddress(address, 'registrar', False)
+
+        if resp == "None":
+            log.debug("Added watch-only address: %s" % address)
+
 if __name__ == '__main__':
 
     log.debug("wallet.py")
-    refill_wallet(count=10, offset=90, payment=DEFAULT_REFILL_AMOUNT, live=False)
+    #refill_wallet(count=10, offset=90, payment=DEFAULT_REFILL_AMOUNT, live=False)
