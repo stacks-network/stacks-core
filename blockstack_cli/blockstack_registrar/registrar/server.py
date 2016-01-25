@@ -65,7 +65,7 @@ class RegistrarServer(object):
         self.index = 0
         self.all_addresses_in_use = False
         self.payment_addresses = wallet.get_child_keypairs(count=RATE_LIMIT)
-	self.ignore_addresses = []
+        self.ignore_addresses = []
 
         # change the positions by 1, so that different payment and
         # owner addresses are at a given index for the two lists

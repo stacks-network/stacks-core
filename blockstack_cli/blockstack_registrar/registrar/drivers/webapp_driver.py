@@ -222,7 +222,7 @@ class WebappDriver(object):
             log.debug("Removing: %s" % username)
             self.registrations.remove({"user_id": user_id})
 
-    def reprocess_user(self, username, nameop):
+    def reprocess_user(self, username, nameop=None):
 
         user = self.users.find_one({"username": username})
         fqu = user['username'] + "." + DEFAULT_NAMESPACE

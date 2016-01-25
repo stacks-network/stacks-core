@@ -12,12 +12,12 @@ echo "Enter QUEUE_DB_URI:"
 read input
 export QUEUE_DB_URI=$input
 
-echo "Enter BTC_PRIV_KEY:"
-read input
-export BTC_PRIV_KEY=$input
-
 echo "Enter SECRET_KEY:"
 read input
 export SECRET_KEY=$input
+
+echo "Enter HD_WALLET_PRIVKEY:"
+read input
+export HD_WALLET_PRIVKEY=$input
 
 echo "Done"
