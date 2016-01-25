@@ -36,6 +36,7 @@ from .utils import config_log
 from .utils import pretty_print as pprint
 
 from .config import DHT_IGNORE, TX_CONFIRMATIONS_NEEDED, MAX_TX_CONFIRMATIONS
+from .config import QUEUE_LENGTH_TO_MONITOR
 
 log = config_log(__name__)
 
@@ -83,7 +84,12 @@ def cleanup_rejected_tx(queue):
             queue.remove({"fqu": entry['fqu']})
 
 
-def display_queue(queue):
+def display_queue(queue, display_details=False):
+
+    track_confirmations = []
+
+    for index in range(QUEUE_LENGTH_TO_MONITOR):
+        track_confirmations.append(0)
 
     for entry in queue.find():
 
@@ -92,18 +98,28 @@ def display_queue(queue):
         except:
             continue
 
-        log.debug('-' * 5)
-        log.debug("%s %s" % (queue.name, entry['fqu']))
-        log.debug("(%s, confirmations %s)" % (entry['tx_hash'],
+        try:
+            track_confirmations[confirmations] += 1
+        except:
+            pass
+
+        if display_details:
+            log.debug('-' * 5)
+            log.debug("%s %s" % (queue.name, entry['fqu']))
+            log.debug("(%s, confirmations %s)" % (entry['tx_hash'],
                                               confirmations))
-        log.debug("payment: %s" % entry['payment_address'])
-        log.debug("owner: %s" % entry['owner_address'])
+            log.debug("payment: %s" % entry['payment_address'])
+            log.debug("owner: %s" % entry['owner_address'])
 
-        if entry['payment_address'] == entry['owner_address']:
-            log.debug("problem")
+            if entry['payment_address'] == entry['owner_address']:
+                log.debug("problem")
+
+    log.debug(queue.name)
+    log.debug(track_confirmations)
+    log.debug('-' * 5)
 
 
-def cleanup_preorder_queue():
+def cleanup_preorder_queue(cleanup_rejected=False):
 
     for entry in preorder_queue.find():
 
@@ -118,10 +134,11 @@ def cleanup_preorder_queue():
                       % entry['fqu'])
             preorder_queue.remove({"fqu": entry['fqu']})
 
-    cleanup_rejected_tx(preorder_queue)
+    if cleanup_rejected:
+        cleanup_rejected_tx(preorder_queue)
 
 
-def cleanup_register_queue():
+def cleanup_register_queue(cleanup_rejected=False):
 
     for entry in register_queue.find():
 
@@ -137,7 +154,8 @@ def cleanup_register_queue():
                       % entry['fqu'])
             register_queue.remove({"fqu": entry['fqu']})
 
-    cleanup_rejected_tx(register_queue)
+    if cleanup_rejected:
+        cleanup_rejected_tx(register_queue)
 
 
 def cleanup_update_queue():
@@ -150,6 +168,14 @@ def cleanup_update_queue():
         if profileonBlockchain(fqu, profile):
             log.debug("Profile hash updated: %s" % fqu)
             update_queue.remove({"fqu": entry['fqu']})
+
+        else:
+            confirmations = get_tx_confirmations(entry['tx_hash'])
+
+            if confirmations > MAX_TX_CONFIRMATIONS:
+                log.debug("Removing tx with > max confirmations: (%s, confirmations %s)"
+                          % (fqu, confirmations))
+                update_queue.remove({"fqu": entry['fqu']})
 
 
 def cleanup_transfer_queue():
@@ -175,9 +201,9 @@ def cleanup_transfer_queue():
                 transfer_queue.remove({"fqu": entry['fqu']})
 
 
-def display_queue_info():
+def display_queue_info(display_details=False):
 
-    display_queue(preorder_queue)
-    display_queue(register_queue)
-    display_queue(update_queue)
-    display_queue(transfer_queue)
+    display_queue(preorder_queue, display_details)
+    display_queue(register_queue, display_details)
+    display_queue(update_queue, display_details)
+    display_queue(transfer_queue, display_details)

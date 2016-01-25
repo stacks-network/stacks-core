@@ -24,11 +24,13 @@ This file is part of Registrar.
 """
 
 import os
+import json
 
 from keychain import PrivateKeychain
 
 from pybitcoin import make_send_to_address_tx
 from pybitcoin import BlockcypherClient
+from pybitcoin.rpc.bitcoind_client import BitcoindClient
 
 from crypto.utils import get_address_from_privkey, get_pubkey_from_privkey
 
@@ -37,11 +39,12 @@ from .utils import config_log
 from .utils import btc_to_satoshis
 
 from .config import RATE_LIMIT
+from .config import CACHE_DIR, CACHE_FILE_FULLPATH
 from .config import BLOCKCYPHER_TOKEN
 from .config import TARGET_BALANCE_PER_ADDRESS, TX_FEE
 from .config import CHAINED_PAYMENT_AMOUNT, MINIMUM_BALANCE
 from .config import DEFAULT_CHILD_ADDRESSES
-from .config import HD_WALLET_PRIVKEY
+from .config import HD_WALLET_PRIVKEY, DEFAULT_REFILL_AMOUNT
 
 from .blockchain import get_balance, dontuseAddress, underfundedAddress
 
@@ -70,7 +73,59 @@ class HDWallet(object):
         if hex_privkey:
             self.priv_keychain = PrivateKeychain.from_private_key(hex_privkey)
         else:
+            log.debug("No privatekey given, starting new wallet")
             self.priv_keychain = PrivateKeychain()
+
+        self.master_address = self.get_master_address()
+        self.child_addresses = None
+
+        cache = self.get_cache()
+
+        if cache is not None:
+
+            if cache['master_address'] == self.master_address:
+                self.child_addresses = cache['child_addresses']
+            else:
+                log.debug("Cached master_address is different: %s" % cached['master_address'])
+        else:
+            log.debug("Creating cache of HD wallet addresses ...")
+            self.create_addresses_cache()
+
+    def create_addresses_cache(self, count=DEFAULT_CHILD_ADDRESSES):
+
+        if self.get_cache() is not None:
+            return True
+
+        child_addresses = []
+
+        for index in range(0, count):
+            hex_privkey = self.get_child_privkey(index)
+            address = self.get_child_address(index)
+
+            child_addresses.append(address)
+
+        if not os.path.exists(CACHE_DIR):
+            os.makedirs(CACHE_DIR)
+
+        with open(CACHE_FILE_FULLPATH, 'w') as cache_file:
+            data = {'child_addresses': child_addresses}
+            data['master_address'] = self.get_master_address()
+            cache_file.write(json.dumps(data))
+
+        return True
+
+    def get_cache(self):
+
+        if not os.path.isfile(CACHE_FILE_FULLPATH):
+            return None
+
+        try:
+            with open(CACHE_FILE_FULLPATH, 'r') as cache_file:
+                data = json.loads(cache_file.read())
+
+            return data
+        except:
+            return None
 
     def get_master_privkey(self):
 
@@ -100,6 +155,9 @@ class HDWallet(object):
             child address for given @index
         """
 
+        if self.child_addresses is not None:
+            return self.child_addresses[index]
+
         hex_privkey = self.get_child_privkey(index)
         return get_address_from_privkey(hex_privkey)
 
@@ -117,10 +175,10 @@ class HDWallet(object):
         keypairs = []
 
         for index in range(offset, offset+count):
-            hex_privkey = self.get_child_privkey(index)
             address = self.get_child_address(index)
 
             if include_privkey:
+                hex_privkey = self.get_child_privkey(index)
                 keypairs.append((address, hex_privkey))
             else:
                 keypairs.append(address)
@@ -219,22 +277,6 @@ def send_payment(hex_privkey, to_address, btc_amount):
         return resp
 
 
-def display_wallet_info(list_of_addresses):
-
-    total_balance = 0
-
-    for address in list_of_addresses:
-        has_pending_tx = dontuseAddress(address)
-        balance_on_address = get_balance(address)
-        log.debug("(%s, balance %s,\t pending %s)" % (address,
-                                                      balance_on_address,
-                                                      has_pending_tx))
-        total_balance += balance_on_address
-
-    log.debug("Total addresses: %s" % len(list_of_addresses))
-    log.debug("Total balance: %s" % total_balance)
-
-
 def send_multi_payment(payment_privkey, list_of_addresses, payment_per_address):
 
     payment_address = get_address_from_privkey(payment_privkey)
@@ -264,27 +306,80 @@ def send_multi_payment(payment_privkey, list_of_addresses, payment_per_address):
                                         signatures=tx_signatures,
                                         pubkeys=pubkey_list)
 
-    pprint(resp)
-
     if 'tx' in resp:
         return resp['tx']['hash']
     else:
         return None
 
-if __name__ == '__main__':
 
-    live = False
-
-    list_of_addresses = wallet.get_child_keypairs(count=10, offset=10)
-
-    if live:
-        tx_hash = send_multi_payment(HD_WALLET_PRIVKEY, list_of_addresses, '0.04')
-        log.debug("Sent: %s" % tx_hash)
+def display_wallet_info(list_of_addresses):
 
     addresses = []
     addresses.append(wallet.get_master_address())
-
     addresses += list_of_addresses
-    #print get_underfunded_addresses(addresses)
-    display_wallet_info(addresses)
-    #print wallet.get_next_keypair()
+
+    total_balance = 0
+
+    for address in addresses:
+        has_pending_tx = dontuseAddress(address)
+        balance_on_address = get_balance(address)
+        log.debug("(%s, balance %s,\t pending %s)" % (address,
+                                                      balance_on_address,
+                                                      has_pending_tx))
+        if balance_on_address is not None:
+            total_balance += balance_on_address
+
+    log.debug("Total addresses: %s" % len(addresses))
+    log.debug("Total balance: %s" % total_balance)
+
+
+def refill_wallet(count=DEFAULT_CHILD_ADDRESSES, offset=0,
+                  payment=DEFAULT_REFILL_AMOUNT,
+                  live=False):
+
+    list_of_addresses = wallet.get_child_keypairs(count=count, offset=offset)
+
+    if live:
+        tx_hash = send_multi_payment(HD_WALLET_PRIVKEY, list_of_addresses, payment)
+        log.debug("Sent: %s" % tx_hash)
+
+    display_wallet_info(list_of_addresses)
+
+
+def display_names_wallet_owns(list_of_addresses):
+
+    for address in list_of_addresses:
+
+        names_owned = c.get_names_owned_by_address(address)
+
+        if len(names_owned) is not 0:
+            log.debug("Address: %s" % address)
+            log.debug("Names owned: %s" % names_owned)
+            log.debug('-' * 5)
+
+
+def initialize_watch_only_addresses(bicoind_server, bitcoind_port,
+                                    bitcoind_user, bicoind_passwd,
+                                    use_https):
+    """
+        Add all addresses from HD Wallet as watch-only addresses
+        at the given bitcoind server (UTXO provider)
+    """
+
+    child_addresses = wallet.get_child_keypairs(count=DEFAULT_CHILD_ADDRESSES)
+
+    client = BitcoindClient(server=bitcoind_server, port=bitcoind_port,
+                            user=bitcoind_user,
+                            passwd=bitcoind_passwd,
+                            use_https=use_https)
+
+    for address in child_addresses:
+        resp = client.importaddress(address, 'registrar', False)
+
+        if resp == "None":
+            log.debug("Added watch-only address: %s" % address)
+
+if __name__ == '__main__':
+
+    log.debug("wallet.py")
+    #refill_wallet(count=10, offset=90, payment=DEFAULT_REFILL_AMOUNT, live=False)
