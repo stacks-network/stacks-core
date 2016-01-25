@@ -74,7 +74,7 @@ def run_cli(command, argv=None):
     elif command == "update":
         api_data.process_new_users(nameop='update')
         webapp_data.process_new_users(nameop='update')
-        #webapp_data.update_users()
+        webapp_data.update_users()
 
     elif command == "transfer":
         api_data.process_new_users(nameop='transfer')
@@ -111,12 +111,21 @@ def run_cli(command, argv=None):
             cleanup_register_queue(cleanup_rejected)
             cleanup_preorder_queue(cleanup_rejected)
 
-    elif command == "getinfo":
-        display_queue_info()
+    elif command == "status":
 
-    elif command == "stats":
         webapp_data.display_stats()
         api_data.display_stats()
+        log.debug('-' * 5)
+
+        display_details = False
+        try:
+            cmd = argv[2]
+
+            if cmd == "details":
+                display_details = True
+        except:
+            pass
+        display_queue_info(display_details)
 
     elif command == "blocks":
         log.info("Block height: %s" % get_block_height())
@@ -124,9 +133,9 @@ def run_cli(command, argv=None):
     elif command == "wallet":
 
         try:
-            command = argv[2]
+            cmd = argv[2]
 
-            if command == "refill":
+            if cmd == "refill":
                 address = argv[3]
                 live = False
                 try:
