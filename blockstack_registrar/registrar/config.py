@@ -77,7 +77,7 @@ MAX_LENGTH_CHAINED_PAYMENT = 10
 MINIMUM_LENGTH_NAME = 6
 MAX_DHT_WRITE = (8 * 1024) - 1
 
-RATE_LIMIT = 20   # target tx per block
+RATE_LIMIT = 100   # target tx per block
 SLEEP_INTERVAL = 20  # in seconds
 RETRY_INTERVAL = 10  # if a tx is not picked up by x blocks
 
@@ -88,6 +88,10 @@ MAX_TX_CONFIRMATIONS = 150
 
 DEFAULT_CHILD_ADDRESSES = RATE_LIMIT
 QUEUE_LENGTH_TO_MONITOR = 50
+
+CACHE_FILE = 'child_addresses.json'
+CACHE_DIR = os.path.expanduser('~/.registrar')
+CACHE_FILE_FULLPATH = os.path.join(CACHE_DIR, CACHE_FILE)
 
 # default settings for bitcoind, can override in config_local
 BITCOIND_SERVER = 'btcd.onename.com'
