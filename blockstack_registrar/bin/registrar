@@ -38,15 +38,16 @@ from registrar.utils import config_log
 
 from registrar.drivers import WebappDriver, APIDriver
 
-from registrar.config import SLEEP_INTERVAL
+from registrar.config import SLEEP_INTERVAL, RATE_LIMIT
 
 from registrar.queue import display_queue_info
 from registrar.queue import cleanup_transfer_queue, cleanup_update_queue
 from registrar.queue import cleanup_register_queue, cleanup_preorder_queue
 
-from registrar.basic_wallet import display_wallet_info, refill_wallet
+from registrar.wallet import wallet, display_wallet_info, refill_wallet
 
 from registrar.blockchain import get_block_height
+
 
 log = config_log(__name__)
 
@@ -73,7 +74,7 @@ def run_cli(command, argv=None):
     elif command == "update":
         api_data.process_new_users(nameop='update')
         webapp_data.process_new_users(nameop='update')
-        #webapp_data.update_users()
+        webapp_data.update_users()
 
     elif command == "transfer":
         api_data.process_new_users(nameop='transfer')
@@ -81,31 +82,50 @@ def run_cli(command, argv=None):
 
     elif command == "clean":
 
+        cleanup_rejected = False
+
         try:
             queue = argv[2]
         except:
             queue = "all"
+
+        try:
+            rejected = argv[3]
+
+            if rejected == "rejected":
+                cleanup_rejected = True
+        except:
+            pass
 
         if queue == "transfer":
             cleanup_transfer_queue()
         elif queue == "update":
             cleanup_update_queue()
         elif queue == "register":
-            cleanup_register_queue()
+            cleanup_register_queue(cleanup_rejected)
         elif queue == "preorder":
-            cleanup_preorder_queue()
+            cleanup_preorder_queue(cleanup_rejected)
         elif queue == "all":
             cleanup_transfer_queue()
             cleanup_update_queue()
-            cleanup_register_queue()
-            cleanup_preorder_queue()
+            cleanup_register_queue(cleanup_rejected)
+            cleanup_preorder_queue(cleanup_rejected)
 
-    elif command == "getinfo":
-        display_queue_info()
+    elif command == "status":
 
-    elif command == "stats":
         webapp_data.display_stats()
         api_data.display_stats()
+        log.debug('-' * 5)
+
+        display_details = False
+        try:
+            cmd = argv[2]
+
+            if cmd == "details":
+                display_details = True
+        except:
+            pass
+        display_queue_info(display_details)
 
     elif command == "blocks":
         log.info("Block height: %s" % get_block_height())
@@ -113,9 +133,9 @@ def run_cli(command, argv=None):
     elif command == "wallet":
 
         try:
-            command = argv[2]
+            cmd = argv[2]
 
-            if command == "refill":
+            if cmd == "refill":
                 address = argv[3]
                 live = False
                 try:
@@ -124,16 +144,17 @@ def run_cli(command, argv=None):
                         live = True
                 except:
                     pass
-                refill_wallet(address, live=live)
+                #refill_wallet(address, live=live)
         except:
             pass
 
-        display_wallet_info()
+        active_addresses = wallet.get_child_keypairs(count=RATE_LIMIT)
+        display_wallet_info(active_addresses)
 
     elif command == "test":
 
         # commands for testing go here
-        api_data.remove_entry('testington8')
+        webapp_data.display_current_states()
 
     elif command == "reprocess":
 
@@ -163,9 +184,9 @@ def run_loop():
             current_block = get_block_height()
         else:
             # empty queues in reverse
-            #run_cli('transfer')
-            #run_cli('update')
-            #run_cli('register')
+            run_cli('transfer')
+            run_cli('update')
+            run_cli('register')
             run_cli('preorder')
 
             last_block = current_block

@@ -94,7 +94,8 @@ def preorder(fqu, payment_address, owner_address):
     else:
         log.debug("Error preordering: %s" % fqu)
         log.debug(pprint(resp))
-        return False
+        raise ValueError('Error preordering')
+	return False
 
     return True
 
