@@ -201,9 +201,9 @@ def cleanup_transfer_queue():
                 transfer_queue.remove({"fqu": entry['fqu']})
 
 
-def display_queue_info():
+def display_queue_info(display_details=False):
 
-    display_queue(preorder_queue)
-    display_queue(register_queue)
-    display_queue(update_queue)
-    display_queue(transfer_queue)
+    display_queue(preorder_queue, display_details)
+    display_queue(register_queue, display_details)
+    display_queue(update_queue, display_details)
+    display_queue(transfer_queue, display_details)
