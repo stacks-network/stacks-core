@@ -132,23 +132,34 @@ def run_cli(command, argv=None):
 
     elif command == "wallet":
 
+        count = 10
+        offset = 0
+
         try:
-            cmd = argv[2]
+            count = int(argv[2])
+            offset = int(argv[3])
+        except:
+            pass
+
+        try:
+            cmd = argv[4]
 
             if cmd == "refill":
-                address = argv[3]
                 live = False
+
                 try:
-                    live_command = argv[4]
+                    live_command = argv[5]
                     if live_command == "live":
                         live = True
                 except:
                     pass
-                #refill_wallet(address, live=live)
-        except:
-            pass
 
-        active_addresses = wallet.get_child_keypairs(count=RATE_LIMIT)
+                refill_wallet(count=count, offset=offset, live=live)
+                continue
+        except Exception as e:
+            log.debug(e)
+
+        active_addresses = wallet.get_child_keypairs(count=count, offset=offset)
         display_wallet_info(active_addresses)
 
     elif command == "test":
