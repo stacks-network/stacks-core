@@ -280,6 +280,7 @@ def send_payment(hex_privkey, to_address, btc_amount):
 def send_multi_payment(payment_privkey, list_of_addresses, payment_per_address):
 
     payment_address = get_address_from_privkey(payment_privkey)
+
     inputs = [{'address': payment_address}]
     payment_in_satoshis = btc_to_satoshis(float(payment_per_address))
     outputs = []
@@ -339,11 +340,13 @@ def refill_wallet(count=DEFAULT_CHILD_ADDRESSES, offset=0,
 
     list_of_addresses = wallet.get_child_keypairs(count=count, offset=offset)
 
+    underfunded_addresses = get_underfunded_addresses(list_of_addresses)
+
     if live:
-        tx_hash = send_multi_payment(HD_WALLET_PRIVKEY, list_of_addresses, payment)
+        tx_hash = send_multi_payment(HD_WALLET_PRIVKEY, underfunded_addresses, payment)
         log.debug("Sent: %s" % tx_hash)
 
-    display_wallet_info(list_of_addresses)
+    display_wallet_info(underfunded_addresses)
 
 
 def display_names_wallet_owns(list_of_addresses):
