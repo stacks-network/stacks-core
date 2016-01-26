@@ -46,7 +46,7 @@ def get_sorted_commands(display_commands=False):
         check the correct sorted order
     """
 
-    command_list = ['getinfo', 'ping', 'preorder', 'register', 'update',
+    command_list = ['status', 'ping', 'preorder', 'register', 'update',
                     'transfer', 'renew', 'name_import', 'namespace_preorder',
                     'namespace_ready', 'namespace_reveal', 'put_mutable',
                     'put_immutable', 'get_mutable', 'get_immutable',
@@ -241,8 +241,8 @@ def run_cli():
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-      'getinfo',
-      help='get basic info from the blockstored server')
+      'status',
+      help='get basic information from the blockstored server')
 
     if advanced_mode == "on":
       # ------------------------------------
@@ -753,8 +753,15 @@ def run_cli():
 
         result = data
 
-    elif args.action == 'getinfo':
-        result = client.getinfo()
+    elif args.action == 'status':
+        resp = client.getinfo()
+        result = {}
+        result['server'] = conf['server'] + ':' + str(conf['port'])
+        result['server_version'] = resp['blockstore_version']
+        result['cli_version'] = config.VERSION
+        result['blocks'] = "(%s, %s)" % (resp['last_block'], resp['bitcoind_blocks'])
+        result['testset'] = resp['testset']
+        result['consensus'] = resp['consensus']
 
     elif args.action == 'ping':
         result = client.ping()
