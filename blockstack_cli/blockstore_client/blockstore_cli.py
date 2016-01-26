@@ -759,7 +759,8 @@ def run_cli():
         result['server'] = conf['server'] + ':' + str(conf['port'])
         result['server_version'] = resp['blockstore_version']
         result['cli_version'] = config.VERSION
-        result['blocks'] = str([resp['last_block'], resp['bitcoind_blocks']])
+        result['last_block_processed'] = resp['last_block']
+        result['last_block_seen'] = resp['bitcoind_blocks']
         result['consensus_hash'] = resp['consensus']
 
         if advanced_mode == 'on':
