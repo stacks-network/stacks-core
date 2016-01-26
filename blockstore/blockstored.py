@@ -1691,7 +1691,11 @@ def stop_server( from_signal, clean=False, kill=False ):
                 except:
                     pass
 
-                os.kill( os.getpid(), signal.SIGKILL )
+                try:
+                    os.kill( os.getpid(), signal.SIGKILL )
+                except:
+                    log.error("Failed to kill ourselves (%s)" % os.getpid())
+                    sys.exit(1)
 
             log.debug("Stopped indexer thread")
 
