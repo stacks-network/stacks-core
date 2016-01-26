@@ -760,8 +760,10 @@ def run_cli():
         result['server_version'] = resp['blockstore_version']
         result['cli_version'] = config.VERSION
         result['blocks'] = "(%s, %s)" % (resp['last_block'], resp['bitcoind_blocks'])
-        result['testset'] = resp['testset']
         result['consensus'] = resp['consensus']
+
+        if advanced_mode == 'on':
+            result['testset'] = resp['testset']
 
     elif args.action == 'ping':
         result = client.ping()
