@@ -196,6 +196,10 @@ def underfundedAddress(address):
 
     balance = get_balance(address)
 
+    if balance is None:
+        log.debug("Balance: (%s, %s)" % (address, balance))
+        return True
+
     if float(balance) <= MINIMUM_BALANCE:
         return True
     else:
