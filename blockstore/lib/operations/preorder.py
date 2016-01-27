@@ -185,8 +185,7 @@ def parse(bin_payload):
     return {
         'opcode': 'NAME_PREORDER',
         'preorder_name_hash': name_hash,
-        'consensus_hash': consensus_hash,
-        'quantity': 1
+        'consensus_hash': consensus_hash
     }
 
 
