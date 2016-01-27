@@ -21,23 +21,6 @@
     along with Blockstore. If not, see <http://www.gnu.org/licenses/>.
 """
 
-"""
-A note on code organization...
-A multi-preorder is still considered to be a kind of preorder;
-it's just that all the names it covers have to be registered
-in order for any of them to be accepted.  For the sake of avoiding
-breaking-consensus changes, we treat a multi-name preorder like 
-a 1-name preorder as much as possible:
-    * we store multi-preorder data along with the preorder data
-    * we use the exact same consensus fields (modulo a slightly longer op-bytecode)
-
-Unlike NAME_TRANSFER (which also comes in two flavors), the logic for building, 
-broadcasting, and parsing multi-name preorders is different enough that it warrants
-its own file (this one).  However, this code should not be construed as representing
-a wholly separate op-code; it's still considered to be part of the NAME_PREORDER 
-op-code logic.
-"""
-
 from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
     analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
     make_pay_to_address_script, b58check_encode, b58check_decode, BlockchainInfoClient, \
@@ -48,11 +31,68 @@ from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
 from pybitcoin.transactions.outputs import calculate_change_amount
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
+import copy
 
 from ..b40 import b40_to_hex, is_b40
 from ..config import *
 from ..scripts import *
 from ..hashing import hash_name
+
+# consensus hash fields (ORDER MATTERS!)
+FIELDS = [
+     'preorder_name_hashes',#  hash(sorted(name),sender,sorted(register_addr)) 
+     'consensus_hash',      # consensus hash at time of send
+     'sender',              # scriptPubKey hex that identifies the principal that issued the preorder
+     'sender_pubkey',       # if sender is a pubkeyhash script, then this is the public key
+     'address',             # address from the sender's scriptPubKey
+     'block_number',        # block number at which these names were preordered for the first time
+
+     'op',                  # blockstore bytestring describing the operation
+     'txid',                # transaction ID
+     'vtxindex',            # the index in the block where the tx occurs
+     'op_fee',              # blockstore fee (sent to burn address)
+]
+
+def preorder_multi_valid( name_list, register_addrs ):
+    """
+    Verify that these names are all preorder-able:
+    * preorder names in pairs
+    * up to 3 pairs at once
+    * must have matching address
+    * must be unique
+    * must be b40-encoded 
+    * name[i] and name[i+1] cannot exceed 36 bytes (80 - 3 - 40 - 1) 
+    """
+    
+    # sanity checks...
+    if len(name_list) % 2 != 0:
+        raise Exception("Name list must have 2, 4, or 6 names")
+
+    if len(name_list) == 0 or len(name_list) > 6:
+        raise Exception("Name list must have 2, 4, or 6 names")
+
+    if len(name_list) != len(register_addrs):
+        raise Exception("Name list and register addresses are not the same size")
+
+    if len(name_list) != len(set(name_list)):
+        raise Exception("Name list has duplicate names")
+
+    for name in name_list:
+        # expect inputs to the hash
+        if not is_b40( name ) or "+" in name or name.count(".") > 1:
+            raise Exception("Name '%s' has non-base-38 characters" % name)
+            
+        # name itself cannot exceed LENGTHS['blockchain_id_name']
+        if len(NAME_SCHEME) + len(name) > LENGTHS['blockchain_id_name']:
+            raise Exception("Name '%s' is too long; exceeds %s bytes" % (name, LENGTHS['blockchain_id_name'] - len(NAME_SCHEME)))
+
+
+    # names must be sufficiently short that we can register them all
+    for i in xrange(0, len(name_list), 2):
+        if len(name_list[i]) + len(name_list[i+1]) > LENGTHS['max_op_length'] - 3 - LENGTHS['consensus_hash'] - 1:
+            raise Exception("Names (%s, %s) cannot be paired" % (name_list[i], name_list[i+1]))
+
+    return True
 
 
 def hash_names( name_list, script_pubkey, register_addrs ):
@@ -61,16 +101,8 @@ def hash_names( name_list, script_pubkey, register_addrs ):
     """
 
     # sanity checks...
-    if len(name_list) != len(register_addrs):
-        raise Exception("Name list and register addresses are not the same size")
-
-    if len(name_list) != len(set(name_list)):
-        raise Exception("Name list has duplicate names")
-
-    for name in name_list:
-        # check this here, just to catch bugs
-        if not is_b40( name ):
-            raise Exception("Name '%s' is not b40-encoded" % name)
+    if not preorder_multi_valid( name_list, register_addrs ):
+        raise Exception("Invalid name/register lists")
 
     # names are sorted, but the addresses are put in the same order as the names
     name_addrs = zip( name_list, register_addrs )
@@ -82,63 +114,45 @@ def hash_names( name_list, script_pubkey, register_addrs ):
     return h
 
 
-def build(name_list, script_pubkey, register_addr_list, consensus_hash, name_hash=None, num_names=None, testset=False):
+def build(name_list, script_pubkey, register_addr_list, consensus_hash, name_hashes=None, testset=False):
     """
     Takes a name list where each name includes the namespace ID, a list of addresses to prove ownership
     of the subsequent NAME_REGISTER operation, and the current consensus hash for this block (to prove that the 
     caller is not on a shorter fork).
 
-    No duplicate names are allowed, and len(name_list) is capped at 255 (since we must encode the number
-    of names preordered)
+    The (name_list, register_addr_list) lists must pass the criteria defined by preorder_multi_valid() above.
 
-    All names must be registered within the 192 hours (7 days), and the registration must be 
-    sent from the same address (i.e. signed by the same key) that sends the multi-preorder.
-    
     Returns a NAME_PREORDER_MULTI script.
     
     Record format:
     
-    0     2  3             4                                                                      24             40
-    |-----|--|-------------|----------------------------------------------------------------------|--------------|
-    magic op   len(names)   hash(sorted(list(names)),script_pubkey,sorted(list(register_addrs)))  consensus hash
+    0     2  3             4                                                                          64             80
+    |-----|--|-------------|--------------------------------------------------------------------------|--------------|
+    magic op   #names       hash(sorted(list(names)),script_pubkey,sorted(list(register_addrs))) * 3  consensus hash
     
     """
 
-    if name_hash is None:
+    if name_hashes is None:
 
-        # limit to 1 byte 
-        if len(name_list) > 255:
-            raise Exception("Number of names is capped at 255")
-
-        if len(name_list) != len(register_addr_list):
-            raise Exception("Unequal number of names and owner addresses")
+        if not preorder_multi_valid( name_list, register_addr_list ):
+            raise Exception("Invalid name and address list")
 
         # force string, not unicode 
         for i in xrange(0, len(name_list)):
             name_list[i] = str(name_list[i])
-
-        # no duplicates 
-        if len(set(name_list)) != len(name_list):
-            raise Exception("Name list has duplicates")
-
-        for name in name_list:
-            # expect inputs to the hash
-            if not is_b40( name ) or "+" in name or name.count(".") > 1:
-               raise Exception("Name '%s' has non-base-38 characters" % name)
-            
-            # name itself cannot exceed LENGTHS['blockchain_id_name']
-            if len(NAME_SCHEME) + len(name) > LENGTHS['blockchain_id_name']:
-               raise Exception("Name '%s' is too long; exceeds %s bytes" % (name, LENGTHS['blockchain_id_name'] - len(NAME_SCHEME)))
   
-        name_hash = hash_names( name_list, script_pubkey, register_addr_list )
-        num_names = len(name_list)
+        name_hashes = []
+        for i in xrange(0, len(name_list), 2):
+            name_hashes.append( hash_names( [name_list[i], name_list[i+1]], script_pubkey, [register_addr_list[i], register_addr_list[i+1]] ) )
 
-    elif num_names is None:
-        # if name_hash is given, then we need the number of names 
-        raise Exception("Name hash given, but not the number of names")
+        num_name_hashes = len(name_list) / 2
 
-    count_hex = hexlify( chr(num_names) )
-    script = 'NAME_PREORDER 0x%s 0x%s 0x%s' % (count_hex, name_hash, consensus_hash)
+    else:
+        num_name_hashes = len(name_hashes)
+
+    count_hex = hexlify( chr(num_name_hashes) )
+    name_hashes_hex = "".join( name_hashes )
+    script = 'NAME_PREORDER_MULTI 0x%s 0x%s 0x%s' % (count_hex, name_hashes_hex, consensus_hash)
     hex_script = blockstore_script_to_hex(script)
     packaged_script = add_magic_bytes(hex_script, testset=testset)
     
@@ -237,20 +251,50 @@ def parse(bin_payload):
     NOTE: bin_payload *excludes* the leading 3 bytes (magic + count) returned by build.
     """
     
-    if len(bin_payload) != 1 + LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']:
+    if len(bin_payload) < 1 + LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']:
         log.error("Not a NAME_PREORDER_MULTI")
         return None 
 
-    count = ord(bin_payload[0])
-    name_hash = hexlify( bin_payload[1:LENGTHS['preorder_name_hash']+1] )
-    consensus_hash = hexlify( bin_payload[LENGTHS['preorder_name_hash']+1:] )
+    num_hashes = ord(bin_payload[0])
+    
+    if len(bin_payload) != 1 + num_hashes * LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']:
+        log.error("Invalid NAME_PREORDER_MULTI")
+        return None 
+
+    name_hashes = []
+    for i in xrange(0, num_hashes):
+        nh = hexlify( bin_payload[ 1 + i*LENGTHS['preorder_name_hash'] : 1 + (i+1)*LENGTHS['preorder_name_hash'] ] )
+        name_hashes.append( nh )
+
+    consensus_hash = hexlify( bin_payload[ 1 + num_hashes*LENGTHS['preorder_name_hash'] : 1 + num_hashes*LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']] )
     
     return {
-        'opcode': 'NAME_PREORDER',
-        'preorder_name_hash': name_hash,
-        'consensus_hash': consensus_hash,
-        'quantity': count
+        'opcode': 'NAME_PREORDER_MULTI',
+        'preorder_name_hashes': name_hashes,
+        'consensus_hash': consensus_hash
     }
+
+
+def decompose( nameop, name_hash ):
+    """
+    Decompose a NAME_PREORDER_MULTI into a single NAME_PREORDER with the given name_hash.
+    Used to simplify commits.
+    """
+
+    try:
+        i = nameop['preorder_name_hashes'].index( name_hash )
+    except:
+        log.debug("No name hash '%s'" % name_hash)
+        raise 
+
+    ret = copy.deepcopy( nameop )
+
+    ret['opcode'] = 'NAME_PREORDER'
+    ret['op'] = NAME_PREORDER
+    ret['preorder_name_hash'] = name_hash 
+    
+    del ret['preorder_name_hashes']
+    return ret
 
 
 def get_fees( inputs, outputs ):
