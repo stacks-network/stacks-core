@@ -33,7 +33,8 @@ wallets = [
     testlib.Wallet( "5Kg5kJbQHvk1B64rJniEmgbD83FpZpbw2RjdAZEzTefs9ihN3Bz", 100000000000 ),
     testlib.Wallet( "5JuVsoS9NauksSkqEjbUZxWwgGDQbMwPsEfoRBSpLpgDX1RtLX7", 100000000000 ),
     testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 100000000000 ),
-    testlib.Wallet( "5K6Nou64uUXg8YzuiVuRQswuGRfH1tdb9GUC9NBEV1xmKxWMJ54", 100000000000 )
+    testlib.Wallet( "5K6Nou64uUXg8YzuiVuRQswuGRfH1tdb9GUC9NBEV1xmKxWMJ54", 100000000000 ),
+    testlib.Wallet( "5KcNen67ERBuvz2f649t9F2o1ddTjC5pVUEqcMtbxNgHqgxG2gZ", 100000000000 )
 ]
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
@@ -52,7 +53,7 @@ def scenario( wallets, **kw ):
     testlib.blockstore_namespace_ready( "test", wallets[1].privkey )
     testlib.next_block( **kw )
 
-    resp = testlib.blockstore_name_preorder_multi( ["foo.test", "bar.test", "baz.test"], wallets[2].privkey, [wallets[3].addr, wallets[4].addr, wallets[5].addr] )
+    resp = testlib.blockstore_name_preorder_multi( ["foo.test", "bar.test", "baz.test", "goo.test"], wallets[2].privkey, [wallets[3].addr, wallets[4].addr, wallets[5].addr, wallets[6].addr] )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
         sys.exit(1)
@@ -74,6 +75,12 @@ def scenario( wallets, **kw ):
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
         sys.exit(1)
+
+    resp = testlib.blockstore_name_register( "goo.test", wallets[2].privkey, wallets[5].addr )
+    if 'error' in resp:
+        print json.dumps( resp, indent=4 )
+        sys.exit(1)
+
 
     testlib.next_block( **kw )
 
@@ -100,36 +107,21 @@ def check( state_engine ):
         print "found name preorder for 'foo.test'"
         return False
    
-    # there won't be a preorder for all names either
-    preorder = state_engine.get_name_multi_preorder( ['foo.test', 'bar.test', 'baz.test'], \
+    # there will be a preorder for all names 
+    preorder = state_engine.get_name_preorder_multi( ['foo.test', 'bar.test', 'baz.test', 'goo.test'], \
                                                      pybitcoin.make_pay_to_address_script(wallets[2].addr), \
-                                                     [wallets[3].addr, wallets[4].addr, wallets[5].addr])
+                                                     [wallets[3].addr, wallets[4].addr, wallets[5].addr, wallets[6].addr])
 
-    if preorder is not None:
-        print "Preorder found for foo.test, bar.test, baz.test"
+    if preorder is None:
+        print "Preorder not found for foo.test, bar.test, baz.test"
         return False
 
-    prev_name_rec = None
-    # each name will be registered 
-    for name, wallet in [('foo.test', wallets[3]), ('bar.test', wallets[4]), ('baz.test', wallets[5])]:
+    # no name will be registered 
+    for name, wallet in [('foo.test', wallets[3]), ('bar.test', wallets[4]), ('baz.test', wallets[5]), ('goo.test', wallets[6].addr)]:
 
         name_rec = state_engine.get_name( name )
-        if name_rec is None:
-            print "No name record for %s" % name
+        if name_rec is not None:
+            print "Registered name record for %s" % name
             return False 
 
-        if name_rec['address'] != wallet.addr:
-            print "'%s' not owned by '%s'" % (name, wallet.addr)
-            return False 
-
-        if name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallet.addr):
-            print "'%s' not controlled by '%s'" % (name, pybitcoin.make_pay_to_address_script(wallet.addr))
-            return False
-
-        if prev_name_rec is not None and prev_name_rec['history'] != name_rec['history']:
-            print "'%s' does not have the same preorder as '%s'" % (prev_name_rec['name'], name_rec['name'])
-            return False 
-
-        prev_name_rec = name_rec
-
-        return True
+    return True

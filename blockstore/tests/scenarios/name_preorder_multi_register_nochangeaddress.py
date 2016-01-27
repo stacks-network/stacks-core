@@ -96,7 +96,7 @@ def check( state_engine ):
         return False 
 
     # there will be a multi-preorder 
-    preorder = state_engine.get_name_multi_preorder( ['foo.test', 'bar.test', 'baz.test'], \
+    preorder = state_engine.get_name_preorder_multi( ['foo.test', 'bar.test', 'baz.test'], \
                                                      pybitcoin.make_pay_to_address_script(wallets[2].addr), \
                                                      [wallets[3].addr, wallets[4].addr, wallets[5].addr])
 

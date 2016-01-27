@@ -110,42 +110,26 @@ def check( state_engine ):
         print "found name preorder for 'foo.test'"
         return False
    
-    # there won't be a preorder for all names either
-    preorder = state_engine.get_name_multi_preorder( ['foo.test', 'bar.test', 'baz.test'], \
+    # there will be a preorder for all names
+    preorder = state_engine.get_name_preorder_multi( ['foo.test', 'bar.test', 'baz.test'], \
                                                      pybitcoin.make_pay_to_address_script(wallets[2].addr), \
                                                      [wallets[3].addr, wallets[4].addr, wallets[5].addr])
 
-    if preorder is not None:
-        print "Preorder found for foo.test, bar.test, baz.test"
+    if preorder is None:
+        print "Preorder not found for foo.test, bar.test, baz.test"
         return False
 
     prev_name_rec = None
 
-    # each multi-preordered name will be registered 
+    # none of the multi-preordered names will be registered 
     for name, wallet in [('foo.test', wallets[3]), ('bar.test', wallets[4]), ('baz.test', wallets[5])]:
 
         name_rec = state_engine.get_name( name )
-        if name_rec is None:
-            print "No name record for %s" % name
+        if name_rec is not None:
+            print "Registered name record for %s" % name
             return False 
 
-        if name_rec['address'] != wallet.addr:
-            print "'%s' not owned by '%s'" % (name, wallet.addr)
-            return False 
-
-        if name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallet.addr):
-            print "'%s' not controlled by '%s'" % (name, pybitcoin.make_pay_to_address_script(wallet.addr))
-            return False
-
-        if prev_name_rec is not None and prev_name_rec['history'] != name_rec['history']:
-            print "'%s' does not have the same preorder as '%s'" % (prev_name_rec['name'], name_rec['name'])
-            return False 
-
-        prev_name_rec = name_rec
-
-        return True
-
-    # the single preordered name will also be registered 
+    # the single preordered name will be registered 
     name_rec = state_engine.get_name( 'goo.test' )
     if name_rec is None:
         print "No name record for %s" % name 
