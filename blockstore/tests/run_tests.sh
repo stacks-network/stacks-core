@@ -5,7 +5,7 @@ usage() {
    exit 1
 }
 
-if [ $# -ne 2 ]; then 
+if [ $# -lt 2 ]; then 
    usage $0
 fi
 
