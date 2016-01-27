@@ -26,6 +26,7 @@
 import os
 from binascii import hexlify, unhexlify
 import time
+import sys
 
 import pybitcoin 
 import traceback
@@ -49,6 +50,7 @@ if not globals().has_key('log'):
 
 blockstore_db = None
 blockstore_db_mtime = None
+blockstore_db_lastblock = None
 blockstore_db_lock = threading.Lock()
 
 def get_burn_fee_from_outputs( outputs ):
@@ -314,30 +316,55 @@ def get_db_state():
    (i.e. our name database)
    """
    
-   global blockstore_db, blockstore_db_mtime, blockstore_db_lock
+   global blockstore_db, blockstore_db_mtime, blockstore_db_lock, blockstore_db_lastblock
    
    db_filename = virtualchain.get_db_filename()
+   lastblock_filename = virtualchain.get_lastblock_filename()
    db_mtime = None
+   lastblock = None
 
    if os.path.exists( db_filename ):
-       db_mtime = os.stat( db_filename ).st_mtime 
+       try:
+           db_mtime = os.stat( db_filename ).st_mtime 
+       except Exception, e:
+           # this can't ever happen 
+           log.error("FATAL: failed to stat: %s" % db_mtime)
+           log.exception(e)
+           sys.exit(1)
+
+   if not os.path.exists( lastblock_filename ):
+       # this can't ever happen 
+       log.error("FATAL: no such file or directory: %s" % lastblock_filename )
+       sys.exit(1)
+
+   try:
+       with open(lastblock_filename, "r") as f:
+           lastblock = int( f.read().strip() )
+
+   except Exception, e:
+       # this can't ever happen
+       log.error("FATAL: failed to parse: %s" % lastblock_filename)
+       log.exception(e)
+       sys.exit(1)
 
    blockstore_db_lock.acquire()
 
-   if db_mtime is None or db_mtime != blockstore_db_mtime:
+   if db_mtime is None or lastblock is None or db_mtime != blockstore_db_mtime or lastblock != blockstore_db_lastblock:
       # was modified since loaded 
       # force a reload
       log.info("Invalidating cached db state (%s changed)" % db_filename)
       blockstore_db = None
-      blockstore_db_mtime = db_mtime
 
-   elif blockstore_db is not None:
+   if blockstore_db is not None:
+      # not invalidated yet
       blockstore_db_lock.release()
       return blockstore_db 
    
    log.info("(Re)Loading blockstore state from '%s'" % db_filename )
    blockstore_db = BlockstoreDB( db_filename )
-   
+   blockstore_db_mtime = db_mtime
+   blockstore_db_lastblock = lastblock
+
    blockstore_db_lock.release()
    return blockstore_db
 
