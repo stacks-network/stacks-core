@@ -1,7 +1,7 @@
 #!/bin/sh
 
 usage() {
-   echo "Usage: $0 [path/to/scenarios] [path/to/test/output/dir]"
+   echo "Usage: $0 [path/to/scenarios] [path/to/test/output/dir] [OPTIONAL: path/to/tests/to/skip.txt]"
    exit 1
 }
 
@@ -11,6 +11,7 @@ fi
 
 SCENARIOS="$1"
 OUTPUTS="$2"
+TESTS_SKIP="$3"
 
 test -d "$OUTPUTS" || mkdir -p "$OUTPUTS"
 
@@ -23,6 +24,10 @@ while IFS= read SCENARIO_FILE; do
    fi
 
    if [ "$SCENARIO_FILE" == "__init__.py" ] || [ "$SCENARIO_FILE" == "testlib.py" ]; then 
+      continue
+   fi
+
+   if [ -n "$TESTS_SKIP" ] && [ -n "$(fgrep "$SCENARIO_FILE" "$TESTS_SKIP")" ]; then 
       continue
    fi
 
