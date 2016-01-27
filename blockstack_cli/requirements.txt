@@ -4,7 +4,6 @@ boto==2.38.0
 commontools==0.1.0
 ecdsa==0.13
 pybitcoin==0.9.5
-pybitcointools==1.1.15
 python-bitcoinrpc==0.1
 requests==2.7.0
 utilitybelt==0.2.6
