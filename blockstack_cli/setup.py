@@ -20,7 +20,13 @@ setup(
         'pybitcoin>=0.9.7',
         'boto>=2.38.0',
         'basicrpc>=0.0.1',
-        'bitcoin>=1.1.39'
+        'bitcoin>=1.1.39',
+        'commontools>=0.1.0',
+        'ecdsa>=0.13',
+        'python-bitcoinrpc>=0.1',
+        'requests>=2.7.0',
+        'utilitybelt>=0.2.6',
+        'protocoin>=0.1'
     ],
     classifiers=[
         'Intended Audience :: Developers',
