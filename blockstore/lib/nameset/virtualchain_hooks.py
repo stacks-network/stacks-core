@@ -39,7 +39,7 @@ from ..config import *
 from ..operations import parse_preorder, parse_registration, parse_update, parse_transfer, parse_revoke, \
     parse_name_import, parse_namespace_preorder, parse_namespace_reveal, parse_namespace_ready, parse_announce, \
     get_transfer_recipient_from_outputs, get_import_update_hash_from_outputs, get_registration_recipient_from_outputs, \
-    parse_preorder_multi, \
+    parse_preorder_multi, preorder_decompose, \
     SERIALIZE_FIELDS
 
 import virtualchain
@@ -122,7 +122,7 @@ def parse_blockstore_op_data( opcode, payload, sender, recipient=None, recipient
     
     full OP_RETURN data format (once unhex'ed):
     
-    0           2      3                                   40
+    0           2      3                                   80
     |-----------|------|-----------------------------------|
     magic bytes opcode  payload
     (consumed)  (arg)   (arg)
@@ -142,27 +142,32 @@ def parse_blockstore_op_data( opcode, payload, sender, recipient=None, recipient
     
     if opcode == NAME_PREORDER:
         if len(payload) >= MIN_OP_LENGTHS['preorder']:
-
+            log.debug( "Parse NAME_PREORDER: %s" % data )
             op = parse_preorder(payload)
-            if op is not None:
-                # singular preorder
-                log.debug( "Parse NAME_PREORDER: %s" % data )
-
-            else:
-                # might be a multi-preorder
-                log.debug( "Parse NAME_PREORDER_MULTI: %s" % data )
-                op = parse_preorder_multi( payload )
-
         else:
             log.error( "NAME_PREORDER: invalid length %s" % len(payload) )
         
+    elif opcode == NAME_PREORDER_MULTI:
+        if len(payload) >= MIN_OP_LENGTHS['preorder_multi']:
+            log.debug( "Parse NAME_PREORDER_MULTI: %s" % data)
+            op = parse_preorder_multi(payload)
+        else:
+            log.error( "NAME_PREORDER_MULTI: invalid length %s" % len(payload))
+
     elif opcode == NAME_REGISTRATION:
         if len(payload) >= MIN_OP_LENGTHS['registration']:
             log.debug( "Parse NAME_REGISTRATION: %s" % data )
             op = parse_registration(payload)
         else:
             log.error( "NAME_REGISTRATION: invalid length %s" % len(payload) )
-        
+       
+    elif opcode == NAME_REGISTRATION_MULTI:
+        if len(payload) >= MIN_OP_LENGTHS['registration_multi']:
+            log.debug( "Parse NAME_REGISTRATION_MULTI: %s" % data )
+            op = parse_registration_multi(payload)
+        else:
+            log.error( "NAME_REGISTRATION_MULTI: invalid length %s" % len(payload))
+
     elif opcode == NAME_UPDATE:
         if len(payload) >= MIN_OP_LENGTHS['update']:
             log.debug( "Parse NAME_UPDATE: %s" % data )
@@ -350,11 +355,18 @@ def db_parse( block_id, opcode, data, senders, inputs, outputs, fee, db_state=No
    
    NOTE: the transactions that our tools put have a single sender, and a single output address.
    This is assumed by this code.
+
+   TODO: refactor--move into individual operations
    """
 
    sender = None 
    recipient = None
    recipient_address = None
+
+   # multi
+   recipient_list = None 
+   recipient_address_list = None
+
    import_update_hash = None
    address = None
    sender_pubkey_hex = None
@@ -394,7 +406,21 @@ def db_parse( block_id, opcode, data, senders, inputs, outputs, fee, db_state=No
       except Exception, e:
          log.exception(e)
          raise Exception("No registration address for (%s, %s)" % (opcode, hexlify(data)))
+    
+
+   if opcode in [NAME_REGISTRATION_MULTI]:
+       # get each name's recipient script and recipient address
+       try:
+          recipient_list = get_registration_multi_recipients_from_outputs( outputs )
+          recipient_address_list = []
+          for r in recipient_list:
+              addr = pybitcoin.script_hex_to_address( r )
+              recipient_address_list.append( addr )
      
+       except Exception, e:
+          log.exception(e)
+          raise Exception("Unable to find recipient addresses for (%s, %s)" % (opcode, hexlify(data)))
+
    
    if opcode in [NAME_IMPORT, NAME_TRANSFER]:
       # these operations have a designated recipient that is *not* the sender
@@ -431,15 +457,21 @@ def db_parse( block_id, opcode, data, senders, inputs, outputs, fee, db_state=No
       
       if recipient is not None:
          op['recipient'] = recipient
+
+      if recipient_list is not None:
+         op['recipient_list'] = recipient_list
       
       if recipient_address is not None:
          op['recipient_address'] = recipient_address
       
+      if recipient_address_list is not None:
+         op['recipient_address_list'] = recipient_address_list
+
       if sender_pubkey_hex is not None:
          op['sender_pubkey'] = sender_pubkey_hex
       
    else:
-       log.error("Invalid opcode '%s'" % opcode)
+       log.error("Invalid op '%s'" % opcode)
  
    return op
 
@@ -487,6 +519,10 @@ def db_check( block_id, checked_ops, opcode, op, txid, vtxindex, db_state=None )
       if opcode == NAME_PREORDER:
          rc = db.log_preorder( checked_ops, op, block_id )
 
+      elif opcode == NAME_PREORDER_MULTI:
+         # multiple preorders at once 
+         rc = db.log_preorder_multi( checked_ops, op, block_id )
+
       elif opcode == NAME_REGISTRATION:
          if op['name'] not in colliding_names:
              rc = db.log_registration( checked_ops, op, block_id )
@@ -494,6 +530,16 @@ def db_check( block_id, checked_ops, opcode, op, txid, vtxindex, db_state=None )
              rc = False
              log.error("COLLISION %s" % op['name'])
 
+      elif opcode == NAME_REGISTRATION_MULTI:
+         rc = True
+         for name in op['names']:
+             if name in colliding_names:
+                 rc = False 
+                 log.error("COLLISION %s" % name)
+
+         if rc:
+            rc = db.log_registration_multi( checked_ops, op, block_id )
+         
       elif opcode == NAME_UPDATE:
          rc = db.log_update( checked_ops, op, block_id )
       
@@ -589,8 +635,14 @@ def db_commit( block_id, opcode, op, txid, vtxindex, db_state=None ):
         if opcode == NAME_PREORDER:
             op_seq = db.commit_preorder( op, block_id )
 
+        elif opcode == NAME_PREORDER_MULTI:
+            op_seq = db.commit_preorder_multi( op, block_id )
+
         elif opcode == NAME_REGISTRATION:
             op_seq = db.commit_registration( op, block_id )
+
+        elif opcode == NAME_REGISTRATION_MULTI:
+            op_seq = db.commit_registration_multi( op, block_id )
 
         elif opcode == NAME_UPDATE:
             op_seq = db.commit_update( op, block_id )
