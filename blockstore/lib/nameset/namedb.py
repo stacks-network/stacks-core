@@ -42,7 +42,9 @@ from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAX_NAMES_PER_S
     TESTSET_NAMESPACE_1_CHAR_COST, TESTSET_NAMESPACE_23_CHAR_COST, TESTSET_NAMESPACE_4567_CHAR_COST, TESTSET_NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
     NAME_IMPORT_KEYRING_SIZE, GENESIS_SNAPSHOT, GENESIS_SNAPSHOT_TESTSET, default_blockstore_opts, NAMESPACE_READY, NAME_OPCODES, NAME_PREORDER_MULTI_EXPIRE
 
-from ..operations import build_namespace_reveal, SERIALIZE_FIELDS, preorder_multi_hash_names
+from ..operations import build_namespace_reveal, SERIALIZE_FIELDS, preorder_multi_hash_names, \
+        registration_decompose, preorder_decompose
+
 from ..hashing import *
 from ..b40 import is_b40
 
@@ -94,8 +96,6 @@ class BlockstoreDB( virtualchain.StateEngine ):
 
       self.preorders = {}                     # map hash(sorted(csvlist(name.ns_id))+script_pubkey+sorted(csvlist(register_addr)))
                                               # (as a hex string) to its first "preorder" nameop
-      self.preorder_multis = defaultdict(list)     # map hash(sorted(csvlist(name.ns_id))+script_pubkey+sorted(csvlist(register_addr)))
-                                                   # (as a hex string) to a list of NAME_REGISTRATION nameops (the multi-preorder is in self.preorders)
       self.preorder_multi_senders = defaultdict(list)        # map sender's script_pubkey to list( hash(sorted(csvlist(name.ns_id))+script_pubkey+sorted(csvlist(register_addr))) )
                                                              # (i.e. the list of all multi-preorders in-flight by this sender)
 
@@ -147,9 +147,6 @@ class BlockstoreDB( virtualchain.StateEngine ):
 
                if 'preorders' in db_dict:
                   self.preorders = db_dict['preorders']
-
-               if 'preorder_multis' in db_dict:
-                  self.preorder_multis = db_dict['preorder_multis']
 
                if 'preorder_multi_senders' in db_dict:
                   self.preorder_mulit_senders = db_dict['preorder_multi_senders']
@@ -241,15 +238,6 @@ class BlockstoreDB( virtualchain.StateEngine ):
          # sanitize history on import
          self.namespaces[namespace_id]['history'] = BlockstoreDB.sanitize_history( namespace['history'] )
 
-      for (name_hash, nameop) in self.preorders.items():
-
-          quantity = 1
-          if len(nameop['op']) == 3 and nameop['op'][1] == NAME_PREORDER_MULTI:
-              # multi-preorder 
-              quantity = ord(nameop['op'][2])
-
-          nameop['quantity'] = quantity
-
       # have not yet scanned for collisions
       self.prescanned = False
 
@@ -281,7 +269,6 @@ class BlockstoreDB( virtualchain.StateEngine ):
             db_dict = {
                'registrations': self.name_records,
                'preorders': self.preorders,
-               'preorder_multis': self.preorder_multis,
                'preorder_multi_senders': self.preorder_multi_senders,
                'namespaces': self.namespaces,
                'namespace_preorders': self.namespace_preorders,
@@ -781,26 +768,53 @@ class BlockstoreDB( virtualchain.StateEngine ):
           return self.preorders[ preorder_hash ]
 
 
-   def get_name_multi_preorder( self, names, sender_script_pubkey, register_addrs ):
-       """
-       Get the multi-preorder for a list of names and their register addresses, given them and
-       the preorderer's public key.
-       Return the nameop on succes
-       Return None if not found, or if the preorder is expired, or if the preorder is already registered.
-       """
+   def get_name_preorder_multi( self, names, sender, addrs ):
+      """
+      Given a NAME_REGISTRATION_MULTI, find the matching NAME_PREORDER_MULTI (or return None)
+      """
 
-       # do any of these names exist already?
-       for name in names:
-           name_rec = self.get_name( name )
-           if name_rec is not None:
-               return None 
+      # do any of these names exist?
+      for name in names:
+          if self.get_name( name ) is not None:
+              log.error("Name '%s' already registered" % name)
+              return None 
 
-       preorder_hash = preorder_multi_hash_names( names, sender_script_pubkey, register_addrs )
-       if preorder_hash not in self.preorders.keys():
-           return None 
+      if not self.is_sender_multi_preordering( sender ):
+          log.error("Sender '%s' has no multi-preorders" % sender)
+          return None 
 
-       else:
-           return self.preorders[ preorder_hash ]
+      name_strs = [str(n) for n in names]
+      addr_strs = [str(a) for a in addrs]
+      preorders = []
+
+      if len(name_strs) != len(addr_strs):
+          raise Exception("Must have the same number of names as addresses")
+
+      # multi-preorders are split into 2-name preorders, and then committed.
+      # find them all
+      for i in xrange(0, len(name_strs), 2):
+          name2_hash = preorder_multi_hash_names( [name_strs[i], name_strs[i+1]], str(sender), [addr_strs[i], addr_strs[i+1]] )
+          if name2_hash not in self.preorder_multi_senders[ sender ]:
+              # no match 
+              log.error("Missing 2-name hash %s (for %s, %s)" % (name2_hash, [name_strs[i], name_strs[i+1]], [addr_strs[i], addr_strs[i+1]]))
+              return None
+
+          preorders.append( self.preorders[ name2_hash ] )
+
+      # recombine 2-name preorders into the single multi-preorder 
+
+
+
+      names_hash = preorder_multi_hash_names( name_strs, str(sender), addr_strs )
+
+      for multi_name_hash in self.preorder_multi_senders[ sender ]:
+           if names_hash == multi_name_hash:
+               # match!
+               return self.preorders[ multi_name_hash ]
+
+      # no match
+      log.error("No matching preorder-multi name hash %s (%s %s %s)" % (names_hash, names, sender, addrs))
+      return None
 
 
    def get_namespace_preorder( self, namespace_id_hash ):
@@ -962,7 +976,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
        return (sender_script_pubkey in self.preorder_multi_senders.keys())
    
 
-   def is_multi_preorder_complete( self, sender_script_pubkey, multi_name_hash, name_registrations ):
+   def is_multi_preorder_complete( self, sender_script_pubkey, multi_name_hash ):
        """
        Given a sender's script-pubkey, list of name registrations and a multi-preorder's name hash, 
        do the registrations' names and addresses hash to it?
@@ -1168,19 +1182,16 @@ class BlockstoreDB( virtualchain.StateEngine ):
       expired = []
       for (name_hash, nameop) in self.preorders.items():
           expiry_time = NAME_PREORDER_EXPIRE 
-          if nameop['quantity'] > 1:
+          if nameop['op'] == NAME_PREORDER_MULTI:
               # multi-preorders expire in a week
               expiry_time = NAME_PREORDER_MULTI_EXPIRE
 
           if nameop['block_number'] + (expiry_time) == block_id:
               # expired
-              log.debug("Expire name preorder '%s'" % name_hash)
+              log.debug("Expire name preorder (op %s) '%s'" % (nameop['op'], name_hash))
               expired.append( name_hash )
 
               # all pending registrations fail too 
-              if self.preorder_multis.has_key( name_hash ):
-                  del self.preorder_multis[ name_hash ]
-
               if self.preorder_multi_senders.has_key( nameop['sender'] ):
                   del self.preorder_multi_senders[ nameop['sender'] ]
 
@@ -1279,15 +1290,33 @@ class BlockstoreDB( virtualchain.StateEngine ):
          return old_preorder
 
       else:
-         # could refer to a multi-preorder
-         if script_pubkey in self.preorder_multi_senders.keys():
-             log.debug("'%s' not preordered individually by '%s', but possibly as part of a multi-preorder" % (name, script_pubkey))
-             return None
+         # should never reach here: tried to remove a preorder for a name without a registration
+         log.error("BUG: No preorder found for '%s' from '%s'" % (name, script_pubkey))
+         raise Exception("BUG: no preorder found for '%s' from '%s'" % (name, script_pubkey))
 
-         else:
-             # should never reach here: tried to remove a preorder for a name without a registration
-             log.error("BUG: No preorder found for '%s' from '%s'" % (name, script_pubkey))
-             raise Exception("BUG: no preorder found for '%s' from '%s'" % (name, script_pubkey))
+
+   def commit_remove_preorder_multi( self, names, script_pubkey, addrs ):
+       """
+       Given the list of fully-qualified names and addresses and sender script,
+       remove a multi preorder.
+
+       Return the old preorder on success
+       Return None if not found
+       """
+
+       multi_name_hash = preorder_multi_hash_names( names, script_pubkey, addrs )
+       if self.preorders.has_key( multi_name_hash ):
+           # was preordered 
+           old_preorder = self.preorders[ multi_name_hash ]
+           del self.preorders[ multi_name_hash ]
+
+           if multi_name_hash in self.preorder_multi_senders[ script_pubkey ]:
+               self.preorder_multi_senders[ script_pubkey ].remove( multi_name_hash )
+
+           if len(self.preorder_multi_senders[ script_pubkey ]) == 0:
+               del self.preorder_multi_senders[ script_pubkey ]
+
+           return old_preorder
 
 
    def commit_remove_namespace_import( self, namespace_id, namespace_id_hash ):
@@ -1322,15 +1351,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       commit_nameop = self.sanitize_op( nameop )
       commit_nameop['block_number'] = current_block_number
       commit_nameop['history'] = {}
-      commit_nameop['quantity'] = nameop['quantity']
       commit_nameop['op'] = NAME_PREORDER
-
-      if nameop['quantity'] > 1:
-          # this is a multi-preorder 
-          self.preorder_multi_senders[ sender ].append( name_hash )
-
-          # serialize quantity into the op string, so it's covered by the consensus hash 
-          commit_nameop['op'] = str(NAME_PREORDER) + str(NAME_PREORDER_MULTI) + str(chr( nameop['quantity'] ))
 
       self.preorders[ name_hash ] = commit_nameop
 
@@ -1339,56 +1360,46 @@ class BlockstoreDB( virtualchain.StateEngine ):
       return nameop
 
 
-   def commit_registration_multi_preorder( self, nameop, current_block_number ):
+   def commit_preorder_multi( self, nameop, current_block_number ):
       """
-      A registration is part of a multi-preorder.
-      Record the registration along with the others, and see if we have accumulated all registrations.
-      If we have, then return the list of them.  They are all said to have been registered
-      at the last registration that "completes" the multi-preorder.
-
-      Return the (multi_preorder, sequence of regstrations) if the multi-preorder is now satisfied.
-      Return (True, None) if not (but save the registration)
-      Return (False, None) on invalid input
+      Record a multi-preorder.
+      Break it down into a set of preorders for two names, so they can be matched
+      to subsequent NAME_REGISTER_MULTI operations.
       """
 
-      name = nameop['name']
-      sender = nameop['sender']
-      address = nameop['address']
-      recipient = nameop['recipient']
-      recipient_address = nameop['recipient_address']
+      ret_ops = []
 
-      if not self.is_sender_multi_preordering( sender ):
-          # this sender hasn't issued any multi-preorders
-          log.error("Sender '%s' has issued no multi-preorders" % sender)
-          return False, None
+      for double_name_hash in nameop['preorder_name_hashes']:
+          sender = nameop['sender']
+          commit_nameop = self.sanitize_op( nameop )
+          commit_nameop['block_number'] = current_block_number
+          commit_nameop['history'] = {}
+          commit_nameop['op'] = NAME_PREORDER_MULTI
 
-      self.preorder_multis[ sender ].append( nameop )
+          self.preorders[ double_name_hash ] = commit_nameop
+          self.preorder_multi_senders[ sender ].append( double_name_hash )
 
-      for multi_name_hash in self.preorder_multi_senders[ sender ]:
-          if self.is_multi_preorder_complete( sender, multi_name_hash, self.preorder_multis[ sender ] ):
-              # finished a preorder!
-              old_preorder = self.preorders[ multi_name_hash ]
-              registrations = self.preorder_multis[ sender ]
-              
-              # clear out preorder state
-              self.preorder_multi_senders[ sender ].remove( multi_name_hash )
-              if len(self.preorder_multi_senders[sender]) == 0:
-                  del self.preorder_multi_senders[sender]
+          """
+          ret_op = copy.deepcopy( nameop )
+          ret_op.update( commit_nameop )
+          ret_ops.append( ret_op )
+          """
 
-              del self.preorders[ multi_name_hash ]
-              del self.preorder_multis[ sender ]
-
-              return old_preorder, registrations
-
-      return True, None
+      # add consensus fields 
+      nameop['op'] = NAME_PREORDER_MULTI
+      nameop['block_number'] = current_block_number
+      
+      return nameop
 
 
-   def commit_registration( self, nameop, current_block_number, multi_preorder=None ):
+   def commit_registration( self, nameop, current_block_number, preorder=None ):
       """
       Record a name registration to have taken place at a particular
       block number.
       This removes the preorder for the name as well, and updates
       expiration and hash-to-name indexes.
+
+      Returns the registration operation to snapshot
       """
 
       name = nameop['name']
@@ -1406,43 +1417,12 @@ class BlockstoreDB( virtualchain.StateEngine ):
       else:
 
           # registered!
-          if multi_preorder is None:
-              
-              # maybe preordered?
+          if preorder is None:
+              # single-preorder; clear out the preorder
               preorder = self.commit_remove_preorder( name, sender, recipient_address )
-              if preorder is None:
-                  # either not preordered, or part of a multi-preorder 
-                  # remember the nameop, and do nothing more (we'll replay this later)
-                  preorder_result, registrations = self.commit_registration_multi_preorder( nameop, current_block_number )
-                  if preorder_result in [True, False]:
-
-                      # still have some names to come
-                      if not preorder_result:
-                          # invalid registration
-                          log.error("'%s' is an invalid registration" % (nameop['name']))
-                          return None
-                      else:
-                          # saved, but not (yet) registered
-                          log.debug("'%s' saved for future mass-registration" % (nameop['name']))
-                          return None
-
-                  else:
-                      # this was the last registration we needed to complete a multi-preorder.
-                      # now we have all of them.
-                      preorder = preorder_result
-                      reg_ops = []
-
-                      # do each registration
-                      for name_reg in registrations:
-                          op = self.commit_registration( name_reg, current_block_number, multi_preorder=preorder )
-                          reg_ops.append( op )
-
-                      # done!
-                      return reg_ops
-
           else:
-              # registering one of many names as part of a multi-preorder
-              preorder = copy.deepcopy( multi_preorder )
+              # multi-preorder; use as origin of this name
+              preorder = copy.deepcopy( preorder )
 
           del preorder['history']
 
@@ -1542,6 +1522,35 @@ class BlockstoreDB( virtualchain.StateEngine ):
       return nameop
 
 
+   def commit_registration_multi( self, nameop, current_block_number ):
+      """
+      Commit a multi-name registration.  Breaks down into one or more
+      name registration commits and commit those.
+
+      But, the op that is actually committed is a multi-registration
+      """
+
+      # find the 2-name multi-preorder 
+      sender = nameop['sender']
+      names = nameop['names']
+      addrs = nameop['recipient_address_list']
+
+      multi_preorder = self.commit_expire_preorder_multi( names, sender, addrs )
+      if multi_preorder is None:
+          raise Exception("BUG: no multi-preorder for %s" % (",".join(names)))
+
+      # commit each name individually
+      for i in xrange(0, len(names)):
+
+          name_reg = registration_decompose( nameop, names[i] )
+          self.commit_registration( name_reg, current_block_number, preorder=multi_preorder )
+
+          # set update hash as well
+          self.name_records[names[i]]['value_hash'] = nameop['value_hashes'][i]
+
+      return nameop
+
+
    def commit_renewal( self, nameop, current_block_number ):
       """
       Commit a name renewal.  Push back its expiration.
@@ -1613,7 +1622,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       self.name_records[name]['opcode'] = nameop['opcode']
       self.name_records[name]['op'] = NAME_UPDATE
 
-      # NOTE: obtained from log_update
+      # NOTE: obtained from log_update, or given from a multi-registration 
       self.name_records[name]['consensus_hash'] = nameop['consensus_hash']
 
       # propagate information back to virtualchain for snapshotting
@@ -2062,6 +2071,9 @@ class BlockstoreDB( virtualchain.StateEngine ):
       self.colliding_names = None
       self.colliding_namespaces = None
 
+      # multi-preorders must be registered in the same block 
+
+
 
    def log_announce( self, pending_nameops, nameop, block_id ):
       """
@@ -2094,7 +2106,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       return (True, str(sending_blockchain_id))
 
 
-   def log_preorder( self, pending_nameops, nameop, block_id ):
+   def log_preorder( self, pending_nameops, nameop, block_id, quantity=1 ):
       """
       Log a preorder of a name at a particular block number.
 
@@ -2105,6 +2117,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
       a namespace import, because we will only accept names
       sent from the importer until the NAMESPACE_REVEAL operation
       is sent.
+
+      @quantity it the number of names preordered (defaults to 1)
 
       Return True if accepted
       Return False if not.
@@ -2131,7 +2145,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
           return False
 
       # sender must be beneath quota
-      if len( self.owner_names.get( sender, [] ) ) >= MAX_NAMES_PER_SENDER:
+      if len( self.owner_names.get( sender, [] ) ) + quantity - 1 >= MAX_NAMES_PER_SENDER:
           log.debug("Sender '%s' exceeded name quota of %s" % (sender, MAX_NAMES_PER_SENDER ))
           return False
 
@@ -2143,7 +2157,28 @@ class BlockstoreDB( virtualchain.StateEngine ):
       return True
 
 
-   def log_registration( self, pending_nameops, nameop, block_id ):
+   def log_preorder_multi( self, pending_nameops, nameop, block_id ):
+       """
+       Verify that a NAME_PREORDER_MULTI is acceptable:
+       break it into multiple NAME_PREORDERs and check them individually.
+       """
+
+       sender = nameop['sender']
+       name_hashes = nameop['preorder_name_hashes']
+       rc = True
+
+       for i in xrange(0, len(name_hashes)):
+
+           preorder_op = preorder_decompose( nameop, name_hashes[i] )
+           rc = self.log_preorder( pending_nameops, preorder_op, block_id, quantity=len(name_hashes))
+           if not rc:
+               log.debug("Unacceptable preorder '%s'" % name_hashes[i])
+               break
+       
+       return rc
+
+
+   def log_registration( self, pending_nameops, nameop, block_id, preorder=None ):
       """
       Progess a registration nameop.
       * the name must be well-formed
@@ -2205,25 +2240,28 @@ class BlockstoreDB( virtualchain.StateEngine ):
           return False
 
       # preordered?
-      name_preorder = self.get_name_preorder( name, sender, register_addr )
-      if name_preorder is not None:
+      if preorder is None:
+          # single preorder
+          preorder = self.get_name_preorder( name, sender, register_addr )
+
+      if preorder is not None:
 
           # name must be preordered by the same sender
-          if name_preorder['sender'] != sender:
+          if preorder['sender'] != sender:
              log.debug("Name '%s' was not preordered by %s" % (name, sender))
              return False
 
           # name can't be registered if it was reordered before its namespace was ready
-          if not namespace.has_key('ready_block') or name_preorder['block_number'] < namespace['ready_block']:
+          if not namespace.has_key('ready_block') or preorder['block_number'] < namespace['ready_block']:
              log.debug("Name '%s' preordered before namespace '%s' was ready" % (name, namespace_id))
              return False
 
           # fee was included in the preorder
-          if not 'op_fee' in name_preorder:
+          if not 'op_fee' in preorder:
              log.debug("Name '%s' preorder did not pay the fee" % (name))
              return False
 
-          name_fee = name_preorder['op_fee']
+          name_fee = preorder['op_fee']
 
       elif self.is_name_registered( name ):
 
@@ -2244,11 +2282,6 @@ class BlockstoreDB( virtualchain.StateEngine ):
 
           name_fee = nameop['op_fee']
 
-      elif self.is_sender_multi_preordering( sender ):
-          # not explicitly preordered, but could be part of a multi-preorder 
-          log.debug("Name '%s' could be part of a multi-preorder from '%s'" % (name, sender))
-          return True
-
       else:
 
           # does not exist and not preordered
@@ -2265,6 +2298,55 @@ class BlockstoreDB( virtualchain.StateEngine ):
 
       # regster/renewal
       return True
+
+
+   def log_registration_multi( self, pending_nameops, nameop, block_id ):
+       """
+       Verify that a NAME_REGISTRATION_MULTI is acceptable:
+       decompose it into multiple NAME_REGISTRATIONs, and verify them.
+       """
+
+       sender = nameop['sender']
+       names = nameop['names']
+       addrs = nameop['recipient_address_list']
+       rc = True
+
+       if not self.is_sender_multi_preordering( sender ):
+           log.debug("Sender %s has no multi-preorders" % sender)
+           return False 
+
+       # find the preorder 
+       multi_preorder = self.get_name_preorder_multi( names, sender, addrs )
+       if multi_preorder is None:
+           # no preorder 
+           log.debug("Names not preordered by '%s'" % sender )
+           return False 
+
+       total_name_fee = 0
+
+       # create NAME_REGISTRATION operations, and log them 
+       for i in xrange(0, len(names)):
+
+           name_reg = registration_decompose( nameop, names[i] )
+           rc = self.log_registration( pending_nameops, name_reg, block_id, preorder=multi_preorder )
+           if not rc:
+               log.debug("Unacceptable name '%s'" % name)
+               return False 
+
+           name_without_namespace = get_name_from_fq_name( name )
+           namespace_id = get_namespace_from_name( name )
+
+           # NOTE: succeeds because log_registration succeeded
+           namespace = self.get_namespace( namespace_id )
+ 
+           total_name_fee += price_name( name_without_namespace, namespace )
+
+       # preorder fee must cover all names
+       if total_name_fee < multi_preorder['op_fee']:
+          log.debug("Names cost total of %s, but paid %s" % (total_name_fee, multi_preorder['op_fee']))
+          return False
+
+       return True
 
 
    def log_update(self, pending_nameops, nameop, block_id ):
