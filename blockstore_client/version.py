@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
     Blockstore-client
@@ -21,17 +20,5 @@
     along with Blockstore-client.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import os
-import sys
-
-# Hack around absolute paths
-current_dir = os.path.abspath(os.path.dirname(__file__))
-parent_dir = os.path.abspath(current_dir + "/../")
-
-sys.path.insert(0, parent_dir)
-
-from blockstore_client.blockstore_cli import run_cli
-
-if __name__ == '__main__':
-
-    run_cli()
+# this is the only place where version should be updated
+__version__ = '0.0.12'
