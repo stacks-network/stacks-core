@@ -322,6 +322,11 @@ def get_db_state():
    lastblock_filename = virtualchain.get_lastblock_filename()
    db_mtime = None
    lastblock = None
+   firstcheck = True 
+
+   for path in [db_filename, lastblock_filename]:
+       if os.path.exists( path ):
+           firstcheck = False
 
    if os.path.exists( db_filename ):
        try:
@@ -332,20 +337,21 @@ def get_db_state():
            log.exception(e)
            sys.exit(1)
 
-   if not os.path.exists( lastblock_filename ):
+   if not firstcheck and not os.path.exists( lastblock_filename ):
        # this can't ever happen 
        log.error("FATAL: no such file or directory: %s" % lastblock_filename )
        sys.exit(1)
 
-   try:
-       with open(lastblock_filename, "r") as f:
-           lastblock = int( f.read().strip() )
+   elif os.path.exists( lastblock_filename ):
+       try:
+           with open(lastblock_filename, "r") as f:
+               lastblock = int( f.read().strip() )
 
-   except Exception, e:
-       # this can't ever happen
-       log.error("FATAL: failed to parse: %s" % lastblock_filename)
-       log.exception(e)
-       sys.exit(1)
+       except Exception, e:
+           # this can't ever happen
+           log.error("FATAL: failed to parse: %s" % lastblock_filename)
+           log.exception(e)
+           sys.exit(1)
 
    blockstore_db_lock.acquire()
 
