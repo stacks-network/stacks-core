@@ -39,10 +39,14 @@ from .preorder import build as build_preorder, \
     get_fees as preorder_fees
 from .preorder_multi import build as build_preorder_multi, \
     broadcast as preorder_name_multi, parse as parse_preorder_multi, \
-    get_fees as preorder_multi_fees, hash_names as preorder_multi_hash_names
+    get_fees as preorder_multi_fees, hash_names as preorder_multi_hash_names, \
+    decompose as preorder_decompose
 from .register import build as build_registration, \
     broadcast as register_name, parse as parse_registration, \
-    get_fees as registration_fees
+    get_fees as registration_fees 
+from .register_multi import build as build_registration_multi, \
+    broadcast as register_name_multi, parse as parse_registration_multi, \
+    get_fees as registration_multi_fees, decompose as registration_decompose
 from .transfer import build as build_transfer, \
     broadcast as transfer_name, parse as parse_transfer, \
     make_outputs as make_transfer_ouptuts, \
