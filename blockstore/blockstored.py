@@ -1709,6 +1709,7 @@ def stop_server( from_signal, clean=False, kill=False ):
     else:
         # from command-line invocation.
         # kill main supervisor.
+        log.info("Exiting at user request")
         try:
             fin = open(pid_file, "r")
         except Exception, e:
@@ -1957,6 +1958,8 @@ def run_server( testset=False, foreground=False ):
         api_server_command = ('twistd --pidfile= -noy').split()
         api_server_command.append(tac_file)
 
+    log.debug("Setting up signal handlers")
+
     # correctly die on fatal signals
     for sig in [signal.SIGINT, signal.SIGQUIT, signal.SIGTERM]:
         signal.signal( sig, die_handler_server )
@@ -1965,6 +1968,7 @@ def run_server( testset=False, foreground=False ):
     put_pidfile( pid_file, os.getpid() )
 
     # start API server
+    log.debug("Starting API server")
     blockstored_api_server = subprocess.Popen( api_server_command, shell=False)
 
     # start indexing 
@@ -1972,9 +1976,11 @@ def run_server( testset=False, foreground=False ):
     indexer_thread = start_indexer_thread()
 
     # wait for the API server to die
+    log.debug("Begin process supervision")
     blockstored_api_server.wait()
 
     # stop the indexer thread
+    log.debug("Stopping indexer thread")
     stop_indexer_thread( indexer_thread, 1.0 )
 
     if logfile is not None:
@@ -2129,7 +2135,14 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
     """
     Given a record from the blockstore database,
     convert it into a virtualchain operation to
-    process.
+    process.  
+    
+    @history_index is the index into the name_rec's 
+    history that encodes the prior state of the 
+    desired virtualchain operation.
+
+    @untrusted_db is the database at 
+    the state of the block_number.
 
     TODO: refactor; put op-specific code into each name op definition
     """
@@ -2146,27 +2159,20 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
 
         # reconstruct the preorder op...
         # how many names preordered?
-        quantity = 1
-        if len(name_rec['op']) == 3:
-            # multi-preorder 
-            # quantity encoded in the opcode data
-            quantity = ord( name_rec['op'][2] )
+        name_rec_script = build_preorder( None, None, None, str(name_rec['consensus_hash']), \
+                name_hash=str(name_rec['preorder_name_hash']), testset=testset )
 
-        if quantity == 1:
-            # singular preorder
-            name_rec_script = build_preorder( None, None, None, str(name_rec['consensus_hash']), \
-                    name_hash=str(name_rec['preorder_name_hash']), testset=testset )
+        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
+        ret_op = parse_preorder( name_rec_payload )
 
-            name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
-            ret_op = parse_preorder( name_rec_payload )
+    elif opcode_name == "NAME_PREORDER_MULTI":
 
-        else:
-            # multi-preorder
-            name_rec_script = build_preorder_multi( None, None, None, str(name_rec['consensus_hash']), \
-                    name_hash=str(name_rec['preorder_name_hash']), num_names=quantity, testset=testset )
+        # reconstruct the multi-preorder op 
+        name_rec_script = build_preorder_multi( None, None, None, str(name_rec['consensus_hash']), \
+                name_hashes=name_rec['preorder_name_hashes'], testset=testset )
 
-            name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
-            ret_op = parse_preorder_multi( name_rec_payload )
+        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
+        ret_op = parse_preorder_multi( name_rec_payload )
 
     elif opcode_name == "NAME_REGISTRATION":
         name_rec_script = build_registration( str(name_rec['name']), testset=testset )
@@ -2193,6 +2199,43 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
         ret_op['address'] = address
 
         del name_rec['history']
+
+    elif opcode_name == "NAME_REGISTRATION_MULTI":
+
+        name_rec_script = build_registration_multi( str(name_rec['names']), testset=testset )
+        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
+        ret_op = parse_registration_multi( name_rec_payload )
+
+        recipients = []
+        recipient_addrs = []
+
+        # go find the two names we registered...
+        untrusted_name_recs = []
+        for name in name_rec['names']:
+
+            untrusted_name_rec = untrusted_db.get_name( str(name) )
+            recipients.append( str(name_rec['sender']) )
+            recipient_addrs.append( str(name_rec['address']) )
+
+            # find this name's sender and address
+            name_rec['history'] = untrusted_name_rec['history']
+
+            if history_index > 0:
+                name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number )[ history_index - 1 ]
+            else:
+                name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number - 1 )[ history_index - 1 ]
+
+            sender = name_rec_prev['sender']
+            address = name_rec_prev['address']
+
+            ret_op['sender'] = sender
+            ret_op['address'] = address
+
+            del name_rec['history']
+
+        name_rec['recipient_list'] = recipients 
+        name_rec['recipient_address_list'] = recipient_addrs
+        
 
     elif opcode_name == "NAME_UPDATE":
         data_hash = None

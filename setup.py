@@ -44,6 +44,19 @@ setup(
         'kademlia>=0.5',
         'keychain>=0.1.4',
         'blockstore-client>=0.0.12'
+        'base58=>0.2.2',
+        'bitcoin>=1.1.39',
+        'basicrpc>=0.0.2',
+        'boto>=2.38.0',
+        'commontools>=0.1.0',
+        'ecdsa==0.13',
+        'pybitcoin>=0.9.8',
+        'requests>=2.8.1',
+        'six>=1.10.0',
+        'Twisted>=15.4.0',
+        'txJSON-RPC>=0.3.1',
+        'utilitybelt>=0.2.6',
+        'virtualchain>=0.0.5'
     ],
     classifiers=[
         'Intended Audience :: Developers',
