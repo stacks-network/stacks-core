@@ -58,7 +58,7 @@ BLOCKS_PER_YEAR = int(round(MINUTES_PER_YEAR/AVERAGE_MINUTES_PER_BLOCK))
 BLOCKS_PER_DAY = int(round(float(MINUTES_PER_HOUR * HOURS_PER_DAY)/AVERAGE_MINUTES_PER_BLOCK))
 EXPIRATION_PERIOD = BLOCKS_PER_YEAR*1
 NAME_PREORDER_EXPIRE = BLOCKS_PER_DAY
-NAME_PREORDER_MULTI_EXPIRE = 7 * BLOCKS_PER_DAY
+NAME_PREORDER_MULTI_EXPIRE = BLOCKS_PER_DAY
 # EXPIRATION_PERIOD = 10
 AVERAGE_BLOCKS_PER_HOUR = MINUTES_PER_HOUR/AVERAGE_MINUTES_PER_BLOCK
 
@@ -125,7 +125,9 @@ MAGIC_BYTES_MAINSET = 'id'
 # Opcodes
 ANNOUNCE = '#'
 NAME_PREORDER = '?'
+NAME_PREORDER_MULTI = '/'
 NAME_REGISTRATION = ':'
+NAME_REGISTRATION_MULTI = '|'
 NAME_UPDATE = '+'
 NAME_TRANSFER = '>'
 NAME_RENEWAL = NAME_REGISTRATION
@@ -137,9 +139,6 @@ NAMESPACE_READY = '!'
 
 NAME_SCHEME = MAGIC_BYTES_MAINSET + NAME_REGISTRATION
 
-# extra bytes affecting a preorder
-NAME_PREORDER_MULTI = '*'
-
 # extra bytes affecting a transfer
 TRANSFER_KEEP_DATA = '>'
 TRANSFER_REMOVE_DATA = '~'
@@ -149,8 +148,10 @@ TRANSFER_REMOVE_DATA = '~'
 # (i.e. earlier operations in this list are preferred over later operations)
 OPCODES = [
    NAME_PREORDER,
+   NAME_PREORDER_MULTI,
    NAME_REVOKE,
    NAME_REGISTRATION,
+   NAME_REGISTRATION_MULTI,
    NAME_UPDATE,
    NAME_TRANSFER,
    NAME_IMPORT,
@@ -162,7 +163,9 @@ OPCODES = [
 
 OPCODE_NAMES = {
     NAME_PREORDER: "NAME_PREORDER",
+    NAME_PREORDER_MULTI: "NAME_PREORDER_MULTI",
     NAME_REGISTRATION: "NAME_REGISTRATION",
+    NAME_REGISTRATION_MULTI: "NAME_REGISTRATION_MULTI",
     NAME_UPDATE: "NAME_UPDATE",
     NAME_TRANSFER: "NAME_TRANSFER",
     NAME_RENEWAL: "NAME_REGISTRATION",
@@ -176,7 +179,9 @@ OPCODE_NAMES = {
 
 NAME_OPCODES = {
     "NAME_PREORDER": NAME_PREORDER,
+    "NAME_PREORDER_MULTI": NAME_PREORDER_MULTI,
     "NAME_REGISTRATION": NAME_REGISTRATION,
+    "NAME_REGISTRATION_MULTI": NAME_REGISTRATION_MULTI,
     "NAME_UPDATE": NAME_UPDATE,
     "NAME_TRANSFER": NAME_TRANSFER,
     "NAME_RENEWAL": NAME_REGISTRATION,
@@ -199,6 +204,8 @@ LENGTHS = {
     'namelen': 1,
     'name_min': 1,
     'name_max': 34,
+    'fqn_min': 3,
+    'fqn_max': 37,
     'name_hash': 16,
     'update_hash': 20,
     'data_hash': 20,
@@ -211,16 +218,18 @@ LENGTHS = {
     'blockchain_id_namespace_version': 2,
     'blockchain_id_namespace_id': 19,
     'announce': 20,
-    'max_op_length': 40
+    'max_op_length': 80
 }
 
 MIN_OP_LENGTHS = {
     'preorder': LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'],
-    'registration': LENGTHS['name_min'],
+    'preorder_multi': 1 + LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'],
+    'registration': LENGTHS['fqn_min'],
+    'registration_multi': 2*LENGTHS['fqn_min'] + 2*LENGTHS['update_hash'],
     'update': LENGTHS['name_hash'] + LENGTHS['update_hash'],
     'transfer': LENGTHS['name_hash'] + LENGTHS['consensus_hash'],
-    'revoke': LENGTHS['name_min'],
-    'name_import': LENGTHS['name_min'],
+    'revoke': LENGTHS['fqn_min'],
+    'name_import': LENGTHS['fqn_min'],
     'namespace_preorder': LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'],
     'namespace_reveal': LENGTHS['blockchain_id_namespace_life'] + LENGTHS['blockchain_id_namespace_coeff'] + \
                         LENGTHS['blockchain_id_namespace_base'] + LENGTHS['blockchain_id_namespace_buckets'] + \
@@ -230,7 +239,7 @@ MIN_OP_LENGTHS = {
     'announce': LENGTHS['announce']
 }
 
-OP_RETURN_MAX_SIZE = 40
+OP_RETURN_MAX_SIZE = 80
 
 """ transaction fee configs
 """
