@@ -49,9 +49,12 @@ FIELDS = NAMEREC_FIELDS + [
 
 def get_registration_recipient_from_outputs( outputs ):
     """
-    There are three or four outputs:  the OP_RETURN, the registration 
-    address, the change address (i.e. from the name preorderer), and 
-    (for renwals) the burn address for the renewal fee.
+    There are between three and five outputs:
+    * the OP_RETURN
+    * the registration address
+    * the change address (i.e. from the name preorderer)
+    * (for renwals) the burn address for the renewal fee
+    * (optional) the initial update hash
     
     Given the outputs from a name register operation,
     find the registration address's script hex.
@@ -61,24 +64,26 @@ def get_registration_recipient_from_outputs( outputs ):
     """
     
     ret = None
-    for output in outputs:
-       
-        output_script = output['scriptPubKey']
-        output_asm = output_script.get('asm')
-        output_hex = output_script.get('hex')
-        output_addresses = output_script.get('addresses')
-        
-        if output_asm[0:9] != 'OP_RETURN' and output_hex is not None:
-            
-            # recipient's script_pubkey and address
-            # ret = (output_hex, output_addresses[0])
-            ret = output_hex
-            break
-            
-    if ret is None:
-       raise Exception("No registration address found")
+    if len(outputs) < 3 or len(outputs) > 5:
+        # invalid 
+        return None 
+
+    registration_output = outputs[1]
+   
+    output_script = registration_output['scriptPubKey']
+    output_asm = output_script.get('asm')
+    output_hex = output_script.get('hex')
+    output_addresses = output_script.get('addresses')
     
-    return ret 
+    if output_asm[0:9] != 'OP_RETURN' and output_hex is not None:
+        
+        # recipient's script hex
+        ret = output_hex
+
+    else:
+       raise Exception("No registration script found")
+
+    return ret
 
 
 def build(name, testset=False):
@@ -104,13 +109,14 @@ def build(name, testset=False):
     return packaged_script 
 
 
-def make_outputs( data, change_inputs, register_addr, change_addr, renewal_fee=None, pay_fee=True, format='bin' ):
+def make_outputs( data, change_inputs, register_addr, change_addr, update_hash=None, renewal_fee=None, pay_fee=True, format='bin' ):
     """
     Make outputs for a register:
     [0] OP_RETURN with the name 
     [1] pay-to-address with the *register_addr*, not the sender's address.
     [2] change address with the NAME_PREORDER sender's address
     [3] (OPTIONAL) renewal fee, sent to the burn address
+    [4] (OPTIONAL) the update hash
     """
 
     bill = 0
