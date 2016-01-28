@@ -975,6 +975,7 @@ def default_mock_utxo_opts( config_file=None ):
    mock_start_time = None
    mock_difficulty = None
    mock_initial_utxos = None
+   mock_save_file = None
 
    if config_file is not None:
 
@@ -1015,6 +1016,10 @@ def default_mock_utxo_opts( config_file=None ):
                 print >> sys.stderr, "Invalid 'start_block' value: expected int"
                 return None
 
+         if parser.has_option('mock_utxo', 'save_file'):
+             # should be a path 
+             mock_save_file = parser.get('mock_utxo', 'save_file')
+
          if parser.has_option('mock_utxo', 'initial_utxos'):
             # should be a csv of privatekey:int
             try:
@@ -1040,7 +1045,8 @@ def default_mock_utxo_opts( config_file=None ):
       "start_block": mock_start_block,
       "difficulty": mock_difficulty,
       "initial_utxos": mock_initial_utxos,
-      "start_block": mock_start_block
+      "start_block": mock_start_block,
+      "save_file": mock_save_file
    }
 
    # strip Nones
@@ -1482,7 +1488,11 @@ def connect_utxo_provider( utxo_opts ):
 
    elif utxo_provider == "mock_utxo":
        # requires blockstore tests to be installed
-       from ..tests import connect_mock_utxo_provider
+       try:
+           from ..tests import connect_mock_utxo_provider
+       except:
+           from blockstore.tests import connect_mock_utxo_provider
+
        return connect_mock_utxo_provider( utxo_opts )
 
    else:
