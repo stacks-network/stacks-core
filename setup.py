@@ -27,7 +27,7 @@ import os
 
 setup(
     name='blockstore',
-    version='0.0.11',
+    version='0.0.11.1',
     url='https://github.com/blockstack/blockstore',
     license='GPLv3',
     author='Blockstack.org',
