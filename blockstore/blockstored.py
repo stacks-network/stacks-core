@@ -733,7 +733,7 @@ def blockstore_name_transfer( name, address, keepdata, privatekey, user_public_k
         # subsidize the transaction
         resp = make_subsidized_tx( resp['unsigned_tx'], transfer_fees, blockstore_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
 
-    log.debug('name transfer <name, address>: <%s, %s>' % (name, address))
+    log.debug('name transfer <name, address, keepdata>: <%s, %s, %s>' % (name, address, keepdata))
 
     return resp
 
@@ -1170,7 +1170,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         return blockstore_name_preorder( str(name), str(privatekey), str(register_addr), tx_only=True, testset=self.testset )
 
 
-    def jsonrpc_preorder_tx_subsidized( self, name, user_public_key, register_addr, subsidy_key ):
+    def jsonrpc_preorder_tx_subsidized( self, name, register_addr, subsidy_key ):
         """
         Generate a transaction that preorders a name, but without paying fees.
         @name is the name to preorder
@@ -1181,7 +1181,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
         """
-        return blockstore_name_preorder( str(name), None, str(register_addr), tx_only=True, subsidy_key=str(subsidy_key), user_public_key=str(user_public_key), testset=self.testset )
+        return blockstore_name_preorder( str(name), None, str(register_addr), tx_only=True, subsidy_key=str(subsidy_key), testset=self.testset )
 
 
     def jsonrpc_register( self, name, privatekey, register_addr ):
@@ -1223,7 +1223,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
         """
-        return blockstore_name_register( str(name), None, str(register_addr), tx_only=True, public_key=str(user_public_key), subsidy_key=str(subsidy_key), testset=self.testset )
+        return blockstore_name_register( str(name), None, str(register_addr), tx_only=True, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), testset=self.testset )
 
 
     def jsonrpc_update( self, name, data_hash, privatekey ):
@@ -1403,7 +1403,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
         """
-        return blockstore_name_revoke( str(name), None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
+        return blockstore_name_revoke( str(name), None, user_public_key=str(public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
 
 
     def jsonrpc_name_import( self, name, recipient_address, update_hash, privatekey ):
@@ -1892,6 +1892,29 @@ def stop_indexer_thread( thread, join_timeout ):
         return True
 
 
+def api_server_subprocess( foreground=False, testset=False ):
+    """
+    Start up the API server in a subprocess.
+    Returns a Subprocess connected to the API server on success.
+    Returns None on error
+    """
+
+    tac_file = get_tacfile_path( testset=testset )
+    access_log_file = get_logfile_path() + ".access"
+    api_server_command = None 
+
+    if not foreground:
+        api_server_command = ('twistd --pidfile= --logfile=%s -noy' % (access_log_file)).split()
+        api_server_command.append(tac_file)
+
+    else:
+        api_server_command = ('twistd --pidfile= -noy').split()
+        api_server_command.append(tac_file)
+
+    blockstored_api_server = subprocess.Popen( api_server_command, shell=False)
+    return blockstored_api_server
+
+
 def run_server( testset=False, foreground=False ):
     """
     Run the blockstored RPC server, optionally in the foreground.
@@ -1909,10 +1932,6 @@ def run_server( testset=False, foreground=False ):
 
     logfile = None
     if not foreground:
-
-        api_server_command = ('twistd --pidfile= --logfile=%s -noy' % (access_log_file)).split()
-        api_server_command.append(tac_file)
-
         try:
             if os.path.exists( indexer_log_file ):
                 logfile = open( indexer_log_file, "a" )
@@ -1954,13 +1973,7 @@ def run_server( testset=False, foreground=False ):
             # wait for intermediate child
             pid, status = os.waitpid( child_pid, 0 )
             sys.exit(status)
-
-    else:
-
-        # foreground
-        api_server_command = ('twistd --pidfile= -noy').split()
-        api_server_command.append(tac_file)
-
+    
     # correctly die on fatal signals
     for sig in [signal.SIGINT, signal.SIGQUIT, signal.SIGTERM]:
         signal.signal( sig, die_handler_server )
@@ -1969,7 +1982,7 @@ def run_server( testset=False, foreground=False ):
     put_pidfile( pid_file, os.getpid() )
 
     # start API server
-    blockstored_api_server = subprocess.Popen( api_server_command, shell=False)
+    blockstored_api_server = api_server_subprocess( foreground=foreground, testset=testset )
 
     # start indexing 
     set_indexing( False )
