@@ -2,6 +2,8 @@
 
 import os
 import sys 
+import subprocess
+import signal
 import shutil
 
 # enable all tests
@@ -88,11 +90,14 @@ def write_config_file( scenario, path ):
 
     initial_utxo_str = ",".join( ["%s:%s" % (w.privkey, w.value) for w in scenario.wallets] )
     config_file_in = "blockstore.ini.in"
+    mock_bitcoind_save_path = "/tmp/mock_bitcoind.dat"
 
     config_txt = None
     with open( config_file_in, "r" ) as f:
         config_txt = f.read()
-        config_txt = config_txt.replace( "@MOCK_INITIAL_UTXOS@", initial_utxo_str )
+
+    config_txt = config_txt.replace( "@MOCK_INITIAL_UTXOS@", initial_utxo_str )
+    config_txt = config_txt.replace( "@MOCK_SAVE_FILE@", mock_bitcoind_save_path )
 
     with open( path, "w" ) as f:
         f.write( config_txt )
@@ -107,6 +112,7 @@ def run_scenario( scenario, config_file ):
     * set up the virtualchain to use our mock UTXO provider and mock bitcoin blockchain
     * seed it with the initial values in the wallet 
     * set the initial consensus hash 
+    * start the API server
     * run the scenario method
     * run the check method
     """
@@ -119,12 +125,13 @@ def run_scenario( scenario, config_file ):
             pass
 
     # use mock bitcoind
-    worker_env = {
-        # use mock_bitcoind to connect to bitcoind (but it has to import it in order to use it)
-        "VIRTUALCHAIN_MOD_CONNECT_BLOCKCHAIN": mock_bitcoind.__file__,
-        "MOCK_BITCOIND_SAVE_PATH": mock_bitcoind_save_path,
-        "BLOCKSTORE_TEST": "1"
-    }
+    worker_env = mock_bitcoind.make_worker_env( mock_bitcoind, mock_bitcoind_save_path )
+    worker_env['BLOCKSTORE_TEST'] = "1"
+
+    print worker_env
+
+    # tell our subprocesses that we're testing 
+    os.environ.update( worker_env )
 
     if os.environ.get("PYTHONPATH", None) is not None:
         worker_env["PYTHONPATH"] = os.environ["PYTHONPATH"]
@@ -152,6 +159,9 @@ def run_scenario( scenario, config_file ):
 
     blockstored.set_bitcoin_opts( bitcoin_opts )
     blockstored.set_utxo_opts( utxo_opts )
+
+    # start API server 
+    api_server = blockstored.api_server_subprocess( foreground=True )
 
     db = blockstored.get_state_engine()
     bitcoind = mock_bitcoind.connect_mock_bitcoind( utxo_opts )
@@ -188,6 +198,9 @@ def run_scenario( scenario, config_file ):
         log.exception(e)
         traceback.print_exc()
         log.error("Failed to run scenario '%s'" % scenario.__name__)
+
+        api_server.send_signal( signal.SIGTERM )
+        api_server.wait()
         return False
 
     # run the checks on the database
@@ -197,17 +210,25 @@ def run_scenario( scenario, config_file ):
         log.exception(e)
         traceback.print_exc()
         log.error("Failed to run tests '%s'" % scenario.__name__)
+        
+        api_server.send_signal( signal.SIGTERM )
+        api_server.wait()
         return False 
     
     if not rc:
+        api_server.send_signal( signal.SIGTERM )
+        api_server.wait()
         return rc
 
     log.info("Scenario checks passed; verifying history")
+    api_server.send_signal( signal.SIGTERM )
+    api_server.wait()
 
     # run database integrity check at each block 
     rc = testlib.check_history( db )
     if rc:
         testlib.cleanup()
+
     return rc 
 
 
@@ -230,6 +251,7 @@ if __name__ == "__main__":
         working_dir = "/tmp/blockstore-run-scenario.%s" % scenario.__name__
 
     # patch state engine implementation
+    os.environ['BLOCKSTORE_TEST_WORKING_DIR'] = working_dir
     blockstore_state_engine.working_dir = working_dir
     if not os.path.exists( blockstore_state_engine.working_dir ):
         os.makedirs( blockstore_state_engine.working_dir )
