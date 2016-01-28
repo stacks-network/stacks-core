@@ -27,13 +27,12 @@ while IFS= read SCENARIO_FILE; do
       continue
    fi
 
-   if [ -n "$TESTS_SKIP" ] && [ -n "$(fgrep "$SCENARIO_FILE" "$TESTS_SKIP")" ]; then 
-      continue
-   fi
-
    SCENARIO_MODULE_BASE="$(echo "$SCENARIO_FILE" | sed 's/\.py//g')"
    SCENARIO_MODULE="$SCENARIOS_PYTHON.$SCENARIO_MODULE_BASE"
 
+   if [ -n "$TESTS_SKIP" ] && [ -n "$(fgrep "$SCENARIO_MODULE_BASE" "$TESTS_SKIP")" ]; then 
+      continue
+   fi
 
    TESTDIR="/tmp/blockstore-test"
 
