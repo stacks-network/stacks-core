@@ -84,7 +84,9 @@ class MockUTXOProvider(object):
         Return {"transaction_hash": txid}
         """
 
+
         # update the current unspent set.
+        hex_tx = str(hex_tx)
         inputs, outputs, locktime, version = tx_deserialize( hex_tx )
         txid = mock_bitcoind.make_txid( hex_tx )
 
