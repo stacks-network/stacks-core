@@ -86,14 +86,10 @@ def check( state_engine ):
         print json.dumps(name_rec, indent=4)
         return False
     
-    # registered to new owner
+    # can't be registered to the same owner
     name_rec = state_engine.get_name( "foo.test" )
-    if name_rec is None:
-        print "name rec is None"
+    if name_rec is not None:
+        print "name rec found!"
         return False 
-
-    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[3].addr):
-        print json.dumps(name_rec, indent=4 )
-        return False
 
     return True
