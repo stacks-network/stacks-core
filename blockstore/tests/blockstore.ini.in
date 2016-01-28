@@ -5,9 +5,11 @@ port = 8332
 use_https = True
 user = openname
 mock = True
+save_file = @MOCK_SAVE_FILE@
 
 [mock_utxo]
 initial_utxos = @MOCK_INITIAL_UTXOS@
+save_file = @MOCK_SAVE_FILE@
 
 [dht]
 disable = True
