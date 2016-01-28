@@ -145,17 +145,8 @@ def parse_blockstore_op_data( opcode, payload, sender, recipient=None, recipient
     
     if opcode == NAME_PREORDER:
         if len(payload) >= MIN_OP_LENGTHS['preorder']:
-
+            log.debug( "Parse NAME_PREORDER: %s" % data )
             op = parse_preorder(payload)
-            if op is not None:
-                # singular preorder
-                log.debug( "Parse NAME_PREORDER: %s" % data )
-
-            else:
-                # might be a multi-preorder
-                log.debug( "Parse NAME_PREORDER_MULTI: %s" % data )
-                op = parse_preorder_multi( payload )
-
         else:
             log.error( "NAME_PREORDER: invalid length %s" % len(payload) )
         
