@@ -99,9 +99,13 @@ class BlockstoreDB( virtualchain.StateEngine ):
       self.preorder_multi_senders = defaultdict(list)        # map sender's script_pubkey to list( hash(sorted(csvlist(name.ns_id))+script_pubkey+sorted(csvlist(register_addr))) )
                                                              # (i.e. the list of all multi-preorders in-flight by this sender)
 
+      self.preorder_hashes = set([])          # set of all prior preorder hashes
+
       self.namespaces = {}                    # map namespace ID to first instance of NAMESPACE_REVEAL op (a dict) combined with the namespace ID and sender script_pubkey
       self.namespace_preorders = {}           # map namespace ID hash (as the hex string of ns_id+script_pubkey hash) to its NAMESPACE_PREORDER operation
       self.namespace_reveals = {}             # map namesapce ID to its NAMESPACE_REVEAL operation
+
+      self.namespace_preorder_hashes = set([])  # set of all prior namespace preorder hashes
 
       self.owner_names = defaultdict(list)    # secondary index: map sender_script_pubkey hex string to list of names owned by the principal it represents
       self.hash_names = {}                    # secondary index: map hex_hash160(name) to name
@@ -199,6 +203,12 @@ class BlockstoreDB( virtualchain.StateEngine ):
          # convert vtxindex
          self.name_records[name]['vtxindex'] = int(self.name_records[name]['vtxindex'])
 
+         # build set(name preorder hashes)
+         for (hist_block_id, hists) in self.name_records[name]['history'].items():
+             for hist in hists:
+                 if hist.get('opcode', None) == 'NAME_PREORDER':
+                    self.preorder_hashes.update( set([hist['preorder_name_hash']]) )
+
 
       for (namespace_id, namespace_reveal) in self.namespace_reveals.items():
 
@@ -236,10 +246,24 @@ class BlockstoreDB( virtualchain.StateEngine ):
          # convert history to int
          self.namespace_reveals[namespace_id]['history'] = BlockstoreDB.sanitize_history( namespace_reveal['history'] )
 
+         # build set(namespace preorder hashes)
+         for (hist_block_id, hists) in self.namespace_reveals[namespace_id]['history'].items():
+             for hist in hists:
+                 if hist.get('opcode', None) == 'NAMESPACE_PREORDER':
+                     self.namespace_preorder_hashes.update( set([hist['namespace_id_hash']]) )
+
+
       for (namespace_id, namespace) in self.namespaces.items():
 
          # sanitize history on import
          self.namespaces[namespace_id]['history'] = BlockstoreDB.sanitize_history( namespace['history'] )
+         
+         # build set(namespace preorder hashes)
+         for (hist_block_id, hists) in self.namespaces[namespace_id]['history'].items():
+             for hist in hists:
+                 if hist.get('opcode', None) == 'NAMESPACE_PREORDER':
+                     self.namespace_preorder_hashes.update( set([hist['namespace_id_hash']]) )
+
 
       for (name_hash, nameop) in self.preorders.items():
 
@@ -928,7 +952,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       Return True if so.
       Return False if not.
       """
-      return (name_hash not in self.preorders.keys())
+      return (name_hash not in self.preorders.keys() and name_hash not in self.preorder_hashes)
 
 
    def is_new_namespace_preorder( self, namespace_id_hash ):
@@ -938,7 +962,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       Return True if so.
       Return False if not.
       """
-      return (self.get_namespace_preorder(namespace_id_hash) is None)
+      return (self.get_namespace_preorder(namespace_id_hash) is None and namespace_id_hash not in self.namespace_preorder_hashes)
 
 
    def is_name_revoked( self, name ):
@@ -1333,6 +1357,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
           commit_nameop['op'] = str(NAME_PREORDER) + str(NAME_PREORDER_MULTI) + str(chr( nameop['quantity'] ))
 
       self.preorders[ name_hash ] = commit_nameop
+      self.preorder_hashes.update( set([name_hash]) )
 
       # propagate information back to virtualchain for snapshotting
       nameop.update( self.preorders[name_hash] )
@@ -1873,6 +1898,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       # this namespace is preordered, but not yet defined
       # store non-virtualchian fields
       self.namespace_preorders[ namespace_id_hash ] = self.sanitize_op( nameop )
+      self.namespace_preorder_hashes.update( set([namespace_id_hash]) )
 
       # propagate information back to virtualchain for snapshotting
       return nameop
