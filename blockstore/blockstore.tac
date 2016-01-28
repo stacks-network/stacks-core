@@ -52,9 +52,25 @@ server_blockstore.setServiceParent(application)
 from kademlia.network import Server
 from dht.storage import BlockStorage, hostname_to_ip
 from lib import nameset as blockstore_state_engine
-import virtualchain 
 
-virtualchain.setup_virtualchain( blockstore_state_engine )
+import virtualchain
+
+if os.getenv("BLOCKSTORE_TEST") == "1":
+    
+    import blockstore.tests.mock_bitcoind as mock_bitcoind
+
+    working_dir = os.environ.get('BLOCKSTORE_TEST_WORKING_DIR', None)
+    worker_env = mock_bitcoind.make_worker_env( mock_bitcoind, os.getenv("MOCK_BITCOIND_SAVE_PATH") )
+    worker_env['BLOCKSTORE_TEST'] = "1"
+
+    if working_dir is not None:
+        blockstore_state_engine.working_dir = working_dir 
+
+    virtualchain.setup_virtualchain( blockstore_state_engine, bitcoind_connection_factory=mock_bitcoind.connect_mock_bitcoind, index_worker_env=worker_env )
+    
+else:
+    virtualchain.setup_virtualchain( blockstore_state_engine )
+
 dht_opts = lib.config.default_dht_opts()
 
 if not dht_opts['disable']:
