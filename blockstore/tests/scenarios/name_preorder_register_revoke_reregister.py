@@ -102,14 +102,14 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # re-preorder...
-    resp = testlib.blockstore_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
+    resp = testlib.blockstore_name_preorder( "foo.test", wallets[3].privkey, wallets[4].addr )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
-    # re-register 
-    resp = testlib.blockstore_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
+    # re-register (different user) 
+    resp = testlib.blockstore_name_register( "foo.test", wallets[3].privkey, wallets[4].addr )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
@@ -141,7 +141,7 @@ def check( state_engine ):
         return False 
 
     # owned 
-    if name_rec['address'] != wallets[3].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[3].addr):
+    if name_rec['address'] != wallets[4].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[4].addr):
         return False 
 
     # not updated
@@ -150,7 +150,7 @@ def check( state_engine ):
         return False 
 
     # not transferred 
-    if name_rec['address'] != wallets[3].addr:
+    if name_rec['address'] != wallets[4].addr:
         print "address is %s" % name_rec['address']
         return False 
 

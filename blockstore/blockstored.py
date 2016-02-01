@@ -733,7 +733,7 @@ def blockstore_name_transfer( name, address, keepdata, privatekey, user_public_k
         # subsidize the transaction
         resp = make_subsidized_tx( resp['unsigned_tx'], transfer_fees, blockstore_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
 
-    log.debug('name transfer <name, address>: <%s, %s>' % (name, address))
+    log.debug('name transfer <name, address, keepdata>: <%s, %s, %s>' % (name, address, keepdata))
 
     return resp
 
@@ -1170,7 +1170,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         return blockstore_name_preorder( str(name), str(privatekey), str(register_addr), tx_only=True, testset=self.testset )
 
 
-    def jsonrpc_preorder_tx_subsidized( self, name, user_public_key, register_addr, subsidy_key ):
+    def jsonrpc_preorder_tx_subsidized( self, name, register_addr, subsidy_key ):
         """
         Generate a transaction that preorders a name, but without paying fees.
         @name is the name to preorder
@@ -1181,7 +1181,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
         """
-        return blockstore_name_preorder( str(name), None, str(register_addr), tx_only=True, subsidy_key=str(subsidy_key), user_public_key=str(user_public_key), testset=self.testset )
+        return blockstore_name_preorder( str(name), None, str(register_addr), tx_only=True, subsidy_key=str(subsidy_key), testset=self.testset )
 
 
     def jsonrpc_register( self, name, privatekey, register_addr ):
@@ -1223,7 +1223,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
         """
-        return blockstore_name_register( str(name), None, str(register_addr), tx_only=True, public_key=str(user_public_key), subsidy_key=str(subsidy_key), testset=self.testset )
+        return blockstore_name_register( str(name), None, str(register_addr), tx_only=True, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), testset=self.testset )
 
 
     def jsonrpc_update( self, name, data_hash, privatekey ):
@@ -1403,7 +1403,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
         """
-        return blockstore_name_revoke( str(name), None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
+        return blockstore_name_revoke( str(name), None, user_public_key=str(public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
 
 
     def jsonrpc_name_import( self, name, recipient_address, update_hash, privatekey ):
@@ -1691,7 +1691,11 @@ def stop_server( from_signal, clean=False, kill=False ):
                 except:
                     pass
 
-                os.kill( os.getpid(), signal.SIGKILL )
+                try:
+                    os.kill( os.getpid(), signal.SIGKILL )
+                except:
+                    log.error("Failed to kill ourselves (%s)" % os.getpid())
+                    sys.exit(1)
 
             log.debug("Stopped indexer thread")
 
@@ -1889,6 +1893,29 @@ def stop_indexer_thread( thread, join_timeout ):
         return True
 
 
+def api_server_subprocess( foreground=False, testset=False ):
+    """
+    Start up the API server in a subprocess.
+    Returns a Subprocess connected to the API server on success.
+    Returns None on error
+    """
+
+    tac_file = get_tacfile_path( testset=testset )
+    access_log_file = get_logfile_path() + ".access"
+    api_server_command = None 
+
+    if not foreground:
+        api_server_command = ('twistd --pidfile= --logfile=%s -noy' % (access_log_file)).split()
+        api_server_command.append(tac_file)
+
+    else:
+        api_server_command = ('twistd --pidfile= -noy').split()
+        api_server_command.append(tac_file)
+
+    blockstored_api_server = subprocess.Popen( api_server_command, shell=False)
+    return blockstored_api_server
+
+
 def run_server( testset=False, foreground=False ):
     """
     Run the blockstored RPC server, optionally in the foreground.
@@ -1906,10 +1933,6 @@ def run_server( testset=False, foreground=False ):
 
     logfile = None
     if not foreground:
-
-        api_server_command = ('twistd --pidfile= --logfile=%s -noy' % (access_log_file)).split()
-        api_server_command.append(tac_file)
-
         try:
             if os.path.exists( indexer_log_file ):
                 logfile = open( indexer_log_file, "a" )
@@ -1951,15 +1974,7 @@ def run_server( testset=False, foreground=False ):
             # wait for intermediate child
             pid, status = os.waitpid( child_pid, 0 )
             sys.exit(status)
-
-    else:
-
-        # foreground
-        api_server_command = ('twistd --pidfile= -noy').split()
-        api_server_command.append(tac_file)
-
-    log.debug("Setting up signal handlers")
-
+    
     # correctly die on fatal signals
     for sig in [signal.SIGINT, signal.SIGQUIT, signal.SIGTERM]:
         signal.signal( sig, die_handler_server )
@@ -1968,8 +1983,7 @@ def run_server( testset=False, foreground=False ):
     put_pidfile( pid_file, os.getpid() )
 
     # start API server
-    log.debug("Starting API server")
-    blockstored_api_server = subprocess.Popen( api_server_command, shell=False)
+    blockstored_api_server = api_server_subprocess( foreground=foreground, testset=testset )
 
     # start indexing 
     set_indexing( False )
@@ -2040,7 +2054,7 @@ def setup( working_dir=None, testset=False, return_parser=False ):
    # if we're using the mock UTXO provider, then switch to the mock bitcoind node as well
    if utxo_opts['utxo_provider'] == 'mock_utxo':
        import tests.mock_bitcoind
-       mock_bitcoind_save_path = os.path.join( get_working_dir(), "mock_blockchain.dat" )
+       mock_bitcoind_save_path = os.path.join( virtualchain.get_working_dir(), "mock_blockchain.dat" )
        worker_env = {
             # use mock_bitcoind to connect to bitcoind (but it has to import it in order to use it)
             "VIRTUALCHAIN_MOD_CONNECT_BLOCKCHAIN": tests.mock_bitcoind.__file__,
@@ -2599,6 +2613,11 @@ def run_blockstored():
    """
 
    testset = check_testset_enabled()
+   if testset:
+       os.environ['BLOCKSTORE_TESTSET'] = "1"
+   else:
+       os.environ['BLOCKSTORE_TESTSET'] = "0"
+
    working_dir = check_alternate_working_dir()
    argparser = setup( testset=testset, working_dir=working_dir, return_parser=True )
 

@@ -1,16 +1,17 @@
 #!/bin/sh
 
 usage() {
-   echo "Usage: $0 [path/to/scenarios] [path/to/test/output/dir]"
+   echo "Usage: $0 [path/to/scenarios] [path/to/test/output/dir] [OPTIONAL: path/to/tests/to/skip.txt]"
    exit 1
 }
 
-if [ $# -ne 2 ]; then 
+if [ $# -lt 2 ]; then 
    usage $0
 fi
 
 SCENARIOS="$1"
 OUTPUTS="$2"
+TESTS_SKIP="$3"
 
 test -d "$OUTPUTS" || mkdir -p "$OUTPUTS"
 
@@ -29,6 +30,9 @@ while IFS= read SCENARIO_FILE; do
    SCENARIO_MODULE_BASE="$(echo "$SCENARIO_FILE" | sed 's/\.py//g')"
    SCENARIO_MODULE="$SCENARIOS_PYTHON.$SCENARIO_MODULE_BASE"
 
+   if [ -n "$TESTS_SKIP" ] && [ -n "$(fgrep "$SCENARIO_MODULE_BASE" "$TESTS_SKIP")" ]; then 
+      continue
+   fi
 
    TESTDIR="/tmp/blockstore-test"
 

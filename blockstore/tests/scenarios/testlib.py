@@ -36,6 +36,8 @@ current_dir =  os.path.abspath(os.path.dirname(__file__) + "/../../..")
 sys.path.insert(0, current_dir)
 
 import blockstore.blockstored as blockstored
+
+import blockstore_client
 import blockstore
 import pybitcoin
 
@@ -102,63 +104,201 @@ def log_consensus( **kw ):
     all_consensus_hashes[ block_id ] = ch
 
 
+def make_proxy():
+    """
+    Create a blockstore client API proxy
+    """
+    global utxo_opts
+    proxy = blockstore_client.client.session( server_host="localhost", server_port=6264, storage_drivers="disk", \
+                                              metadata_dir=None, spv_headers_path=utxo_opts['spv_headers_path'] )
+
+    return proxy
+
+
 def blockstore_name_preorder( name, privatekey, register_addr, tx_only=False, subsidy_key=None, testset=False, consensus_hash=None ):
-    resp = blockstored.blockstore_name_preorder( name, privatekey, register_addr, tx_only=tx_only, subsidy_key=subsidy_key, testset=testset, consensus_hash=consensus_hash )
+
+    test_proxy = make_proxy()
+    blockstore_client.client.set_default_proxy( test_proxy )
+
+    # resp = blockstored.blockstore_name_preorder( name, privatekey, register_addr, tx_only=tx_only, subsidy_key=subsidy_key, testset=testset, consensus_hash=consensus_hash )
+    if tx_only:
+        resp = test_proxy.preorder_tx( name, privatekey, register_addr )
+    elif subsidy_key is not None:
+        resp = test_proxy.preorder_tx_subsidized( name, register_addr, subsidy_key )
+    else:
+        resp = test_proxy.preorder( name, privatekey, register_addr )
+
     return resp
 
 
 def blockstore_name_preorder_multi( names, privatekey, register_addrs, tx_only=False, subsidy_key=None, testset=False, consensus_hash=None ):
-    resp = blockstored.blockstore_name_preorder_multi( names, privatekey, register_addrs, tx_only=tx_only, subsidy_key=subsidy_key, testset=testset, consensus_hash=consensus_hash )
+    
+    test_proxy = make_proxy()
+    blockstore_client.client.set_default_proxy( test_proxy )
+    
+    # resp = blockstored.blockstore_name_preorder_multi( names, privatekey, register_addrs, tx_only=tx_only, subsidy_key=subsidy_key, testset=testset, consensus_hash=consensus_hash )
+    if tx_only:
+        resp = test_proxy.preorder_multi_tx( names, privatekey, register_addrs )
+    elif subsidy_key is not None:
+        resp = test_proxy.preorder_multi_tx_subsidized( names, None, register_addrs, subsidy_key )
+    else:
+        resp = test_proxy.preorder_multi( names, privatekey, register_addrs )
+
     return resp
 
 
 def blockstore_name_register( name, privatekey, register_addr, renewal_fee=None, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
-    resp = blockstored.blockstore_name_register( name, privatekey, register_addr, renewal_fee=renewal_fee, tx_only=tx_only, subsidy_key=subsidy_key, user_public_key=user_public_key, testset=testset, consensus_hash=consensus_hash)
+    
+    test_proxy = make_proxy()
+    blockstore_client.client.set_default_proxy( test_proxy )
+
+    # resp = blockstored.blockstore_name_register( name, privatekey, register_addr, renewal_fee=renewal_fee, tx_only=tx_only, subsidy_key=subsidy_key, user_public_key=user_public_key, testset=testset, consensus_hash=consensus_hash)
+    if tx_only:
+        resp = test_proxy.register_tx( name, privatekey, register_addr )
+    elif subsidy_key is not None:
+        resp = test_proxy.register_tx_subsidized( name, privatekey, register_addr, subsidy_key )
+    else:
+        resp = test_proxy.register( name, privatekey, register_addr )
+
     return resp
 
 
-def blockstore_name_update( name, data_hash, privatekey, user_public_key=None, tx_only=False, subsidy_key=None, testset=False, consensus_hash=None ):
-    resp = blockstored.blockstore_name_update( name, data_hash, privatekey, tx_only=tx_only, subsidy_key=subsidy_key, user_public_key=user_public_key, testset=testset, consensus_hash=consensus_hash )
+def blockstore_name_update( name, data_hash, privatekey, user_public_key=None, tx_only=False, subsidy_key=None, testset=False, consensus_hash=None, test_api_proxy=True ):
+    
+    test_proxy = make_proxy()
+    blockstore_client.client.set_default_proxy( test_proxy )
+
+    if not test_api_proxy:
+        resp = blockstored.blockstore_name_update( name, data_hash, privatekey, tx_only=tx_only, subsidy_key=subsidy_key, user_public_key=user_public_key, testset=testset, consensus_hash=consensus_hash )
+
+    else:
+        if tx_only:
+            resp = test_proxy.update_tx( name, data_hash, privatekey )
+        elif subsidy_key is not None:
+            resp = test_proxy.update_tx_subsidized( name, data_hash, user_public_key, subsidy_key )
+        else:
+            resp = test_proxy.update( name, data_hash, privatekey )
+
     return resp
 
 
 def blockstore_name_transfer( name, address, keepdata, privatekey, tx_only=False, user_public_key=None, subsidy_key=None, testset=False, consensus_hash=None ):
-    resp = blockstored.blockstore_name_transfer( name, address, keepdata, privatekey, tx_only=tx_only, subsidy_key=subsidy_key, user_public_key=user_public_key, testset=testset, consensus_hash=consensus_hash )
+     
+    test_proxy = make_proxy()
+    blockstore_client.client.set_default_proxy( test_proxy )
+
+    # resp = blockstored.blockstore_name_transfer( name, address, keepdata, privatekey, tx_only=tx_only, subsidy_key=subsidy_key, user_public_key=user_public_key, testset=testset, consensus_hash=consensus_hash )
+    if tx_only:
+        resp = test_proxy.transfer_tx( name, address, keepdata, privatekey )
+    elif subsidy_key is not None:
+        resp = test_proxy.transfer_tx_subsidized( name, address, keepdata, user_public_key, subsidy_key )
+    else:
+        resp = test_proxy.transfer( name, address, keepdata, privatekey )
+
     return resp
 
 
 def blockstore_name_renew( name, privatekey, register_addr=None, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
-    resp = blockstored.blockstore_name_renew( name, privatekey, register_addr=register_addr, tx_only=tx_only, subsidy_key=subsidy_key, user_public_key=user_public_key, testset=testset, consensus_hash=consensus_hash )
+    
+    test_proxy = make_proxy()
+    blockstore_client.client.set_default_proxy( test_proxy )
+
+    # resp = blockstored.blockstore_name_renew( name, privatekey, register_addr=register_addr, tx_only=tx_only, subsidy_key=subsidy_key, user_public_key=user_public_key, testset=testset, consensus_hash=consensus_hash )
+    if tx_only:
+        resp = test_proxy.renew_tx( name, privatekey )
+    elif subsidy_key is not None:
+        resp = test_proxy.renew_tx_subsidized( name, user_public_key, subsidy_key )
+    else:
+        resp = test_proxy.renew( name, privatekey )
+
     return resp
 
 
 def blockstore_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
-    resp = blockstored.blockstore_name_revoke( name, privatekey, tx_only=tx_only, subsidy_key=subsidy_key, user_public_key=user_public_key, testset=testset, consensus_hash=consensus_hash )
+    
+    test_proxy = make_proxy()
+    blockstore_client.client.set_default_proxy( test_proxy )
+
+    # resp = blockstored.blockstore_name_revoke( name, privatekey, tx_only=tx_only, subsidy_key=subsidy_key, user_public_key=user_public_key, testset=testset, consensus_hash=consensus_hash )
+    if tx_only:
+        resp = test_proxy.revoke_tx( name, privatekey )
+    elif subsidy_key is not None:
+        resp = test_proxy.revoke_tx_subsidized( name, user_public_key, subsidy_key )
+    else:
+        resp = test_proxy.revoke( name, privatekey )
+
     return resp
 
 
 def blockstore_name_import( name, recipient_address, update_hash, privatekey, tx_only=False, testset=False, consensus_hash=None ):
-    resp = blockstored.blockstore_name_import( name, recipient_address, update_hash, privatekey, tx_only=tx_only, testset=testset, consensus_hash=consensus_hash )
+    
+    test_proxy = make_proxy()
+    blockstore_client.client.set_default_proxy( test_proxy )
+
+    # resp = blockstored.blockstore_name_import( name, recipient_address, update_hash, privatekey, tx_only=tx_only, testset=testset, consensus_hash=consensus_hash )
+    if tx_only:
+        resp = test_proxy.name_import_tx( name, recipient_address, update_hash, privatekey )
+    else:
+        resp = test_proxy.name_import( name, recipient_address, update_hash, privatekey )
+
     return resp
 
 
 def blockstore_namespace_preorder( namespace_id, register_addr, privatekey, tx_only=False, testset=False, consensus_hash=None ):
-    resp = blockstored.blockstore_namespace_preorder( namespace_id, register_addr, privatekey, tx_only=tx_only, testset=testset, consensus_hash=consensus_hash )
+    
+    test_proxy = make_proxy()
+    blockstore_client.client.set_default_proxy( test_proxy )
+
+    # resp = blockstored.blockstore_namespace_preorder( namespace_id, register_addr, privatekey, tx_only=tx_only, testset=testset, consensus_hash=consensus_hash )
+    if tx_only:
+        resp = test_proxy.namespace_preorder_tx( namespace_id, register_addr, privatekey )
+    else:
+        resp = test_proxy.namespace_preorder( namespace_id, register_addr, privatekey )
+
     return resp
 
 
 def blockstore_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, tx_only=False, testset=False, consensus_hash=None ):
-    resp = blockstored.blockstore_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, tx_only=tx_only, testset=testset, consensus_hash=consensus_hash )
+    
+    test_proxy = make_proxy()
+    blockstore_client.client.set_default_proxy( test_proxy )
+
+    # resp = blockstored.blockstore_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, tx_only=tx_only, testset=testset, consensus_hash=consensus_hash )
+    if tx_only:
+        resp = test_proxy.namespace_reveal_tx( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey )
+    else:
+        resp = test_proxy.namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey )
+
     return resp
 
 
 def blockstore_namespace_ready( namespace_id, privatekey, tx_only=False, testset=False, consensus_hash=None ):
-    resp = blockstored.blockstore_namespace_ready( namespace_id, privatekey, tx_only=tx_only, testset=testset, consensus_hash=consensus_hash )
+    
+    test_proxy = make_proxy()
+    blockstore_client.client.set_default_proxy( test_proxy )
+
+    # resp = blockstored.blockstore_namespace_ready( namespace_id, privatekey, tx_only=tx_only, testset=testset, consensus_hash=consensus_hash )
+    if tx_only:
+        resp = test_proxy.namespace_ready_tx( namespace_id, privatekey )
+    else:
+        resp = test_proxy.namespace_ready( namespace_id, privatekey )
+
     return resp
 
 
-def blockstore_announce( message, privatekey, tx_only=False, testset=False ):
-    resp = blockstored.blockstore_announce( message, privatekey, testset=testset )
+def blockstore_announce( message, privatekey, tx_only=False, user_public_key=None, subsidy_key=None, testset=False ):
+    
+    test_proxy = make_proxy()
+    blockstore_client.client.set_default_proxy( test_proxy )
+
+    # resp = blockstored.blockstore_announce( message, privatekey, testset=testset )
+    if tx_only:
+        resp = test_proxy.announce_tx( message, privatekey )
+    elif subsidy_key is not None:
+        resp = test_proxy.announce_tx_subsidized( message, user_public_key, subsidy_key )
+    else:
+        resp = test_proxy.announce( message, privatekey )
+
     return resp
 
 def blockstore_verify_database( consensus_hash, consensus_block_id, db_path, working_db_path=None, start_block=None, testset=False ):

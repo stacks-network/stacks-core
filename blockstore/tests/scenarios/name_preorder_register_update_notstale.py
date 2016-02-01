@@ -62,7 +62,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
     # update with stale consensus hash (should fail)
-    testlib.blockstore_name_update( "foo.test", "22" * 20, wallets[3].privkey, consensus_hash=consensus_hash )
+    testlib.blockstore_name_update( "foo.test", "22" * 20, wallets[3].privkey, consensus_hash=consensus_hash, test_api_proxy=False )
     testlib.next_block( **kw )
 
 

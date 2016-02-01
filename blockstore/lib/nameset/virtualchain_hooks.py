@@ -26,6 +26,7 @@
 import os
 from binascii import hexlify, unhexlify
 import time
+import sys
 
 import pybitcoin 
 import traceback
@@ -48,6 +49,8 @@ if not globals().has_key('log'):
     log = virtualchain.session.log
 
 blockstore_db = None
+blockstore_db_mtime = None
+blockstore_db_lastblock = None
 blockstore_db_lock = threading.Lock()
 
 def get_burn_fee_from_outputs( outputs ):
@@ -318,23 +321,76 @@ def get_db_state():
    (i.e. our name database)
    """
    
-   global blockstore_db, blockstore_db_lock
+   global blockstore_db, blockstore_db_mtime, blockstore_db_lock, blockstore_db_lastblock
    
-   now = time.time()
-   
+   db_filename = virtualchain.get_db_filename()
+   lastblock_filename = virtualchain.get_lastblock_filename()
+   db_mtime = None
+   lastblock = None
+   firstcheck = True 
+
+   for path in [db_filename, lastblock_filename]:
+       if os.path.exists( path ):
+           firstcheck = False
+
+   if os.path.exists( db_filename ):
+       try:
+           db_mtime = os.stat( db_filename ).st_mtime 
+       except Exception, e:
+           # this can't ever happen 
+           log.error("FATAL: failed to stat: %s" % db_mtime)
+           log.exception(e)
+           sys.exit(1)
+
+   if not firstcheck and not os.path.exists( lastblock_filename ):
+       # this can't ever happen 
+       log.error("FATAL: no such file or directory: %s" % lastblock_filename )
+       sys.exit(1)
+
+   elif os.path.exists( lastblock_filename ):
+       try:
+           with open(lastblock_filename, "r") as f:
+               lastblock = int( f.read().strip() )
+
+       except Exception, e:
+           # this can't ever happen
+           log.error("FATAL: failed to parse: %s" % lastblock_filename)
+           log.exception(e)
+           sys.exit(1)
+
    blockstore_db_lock.acquire()
 
+   if db_mtime is None or lastblock is None or db_mtime != blockstore_db_mtime or lastblock != blockstore_db_lastblock:
+      # was modified since loaded 
+      # force a reload
+      log.info("Invalidating cached db state (%s changed)" % db_filename)
+      blockstore_db = None
+
    if blockstore_db is not None:
+      # not invalidated yet
       blockstore_db_lock.release()
       return blockstore_db 
    
-   db_filename = virtualchain.get_db_filename()
-   
    log.info("(Re)Loading blockstore state from '%s'" % db_filename )
    blockstore_db = BlockstoreDB( db_filename )
-   
+   blockstore_db_mtime = db_mtime
+   blockstore_db_lastblock = lastblock
+
    blockstore_db_lock.release()
    return blockstore_db
+
+
+def invalidate_cached_db():
+    """
+    Clear out the global cached copy of the db
+    """
+
+    global blockstore_db, blockstore_db_lock
+
+    blockstore_db_lock.acquire()
+    del blockstore_db
+    blockstore_db = None
+    blockstore_db_lock.release()
 
 
 def db_parse( block_id, opcode, data, senders, inputs, outputs, fee, db_state=None ):
@@ -724,11 +780,13 @@ def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
       if len(pending_ops.get('virtualchain_ordered', [])) > 0:
           # state has changed 
           log.debug("Save database %s" % filename)
-          return db.save_db( filename )
+          rc = db.save_db( filename )
+          invalidate_cached_db()
+          return rc
       
       else:
           
-          # all good 
+          # all good
           return True
    
    else:
@@ -742,20 +800,13 @@ def sync_blockchain( bt_opts, last_block ):
     build up the next blockstore_db
     """
 
-    global blockstore_db, blockstore_db_lock
-
     log.info("Synchronizing database up to block %s" % last_block)
     db_filename = virtualchain.get_db_filename()
     new_db = BlockstoreDB( db_filename )
 
     virtualchain.sync_virtualchain( bt_opts, last_block, new_db )
 
-    # refresh
-    blockstore_db_lock.acquire()
-    del blockstore_db
-    blockstore_db = new_db
-    
-    blockstore_db_lock.release()
+    invalidate_cached_db()
 
 
 def stop_sync_blockchain():
@@ -763,9 +814,6 @@ def stop_sync_blockchain():
     stop synchronizing with the blockchain
     """
     global blockstore_db, blockstore_db_lock
-
-    if blockstore_db is None:
-        return
 
     blockstore_db_lock.acquire()
     if blockstore_db is None:

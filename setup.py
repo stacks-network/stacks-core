@@ -27,7 +27,7 @@ import os
 
 setup(
     name='blockstore',
-    version='0.0.11',
+    version='0.0.11.1',
     url='https://github.com/blockstack/blockstore',
     license='GPLv3',
     author='Blockstack.org',
@@ -40,23 +40,29 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'virtualchain>=0.0.8',
-        'kademlia>=0.5',
-        'keychain>=0.1.4',
-        'blockstore-client>=0.0.12'
-        'base58=>0.2.2',
+        'base58>=0.2.2',
         'bitcoin>=1.1.39',
         'basicrpc>=0.0.2',
+        'bitmerchant>=0.1.8',
+        'blockstore-client>=0.0.12',
         'boto>=2.38.0',
+        'cachetools>=1.1.5',
         'commontools>=0.1.0',
-        'ecdsa==0.13',
-        'pybitcoin>=0.9.8',
+        'ecdsa>=0.13',
+        'kademlia>=0.5',
+        'keychain>=0.1.3',
+        'pybitcoin>=0.9.5',
+        'pybitcointools>=1.1.15',
+        'python-bitcoinrpc>=0.1',
         'requests>=2.8.1',
+        'rpcudp>=1.0',
         'six>=1.10.0',
         'Twisted>=15.4.0',
         'txJSON-RPC>=0.3.1',
+        'u-msgpack-python>=2.1',
         'utilitybelt>=0.2.6',
-        'virtualchain>=0.0.5'
+        'virtualchain>=0.0.8',
+        'zope.interface>=4.1.3'
     ],
     classifiers=[
         'Intended Audience :: Developers',

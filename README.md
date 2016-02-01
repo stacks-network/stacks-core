@@ -49,7 +49,7 @@ pip install blockstore
 ```
 
 If you encounter any problems during the pip install, see the [detailed install
-instructions](https://github.com/blockstack/blockstore/wiki/Usage).
+instructions](https://github.com/blockstack/blockstore/wiki/Installation).
 
 ## Debian package
 

@@ -1,0 +1,14 @@
+# list of tests to ignore
+virtualchain_abort
+
+# skip multi-preorder and multi-register for now, since it's not ready
+name_preorder_multi
+name_preorder_multi_preorder_register
+name_preorder_multi_register
+name_preorder_multi_register_followthrough
+name_preorder_multi_register_multipleblocks
+name_preorder_multi_register_multipleblocks_snv
+name_preorder_multi_register_nochangeaddress
+name_preorder_multi_register_update_transfer_renew_revoke_verify
+name_preorder_multi_register_update_transfer_renew_revoke_verify_snv
+

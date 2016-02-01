@@ -24,6 +24,7 @@
 import testlib
 import pybitcoin
 import json
+import sys
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -46,10 +47,18 @@ def scenario( wallets, **kw ):
     testlib.blockstore_namespace_ready( "test", wallets[1].privkey )
     testlib.next_block( **kw )
 
-    testlib.blockstore_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
+    resp = testlib.blockstore_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
+    if 'error' in resp:
+        print json.dumps( resp, indent=4 )
+        sys.exit(1)
+
     testlib.next_block( **kw )
 
-    testlib.blockstore_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
+    resp = testlib.blockstore_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
+    if 'error' in resp:
+        print json.dumps( resp, indent=4 )
+        sys.exit(1)
+
     testlib.next_block( **kw )
 
     # wait for a bit...
@@ -65,6 +74,10 @@ def scenario( wallets, **kw ):
 
     # renew again 
     resp = testlib.blockstore_name_renew( "foo.test", wallets[3].privkey )
+    if 'error' in resp:
+        print json.dumps( resp, indent=4 )
+        sys.exit(1)
+
 
     testlib.next_block( **kw )
 

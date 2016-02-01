@@ -86,14 +86,14 @@ class MockBitcoindConnection( object ):
         self.blocks = {}            # map block hash to block info (including transaction IDs)
         self.txs = {}               # map tx hash to a list of transactions
         self.txid_to_blockhash = {} # map tx hash to block hash
-        self.next_block_txs = []    # next block's transactions
+        self.next_block_txs_path = None     # next block's transactions
         self.difficulty = difficulty 
         self.time = start_time 
         self.start_block = start_block
         self.end_block = start_block
         self.spv_headers_path = spv_headers_path
 
-        # for compatibility with blockstore_client
+        # for compatibility with blockstore_client (should refer to nothing)
         self.opts = {
             'bitcoind_server': "localhost",
             'bitcoind_port': 31113
@@ -103,6 +103,8 @@ class MockBitcoindConnection( object ):
         self.blocks[ '00' * 32 ] = {}
 
         self.save_file = save_file
+        if save_file is not None:
+            self.next_block_txs_path = save_file + ".next"
 
         if save_file is not None and os.path.exists( save_file ):
             self.restore( save_file )
@@ -220,6 +222,7 @@ class MockBitcoindConnection( object ):
         Given the transaction ID, get the raw transaction
         """
 
+
         raw_tx = self.txs.get( txid, None )
         if raw_tx is None:
             return None
@@ -262,7 +265,12 @@ class MockBitcoindConnection( object ):
         TODO: we don't check for transaction validity here...
         """
 
-        self.next_block_txs.append( tx_hex )
+        if self.next_block_txs_path is not None:
+            self.save_next( self.next_block_txs_path, tx_hex )
+
+        else:
+            print >> sys.stderr, "\n\nFATAL: no next path defined"
+            sys.exit(1)
 
     
     def decoderawtransaction( self, tx_hex ):
@@ -290,8 +298,10 @@ class MockBitcoindConnection( object ):
         """
         
         # next block
-        txs = self.next_block_txs
-        self.next_block_txs = []
+        txs = []
+        if self.next_block_txs_path is not None and os.path.exists( self.next_block_txs_path ):
+            txs = self.restore_next( self.next_block_txs_path )
+            os.unlink( self.next_block_txs_path )
 
         # add a fake coinbase 
         txs.append( "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff53038349040d00456c69676975730052d8f72ffabe6d6dd991088decd13e658bbecc0b2b4c87306f637828917838c02a5d95d0e1bdff9b0400000000000000002f73733331312f00906b570400000000e4050000ffffffff01bf208795000000001976a9145399c3093d31e4b0af4be1215d59b857b861ad5d88ac00000000" )
@@ -371,7 +381,6 @@ class MockBitcoindConnection( object ):
             "block_hashes": self.block_hashes,
             "blocks": self.blocks,
             "txs": self.txs,
-            "next_block_txs": self.next_block_txs,
             "difficulty": self.difficulty,
             "time": self.time,
             "start_block": self.start_block,
@@ -382,6 +391,24 @@ class MockBitcoindConnection( object ):
 
         serialized_data = pickle.dumps( to_save )
         with open( path, "w" ) as f:
+            f.write( serialized_data )
+            f.flush()
+
+
+    def save_next( self, path, tx ):
+        """
+        Save the next block's transaction data.
+        """
+
+        next_block_txs = self.restore_next( path )
+        next_block_txs.append( tx )
+
+        to_save = {
+            'next_block_txs': next_block_txs
+        }
+
+        serialized_data = pickle.dumps( to_save )
+        with open(path, "w") as f:
             f.write( serialized_data )
             f.flush()
 
@@ -399,7 +426,6 @@ class MockBitcoindConnection( object ):
         self.block_hashes = data['block_hashes']
         self.blocks = data['blocks']
         self.txs = data['txs']
-        self.next_block_txs = data['next_block_txs']
         self.difficulty = data['difficulty']
         self.time = data['time']
         self.start_block = data['start_block']
@@ -412,6 +438,23 @@ class MockBitcoindConnection( object ):
             
             for txid in block_data['tx']:
                 self.txid_to_blockhash[ txid ] = block_hash
+
+
+    def restore_next( self, path ):
+        """
+        Restore transactions meant for the upcoming block.
+        """
+
+        if os.path.exists( path ):
+            with open(path, "r") as f:
+                serialized_data = f.read()
+
+            data = pickle.loads( serialized_data )
+            next_block_txs = data['next_block_txs']
+            return next_block_txs
+        else:
+            return []
+
 
 
 def connect_mock_bitcoind( mock_opts, reset=False ):
@@ -558,7 +601,7 @@ def btc_decoderawtransaction_get_script_type( script ):
         # format: OP_DUP OP_HASH160 0x14 [20-byte hash] OP_EQUALVERIFY OP_CHECKSIG
         return "pubkeyhash"
 
-    elif script[-2:].lower() == 'ac':
+    if script[-2:].lower() == 'ac':
 
         # maybe a pay-to-pubkey...
         # format: [pubkey len] [pubkey] OP_CHECKSIG
@@ -566,18 +609,18 @@ def btc_decoderawtransaction_get_script_type( script ):
         if pk_hex is not None:
             return "pubkey"
 
-    elif len(script) == (24 * 2) and script[0:2].lower() == 'a9' and script[-2:].lower() == '87':
+    if len(script) == (24 * 2) and script[0:2].lower() == 'a9' and script[-2:].lower() == '87':
 
         # maybe a pay-to-script-hash...
         # format: OP_HASH160 [hash len] [hash] OP_EQUAL
         return "scripthash"
 
-    elif script[0:2].lower() == '6a':
+    if script[0:2].lower() == '6a':
         
         # format: OP_RETURN [data]
         return "nulldata"
 
-    elif script[-2:].lower() == 'ae':
+    if script[-2:].lower() == 'ae':
 
         # format (?): [instructions] OP_CHECKMULTISIG
         # TODO: not sure if this check is correct...
@@ -670,4 +713,16 @@ def btc_decoderawtransaction_compat( tx_hex ):
 
     return tx_decoded
 
+def make_worker_env( mock_bitcoind_mod, mock_bitcoind_save_path ):
+    """
+    Create a virtual index worker environment variable dictionary
+    that will cause virtualchain to crawl the mock bitcoind blockchain.
+    """
+    
+    worker_env = {
+        # use mock_bitcoind to connect to bitcoind (but it has to import it in order to use it)
+        "VIRTUALCHAIN_MOD_CONNECT_BLOCKCHAIN": mock_bitcoind_mod.__file__,
+        "MOCK_BITCOIND_SAVE_PATH": mock_bitcoind_save_path
+    }
 
+    return worker_env

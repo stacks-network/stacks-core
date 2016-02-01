@@ -43,7 +43,7 @@ debug = True
 
 def send_subsidized( client_privkey, resp, **kw ):
 
-    unsigned_tx = resp['subsidized_tx']
+    unsigned_tx = str(resp['subsidized_tx'])
 
     if client_privkey is not None:
         # sign all unsigned inputs 
