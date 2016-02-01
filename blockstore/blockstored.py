@@ -2051,7 +2051,7 @@ def setup( working_dir=None, testset=False, return_parser=False ):
    # if we're using the mock UTXO provider, then switch to the mock bitcoind node as well
    if utxo_opts['utxo_provider'] == 'mock_utxo':
        import tests.mock_bitcoind
-       mock_bitcoind_save_path = os.path.join( get_working_dir(), "mock_blockchain.dat" )
+       mock_bitcoind_save_path = os.path.join( virtualchain.get_working_dir(), "mock_blockchain.dat" )
        worker_env = {
             # use mock_bitcoind to connect to bitcoind (but it has to import it in order to use it)
             "VIRTUALCHAIN_MOD_CONNECT_BLOCKCHAIN": tests.mock_bitcoind.__file__,
@@ -2573,6 +2573,11 @@ def run_blockstored():
    """
 
    testset = check_testset_enabled()
+   if testset:
+       os.environ['BLOCKSTORE_TESTSET'] = "1"
+   else:
+       os.environ['BLOCKSTORE_TESTSET'] = "0"
+
    working_dir = check_alternate_working_dir()
    argparser = setup( testset=testset, working_dir=working_dir, return_parser=True )
 
