@@ -340,15 +340,26 @@ ANNOUNCEMENTS = []
 blockstore_client_session = None
 blockstore_client_session_opts = None
 
+def get_virtualchain_hooks():
+   """
+   Get the set of virtualchain hooks--to serve as
+   the virtualchain's implementation.
+   """
+   import nameset.virtualchain_hooks as virtualchain_hooks
+   return virtualchain_hooks
+
+
 def get_testset_filename( working_dir=None ):
    """
    Get the path to the file to determine whether or not we're in testset.
    """
 
-   if working_dir is None:
-       working_dir = virtualchain.get_working_dir()
+   virtualchain_hooks = get_virtualchain_hooks()
 
-   testset_filepath = os.path.join( working_dir, virtualchain.get_implementation().get_virtual_chain_name() ) + ".testset"
+   if working_dir is None:
+       working_dir = virtualchain.get_working_dir(impl=virtualchain_hooks)
+
+   testset_filepath = os.path.join( working_dir, virtualchain_hooks.get_virtual_chain_name() ) + ".testset"
    return testset_filepath
 
 
@@ -357,10 +368,11 @@ def get_announce_filename( working_dir=None ):
    Get the path to the file that stores all of the announcements.
    """
 
+   virtualchain_hooks = get_virtualchain_hooks()
    if working_dir is None:
-       working_dir = virtualchain.get_working_dir()
+       working_dir = virtualchain.get_working_dir(impl=virtualchain_hooks)
 
-   announce_filepath = os.path.join( working_dir, virtualchain.get_implementation().get_virtual_chain_name() ) + ".announce"
+   announce_filepath = os.path.join( working_dir, virtualchain_hooks.get_virtual_chain_name() ) + ".announce"
    return announce_filepath
 
 
@@ -398,8 +410,9 @@ def store_announcement( announcement_hash, announcement_text, working_dir=None, 
    Store a new announcement locally, atomically.
    """
 
+   virtualchain_hooks = get_virtualchain_hooks()
    if working_dir is None:
-       working_dir = virtualchain.get_working_dir()
+       working_dir = virtualchain.get_working_dir(impl=virtualchain_hooks)
 
    if not force:
        # don't store unless we haven't seen it before
@@ -538,11 +551,12 @@ def default_blockstore_opts( config_file=None, testset=False ):
    or from sane defaults.
    """
 
+   virtualchain_hooks = get_virtualchain_hooks()
    if config_file is None:
-      config_file = virtualchain.get_config_filename()
+      config_file = virtualchain.get_config_filename(impl=virtualchain_hooks)
 
-   testset_path = get_testset_filename( virtualchain.get_working_dir() )
-   announce_path = get_announce_filename( virtualchain.get_working_dir() )
+   testset_path = get_testset_filename( virtualchain.get_working_dir(impl=virtualchain_hooks) )
+   announce_path = get_announce_filename( virtualchain.get_working_dir(impl=virtualchain_hooks) )
 
    parser = SafeConfigParser()
    parser.read( config_file )
@@ -732,9 +746,10 @@ def default_utxo_provider( config_file=None ):
    """
 
    global SUPPORTED_UTXO_PROVIDERS
+   virtualchain_hooks = get_virtualchain_hooks()
 
    if config_file is None:
-      config_file = virtualchain.get_config_filename()
+      config_file = virtualchain.get_config_filename(impl=virtualchain_hooks)
 
    parser = SafeConfigParser()
    parser.read( config_file )
@@ -752,9 +767,10 @@ def all_utxo_providers( config_file=None ):
    """
 
    global SUPPORTED_UTXO_PROVIDERS
+   virtualchain_hooks = get_virtualchain_hooks()
 
    if config_file is None:
-      config_file = virtualchain.get_config_filename()
+      config_file = virtualchain.get_config_filename(impl=virtualchain_hooks)
 
    parser = SafeConfigParser()
    parser.read( config_file )
@@ -796,9 +812,11 @@ def default_chaincom_opts( config_file=None ):
    """
    Get our default chain.com options from a config file.
    """
+   
+   virtualchain_hooks = get_virtualchain_hooks()
 
    if config_file is None:
-      config_file = virtualchain.get_config_filename()
+      config_file = virtualchain.get_config_filename(impl=virtualchain_hooks)
 
    parser = SafeConfigParser()
    parser.read( config_file )
@@ -836,8 +854,9 @@ def default_blockcypher_opts( config_file=None ):
    Get our default blockcypher.com options from a config file.
    """
 
+   virtualchain_hooks = get_virtualchain_hooks()
    if config_file is None:
-      config_file = virtualchain.get_config_filename()
+      config_file = virtualchain.get_config_filename(impl=virtualchain_hooks)
 
    parser = SafeConfigParser()
    parser.read( config_file )
@@ -870,8 +889,9 @@ def default_blockchain_info_opts( config_file=None ):
    Get our default blockchain.info options from a config file.
    """
 
+   virtualchain_hooks = get_virtualchain_hooks()
    if config_file is None:
-       config_file = virtualchain.get_config_filename()
+       config_file = virtualchain.get_config_filename(impl=virtualchain_hooks)
 
    parser = SafeConfigParser()
    parser.read( config_file )
@@ -903,8 +923,9 @@ def default_bitcoind_utxo_opts( config_file=None ):
    Get our default bitcoind UTXO options from a config file.
    """
 
+   virtualchain_hooks = get_virtualchain_hooks()
    if config_file is None:
-       config_file = virtualchain.get_config_filename()
+       config_file = virtualchain.get_config_filename(impl=virtualchain_hooks)
 
    parser = SafeConfigParser()
    parser.read( config_file )
@@ -1073,8 +1094,9 @@ def default_dht_opts( config_file=None ):
 
    global DHT_SERVER_PORT, DEFAULT_DHT_SERVERS
 
+   virtualchain_hooks = get_virtualchain_hooks()
    if config_file is None:
-      config_file = virtualchain.get_config_filename()
+      config_file = virtualchain.get_config_filename(impl=virtualchain_hooks)
 
 
    defaults = {
@@ -1264,10 +1286,11 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
 
    global SUPPORTED_UTXO_PROVIDERS, SUPPORTED_UTXO_PARAMS, SUPPORTED_UTXO_PROMPT_MESSAGES
 
+   virtualchain_hooks = get_virtualchain_hooks()
    if config_file is None:
       try:
          # get input for everything
-         config_file = virtualchain.get_config_filename()
+         config_file = virtualchain.get_config_filename(impl=virtualchain_hooks)
       except:
          raise
 
@@ -1392,9 +1415,10 @@ def write_config_file( blockstore_opts=None, bitcoind_opts=None, utxo_opts=None,
    Return False on failure
    """
 
+   virtualchain_hooks = get_virtualchain_hooks()
    if config_file is None:
       try:
-         config_file = virtualchain.get_config_filename()
+         config_file = virtualchain.get_config_filename(impl=virtualchain_hooks)
       except:
          return False
 
