@@ -39,6 +39,7 @@ from registrar.utils import config_log
 from registrar.drivers import WebappDriver, APIDriver
 
 from registrar.config import SLEEP_INTERVAL, RATE_LIMIT
+from registrar.config import DEFAULT_WALLET_DISPLAY, DEFAULT_WALLET_OFFSET
 
 from registrar.queue import display_queue_info
 from registrar.queue import cleanup_transfer_queue, cleanup_update_queue
@@ -132,8 +133,9 @@ def run_cli(command, argv=None):
 
     elif command == "wallet":
 
-        count = 10
-        offset = 0
+        count = DEFAULT_WALLET_DISPLAY
+        offset = DEFAULT_WALLET_OFFSET
+        display_only = True
 
         try:
             count = int(argv[2])
@@ -154,13 +156,15 @@ def run_cli(command, argv=None):
                 except:
                     pass
 
+                display_only = False
                 refill_wallet(count=count, offset=offset, live=live)
-                continue
+
         except Exception as e:
             log.debug(e)
 
-        active_addresses = wallet.get_child_keypairs(count=count, offset=offset)
-        display_wallet_info(active_addresses)
+        if display_only:
+            active_addresses = wallet.get_child_keypairs(count=count, offset=offset)
+            display_wallet_info(active_addresses)
 
     elif command == "test":
 
