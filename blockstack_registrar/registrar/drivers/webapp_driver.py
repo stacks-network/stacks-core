@@ -159,7 +159,7 @@ class WebappDriver(object):
 
         return True
 
-    def update_users(self, spam_protection=False):
+    def update_users(self, spam_protection=False, reprocess_username=None):
         """
             Process new profile updates from the webapp
         """
@@ -182,6 +182,11 @@ class WebappDriver(object):
                 else:
                     log.debug("Need to delete %s, %s" % (user['email'], user['username']))
                 continue
+
+            # mode for reprocessing a single user, ignore others
+            if reprocess_username is not None:
+                if user['username'] != reprocess_username:
+                    continue
 
             fqu = user['username'] + "." + DEFAULT_NAMESPACE
             btc_address = nmc_to_btc_address(user['namecoin_address'])
