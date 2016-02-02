@@ -280,7 +280,7 @@ def get_magic_bytes():
    
    Get the magic byte sequence for our OP_RETURNs
    """
-   blockstore_opts = default_blockstore_opts( virtualchain.get_config_filename() )
+   blockstore_opts = default_blockstore_opts( virtualchain.get_config_filename(impl=sys.modules[__name__]) )
    if blockstore_opts['testset']:
        return MAGIC_BYTES_TESTSET
    
@@ -294,7 +294,7 @@ def get_first_block_id():
    
    Get the id of the first block to start indexing.
    """ 
-   blockstore_opts = default_blockstore_opts( virtualchain.get_config_filename() )
+   blockstore_opts = default_blockstore_opts( virtualchain.get_config_filename(impl=sys.modules[__name__]) )
    start_block = None
    
    if TESTNET:
@@ -323,8 +323,8 @@ def get_db_state():
    
    global blockstore_db, blockstore_db_mtime, blockstore_db_lock, blockstore_db_lastblock
    
-   db_filename = virtualchain.get_db_filename()
-   lastblock_filename = virtualchain.get_lastblock_filename()
+   db_filename = virtualchain.get_db_filename(impl=sys.modules[__name__])
+   lastblock_filename = virtualchain.get_lastblock_filename(impl=sys.modules[__name__])
    db_mtime = None
    lastblock = None
    firstcheck = True 
@@ -801,7 +801,7 @@ def sync_blockchain( bt_opts, last_block ):
     """
 
     log.info("Synchronizing database up to block %s" % last_block)
-    db_filename = virtualchain.get_db_filename()
+    db_filename = virtualchain.get_db_filename(sys.modules[__name__])
     new_db = BlockstoreDB( db_filename )
 
     virtualchain.sync_virtualchain( bt_opts, last_block, new_db )
