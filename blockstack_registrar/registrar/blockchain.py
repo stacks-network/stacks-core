@@ -33,6 +33,9 @@ from .config import RETRY_INTERVAL, TX_CONFIRMATIONS_NEEDED, PREORDER_REJECTED
 from .config import BITCOIND_SERVER, BITCOIND_PORT
 from .config import BITCOIND_USER, BITCOIND_PASSWD
 from .config import BITCOIND_WALLET_PASSPHRASE, BITCOIND_USE_HTTPS
+from .config import MAXIMUM_NAMES_PER_ADDRESS
+
+from .network import bs_client
 
 from .utils import satoshis_to_btc
 from .utils import pretty_print as pprint
@@ -173,8 +176,17 @@ def get_balance(address):
 
 
 def dontuseAddress(address):
-    """ Check if an address has unconfirmed TX and should not be used
+    """ Check if an address should not be used because of:
+        a) it has unconfirmed TX
+        b) it has more than maximum registered names (blockstore restriction)
     """
+
+    resp = bs_client.get_names_owned_by_address(address)
+    names_owned = resp
+
+    if len(names_owned) > MAXIMUM_NAMES_PER_ADDRESS:
+        log.debug("Address %s owns too many names already." % address)
+        return True
 
     try:
         data = get_address_details(address)
@@ -186,10 +198,11 @@ def dontuseAddress(address):
     except:
         return True
 
-    if int(unconfirmed_n_tx) is 0:
-        return False
-    else:
+    if int(unconfirmed_n_tx) != 0:
         return True
+
+    # if all tests pass, then can use the address
+    return False
 
 
 def underfundedAddress(address):
