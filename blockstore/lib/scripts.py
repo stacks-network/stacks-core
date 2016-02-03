@@ -75,8 +75,8 @@ def is_name_valid( fqn ):
     if not is_b40( namespace_id ) or "+" in namespace_id or "." in namespace_id:
         return False
     
-    name_hex = hexlify(name)
-    if len(name_hex) > LENGTHS['blockchain_id_name'] * 2:
+    name_hex = hexlify(fqn)
+    if len(name_hex) > (LENGTHS['blockchain_id_name'] * 2):
        # too long
        return False 
 
@@ -124,7 +124,73 @@ def get_script_pubkey( public_key ):
    
    hash160 = BitcoinPublicKey(public_key).hash160()
    script_pubkey = script_to_hex( 'OP_DUP OP_HASH160 %s OP_EQUALVERIFY OP_CHECKSIG' % hash160)
-   return  script_pubkey
+   return script_pubkey
+
+
+def get_public_key_hex_from_tx( inputs, address ):
+    """
+    Given a list of inputs and the address of one of the inputs,
+    find the public key.
+
+    This only works for p2sh and p2pkh scripts.
+    """
+    
+    ret = None 
+    
+    for inp in inputs:
+        
+        input_scriptsig = inp.get('scriptSig', None )
+        if input_scriptsig is None:
+            continue 
+        
+        input_asm = input_scriptsig.get("asm")
+        
+        if len(input_asm.split(" ")) >= 2:
+            
+            # public key is the second hex string.  verify it matches the address
+            pubkey_hex = input_asm.split(" ")[1]
+            pubkey = None 
+            
+            try:
+                pubkey = pybitcoin.BitcoinPublicKey( str(pubkey_hex) ) 
+            except Exception, e: 
+                traceback.print_exc()
+                log.warning("Invalid public key '%s'" % pubkey_hex)
+                continue 
+            
+            if address != pubkey.address():
+                continue 
+            
+            ret = pubkey_hex
+            break
+        
+    return ret 
+
+
+def get_burn_fee_from_outputs( outputs ):
+    """
+    Given the set of outputs, find the fee sent 
+    to our burn address.
+    
+    Return the fee on success
+    Return None if not found
+    """
+    
+    ret = None
+    for output in outputs:
+       
+        output_script = output['scriptPubKey']
+        output_asm = output_script.get('asm')
+        output_hex = output_script.get('hex')
+        output_addresses = output_script.get('addresses')
+        
+        if output_asm[0:9] != 'OP_RETURN' and BLOCKSTORE_BURN_ADDRESS == output_addresses[0]:
+            
+            # recipient's script_pubkey and address
+            ret = int(output['value']*(10**8))
+            break
+    
+    return ret
 
 
 def tx_deserialize( tx_hex ):
