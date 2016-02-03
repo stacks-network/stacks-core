@@ -26,8 +26,9 @@ import pybitcoin
 import blockstore
 import binascii
 import sys
-
-parse_nameop = blockstore.virtualchain_hooks.parse_blockstore_op_data
+import base58
+import traceback
+from blockstore import op_extract, OPCODE_NAMES
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -52,6 +53,73 @@ def compile_test( opcode, tests ):
     for test_name, test_payload in tests.items():
         result[ test_name ] = compile_script( opcode, test_payload )
     return result
+
+def parse_nameop( opcode, payload, fake_pubkey, recipient=None, recipient_address=None, import_update_hash=None ):
+
+    opcode_name = OPCODE_NAMES[opcode]
+    pubk = pybitcoin.BitcoinPublicKey(fake_pubkey)
+    address = pubk.address()
+    script_pubkey = pybitcoin.make_pay_to_address_script( address )
+    senders = [{
+        "script_pubkey": script_pubkey,
+        "script_type": "pubkeyhash",
+        "addresses": [ address ]
+    }]
+
+    # just enough to get the public key
+    inputs = [{
+        "scriptSig": {
+            "asm": "ignored %s" % fake_pubkey,
+        }
+    }]
+
+    script = "OP_RETURN %s" % payload
+
+    try:
+        scripthex = pybitcoin.make_op_return_script( payload )
+    except:
+        if len(payload) == 0:
+            scripthex = "6a"
+        else:
+            raise
+
+    outputs = [{
+        "scriptPubKey": {
+            "asm": script,
+            "hex": scripthex,
+            "addresses": []
+        }}]
+
+    if recipient_address is not None:
+        script = "OP_DUP OP_HASH160 %s OP_EQUALVERIFY OP_CHECKSIG" % binascii.hexlify( pybitcoin.bin_double_sha256( fake_pubkey ) )
+        scripthex = pybitcoin.make_pay_to_address_script( recipient_address )
+        outputs.append( {
+            "scriptPubKey": {
+                "asm": script,
+                "hex": scripthex,
+                "addresses": [ recipient_address ]
+            }
+        })
+
+    if import_update_hash is not None:
+        script = "OP_DUP OP_HASH160 %s OP_EQUALVERIFY OP_CHECKSIG" % import_update_hash
+        scripthex = pybitcoin.make_pay_to_address_script( pybitcoin.hex_hash160_to_address( import_update_hash ) )
+        outputs.append( {
+            "scriptPubKey": {
+                "asm": script,
+                "hex": scripthex,
+                "addresses": [ pybitcoin.hex_hash160_to_address(import_update_hash) ]
+            }
+        })
+   
+    try:
+        op = op_extract( opcode_name, payload, senders, inputs, outputs )  
+    except AssertionError, ae:
+        # failed to parse
+        return None
+    
+    return op
+
 
 def check( state_engine ):
 
@@ -218,30 +286,31 @@ def check( state_engine ):
 
     all_tests["#"] = compile_test( "#", announces )
 
+    fake_pubkey = wallets[0].pubkey_hex
     fake_sender = pybitcoin.make_pay_to_address_script( wallets[0].addr )
     fake_recipient = pybitcoin.make_pay_to_address_script( wallets[1].addr )
     fake_recipient_address = wallets[1].addr
     fake_import_update_hash = "44" * 20
 
     # only 'valid' tests should return non-NULL
-    # all other tests should return NOne
+    # all other tests should return None
     for opcode, tests in all_tests.items():
 
         for testname, testscript in tests.items():
 
-            parsed_op = parse_nameop( opcode, testscript[3:], fake_sender, \
+            parsed_op = parse_nameop( opcode, testscript[3:], fake_pubkey, \
                     recipient=fake_recipient, recipient_address=fake_recipient_address, import_update_hash=fake_import_update_hash )
 
             if testname.startswith("valid"):
                 # should work
                 if parsed_op is None:
-                    print >> sys.stderr, "Failed to parse valid id%s%s" % (opcode, binascii.hexlify(testscript[3:]))
+                    print >> sys.stderr, "Failed to parse valid id%s%s" % (opcode, testscript[3:])
                     return False 
 
             else:
                 # should fail
                 if parsed_op is not None:
-                    print >> sys.stderr, "Parsed invalid test '%s' (id%s%s)" % (testname, opcode, binascii.hexlify(testscript[3:]))
+                    print >> sys.stderr, "Parsed invalid test '%s' (id%s%s)" % (testname, opcode, testscript[3:])
                     return False
 
     return True
