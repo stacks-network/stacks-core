@@ -66,10 +66,10 @@ if os.getenv("BLOCKSTORE_TEST") == "1":
     if working_dir is not None:
         blockstore_state_engine.working_dir = working_dir 
 
-    virtualchain.setup_virtualchain( blockstore_state_engine, bitcoind_connection_factory=mock_bitcoind.connect_mock_bitcoind, index_worker_env=worker_env )
+    virtualchain.setup_virtualchain( impl=blockstore_state_engine, bitcoind_connection_factory=mock_bitcoind.connect_mock_bitcoind, index_worker_env=worker_env )
     
 else:
-    virtualchain.setup_virtualchain( blockstore_state_engine )
+    virtualchain.setup_virtualchain( impl=blockstore_state_engine )
 
 dht_opts = lib.config.default_dht_opts()
 
