@@ -57,7 +57,7 @@ from dht.storage import BlockStorage, hostname_to_ip
 from lib import nameset as blockstore_state_engine
 import virtualchain 
 
-virtualchain.setup_virtualchain( blockstore_state_engine, testset=True )
+virtualchain.setup_virtualchain( impl=blockstore_state_engine, testset=True )
 dht_opts = lib.config.default_dht_opts()
 
 if not dht_opts['disable']:
