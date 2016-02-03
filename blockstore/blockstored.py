@@ -216,13 +216,6 @@ def get_logfile_path():
    return os.path.join( working_dir, logfile_filename )
 
 
-def get_state_engine():
-   """
-   Get a handle to the blockstore virtual chain state engine.
-   """
-   return get_db_state()
-
-
 def get_lastblock():
     """
     Get the last block processed.
@@ -304,7 +297,7 @@ def get_name_cost( name ):
     Do so by finding the namespace it belongs to (even if the namespace is being imported).
     Return None if the namespace has not been declared
     """
-    db = get_state_engine()
+    db = get_db_state()
 
     namespace_id = get_namespace_from_name( name )
     if namespace_id is None or len(namespace_id) == 0:
@@ -397,7 +390,7 @@ def blockstore_name_preorder( name, privatekey, register_addr, tx_only=False, su
     if blockchain_client_inst is None:
         return {"error": "Failed to connect to blockchain UTXO provider"}
 
-    db = get_state_engine()
+    db = get_db_state()
 
     if consensus_hash is None:
         consensus_hash = db.get_current_consensus()
@@ -486,7 +479,7 @@ def blockstore_name_preorder_multi( name_list, privatekey, register_addr_list, t
     if len(name_list) != len(set(name_list)):
         return {"error": "Duplicate names"}
 
-    db = get_state_engine()
+    db = get_db_state()
 
     if consensus_hash is None:
         consensus_hash = db.get_current_consensus()
@@ -585,7 +578,7 @@ def blockstore_name_register( name, privatekey, register_addr, renewal_fee=None,
     if broadcaster_client_inst is None:
         return {"error": "Failed to connect to blockchain transaction broadcaster"}
 
-    db = get_state_engine()
+    db = get_db_state()
 
     if db.is_name_registered( name ) and renewal_fee is None:
         # *must* be given, so we don't accidentally charge
@@ -652,7 +645,7 @@ def blockstore_name_update( name, data_hash, privatekey, tx_only=False, user_pub
     if broadcaster_client_inst is None:
         return {"error": "Failed to connect to blockchain transaction broadcaster"}
 
-    db = get_state_engine()
+    db = get_db_state()
 
     if consensus_hash is None:
         consensus_hash = db.get_current_consensus()
@@ -706,7 +699,7 @@ def blockstore_name_transfer( name, address, keepdata, privatekey, user_public_k
     if broadcaster_client_inst is None:
         return {"error": "Failed to connect to blockchain transaction broadcaster"}
 
-    db = get_state_engine()
+    db = get_db_state()
 
     if consensus_hash is None:
         consensus_hash = db.get_current_consensus()
@@ -757,7 +750,7 @@ def blockstore_name_renew( name, privatekey, register_addr=None, tx_only=False, 
         return {"error": "Indexing blockchain"}
 
     # renew the name for the caller
-    db = get_state_engine()
+    db = get_db_state()
     name_rec = db.get_name( name )
     if name_rec is None:
         return {"error": "Name is not registered"}
@@ -837,7 +830,7 @@ def blockstore_name_import( name, recipient_address, update_hash, privatekey, tx
     if broadcaster_client_inst is None:
         return {"error": "Failed to connect to blockchain transaction broadcaster"}
 
-    db = get_state_engine()
+    db = get_db_state()
 
     try:
         resp = name_import( str(name), str(recipient_address), str(update_hash), str(privatekey), blockchain_client_inst, \
@@ -863,7 +856,7 @@ def blockstore_namespace_preorder( namespace_id, register_addr, privatekey, tx_o
     if is_indexing():
         return {"error": "Indexing blockchain"}
 
-    db = get_state_engine()
+    db = get_db_state()
 
     blockchain_client_inst = get_utxo_provider_client()
     if blockchain_client_inst is None:
@@ -1036,7 +1029,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         """
         Lookup the blockchain-derived profile for a name.
         """
-        db = get_state_engine()
+        db = get_db_state()
 
         try:
             name = str(name)
@@ -1059,7 +1052,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         """
         Get the sequence of name operations processed for a given name.
         """
-        db = get_state_engine()
+        db = get_db_state()
         name_history = db.get_name_history( name, start_block, end_block )
 
         if name_history is None:
@@ -1072,43 +1065,57 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
             return name_history
 
 
-    def jsonrpc_get_nameops_at( self, block_id ):
+    def jsonrpc_get_records_at( self, block_id ):
         """
         Get the sequence of names and namespaces altered at the given block.
         Returns the list of name operations to be fed into virtualchain.
         Used by SNV clients.
         """
-        db = get_state_engine()
+        db = get_db_state()
 
-        all_ops = db.get_all_nameops_at( block_id )
+        prior_records = db.get_all_records_at( block_id )
         ret = []
-        for op in all_ops:
-            restored_op = nameop_restore_consensus_fields( op, block_id )
-            ret.append( restored_op )
+        for rec in prior_records:
+            restored_rec = rec_restore_consensus_fields( rec, block_id )
+            ret.append( restored_rec )
 
         return ret
 
 
-    def jsonrpc_get_nameops_hash_at( self, block_id ):
+    def jsonrpc_get_nameops_at( self, block_id ):
+        """
+        Old name for jsonrpc_get_records_at
+        """
+        return self.jsonrpc_get_records_at( block_id )
+
+
+    def jsonrpc_get_records_hash_at( self, block_id ):
         """
         Get the hash over the sequence of names and namespaces altered at the given block.
         Used by SNV clients.
         """
-        db = get_state_engine()
-        # ops = block_to_virtualchain_ops( block_id, db )
+        db = get_db_state()
 
-        ops = db.get_all_nameops_at( block_id )
-        if ops is None:
-            ops = []
+        prior_recs = db.get_all_records_at( block_id )
+        if prior_recs is None:
+            prior_recs = []
 
-        restored_ops = []
-        for op in ops:
-            restored_op = nameop_restore_consensus_fields( op, block_id )
-            restored_ops.append( restored_op )
+        restored_recs = []
+        for rec in prior_recs:
+            restored_rec = rec_restore_consensus_fields( rec, block_id )
+            restored_recs.append( restored_rec )
 
-        serialized_ops = [ virtualchain.StateEngine.serialize_op( str(op['op'][0]), op, BlockstoreDB.make_opfields(), verbose=False ) for op in restored_ops ]
+        # NOTE: extracts only the operation-given fields, and ignores ancilliary record fields
+        serialized_ops = [ virtualchain.StateEngine.serialize_op( str(op['op'][0]), op, BlockstoreDB.make_opfields(), verbose=False ) for op in restored_recs ]
         ops_hash = virtualchain.StateEngine.make_ops_snapshot( serialized_ops )
         return ops_hash
+
+
+    def jsonrpc_get_nameops_hash_at( self, block_id ):
+        """
+        Old name for jsonrpc_get_records_hash_at
+        """
+        return self.jsonrpc_get_records_hash_at( block_id )
 
 
     def jsonrpc_getinfo(self):
@@ -1122,7 +1129,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         reply = {}
         reply['bitcoind_blocks'] = info['blocks']
 
-        db = get_state_engine()
+        db = get_db_state()
         reply['consensus'] = db.get_current_consensus()
         reply['last_block'] = db.get_current_block()
         reply['blockstore_version'] = "%s.%s" % (VERSION, BLOCKSTORE_VERSION)
@@ -1135,7 +1142,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Get the list of names owned by an address.
         Valid only for names with p2pkh sender scripts.
         """
-        db = get_state_engine()
+        db = get_db_state()
         names = db.get_names_owned_by_address( address )
         if names is None:
             names = []
@@ -1547,7 +1554,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Return the readied namespace with the given namespace_id
         """
 
-        db = get_state_engine()
+        db = get_db_state()
         ns = db.get_namespace( namespace_id )
         if ns is None:
             if is_indexing():
@@ -1563,7 +1570,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         Return the revealed namespace with the given namespace_id
         """
         
-        db = get_state_engine()
+        db = get_db_state()
         ns = db.get_namespace_reveal( namespace_id )
         if ns is None:
             if is_indexing():
@@ -1582,7 +1589,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         if is_indexing():
             return {"error": "Indexing blockchain"}
 
-        db = get_state_engine()
+        db = get_db_state()
         return db.get_all_names( offset=offset, count=count )
 
 
@@ -1594,7 +1601,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         if is_indexing():
             return {"error": "Indexing blockchain"}
 
-        db = get_state_engine()
+        db = get_db_state()
         return db.get_names_in_namespace( namespace_id, offset=offset, count=count )
 
 
@@ -1602,7 +1609,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         """
         Return the consensus hash at a block number
         """
-        db = get_state_engine()
+        db = get_db_state()
         return db.get_consensus_at( block_id )
 
 
@@ -1610,7 +1617,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         """
         Get a range of consensus hashes.  The range is inclusive.
         """
-        db = get_state_engine()
+        db = get_db_state()
         ret = []
         for b in xrange(block_id_start, block_id_end+1):
             ch = db.get_consensus_at( b )
@@ -1626,7 +1633,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         """
         Given the consensus hash, find the block number
         """
-        db = get_state_engine()
+        db = get_db_state()
         return db.get_block_from_consensus( consensus_hash )
 
 
@@ -2029,7 +2036,7 @@ def setup( working_dir=None, testset=False, return_parser=False ):
 
        blockstore_state_engine.working_dir = working_dir
 
-   virtualchain.setup_virtualchain( blockstore_state_engine, testset=testset )
+   virtualchain.setup_virtualchain( impl=blockstore_state_engine, testset=testset )
 
    testset_path = get_testset_filename( working_dir )
    if testset:
@@ -2048,7 +2055,7 @@ def setup( working_dir=None, testset=False, return_parser=False ):
 
    # do we need to enable testset?
    if blockstore_opts['testset']:
-       virtualchain.setup_virtualchain( blockstore_state_engine, testset=True )
+       virtualchain.setup_virtualchain( impl=blockstore_state_engine, testset=True )
        testset = True
 
    # if we're using the mock UTXO provider, then switch to the mock bitcoind node as well
@@ -2065,7 +2072,7 @@ def setup( working_dir=None, testset=False, return_parser=False ):
        if os.environ.get("PYTHONPATH", None) is not None:
            worker_env["PYTHONPATH"] = os.environ["PYTHONPATH"]
 
-       virtualchain.setup_virtualchain( blockstore_state_engine, testset=testset, bitcoind_connection_factory=tests.mock_bitcoind.connect_mock_bitcoind, index_worker_env=worker_env )
+       virtualchain.setup_virtualchain( impl=blockstore_state_engine, testset=testset, bitcoind_connection_factory=tests.mock_bitcoind.connect_mock_bitcoind, index_worker_env=worker_env )
 
    # merge in command-line bitcoind options
    config_file = virtualchain.get_config_filename()
@@ -2148,8 +2155,9 @@ def clean( testset=False, confirm=True ):
 def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db, testset=False ):
     """
     Given a record from the blockstore database,
-    convert it into a virtualchain operation to
-    process.  
+    convert it into the virtualchain operation that
+    was used to create/alter it at the given point
+    in the past (i.e. (block_number, history_index)).
     
     @history_index is the index into the name_rec's 
     history that encodes the prior state of the 
@@ -2157,8 +2165,6 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
 
     @untrusted_db is the database at 
     the state of the block_number.
-
-    TODO: refactor; put op-specific code into each name op definition
     """
 
     # apply opcodes so we can consume them with virtualchain
@@ -2166,237 +2172,48 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
     ret_op = {}
 
     if name_rec.has_key('expired') and name_rec['expired']:
-        # don't care
+        # don't care--wasn't sent at this time
         return None
 
-    if opcode_name == "NAME_PREORDER":
+    ret_op = op_restore_delta( opcode_name, name_rec, block_number, history_index, untrusted_db, testset=testset ) 
+    if ret_op is None:
+        raise Exception("Failed to restore %s at (%s, %s)" % (opcode_name, block_number, history_index))
 
-        # reconstruct the preorder op...
-        # how many names preordered?
-        name_rec_script = build_preorder( None, None, None, str(name_rec['consensus_hash']), \
-                name_hash=str(name_rec['preorder_name_hash']), testset=testset )
-
-        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
-        ret_op = parse_preorder( name_rec_payload )
-
-    elif opcode_name == "NAME_PREORDER_MULTI":
-
-        # reconstruct the multi-preorder op 
-        name_rec_script = build_preorder_multi( None, None, None, str(name_rec['consensus_hash']), \
-                name_hashes=name_rec['preorder_name_hashes'], testset=testset )
-
-        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
-        ret_op = parse_preorder_multi( name_rec_payload )
-
-    elif opcode_name == "NAME_REGISTRATION":
-        name_rec_script = build_registration( str(name_rec['name']), testset=testset )
-        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
-        ret_op = parse_registration( name_rec_payload )
-
-        # reconstruct the registration op...
-        ret_op['recipient'] = str(name_rec['sender'])
-        ret_op['recipient_address'] = str(name_rec['address'])
-
-        # restore history to find prevoius sender and address
-        untrusted_name_rec = untrusted_db.get_name( str(name_rec['name']) )
-        name_rec['history'] = untrusted_name_rec['history']
-
-        if history_index > 0:
-            name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number )[ history_index - 1 ]
-        else:
-            name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number - 1 )[ history_index - 1 ]
-
-        sender = name_rec_prev['sender']
-        address = name_rec_prev['address']
-
-        ret_op['sender'] = sender
-        ret_op['address'] = address
-
-        del name_rec['history']
-
-    elif opcode_name == "NAME_REGISTRATION_MULTI":
-
-        name_rec_script = build_registration_multi( str(name_rec['names']), testset=testset )
-        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
-        ret_op = parse_registration_multi( name_rec_payload )
-
-        recipients = []
-        recipient_addrs = []
-
-        # go find the two names we registered...
-        untrusted_name_recs = []
-        for name in name_rec['names']:
-
-            untrusted_name_rec = untrusted_db.get_name( str(name) )
-            recipients.append( str(name_rec['sender']) )
-            recipient_addrs.append( str(name_rec['address']) )
-
-            # find this name's sender and address
-            name_rec['history'] = untrusted_name_rec['history']
-
-            if history_index > 0:
-                name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number )[ history_index - 1 ]
-            else:
-                name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number - 1 )[ history_index - 1 ]
-
-            sender = name_rec_prev['sender']
-            address = name_rec_prev['address']
-
-            ret_op['sender'] = sender
-            ret_op['address'] = address
-
-            del name_rec['history']
-
-        name_rec['recipient_list'] = recipients 
-        name_rec['recipient_address_list'] = recipient_addrs
-        
-
-    elif opcode_name == "NAME_UPDATE":
-        data_hash = None
-        if name_rec['value_hash'] is not None:
-            data_hash = str(name_rec['value_hash'])
-
-        name_rec_script = build_update( str(name_rec['name']), str(name_rec['consensus_hash']), data_hash=data_hash, testset=testset )
-        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
-        ret_op = parse_update(name_rec_payload)
-
-    elif opcode_name == "NAME_TRANSFER":
-
-        # reconstruct the transfer op...
-        KEEPDATA_OP = "%s%s" % (NAME_TRANSFER, TRANSFER_KEEP_DATA)
-        if name_rec['op'] == KEEPDATA_OP:
-            name_rec['keep_data'] = True
-        else:
-            name_rec['keep_data'] = False
-
-        # what was the previous owner?
-        recipient = str(name_rec['sender'])
-        recipient_address = str(name_rec['address'])
-
-        # restore history
-        untrusted_name_rec = untrusted_db.get_name( str(name_rec['name']) )
-        name_rec['history'] = untrusted_name_rec['history']
-
-        # get previous owner
-        if history_index > 0:
-            name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number )[history_index - 1]
-        else:
-            name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number - 1 )[history_index - 1]
-
-        sender = name_rec_prev['sender']
-        address = name_rec_prev['address']
-
-        # reconstruct recipient and sender
-        name_rec['recipient'] = recipient
-        name_rec['recipient_address'] = recipient_address
-
-        name_rec['sender'] = sender
-        name_rec['address'] = address
-        name_rec['consensus_hash'] = untrusted_db.get_consensus_at( block_number - 1 )
-
-        name_rec_script = build_transfer( str(name_rec['name']), name_rec['keep_data'], str(name_rec['consensus_hash']), testset=testset )
-        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
-        ret_op = parse_transfer(name_rec_payload, name_rec['recipient'] )
-
-        del name_rec['history']
-
-    elif opcode_name == "NAME_REVOKE":
-        name_rec_script = build_revoke( str(name_rec['name']), testset=testset )
-        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
-        ret_op = parse_revoke( name_rec_payload )
-
-    elif opcode_name == "NAME_IMPORT":
-        name_rec_script = build_name_import( str(name_rec['name']), testset=testset )
-        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
-
-        # reconstruct recipient and importer
-        name_rec['recipient'] = str(name_rec['sender'])
-        name_rec['recipient_address'] = str(name_rec['address'])
-        name_rec['sender'] = str(name_rec['importer'])
-        name_rec['address'] = str(name_rec['importer_address'])
-
-        ret_op = parse_name_import( name_rec_payload, str(name_rec['recipient']), str(name_rec['value_hash']) )
-
-    elif opcode_name == "NAMESPACE_PREORDER":
-        name_rec_script = build_namespace_preorder( None, None, None, str(name_rec['consensus_hash']), namespace_id_hash=str(name_rec['namespace_id_hash']), testset=testset )
-        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
-        ret_op = parse_namespace_preorder(name_rec_payload)
-
-    elif opcode_name == "NAMESPACE_REVEAL":
-        name_rec_script = build_namespace_reveal( str(name_rec['namespace_id']), name_rec['version'], str(name_rec['recipient_address']), \
-                                                  name_rec['lifetime'], name_rec['coeff'], name_rec['base'], name_rec['buckets'],
-                                                  name_rec['nonalpha_discount'], name_rec['no_vowel_discount'], testset=testset )
-
-        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
-        ret_op = parse_namespace_reveal( name_rec_payload, str(name_rec['sender']), str(name_rec['recipient_address']) )
-
-    elif opcode_name == "NAMESPACE_READY":
-        name_rec_script = build_namespace_ready( str(name_rec['namespace_id']), testset=testset )
-        name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
-        ret_op = parse_namespace_ready( name_rec_payload )
-
+    # restore virtualchain fields
     ret_op = virtualchain.virtualchain_set_opfields( ret_op, \
-            virtualchain_opcode=getattr( config, opcode_name ), \
-            virtualchain_txid=str(name_rec['txid']), \
-            virtualchain_txindex=int(name_rec['vtxindex']) )
+                                                     virtualchain_opcode=getattr( config, opcode_name ), \
+                                                     virtualchain_txid=str(name_rec['txid']), \
+                                                     virtualchain_txindex=int(name_rec['vtxindex']) )
 
     ret_op['opcode'] = opcode_name
 
+    # apply the operation.
+    # don't worry about ancilliary fields from the name_rec--they'll be ignored.
     merged_ret_op = copy.deepcopy( name_rec )
     merged_ret_op.update( ret_op )
     return merged_ret_op
 
 
-def nameop_restore_consensus_fields( name_rec, block_id ):
+def rec_restore_consensus_fields( name_rec, block_id ):
     """
-    Given a nameop at a point in time, ensure
+    Given a name record at a given point in time, ensure
     that all of its consensus fields are present.
-    Because they can be reconstructed directly from the nameop,
-    but they are not always stored in the db.
-
-    TODO: refactor; put each op-specific code block into the name op definition.
+    Because they can be reconstructed directly from the record,
+    but they are not always stored in the db, we have to do so here.
     """
 
     opcode_name = str(name_rec['opcode'])
     ret_op = {}
+    db = get_db_state()
 
-    if opcode_name == "NAME_REGISTRATION":
-
-        # reconstruct the recipient information
-        ret_op['recipient'] = str(name_rec['sender'])
-        ret_op['recipient_address'] = str(name_rec['address'])
-
-    elif opcode_name == "NAME_IMPORT":
-
-        # reconstruct the recipient information
-        ret_op['recipient'] = str(name_rec['sender'])
-        ret_op['recipient_address'] = str(name_rec['address'])
-
-    elif opcode_name == "NAME_TRANSFER":
-
-        db = get_state_engine()
-
-        # reconstruct the recipient information
-        ret_op['recipient'] = str(name_rec['sender'])
-        ret_op['recipient_address'] = str(name_rec['address'])
-
-        # reconstruct name_hash, consensus_hash, keep_data
-        keep_data = None
-        if name_rec['op'][-1] == TRANSFER_KEEP_DATA:
-            keep_data = True
-        else:
-            keep_data = False
-
-        ret_op['keep_data'] = keep_data
-        ret_op['consensus_hash'] = db.get_consensus_at( block_id - 1 )
-        ret_op['name_hash'] = hash256_trunc128( str(name_rec['name']) )
-
-    elif opcode_name == "NAME_UPDATE":
-
-        # reconstruct name_hash
-        ret_op['name_hash'] = hash256_trunc128( str(name_rec['name']) + str(name_rec['consensus_hash']) )
-
-    ret_op = virtualchain.virtualchain_set_opfields( ret_op, virtualchain_opcode=getattr( config, opcode_name ), virtualchain_txid=str(name_rec['txid']), virtualchain_txindex=int(name_rec['vtxindex']) )
+    ret_op = op_consensus_extra( opcode_name, name_rec, block_id, db )
+    if ret_op is None:
+        raise Exception("Failed to derive extra consensus fields for '%s'" % opcode_name)
+    
+    ret_op = virtualchain.virtualchain_set_opfields( ret_op, \
+                                                     virtualchain_opcode=getattr( config, opcode_name ), \
+                                                     virtualchain_txid=str(name_rec['txid']), \
+                                                     virtualchain_txindex=int(name_rec['vtxindex']) )
     ret_op['opcode'] = opcode_name
 
     merged_op = copy.deepcopy( name_rec )
@@ -2415,29 +2232,29 @@ def block_to_virtualchain_ops( block_id, db ):
     Returns the list of virtualchain ops.
     """
 
-    # all sequences of operations at this block, in tx order
-    nameops = db.get_all_nameops_at( block_id )
+    # all records altered at this block, in tx order, as they were
+    prior_recs = db.get_all_records_at( block_id )
     virtualchain_ops = []
 
-    # process nameops in order by vtxindex
-    nameops = sorted( nameops, key=lambda op: op['vtxindex'] )
+    # process records in order by vtxindex
+    prior_recs = sorted( prior_recs, key=lambda op: op['vtxindex'] )
 
     # each name record has its own history, and their interleaving in tx order
-    # is what makes up nameops.  However, when restoring a name record to
+    # is what makes up prior_recs.  However, when restoring a name record to
     # a previous state, we need to know the *relative* order of operations
     # that changed it during this block.  This is called the history index,
     # and it maps names to a dict, which maps the the virtual tx index (vtxindex)
-    # to integer h such that nameops[name][vtxindex] is the hth update to the name
+    # to integer h such that prior_recs[name][vtxindex] is the hth update to the name
     # record.
 
     history_index = {}
-    for i in xrange(0, len(nameops)):
-        nameop = nameops[i]
+    for i in xrange(0, len(prior_recs)):
+        rec = prior_recs[i]
 
-        if 'name' not in nameop.keys():
+        if 'name' not in rec.keys():
             continue
 
-        name = str(nameop['name'])
+        name = str(rec['name'])
         if name not in history_index.keys():
             history_index[name] = { i: 0 }
 
@@ -2445,41 +2262,41 @@ def block_to_virtualchain_ops( block_id, db ):
             history_index[name][i] = max( history_index[name].values() ) + 1
 
 
-    for i in xrange(0, len(nameops)):
+    for i in xrange(0, len(prior_recs)):
 
         # only trusted fields
-        opcode_name = nameops[i]['opcode']
+        opcode_name = prior_recs[i]['opcode']
         consensus_fields = SERIALIZE_FIELDS.get( opcode_name, None )
         if consensus_fields is None:
             raise Exception("BUG: no consensus fields defined for '%s'" % opcode_name )
 
         # coerce string, not unicode
-        for k in nameops[i].keys():
-            if type(nameops[i][k]) == unicode:
-                nameops[i][k] = str(nameops[i][k])
+        for k in prior_recs[i].keys():
+            if type(prior_recs[i][k]) == unicode:
+                prior_recs[i][k] = str(prior_recs[i][k])
 
         # remove virtualchain-specific fields--they won't be trusted
-        nameops[i] = db.sanitize_op( nameops[i] )
+        prior_recs[i] = db.sanitize_op( prior_recs[i] )
 
-        for field in nameops[i].keys():
+        for field in prior_recs[i].keys():
 
             # remove untrusted fields, except for 'opcode' (which will be fed into the consensus hash
             # indirectly, once the fields are successfully processed and thus proven consistent with
             # the fields.)
             if field not in consensus_fields and field not in ['opcode']:
                 log.warning("OP '%s': Removing untrusted field '%s'" % (opcode_name, field))
-                del nameops[i][field]
+                del prior_recs[i][field]
 
         try:
             # recover virtualchain op from name record
             h = 0
-            if 'name' in nameops[i]:
-                if nameops[i]['name'] in history_index:
-                    h = history_index[ nameops[i]['name'] ][i]
+            if 'name' in prior_recs[i]:
+                if prior_recs[i]['name'] in history_index:
+                    h = history_index[ prior_recs[i]['name'] ][i]
 
-            virtualchain_op = rec_to_virtualchain_op( nameops[i], block_id, h, db )
+            virtualchain_op = rec_to_virtualchain_op( prior_recs[i], block_id, h, db )
         except:
-            print json.dumps( nameops[i], indent=4 )
+            print json.dumps( prior_recs[i], indent=4 )
             raise
 
         if virtualchain_op is not None:
@@ -2506,7 +2323,7 @@ def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, 
 
     blockstore_state_engine.working_dir = working_dir
 
-    virtualchain.setup_virtualchain( blockstore_state_engine, testset=testset )
+    virtualchain.setup_virtualchain( impl=blockstore_state_engine, testset=testset )
 
     if resume_dir is None:
         # not resuming
@@ -2811,7 +2628,7 @@ def run_blockstored():
    elif args.action == 'importdb':
       old_working_dir = blockstore_state_engine.working_dir
       blockstore_state_engine.working_dir = None
-      virtualchain.setup_virtualchain( blockstore_state_engine, testset=testset )
+      virtualchain.setup_virtualchain( impl=blockstore_state_engine, testset=testset )
 
       db_path = virtualchain.get_db_filename()
       old_snapshots_path = os.path.join( old_working_dir, os.path.basename( virtualchain.get_snapshots_filename() ) )
