@@ -5,6 +5,7 @@ import sys
 import subprocess
 import signal
 import shutil
+import time
 
 # enable all tests
 os.environ['BLOCKSTORE_TEST'] = '1'
@@ -26,7 +27,6 @@ import blockstore.tests.mock_bitcoind as mock_bitcoind
 
 import blockstore
 import blockstore.blockstored as blockstored
-from blockstore.blockstored import get_state_engine
 
 import scenarios.testlib as testlib
 
@@ -136,7 +136,8 @@ def run_scenario( scenario, config_file ):
     if os.environ.get("PYTHONPATH", None) is not None:
         worker_env["PYTHONPATH"] = os.environ["PYTHONPATH"]
 
-    virtualchain.setup_virtualchain( blockstore_state_engine, bitcoind_connection_factory=mock_bitcoind.connect_mock_bitcoind, index_worker_env=worker_env ) 
+    # virtualchain defaults...
+    virtualchain.setup_virtualchain( impl=blockstore_state_engine, bitcoind_connection_factory=mock_bitcoind.connect_mock_bitcoind, index_worker_env=worker_env )
 
     # set up blockstore
     # NOTE: utxo_opts encodes the mock-bitcoind options 
@@ -148,6 +149,22 @@ def run_scenario( scenario, config_file ):
 
     # pass along extra arguments
     utxo_opts['save_file'] = mock_bitcoind_save_path
+
+    print ""
+    print "blockstore opts"
+    print json.dumps( blockstore_opts, indent=4 )
+
+    print ""
+    print "bitcoin opts"
+    print json.dumps( bitcoin_opts, indent=4 )
+
+    print ""
+    print "UTXO opts"
+    print json.dumps( utxo_opts, indent=4 )
+
+    print ""
+    print "DHT opts"
+    print json.dumps( dht_opts, indent=4 )
 
     # save headers as well 
     utxo_opts['spv_headers_path'] = mock_bitcoind_save_path + ".spvheaders"
@@ -163,7 +180,7 @@ def run_scenario( scenario, config_file ):
     # start API server 
     api_server = blockstored.api_server_subprocess( foreground=True )
 
-    db = blockstored.get_state_engine()
+    db = blockstored.get_db_state()
     bitcoind = mock_bitcoind.connect_mock_bitcoind( utxo_opts )
     sync_virtualchain_upcall = lambda: virtualchain.sync_virtualchain( utxo_opts, bitcoind.getblockcount(), db )
     mock_utxo = blockstore.lib.connect_utxo_provider( utxo_opts )
@@ -251,8 +268,8 @@ if __name__ == "__main__":
         working_dir = "/tmp/blockstore-run-scenario.%s" % scenario.__name__
 
     # patch state engine implementation
-    os.environ['BLOCKSTORE_TEST_WORKING_DIR'] = working_dir
-    blockstore_state_engine.working_dir = working_dir
+    os.environ['BLOCKSTORE_TEST_WORKING_DIR'] = working_dir     # for the API server
+    blockstore_state_engine.working_dir = working_dir   # for virtualchain
     if not os.path.exists( blockstore_state_engine.working_dir ):
         os.makedirs( blockstore_state_engine.working_dir )
 
