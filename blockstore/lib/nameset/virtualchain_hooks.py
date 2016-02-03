@@ -37,13 +37,11 @@ import threading
 from .namedb import BlockstoreDB
 
 from ..config import *
-from ..operations import parse_preorder, parse_registration, parse_update, parse_transfer, parse_revoke, \
-    parse_name_import, parse_namespace_preorder, parse_namespace_reveal, parse_namespace_ready, parse_announce, \
-    get_transfer_recipient_from_outputs, get_import_update_hash_from_outputs, get_registration_recipient_from_outputs, \
-    parse_preorder_multi, preorder_decompose, \
-    SERIALIZE_FIELDS
+from ..operations import *
 
 import virtualchain
+
+from ..scripts import get_burn_fee_from_outputs
 
 if not globals().has_key('log'):
     log = virtualchain.session.log
@@ -52,185 +50,6 @@ blockstore_db = None
 blockstore_db_mtime = None
 blockstore_db_lastblock = None
 blockstore_db_lock = threading.Lock()
-
-def get_burn_fee_from_outputs( outputs ):
-    """
-    Given the set of outputs, find the fee sent 
-    to our burn address.
-    
-    Return the fee on success
-    Return None if not found
-    """
-    
-    ret = None
-    for output in outputs:
-       
-        output_script = output['scriptPubKey']
-        output_asm = output_script.get('asm')
-        output_hex = output_script.get('hex')
-        output_addresses = output_script.get('addresses')
-        
-        if output_asm[0:9] != 'OP_RETURN' and BLOCKSTORE_BURN_ADDRESS == output_addresses[0]:
-            
-            # recipient's script_pubkey and address
-            ret = int(output['value']*(10**8))
-            break
-    
-    return ret 
-    
-
-def get_public_key_hex_from_tx( inputs, address ):
-    """
-    Given a list of inputs and the address of one of the inputs,
-    find the public key.
-
-    This only works for p2sh and p2pkh scripts.
-    """
-    
-    ret = None 
-    
-    for inp in inputs:
-        
-        input_scriptsig = inp.get('scriptSig', None )
-        if input_scriptsig is None:
-            continue 
-        
-        input_asm = input_scriptsig.get("asm")
-        
-        if len(input_asm.split(" ")) >= 2:
-            
-            # public key is the second hex string.  verify it matches the address
-            pubkey_hex = input_asm.split(" ")[1]
-            pubkey = None 
-            
-            try:
-                pubkey = pybitcoin.BitcoinPublicKey( str(pubkey_hex) ) 
-            except Exception, e: 
-                traceback.print_exc()
-                log.warning("Invalid public key '%s'" % pubkey_hex)
-                continue 
-            
-            if address != pubkey.address():
-                continue 
-            
-            ret = pubkey_hex
-            break
-        
-    return ret 
-
-
-def parse_blockstore_op_data( opcode, payload, sender, recipient=None, recipient_address=None, import_update_hash=None ):
-    """
-    Parse a string of binary data (nulldata from a blockchain transaction) into a blockstore operation.
-    
-    full OP_RETURN data format (once unhex'ed):
-    
-    0           2      3                                   80
-    |-----------|------|-----------------------------------|
-    magic bytes opcode  payload
-    (consumed)  (arg)   (arg)
-    
-    We are given opcode and payload as arguments.
-    
-    Returns a parsed operation on success
-    Returns None if no operation could be parsed.
-    """
-
-    op = None 
-    data = hexlify(payload)
-
-    if len(payload) > LENGTHS['max_op_length'] - 3:
-        log.error("Data too long: %s" % len(payload))
-        return None
-    
-    if opcode == NAME_PREORDER:
-        if len(payload) >= MIN_OP_LENGTHS['preorder']:
-            log.debug( "Parse NAME_PREORDER: %s" % data )
-            op = parse_preorder(payload)
-        else:
-            log.error( "NAME_PREORDER: invalid length %s" % len(payload) )
-        
-    elif opcode == NAME_PREORDER_MULTI:
-        if len(payload) >= MIN_OP_LENGTHS['preorder_multi']:
-            log.debug( "Parse NAME_PREORDER_MULTI: %s" % data)
-            op = parse_preorder_multi(payload)
-        else:
-            log.error( "NAME_PREORDER_MULTI: invalid length %s" % len(payload))
-
-    elif opcode == NAME_REGISTRATION:
-        if len(payload) >= MIN_OP_LENGTHS['registration']:
-            log.debug( "Parse NAME_REGISTRATION: %s" % data )
-            op = parse_registration(payload)
-        else:
-            log.error( "NAME_REGISTRATION: invalid length %s" % len(payload) )
-       
-    elif opcode == NAME_REGISTRATION_MULTI:
-        if len(payload) >= MIN_OP_LENGTHS['registration_multi']:
-            log.debug( "Parse NAME_REGISTRATION_MULTI: %s" % data )
-            op = parse_registration_multi(payload)
-        else:
-            log.error( "NAME_REGISTRATION_MULTI: invalid length %s" % len(payload))
-
-    elif opcode == NAME_UPDATE:
-        if len(payload) >= MIN_OP_LENGTHS['update']:
-            log.debug( "Parse NAME_UPDATE: %s" % data )
-            op = parse_update(payload)
-        else:
-            log.error( "NAME_UPDATE: invalid length %s" % len(payload))
-        
-    elif opcode == NAME_TRANSFER:
-        if len(payload) >= MIN_OP_LENGTHS['transfer']:
-            log.debug( "Parse NAME_TRANSFER: %s" % data )
-            op = parse_transfer(payload, recipient )
-        else:
-            log.error( "NAME_TRANSFER: invalid length %s" % len(payload))
-    
-    elif opcode == NAME_REVOKE:
-        if len(payload) >= MIN_OP_LENGTHS['revoke']:
-            log.debug( "Parse NAME_REVOKE: %s" % data )
-            op = parse_revoke(payload)
-        else:
-            log.error( "NAME_REVOKE: invalid length %s" % len(payload))
-        
-    elif opcode == NAME_IMPORT:
-        if len(payload) >= MIN_OP_LENGTHS['name_import']:
-            log.debug( "Parse NAME_IMPORT: %s" % data )
-            op = parse_name_import( payload, recipient, import_update_hash )
-        else:
-            log.error( "NAME_IMPORT: invalid length %s" % len(payload))
-        
-    elif opcode == NAMESPACE_PREORDER:
-        if len(payload) >= MIN_OP_LENGTHS['namespace_preorder']:
-            log.debug( "Parse NAMESPACE_PREORDER: %s" % data)
-            op = parse_namespace_preorder( payload )
-        else:
-            log.error( "NAMESPACE_PREORDER: invalid length %s" % len(payload))
-        
-    elif opcode == NAMESPACE_REVEAL:
-        if len(payload) >= MIN_OP_LENGTHS['namespace_reveal']:
-            log.debug( "Parse NAMESPACE_REVEAL: %s" % data )
-            op = parse_namespace_reveal( payload, sender, recipient_address )
-        else:
-            log.error( "NAMESPACE_REVEAL: invalid length %s" % len(payload))
-         
-    elif opcode == NAMESPACE_READY:
-        if len(payload) >= MIN_OP_LENGTHS['namespace_ready']:
-            log.debug( "Parse NAMESPACE_READY: %s" % data )
-            op = parse_namespace_ready( payload )
-        else:
-            log.error( "NAMESPACE_READY: invalid length %s" % len(payload))
-   
-    elif opcode == ANNOUNCE:
-        if len(payload) == MIN_OP_LENGTHS['announce']:
-            log.debug( "Parse ANNOUNCE: %s" % data )
-            op = parse_announce( payload )
-        else:
-            log.error( "ANNOUNCE: invalid length %s" % (len(payload)))
-
-    else:
-        log.warning("Unrecognized op: code='%s', data=%s, len=%s" % (opcode, data, len(payload)))
-        
-    return op
 
 
 def get_virtual_chain_name(testset=False):
@@ -280,7 +99,13 @@ def get_magic_bytes():
    
    Get the magic byte sequence for our OP_RETURNs
    """
-   blockstore_opts = default_blockstore_opts( virtualchain.get_config_filename(impl=sys.modules[__name__]) )
+    
+   # make this usable even if we haven't explicitly configured virtualchain 
+   impl = sys.modules[__name__]
+   if virtualchain.get_implementation() is not None:
+      impl = None
+
+   blockstore_opts = default_blockstore_opts( virtualchain.get_config_filename(impl=impl) )
    if blockstore_opts['testset']:
        return MAGIC_BYTES_TESTSET
    
@@ -294,7 +119,14 @@ def get_first_block_id():
    
    Get the id of the first block to start indexing.
    """ 
-   blockstore_opts = default_blockstore_opts( virtualchain.get_config_filename(impl=sys.modules[__name__]) )
+    
+   # make this usable even if we haven't explicitly configured virtualchain 
+   impl = sys.modules[__name__]
+   if virtualchain.get_implementation() is not None:
+      impl = None
+
+  
+   blockstore_opts = default_blockstore_opts( virtualchain.get_config_filename(impl=impl) )
    start_block = None
    
    if TESTNET:
@@ -316,15 +148,23 @@ def get_db_state():
    (required by virtualchain state engine)
    
    Callback to the virtual chain state engine.
-   
    Get a handle to our state engine implementation
-   (i.e. our name database)
+   (i.e. our name database).
+
+   Callers in Blockstore should use this method as well,
+   since it ensures that there is at most one copy of 
+   the db in RAM.
    """
    
    global blockstore_db, blockstore_db_mtime, blockstore_db_lock, blockstore_db_lastblock
+
+   # make this usable even if we haven't explicitly configured virtualchain 
+   impl = virtualchain.get_implementation()
+   if impl is None:
+       impl = sys.modules[__name__]
    
-   db_filename = virtualchain.get_db_filename(impl=sys.modules[__name__])
-   lastblock_filename = virtualchain.get_lastblock_filename(impl=sys.modules[__name__])
+   db_filename = virtualchain.get_db_filename(impl=impl)
+   lastblock_filename = virtualchain.get_lastblock_filename(impl=impl)
    db_mtime = None
    lastblock = None
    firstcheck = True 
@@ -380,32 +220,30 @@ def get_db_state():
    return blockstore_db
 
 
-def invalidate_cached_db():
+def invalidate_cached_db( needlock=True ):
     """
     Clear out the global cached copy of the db
     """
 
     global blockstore_db, blockstore_db_lock
 
-    blockstore_db_lock.acquire()
+    if needlock:
+        blockstore_db_lock.acquire()
+
     del blockstore_db
     blockstore_db = None
-    blockstore_db_lock.release()
+
+    if needlock:
+        blockstore_db_lock.release()
 
 
-def db_parse( block_id, opcode, data, senders, inputs, outputs, fee, db_state=None ):
+def db_parse( block_id, txid, vtxindex, opcode, data, senders, inputs, outputs, fee, db_state=None ):
    """
    (required by virtualchain state engine)
    
    Parse a blockstore operation from a transaction's nulldata (data) and a list of outputs, as well as 
-   optionally the list of transaction's senders and the total fee paid.
-   
-   Return a parsed operation, and will also optionally have:
-   * "sender": the first (primary) sender's script_pubkey.
-   * "address": the sender's bitcoin address
-   * "fee": the total fee paid for this record.
-   * "recipient": the first non-OP_RETURN output's script_pubkey.
-   * "sender_pubkey": the sender's public key (hex string), if this is a p2pkh transaction
+   optionally the list of transaction's senders and the total fee paid.  Use the operation-specific
+   extract_${OPCODE}() method to get the data, and make sure the operation-defined fields are all set.
 
    Return None on error
    
@@ -415,120 +253,35 @@ def db_parse( block_id, opcode, data, senders, inputs, outputs, fee, db_state=No
    TODO: refactor--move into individual operations
    """
 
-   sender = None 
-   recipient = None
-   recipient_address = None
-
-   # multi
-   recipient_list = None 
-   recipient_address_list = None
-
-   import_update_hash = None
-   address = None
-   sender_pubkey_hex = None
-   
+   # basic sanity checks 
    if len(senders) == 0:
-      raise Exception("No senders for (%s, %s)" % (opcode, hexlify(data)))
-  
-   # the first sender is always the first non-nulldata output script hex, and by construction
-   # of Blockstore, this is always the principal that issued the operation.
-   if 'script_pubkey' not in senders[0].keys():
-      raise Exception("No script_pubkey in sender of (%s, %s)" % (opcode, hexlify(data)))
+       raise Exception("No senders given")
    
-   if 'addresses' not in senders[0].keys():
-      log.error("No addresses in sender of (%s, %s)" % (opcode, hexlify(data)))
-      return None
-   
-   if len(senders[0]['addresses']) != 1:
-      log.error("Multisig transactions are unsupported for (%s, %s)" % (opcode, hexlify(data)))
-      return None
-   
-   sender = str(senders[0]['script_pubkey'])
-   address = str(senders[0]['addresses'][0])
+   # make sure each op has all the right fields defined 
+   opcode_name = OPCODE_NAMES.get(opcode, None)
+   if opcode_name is None:
+       raise Exception("Unrecognized opcode '%s'" % opcode)
 
-   if str(senders[0]['script_type']) == 'pubkeyhash':
-      sender_pubkey_hex = get_public_key_hex_from_tx( inputs, address )
-   
-   if sender_pubkey_hex is None:
-      log.warning("No public key found for (%s, %s)" % (opcode, hexlify(data)))
-   
    op_fee = get_burn_fee_from_outputs( outputs )
-   
-   if opcode in [NAME_REGISTRATION, NAMESPACE_REVEAL]:
-      # these operations have a designated recipient that is *not* the sender
-      try:
-         recipient = get_registration_recipient_from_outputs( outputs )
-         recipient_address = pybitcoin.script_hex_to_address( recipient )
-      except Exception, e:
-         log.exception(e)
-         raise Exception("No registration address for (%s, %s)" % (opcode, hexlify(data)))
-    
 
-   if opcode in [NAME_REGISTRATION_MULTI]:
-       # get each name's recipient script and recipient address
-       try:
-          recipient_list = get_registration_multi_recipients_from_outputs( outputs )
-          recipient_address_list = []
-          for r in recipient_list:
-              addr = pybitcoin.script_hex_to_address( r )
-              recipient_address_list.append( addr )
-     
-       except Exception, e:
-          log.exception(e)
-          raise Exception("Unable to find recipient addresses for (%s, %s)" % (opcode, hexlify(data)))
-
-   
-   if opcode in [NAME_IMPORT, NAME_TRANSFER]:
-      # these operations have a designated recipient that is *not* the sender
-      try:
-         recipient = get_transfer_recipient_from_outputs( outputs )
-         recipient_address = pybitcoin.script_hex_to_address( recipient )
-      except Exception, e:
-         log.exception(e)
-         raise Exception("No recipient for (%s, %s)" % (opcode, hexlify(data)))
-      
-      
-   if opcode in [NAME_IMPORT]:
-      # this operation has an update hash embedded as a phony recipient 
-      try:
-         import_update_hash = get_import_update_hash_from_outputs( outputs, recipient )
-      except Exception, e:
-         log.exception(e)
-         raise Exception("No update hash for (%s, %s)" % (opcode, hexlify(data)))
-     
-         
-   op = parse_blockstore_op_data(opcode, data, sender, recipient=recipient, recipient_address=recipient_address, import_update_hash=import_update_hash )
-   
+   # get the data
+   op = op_extract( opcode_name, data, senders, inputs, outputs )
    if op is not None:
-      
-      # store the above ancillary data with the opcode, so our namedb can look it up later 
-      if fee is not None:
-         op['fee'] = fee 
+
+       # propagate fees
+       if fee is not None:
+          op['fee'] = fee 
          
-      if op_fee is not None:
-         op['op_fee'] = op_fee 
-      
-      op['sender'] = sender 
-      op['address'] = address 
-      
-      if recipient is not None:
-         op['recipient'] = recipient
+       if op_fee is not None:
+          op['op_fee'] = op_fee
 
-      if recipient_list is not None:
-         op['recipient_list'] = recipient_list
-      
-      if recipient_address is not None:
-         op['recipient_address'] = recipient_address
-      
-      if recipient_address_list is not None:
-         op['recipient_address_list'] = recipient_address_list
+       # propagate tx data 
+       op['vtxindex'] = int(vtxindex)
+       op['txid'] = str(txid)
 
-      if sender_pubkey_hex is not None:
-         op['sender_pubkey'] = sender_pubkey_hex
-      
    else:
-       log.error("Invalid op '%s'" % opcode)
- 
+       log.error("Unparseable op '%s'" % opcode)
+
    return op
 
 
@@ -563,13 +316,14 @@ def db_check( block_id, checked_ops, opcode, op, txid, vtxindex, db_state=None )
       if opcode not in OPCODES:
          log.error("Unrecognized opcode '%s'" % (opcode))
          return False 
-      
-      # propagate txid and vtxindex data
-      if not op.has_key('txid'):
-          op['txid'] = str(txid)
      
+      if not op.has_key('txid'):
+         log.error("Op '%s' is missing 'txid'" % (opcode))
+         return False 
+
       if not op.has_key('vtxindex'):
-          op['vtxindex'] = vtxindex
+         log.error("Op '%s' is missing 'vtxindex'" % (opcode))
+         return False 
 
       # check op for correctness
       if opcode == NAME_PREORDER:
@@ -680,12 +434,18 @@ def db_commit( block_id, opcode, op, txid, vtxindex, db_state=None ):
 
         # committing an operation
         # pass along tx info
-        if not op.has_key('txid') and txid is not None:
-            op['txid'] = txid
+        if not op.has_key('txid'):
+            raise Exception("op '%s' does not have txid" % op['opcode'])
 
-        if not op.has_key('vtxindex') and vtxindex is not None:
-            op['vtxindex'] = vtxindex
-            
+        if op['txid'] != txid:
+            raise Exception("op '%s' txid mismatch: %s (%s) != %s %s)" % (op['opcode'], op['txid'], type(op['txid']), txid, type(txid)))
+
+        if not op.has_key('vtxindex'):
+            raise Exception("op '%s' does not have vtxid" % op['vtxindex'])
+
+        if op['vtxindex'] != vtxindex:
+            raise Exception("op '%s' vtxindex mismatch: %s (%s) != %s (%s)" % (op['opcode'], op['vtxindex'], type(op['vtxindex']), vtxindex, type(vtxindex)))
+
         op_seq = None
 
         if opcode == NAME_PREORDER:
@@ -771,6 +531,7 @@ def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
    Return False on failure.
    """
    
+   global blockstore_db_lock, blockstore_db
    db = db_state 
    
    # remove expired names before saving
@@ -778,19 +539,26 @@ def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
       
       # see if anything actually changed
       if len(pending_ops.get('virtualchain_ordered', [])) > 0:
+
           # state has changed 
           log.debug("Save database %s" % filename)
+
+          blockstore_db_lock.acquire()
+
           rc = db.save_db( filename )
-          invalidate_cached_db()
+          invalidate_cached_db(needlock=False)
+
+          blockstore_db_lock.release()
           return rc
       
       else:
           
+          log.debug("No new operations")
           # all good
           return True
    
    else:
-      log.error("No state engine defined")
+      log.error("No state defined")
       return False 
 
 
@@ -799,9 +567,14 @@ def sync_blockchain( bt_opts, last_block ):
     synchronize state with the blockchain.
     build up the next blockstore_db
     """
+ 
+    # make this usable even if we haven't explicitly configured virtualchain 
+    impl = sys.modules[__name__]
+    if virtualchain.get_implementation() is not None:
+       impl = None
 
     log.info("Synchronizing database up to block %s" % last_block)
-    db_filename = virtualchain.get_db_filename(sys.modules[__name__])
+    db_filename = virtualchain.get_db_filename(impl=impl)
     new_db = BlockstoreDB( db_filename )
 
     virtualchain.sync_virtualchain( bt_opts, last_block, new_db )
