@@ -137,3 +137,56 @@ def refresh_resolver(name):
         return False
 
     return True
+
+
+def dontUseServer(blockstored_server):
+    """
+        Return false if server fails any tests
+    """
+
+    from registrar.config import CONSENSUS_SERVERS
+    from basicrpc import Proxy
+
+    servers_to_check = CONSENSUS_SERVERS
+    servers_to_check.append(blockstored_server)
+
+    consensus_hashes = []
+    # initialize to a very large number
+    last_block_everyone = 2000000000
+
+    for server in servers_to_check:
+
+        bs_client = Proxy(server, BLOCKSTORED_PORT)
+
+        last_block_seen = bs_client.getinfo()[0]['bitcoind_blocks']
+        try:
+            last_block_processed = bs_client.getinfo()[0]['last_block']
+        except:
+            last_block_processed = bs_client.getinfo()[0]['blocks']
+
+        if (last_block_seen - last_block_processed) > 10:
+            log.debug("Server %s, seems to be lagging: (%s, %s)"
+                      % (server, last_block_seen, last_block_processed))
+
+            return True
+
+        if last_block_processed < last_block_everyone:
+            last_block_everyone = last_block_processed
+
+    for server in servers_to_check:
+
+        bs_client = Proxy(server, BLOCKSTORED_PORT)
+        consensus_hash = bs_client.get_consensus_at(last_block_everyone)[0]
+        print consensus_hash
+        consensus_hashes.append(consensus_hash)
+
+    check_hash = consensus_hashes[0]
+
+    for stored_hash in consensus_hashes:
+
+        if check_hash != stored_hash:
+            log.debug('Mismatch in consensus hashes from %s' % servers_to_check)
+            return True
+
+    # can use server, if all tests pass
+    return False
