@@ -203,9 +203,112 @@ def build( namespace_id, version, reveal_addr, lifetime, coeff, base, bucket_exp
    return packaged_script
 
 
+def get_reveal_recipient_from_outputs( outputs ):
+    """
+    There are between three outputs:
+    * the OP_RETURN
+    * the pay-to-address with the "reveal_addr", not the sender's address
+    * the change address (i.e. from the namespace preorderer)
+    
+    Given the outputs from a namespace_reveal operation,
+    find the revealer's address's script hex.
+    
+    By construction, it will be the first non-OP_RETURN 
+    output (i.e. the second output).
+    """
+    
+    ret = None
+    if len(outputs) != 3:
+        # invalid
+        raise Exception("Outputs are not from a namespace reveal")
+
+    reveal_output = outputs[1]
+   
+    output_script = reveal_output['scriptPubKey']
+    output_asm = output_script.get('asm')
+    output_hex = output_script.get('hex')
+    output_addresses = output_script.get('addresses')
+    
+    if output_asm[0:9] != 'OP_RETURN' and output_hex is not None:
+        
+        # recipient's script hex
+        ret = output_hex
+
+    else:
+       raise Exception("No namespace reveal script found")
+
+    return ret
+
+
+def tx_extract( payload, senders, inputs, outputs ):
+    """
+    Extract and return a dict of fields from the underlying blockchain transaction data
+    that are useful to this operation.
+
+    Required (+ parse)
+    sender:  the script_pubkey (as a hex string) of the principal that sent the namespace preorder
+    address:  the address from the sender script
+    recipient:  the script_pubkey (as a hex string) of the "revealer", who will import and ready the namespace
+    recipient_address:  the address from the recipient script
+
+    Optional:
+    sender_pubkey_hex: the public key of the sender
+    """
+  
+    sender_script = None 
+    sender_address = None 
+    sender_pubkey_hex = None
+
+    recipient_script = None 
+    recipient_address = None 
+
+    try:
+       recipient_script = get_reveal_recipient_from_outputs( outputs )
+       recipient_address = pybitcoin.script_hex_to_address( recipient_script )
+
+       assert recipient_script is not None 
+       assert recipient_address is not None
+
+       # by construction, the first input comes from the principal
+       # who sent the reveal transaction...
+       assert len(senders) > 0
+       assert 'script_pubkey' in senders[0].keys()
+       assert 'addresses' in senders[0].keys()
+
+       sender_script = str(senders[0]['script_pubkey'])
+       sender_address = str(senders[0]['addresses'][0])
+
+       assert sender_script is not None 
+       assert sender_address is not None
+
+       if str(senders[0]['script_type']) == 'pubkeyhash':
+          sender_pubkey_hex = get_public_key_hex_from_tx( inputs, sender_address )
+
+    except Exception, e:
+       log.exception(e)
+       raise Exception("No reveal address")
+
+    parsed_payload = parse( payload, sender_script, recipient_address )
+    assert parsed_payload is not None 
+
+    ret = {
+       "sender": sender_script,
+       "address": sender_address,
+       "recipient": recipient_script,
+       "recipient_address": recipient_address
+    }
+
+    ret.update( parsed_payload )
+
+    if sender_pubkey_hex is not None:
+        ret['sender_pubkey'] = sender_pubkey_hex
+
+    return ret
+
+
 def make_outputs( data, inputs, reveal_addr, change_addr, format='bin', testset=False ):
     """
-    Make outputs for a register:
+    Make outputs for a namespace reveal:
     [0] OP_RETURN with the name 
     [1] pay-to-address with the *reveal_addr*, not the sender's address.
     [2] change address with the NAMESPACE_PREORDER sender's address
@@ -216,7 +319,7 @@ def make_outputs( data, inputs, reveal_addr, change_addr, format='bin', testset=
         {"script_hex": make_op_return_script(data, format=format),
          "value": 0},
     
-        # register address
+        # reveal address
         {"script_hex": make_pay_to_address_script(reveal_addr),
          "value": DEFAULT_DUST_FEE},
         
@@ -271,11 +374,14 @@ def broadcast( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exp
         return response
    
 
-def parse( bin_payload, sender, recipient_address ):
+def parse( bin_payload, sender_script, recipient_address ):
    """
    NOTE: the first three bytes will be missing
-   """
+   """ 
    
+   if len(bin_payload) < MIN_OP_LENGTHS['namespace_reveal']:
+       raise AssertionError("Payload is too short to be a namespace reveal")
+
    off = 0
    life = None 
    coeff = None 
@@ -316,9 +422,9 @@ def parse( bin_payload, sender, recipient_address ):
    namespace_id = bin_payload[off:]
    namespace_id_hash = None
    try:
-       namespace_id_hash = hash_name( namespace_id, sender, register_addr=recipient_address )
+       namespace_id_hash = hash_name( namespace_id, sender_script, register_addr=recipient_address )
    except:
-       log.error("Invalid namespace ID and/or sender")
+       log.error("Invalid namespace ID and/or sender script")
        return None
    
    # extract buckets 
@@ -357,4 +463,24 @@ def get_fees( inputs, outputs ):
     the subsidization of namespaces.
     """
     return (None, None)
+
+
+def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=False ):
+    """
+    Find the fields in a name record that were changed by an instance of this operation, at the 
+    given (block_number, history_index) point in time in the past.  The history_index is the
+    index into the list of changes for this name record in the given block.
+
+    Return the fields that were modified on success.
+    Return None on error.
+    """
+
+    name_rec_script = build( str(name_rec['namespace_id']), name_rec['version'], str(name_rec['recipient_address']), \
+                             name_rec['lifetime'], name_rec['coeff'], name_rec['base'], name_rec['buckets'],
+                             name_rec['nonalpha_discount'], name_rec['no_vowel_discount'], testset=testset )
+
+    name_rec_payload = unhexlify( name_rec_script )[3:]
+    ret_op = parse( name_rec_payload, str(name_rec['sender']), str(name_rec['recipient_address']) )
+
+    return ret_op
 

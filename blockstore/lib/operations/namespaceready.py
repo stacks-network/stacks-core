@@ -22,7 +22,6 @@
 """
 
 from pybitcoin import embed_data_in_blockchain, BlockchainInfoClient, hex_hash160, make_op_return_tx, serialize_transaction, broadcast_transaction, make_op_return_outputs
-from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
 from ..b40 import b40_to_hex, bin_to_b40, is_b40
@@ -68,6 +67,60 @@ def build( namespace_id, testset=False ):
    return packaged_script
 
 
+def tx_extract( payload, senders, inputs, outputs ):
+    """
+    Extract and return a dict of fields from the underlying blockchain transaction data
+    that are useful to this operation.
+
+    Required (+ parse):
+    sender:  the script_pubkey (as a hex string) of the principal that sent the name preorder transaction
+    address:  the address from the sender script
+
+    Optional:
+    sender_pubkey_hex: the public key of the sender
+    """
+  
+    sender_script = None 
+    sender_address = None 
+    sender_pubkey_hex = None
+
+    try:
+
+       # by construction, the first input comes from the principal
+       # who sent the registration transaction...
+       assert len(senders) > 0
+       assert 'script_pubkey' in senders[0].keys()
+       assert 'addresses' in senders[0].keys()
+
+       sender_script = str(senders[0]['script_pubkey'])
+       sender_address = str(senders[0]['addresses'][0])
+
+       assert sender_script is not None 
+       assert sender_address is not None
+
+       if str(senders[0]['script_type']) == 'pubkeyhash':
+          sender_pubkey_hex = get_public_key_hex_from_tx( inputs, sender_address )
+
+    except Exception, e:
+       log.exception(e)
+       raise Exception("Failed to extract")
+
+    parsed_payload = parse( payload )
+    assert parsed_payload is not None 
+
+    ret = {
+       "sender": sender_script,
+       "address": sender_address
+    }
+
+    ret.update( parsed_payload )
+
+    if sender_pubkey_hex is not None:
+        ret['sender_pubkey'] = sender_pubkey_hex
+
+    return ret
+
+
 def broadcast( namespace_id, private_key, blockchain_client, testset=False, tx_only=False, blockchain_broadcaster=None ):
    
    if blockchain_broadcaster is None:
@@ -99,9 +152,13 @@ def parse( bin_payload ):
    NOTE: the first three bytes will be missing
    NOTE: the first byte in bin_payload is a '.'
    """
-   
+  
+   if len(bin_payload) == 0:
+       log.error("empty namespace")
+       return None 
+
    if bin_payload[0] != '.':
-       log.error("Missing namespace delimiter .")
+       log.error("Missing namespace delimiter '.'")
        return None 
 
    namespace_id = bin_payload[ 1: ]
@@ -128,3 +185,18 @@ def get_fees( inputs, outputs ):
     """
     return (None, None)
 
+
+def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=False ):
+    """
+    Find the fields in a name record that were changed by an instance of this operation, at the 
+    given (block_number, history_index) point in time in the past.  The history_index is the
+    index into the list of changes for this name record in the given block.
+
+    Return the fields that were modified on success.
+    Return None on error.
+    """
+
+    name_rec_script = build( str(name_rec['namespace_id']), testset=testset )
+    name_rec_payload = unhexlify( name_rec_script )[3:]
+    ret_op = parse( name_rec_payload )
+    return ret_op

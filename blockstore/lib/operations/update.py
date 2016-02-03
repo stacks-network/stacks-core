@@ -91,6 +91,60 @@ def build(name, consensus_hash, data_hash=None, testset=False):
     return packaged_script
 
 
+def tx_extract( payload, senders, inputs, outputs ):
+    """
+    Extract and return a dict of fields from the underlying blockchain transaction data
+    that are useful to this operation.
+
+    Required (+ parse):
+    sender:  the script_pubkey (as a hex string) of the principal that sent the name preorder transaction
+    address:  the address from the sender script
+
+    Optional:
+    sender_pubkey_hex: the public key of the sender
+    """
+  
+    sender_script = None 
+    sender_address = None 
+    sender_pubkey_hex = None
+
+    try:
+
+       # by construction, the first input comes from the principal
+       # who sent the registration transaction...
+       assert len(senders) > 0
+       assert 'script_pubkey' in senders[0].keys()
+       assert 'addresses' in senders[0].keys()
+
+       sender_script = str(senders[0]['script_pubkey'])
+       sender_address = str(senders[0]['addresses'][0])
+
+       assert sender_script is not None 
+       assert sender_address is not None
+
+       if str(senders[0]['script_type']) == 'pubkeyhash':
+          sender_pubkey_hex = get_public_key_hex_from_tx( inputs, sender_address )
+
+    except Exception, e:
+       log.exception(e)
+       raise Exception("Failed to extract")
+
+    parsed_payload = parse( payload )
+    assert parsed_payload is not None 
+
+    ret = {
+       "sender": sender_script,
+       "address": sender_address
+    }
+
+    ret.update( parsed_payload )
+
+    if sender_pubkey_hex is not None:
+        ret['sender_pubkey'] = sender_pubkey_hex
+
+    return ret
+
+
 def make_outputs( data, inputs, change_address, pay_fee=True ):
     """
     Make outputs for an update.
@@ -233,9 +287,38 @@ def get_fees( inputs, outputs ):
     return (dust_fee, op_fee)
 
 
-def serialize( nameop ):
+def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=False ):
     """
-    Convert the set of data obtained from parsing the update into a unique string.
+    Find the fields in a name record that were changed by an instance of this operation, at the 
+    given (block_number, history_index) point in time in the past.  The history_index is the
+    index into the list of changes for this name record in the given block.
+
+    Return the fields that were modified on success.
+    Return None on error.
     """
     
-    return NAME_UPDATE + ":" + str(nameop['name_hash']) + "," + str(nameop['update_hash'])
+    data_hash = None
+    if name_rec['value_hash'] is not None:
+       data_hash = str(name_rec['value_hash'])
+
+    name_rec_script = build( str(name_rec['name']), str(name_rec['consensus_hash']), data_hash=data_hash, testset=testset )
+    name_rec_payload = unhexlify( name_rec_script )[3:]
+    ret_op = parse(name_rec_payload)
+
+    return ret_op
+
+
+def consensus_extras( name_rec, block_id, db ):
+    """
+    Given a name record most recently affected by an instance of this operation, 
+    find the dict of consensus-affecting fields from the operation that are not
+    already present in the name record.
+    """
+    
+    ret_op = {}
+
+    # reconstruct name_hash
+    ret_op['name_hash'] = hash256_trunc128( str(name_rec['name']) + str(name_rec['consensus_hash']) )
+    return ret_op
+
+

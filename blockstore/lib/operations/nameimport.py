@@ -42,6 +42,35 @@ FIELDS = NAMEREC_FIELDS + [
     'recipient_address'     # address of the recipient
 ]
 
+
+def get_import_recipient_from_outputs( outputs ):
+    """
+    Given the outputs from a name import operation,
+    find the recipient's script hex.
+    
+    By construction, it will be the first non-OP_RETURN 
+    output (i.e. the second output).
+    """
+    
+    ret = None
+    for output in outputs:
+       
+        output_script = output['scriptPubKey']
+        output_asm = output_script.get('asm')
+        output_hex = output_script.get('hex')
+        output_addresses = output_script.get('addresses')
+        
+        if output_asm[0:9] != 'OP_RETURN' and output_hex:
+            
+            ret = output_hex
+            break
+            
+    if ret is None:
+       raise Exception("No recipients found")
+    
+    return ret 
+
+
 def get_import_update_hash_from_outputs( outputs, recipient ):
     """
     This is meant for NAME_IMPORT operations, which 
@@ -54,6 +83,7 @@ def get_import_update_hash_from_outputs( outputs, recipient ):
     By construction, the update hash address in 
     the NAME_IMPORT operation is the first 
     non-OP_RETURN output that is *not* the recipient.
+    It is also a pay-to-pubkey-hash script
     """
     
     ret = None
@@ -66,7 +96,8 @@ def get_import_update_hash_from_outputs( outputs, recipient ):
         output_addresses = output_script.get('addresses')
         
         if output_asm[0:9] != 'OP_RETURN' and output_hex is not None and output_hex != recipient:
-            
+           
+            assert len(output_addresses) == 1, "Not a single-address transaction"
             ret = hexlify( b58check_decode( str(output_addresses[0]) ) )
             break
             
@@ -99,6 +130,80 @@ def build(name, testset=False):
     packaged_script = add_magic_bytes(hex_script, testset=testset)
     
     return packaged_script
+
+
+def tx_extract( payload, senders, inputs, outputs ):
+    """
+    Extract and return a dict of fields from the underlying blockchain transaction data
+    that are useful to this operation.
+
+    Required (+ parse)
+    sender:  the script_pubkey (as a hex string) of the principal that sent the name import transaction
+    address:  the address from the sender script
+    recipient:  the script_pubkey (as a hex string) of the principal that is meant to receive the name
+    recipient_address:  the address from the recipient script
+    import_update_hash:  the hash of the data belonging to the recipient
+
+    Optional:
+    sender_pubkey_hex: the public key of the sender
+    """
+  
+    sender = None 
+    sender_address = None 
+    sender_pubkey_hex = None
+
+    recipient = None 
+    recipient_address = None 
+
+    import_update_hash = None
+
+    try:
+       recipient = get_import_recipient_from_outputs( outputs )
+       recipient_address = pybitcoin.script_hex_to_address( recipient )
+
+       assert recipient is not None 
+       assert recipient_address is not None
+       
+       import_update_hash = get_import_update_hash_from_outputs( outputs, recipient )
+       assert import_update_hash is not None
+       assert is_hex( import_update_hash )
+
+       # by construction, the first input comes from the principal
+       # who sent the registration transaction...
+       assert len(senders) > 0
+       assert 'script_pubkey' in senders[0].keys()
+       assert 'addresses' in senders[0].keys()
+
+       sender = str(senders[0]['script_pubkey'])
+       sender_address = str(senders[0]['addresses'][0])
+
+       assert sender is not None 
+       assert sender_address is not None
+
+       if str(senders[0]['script_type']) == 'pubkeyhash':
+          sender_pubkey_hex = get_public_key_hex_from_tx( inputs, sender_address )
+
+    except Exception, e:
+       log.exception(e)
+       raise Exception("Failed to extract")
+
+    parsed_payload = parse( payload, recipient, import_update_hash )
+    assert parsed_payload is not None 
+
+    ret = {
+       "sender": sender,
+       "address": sender_address,
+       "recipient": recipient,
+       "recipient_address": recipient_address,
+       "update_hash": import_update_hash
+    }
+
+    ret.update( parsed_payload )
+
+    if sender_pubkey_hex is not None:
+        ret['sender_pubkey'] = sender_pubkey_hex
+
+    return ret
 
 
 def make_outputs( data, inputs, recipient_address, sender_address, update_hash_b58, format='bin'):
@@ -191,3 +296,53 @@ def get_fees( inputs, outputs ):
     the subsidization of namespaces.
     """
     return (None, None)
+
+
+def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=False ):
+    """
+    Find the fields in a name record that were changed by an instance of this operation, at the 
+    given (block_number, history_index) point in time in the past.  The history_index is the
+    index into the list of changes for this name record in the given block.
+
+    Return the fields that were modified on success.
+    Return None on error.
+    """
+
+    # sanity check... 
+    if 'importer' not in name_rec.keys() or 'importer_address' not in name_rec.keys():
+        raise Exception("Name was not imported")
+
+    recipient = str(name_rec['sender'])
+    recipient_address = str(name_rec['address'])
+    sender = str(name_rec['importer'])
+    address = str(name_rec['importer_address'])
+
+    name_rec_script = build( str(name_rec['name']), testset=testset )
+    name_rec_payload = unhexlify( name_rec_script )[3:]
+    ret_op = parse( name_rec_payload, recipient, str(name_rec['value_hash']) )
+
+    # reconstruct recipient and sender...
+    ret_op['recipient'] = recipient
+    ret_op['recipient_address'] = recipient_address 
+    ret_op['sender'] = sender 
+    ret_op['address'] = address
+
+    return ret_op
+
+
+def consensus_extras( name_rec, block_id, db ):
+    """
+    Given a name record most recently affected by an instance of this operation, 
+    find the dict of consensus-affecting fields from the operation that are not
+    already present in the name record.
+    """
+    
+    ret_op = {}
+
+    # reconstruct the recipient information
+    ret_op['recipient'] = str(name_rec['sender'])
+    ret_op['recipient_address'] = str(name_rec['address'])
+
+    return ret_op
+
+

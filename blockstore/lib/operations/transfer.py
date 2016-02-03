@@ -50,8 +50,6 @@ def get_transfer_recipient_from_outputs( outputs ):
     
     By construction, it will be the first non-OP_RETURN 
     output (i.e. the second output).
-
-    This also applies to a NAME_IMPORT.
     """
     
     ret = None
@@ -121,6 +119,72 @@ def build(name, keepdata, consensus_hash, testset=False):
     packaged_script = add_magic_bytes(hex_script, testset=testset)
     
     return packaged_script
+
+
+def tx_extract( payload, senders, inputs, outputs ):
+    """
+    Extract and return a dict of fields from the underlying blockchain transaction data
+    that are useful to this operation.
+
+    Required:
+    sender:  the script_pubkey (as a hex string) of the principal that sent the transfer transaction
+    address:  the address from the sender script
+    recipient:  the script_pubkey (as a hex string) of the principal that is meant to receive the name
+    recipient_address:  the address from the recipient script
+
+    Optional:
+    sender_pubkey_hex: the public key of the sender
+    """
+  
+    sender = None 
+    sender_address = None 
+    sender_pubkey_hex = None
+
+    recipient = None 
+    recipient_address = None 
+
+    try:
+       recipient = get_transfer_recipient_from_outputs( outputs )
+       recipient_address = pybitcoin.script_hex_to_address( recipient )
+
+       assert recipient is not None 
+       assert recipient_address is not None
+
+       # by construction, the first input comes from the principal
+       # who sent the registration transaction...
+       assert len(senders) > 0
+       assert 'script_pubkey' in senders[0].keys()
+       assert 'addresses' in senders[0].keys()
+
+       sender = str(senders[0]['script_pubkey'])
+       sender_address = str(senders[0]['addresses'][0])
+
+       assert sender is not None 
+       assert sender_address is not None
+
+       if str(senders[0]['script_type']) == 'pubkeyhash':
+          sender_pubkey_hex = get_public_key_hex_from_tx( inputs, sender_address )
+
+    except Exception, e:
+       log.exception(e)
+       raise Exception("Failed to extract")
+
+    parsed_payload = parse( payload, recipient )
+    assert parsed_payload is not None 
+
+    ret = {
+       "sender": sender,
+       "address": sender_address,
+       "recipient": recipient,
+       "recipient_address": recipient_address
+    }
+
+    ret.update( parsed_payload )
+
+    if sender_pubkey_hex is not None:
+        ret['sender_pubkey'] = sender_pubkey_hex
+
+    return ret
 
 
 def make_outputs( data, inputs, new_name_owner_address, change_address, pay_fee=True, format='bin' ):
@@ -275,4 +339,87 @@ def get_fees( inputs, outputs ):
     op_fee = DEFAULT_DUST_FEE
     
     return (dust_fee, op_fee)
+
+
+def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=False ):
+    """
+    Find the fields in a name record that were changed by an instance of this operation, at the 
+    given (block_number, history_index) point in time in the past.  The history_index is the
+    index into the list of changes for this name record in the given block.
+
+    Return the fields that were modified on success.
+    Return None on error.
+    """
+
+    from ..nameset import BlockstoreDB 
+
+    # reconstruct the transfer op...
+    KEEPDATA_OP = "%s%s" % (NAME_TRANSFER, TRANSFER_KEEP_DATA)
+    keep_data = None 
+
+    if name_rec['op'] == KEEPDATA_OP:
+        keep_data = True
+    else:
+        keep_data = False
+
+    # what was the previous owner?
+    recipient = str(name_rec['sender'])
+    recipient_address = str(name_rec['address'])
+
+    # restore history temporarily...
+    untrusted_name_rec = untrusted_db.get_name( str(name_rec['name']) )
+    name_rec['history'] = untrusted_name_rec['history']
+
+    # get previous owner
+    if history_index > 0:
+        name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number )[history_index - 1]
+    else:
+        name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number - 1 )[history_index - 1]
+
+    sender = name_rec_prev['sender']
+    address = name_rec_prev['address']
+    consensus_hash = untrusted_db.get_consensus_at( block_number - 1 )
+    
+    del name_rec['history']
+
+    name_rec_script = build( str(name_rec['name']), keep_data, consensus_hash, testset=testset )
+    name_rec_payload = unhexlify( name_rec_script )[3:]
+    ret_op = parse(name_rec_payload, recipient )
+
+    # reconstruct recipient and sender 
+    ret_op['recipient'] = recipient 
+    ret_op['recipient_address'] = recipient_address 
+    ret_op['sender'] = sender 
+    ret_op['address'] = address
+    ret_op['consensus_hash'] = consensus_hash
+    ret_op['keep_data'] = keep_data
+
+    return ret_op
+
+
+def consensus_extras( name_rec, block_id, db ):
+    """
+    Given a name record most recently affected by an instance of this operation, 
+    find the dict of consensus-affecting fields from the operation that are not
+    already present in the name record.
+    """
+    
+    ret_op = {}
+
+    # reconstruct the recipient information
+    ret_op['recipient'] = str(name_rec['sender'])
+    ret_op['recipient_address'] = str(name_rec['address'])
+
+    # reconstruct name_hash, consensus_hash, keep_data
+    keep_data = None
+    if name_rec['op'][-1] == TRANSFER_KEEP_DATA:
+        keep_data = True
+    else:
+        keep_data = False
+
+    ret_op['keep_data'] = keep_data
+    ret_op['consensus_hash'] = db.get_consensus_at( block_id - 1 )
+    ret_op['name_hash'] = hash256_trunc128( str(name_rec['name']) )
+    return ret_op
+
 

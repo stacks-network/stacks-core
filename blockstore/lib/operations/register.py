@@ -49,24 +49,25 @@ FIELDS = NAMEREC_FIELDS + [
 
 def get_registration_recipient_from_outputs( outputs ):
     """
-    There are between three and five outputs:
+    There are between three and four outputs:
     * the OP_RETURN
     * the registration address
     * the change address (i.e. from the name preorderer)
     * (for renwals) the burn address for the renewal fee
-    * (optional) the initial update hash
     
     Given the outputs from a name register operation,
     find the registration address's script hex.
     
     By construction, it will be the first non-OP_RETURN 
     output (i.e. the second output).
+
+    Return the recipient's script hex on success.
     """
     
     ret = None
-    if len(outputs) < 3 or len(outputs) > 5:
-        # invalid 
-        return None 
+    if len(outputs) != 3 and len(outputs) != 4:
+        # invalid
+        raise Exception("Not name registration outputs")
 
     registration_output = outputs[1]
    
@@ -109,6 +110,72 @@ def build(name, testset=False):
     return packaged_script 
 
 
+def tx_extract( payload, senders, inputs, outputs ):
+    """
+    Extract and return a dict of fields from the underlying blockchain transaction data
+    that are useful to this operation.
+
+    Required (+ parse):
+    sender:  the script_pubkey (as a hex string) of the principal that sent the name preorder transaction
+    address:  the address from the sender script
+    recipient:  the script_pubkey (as a hex string) of the principal that is meant to receive the name
+    recipient_address:  the address from the recipient script
+
+    Optional:
+    sender_pubkey_hex: the public key of the sender
+    """
+  
+    sender_script = None 
+    sender_address = None 
+    sender_pubkey_hex = None
+
+    recipient = None 
+    recipient_address = None 
+
+    try:
+       recipient = get_registration_recipient_from_outputs( outputs )
+       recipient_address = pybitcoin.script_hex_to_address( recipient )
+
+       assert recipient is not None 
+       assert recipient_address is not None
+
+       # by construction, the first input comes from the principal
+       # who sent the registration transaction...
+       assert len(senders) > 0
+       assert 'script_pubkey' in senders[0].keys()
+       assert 'addresses' in senders[0].keys()
+
+       sender_script = str(senders[0]['script_pubkey'])
+       sender_address = str(senders[0]['addresses'][0])
+
+       assert sender_script is not None 
+       assert sender_address is not None
+
+       if str(senders[0]['script_type']) == 'pubkeyhash':
+          sender_pubkey_hex = get_public_key_hex_from_tx( inputs, sender_address )
+
+    except Exception, e:
+       log.exception(e)
+       raise Exception("Failed to extract")
+
+    parsed_payload = parse( payload )
+    assert parsed_payload is not None 
+
+    ret = {
+       "sender": sender_script,
+       "address": sender_address,
+       "recipient": recipient,
+       "recipient_address": recipient_address
+    }
+
+    ret.update( parsed_payload )
+
+    if sender_pubkey_hex is not None:
+        ret['sender_pubkey'] = sender_pubkey_hex
+
+    return ret
+
+
 def make_outputs( data, change_inputs, register_addr, change_addr, update_hash=None, renewal_fee=None, pay_fee=True, format='bin' ):
     """
     Make outputs for a register:
@@ -116,7 +183,6 @@ def make_outputs( data, change_inputs, register_addr, change_addr, update_hash=N
     [1] pay-to-address with the *register_addr*, not the sender's address.
     [2] change address with the NAME_PREORDER sender's address
     [3] (OPTIONAL) renewal fee, sent to the burn address
-    [4] (OPTIONAL) the update hash
     """
 
     bill = 0
@@ -285,4 +351,62 @@ def get_fees( inputs, outputs ):
         dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
     
     return (dust_fee, op_fee)
+   
+ 
+def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=False ):
+    """
+    Find the fields in a name record that were changed by an instance of this operation, at the 
+    given (block_number, history_index) point in time in the past.  The history_index is the
+    index into the list of changes for this name record in the given block.
+
+    Return the fields that were modified on success.
+    Return None on error.
+    """
+
+    from ..nameset import BlockstoreDB
+
+    name_rec_script = build( str(name_rec['name']), testset=testset )
+    name_rec_payload = unhexlify( name_rec_script )[3:]
+    ret_op = parse( name_rec_payload )
+
+    # reconstruct the registration op's recipient info
+    ret_op['recipient'] = str(name_rec['sender'])
+    ret_op['recipient_address'] = str(name_rec['address'])
+
+    # restore history to find prevoius sender and address
+    untrusted_name_rec = untrusted_db.get_name( str(name_rec['name']) )
+    name_rec['history'] = untrusted_name_rec['history']
+
+    if history_index > 0:
+        name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number )[ history_index - 1 ]
+    else:
+        name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number - 1 )[ history_index - 1 ]
+
+    sender = name_rec_prev['sender']
+    address = name_rec_prev['address']
+
+    ret_op['sender'] = sender
+    ret_op['address'] = address
+
+    # revert
+    del name_rec['history']
+
+    return ret_op
+
+
+def consensus_extras( name_rec, block_id, db ):
+    """
+    Given a name record most recently affected by an instance of this operation, 
+    find the dict of consensus-affecting fields from the operation that are not
+    already present in the name record.
+    """
     
+    ret_op = {}
+
+    # reconstruct the recipient information
+    ret_op['recipient'] = str(name_rec['sender'])
+    ret_op['recipient_address'] = str(name_rec['address'])
+
+    return ret_op
+
+

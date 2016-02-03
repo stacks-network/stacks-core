@@ -79,6 +79,10 @@ FIELDS = [
     'recipient_address_list'   # principal's address from the scriptPubKey in the transaction
 ]
 
+
+def get_registration_multi_recipients_from_outputs( outputs ):
+    raise Exception("Not yet implemented")
+
 def build(names, update_hashes, testset=False):
     """
     Takes in the name that was preordered, including the namespace ID (but not the id: scheme)
@@ -119,6 +123,76 @@ def build(names, update_hashes, testset=False):
     hex_script = blockstore_script_to_hex( readable_script )
     packaged_script = add_magic_bytes( hex_script, testset=testset )
     return packaged_script
+ 
+
+def tx_extract( payload, senders, inputs, outputs ):
+    """
+    Extract and return a dict of fields from the underlying blockchain transaction data
+    that are useful to this operation.
+
+    Required:
+    sender:  the script_pubkey (as a hex string) of the principal that sent the name preorder-multi transaction
+    address:  the address from the sender script
+    recipient_list:  the list of script_pubkey strings (as hex strings) of the principals that are meant to receive each name
+    recipient_address:  the addresses from the recipient scripts
+
+    Optional:
+    sender_pubkey_hex: the public key of the sender
+    """
+  
+    sender = None 
+    sender_address = None 
+    sender_pubkey_hex = None
+
+    recipient_list = None
+    recipient_address_list = None 
+
+    try:
+       recipient_list = get_registration_multi_recipients_from_outputs( outputs )
+       assert recipient_list is not None 
+
+       recipient_address_list = []
+       for r in recipient_list:
+          addr = pybitcoin.script_hex_to_address( r )
+          assert addr is not None
+
+          recipient_address_list.append( addr )
+
+       # by construction, the first input comes from the principal
+       # who sent the registration transaction...
+       assert len(senders) > 0
+       assert 'script_pubkey' in senders[0].keys()
+       assert 'addresses' in senders[0].keys()
+
+       sender = str(senders[0]['script_pubkey'])
+       sender_address = str(senders[0]['addresses'][0])
+
+       assert sender is not None 
+       assert sender_address is not None
+
+       if str(senders[0]['script_type']) == 'pubkeyhash':
+          sender_pubkey_hex = get_public_key_hex_from_tx( inputs, sender_address )
+
+    except Exception, e:
+       log.exception(e)
+       raise Exception("Failed to extract")
+
+    parsed_payload = parse( payload )
+    assert parsed_payload is not None
+
+    ret = {
+       "sender": sender,
+       "address": sender_address,
+       "recipient_list": recipient_list,
+       "recipient_address_list": recipient_address_list
+    }
+
+    ret.update( parsed_payload )
+
+    if sender_pubkey_hex is not None:
+        ret['sender_pubkey'] = sender_pubkey_hex
+
+    return ret
 
 
 def make_outputs( data, change_inputs, register_addrs, change_addr, pay_fee=True, format='bin' ):
@@ -157,7 +231,7 @@ def make_outputs( data, change_inputs, register_addrs, change_addr, pay_fee=True
         outputs[3]['value'] = calculate_change_amount( change_inputs, bill, dust_fee )
 
     return outputs
-    
+  
 
 def broadcast(name_list, private_key, register_addrs, update_hashes, blockchain_client, \
         renewal_fee=None, blockchain_broadcaster=None, tx_only=False, user_public_key=None, subsidy_public_key=None, testset=False):
@@ -330,4 +404,52 @@ def get_fees( inputs, outputs ):
         dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
     
     return (dust_fee, op_fee)
+   
+
+def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=False ):
+    """
+    Find the fields in a name record that were changed by an instance of this operation, at the 
+    given (block_number, history_index) point in time in the past.  The history_index is the
+    index into the list of changes for this name record in the given block.
+
+    Return the fields that were modified on success.
+    Return None on error.
+    """
+
+    from ..nameset import BlockstoreDB
     
+    name_rec_script = build( str(name_rec['names']), testset=testset )
+    name_rec_payload = unhexlify( name_rec_script )[3:]
+    ret_op = parse( name_rec_payload )
+
+    recipients = []
+    recipient_addrs = []
+
+    # go find the two names we registered...
+    untrusted_name_recs = []
+    for name in name_rec['names']:
+
+        untrusted_name_rec = untrusted_db.get_name( str(name) )
+        recipients.append( str(name_rec['sender']) )
+        recipient_addrs.append( str(name_rec['address']) )
+
+        # find this name's sender and address
+        name_rec['history'] = untrusted_name_rec['history']
+
+        if history_index > 0:
+            name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number )[ history_index - 1 ]
+        else:
+            name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number - 1 )[ history_index - 1 ]
+
+        sender = name_rec_prev['sender']
+        address = name_rec_prev['address']
+
+        ret_op['sender'] = sender
+        ret_op['address'] = address
+
+        del name_rec['history']
+
+    name_rec['recipient_list'] = recipients 
+    name_rec['recipient_address_list'] = recipient_addrs
+
+    return ret_op
