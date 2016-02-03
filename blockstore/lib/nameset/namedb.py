@@ -75,7 +75,12 @@ class BlockstoreDB( virtualchain.StateEngine ):
       """
       log.debug("Initialize database from '%s'" % db_filename)
 
+      # make this usable if virtualchain hasn't been configured yet
+      # (i.e. if we're importing this class directly)
       import virtualchain_hooks
+      blockstore_impl = virtualchain.get_implementation()
+      if blockstore_impl is None:
+          blockstore_impl = virtualchain_hooks
       
       if not os.environ.has_key("BLOCKSTORE_TESTSET") or os.environ["BLOCKSTORE_TESTSET"] != "1":
           initial_snapshots = GENESIS_SNAPSHOT
@@ -84,9 +89,9 @@ class BlockstoreDB( virtualchain.StateEngine ):
           initial_snapshots = GENESIS_SNAPSHOT_TESTSET
           magic_Bytes = MAGIC_BYTES_TESTSET
 
-      super( BlockstoreDB, self ).__init__( magic_bytes, OPCODES, BlockstoreDB.make_opfields(), impl=virtualchain_hooks, initial_snapshots=initial_snapshots, state=self )
+      super( BlockstoreDB, self ).__init__( magic_bytes, OPCODES, BlockstoreDB.make_opfields(), impl=blockstore_impl, initial_snapshots=initial_snapshots, state=self )
 
-      blockstore_opts = default_blockstore_opts( virtualchain.get_config_filename(impl=virtualchain_hooks) )
+      blockstore_opts = default_blockstore_opts( virtualchain.get_config_filename(impl=blockstore_impl) )
 
       self.announce_ids = blockstore_opts['announcers'].split(",")
 
@@ -336,6 +341,13 @@ class BlockstoreDB( virtualchain.StateEngine ):
       for block_number_str in block_number_strs:
           history_rec = history[block_number_str]
           del history[block_number_str]
+          
+          # force integers when appropriate 
+          for k in ['vtxindex']:
+              for i in xrange(0, len(history_rec)):
+                  if k in history_rec[i].keys():
+                      history_rec[i][k] = int(history_rec[i][k])
+
           history[int(block_number_str)] = history_rec
 
       return history
@@ -540,10 +552,11 @@ class BlockstoreDB( virtualchain.StateEngine ):
       return ret
 
 
-   def get_all_nameops_at( self, block_id ):
+   def get_all_records_at( self, block_id ):
       """
-      Given a block number, get the set of sequences name operations
-      created or altered at that block number.
+      Given a block number, get the sequence of records that were
+      created or altered at that block number.  Restore them to
+      they way they were at the block number.
 
       Return the list of names, in the order their transactions occurred.
       """
@@ -552,6 +565,10 @@ class BlockstoreDB( virtualchain.StateEngine ):
 
       # all name records
       for (name, name_rec) in self.name_records.items():
+          if 'block_number' not in name_rec.keys():
+              log.error("BUG: name record '%s' has no 'block number'\n%s\n" % (name, json.dumps(name_rec, indent=4)))
+              raise Exception("BUG: name record '%s' has no 'block number'\n%s\n" % (name, json.dumps(name_rec, indent=4)))
+
           if block_id < name_rec['block_number'] or block_id not in (name_rec['history'].keys() + [name_rec['block_number']]):
               # neither created nor altered at this block
               continue
