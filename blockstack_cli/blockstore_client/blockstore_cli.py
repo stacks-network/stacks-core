@@ -711,7 +711,7 @@ def run_cli():
     blockstore_server = conf['server']
     blockstore_port = conf['port']
 
-    proxy = client.session(conf=conf, server_host=blockstore_server, server_port=blockstore_port )
+    proxy = client.session(conf=conf, server_host=blockstore_server, server_port=blockstore_port)
 
     if args.action == 'server':
         data = {}
@@ -755,16 +755,25 @@ def run_cli():
 
     elif args.action == 'status':
         resp = client.getinfo()
-        result = {}
-        result['server'] = conf['server'] + ':' + str(conf['port'])
-        result['server_version'] = resp['blockstore_version']
-        result['cli_version'] = config.VERSION
-        result['last_block_processed'] = resp['last_block']
-        result['last_block_seen'] = resp['bitcoind_blocks']
-        result['consensus_hash'] = resp['consensus']
 
-        if advanced_mode == 'on':
-            result['testset'] = resp['testset']
+        result = {}
+
+        if 'error' in resp:
+            result['error'] = resp['error']
+        else:
+
+            result['server'] = conf['server'] + ':' + str(conf['port'])
+            result['server_version'] = resp['blockstore_version']
+            result['cli_version'] = config.VERSION
+            try:
+              result['last_block_processed'] = resp['last_block']
+            except:
+              result['last_block_processed'] = resp['blocks']
+            result['last_block_seen'] = resp['bitcoind_blocks']
+            result['consensus_hash'] = resp['consensus']
+
+            if advanced_mode == 'on':
+                result['testset'] = resp['testset']
 
     elif args.action == 'ping':
         result = client.ping()
