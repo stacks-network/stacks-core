@@ -1,9 +1,8 @@
-Twisted==15.5.0
 base58==0.2.2
 basicrpc==0.0.2
-bitcoin==1.1.39
+bitcoin==1.1.42
 bitmerchant==0.1.8
-boto==2.39.0
+boto==2.38.0
 cachetools==1.1.5
 commontools==0.1.0
 ecdsa==0.13
@@ -13,6 +12,9 @@ pybitcoin==0.9.8
 pybitcointools==1.1.15
 python-bitcoinrpc==0.1
 requests==2.9.1
+six==1.10.0
+Twisted==15.5.0
 txJSON-RPC==0.3.1
 utilitybelt==0.2.6
-virtualchain==0.0.8
+virtualchain==0.0.6
+zope.interface==4.1.3
