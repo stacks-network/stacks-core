@@ -25,6 +25,7 @@ This file is part of Registrar.
 
 import os
 import json
+import traceback
 
 from keychain import PrivateKeychain
 
@@ -299,6 +300,11 @@ def send_multi_payment(payment_privkey, list_of_addresses, payment_per_address):
         privkey_list.append(payment_privkey)
         pubkey_list.append(get_pubkey_from_privkey(payment_privkey))
 
+    print inputs
+    print outputs
+    print privkey_list
+    print pubkey_list
+
     tx_signatures = make_tx_signatures(txs_to_sign=unsigned_tx['tosign'],
                                        privkey_list=privkey_list,
                                        pubkey_list=pubkey_list)
@@ -343,8 +349,13 @@ def refill_wallet(count=DEFAULT_CHILD_ADDRESSES, offset=0,
     underfunded_addresses = get_underfunded_addresses(list_of_addresses)
 
     if live:
-        tx_hash = send_multi_payment(HD_WALLET_PRIVKEY, underfunded_addresses, payment)
-        log.debug("Sent: %s" % tx_hash)
+
+        try:
+            tx_hash = send_multi_payment(str(HD_WALLET_PRIVKEY), underfunded_addresses, payment)
+        except:
+            log.debug(traceback.print_exc())
+        else:
+            log.debug("Sent: %s" % tx_hash)
 
     display_wallet_info(underfunded_addresses)
 
