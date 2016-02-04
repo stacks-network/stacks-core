@@ -20,10 +20,10 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'boto>=2.38.0',
-        'basicrpc>=0.0.2',
-        'virtualchain>=0.0.8',
-        'protocoin>=0.1'
+        'boto==2.38.0',
+        'basicrpc==0.0.2',
+        'virtualchain==0.0.6',
+        'protocoin==0.1'
     ],
     classifiers=[
         'Intended Audience :: Developers',
