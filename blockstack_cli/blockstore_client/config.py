@@ -317,8 +317,9 @@ def get_config(path=CONFIG_PATH):
             config['advanced_mode'] = parser.get("blockstore-client", "advanced_mode")
 
     # import bitcoind options
-    bitcoind_config = virtualchain.get_bitcoind_config(path)
-    config.update(bitcoind_config)
+    # commenting out because of virtualchain==0.0.6 config bug
+    #bitcoind_config = virtualchain.get_bitcoind_config(path)
+    #config.update(bitcoind_config)
 
     if not os.path.isdir(config['metadata']):
         if config['metadata'].startswith(os.path.expanduser("~/.blockstore-client")):
