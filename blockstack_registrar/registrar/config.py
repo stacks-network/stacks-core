@@ -84,7 +84,7 @@ MINIMUM_LENGTH_NAME = 6
 MAXIMUM_NAMES_PER_ADDRESS = 20
 MAX_DHT_WRITE = (8 * 1024) - 1
 
-RATE_LIMIT = 10   # target tx per block
+RATE_LIMIT = 100   # target tx per block
 SLEEP_INTERVAL = 20  # in seconds
 RETRY_INTERVAL = 10  # if a tx is not picked up by x blocks
 
