@@ -157,10 +157,11 @@ def run_cli(command, argv=None):
                     pass
 
                 display_only = False
+                print "got here"
                 refill_wallet(count=count, offset=offset, live=live)
 
         except Exception as e:
-            log.debug(e)
+            pass
 
         if display_only:
             active_addresses = wallet.get_child_keypairs(count=count, offset=offset)
@@ -169,7 +170,7 @@ def run_cli(command, argv=None):
     elif command == "test":
 
         # commands for testing go here
-        webapp_data.display_current_states()
+        webapp_data.update_users()
 
     elif command == "reprocess":
 
@@ -199,9 +200,9 @@ def run_loop():
             current_block = get_block_height()
         else:
             # empty queues in reverse
+            run_cli('register')
             run_cli('transfer')
             run_cli('update')
-            run_cli('register')
             run_cli('preorder')
 
             last_block = current_block
