@@ -1076,7 +1076,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         prior_records = db.get_all_records_at( block_id )
         ret = []
         for rec in prior_records:
-            restored_rec = rec_restore_consensus_fields( rec, block_id )
+            restored_rec = rec_restore_snv_consensus_fields( rec, block_id )
             ret.append( restored_rec )
 
         return ret
@@ -1096,18 +1096,19 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
         """
         db = get_db_state()
 
-        prior_recs = db.get_all_records_at( block_id )
+        prior_recs = db.get_all_records_at( block_id, include_history=True )
         if prior_recs is None:
             prior_recs = []
 
         restored_recs = []
         for rec in prior_recs:
-            restored_rec = rec_restore_consensus_fields( rec, block_id )
+            restored_rec = rec_restore_snv_consensus_fields( rec, block_id )
             restored_recs.append( restored_rec )
 
         # NOTE: extracts only the operation-given fields, and ignores ancilliary record fields
         serialized_ops = [ virtualchain.StateEngine.serialize_op( str(op['op'][0]), op, BlockstoreDB.make_opfields(), verbose=False ) for op in restored_recs ]
         ops_hash = virtualchain.StateEngine.make_ops_snapshot( serialized_ops )
+
         return ops_hash
 
 
@@ -1983,8 +1984,10 @@ def run_server( testset=False, foreground=False ):
             sys.exit(status)
     
     # correctly die on fatal signals
+    """
     for sig in [signal.SIGINT, signal.SIGQUIT, signal.SIGTERM]:
         signal.signal( sig, die_handler_server )
+    """
 
     # put supervisor pid file
     put_pidfile( pid_file, os.getpid() )
@@ -2194,7 +2197,7 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
     return merged_ret_op
 
 
-def rec_restore_consensus_fields( name_rec, block_id ):
+def rec_restore_snv_consensus_fields( name_rec, block_id ):
     """
     Given a name record at a given point in time, ensure
     that all of its consensus fields are present.
@@ -2206,7 +2209,7 @@ def rec_restore_consensus_fields( name_rec, block_id ):
     ret_op = {}
     db = get_db_state()
 
-    ret_op = op_consensus_extra( opcode_name, name_rec, block_id, db )
+    ret_op = op_snv_consensus_extra( opcode_name, name_rec, block_id, db )
     if ret_op is None:
         raise Exception("Failed to derive extra consensus fields for '%s'" % opcode_name)
     
@@ -2495,16 +2498,6 @@ def run_blockstored():
       help='use an alternative working directory')
 
    parser = subparsers.add_parser(
-      'indexer',
-      help='run blockstore indexer worker')
-   parser.add_argument(
-      '--testset', action='store_true',
-      help='required if the daemon is using the testing set of name operations')
-   parser.add_argument(
-      '--working-dir', action='store',
-      help='use an alternative working directory')
-
-   parser = subparsers.add_parser(
       'rebuilddb',
       help='Reconstruct the current database from particular block number by replaying all prior name operations')
    parser.add_argument(
@@ -2589,9 +2582,6 @@ def run_blockstored():
 
    elif args.action == 'clean':
       clean( confirm=(not args.force), testset=args.testset )
-
-   elif args.action == 'indexer':
-      run_indexer( testset=args.testset )
 
    elif args.action == 'rebuilddb':
 
