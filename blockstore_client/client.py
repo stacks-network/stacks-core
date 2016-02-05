@@ -1475,6 +1475,8 @@ def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_co
     if proxy is None:
         proxy = get_default_proxy()
 
+    trusted_serial_number_or_txid_or_consensus_hash = str(trusted_serial_number_or_txid_or_consensus_hash)
+
     bitcoind_proxy = virtualchain.connect_bitcoind(proxy.conf)
     trusted_serial_number = None
     trusted_txid = None
@@ -1539,7 +1541,7 @@ def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_co
             return trusted_block_id
 
     else:
-        return {'error': 'Did not receive a valid txid, consensus hash, or serial number'}
+        return {'error': 'Did not receive a valid txid, consensus hash, or serial number (%s)' % trusted_serial_number_or_txid_or_consensus_hash}
 
     if trusted_block_id < verify_block_id:
         return {'error': 'Trusted block/consensus hash came before the untrusted block/consensus hash'}
