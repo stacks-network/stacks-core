@@ -111,6 +111,8 @@ all_consensus_hashes = {}
 # API call history 
 api_call_history = []
 
+# names we expect will fail SNV 
+snv_fail = []
 
 def log_consensus( **kw ):
     """
@@ -121,6 +123,14 @@ def log_consensus( **kw ):
     block_id = get_current_block( **kw ) 
     ch = get_consensus_at( block_id, **kw )
     all_consensus_hashes[ block_id ] = ch
+
+
+def expect_snv_fail( name ):
+    """
+    Record that this name will not be SNV-lookup-able
+    """
+    global snv_fail
+    snv_fail.append( name )
 
 
 def make_proxy():
@@ -483,6 +493,7 @@ def snv_all_names( state_engine ):
     """
     global all_consensus_hashes 
     global api_call_history
+    global snv_fail
 
     test_proxy = TestAPIProxy()
     blockstore_client.client.set_default_proxy( test_proxy )
@@ -536,6 +547,10 @@ def snv_all_names( state_engine ):
 
             snv_rec = blockstore_client.client.snv_lookup( name, block_id, trusted_consensus_hash, proxy=test_proxy )
             if 'error' in snv_rec:
+                if name in snv_fail:
+                    log.debug("SNV lookup %s failed as expected" % name)
+                    continue 
+
                 print json.dumps(snv_rec, indent=4 )
                 return False 
 
@@ -547,6 +562,10 @@ def snv_all_names( state_engine ):
             if opcode is not None and snv_rec['opcode'] != opcode:
                 print "mismatch opcode"
                 print json.dumps(snv_rec, indent=4 )
+                return False 
+
+            if name in snv_fail:
+                print "looked up name '%s' that was supposed to fail SNV" % name
                 return False 
 
             log.debug("SNV verified %s with (%s,%s) back to (%s,%s)" % (name, trusted_block_id, trusted_consensus_hash, block_id, consensus_hash ))
