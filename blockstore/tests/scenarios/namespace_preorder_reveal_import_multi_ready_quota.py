@@ -136,6 +136,9 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
+    testlib.expect_snv_fail( "foofail.test" )
+    testlib.expect_snv_fail( "barfail.test" )
+
 
 
 def check( state_engine ):
