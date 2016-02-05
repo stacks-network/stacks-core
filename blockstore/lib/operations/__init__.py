@@ -44,7 +44,7 @@ from .preorder_multi import build as build_preorder_multi, \
 from .register import build as build_registration, \
     broadcast as register_name, tx_extract as extract_registration, \
     get_fees as registration_fees, restore_delta as restore_register, \
-    consensus_extras as register_consensus_extras
+    snv_consensus_extras as register_consensus_extras
 from .register_multi import build as build_registration_multi, \
     broadcast as register_name_multi, tx_extract as extract_registration_multi, \
     get_fees as registration_multi_fees, decompose as registration_decompose, \
@@ -53,11 +53,11 @@ from .transfer import build as build_transfer, \
     broadcast as transfer_name, tx_extract as extract_transfer, \
     make_outputs as make_transfer_ouptuts, \
     get_fees as transfer_fees, restore_delta as restore_transfer, \
-    consensus_extras as transfer_consensus_extras
+    snv_consensus_extras as transfer_consensus_extras
 from .update import build as build_update, \
     broadcast as update_name, tx_extract as extract_update, \
     get_fees as update_fees, restore_delta as restore_update, \
-    consensus_extras as update_consensus_extras
+    snv_consensus_extras as update_consensus_extras
 from .revoke import build as build_revoke, \
     broadcast as revoke_name, tx_extract as extract_revoke, \
     get_fees as revoke_fees, restore_delta as restore_revoke
@@ -67,7 +67,7 @@ from .namespacepreorder import build as build_namespace_preorder, \
 from .nameimport import build as build_name_import, \
     broadcast as name_import, tx_extract as extract_name_import, \
     get_fees as name_import_fees, restore_delta as restore_name_import, \
-    consensus_extras as name_import_consensus_extras
+    snv_consensus_extras as name_import_consensus_extras
 from .namespacereveal import build as build_namespace_reveal, \
     broadcast as namespace_reveal, tx_extract as extract_namespace_reveal, \
     get_fees as namespace_reveal_fees, restore_delta as restore_namespace_reveal
@@ -121,7 +121,7 @@ RESTORE_METHODS = {
 
 
 # NOTE: these all have the same signatures 
-CONSENSUS_EXTRA_METHODS = {
+SNV_CONSENSUS_EXTRA_METHODS = {
      "NAME_PREORDER": None,
      "NAME_REGISTRATION": register_consensus_extras,
      "NAME_UPDATE": update_consensus_extras,
@@ -167,24 +167,25 @@ def op_restore_delta( op_name, *args, **kw ):
     return delta 
 
 
-def op_consensus_extra( op_name, *args, **kw ):
+def op_snv_consensus_extra( op_name, *args, **kw ):
     """
     Derive any missing consensus fields from the 
     fields of a name record (since some of them
     are dynamically generated when the operation
     is discovered).  This method is used for
-    calculating prior operations from name records.
+    calculating prior operations from name records
+    for SNV.
 
     Return the extra conesnsus fields on success.
     Return None on error.
     """
 
-    global CONSENSUS_EXTRA_METHODS 
+    global SNV_CONSENSUS_EXTRA_METHODS 
 
-    if op_name not in CONSENSUS_EXTRA_METHODS.keys():
+    if op_name not in SNV_CONSENSUS_EXTRA_METHODS.keys():
         raise Exception("No such operation '%s'" % op_name)
 
-    method = CONSENSUS_EXTRA_METHODS[op_name]
+    method = SNV_CONSENSUS_EXTRA_METHODS[op_name]
     if method is None:
         return {}
 
