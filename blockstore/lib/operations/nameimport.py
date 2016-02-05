@@ -330,7 +330,7 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
     return ret_op
 
 
-def consensus_extras( name_rec, block_id, db ):
+def snv_consensus_extras( name_rec, block_id, db ):
     """
     Given a name record most recently affected by an instance of this operation, 
     find the dict of consensus-affecting fields from the operation that are not
