@@ -370,10 +370,13 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
     untrusted_name_rec = untrusted_db.get_name( str(name_rec['name']) )
     name_rec['history'] = untrusted_name_rec['history']
 
-    # get previous owner
+    # get the previous owner by finding the previous state of the record
+    # (which has the previous owner)
     if history_index > 0:
+        # prior name change in the same block
         name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number )[history_index - 1]
     else:
+        # prior name change in an earlier block
         name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number - 1 )[history_index - 1]
 
     sender = name_rec_prev['sender']
@@ -384,7 +387,7 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
 
     name_rec_script = build( str(name_rec['name']), keep_data, consensus_hash, testset=testset )
     name_rec_payload = unhexlify( name_rec_script )[3:]
-    ret_op = parse(name_rec_payload, recipient )
+    ret_op = parse( name_rec_payload, recipient )
 
     # reconstruct recipient and sender 
     ret_op['recipient'] = recipient 
@@ -397,7 +400,7 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
     return ret_op
 
 
-def consensus_extras( name_rec, block_id, db ):
+def snv_consensus_extras( name_rec, block_id, db ):
     """
     Given a name record most recently affected by an instance of this operation, 
     find the dict of consensus-affecting fields from the operation that are not
@@ -417,8 +420,54 @@ def consensus_extras( name_rec, block_id, db ):
     else:
         keep_data = False
 
+    prev_consensus_hash = None
+
+    if 'history' in name_rec.keys():
+        # get the previous consensus hash.
+        # NOTE: The consensus hash that gets fed into a transfer comes from the last saved consensus hash
+        # in the history that is not a PREORDER, if there is a consensus-bearing command earlier in the history.
+        # Otherwise, it comes from the hash at the previous the block.
+        # This is an artifact from an oversight in the original
+        # design of the system, but we have to adjust to it here to return the right consensus data.
+        # Search the name record's history backwards for that prior consensus hash.
+        for i in xrange(block_id, 0, -1):
+
+            if not name_rec['history'].has_key(i):
+                continue
+
+            for h in xrange(len(name_rec['history'][i])-1, -1, -1):
+
+                # log.debug("consider (%s, %s)" % (i, h))
+
+                hist = name_rec['history'][i][h]
+                if i == block_id and hist.has_key('vtxindex') and hist['vtxindex'] > name_rec['vtxindex']:
+                    # same block, but later update 
+                    # log.debug("skip later (%s, %s)" % (i, h))
+                    continue 
+
+                if not hist.has_key('consensus_hash'):
+                    # log.debug("no consensus hash at (%s, %s)" % (i, h))
+                    continue
+               
+                if hist['opcode'] == "NAME_PREORDER":
+                    # out of history
+                    # log.debug("out of history at (%s, %s)" % (i, h))
+                    break
+                
+                prev_consensus_hash = hist['consensus_hash']
+                break
+
+            if prev_consensus_hash is not None:
+                break
+
     ret_op['keep_data'] = keep_data
-    ret_op['consensus_hash'] = db.get_consensus_at( block_id - 1 )
+
+    if prev_consensus_hash is not None:
+        ret_op['consensus_hash'] = prev_consensus_hash
+    else:
+        # no prior consensus hash that would have been fed into the transfer
+        ret_op['consensus_hash'] = db.get_consensus_at( block_id - 1 )
+
     ret_op['name_hash'] = hash256_trunc128( str(name_rec['name']) )
     return ret_op
 
