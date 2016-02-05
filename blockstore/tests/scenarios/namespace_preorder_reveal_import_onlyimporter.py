@@ -45,6 +45,7 @@ def scenario( wallets, **kw ):
     testlib.blockstore_name_import( "foo.test", wallets[4].addr, "11" * 20, wallets[2].privkey )
     testlib.blockstore_name_import( "bar.test", wallets[2].addr, "22" * 20, wallets[3].privkey )
     testlib.blockstore_name_import( "baz.test", wallets[3].addr, "33" * 20, wallets[4].privkey )
+    
     testlib.next_block( **kw )
    
     # will be accepted 
@@ -54,10 +55,17 @@ def scenario( wallets, **kw ):
     testlib.blockstore_name_import( "foo.test", wallets[4].addr, "11" * 20, wallets[2].privkey )
     testlib.blockstore_name_import( "bar.test", wallets[2].addr, "22" * 20, wallets[3].privkey )
     testlib.blockstore_name_import( "baz.test", wallets[3].addr, "33" * 20, wallets[4].privkey )
+
     testlib.next_block( **kw )
+
     
     testlib.blockstore_namespace_ready( "test", wallets[1].privkey )
     testlib.next_block( **kw )
+    
+    testlib.expect_snv_fail( "foo.test" )
+    testlib.expect_snv_fail( "bar.test" )
+    testlib.expect_snv_fail( "baz.test" )
+
 
 def check( state_engine ):
 
