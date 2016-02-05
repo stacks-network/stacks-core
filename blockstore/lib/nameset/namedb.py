@@ -552,7 +552,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       return ret
 
 
-   def get_all_records_at( self, block_id ):
+   def get_all_records_at( self, block_id, include_history=False ):
       """
       Given a block number, get the sequence of records that were
       created or altered at that block number.  Restore them to
@@ -574,6 +574,11 @@ class BlockstoreDB( virtualchain.StateEngine ):
               continue
 
           recs = BlockstoreDB.restore_from_history( name_rec, block_id )
+
+          if include_history:
+              for r in recs:
+                  r['history'] = copy.deepcopy(name_rec['history'])
+
           ret += recs
 
       # all current preorders
@@ -581,6 +586,10 @@ class BlockstoreDB( virtualchain.StateEngine ):
           if block_id == preorder['block_number']:
 
               rec = self._rec_dup( preorder )
+              
+              if include_history and preorder.has_key('history'):
+                  rec['history'] = copy.deepcopy(preorder['history'])
+
               ret.append( rec )
 
       # all namespaces
@@ -595,6 +604,11 @@ class BlockstoreDB( virtualchain.StateEngine ):
               continue
 
           recs = BlockstoreDB.restore_from_history( namespace, block_id )
+
+          if include_history:
+              for r in recs:
+                  r['history'] = copy.deepcopy(namespace['history'])
+
           ret += recs
 
       # all current namespace preorders
@@ -602,6 +616,10 @@ class BlockstoreDB( virtualchain.StateEngine ):
           if block_id == namespace_preorder['block_number']:
 
               rec = self._rec_dup( namespace_preorder )
+
+              if include_history and namespace_preorder.has_key('history'):
+                  rec['history'] = copy.deepcopy(namespace_preorder['history'])
+
               ret.append( rec )
 
       # all current namespace reveals
@@ -611,6 +629,11 @@ class BlockstoreDB( virtualchain.StateEngine ):
               continue
 
           recs = BlockstoreDB.restore_from_history( namespace_reveal, block_id )
+
+          if include_history:
+              for r in recs:
+                  r['history'] = copy.deepcopy(namespace_reveal['history'])
+
           ret += recs
 
       return sorted( ret, key=lambda n: n['vtxindex'] )
