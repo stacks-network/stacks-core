@@ -238,14 +238,26 @@ def run_scenario( scenario, config_file ):
         return rc
 
     log.info("Scenario checks passed; verifying history")
-    api_server.send_signal( signal.SIGTERM )
-    api_server.wait()
 
     # run database integrity check at each block 
     rc = testlib.check_history( db )
-    if rc:
-        testlib.cleanup()
+    if not rc:
+        api_server.send_signal( signal.SIGTERM )
+        api_server.wait()
+        return rc
 
+    log.info("History check passes!")
+
+    # run snv at each name 
+    rc = testlib.snv_all_names( db )
+    if not rc:
+        api_server.send_signal( signal.SIGTERM )
+        api_server.wait()
+        return rc
+
+    log.info("SNV check passes!")
+    api_server.send_signal( signal.SIGTERM )
+    api_server.wait()
     return rc 
 
 
