@@ -34,6 +34,7 @@ from .db import update_queue, transfer_queue
 
 from .blockchain import get_tx_confirmations
 from .blockchain import dontuseAddress, underfundedAddress
+from .blockchain import recipientNotReady
 
 from .wallet import wallet
 
@@ -68,6 +69,10 @@ def preorder(fqu, payment_address, owner_address):
 
     if alreadyinQueue(preorder_queue, fqu):
         log.debug("Already in preorder queue: %s" % fqu)
+        return False
+
+    if recipientNotReady(owner_address):
+        log.debug("Address %s owns too many names already." % owner_address)
         return False
 
     if dontuseAddress(payment_address):
@@ -259,6 +264,10 @@ def transfer(fqu, transfer_address):
     if ownerName(fqu, transfer_address):
         log.debug("Already transferred %s" % fqu)
         return True
+
+    if recipientNotReady(transfer_address):
+        log.debug("Address %s owns too many names already." % transfer_address)
+        return False
 
     data = get_blockchain_record(fqu)
 
