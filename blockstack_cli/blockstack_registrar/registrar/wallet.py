@@ -47,7 +47,8 @@ from .config import CHAINED_PAYMENT_AMOUNT, MINIMUM_BALANCE
 from .config import DEFAULT_CHILD_ADDRESSES
 from .config import HD_WALLET_PRIVKEY, DEFAULT_REFILL_AMOUNT
 
-from .blockchain import get_balance, dontuseAddress, underfundedAddress
+from .blockchain import get_balance_from_bitcoind, dontuseAddress
+from .blockchain import underfundedAddress
 
 from blockcypher import pushtx
 from blockcypher import create_unsigned_tx, make_tx_signatures
@@ -246,21 +247,24 @@ def get_underfunded_addresses(list_of_addresses):
 
     for address in list_of_addresses:
 
-        balance = get_balance(address)
+        balance = get_balance_from_bitcoind(address)
 
         if balance <= float(MINIMUM_BALANCE):
             log.debug("address %s needs refill: %s"
                       % (address, balance))
 
-            if dontuseAddress(address):
-                log.debug("address %s has pending tx" % address)
-            else:
-                underfunded_addresses.append(address)
+            underfunded_addresses.append(address)
 
     return underfunded_addresses
 
 
 def send_payment(hex_privkey, to_address, btc_amount):
+
+    payment_address = get_address_from_privkey(hex_privkey)
+
+    if dontuseAddress(payment_address):
+        log.debug("Payment address %s not ready" % payment_address)
+        return None
 
     to_satoshis = btc_to_satoshis(btc_amount)
     fee_satoshis = btc_to_satoshis(TX_FEE)
@@ -269,7 +273,7 @@ def send_payment(hex_privkey, to_address, btc_amount):
                                         blockchain_client=blockcypher_client,
                                         fee=fee_satoshis)
 
-    resp = pushtx(tx_hex=signed_tx)
+    resp = pushtx(tx_hex=signed_tx, api_key=BLOCKCYPHER_TOKEN)
 
     if 'tx' in resp:
         return resp['tx']['hash']
@@ -282,6 +286,10 @@ def send_multi_payment(payment_privkey, list_of_addresses, payment_per_address):
 
     payment_address = get_address_from_privkey(payment_privkey)
 
+    if dontuseAddress(payment_address):
+        log.debug("Payment address %s not ready" % payment_address)
+        return None
+
     inputs = [{'address': payment_address}]
     payment_in_satoshis = btc_to_satoshis(float(payment_per_address))
     outputs = []
@@ -289,7 +297,8 @@ def send_multi_payment(payment_privkey, list_of_addresses, payment_per_address):
     for address in list_of_addresses:
         outputs.append({'address': address, 'value': int(payment_in_satoshis)})
 
-    unsigned_tx = create_unsigned_tx(inputs=inputs, outputs=outputs)
+    unsigned_tx = create_unsigned_tx(inputs=inputs, outputs=outputs,
+                                     api_key=BLOCKCYPHER_TOKEN)
 
     # iterate through unsigned_tx['tx']['inputs'] to find each address in order
     # need to include duplicates as many times as they may appear
@@ -300,18 +309,14 @@ def send_multi_payment(payment_privkey, list_of_addresses, payment_per_address):
         privkey_list.append(payment_privkey)
         pubkey_list.append(get_pubkey_from_privkey(payment_privkey))
 
-    print inputs
-    print outputs
-    print privkey_list
-    print pubkey_list
-
     tx_signatures = make_tx_signatures(txs_to_sign=unsigned_tx['tosign'],
                                        privkey_list=privkey_list,
                                        pubkey_list=pubkey_list)
 
     resp = broadcast_signed_transaction(unsigned_tx=unsigned_tx,
                                         signatures=tx_signatures,
-                                        pubkeys=pubkey_list)
+                                        pubkeys=pubkey_list,
+                                        api_key=BLOCKCYPHER_TOKEN)
 
     if 'tx' in resp:
         return resp['tx']['hash']
@@ -329,7 +334,7 @@ def display_wallet_info(list_of_addresses):
 
     for address in addresses:
         has_pending_tx = dontuseAddress(address)
-        balance_on_address = get_balance(address)
+        balance_on_address = get_balance_from_bitcoind(address)
         log.debug("(%s, balance %s,\t pending %s)" % (address,
                                                       balance_on_address,
                                                       has_pending_tx))

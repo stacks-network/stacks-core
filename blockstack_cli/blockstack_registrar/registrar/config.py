@@ -89,9 +89,9 @@ SLEEP_INTERVAL = 20  # in seconds
 RETRY_INTERVAL = 10  # if a tx is not picked up by x blocks
 
 PREORDER_CONFIRMATIONS = 6
-PREORDER_REJECTED = 120  # no. of blocks after which preorder should be removed
+PREORDER_REJECTED = 130  # no. of blocks after which preorder should be removed
 TX_CONFIRMATIONS_NEEDED = 10
-MAX_TX_CONFIRMATIONS = 150
+MAX_TX_CONFIRMATIONS = 130
 
 DEFAULT_CHILD_ADDRESSES = RATE_LIMIT
 QUEUE_LENGTH_TO_MONITOR = 50
