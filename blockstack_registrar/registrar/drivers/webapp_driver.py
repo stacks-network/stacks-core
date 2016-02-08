@@ -245,6 +245,17 @@ class WebappDriver(object):
         user['username'] = new_username
         self.users.save(user)
 
+    def release_username(self, username, new_owner):
+
+        user = self.users.find_one({"username": new_owner})
+
+        fqu = username + "." + DEFAULT_NAMESPACE
+        transfer_address = nmc_to_btc_address(user['namecoin_address'])
+        profile = user['profile']
+
+        self.registrar_server.release_username(fqu, profile,
+                                               transfer_address)
+
     def change_email(self, current_email, new_email):
 
         user = self.users.find_one({"email": current_email})

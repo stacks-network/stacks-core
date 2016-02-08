@@ -221,3 +221,18 @@ class RegistrarServer(object):
                 write_dht_profile(profile)
 
             return False  # because not a blockchain operation
+        
+    def release_username(self, fqu, profile, transfer_address):
+
+        from registrar.db import registrar_users
+        from registrar.crypto.utils import get_address_from_privkey
+        from registrar.crypto.utils import aes_decrypt
+        from registrar.config import SECRET_KEY
+
+        entry = registrar_users.find_one({"username": fqu.rstrip(".id")})
+
+        hex_privkey = aes_decrypt(entry['encrypted_privkey'], SECRET_KEY)
+
+        self.subsidized_nameop(fqu, profile, hex_privkey, nameop='update')
+        #else:
+        #    self.subsidized_nameop
