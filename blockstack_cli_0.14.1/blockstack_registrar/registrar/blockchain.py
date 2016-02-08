@@ -205,22 +205,31 @@ def get_balance(address):
     return btc_amount
 
 
-def dontuseAddress(address):
-    """ Check if an address should not be used because of:
-        a) it has unconfirmed TX
-        b) it has more than maximum registered names (blockstore restriction)
+def recipientNotReady(address):
+    """
+        Check if address can own more names or not
     """
 
     resp = bs_client.get_names_owned_by_address(address)
     names_owned = resp
 
     if len(names_owned) > MAXIMUM_NAMES_PER_ADDRESS:
-        log.debug("Address %s owns too many names already." % address)
         return True
 
+    # if tests pass, then can use the address
+    return False
+
+
+def dontuseAddress(address):
+    """ Check if an address should not be used because of:
+        a) it has unconfirmed TX
+        b) it has more than maximum registered names (blockstore restriction)
+    """
+
     try:
-        data = get_address_details(address)
-    except:
+        data = get_address_details(address, api_key=BLOCKCYPHER_TOKEN)
+    except Exception as e:
+        log.debug(e)
         return True
 
     try:
