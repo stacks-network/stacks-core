@@ -46,10 +46,12 @@ from registrar.network import get_dht_profile
 from registrar.network import get_bs_client, get_dht_client
 
 from registrar.utils import satoshis_to_btc
-from registrar.blockchain import get_tx_confirmations
-from registrar.crypto.utils import get_address_from_privkey
+from registrar.blockchain import get_tx_confirmations, recipientNotReady
 
-from registrar.config import BLOCKCYPHER_TOKEN
+from registrar.crypto.utils import get_address_from_privkey
+from registrar.wallet import wallet
+
+from registrar.config import BLOCKCYPHER_TOKEN, RATE_LIMIT
 
 test_users = ['muneeb.id', 'fredwilson.id']
 test_tx_hash = '30c2ccd9141dc21fcf9a6da508e528bc88a952efb7a1053821195f5d7db46587'
@@ -138,6 +140,17 @@ class RegistrarTestCase(unittest.TestCase):
         confirmations = get_tx_confirmations(test_tx_hash)
 
         self.assertGreater(confirmations, 10, msg="Error getting tx confirmations")
+
+    def test_max_names_owned(self):
+        """ Check if registrar wallet addresses own more than 20 names 
+            This is a limit imposed by blockstore
+        """
+
+        list_of_addresses = wallet.get_child_keypairs(count=RATE_LIMIT)
+
+        for address in list_of_addresses:
+            resp = recipientNotReady(address)
+            self.assertFalse(resp, msg="Address %s owns too many names" % address)
 
 
 class WebappTestCase(unittest.TestCase):
