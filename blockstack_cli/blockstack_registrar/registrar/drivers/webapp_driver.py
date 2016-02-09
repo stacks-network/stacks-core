@@ -108,7 +108,7 @@ class WebappDriver(object):
 
             user = get_db_user_from_id(new_user, self.users)
 
-            if not self.validUser(user):
+            if not self.validUser(user, new_user):
                 continue
 
             fqu = user['username'] + "." + DEFAULT_NAMESPACE
@@ -130,7 +130,7 @@ class WebappDriver(object):
                 except Exception as e:
                     log.debug(e)
 
-    def validUser(self, user):
+    def validUser(self, user, new_user):
         """
             Check if the given @user should be processed or ignored
 
@@ -139,7 +139,7 @@ class WebappDriver(object):
 
         if user is None:
             log.debug("No such user, need to remove: %s" % new_user['_id'])
-            #self.registrations.remove({'_id': new_user['_id']})
+            #self.registrations.remove({'_id': user['_id']})
             return False
 
         # for spam protection
@@ -270,7 +270,6 @@ class WebappDriver(object):
     def display_userinfo(self, username):
 
         user = self.users.find_one({"username": username})
-
         pprint(user)
 
     def display_current_states(self):
@@ -287,7 +286,7 @@ class WebappDriver(object):
 
             user = get_db_user_from_id(new_user, self.users)
 
-            if not self.validUser(user):
+            if not self.validUser(user, new_user):
                 continue
 
             fqu = user['username'] + "." + DEFAULT_NAMESPACE
