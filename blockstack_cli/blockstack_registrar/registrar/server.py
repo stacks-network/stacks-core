@@ -44,7 +44,7 @@ from .db import preorder_queue
 from .queue import alreadyinQueue
 
 from .wallet import wallet
-from .blockchain import dontuseAddress, underfundedAddress
+from .blockchain import dontuseAddress, underfundedAddress, recipientNotReady
 
 log = config_log(__name__)
 
@@ -88,6 +88,7 @@ class RegistrarServer(object):
             return None, None
 
         payment_address = self.payment_addresses[self.index]
+        owner_address = self.owner_addresses[self.index]
 
         # log.debug("Getting new payment address")
         counter = 0
@@ -97,17 +98,21 @@ class RegistrarServer(object):
 
             if dontuseAddress(payment_address):
                 self.increment_index()
-                payment_address = self.payment_addresses[self.index]
+
+            elif dontuseAddress(owner_address):
+                self.increment_index()
 
             elif underfundedAddress(payment_address):
                 log.debug("Underfunded address: %s" % payment_address)
                 self.increment_index()
-                payment_address = self.payment_addresses[self.index]
 
             elif(payment_address in self.ignore_addresses):
                 log.debug("Ignoring address: %s" % payment_address)
                 self.increment_index()
-                payment_address = self.payment_addresses[self.index]
+
+            elif(recipientNotReady(owner_address)):
+                log.debug("Owner address owns too many names: %s" % owner_address)
+                self.increment_index()
             else:
                 break
 
@@ -118,7 +123,8 @@ class RegistrarServer(object):
                 self.all_addresses_in_use = True
                 return None, None
 
-        owner_address = self.owner_addresses[self.index]
+            payment_address = self.payment_addresses[self.index]
+            owner_address = self.owner_addresses[self.index]
 
         return payment_address, owner_address
 
@@ -221,7 +227,7 @@ class RegistrarServer(object):
                 write_dht_profile(profile)
 
             return False  # because not a blockchain operation
-        
+
     def release_username(self, fqu, profile, transfer_address):
 
         from registrar.db import registrar_users
