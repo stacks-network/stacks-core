@@ -33,8 +33,6 @@ from basicrpc import Proxy
 
 from proofchecker import profile_to_proofs
 
-from blockstore_client import client as bs_client
-
 from .crossdomain import crossdomain
 
 from .config import DEBUG
@@ -60,9 +58,6 @@ if DEBUG:
     log.setLevel(level=logging.DEBUG)
 else:
     log.setLevel(level=logging.INFO)
-
-# start session using blockstore_client
-bs_client.session(server_host=BLOCKSTORED_IP, server_port=BLOCKSTORED_PORT)
 
 
 def validName(name):
@@ -190,6 +185,7 @@ def get_all_users(namespace, refresh=False):
         batch_size = 20000  # usernames per call
 
         try:
+            bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
             resp = bs_client.get_names_in_namespace(namespace, offset, batch_size)
             received_users = resp['results']
 
