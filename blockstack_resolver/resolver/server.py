@@ -154,12 +154,12 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
 
             data = format_profile(profile, username)
             data['owner_address'] = blockstore_resp['address']
-            print blockstore_resp['address']
 
             if MEMCACHED_ENABLED or refresh:
+
                 log.debug("Memcache set: %s" % username)
                 mc.set("profile_" + str(username), json.dumps(data),
-                       int(time() + MEMCACHED_TIMEOUT))
+                        int(time() + MEMCACHED_TIMEOUT))
         else:
             data = {"error": "Not found"}
     else:
