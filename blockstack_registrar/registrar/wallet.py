@@ -47,7 +47,7 @@ from .config import CHAINED_PAYMENT_AMOUNT, MINIMUM_BALANCE
 from .config import DEFAULT_CHILD_ADDRESSES
 from .config import HD_WALLET_PRIVKEY, DEFAULT_REFILL_AMOUNT
 
-from .blockchain import get_balance_from_bitcoind, dontuseAddress
+from .blockchain import get_balance, dontuseAddress
 from .blockchain import underfundedAddress
 
 from blockcypher import pushtx
@@ -247,7 +247,7 @@ def get_underfunded_addresses(list_of_addresses):
 
     for address in list_of_addresses:
 
-        balance = get_balance_from_bitcoind(address)
+        balance = get_balance(address)
 
         if balance <= float(MINIMUM_BALANCE):
             log.debug("address %s needs refill: %s"
@@ -315,8 +315,7 @@ def send_multi_payment(payment_privkey, list_of_addresses, payment_per_address):
 
     resp = broadcast_signed_transaction(unsigned_tx=unsigned_tx,
                                         signatures=tx_signatures,
-                                        pubkeys=pubkey_list,
-                                        api_key=BLOCKCYPHER_TOKEN)
+                                        pubkeys=pubkey_list)
 
     if 'tx' in resp:
         return resp['tx']['hash']
@@ -334,7 +333,7 @@ def display_wallet_info(list_of_addresses):
 
     for address in addresses:
         has_pending_tx = dontuseAddress(address)
-        balance_on_address = get_balance_from_bitcoind(address)
+        balance_on_address = get_balance(address)
         log.debug("(%s, balance %s,\t pending %s)" % (address,
                                                       balance_on_address,
                                                       has_pending_tx))
