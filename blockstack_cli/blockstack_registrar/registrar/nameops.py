@@ -270,7 +270,6 @@ def transfer(fqu, transfer_address):
         return False
 
     data = get_blockchain_record(fqu)
-
     owner_address = data['address']
     owner_privkey = wallet.get_privkey_from_address(owner_address)
 

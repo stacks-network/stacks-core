@@ -25,6 +25,8 @@ This file is part of Registrar.
 
 import os
 import sys
+import traceback
+
 from pymongo import MongoClient
 
 # hack around absolute paths
@@ -127,8 +129,8 @@ class WebappDriver(object):
                     self.registrar_server.process_nameop(fqu, profile,
                                                          transfer_address,
                                                          nameop=nameop)
-                except Exception as e:
-                    log.debug(e)
+                except:
+                    log.debug(traceback.print_exc())
 
     def validUser(self, user, new_user):
         """
