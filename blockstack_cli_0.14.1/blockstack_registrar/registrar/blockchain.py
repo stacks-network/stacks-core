@@ -170,13 +170,29 @@ def get_balance_from_unspents(address):
     return btc_amount
 
 
-def get_balance_from_bitcoind(address):
-    """ Check if BTC key being used has enough balance on unspents
+def get_utxos(address):
+    """ Given an address get unspent outputs (UTXOs)
+
+        Return array of UTXOs, empty array if none available
     """
 
     bitcoind_client = get_utxo_client()
 
-    data = bitcoind_client.get_unspents(address)
+    data = []
+
+    try:
+        data = bitcoind_client.get_unspents(address)
+    except Exception as e:
+        log.debug("Error in getting UTXOs from bitcoind: %s" % e)
+
+    return data
+
+
+def get_balance(address):
+    """ Check if BTC key being used has enough balance on unspents
+    """
+
+    data = get_utxos(address)
 
     satoshi_amount = 0
 
@@ -191,7 +207,7 @@ def get_balance_from_bitcoind(address):
     return btc_amount
 
 
-def get_balance(address):
+def get_balance_from_blockcypher(address):
     """ Check if BTC key being used has enough balance on unspents
     """
     data = get_address_details(address, api_key=BLOCKCYPHER_TOKEN)
@@ -227,18 +243,16 @@ def dontuseAddress(address):
     """
 
     try:
-        data = get_address_details(address, api_key=BLOCKCYPHER_TOKEN)
+        unspents = get_utxos(address)
     except Exception as e:
         log.debug(e)
         return True
 
-    try:
-        unconfirmed_n_tx = data['unconfirmed_n_tx']
-    except:
-        return True
+    for unspent in unspents:
 
-    if int(unconfirmed_n_tx) != 0:
-        return True
+        if 'confirmations' in unspent:
+            if int(unspent['confirmations']) == 0:
+                return True
 
     # if all tests pass, then can use the address
     return False
