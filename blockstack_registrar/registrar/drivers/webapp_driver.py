@@ -118,7 +118,6 @@ class WebappDriver(object):
             profile = user['profile']
 
             log.debug("Processing: %s" % fqu)
-            continue
 
             if registrationComplete(fqu, profile, transfer_address):
                 log.debug("Registration complete %s. Removing." % fqu)
