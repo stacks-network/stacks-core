@@ -26,7 +26,7 @@ This file is part of Registrar.
 import sys
 
 from .nameops import preorder, register, update, transfer
-from .subsidized_nameops import subsidized_update
+from .subsidized_nameops import subsidized_update, subsidized_transfer
 
 from .states import nameRegistered
 from .states import profileonBlockchain, profileonDHT
@@ -201,7 +201,9 @@ class RegistrarServer(object):
         #log.debug("Nameop didn't meet any conditions")
         return False  # no blockchain tx was sent
 
-    def subsidized_nameop(self, fqu, profile, hex_privkey, nameop=None):
+    def process_subsidized_nameop(self, fqu, owner_privkey,
+                                  profile=None, transfer_address=None,
+                                  nameop=None):
 
         if not profileonBlockchain(fqu, profile):
 
@@ -214,8 +216,8 @@ class RegistrarServer(object):
                     if payment_address is None:
                         return False
 
-                    return subsidized_update(fqu, profile, hex_privkey,
-                                             payment_address)
+                    return subsidized_update(fqu, profile,
+                                             owner_privkey, payment_address)
                 else:
                     log.debug("In DHT IGNORE list: %s" % fqu)
 
@@ -228,6 +230,20 @@ class RegistrarServer(object):
 
             return False  # because not a blockchain operation
 
+        elif not ownerName(fqu, transfer_address):
+            #log.debug("Not transferred: %s" % fqu)
+
+            if nameop is None or nameop == 'transfer':
+                log.debug("Transferring name: %s" % fqu)
+
+                payment_address, other_address = self.get_next_addresses()
+
+                if payment_address is None:
+                    return False
+
+                return subsidized_transfer(fqu, transfer_address,
+                                           owner_privkey, payment_address)
+
     def release_username(self, fqu, profile, transfer_address):
 
         from registrar.db import registrar_users
@@ -237,8 +253,8 @@ class RegistrarServer(object):
 
         entry = registrar_users.find_one({"username": fqu.rstrip(".id")})
 
-        hex_privkey = aes_decrypt(entry['encrypted_privkey'], SECRET_KEY)
+        owner_privkey = aes_decrypt(entry['encrypted_privkey'], SECRET_KEY)
 
-        self.subsidized_nameop(fqu, profile, hex_privkey, nameop='update')
-        #else:
-        #    self.subsidized_nameop
+        self.process_subsidized_nameop(fqu, owner_privkey,
+                                       profile=profile,
+                                       transfer_address=transfer_address)
