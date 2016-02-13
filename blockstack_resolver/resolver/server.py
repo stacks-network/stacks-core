@@ -27,6 +27,9 @@ import re
 import pylibmc
 import logging
 
+import requests
+requests.packages.urllib3.disable_warnings()
+
 from flask import Flask, make_response, jsonify, abort, request
 from time import time
 from basicrpc import Proxy
@@ -46,11 +49,6 @@ from .config import DEFAULT_NAMESPACE
 
 app = Flask(__name__)
 
-mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
-                    username=MEMCACHED_USERNAME, password=MEMCACHED_PASSWORD,
-                    behaviors={"no_block": True,
-                               "connect_timeout": 500})
-
 logging.basicConfig()
 log = logging.getLogger('resolver')
 
@@ -59,6 +57,16 @@ if DEBUG:
 else:
     log.setLevel(level=logging.INFO)
 
+
+def get_mc_client():
+    mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
+                    username=MEMCACHED_USERNAME, password=MEMCACHED_PASSWORD,
+                    behaviors={"no_block": True,
+                               "connect_timeout": 200})
+
+    return mc
+
+mc = get_mc_client()
 
 def validName(name):
     """ Return True if valid name
@@ -122,21 +130,21 @@ def format_profile(profile, username):
 def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
 
     global MEMCACHED_ENABLED
-
-    if refresh:
-        log.debug("Forcing refresh: %s" % username)
-        # refresh is on, turning off memcache
-        MEMCACHED_ENABLED = False
+    global mc
 
     username = username.lower()
 
-    if MEMCACHED_ENABLED:
+    if MEMCACHED_ENABLED and not refresh:
         log.debug("Memcache get: %s" % username)
         cache_reply = mc.get("profile_" + str(username))
     else:
+        log.debug("Memcache disabled: %s" % username)
         cache_reply = None
 
     if cache_reply is None:
+
+	# reload connection to mc, in case that was the problem
+        #mc = get_mc_client()
 
         try:
             blockstore_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
@@ -156,7 +164,6 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
             data['owner_address'] = blockstore_resp['address']
 
             if MEMCACHED_ENABLED or refresh:
-
                 log.debug("Memcache set: %s" % username)
                 mc.set("profile_" + str(username), json.dumps(data),
                         int(time() + MEMCACHED_TIMEOUT))
@@ -171,11 +178,7 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
 def get_all_users(namespace, refresh=False):
 
     global MEMCACHED_ENABLED
-
-    if refresh:
-        log.debug("Forcing refresh: %s" % namespace)
-        # refresh is on, turning off memcache
-        MEMCACHED_ENABLED = False
+    global mc
 
     all_users = []
 
@@ -194,13 +197,15 @@ def get_all_users(namespace, refresh=False):
 
         return received_users
 
-    if MEMCACHED_ENABLED:
+    if MEMCACHED_ENABLED and not refresh:
         log.debug("Memcache get all_users: %s" % namespace)
         cache_reply = mc.get("all_users_" + str(namespace))
     else:
         cache_reply = None
 
     if cache_reply is None:
+
+        #mc = get_mc_client()
 
         offset = 0
 
