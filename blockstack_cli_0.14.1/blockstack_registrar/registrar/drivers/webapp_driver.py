@@ -118,6 +118,7 @@ class WebappDriver(object):
             profile = user['profile']
 
             log.debug("Processing: %s" % fqu)
+            continue
 
             if registrationComplete(fqu, profile, transfer_address):
                 log.debug("Registration complete %s. Removing." % fqu)
@@ -141,7 +142,7 @@ class WebappDriver(object):
 
         if user is None:
             log.debug("No such user, need to remove: %s" % new_user['_id'])
-            #self.registrations.remove({'_id': user['_id']})
+            #self.registrations.remove({'_id': new_user['_id']})
             return False
 
         # for spam protection
@@ -241,12 +242,6 @@ class WebappDriver(object):
                                              transfer_address,
                                              nameop=nameop)
 
-    def rename_user(self, username, new_username):
-
-        user = self.users.find_one({"username": username})
-        user['username'] = new_username
-        self.users.save(user)
-
     def release_username(self, username, new_owner):
 
         user = self.users.find_one({"username": new_owner})
@@ -257,6 +252,12 @@ class WebappDriver(object):
 
         self.registrar_server.release_username(fqu, profile,
                                                transfer_address)
+
+    def change_username(self, username, new_username):
+
+        user = self.users.find_one({"username": username})
+        user['username'] = new_username
+        self.users.save(user)
 
     def change_email(self, current_email, new_email):
 
@@ -269,10 +270,17 @@ class WebappDriver(object):
         log.debug("Pending registrations: %s" % self.registrations.find().count())
         log.debug("Pending updates: %s" % self.updates.find().count())
 
-    def display_userinfo(self, username):
+    def display_userinfo(self, username=None, email=None):
 
-        user = self.users.find_one({"username": username})
-        pprint(user)
+        if username is None and email is None:
+            log.debug("Provide username or email")
+            return
+        elif username is not None:
+            user = self.users.find_one({"username": username})
+            pprint(user)
+        elif email is not None:
+            user = self.users.find_one({"email": email})
+            pprint(user)
 
     def display_current_states(self):
         """
