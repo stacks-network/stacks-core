@@ -82,7 +82,7 @@ def run_cli():
     advanced_mode = conf['advanced_mode']
 
     parser = argparse.ArgumentParser(
-      description='Blockstore cli version {}'.format(config.VERSION))
+      description='Blockstack cli version {}'.format(config.VERSION))
 
     subparsers = parser.add_subparsers(
       dest='action')
@@ -92,12 +92,12 @@ def run_cli():
 
     subparser = subparsers.add_parser(
       'server',
-      help='display server:port | update using --server --port')
+      help='display server:port | change by --server=x --port=y')
 
     subparser.add_argument(
       '--server',
       action='store',
-      help="""the hostname/IP of blockstored (current: {})""".format(config.BLOCKSTORED_SERVER))
+      help="""the hostname/IP of blockstack server (current: {})""".format(config.BLOCKSTORED_SERVER))
 
     subparser.add_argument(
       '--port',
@@ -160,7 +160,7 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
       'consensus',
-      help='<block height> | get consensus hash at given block')
+      help='<block number> | get consensus hash at given block')
     subparser.add_argument(
       'block_height', type=int, nargs='?',
       help='The block height.')
@@ -242,7 +242,7 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
       'status',
-      help='get basic information from the blockstored server')
+      help='get basic information from the blockstack server')
 
     if advanced_mode == "on":
       # ------------------------------------
@@ -376,22 +376,23 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
       'ping',
-      help='check if the blockstored server is up')
+      help='check if the blockstack server is up')
 
     # ------------------------------------
-    subparser = subparsers.add_parser(
-      'preorder',
-      help='<name> <private_key> | preorder a name')
-    subparser.add_argument(
-      'name', type=str,
-      help='the name that you want to preorder')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the private key of the Bitcoin account to pay for the name')
-    subparser.add_argument(
-      'address', type=str, nargs='?',
-      help='[OPTIONAL] the address that will own the name (should be different from the address of the private key given here). \
-      If not given, a new private key will be generated, and its address must be submitted upon register.')
+    if advanced_mode == "on":
+      subparser = subparsers.add_parser(
+        'preorder',
+        help='<name> <private_key> | preorder a name')
+      subparser.add_argument(
+        'name', type=str,
+        help='the name that you want to preorder')
+      subparser.add_argument(
+        'privatekey', type=str,
+        help='the private key of the Bitcoin account to pay for the name')
+      subparser.add_argument(
+        'address', type=str, nargs='?',
+        help='[OPTIONAL] the address that will own the name (should be different from the address of the private key given here). \
+        If not given, a new private key will be generated, and its address must be submitted upon register.')
 
     if advanced_mode == "on":
       # ------------------------------------
