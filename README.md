@@ -1,4 +1,4 @@
-# Blockstore Client
+# Blockstack Client
 
 [![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 
@@ -9,9 +9,9 @@ registries on the blockchain.
 
 ## Installation
 
-The easiest way to get the stable version of blockstore-client is:
+The easiest way to get the stable version of blockstack-client is:
 
-> pip install blockstore-client
+> pip install blockstack
 
 This will give you both the cli and the client library.
 
@@ -19,25 +19,24 @@ This will give you both the cli and the client library.
 
 The client is under heavy development and you might want to install the latest version:
 
-> pip install git+https://github.com/blockstack/blockstore-client.git@develop
+> pip install git+https://github.com/blockstack/blockstack-client.git@develop
 
 ## Usage 
 
 For the cli, typing: 
 
-> blockstore
+> blockstack
 
 will give you a complete list of supported commands along with
 usage instructions.
 ```
-  server              display server:port | update using --server --port
+  server              display server:port | change by --server=x --port=y
   advanced            check advanced mode | turn --mode=off or --mode=on
-  consensus           <block height> | get consensus hash at given block
+  consensus           <block number> | get consensus hash at given block
   cost                <name> | get the cost of a name
-  getinfo             get basic info from the blockstored server
+  status              get basic information from the blockstack server
   lookup              <name> | get name record for a particular name
-  ping                check if the blockstored server is up
-  preorder            <name> <private_key> | preorder a name
+  ping                check if the blockstack server is up
   register            <name> <private_key> <addr> | register/claim a name
   transfer            <name> <address> <private_key> | transfer a name
   update              <name> <data> <private_key> | update a name record
@@ -45,26 +44,26 @@ usage instructions.
 
 You can try out commands like: 
 ```
-$ blockstore ping
-$ blockstore lookup fredwilson.id
-$ blockstore consensus
-$ blockstore cost newname.id
-$ blockstore server --server=localhost
-$ blockstore advanced --mode=on
+$ blockstack ping
+$ blockstack lookup fredwilson.id
+$ blockstack consensus
+$ blockstack cost newname.id
+$ blockstack server --server=localhost
+$ blockstack advanced --mode=on
 ```
 
 # Client Library
 
-You can also import the blockstore client and write your own programs. Here is some example code to get you started:
+You can also import the blockstack client and write your own programs. Here is some example code to get you started:
 
 ```
-from blockstore_client import client
-from blockstore_client.utils import print_result as pprint
-BLOCKSTORED_SERVER = '127.0.0.1'
-BLOCKSTORED_PORT = 6264
+from blockstack_client import client
+from blockstack_client.utils import print_result as pprint
+SERVER_IP = '127.0.0.1'
+SERVER_PORT = 6264
 
 # start session
-client.session(server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_PORT)
+client.session(server_host=SERVER_IP, server_port=SERVER_PORT)
 
 resp = client.ping()
 pprint(resp)
