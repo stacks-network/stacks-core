@@ -30,6 +30,7 @@ from .blockchain import get_tx_confirmations
 from .blockchain import preorderRejected
 
 from .db import preorder_queue, register_queue, update_queue, transfer_queue
+from .db import pending_queue
 
 from .utils import get_hash
 from .utils import config_log
@@ -75,7 +76,7 @@ def add_to_queue(queue, fqu, payment_address=None, tx_hash=None,
 
 def cleanup_rejected_tx(queue):
 
-    for entry in queue.find(no_cursor_timeout=True):
+    for entry in queue.find():
 
         if txRejected(entry['tx_hash'], entry['block_height']):
 
@@ -207,3 +208,21 @@ def display_queue_info(display_details=False):
     display_queue(register_queue, display_details)
     display_queue(update_queue, display_details)
     display_queue(transfer_queue, display_details)
+
+
+def get_queue_state():
+
+    state = []
+
+    def fetch_state(queue):
+
+        for entry in queue.find():
+            state.append(entry)
+
+    fetch_state(pending_queue)
+    fetch_state(preorder_queue)
+    fetch_state(register_queue)
+    fetch_state(update_queue)
+    fetch_state(transfer_queue)
+
+    return state
