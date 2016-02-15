@@ -71,7 +71,8 @@ def send_subsidized(hex_privkey, unsigned_tx_hex):
     return reply
 
 
-def subsidized_update(fqu, profile, owner_privkey, payment_address):
+def subsidized_update(fqu, profile, owner_privkey, payment_address,
+                      payment_privkey=None):
     """
         Update a previously registered fqu, using a different payment address
 
@@ -111,7 +112,9 @@ def subsidized_update(fqu, profile, owner_privkey, payment_address):
         return False
 
     owner_public_key = get_pubkey_from_privkey(owner_privkey)
-    payment_privkey = wallet.get_privkey_from_address(payment_address)
+
+    if payment_privkey is None:
+        payment_privkey = wallet.get_privkey_from_address(payment_address)
 
     log.debug("Updating (%s, %s)" % (fqu, profile_hash))
     log.debug("<owner, payment> (%s, %s)" % (owner_address, payment_address))
@@ -146,7 +149,8 @@ def subsidized_update(fqu, profile, owner_privkey, payment_address):
     return True
 
 
-def subsidized_transfer(fqu, transfer_address, owner_privkey, payment_address):
+def subsidized_transfer(fqu, transfer_address, owner_privkey, payment_address,
+                        payment_privkey=None):
     """
         Transfer a previously registered fqu, using a different payment address
 
@@ -192,7 +196,9 @@ def subsidized_transfer(fqu, transfer_address, owner_privkey, payment_address):
         return False
 
     owner_public_key = get_pubkey_from_privkey(owner_privkey)
-    payment_privkey = wallet.get_privkey_from_address(payment_address)
+
+    if payment_privkey is None:
+        payment_privkey = wallet.get_privkey_from_address(payment_address)
 
     log.debug("Transferring (%s, %s)" % (fqu, transfer_address))
     log.debug("<owner, payment> (%s, %s)" % (owner_address, payment_address))
