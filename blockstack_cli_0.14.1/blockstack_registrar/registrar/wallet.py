@@ -40,7 +40,7 @@ from .utils import config_log
 from .utils import btc_to_satoshis
 
 from .config import RATE_LIMIT
-from .config import CACHE_DIR, CACHE_FILE_FULLPATH
+from .config import LOCAL_DIR, CACHE_FILE_FULLPATH
 from .config import BLOCKCYPHER_TOKEN
 from .config import TARGET_BALANCE_PER_ADDRESS, TX_FEE
 from .config import CHAINED_PAYMENT_AMOUNT, MINIMUM_BALANCE
@@ -106,8 +106,8 @@ class HDWallet(object):
 
             child_addresses.append(address)
 
-        if not os.path.exists(CACHE_DIR):
-            os.makedirs(CACHE_DIR)
+        if not os.path.exists(LOCAL_DIR):
+            os.makedirs(LOCAL_DIR)
 
         with open(CACHE_FILE_FULLPATH, 'w') as cache_file:
             data = {'child_addresses': child_addresses}
