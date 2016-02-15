@@ -21,19 +21,69 @@ This file is part of Registrar.
     along with Registrar. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pymongo import MongoClient
+import os
+from .config import SERVER_MODE
 
-from .config import QUEUE_DB_URI
 
-c = MongoClient()
-state_diff = c['namespace'].state_diff
+class TinyDBConvertor(object):
 
-queue_db = MongoClient(QUEUE_DB_URI)['registrar']
-preorder_queue = queue_db.preorder_queue
-register_queue = queue_db.register_queue
-update_queue = queue_db.update_queue
-transfer_queue = queue_db.transfer_queue
+    def __init__(self, collection_name):
 
-# to-do: rename this from 'migration'
-registrar_users = c['migration'].migration_users
-registrar_addresses = c['migration'].registrar_addresses
+        self.local_db = TinyDB(LOCAL_DB_FULLPATH)
+        self.collection_name = collection_name
+
+    def find(self):
+
+        query = Query()
+        return self.local_db.search(query.type == self.collection_name)
+
+    def find_one(self, entry):
+        query = Query()
+        return self.local_db.search((query.type == self.collection_name) &
+                                    (query.fqu == entry['fqu']))
+
+    def save(self, new_entry):
+
+        new_entry['type'] = self.collection_name
+        self.local_db.insert(new_entry)
+
+    def remove(self, entry):
+        query = Query()
+        return self.local_db.remove((query.type == self.collection_name) &
+                                    (query.fqu == entry['fqu']))
+
+if SERVER_MODE:
+
+    from pymongo import MongoClient
+
+    from .config import QUEUE_DB_URI
+
+    c = MongoClient()
+    state_diff = c['namespace'].state_diff
+
+    queue_db = MongoClient(QUEUE_DB_URI)['registrar']
+    preorder_queue = queue_db.preorder_queue
+    register_queue = queue_db.register_queue
+    update_queue = queue_db.update_queue
+    transfer_queue = queue_db.transfer_queue
+
+    pending_queue = queue_db.pending_queue
+
+    # to-do: rename this from 'migration'
+    registrar_users = c['migration'].migration_users
+    registrar_addresses = c['migration'].registrar_addresses
+
+else:
+    from tinydb import TinyDB, Query
+
+    from .config import LOCAL_DB_FULLPATH, LOCAL_DIR
+
+    if not os.path.exists(LOCAL_DIR):
+        os.makedirs(LOCAL_DIR)
+
+    preorder_queue = TinyDBConvertor('preorder')
+    register_queue = TinyDBConvertor('register')
+    update_queue = TinyDBConvertor('update')
+    transfer_queue = TinyDBConvertor('transfer')
+
+    pending_queue = TinyDBConvertor('pending')
