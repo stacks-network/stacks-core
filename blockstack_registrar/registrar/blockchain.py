@@ -34,7 +34,10 @@ from .config import BITCOIND_SERVER, BITCOIND_PORT
 from .config import BITCOIND_USER, BITCOIND_PASSWD
 from .config import BITCOIND_WALLET_PASSPHRASE, BITCOIND_USE_HTTPS
 from .config import MAXIMUM_NAMES_PER_ADDRESS
+
 from .config import UTXO_SERVER, UTXO_USER, UTXO_PASSWD
+from .config import UTXO_PROVIDER
+
 
 from .network import bs_client
 
@@ -242,25 +245,44 @@ def dontuseAddress(address):
         b) it has more than maximum registered names (blockstore restriction)
     """
 
-    try:
-        unspents = get_utxos(address)
-    except Exception as e:
-        log.debug(e)
-        return True
+    if UTXO_PROVIDER == 'blockcypher':
+        try:
+            data = get_address_details(address)
+        except:
+            return True
 
-    for unspent in unspents:
+        try:
+            unconfirmed_n_tx = data['unconfirmed_n_tx']
+        except:
+            return True
 
-        if 'confirmations' in unspent:
-            if int(unspent['confirmations']) == 0:
-                return True
+        if int(unconfirmed_n_tx) == 0:
+            return True
+        else:
+            return False
+    else:
+        try:
+            unspents = get_utxos(address)
+        except Exception as e:
+            log.debug(e)
+            return True
 
-    # if all tests pass, then can use the address
-    return False
+        for unspent in unspents:
+
+            if 'confirmations' in unspent:
+                if int(unspent['confirmations']) == 0:
+                    return True
+
+        # if all tests pass, then can use the address
+        return False
 
 
 def underfundedAddress(address):
 
-    balance = get_balance(address)
+    if UTXO_PROVIDER == 'blockcypher':
+        balance = get_balance_from_blockcypher(address)
+    else:
+        balance = get_balance(address)
 
     if balance is None:
         log.debug("Balance: (%s, %s)" % (address, balance))

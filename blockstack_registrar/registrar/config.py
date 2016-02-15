@@ -68,6 +68,7 @@ except:
     HD_WALLET_PRIVKEY = None
 
 DEBUG = False  # can change in config_local
+UTXO_PROVIDER = 'blockcypher'
 
 DEFAULT_HOST = '127.0.0.1'
 MEMCACHED_PORT = '11211'
@@ -120,6 +121,10 @@ BITCOIND_USER = 'openname'
 BITCOIND_PASSWD = 'opennamesystem'
 BITCOIND_WALLET_PASSPHRASE = ''
 BITCOIND_USE_HTTPS = True
+
+UTXO_SERVER = BITCOIND_SERVER
+UTXO_USER = BITCOIND_USER
+UTXO_PSSWD = BITCOIND_PASSWD
 
 try:
     from config_local import *
