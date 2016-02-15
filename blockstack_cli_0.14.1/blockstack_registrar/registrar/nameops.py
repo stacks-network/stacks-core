@@ -36,6 +36,8 @@ from .blockchain import get_tx_confirmations
 from .blockchain import dontuseAddress, underfundedAddress
 from .blockchain import recipientNotReady
 
+from crypto.utils import get_address_from_privkey
+
 from .wallet import wallet
 
 from .utils import config_log
@@ -51,7 +53,7 @@ log = config_log(__name__)
 """
 
 
-def preorder(fqu, payment_address, owner_address):
+def preorder(fqu, payment_address, owner_address, payment_privkey=None):
     """
         Preorder a fqu (step #1)
 
@@ -75,6 +77,11 @@ def preorder(fqu, payment_address, owner_address):
         log.debug("Address %s owns too many names already." % owner_address)
         return False
 
+    if payment_privkey is None:
+        payment_privkey = wallet.get_privkey_from_address(payment_address)
+    else:
+        payment_address = get_address_from_privkey(payment_privkey)
+
     if dontuseAddress(payment_address):
         log.debug("Payment address not ready: %s" % payment_address)
         return False
@@ -82,8 +89,6 @@ def preorder(fqu, payment_address, owner_address):
     elif underfundedAddress(payment_address):
         log.debug("Payment address under funded: %s" % payment_address)
         return False
-
-    payment_privkey = wallet.get_privkey_from_address(payment_address)
 
     log.debug("Preordering (%s, %s, %s)" % (fqu, payment_address, owner_address))
 
@@ -106,7 +111,7 @@ def preorder(fqu, payment_address, owner_address):
 
 
 def register(fqu, payment_address=None, owner_address=None,
-             auto_preorder=True):
+             payment_privkey=None, auto_preorder=True):
     """
         Register a previously preordered fqu (step #2)
 
@@ -148,14 +153,19 @@ def register(fqu, payment_address=None, owner_address=None,
 
         return False
 
-    # use the correct owner_address from preorder operation
-    try:
-        owner_address = preorder_entry['owner_address']
-        payment_address = preorder_entry['payment_address']
+    if payment_privkey is None:
+        # use the correct owner_address from preorder operation
+        try:
+            owner_address = preorder_entry['owner_address']
+            payment_address = preorder_entry['payment_address']
 
-    except:
-        log.debug("Error getting preorder addresses")
-        return False
+        except:
+            log.debug("Error getting preorder addresses")
+            return False
+
+        payment_privkey = wallet.get_privkey_from_address(payment_address)
+    else:
+        payment_address = get_address_from_privkey(payment_privkey)
 
     if dontuseAddress(payment_address):
         log.debug("Payment address not ready: %s" % payment_address)
@@ -164,8 +174,6 @@ def register(fqu, payment_address=None, owner_address=None,
     elif underfundedAddress(payment_address):
         log.debug("Payment address under funded: %s" % payment_address)
         return False
-
-    payment_privkey = wallet.get_privkey_from_address(payment_address)
 
     log.debug("Registering (%s, %s, %s)" % (fqu, payment_address, owner_address))
 
