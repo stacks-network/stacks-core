@@ -3,9 +3,8 @@
 [![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 
 This package contains the reference client library for
-[Blockstore](https://github.com/blockstack/blockstore). It talks to blockstored
-and provides an interface for creating and managing decentralized namespaces and
-registries on the blockchain.
+[blockstack-server](https://github.com/blockstack/blockstack-server). It talks to the
+server and provides an interface for creating and managing names in decentralized namespaces on the blockchain.
 
 ## Installation
 
@@ -14,6 +13,7 @@ The easiest way to get the stable version of blockstack-client is:
 On Debian or Ubuntu:
 
 > sudo apt-get install -y python-pip python-dev libssl-dev
+
 > sudo pip install blockstack
 
 This will give you both the cli and the client library.
