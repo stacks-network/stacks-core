@@ -15,7 +15,7 @@ setup(
     description='Python client library for Blockstore',
     keywords='blockchain bitcoin btc cryptocurrency name key value store data',
     packages=find_packages(),
-    scripts=['bin/blockstore-cli', 'bin/blockstore'],
+    scripts=['bin/blockstack'],
     download_url='https://github.com/blockstack/blockstore-client/archive/master.zip',
     zip_safe=False,
     include_package_data=True,
