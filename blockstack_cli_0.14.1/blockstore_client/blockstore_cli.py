@@ -37,8 +37,121 @@ sys.path.insert(0, parent_dir)
 from blockstore_client import config, client, schemas, parsing, user
 from blockstore_client import storage, drivers
 from blockstore_client.utils import pretty_dump, print_result
+from blockstore_client.config import WALLET_PATH, WALLET_PASSWORD_LENGTH
+
+from registrar.wallet import HDWallet
+from registrar.crypto.utils import aes_encrypt, aes_decrypt
+from registrar.blockchain import get_balance
+from registrar.network import get_bs_client
+
+from binascii import hexlify
+
+import xmlrpclib
+
+from registrar.config import REGISTRAR_IP, REGISTRAR_PORT
+
+RPC_DAEMON = 'http://' + REGISTRAR_IP + ':' + str(REGISTRAR_PORT)
 
 log = config.log
+
+
+def initialize_wallet():
+
+    result = {}
+    print "Initializing new wallet ..."
+    password = "temp"
+
+    try:
+        while len(password) < WALLET_PASSWORD_LENGTH:
+            password = raw_input("Enter new password: ")
+
+            if len(password) < WALLET_PASSWORD_LENGTH:
+                print "Password is too short. Please make it at least %s characters long" % WALLET_PASSWORD_LENGTH
+            else:
+
+                wallet = HDWallet()
+                hex_password = hexlify(password)
+                hex_privkey = wallet.get_master_privkey()
+
+                data = {}
+                data['encrypted_master_private_key'] = aes_encrypt(hex_privkey, hex_password)
+
+                file = open(WALLET_PATH, 'w')
+                file.write(json.dumps(data))
+                file.close()
+
+                print "Wallet created. Make sure to backup the following:"
+
+                result['wallet_password'] = password
+                result['master_private_key'] = hex_privkey
+
+    except KeyboardInterrupt:
+        print "\nExited."
+
+    return result
+
+
+def unlock_wallet(display_enabled=False):
+
+    try:
+        password = raw_input("Enter wallet password: ")
+        hex_password = hexlify(password)
+
+        file = open(WALLET_PATH, 'r')
+        data = file.read()
+        data = json.loads(data)
+        hex_privkey = None
+
+        try:
+            hex_privkey = aes_decrypt(data['encrypted_master_private_key'], hex_password)
+        except:
+            print "Incorrect password. Exiting."
+        else:
+            print "Unlocked wallet."
+            wallet = HDWallet(hex_privkey)
+            child = wallet.get_child_keypairs(count=2, include_privkey=True)
+            payment_keypair = child[0]
+            owner_keypair = child[1]
+            save_keys_to_memory(payment_keypair, owner_keypair)
+            if display_enabled:
+                display_wallet_info(payment_keypair[0], owner_keypair[0])
+    except KeyboardInterrupt:
+        print "\nExited."
+
+
+def get_local_proxy():
+
+    proxy = xmlrpclib.ServerProxy(RPC_DAEMON)
+
+    data = proxy.ping()
+
+    if 'status' not in data:
+        log.debug('RPC daemon is not online')
+        return False
+
+    return proxy
+
+
+def save_keys_to_memory(payment_keypair, owner_keypair):
+
+    proxy = get_local_proxy()
+    data = proxy.set_wallet(payment_keypair, owner_keypair)
+
+
+def display_wallet_info(payment_address, owner_address):
+
+    print '-' * 60
+    print "Payment address:\t%s" % payment_address
+    print "Owner address:\t\t%s" % owner_address
+    print '-' * 60
+    print "Balance:"
+    print "%s: %s" % (payment_address, get_balance(payment_address))
+    print '-' * 60
+
+    bs_client = get_bs_client()
+    print "Names Owned:"
+    print "%s: %s" % (owner_address, bs_client.get_names_owned_by_address(owner_address))
+    print '-' * 60
 
 
 def get_sorted_commands(display_commands=False):
@@ -89,22 +202,6 @@ def run_cli():
 
     # ------------------------------------
     # start commands
-
-    subparser = subparsers.add_parser(
-      'server',
-      help='display server:port | change by --server=x --port=y')
-
-    subparser.add_argument(
-      '--server',
-      action='store',
-      help="""the hostname/IP of blockstack server (current: {})""".format(config.BLOCKSTORED_SERVER))
-
-    subparser.add_argument(
-      '--port',
-      action='store',
-      help="""the server port to connect to (current: {})""".format(config.BLOCKSTORED_PORT))
-
-    # ------------------------------------
 
     subparser = subparsers.add_parser(
       'advanced',
@@ -239,11 +336,6 @@ def run_cli():
         'name', type=str,
         help='the name to look up')
 
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-      'status',
-      help='get basic information from the blockstack server')
-
     if advanced_mode == "on":
       # ------------------------------------
       subparser = subparsers.add_parser(
@@ -265,7 +357,7 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
       'lookup',
-      help='<name> | get name record for a particular name')
+      help='<name> | get data record for a particular name')
     subparser.add_argument(
       'name', type=str,
       help='the name to look up')
@@ -465,16 +557,13 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
       'register',
-      help='<name> <private_key> <addr> | register/claim a name')
+      help='<name> <data> | register a name')
     subparser.add_argument(
       'name', type=str,
-      help='the name that you want to register/claim')
+      help='the name that you want to register')
     subparser.add_argument(
-      'privatekey', type=str,
-      help='the private key used to preorder the name')
-    subparser.add_argument(
-      'addr', type=str,
-      help='the address that will own the name (given in the preorder)')
+      'data', type=str,
+      help='the data record (in JSON format)')
 
     if advanced_mode == "on":
       # ------------------------------------
@@ -589,20 +678,34 @@ def run_cli():
 
     # ------------------------------------
     subparser = subparsers.add_parser(
+      'server',
+      help='display server:port | change by --server=x --port=y')
+
+    subparser.add_argument(
+      '--server',
+      action='store',
+      help="""the hostname/IP of blockstack server (current: {})""".format(config.BLOCKSTORED_SERVER))
+
+    subparser.add_argument(
+      '--port',
+      action='store',
+      help="""the server port to connect to (current: {})""".format(config.BLOCKSTORED_PORT))
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'status',
+      help='get basic information from the blockstack server')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
       'transfer',
-      help='<name> <address> <private_key> | transfer a name')
+      help='<name> <address> | transfer a name you own')
     subparser.add_argument(
       'name', type=str,
-      help='the name that you want to register/claim')
+      help='the name that you want to transfer')
     subparser.add_argument(
       'address', type=str,
       help='the new owner Bitcoin address')
-    subparser.add_argument(
-      'keepdata', type=str,
-      help='whether or not the storage index should remain associated with the name [true|false]')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the privatekey of the owner Bitcoin address')
 
     if advanced_mode == "on":
       # ------------------------------------
@@ -646,19 +749,13 @@ def run_cli():
     # ------------------------------------
     subparser = subparsers.add_parser(
       'update',
-      help='<name> <data> <private_key> | update a name record')
+      help='<name> <data> | update a name record')
     subparser.add_argument(
       'name', type=str,
       help='the name that you want to update')
     subparser.add_argument(
-      'record_json', type=str,
-      help='the JSON-encoded user record to associate with the name')
-    subparser.add_argument(
-      'privatekey', type=str,
-      help='the privatekey of the owner Bitcoin address')
-    subparser.add_argument(
-      'txid', type=str, nargs='?',
-      help='[OPTIONAL] the transaction ID of the previously-attempted, partially-successful update')
+      'data', type=str,
+      help='the new data record (in JSON format)')
 
     if advanced_mode == 'true':
       # ------------------------------------
@@ -697,6 +794,11 @@ def run_cli():
       subparser.add_argument(
         'txid', type=str, nargs='?',
         help='[OPTIONAL] the transaction ID of the previously-attempted, partially-successful update')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+      'wallet',
+      help='display wallet information')
 
 
     # Print default help message, if no argument is given
@@ -776,6 +878,46 @@ def run_cli():
             if advanced_mode == 'on':
                 result['testset'] = resp['testset']
 
+            proxy = get_local_proxy()
+
+            current_state = json.loads(proxy.state())
+
+            pending_queue = []
+            preorder_queue = []
+            register_queue = []
+            update_queue = []
+            transfer_queue = []
+
+            for entry in current_state:
+
+                if 'type' in entry:
+                    if entry['type'] == 'pending':
+                        pending_queue.append(entry['fqu'])
+                    elif entry['type'] == 'preorder':
+                        preorder_queue.append(entry['fqu'])
+                    elif entry['type'] == 'register':
+                        register_queue.append(entry['fqu'])
+                    elif entry['type'] == 'update':
+                        update_queue.append(entry['fqu'])
+                    elif entry['type'] == 'transfer':
+                        transfer_queue.append(entry['fqu'])
+
+            if len(pending_queue) != 0:
+                result['pending_queue'] = pending_queue
+
+            if len(preorder_queue) != 0:
+                result['preorder_queue'] = preorder_queue
+
+            if len(register_queue) != 0:
+                result['register_queue'] = register_queue
+
+            if len(update_queue) != 0:
+                result['update_queue'] = update_queue
+
+            if len(transfer_queue) != 0:
+                result['transfer_queue'] = transfer_queue
+
+    # -----------------------------
     elif args.action == 'ping':
         result = client.ping()
 
@@ -800,7 +942,26 @@ def run_cli():
         result = client.preorder_subsidized( str(args.name), str(args.public_key), str(args.address), str(args.subsidy_key) )
 
     elif args.action == 'register':
-        result = client.register(str(args.name), str(args.privatekey), str(args.addr))
+        result = {}
+        fqu = str(args.name)
+        cost = client.get_name_cost(fqu)
+
+        if 'error' in cost:
+            result['error'] = "This namespace doesn't exist, try using namespaces like .id"
+
+        data = client.get_name_blockchain_record(fqu)
+
+        if 'value_hash' in data:
+            result['error'] = "%s is already registered" % fqu
+
+        user_data = str(args.data)
+        try:
+            user_data = json.loads(user_data)
+        except:
+            result['error'] = "data is not in JSON format"
+
+        proxy = get_local_proxy()
+        result = proxy.register(fqu, user_data)
 
     elif args.action == 'register_tx':
         result = client.register(str(args.name), str(args.privatekey), str(args.addr), tx_only=True )
@@ -1043,6 +1204,13 @@ def run_cli():
 
     elif args.action == 'get_nameops_at':
         result = client.get_nameops_at( int(args.block_id) )
+
+    elif args.action == 'wallet':
+
+        if not os.path.exists(WALLET_PATH):
+            result = initialize_wallet()
+        else:
+            unlock_wallet(display_enabled=True)
 
     print_result(result)
 
