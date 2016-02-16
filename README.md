@@ -12,11 +12,17 @@ The easiest way to get the stable version of blockstack-client is:
 
 On Debian or Ubuntu:
 
-> sudo apt-get install -y python-pip python-dev libssl-dev
-
-> sudo pip install blockstack
-
+```
+$ sudo apt-get install -y python-pip python-dev libssl-dev
+$ sudo pip install blockstack
+```
 This will give you both the cli and the client library.
+
+On OS X, one of the requirements (pycrypto) might not install properly and you can fix this by:
+```
+$ ARCHFLAGS=-Wno-error=unused-command-line-argument-hard-error-in-future pip install pycrypto
+$ sudo pip install blockstack
+```
 
 #### Latest version
 
