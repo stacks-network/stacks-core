@@ -28,7 +28,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='registrar',
-    version='0.0.4',
+    version='0.0.3',
     url='https://github.com/blockstack/registrar',
     license='GPLv3',
     author='Blockstack.org',
@@ -43,6 +43,7 @@ setup(
     install_requires=[
         'blockcypher==1.0.63',
         'pymongo==2.7.2',
+        'tinydb==3.1.3',
         'pycrypto==2.6.1',
         'scrypt==0.7.1',
         'blockstore-client==0.0.12.1',
