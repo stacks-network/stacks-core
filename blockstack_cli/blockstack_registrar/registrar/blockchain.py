@@ -195,19 +195,23 @@ def get_balance(address):
     """ Check if BTC key being used has enough balance on unspents
     """
 
-    data = get_utxos(address)
+    if UTXO_PROVIDER == 'blockcypher':
+        return get_balance_from_blockcypher(address)
+    else:
 
-    satoshi_amount = 0
+        data = get_utxos(address)
 
-    for utxo in data:
+        satoshi_amount = 0
 
-        if 'value' in utxo:
-            satoshi_amount += utxo['value']
+        for utxo in data:
 
-    btc_amount = satoshis_to_btc(satoshi_amount)
-    btc_amount = float(btc_amount)
+            if 'value' in utxo:
+                satoshi_amount += utxo['value']
 
-    return btc_amount
+        btc_amount = satoshis_to_btc(satoshi_amount)
+        btc_amount = float(btc_amount)
+
+        return btc_amount
 
 
 def get_balance_from_blockcypher(address):
@@ -257,9 +261,9 @@ def dontuseAddress(address):
             return True
 
         if int(unconfirmed_n_tx) == 0:
-            return True
-        else:
             return False
+        else:
+            return True
     else:
         try:
             unspents = get_utxos(address)
