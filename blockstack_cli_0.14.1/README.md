@@ -11,7 +11,10 @@ registries on the blockchain.
 
 The easiest way to get the stable version of blockstack-client is:
 
-> pip install blockstack
+On Debian or Ubuntu:
+
+> sudo apt-get install -y python-pip python-dev libssl-dev
+> sudo pip install blockstack
 
 This will give you both the cli and the client library.
 
