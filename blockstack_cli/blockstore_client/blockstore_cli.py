@@ -1265,9 +1265,24 @@ def run_cli():
         if args.block_height is None:
             # by default get last indexed block
             try:
-              args.block_height = client.getinfo()['last_block']
+              resp = client.getinfo()
+
+              if 'error' in resp:
+                result['error'] = "Server is indexing. Try again."
+                exit(0)
             except:
-              args.block_height = client.getinfo()['blocks']
+                result['error'] = "Error connecting to server."
+                exit(0)
+
+            if 'last_block' in resp or 'blocks' in resp:
+
+              if 'last_block' in resp:
+                args.block_height = client.getinfo()['last_block']
+              elif 'blocks' in resp:
+                args.block_height = client.getinfo()['blocks']
+              else:
+                result['error'] = "Server is indexing. Try again"
+                exit(0)
 
         resp = client.get_consensus_at( int(args.block_height) )
 
