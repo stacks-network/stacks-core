@@ -226,3 +226,31 @@ def get_queue_state():
     fetch_state(transfer_queue)
 
     return state
+
+
+def alreadyProcessing(fqu):
+
+    check_queue = pending_queue.find_one({'fqu': fqu})
+
+    if check_queue is not None:
+        return True
+
+    check_queue = preorder_queue.find_one({'fqu': fqu})
+
+    if check_queue is not None:
+        return True
+
+    check_queue = register_queue.find_one({'fqu': fqu})
+
+    if check_queue is not None:
+        return True
+
+    check_queue = update_queue.find_one({'fqu': fqu})
+
+    if check_queue is not None:
+        return True
+
+    check_queue = transfer_queue.find_one({'fqu': fqu})
+
+    if check_queue is not None:
+        return True
