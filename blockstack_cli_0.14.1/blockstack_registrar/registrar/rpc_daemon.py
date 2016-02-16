@@ -227,7 +227,7 @@ def start_monitor():
 
         except:
             # if rpc daemon went offline, break monitoring loop as well
-            print "RPC daemon exited. Exiting."
+            # print "RPC daemon exited. Exiting."
             break
 
         try:
@@ -247,9 +247,25 @@ def start_monitor():
 
                 last_block = current_block
 
+                if current_block % 10 == 0:
+                    # exit daemons, if no new requests for a while
+                    if len(get_queue_state()) == 0:
+                        proxy.shutdown()
+
         except KeyboardInterrupt:
             print "\nExiting."
             break
+
+
+def background_process(start_command):
+
+    current_dir = os.path.abspath(os.path.dirname(__file__))
+    parent_dir = os.path.abspath(current_dir + "/../")
+    os.chdir(parent_dir)
+
+    command = sys.executable + ' -m registrar.rpc_daemon '
+    command += start_command + ' &'
+    os.system(command)
 
 if __name__ == '__main__':
 
@@ -266,10 +282,4 @@ if __name__ == '__main__':
     elif arg == "start_monitor":
         start_monitor()
     else:
-        current_dir = os.path.abspath(os.path.dirname(__file__))
-        file_path = '"' + current_dir + '/' + FILE_NAME + '"'
-        command = sys.executable + ' '
-        command += file_path + ' '
-        command += 'start &'
-        print command
-        os.system(command)
+        print "Enter either start_daemon or start_monitor"
