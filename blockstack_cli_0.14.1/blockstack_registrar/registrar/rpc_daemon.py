@@ -236,6 +236,8 @@ def start_monitor():
                 current_block = get_block_height()
             else:
 
+                # monitor process reads from pending queue
+                # but never writes to it
                 for entry in pending_queue.find():
                     resp = process_nameop(entry['fqu'], entry['profile'],
                                           wallet_data['payment_privkey'],
