@@ -30,16 +30,17 @@ For the cli, typing:
 will give you a complete list of supported commands along with
 usage instructions.
 ```
-  server              display server:port | change by --server=x --port=y
   advanced            check advanced mode | turn --mode=off or --mode=on
   consensus           <block number> | get consensus hash at given block
   cost                <name> | get the cost of a name
-  status              get basic information from the blockstack server
-  lookup              <name> | get name record for a particular name
+  lookup              <name> | get data record for a particular name
   ping                check if the blockstack server is up
-  register            <name> <private_key> <addr> | register/claim a name
-  transfer            <name> <address> <private_key> | transfer a name
-  update              <name> <data> <private_key> | update a name record
+  register            <name> <data> | register a name
+  server              display server:port | change by --server=x --port=y
+  status              get basic information from the blockstack server
+  transfer            <name> <address> | transfer a name you own
+  update              <name> <data> | update a name record
+  wallet              display wallet information
 ```
 
 You can try out commands like: 
@@ -48,8 +49,9 @@ $ blockstack ping
 $ blockstack lookup fredwilson.id
 $ blockstack consensus
 $ blockstack cost newname.id
-$ blockstack server --server=localhost
+$ blockstack server --server=server.blockstack.org
 $ blockstack advanced --mode=on
+$ blockstack wallet
 ```
 
 # Client Library
