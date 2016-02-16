@@ -1264,7 +1264,10 @@ def run_cli():
 
         if args.block_height is None:
             # by default get last indexed block
-            args.block_height = client.getinfo()['last_block']
+            try:
+              args.block_height = client.getinfo()['last_block']
+            except:
+              args.block_height = client.getinfo()['blocks']
 
         resp = client.get_consensus_at( int(args.block_height) )
 
