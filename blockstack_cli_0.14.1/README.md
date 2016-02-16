@@ -13,7 +13,7 @@ The easiest way to get the stable version of blockstack-client is:
 On Debian or Ubuntu:
 
 ```
-$ sudo apt-get install -y python-pip python-dev libssl-dev
+$ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev
 $ sudo pip install blockstack
 ```
 This will give you both the cli and the client library.
