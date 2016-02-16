@@ -244,8 +244,8 @@ def session(conf=None, server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_P
             sys.exit(1)
 
     # initialize SPV
-    SPVClient.init(spv_headers_path)
-    default_proxy.spv_headers_path = spv_headers_path
+    #SPVClient.init(spv_headers_path)
+    #default_proxy.spv_headers_path = spv_headers_path
     default_proxy.conf = conf
 
     return proxy
