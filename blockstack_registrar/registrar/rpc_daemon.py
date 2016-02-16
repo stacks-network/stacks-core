@@ -243,7 +243,6 @@ def start_monitor():
                                           wallet_data['payment_address'],
                                           wallet_data['owner_address'],
                                           entry['transfer_address'])
-                    print resp
 
                 last_block = current_block
 

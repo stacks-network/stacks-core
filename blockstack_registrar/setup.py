@@ -46,7 +46,7 @@ setup(
         'tinydb==3.1.3',
         'pycrypto==2.6.1',
         'scrypt==0.7.1',
-        'blockstore-client==0.0.12.1',
+        'blockstore-client==0.0.12.2',
     ],
     classifiers=[
         'Intended Audience :: Developers',
