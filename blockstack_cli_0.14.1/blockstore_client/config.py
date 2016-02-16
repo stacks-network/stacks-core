@@ -39,6 +39,7 @@ DEFAULT_BLOCKSTORED_SERVER = "server.blockstack.org"
 # initialize to default settings
 BLOCKSTORED_SERVER = DEFAULT_BLOCKSTORED_SERVER
 BLOCKSTORED_PORT = DEFAULT_BLOCKSTORED_PORT
+WALLET_PASSWORD_LENGTH = 15
 
 BLOCKSTORE_METADATA_DIR = os.path.expanduser("~/.blockstack/metadata")
 BLOCKSTORE_DEFAULT_STORAGE_DRIVERS = "dht"
@@ -187,6 +188,7 @@ MAX_RPC_LEN = 1024 * 1024 * 1024
 CONFIG_DIR_INIT = "~/.blockstack"
 CONFIG_DIR = os.path.expanduser(CONFIG_DIR_INIT)
 CONFIG_PATH = os.path.join(CONFIG_DIR, "client.ini")
+WALLET_PATH = os.path.join(CONFIG_DIR, "wallet.json")
 SPV_HEADERS_PATH = os.path.join(CONFIG_DIR, "blockchain-headers.dat")
 
 BLOCKCHAIN_ID_MAGIC = 'id'
