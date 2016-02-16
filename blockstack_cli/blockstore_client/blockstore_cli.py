@@ -28,6 +28,9 @@ import traceback
 import os
 import pybitcoin
 
+import requests
+requests.packages.urllib3.disable_warnings()
+
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
