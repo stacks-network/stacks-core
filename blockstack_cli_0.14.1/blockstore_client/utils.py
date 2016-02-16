@@ -51,4 +51,7 @@ def pretty_dump(data):
 
 
 def print_result(json_str):
-    print pretty_dump(json_str)
+    data = pretty_dump(json_str)
+
+    if data != "{}":
+        print data
