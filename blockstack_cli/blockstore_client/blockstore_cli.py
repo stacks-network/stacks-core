@@ -44,6 +44,7 @@ from registrar.crypto.utils import aes_encrypt, aes_decrypt
 from registrar.blockchain import get_balance
 from registrar.network import get_bs_client
 from registrar.rpc_daemon import background_process
+from registrar.utils import satoshis_to_btc
 
 from binascii import hexlify
 
@@ -147,6 +148,34 @@ def save_keys_to_memory(payment_keypair, owner_keypair):
 
     proxy = get_local_proxy()
     data = proxy.set_wallet(payment_keypair, owner_keypair)
+
+
+def approx_tx_fees(num_tx):
+    """ Just a rough approximation on tx fees
+        It slightly over estimates
+        Should be replaced by checking for fee estimation from bitcoind
+    """
+    APPROX_FEE_PER_TX = 8000  # in satoshis
+    return num_tx * APPROX_FEE_PER_TX
+
+
+def get_total_fees(data):
+
+    reply = {}
+
+    registration_fee_satoshi = data['satoshis']
+    tx_fee_satoshi = approx_tx_fees(num_tx=3)
+
+    registration_fee = satoshis_to_btc(registration_fee_satoshi)
+    tx_fee = satoshis_to_btc(tx_fee_satoshi)
+
+    details = {}
+    details['registration_fee'] = registration_fee
+    details['transactions_fee'] = tx_fee
+    reply['total_cost'] = registration_fee + tx_fee
+    reply['details'] = details
+
+    return reply
 
 
 def display_wallet_info(payment_address, owner_address):
@@ -964,17 +993,37 @@ def run_cli():
 
         if 'error' in cost:
             result['error'] = "This namespace doesn't exist, try using namespaces like .id"
+            print_result(result)
+            exit(0)
 
         data = client.get_name_blockchain_record(fqu)
 
         if 'value_hash' in data:
             result['error'] = "%s is already registered" % fqu
+            print_result(result)
+            exit(0)
 
         user_data = str(args.data)
         try:
             user_data = json.loads(user_data)
         except:
             result['error'] = "data is not in JSON format"
+            print_result(result)
+            exit(0)
+
+        fees = get_total_fees(cost)
+
+        try:
+            user_input = raw_input("Registering %s will cost %s BTC." % (fqu, fees['total_cost']) +
+                                   " Continue? (y/n): ")
+            user_input = user_input.lower()
+
+            if user_input != 'y':
+                print "Not registering."
+                exit(0)
+        except KeyboardInterrupt:
+            print "\nExiting."
+            exit(0)
 
         proxy = get_local_proxy()
         result = proxy.register(fqu, user_data)
@@ -1172,7 +1221,11 @@ def run_cli():
         result = client.get_name_record( str(args.name) )
 
     elif args.action == 'cost':
-        result = client.get_name_cost(str(args.name))
+        resp = client.get_name_cost(str(args.name))
+
+        data = get_total_fees(resp)
+
+        result = data
 
     elif args.action == 'get_names_owned_by_address':
         result = client.get_names_owned_by_address(str(args.address))
