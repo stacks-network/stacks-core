@@ -18,40 +18,20 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstore-client. If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstore-client.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import json
+import os
+import sys
 
-from config import log
+# Hack around absolute paths
+current_dir = os.path.abspath(os.path.dirname(__file__))
+parent_dir = os.path.abspath(current_dir + "/../")
 
+sys.path.insert(0, parent_dir)
 
-def pretty_dump(data):
-    """ format data
-    """
+from blockstore_client.blockstore_cli import run_cli
 
-    if type(data) is list:
+if __name__ == '__main__':
 
-        if len(data) == 0:
-            # we got an empty array
-            data = {}
-        else:
-            # Netstring server responds with [{data}]
-            log.debug("converting [] to {}")
-            data = data[0]
-
-    if type(data) is not dict:
-        try:
-            data = json.loads(data)
-        except Exception as e:
-            # data is not valid json, convert to json
-            data = {'result': data}
-
-    return json.dumps(data, sort_keys=True, indent=4, separators=(',', ': '))
-
-
-def print_result(json_str):
-    data = pretty_dump(json_str)
-
-    if data != "{}":
-        print data
+    run_cli()
