@@ -34,13 +34,14 @@ DEBUG = True
 VERSION = __version__
 
 DEFAULT_BLOCKSTORED_PORT = '6264'
-DEFAULT_BLOCKSTORED_SERVER = "blockstore.blockstack.org"
+DEFAULT_BLOCKSTORED_SERVER = "server.blockstack.org"
 
 # initialize to default settings
 BLOCKSTORED_SERVER = DEFAULT_BLOCKSTORED_SERVER
 BLOCKSTORED_PORT = DEFAULT_BLOCKSTORED_PORT
+WALLET_PASSWORD_LENGTH = 15
 
-BLOCKSTORE_METADATA_DIR = os.path.expanduser("~/.blockstore-client/metadata")
+BLOCKSTORE_METADATA_DIR = os.path.expanduser("~/.blockstack/metadata")
 BLOCKSTORE_DEFAULT_STORAGE_DRIVERS = "dht"
 
 DEFAULT_TIMEOUT = 5  # in secs
@@ -184,8 +185,10 @@ OPFIELDS = {
 DEBUG = True
 MAX_RPC_LEN = 1024 * 1024 * 1024
 
-CONFIG_DIR = os.path.expanduser("~/.blockstore-client")
-CONFIG_PATH = os.path.join(CONFIG_DIR, "blockstore-client.ini")
+CONFIG_DIR_INIT = "~/.blockstack"
+CONFIG_DIR = os.path.expanduser(CONFIG_DIR_INIT)
+CONFIG_PATH = os.path.join(CONFIG_DIR, "client.ini")
+WALLET_PATH = os.path.join(CONFIG_DIR, "wallet.json")
 SPV_HEADERS_PATH = os.path.join(CONFIG_DIR, "blockchain-headers.dat")
 
 BLOCKCHAIN_ID_MAGIC = 'id'
@@ -223,13 +226,13 @@ def make_default_config(path=CONFIG_PATH):
     if not os.path.exists(path):
 
         parser = SafeConfigParser()
-        parser.add_section('blockstore-client')
-        parser.set('blockstore-client', 'server', BLOCKSTORED_SERVER)
-        parser.set('blockstore-client', 'port', BLOCKSTORED_PORT)
-        parser.set('blockstore-client', 'metadata', BLOCKSTORE_METADATA_DIR)
-        parser.set('blockstore-client', 'storage_drivers', BLOCKSTORE_DEFAULT_STORAGE_DRIVERS)
-        parser.set('blockstore-client', 'blockchain_headers', SPV_HEADERS_PATH)
-        parser.set('blockstore-client', 'advanced_mode', 'false')
+        parser.add_section('blockstack-client')
+        parser.set('blockstack-client', 'server', BLOCKSTORED_SERVER)
+        parser.set('blockstack-client', 'port', BLOCKSTORED_PORT)
+        parser.set('blockstack-client', 'metadata', BLOCKSTORE_METADATA_DIR)
+        parser.set('blockstack-client', 'storage_drivers', BLOCKSTORE_DEFAULT_STORAGE_DRIVERS)
+        parser.set('blockstack-client', 'blockchain_headers', SPV_HEADERS_PATH)
+        parser.set('blockstack-client', 'advanced_mode', 'false')
 
         try:
             with open(path, "w") as f:
@@ -292,29 +295,29 @@ def get_config(path=CONFIG_PATH):
         log.exception(e)
         return None
 
-    if parser.has_section("blockstore-client"):
+    if parser.has_section("blockstack-client"):
 
         # blockstored
-        if parser.has_option("blockstore-client", "server"):
-            config['server'] = parser.get("blockstore-client", "server")
+        if parser.has_option("blockstack-client", "server"):
+            config['server'] = parser.get("blockstack-client", "server")
 
-        if parser.has_option("blockstore-client", "port"):
+        if parser.has_option("blockstack-client", "port"):
             try:
-                config['port'] = int(parser.get("blockstore-client", "port"))
+                config['port'] = int(parser.get("blockstack-client", "port"))
             except:
                 log.error("Invalid 'port=' setting.  Please use an integer")
 
-        if parser.has_option("blockstore-client", "storage"):
-            config['storage_drivers'] = parser.get("blockstore-client", "storage")
+        if parser.has_option("blockstack-client", "storage"):
+            config['storage_drivers'] = parser.get("blockstack-client", "storage")
 
-        if parser.has_option("blockstore-client", "metadata"):
-            config['metadata'] = parser.get("blockstore-client", "metadata")
+        if parser.has_option("blockstack-client", "metadata"):
+            config['metadata'] = parser.get("blockstack-client", "metadata")
 
-        if parser.has_option("blockstore-client", "blockchain_headers"):
-            config['blockchain_headers'] = parser.get("blockstore-client", "blockchain_headers")
+        if parser.has_option("blockstack-client", "blockchain_headers"):
+            config['blockchain_headers'] = parser.get("blockstack-client", "blockchain_headers")
 
-        if parser.has_option("blockstore-client", "advanced_mode"):
-            config['advanced_mode'] = parser.get("blockstore-client", "advanced_mode")
+        if parser.has_option("blockstack-client", "advanced_mode"):
+            config['advanced_mode'] = parser.get("blockstack-client", "advanced_mode")
 
     # import bitcoind options
     # commenting out because of virtualchain==0.0.6 config bug
@@ -322,7 +325,7 @@ def get_config(path=CONFIG_PATH):
     #config.update(bitcoind_config)
 
     if not os.path.isdir(config['metadata']):
-        if config['metadata'].startswith(os.path.expanduser("~/.blockstore-client")):
+        if config['metadata'].startswith(os.path.expanduser(CONFIG_DIR_INIT)):
             try:
                 os.makedirs(config['metadata'])
             except:
