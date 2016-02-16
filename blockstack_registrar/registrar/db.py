@@ -23,24 +23,32 @@ This file is part of Registrar.
 
 import os
 import json
+
+from tinydb import TinyDB, Query
+
 from .config import SERVER_MODE
+from .config import LOCAL_DIR, LOCAL_STATE_DB, PEDNING_REQUESTS_DB
 
 
 class TinyDBConvertor(object):
 
-    def __init__(self, collection_name):
+    def __init__(self, collection_name, db_name, db_path=LOCAL_DIR):
 
-        self.local_db = TinyDB(LOCAL_DB_FULLPATH)
+        self.local_db_fullpath = os.path.join(db_path, db_name)
+        self.local_db = TinyDB(self.local_db_fullpath)
         self.collection_name = collection_name
 
     def reload(self):
-        self.local_db = TinyDB(LOCAL_DB_FULLPATH)
+        self.local_db = TinyDB(self.local_db_fullpath)
 
     def find(self):
         self.reload()
 
         query = Query()
-        return self.local_db.search(query.type == self.collection_name)
+        resp = self.local_db.search(query.type == self.collection_name)
+        self.local_db.close()
+
+        return resp
 
     def find_one(self, entry):
         self.reload()
@@ -48,6 +56,8 @@ class TinyDBConvertor(object):
         query = Query()
         resp = self.local_db.search((query.type == self.collection_name) &
                                     (query.fqu == entry['fqu']))
+
+        self.local_db.close()
 
         if len(resp) == 0:
             return None
@@ -58,14 +68,22 @@ class TinyDBConvertor(object):
         self.reload()
 
         new_entry['type'] = self.collection_name
-        self.local_db.insert(new_entry)
+        resp = self.local_db.insert(new_entry)
+        self.local_db.close()
+
+        return resp
 
     def remove(self, entry):
         self.reload()
 
         query = Query()
-        return self.local_db.remove((query.type == self.collection_name) &
+
+        resp = self.local_db.remove((query.type == self.collection_name) &
                                     (query.fqu == entry['fqu']))
+
+        self.local_db.close()
+
+        return resp
 
 if SERVER_MODE:
 
@@ -89,16 +107,14 @@ if SERVER_MODE:
     registrar_addresses = c['migration'].registrar_addresses
 
 else:
-    from tinydb import TinyDB, Query
-
-    from .config import LOCAL_DB_FULLPATH, LOCAL_DIR
 
     if not os.path.exists(LOCAL_DIR):
         os.makedirs(LOCAL_DIR)
 
-    preorder_queue = TinyDBConvertor('preorder')
-    register_queue = TinyDBConvertor('register')
-    update_queue = TinyDBConvertor('update')
-    transfer_queue = TinyDBConvertor('transfer')
+    preorder_queue = TinyDBConvertor('preorder', db_name=LOCAL_STATE_DB)
+    register_queue = TinyDBConvertor('register', db_name=LOCAL_STATE_DB)
+    update_queue = TinyDBConvertor('update', db_name=LOCAL_STATE_DB)
+    transfer_queue = TinyDBConvertor('transfer', db_name=LOCAL_STATE_DB)
 
-    pending_queue = TinyDBConvertor('pending')
+    # use different db for pending_queue because read/write is not thread safe
+    pending_queue = TinyDBConvertor('pending', db_name=PEDNING_REQUESTS_DB)
