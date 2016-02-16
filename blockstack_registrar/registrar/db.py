@@ -22,6 +22,7 @@ This file is part of Registrar.
 """
 
 import os
+import json
 from .config import SERVER_MODE
 
 
@@ -32,22 +33,36 @@ class TinyDBConvertor(object):
         self.local_db = TinyDB(LOCAL_DB_FULLPATH)
         self.collection_name = collection_name
 
+    def reload(self):
+        self.local_db = TinyDB(LOCAL_DB_FULLPATH)
+
     def find(self):
+        self.reload()
 
         query = Query()
         return self.local_db.search(query.type == self.collection_name)
 
     def find_one(self, entry):
+        self.reload()
+
         query = Query()
-        return self.local_db.search((query.type == self.collection_name) &
+        resp = self.local_db.search((query.type == self.collection_name) &
                                     (query.fqu == entry['fqu']))
 
+        if len(resp) == 0:
+            return None
+        else:
+            return resp[0]
+
     def save(self, new_entry):
+        self.reload()
 
         new_entry['type'] = self.collection_name
         self.local_db.insert(new_entry)
 
     def remove(self, entry):
+        self.reload()
+
         query = Query()
         return self.local_db.remove((query.type == self.collection_name) &
                                     (query.fqu == entry['fqu']))
