@@ -65,7 +65,7 @@ class HDWallet(object):
         hex_privkey and get child addresses and private keys
     """
 
-    def __init__(self, hex_privkey=None):
+    def __init__(self, hex_privkey=None, enable_cache=False):
 
         """
             If @hex_privkey is given, use that to derive keychain
@@ -75,23 +75,24 @@ class HDWallet(object):
         if hex_privkey:
             self.priv_keychain = PrivateKeychain.from_private_key(hex_privkey)
         else:
-            log.debug("No privatekey given, starting new wallet")
+            #log.debug("No privatekey given, starting new wallet")
             self.priv_keychain = PrivateKeychain()
 
         self.master_address = self.get_master_address()
         self.child_addresses = None
 
-        cache = self.get_cache()
+        if enable_cache:
+            cache = self.get_cache()
 
-        if cache is not None:
+            if cache is not None:
 
-            if cache['master_address'] == self.master_address:
-                self.child_addresses = cache['child_addresses']
+                if cache['master_address'] == self.master_address:
+                    self.child_addresses = cache['child_addresses']
+                else:
+                    log.debug("Wallet already exists with master address: %s" % cache['master_address'])
             else:
-                log.debug("Cached master_address is different: %s" % cached['master_address'])
-        else:
-            log.debug("Creating cache of HD wallet addresses ...")
-            self.create_addresses_cache()
+                #log.debug("Creating cache of HD wallet addresses ...")
+                self.create_addresses_cache()
 
     def create_addresses_cache(self, count=DEFAULT_CHILD_ADDRESSES):
 
