@@ -43,6 +43,7 @@ from registrar.wallet import HDWallet
 from registrar.crypto.utils import aes_encrypt, aes_decrypt
 from registrar.blockchain import get_balance
 from registrar.network import get_bs_client
+from registrar.rpc_daemon import background_process
 
 from binascii import hexlify
 
@@ -101,11 +102,10 @@ def unlock_wallet(display_enabled=False):
         data = file.read()
         data = json.loads(data)
         hex_privkey = None
-
         try:
             hex_privkey = aes_decrypt(data['encrypted_master_private_key'], hex_password)
         except:
-            print "Incorrect password. Exiting."
+            print "Incorrect password."
         else:
             print "Unlocked wallet."
             wallet = HDWallet(hex_privkey)
@@ -123,13 +123,24 @@ def get_local_proxy():
 
     proxy = xmlrpclib.ServerProxy(RPC_DAEMON)
 
-    data = proxy.ping()
-
-    if 'status' not in data:
+    try:
+        data = proxy.ping()
+    except:
         log.debug('RPC daemon is not online')
         return False
 
     return proxy
+
+
+def start_background_daemons():
+
+    proxy = xmlrpclib.ServerProxy(RPC_DAEMON)
+
+    try:
+        data = proxy.ping()
+    except:
+        background_process('start_daemon')
+        background_process('start_monitor')
 
 
 def save_keys_to_memory(payment_keypair, owner_keypair):
@@ -816,18 +827,21 @@ def run_cli():
 
     proxy = client.session(conf=conf, server_host=blockstore_server, server_port=blockstore_port)
 
+    # start the two background processes (rpc daemon and monitor queue)
+    start_background_daemons()
+
     if args.action == 'server':
         data = {}
 
         if args.server is not None and args.port is not None:
-            config.update_config('blockstore-client', 'server', args.server)
-            config.update_config('blockstore-client', 'port', args.port)
+            config.update_config('blockstack-client', 'server', args.server)
+            config.update_config('blockstack-client', 'port', args.port)
             data["message"] = "Updated server and port"
         elif args.server is not None:
-            config.update_config('blockstore-client', 'server', args.server)
+            config.update_config('blockstack-client', 'server', args.server)
             data["message"] = "Updated server"
         elif args.port is not None:
-            config.update_config('blockstore-client', 'port', args.port)
+            config.update_config('blockstack-client', 'port', args.port)
             data["message"] = "Updated port"
 
         # reload conf
@@ -846,7 +860,7 @@ def run_cli():
             if args.mode != "on" and args.mode != "off":
                 data['error'] = "Valid values are 'on' or 'off'"
             else:
-                config.update_config('blockstore-client', 'advanced_mode', args.mode)
+                config.update_config('blockstack-client', 'advanced_mode', args.mode)
                 data["message"] = "Updated advanced_mode"
 
         # reload conf
@@ -880,42 +894,44 @@ def run_cli():
 
             proxy = get_local_proxy()
 
-            current_state = json.loads(proxy.state())
+            if proxy is not False:
 
-            pending_queue = []
-            preorder_queue = []
-            register_queue = []
-            update_queue = []
-            transfer_queue = []
+              current_state = json.loads(proxy.state())
 
-            for entry in current_state:
+              pending_queue = []
+              preorder_queue = []
+              register_queue = []
+              update_queue = []
+              transfer_queue = []
 
-                if 'type' in entry:
-                    if entry['type'] == 'pending':
-                        pending_queue.append(entry['fqu'])
-                    elif entry['type'] == 'preorder':
-                        preorder_queue.append(entry['fqu'])
-                    elif entry['type'] == 'register':
-                        register_queue.append(entry['fqu'])
-                    elif entry['type'] == 'update':
-                        update_queue.append(entry['fqu'])
-                    elif entry['type'] == 'transfer':
-                        transfer_queue.append(entry['fqu'])
+              for entry in current_state:
 
-            if len(pending_queue) != 0:
-                result['pending_queue'] = pending_queue
+                  if 'type' in entry:
+                      if entry['type'] == 'pending':
+                          pending_queue.append(entry['fqu'])
+                      elif entry['type'] == 'preorder':
+                          preorder_queue.append(entry['fqu'])
+                      elif entry['type'] == 'register':
+                          register_queue.append(entry['fqu'])
+                      elif entry['type'] == 'update':
+                          update_queue.append(entry['fqu'])
+                      elif entry['type'] == 'transfer':
+                          transfer_queue.append(entry['fqu'])
 
-            if len(preorder_queue) != 0:
-                result['preorder_queue'] = preorder_queue
+              if len(pending_queue) != 0:
+                  result['pending_queue'] = pending_queue
 
-            if len(register_queue) != 0:
-                result['register_queue'] = register_queue
+              if len(preorder_queue) != 0:
+                  result['preorder_queue'] = preorder_queue
 
-            if len(update_queue) != 0:
-                result['update_queue'] = update_queue
+              if len(register_queue) != 0:
+                  result['register_queue'] = register_queue
 
-            if len(transfer_queue) != 0:
-                result['transfer_queue'] = transfer_queue
+              if len(update_queue) != 0:
+                  result['update_queue'] = update_queue
+
+              if len(transfer_queue) != 0:
+                  result['transfer_queue'] = transfer_queue
 
     # -----------------------------
     elif args.action == 'ping':
