@@ -104,7 +104,10 @@ DEFAULT_CHILD_ADDRESSES = RATE_LIMIT
 QUEUE_LENGTH_TO_MONITOR = 50
 
 CACHE_FILE = 'child_addresses.json'
+
+# need two separate DBs because rpc daemon and monitor are not thread safe
 LOCAL_STATE_DB = 'local_state.json'
+PEDNING_REQUESTS_DB = 'pending_requests.json'
 
 if SERVER_MODE:
     LOCAL_DIR = os.path.expanduser('~/.registrar')
@@ -112,7 +115,6 @@ else:
     LOCAL_DIR = os.path.expanduser('~/.blockstack')
 
 CACHE_FILE_FULLPATH = os.path.join(LOCAL_DIR, CACHE_FILE)
-LOCAL_DB_FULLPATH = os.path.join(LOCAL_DIR, LOCAL_STATE_DB)
 
 # default settings for bitcoind, can override in config_local
 BITCOIND_SERVER = 'btcd.onename.com'
