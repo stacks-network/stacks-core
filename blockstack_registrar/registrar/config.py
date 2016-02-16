@@ -126,6 +126,8 @@ UTXO_SERVER = BITCOIND_SERVER
 UTXO_USER = BITCOIND_USER
 UTXO_PASSWD = BITCOIND_PASSWD
 
+DHT_IGNORE = []
+
 try:
     from config_local import *
 except Exception as e:
