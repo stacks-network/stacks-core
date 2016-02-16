@@ -26,14 +26,17 @@ This file is part of Registrar.
 import os
 import sys
 import signal
+from time import sleep
 import json
 import xmlrpclib
 
 from SimpleXMLRPCServer import SimpleXMLRPCServer
 from config import REGISTRAR_IP, REGISTRAR_PORT
 
-from .queue import get_queue_state
+from .queue import get_queue_state, alreadyinQueue
 from .queue import add_to_queue, pending_queue
+from .queue import preorder_queue
+from .queue import alreadyProcessing
 
 from .nameops import preorder, register
 from .subsidized_nameops import subsidized_update, subsidized_transfer
@@ -53,10 +56,16 @@ from .config import SLEEP_INTERVAL
 
 FILE_NAME = 'rpc_daemon.py'
 
+server = None
+
 
 class RegistrarRPCServer(SimpleXMLRPCServer):
 
     finished = False
+
+    payment_address = None
+    owner_address = None
+
     payment_privkey = None
     owner_privkey = None
 
@@ -93,46 +102,78 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
         data = get_queue_state()
         return json.dumps(data)
 
-    def wallet(self):
+    def set_wallet(self, payment_keypair, owner_keypair):
         """ Keeps payment privkey in memory (instead of disk)
             for the time that server is alive
         """
+
+        self.payment_address = payment_keypair[0]
+        self.owner_address = owner_keypair[0]
+
+        self.payment_privkey = payment_keypair[1]
+        self.owner_privkey = owner_keypair[1]
+
         data = {}
-        data['payment_privkey'] = self.payment_privkey
-        data['owner_privkey'] = self.owner_privkey
+        data['success'] = True
         return data
 
-    def register(self, fqu, profile, payment_privkey, owner_privkey):
+    def get_wallet(self):
+        """ Keeps payment privkey in memory (instead of disk)
+            for the time that server is alive
+        """
+
+        data = {}
+        data['payment_address'] = self.payment_address
+        data['owner_address'] = self.owner_address
+
+        data['payment_privkey'] = self.payment_privkey
+        data['owner_privkey'] = self.owner_privkey
+        return json.dumps(data)
+
+    def register(self, fqu, profile):
         """ Enter a new registration in queue
             The entered registration is picked up
             by the monitor process.
         """
 
-        self.payment_privkey = payment_privkey
-        self.owner_privkey = owner_privkey
+        data = {}
 
-        payment_address = get_address_from_privkey(payment_privkey)
-        owner_address = get_address_from_privkey(owner_privkey)
+        if self.payment_privkey is None or self.owner_privkey is None:
+            data['success'] = False
+            data['error'] = "Wallet is not unlocked."
+            return data
+
+        if alreadyProcessing(fqu):
+            data['success'] = False
+            data['error'] = "Already in queue."
+            return data
 
         add_to_queue(pending_queue, fqu,
                      profile=profile,
-                     payment_address=payment_address,
-                     owner_address=owner_address)
+                     payment_address=self.payment_address,
+                     owner_address=self.owner_address)
 
-        data = {'success': True}
+        data['success'] = True
+        data['message'] = "Added to registration queue. Takes several hours. You can check status at anytime."
         return data
 
-server = RegistrarRPCServer((REGISTRAR_IP, REGISTRAR_PORT), logRequests=False)
 
-server.register_function(server.ping)
-server.register_function(server.state)
-server.register_function(server.register)
-server.register_function(server.wallet)
-server.register_function(server.shutdown)
+def init_rpc_daemon():
 
-server.register_signal(signal.SIGHUP)
-server.register_signal(signal.SIGINT)
-server.register_signal(signal.SIGTSTP)
+    global server
+
+    server = RegistrarRPCServer((REGISTRAR_IP, REGISTRAR_PORT), logRequests=False)
+
+    server.register_function(server.ping)
+    server.register_function(server.state)
+    server.register_function(server.register)
+    server.register_function(server.get_wallet)
+    server.register_function(server.set_wallet)
+    server.register_function(server.shutdown)
+
+    server.register_signal(signal.SIGHUP)
+    server.register_signal(signal.SIGINT)
+    server.register_signal(signal.SIGTSTP)
 
 
 def start_rpc_daemon():
@@ -144,12 +185,10 @@ def start_rpc_daemon():
 
 
 def process_nameop(fqu, profile, payment_privkey, owner_privkey,
+                   payment_address, owner_address,
                    transfer_address):
     """ Process nameops based on what stage they are in
     """
-
-    payment_address = get_address_from_privkey(payment_privkey)
-    owner_address = get_address_from_privkey(owner_privkey)
 
     if not nameRegistered(fqu):
         if alreadyinQueue(preorder_queue, fqu):
@@ -177,34 +216,40 @@ def start_monitor():
     current_block = get_block_height()
     last_block = current_block - 1
 
-    RPC_DAEMON = 'http://' + REGISTRAR_IP + ':' + REGISTRAR_PORT
-    payment_privkey = None
-    owner_privkey = None
+    RPC_DAEMON = 'http://' + REGISTRAR_IP + ':' + str(REGISTRAR_PORT)
+    wallet_data = None
 
     while(1):
 
         try:
             proxy = xmlrpclib.ServerProxy(RPC_DAEMON)
-            data = proxy.wallet()
-            payment_privkey = data['payment_privkey']
-            owner_privkey = data['owner_privkey']
+            wallet_data = json.loads(proxy.get_wallet())
 
         except:
             # if rpc daemon went offline, break monitoring loop as well
+            print "RPC daemon exited. Exiting."
             break
 
-        if last_block == current_block:
-            sleep(SLEEP_INTERVAL)
-            current_block = get_block_height()
-        else:
+        try:
+            if last_block == current_block:
+                sleep(SLEEP_INTERVAL)
+                current_block = get_block_height()
+            else:
 
-            for entry in pending_queue.find():
-                resp = process_nameop(entry['fqu'], entry['profile'],
-                                      payment_privkey,
-                                      owner_privkey,
-                                      transfer_address=owner_address)
+                for entry in pending_queue.find():
+                    resp = process_nameop(entry['fqu'], entry['profile'],
+                                          wallet_data['payment_privkey'],
+                                          wallet_data['owner_privkey'],
+                                          wallet_data['payment_address'],
+                                          wallet_data['owner_address'],
+                                          entry['transfer_address'])
+                    print resp
 
-            last_block = current_block
+                last_block = current_block
+
+        except KeyboardInterrupt:
+            print "\nExiting."
+            break
 
 if __name__ == '__main__':
 
@@ -215,8 +260,11 @@ if __name__ == '__main__':
     except:
         pass
 
-    if arg == "start":
+    if arg == "start_daemon":
+        init_rpc_daemon()
         start_rpc_daemon()
+    elif arg == "start_monitor":
+        start_monitor()
     else:
         current_dir = os.path.abspath(os.path.dirname(__file__))
         file_path = '"' + current_dir + '/' + FILE_NAME + '"'
