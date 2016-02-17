@@ -194,7 +194,7 @@ class BlockstoreRPCClient(object):
 
 def session(conf=None, server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_PORT,
             storage_drivers=BLOCKSTORE_DEFAULT_STORAGE_DRIVERS,
-            metadata_dir=BLOCKSTORE_METADATA_DIR, spv_headers_path=SPV_HEADERS_PATH, set_global=True):
+            metadata_dir=BLOCKSTORE_METADATA_DIR, spv_headers_path=SPV_HEADERS_PATH, set_global=False):
 
     """
     Create a blockstore session:
@@ -228,7 +228,7 @@ def session(conf=None, server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_P
     # create proxy
     proxy = BlockstoreRPCClient(server_host, server_port)
 
-    if default_proxy is None and set_global:
+    if set_global:
         default_proxy = proxy
 
     # load all storage drivers
@@ -246,7 +246,8 @@ def session(conf=None, server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_P
     # initialize SPV
     #SPVClient.init(spv_headers_path)
     #default_proxy.spv_headers_path = spv_headers_path
-    default_proxy.conf = conf
+    if set_global:
+        default_proxy.conf = conf
 
     return proxy
 
