@@ -97,37 +97,122 @@ $ blockstack config --server=server.blockstack.org --port=6264 --advanced=false
 }
 ```
 
-### Lookup
+### Cost
 
-*Note: formerly lookup and cost*
+```
+$ blockstack cost fredwilson.id
+{
+    "fee": 0.00049,
+    "registration_fee": 0.00025,
+    "transaction_fee": 0.00024
+}
+```
+
+### Whois
+
+```
+$ blockstack whois fredwilson.id
+{
+    "block_preordered_at": 374084,
+    "block_renewed_at": 374084,
+    "owner_address": "1F2nHEDLRJ39XxAvSxwQhJsaVzvS5RHDRM",
+    "owner_public_keys": ["0411d88aa37a0eea476a5b63ca4b1cd392ded830865824c27dacef6bde9f9bc53fa13a0926533ef4d20397207e212c2086cbe13db5470fd29616abd35326d33090"],
+    "owner_script": "76a91499e7f97f5d2c77b4f32b4ed9ae0f0385c45aa5c788ac",
+    "preorder_transaction_id": "2986ec31ec957692d7f5bc58a3b02d2ac2d1a60039e9163365fc954ff51aeb5a",
+    "registered": true
+}
+```
+
+### Lookup
 
 ```
 $ blockstack lookup fredwilson.id
 {
+    "data": {
+        "avatar": {
+            "url": "https://s3.amazonaws.com/kd4/fredwilson1"
+        },
+        "bio": "I am a VC",
+        "bitcoin": {
+            "address": "1Fbi3WDPEK6FxKppCXReCPFTgr9KhWhNB7"
+        },
+        "cover": {
+            "url": "https://s3.amazonaws.com/dx3/fredwilson"
+        },
+        "facebook": {
+            "proof": {
+                "url": "https://facebook.com/fred.wilson.963871/posts/10100401430876108"
+            },
+            "username": "fred.wilson.963871"
+        },
+        "graph": {
+            "url": "https://s3.amazonaws.com/grph/fredwilson"
+        },
+        "location": {
+            "formatted": "New York City"
+        },
+        "name": {
+            "formatted": "Fred Wilson"
+        },
+        "twitter": {
+            "proof": {
+                "url": "https://twitter.com/fredwilson/status/533040726146162689"
+            },
+            "username": "fredwilson"
+        },
+        "v": "0.2",
+        "website": "http://avc.com"
+    }
 }
 ```
 
 ### Register
 
 ```
-$ blockstack register
+$ blockstack register yeezy.id '{"name": "Yeezy"}'
+Registering yeezy.id will cost 0.00424 BTC. Continue? (y/n): y
 {
+    "message": "Name added to registration queue. Processing will take several hours.",
+    "success": true
 }
 ```
 
 ### Transfer
 
 ```
-$ blockstack transfer
+$ blockstack transfer fredwilson.id 1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt
 {
+    "success": true
 }
 ```
 
 ### Update
 
 ```
-$ blockstack update
+$ blockstack update yeezy.id '{"name": "Kanye West"}'
 {
+    "success": true
+}
+```
+
+### Names Owned
+
+```
+$ blockstack names
+{
+    "names_owned": []
+}
+```
+
+### Balance
+
+```
+$ blockstack balance
+{
+    "balance": 0.05,
+    "addresses": [
+      { "address": "1EHgqHVpA1tjn6RhaVj8bx6y5NGvBwoMNS", "balance": 0.05 }
+    ]
 }
 ```
 
