@@ -34,9 +34,9 @@ The client is under heavy development and you might want to install the latest d
 $ sudo pip install git+https://github.com/blockstack/blockstack-client.git@develop
 ```
 
-## Usage 
+## Command Line Usage 
 
-### Getting a List of All Commands
+### Listing All Commands
 
 ```
 $ blockstack
@@ -50,10 +50,10 @@ positional arguments:
     config              change config settings with --server=x --port=y --advanced=true/false
     cost                <name> | get the cost of a name
     import              display the address with which to receive names sent from outside of the client
+    info                check if the server is up and get details about the server
     lookup              <name> | get the data record for a particular name
     names               display the names owned by local addresses
     register            <name> <data> | register a name
-    ping                check if the server is up and get details about the server
     transfer            <name> <address> | transfer a name you own to another address
     update              <name> <data> | update a name record with a certain amount of data
     whois               <name> | get the registration information associated with a name
@@ -62,14 +62,18 @@ optional arguments:
   -h, --help            show this help message and exit
 ```
 
-## Command Line Interface
-
-### Ping (or Status or Details or Info)
+### Info  (or ping or status or details)
 
 *Note: formerly ping, status, server and consensus*
 
 ```
-$ blockstack ping/status/details/info
+$ blockstack info
+```
+
+#### Examples
+
+```
+$ blockstack info
 {
     "alive": true,
     "advanced_mode": false,
@@ -89,13 +93,26 @@ $ blockstack ping/status/details/info
 *Note: formerly server and advanced*
 
 ```
+$ blockstack config <options>
+```
+
+#### Examples
+
+```
 $ blockstack config --server=server.blockstack.org --port=6264 --advanced=false
 {
-    "success": true
+  "message": "Configuration settings updated.",
+  "error": false
 }
 ```
 
 ### Cost
+
+```
+$ blockstack cost <name>
+```
+
+#### Examples
 
 ```
 $ blockstack cost fredwilson.id
@@ -107,6 +124,12 @@ $ blockstack cost fredwilson.id
 ```
 
 ### Whois
+
+```
+$ blockstack whois <name>
+```
+
+#### Examples
 
 ```
 $ blockstack whois fredwilson.id
@@ -121,66 +144,85 @@ $ blockstack whois fredwilson.id
 }
 ```
 
+```
+$ blockstack whois $(whoami)_$RANDOM.id
+{
+  "registered": false
+}
+```
+
 ### Lookup
+
+```
+$ blockstack lookup <name>
+```
+
+#### Examples
 
 ```
 $ blockstack lookup fredwilson.id
 {
-    "data": {
-        "avatar": {
-            "url": "https://s3.amazonaws.com/kd4/fredwilson1"
-        },
-        "bio": "I am a VC",
-        "bitcoin": {
-            "address": "1Fbi3WDPEK6FxKppCXReCPFTgr9KhWhNB7"
-        },
-        "cover": {
-            "url": "https://s3.amazonaws.com/dx3/fredwilson"
-        },
-        "facebook": {
-            "proof": {
-                "url": "https://facebook.com/fred.wilson.963871/posts/10100401430876108"
-            },
-            "username": "fred.wilson.963871"
-        },
-        "graph": {
-            "url": "https://s3.amazonaws.com/grph/fredwilson"
-        },
-        "location": {
-            "formatted": "New York City"
-        },
-        "name": {
-            "formatted": "Fred Wilson"
-        },
-        "twitter": {
-            "proof": {
-                "url": "https://twitter.com/fredwilson/status/533040726146162689"
-            },
-            "username": "fredwilson"
-        },
-        "v": "0.2",
-        "website": "http://avc.com"
-    }
+  "data": {
+    "$origin": "fredwilson.id",
+    "$ttl": "3600",
+    "cname": [{ "name": "@", "alias": "https://zk9.s3.amazonaws.com" }]
+  }
+}
+```
+
+```
+$ blockstack lookup $(whoami)_$RANDOM.id
+{
+  "data": null
 }
 ```
 
 ### Register
 
 ```
-$ blockstack register yeezy.id '{"name": "Yeezy"}'
-Registering yeezy.id will cost 0.00424 BTC. Continue? (y/n): y
+$ blockstack register <name>
+```
+
+#### Example
+
+```
+$ blockstack register $(whoami)_$RANDOM.id '{}'
+Registering ryan_30764.id will cost 0.0003025 BTC. Continue? (y/n): y
 {
-    "message": "Name added to registration queue. Processing will take several hours.",
-    "success": true
+    "message": "Name queued up for registration. Please expect a few hours for this process to be completed.",
+    "error": false
+}
+```
+
+```
+$ blockstack register fredwilson.id '{}'
+{
+  "message": "Name has already been registered.",
+  "error": true
 }
 ```
 
 ### Transfer
 
 ```
+$ blockstack transfer <name> <address>
+```
+
+#### Examples
+
+```
+$ blockstack transfer ryan_30764.id 1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt
+{
+  "message": "Name queued up for transfer.",
+  "error": false
+}
+```
+
+```
 $ blockstack transfer fredwilson.id 1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt
 {
-    "success": true
+  "message": "That name is not in your possession.",
+  "error": true
 }
 ```
 
@@ -189,7 +231,8 @@ $ blockstack transfer fredwilson.id 1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt
 ```
 $ blockstack update yeezy.id '{"name": "Kanye West"}'
 {
-    "success": true
+  "message": "Data record updated.",
+  "error": false
 }
 ```
 
