@@ -186,7 +186,7 @@ $ blockstack register <name>
 #### Example
 
 ```
-$ blockstack register $(whoami)_$RANDOM.id '{}'
+$ blockstack register $(whoami)_$RANDOM.id
 Registering ryan_30764.id will cost 0.0003025 BTC. Continue? (y/n): y
 {
     "message": "Name queued up for registration. Please expect a few hours for this process to be completed.",
@@ -195,9 +195,33 @@ Registering ryan_30764.id will cost 0.0003025 BTC. Continue? (y/n): y
 ```
 
 ```
-$ blockstack register fredwilson.id '{}'
+$ blockstack register fredwilson.id
 {
   "message": "Name has already been registered.",
+  "error": true
+}
+```
+
+### Update
+
+```
+$ blockstack update <name> <data>
+```
+
+#### Examples
+
+```
+$ blockstack update yeezy.id '{"name": "Kanye West"}'
+{
+  "message": "Data record updated.",
+  "error": false
+}
+```
+
+```
+$ blockstack update fredwilson.id '{}'
+{
+  "message": "That name is not in your possession.",
   "error": true
 }
 ```
@@ -226,17 +250,13 @@ $ blockstack transfer fredwilson.id 1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt
 }
 ```
 
-### Update
-
-```
-$ blockstack update yeezy.id '{"name": "Kanye West"}'
-{
-  "message": "Data record updated.",
-  "error": false
-}
-```
-
 ### Names
+
+```
+$ blockstack names
+```
+
+#### Examples
 
 ```
 $ blockstack names
@@ -252,6 +272,12 @@ $ blockstack names
 
 ```
 $ blockstack balance
+```
+
+#### Examples
+
+```
+$ blockstack balance
 {
     "balance": 0.05,
     "addresses": [
@@ -261,6 +287,12 @@ $ blockstack balance
 ```
 
 ### Import
+
+```
+$ blockstack import
+```
+
+#### Examples
 
 ```
 $ blockstack import
