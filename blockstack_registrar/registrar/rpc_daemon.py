@@ -157,6 +157,60 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
         data['message'] = "Added to registration queue. Takes several hours. You can check status at anytime."
         return data
 
+    def update(self, fqu, profile):
+        """ Enter a new update in queue
+            The entered update is picked up
+            by the monitor process.
+        """
+
+        data = {}
+
+        if self.payment_privkey is None or self.owner_privkey is None:
+            data['success'] = False
+            data['error'] = "Wallet is not unlocked."
+            return data
+
+        if alreadyProcessing(fqu):
+            data['success'] = False
+            data['error'] = "Already in queue."
+            return data
+
+        add_to_queue(update_queue, fqu,
+                     profile=profile,
+                     payment_address=self.payment_address,
+                     owner_address=self.owner_address)
+
+        data['success'] = True
+        data['message'] = "Added to update queue. Takes ~1 hour. You can check status at anytime."
+        return data
+
+    def transfer(self, fqu, transfer_address):
+        """ Enter a new transfer in queue
+            The entered transfer is picked up
+            by the monitor process.
+        """
+
+        data = {}
+
+        if self.payment_privkey is None or self.owner_privkey is None:
+            data['success'] = False
+            data['error'] = "Wallet is not unlocked."
+            return data
+
+        if alreadyProcessing(fqu):
+            data['success'] = False
+            data['error'] = "Already in queue."
+            return data
+
+        add_to_queue(transfer_queue, fqu,
+                     transfer_address=transfer_address,
+                     payment_address=self.payment_address,
+                     owner_address=self.owner_address)
+
+        data['success'] = True
+        data['message'] = "Added to transfer queue. Takes ~1 hour. You can check status at anytime."
+        return data
+
 
 def init_rpc_daemon():
 
@@ -167,6 +221,8 @@ def init_rpc_daemon():
     server.register_function(server.ping)
     server.register_function(server.state)
     server.register_function(server.register)
+    server.register_function(server.update)
+    server.register_function(server.transfer)
     server.register_function(server.get_wallet)
     server.register_function(server.set_wallet)
     server.register_function(server.shutdown)
