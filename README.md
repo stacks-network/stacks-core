@@ -41,24 +41,22 @@ $ sudo pip install git+https://github.com/blockstack/blockstack-client.git@devel
 ```
 $ blockstack
 usage: blockstack [-h]
-                  {advanced,consensus,cost,lookup,ping,register,server,status,transfer,update,wallet}
                   ...
 
 Blockstack cli version 0.0.12.2
 
 positional arguments:
-  {advanced,consensus,cost,lookup,ping,register,server,status,transfer,update,wallet}
-    advanced            check advanced mode | turn --mode=off or --mode=on
-    consensus           <block number> | get consensus hash at given block
+    balance             display the wallet balance
+    config              change config settings with --server=x --port=y --advanced=true/false
     cost                <name> | get the cost of a name
-    lookup              <name> | get data record for a particular name
-    ping                check if the blockstack server is up
+    import              display the address with which to receive names sent from outside of the client
+    lookup              <name> | get the data record for a particular name
+    names               display the names owned by local addresses
     register            <name> <data> | register a name
-    server              display server:port | change by --server=x --port=y
-    status              get basic information from the blockstack server
-    transfer            <name> <address> | transfer a name you own
-    update              <name> <data> | update a name record
-    wallet              display wallet information
+    ping                check if the server is up and get details about the server
+    transfer            <name> <address> | transfer a name you own to another address
+    update              <name> <data> | update a name record with a certain amount of data
+    whois               <name> | get the registration information associated with a name
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -195,12 +193,15 @@ $ blockstack update yeezy.id '{"name": "Kanye West"}'
 }
 ```
 
-### Names Owned
+### Names
 
 ```
 $ blockstack names
 {
-    "names_owned": []
+    "names_owned": [],
+    "addresses": [
+      { "address": "1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt", "names": [] }
+    ]
 }
 ```
 
@@ -216,20 +217,13 @@ $ blockstack balance
 }
 ```
 
-### Wallet
+### Import
 
 ```
-$ blockstack wallet
-------------------------------------------------------------
-Payment address:	1EHgqHVpA1tjn6RhaVj8bx6y5NGvBwoMNS
-Owner address:		1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt
-------------------------------------------------------------
-Balance:
-1EHgqHVpA1tjn6RhaVj8bx6y5NGvBwoMNS: 0.05
-------------------------------------------------------------
-Names Owned:
-1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt: []
-------------------------------------------------------------
+$ blockstack import
+{
+    "address": "1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt"
+}
 ```
 
 ## Client Library
