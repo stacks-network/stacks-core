@@ -27,6 +27,7 @@ import json
 import traceback
 import os
 import pybitcoin
+import socket
 
 import requests
 requests.packages.urllib3.disable_warnings()
@@ -196,7 +197,12 @@ def display_wallet_info(payment_address, owner_address):
 
     bs_client = get_bs_client()
     print "Names Owned:"
-    print "%s: %s" % (owner_address, bs_client.get_names_owned_by_address(owner_address))
+
+    try:
+      names_owned = bs_client.get_names_owned_by_address(owner_address)
+    except socket.gaierror:
+      names_owned = "Error connecting to blockstack-server"
+    print "%s: %s" % (owner_address, names_owned)
     print '-' * 60
 
 
@@ -1211,7 +1217,13 @@ def run_cli():
 
     elif args.action == 'lookup':
         data = {}
-        data['blockchain_record'] = client.get_name_blockchain_record(str(args.name))
+
+        try:
+          data['blockchain_record'] = client.get_name_blockchain_record(str(args.name))
+        except socket.gaierror:
+          result['error'] = "Error connecting to server"
+          print_result(result)
+          exit(0)
 
         try:
             data_id = data['blockchain_record']['value_hash']
@@ -1228,7 +1240,13 @@ def run_cli():
         result = client.get_name_record( str(args.name) )
 
     elif args.action == 'cost':
-        resp = client.get_name_cost(str(args.name))
+
+        try:
+          resp = client.get_name_cost(str(args.name))
+        except socket.gaierror:
+          result['error'] = "Error connecting to server"
+          print_result(result)
+          exit(0)
 
         data = get_total_fees(resp)
 
@@ -1268,17 +1286,14 @@ def run_cli():
 
         if args.block_height is None:
             # by default get last indexed block
-            try:
-              resp = client.getinfo()
+            resp = client.getinfo()
 
-              if 'error' in resp:
-                result['error'] = "Server is indexing. Try again."
-                exit(0)
-            except:
-                result['error'] = "Error connecting to server."
+            if 'error' in resp:
+                result['error'] = "Error connecting to server"
+                print_result(result)
                 exit(0)
 
-            if 'last_block' in resp or 'blocks' in resp:
+            elif 'last_block' in resp or 'blocks' in resp:
 
               if 'last_block' in resp:
                 args.block_height = client.getinfo()['last_block']
