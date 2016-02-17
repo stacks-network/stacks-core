@@ -860,7 +860,8 @@ def run_cli():
     blockstore_server = conf['server']
     blockstore_port = conf['port']
 
-    proxy = client.session(conf=conf, server_host=blockstore_server, server_port=blockstore_port)
+    proxy = client.session(conf=conf, server_host=blockstore_server,
+                           server_port=blockstore_port, set_global=True)
 
     # start the two background processes (rpc daemon and monitor queue)
     start_background_daemons()
