@@ -70,7 +70,7 @@ optional arguments:
 $ blockstack info
 ```
 
-#### Examples
+##### Examples
 
 ```
 $ blockstack info
@@ -96,7 +96,7 @@ $ blockstack info
 $ blockstack config <options>
 ```
 
-#### Examples
+##### Examples
 
 ```
 $ blockstack config --server=server.blockstack.org --port=6264 --advanced=false
@@ -106,19 +106,19 @@ $ blockstack config --server=server.blockstack.org --port=6264 --advanced=false
 }
 ```
 
-### Cost
+### Fee
 
 ```
 $ blockstack cost <name>
 ```
 
-#### Examples
+##### Examples
 
 ```
-$ blockstack cost fredwilson.id
+$ blockstack fee $(whoami).id
 {
-    "fee": 0.00049,
-    "registration_fee": 0.00025,
+    "fee": 0.01624,
+    "registration_fee": 0.016,
     "transaction_fee": 0.00024
 }
 ```
@@ -129,7 +129,7 @@ $ blockstack cost fredwilson.id
 $ blockstack whois <name>
 ```
 
-#### Examples
+##### Examples
 
 ```
 $ blockstack whois fredwilson.id
@@ -157,7 +157,7 @@ $ blockstack whois $(whoami)_$(date +"%m_%d").id
 $ blockstack lookup <name>
 ```
 
-#### Examples
+##### Examples
 
 ```
 $ blockstack lookup fredwilson.id
@@ -183,7 +183,7 @@ $ blockstack lookup $(whoami)_$(date +"%m_%d").id
 $ blockstack register <name>
 ```
 
-#### Example
+##### Example
 
 ```
 $ blockstack register $(whoami)_$(date +"%m_%d").id
@@ -208,7 +208,7 @@ $ blockstack register fredwilson.id
 $ blockstack update <name> <data>
 ```
 
-#### Examples
+##### Examples
 
 ```
 $ blockstack update $(whoami)_$(date +"%m_%d").id '{"cname": [{ "name": "@", "alias": "https://zk9.s3.amazonaws.com" }]}'
@@ -232,7 +232,7 @@ $ blockstack update fredwilson.id '{}'
 $ blockstack transfer <name> <address>
 ```
 
-#### Examples
+##### Examples
 
 ```
 $ blockstack transfer $(whoami)_$(date +"%m_%d").id 1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt
@@ -256,7 +256,7 @@ $ blockstack transfer fredwilson.id 1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt
 $ blockstack names
 ```
 
-#### Examples
+##### Examples
 
 ```
 $ blockstack names
@@ -274,7 +274,7 @@ $ blockstack names
 $ blockstack balance
 ```
 
-#### Examples
+##### Examples
 
 ```
 $ blockstack balance
@@ -292,7 +292,7 @@ $ blockstack balance
 $ blockstack import
 ```
 
-#### Examples
+##### Examples
 
 ```
 $ blockstack import
