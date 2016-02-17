@@ -44,7 +44,7 @@ DEFAULT_DHT_SERVERS = [('dht.blockstack.org', DHT_SERVER_PORT),
                        ('dht.halfmoonlabs.com', DHT_SERVER_PORT),
                        ('127.0.0.1', DHT_SERVER_PORT)]
 
-DEFAULT_MIRROR = 'dht.blockstack.org'
+DEFAULT_MIRROR = 'mirror.blockstack.org'
 
 # 3 years
 STORAGE_TTL = 3 * 60 * 60 * 24 * 365
