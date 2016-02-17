@@ -52,6 +52,8 @@ from registrar.blockchain import get_balance
 from registrar.network import get_bs_client
 from registrar.rpc_daemon import background_process
 from registrar.utils import satoshis_to_btc
+from registrar.states import nameRegistered, ownerName
+from registrar.blockchain import recipientNotReady
 
 from binascii import hexlify
 
@@ -62,6 +64,8 @@ from registrar.config import REGISTRAR_IP, REGISTRAR_PORT
 RPC_DAEMON = 'http://' + REGISTRAR_IP + ':' + str(REGISTRAR_PORT)
 
 log = config.log
+
+wallet_unlocked = False
 
 
 def initialize_wallet():
@@ -102,6 +106,8 @@ def initialize_wallet():
 
 def unlock_wallet(display_enabled=False):
 
+    global wallet_unlocked
+
     try:
         password = raw_input("Enter wallet password: ")
         hex_password = hexlify(password)
@@ -121,6 +127,7 @@ def unlock_wallet(display_enabled=False):
             payment_keypair = child[0]
             owner_keypair = child[1]
             save_keys_to_memory(payment_keypair, owner_keypair)
+            wallet_unlocked = True
             if display_enabled:
                 display_wallet_info(payment_keypair[0], owner_keypair[0])
     except KeyboardInterrupt:
@@ -154,7 +161,23 @@ def start_background_daemons():
 def save_keys_to_memory(payment_keypair, owner_keypair):
 
     proxy = get_local_proxy()
+
+    if proxy is False:
+        exit_with_error('Error talking to local proxy')
+
     data = proxy.set_wallet(payment_keypair, owner_keypair)
+
+
+def get_addresses_from_memory():
+
+    proxy = get_local_proxy()
+
+    if proxy is False:
+        exit_with_error('Error talking to local proxy')
+
+    data = json.loads(proxy.get_wallet())
+
+    return data['payment_address'], data['owner_address']
 
 
 def approx_tx_fees(num_tx):
@@ -183,6 +206,13 @@ def get_total_fees(data):
     reply['details'] = details
 
     return reply
+
+
+def exit_with_error(error_message):
+
+    result = {'error': error_message}
+    print_result(result)
+    exit(0)
 
 
 def display_wallet_info(payment_address, owner_address):
@@ -1049,14 +1079,24 @@ def run_cli():
 
     elif args.action == 'update':
 
-        txid = None
-        if args.txid is not None:
-            txid = str(args.txid)
+        fqu = str(args.name)
 
-        result = client.update(str(args.name),
-                               str(args.record_json),
-                               str(args.privatekey),
-                               txid=txid)
+        user_data = str(args.data)
+        try:
+            user_data = json.loads(user_data)
+        except:
+            exit_with_error("data is not in JSON format")
+
+        if not nameRegistered(fqu):
+            exit_with_error("%s is not registered yet" % fqu)
+
+        payment_address, owner_address = get_addresses_from_memory()
+
+        if not ownerName(fqu, owner_address):
+            exit_with_error("%s not owned by %s" % (fqu, owner_address))
+
+        proxy = get_local_proxy()
+        result = proxy.update(fqu, user_data)
 
     elif args.action == 'update_tx':
 
@@ -1082,18 +1122,23 @@ def run_cli():
                                           txid=txid)
 
     elif args.action == 'transfer':
-        keepdata = False
-        if args.keepdata.lower() not in ["on", "false"]:
-            print >> sys.stderr, "Pass 'true' or 'false' for keepdata"
-            sys.exit(1)
 
-        if args.keepdata.lower() == "on":
-            keepdata = True
+        fqu = str(args.name)
+        transfer_address = str(args.address)
 
-        result = client.transfer(str(args.name),
-                                 str(args.address),
-                                 keepdata,
-                                 str(args.privatekey))
+        if not nameRegistered(fqu):
+            exit_with_error("%s is not registered yet" % fqu)
+
+        payment_address, owner_address = get_addresses_from_memory()
+
+        if not ownerName(fqu, owner_address):
+            exit_with_error("%s not owned by %s" % (fqu, payment_address))
+
+        if recipientNotReady(transfer_address):
+            exit_with_error("Address %s owns too many names already." % transfer_address)
+
+        proxy = get_local_proxy()
+        result = proxy.transfer(fqu, transfer_address)
 
     elif args.action == 'transfer_tx':
         keepdata = False
@@ -1221,9 +1266,7 @@ def run_cli():
         try:
           data['blockchain_record'] = client.get_name_blockchain_record(str(args.name))
         except socket_error:
-          result['error'] = "Error connecting to server"
-          print_result(result)
-          exit(0)
+          exit_with_error("Error connecting to server")
 
         try:
             data_id = data['blockchain_record']['value_hash']
@@ -1244,9 +1287,7 @@ def run_cli():
         try:
           resp = client.get_name_cost(str(args.name))
         except socket_error:
-          result['error'] = "Error connecting to server"
-          print_result(result)
-          exit(0)
+          exit_with_error("Error connecting to server")
 
         data = get_total_fees(resp)
 
@@ -1289,19 +1330,17 @@ def run_cli():
             resp = client.getinfo()
 
             if 'error' in resp:
-                result['error'] = "Error connecting to server"
-                print_result(result)
-                exit(0)
+                exit_with_error("Error connecting to server")
 
             elif 'last_block' in resp or 'blocks' in resp:
 
-              if 'last_block' in resp:
-                args.block_height = client.getinfo()['last_block']
-              elif 'blocks' in resp:
-                args.block_height = client.getinfo()['blocks']
-              else:
-                result['error'] = "Server is indexing. Try again"
-                exit(0)
+                if 'last_block' in resp:
+                    args.block_height = client.getinfo()['last_block']
+                elif 'blocks' in resp:
+                    args.block_height = client.getinfo()['blocks']
+                else:
+                    result['error'] = "Server is indexing. Try again"
+                    exit(0)
 
         resp = client.get_consensus_at( int(args.block_height) )
 
