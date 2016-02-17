@@ -145,7 +145,7 @@ $ blockstack whois fredwilson.id
 ```
 
 ```
-$ blockstack whois $(whoami)_$RANDOM.id
+$ blockstack whois $(whoami)_$(date +"%m_%d").id
 {
   "registered": false
 }
@@ -171,7 +171,7 @@ $ blockstack lookup fredwilson.id
 ```
 
 ```
-$ blockstack lookup $(whoami)_$RANDOM.id
+$ blockstack lookup $(whoami)_$(date +"%m_%d").id
 {
   "data": null
 }
@@ -186,8 +186,8 @@ $ blockstack register <name>
 #### Example
 
 ```
-$ blockstack register $(whoami)_$RANDOM.id
-Registering ryan_30764.id will cost 0.0003025 BTC. Continue? (y/n): y
+$ blockstack register $(whoami)_$(date +"%m_%d").id
+Registering ryan_02_17.id will cost 0.0003025 BTC. Continue? (y/n): y
 {
     "message": "Name queued up for registration. Please expect a few hours for this process to be completed.",
     "error": false
@@ -211,7 +211,7 @@ $ blockstack update <name> <data>
 #### Examples
 
 ```
-$ blockstack update yeezy.id '{"name": "Kanye West"}'
+$ blockstack update $(whoami)_$(date +"%m_%d").id '{"cname": [{ "name": "@", "alias": "https://zk9.s3.amazonaws.com" }]}'
 {
   "message": "Data record updated.",
   "error": false
@@ -235,7 +235,7 @@ $ blockstack transfer <name> <address>
 #### Examples
 
 ```
-$ blockstack transfer ryan_30764.id 1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt
+$ blockstack transfer $(whoami)_$(date +"%m_%d").id 1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt
 {
   "message": "Name queued up for transfer.",
   "error": false
