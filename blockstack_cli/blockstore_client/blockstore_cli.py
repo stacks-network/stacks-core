@@ -27,7 +27,7 @@ import json
 import traceback
 import os
 import pybitcoin
-import socket
+from socket import error as socket_error
 
 import requests
 requests.packages.urllib3.disable_warnings()
@@ -200,7 +200,7 @@ def display_wallet_info(payment_address, owner_address):
 
     try:
       names_owned = bs_client.get_names_owned_by_address(owner_address)
-    except socket.gaierror:
+    except socket_error:
       names_owned = "Error connecting to blockstack-server"
     print "%s: %s" % (owner_address, names_owned)
     print '-' * 60
@@ -1220,7 +1220,7 @@ def run_cli():
 
         try:
           data['blockchain_record'] = client.get_name_blockchain_record(str(args.name))
-        except socket.gaierror:
+        except socket_error:
           result['error'] = "Error connecting to server"
           print_result(result)
           exit(0)
@@ -1243,7 +1243,7 @@ def run_cli():
 
         try:
           resp = client.get_name_cost(str(args.name))
-        except socket.gaierror:
+        except socket_error:
           result['error'] = "Error connecting to server"
           print_result(result)
           exit(0)
