@@ -26,9 +26,15 @@ $ sudo pip install blockstack
 
 #### Latest version
 
-The client is under heavy development and you might want to install the latest version:
+The client is under heavy development and you might want to install the latest version.
+The latest version can have bug fixes for any issue you're experience. Anyone
+helping with testing and development should also use the latest version:
 
-> pip install git+https://github.com/blockstack/blockstack-client.git@develop
+```
+$ pip install git+https://github.com/blockstack/registrar.git@develop --upgrade
+$ pip install git+https://github.com/blockstack/blockstack-client.git@develop --upgrade
+
+```
 
 ## Usage 
 
