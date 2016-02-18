@@ -424,7 +424,8 @@ def run_cli():
         if args.address is not None:
             register_addr = str(args.address)
 
-        result = client.preorder(str(args.name), str(args.privatekey), register_addr=register_addr )
+        result = client.preorder(str(args.name), str(args.privatekey),
+                                 register_addr=register_addr)
 
     elif args.action == 'preorder_tx':
 
@@ -432,11 +433,15 @@ def run_cli():
         if args.address is not None:
             register_addr = str(args.address)
 
-        result = client.preorder(str(args.name), str(args.privatekey), register_addr=register_addr, tx_only=True )
+        result = client.preorder(str(args.name), str(args.privatekey),
+                                 register_addr=register_addr, tx_only=True)
 
     elif args.action == 'preorder_subsidized':
 
-        result = client.preorder_subsidized( str(args.name), str(args.public_key), str(args.address), str(args.subsidy_key) )
+        result = client.preorder_subsidized(str(args.name),
+                                            str(args.public_key),
+                                            str(args.address),
+                                            str(args.subsidy_key))
 
     elif args.action == 'register':
         result = {}
@@ -623,7 +628,7 @@ def run_cli():
 
         lifetime = int(args.lifetime)
         if lifetime < 0:
-            lifetime = 0xffffffff       # means "infinite" to blockstore
+            lifetime = 0xffffffff       # means "infinite" to blockstack-server
 
         result = client.namespace_reveal(str(args.namespace_id),
                                          str(args.addr),
@@ -673,9 +678,9 @@ def run_cli():
         data = {}
 
         try:
-          data['blockchain_record'] = client.get_name_blockchain_record(str(args.name))
+            data['blockchain_record'] = client.get_name_blockchain_record(str(args.name))
         except socket_error:
-          exit_with_error("Error connecting to server")
+            exit_with_error("Error connecting to server")
 
         try:
             data_id = data['blockchain_record']['value_hash']
@@ -689,14 +694,19 @@ def run_cli():
         result = client.lookup_snv(str(args.name), int(args.block_id), str(args.consensus_hash) )
 
     elif args.action == 'get_name_record':
-        result = client.get_name_record( str(args.name) )
+        result = client.get_name_record(str(args.name))
 
     elif args.action == 'cost':
 
+        fqu = str(args.name)
+
         try:
-          resp = client.get_name_cost(str(args.name))
+            resp = client.get_name_cost(fqu)
         except socket_error:
-          exit_with_error("Error connecting to server")
+            exit_with_error("Error connecting to server")
+
+        if 'satoshis' not in resp:
+            exit_with_error("%s is not a valid name" % fqu)
 
         data = get_total_fees(resp)
 
