@@ -210,9 +210,12 @@ def get_total_fees(data):
     return reply
 
 
-def exit_with_error(error_message):
+def exit_with_error(error_message, help_message=None):
 
     result = {'error': error_message}
+
+    if help_message is not None:
+        result['help'] = help_message
     print_result(result)
     exit(0)
 
