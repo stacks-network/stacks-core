@@ -52,6 +52,7 @@ positional arguments:
     balance             display the wallet balance
     config              change config settings with --server=x --port=y --advanced=true/false
     cost                <name> | get the cost of a name
+    deposit             display the address with with to receive bitcoins
     import              display the address with which to receive names sent from outside of the client
     info                check if the server is up and get details about the server
     lookup              <name> | get the data record for a particular name
@@ -109,7 +110,7 @@ $ blockstack config --server=server.blockstack.org --port=6264 --advanced=false
 }
 ```
 
-### Fee
+### Cost
 
 ```
 $ blockstack cost <name>
@@ -118,7 +119,7 @@ $ blockstack cost <name>
 ##### Examples
 
 ```
-$ blockstack fee $(whoami).id
+$ blockstack cost $(whoami).id
 {
     "fee": 0.01624,
     "registration_fee": 0.016,
@@ -253,24 +254,6 @@ $ blockstack transfer fredwilson.id 1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt
 }
 ```
 
-### Names
-
-```
-$ blockstack names
-```
-
-##### Examples
-
-```
-$ blockstack names
-{
-    "names_owned": [],
-    "addresses": [
-      { "address": "1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt", "names": [] }
-    ]
-}
-```
-
 ### Balance
 
 ```
@@ -289,6 +272,40 @@ $ blockstack balance
 }
 ```
 
+### Names
+
+```
+$ blockstack names
+```
+
+##### Examples
+
+```
+$ blockstack names
+{
+    "names_owned": [],
+    "addresses": [
+      { "address": "1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt", "names": [] }
+    ]
+}
+```
+
+### Deposit
+
+```
+$ blockstack deposit
+```
+
+##### Examples
+
+```
+$ blockstack deposit
+{
+    "message": "Send bitcoins to the address specified.",
+    "address": "1EHgqHVpA1tjn6RhaVj8bx6y5NGvBwoMNS",
+}
+```
+
 ### Import
 
 ```
@@ -300,6 +317,7 @@ $ blockstack import
 ```
 $ blockstack import
 {
+    "message": "Send the name you want to receive to the address specified.",
     "address": "1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt"
 }
 ```
