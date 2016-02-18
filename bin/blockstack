@@ -30,8 +30,15 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
-from blockstore_client.blockstore_cli import run_cli
+from blockstore_client.blockstore_cli import run_cli, exit_with_error
 
 if __name__ == '__main__':
 
-    run_cli()
+    try:
+        run_cli()
+    except Exception as e:
+        error_message = "Unexpected error: %s" % e
+        help_message = 'Try getting latest version of CLI'
+        help_message += ' with sudo pip install blockstack --upgrade'
+
+        exit_with_error(error_message, help_message)
