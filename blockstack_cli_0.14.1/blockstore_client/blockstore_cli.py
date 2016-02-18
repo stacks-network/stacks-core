@@ -234,9 +234,9 @@ def display_wallet_info(payment_address, owner_address):
     print "Names Owned:"
 
     try:
-      names_owned = bs_client.get_names_owned_by_address(owner_address)
+        names_owned = bs_client.get_names_owned_by_address(owner_address)
     except socket_error:
-      names_owned = "Error connecting to blockstack-server"
+        names_owned = "Error connecting to blockstack-server"
     print "%s: %s" % (owner_address, names_owned)
     print '-' * 60
 
@@ -364,9 +364,9 @@ def run_cli():
             result['server_version'] = resp['blockstore_version']
             result['cli_version'] = config.VERSION
             try:
-              result['last_block_processed'] = resp['last_block']
+                result['last_block_processed'] = resp['last_block']
             except:
-              result['last_block_processed'] = resp['blocks']
+                result['last_block_processed'] = resp['blocks']
             result['last_block_seen'] = resp['bitcoind_blocks']
             result['consensus_hash'] = resp['consensus']
 
@@ -377,71 +377,70 @@ def run_cli():
 
             if proxy is not False:
 
-              current_state = json.loads(proxy.state())
+                current_state = json.loads(proxy.state())
 
-              pending_queue = []
-              preorder_queue = []
-              register_queue = []
-              update_queue = []
-              transfer_queue = []
+                pending_queue = []
+                preorder_queue = []
+                register_queue = []
+                update_queue = []
+                transfer_queue = []
 
-              for entry in current_state:
+                for entry in current_state:
 
-                  if 'type' in entry:
-                      if entry['type'] == 'pending':
-                          pending_queue.append(entry['fqu'])
-                      elif entry['type'] == 'preorder':
-                          preorder_queue.append(entry['fqu'])
-                      elif entry['type'] == 'register':
-                          register_queue.append(entry['fqu'])
-                      elif entry['type'] == 'update':
-                          update_queue.append(entry['fqu'])
-                      elif entry['type'] == 'transfer':
-                          transfer_queue.append(entry['fqu'])
+                    if 'type' in entry:
+                        if entry['type'] == 'pending':
+                            pending_queue.append(entry['fqu'])
+                        elif entry['type'] == 'preorder':
+                            preorder_queue.append(entry['fqu'])
+                        elif entry['type'] == 'register':
+                            register_queue.append(entry['fqu'])
+                        elif entry['type'] == 'update':
+                            update_queue.append(entry['fqu'])
+                        elif entry['type'] == 'transfer':
+                            transfer_queue.append(entry['fqu'])
 
-              if len(pending_queue) != 0:
-                  result['pending_queue'] = pending_queue
+                if len(pending_queue) != 0:
+                    result['pending_queue'] = pending_queue
 
-              if len(preorder_queue) != 0:
-                  result['preorder_queue'] = preorder_queue
+                if len(preorder_queue) != 0:
+                    result['preorder_queue'] = preorder_queue
 
-              if len(register_queue) != 0:
-                  result['register_queue'] = register_queue
+                if len(register_queue) != 0:
+                    result['register_queue'] = register_queue
 
-              if len(update_queue) != 0:
-                  result['update_queue'] = update_queue
+                if len(update_queue) != 0:
+                    result['update_queue'] = update_queue
 
-              if len(transfer_queue) != 0:
-                  result['transfer_queue'] = transfer_queue
+                if len(transfer_queue) != 0:
+                    result['transfer_queue'] = transfer_queue
 
-    # -----------------------------
     elif args.action == 'ping':
         result = client.ping()
 
-    elif args.action == 'preorder':
+    elif args.action == 'wallet':
 
-        register_addr = None
-        if args.address is not None:
-            register_addr = str(args.address)
+        if not os.path.exists(WALLET_PATH):
+            result = initialize_wallet()
+        else:
+            unlock_wallet(display_enabled=True)
 
-        result = client.preorder(str(args.name), str(args.privatekey),
-                                 register_addr=register_addr)
+    elif args.action == 'lookup':
+        data = {}
 
-    elif args.action == 'preorder_tx':
+        try:
+            data['blockchain_record'] = client.get_name_blockchain_record(
+                                        str(args.name))
+        except socket_error:
+            exit_with_error("Error connecting to server")
 
-        register_addr = None
-        if args.address is not None:
-            register_addr = str(args.address)
+        try:
+            data_id = data['blockchain_record']['value_hash']
+            data['data_record'] = json.loads(
+                client.get_immutable(str(args.name), data_id)['data'])
+        except:
+            data['data_record'] = None
 
-        result = client.preorder(str(args.name), str(args.privatekey),
-                                 register_addr=register_addr, tx_only=True)
-
-    elif args.action == 'preorder_subsidized':
-
-        result = client.preorder_subsidized(str(args.name),
-                                            str(args.public_key),
-                                            str(args.address),
-                                            str(args.subsidy_key))
+        result = data
 
     elif args.action == 'register':
         result = {}
@@ -485,12 +484,6 @@ def run_cli():
         proxy = get_local_proxy()
         result = proxy.register(fqu, user_data)
 
-    elif args.action == 'register_tx':
-        result = client.register(str(args.name), str(args.privatekey), str(args.addr), tx_only=True )
-
-    elif args.action == 'register_subsidized':
-        result = client.register_subsidized(str(args.name), str(args.privatekey), str(args.addr), str(args.subsidy_key) )
-
     elif args.action == 'update':
 
         fqu = str(args.name)
@@ -511,6 +504,62 @@ def run_cli():
 
         proxy = get_local_proxy()
         result = proxy.update(fqu, user_data)
+
+    elif args.action == 'transfer':
+
+        fqu = str(args.name)
+        transfer_address = str(args.address)
+
+        if not nameRegistered(fqu):
+            exit_with_error("%s is not registered yet" % fqu)
+
+        payment_address, owner_address = get_addresses_from_memory()
+
+        if not ownerName(fqu, owner_address):
+            exit_with_error("%s not owned by %s" % (fqu, payment_address))
+
+        if recipientNotReady(transfer_address):
+            error = "Address %s owns too many names already." % transfer_address
+            exit_with_error(error)
+
+        proxy = get_local_proxy()
+        result = proxy.transfer(fqu, transfer_address)
+
+    elif args.action == 'consensus':
+
+        if args.block_height is None:
+            # by default get last indexed block
+            resp = client.getinfo()
+
+            if 'error' in resp:
+                exit_with_error("Error connecting to server")
+
+            elif 'last_block' in resp or 'blocks' in resp:
+
+                if 'last_block' in resp:
+                    args.block_height = client.getinfo()['last_block']
+                elif 'blocks' in resp:
+                    args.block_height = client.getinfo()['blocks']
+                else:
+                    result['error'] = "Server is indexing. Try again"
+                    exit(0)
+
+        resp = client.get_consensus_at(int(args.block_height))
+
+        data = {}
+        data['consensus'] = resp
+        data['block_height'] = args.block_height
+
+        result = data
+
+    # ---------------------- Advanced options ---------------------------------
+    elif args.action == 'register_tx':
+        result = client.register(str(args.name), str(args.privatekey),
+                                 str(args.addr), tx_only=True)
+
+    elif args.action == 'register_subsidized':
+        result = client.register_subsidized(str(args.name), str(args.privatekey),
+                                            str(args.addr), str(args.subsidy_key))
 
     elif args.action == 'update_tx':
 
@@ -535,25 +584,6 @@ def run_cli():
                                           str(args.subsidy_key),
                                           txid=txid)
 
-    elif args.action == 'transfer':
-
-        fqu = str(args.name)
-        transfer_address = str(args.address)
-
-        if not nameRegistered(fqu):
-            exit_with_error("%s is not registered yet" % fqu)
-
-        payment_address, owner_address = get_addresses_from_memory()
-
-        if not ownerName(fqu, owner_address):
-            exit_with_error("%s not owned by %s" % (fqu, payment_address))
-
-        if recipientNotReady(transfer_address):
-            exit_with_error("Address %s owns too many names already." % transfer_address)
-
-        proxy = get_local_proxy()
-        result = proxy.transfer(fqu, transfer_address)
-
     elif args.action == 'transfer_tx':
         keepdata = False
         if args.keepdata.lower() not in ["on", "false"]:
@@ -568,6 +598,31 @@ def run_cli():
                                  keepdata,
                                  str(args.privatekey),
                                  tx_only=True)
+
+    elif args.action == 'preorder':
+
+        register_addr = None
+        if args.address is not None:
+            register_addr = str(args.address)
+
+        result = client.preorder(str(args.name), str(args.privatekey),
+                                 register_addr=register_addr)
+
+    elif args.action == 'preorder_tx':
+
+        register_addr = None
+        if args.address is not None:
+            register_addr = str(args.address)
+
+        result = client.preorder(str(args.name), str(args.privatekey),
+                                 register_addr=register_addr, tx_only=True)
+
+    elif args.action == 'preorder_subsidized':
+
+        result = client.preorder_subsidized(str(args.name),
+                                            str(args.public_key),
+                                            str(args.address),
+                                            str(args.subsidy_key))
 
     elif args.action == 'transfer_subsidized':
         keepdata = False
@@ -588,22 +643,27 @@ def run_cli():
         result = client.renew(str(args.name), str(args.privatekey))
 
     elif args.action == 'renew_tx':
-        result = client.renew(str(args.name), str(args.privatekey), tx_only=True)
+        result = client.renew(str(args.name), str(args.privatekey),
+                              tx_only=True)
 
     elif args.action == 'renew_subsidized':
-        result = client.renew_subsidized(str(args.name), str(args.public_key), str(args.subsidy_key))
+        result = client.renew_subsidized(str(args.name), str(args.public_key),
+                                         str(args.subsidy_key))
 
     elif args.action == 'revoke':
         result = client.revoke(str(args.name), str(args.privatekey))
 
     elif args.action == 'revoke_tx':
-        result = client.revoke(str(args.name), str(args.privatekey), tx_only=True)
+        result = client.revoke(str(args.name), str(args.privatekey),
+                               tx_only=True)
 
     elif args.action == 'revoke_subsidized':
-        result = client.revoke_subsidized(str(args.name), str(args.public_key), str(args.subsidy_key))
+        result = client.revoke_subsidized(str(args.name), str(args.public_key),
+                                          str(args.subsidy_key))
 
     elif args.action == 'name_import':
-        result = client.name_import(str(args.name), str(args.address), str(args.hash), str(args.privatekey))
+        result = client.name_import(str(args.name), str(args.address),
+                                    str(args.hash), str(args.privatekey))
 
     elif args.action == 'namespace_preorder':
 
@@ -618,13 +678,15 @@ def run_cli():
     elif args.action == 'namespace_reveal':
         bucket_exponents = args.bucket_exponents.split(',')
         if len(bucket_exponents) != 16:
-            raise Exception("bucket_exponents must be a 16-value CSV of integers")
+            raise Exception("bucket_exponents must be a 16-value CSV \
+                             of integers")
 
         for i in xrange(0, len(bucket_exponents)):
             try:
                 bucket_exponents[i] = int(bucket_exponents[i])
             except:
-                raise Exception("bucket_exponents must contain integers in range [0, 16)")
+                raise Exception("bucket_exponents must contain integers in \
+                                range [0, 16)")
 
         lifetime = int(args.lifetime)
         if lifetime < 0:
@@ -657,16 +719,19 @@ def run_cli():
                                       conf=conf)
 
     elif args.action == 'get_mutable':
-        result = client.get_mutable(str(args.name), str(args.data_id), conf=conf)
+        result = client.get_mutable(str(args.name), str(args.data_id),
+                                    conf=conf)
 
     elif args.action == 'get_immutable':
         result = client.get_immutable(str(args.name), str(args.hash))
 
     elif args.action == 'delete_immutable':
-        result = client.delete_immutable(str(args.name), str(args.hash), str(args.privatekey))
+        result = client.delete_immutable(str(args.name), str(args.hash),
+                                         str(args.privatekey))
 
     elif args.action == 'delete_mutable':
-        result = client.delete_mutable(str(args.name), str(args.data_id), str(args.privatekey))
+        result = client.delete_mutable(str(args.name), str(args.data_id),
+                                       str(args.privatekey))
 
     elif args.action == 'get_name_blockchain_record':
         result = client.get_name_blockchain_record(str(args.name))
@@ -674,24 +739,9 @@ def run_cli():
     elif args.action == 'get_namespace_blockchain_record':
         result = client.get_namespace_blockchain_record(str(args.namespace_id))
 
-    elif args.action == 'lookup':
-        data = {}
-
-        try:
-            data['blockchain_record'] = client.get_name_blockchain_record(str(args.name))
-        except socket_error:
-            exit_with_error("Error connecting to server")
-
-        try:
-            data_id = data['blockchain_record']['value_hash']
-            data['data_record'] = json.loads(client.get_immutable(str(args.name), data_id)['data'])
-        except:
-            data['data_record'] = None
-
-        result = data
-
     elif args.action == 'lookup_snv':
-        result = client.lookup_snv(str(args.name), int(args.block_id), str(args.consensus_hash) )
+        result = client.lookup_snv(str(args.name), int(args.block_id),
+                                   str(args.consensus_hash))
 
     elif args.action == 'get_name_record':
         result = client.get_name_record(str(args.name))
@@ -728,7 +778,7 @@ def run_cli():
         if args.count is not None:
             count = int(args.count)
 
-        result = client.get_all_names( offset, count )
+        result = client.get_all_names(offset, count)
 
     elif args.action == 'get_names_in_namespace':
         offset = None
@@ -740,44 +790,11 @@ def run_cli():
         if args.count is not None:
             count = int(args.count)
 
-        result = client.get_names_in_namespace( str(args.namespace_id), offset, count )
-
-    elif args.action == 'consensus':
-
-        if args.block_height is None:
-            # by default get last indexed block
-            resp = client.getinfo()
-
-            if 'error' in resp:
-                exit_with_error("Error connecting to server")
-
-            elif 'last_block' in resp or 'blocks' in resp:
-
-                if 'last_block' in resp:
-                    args.block_height = client.getinfo()['last_block']
-                elif 'blocks' in resp:
-                    args.block_height = client.getinfo()['blocks']
-                else:
-                    result['error'] = "Server is indexing. Try again"
-                    exit(0)
-
-        resp = client.get_consensus_at( int(args.block_height) )
-
-        data = {}
-        data['consensus'] = resp
-        data['block_height'] = args.block_height
-
-        result = data
+        result = client.get_names_in_namespace(str(args.namespace_id), offset,
+                                               count)
 
     elif args.action == 'get_nameops_at':
-        result = client.get_nameops_at( int(args.block_id) )
-
-    elif args.action == 'wallet':
-
-        if not os.path.exists(WALLET_PATH):
-            result = initialize_wallet()
-        else:
-            unlock_wallet(display_enabled=True)
+        result = client.get_nameops_at(int(args.block_id))
 
     print_result(result)
 
