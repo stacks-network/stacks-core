@@ -120,6 +120,15 @@ def display_queue(queue, display_details=False):
     log.debug('-' * 5)
 
 
+def cleanup_pending_queue():
+
+    for entry in pending_queue.find():
+
+        if nameRegistered(entry['fqu']):
+            log.debug("Name registered. Removing pending: %s" % entry['fqu'])
+            pending_queue.remove({"fqu": entry['fqu']})
+
+
 def cleanup_preorder_queue(cleanup_rejected=False):
 
     for entry in preorder_queue.find():
@@ -204,6 +213,7 @@ def cleanup_transfer_queue():
 
 def cleanup_all_queues():
 
+    cleanup_pending_queue()
     cleanup_preorder_queue()
     cleanup_register_queue()
     cleanup_update_queue()
