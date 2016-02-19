@@ -175,6 +175,7 @@ class BlockstoreRPCClient(object):
 
         # trim ','
         response = response[:-1]
+        result = None
 
         # parse the response
         try:
@@ -182,14 +183,14 @@ class BlockstoreRPCClient(object):
 
             # Netstrings responds with [{}] instead of {}
             result = result[0]
+
+            return result
         except Exception, e:
 
             # try to clean up
             self.sock.close()
             self.sock = None
             raise Exception("Invalid response: not a JSON string")
-
-        return result
 
 
 def session(conf=None, server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_PORT,
