@@ -452,6 +452,27 @@ def run_cli():
                     new_entry['confirmations'] = confirmations
                     return new_entry
 
+                def format_queue_display(pending_queue, preorder_queue,
+                                         register_queue):
+
+                    for entry in preorder_queue:
+
+                        name = entry['name']
+
+                        for check_entry in pending_queue:
+
+                            if check_entry['name'] == name:
+                                pending_queue.remove(check_entry)
+
+                    for entry in register_queue:
+
+                        name = entry['name']
+
+                        for check_entry in preorder_queue:
+
+                            if check_entry['name'] == name:
+                                preorder_queue.remove(check_entry)
+
                 for entry in current_state:
 
                     if 'type' in entry:
@@ -465,6 +486,9 @@ def run_cli():
                             update_queue.append(format_new_entry(entry))
                         elif entry['type'] == 'transfer':
                             transfer_queue.append(format_new_entry(entry))
+
+                format_queue_display(pending_queue, preorder_queue,
+                                     register_queue)
 
                 if len(pending_queue) != 0:
                     result['queue_pending'] = pending_queue
