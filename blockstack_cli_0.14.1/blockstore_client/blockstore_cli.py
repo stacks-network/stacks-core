@@ -435,6 +435,9 @@ def run_cli():
 
     if args.action == 'balance':
 
+        if not walletUnlocked():
+            unlock_wallet()
+
         result['total_balance'], result['addresses'] = get_total_balance()
 
     elif args.action == 'config':
