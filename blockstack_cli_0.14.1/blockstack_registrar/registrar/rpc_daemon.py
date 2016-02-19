@@ -36,7 +36,7 @@ from config import REGISTRAR_IP, REGISTRAR_PORT
 from .queue import get_queue_state, alreadyinQueue
 from .queue import add_to_queue, pending_queue
 from .queue import preorder_queue
-from .queue import alreadyProcessing
+from .queue import alreadyProcessing. cleanup_all_queues
 
 from .nameops import preorder, register
 from .subsidized_nameops import subsidized_update, subsidized_transfer
@@ -175,13 +175,18 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
             data['error'] = "Already in queue."
             return data
 
-        add_to_queue(update_queue, fqu,
-                     profile=profile,
-                     payment_address=self.payment_address,
-                     owner_address=self.owner_address)
+        resp = None
+        if not profileonBlockchain(fqu, profile):
+            resp = subsidized_update(fqu, profile, self.owner_privkey,
+                                     self.payment_address,
+                                     payment_privkey=self.payment_privkey)
+
+            if not profileonDHT(fqu, profile):
+                return write_dht_profile(profile)
 
         data['success'] = True
         data['message'] = "Added to update queue. Takes ~1 hour. You can check status at anytime."
+        data['resp'] = resp
         return data
 
     def transfer(self, fqu, transfer_address):
@@ -202,13 +207,15 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
             data['error'] = "Already in queue."
             return data
 
-        add_to_queue(transfer_queue, fqu,
-                     transfer_address=transfer_address,
-                     payment_address=self.payment_address,
-                     owner_address=self.owner_address)
+        resp = None
+        if not ownerName(fqu, transfer_address):
+            resp = subsidized_transfer(fqu, transfer_address, self.owner_privkey,
+                                       self.payment_address,
+                                       payment_privkey=self.payment_privkey)
 
         data['success'] = True
         data['message'] = "Added to transfer queue. Takes ~1 hour. You can check status at anytime."
+        data['resp'] = resp
         return data
 
 
@@ -240,11 +247,7 @@ def start_rpc_daemon():
         pass
 
 
-def process_nameop(fqu, profile, payment_privkey, owner_privkey,
-                   payment_address, owner_address,
-                   transfer_address):
-    """ Process nameops based on what stage they are in
-    """
+def process_register(fqu, payment_privkey, owner_address):
 
     if not nameRegistered(fqu):
         if alreadyinQueue(preorder_queue, fqu):
@@ -253,18 +256,6 @@ def process_nameop(fqu, profile, payment_privkey, owner_privkey,
         else:
             return preorder(fqu, None, owner_address,
                             payment_privkey=payment_privkey)
-
-    elif not profileonBlockchain(fqu, profile):
-        return subsidized_update(fqu, profile, owner_privkey, payment_address,
-                                 payment_privkey=payment_privkey)
-
-    elif not profileonDHT(fqu, profile):
-        return write_dht_profile(profile)
-
-    elif not ownerName(fqu, transfer_address):
-        return subsidized_transfer(fqu, transfer_address, owner_privkey,
-                                   payment_address,
-                                   payment_privkey=payment_privkey)
 
 
 def start_monitor():
@@ -295,12 +286,10 @@ def start_monitor():
                 # monitor process reads from pending queue
                 # but never writes to it
                 for entry in pending_queue.find():
-                    resp = process_nameop(entry['fqu'], entry['profile'],
-                                          wallet_data['payment_privkey'],
-                                          wallet_data['owner_privkey'],
-                                          wallet_data['payment_address'],
-                                          wallet_data['owner_address'],
-                                          entry['transfer_address'])
+                    resp = process_register(entry['fqu'],
+                                            wallet_data['payment_privkey'],
+                                            wallet_data['owner_address'])
+
 
                 last_block = current_block
 
@@ -308,6 +297,8 @@ def start_monitor():
                     # exit daemons, if no new requests for a while
                     if len(get_queue_state()) == 0:
                         proxy.shutdown()
+
+                    cleanup_all_queues()
 
         except KeyboardInterrupt:
             print "\nExiting."
