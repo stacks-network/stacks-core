@@ -23,6 +23,7 @@
 
 import os
 import sys
+import traceback
 
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -40,5 +41,5 @@ if __name__ == '__main__':
         error_message = "Unexpected error, %s" % e
         help_message = 'Try getting latest version of CLI'
         help_message += ' with sudo pip install blockstack --upgrade'
-
+        #print traceback.print_exc()
         exit_with_error(error_message, help_message)
