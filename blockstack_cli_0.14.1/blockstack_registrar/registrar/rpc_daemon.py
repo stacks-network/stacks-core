@@ -53,6 +53,8 @@ from .network import write_dht_profile
 
 from .config import SLEEP_INTERVAL
 
+import logging
+logging.disable(logging.CRITICAL)
 
 FILE_NAME = 'rpc_daemon.py'
 
@@ -292,18 +294,21 @@ def start_monitor():
                 # monitor process reads from pending queue
                 # but never writes to it
                 for entry in pending_queue.find():
-                    resp = process_register(entry['fqu'],
-                                            wallet_data['payment_privkey'],
-                                            wallet_data['owner_address'])
+                    try:
+                        resp = process_register(entry['fqu'],
+                                                wallet_data['payment_privkey'],
+                                                wallet_data['owner_address'])
+                    except:
+                        pass
 
                 last_block = current_block
 
-                if current_block % 10 == 0:
+                #if current_block % 10 == 0:
                     # exit daemons, if no new requests for a while
-                    if len(get_queue_state()) == 0:
-                        proxy.shutdown()
+                #    if len(get_queue_state()) == 0:
+                #        proxy.shutdown()
 
-                    cleanup_all_queues()
+                cleanup_all_queues()
 
         except KeyboardInterrupt:
             print "\nExiting."
