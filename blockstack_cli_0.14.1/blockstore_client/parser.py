@@ -85,9 +85,6 @@ def add_subparsers(subparsers):
     subparser.add_argument(
         'name', type=str,
         help='the name that you want to register')
-    subparser.add_argument(
-        'data', type=str,
-        help='the data record (in JSON format)')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
