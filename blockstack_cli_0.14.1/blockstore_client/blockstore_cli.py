@@ -47,6 +47,7 @@ from blockstore_client.utils import pretty_dump, print_result
 from blockstore_client.config import WALLET_PATH, WALLET_PASSWORD_LENGTH
 
 from blockstore_client.parser import add_subparsers, add_advanced_subparsers
+from blockstore_client.parser import AliasedSubParsersAction
 
 from registrar.wallet import HDWallet
 from registrar.crypto.utils import aes_encrypt, aes_decrypt
@@ -164,15 +165,22 @@ def display_wallet_info(payment_address, owner_address):
     print "%s: %s" % (payment_address, get_balance(payment_address))
     print '-' * 60
 
-    bs_client = get_bs_client()
     print "Names Owned:"
-
-    try:
-        names_owned = bs_client.get_names_owned_by_address(owner_address)
-    except socket_error:
-        names_owned = "Error connecting to blockstack-server"
+    names_owned = get_names_owned(owner_address)
     print "%s: %s" % (owner_address, names_owned)
     print '-' * 60
+
+
+def get_names_owned(address):
+
+    bs_client = get_bs_client()
+
+    try:
+        names_owned = bs_client.get_names_owned_by_address(address)
+    except socket_error:
+        names_owned = "Error connecting to server"
+
+    return names_owned
 
 
 def get_local_proxy():
@@ -220,6 +228,60 @@ def get_addresses_from_memory():
     data = json.loads(proxy.get_wallet())
 
     return data['payment_address'], data['owner_address']
+
+
+def get_payment_addresses():
+
+    payment_addresses = []
+
+    # currently only using one
+    payment_address, owner_address = get_addresses_from_memory()
+
+    payment_addresses.append({'address': payment_address,
+                              'balance': get_balance(payment_address)})
+
+    return payment_addresses
+
+
+def get_owner_addresses():
+
+    owner_addresses = []
+
+    # currently only using one
+    payment_address, owner_address = get_addresses_from_memory()
+
+    owner_addresses.append({'address': owner_address,
+                            'names': get_names_owned(owner_address)})
+
+    return owner_addresses
+
+
+def get_all_names_owned():
+
+    owner_addresses = get_owner_addresses()
+
+    names_owned = []
+
+    for entry in owner_addresses:
+
+        additional_names = get_names_owned(entry['address'])
+        for name in additional_names:
+            names_owned.append(name)
+
+    return names_owned
+
+
+def get_total_balance():
+
+    payment_addresses = get_payment_addresses()
+
+    total_balance = 0.0
+
+    for entry in payment_addresses:
+
+        total_balance += float(entry['balance'])
+
+    return total_balance, payment_addresses
 
 
 def approx_tx_fees(num_tx):
@@ -342,6 +404,8 @@ def run_cli():
     parser = argparse.ArgumentParser(
       description='Blockstack cli version {}'.format(config.VERSION))
 
+    parser.register('action', 'parsers', AliasedSubParsersAction)
+
     subparsers = parser.add_subparsers(
       dest='action')
 
@@ -369,58 +433,88 @@ def run_cli():
     # start the two background processes (rpc daemon and monitor queue)
     start_background_daemons()
 
-    if args.action == 'server':
+    if args.action == 'balance':
+
+        result['total_balance'], result['addresses'] = get_total_balance()
+
+    elif args.action == 'config':
         data = {}
 
-        if args.server is not None and args.port is not None:
-            config.update_config('blockstack-client', 'server', args.server)
+        settings_updated = False
+
+        data["message"] = "Updated settings for"
+
+        if args.host is not None:
+            config.update_config('blockstack-client', 'server', args.host)
+            data["message"] += " host"
+            settings_updated = True
+
+        if args.port is not None:
             config.update_config('blockstack-client', 'port', args.port)
-            data["message"] = "Updated server and port"
-        elif args.server is not None:
-            config.update_config('blockstack-client', 'server', args.server)
-            data["message"] = "Updated server"
-        elif args.port is not None:
-            config.update_config('blockstack-client', 'port', args.port)
-            data["message"] = "Updated port"
+            data["message"] += " port"
+            settings_updated = True
 
-        # reload conf
-        conf = config.get_config()
+        if args.advanced is not None:
 
-        data['server'] = conf['server']
-        data['port'] = conf['port']
-        result = data
-
-    elif args.action == 'advanced':
-        data = {}
-        data["advanced_mode"] = advanced_mode
-
-        if args.mode is not None:
-
-            if args.mode != "on" and args.mode != "off":
-                data['error'] = "Valid values are 'on' or 'off'"
+            if args.advanced != "on" and args.advanced != "off":
+                exit_with_error("Use --advanced=on or --advanced=off")
             else:
-                config.update_config('blockstack-client', 'advanced_mode', args.mode)
-                data["message"] = "Updated advanced_mode"
+                config.update_config('blockstack-client', 'advanced_mode', args.advanced)
+                data["message"] += " advanced"
+                settings_updated = True
 
         # reload conf
         conf = config.get_config()
 
-        data['advanced_mode'] = conf['advanced_mode']
+        result['host'] = conf['server']
+        result['port'] = conf['port']
+        result['advanced'] = conf['advanced_mode']
 
-        result = data
+        if settings_updated:
+            result['message'] = data['message']
 
-    elif args.action == 'status':
+    elif args.action == 'deposit':
+
+        if not walletUnlocked():
+            unlock_wallet()
+
+        result['message'] = 'Send bitcoins to the address specified.'
+        result['address'], owner_address = get_addresses_from_memory()
+
+    elif args.action == 'import':
+
+        if not walletUnlocked():
+            unlock_wallet()
+
+        result['message'] = 'Send the name you want to receive to the'
+        result['message'] += ' address specified.'
+        payment_address, result['address'] = get_addresses_from_memory()
+
+    elif args.action == 'names':
+
+        if not walletUnlocked():
+            unlock_wallet()
+
+        result['names_owned'] = get_all_names_owned()
+        result['addresses'] = get_owner_addresses()
+
+    elif args.action in ('info', 'status', 'ping', 'details'):
+
         resp = client.getinfo()
 
         result = {}
 
-        if 'error' in resp:
-            result['error'] = resp['error']
-        else:
+        result['server_host'] = conf['server']
+        result['server_port'] = str(conf['port'])
+        result['cli_version'] = config.VERSION
+        result['advanced_mode'] = conf['advanced_mode']
 
-            result['server'] = conf['server'] + ':' + str(conf['port'])
+        if 'error' in resp:
+            result['server_alive'] = False
+            result['server_error'] = resp['error']
+        else:
+            result['server_alive'] = True
             result['server_version'] = resp['blockstore_version']
-            result['cli_version'] = config.VERSION
             try:
                 result['last_block_processed'] = resp['last_block']
             except:
@@ -505,9 +599,6 @@ def run_cli():
                 if len(transfer_queue) != 0:
                     result['queue_transfer'] = transfer_queue
 
-    elif args.action == 'ping':
-        result = client.ping()
-
     elif args.action == 'wallet':
 
         if not os.path.exists(WALLET_PATH):
@@ -518,20 +609,44 @@ def run_cli():
     elif args.action == 'lookup':
         data = {}
 
+        blockchain_record = None
+
         try:
-            data['blockchain_record'] = client.get_name_blockchain_record(
+            blockchain_record = client.get_name_blockchain_record(
                                         str(args.name))
         except socket_error:
             exit_with_error("Error connecting to server")
 
         try:
-            data_id = data['blockchain_record']['value_hash']
+            data_id = blockchain_record['value_hash']
             data['data_record'] = json.loads(
                 client.get_immutable(str(args.name), data_id)['data'])
         except:
             data['data_record'] = None
 
         result = data
+
+    elif args.action == 'whois':
+        data = {}
+
+        record = None
+
+        try:
+            record = client.get_name_blockchain_record(
+                                        str(args.name))
+        except socket_error:
+            exit_with_error("Error connecting to server")
+
+        if 'value_hash' not in record:
+            result['registered'] = False
+        else:
+            result['registered'] = True
+            result['block_preordered_at'] = record['preorder_block_number']
+            result['block_renewed_at'] = record['last_renewed']
+            result['owner_address'] = record['address']
+            result['owner_public_key'] = record['sender_pubkey']
+            result['owner_script'] = record['sender']
+            result['preorder_transaction_id'] = record['txid']
 
     elif args.action == 'register':
         result = {}
