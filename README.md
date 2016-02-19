@@ -31,12 +31,15 @@ $ sudo pip install blockstack
 
 ### Development Version
 
-The client is under heavy development and you might want to install the latest development version:
+The client is under heavy development and you might want to install the development version.
+The development version can have bug fixes for some issues you're experiencing. Anyone
+helping with testing and development should also use the development version:
 
 ```
-$ sudo pip install git+https://github.com/blockstack/blockstack-client.git@develop
-```
+$ pip install git+https://github.com/blockstack/registrar.git@develop --upgrade
+$ pip install git+https://github.com/blockstack/blockstack-client.git@develop --upgrade
 
+```
 ## Command Line Usage 
 
 ### Listing All Commands
@@ -49,26 +52,25 @@ usage: blockstack [-h]
 Blockstack cli version 0.0.12.2
 
 positional arguments:
-    balance             display the wallet balance
-    config              change config settings with --server=x --port=y --advanced=true/false
+    balance             display the wallet balance
+    config              configure --server=x --port=y --advanced=on/off
     cost                <name> | get the cost of a name
-    deposit             display the address with with to receive bitcoins
-    import              display the address with which to receive names sent from outside of the client
-    info                check if the server is up and get details about the server
+    deposit             display the address with which to receive bitcoins
+    import              display the address with which to receive names
+    info                check server status and get details about the server
     lookup              <name> | get the data record for a particular name
     names               display the names owned by local addresses
-    register            <name> <data> | register a name
-    transfer            <name> <address> | transfer a name you own to another address
-    update              <name> <data> | update a name record with a certain amount of data
-    whois               <name> | get the registration information associated with a name
+    register            <name> | register a new name
+    transfer            <name> <address> | transfer a name you own
+    update              <name> <data> | update a name record with new data
+    wallet              display wallet information
+    whois               <name> | get the registration record of a name
 
 optional arguments:
   -h, --help            show this help message and exit
 ```
 
-### Info  (or ping or status or details)
-
-*Note: formerly ping, status, server and consensus*
+### Info  (or ping or status)
 
 ```
 $ blockstack info
