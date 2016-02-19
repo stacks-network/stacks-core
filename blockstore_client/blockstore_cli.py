@@ -54,8 +54,8 @@ from registrar.blockchain import get_balance
 from registrar.network import get_bs_client
 from registrar.rpc_daemon import background_process
 from registrar.utils import satoshis_to_btc
-from registrar.states import nameRegistered, ownerName
-from registrar.blockchain import recipientNotReady
+from registrar.states import nameRegistered, ownerName, profileonBlockchain
+from registrar.blockchain import recipientNotReady, get_tx_confirmations
 
 from binascii import hexlify
 
@@ -66,8 +66,6 @@ from registrar.config import REGISTRAR_IP, REGISTRAR_PORT
 RPC_DAEMON = 'http://' + REGISTRAR_IP + ':' + str(REGISTRAR_PORT)
 
 log = config.log
-
-wallet_unlocked = False
 
 
 def initialize_wallet():
@@ -81,7 +79,9 @@ def initialize_wallet():
             password = raw_input("Enter new password: ")
 
             if len(password) < WALLET_PASSWORD_LENGTH:
-                print "Password is too short. Please make it at least %s characters long" % WALLET_PASSWORD_LENGTH
+                msg = "Password is too short. Please make it at"
+                msg += " least %s characters long" % WALLET_PASSWORD_LENGTH
+                print msg
             else:
 
                 wallet = HDWallet()
@@ -89,7 +89,8 @@ def initialize_wallet():
                 hex_privkey = wallet.get_master_privkey()
 
                 data = {}
-                data['encrypted_master_private_key'] = aes_encrypt(hex_privkey, hex_password)
+                encrypted_key = aes_encrypt(hex_privkey, hex_password)
+                data['encrypted_master_private_key'] = encrypted_key
 
                 file = open(WALLET_PATH, 'w')
                 file.write(json.dumps(data))
@@ -108,32 +109,70 @@ def initialize_wallet():
 
 def unlock_wallet(display_enabled=False):
 
-    global wallet_unlocked
+    if walletUnlocked():
+        if display_enabled:
+            payment_address, owner_address = get_addresses_from_memory()
+            display_wallet_info(payment_address, owner_address)
+    else:
+
+        try:
+            password = raw_input("Enter wallet password: ")
+            hex_password = hexlify(password)
+
+            file = open(WALLET_PATH, 'r')
+            data = file.read()
+            data = json.loads(data)
+            hex_privkey = None
+            try:
+                hex_privkey = aes_decrypt(data['encrypted_master_private_key'],
+                                          hex_password)
+            except:
+                print "Incorrect password."
+            else:
+                print "Unlocked wallet."
+                wallet = HDWallet(hex_privkey)
+                child = wallet.get_child_keypairs(count=2,
+                                                  include_privkey=True)
+                payment_keypair = child[0]
+                owner_keypair = child[1]
+                save_keys_to_memory(payment_keypair, owner_keypair)
+
+                if display_enabled:
+                    display_wallet_info(payment_keypair[0], owner_keypair[0])
+        except KeyboardInterrupt:
+            print "\nExited."
+
+
+def walletUnlocked():
+
+    payment_address, owner_address = get_addresses_from_memory()
+
+    if payment_address is not None and owner_address is not None:
+
+        return True
+    else:
+        return False
+
+
+def display_wallet_info(payment_address, owner_address):
+
+    print '-' * 60
+    print "Payment address:\t%s" % payment_address
+    print "Owner address:\t\t%s" % owner_address
+    print '-' * 60
+    print "Balance:"
+    print "%s: %s" % (payment_address, get_balance(payment_address))
+    print '-' * 60
+
+    bs_client = get_bs_client()
+    print "Names Owned:"
 
     try:
-        password = raw_input("Enter wallet password: ")
-        hex_password = hexlify(password)
-
-        file = open(WALLET_PATH, 'r')
-        data = file.read()
-        data = json.loads(data)
-        hex_privkey = None
-        try:
-            hex_privkey = aes_decrypt(data['encrypted_master_private_key'], hex_password)
-        except:
-            print "Incorrect password."
-        else:
-            print "Unlocked wallet."
-            wallet = HDWallet(hex_privkey)
-            child = wallet.get_child_keypairs(count=2, include_privkey=True)
-            payment_keypair = child[0]
-            owner_keypair = child[1]
-            save_keys_to_memory(payment_keypair, owner_keypair)
-            wallet_unlocked = True
-            if display_enabled:
-                display_wallet_info(payment_keypair[0], owner_keypair[0])
-    except KeyboardInterrupt:
-        print "\nExited."
+        names_owned = bs_client.get_names_owned_by_address(owner_address)
+    except socket_error:
+        names_owned = "Error connecting to blockstack-server"
+    print "%s: %s" % (owner_address, names_owned)
+    print '-' * 60
 
 
 def get_local_proxy():
@@ -156,6 +195,7 @@ def start_background_daemons():
     try:
         data = proxy.ping()
     except:
+        pass
         background_process('start_daemon')
         background_process('start_monitor')
 
@@ -175,7 +215,7 @@ def get_addresses_from_memory():
     proxy = get_local_proxy()
 
     if proxy is False:
-        exit_with_error('Error talking to local proxy')
+        return None, None
 
     data = json.loads(proxy.get_wallet())
 
@@ -191,12 +231,22 @@ def approx_tx_fees(num_tx):
     return num_tx * APPROX_FEE_PER_TX
 
 
+def hasEnoughBalance(payment_address, cost):
+
+    total_balance = get_balance(payment_address)
+
+    if total_balance > cost:
+        return True
+    else:
+        return False
+
+
 def get_total_fees(data):
 
     reply = {}
 
     registration_fee_satoshi = data['satoshis']
-    tx_fee_satoshi = approx_tx_fees(num_tx=3)
+    tx_fee_satoshi = approx_tx_fees(num_tx=2)
 
     registration_fee = satoshis_to_btc(registration_fee_satoshi)
     tx_fee = satoshis_to_btc(tx_fee_satoshi)
@@ -220,25 +270,33 @@ def exit_with_error(error_message, help_message=None):
     exit(0)
 
 
-def display_wallet_info(payment_address, owner_address):
+def tests_for_update_and_transfer(fqu, transfer_address=None):
+    """ Any update or transfer operation
+        should pass these tests
+    """
 
-    print '-' * 60
-    print "Payment address:\t%s" % payment_address
-    print "Owner address:\t\t%s" % owner_address
-    print '-' * 60
-    print "Balance:"
-    print "%s: %s" % (payment_address, get_balance(payment_address))
-    print '-' * 60
+    if not nameRegistered(fqu):
+        exit_with_error("%s is not registered yet" % fqu)
 
-    bs_client = get_bs_client()
-    print "Names Owned:"
+    if not walletUnlocked():
+        exit_with_error("Unlock wallet first.")
 
-    try:
-        names_owned = bs_client.get_names_owned_by_address(owner_address)
-    except socket_error:
-        names_owned = "Error connecting to blockstack-server"
-    print "%s: %s" % (owner_address, names_owned)
-    print '-' * 60
+    payment_address, owner_address = get_addresses_from_memory()
+
+    if not ownerName(fqu, owner_address):
+        exit_with_error("%s not owned by %s" % (fqu, owner_address))
+
+    tx_fee_satoshi = approx_tx_fees(num_tx=1)
+    tx_fee = satoshis_to_btc(tx_fee_satoshi)
+
+    if not hasEnoughBalance(payment_address, tx_fee):
+        msg = "Address %s doesn't have enough balance" % payment_address
+        exit_with_error(msg)
+
+    if transfer_address is not None:
+        if recipientNotReady(transfer_address):
+            msg = "Address %s owns too many names already." % transfer_address
+            exit_with_error(msg)
 
 
 def get_sorted_commands(display_commands=False):
@@ -385,34 +443,43 @@ def run_cli():
                 update_queue = []
                 transfer_queue = []
 
+                def format_new_entry(entry):
+                    new_entry = {}
+                    new_entry['name'] = entry['fqu']
+                    confirmations = get_tx_confirmations(entry['tx_hash'])
+                    if confirmations is None:
+                        confirmations = 0
+                    new_entry['confirmations'] = confirmations
+                    return new_entry
+
                 for entry in current_state:
 
                     if 'type' in entry:
                         if entry['type'] == 'pending':
-                            pending_queue.append(entry['fqu'])
+                            pending_queue.append(format_new_entry(entry))
                         elif entry['type'] == 'preorder':
-                            preorder_queue.append(entry['fqu'])
+                            preorder_queue.append(format_new_entry(entry))
                         elif entry['type'] == 'register':
-                            register_queue.append(entry['fqu'])
+                            register_queue.append(format_new_entry(entry))
                         elif entry['type'] == 'update':
-                            update_queue.append(entry['fqu'])
+                            update_queue.append(format_new_entry(entry))
                         elif entry['type'] == 'transfer':
-                            transfer_queue.append(entry['fqu'])
+                            transfer_queue.append(format_new_entry(entry))
 
                 if len(pending_queue) != 0:
-                    result['pending_queue'] = pending_queue
+                    result['queue_pending'] = pending_queue
 
                 if len(preorder_queue) != 0:
-                    result['preorder_queue'] = preorder_queue
+                    result['queue_preorder'] = preorder_queue
 
                 if len(register_queue) != 0:
-                    result['register_queue'] = register_queue
+                    result['queue_register'] = register_queue
 
                 if len(update_queue) != 0:
-                    result['update_queue'] = update_queue
+                    result['queue_update'] = update_queue
 
                 if len(transfer_queue) != 0:
-                    result['transfer_queue'] = transfer_queue
+                    result['queue_transfer'] = transfer_queue
 
     elif args.action == 'ping':
         result = client.ping()
@@ -448,30 +515,22 @@ def run_cli():
         cost = client.get_name_cost(fqu)
 
         if 'error' in cost:
-            result['error'] = "This namespace doesn't exist, try using namespaces like .id"
-            print_result(result)
-            exit(0)
+            msg = "This namespace doesn't exist, try using namespaces like .id"
+            exit_with_error(msg)
 
-        data = client.get_name_blockchain_record(fqu)
+        if nameRegistered(fqu):
+            exit_with_error("%s is already registered" % fqu)
 
-        if 'value_hash' in data:
-            result['error'] = "%s is already registered" % fqu
-            print_result(result)
-            exit(0)
-
-        user_data = str(args.data)
-        try:
-            user_data = json.loads(user_data)
-        except:
-            result['error'] = "data is not in JSON format"
-            print_result(result)
-            exit(0)
+        if not walletUnlocked():
+            exit_with_error("Unlock wallet first.")
 
         fees = get_total_fees(cost)
 
         try:
-            user_input = raw_input("Registering %s will cost %s BTC." % (fqu, fees['total_cost']) +
-                                   " Continue? (y/n): ")
+            cost = fees['total_cost']
+            input_prompt = "Registering %s will cost %s BTC." % (fqu, cost)
+            input_prompt += " Continue? (y/n): "
+            user_input = raw_input(input_prompt)
             user_input = user_input.lower()
 
             if user_input != 'y':
@@ -482,7 +541,7 @@ def run_cli():
             exit(0)
 
         proxy = get_local_proxy()
-        result = proxy.register(fqu, user_data)
+        result = proxy.register(fqu)
 
     elif args.action == 'update':
 
@@ -494,13 +553,11 @@ def run_cli():
         except:
             exit_with_error("data is not in JSON format")
 
-        if not nameRegistered(fqu):
-            exit_with_error("%s is not registered yet" % fqu)
+        if profileonBlockchain(fqu, user_data):
+            msg = "data is same as current data record, update not needed"
+            exit_with_error(msg)
 
-        payment_address, owner_address = get_addresses_from_memory()
-
-        if not ownerName(fqu, owner_address):
-            exit_with_error("%s not owned by %s" % (fqu, owner_address))
+        tests_for_update_and_transfer(fqu)
 
         proxy = get_local_proxy()
         result = proxy.update(fqu, user_data)
@@ -510,17 +567,7 @@ def run_cli():
         fqu = str(args.name)
         transfer_address = str(args.address)
 
-        if not nameRegistered(fqu):
-            exit_with_error("%s is not registered yet" % fqu)
-
-        payment_address, owner_address = get_addresses_from_memory()
-
-        if not ownerName(fqu, owner_address):
-            exit_with_error("%s not owned by %s" % (fqu, payment_address))
-
-        if recipientNotReady(transfer_address):
-            error = "Address %s owns too many names already." % transfer_address
-            exit_with_error(error)
+        tests_for_update_and_transfer(fqu, transfer_address=transfer_address)
 
         proxy = get_local_proxy()
         result = proxy.transfer(fqu, transfer_address)
