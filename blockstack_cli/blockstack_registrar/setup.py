@@ -28,7 +28,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='registrar',
-    version='0.0.3.1',
+    version='0.0.3.2',
     url='https://github.com/blockstack/registrar',
     license='GPLv3',
     author='Blockstack.org',
@@ -46,7 +46,7 @@ setup(
         'tinydb==3.1.3',
         'pycrypto==2.6.1',
         'scrypt==0.7.1',
-        'blockstore-client==0.0.12.3',
+        'blockstore-client==0.0.12.4',
     ],
     classifiers=[
         'Intended Audience :: Developers',
