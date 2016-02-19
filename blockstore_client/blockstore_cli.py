@@ -203,7 +203,6 @@ def start_background_daemons():
     try:
         data = proxy.ping()
     except:
-        pass
         background_process('start_daemon')
         background_process('start_monitor')
 
