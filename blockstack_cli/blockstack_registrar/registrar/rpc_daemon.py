@@ -35,8 +35,8 @@ from config import REGISTRAR_IP, REGISTRAR_PORT
 
 from .queue import get_queue_state, alreadyinQueue
 from .queue import add_to_queue, pending_queue
-from .queue import preorder_queue
-from .queue import alreadyProcessing. cleanup_all_queues
+from .queue import preorder_queue, register_queue, update_queue, transfer_queue
+from .queue import alreadyProcessing, cleanup_all_queues
 
 from .nameops import preorder, register
 from .subsidized_nameops import subsidized_update, subsidized_transfer
@@ -130,7 +130,7 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
         data['owner_privkey'] = self.owner_privkey
         return json.dumps(data)
 
-    def register(self, fqu, profile):
+    def register(self, fqu):
         """ Enter a new registration in queue
             The entered registration is picked up
             by the monitor process.
@@ -143,24 +143,22 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
             data['error'] = "Wallet is not unlocked."
             return data
 
-        if alreadyProcessing(fqu):
+        if alreadyinQueue(preorder_queue, fqu) or alreadyinQueue(register_queue, fqu):
             data['success'] = False
             data['error'] = "Already in queue."
             return data
 
         add_to_queue(pending_queue, fqu,
-                     profile=profile,
                      payment_address=self.payment_address,
                      owner_address=self.owner_address)
 
         data['success'] = True
-        data['message'] = "Added to registration queue. Takes several hours. You can check status at anytime."
+        data['message'] = "Added to registration queue. Takes several hours."
+        data['message'] += " You can check status at anytime."
         return data
 
     def update(self, fqu, profile):
-        """ Enter a new update in queue
-            The entered update is picked up
-            by the monitor process.
+        """ Send update transaction and write data to DHT.
         """
 
         data = {}
@@ -170,29 +168,32 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
             data['error'] = "Wallet is not unlocked."
             return data
 
-        if alreadyProcessing(fqu):
+        if alreadyinQueue(update_queue, fqu):
             data['success'] = False
             data['error'] = "Already in queue."
             return data
 
         resp = None
+
         if not profileonBlockchain(fqu, profile):
             resp = subsidized_update(fqu, profile, self.owner_privkey,
                                      self.payment_address,
                                      payment_privkey=self.payment_privkey)
 
             if not profileonDHT(fqu, profile):
-                return write_dht_profile(profile)
+                dht_resp = write_dht_profile(profile)
 
-        data['success'] = True
-        data['message'] = "Added to update queue. Takes ~1 hour. You can check status at anytime."
-        data['resp'] = resp
+        if resp:
+            data['success'] = True
+            data['message'] = "Added to update queue. Takes ~1 hour."
+            data['message'] += " You can check status at anytime."
+        else:
+            data['success'] = False
+            data['message'] = "Couldn't broadcast transaction. Try again."
         return data
 
     def transfer(self, fqu, transfer_address):
-        """ Enter a new transfer in queue
-            The entered transfer is picked up
-            by the monitor process.
+        """ Send transfer transaction.
         """
 
         data = {}
@@ -202,7 +203,7 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
             data['error'] = "Wallet is not unlocked."
             return data
 
-        if alreadyProcessing(fqu):
+        if alreadyinQueue(transfer_queue, fqu):
             data['success'] = False
             data['error'] = "Already in queue."
             return data
@@ -213,9 +214,13 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
                                        self.payment_address,
                                        payment_privkey=self.payment_privkey)
 
-        data['success'] = True
-        data['message'] = "Added to transfer queue. Takes ~1 hour. You can check status at anytime."
-        data['resp'] = resp
+        if resp:
+            data['success'] = True
+            data['message'] = "Added to transfer queue. Takes ~1 hour."
+            data['message'] = " You can check status at anytime."
+        else:
+            data['success'] = False
+            data['message'] = "Couldn't broadcast transaction. Try again."
         return data
 
 
@@ -223,7 +228,8 @@ def init_rpc_daemon():
 
     global server
 
-    server = RegistrarRPCServer((REGISTRAR_IP, REGISTRAR_PORT), logRequests=False)
+    server = RegistrarRPCServer((REGISTRAR_IP, REGISTRAR_PORT),
+                                logRequests=False)
 
     server.register_function(server.ping)
     server.register_function(server.state)
@@ -289,7 +295,6 @@ def start_monitor():
                     resp = process_register(entry['fqu'],
                                             wallet_data['payment_privkey'],
                                             wallet_data['owner_address'])
-
 
                 last_block = current_block
 
