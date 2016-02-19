@@ -22,6 +22,44 @@
 """
 
 import config
+import argparse
+
+
+class AliasedSubParsersAction(argparse._SubParsersAction):
+
+    """ Hack around adding aliases to parser
+        Modified from a solution by Adrian Sampson:
+        https://gist.github.com/sampsyo/471779
+    """
+
+    class _AliasedPseudoAction(argparse.Action):
+        def __init__(self, name, aliases, help):
+            dest = name
+            if aliases:
+                dest += ' (%s)' % ','.join(aliases)
+            sup = super(AliasedSubParsersAction._AliasedPseudoAction, self)
+            sup.__init__(option_strings=[], dest=dest, help=help) 
+
+    def add_parser(self, name, **kwargs):
+        if 'aliases' in kwargs:
+            aliases = kwargs['aliases']
+            del kwargs['aliases']
+        else:
+            aliases = []
+
+        parser = super(AliasedSubParsersAction, self).add_parser(name, **kwargs)
+
+        # Make the aliases work.
+        for alias in aliases:
+            self._name_parser_map[alias] = parser
+        # Make the help text reflect them, first removing old help entry.
+        #if 'help' in kwargs:
+        #    help = kwargs.pop('help')
+        #    self._choices_actions.pop()
+        #    pseudo_action = self._AliasedPseudoAction(name, aliases, help)
+        #    self._choices_actions.append(pseudo_action)
+
+        return parser
 
 
 def add_subparsers(subparsers):
@@ -30,77 +68,16 @@ def add_subparsers(subparsers):
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-        'consensus',
-        help='<block number> | get consensus hash at given block')
-    subparser.add_argument(
-        'block_height', type=int, nargs='?',
-        help='The block height.')
+        'balance',
+        help='display the wallet balance')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-        'advanced',
-        help='check advanced mode | turn --mode=off or --mode=on')
+        'config',
+        help='configure --server=x --port=y --advanced=on/off')
 
     subparser.add_argument(
-        '--mode',
-        action='store',
-        help="can be 'on' or 'off'")
-
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-        'cost',
-        help="<name> | get the cost of a name")
-    subparser.add_argument(
-        'name', type=str,
-        help="The fully-qualified name to check")
-
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-        'wallet',
-        help='display wallet information')
-
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-        'update',
-        help='<name> <data> | update a name record')
-    subparser.add_argument(
-        'name', type=str,
-        help='the name that you want to update')
-    subparser.add_argument(
-        'data', type=str,
-        help='the new data record (in JSON format)')
-
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-        'lookup',
-        help='<name> | get data record for a particular name')
-    subparser.add_argument(
-        'name', type=str,
-        help='the name to look up')
-
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-        'register',
-        help='<name> <data> | register a name')
-    subparser.add_argument(
-        'name', type=str,
-        help='the name that you want to register')
-    subparser.add_argument(
-        'data', type=str,
-        help='the data record (in JSON format)')
-
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-        'ping',
-        help='check if the blockstack server is up')
-
-    # ------------------------------------
-    subparser = subparsers.add_parser(
-        'server',
-        help='display server:port | change by --server=x --port=y')
-
-    subparser.add_argument(
-        '--server',
+        '--host',
         action='store',
         help="""the hostname/IP of blockstack server \
         (current: {})""".format(config.BLOCKSTORED_SERVER))
@@ -111,10 +88,55 @@ def add_subparsers(subparsers):
         help="""the server port to connect to (current: {})""".format(
             config.BLOCKSTORED_PORT))
 
+    subparser.add_argument(
+        '--advanced',
+        action='store',
+        help="can be 'on' or 'off'")
+
     # ------------------------------------
     subparser = subparsers.add_parser(
-        'status',
-        help='get basic information from the blockstack server')
+        'cost',
+        help="<name> | get the cost of a name")
+    subparser.add_argument(
+        'name', type=str,
+        help="The fully-qualified name to check e.g., fredwilson.id")
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'deposit',
+        help='display the address with which to receive bitcoins')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'import',
+        help='display the address with which to receive names')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'info',
+        help='check server status and get details about the server',
+        aliases=['status', 'ping'])
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'lookup',
+        help='<name> | get the data record for a particular name')
+    subparser.add_argument(
+        'name', type=str,
+        help='the name to look up')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'names',
+        help='display the names owned by local addresses')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'register',
+        help='<name> | register a new name')
+    subparser.add_argument(
+        'name', type=str,
+        help='the name that you want to register')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -127,10 +149,43 @@ def add_subparsers(subparsers):
         'address', type=str,
         help='the new owner Bitcoin address')
 
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'update',
+        help='<name> <data> | update a name record with new data')
+    subparser.add_argument(
+        'name', type=str,
+        help='the name that you want to update')
+    subparser.add_argument(
+        'data', type=str,
+        help='the new data record (in JSON format)')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'wallet',
+        help='display wallet information')
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'whois',
+        help='<name> | get the registration record of a name')
+    subparser.add_argument(
+        'name', type=str,
+        help='the name to look up')
+
 
 def add_advanced_subparsers(subparsers):
     """ Adds advanced subparsers
     """
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'consensus',
+        help='<block number> | get consensus hash at given block')
+    subparser.add_argument(
+        'block_height', type=int, nargs='?',
+        help='The block height.')
+
     # ------------------------------------
     subparser = subparsers.add_parser(
         'delete_immutable',
