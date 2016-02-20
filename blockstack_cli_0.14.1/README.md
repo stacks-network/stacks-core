@@ -23,11 +23,10 @@ $ sudo pip install blockstack
 ### OS X
 
 ```
-$ ARCHFLAGS=-Wno-error=unused-command-line-argument-hard-error-in-future pip install pycrypto
-$ sudo pip install blockstack
+$ sudo pip install blockstack --upgrade
 ```
 
-*Note that the first line is a custom command meant to ensure that pycrypto installs properly.*
+If the above install command fails, see the [trouble shooting section](#troubleshooting-installation).
 
 ### Development Version
 
@@ -36,10 +35,13 @@ The development version can have bug fixes for some issues you're experiencing. 
 helping with testing and development should also use the development version:
 
 ```
-$ pip install git+https://github.com/blockstack/registrar.git@develop --upgrade
 $ pip install git+https://github.com/blockstack/blockstack-client.git@develop --upgrade
+$ pip install git+https://github.com/blockstack/registrar.git@develop --upgrade
 
 ```
+
+If the above install commands fail, see the [trouble shooting section](#troubleshooting-installation).
+
 ## Command Line Usage 
 
 ### Listing All Commands
@@ -95,8 +97,6 @@ $ blockstack info
 ```
 
 ### Config
-
-*Note: formerly server and advanced*
 
 ```
 $ blockstack config <options>
@@ -323,6 +323,28 @@ $ blockstack import
     "address": "1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt"
 }
 ```
+
+## Troubleshooting Installation
+
+**a) Error installing pycrypto**
+
+If you see the following error, while pycrpyto installs:
+> error: command 'cc' failed with exit status 1
+
+Try installing it using:
+> $ ARCHFLAGS=-Wno-error=unused-command-line-argument-hard-error-in-future pip install pycrypto
+
+**b) Twisted error when running blockstack**
+
+If you see the following error, when you run '$ blockstack':
+> ImportError: Twisted requires zope.interface 3.6.0 or later.
+
+Try uninstalling Twisted from outside of virtualenvironment:
+> sudo pip uninstall twisted
+
+And installing blockstack in a new virtualenvironment.
+
+If the issue you are experiencing is not listed here, please [report it as a new issue](https://github.com/blockstack/blockstack-client/issues/new).
 
 ## Client Library
 
