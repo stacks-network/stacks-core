@@ -145,7 +145,8 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
             data['error'] = "Wallet is not unlocked."
             return data
 
-        if alreadyinQueue(preorder_queue, fqu) or alreadyinQueue(register_queue, fqu):
+        if alreadyProcessing(fqu):
+
             data['success'] = False
             data['error'] = "Already in queue."
             return data
