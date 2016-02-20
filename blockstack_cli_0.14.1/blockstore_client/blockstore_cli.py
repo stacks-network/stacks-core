@@ -681,6 +681,16 @@ def run_cli():
             print "\nExiting."
             exit(0)
 
+        payment_address, owner_address = get_addresses_from_memory()
+
+        if not hasEnoughBalance(payment_address, fees['total_cost']):
+            msg = "Address %s doesn't have enough balance" % payment_address
+            exit_with_error(msg)
+
+        if recipientNotReady(owner_address):
+            msg = "Address %s owns too many names already." % owner_address
+            exit_with_error(msg)
+
         proxy = get_local_proxy()
         result = proxy.register(fqu)
 
