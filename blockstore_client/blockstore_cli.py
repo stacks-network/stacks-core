@@ -220,11 +220,12 @@ def save_keys_to_memory(payment_keypair, owner_keypair):
 def get_addresses_from_memory():
 
     proxy = get_local_proxy()
+    conf = config.get_config()
 
     if proxy is False:
         return None, None
 
-    data = json.loads(proxy.get_wallet())
+    data = json.loads(proxy.get_wallet(conf['rpc_token']))
 
     return data['payment_address'], data['owner_address']
 
@@ -692,7 +693,7 @@ def run_cli():
             exit_with_error(msg)
 
         proxy = get_local_proxy()
-        result = proxy.register(fqu)
+        result = proxy.preorder(fqu)
 
     elif args.action == 'update':
 
