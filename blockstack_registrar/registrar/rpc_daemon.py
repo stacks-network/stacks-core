@@ -30,6 +30,8 @@ from time import sleep
 import json
 import xmlrpclib
 
+from ConfigParser import SafeConfigParser
+
 from SimpleXMLRPCServer import SimpleXMLRPCServer
 from config import REGISTRAR_IP, REGISTRAR_PORT
 
@@ -53,12 +55,32 @@ from .network import write_dht_profile
 
 from .config import SLEEP_INTERVAL
 
-import logging
-logging.disable(logging.CRITICAL)
+#import logging
+#logging.disable(logging.CRITICAL)
 
 FILE_NAME = 'rpc_daemon.py'
+CONFIG_DIR_INIT = "~/.blockstack"
+CONFIG_DIR = os.path.expanduser(CONFIG_DIR_INIT)
+CONFIG_PATH = os.path.join(CONFIG_DIR, "client.ini")
 
 server = None
+
+
+def get_rpc_token(path=CONFIG_PATH):
+
+    parser = SafeConfigParser()
+
+    try:
+        parser.read(path)
+    except Exception, e:
+        log.exception(e)
+        return None
+
+    if parser.has_section("blockstack-client"):
+
+        if parser.has_option("blockstack-client", "rpc_token"):
+            return parser.get("blockstack-client", "rpc_token")
+    return None
 
 
 class RegistrarRPCServer(SimpleXMLRPCServer):
@@ -70,6 +92,15 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
 
     payment_privkey = None
     owner_privkey = None
+
+    server_started_at = None
+
+    def __init__(self, server_info):
+
+        # log when rpc daemon was started
+        self.server_started_at = get_block_height()
+
+        SimpleXMLRPCServer.__init__(self, server_info, logRequests=False)
 
     def register_signal(self, signum):
         signal.signal(signum, self.signal_handler)
@@ -119,12 +150,23 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
         data['success'] = True
         return data
 
-    def get_wallet(self):
+    def get_start_block(self):
+        """ Get the block at which rpc daemon was started
+        """
+        return self.server_started_at
+
+    def get_wallet(self, rpc_token=None):
         """ Keeps payment privkey in memory (instead of disk)
             for the time that server is alive
         """
 
         data = {}
+        valid_rpc_token = get_rpc_token()
+
+        if str(valid_rpc_token) != str(rpc_token):
+            data['error'] = "Incorrect RPC token"
+            return json.dumps(data)
+
         data['payment_address'] = self.payment_address
         data['owner_address'] = self.owner_address
 
@@ -132,8 +174,8 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
         data['owner_privkey'] = self.owner_privkey
         return json.dumps(data)
 
-    def register(self, fqu):
-        """ Enter a new registration in queue
+    def preorder(self, fqu):
+        """ Send preorder transaction and enter it in queue
             The entered registration is picked up
             by the monitor process.
         """
@@ -145,19 +187,24 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
             data['error'] = "Wallet is not unlocked."
             return data
 
-        if alreadyProcessing(fqu):
-
+        if alreadyinQueue(preorder_queue, fqu):
             data['success'] = False
             data['error'] = "Already in queue."
             return data
 
-        add_to_queue(pending_queue, fqu,
-                     payment_address=self.payment_address,
-                     owner_address=self.owner_address)
+        resp = None
 
-        data['success'] = True
-        data['message'] = "Added to registration queue. Takes several hours."
-        data['message'] += " You can check status at anytime."
+        if not nameRegistered(fqu):
+            resp = preorder(fqu, None, self.owner_address,
+                            payment_privkey=self.payment_privkey)
+
+        if resp:
+            data['success'] = True
+            data['message'] = "Added to registration queue. Takes several hours."
+            data['message'] += " You can check status at anytime."
+        else:
+            data['success'] = False
+            data['message'] = "Couldn't broadcast transaction. Try again."
         return data
 
     def update(self, fqu, profile):
@@ -231,16 +278,16 @@ def init_rpc_daemon():
 
     global server
 
-    server = RegistrarRPCServer((REGISTRAR_IP, REGISTRAR_PORT),
-                                logRequests=False)
+    server = RegistrarRPCServer((REGISTRAR_IP, REGISTRAR_PORT))
 
     server.register_function(server.ping)
     server.register_function(server.state)
-    server.register_function(server.register)
+    server.register_function(server.preorder)
     server.register_function(server.update)
     server.register_function(server.transfer)
     server.register_function(server.get_wallet)
     server.register_function(server.set_wallet)
+    server.register_function(server.get_start_block)
     server.register_function(server.shutdown)
 
     server.register_signal(signal.SIGHUP)
@@ -262,9 +309,6 @@ def process_register(fqu, payment_privkey, owner_address):
         if alreadyinQueue(preorder_queue, fqu):
             return register(fqu, payment_privkey=payment_privkey,
                             owner_address=owner_address)
-        else:
-            return preorder(fqu, None, owner_address,
-                            payment_privkey=payment_privkey)
 
 
 def start_monitor():
@@ -292,9 +336,9 @@ def start_monitor():
                 current_block = get_block_height()
             else:
 
-                # monitor process reads from pending queue
+                # monitor process reads from preorder queue
                 # but never writes to it
-                for entry in pending_queue.find():
+                for entry in preorder_queue.find():
                     try:
                         resp = process_register(entry['fqu'],
                                                 wallet_data['payment_privkey'],
@@ -304,10 +348,13 @@ def start_monitor():
 
                 last_block = current_block
 
-                #if current_block % 10 == 0:
+                if current_block % 10 == 0:
                     # exit daemons, if no new requests for a while
-                #    if len(get_queue_state()) == 0:
-                #        proxy.shutdown()
+                    server_started_at = proxy.get_start_block()
+
+                    if current_block - server_started_at > 10:
+                        if len(get_queue_state()) == 0:
+                            proxy.shutdown()
 
                 cleanup_all_queues()
 
