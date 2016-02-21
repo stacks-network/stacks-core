@@ -449,6 +449,7 @@ def blockstore_name_preorder( name, privatekey, register_addr, tx_only=False, su
         # the sender will be the subsidizer (otherwise it will be the given private key's owner)
         public_key = BitcoinPrivateKey( subsidy_key ).public_key().to_hex()
 
+    resp = {}
     try:
         resp = preorder_name(str(name), privatekey, str(register_addr), str(consensus_hash), blockchain_client_inst, \
             name_fee, testset=blockstore_opts['testset'], subsidy_public_key=public_key, tx_only=tx_only )
@@ -518,6 +519,7 @@ def blockstore_name_register( name, privatekey, register_addr, renewal_fee=None,
         # the sender will be the subsidizer (otherwise it will be the given private key's owner)
         public_key = BitcoinPrivateKey( subsidy_key ).public_key().to_hex()
 
+    resp = {}
     try:
         resp = register_name(str(name), privatekey, str(register_addr), blockchain_client_inst, renewal_fee=renewal_fee, \
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, testset=blockstore_opts['testset'], \
@@ -582,6 +584,7 @@ def blockstore_name_update( name, data_hash, privatekey, tx_only=False, user_pub
     if blockchain_client_inst is None:
         return {"error": "Failed to connect to blockchain UTXO provider"}
 
+    resp = {}
     try:
         resp = update_name(str(name), str(data_hash), str(consensus_hash), privatekey, blockchain_client_inst, \
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, user_public_key=user_public_key, testset=blockstore_opts['testset'])
@@ -642,6 +645,7 @@ def blockstore_name_transfer( name, address, keepdata, privatekey, user_public_k
         else:
             keepdata = False
 
+    resp = {}
     try:
         resp = transfer_name(str(name), str(address), keepdata, str(consensus_hash), privatekey, blockchain_client_inst, \
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, user_public_key=user_public_key, testset=blockstore_opts['testset'])
@@ -721,6 +725,7 @@ def blockstore_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, u
     if broadcaster_client_inst is None:
         return {"error": "Failed to connect to blockchain transaction broadcaster"}
 
+    resp = {}
     try:
         resp = revoke_name(str(name), privatekey, blockchain_client_inst, \
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, \
@@ -758,6 +763,7 @@ def blockstore_name_import( name, recipient_address, update_hash, privatekey, tx
 
     db = get_state_engine()
 
+    resp = {}
     try:
         resp = name_import( str(name), str(recipient_address), str(update_hash), str(privatekey), blockchain_client_inst, \
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, testset=blockstore_opts['testset'] )
@@ -802,6 +808,7 @@ def blockstore_namespace_preorder( namespace_id, register_addr, privatekey, tx_o
 
     log.debug("Namespace '%s' will cost %s satoshis" % (namespace_id, namespace_fee))
 
+    resp = {}
     try:
         resp = namespace_preorder( str(namespace_id), str(register_addr), str(consensus_hash), str(privatekey), blockchain_client_inst, namespace_fee, \
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, testset=blockstore_opts['testset'] )
@@ -834,6 +841,7 @@ def blockstore_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
     if broadcaster_client_inst is None:
         return {"error": "Failed to connect to blockchain transaction broadcaster"}
 
+    resp = {}
     try:
         resp = namespace_reveal( str(namespace_id), str(register_addr), int(lifetime), \
                                 int(coeff), int(base), list(bucket_exponents), \
@@ -866,6 +874,7 @@ def blockstore_namespace_ready( namespace_id, privatekey, tx_only=False, testset
     if broadcaster_client_inst is None:
         return {"error": "Failed to connect to blockchain transaction broadcaster"}
 
+    resp = {}
     try:
         resp = namespace_ready( str(namespace_id), str(privatekey), blockchain_client_inst, \
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, testset=blockstore_opts['testset'] )
@@ -898,6 +907,7 @@ def blockstore_announce( message, privatekey, tx_only=False, subsidy_key=None, u
 
     message_hash = pybitcoin.hex_hash160( message )
 
+    resp = {}
     try:
         resp = send_announce( message_hash, privatekey, blockchain_client_inst, \
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, \
