@@ -25,6 +25,7 @@ import os
 import logging
 import traceback
 import virtualchain
+from binascii import hexlify
 
 from ConfigParser import SafeConfigParser
 
@@ -35,6 +36,9 @@ VERSION = __version__
 
 DEFAULT_BLOCKSTORED_PORT = '6264'
 DEFAULT_BLOCKSTORED_SERVER = "server.blockstack.org"
+
+DEFAULT_DHT_MIRROR = "mirror.blockstack.org"
+DEFAULT_DHT_PORT = '6266'
 
 # initialize to default settings
 BLOCKSTORED_SERVER = DEFAULT_BLOCKSTORED_SERVER
@@ -233,6 +237,10 @@ def make_default_config(path=CONFIG_PATH):
         parser.set('blockstack-client', 'storage_drivers', BLOCKSTORE_DEFAULT_STORAGE_DRIVERS)
         parser.set('blockstack-client', 'blockchain_headers', SPV_HEADERS_PATH)
         parser.set('blockstack-client', 'advanced_mode', 'false')
+        parser.set('blockstack-client', 'dht_mirror', DEFAULT_DHT_MIRROR)
+        parser.set('blockstack-client', 'dht_mirror_port', DEFAULT_DHT_PORT)
+        rpc_token = os.urandom(32)
+        parser.set('blockstack-client', 'rpc_token', hexlify(rpc_token))
 
         try:
             with open(path, "w") as f:
@@ -318,6 +326,15 @@ def get_config(path=CONFIG_PATH):
 
         if parser.has_option("blockstack-client", "advanced_mode"):
             config['advanced_mode'] = parser.get("blockstack-client", "advanced_mode")
+
+        if parser.has_option("blockstack-client", "dht_mirror"):
+            config['dht_mirror'] = parser.get("blockstack-client", "dht_mirror")
+
+        if parser.has_option("blockstack-client", "dht_mirror_port"):
+            config['dht_mirror_port'] = parser.get("blockstack-client", "dht_mirror_port")
+
+        if parser.has_option("blockstack-client", "rpc_token"):
+            config['rpc_token'] = parser.get("blockstack-client", "rpc_token")
 
     # import bitcoind options
     # commenting out because of virtualchain==0.0.6 config bug
