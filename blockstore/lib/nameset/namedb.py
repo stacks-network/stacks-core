@@ -573,8 +573,8 @@ class BlockstoreDB( virtualchain.StateEngine ):
          names = sorted(self.name_records.keys())[offset:min(offset+count, len(self.name_records.keys()))]
          names.sort()
 
-      return dict( zip( names, [self.name_records[name] for name in names] ) )
-
+      #return dict( zip( names, [self.name_records[name] for name in names] ) )
+      return names
 
    def get_names_in_namespace( self, namespace_id, offset=None, count=None ):
       """
