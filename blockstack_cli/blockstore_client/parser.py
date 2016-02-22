@@ -162,11 +162,6 @@ def add_subparsers(subparsers):
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-        'wallet',
-        help='display wallet information')
-
-    # ------------------------------------
-    subparser = subparsers.add_parser(
         'whois',
         help='<name> | get the registration record of a name')
     subparser.add_argument(
@@ -177,6 +172,11 @@ def add_subparsers(subparsers):
 def add_advanced_subparsers(subparsers):
     """ Adds advanced subparsers
     """
+
+    # ------------------------------------
+    subparser = subparsers.add_parser(
+        'wallet',
+        help='display wallet information')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
