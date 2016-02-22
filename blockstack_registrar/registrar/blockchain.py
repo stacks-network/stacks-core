@@ -39,7 +39,7 @@ from .config import UTXO_SERVER, UTXO_USER, UTXO_PASSWD
 from .config import UTXO_PROVIDER
 
 
-from .network import bs_client
+from .network import bs_client, get_bs_client
 
 from .utils import satoshis_to_btc
 from .utils import pretty_print as pprint
@@ -64,9 +64,9 @@ def get_bitcoind_client():
 
 def get_utxo_client():
 
-    client =BitcoindClient(server=UTXO_SERVER, port=BITCOIND_PORT,
-                           user=UTXO_USER, passwd=UTXO_PASSWD,
-                           use_https=BITCOIND_USE_HTTPS)
+    client = BitcoindClient(server=UTXO_SERVER, port=BITCOIND_PORT,
+                            user=UTXO_USER, passwd=UTXO_PASSWD,
+                            use_https=BITCOIND_USE_HTTPS)
 
     return client
 
@@ -233,8 +233,9 @@ def recipientNotReady(address):
         Check if address can own more names or not
     """
 
+    bs_client = get_bs_client()
     resp = bs_client.get_names_owned_by_address(address)
-    names_owned = resp
+    names_owned = resp[0]
 
     if len(names_owned) > MAXIMUM_NAMES_PER_ADDRESS:
         return True
