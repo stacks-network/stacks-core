@@ -17,7 +17,7 @@ Installing the command line interface and the client library:
 
 ```
 $ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev
-$ sudo pip install blockstack
+$ sudo pip install blockstack --upgrade
 ```
 
 ### OS X
@@ -35,6 +35,7 @@ The development version can have bug fixes for some issues you're experiencing. 
 helping with testing and development should also use the development version:
 
 ```
+$ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev git
 $ pip install git+https://github.com/blockstack/blockstack-client.git@develop --upgrade
 $ pip install git+https://github.com/blockstack/registrar.git@develop --upgrade
 
@@ -51,25 +52,25 @@ $ blockstack
 usage: blockstack [-h]
                   ...
 
-Blockstack cli version 0.0.12.2
+Blockstack cli version 0.0.12.4
 
 positional arguments:
-    balance             display the wallet balance
-    config              configure --server=x --port=y --advanced=on/off
-    cost                <name> | get the cost of a name
-    deposit             display the address with which to receive bitcoins
-    import              display the address with which to receive names
-    info                check server status and get details about the server
-    lookup              <name> | get the data record for a particular name
-    names               display the names owned by local addresses
-    register            <name> | register a new name
-    transfer            <name> <address> | transfer a name you own
-    update              <name> <data> | update a name record with new data
-    wallet              display wallet information
-    whois               <name> | get the registration record of a name
+  balance             display the wallet balance
+  config              configure --server=x --port=y --advanced=on/off
+  cost                <name> | get the cost of a name
+  deposit             display the address with which to receive bitcoins
+  import              display the address with which to receive names
+  info                check server status and get details about the server
+  lookup              <name> | get the data record for a particular name
+  names               display the names owned by local addresses
+  register            <name> | register a new name
+  transfer            <name> <address> | transfer a name you own
+  update              <name> <data> | update a name record with new data
+  whois               <name> | get the registration record of a name
 
 optional arguments:
   -h, --help            show this help message and exit
+
 ```
 
 ### Info  (or ping or status)
@@ -83,16 +84,15 @@ $ blockstack info
 ```
 $ blockstack info
 {
-    "alive": true,
-    "advanced_mode": false,
-    "cli_version": "0.0.12.2",
-    "consensus_hash": "ccf9a90ae7a10dc83a9da7e02213eb20",
-    "last_block_processed": 398758,
-    "last_block_seen": 398765,
-    "server": "server.blockstack.org:6264",
+    "advanced_mode": "off",
+    "cli_version": "0.0.12.4",
+    "consensus_hash": "4520fbed8459cc9fe6ef1161d683bf0b",
+    "last_block_processed": 399610,
+    "last_block_seen": 399616,
+    "server_alive": true,
     "server_host": "server.blockstack.org",
-    "server_port": 6264,
-    "server_version": "0.0.10.1"
+    "server_port": "6264",
+    "server_version": "0.0.10.3"
 }
 ```
 
@@ -105,10 +105,9 @@ $ blockstack config <options>
 ##### Examples
 
 ```
-$ blockstack config --server=server.blockstack.org --port=6264 --advanced=false
+$ blockstack config --host=server.blockstack.org --port=6264 --advanced=off
 {
-  "message": "Configuration settings updated.",
-  "error": false
+  "message": "Updated settings for host port advanced"
 }
 ```
 
@@ -123,9 +122,11 @@ $ blockstack cost <name>
 ```
 $ blockstack cost $(whoami).id
 {
-    "fee": 0.01624,
-    "registration_fee": 0.016,
-    "transaction_fee": 0.00024
+    "details": {
+        "registration_fee": 0.001,
+        "transactions_fee": 0.00016
+    },
+    "total_cost": 0.00116
 }
 ```
 
@@ -143,7 +144,7 @@ $ blockstack whois fredwilson.id
     "block_preordered_at": 374084,
     "block_renewed_at": 374084,
     "owner_address": "1F2nHEDLRJ39XxAvSxwQhJsaVzvS5RHDRM",
-    "owner_public_keys": ["0411d88aa37a0eea476a5b63ca4b1cd392ded830865824c27dacef6bde9f9bc53fa13a0926533ef4d20397207e212c2086cbe13db5470fd29616abd35326d33090"],
+    "owner_public_key": "0411d88aa37a0eea476a5b63ca4b1cd392ded830865824c27dacef6bde9f9bc53fa13a0926533ef4d20397207e212c2086cbe13db5470fd29616abd35326d33090",
     "owner_script": "76a91499e7f97f5d2c77b4f32b4ed9ae0f0385c45aa5c788ac",
     "preorder_transaction_id": "2986ec31ec957692d7f5bc58a3b02d2ac2d1a60039e9163365fc954ff51aeb5a",
     "registered": true
@@ -168,18 +169,20 @@ $ blockstack lookup <name>
 ```
 $ blockstack lookup fredwilson.id
 {
-  "data": {
-    "$origin": "fredwilson.id",
-    "$ttl": "3600",
-    "cname": [{ "name": "@", "alias": "https://zk9.s3.amazonaws.com" }]
-  }
+    "data_record": {
+        "avatar": {
+            "url": "https://s3.amazonaws.com/kd4/fredwilson1"
+        },
+        "bio": "I am a VC",
+   ...
 }
+
 ```
 
 ```
 $ blockstack lookup $(whoami)_$(date +"%m_%d").id
 {
-  "data": null
+    "error": "muneeb_02_22.id is not registered"
 }
 ```
 
@@ -193,18 +196,17 @@ $ blockstack register <name>
 
 ```
 $ blockstack register $(whoami)_$(date +"%m_%d").id
-Registering ryan_02_17.id will cost 0.0003025 BTC. Continue? (y/n): y
+Registering muneeb_02_22.id will cost 0.0002225 BTC. Continue? (y/n): y
 {
-    "message": "Name queued up for registration. Please expect a few hours for this process to be completed.",
-    "error": false
+    "message": "Added to registration queue. Takes several hours. You can check status at anytime.",
+    "success": true
 }
 ```
 
 ```
 $ blockstack register fredwilson.id
 {
-  "message": "Name has already been registered.",
-  "error": true
+    "error": "fredwilson.id is already registered"
 }
 ```
 
@@ -219,16 +221,15 @@ $ blockstack update <name> <data>
 ```
 $ blockstack update $(whoami)_$(date +"%m_%d").id '{"cname": [{ "name": "@", "alias": "https://zk9.s3.amazonaws.com" }]}'
 {
-  "message": "Data record updated.",
-  "error": false
+  "message": "Added to update queue. Takes ~1 hour. You can check status at anytime.",
+  "success": true
 }
 ```
 
 ```
 $ blockstack update fredwilson.id '{}'
 {
-  "message": "That name is not in your possession.",
-  "error": true
+    "error": "fredwilson.id not owned by 1UGQbEV6JXEk1onBzDoNGikrCjeXenA75"
 }
 ```
 
@@ -243,16 +244,15 @@ $ blockstack transfer <name> <address>
 ```
 $ blockstack transfer $(whoami)_$(date +"%m_%d").id 1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt
 {
-  "message": "Name queued up for transfer.",
-  "error": false
+  "message": "Added to transfer queue. Takes ~1 hour. You can check status at anytime.",
+  "success": true
 }
 ```
 
 ```
 $ blockstack transfer fredwilson.id 1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt
 {
-  "message": "That name is not in your possession.",
-  "error": true
+    "error": "fredwilson.id not owned by 1UGQbEV6JXEk1onBzDoNGikrCjeXenA75"
 }
 ```
 
@@ -267,10 +267,13 @@ $ blockstack balance
 ```
 $ blockstack balance
 {
-    "balance": 0.05,
     "addresses": [
-      { "address": "1EHgqHVpA1tjn6RhaVj8bx6y5NGvBwoMNS", "balance": 0.05 }
-    ]
+        {
+            "address": "16yE3e928JakaXbympwSywyrJPM9cuL4wZ",
+            "balance": 0.008405000000000001
+        }
+    ],
+    "total_balance": 0.008405000000000001
 }
 ```
 
@@ -287,7 +290,7 @@ $ blockstack names
 {
     "names_owned": [],
     "addresses": [
-      { "address": "1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt", "names": [] }
+      { "address": "1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt", "names_owned": [] }
     ]
 }
 ```
@@ -344,7 +347,8 @@ Try uninstalling Twisted from outside of virtualenvironment:
 
 And installing blockstack in a new virtualenvironment.
 
-If the issue you are experiencing is not listed here, please [report it as a new issue](https://github.com/blockstack/blockstack-client/issues/new).
+If the issue you are experiencing is not listed here, please
+[report it as a new issue](https://github.com/blockstack/blockstack-client/issues/new).
 
 ## Client Library
 
