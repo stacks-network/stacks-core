@@ -28,6 +28,7 @@ import traceback
 import os
 import pybitcoin
 from socket import error as socket_error
+from time import sleep
 
 import requests
 requests.packages.urllib3.disable_warnings()
@@ -89,9 +90,13 @@ def initialize_wallet():
                 hex_password = hexlify(password)
                 hex_privkey = wallet.get_master_privkey()
 
+                child = wallet.get_child_keypairs(count=2)
+
                 data = {}
                 encrypted_key = aes_encrypt(hex_privkey, hex_password)
                 data['encrypted_master_private_key'] = encrypted_key
+                data['payment_addresses'] = [child[0]]
+                data['owner_addresses'] = [child[1]]
 
                 file = open(WALLET_PATH, 'w')
                 file.write(json.dumps(data))
@@ -112,7 +117,7 @@ def unlock_wallet(display_enabled=False):
 
     if walletUnlocked():
         if display_enabled:
-            payment_address, owner_address = get_addresses_from_memory()
+            payment_address, owner_address = get_addresses_from_file()
             display_wallet_info(payment_address, owner_address)
     else:
 
@@ -123,6 +128,7 @@ def unlock_wallet(display_enabled=False):
             file = open(WALLET_PATH, 'r')
             data = file.read()
             data = json.loads(data)
+            file.close()
             hex_privkey = None
             try:
                 hex_privkey = aes_decrypt(data['encrypted_master_private_key'],
@@ -146,11 +152,17 @@ def unlock_wallet(display_enabled=False):
 
 def walletUnlocked():
 
-    payment_address, owner_address = get_addresses_from_memory()
+    local_proxy = get_local_proxy()
+    conf = config.get_config()
 
-    if payment_address is not None and owner_address is not None:
+    if local_proxy is not False:
 
-        return True
+        wallet_data = local_proxy.get_wallet(conf['rpc_token'])
+
+        if 'error' in wallet_data:
+            return False
+        else:
+            return True
     else:
         return False
 
@@ -212,22 +224,26 @@ def save_keys_to_memory(payment_keypair, owner_keypair):
     proxy = get_local_proxy()
 
     if proxy is False:
+        start_background_daemons()
+        sleep(3)
+
+    try:
+        data = proxy.set_wallet(payment_keypair, owner_keypair)
+    except:
         exit_with_error('Error talking to local proxy')
 
-    data = proxy.set_wallet(payment_keypair, owner_keypair)
 
+def get_addresses_from_file():
 
-def get_addresses_from_memory():
+    file = open(WALLET_PATH, 'r')
+    data = file.read()
+    data = json.loads(data)
+    file.close()
 
-    proxy = get_local_proxy()
-    conf = config.get_config()
+    payment_address = data['payment_addresses'][0]
+    owner_address = data['owner_addresses'][0]
 
-    if proxy is False:
-        return None, None
-
-    data = json.loads(proxy.get_wallet(conf['rpc_token']))
-
-    return data['payment_address'], data['owner_address']
+    return payment_address, owner_address
 
 
 def get_payment_addresses():
@@ -235,7 +251,7 @@ def get_payment_addresses():
     payment_addresses = []
 
     # currently only using one
-    payment_address, owner_address = get_addresses_from_memory()
+    payment_address, owner_address = get_addresses_from_file()
 
     payment_addresses.append({'address': payment_address,
                               'balance': get_balance(payment_address)})
@@ -248,10 +264,10 @@ def get_owner_addresses():
     owner_addresses = []
 
     # currently only using one
-    payment_address, owner_address = get_addresses_from_memory()
+    payment_address, owner_address = get_addresses_from_file()
 
     owner_addresses.append({'address': owner_address,
-                            'names': get_names_owned(owner_address)})
+                            'names_owned': get_names_owned(owner_address)})
 
     return owner_addresses
 
@@ -340,10 +356,7 @@ def tests_for_update_and_transfer(fqu, transfer_address=None):
     if not nameRegistered(fqu):
         exit_with_error("%s is not registered yet" % fqu)
 
-    if not walletUnlocked():
-        exit_with_error("Unlock wallet first.")
-
-    payment_address, owner_address = get_addresses_from_memory()
+    payment_address, owner_address = get_addresses_from_file()
 
     if not ownerName(fqu, owner_address):
         exit_with_error("%s not owned by %s" % (fqu, owner_address))
@@ -435,8 +448,8 @@ def run_cli():
 
     if args.action == 'balance':
 
-        if not walletUnlocked():
-            unlock_wallet()
+        if not os.path.exists(WALLET_PATH):
+            result = initialize_wallet()
 
         result['total_balance'], result['addresses'] = get_total_balance()
 
@@ -469,34 +482,32 @@ def run_cli():
         # reload conf
         conf = config.get_config()
 
-        result['host'] = conf['server']
-        result['port'] = conf['port']
-        result['advanced'] = conf['advanced_mode']
-
         if settings_updated:
             result['message'] = data['message']
+        else:
+            result['message'] = "No config settings were updated."
 
     elif args.action == 'deposit':
 
-        if not walletUnlocked():
-            unlock_wallet()
+        if not os.path.exists(WALLET_PATH):
+            result = initialize_wallet()
 
         result['message'] = 'Send bitcoins to the address specified.'
-        result['address'], owner_address = get_addresses_from_memory()
+        result['address'], owner_address = get_addresses_from_file()
 
     elif args.action == 'import':
 
-        if not walletUnlocked():
-            unlock_wallet()
+        if not os.path.exists(WALLET_PATH):
+            result = initialize_wallet()
 
         result['message'] = 'Send the name you want to receive to the'
         result['message'] += ' address specified.'
-        payment_address, result['address'] = get_addresses_from_memory()
+        payment_address, result['address'] = get_addresses_from_file()
 
     elif args.action == 'names':
 
-        if not walletUnlocked():
-            unlock_wallet()
+        if not os.path.exists(WALLET_PATH):
+            result = initialize_wallet()
 
         result['names_owned'] = get_all_names_owned()
         result['addresses'] = get_owner_addresses()
@@ -534,6 +545,7 @@ def run_cli():
 
                 current_state = json.loads(proxy.state())
 
+                queue = {}
                 pending_queue = []
                 preorder_queue = []
                 register_queue = []
@@ -549,17 +561,8 @@ def run_cli():
                     new_entry['confirmations'] = confirmations
                     return new_entry
 
-                def format_queue_display(pending_queue, preorder_queue,
+                def format_queue_display(preorder_queue,
                                          register_queue):
-
-                    for entry in preorder_queue:
-
-                        name = entry['name']
-
-                        for check_entry in pending_queue:
-
-                            if check_entry['name'] == name:
-                                pending_queue.remove(check_entry)
 
                     for entry in register_queue:
 
@@ -573,9 +576,7 @@ def run_cli():
                 for entry in current_state:
 
                     if 'type' in entry:
-                        if entry['type'] == 'pending':
-                            pending_queue.append(format_new_entry(entry))
-                        elif entry['type'] == 'preorder':
+                        if entry['type'] == 'preorder':
                             preorder_queue.append(format_new_entry(entry))
                         elif entry['type'] == 'register':
                             register_queue.append(format_new_entry(entry))
@@ -584,23 +585,23 @@ def run_cli():
                         elif entry['type'] == 'transfer':
                             transfer_queue.append(format_new_entry(entry))
 
-                format_queue_display(pending_queue, preorder_queue,
+                format_queue_display(preorder_queue,
                                      register_queue)
 
-                if len(pending_queue) != 0:
-                    result['queue_pending'] = pending_queue
-
                 if len(preorder_queue) != 0:
-                    result['queue_preorder'] = preorder_queue
+                    queue['preorder'] = preorder_queue
 
                 if len(register_queue) != 0:
-                    result['queue_register'] = register_queue
+                    queue['register'] = register_queue
 
                 if len(update_queue) != 0:
-                    result['queue_update'] = update_queue
+                    queue['update'] = update_queue
 
                 if len(transfer_queue) != 0:
-                    result['queue_transfer'] = transfer_queue
+                    queue['transfer'] = transfer_queue
+
+                if queue is not {}:
+                    result['queue'] = queue
 
     elif args.action == 'wallet':
 
@@ -664,7 +665,7 @@ def run_cli():
             exit_with_error("%s is already registered" % fqu)
 
         if not walletUnlocked():
-            exit_with_error("Unlock wallet first.")
+            unlock_wallet()
 
         fees = get_total_fees(cost)
 
@@ -682,7 +683,7 @@ def run_cli():
             print "\nExiting."
             exit(0)
 
-        payment_address, owner_address = get_addresses_from_memory()
+        payment_address, owner_address = get_addresses_from_file()
 
         if not hasEnoughBalance(payment_address, fees['total_cost']):
             msg = "Address %s doesn't have enough balance" % payment_address
@@ -711,6 +712,9 @@ def run_cli():
 
         tests_for_update_and_transfer(fqu)
 
+        if not walletUnlocked():
+            unlock_wallet()
+
         proxy = get_local_proxy()
         result = proxy.update(fqu, user_data)
 
@@ -720,6 +724,9 @@ def run_cli():
         transfer_address = str(args.address)
 
         tests_for_update_and_transfer(fqu, transfer_address=transfer_address)
+
+        if not walletUnlocked():
+            unlock_wallet()
 
         proxy = get_local_proxy()
         result = proxy.transfer(fqu, transfer_address)
