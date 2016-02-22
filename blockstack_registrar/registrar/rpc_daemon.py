@@ -29,6 +29,7 @@ import signal
 from time import sleep
 import json
 import xmlrpclib
+import socket
 
 from ConfigParser import SafeConfigParser
 
@@ -329,6 +330,9 @@ def init_rpc_daemon():
     server.register_signal(signal.SIGHUP)
     server.register_signal(signal.SIGINT)
     server.register_signal(signal.SIGTSTP)
+
+    # increase the default timeout
+    socket.setdefaulttimeout(30)
 
 
 def start_rpc_daemon():
