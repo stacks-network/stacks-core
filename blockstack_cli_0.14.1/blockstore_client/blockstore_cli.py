@@ -27,6 +27,7 @@ import json
 import traceback
 import os
 import pybitcoin
+import subprocess
 from socket import error as socket_error
 from time import sleep
 
@@ -52,7 +53,7 @@ from blockstore_client.parser import AliasedSubParsersAction
 
 from registrar.wallet import HDWallet
 from registrar.crypto.utils import aes_encrypt, aes_decrypt
-from registrar.blockchain import get_balance
+from registrar.blockchain import get_balance, dontuseAddress
 from registrar.network import get_bs_client
 from registrar.rpc_daemon import background_process
 from registrar.utils import satoshis_to_btc
@@ -218,6 +219,9 @@ def get_local_proxy():
 
 
 def start_background_daemons():
+    """ Start the rpc_daemon and monitor processes
+        if they're not already running
+    """
 
     proxy = xmlrpclib.ServerProxy(RPC_DAEMON)
 
@@ -225,6 +229,10 @@ def start_background_daemons():
         data = proxy.ping()
     except:
         background_process('start_daemon')
+
+    output = findProcess('start_monitor')
+
+    if 'registrar.rpc_daemon' not in output:
         background_process('start_monitor')
 
 
@@ -234,7 +242,7 @@ def save_keys_to_memory(payment_keypair, owner_keypair):
 
     if proxy is False:
         start_background_daemons()
-        sleep(3)
+        sleep(1)
 
     try:
         data = proxy.set_wallet(payment_keypair, owner_keypair)
@@ -377,10 +385,24 @@ def tests_for_update_and_transfer(fqu, transfer_address=None):
         msg = "Address %s doesn't have enough balance" % payment_address
         exit_with_error(msg)
 
+    if dontuseAddress(payment_address):
+        msg = "Address %s has pending transactions." % payment_address
+        msg += " Wait and try later."
+        exit_with_error(msg)
+
     if transfer_address is not None:
         if recipientNotReady(transfer_address):
             msg = "Address %s owns too many names already." % transfer_address
             exit_with_error(msg)
+
+
+def findProcess(processName):
+    ps = subprocess.Popen("ps -ef | grep "+processName, shell=True,
+                          stdout=subprocess.PIPE)
+    output = ps.stdout.read()
+    ps.stdout.close()
+    ps.wait()
+    return output
 
 
 def get_sorted_commands(display_commands=False):
@@ -393,7 +415,8 @@ def get_sorted_commands(display_commands=False):
                     'namespace_ready', 'namespace_reveal', 'put_mutable',
                     'put_immutable', 'get_mutable', 'get_immutable',
                     'cost', 'get_namespace_cost', 'get_nameops_at',
-                    'get_name_blockchain_record', 'get_namespace_blockchain_record',
+                    'get_name_blockchain_record',
+                    'get_namespace_blockchain_record',
                     'get_name_record', 'lookup',
                     'get_all_names', 'get_names_in_namespace', 'consensus',
                     'lookup_snv', 'get_names_owned_by_address',
@@ -623,12 +646,15 @@ def run_cli():
         data = {}
 
         blockchain_record = None
+        fqu = str(args.name)
 
         try:
-            blockchain_record = client.get_name_blockchain_record(
-                                        str(args.name))
+            blockchain_record = client.get_name_blockchain_record(fqu)
         except socket_error:
             exit_with_error("Error connecting to server")
+
+        if 'value_hash' not in blockchain_record:
+            exit_with_error("%s is not registered" % fqu)
 
         try:
             data_id = blockchain_record['value_hash']
@@ -700,6 +726,11 @@ def run_cli():
 
         if recipientNotReady(owner_address):
             msg = "Address %s owns too many names already." % owner_address
+            exit_with_error(msg)
+
+        if dontuseAddress(payment_address):
+            msg = "Address %s has pending transactions." % payment_address
+            msg += " Wait and try later."
             exit_with_error(msg)
 
         proxy = get_local_proxy()
