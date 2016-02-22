@@ -55,8 +55,8 @@ from .network import write_dht_profile
 
 from .config import SLEEP_INTERVAL
 
-import logging
-logging.disable(logging.CRITICAL)
+#import logging
+#logging.disable(logging.CRITICAL)
 
 FILE_NAME = 'rpc_daemon.py'
 CONFIG_DIR_INIT = "~/.blockstack"
@@ -166,7 +166,9 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
         if self.encrypted_payment_privkey is None:
             return None
 
-        return aes_decrypt(self.encrypted_payment_privkey, rpc_token)
+        privkey = aes_decrypt(self.encrypted_payment_privkey, rpc_token)
+
+        return str(privkey)
 
     def get_owner_privkey(self):
 
@@ -175,7 +177,9 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
         if self.encrypted_owner_privkey is None:
             return None
 
-        return aes_decrypt(self.encrypted_owner_privkey, rpc_token)
+        privkey = aes_decrypt(self.encrypted_owner_privkey, rpc_token)
+
+        return str(privkey)
 
     def get_wallet(self, rpc_token=None):
         """ Keeps payment privkey in memory (instead of disk)
