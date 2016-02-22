@@ -55,8 +55,8 @@ from .network import write_dht_profile
 
 from .config import SLEEP_INTERVAL
 
-#import logging
-#logging.disable(logging.CRITICAL)
+import logging
+logging.disable(logging.CRITICAL)
 
 FILE_NAME = 'rpc_daemon.py'
 CONFIG_DIR_INIT = "~/.blockstack"

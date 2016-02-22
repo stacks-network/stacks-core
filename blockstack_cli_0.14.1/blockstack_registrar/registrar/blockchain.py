@@ -233,9 +233,8 @@ def recipientNotReady(address):
         Check if address can own more names or not
     """
 
-    bs_client = get_bs_client()
     resp = bs_client.get_names_owned_by_address(address)
-    names_owned = resp[0]
+    names_owned = resp
 
     if len(names_owned) > MAXIMUM_NAMES_PER_ADDRESS:
         return True
