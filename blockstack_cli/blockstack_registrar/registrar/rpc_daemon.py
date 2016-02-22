@@ -49,14 +49,14 @@ from .states import ownerName
 
 from .blockchain import get_block_height
 
-from .crypto.utils import get_address_from_privkey
+from .crypto.utils import get_address_from_privkey, aes_decrypt, aes_encrypt
 
 from .network import write_dht_profile
 
 from .config import SLEEP_INTERVAL
 
-#import logging
-#logging.disable(logging.CRITICAL)
+import logging
+logging.disable(logging.CRITICAL)
 
 FILE_NAME = 'rpc_daemon.py'
 CONFIG_DIR_INIT = "~/.blockstack"
@@ -90,8 +90,8 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
     payment_address = None
     owner_address = None
 
-    payment_privkey = None
-    owner_privkey = None
+    encrypted_payment_privkey = None
+    encrypted_owner_privkey = None
 
     server_started_at = None
 
@@ -140,11 +140,15 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
             for the time that server is alive
         """
 
+        rpc_token = get_rpc_token()
+
         self.payment_address = payment_keypair[0]
         self.owner_address = owner_keypair[0]
 
-        self.payment_privkey = payment_keypair[1]
-        self.owner_privkey = owner_keypair[1]
+        self.encrypted_payment_privkey = aes_encrypt(payment_keypair[1],
+                                                     rpc_token)
+        self.encrypted_owner_privkey = aes_encrypt(owner_keypair[1],
+                                                   rpc_token)
 
         data = {}
         data['success'] = True
@@ -154,6 +158,24 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
         """ Get the block at which rpc daemon was started
         """
         return self.server_started_at
+
+    def get_payment_privkey(self):
+
+        rpc_token = get_rpc_token()
+
+        if self.encrypted_payment_privkey is None:
+            return None
+
+        return aes_decrypt(self.encrypted_payment_privkey, rpc_token)
+
+    def get_owner_privkey(self):
+
+        rpc_token = get_rpc_token()
+
+        if self.encrypted_owner_privkey is None:
+            return None
+
+        return aes_decrypt(self.encrypted_owner_privkey, rpc_token)
 
     def get_wallet(self, rpc_token=None):
         """ Keeps payment privkey in memory (instead of disk)
@@ -170,8 +192,9 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
         data['payment_address'] = self.payment_address
         data['owner_address'] = self.owner_address
 
-        data['payment_privkey'] = self.payment_privkey
-        data['owner_privkey'] = self.owner_privkey
+        data['payment_privkey'] = self.get_payment_privkey()
+        data['owner_privkey'] = self.get_owner_privkey()
+
         return json.dumps(data)
 
     def preorder(self, fqu):
@@ -182,7 +205,7 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
 
         data = {}
 
-        if self.payment_privkey is None or self.owner_privkey is None:
+        if self.payment_address is None or self.owner_address is None:
             data['success'] = False
             data['error'] = "Wallet is not unlocked."
             return data
@@ -196,7 +219,7 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
 
         if not nameRegistered(fqu):
             resp = preorder(fqu, None, self.owner_address,
-                            payment_privkey=self.payment_privkey)
+                            payment_privkey=self.get_payment_privkey())
 
         if resp:
             data['success'] = True
@@ -226,9 +249,9 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
         resp = None
 
         if not profileonBlockchain(fqu, profile):
-            resp = subsidized_update(fqu, profile, self.owner_privkey,
+            resp = subsidized_update(fqu, profile, self.get_owner_privkey(),
                                      self.payment_address,
-                                     payment_privkey=self.payment_privkey)
+                                     payment_privkey=self.get_payment_privkey())
 
             if not profileonDHT(fqu, profile):
                 dht_resp = write_dht_profile(profile)
@@ -260,9 +283,10 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
 
         resp = None
         if not ownerName(fqu, transfer_address):
-            resp = subsidized_transfer(fqu, transfer_address, self.owner_privkey,
+            resp = subsidized_transfer(fqu, transfer_address,
+                                       self.get_owner_privkey(),
                                        self.payment_address,
-                                       payment_privkey=self.payment_privkey)
+                                       payment_privkey=self.geT_payment_privkey())
 
         if resp:
             data['success'] = True
@@ -313,8 +337,15 @@ def process_register(fqu, payment_privkey, owner_address):
 
 def start_monitor():
 
-    current_block = get_block_height()
-    last_block = current_block - 1
+    try:
+        current_block = get_block_height()
+    except:
+        current_block = 5
+
+    if current_block is not None:
+        last_block = current_block - 1
+    else:
+        last_block = 5
 
     RPC_DAEMON = 'http://' + REGISTRAR_IP + ':' + str(REGISTRAR_PORT)
     wallet_data = None
@@ -322,8 +353,9 @@ def start_monitor():
     while(1):
 
         try:
+            rpc_token = get_rpc_token()
             proxy = xmlrpclib.ServerProxy(RPC_DAEMON)
-            wallet_data = json.loads(proxy.get_wallet())
+            wallet_data = json.loads(proxy.get_wallet(rpc_token))
 
         except:
             # if rpc daemon went offline, break monitoring loop as well
@@ -339,6 +371,7 @@ def start_monitor():
                 # monitor process reads from preorder queue
                 # but never writes to it
                 for entry in preorder_queue.find():
+
                     try:
                         resp = process_register(entry['fqu'],
                                                 wallet_data['payment_privkey'],
