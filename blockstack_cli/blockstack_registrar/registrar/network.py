@@ -47,8 +47,8 @@ bs_client.session(server_host=BLOCKSTORED_IP, server_port=BLOCKSTORED_PORT)
 
 def get_bs_client():
 
-    # return Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
-    return bs_client
+    return Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+    #return bs_client
 
 
 def get_dht_client():
@@ -61,7 +61,9 @@ def get_blockchain_record(fqu):
     data = {}
 
     try:
+        bs_client = get_bs_client()
         resp = bs_client.get_name_blockchain_record(fqu)
+        resp = resp[0]
     except Exception as e:
         data['error'] = e
         return data
