@@ -343,17 +343,23 @@ def process_register(fqu, payment_privkey, owner_address):
                             owner_address=owner_address)
 
 
-def start_monitor():
+def get_current_block():
 
     try:
         current_block = get_block_height()
     except:
         current_block = 5
 
-    if current_block is not None:
-        last_block = current_block - 1
-    else:
-        last_block = 5
+    if current_block is None:
+        current_block = 5
+
+    return current_block
+
+
+def start_monitor():
+
+    current_block = get_current_block()
+    last_block = current_block - 1
 
     RPC_DAEMON = 'http://' + REGISTRAR_IP + ':' + str(REGISTRAR_PORT)
     wallet_data = None
@@ -373,7 +379,7 @@ def start_monitor():
         try:
             if last_block == current_block:
                 sleep(SLEEP_INTERVAL)
-                current_block = get_block_height()
+                current_block = get_current_block()
             else:
 
                 # monitor process reads from preorder queue
