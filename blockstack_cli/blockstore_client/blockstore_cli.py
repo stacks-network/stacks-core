@@ -140,7 +140,7 @@ def unlock_wallet(display_enabled=False):
                 hex_privkey = aes_decrypt(data['encrypted_master_private_key'],
                                           hex_password)
             except:
-                print "Incorrect password."
+                exit_with_error("Incorrect password.")
             else:
                 print "Unlocked wallet."
                 wallet = HDWallet(hex_privkey)
