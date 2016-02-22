@@ -742,7 +742,12 @@ def run_cli():
             exit_with_error(msg)
 
         proxy = get_local_proxy()
-        result = proxy.preorder(fqu)
+        resp = proxy.preorder(fqu)
+
+        if 'success' in resp and resp['success']:
+            result = resp
+        else:
+            exit_with_error(resp['message'])
 
     elif args.action == 'update':
 
@@ -764,7 +769,12 @@ def run_cli():
             unlock_wallet()
 
         proxy = get_local_proxy()
-        result = proxy.update(fqu, user_data)
+        resp = proxy.update(fqu, user_data)
+
+        if 'success' in resp and resp['success']:
+            result = resp
+        else:
+            exit_with_error(resp['message'])
 
     elif args.action == 'transfer':
 
@@ -777,7 +787,12 @@ def run_cli():
             unlock_wallet()
 
         proxy = get_local_proxy()
-        result = proxy.transfer(fqu, transfer_address)
+        resp = proxy.transfer(fqu, transfer_address)
+
+        if 'success' in resp and resp['success']:
+            result = resp
+        else:
+            exit_with_error(resp['message'])
 
     elif args.action == 'consensus':
 
