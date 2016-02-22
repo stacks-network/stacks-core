@@ -158,8 +158,11 @@ def walletUnlocked():
     if local_proxy is not False:
 
         wallet_data = local_proxy.get_wallet(conf['rpc_token'])
+        wallet_data = json.loads(wallet_data)
 
         if 'error' in wallet_data:
+            return False
+        elif wallet_data['payment_address'] is None:
             return False
         else:
             return True
@@ -706,11 +709,11 @@ def run_cli():
         except:
             exit_with_error("data is not in JSON format")
 
+        tests_for_update_and_transfer(fqu)
+
         if profileonBlockchain(fqu, user_data):
             msg = "data is same as current data record, update not needed"
             exit_with_error(msg)
-
-        tests_for_update_and_transfer(fqu)
 
         if not walletUnlocked():
             unlock_wallet()
