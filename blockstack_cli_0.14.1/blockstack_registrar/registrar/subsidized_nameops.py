@@ -29,7 +29,7 @@ from crypto.utils import get_address_from_privkey
 from crypto.utils import get_pubkey_from_privkey
 
 from .utils import get_hash, pretty_print
-from .network import bs_client
+from .network import bs_client, get_bs_client()
 from .network import get_blockchain_record
 
 from .states import ownerName, nameRegistered
@@ -122,9 +122,11 @@ def subsidized_update(fqu, profile, owner_privkey, payment_address,
     resp = {}
 
     try:
+        bs_client = get_bs_client()
         resp = bs_client.update_subsidized(fqu, profile_hash,
                                            public_key=owner_public_key,
                                            subsidy_key=payment_privkey)
+        resp = resp[0]
     except Exception as e:
         log.debug(e)
 
@@ -208,9 +210,11 @@ def subsidized_transfer(fqu, transfer_address, owner_privkey, payment_address,
     try:
         # format for transfer RPC call is:
         # (name, address, keep_data, public_key, subsidy_key)
+        bs_client = get_bs_client()
         resp = bs_client.transfer_subsidized(fqu, transfer_address, True,
                                              public_key=owner_public_key,
                                              subsidy_key=payment_privkey)
+        resp = resp[0]
     except Exception as e:
         log.debug(e)
 
