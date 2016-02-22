@@ -86,6 +86,11 @@ def initialize_wallet():
                 print msg
             else:
 
+                confirm_password = raw_input("Confirm new password: ")
+
+                if password != confirm_password:
+                    exit_with_error("Passwords don't match.")
+
                 wallet = HDWallet()
                 hex_password = hexlify(password)
                 hex_privkey = wallet.get_master_privkey()
@@ -106,6 +111,7 @@ def initialize_wallet():
 
                 result['wallet_password'] = password
                 result['master_private_key'] = hex_privkey
+                print_result(result)
 
     except KeyboardInterrupt:
         print "\nExited."
@@ -452,7 +458,7 @@ def run_cli():
     if args.action == 'balance':
 
         if not os.path.exists(WALLET_PATH):
-            result = initialize_wallet()
+            initialize_wallet()
 
         result['total_balance'], result['addresses'] = get_total_balance()
 
@@ -493,7 +499,7 @@ def run_cli():
     elif args.action == 'deposit':
 
         if not os.path.exists(WALLET_PATH):
-            result = initialize_wallet()
+            initialize_wallet()
 
         result['message'] = 'Send bitcoins to the address specified.'
         result['address'], owner_address = get_addresses_from_file()
@@ -501,7 +507,7 @@ def run_cli():
     elif args.action == 'import':
 
         if not os.path.exists(WALLET_PATH):
-            result = initialize_wallet()
+            initialize_wallet()
 
         result['message'] = 'Send the name you want to receive to the'
         result['message'] += ' address specified.'
@@ -510,7 +516,7 @@ def run_cli():
     elif args.action == 'names':
 
         if not os.path.exists(WALLET_PATH):
-            result = initialize_wallet()
+            initialize_wallet()
 
         result['names_owned'] = get_all_names_owned()
         result['addresses'] = get_owner_addresses()
@@ -603,7 +609,7 @@ def run_cli():
                 if len(transfer_queue) != 0:
                     queue['transfer'] = transfer_queue
 
-                if queue is not {}:
+                if queue != {}:
                     result['queue'] = queue
 
     elif args.action == 'wallet':
