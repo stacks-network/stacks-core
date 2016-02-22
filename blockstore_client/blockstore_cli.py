@@ -114,6 +114,13 @@ def initialize_wallet():
                 result['master_private_key'] = hex_privkey
                 print_result(result)
 
+                input_prompt = "Have you backed up the above private key? (y/n): "
+                user_input = raw_input(input_prompt)
+                user_input = user_input.lower()
+
+                if user_input != 'y':
+                    exit_with_error("Please backup your private key first.")
+
     except KeyboardInterrupt:
         print "\nExited."
 
