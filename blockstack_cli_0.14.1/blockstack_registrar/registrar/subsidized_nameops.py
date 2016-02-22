@@ -29,7 +29,7 @@ from crypto.utils import get_address_from_privkey
 from crypto.utils import get_pubkey_from_privkey
 
 from .utils import get_hash, pretty_print
-from .network import bs_client, get_bs_client()
+from .network import bs_client, get_bs_client
 from .network import get_blockchain_record
 
 from .states import ownerName, nameRegistered
