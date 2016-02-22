@@ -32,10 +32,13 @@ If the above install command fails, see the [trouble shooting section](#troubles
 
 The client is under heavy development and you might want to install the development version.
 The development version can have bug fixes for some issues you're experiencing. Anyone
-helping with testing and development should also use the development version:
+helping with testing and development should also use the development version.
 
+On Debian/Ubuntun first install required packages:
+> sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev git
+
+Now, install the development version:
 ```
-$ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev git
 $ pip install git+https://github.com/blockstack/blockstack-client.git@develop --upgrade
 $ pip install git+https://github.com/blockstack/registrar.git@develop --upgrade
 
@@ -331,7 +334,7 @@ $ blockstack import
 
 **a) Error installing pycrypto**
 
-If you see the following error, while pycrpyto installs:
+If you see the following error, while pycrpyto installs on OS X:
 > error: command 'cc' failed with exit status 1
 
 Try installing it using:
@@ -342,10 +345,13 @@ Try installing it using:
 If you see the following error, when you run '$ blockstack':
 > ImportError: Twisted requires zope.interface 3.6.0 or later.
 
-Try uninstalling Twisted from outside of virtualenvironment:
-> sudo pip uninstall twisted
-
-And installing blockstack in a new virtualenvironment.
+Then you're trying to install inside of a virtualenvironment and Twisted is
+already installed outside. Exit the virtualenvironment and uninstall Twisted:
+```
+$ deactivate
+$ sudo pip uninstall twisted
+```
+Now, install blockstack in a new virtualenvironment.
 
 If the issue you are experiencing is not listed here, please
 [report it as a new issue](https://github.com/blockstack/blockstack-client/issues/new).
