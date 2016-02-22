@@ -95,9 +95,7 @@ def preorder(fqu, payment_address, owner_address, payment_privkey=None):
     resp = {}
 
     try:
-        bs_client = get_bs_client()
         resp = bs_client.preorder(fqu, payment_privkey, owner_address)
-        resp = resp[0]
     except Exception as e:
         log.debug(e)
 
@@ -184,9 +182,7 @@ def register(fqu, payment_address=None, owner_address=None,
     resp = {}
 
     try:
-        bs_client = get_bs_client()
         resp = bs_client.register(fqu, payment_privkey, owner_address)
-        resp = resp[0]
     except Exception as e:
         log.debug(e)
 
@@ -246,9 +242,7 @@ def update(fqu, profile):
     resp = {}
 
     try:
-        bs_client = get_bs_client()
         resp = bs_client.update(fqu, profile_hash, owner_privkey)
-        resp = resp[0]
     except Exception as e:
         log.debug(e)
 
@@ -307,9 +301,7 @@ def transfer(fqu, transfer_address):
 
     try:
         # format for transfer RPC call is (name, address, keepdata, privatekey)
-        bs_client = get_bs_client()
         resp = bs_client.transfer(fqu, transfer_address, True, owner_privkey)
-        resp = resp[0]
     except Exception as e:
         log.debug(e)
 
