@@ -217,9 +217,11 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
 
         resp = None
 
+        payment_privkey = self.get_payment_privkey()
+
         if not nameRegistered(fqu):
             resp = preorder(fqu, None, self.owner_address,
-                            payment_privkey=self.get_payment_privkey())
+                            payment_privkey=payment_privkey)
 
         if resp:
             data['success'] = True
@@ -236,7 +238,7 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
 
         data = {}
 
-        if self.payment_privkey is None or self.owner_privkey is None:
+        if self.payment_address is None or self.owner_address is None:
             data['success'] = False
             data['error'] = "Wallet is not unlocked."
             return data
@@ -248,10 +250,13 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
 
         resp = None
 
+        payment_privkey = self.get_payment_privkey()
+        owner_privkey = self.get_owner_privkey()
+
         if not profileonBlockchain(fqu, profile):
-            resp = subsidized_update(fqu, profile, self.get_owner_privkey(),
+            resp = subsidized_update(fqu, profile, owner_privkey,
                                      self.payment_address,
-                                     payment_privkey=self.get_payment_privkey())
+                                     payment_privkey=payment_privkey)
 
             if not profileonDHT(fqu, profile):
                 dht_resp = write_dht_profile(profile)
@@ -271,7 +276,7 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
 
         data = {}
 
-        if self.payment_privkey is None or self.owner_privkey is None:
+        if self.payment_address is None or self.owner_address is None:
             data['success'] = False
             data['error'] = "Wallet is not unlocked."
             return data
@@ -281,12 +286,15 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
             data['error'] = "Already in queue."
             return data
 
+        payment_privkey = self.get_payment_privkey()
+        owner_privkey = self.get_owner_privkey()
+
         resp = None
         if not ownerName(fqu, transfer_address):
             resp = subsidized_transfer(fqu, transfer_address,
-                                       self.get_owner_privkey(),
+                                       owner_privkey,
                                        self.payment_address,
-                                       payment_privkey=self.geT_payment_privkey())
+                                       payment_privkey=payment_privkey)
 
         if resp:
             data['success'] = True
