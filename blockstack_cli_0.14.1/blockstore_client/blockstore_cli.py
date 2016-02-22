@@ -236,11 +236,13 @@ def start_background_daemons():
         data = proxy.ping()
     except:
         background_process('start_daemon')
+        sleep(2)
 
     output = findProcess('start_monitor')
 
     if 'registrar.rpc_daemon' not in output:
         background_process('start_monitor')
+        sleep(2)
 
 
 def save_keys_to_memory(payment_keypair, owner_keypair):
@@ -249,7 +251,6 @@ def save_keys_to_memory(payment_keypair, owner_keypair):
 
     if proxy is False:
         start_background_daemons()
-        sleep(1)
 
     try:
         data = proxy.set_wallet(payment_keypair, owner_keypair)
