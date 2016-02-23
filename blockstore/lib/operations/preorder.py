@@ -167,7 +167,7 @@ def broadcast(name, private_key, register_addr, consensus_hash, blockchain_clien
     
     else:
         # serialize, sign, and broadcast the tx
-        response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_client)
+        response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_broadcaster)
         response.update({'data': nulldata})
         return response
 
