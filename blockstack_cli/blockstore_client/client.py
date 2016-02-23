@@ -1698,6 +1698,8 @@ def register(name, privatekey, register_addr, proxy=None, tx_only=False):
     register
     """
 
+    resp = {}
+
     if proxy is None:
         proxy = get_default_proxy()
 
