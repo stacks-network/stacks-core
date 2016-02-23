@@ -61,6 +61,8 @@ from registrar.utils import satoshis_to_btc
 from registrar.states import nameRegistered, ownerName, profileonBlockchain
 from registrar.blockchain import recipientNotReady, get_tx_confirmations
 
+from pybitcoin import is_b58check_address
+
 from binascii import hexlify
 
 import xmlrpclib
@@ -423,6 +425,13 @@ def tests_for_update_and_transfer(fqu, transfer_address=None):
         exit_with_error(msg)
 
     if transfer_address is not None:
+
+        try:
+            resp = is_b58check_address(str(transfer_address))
+        except:
+            msg = "Address %s is not a valid Bitcoin address" % transfer_address
+            exit_with_error(msg)
+
         if recipientNotReady(transfer_address):
             msg = "Address %s owns too many names already." % transfer_address
             exit_with_error(msg)
