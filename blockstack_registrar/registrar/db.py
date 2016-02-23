@@ -39,6 +39,7 @@ class TinyDBConvertor(object):
         self.collection_name = collection_name
 
     def reload(self):
+        self.local_db.close()
         self.local_db = TinyDB(self.local_db_fullpath)
 
     def find(self):
@@ -84,6 +85,26 @@ class TinyDBConvertor(object):
         self.local_db.close()
 
         return resp
+
+
+def get_preorder_queue():
+    preorder_queue = TinyDBConvertor('preorder', db_name=LOCAL_STATE_DB)
+    return preorder_queue
+
+
+def get_register_queue():
+    register_queue = TinyDBConvertor('register', db_name=LOCAL_STATE_DB)
+    return register_queue
+
+
+def get_update_queue():
+    update_queue = TinyDBConvertor('update', db_name=LOCAL_STATE_DB)
+    return update_queue
+
+
+def get_transfer_queue():
+    transfer_queue = TinyDBConvertor('transfer', db_name=LOCAL_STATE_DB)
+    return transfer_queue
 
 if SERVER_MODE:
 
