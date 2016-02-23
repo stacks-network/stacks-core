@@ -41,7 +41,7 @@ setup(
         'virtualchain==0.0.6',
         'kademlia==0.5',
         'keychain==0.1.4',
-        'blockstack-client==0.0.12.1'
+        'blockstack==0.0.12.1'
     ],
     classifiers=[
         'Intended Audience :: Developers',
