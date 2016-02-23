@@ -29,8 +29,10 @@ from .blockchain import get_block_height, txRejected
 from .blockchain import get_tx_confirmations
 from .blockchain import preorderRejected
 
-from .db import preorder_queue, register_queue, update_queue, transfer_queue
+from .db import get_preorder_queue, get_register_queue
+from .db import get_update_queue, get_transfer_queue
 from .db import pending_queue
+from .db import preorder_queue, register_queue, update_queue, transfer_queue
 
 from .utils import get_hash
 from .utils import config_log
@@ -131,6 +133,8 @@ def cleanup_pending_queue():
 
 def cleanup_preorder_queue(cleanup_rejected=False):
 
+    preorder_queue = get_preorder_queue()
+
     for entry in preorder_queue.find():
 
         if nameRegistered(entry['fqu']):
@@ -149,6 +153,8 @@ def cleanup_preorder_queue(cleanup_rejected=False):
 
 
 def cleanup_register_queue(cleanup_rejected=False):
+
+    register_queue = get_register_queue()
 
     for entry in register_queue.find():
 
@@ -170,6 +176,8 @@ def cleanup_register_queue(cleanup_rejected=False):
 
 def cleanup_update_queue():
 
+    update_queue = get_update_queue()
+
     for entry in update_queue.find():
 
         fqu = entry['fqu']
@@ -189,6 +197,8 @@ def cleanup_update_queue():
 
 
 def cleanup_transfer_queue():
+
+    transfer_queue = get_transfer_queue()
 
     for entry in transfer_queue.find():
 
@@ -214,18 +224,18 @@ def cleanup_transfer_queue():
 def cleanup_all_queues():
 
     cleanup_pending_queue()
-    cleanup_preorder_queue()
-    cleanup_register_queue()
+    cleanup_preorder_queue(cleanup_rejected=True)
+    cleanup_register_queue(cleanup_rejected=True)
     cleanup_update_queue()
     cleanup_transfer_queue()
 
 
 def display_queue_info(display_details=False):
 
-    display_queue(preorder_queue, display_details)
-    display_queue(register_queue, display_details)
-    display_queue(update_queue, display_details)
-    display_queue(transfer_queue, display_details)
+    display_queue(get_preorder_queue(), display_details)
+    display_queue(get_register_queue(), display_details)
+    display_queue(get_update_queue(), display_details)
+    display_queue(get_transfer_queue(), display_details)
 
 
 def get_queue_state():
@@ -237,38 +247,9 @@ def get_queue_state():
         for entry in queue.find():
             state.append(entry)
 
-    fetch_state(pending_queue)
-    fetch_state(preorder_queue)
-    fetch_state(register_queue)
-    fetch_state(update_queue)
-    fetch_state(transfer_queue)
+    fetch_state(get_preorder_queue())
+    fetch_state(get_register_queue())
+    fetch_state(get_update_queue())
+    fetch_state(get_transfer_queue())
 
     return state
-
-
-def alreadyProcessing(fqu):
-
-    check_queue = pending_queue.find_one({'fqu': fqu})
-
-    if check_queue is not None:
-        return True
-
-    check_queue = preorder_queue.find_one({'fqu': fqu})
-
-    if check_queue is not None:
-        return True
-
-    check_queue = register_queue.find_one({'fqu': fqu})
-
-    if check_queue is not None:
-        return True
-
-    check_queue = update_queue.find_one({'fqu': fqu})
-
-    if check_queue is not None:
-        return True
-
-    check_queue = transfer_queue.find_one({'fqu': fqu})
-
-    if check_queue is not None:
-        return True
