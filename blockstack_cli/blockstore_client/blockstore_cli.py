@@ -95,10 +95,12 @@ def initialize_wallet():
                 if password != confirm_password:
                     exit_with_error("Passwords don't match.")
 
-                wallet = HDWallet()
-                hex_password = hexlify(password)
-                hex_privkey = wallet.get_master_privkey()
+                temp_wallet = HDWallet()
+                hex_privkey = temp_wallet.get_master_privkey()
 
+                hex_password = hexlify(password)
+
+                wallet = HDWallet(hex_privkey)
                 child = wallet.get_child_keypairs(count=2)
 
                 data = {}
@@ -125,7 +127,7 @@ def initialize_wallet():
                     exit_with_error("Please backup your private key first.")
 
     except KeyboardInterrupt:
-        print "\nExited."
+        exit_with_error("\nExited.")
 
     return result
 
@@ -743,6 +745,10 @@ def run_cli():
             result['preorder_transaction_id'] = record['txid']
 
     elif args.action == 'register':
+
+        if not os.path.exists(WALLET_PATH):
+            initialize_wallet()
+
         result = {}
         fqu = str(args.name)
         check_valid_name(fqu)
@@ -806,6 +812,9 @@ def run_cli():
 
     elif args.action == 'update':
 
+        if not os.path.exists(WALLET_PATH):
+            initialize_wallet()
+
         fqu = str(args.name)
         check_valid_name(fqu)
 
@@ -841,6 +850,9 @@ def run_cli():
                 exit_with_error(resp['message'])
 
     elif args.action == 'transfer':
+
+        if not os.path.exists(WALLET_PATH):
+            initialize_wallet()
 
         fqu = str(args.name)
         check_valid_name(fqu)
