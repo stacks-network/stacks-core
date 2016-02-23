@@ -789,7 +789,11 @@ def run_cli():
         if 'success' in resp and resp['success']:
             result = resp
         else:
-            exit_with_error(resp['message'])
+            if 'error' in resp:
+                exit_with_error(resp['error'])
+
+            if 'message' in resp:
+                exit_with_error(resp['message'])
 
     elif args.action == 'update':
 
@@ -821,7 +825,11 @@ def run_cli():
         if 'success' in resp and resp['success']:
             result = resp
         else:
-            exit_with_error(resp['message'])
+            if 'error' in resp:
+                exit_with_error(resp['error'])
+
+            if 'message' in resp:
+                exit_with_error(resp['message'])
 
     elif args.action == 'transfer':
 
@@ -844,7 +852,11 @@ def run_cli():
         if 'success' in resp and resp['success']:
             result = resp
         else:
-            exit_with_error(resp['message'])
+            if 'error' in resp:
+                exit_with_error(resp['error'])
+
+            if 'message' in resp:
+                exit_with_error(resp['message'])
 
     # ---------------------- Advanced options ---------------------------------
     elif args.action == 'wallet':
