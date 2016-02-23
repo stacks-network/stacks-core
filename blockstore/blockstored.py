@@ -415,6 +415,10 @@ def blockstore_name_preorder( name, privatekey, register_addr, tx_only=False, su
     if blockchain_client_inst is None:
         return {"error": "Failed to connect to blockchain UTXO provider"}
 
+    broadcaster_client_inst = get_tx_broadcaster()
+    if broadcaster_client_inst is None:
+        return {"error": "Failed to connect to blockchain transaction broadcaster"}
+
     db = get_state_engine()
 
     if consensus_hash is None:
@@ -452,7 +456,7 @@ def blockstore_name_preorder( name, privatekey, register_addr, tx_only=False, su
     resp = {}
     try:
         resp = preorder_name(str(name), privatekey, str(register_addr), str(consensus_hash), blockchain_client_inst, \
-            name_fee, testset=blockstore_opts['testset'], subsidy_public_key=public_key, tx_only=tx_only )
+            name_fee, blockchain_broadcaster=broadcaster_client_inst, testset=blockstore_opts['testset'], subsidy_public_key=public_key, tx_only=tx_only )
     except:
         return json_traceback()
 
