@@ -1,1 +1,1 @@
-Implementation of the Blockstore state engine.
+Implementation of the Blockstack state engine.

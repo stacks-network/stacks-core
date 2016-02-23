@@ -1,24 +1,24 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Blockstore
+    Blockstack
     ~~~~~
     copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
     copyright: (c) 2016 by Blockstack.org
 
-    This file is part of Blockstore
+    This file is part of Blockstack
 
-    Blockstore is free software: you can redistribute it and/or modify
+    Blockstack is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    Blockstore is distributed in the hope that it will be useful,
+    Blockstack is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstore. If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
 # Hooks to the virtual chain's state engine that bind our namedb to the virtualchain package.
@@ -32,7 +32,7 @@ import traceback
 import json
 import copy
 
-from .namedb import BlockstoreDB
+from .namedb import BlockstackDB
 
 from ..config import *
 from ..operations import parse_preorder, parse_registration, parse_update, parse_transfer, parse_revoke, \
@@ -317,7 +317,7 @@ def get_db_state():
    db_filename = virtualchain.get_db_filename()
    
    log.info("(Re)Loading blockstack state from '%s'" % db_filename )
-   blockstack_db = BlockstoreDB( db_filename )
+   blockstack_db = BlockstackDB( db_filename )
    
    last_load_time = time.time()
    
@@ -355,7 +355,7 @@ def db_parse( block_id, opcode, data, senders, inputs, outputs, fee, db_state=No
       raise Exception("No senders for (%s, %s)" % (opcode, hexlify(data)))
   
    # the first sender is always the first non-nulldata output script hex, and by construction
-   # of Blockstore, this is always the principal that issued the operation.
+   # of Blockstack, this is always the principal that issued the operation.
    if 'script_pubkey' not in senders[0].keys():
       raise Exception("No script_pubkey in sender of (%s, %s)" % (opcode, hexlify(data)))
    

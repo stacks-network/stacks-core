@@ -1,24 +1,24 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Blockstore
+    Blockstack
     ~~~~~
     copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
     copyright: (c) 2016 by Blockstack.org
 
-    This file is part of Blockstore
+    This file is part of Blockstack
 
-    Blockstore is free software: you can redistribute it and/or modify
+    Blockstack is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    Blockstore is distributed in the hope that it will be useful,
+    Blockstack is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstore. If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
 import argparse
@@ -941,9 +941,9 @@ def blockstack_announce( message, privatekey, tx_only=False, subsidy_key=None, u
     return resp
 
 
-class BlockstoredRPC(jsonrpc.JSONRPC, object):
+class BlockstackdRPC(jsonrpc.JSONRPC, object):
     """
-    Blockstored not-quite-JSON-RPC server.
+    Blockstackd not-quite-JSON-RPC server.
 
     We say "not quite" because the implementation serves data
     via Netstrings, not HTTP, and does not pay attention to
@@ -958,7 +958,7 @@ class BlockstoredRPC(jsonrpc.JSONRPC, object):
 
     def __init__(self, testset=False):
         self.testset = testset
-        super(BlockstoredRPC, self).__init__()
+        super(BlockstackdRPC, self).__init__()
 
     def jsonrpc_ping(self):
         reply = {}
@@ -1865,7 +1865,7 @@ def reconfigure( testset=False ):
    Reconfigure blockstackd.
    """
    configure( force=True, testset=testset )
-   print "Blockstore successfully reconfigured."
+   print "Blockstack successfully reconfigured."
    sys.exit(0)
 
 
@@ -1947,10 +1947,10 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
 
         if history_index > 0:
             print "restore from %s" % block_number
-            name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number )[ history_index - 1 ]
+            name_rec_prev = BlockstackDB.restore_from_history( name_rec, block_number )[ history_index - 1 ]
         else:
             print "restore from %s" % (block_number - 1)
-            name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number - 1 )[ history_index - 1 ]
+            name_rec_prev = BlockstackDB.restore_from_history( name_rec, block_number - 1 )[ history_index - 1 ]
 
         sender = name_rec_prev['sender']
         address = name_rec_prev['address']
@@ -1989,9 +1989,9 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
 
         # get previous owner
         if history_index > 0:
-            name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number )[history_index - 1]
+            name_rec_prev = BlockstackDB.restore_from_history( name_rec, block_number )[history_index - 1]
         else:
-            name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number - 1 )[history_index - 1]
+            name_rec_prev = BlockstackDB.restore_from_history( name_rec, block_number - 1 )[history_index - 1]
 
         sender = name_rec_prev['sender']
         address = name_rec_prev['address']
@@ -2225,14 +2225,14 @@ def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, 
     log.debug( "Rebuilding database from %s to %s" % (start_block, target_block_id) )
 
     # feed in operations, block by block, from the untrusted database
-    untrusted_db = BlockstoreDB( untrusted_db_path )
+    untrusted_db = BlockstackDB( untrusted_db_path )
 
     # working db, to build up the operations in the untrusted db block-by-block
     working_db = None
     if working_db_path is None:
         working_db_path = virtualchain.get_db_filename()
 
-    working_db = BlockstoreDB( working_db_path )
+    working_db = BlockstackDB( working_db_path )
 
     # map block ID to consensus hashes
     consensus_hashes = {}
@@ -2394,7 +2394,7 @@ def run_blockstackd():
       help='the block ID at which to stop rebuilding')
    parser.add_argument(
       '--resume-dir', nargs='?',
-      help='the temporary directory to store the database state as it is being rebuilt.  Blockstored will resume working from this directory if it is interrupted.')
+      help='the temporary directory to store the database state as it is being rebuilt.  Blockstackd will resume working from this directory if it is interrupted.')
    parser.add_argument(
       '--working-dir', action='store',
       help='use an alternative working directory')
@@ -2436,14 +2436,14 @@ def run_blockstackd():
                                                 bitcoin_opts['bitcoind_user']))
 
    if args.action == 'version':
-      print "Blockstore version: %s.%s" % (VERSION, BLOCKSTORE_VERSION)
+      print "Blockstack version: %s.%s" % (VERSION, BLOCKSTORE_VERSION)
       print "Testset: %s" % testset
       sys.exit(0)
 
    if args.action == 'start':
 
       if os.path.exists( get_pidfile_path() ):
-          log.error("Blockstored appears to be running already.  If not, please run '%s stop'" % (sys.argv[0]))
+          log.error("Blockstackd appears to be running already.  If not, please run '%s stop'" % (sys.argv[0]))
           sys.exit(1)
 
       if args.foreground:

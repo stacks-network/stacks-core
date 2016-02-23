@@ -1,5 +1,5 @@
 
-# Blockstore
+# Blockstack
 
 [![PyPI](https://img.shields.io/pypi/v/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
 [![PyPI](https://img.shields.io/pypi/dm/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
@@ -7,13 +7,13 @@
 
 ## Name registrations on the bitcoin blockchain
 
-Blockstore enables human-readable name registrations on the Bitcoin blockchain,
+Blockstack enables human-readable name registrations on the Bitcoin blockchain,
 along with the ability to store associated data in external datastores. You can
 use it to register globally unique names, associate data with those names, and
 transfer them between Bitcoin addresses. Anyone can perform lookups on those
 names and securely obtain the data associated with them.
 
-Blockstore uses the Bitcoin blockchain for storing name operations and data
+Blockstack uses the Bitcoin blockchain for storing name operations and data
 hashes, and the Kademlia-based distributed hash table (DHT) and other external
 datastores for storing the full data files outside of the blockchain.
 
@@ -41,7 +41,7 @@ a stable, easy to install version out very soon!**
 This document is meant to provide an overview of how to get blockstack up and
 running on Mac OS X, Linux, and other UNIX-like operating systems. It is meant
 to be a high-level walk-through for application developers who want to run
-their own Blockstore instance. Basic proficiency with the command-line is
+their own Blockstack instance. Basic proficiency with the command-line is
 required.
 
 ## Quick start
@@ -150,7 +150,7 @@ blockstack/
 
 ## Documentation
 
-Blockstore’s detailed documentation is located included in this repo’s
+Blockstack’s detailed documentation is located included in this repo’s
 [Wiki](https://github.com/blockstack/blockstack/wiki).
 
 
@@ -193,7 +193,7 @@ We welcome any small or big contributions! Please take a moment to
 [review the following guidelines](https://guides.github.com/activities/contributing-to-open-source/)
 in order to make the contribution process easy and effective for everyone involved.
 
-The main authors of Blockstore are:
+The main authors of Blockstack are:
 
 **[Jude Nelson](http://onename.com/judecn)** ([@judecnelson](https://twitter.com/judecnelson))
 

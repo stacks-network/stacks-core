@@ -1,24 +1,24 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Blockstore
+    Blockstack
     ~~~~~
     copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
     copyright: (c) 2016 by Blockstack.org
 
-    This file is part of Blockstore
+    This file is part of Blockstack
 
-    Blockstore is free software: you can redistribute it and/or modify
+    Blockstack is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    Blockstore is distributed in the hope that it will be useful,
+    Blockstack is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstore. If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
 import json
@@ -51,7 +51,7 @@ if not globals().has_key('log'):
     log = virtualchain.session.log
 
 
-class BlockstoreDB( virtualchain.StateEngine ):
+class BlockstackDB( virtualchain.StateEngine ):
    """
    State engine implementatoin for blockstack.
    Tracks the set of names and namespaces, as well as the
@@ -81,7 +81,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
           initial_snapshots = GENESIS_SNAPSHOT
 
 
-      super( BlockstoreDB, self ).__init__( virtualchain_hooks.get_magic_bytes(), OPCODES, impl=virtualchain_hooks, initial_snapshots=initial_snapshots, state=self )
+      super( BlockstackDB, self ).__init__( virtualchain_hooks.get_magic_bytes(), OPCODES, impl=virtualchain_hooks, initial_snapshots=initial_snapshots, state=self )
 
       self.announce_ids = blockstack_opts['announcers'].split(",")
 
@@ -181,7 +181,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
                  self.address_names[ name_record['address'] ].append( name )
 
          # convert history to int
-         self.name_records[name]['history'] = BlockstoreDB.sanitize_history( self.name_records[name]['history'] )
+         self.name_records[name]['history'] = BlockstackDB.sanitize_history( self.name_records[name]['history'] )
 
          # convert vtxindex
          self.name_records[name]['vtxindex'] = int(self.name_records[name]['vtxindex'])
@@ -218,15 +218,15 @@ class BlockstoreDB( virtualchain.StateEngine ):
             log.debug("Deriving %s children of %s ('%s') for '%s'" % (NAME_IMPORT_KEYRING_SIZE, pubkey_addr, pubkey_hex, namespace_id))
 
             # generate all possible addresses from this public key
-            self.import_addresses[ namespace_id ] = BlockstoreDB.build_import_keychain( pubkey_hex )
+            self.import_addresses[ namespace_id ] = BlockstackDB.build_import_keychain( pubkey_hex )
 
          # convert history to int
-         self.namespace_reveals[namespace_id]['history'] = BlockstoreDB.sanitize_history( namespace_reveal['history'] )
+         self.namespace_reveals[namespace_id]['history'] = BlockstackDB.sanitize_history( namespace_reveal['history'] )
 
       for (namespace_id, namespace) in self.namespaces.items():
 
          # sanitize history on import
-         self.namespaces[namespace_id]['history'] = BlockstoreDB.sanitize_history( namespace['history'] )
+         self.namespaces[namespace_id]['history'] = BlockstackDB.sanitize_history( namespace['history'] )
 
       self.prescanned = False
 
@@ -422,7 +422,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
           # didn't exist then
           return None
 
-      historical_recs = BlockstoreDB.restore_from_history( name_rec, block_number )
+      historical_recs = BlockstackDB.restore_from_history( name_rec, block_number )
       return historical_recs
 
 
@@ -439,7 +439,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       if block_number < namespace_rec['block_number']:
           return None
 
-      historical_recs = BlockstoreDB.restore_from_history( namespace_rec, block_number )
+      historical_recs = BlockstackDB.restore_from_history( namespace_rec, block_number )
       return historical_recs
 
 
@@ -504,7 +504,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
               # neither created nor altered at this block
               continue
 
-          recs = BlockstoreDB.restore_from_history( name_rec, block_id )
+          recs = BlockstackDB.restore_from_history( name_rec, block_id )
           ret += recs
 
       # all current preorders
@@ -525,7 +525,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
               # neither created nor altered at this block
               continue
 
-          recs = BlockstoreDB.restore_from_history( namespace, block_id )
+          recs = BlockstackDB.restore_from_history( namespace, block_id )
           ret += recs
 
       # all current namespace preorders
@@ -541,7 +541,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
           if block_id < namespace_reveal['block_number'] or block_id not in namespace_reveal['history'].keys() + [namespace_reveal['block_number']]:
               continue
 
-          recs = BlockstoreDB.restore_from_history( namespace_reveal, block_id )
+          recs = BlockstackDB.restore_from_history( namespace_reveal, block_id )
           ret += recs
 
       return sorted( ret, key=lambda n: n['vtxindex'] )
@@ -1031,7 +1031,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
       if not self.name_records.has_key(name):
           return False
 
-      self.name_records[name] = BlockstoreDB.save_diff( self.name_records[name], block_id, field_list )
+      self.name_records[name] = BlockstackDB.save_diff( self.name_records[name], block_id, field_list )
 
 
    def commit_name_expire( self, name, block_id ):
@@ -2313,7 +2313,7 @@ class BlockstoreDB( virtualchain.StateEngine ):
 
           # need to generate a keyring from the revealer's public key
           log.debug("Generating %s-key keychain for '%s'" % (NAME_IMPORT_KEYRING_SIZE, namespace_id))
-          import_addresses = BlockstoreDB.build_import_keychain( sender_pubkey_hex )
+          import_addresses = BlockstackDB.build_import_keychain( sender_pubkey_hex )
           self.import_addresses[namespace_id] = import_addresses
 
       # sender must be the same as the the person who revealed the namespace

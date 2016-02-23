@@ -1,24 +1,24 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Blockstore
+    Blockstack
     ~~~~~
     copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
     copyright: (c) 2016 by Blockstack.org
 
-    This file is part of Blockstore
+    This file is part of Blockstack
 
-    Blockstore is free software: you can redistribute it and/or modify
+    Blockstack is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    Blockstore is distributed in the hope that it will be useful,
+    Blockstack is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstore. If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
 import os
@@ -331,7 +331,7 @@ SUPPORTED_UTXO_PROMPT_MESSAGES = {
 """
 Which announcements has this blockstack node seen so far?
 Announcements encode CVEs, bugs, and new features.  This list will be
-updated in Blockstore releases to describe which of them have been
+updated in Blockstack releases to describe which of them have been
 incorporated into the codebase.
 """
 ANNOUNCEMENTS = []
@@ -1281,7 +1281,7 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
    else:
        utxo_provider = default_utxo_provider( config_file=config_file )
 
-   bitcoind_message  = "Blockstore does not have enough information to connect\n"
+   bitcoind_message  = "Blockstack does not have enough information to connect\n"
    bitcoind_message += "to bitcoind.  Please supply the following parameters, or\n"
    bitcoind_message += "press [ENTER] to select the default value."
 
@@ -1304,7 +1304,7 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
        # prompt for it?
        if interactive or force:
 
-           utxo_message  = 'NOTE: Blockstore currently requires an external API\n'
+           utxo_message  = 'NOTE: Blockstack currently requires an external API\n'
            utxo_message += 'for querying unspent transaction outputs.  The set of\n'
            utxo_message += 'supported providers are:\n'
            utxo_message += "\t\n".join( SUPPORTED_UTXO_PROVIDERS ) + "\n"
@@ -1337,7 +1337,7 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
        # default DHT options
        dht_opts = default_dht_opts( config_file=config_file )
 
-   dht_msg = "Please enter your DHT node configuration.\nUnless you plan on leaving Blockstore\nrunning, you should disable the DHT feature."
+   dht_msg = "Please enter your DHT node configuration.\nUnless you plan on leaving Blockstack\nrunning, you should disable the DHT feature."
 
    # NOTE: disabled
    dht_opts, missing_dht_opts, num_dht_opts_prompted = find_missing( dht_msg, dht_params, dht_opts, dht_opts_defaults, prompt_missing=False )

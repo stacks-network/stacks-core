@@ -1,24 +1,24 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Blockstore
+    Blockstack
     ~~~~~
     copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
     copyright: (c) 2016 by Blockstack.org
 
-    This file is part of Blockstore
+    This file is part of Blockstack
 
-    Blockstore is free software: you can redistribute it and/or modify
+    Blockstack is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    Blockstore is distributed in the hope that it will be useful,
+    Blockstack is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstore. If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
 #hack around absolute paths
@@ -36,12 +36,12 @@ application = service.Application("blockstackd")
 # ------------
 # blockstack 
 # ------------
-# from blockstackd import BlockstoredRPC, reindex_blockchain
-from blockstackd import BlockstoredRPC
+# from blockstackd import BlockstackdRPC, reindex_blockchain
+from blockstackd import BlockstackdRPC
 import lib.config
 from lib.config import REINDEX_FREQUENCY, RPC_SERVER_PORT
 
-factory_blockstack = jsonrpc.RPCFactory(BlockstoredRPC(), maxLength=8192)
+factory_blockstack = jsonrpc.RPCFactory(BlockstackdRPC(), maxLength=8192)
 
 server_blockstack = internet.TCPServer(RPC_SERVER_PORT, factory_blockstack)
 server_blockstack.setServiceParent(application)

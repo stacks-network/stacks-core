@@ -1,24 +1,24 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Blockstore
+    Blockstack
     ~~~~~
     copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
     copyright: (c) 2016 by Blockstack.org
 
-    This file is part of Blockstore
+    This file is part of Blockstack
 
-    Blockstore is free software: you can redistribute it and/or modify
+    Blockstack is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    Blockstore is distributed in the hope that it will be useful,
+    Blockstack is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstore. If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
 from utilitybelt import is_hex, is_valid_int
@@ -349,7 +349,7 @@ def tx_analyze_inputs( inputs, bitcoind_opts ):
     
 def tx_make_subsidizable( blockstack_tx, fee_cb, max_fee, subsidy_key, utxo_client ):
     """
-    Given an unsigned serialized transaction from Blockstore, make it into a subsidized transaction 
+    Given an unsigned serialized transaction from Blockstack, make it into a subsidized transaction 
     for the client to go sign off on.
     * Add subsidization inputs/outputs
     * Make sure the subsidy does not exceed the maximum subsidy fee
