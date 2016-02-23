@@ -24,6 +24,9 @@ This file is part of Registrar.
 
 from .network import get_blockchain_record, get_dht_profile
 from .utils import get_hash
+from .utils import config_log
+
+log = config_log(__name__)
 
 """
     registrar/states defines the different states a name can be in
@@ -50,11 +53,11 @@ def profileonBlockchain(fqu, profile):
 
     profile_hash = get_hash(profile)
 
-    if 'value_hash' in record and record['value_hash'] != profile_hash:
+    if 'value_hash' in record and record['value_hash'] == profile_hash:
         # if hash of profile is in correct
-        return False
+        return True
 
-    return True
+    return False
 
 
 def profileonDHT(fqu, profile):
