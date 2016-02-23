@@ -30,7 +30,7 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
-from blockstore.blockstored import run_blockstored
+from blockstack.blockstackd import run_blockstackd
 
 if __name__ == '__main__':
-    run_blockstored()
+    run_blockstackd()

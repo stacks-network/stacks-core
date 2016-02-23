@@ -24,24 +24,24 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='blockstore',
+    name='blockstack',
     version='0.0.10.1',
-    url='https://github.com/blockstack/blockstore',
+    url='https://github.com/blockstack/blockstack',
     license='GPLv3',
     author='Blockstack.org',
     author_email='support@blockstack.org',
     description='Name registrations on the Bitcoin blockchain with external storage',
     keywords='blockchain bitcoin btc cryptocurrency name key value store data',
     packages=find_packages(),
-    scripts=['bin/blockstored'],
-    download_url='https://github.com/blockstack/blockstore/archive/master.zip',
+    scripts=['bin/blockstackd'],
+    download_url='https://github.com/blockstack/blockstack/archive/master.zip',
     zip_safe=False,
     include_package_data=True,
     install_requires=[
         'virtualchain==0.0.6',
         'kademlia==0.5',
         'keychain==0.1.4',
-        'blockstore-client==0.0.12.1'
+        'blockstack-client==0.0.12.1'
     ],
     classifiers=[
         'Intended Audience :: Developers',

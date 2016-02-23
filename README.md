@@ -1,8 +1,8 @@
 
 # Blockstore
 
-[![PyPI](https://img.shields.io/pypi/v/blockstore.svg)](https://pypi.python.org/pypi/blockstore/)
-[![PyPI](https://img.shields.io/pypi/dm/blockstore.svg)](https://pypi.python.org/pypi/blockstore/)
+[![PyPI](https://img.shields.io/pypi/v/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
+[![PyPI](https://img.shields.io/pypi/dm/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
 [![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 
 ## Name registrations on the bitcoin blockchain
@@ -38,7 +38,7 @@ a stable, easy to install version out very soon!**
 
 ## Overview
 
-This document is meant to provide an overview of how to get blockstore up and
+This document is meant to provide an overview of how to get blockstack up and
 running on Mac OS X, Linux, and other UNIX-like operating systems. It is meant
 to be a high-level walk-through for application developers who want to run
 their own Blockstore instance. Basic proficiency with the command-line is
@@ -46,27 +46,27 @@ required.
 
 ## Quick start
 
-The fastest way to get started with blockstore is to use pip:
+The fastest way to get started with blockstack is to use pip:
 
 ```
-pip install blockstore
+pip install blockstack
 ```
 
 If you encounter any problems during the pip install, see the [detailed install
-instructions](https://github.com/blockstack/blockstore/wiki/Usage).
+instructions](https://github.com/blockstack/blockstack/wiki/Usage).
 
 ## Getting started
 
-Start blockstored and index the blockchain:
+Start blockstackd and index the blockchain:
 
 ```
-$ blockstored start
+$ blockstackd start
 ```
 
 Then, perform name lookups:
 
 ```
-$ blockstore-cli lookup werner.id
+$ blockstack-cli lookup werner.id
 {
     "address": "1KRca8gGiCiTNGR65iXMPQ6d5fisDdN3ZF",
     "first_registered": 374132,
@@ -90,17 +90,17 @@ Within the install you'll find the following directories and files. You'll see
 something like this:
 
 ```
-blockstore/
+blockstack/
 ├── bin/
-│   ├── blockstored
+│   ├── blockstackd
 │   └── README.md
-├── blockstore/
+├── blockstack/
 │   ├── __init__.py
 │   ├── blockmirrord.py
 │   ├── blockmirrord.tac
-│   ├── blockstore.tac
-│   ├── blockstore-testset.tac
-│   ├── blockstored.py
+│   ├── blockstack.tac
+│   ├── blockstack-testset.tac
+│   ├── blockstackd.py
 │   ├── build_nameset.py
 │   ├── coinkit.patch
 │   ├── dht/
@@ -151,7 +151,7 @@ blockstore/
 ## Documentation
 
 Blockstore’s detailed documentation is located included in this repo’s
-[Wiki](https://github.com/blockstack/blockstore/wiki).
+[Wiki](https://github.com/blockstack/blockstack/wiki).
 
 
 ## Design decisions
