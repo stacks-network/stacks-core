@@ -379,6 +379,12 @@ def start_monitor():
             proxy = xmlrpclib.ServerProxy(RPC_DAEMON)
             wallet_data = json.loads(proxy.get_wallet(rpc_token))
 
+            while(wallet_data['owner_address'] is None):
+                rpc_token = get_rpc_token()
+                proxy = xmlrpclib.ServerProxy(RPC_DAEMON)
+                wallet_data = json.loads(proxy.get_wallet(rpc_token))
+                sleep(SLEEP_INTERVAL)
+
         except:
             # if rpc daemon went offline, break monitoring loop as well
             # print "RPC daemon exited. Exiting."
