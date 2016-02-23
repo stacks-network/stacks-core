@@ -38,8 +38,9 @@ from config import REGISTRAR_IP, REGISTRAR_PORT
 
 from .queue import get_queue_state, alreadyinQueue
 from .queue import add_to_queue, pending_queue
-from .queue import preorder_queue, register_queue, update_queue, transfer_queue
-from .queue import alreadyProcessing, cleanup_all_queues
+from .queue import get_preorder_queue
+from .queue import get_update_queue, get_transfer_queue
+from .queue import cleanup_all_queues
 
 from .nameops import preorder, register
 from .subsidized_nameops import subsidized_update, subsidized_transfer
@@ -215,6 +216,7 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
             data['error'] = "Wallet is not unlocked."
             return data
 
+        preorder_queue = get_preorder_queue()
         if alreadyinQueue(preorder_queue, fqu):
             data['success'] = False
             data['error'] = "Already in queue."
@@ -248,6 +250,7 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
             data['error'] = "Wallet is not unlocked."
             return data
 
+        update_queue = get_update_queue()
         if alreadyinQueue(update_queue, fqu):
             data['success'] = False
             data['error'] = "Already in queue."
@@ -286,6 +289,7 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
             data['error'] = "Wallet is not unlocked."
             return data
 
+        transfer_queue = get_transfer_queue()
         if alreadyinQueue(transfer_queue, fqu):
             data['success'] = False
             data['error'] = "Already in queue."
@@ -346,6 +350,7 @@ def start_rpc_daemon():
 def process_register(fqu, payment_privkey, owner_address):
 
     if not nameRegistered(fqu):
+        preorder_queue = get_preorder_queue()
         if alreadyinQueue(preorder_queue, fqu):
             return register(fqu, payment_privkey=payment_privkey,
                             owner_address=owner_address)
@@ -387,7 +392,7 @@ def start_monitor():
 
         except:
             # if rpc daemon went offline, break monitoring loop as well
-            # print "RPC daemon exited. Exiting."
+            # print "RPC daemon exited. Exiting." 
             break
 
         try:
@@ -398,6 +403,7 @@ def start_monitor():
 
                 # monitor process reads from preorder queue
                 # but never writes to it
+                preorder_queue = get_preorder_queue()
                 for entry in preorder_queue.find():
 
                     try:
