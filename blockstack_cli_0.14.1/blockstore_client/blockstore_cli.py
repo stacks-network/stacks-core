@@ -359,11 +359,9 @@ def get_total_fees(data):
     registration_fee = satoshis_to_btc(registration_fee_satoshi)
     tx_fee = satoshis_to_btc(tx_fee_satoshi)
 
-    details = {}
-    details['registration_fee'] = registration_fee
-    details['transactions_fee'] = tx_fee
-    reply['total_cost'] = registration_fee + tx_fee
-    reply['details'] = details
+    reply['name_price'] = registration_fee
+    reply['transaction_fee'] = tx_fee
+    reply['total_estimated_cost'] = registration_fee + tx_fee
 
     return reply
 
@@ -528,7 +526,7 @@ def run_cli():
 
         result['total_balance'], result['addresses'] = get_total_balance()
 
-    elif args.action == 'cost':
+    elif args.action == 'price':
 
         fqu = str(args.name)
         check_valid_name(fqu)
@@ -766,7 +764,7 @@ def run_cli():
         fees = get_total_fees(cost)
 
         try:
-            cost = fees['total_cost']
+            cost = fees['total_estimated_cost']
             input_prompt = "Registering %s will cost %s BTC." % (fqu, cost)
             input_prompt += " Continue? (y/n): "
             user_input = raw_input(input_prompt)
