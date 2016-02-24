@@ -65,7 +65,6 @@ def get_blockchain_record(fqu):
 
     try:
         resp = bs_client.get_name_blockchain_record(fqu)
-        log.debug(resp)
     except Exception as e:
         data['error'] = e
         return data
