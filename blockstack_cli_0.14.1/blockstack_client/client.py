@@ -229,8 +229,6 @@ def session(conf=None, server_host=BLOCKSTACKD_SERVER, server_port=BLOCKSTACKD_P
     # create proxy
     proxy = BlockstackRPCClient(server_host, server_port)
 
-    if set_global:
-        default_proxy = proxy
 
     # load all storage drivers
     for storage_driver in storage_drivers.split(","):
@@ -245,10 +243,12 @@ def session(conf=None, server_host=BLOCKSTACKD_SERVER, server_port=BLOCKSTACKD_P
             sys.exit(1)
 
     # initialize SPV
-    #SPVClient.init(spv_headers_path)
-    #default_proxy.spv_headers_path = spv_headers_path
+    SPVClient.init(spv_headers_path)
+    proxy.spv_headers_path = spv_headers_path
+    proxy.conf = conf
+
     if set_global:
-        default_proxy.conf = conf
+        default_proxy = proxy
 
     return proxy
 
