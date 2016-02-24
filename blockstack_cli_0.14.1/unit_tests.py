@@ -30,10 +30,10 @@ import unittest
 
 from blockstack_client import client
 from blockstack_client.utils import print_result as pprint
-from blockstack_client.config import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
+from blockstack_client.config import BLOCKSTACKD_SERVER, BLOCKSTACKD_PORT
 
 # start session
-client.session(server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_PORT)
+client.session(server_host=BLOCKSTACKD_SERVER, server_port=BLOCKSTACKD_PORT)
 
 test_names = ["muneeb.id", "fredwilson.id"]
 
