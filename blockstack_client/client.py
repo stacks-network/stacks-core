@@ -1554,6 +1554,8 @@ def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_co
 
     return historic_namerec
 
+# backwards compatibility
+lookup_snv = snv_lookup
 
 def get_name_blockchain_record(name, proxy=None):
     """
