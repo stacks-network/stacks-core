@@ -1,24 +1,24 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Blockstore-client
+    Blockstack-client
     ~~~~~
     copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
     copyright: (c) 2016 by Blockstack.org
 
-    This file is part of Blockstore-client.
+    This file is part of Blockstack-client.
 
-    Blockstore-client is free software: you can redistribute it and/or modify
+    Blockstack-client is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    Blockstore-client is distributed in the hope that it will be useful,
+    Blockstack-client is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstore-client.  If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstack-client.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 import os
@@ -32,11 +32,11 @@ import socket
 from basicrpc import Proxy
 
 """ this module contains the plugin to blockstack that makes the DHT useful as
-    ancillary storage. This depends on the blockstore server package, since it
+    ancillary storage. This depends on the blockstack server package, since it
     includes the DHT node implementation.
 """
 
-DHT_SERVER_PORT = 6265  # blockstored default to port 6264
+DHT_SERVER_PORT = 6265  # blockstackd default to port 6264
 MIRROR_TCP_PORT = 6266
 
 DEFAULT_DHT_SERVERS = [('dht.blockstack.org', DHT_SERVER_PORT),
@@ -79,7 +79,7 @@ def dht_init(local_server=False):
     """
     Establish our connection to the DHT, and give
     it the requisite state it needs (i.e. an API
-    proxy to blockstore)
+    proxy to blockstack)
     """
 
     global dht_server
@@ -135,7 +135,7 @@ def dht_put_data(data_key, data_value):
 def storage_init():
     """
     DHT implementation of the storage_init API call.
-    Given the blockstore API proxy, set up any persistent state.
+    Given the blockstack API proxy, set up any persistent state.
     Return True on success
     Return False on error
     """
