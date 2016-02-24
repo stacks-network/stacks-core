@@ -19,7 +19,7 @@
    limitations under the License.
 """
  
-# This module lets the blockstore client use Amazon S3 as a storage provider.
+# This module lets the blockstack client use Amazon S3 as a storage provider.
 
 import sys
 import os

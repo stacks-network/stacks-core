@@ -3,20 +3,20 @@
 from setuptools import setup, find_packages
 
 # to set __version__
-exec(open('blockstore_client/version.py').read())
+exec(open('blockstack_client/version.py').read())
 
 setup(
-    name='blockstore-client',
+    name='blockstack-client',
     version=__version__,
-    url='https://github.com/blockstack/blockstore-client',
+    url='https://github.com/blockstack/blockstack-client',
     license='GPLv3',
     author='Blockstack.org',
     author_email='support@blockstack.org',
-    description='Python client library for Blockstore',
+    description='Python client library for Blockstack',
     keywords='blockchain bitcoin btc cryptocurrency name key value store data',
     packages=find_packages(),
     scripts=['bin/blockstack'],
-    download_url='https://github.com/blockstack/blockstore-client/archive/master.zip',
+    download_url='https://github.com/blockstack/blockstack-client/archive/master.zip',
     zip_safe=False,
     include_package_data=True,
     install_requires=[
