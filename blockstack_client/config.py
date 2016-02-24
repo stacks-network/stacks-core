@@ -34,19 +34,19 @@ from .version import __version__
 DEBUG = True
 VERSION = __version__
 
-DEFAULT_BLOCKSTORED_PORT = '6264'
-DEFAULT_BLOCKSTORED_SERVER = "server.blockstack.org"
+DEFAULT_BLOCKSTACKD_PORT = '6264'
+DEFAULT_BLOCKSTACKD_SERVER = "server.blockstack.org"
 
 DEFAULT_DHT_MIRROR = "mirror.blockstack.org"
 DEFAULT_DHT_PORT = '6266'
 
 # initialize to default settings
-BLOCKSTORED_SERVER = DEFAULT_BLOCKSTORED_SERVER
-BLOCKSTORED_PORT = DEFAULT_BLOCKSTORED_PORT
+BLOCKSTACKD_SERVER = DEFAULT_BLOCKSTACKD_SERVER
+BLOCKSTACKD_PORT = DEFAULT_BLOCKSTACKD_PORT
 WALLET_PASSWORD_LENGTH = 15
 
-BLOCKSTORE_METADATA_DIR = os.path.expanduser("~/.blockstack/metadata")
-BLOCKSTORE_DEFAULT_STORAGE_DRIVERS = "dht"
+BLOCKSTACK_METADATA_DIR = os.path.expanduser("~/.blockstack/metadata")
+BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = "dht"
 
 DEFAULT_TIMEOUT = 5  # in secs
 
@@ -215,7 +215,7 @@ def make_default_config(path=CONFIG_PATH):
     Return True on success
     Return False on failure
     """
-    global CONFIG_PATH, BLOCKSTORED_SERVER, BLOCKSTORED_PORT
+    global CONFIG_PATH, BLOCKSTACKD_SERVER, BLOCKSTACKD_PORT
 
     # try to create
     dirname = os.path.dirname(CONFIG_PATH)
@@ -231,10 +231,10 @@ def make_default_config(path=CONFIG_PATH):
 
         parser = SafeConfigParser()
         parser.add_section('blockstack-client')
-        parser.set('blockstack-client', 'server', BLOCKSTORED_SERVER)
-        parser.set('blockstack-client', 'port', BLOCKSTORED_PORT)
-        parser.set('blockstack-client', 'metadata', BLOCKSTORE_METADATA_DIR)
-        parser.set('blockstack-client', 'storage_drivers', BLOCKSTORE_DEFAULT_STORAGE_DRIVERS)
+        parser.set('blockstack-client', 'server', BLOCKSTACKD_SERVER)
+        parser.set('blockstack-client', 'port', BLOCKSTACKD_PORT)
+        parser.set('blockstack-client', 'metadata', BLOCKSTACK_METADATA_DIR)
+        parser.set('blockstack-client', 'storage_drivers', BLOCKSTACK_DEFAULT_STORAGE_DRIVERS)
         parser.set('blockstack-client', 'blockchain_headers', SPV_HEADERS_PATH)
         parser.set('blockstack-client', 'advanced_mode', 'false')
         parser.set('blockstack-client', 'dht_mirror', DEFAULT_DHT_MIRROR)
@@ -277,7 +277,7 @@ def get_config(path=CONFIG_PATH):
     Return None on error
     """
 
-    global BLOCKSTORED_SERVER, BLOCKSTORED_PORT
+    global BLOCKSTACKD_SERVER, BLOCKSTACKD_PORT
 
     if not os.path.exists(path):
         rc = make_default_config()
@@ -287,10 +287,10 @@ def get_config(path=CONFIG_PATH):
 
     # defaults
     config = {
-        "server": BLOCKSTORED_SERVER,
-        "port": BLOCKSTORED_PORT,
-        "storage_drivers": BLOCKSTORE_DEFAULT_STORAGE_DRIVERS,
-        "metadata": BLOCKSTORE_METADATA_DIR,
+        "server": BLOCKSTACKD_SERVER,
+        "port": BLOCKSTACKD_PORT,
+        "storage_drivers": BLOCKSTACK_DEFAULT_STORAGE_DRIVERS,
+        "metadata": BLOCKSTACK_METADATA_DIR,
         "blockchain_headers": SPV_HEADERS_PATH,
         "advanced_mode": 'off',
     }

@@ -43,8 +43,8 @@ import bitcoin
 import binascii
 from utilitybelt import is_hex
 
-from config import log, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTORED_SERVER, \
-    BLOCKSTORED_PORT, BLOCKSTORE_METADATA_DIR, BLOCKSTORE_DEFAULT_STORAGE_DRIVERS, \
+from config import log, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SERVER, \
+    BLOCKSTACKD_PORT, BLOCKSTACK_METADATA_DIR, BLOCKSTACK_DEFAULT_STORAGE_DRIVERS, \
     FIRST_BLOCK_MAINNET, NAME_OPCODES, OPFIELDS, CONFIG_DIR, SPV_HEADERS_PATH, BLOCKCHAIN_ID_MAGIC, \
     NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER, NAMESPACE_PREORDER, NAME_IMPORT
 
@@ -193,9 +193,9 @@ class BlockstackRPCClient(object):
             raise Exception("Invalid response: not a JSON string")
 
 
-def session(conf=None, server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_PORT,
-            storage_drivers=BLOCKSTORE_DEFAULT_STORAGE_DRIVERS,
-            metadata_dir=BLOCKSTORE_METADATA_DIR, spv_headers_path=SPV_HEADERS_PATH, set_global=False):
+def session(conf=None, server_host=BLOCKSTACKD_SERVER, server_port=BLOCKSTACKD_PORT,
+            storage_drivers=BLOCKSTACK_DEFAULT_STORAGE_DRIVERS,
+            metadata_dir=BLOCKSTACK_METADATA_DIR, spv_headers_path=SPV_HEADERS_PATH, set_global=False):
 
     """
     Create a blockstack session:

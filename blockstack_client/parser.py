@@ -80,13 +80,13 @@ def add_subparsers(subparsers):
         '--host',
         action='store',
         help="""the hostname/IP of blockstack server \
-        (current: {})""".format(config.BLOCKSTORED_SERVER))
+        (current: {})""".format(config.BLOCKSTACKD_SERVER))
 
     subparser.add_argument(
         '--port',
         action='store',
         help="""the server port to connect to (current: {})""".format(
-            config.BLOCKSTORED_PORT))
+            config.BLOCKSTACKD_PORT))
 
     subparser.add_argument(
         '--advanced',
