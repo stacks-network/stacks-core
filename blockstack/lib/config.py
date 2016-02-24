@@ -1111,7 +1111,7 @@ def default_dht_opts( config_file=None ):
       dht_opts = {
          'disable': disable,
          'port': port,
-         'servers': parsed_servers
+         'servers': ",".join( ["%s:%s" % (s[0], s[1]) for s in parsed_servers] )
       }
 
       return dht_opts
