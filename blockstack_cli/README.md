@@ -26,6 +26,11 @@ $ sudo pip install blockstack --upgrade
 $ sudo pip install blockstack --upgrade
 ```
 
+We recommend installing inside a [virtualenvironment](http://docs.python-guide.org/en/latest/dev/virtualenvs/). If you're installing inside a virtualenvironment then do:
+```
+$ pip install blockstack --upgrade
+```
+
 If the above install command fails, see the [trouble shooting section](#troubleshooting-installation).
 
 ### Development Version
@@ -39,8 +44,8 @@ On Debian/Ubuntun first install required packages:
 
 Now, install the development version:
 ```
-$ pip install git+https://github.com/blockstack/blockstack-client.git@develop --upgrade
-$ pip install git+https://github.com/blockstack/registrar.git@develop --upgrade
+$ sudo pip install git+https://github.com/blockstack/blockstack-client.git@develop --upgrade
+$ sudo pip install git+https://github.com/blockstack/registrar.git@develop --upgrade
 
 ```
 
@@ -58,22 +63,21 @@ usage: blockstack [-h]
 Blockstack cli version 0.0.12.4
 
 positional arguments:
-  balance             display the wallet balance
-  config              configure --server=x --port=y --advanced=on/off
-  cost                <name> | get the cost of a name
-  deposit             display the address with which to receive bitcoins
-  import              display the address with which to receive names
-  info                check server status and get details about the server
-  lookup              <name> | get the data record for a particular name
-  names               display the names owned by local addresses
-  register            <name> | register a new name
-  transfer            <name> <address> | transfer a name you own
-  update              <name> <data> | update a name record with new data
-  whois               <name> | get the registration record of a name
+    balance             display the wallet balance
+    config              configure --server=x --port=y --advanced=on/off
+    price               <name> | get the cost of a name
+    deposit             display the address with which to receive bitcoins
+    import              display the address with which to receive names
+    info                check server status and get details about the server
+    lookup              <name> | get the data record for a particular name
+    names               display the names owned by local addresses
+    register            <name> | register a new name
+    transfer            <name> <address> | transfer a name you own
+    update              <name> <data> | update a name record with new data
+    whois               <name> | get the registration record of a name
 
 optional arguments:
   -h, --help            show this help message and exit
-
 ```
 
 ### Info  (or ping or status)
@@ -117,19 +121,17 @@ $ blockstack config --host=server.blockstack.org --port=6264 --advanced=off
 ### Cost
 
 ```
-$ blockstack cost <name>
+$ blockstack price <name>
 ```
 
 ##### Examples
 
 ```
-$ blockstack cost $(whoami).id
+$ blockstack price $(whoami).id
 {
-    "details": {
-        "registration_fee": 0.001,
-        "transactions_fee": 0.00016
-    },
-    "total_cost": 0.00116
+    "name_price": 0.001,
+    "total_estimated_cost": 0.00116,
+    "transaction_fee": 0.00016
 }
 ```
 
@@ -355,6 +357,21 @@ Now, install blockstack in a new virtualenvironment.
 
 If the issue you are experiencing is not listed here, please
 [report it as a new issue](https://github.com/blockstack/blockstack-client/issues/new).
+
+## Running Your Server
+
+The CLI by default talks to a remote server, but you can easily start your own server.
+Open a new terminal and do:
+
+```
+$ blockstack-server start --foreground
+```
+
+You can now switch the cli to use the local server:
+```
+$ blockstack config --host=localhost
+```
+More information on the server is [here](http://github.com/blockstack/blockstack-server).
 
 ## Client Library
 
