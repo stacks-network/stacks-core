@@ -26,6 +26,7 @@ import sys
 import json
 import traceback
 import os
+import re
 import pybitcoin
 import subprocess
 from socket import error as socket_error
@@ -60,11 +61,14 @@ from registrar.utils import satoshis_to_btc
 from registrar.states import nameRegistered, ownerName, profileonBlockchain
 from registrar.blockchain import recipientNotReady, get_tx_confirmations
 
+from pybitcoin import is_b58check_address
+
 from binascii import hexlify
 
 import xmlrpclib
 
 from registrar.config import REGISTRAR_IP, REGISTRAR_PORT
+from registrar.config import BLOCKSTORED_IP, BLOCKSTORED_PORT
 
 RPC_DAEMON = 'http://' + REGISTRAR_IP + ':' + str(REGISTRAR_PORT)
 
@@ -92,10 +96,12 @@ def initialize_wallet():
                 if password != confirm_password:
                     exit_with_error("Passwords don't match.")
 
-                wallet = HDWallet()
-                hex_password = hexlify(password)
-                hex_privkey = wallet.get_master_privkey()
+                temp_wallet = HDWallet()
+                hex_privkey = temp_wallet.get_master_privkey()
 
+                hex_password = hexlify(password)
+
+                wallet = HDWallet(hex_privkey)
                 child = wallet.get_child_keypairs(count=2)
 
                 data = {}
@@ -122,7 +128,7 @@ def initialize_wallet():
                     exit_with_error("Please backup your private key first.")
 
     except KeyboardInterrupt:
-        print "\nExited."
+        exit_with_error("\nExited.")
 
     return result
 
@@ -202,7 +208,11 @@ def display_wallet_info(payment_address, owner_address):
 
 def get_names_owned(address):
 
-    bs_client = get_bs_client()
+      # hack to ensure local, until we update client
+    from blockstore_client import client as bs_client
+    # start session using blockstore_client
+    bs_client.session(server_host=BLOCKSTORED_IP, server_port=BLOCKSTORED_PORT,
+                      set_global=True)
 
     try:
         names_owned = bs_client.get_names_owned_by_address(address)
@@ -354,11 +364,9 @@ def get_total_fees(data):
     registration_fee = satoshis_to_btc(registration_fee_satoshi)
     tx_fee = satoshis_to_btc(tx_fee_satoshi)
 
-    details = {}
-    details['registration_fee'] = registration_fee
-    details['transactions_fee'] = tx_fee
-    reply['total_cost'] = registration_fee + tx_fee
-    reply['details'] = details
+    reply['name_price'] = registration_fee
+    reply['transaction_fee'] = tx_fee
+    reply['total_estimated_cost'] = registration_fee + tx_fee
 
     return reply
 
@@ -371,6 +379,29 @@ def exit_with_error(error_message, help_message=None):
         result['help'] = help_message
     print_result(result)
     exit(0)
+
+
+def check_valid_name(fqu):
+
+    try:
+        name, tld = fqu.rsplit('.')
+    except:
+        msg = 'The name specified is invalid.'
+        msg += ' Names must end with a period followed by a valid TLD.'
+        exit_with_error(msg)
+
+    if name == '':
+        msg = 'The name specified is invalid.'
+        msg += ' Names must be at least one character long, not including the TLD.'
+        exit_with_error(msg)
+
+    regrex = r'^[a-z0-9_]{1,60}$'
+
+    if not re.search(regrex, name):
+        msg = 'The name specified is invalid.'
+        msg += ' Names may only contain alphanumeric characters,'
+        msg += ' dashes, and underscores.'
+        exit_with_error(msg)
 
 
 def tests_for_update_and_transfer(fqu, transfer_address=None):
@@ -399,6 +430,13 @@ def tests_for_update_and_transfer(fqu, transfer_address=None):
         exit_with_error(msg)
 
     if transfer_address is not None:
+
+        try:
+            resp = is_b58check_address(str(transfer_address))
+        except:
+            msg = "Address %s is not a valid Bitcoin address" % transfer_address
+            exit_with_error(msg)
+
         if recipientNotReady(transfer_address):
             msg = "Address %s owns too many names already." % transfer_address
             exit_with_error(msg)
@@ -492,6 +530,23 @@ def run_cli():
             initialize_wallet()
 
         result['total_balance'], result['addresses'] = get_total_balance()
+
+    elif args.action == 'price':
+
+        fqu = str(args.name)
+        check_valid_name(fqu)
+
+        try:
+            resp = client.get_name_cost(fqu)
+        except socket_error:
+            exit_with_error("Error connecting to server")
+
+        if 'error' in resp:
+            exit_with_error(resp['error'])
+
+        data = get_total_fees(resp)
+
+        result = data
 
     elif args.action == 'config':
         data = {}
@@ -643,18 +698,13 @@ def run_cli():
                 if queue != {}:
                     result['queue'] = queue
 
-    elif args.action == 'wallet':
-
-        if not os.path.exists(WALLET_PATH):
-            result = initialize_wallet()
-        else:
-            unlock_wallet(display_enabled=True)
-
     elif args.action == 'lookup':
         data = {}
 
         blockchain_record = None
         fqu = str(args.name)
+
+        check_valid_name(fqu)
 
         try:
             blockchain_record = client.get_name_blockchain_record(fqu)
@@ -677,10 +727,12 @@ def run_cli():
         data = {}
 
         record = None
+        fqu = str(args.name)
+
+        check_valid_name(fqu)
 
         try:
-            record = client.get_name_blockchain_record(
-                                        str(args.name))
+            record = client.get_name_blockchain_record(fqu)
         except socket_error:
             exit_with_error("Error connecting to server")
 
@@ -696,13 +748,17 @@ def run_cli():
             result['preorder_transaction_id'] = record['txid']
 
     elif args.action == 'register':
+
+        if not os.path.exists(WALLET_PATH):
+            initialize_wallet()
+
         result = {}
         fqu = str(args.name)
+        check_valid_name(fqu)
         cost = client.get_name_cost(fqu)
 
         if 'error' in cost:
-            msg = "This namespace doesn't exist, try using namespaces like .id"
-            exit_with_error(msg)
+            exit_with_error(cost['error'])
 
         if nameRegistered(fqu):
             exit_with_error("%s is already registered" % fqu)
@@ -713,7 +769,7 @@ def run_cli():
         fees = get_total_fees(cost)
 
         try:
-            cost = fees['total_cost']
+            cost = fees['total_estimated_cost']
             input_prompt = "Registering %s will cost %s BTC." % (fqu, cost)
             input_prompt += " Continue? (y/n): "
             user_input = raw_input(input_prompt)
@@ -728,7 +784,7 @@ def run_cli():
 
         payment_address, owner_address = get_addresses_from_file()
 
-        if not hasEnoughBalance(payment_address, fees['total_cost']):
+        if not hasEnoughBalance(payment_address, fees['total_estimated_cost']):
             msg = "Address %s doesn't have enough balance" % payment_address
             exit_with_error(msg)
 
@@ -742,11 +798,28 @@ def run_cli():
             exit_with_error(msg)
 
         proxy = get_local_proxy()
-        result = proxy.preorder(fqu)
+
+        try:
+            resp = proxy.preorder(fqu)
+        except:
+            exit_with_error("Error talking to server, try again.")
+
+        if 'success' in resp and resp['success']:
+            result = resp
+        else:
+            if 'error' in resp:
+                exit_with_error(resp['error'])
+
+            if 'message' in resp:
+                exit_with_error(resp['message'])
 
     elif args.action == 'update':
 
+        if not os.path.exists(WALLET_PATH):
+            initialize_wallet()
+
         fqu = str(args.name)
+        check_valid_name(fqu)
 
         user_data = str(args.data)
         try:
@@ -764,11 +837,28 @@ def run_cli():
             unlock_wallet()
 
         proxy = get_local_proxy()
-        result = proxy.update(fqu, user_data)
+
+        try:
+            resp = proxy.update(fqu, user_data)
+        except:
+            exit_with_error("Error talking to server, try again.")
+
+        if 'success' in resp and resp['success']:
+            result = resp
+        else:
+            if 'error' in resp:
+                exit_with_error(resp['error'])
+
+            if 'message' in resp:
+                exit_with_error(resp['message'])
 
     elif args.action == 'transfer':
 
+        if not os.path.exists(WALLET_PATH):
+            initialize_wallet()
+
         fqu = str(args.name)
+        check_valid_name(fqu)
         transfer_address = str(args.address)
 
         tests_for_update_and_transfer(fqu, transfer_address=transfer_address)
@@ -777,7 +867,28 @@ def run_cli():
             unlock_wallet()
 
         proxy = get_local_proxy()
-        result = proxy.transfer(fqu, transfer_address)
+
+        try:
+            resp = proxy.transfer(fqu, transfer_address)
+        except:
+            exit_with_error("Error talking to server, try again.")
+
+        if 'success' in resp and resp['success']:
+            result = resp
+        else:
+            if 'error' in resp:
+                exit_with_error(resp['error'])
+
+            if 'message' in resp:
+                exit_with_error(resp['message'])
+
+    # ---------------------- Advanced options ---------------------------------
+    elif args.action == 'wallet':
+
+        if not os.path.exists(WALLET_PATH):
+            result = initialize_wallet()
+        else:
+            unlock_wallet(display_enabled=True)
 
     elif args.action == 'consensus':
 
@@ -806,7 +917,6 @@ def run_cli():
 
         result = data
 
-    # ---------------------- Advanced options ---------------------------------
     elif args.action == 'register_tx':
         result = client.register(str(args.name), str(args.privatekey),
                                  str(args.addr), tx_only=True)
@@ -999,22 +1109,6 @@ def run_cli():
 
     elif args.action == 'get_name_record':
         result = client.get_name_record(str(args.name))
-
-    elif args.action == 'cost':
-
-        fqu = str(args.name)
-
-        try:
-            resp = client.get_name_cost(fqu)
-        except socket_error:
-            exit_with_error("Error connecting to server")
-
-        if 'satoshis' not in resp:
-            exit_with_error("%s is not a valid name" % fqu)
-
-        data = get_total_fees(resp)
-
-        result = data
 
     elif args.action == 'get_names_owned_by_address':
         result = client.get_names_owned_by_address(str(args.address))
