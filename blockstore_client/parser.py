@@ -95,7 +95,7 @@ def add_subparsers(subparsers):
 
     # ------------------------------------
     subparser = subparsers.add_parser(
-        'cost',
+        'price',
         help="<name> | get the cost of a name")
     subparser.add_argument(
         'name', type=str,
