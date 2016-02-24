@@ -2,7 +2,7 @@ base58==0.2.2
 basicrpc==0.0.2
 bitcoin==1.1.39
 bitmerchant==0.1.8
-blockstore-client==0.0.12.3
+blockstore-client==0.0.12.4
 boto==2.38.0
 cachetools==1.1.5
 commontools==0.1.0
@@ -15,7 +15,7 @@ pycrypto==2.6.1
 pymongo==2.7.2
 python-bitcoinrpc==0.1
 python-dateutil==2.2
-requests==2.4.3
+requests==2.9.1
 scrypt==0.7.1
 six==1.10.0
 Twisted==15.5.0
