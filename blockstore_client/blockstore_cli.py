@@ -779,7 +779,7 @@ def run_cli():
 
         payment_address, owner_address = get_addresses_from_file()
 
-        if not hasEnoughBalance(payment_address, fees['total_cost']):
+        if not hasEnoughBalance(payment_address, fees['total_estimated_cost']):
             msg = "Address %s doesn't have enough balance" % payment_address
             exit_with_error(msg)
 
