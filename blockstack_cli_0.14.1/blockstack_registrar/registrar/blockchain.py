@@ -37,9 +37,7 @@ from .config import MAXIMUM_NAMES_PER_ADDRESS
 
 from .config import UTXO_SERVER, UTXO_USER, UTXO_PASSWD
 from .config import UTXO_PROVIDER
-
-
-from .network import bs_client, get_bs_client
+from .config import BLOCKSTORED_IP, BLOCKSTORED_PORT
 
 from .utils import satoshis_to_btc
 from .utils import pretty_print as pprint
@@ -232,6 +230,12 @@ def recipientNotReady(address):
     """
         Check if address can own more names or not
     """
+
+    # hack to ensure local, until we update client
+    from blockstore_client import client as bs_client
+    # start session using blockstore_client
+    bs_client.session(server_host=BLOCKSTORED_IP, server_port=BLOCKSTORED_PORT,
+                      set_global=True)
 
     resp = bs_client.get_names_owned_by_address(address)
     names_owned = resp
