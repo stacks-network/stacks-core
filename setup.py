@@ -25,7 +25,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='blockstore',
-    version='0.0.10.4',
+    version='0.0.10.5',
     url='https://github.com/blockstack/blockstore',
     license='GPLv3',
     author='Blockstack.org',
@@ -33,7 +33,7 @@ setup(
     description='Name registrations on the Bitcoin blockchain with external storage',
     keywords='blockchain bitcoin btc cryptocurrency name key value store data',
     packages=find_packages(),
-    scripts=['bin/blockstored'],
+    scripts=['bin/blockstored', 'bin/blockstack-server'],
     download_url='https://github.com/blockstack/blockstore/archive/master.zip',
     zip_safe=False,
     include_package_data=True,
