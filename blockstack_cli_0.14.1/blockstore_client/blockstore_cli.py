@@ -68,6 +68,7 @@ from binascii import hexlify
 import xmlrpclib
 
 from registrar.config import REGISTRAR_IP, REGISTRAR_PORT
+from registrar.config import BLOCKSTORED_IP, BLOCKSTORED_PORT
 
 RPC_DAEMON = 'http://' + REGISTRAR_IP + ':' + str(REGISTRAR_PORT)
 
@@ -207,7 +208,11 @@ def display_wallet_info(payment_address, owner_address):
 
 def get_names_owned(address):
 
-    bs_client = get_bs_client()
+      # hack to ensure local, until we update client
+    from blockstore_client import client as bs_client
+    # start session using blockstore_client
+    bs_client.session(server_host=BLOCKSTORED_IP, server_port=BLOCKSTORED_PORT,
+                      set_global=True)
 
     try:
         names_owned = bs_client.get_names_owned_by_address(address)
