@@ -232,11 +232,13 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
 
         if resp:
             data['success'] = True
-            data['message'] = "Added to registration queue. Takes several hours."
-            data['message'] += " You can check status at anytime."
+            data['message'] = "The name has been queued up for registration and"
+            data['message'] += " will take a few hours to go through. You can"
+            data['message'] += " check on the status at any time by running"
+            data['message'] += " 'blockstack info'."
         else:
             data['success'] = False
-            data['message'] = "Couldn't broadcast transaction. Try again."
+            data['message'] = "Couldn't broadcast transaction. You can try again."
         return data
 
     def update(self, fqu, profile):
@@ -271,11 +273,13 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
 
         if resp:
             data['success'] = True
-            data['message'] = "Added to update queue. Takes ~1 hour."
-            data['message'] += " You can check status at anytime."
+            data['message'] = "The name has been queued up for update and"
+            data['message'] += " will take ~1 hour to process. You can"
+            data['message'] += " check on the status at any time by running"
+            data['message'] += " 'blockstack info'."
         else:
             data['success'] = False
-            data['message'] = "Couldn't broadcast transaction. Try again."
+            data['message'] = "Couldn't broadcast transaction. You can try again."
         return data
 
     def transfer(self, fqu, transfer_address):
@@ -307,11 +311,13 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
 
         if resp:
             data['success'] = True
-            data['message'] = "Added to transfer queue. Takes ~1 hour."
-            data['message'] = " You can check status at anytime."
+            data['message'] = "The name has been queued up for transfer and"
+            data['message'] += " will take ~1 hour to process. You can"
+            data['message'] += " check on the status at any time by running"
+            data['message'] += " 'blockstack info'."
         else:
             data['success'] = False
-            data['message'] = "Couldn't broadcast transaction. Try again."
+            data['message'] = "Couldn't broadcast transaction. You can try again."
         return data
 
 
