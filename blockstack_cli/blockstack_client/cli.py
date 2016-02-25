@@ -1,24 +1,24 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Blockstore-client
+    Blockstack-client
     ~~~~~
     copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
     copyright: (c) 2016 by Blockstack.org
 
-    This file is part of Blockstore-client.
+    This file is part of Blockstack-client.
 
-    Blockstore-client is free software: you can redistribute it and/or modify
+    Blockstack-client is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    Blockstore-client is distributed in the hope that it will be useful,
+    Blockstack-client is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstore-client.  If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstack-client.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 import argparse
@@ -45,13 +45,13 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
-from blockstore_client import config, client, schemas, parsing, user
-from blockstore_client import storage, drivers
-from blockstore_client.utils import pretty_dump, print_result
-from blockstore_client.config import WALLET_PATH, WALLET_PASSWORD_LENGTH
+from blockstack_client import config, client, schemas, parsing, user
+from blockstack_client import storage, drivers
+from blockstack_client.utils import pretty_dump, print_result
+from blockstack_client.config import WALLET_PATH, WALLET_PASSWORD_LENGTH
 
-from blockstore_client.parser import add_subparsers, add_advanced_subparsers
-from blockstore_client.parser import AliasedSubParsersAction
+from blockstack_client.parser import add_subparsers, add_advanced_subparsers
+from blockstack_client.parser import AliasedSubParsersAction
 
 from registrar.wallet import HDWallet
 from registrar.crypto.utils import aes_encrypt, aes_decrypt
@@ -516,11 +516,11 @@ def run_cli():
 
     conf = config.get_config()
 
-    blockstore_server = conf['server']
-    blockstore_port = conf['port']
+    blockstack_server = conf['server']
+    blockstack_port = conf['port']
 
-    proxy = client.session(conf=conf, server_host=blockstore_server,
-                           server_port=blockstore_port, set_global=True)
+    proxy = client.session(conf=conf, server_host=blockstack_server,
+                           server_port=blockstack_port, set_global=True)
 
     # start the two background processes (rpc daemon and monitor queue)
     start_background_daemons()
