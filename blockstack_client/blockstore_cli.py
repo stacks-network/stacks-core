@@ -31,6 +31,7 @@ import pybitcoin
 import subprocess
 from socket import error as socket_error
 from time import sleep
+from getpass import getpass
 
 import requests
 requests.packages.urllib3.disable_warnings()
@@ -68,6 +69,7 @@ from binascii import hexlify
 import xmlrpclib
 
 from registrar.config import REGISTRAR_IP, REGISTRAR_PORT
+from registrar.config import BLOCKSTORED_IP, BLOCKSTORED_PORT
 
 RPC_DAEMON = 'http://' + REGISTRAR_IP + ':' + str(REGISTRAR_PORT)
 
@@ -82,7 +84,7 @@ def initialize_wallet():
 
     try:
         while len(password) < WALLET_PASSWORD_LENGTH:
-            password = raw_input("Enter new password: ")
+            password = getpass("Enter new password: ")
 
             if len(password) < WALLET_PASSWORD_LENGTH:
                 msg = "Password is too short. Please make it at"
@@ -90,7 +92,7 @@ def initialize_wallet():
                 print msg
             else:
 
-                confirm_password = raw_input("Confirm new password: ")
+                confirm_password = getpass("Confirm new password: ")
 
                 if password != confirm_password:
                     exit_with_error("Passwords don't match.")
@@ -141,7 +143,7 @@ def unlock_wallet(display_enabled=False):
     else:
 
         try:
-            password = raw_input("Enter wallet password: ")
+            password = getpass("Enter wallet password: ")
             hex_password = hexlify(password)
 
             file = open(WALLET_PATH, 'r')
@@ -207,7 +209,11 @@ def display_wallet_info(payment_address, owner_address):
 
 def get_names_owned(address):
 
-    bs_client = get_bs_client()
+      # hack to ensure local, until we update client
+    from blockstore_client import client as bs_client
+    # start session using blockstore_client
+    bs_client.session(server_host=BLOCKSTORED_IP, server_port=BLOCKSTORED_PORT,
+                      set_global=True)
 
     try:
         names_owned = bs_client.get_names_owned_by_address(address)
@@ -359,11 +365,9 @@ def get_total_fees(data):
     registration_fee = satoshis_to_btc(registration_fee_satoshi)
     tx_fee = satoshis_to_btc(tx_fee_satoshi)
 
-    details = {}
-    details['registration_fee'] = registration_fee
-    details['transactions_fee'] = tx_fee
-    reply['total_cost'] = registration_fee + tx_fee
-    reply['details'] = details
+    reply['name_price'] = registration_fee
+    reply['transaction_fee'] = tx_fee
+    reply['total_estimated_cost'] = registration_fee + tx_fee
 
     return reply
 
@@ -407,18 +411,18 @@ def tests_for_update_and_transfer(fqu, transfer_address=None):
     """
 
     if not nameRegistered(fqu):
-        exit_with_error("%s is not registered yet" % fqu)
+        exit_with_error("%s is not registered yet." % fqu)
 
     payment_address, owner_address = get_addresses_from_file()
 
     if not ownerName(fqu, owner_address):
-        exit_with_error("%s not owned by %s" % (fqu, owner_address))
+        exit_with_error("%s is not in your possession." % fqu)
 
     tx_fee_satoshi = approx_tx_fees(num_tx=1)
     tx_fee = satoshis_to_btc(tx_fee_satoshi)
 
     if not hasEnoughBalance(payment_address, tx_fee):
-        msg = "Address %s doesn't have enough balance" % payment_address
+        msg = "Address %s doesn't have enough balance." % payment_address
         exit_with_error(msg)
 
     if dontuseAddress(payment_address):
@@ -431,7 +435,7 @@ def tests_for_update_and_transfer(fqu, transfer_address=None):
         try:
             resp = is_b58check_address(str(transfer_address))
         except:
-            msg = "Address %s is not a valid Bitcoin address" % transfer_address
+            msg = "Address %s is not a valid Bitcoin address." % transfer_address
             exit_with_error(msg)
 
         if recipientNotReady(transfer_address):
@@ -528,7 +532,7 @@ def run_cli():
 
         result['total_balance'], result['addresses'] = get_total_balance()
 
-    elif args.action == 'cost':
+    elif args.action == 'price':
 
         fqu = str(args.name)
         check_valid_name(fqu)
@@ -706,7 +710,7 @@ def run_cli():
         try:
             blockchain_record = client.get_name_blockchain_record(fqu)
         except socket_error:
-            exit_with_error("Error connecting to server")
+            exit_with_error("Error connecting to server.")
 
         if 'value_hash' not in blockchain_record:
             exit_with_error("%s is not registered" % fqu)
@@ -731,7 +735,7 @@ def run_cli():
         try:
             record = client.get_name_blockchain_record(fqu)
         except socket_error:
-            exit_with_error("Error connecting to server")
+            exit_with_error("Error connecting to server.")
 
         if 'value_hash' not in record:
             result['registered'] = False
@@ -758,7 +762,7 @@ def run_cli():
             exit_with_error(cost['error'])
 
         if nameRegistered(fqu):
-            exit_with_error("%s is already registered" % fqu)
+            exit_with_error("%s is already registered." % fqu)
 
         if not walletUnlocked():
             unlock_wallet()
@@ -766,7 +770,7 @@ def run_cli():
         fees = get_total_fees(cost)
 
         try:
-            cost = fees['total_cost']
+            cost = fees['total_estimated_cost']
             input_prompt = "Registering %s will cost %s BTC." % (fqu, cost)
             input_prompt += " Continue? (y/n): "
             user_input = raw_input(input_prompt)
@@ -781,8 +785,8 @@ def run_cli():
 
         payment_address, owner_address = get_addresses_from_file()
 
-        if not hasEnoughBalance(payment_address, fees['total_cost']):
-            msg = "Address %s doesn't have enough balance" % payment_address
+        if not hasEnoughBalance(payment_address, fees['total_estimated_cost']):
+            msg = "Address %s doesn't have enough balance." % payment_address
             exit_with_error(msg)
 
         if recipientNotReady(owner_address):
@@ -822,12 +826,12 @@ def run_cli():
         try:
             user_data = json.loads(user_data)
         except:
-            exit_with_error("data is not in JSON format")
+            exit_with_error("Data is not in JSON format.")
 
         tests_for_update_and_transfer(fqu)
 
         if profileonBlockchain(fqu, user_data):
-            msg = "data is same as current data record, update not needed"
+            msg = "Data is same as current data record, update not needed."
             exit_with_error(msg)
 
         if not walletUnlocked():
@@ -894,7 +898,7 @@ def run_cli():
             resp = client.getinfo()
 
             if 'error' in resp:
-                exit_with_error("Error connecting to server")
+                exit_with_error("Error connecting to server.")
 
             elif 'last_block' in resp or 'blocks' in resp:
 
