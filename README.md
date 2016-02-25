@@ -7,19 +7,16 @@
 
 ## Name registrations on the bitcoin blockchain
 
-Blockstack enables human-readable name registrations on the Bitcoin blockchain,
+Blockstack server provides decentralized DNS by using an underlying 
+blockchain. It enables human-readable name registrations on the Bitcoin blockchain,
 along with the ability to store associated data in external datastores. You can
-use it to register globally unique names, associate data with those names, and
+use it to register globally unique names, bind data records with those names, and
 transfer them between Bitcoin addresses. Anyone can perform lookups on those
-names and securely obtain the data associated with them.
+names and securely obtain the associated data records.
 
 Blockstack uses the Bitcoin blockchain for storing name operations and data
 hashes, and the Kademlia-based distributed hash table (DHT) and other external
 datastores for storing the full data files outside of the blockchain.
-
-**NOTE: This repo is going through rapid development. If you notice any issues
-during installation etc please report them in Github issues. We hope to have
-a stable, easy to install version out very soon!**
 
 ## Table of contents
 
@@ -49,7 +46,7 @@ required.
 The fastest way to get started with blockstack is to use pip:
 
 ```
-pip install blockstack
+sudo pip install blockstack
 ```
 
 If you encounter any problems during the pip install, see the [detailed install
@@ -57,24 +54,24 @@ instructions](https://github.com/blockstack/blockstack/wiki/Usage).
 
 ## Getting started
 
-Start blockstackd and index the blockchain:
+Start blockstack-server and index the blockchain:
 
 ```
-$ blockstackd start
+$ blockstack-server start
 ```
 
 Then, perform name lookups:
 
 ```
-$ blockstack-cli lookup werner.id
+$ blockstack whois werner.id
 {
-    "address": "1KRca8gGiCiTNGR65iXMPQ6d5fisDdN3ZF",
-    "first_registered": 374132,
-    "last_renewed": 374132,
-    "revoked": false,
-    "sender": "76a914ca19f0c96683b6cabfb5c9a406bebc6771d8ede488ac",
-    "sender_pubkey": "0411d88aa37a0eea476a5b63ca4b1cd392ded830865...",
-    "value_hash": "3dafd5f42798df3045cd2eb70a71cccf8500e6d4"
+    "block_preordered_at": 374132,
+    "block_renewed_at": 374132,
+    "owner_address": "1KRca8gGiCiTNGR65iXMPQ6d5fisDdN3ZF",
+    "owner_public_key": "0411d88aa37a0eea476a5b63ca4b1cd392d....",
+    "owner_script": "76a914ca19f0c96683b6cabfb5c9a406bebc6771d8ede488ac",
+    "preorder_transaction_id": "fa72483237f4b32eff10e88df9b14268fbd2e44...",
+    "registered": true
 }
 
 ```
@@ -82,7 +79,7 @@ $ blockstack-cli lookup werner.id
 Next, learn how to register names of your own, as well as transfer them and
 associate data with them:
 
-[Full usage docs](../../wiki/Usage)
+[Full usage docs](https://blockstack.org/docs/basic-usage)
 
 ## What's included
 
@@ -150,8 +147,8 @@ blockstack/
 
 ## Documentation
 
-Blockstack’s detailed documentation is located included in this repo’s
-[Wiki](https://github.com/blockstack/blockstack/wiki).
+Blockstack’s detailed documentation is located included on the
+[website](https://blockstack.org/docs).
 
 
 ## Design decisions
@@ -206,7 +203,7 @@ Along with [code contributors](../../graphs/contributors) and other
 
 ## Copyright and license
 
-Code and documentation copyright 2015 by Blockstack.org. 
+Code and documentation copyright 2016 by Blockstack.org. 
 
 Code released under
 [the GPL v3 license](http://www.gnu.org/licenses/quick-guide-gplv3.en.html).
