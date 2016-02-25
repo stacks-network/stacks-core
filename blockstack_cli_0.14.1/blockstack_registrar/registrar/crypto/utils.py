@@ -48,17 +48,36 @@ EncodeAES = lambda c, s: base64.b64encode(c.encrypt(pad(s)))
 DecodeAES = lambda c, e: c.decrypt(base64.b64decode(e)).rstrip(PADDING)
 
 
+def ensure_length(secret):
+    if len(secret) > 32:
+        secret = secret[:32]
+
+    elif len(secret) < 24:
+        length = 24 - (len(secret) % 24)
+        secret += chr(length)*length
+    elif len(secret) > 24 and len(secret) < 32:
+        length = 32 - (len(secret) % 32)
+        secret += chr(length)*length
+
+    return hexlify(secret)
+
+
 def get_new_secret():
     secret = os.urandom(BLOCK_SIZE)
     return hexlify(secret)
 
 
 def aes_encrypt(payload, secret):
+
+    secret = ensure_length(secret)
+
     cipher = AES.new(unhexlify(secret))
     return EncodeAES(cipher, payload)
 
 
 def aes_decrypt(payload, secret):
+    secret = ensure_length(secret)
+
     cipher = AES.new(unhexlify(secret))
     return DecodeAES(cipher, payload)
 
