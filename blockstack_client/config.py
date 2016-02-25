@@ -1,24 +1,24 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Blockstore-client
+    Blockstack-client
     ~~~~~
     copyright: (c) 2014 by Halfmoon Labs, Inc.
     copyright: (c) 2015 by Blockstack.org
 
-    This file is part of Blockstore-client.
+    This file is part of Blockstack-client.
 
-    Blockstore-client is free software: you can redistribute it and/or modify
+    Blockstack-client is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    Blockstore-client is distributed in the hope that it will be useful,
+    Blockstack-client is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstore-client.  If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstack-client.  If not, see <http://www.gnu.org/licenses/>.
 """
 
 import os
@@ -34,26 +34,26 @@ from .version import __version__
 DEBUG = True
 VERSION = __version__
 
-DEFAULT_BLOCKSTORED_PORT = '6264'
-DEFAULT_BLOCKSTORED_SERVER = "server.blockstack.org"
+DEFAULT_BLOCKSTACKD_PORT = '6264'
+DEFAULT_BLOCKSTACKD_SERVER = "server.blockstack.org"
 
 DEFAULT_DHT_MIRROR = "mirror.blockstack.org"
 DEFAULT_DHT_PORT = '6266'
 
 # initialize to default settings
-BLOCKSTORED_SERVER = DEFAULT_BLOCKSTORED_SERVER
-BLOCKSTORED_PORT = DEFAULT_BLOCKSTORED_PORT
+BLOCKSTACKD_SERVER = DEFAULT_BLOCKSTACKD_SERVER
+BLOCKSTACKD_PORT = DEFAULT_BLOCKSTACKD_PORT
 WALLET_PASSWORD_LENGTH = 15
 
-BLOCKSTORE_METADATA_DIR = os.path.expanduser("~/.blockstack/metadata")
-BLOCKSTORE_DEFAULT_STORAGE_DRIVERS = "dht"
+BLOCKSTACK_METADATA_DIR = os.path.expanduser("~/.blockstack/metadata")
+BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = "disk,dht"
 
 DEFAULT_TIMEOUT = 5  # in secs
 
-# borrowed from Blockstore
+# borrowed from Blockstack
 FIRST_BLOCK_MAINNET = 373601
 
-# borrowed from Blockstore
+# borrowed from Blockstack
 # Opcodes
 ANNOUNCE = '#'
 NAME_PREORDER = '?'
@@ -67,7 +67,7 @@ NAMESPACE_PREORDER = '*'
 NAMESPACE_REVEAL = '&'
 NAMESPACE_READY = '!'
 
-# borrowed from Blockstore
+# borrowed from Blockstack
 # these never change, so it's fine to duplicate them here
 NAME_OPCODES = {
     "NAME_PREORDER": NAME_PREORDER,
@@ -83,7 +83,7 @@ NAME_OPCODES = {
     "ANNOUNCE": ANNOUNCE
 }
 
-# borrowed from Blockstore
+# borrowed from Blockstack
 # these never change, so it's fine to duplicate them here
 NAMEREC_FIELDS = [
     'name',                 # the name itself
@@ -101,13 +101,13 @@ NAMEREC_FIELDS = [
     'op',                   # byte sequence describing the last operation to affect this name
     'txid',                 # the ID of the last transaction to affect this name
     'vtxindex',             # the index in the block of the transaction.
-    'op_fee',               # the value of the last Blockstore-specific burn fee paid for this name (i.e. from preorder or renew)
+    'op_fee',               # the value of the last Blockstack-specific burn fee paid for this name (i.e. from preorder or renew)
 
     'importer',             # (OPTIONAL) if this name was imported, this is the importer's scriptPubKey hex
     'importer_address',     # (OPTIONAL) if this name was imported, this is the importer's address
 ]
 
-# borrowed from Blockstore
+# borrowed from Blockstack
 # these never change, so it's fine to duplicate them here
 NAMESPACE_FIELDS = [
     'namespace_id',         # human-readable namespace ID
@@ -122,7 +122,7 @@ NAMESPACE_FIELDS = [
     'block_number',         # block number at which this namespace was preordered
     'reveal_block',         # block number at which this namespace was revealed
 
-    'op',                   # byte code identifying this operation to Blockstore
+    'op',                   # byte code identifying this operation to Blockstack
     'txid',                 # transaction ID at which this namespace was revealed
     'vtxindex',             # the index in the block where the tx occurs
 
@@ -134,7 +134,7 @@ NAMESPACE_FIELDS = [
     'no_vowel_discount',    # multiplicative coefficient that drops a name's price if it has no vowels
 ]
 
-# borrowed from Blockstore
+# borrowed from Blockstack
 # these never change, so it's fine to duplicate them here
 OPFIELDS = {
     NAME_IMPORT: NAMEREC_FIELDS + [
@@ -165,10 +165,10 @@ OPFIELDS = {
          'address',             # address from the sender's scriptPubKey
          'block_number',        # block number at which this name was preordered for the first time
 
-         'op',                  # blockstore bytestring describing the operation
+         'op',                  # blockstack bytestring describing the operation
          'txid',                # transaction ID
          'vtxindex',            # the index in the block where the tx occurs
-         'op_fee',              # blockstore fee (sent to burn address)
+         'op_fee',              # blockstack fee (sent to burn address)
     ],
     NAME_REGISTRATION: NAMEREC_FIELDS + [
         'recipient',            # scriptPubKey hex script that identifies the principal to own this name
@@ -215,7 +215,7 @@ def make_default_config(path=CONFIG_PATH):
     Return True on success
     Return False on failure
     """
-    global CONFIG_PATH, BLOCKSTORED_SERVER, BLOCKSTORED_PORT
+    global CONFIG_PATH, BLOCKSTACKD_SERVER, BLOCKSTACKD_PORT
 
     # try to create
     dirname = os.path.dirname(CONFIG_PATH)
@@ -231,10 +231,10 @@ def make_default_config(path=CONFIG_PATH):
 
         parser = SafeConfigParser()
         parser.add_section('blockstack-client')
-        parser.set('blockstack-client', 'server', BLOCKSTORED_SERVER)
-        parser.set('blockstack-client', 'port', BLOCKSTORED_PORT)
-        parser.set('blockstack-client', 'metadata', BLOCKSTORE_METADATA_DIR)
-        parser.set('blockstack-client', 'storage_drivers', BLOCKSTORE_DEFAULT_STORAGE_DRIVERS)
+        parser.set('blockstack-client', 'server', BLOCKSTACKD_SERVER)
+        parser.set('blockstack-client', 'port', BLOCKSTACKD_PORT)
+        parser.set('blockstack-client', 'metadata', BLOCKSTACK_METADATA_DIR)
+        parser.set('blockstack-client', 'storage_drivers', BLOCKSTACK_DEFAULT_STORAGE_DRIVERS)
         parser.set('blockstack-client', 'blockchain_headers', SPV_HEADERS_PATH)
         parser.set('blockstack-client', 'advanced_mode', 'false')
         parser.set('blockstack-client', 'dht_mirror', DEFAULT_DHT_MIRROR)
@@ -277,7 +277,7 @@ def get_config(path=CONFIG_PATH):
     Return None on error
     """
 
-    global BLOCKSTORED_SERVER, BLOCKSTORED_PORT
+    global BLOCKSTACKD_SERVER, BLOCKSTACKD_PORT
 
     if not os.path.exists(path):
         rc = make_default_config()
@@ -287,10 +287,10 @@ def get_config(path=CONFIG_PATH):
 
     # defaults
     config = {
-        "server": BLOCKSTORED_SERVER,
-        "port": BLOCKSTORED_PORT,
-        "storage_drivers": BLOCKSTORE_DEFAULT_STORAGE_DRIVERS,
-        "metadata": BLOCKSTORE_METADATA_DIR,
+        "server": BLOCKSTACKD_SERVER,
+        "port": BLOCKSTACKD_PORT,
+        "storage_drivers": BLOCKSTACK_DEFAULT_STORAGE_DRIVERS,
+        "metadata": BLOCKSTACK_METADATA_DIR,
         "blockchain_headers": SPV_HEADERS_PATH,
         "advanced_mode": 'off',
     }
@@ -305,7 +305,7 @@ def get_config(path=CONFIG_PATH):
 
     if parser.has_section("blockstack-client"):
 
-        # blockstored
+        # blockstackd
         if parser.has_option("blockstack-client", "server"):
             config['server'] = parser.get("blockstack-client", "server")
 
