@@ -1,24 +1,24 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Blockstore-client
+    Blockstack-client
     ~~~~~
     copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
     copyright: (c) 2016 by Blockstack.org
 
-    This file is part of Blockstore-client.
+    This file is part of Blockstack-client.
 
-    Blockstore-client is free software: you can redistribute it and/or modify
+    Blockstack-client is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    Blockstore-client is distributed in the hope that it will be useful,
+    Blockstack-client is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstore-client. If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
 import argparse
@@ -43,25 +43,25 @@ import bitcoin
 import binascii
 from utilitybelt import is_hex
 
-from config import log, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTORED_SERVER, \
-    BLOCKSTORED_PORT, BLOCKSTORE_METADATA_DIR, BLOCKSTORE_DEFAULT_STORAGE_DRIVERS, \
+from config import log, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SERVER, \
+    BLOCKSTACKD_PORT, BLOCKSTACK_METADATA_DIR, BLOCKSTACK_DEFAULT_STORAGE_DRIVERS, \
     FIRST_BLOCK_MAINNET, NAME_OPCODES, OPFIELDS, CONFIG_DIR, SPV_HEADERS_PATH, BLOCKCHAIN_ID_MAGIC, \
     NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER, NAMESPACE_PREORDER, NAME_IMPORT
 
 import virtualchain
 
-# default API endpoint proxy to blockstored
+# default API endpoint proxy to blockstackd
 default_proxy = None
 
 # ancillary storage providers
 STORAGE_IMPL = None
 
 
-class BlockstoreRPCClient(object):
+class BlockstackRPCClient(object):
     """
-    Not-quite-JSONRPC client for Blockstore.
+    Not-quite-JSONRPC client for Blockstack.
 
-    Blockstore's not-quite-JSONRPC server expects a raw Netstring that encodes
+    Blockstack's not-quite-JSONRPC server expects a raw Netstring that encodes
     a JSON object with a "method" string and an "args" list.  It will ignore
     "id" and "version", and will not accept keyword arguments.  It also does
     not guarantee that the "result" and "error" keywords will be present.
@@ -193,16 +193,16 @@ class BlockstoreRPCClient(object):
             raise Exception("Invalid response: not a JSON string")
 
 
-def session(conf=None, server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_PORT,
-            storage_drivers=BLOCKSTORE_DEFAULT_STORAGE_DRIVERS,
-            metadata_dir=BLOCKSTORE_METADATA_DIR, spv_headers_path=SPV_HEADERS_PATH, set_global=False):
+def session(conf=None, server_host=BLOCKSTACKD_SERVER, server_port=BLOCKSTACKD_PORT,
+            storage_drivers=BLOCKSTACK_DEFAULT_STORAGE_DRIVERS,
+            metadata_dir=BLOCKSTACK_METADATA_DIR, spv_headers_path=SPV_HEADERS_PATH, set_global=False):
 
     """
-    Create a blockstore session:
+    Create a blockstack session:
     * validate the configuration
     * load all storage drivers
     * initialize all storage drivers
-    * load an API proxy to blockstore
+    * load an API proxy to blockstack
 
     conf's fields override specific keyword arguments.
 
@@ -214,7 +214,7 @@ def session(conf=None, server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_P
 
         missing = find_missing(conf)
         if len(missing) > 0:
-            log.error("Missing blockstore configuration fields: %s" % (", ".join(missing)))
+            log.error("Missing blockstack configuration fields: %s" % (", ".join(missing)))
             sys.exit(1)
 
         server_host = conf['server']
@@ -227,10 +227,8 @@ def session(conf=None, server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_P
         sys.exit(1)
 
     # create proxy
-    proxy = BlockstoreRPCClient(server_host, server_port)
+    proxy = BlockstackRPCClient(server_host, server_port)
 
-    if set_global:
-        default_proxy = proxy
 
     # load all storage drivers
     for storage_driver in storage_drivers.split(","):
@@ -245,17 +243,19 @@ def session(conf=None, server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_P
             sys.exit(1)
 
     # initialize SPV
-    #SPVClient.init(spv_headers_path)
-    #default_proxy.spv_headers_path = spv_headers_path
+    SPVClient.init(spv_headers_path)
+    proxy.spv_headers_path = spv_headers_path
+    proxy.conf = conf
+
     if set_global:
-        default_proxy.conf = conf
+        default_proxy = proxy
 
     return proxy
 
 
 def get_default_proxy():
     """
-    Get the default API proxy to blockstore.
+    Get the default API proxy to blockstack.
     """
     global default_proxy
 
@@ -273,16 +273,16 @@ def set_default_proxy(proxy):
 def load_storage(module_name):
     """
     Load a storage implementation, given its module name.
-    Valid options can be found in blockstore.drivers.DRIVERS
+    Valid options can be found in blockstack.drivers.DRIVERS
     """
 
     if module_name not in drivers.DRIVERS:
         raise Exception("Unrecognized storage driver.  Valid options are %s" % (", ".join(drivers.DRIVERS)))
 
     try:
-        storage_impl = importlib.import_module("blockstore_client.drivers.%s" % module_name)
+        storage_impl = importlib.import_module("blockstack_client.drivers.%s" % module_name)
     except ImportError, ie:
-        raise Exception("Failed to import blockstore.drivers.%s.  Please verify that it is accessible via your PYTHONPATH" % module_name)
+        raise Exception("Failed to import blockstack.drivers.%s.  Please verify that it is accessible via your PYTHONPATH" % module_name)
 
     return storage_impl
 
@@ -645,7 +645,7 @@ def get_consensus_hash_from_tx(tx):
 def verify_consensus_hash_from_tx(tx, fqname, candidate_consensus_hash):
     """
     Given the SPV-verified transaction that encodes a consensus hash-bearing OP_RETURN,
-    the fully qualified name, and the list of candidate consensus hashes from Blockstore,
+    the fully qualified name, and the list of candidate consensus hashes from Blockstack,
     verify the consensus hash against the transaction.
 
     Return the consensus hash on success
@@ -737,7 +737,7 @@ def get_name_creation_consensus_info(name, blockchain_record, bitcoind_proxy, pr
 
         # we can trust that the consensus-bearing transaction is on the blockchain.
         # now, what's the creation consensus hash's block number?
-        # (NOTE: this trusts Blockstore)
+        # (NOTE: this trusts Blockstack)
         creation_consensus_block_id = get_block_from_consensus(creation_consensus_hash, proxy=proxy)
         if type(creation_consensus_hash_id) == dict and 'error' in ret:
             return ret
@@ -745,8 +745,8 @@ def get_name_creation_consensus_info(name, blockchain_record, bitcoind_proxy, pr
         # verify that the given consensus hash is present in the trusted consensus-bearing transaction
         tx_consensus_hash = verify_consensus_hash_from_tx(create_consensus_tx, name, creation_consensus_hash)
         if tx_consensus_hash is None:
-            # !!! Blockstored lied to us--we got the wrong consensus hash
-            return {'error': 'Blockstore consensus hash does not match the SPV block headers'}
+            # !!! Blockstackd lied to us--we got the wrong consensus hash
+            return {'error': 'Blockstack consensus hash does not match the SPV block headers'}
 
 
     creation_info = {
@@ -769,7 +769,7 @@ def get_name_creation_consensus_info(name, blockchain_record, bitcoind_proxy, pr
 def get_name_reveal_consensus_info(name, blockchain_record, bitcoind_proxy, proxy=None):
     """
     Given a name, its blockchain record, and a bitcoind proxy, get information
-    about the name's revelation (i.e. the Blockstore state transition that exposed
+    about the name's revelation (i.e. the Blockstack state transition that exposed
     the name's plaintext).  That is, get information about a name's NAME_REGISTRATION,
     or its NAME_IMPORT.
 
@@ -796,7 +796,7 @@ def get_name_reveal_consensus_info(name, blockchain_record, bitcoind_proxy, prox
 
     reveal_op, reveal_payload = parse_tx_op_return(reveal_tx)
     if reveal_op is None or reveal_payload is None:
-        return {'error': 'Transaction is not a valid Blockstore operation'}
+        return {'error': 'Transaction is not a valid Blockstack operation'}
 
     if reveal_op not in [NAME_REGISTRATION, NAME_IMPORT]:
         return {'error': 'Transaction is not a NAME_REGISTRATION or a NAME_IMPORT'}
@@ -805,7 +805,7 @@ def get_name_reveal_consensus_info(name, blockchain_record, bitcoind_proxy, prox
         log.error("Reveal payload is '%s'; expected '%s'" % (reveal_payload, name))
         return {'error': 'Transaction does not reveal the given name'}
 
-    # NOTE: trusts Blockstore
+    # NOTE: trusts Blockstack
     if reveal_op == NAME_REGISTRATION:
         reveal_op = "NAME_REGISTRATION"
     elif reveal_op == NAME_IMPORT:
@@ -914,8 +914,8 @@ def get_name_update_consensus_info(name, blockchain_record, bitcoind_proxy, prox
             break
 
     if tx_consensus_hash is None:
-        # !!! Blockstored lied to us--we got the wrong consensus hash
-        return {'error': 'Blockstore consensus hash does not match the SPV block headers'}
+        # !!! Blockstackd lied to us--we got the wrong consensus hash
+        return {'error': 'Blockstack consensus hash does not match the SPV block headers'}
 
     else:
         update_info = {
@@ -1309,7 +1309,7 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
         return current_info
 
     # work backwards in time, using a Merkle skip-list constructed
-    # by blockstored over the set of consensus hashes.
+    # by blockstackd over the set of consensus hashes.
     next_block_id = current_block_id
 
     prev_nameops_hashes = {}
@@ -1456,7 +1456,7 @@ def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_co
     consensus hash.  Then, use the snv_get_nameops_at() method to verify that the name
     existed at the given block ID.
 
-    The Blockstore node is not trusted.  This algorithm prevents a malicious Blockstore node
+    The Blockstack node is not trusted.  This algorithm prevents a malicious Blockstack node
     from getting the caller to falsely trust @verify_name and @verify_block_id by
     using SNV to confirm that:
     * the consensus hash at the trust root's block is consistent with @verify_name's
@@ -1464,7 +1464,7 @@ def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_co
     * the consensus hash at @trusted_serial_number's block is consistent with @verify_name's
     consensus hash (from @verify_serial_number)
 
-    The only way a Blockstore node working with a malicious Sybil can trick the caller is if
+    The only way a Blockstack node working with a malicious Sybil can trick the caller is if
     both can create a parallel history of name operations such that the final consensus hash
     at @trusted_serial_number's block collides.  This is necessary, since the client uses
     the hash over a block's operations and prior consensus hashes to transitively trust
@@ -1554,6 +1554,8 @@ def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_co
 
     return historic_namerec
 
+# backwards compatibility
+lookup_snv = snv_lookup
 
 def get_name_blockchain_record(name, proxy=None):
     """

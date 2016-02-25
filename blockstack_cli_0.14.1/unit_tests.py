@@ -1,26 +1,26 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-    Blockstore-client
+    Blockstack-client
     ~~~~~
 
     copyright: (c) 2014 by Halfmoon Labs, Inc.
     copyright: (c) 2015 by Blockstack.org
 
-This file is part of Blockstore-client.
+This file is part of Blockstack-client.
 
-    Blockstore-client is free software: you can redistribute it and/or modify
+    Blockstack-client is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    Blockstore-client is distributed in the hope that it will be useful,
+    Blockstack-client is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
 
     You should have received a copy of the GNU General Public License
-    along with Blockstore-client. If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
 import os
@@ -28,17 +28,17 @@ import sys
 import json
 import unittest
 
-from blockstore_client import client
-from blockstore_client.utils import print_result as pprint
-from blockstore_client.config import BLOCKSTORED_SERVER, BLOCKSTORED_PORT
+from blockstack_client import client
+from blockstack_client.utils import print_result as pprint
+from blockstack_client.config import BLOCKSTACKD_SERVER, BLOCKSTACKD_PORT
 
 # start session
-client.session(server_host=BLOCKSTORED_SERVER, server_port=BLOCKSTORED_PORT)
+client.session(server_host=BLOCKSTACKD_SERVER, server_port=BLOCKSTACKD_PORT)
 
 test_names = ["muneeb.id", "fredwilson.id"]
 
 
-class BlockstoreClientTest(unittest.TestCase):
+class BlockstackClientTest(unittest.TestCase):
 
     def tearDown(self):
         pass
