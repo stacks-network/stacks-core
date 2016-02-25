@@ -624,7 +624,7 @@ def run_cli():
             result['server_error'] = resp['error']
         else:
             result['server_alive'] = True
-            result['server_version'] = resp['blockstack_version']
+            result['server_version'] = resp['blockstore_version']
             try:
                 result['last_block_processed'] = resp['last_block']
             except:
