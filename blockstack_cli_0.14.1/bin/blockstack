@@ -40,6 +40,6 @@ if __name__ == '__main__':
     except Exception as e:
         error_message = "Unexpected error, %s" % e
         help_message = 'Try getting latest version of CLI'
-        help_message += ' with sudo pip install blockstack --upgrade'
+        help_message += ' with "sudo pip install blockstack --upgrade"'
         #print traceback.print_exc()
         exit_with_error(error_message, help_message)
