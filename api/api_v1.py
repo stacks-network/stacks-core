@@ -330,7 +330,7 @@ def search_people():
 
 
 @app.route('/v1/transactions', methods=['POST'])
-@auth_required()
+#@auth_required()
 @parameters_required(['signed_hex'])
 @crossdomain(origin='*')
 def broadcast_tx():
@@ -355,8 +355,8 @@ def broadcast_tx():
 
 
 @app.route('/v1/addresses/<address>/unspents', methods=['GET'])
-@auth_required(exception_paths=[
-    '/v1/addresses/19bXfGsGEXewR6TyAV3b89cSHBtFFewXt6/unspents'])
+#@auth_required(exception_paths=[
+#    '/v1/addresses/19bXfGsGEXewR6TyAV3b89cSHBtFFewXt6/unspents'])
 @crossdomain(origin='*')
 def get_address_unspents(address):
 
