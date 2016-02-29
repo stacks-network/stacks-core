@@ -469,17 +469,17 @@ def get_emails_info():
     return jsonify(resp), 200
 
 
-@app.route('/v1/slack/users', methods=['GET'])
+@app.route('/v1/slack/blockstack', methods=['GET'])
 @crossdomain(origin='*')
 def get_slack_users():
     try:
         resp = requests.get('https://slack.com/api/users.list?token=' + SLACK_API_TOKEN)
     except (RequestsConnectionError, RequestsTimeout) as e:
         raise ResolverConnectionError()
-    resp_data = resp.json()
-    user_count = len(resp.get('members'))
+    resp_data = json.loads(resp.text)
+    user_count = len(resp_data.get("members", 0))
     resp = {
-        "users": user_count
+        "user_count": user_count
     }
     return jsonify(resp), 200
 
