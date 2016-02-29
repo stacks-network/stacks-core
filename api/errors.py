@@ -164,6 +164,11 @@ class InvalidEmailError(APIError):
     message = ("Invalid email address.")
 
 
+class PageNotFoundError(APIError):
+    status_code = 400
+    message = ("Page not found.")
+
+
 class UpgradeInprogressError(APIError):
     status_code = 403
     message = ("This end-point is currently being upgraded and is temporarily unavailable")
@@ -187,7 +192,10 @@ class BroadcastTransactionError(APIError):
 @app.errorhandler(404)
 def resource_not_found(e):
     if len(request.path) > 1 and request.path[1] == 'v':
-        return jsonify({'error': 'Resource not found'}), 404
+        error = PageNotFoundError()
+        response = jsonify({'error': error.to_dict()})
+        response.status_code = 400
+        return response
     else:
         return render_template('error.html', status_code=404,
                                error_message="Resource not found"), 404
