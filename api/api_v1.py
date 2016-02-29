@@ -369,34 +369,41 @@ def get_address_unspents(address):
 
 
 @app.route('/v1/addresses/<addresses>/names', methods=['GET'])
-@auth_required(exception_paths=[
-    '/v1/addresses/1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP/names'])
+#@auth_required(exception_paths=[
+#    '/v1/addresses/1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP/names'])
 @crossdomain(origin='*')
 def get_address_names(addresses):
 
     resp = {}
-    names_owned = []
     results = []
 
     addresses = addresses.split(',')
 
     for address in addresses:
 
+        data = {}
+        names_owned = []
+
+        invalid_address = False
+
         try:
             is_b58check_address(str(address))
         except:
-            continue
+            data['error'] = "Invalid address"
+            invalid_address = True
 
-        bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+        if not invalid_address:
+            bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
 
-        try:
-            resp = bs_client.get_names_owned_by_address(address)
-            names_owned = resp[0]
-        except:
-            pass
+            try:
+                resp = bs_client.get_names_owned_by_address(address)
+                names_owned = resp[0]
+            except:
+                pass
 
-        data = {'address': address,
-                'names': names_owned}
+        data['address'] = address
+        data['names'] = names_owned
+
         results.append(data)
 
     resp = {'results': results}
