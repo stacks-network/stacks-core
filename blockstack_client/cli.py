@@ -210,8 +210,8 @@ def display_wallet_info(payment_address, owner_address):
 def get_names_owned(address):
 
       # hack to ensure local, until we update client
-    from blockstore_client import client as bs_client
-    # start session using blockstore_client
+    from blockstack_client import client as bs_client
+    # start session using blockstack_client
     bs_client.session(server_host=BLOCKSTORED_IP, server_port=BLOCKSTORED_PORT,
                       set_global=True)
 
@@ -624,7 +624,12 @@ def run_cli():
             result['server_error'] = resp['error']
         else:
             result['server_alive'] = True
-            result['server_version'] = resp['blockstore_version']
+
+            if 'blockstore_version' in resp:
+                result['server_version'] = resp['blockstore_version']
+            elif 'blockstack_version' in resp:
+                result['server_version'] = resp['blockstack_version']
+
             try:
                 result['last_block_processed'] = resp['last_block']
             except:
