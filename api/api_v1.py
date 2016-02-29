@@ -51,6 +51,7 @@ from .settings import BITCOIND_PASSWD, BITCOIND_USE_HTTPS
 from .settings import EMAILS_TOKEN, EMAIL_REGREX
 from .settings import DEFAULT_NAMESPACE, PAYMENT_PRIVKEY
 from .settings import SECRET_KEY, USE_DEFAULT_PAYMENT
+from .settings import SLACK_API_TOKEN
 
 bitcoind = BitcoindClient(BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER,
                           BITCOIND_PASSWD, BITCOIND_USE_HTTPS)
@@ -458,6 +459,21 @@ def get_emails_info():
 
     resp["token"] = EMAILS_TOKEN
 
+    return jsonify(resp), 200
+
+
+@app.route('/v1/slack/users', methods=['GET'])
+@crossdomain(origin='*')
+def get_slack_users():
+    try:
+        resp = requests.get('https://slack.com/api/users.list?token=' + SLACK_API_TOKEN)
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        raise ResolverConnectionError()
+    resp_data = resp.json()
+    user_count = len(resp.get('members'))
+    resp = {
+        "users": user_count
+    }
     return jsonify(resp), 200
 
 
