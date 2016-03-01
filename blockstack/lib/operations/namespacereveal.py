@@ -293,6 +293,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
 
     # record preorder
     nameop['block_number'] = namespace_preorder['block_number']
+    nameop['reveal_block'] = block_id
     state_create_put_preorder( nameop, namespace_preorder )
     state_create_put_prior_history( nameop, None )
 
