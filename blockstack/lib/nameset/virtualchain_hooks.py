@@ -55,10 +55,10 @@ def get_virtual_chain_name(testset=False):
    """
    
    if testset:
-       return "blockstack-test"
+       return "blockstack-server-test"
    
    else:
-       return "blockstack"
+       return "blockstack-server"
 
 
 def get_virtual_chain_version():
