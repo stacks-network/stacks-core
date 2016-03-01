@@ -274,7 +274,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
     nameop['address'] = recipient_address
     nameop['importer'] = sender
     nameop['importer_address'] = sender_address
-    nameop['op_fee'] = price_name( name_without_namespace, namespace )
+    nameop['op_fee'] = float(price_name( name_without_namespace, namespace ))	# NOTE: float() is a quirk we have to preserve to stay compatible with previous versions
     nameop['namespace_block_number'] = namespace['block_number']
     nameop['consensus_hash'] = None 
     nameop['preorder_hash'] = preorder_hash
@@ -490,6 +490,9 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
     ret_op['sender'] = sender 
     ret_op['address'] = address
 
+    # NOTE: this is a quirk to preserve compatibility 
+    ret_op['op_fee'] = float(name_rec['op_fee'])
+
     return ret_op
 
 
@@ -505,6 +508,9 @@ def snv_consensus_extras( name_rec, block_id, commit, db ):
     # reconstruct the recipient information
     ret_op['recipient'] = str(name_rec['sender'])
     ret_op['recipient_address'] = str(name_rec['address'])
+
+    # NOTE: this is a quirk to preserve compatibility 
+    ret_op['op_fee'] = float(name_rec['op_fee'])
 
     # reconstruct preorder hash 
     ret_op['preorder_hash'] = hash_name( str(name_rec['name']), name_rec['sender'], ret_op['recipient_address'] )
