@@ -34,13 +34,29 @@ from ..config import *
 from ..scripts import *
 from ..hashing import hash256_trunc128
 
-from ..nameset import NAMEREC_FIELDS
+from ..nameset import *
+
 
 # consensus hash fields (ORDER MATTERS!) 
 FIELDS = NAMEREC_FIELDS + [
-    'name_hash',            # hash(name)
+    'name_hash128',         # hash(name)
     'consensus_hash',       # consensus hash when this operation was sent
     'keep_data'             # whether or not to keep the profile data associated with the name when transferred
+]
+
+# fields this operation mutates
+# NOTE: due to an earlier quirk in the design of this system,
+# we do NOT write the consensus hash (but we should have)
+MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
+    'sender',
+    'address',
+    'sender_pubkey',
+    'value_hash',
+]
+
+# fields to back up when applying this operation 
+BACKUP_FIELDS = MUTATE_FIELDS + [
+    'consensus_hash'
 ]
 
 def get_transfer_recipient_from_outputs( outputs ):
@@ -121,7 +137,114 @@ def build(name, keepdata, consensus_hash, testset=False):
     return packaged_script
 
 
-def tx_extract( payload, senders, inputs, outputs ):
+# NOTE: when doing the state transition, ignore the equality test on the consensus hash.
+# this is a quirk to work around a bug in a previous implementation.
+@state_transition( "name", "name_records", ignore_equality_constraints=["consensus_hash"] )
+def check( state_engine, nameop, block_id, checked_ops ):
+    """
+    Verify the validity of a name's transferrance to another private key.
+    The name must exist, not be revoked, and be owned by the sender.
+    The recipient must not exceed the maximum allowed number of names per keypair,
+    and the recipient cannot own an equivalent name.
+
+    NAME_TRANSFER isn't allowed during an import, so the name's namespace must be ready.
+
+    Return True if accepted
+    Return False if not
+    """
+
+    name_hash = nameop['name_hash128']
+    name = state_engine.get_name_from_name_hash128( name_hash )
+
+    consensus_hash = nameop['consensus_hash']
+    sender = nameop['sender']
+    recipient_address = nameop['recipient_address']
+    recipient = nameop['recipient']
+
+    if name is None:
+       # invalid
+       log.debug("No name found for '%s'" % name_hash )
+       return False
+
+    namespace_id = get_namespace_from_name( name )
+    name_rec = state_engine.get_name( name )
+    
+    if name_rec is None:
+       log.debug("Name '%s' does not exist" % name)
+       return False
+
+    # namespace must be ready
+    if not state_engine.is_namespace_ready( namespace_id ):
+       # non-existent namespace
+       log.debug("Namespace '%s' is not ready" % (namespace_id))
+       return False
+
+    # name must not be revoked
+    if state_engine.is_name_revoked( name ):
+        log.debug("Name '%s' is revoked" % name)
+        return False
+
+    # name must not be expired
+    if state_engine.is_name_expired( name, state_engine.lastblock ):
+        log.debug("Name '%s' is expired" % name)
+        return False
+
+    if not state_engine.is_consensus_hash_valid( block_id, consensus_hash ):
+       # invalid concensus hash
+       log.debug("Invalid consensus hash '%s'" % consensus_hash )
+       return False
+
+    if sender == recipient:
+       # nonsensical transfer
+       log.debug("Sender is the same as the Recipient (%s)" % sender )
+       return False
+
+    if not state_engine.is_name_registered( name ):
+       # name is not registered
+       log.debug("Name '%s' is not registered" % name)
+       return False
+
+    if not state_engine.is_name_owner( name, sender ):
+       # sender doesn't own the name
+       log.debug("Name '%s' is not owned by %s (but %s)" % (name, sender, state_engine.get_name_owner(name)))
+       return False
+
+    names_owned = state_engine.get_names_owned_by_sender( recipient )
+    if name in names_owned:
+        # recipient already owns it 
+        log.debug("Recipient %s already owns '%s'" % (recipient, name))
+        return False
+
+    if len(names_owned) >= MAX_NAMES_PER_SENDER:
+        # exceeds quota 
+        log.debug("Recipient %s has exceeded name quota" % recipient)
+        return False
+
+    # remember the name, so we don't have to look it up later
+    nameop['name'] = name
+
+    # carry out transition, putting the operation into the state to be committed
+    nameop['sender'] = recipient
+    nameop['address'] = recipient_address
+    nameop['sender_pubkey'] = None
+
+    if not nameop['keep_data']:
+        nameop['value_hash'] = None
+        nameop['op'] = "%s%s" % (NAME_TRANSFER, TRANSFER_REMOVE_DATA)
+    else:
+        # preserve 
+        nameop['value_hash'] = name_rec['value_hash']
+        nameop['op'] = "%s%s" % (NAME_TRANSFER, TRANSFER_KEEP_DATA)
+
+    del nameop['recipient']
+    del nameop['recipient_address']
+    del nameop['keep_data']
+    del nameop['name_hash128']
+
+    return True
+
+
+def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     """
     Extract and return a dict of fields from the underlying blockchain transaction data
     that are useful to this operation.
@@ -176,7 +299,10 @@ def tx_extract( payload, senders, inputs, outputs ):
        "sender": sender,
        "address": sender_address,
        "recipient": recipient,
-       "recipient_address": recipient_address
+       "recipient_address": recipient_address,
+       "vtxindex": vtxindex,
+       "txid": txid,
+       "op": NAME_TRANSFER
     }
 
     ret.update( parsed_payload )
@@ -276,7 +402,7 @@ def parse(bin_payload, recipient):
         return None 
 
     disposition_char = bin_payload[0:1]
-    name_hash = bin_payload[1:1+LENGTHS['name_hash']]
+    name_hash128 = bin_payload[1:1+LENGTHS['name_hash']]
     consensus_hash = bin_payload[1+LENGTHS['name_hash']:]
    
     if disposition_char not in [TRANSFER_REMOVE_DATA, TRANSFER_KEEP_DATA]:
@@ -300,7 +426,7 @@ def parse(bin_payload, recipient):
 
     return {
         'opcode': 'NAME_TRANSFER',
-        'name_hash': hexlify( name_hash ),
+        'name_hash128': hexlify( name_hash128 ),
         'consensus_hash': hexlify( consensus_hash ),
         'recipient': recipient,
         'keep_data': disposition
@@ -355,36 +481,32 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
 
     # reconstruct the transfer op...
     KEEPDATA_OP = "%s%s" % (NAME_TRANSFER, TRANSFER_KEEP_DATA)
+    REMOVEDATA_OP = "%s%s" % (NAME_TRANSFER, TRANSFER_REMOVE_DATA)
     keep_data = None 
 
-    if name_rec['op'] == KEEPDATA_OP:
-        keep_data = True
-    else:
-        keep_data = False
+    try:
+        if name_rec['op'] == KEEPDATA_OP:
+            keep_data = True
+        elif name_rec['op'] == REMOVEDATA_OP:
+            keep_data = False
+        else:
+            raise Exception("Invalid transfer op sequence '%s'" % name_rec['op'])
+    except Exception, e:
+        log.exception(e)
+        log.error("FATAL: invalid op transfer sequence")
+        sys.exit(1)
 
     # what was the previous owner?
     recipient = str(name_rec['sender'])
     recipient_address = str(name_rec['address'])
 
     # restore history temporarily...
-    untrusted_name_rec = untrusted_db.get_name( str(name_rec['name']) )
-    name_rec['history'] = untrusted_name_rec['history']
-
-    # get the previous owner by finding the previous state of the record
-    # (which has the previous owner)
-    if history_index > 0:
-        # prior name change in the same block
-        name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number )[history_index - 1]
-    else:
-        # prior name change in an earlier block
-        name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number - 1 )[history_index - 1]
+    name_rec_prev = BlockstoreDB.get_previous_name_version( name_rec, block_number, history_index, untrusted_db )
 
     sender = name_rec_prev['sender']
     address = name_rec_prev['address']
     consensus_hash = untrusted_db.get_consensus_at( block_number - 1 )
     
-    del name_rec['history']
-
     name_rec_script = build( str(name_rec['name']), keep_data, consensus_hash, testset=testset )
     name_rec_payload = unhexlify( name_rec_script )[3:]
     ret_op = parse( name_rec_payload, recipient )
@@ -400,14 +522,23 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
     return ret_op
 
 
-def snv_consensus_extras( name_rec, block_id, db ):
+def snv_consensus_extras( name_rec, block_id, commit, db ):
     """
     Given a name record most recently affected by an instance of this operation, 
     find the dict of consensus-affecting fields from the operation that are not
     already present in the name record.
+
+    Specific to NAME_TRANSFER:
+    The consensus_hash is not a field we snapshot, nor is it a field we mutate 
+    (this is an artifact of a design quirk of a previous version of the system).
+    As such, we need to calculate it differently.
     """
     
+    from __init__ import op_commit_consensus_override, op_commit_consensus_get_overrides
+
     ret_op = {}
+    
+    # log.debug("SNV consensus fields at %s (%s)" % (block_id, name_rec['vtxindex']) )
 
     # reconstruct the recipient information
     ret_op['recipient'] = str(name_rec['sender'])
@@ -415,10 +546,24 @@ def snv_consensus_extras( name_rec, block_id, db ):
 
     # reconstruct name_hash, consensus_hash, keep_data
     keep_data = None
-    if name_rec['op'][-1] == TRANSFER_KEEP_DATA:
-        keep_data = True
-    else:
-        keep_data = False
+    try:
+        assert len(name_rec['op']) == 2, "Invalid op sequence '%s'" % (name_rec['op'])
+        
+        if name_rec['op'][-1] == TRANSFER_KEEP_DATA:
+            keep_data = True
+        elif name_rec['op'][-1] == TRANSFER_REMOVE_DATA:
+            keep_data = False
+        else:
+            raise Exception("Invalid op sequence '%s'" % (name_rec['op']))
+
+    except Exception, e:
+        log.exception(e)
+        log.error("FATAL: invalid transfer op sequence")
+        sys.exit(1)
+
+    ret_op['keep_data'] = keep_data
+    ret_op['name_hash128'] = hash256_trunc128( str(name_rec['name']) )
+    ret_op['sender_pubkey'] = None
 
     prev_consensus_hash = None
 
@@ -426,7 +571,7 @@ def snv_consensus_extras( name_rec, block_id, db ):
         # get the previous consensus hash.
         # NOTE: The consensus hash that gets fed into a transfer comes from the last saved consensus hash
         # in the history that is not a PREORDER, if there is a consensus-bearing command earlier in the history.
-        # Otherwise, it comes from the hash at the previous the block.
+        # Otherwise, it comes from the hash at the previous block.
         # This is an artifact from an oversight in the original
         # design of the system, but we have to adjust to it here to return the right consensus data.
         # Search the name record's history backwards for that prior consensus hash.
@@ -437,11 +582,11 @@ def snv_consensus_extras( name_rec, block_id, db ):
 
             for h in xrange(len(name_rec['history'][i])-1, -1, -1):
 
-                # log.debug("consider (%s, %s)" % (i, h))
+                log.debug("consider (%s, %s)" % (i, h))
 
                 hist = name_rec['history'][i][h]
-                if i == block_id and hist.has_key('vtxindex') and hist['vtxindex'] > name_rec['vtxindex']:
-                    # same block, but later update 
+                if i == block_id and hist.has_key('vtxindex') and hist['vtxindex'] >= name_rec['vtxindex']:
+                    # same block, but later or equal update 
                     # log.debug("skip later (%s, %s)" % (i, h))
                     continue 
 
@@ -449,26 +594,28 @@ def snv_consensus_extras( name_rec, block_id, db ):
                     # log.debug("no consensus hash at (%s, %s)" % (i, h))
                     continue
                
-                if hist['opcode'] == "NAME_PREORDER":
+                if hist['opcode'] in ["NAME_PREORDER", "NAME_PREORDER_MULTI"]:
                     # out of history
                     # log.debug("out of history at (%s, %s)" % (i, h))
                     break
                 
+                log.debug("use consensus hash %s at history(%s, %s))" % (hist['consensus_hash'], i, h ))
                 prev_consensus_hash = hist['consensus_hash']
                 break
 
             if prev_consensus_hash is not None:
                 break
 
-    ret_op['keep_data'] = keep_data
 
     if prev_consensus_hash is not None:
         ret_op['consensus_hash'] = prev_consensus_hash
     else:
         # no prior consensus hash that would have been fed into the transfer
+        # log.debug("Use prior consensus hash at %s (%s)" % (block_id - 1, db.get_consensus_at(block_id - 1)))
         ret_op['consensus_hash'] = db.get_consensus_at( block_id - 1 )
 
-    ret_op['name_hash'] = hash256_trunc128( str(name_rec['name']) )
+    # the consensus hash given here *will* be different from that reported in the operation
+    op_commit_consensus_override( ret_op, "consensus_hash" )
     return ret_op
 
 

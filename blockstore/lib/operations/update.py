@@ -33,7 +33,7 @@ from ..config import *
 from ..scripts import *
 from ..hashing import hash256_trunc128
 
-from ..nameset import NAMEREC_FIELDS
+from ..nameset import *
 
 import virtualchain
 
@@ -42,9 +42,20 @@ if not globals().has_key('log'):
 
 # consensus hash fields (ORDER MATTERS!) 
 FIELDS = NAMEREC_FIELDS + [
-    'name_hash',            # hash(name,consensus_hash)
+    'name_consensus_hash',  # hash(name,consensus_hash)
     'consensus_hash'        # consensus hash when this update was sent
 ]
+
+# fields this operation mutates
+MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
+    'value_hash',
+    'consensus_hash',
+    'sender_pubkey'
+]
+
+# fields to back up when applying this operation 
+BACKUP_FIELDS = MUTATE_FIELDS
+
 
 def update_sanity_test( name, consensus_hash, data_hash ):
     """
@@ -60,7 +71,7 @@ def update_sanity_test( name, consensus_hash, data_hash ):
     if data_hash is not None and not is_hex( data_hash ):
        raise Exception("Invalid hex string '%s': not hex" % (data_hash))
     
-    if len(data_hash) != 2 * LENGTHS['update_hash']:
+    if len(data_hash) != 2 * LENGTHS['value_hash']:
        raise Exception("Invalid hex string '%s': bad length" % (data_hash))
 
     return True
@@ -91,7 +102,81 @@ def build(name, consensus_hash, data_hash=None, testset=False):
     return packaged_script
 
 
-def tx_extract( payload, senders, inputs, outputs ):
+@state_transition("name", "name_records")
+def check(state_engine, nameop, block_id, checked_ops ):
+    """
+    Verify the validity of an update to a name's associated data.
+    Use the nameop's 128-bit name hash to find the name itself.
+
+    NAME_UPDATE isn't allowed during an import, so the name's namespace must be ready.
+
+    Return True if accepted
+    Return False if not.
+    """
+
+    name_consensus_hash = nameop['name_consensus_hash']
+    sender = nameop['sender']
+
+    # deny updates if we exceed quota--the only legal operations are to revoke or transfer.
+    sender_names = state_engine.get_names_owned_by_sender( sender )
+    if len(sender_names) > MAX_NAMES_PER_SENDER:
+        log.debug("Sender '%s' has exceeded quota: only transfers or revokes are allowed" % (sender))
+        return False
+
+    name, consensus_hash = state_engine.get_name_from_name_consensus_hash( name_consensus_hash, sender, block_id )
+
+    # name must exist
+    if name is None or consensus_hash is None:
+       log.debug("Unable to resolve name consensus hash '%s' to a name owned by '%s'" % (name_consensus_hash, sender))
+       # nothing to do--write is stale or on a fork
+       return False
+
+    namespace_id = get_namespace_from_name( name )
+
+    if state_engine.get_name( name ) is None:
+       log.debug("Name '%s' does not exist" % name)
+       return False
+
+    # namespace must be ready
+    if not state_engine.is_namespace_ready( namespace_id ):
+       # non-existent namespace
+       log.debug("Namespace '%s' is not ready" % (namespace_id))
+       return False
+
+    # name must not be revoked
+    if state_engine.is_name_revoked( name ):
+        log.debug("Name '%s' is revoked" % name)
+        return False
+
+    # name must not be expired
+    if state_engine.is_name_expired( name, state_engine.lastblock ):
+        log.debug("Name '%s' is expired" % name)
+        return False
+
+    # the name must be registered
+    if not state_engine.is_name_registered( name ):
+        # doesn't exist
+        log.debug("Name '%s' is not registered" % name )
+        return False
+
+    # the name must be owned by the same person who sent this nameop
+    if not state_engine.is_name_owner( name, sender ):
+        # wrong owner
+        log.debug("Name '%s' is not owned by '%s'" % (name, sender))
+        return False
+
+    # remember the name and consensus hash, so we don't have to re-calculate it...
+    # self.name_consensus_hash_name[ name_consensus_hash ] = name
+    nameop['name'] = name
+    nameop['consensus_hash'] = consensus_hash
+
+    # not stored, but re-calculateable
+    del nameop['name_consensus_hash']
+
+    return True
+
+
+def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     """
     Extract and return a dict of fields from the underlying blockchain transaction data
     that are useful to this operation.
@@ -134,13 +219,18 @@ def tx_extract( payload, senders, inputs, outputs ):
 
     ret = {
        "sender": sender_script,
-       "address": sender_address
+       "address": sender_address,
+       "vtxindex": vtxindex,
+       "txid": txid,
+       "op": NAME_UPDATE
     }
 
     ret.update( parsed_payload )
 
     if sender_pubkey_hex is not None:
         ret['sender_pubkey'] = sender_pubkey_hex
+    else:
+        ret['sender_pubkey'] = None 
 
     return ret
 
@@ -234,18 +324,18 @@ def parse(bin_payload):
     NOTE: bin_payload excludes the leading three bytes.
     """
     
-    if len(bin_payload) != LENGTHS['name_hash'] + LENGTHS['data_hash']:
+    if len(bin_payload) != LENGTHS['name_consensus_hash'] + LENGTHS['value_hash']:
         log.error("Invalid update length %s" % len(bin_payload))
         return None 
 
-    name_hash_bin = bin_payload[:LENGTHS['name_hash']]
-    update_hash_bin = bin_payload[LENGTHS['name_hash']:]
+    name_consensus_hash_bin = bin_payload[:LENGTHS['name_consensus_hash']]
+    value_hash_bin = bin_payload[LENGTHS['name_consensus_hash']:]
     
-    name_hash = hexlify( name_hash_bin )
-    update_hash = hexlify( update_hash_bin )
+    name_consensus_hash = hexlify( name_consensus_hash_bin )
+    value_hash = hexlify( value_hash_bin )
   
     try:
-        rc = update_sanity_test( None, name_hash, update_hash )
+        rc = update_sanity_test( None, name_consensus_hash, value_hash )
         if not rc:
             raise Exception("Invalid update data")
     except Exception, e:
@@ -254,8 +344,8 @@ def parse(bin_payload):
 
     return {
         'opcode': 'NAME_UPDATE',
-        'name_hash': name_hash,
-        'update_hash': update_hash
+        'name_consensus_hash': name_consensus_hash,
+        'value_hash': value_hash
     }
 
 
@@ -308,7 +398,7 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
     return ret_op
 
 
-def snv_consensus_extras( name_rec, block_id, db ):
+def snv_consensus_extras( name_rec, block_id, commit, db ):
     """
     Given a name record most recently affected by an instance of this operation, 
     find the dict of consensus-affecting fields from the operation that are not
@@ -318,7 +408,7 @@ def snv_consensus_extras( name_rec, block_id, db ):
     ret_op = {}
 
     # reconstruct name_hash
-    ret_op['name_hash'] = hash256_trunc128( str(name_rec['name']) + str(name_rec['consensus_hash']) )
+    ret_op['name_consensus_hash'] = hash256_trunc128( str(name_rec['name']) + str(name_rec['consensus_hash']) )
     return ret_op
 
 

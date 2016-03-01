@@ -34,9 +34,11 @@ import json
 
 from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
-from ..scripts import * 
+from ..scripts import *
+from ..nameset import *
 from ..hashing import hash_name
    
+from namespacepreorder import FIELDS as namespacepreorder_FIELDS
 import virtualchain
 
 if not globals().has_key('log'):
@@ -45,7 +47,7 @@ if not globals().has_key('log'):
 # consensus hash fields (ORDER MATTERS!)
 FIELDS = [
     'namespace_id',         # human-readable namespace ID
-    'namespace_id_hash',    # hash(namespace_id,sender,reveal_addr) from the preorder (binds this namespace to its preorder)
+    'preorder_hash',        # hash(namespace_id,sender,reveal_addr) from the preorder (binds this namespace to its preorder)
     'version',              # namespace rules version
 
     'sender',               # the scriptPubKey hex script that identifies the preorderer
@@ -67,6 +69,13 @@ FIELDS = [
     'nonalpha_discount',    # multiplicative coefficient that drops a name's price if it has non-alpha characters 
     'no_vowel_discount',    # multiplicative coefficient that drops a name's price if it has no vowels
 ]
+
+# fields this operation changes
+# everything but the block number
+MUTATE_FIELDS = filter( lambda f: f not in ["block_number"], FIELDS )
+
+# fields that must be backed up when applying this operation (all of them)
+BACKUP_FIELDS = ["__all__"]
 
 def serialize_int( int_field, numbytes ):
    """
@@ -128,7 +137,10 @@ def namespacereveal_sanity_check( namespace_id, version, lifetime, coeff, base, 
   
    if base < 0 or base > 255:
       raise Exception("Invalid base price %s: must be in range [0, 256)" % base)
-  
+ 
+   if type(bucket_exponents) != list:
+        raise Exception("Bucket exponents must be a list")
+
    if len(bucket_exponents) != 16:
         raise Exception("Exactly 16 buckets required")
 
@@ -203,6 +215,95 @@ def build( namespace_id, version, reveal_addr, lifetime, coeff, base, bucket_exp
    return packaged_script
 
 
+@state_create( "namespace_id", "namespaces", "check_namespace_collision" )
+def check( state_engine, nameop, block_id, checked_ops ):
+    """
+    Check a NAMESPACE_REVEAL operation to the name database.
+    It is only valid if it is the first such operation
+    for this namespace, and if it was sent by the same
+    sender who sent the NAMESPACE_PREORDER.
+
+    Return True if accepted
+    Return False if not
+    """
+
+    namespace_id = nameop['namespace_id']
+    namespace_id_hash = nameop['preorder_hash']
+    sender = nameop['sender']
+    namespace_preorder = None
+
+    if not nameop.has_key('sender_pubkey'):
+       log.debug("Namespace reveal requires a sender_pubkey (i.e. a p2pkh transaction)")
+       return False
+
+    if not nameop.has_key('recipient'):
+       log.debug("No recipient script for namespace '%s'" % namespace_id)
+       return False
+
+    if not nameop.has_key('recipient_address'):
+       log.debug("No recipient address for namespace '%s'" % namespace_id)
+       return False
+
+    # well-formed?
+    if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
+       log.debug("Malformed namespace ID '%s': non-base-38 characters")
+       return False
+
+    # can't be revealed already
+    if state_engine.is_namespace_revealed( namespace_id ):
+       # this namespace was already revealed
+       log.debug("Namespace '%s' is already revealed" % namespace_id )
+       return False
+
+    # can't be ready already
+    if state_engine.is_namespace_ready( namespace_id ):
+       # this namespace already exists (i.e. was already begun)
+       log.debug("Namespace '%s' is already registered" % namespace_id )
+       return False
+
+    # must currently be preordered
+    namespace_preorder = state_engine.get_namespace_preorder( namespace_id_hash )
+    if namespace_preorder is None:
+       # not preordered
+       log.debug("Namespace '%s' is not preordered (no preorder %s)" % (namespace_id, namespace_id_hash) )
+       return False
+
+    # must be sent by the same principal who preordered it
+    if namespace_preorder['sender'] != sender:
+       # not sent by the preorderer
+       log.debug("Namespace '%s' is not preordered by '%s'" % (namespace_id, sender))
+
+    # must be a version we support
+    if int(nameop['version']) != BLOCKSTORE_VERSION:
+       log.debug("Namespace '%s' requires version %s, but this blockstore is version %s" % (namespace_id, nameop['version'], BLOCKSTORE_VERSION))
+       return False
+
+    # check fee...
+    if not 'op_fee' in namespace_preorder:
+       log.debug("Namespace '%s' preorder did not pay the fee" % (namespace_id))
+       return False
+
+    namespace_fee = namespace_preorder['op_fee']
+
+    # must have paid enough
+    if namespace_fee < price_namespace( namespace_id ):
+       # not enough money
+       log.debug("Namespace '%s' costs %s, but sender paid %s" % (namespace_id, price_namespace(namespace_id), namespace_fee ))
+       return False
+
+    # record preorder
+    nameop['block_number'] = namespace_preorder['block_number']
+    state_create_put_preorder( nameop, namespace_preorder )
+    state_create_put_prior_history( nameop, None )
+
+    # NOTE: not fed into the consensus hash, but necessary for database constraints:
+    nameop['ready_block'] = 0
+    nameop['op_fee'] = namespace_preorder['op_fee']
+
+    # can begin import
+    return True
+
+
 def get_reveal_recipient_from_outputs( outputs ):
     """
     There are between three outputs:
@@ -240,19 +341,10 @@ def get_reveal_recipient_from_outputs( outputs ):
     return ret
 
 
-def tx_extract( payload, senders, inputs, outputs ):
+def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     """
     Extract and return a dict of fields from the underlying blockchain transaction data
     that are useful to this operation.
-
-    Required (+ parse)
-    sender:  the script_pubkey (as a hex string) of the principal that sent the namespace preorder
-    address:  the address from the sender script
-    recipient:  the script_pubkey (as a hex string) of the "revealer", who will import and ready the namespace
-    recipient_address:  the address from the recipient script
-
-    Optional:
-    sender_pubkey_hex: the public key of the sender
     """
   
     sender_script = None 
@@ -295,7 +387,11 @@ def tx_extract( payload, senders, inputs, outputs ):
        "sender": sender_script,
        "address": sender_address,
        "recipient": recipient_script,
-       "recipient_address": recipient_address
+       "recipient_address": recipient_address,
+       "reveal_block": block_id,
+       "vtxindex": vtxindex,
+       "txid": txid,
+       "op": NAMESPACE_REVEAL
     }
 
     ret.update( parsed_payload )
@@ -453,7 +549,7 @@ def parse( bin_payload, sender_script, recipient_address ):
       'nonalpha_discount': nonalpha_discount,
       'no_vowel_discount': no_vowel_discount,
       'namespace_id': namespace_id,
-      'namespace_id_hash': namespace_id_hash
+      'preorder_hash': namespace_id_hash
    }
 
 
@@ -475,8 +571,26 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
     Return None on error.
     """
 
+    buckets = name_rec['buckets']
+
+    if type(buckets) in [str, unicode]:
+        # serialized bucket list.
+        # unserialize 
+        reg = "[" + "[ ]*[0-9]+[ ]*," * 15 + "[ ]*[0-9]+[ ]*]"
+        match = re.match( reg, buckets )
+        if match is None:
+            log.error("FATAL: bucket list '%s' is not parsable" % (buckets))
+            sys.exit(1)
+
+        try:
+            buckets = [int(b) for b in buckets.strip("[]").split(", ")]
+        except Exception, e:
+            log.exception(e)
+            log.error("FATAL: failed to parse '%s' into a 16-elemenet list" % (buckets))
+            sys.exit(1)
+
     name_rec_script = build( str(name_rec['namespace_id']), name_rec['version'], str(name_rec['recipient_address']), \
-                             name_rec['lifetime'], name_rec['coeff'], name_rec['base'], name_rec['buckets'],
+                             name_rec['lifetime'], name_rec['coeff'], name_rec['base'], buckets, 
                              name_rec['nonalpha_discount'], name_rec['no_vowel_discount'], testset=testset )
 
     name_rec_payload = unhexlify( name_rec_script )[3:]
@@ -484,3 +598,10 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
 
     return ret_op
 
+
+def snv_consensus_extras( name_rec, block_id, commit, db ):
+    """
+    Calculate any derived missing data that goes into the check() operation,
+    given the block number, the name record at the block number, and the db.
+    """
+    return {}

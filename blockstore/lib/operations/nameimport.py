@@ -32,14 +32,35 @@ from binascii import hexlify, unhexlify
 from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import *
-from ..hashing import hash256_trunc128
+from ..hashing import hash256_trunc128, hash_name
 
-from ..nameset import NAMEREC_FIELDS
+from ..nameset import *
 
 # consensus hash fields (ORDER MATTERS!) 
 FIELDS = NAMEREC_FIELDS + [
-    'recipient',            # scriptPubKey hex that identifies the name recipient 
-    'recipient_address'     # address of the recipient
+    'sender',            # scriptPubKey hex that identifies the name recipient
+    'address'            # address of the recipient
+]
+
+# fields that change when applying this operation 
+MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
+    'value_hash',
+    'sender',
+    'sender_pubkey',
+    'address',
+    'importer',
+    'importer_address',
+    'preorder_hash',
+    'preorder_block_number',
+    'first_registered',
+    'last_renewed',
+    'revoked',
+    'block_number'
+]
+ 
+# fields to preserve when applying this operation 
+BACKUP_FIELDS = MUTATE_FIELDS + [
+    'consensus_hash'
 ]
 
 
@@ -132,7 +153,142 @@ def build(name, testset=False):
     return packaged_script
 
 
-def tx_extract( payload, senders, inputs, outputs ):
+def get_prev_imported( state_engine, checked_ops, name ):
+    """
+    See if a name has been imported previously.
+    Check the DB *and* current ops.
+    """
+    imported = find_by_opcode( checked_ops, "NAME_IMPORT" )
+    for opdata in reversed(imported):
+        if opdata['name'] == name:
+            return opdata
+ 
+    name_rec = state_engine.get_name( name )
+    return name_rec
+
+
+@state_create( "name", "name_records", "check_noop_collision" )
+def check( state_engine, nameop, block_id, checked_ops ):
+    """
+    Given a NAME_IMPORT nameop, see if we can import it.
+    * the name must be well-formed
+    * the namespace must be revealed, but not ready
+    * the name cannot have been imported yet
+    * the sender must be the same as the namespace's sender
+
+    Set the __preorder__ and __prior_history__ fields, since this
+    is a state-creating operation.
+
+    Return True if accepted
+    Return False if not
+    """
+
+    from ..nameset import BlockstoreDB
+
+    name = str(nameop['name'])
+    sender = str(nameop['sender'])
+    sender_pubkey = None
+    recipient = str(nameop['recipient'])
+    recipient_address = str(nameop['recipient_address'])
+
+    preorder_hash = hash_name( nameop['name'], sender, recipient_address )
+    preorder_block_number = block_id
+    name_block_number = block_id 
+    name_first_registered = block_id
+    name_last_renewed = block_id
+
+    if not nameop.has_key('sender_pubkey'):
+        log.debug("Name import requires a sender_pubkey (i.e. use of a p2pkh transaction)")
+        return False
+
+    # name must be well-formed
+    if not is_name_valid( name ):
+        log.debug("Malformed name '%s'" % name)
+        return False
+
+    name_without_namespace = get_name_from_fq_name( name )
+    namespace_id = get_namespace_from_name( name )
+
+    # namespace must be revealed, but not ready
+    if not state_engine.is_namespace_revealed( namespace_id ):
+        log.debug("Namespace '%s' is not revealed" % namespace_id )
+        return False
+
+    namespace = state_engine.get_namespace_reveal( namespace_id )
+
+    # sender p2pkh script must use a public key derived from the namespace revealer's public key
+    sender_pubkey_hex = str(nameop['sender_pubkey'])
+    sender_pubkey = pybitcoin.BitcoinPublicKey( str(sender_pubkey_hex) )
+    sender_address = sender_pubkey.address()
+
+    import_addresses = BlockstoreDB.load_import_keychain( namespace['namespace_id'] )
+    if import_addresses is None:
+
+        # the first name imported must be the revealer's address
+        if sender_address != namespace['recipient_address']:
+            log.debug("First NAME_IMPORT must come from the namespace revealer's address")
+            return False
+
+        # need to generate a keyring from the revealer's public key
+        log.debug("Generating %s-key keychain for '%s'" % (NAME_IMPORT_KEYRING_SIZE, namespace_id))
+        import_addresses = BlockstoreDB.build_import_keychain( namespace['namespace_id'], sender_pubkey_hex )
+
+    # sender must be the same as the the person who revealed the namespace
+    # (i.e. sender's address must be from one of the valid import addresses)
+    if sender_address not in import_addresses:
+        log.debug("Sender address '%s' is not in the import keychain" % (sender_address))
+        return False
+
+    # we can overwrite, but emit a warning
+    # search *current* block as well as last block
+    prev_name_rec = get_prev_imported( state_engine, checked_ops, name )
+    if prev_name_rec is not None and (prev_name_rec['block_number'] < block_id or (prev_name_rec['block_number'] == block_id and prev_name_rec['vtxindex'] < nameop['vtxindex'])):
+        log.warning("Overwriting already-imported name '%s'" % name)
+
+        # propagate preorder block number and hash...
+        preorder_block_number = prev_name_rec['preorder_block_number']
+        name_block_number = prev_name_rec['block_number']
+        name_first_registered = prev_name_rec['first_registered']
+        name_last_renewed = prev_name_rec['last_renewed']
+        preorder_hash = prev_name_rec['preorder_hash']
+
+    # if this name had existed prior to being imported here,
+    # (i.e. the namespace was revealed and then expired), then
+    # preserve its prior history (since this is a state-creating operation)
+    prior_hist = None
+    if prev_name_rec is not None:
+        # set preorder and prior history...
+        prior_hist = prior_history_create( nameop, prev_name_rec, block_id, state_engine, extra_backup_fields=['consensus_hash'] )
+    
+    # can never have been preordered
+    state_create_put_preorder( nameop, None )
+
+    # might have existed as a previous import in the past 
+    state_create_put_prior_history( nameop, prior_hist )
+
+    # carry out the transition 
+    del nameop['recipient']
+    del nameop['recipient_address']
+
+    nameop['sender'] = recipient
+    nameop['address'] = recipient_address
+    nameop['importer'] = sender
+    nameop['importer_address'] = sender_address
+    nameop['op_fee'] = price_name( name_without_namespace, namespace )
+    nameop['namespace_block_number'] = namespace['block_number']
+    nameop['consensus_hash'] = None 
+    nameop['preorder_hash'] = preorder_hash
+    nameop['block_number'] = name_block_number
+    nameop['first_registered'] = name_first_registered
+    nameop['last_renewed'] = name_last_renewed
+    nameop['preorder_block_number'] = preorder_block_number
+    nameop['opcode'] = "NAME_IMPORT"
+
+    # good!
+    return True
+
+
+def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     """
     Extract and return a dict of fields from the underlying blockchain transaction data
     that are useful to this operation.
@@ -195,7 +351,14 @@ def tx_extract( payload, senders, inputs, outputs ):
        "address": sender_address,
        "recipient": recipient,
        "recipient_address": recipient_address,
-       "update_hash": import_update_hash
+       "value_hash": import_update_hash,
+       "revoked": False,
+       "vtxindex": vtxindex,
+       "txid": txid,
+       "first_registered": block_id,        # NOTE: will get deleted if this is a re-import
+       "last_renewed": block_id,            # NOTE: will get deleted if this is a re-import
+       "op": NAME_IMPORT,
+       "opcode": "NAME_IMPORT"
     }
 
     ret.update( parsed_payload )
@@ -286,7 +449,7 @@ def parse(bin_payload, recipient, update_hash ):
         'opcode': 'NAME_IMPORT',
         'name': fqn,
         'recipient': recipient,
-        'update_hash': update_hash
+        'value_hash': update_hash
     }
 
 
@@ -330,7 +493,7 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
     return ret_op
 
 
-def snv_consensus_extras( name_rec, block_id, db ):
+def snv_consensus_extras( name_rec, block_id, commit, db ):
     """
     Given a name record most recently affected by an instance of this operation, 
     find the dict of consensus-affecting fields from the operation that are not
@@ -343,6 +506,8 @@ def snv_consensus_extras( name_rec, block_id, db ):
     ret_op['recipient'] = str(name_rec['sender'])
     ret_op['recipient_address'] = str(name_rec['address'])
 
+    # reconstruct preorder hash 
+    ret_op['preorder_hash'] = hash_name( str(name_rec['name']), name_rec['sender'], ret_op['recipient_address'] )
     return ret_op
 
 

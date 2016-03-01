@@ -272,13 +272,13 @@ def broadcast(name_list, private_key, register_addr_list, consensus_hash, blockc
         from_address = BitcoinPublicKey( subsidy_public_key ).address()
 
         inputs = get_unspents( from_address, blockchain_client )
-        script_pubkey = get_script_pubkey( subsidy_public_key )
+        script_pubkey = make_p2pkh_script( subsidy_public_key )
 
     else:
         # ordering directly
         pubk = BitcoinPrivateKey( private_key ).public_key()
         public_key = pubk.to_hex()
-        script_pubkey = get_script_pubkey( public_key )
+        script_pubkey = make_p2pkh_script( public_key )
         
         # get inputs and from address using private key
         private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)

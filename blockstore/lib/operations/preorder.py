@@ -36,10 +36,13 @@ from ..b40 import b40_to_hex, is_b40
 from ..config import *
 from ..scripts import *
 from ..hashing import hash_name
+from ..nameset import state_preorder
+
+from register import FIELDS as register_FIELDS
 
 # consensus hash fields (ORDER MATTERS!)
 FIELDS = [
-     'preorder_name_hash',  # hash(name,sender,register_addr) 
+     'preorder_hash',       # hash(name,sender,register_addr) 
      'consensus_hash',      # consensus hash at time of send
      'sender',              # scriptPubKey hex that identifies the principal that issued the preorder
      'sender_pubkey',       # if sender is a pubkeyhash script, then this is the public key
@@ -51,6 +54,15 @@ FIELDS = [
      'vtxindex',            # the index in the block where the tx occurs
      'op_fee',              # blockstore fee (sent to burn address)
 ]
+
+# fields this operation changes
+MUTATE_FIELDS = FIELDS[:]
+
+# fields to back up when processing this operation 
+BACKUP_FIELDS = [
+    "__all__"
+]
+
 
 def build(name, script_pubkey, register_addr, consensus_hash, name_hash=None, testset=False):
     """
@@ -85,9 +97,65 @@ def build(name, script_pubkey, register_addr, consensus_hash, name_hash=None, te
     packaged_script = add_magic_bytes(hex_script, testset=testset)
     
     return packaged_script
+    
+
+@state_preorder("check_preorder_collision")
+def check( state_engine, nameop, block_id, checked_ops ):
+    """
+    Verify that a preorder of a name at a particular block number is well-formed
+
+    NOTE: these *can't* be incorporated into namespace-imports,
+    since we have no way of knowning which namespace the
+    nameop belongs to (it is blinded until registration).
+    But that's okay--we don't need to preorder names during
+    a namespace import, because we will only accept names
+    sent from the importer until the NAMESPACE_REVEAL operation
+    is sent.
+
+    Return True if accepted
+    Return False if not.
+    """
+
+    from .register import get_num_names_owned
+
+    preorder_name_hash = nameop['preorder_hash']
+    consensus_hash = nameop['consensus_hash']
+    sender = nameop['sender']
+
+    # must be unique in this block
+    # NOTE: now checked externally in the @state_preorder decorator
+    """
+    for pending_preorders in checked_nameops[ NAME_PREORDER ]:
+        if pending_preorders['preorder_name_hash'] == preorder_name_hash:
+            log.debug("Name hash '%s' is already preordered" % preorder_name_hash)
+            return False
+    """
+
+    # must be unique across all pending preorders
+    if not state_engine.is_new_preorder( preorder_name_hash ):
+        log.debug("Name hash '%s' is already preordered" % preorder_name_hash )
+        return False
+
+    # must have a valid consensus hash
+    if not state_engine.is_consensus_hash_valid( block_id, consensus_hash ):
+        log.debug("Invalid consensus hash '%s'" % consensus_hash )
+        return False
+
+    # sender must be beneath quota
+    num_names = get_num_names_owned( state_engine, checked_ops, sender ) 
+    if num_names >= MAX_NAMES_PER_SENDER:
+        log.debug("Sender '%s' exceeded name quota of %s" % (sender, MAX_NAMES_PER_SENDER ))
+        return False 
+
+    # burn fee must be present
+    if not 'op_fee' in nameop:
+        log.debug("Missing preorder fee")
+        return False
+
+    return True
 
 
-def tx_extract( payload, senders, inputs, outputs ):
+def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     """
     Extract and return a dict of fields from the underlying blockchain transaction data
     that are useful to this operation.
@@ -128,7 +196,11 @@ def tx_extract( payload, senders, inputs, outputs ):
 
     ret = {
        "sender": sender_script,
-       "address": sender_address
+       "address": sender_address,
+       "block_number": block_id,
+       "vtxindex": vtxindex,
+       "txid": txid,
+       "op": NAME_PREORDER
     }
 
     ret.update( parsed_payload )
@@ -196,13 +268,13 @@ def broadcast(name, private_key, register_addr, consensus_hash, blockchain_clien
         from_address = BitcoinPublicKey( subsidy_public_key ).address()
 
         inputs = get_unspents( from_address, blockchain_client )
-        script_pubkey = get_script_pubkey( subsidy_public_key )
+        script_pubkey = make_p2pkh_script( subsidy_public_key )
 
     else:
         # ordering directly
         pubk = BitcoinPrivateKey( private_key ).public_key()
         public_key = pubk.to_hex()
-        script_pubkey = get_script_pubkey( public_key )
+        script_pubkey = make_p2pkh_script( public_key )
         
         # get inputs and from address using private key
         private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
@@ -217,7 +289,7 @@ def broadcast(name, private_key, register_addr, consensus_hash, blockchain_clien
     
     else:
         # serialize, sign, and broadcast the tx
-        response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_client)
+        response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_broadcaster)
         response.update({'data': nulldata})
         return response
 
@@ -236,7 +308,7 @@ def parse(bin_payload):
     
     return {
         'opcode': 'NAME_PREORDER',
-        'preorder_name_hash': name_hash,
+        'preorder_hash': name_hash,
         'consensus_hash': consensus_hash
     }
 
@@ -297,9 +369,16 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
 
     # reconstruct the previous fields of the preorder op...
     name_rec_script = build( None, None, None, str(name_rec['consensus_hash']), \
-            name_hash=str(name_rec['preorder_name_hash']), testset=testset )
+            name_hash=str(name_rec['preorder_hash']), testset=testset )
 
     name_rec_payload = unhexlify( name_rec_script )[3:]
     ret_delta = parse( name_rec_payload )
     return ret_delta
 
+
+def snv_consensus_extras( name_rec, block_id, commit, db ):
+    """
+    Calculate any derived missing data that goes into the check() operation,
+    given the block number, the name record at the block number, and the db.
+    """
+    return {}

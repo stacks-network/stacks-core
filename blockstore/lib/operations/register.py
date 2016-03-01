@@ -34,7 +34,7 @@ from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import *
 from ..hashing import hash256_trunc128
-from ..nameset import NAMEREC_FIELDS
+from ..nameset import *
 
 import virtualchain
 
@@ -43,9 +43,42 @@ if not globals().has_key('log'):
 
 # consensus hash fields (ORDER MATTERS!)
 FIELDS = NAMEREC_FIELDS + [
-    'recipient',            # scriptPubKey hex script that identifies the principal to own this name
-    'recipient_address'     # principal's address from the scriptPubKey in the transaction
+    'sender',     # scriptPubKey hex script that identifies the principal to own this name
+    'address'     # principal's address from the scriptPubKey in the transaction
 ]
+
+# fields this operation changes
+REGISTER_MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
+    'last_renewed',
+    'first_registered',
+    'revoked',
+    'sender',
+    'address',
+    'sender_pubkey',
+    'name',
+    'value_hash',
+    'importer',
+    'importer_address',
+    'preorder_hash',
+    'preorder_block_number',
+    'consensus_hash'
+]
+
+# fields renewal changes
+RENEWAL_MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
+    'last_renewed',
+    'sender_pubkey',
+    'sender',
+    'address'
+]
+
+
+# fields to back up when applying this operation 
+REGISTER_BACKUP_FIELDS = REGISTER_MUTATE_FIELDS[:]
+RENEWAL_BACKUP_FIELDS = RENEWAL_MUTATE_FIELDS[:] + [
+    'consensus_hash'
+]
+
 
 def get_registration_recipient_from_outputs( outputs ):
     """
@@ -87,6 +120,24 @@ def get_registration_recipient_from_outputs( outputs ):
     return ret
 
 
+def get_num_names_owned( state_engine, checked_ops, sender ):
+    """
+    Find out how many preorders a given sender (i.e. a script)
+    actually owns, as of this transaction.
+    """
+    
+    count = 0
+    registers = find_by_opcode( checked_ops, "NAME_REGISTRATION" )
+
+    for reg in registers:
+        if reg['sender'] == sender:
+            count += 1
+
+    count += len( state_engine.get_names_owned_by_sender( sender ) )
+    log.debug("Sender '%s' owns %s names" % (sender, count))
+    return count
+
+
 def build(name, testset=False):
     """
     Takes in the name that was preordered, including the namespace ID (but not the id: scheme)
@@ -110,7 +161,335 @@ def build(name, testset=False):
     return packaged_script 
 
 
-def tx_extract( payload, senders, inputs, outputs ):
+@state_create( "name", "name_records", "check_name_collision" )
+def check_register( state_engine, nameop, block_id, checked_ops ):
+    """
+    Verify the validity of a registration nameop.
+    * the name must be well-formed
+    * the namespace must be ready
+    * the name does not collide
+    * either the name was preordered by the same sender, or the name exists and is owned by this sender (the name cannot be registered and owned by someone else)
+    * the mining fee must be high enough.
+    * if the name was expired, then merge the preorder information from the expired preorder (since this is a state-creating operation,
+    we set the __preorder__ and __prior_history__ fields to preserve this).
+
+    NAME_REGISTRATION is not allowed during a namespace import, so the namespace must be ready.
+
+    Return True if accepted.
+    Return False if not.
+    """
+
+    from ..nameset import BlockstoreDB 
+
+    name = nameop['name']
+    sender = nameop['sender']
+
+    # address mixed into the preorder
+    register_addr = nameop.get('recipient_address', None)
+    if register_addr is None:
+        log.debug("No registration address given")
+        return False
+
+    recipient = nameop.get('recipient', None)
+    if recipient is None:
+        log.debug("No recipient script given")
+        return False
+
+    name_fee = None
+    namespace = None
+    preorder_hash = None
+    preorder_block_number = None 
+    name_block_number = None
+    consensus_hash = None
+    opcode = nameop['opcode']
+    first_registered = nameop['first_registered']
+
+    # name must be well-formed
+    if not is_b40( name ) or "+" in name or name.count(".") > 1:
+        log.debug("Malformed name '%s': non-base-38 characters" % name)
+        return False
+
+    # name must not be revoked
+    if state_engine.is_name_revoked( name ):
+        log.debug("Name '%s' is revoked" % name)
+        return False
+
+    namespace_id = get_namespace_from_name( name )
+
+    # namespace must exist and be ready
+    if not state_engine.is_namespace_ready( namespace_id ):
+        log.debug("Namespace '%s' is not ready" % namespace_id)
+        return False
+
+    # get namespace...
+    namespace = state_engine.get_namespace( namespace_id )
+
+    # cannot exceed quota
+    # recipient_names = state_engine.get_names_owned_by_sender( recipient )
+    # log.debug("Recipient '%s' owns %s names" % (recipient,len(recipient_names)))
+    # if len(recipient_names) >= MAX_NAMES_PER_SENDER:
+    num_names = get_num_names_owned( state_engine, checked_ops, recipient )
+    if num_names >= MAX_NAMES_PER_SENDER:
+        log.debug("Recipient '%s' has exceeded quota" % recipient)
+        return False
+
+    # get preorder...
+    preorder = state_engine.get_name_preorder( name, sender, register_addr )
+    old_name_rec = state_engine.get_name( name, include_expired=True )
+
+    if preorder is not None:
+
+        # registering or re-registering
+        # can't be registered already 
+        if state_engine.is_name_registered( name ):
+            log.debug("Name '%s' is already registered" % name)
+            return False 
+
+        # name can't be registered if it was reordered before its namespace was ready
+        if not namespace.has_key('ready_block') or preorder['block_number'] < namespace['ready_block']:
+           log.debug("Name '%s' preordered before namespace '%s' was ready" % (name, namespace_id))
+           return False
+
+        # name must be preordered by the same sender
+        if preorder['sender'] != sender:
+           log.debug("Name '%s' was not preordered by %s" % (name, sender))
+           return False
+
+        # fee was included in the preorder
+        if not 'op_fee' in preorder:
+           log.debug("Name '%s' preorder did not pay the fee" % (name))
+           return False
+
+        name_fee = preorder['op_fee']
+        preorder_hash = preorder['preorder_hash']
+        preorder_block_number = preorder['block_number']
+
+        # pass along the preorder
+        state_create_put_preorder( nameop, preorder )
+
+        if old_name_rec is None:
+            # registered for the first time ever    
+            name_block_number = preorder['block_number']
+            state_create_put_prior_history( nameop, None )
+        
+        else:
+            # name expired, and is now re-registered
+            log.debug("Re-registering name '%s'" % name )
+        
+            # push back preorder block number to the original preorder
+            name_block_number = old_name_rec['block_number']
+            first_registered = old_name_rec['first_registered']
+
+            # re-registering
+            prior_hist = prior_history_create( nameop, old_name_rec, preorder_block_number, state_engine, extra_backup_fields=['consensus_hash','preorder_hash']) 
+            state_create_put_prior_history( nameop, prior_hist )
+
+
+    elif state_engine.is_name_registered( name ):
+
+        # we're renewing
+        # name must be owned by the recipient already
+        if not state_engine.is_name_owner( name, recipient ):
+            log.debug("Renew: Name '%s' not owned by recipient %s" % (name, recipient))
+            return False
+
+        # name must be owned by the sender
+        if not state_engine.is_name_owner( name, sender ):
+            log.debug("Renew: Name '%s' not owned by sender %s" % (name, sender))
+            return False
+
+        # fee borne by the renewal
+        if not 'op_fee' in nameop:
+            log.debug("Name '%s' renewal did not pay the fee" % (name))
+            return False
+        
+        log.debug("Renewing name '%s'" % name )
+
+        prev_name_rec = state_engine.get_name( name )
+        
+        first_registered = prev_name_rec['first_registered']
+        preorder_block_number = prev_name_rec['preorder_block_number']
+        name_block_number = prev_name_rec['block_number']
+        name_fee = nameop['op_fee']
+        preorder_hash = prev_name_rec['preorder_hash']
+        opcode = "NAME_RENEWAL"     # will cause this operation to be re-checked under check_renewal()
+
+        # pass along prior history 
+        prior_hist = prior_history_create( nameop, old_name_rec, block_id, state_engine, extra_backup_fields=['consensus_hash','preorder_hash']) 
+        state_create_put_prior_history( nameop, prior_hist )
+        state_create_put_preorder( nameop, None ) 
+
+    else:
+        # has never existed, and not preordered
+        log.debug("Name '%s' does not exist, or is not preordered by %s" % (name, sender))
+        return False
+
+    # check name fee
+    name_without_namespace = get_name_from_fq_name( name )
+
+    # fee must be high enough
+    if name_fee < price_name( name_without_namespace, namespace ):
+        log.debug("Name '%s' costs %s, but paid %s" % (name, price_name( name_without_namespace, namespace ), name_fee ))
+        return False
+
+   
+    nameop['opcode'] = opcode
+    nameop['op_fee'] = name_fee
+    nameop['preorder_hash'] = preorder_hash
+    nameop['importer'] = None
+    nameop['importer_address'] = None
+    nameop['consensus_hash'] = consensus_hash
+    nameop['revoked'] = False
+    nameop['namespace_block_number'] = namespace['block_number']
+    nameop['first_registered'] = first_registered
+    nameop['last_renewed'] = block_id
+    nameop['preorder_block_number'] = preorder_block_number
+    nameop['block_number'] = name_block_number
+
+    # propagate new sender information
+    nameop['sender'] = nameop['recipient']
+    nameop['address'] = nameop['recipient_address']
+    del nameop['recipient']
+    del nameop['recipient_address']
+
+    # regster/renewal
+    return True
+
+
+@state_transition( "name", "name_records")
+def check_renewal( state_engine, nameop, block_id, checked_ops ):
+    """
+    Verify the validity of a renewal nameop.
+    * the name must be well-formed
+    * the namespace must be ready
+    * the request must be sent by the owner.
+    * the mining fee must be high enough.
+    * the name must not be expired
+
+    Return True if accepted.
+    Return False if not.
+    """
+
+    name = nameop['name']
+    sender = nameop['sender']
+    address = nameop['address']
+
+    # address mixed into the preorder
+    recipient_addr = nameop.get('recipient_address', None)
+    if recipient_addr is None:
+        log.debug("No registration address given")
+        return False
+
+    recipient = nameop.get('recipient', None)
+    if recipient is None:
+        log.debug("No recipient p2pkh given")
+        return False
+
+    # on renewal, the sender and recipient must be the same 
+    if sender != recipient:
+        log.debug("Sender '%s' is not the recipient '%s'" % (sender, recipient))
+        return False 
+
+    if recipient_addr != address:
+        log.debug("Sender address '%s' is not the recipient address '%s'" % (address, recipient_addr))
+        return False
+                
+    name_fee = None
+    namespace = None
+    preorder_hash = None
+    preorder_block_number = None 
+    name_block_number = None
+    opcode = nameop['opcode']
+    first_registered = nameop['first_registered']
+
+    # name must be well-formed
+    if not is_b40( name ) or "+" in name or name.count(".") > 1:
+        log.debug("Malformed name '%s': non-base-38 characters" % name)
+        return False
+
+    # name must not be revoked
+    if state_engine.is_name_revoked( name ):
+        log.debug("Name '%s' is revoked" % name)
+        return False
+
+    namespace_id = get_namespace_from_name( name )
+
+    # namespace must exist and be ready
+    if not state_engine.is_namespace_ready( namespace_id ):
+        log.debug("Namespace '%s' is not ready" % namespace_id)
+        return False
+
+    # get namespace...
+    namespace = state_engine.get_namespace( namespace_id )
+
+    # cannot exceed quota
+    # if len( state_engine.owner_names.get( recipient, [] ) ) >= MAX_NAMES_PER_SENDER:
+    # recipient_names = state_engine.get_names_owned_by_sender( recipient )
+    # if len(recipient_names) >= MAX_NAMES_PER_SENDER:
+    num_names = get_num_names_owned( state_engine, checked_ops, recipient )
+    if num_names >= MAX_NAMES_PER_SENDER:
+        log.debug("Recipient '%s' has exceeded quota" % recipient)
+        return False
+
+    # name must be registered already 
+    if not state_engine.is_name_registered( name ):
+        log.debug("Name '%s' is not registered" % name)
+        return False
+
+    # name must be owned by the recipient already
+    if not state_engine.is_name_owner( name, recipient ):
+        log.debug("Renew: Name '%s' not owned by recipient %s" % (name, recipient))
+        return False
+
+    # name must be owned by the sender
+    if not state_engine.is_name_owner( name, sender ):
+        log.debug("Renew: Name '%s' not owned by sender %s" % (name, sender))
+        return False
+
+    # fee borne by the renewal
+    if not 'op_fee' in nameop:
+        log.debug("Name '%s' renewal did not pay the fee" % (name))
+        return False
+    
+    prev_name_rec = state_engine.get_name( name )
+    
+    first_registered = prev_name_rec['first_registered']
+    preorder_block_number = prev_name_rec['preorder_block_number']
+    name_block_number = prev_name_rec['block_number']
+    name_fee = nameop['op_fee']
+    preorder_hash = prev_name_rec['preorder_hash']
+    value_hash = prev_name_rec['value_hash']
+
+    # check name fee
+    name_without_namespace = get_name_from_fq_name( name )
+
+    # fee must be high enough
+    if name_fee < price_name( name_without_namespace, namespace ):
+        log.debug("Name '%s' costs %s, but paid %s" % (name, price_name( name_without_namespace, namespace ), name_fee ))
+        return False
+
+    nameop['op'] = "%s:" % (NAME_REGISTRATION,)
+    nameop['opcode'] = "NAME_RENEWAL"
+    nameop['op_fee'] = name_fee
+    nameop['preorder_hash'] = preorder_hash
+    nameop['namespace_block_number'] = namespace['block_number']
+    nameop['first_registered'] = first_registered
+    nameop['preorder_block_number'] = preorder_block_number
+    nameop['block_number'] = name_block_number
+    nameop['value_hash'] = value_hash
+
+    # renewal
+    nameop['last_renewed'] = block_id
+
+    # propagate new sender information
+    del nameop['recipient']
+    del nameop['recipient_address']
+
+    # renewal!
+    return True
+
+
+def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     """
     Extract and return a dict of fields from the underlying blockchain transaction data
     that are useful to this operation.
@@ -162,16 +541,26 @@ def tx_extract( payload, senders, inputs, outputs ):
     assert parsed_payload is not None 
 
     ret = {
+       "value_hash": None,
        "sender": sender_script,
        "address": sender_address,
        "recipient": recipient,
-       "recipient_address": recipient_address
+       "recipient_address": recipient_address,
+       "revoked": False,
+       "last_renewed": block_id,
+       "vtxindex": vtxindex,
+       "txid": txid,
+       "first_registered": block_id,        # NOTE: will get deleted if this is a renew
+       "last_renewed": block_id,            # NOTE: will get deleted if this is a renew
+       "op": NAME_REGISTRATION
     }
 
     ret.update( parsed_payload )
 
     if sender_pubkey_hex is not None:
         ret['sender_pubkey'] = sender_pubkey_hex
+    else:
+        ret['sender_pubkey'] = None
 
     return ret
 
@@ -369,32 +758,33 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
     name_rec_payload = unhexlify( name_rec_script )[3:]
     ret_op = parse( name_rec_payload )
 
-    # reconstruct the registration op's recipient info
+    # reconstruct the registration/renewal op's recipient info
     ret_op['recipient'] = str(name_rec['sender'])
     ret_op['recipient_address'] = str(name_rec['address'])
 
-    # restore history to find prevoius sender and address
-    untrusted_name_rec = untrusted_db.get_name( str(name_rec['name']) )
-    name_rec['history'] = untrusted_name_rec['history']
-
-    if history_index > 0:
-        name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number )[ history_index - 1 ]
-    else:
-        name_rec_prev = BlockstoreDB.restore_from_history( name_rec, block_number - 1 )[ history_index - 1 ]
+    # restore history to find prevoius sender, address, and public key
+    name_rec_prev = BlockstoreDB.get_previous_name_version( name_rec, block_number, history_index, untrusted_db )
 
     sender = name_rec_prev['sender']
     address = name_rec_prev['address']
 
+    sender_pubkey = None
+    if op_get_opcode_name(name_rec['op']) == "NAME_RENEWAL":
+        log.debug("NAME_RENEWAL: sender_pubkey = '%s'" % name_rec['sender_pubkey'])
+        sender_pubkey = name_rec['sender_pubkey']
+    else:
+        log.debug("NAME_REGISTRATION: sender_pubkey = '%s'" % name_rec_prev['sender_pubkey'])
+        sender_pubkey = name_rec_prev['sender_pubkey']
+
     ret_op['sender'] = sender
     ret_op['address'] = address
-
-    # revert
-    del name_rec['history']
+    ret_op['revoked'] = False
+    ret_op['sender_pubkey'] = sender_pubkey
 
     return ret_op
 
 
-def snv_consensus_extras( name_rec, block_id, db ):
+def snv_consensus_extras( name_rec, block_id, commit, db ):
     """
     Given a name record most recently affected by an instance of this operation, 
     find the dict of consensus-affecting fields from the operation that are not
@@ -402,7 +792,7 @@ def snv_consensus_extras( name_rec, block_id, db ):
     """
     
     ret_op = {}
-
+    
     # reconstruct the recipient information
     ret_op['recipient'] = str(name_rec['sender'])
     ret_op['recipient_address'] = str(name_rec['address'])

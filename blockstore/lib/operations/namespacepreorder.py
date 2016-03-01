@@ -34,10 +34,11 @@ from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import *
 from ..hashing import hash_name
+from ..nameset import state_preorder
 
 # consensus hash fields (ORDER MATTERS!) 
 FIELDS = [
-    'namespace_id_hash',    # hash(namespace_id,sender,reveal_addr)
+    'preorder_hash',        # hash(namespace_id,sender,reveal_addr)
     'consensus_hash',       # consensus hash at the time issued
     'op',                   # bytecode describing the operation (not necessarily 1 byte)
     'op_fee',               # fee paid for the namespace to the burn address
@@ -48,6 +49,15 @@ FIELDS = [
     'sender_pubkey',        # if sender is a p2pkh script, this is the public key
     'address'               # address from the scriptPubKey
 ]
+
+# save everything
+MUTATE_FIELDS = FIELDS[:]
+
+# fields to back up when this operation is applied
+BACKUP_FIELDS = [
+    "__all__"
+]
+
 
 def build( namespace_id, script_pubkey, register_addr, consensus_hash, namespace_id_hash=None, testset=False ):
    """
@@ -86,7 +96,49 @@ def build( namespace_id, script_pubkey, register_addr, consensus_hash, namespace
    return packaged_script
 
 
-def tx_extract( payload, senders, inputs, outputs ):
+@state_preorder("check_preorder_collision")
+def check( state_engine, nameop, block_id, checked_ops ):
+    """
+    Given a NAMESPACE_PREORDER nameop, see if we can preorder it.
+    It must be unqiue.
+
+    Return True if accepted.
+    Return False if not.
+    """
+
+    namespace_id_hash = nameop['preorder_hash']
+    consensus_hash = nameop['consensus_hash']
+
+    # namespace must not exist
+    # NOTE: now checked externally
+    """
+    for pending_namespace_preorder in pending_nameops[ NAMESPACE_PREORDER ]:
+       if pending_namespace_preorder['namespace_id_hash'] == namespace_id_hash:
+          log.debug("Namespace hash '%s' is already preordered" % namespace_id_hash)
+          return False
+    """
+
+    # cannot be preordered already
+    if not state_engine.is_new_namespace_preorder( namespace_id_hash ):
+        log.debug("Namespace preorder '%s' already in use" % namespace_id_hash)
+        return False
+
+    # has to have a reasonable consensus hash
+    if not state_engine.is_consensus_hash_valid( block_id, consensus_hash ):
+
+        valid_consensus_hashes = state_engine.get_valid_consensus_hashes( block_id )
+        log.debug("Invalid consensus hash '%s': expected any of %s" % (consensus_hash, ",".join( valid_consensus_hashes )) )
+        return False
+
+    # has to have paid a fee
+    if not 'op_fee' in nameop:
+        log.debug("Missing namespace preorder fee")
+        return False
+
+    return True
+
+
+def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     """
     Extract and return a dict of fields from the underlying blockchain transaction data
     that are useful to this operation.
@@ -129,7 +181,11 @@ def tx_extract( payload, senders, inputs, outputs ):
 
     ret = {
        "sender": sender_script,
-       "address": sender_address
+       "address": sender_address,
+       "block_number": block_id,
+       "vtxindex": vtxindex,
+       "txid": txid,
+       "op": NAMESPACE_PREORDER
     }
 
     ret.update( parsed_payload )
@@ -185,7 +241,7 @@ def broadcast( namespace_id, register_addr, consensus_hash, private_key, blockch
    
    pubkey_hex = BitcoinPrivateKey( private_key ).public_key().to_hex()
    
-   script_pubkey = get_script_pubkey( pubkey_hex )
+   script_pubkey = make_p2pkh_script( pubkey_hex )
    nulldata = build( namespace_id, script_pubkey, register_addr, consensus_hash, testset=testset )
    
    # get inputs and from address
@@ -227,7 +283,7 @@ def parse( bin_payload ):
    
    return {
       'opcode': 'NAMESPACE_PREORDER',
-      'namespace_id_hash': namespace_id_hash,
+      'preorder_hash': namespace_id_hash,
       'consensus_hash': consensus_hash
    }
 
@@ -240,7 +296,7 @@ def get_fees( inputs, outputs ):
     return (None, None)
 
 
-def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=False ):
+def restore_delta( rec, block_number, history_index, untrusted_db, testset=False ):
     """
     Find the fields in a name record that were changed by an instance of this operation, at the 
     given (block_number, history_index) point in time in the past.  The history_index is the
@@ -250,9 +306,16 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
     Return None on error.
     """
 
-    name_rec_script = build( None, None, None, str(name_rec['consensus_hash']), namespace_id_hash=str(name_rec['namespace_id_hash']), testset=testset )
+    name_rec_script = build( None, None, None, str(rec['consensus_hash']), namespace_id_hash=str(rec['preorder_hash']), testset=testset )
     name_rec_payload = unhexlify( name_rec_script )[3:]
     ret_op = parse(name_rec_payload)
 
     return ret_op
 
+
+def snv_consensus_extras( name_rec, block_id, commit, db ):
+    """
+    Calculate any derived missing data that goes into the check() operation,
+    given the block number, the name record at the block number, and the db.
+    """
+    return {}

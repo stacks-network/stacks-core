@@ -31,11 +31,22 @@ from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import *
 
-from ..nameset import NAMEREC_FIELDS
+from ..nameset import *
 
 # consensus hash fields (ORDER MATTERS!)
 FIELDS = NAMEREC_FIELDS
 
+# fields that this operation changes
+MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
+    'revoked',
+    'value_hash',
+    'sender_pubkey'
+]
+
+# fields to back up when applying this operation 
+BACKUP_FIELDS = MUTATE_FIELDS + [
+    'consensus_hash'
+]
 
 def build(name, testset=False):
     """
@@ -60,7 +71,69 @@ def build(name, testset=False):
     return packaged_script 
 
 
-def tx_extract( payload, senders, inputs, outputs ):
+@state_transition("name", "name_records")
+def check( state_engine, nameop, block_id, checked_ops ):
+    """
+    Revoke a name--make it available for registration.
+    * it must be well-formed
+    * its namespace must be ready.
+    * the name must be registered
+    * it must be sent by the name owner
+
+    NAME_REVOKE isn't allowed during an import, so the name's namespace must be ready.
+
+    Return True if accepted
+    Return False if not
+    """
+
+    name = nameop['name']
+    sender = nameop['sender']
+    namespace_id = get_namespace_from_name( name )
+
+    # name must be well-formed
+    if not is_b40( name ) or "+" in name or name.count(".") > 1:
+        log.debug("Malformed name '%s': non-base-38 characters" % name)
+        return False
+
+    # name must exist
+    name_rec = state_engine.get_name( name )
+    if name_rec is None:
+        log.debug("Name '%s' does not exist" % name)
+        return False
+
+    # namespace must be ready
+    if not state_engine.is_namespace_ready( namespace_id ):
+       log.debug("Namespace '%s' is not ready" % namespace_id )
+       return False
+
+    # name must not be revoked
+    if state_engine.is_name_revoked( name ):
+        log.debug("Name '%s' is revoked" % name)
+        return False
+
+    # name must not be expired
+    if state_engine.is_name_expired( name, block_id ):
+        log.debug("Name '%s' is expired" % name)
+        return False
+
+    # the name must be registered
+    if not state_engine.is_name_registered( name ):
+       log.debug("Name '%s' is not registered" % name )
+       return False
+
+    # the sender must own this name
+    if not state_engine.is_name_owner( name, sender ):
+       log.debug("Name '%s' is not owned by %s" % (name, sender))
+       return False
+
+    # apply state transition 
+    nameop['revoked'] = True
+    nameop['value_hash'] = None
+
+    return True
+
+
+def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     """
     Extract and return a dict of fields from the underlying blockchain transaction data
     that are useful to this operation.
@@ -103,7 +176,10 @@ def tx_extract( payload, senders, inputs, outputs ):
 
     ret = {
        "sender": sender_script,
-       "address": sender_address
+       "address": sender_address,
+       "txid": txid,
+       "vtxindex": vtxindex,
+       "op": NAME_REVOKE
     }
 
     ret.update( parsed_payload )
@@ -243,8 +319,21 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
     Return None on error.
     """
     
+    from ..nameset import BlockstoreDB
+
     name_rec_script = build( str(name_rec['name']), testset=testset )
     name_rec_payload = unhexlify( name_rec_script )[3:]
     ret_op = parse( name_rec_payload )
 
     return ret_op
+
+
+def snv_consensus_extras( name_rec, block_id, commit, db ):
+    """
+    Calculate any derived missing data that goes into the check() operation,
+    given the block number, the name record at the block number, and the db.
+    """
+
+    ret_op = {}
+    return ret_op
+

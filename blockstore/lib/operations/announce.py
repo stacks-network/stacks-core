@@ -34,6 +34,13 @@ from ..scripts import *
 # consensus hash fields (none for announcements)
 FIELDS = []
 
+# fields that this operation changes (none)
+MUTATE_FIELDS = []
+
+# fields that should be backed up when applying this operation (none)
+BACKUP_FIELDS = []
+
+
 def build(message_hash, testset=False):
     """
      
@@ -58,7 +65,54 @@ def build(message_hash, testset=False):
     return packaged_script 
 
 
-def tx_extract( payload, senders, inputs, outputs ):
+def process_announcement( op ):
+    """
+    If the announcement is valid, then immediately record it.
+    """
+    # valid announcement
+    announce_hash = op['message_hash']
+    announcer_id = op['announcer_id']
+
+    # go get the text...
+    announcement_text = get_announcement( announce_hash ) 
+    log.critical("ANNOUNCEMENT (from %s): %s\n------BEGIN MESSAGE------\n%s\n------END MESSAGE------\n" % (announcer_id, announce_hash, announcement_text))
+             
+    store_announcement( announce_hash, announcement_text )
+
+
+def check( state_engine, nameop, block_id, checked_ops ):
+    """
+    Log an announcement from the blockstore developers.
+    Return True if the announcement came from the announce IDs whitelist
+    Return False otherwise
+    """
+
+    sender = nameop['sender']
+    sending_blockchain_id = None
+    found = False
+
+    for blockchain_id in state_engine.get_announce_ids():
+        blockchain_namerec = state_engine.get_name( blockchain_id )
+        if blockchain_namerec is None:
+            # this name doesn't exist yet, or is expired or revoked
+            continue
+
+        if str(sender) == str(blockchain_namerec['sender']):
+            # yup!
+            found = True
+            sending_blockchain_id = blockchain_id
+            break
+
+    if not found:
+        log.debug("Announcement not sent from our whitelist of blockchain IDs")
+        return False
+
+    nameop['announcer_id'] = sending_blockchain_id
+    process_announcement( nameop )
+    return True
+
+
+def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     """
     Extract and return a dict of fields from the underlying blockchain transaction data
     that are useful to this operation.
@@ -101,7 +155,11 @@ def tx_extract( payload, senders, inputs, outputs ):
 
     ret = {
        "sender": sender_script,
-       "address": sender_address
+       "address": sender_address,
+       "block_number": block_id,
+       "vtxindex": vtxindex,
+       "txid": txid,
+       "op": ANNOUNCE
     }
 
     ret.update( parsed_payload )
@@ -254,5 +312,12 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
     Return the fields that were modified on success.
     Return None on error.
     """
-    raise Exception("Not implemented")
+    return {}
 
+
+def snv_consensus_extras( name_rec, block_id, commit, db ):
+    """
+    Calculate any derived missing data that goes into the check() operation,
+    given the block number, the name record at the block number, and the db.
+    """
+    return {}

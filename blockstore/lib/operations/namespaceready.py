@@ -34,11 +34,23 @@ if not globals().has_key('log'):
     log = virtualchain.session.log
 
 from namespacereveal import FIELDS as NAMESPACE_REVEAL_FIELDS
+from ..nameset import * 
 
 # consensus hash fields (ORDER MATTERS!) 
 FIELDS = NAMESPACE_REVEAL_FIELDS + [
     'ready_block',      # block number at which the namespace was readied
 ]
+
+# fields this operation changes
+MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
+    'ready_block',
+    'sender_pubkey',
+    'sender',
+    'address'
+]
+
+# fields to back up when applying this operation 
+BACKUP_FIELDS = NAMESPACE_REVEAL_FIELDS + MUTATE_FIELDS
 
 def build( namespace_id, testset=False ):
    """
@@ -67,7 +79,40 @@ def build( namespace_id, testset=False ):
    return packaged_script
 
 
-def tx_extract( payload, senders, inputs, outputs ):
+@state_transition("namespace_id", "namespaces")
+def check( state_engine, nameop, block_id, checked_ops ):
+    """
+    Verify the validity of a NAMESPACE_READY operation.
+    It is only valid if it has been imported by the same sender as
+    the corresponding NAMESPACE_REVEAL, and the namespace is still
+    in the process of being imported.
+    """
+
+    namespace_id = nameop['namespace_id']
+    sender = nameop['sender']
+
+    # must have been revealed
+    if not state_engine.is_namespace_revealed( namespace_id ):
+       log.debug("Namespace '%s' is not revealed" % namespace_id )
+       return False
+
+    # must have been sent by the same person who revealed it
+    revealed_namespace = state_engine.get_namespace_reveal( namespace_id )
+    if revealed_namespace['recipient'] != sender:
+       log.debug("Namespace '%s' is not owned by '%s' (but by %s)" % (namespace_id, sender, revealed_namespace['recipient']))
+       return False
+
+    # can't be ready yet
+    if state_engine.is_namespace_ready( namespace_id ):
+       # namespace already exists
+       log.debug("Namespace '%s' is already registered" % namespace_id )
+       return False
+
+    # can commit imported nameops
+    return True
+
+
+def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     """
     Extract and return a dict of fields from the underlying blockchain transaction data
     that are useful to this operation.
@@ -110,7 +155,11 @@ def tx_extract( payload, senders, inputs, outputs ):
 
     ret = {
        "sender": sender_script,
-       "address": sender_address
+       "address": sender_address,
+       "ready_block": block_id,
+       "vtxindex": vtxindex,
+       "txid": txid,
+       "op": NAMESPACE_READY
     }
 
     ret.update( parsed_payload )
@@ -200,3 +249,11 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
     name_rec_payload = unhexlify( name_rec_script )[3:]
     ret_op = parse( name_rec_payload )
     return ret_op
+
+
+def snv_consensus_extras( name_rec, block_id, commit, db ):
+    """
+    Calculate any derived missing data that goes into the check() operation,
+    given the block number, the name record at the block number, and the db.
+    """
+    return {}
