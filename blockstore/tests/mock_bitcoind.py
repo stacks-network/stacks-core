@@ -47,7 +47,7 @@ import pybitcoin
 import pybitcoin.transactions.opcodes as opcodes
 
 # hack around absolute paths 
-current_dir =  os.path.abspath(os.path.dirname(__file__) + "../..")
+current_dir =  os.path.abspath(os.path.dirname(__file__) + "/../..")
 sys.path.insert(0, current_dir)
 
 import blockstore
