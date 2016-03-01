@@ -60,31 +60,38 @@ def check( state_engine ):
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "test" )
     if ns is not None:
+        print "namespace not ready"
         return False 
 
     ns = state_engine.get_namespace( "test" )
     if ns is None:
+        print "no namespace"
         return False 
 
     if ns['namespace_id'] != 'test':
+        print "wrong namespace"
         return False 
 
     # not preordered
     preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
     if preorder is not None:
+        print "still have preorder"
         return False
     
     # registered 
     name_rec = state_engine.get_name( "foo.test" )
     if name_rec is None:
+        print "name does not exist"
         return False 
 
     # owned 
     if name_rec['address'] != wallets[3].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[3].addr):
+        print "name has wrong owner"
         return False 
 
     # updated 
     if name_rec['value_hash'] != '11' * 20:
+        print "wrong value hash: %s" % name_rec['value_hash']
         return False 
 
     return True

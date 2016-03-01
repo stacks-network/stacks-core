@@ -47,31 +47,39 @@ def check( state_engine ):
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "test" )
     if ns is not None:
+        print "still in revealed state"
         return False 
 
     ns = state_engine.get_namespace( "test" )
     if ns is None:
+        print "no test namespace"
         return False 
 
     if ns['namespace_id'] != 'test':
+        print "not test"
         return False 
 
     if ns.get('opcode', None) != 'NAMESPACE_READY':
+        print "no ready opcode"
         return False 
 
     ns_preorder = state_engine.get_namespace_at( "test", ns['block_number'] )[0]
     ns_reveal = state_engine.get_namespace_at( "test", ns['block_number'] + 1 )[0]
   
     if ns_preorder is None:
+        print "preorder is None"
         return False 
 
     if ns_preorder.get('opcode', None) != "NAMESPACE_PREORDER":
+        print "no preorder opcode"
         return False 
 
     if ns_reveal is None:
+        print "reveal is None"
         return False 
 
     if ns_reveal.get('opcode', None) != "NAMESPACE_REVEAL":
+        print "no reveal opcode"
         return False 
     
     return True

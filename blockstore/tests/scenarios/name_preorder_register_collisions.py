@@ -94,6 +94,8 @@ def scenario( wallets, **kw ):
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
+    # don't SNV-check these 
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block( **kw )+1 )
     testlib.next_block( **kw )
     
     # should succeed

@@ -43,6 +43,7 @@ def check( state_engine ):
     # this namespace needs to be preordered 
     namespace_preorder_hashes = state_engine.get_all_preordered_namespace_hashes()
     if len(namespace_preorder_hashes) != 1:
+        print "all hashes: %s" % namespace_preorder_hashes
         return False 
 
     return True

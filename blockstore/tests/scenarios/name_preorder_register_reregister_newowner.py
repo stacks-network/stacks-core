@@ -34,8 +34,12 @@ wallets = [
 ]
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
+first_block = None
+first_preorder = None
 
 def scenario( wallets, **kw ):
+
+    global first_block, first_preorder
 
     testlib.blockstore_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
@@ -53,12 +57,18 @@ def scenario( wallets, **kw ):
             print json.dumps( resp, indent=4 )
 
         testlib.next_block( **kw )
+
+        if first_preorder is None:
+            first_preorder = testlib.get_current_block( **kw )
     
         resp = testlib.blockstore_name_register( "foo.test", wallets[i].privkey, wallets[(i+1)%5].addr )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
         testlib.next_block( **kw )
+
+        if first_block is None:
+            first_block = testlib.get_current_block( **kw )
 
         if i == 4:
             break
@@ -67,6 +77,8 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
 def check( state_engine ):
+
+    global first_block, first_preorder
 
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "test" )
@@ -94,6 +106,17 @@ def check( state_engine ):
 
     if name_rec['address'] != wallets[0].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[0].addr):
         print json.dumps(name_rec, indent=4 )
+        return False
+
+    # check blocks 
+    if name_rec['first_registered'] != first_block:
+        print "wrong first_registered; expected %s" % first_block
+        print json.dumps(name_rec, indent=4 )
+        return False 
+
+    if name_rec['block_number'] != first_preorder:
+        print "wrong block_number; expected %s" % first_preorder
+        print json.dumps(name_rec, indent=4)
         return False
 
     return True

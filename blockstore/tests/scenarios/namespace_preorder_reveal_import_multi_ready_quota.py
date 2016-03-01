@@ -48,6 +48,8 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
+    print "\nImport 25 names for %s" % wallets[3].addr
+
     # try to exceed quota (currently 25): order 25, and try to register a 26th
     for i in xrange(0, 25):
         resp = testlib.blockstore_name_import( "foo%s.test" % i, wallets[3].addr, "22" * 20, wallets[1].privkey )
@@ -55,6 +57,8 @@ def scenario( wallets, **kw ):
             print json.dumps(resp, indent=4 )
 
     testlib.next_block( **kw )
+
+    print "\nImport 27 names for %s" % wallets[4].addr
 
     # try to exceed quota (currently 25): order 26, and try to update one of them (and try to transfer one too).
     for i in xrange(0, 27):

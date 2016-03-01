@@ -29,16 +29,26 @@ wallets = [
 ]
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
+preorder_block = None
+reveal_block = None
 
 def scenario( wallets, **kw ):
 
+    global reveal_block
+    global preorder_block 
+
     testlib.blockstore_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
+    preorder_block = testlib.get_current_block( **kw ) + 1
     testlib.next_block( **kw )
     
     testlib.blockstore_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
+    reveal_block = testlib.get_current_block( **kw ) + 1
+
     testlib.next_block( **kw )
 
 def check( state_engine ):
+
+    global reveal_block, preorder_block
 
     # the namespace has to have been revealed 
     ns = state_engine.get_namespace_reveal( "test" )
@@ -46,24 +56,39 @@ def check( state_engine ):
         return False 
 
     if ns["namespace_id"] != "test":
+        print "wrong namespace ID"
         return False 
 
     if ns["lifetime"] != 52595:
+        print "wrong lifetime"
         return False 
 
     if ns["coeff"] != 250:
+        print "wrong coeff"
         return False 
 
     if ns["base"] != 4:
+        print "wrong base"
         return False 
 
     if ns["buckets"] != [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0]:
+        print "wrong buckets"
         return False 
 
     if ns["no_vowel_discount"] != 10:
+        print "wrong no-vowel discount"
         return False
 
     if ns["nonalpha_discount"] != 10:
+        print "wrong nonalpha discount"
         return False
+
+    if ns["reveal_block"] != reveal_block:
+        print "wrong reveal block (%s)" % reveal_block
+        return False 
+
+    if ns["block_number"] != preorder_block:
+        print "wrong block number"
+        return False 
 
     return True

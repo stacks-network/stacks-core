@@ -108,7 +108,7 @@ def check( state_engine ):
 
     # transferred 
     if name_rec['address'] != wallets[4].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[4].addr):
-        print "'foo.test' invalid owner"
+        print "'foo.test' invalid owner (%s, %s)" % (name_rec['address'], name_rec['sender'])
         return False 
 
     return True

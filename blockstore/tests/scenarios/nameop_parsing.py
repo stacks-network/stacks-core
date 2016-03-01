@@ -113,7 +113,7 @@ def parse_nameop( opcode, payload, fake_pubkey, recipient=None, recipient_addres
         })
    
     try:
-        op = op_extract( opcode_name, payload, senders, inputs, outputs )  
+        op = op_extract( opcode_name, payload, senders, inputs, outputs, 373601, 0, "00" * 64 )  
     except AssertionError, ae:
         # failed to parse
         return None

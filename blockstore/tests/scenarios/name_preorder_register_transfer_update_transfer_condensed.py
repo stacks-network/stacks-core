@@ -128,6 +128,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
+    # transfer and update
     resp = testlib.blockstore_name_transfer( "foo.test", wallets[4].addr, True, wallets[5].privkey )
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
@@ -138,6 +139,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
+    # update, transfer, transfer, update
     resp = testlib.blockstore_name_update( "foo.test", "44" * 20, wallets[4].privkey )
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
@@ -156,6 +158,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
+    # update, transfer, update
     resp = testlib.blockstore_name_update( "foo.test", "66" * 20, wallets[4].privkey )
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
@@ -170,12 +173,36 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
+    # transfer and update
+    resp = testlib.blockstore_name_transfer( "foo.test", wallets[4].addr, True, wallets[5].privkey )
+    if debug or 'error' in resp:
+        print json.dumps( resp, indent=4 )
+
+    resp = testlib.blockstore_name_update( "foo.test", "33" * 20, wallets[4].privkey )
+    if debug or 'error' in resp:
+        print json.dumps( resp, indent=4 )
+
+    testlib.next_block( **kw )
+
+    # update, transfer 
+    resp = testlib.blockstore_name_update( "foo.test", "99" * 20, wallets[4].privkey )
+    if debug or 'error' in resp:
+        print json.dumps( resp, indent=4 )
+
+    resp = testlib.blockstore_name_transfer( "foo.test", wallets[5].addr, True, wallets[4].privkey )
+    if debug or 'error' in resp:
+        print json.dumps( resp, indent=4 )
+
+    testlib.next_block( **kw )
+
+    # transfer
     resp = testlib.blockstore_name_transfer( "foo.test", wallets[4].addr, True, wallets[5].privkey )
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
+    
 
 
 def check( state_engine ):
@@ -208,7 +235,7 @@ def check( state_engine ):
         return False 
 
     # updated, and data is preserved
-    if name_rec['value_hash'] != '11' * 20:
+    if name_rec['value_hash'] != '99' * 20:
         print "'foo.test' invalid value hash"
         return False 
 

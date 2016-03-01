@@ -55,6 +55,8 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
+
+
 def check( state_engine ):
     
     # this namespace needs to be preordered, but by wallets[2]
