@@ -83,6 +83,103 @@ def is_name_valid( fqn ):
     return True
 
 
+def get_namespace_from_name( name ):
+   """
+   Get a fully-qualified name's namespace, if it has one.
+   It's the sequence of characters after the last "." in the name.
+   If there is no "." in the name, then it belongs to the null
+   namespace (i.e. the empty string will be returned)
+   """
+   if "." not in name:
+      # empty namespace
+      return ""
+
+   return name.split(".")[-1]
+
+
+def get_name_from_fq_name( name ):
+   """
+   Given a fully-qualified name, get the name part.
+   It's the sequence of characters before the last "." in the name.
+
+   Return None if malformed
+   """
+   if "." not in name:
+      # malformed
+      return None
+
+   return name.split(".")[0]
+
+
+def price_name( name, namespace ):
+   """
+   Calculate the price of a name (without its namespace ID), given the
+   namespace parameters.
+
+   The minimum price is 1 satoshi
+   """
+
+   base = namespace['base']
+   coeff = namespace['coeff']
+   buckets = namespace['buckets']
+
+   bucket_exponent = 0
+   discount = 1.0
+
+   if len(name) < len(buckets):
+       bucket_exponent = buckets[len(name)-1]
+   else:
+       bucket_exponent = buckets[-1]
+
+   # no vowel discount?
+   if sum( [name.lower().count(v) for v in ["a", "e", "i", "o", "u", "y"]] ) == 0:
+       # no vowels!
+       discount = max( discount, namespace['no_vowel_discount'] )
+
+   # non-alpha discount?
+   if sum( [name.lower().count(v) for v in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "-", "_"]] ) > 0:
+       # non-alpha!
+       discount = max( discount, namespace['nonalpha_discount'] )
+
+   price = (float(coeff * (base ** bucket_exponent)) / float(discount)) * NAME_COST_UNIT
+   if price < NAME_COST_UNIT:
+       price = NAME_COST_UNIT
+
+   return int(price)
+
+
+def price_namespace( namespace_id ):
+   """
+   Calculate the cost of a namespace.
+   """
+
+   testset = default_blockstore_opts( virtualchain.get_config_filename() )['testset']
+
+   if len(namespace_id) == 1:
+       if testset:
+           return TESTSET_NAMESPACE_1_CHAR_COST
+       else:
+           return NAMESPACE_1_CHAR_COST
+
+   elif len(namespace_id) in [2, 3]:
+       if testset:
+           return TESTSET_NAMESPACE_23_CHAR_COST
+       else:
+           return NAMESPACE_23_CHAR_COST
+
+   elif len(namespace_id) in [4, 5, 6, 7]:
+       if testset:
+           return TESTSET_NAMESPACE_4567_CHAR_COST
+       else:
+           return NAMESPACE_4567_CHAR_COST
+
+   else:
+       if testset:
+           return TESTSET_NAMESPACE_8UP_CHAR_COST
+       else:
+           return NAMESPACE_8UP_CHAR_COST
+
+
 def blockstore_script_to_hex(script):
     """ Parse the readable version of a script, return the hex version.
     """
@@ -120,7 +217,7 @@ def blockstore_script_to_hex(script):
 
 
 # generate a pay-to-pubkeyhash script from a public key.
-def get_script_pubkey( public_key ):
+def make_p2pkh_script( public_key ):
    
    hash160 = BitcoinPublicKey(public_key).hash160()
    script_pubkey = script_to_hex( 'OP_DUP OP_HASH160 %s OP_EQUALVERIFY OP_CHECKSIG' % hash160)
@@ -191,6 +288,25 @@ def get_burn_fee_from_outputs( outputs ):
             break
     
     return ret
+
+
+def find_by_opcode( checked_ops, opcode ):
+    """
+    Given all previously-accepted operations in this block,
+    find the ones that are of a particular opcode.
+
+    @opcode can be one opcode, or a list of opcodes
+    """
+
+    if type(opcode) != list:
+        opcode = [opcode]
+
+    ret = []
+    for opdata in checked_ops:
+        if op_get_opcode_name(opdata['op']) in opcode:
+            ret.append(opdata)
+
+    return ret 
 
 
 def tx_deserialize( tx_hex ):
