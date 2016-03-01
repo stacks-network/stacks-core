@@ -83,7 +83,7 @@ class BlockstackDB( virtualchain.StateEngine ):
     State engine implementatoin for blockstack.
     """
 
-    def __init__( self, db_filename, disposition ):
+    def __init__( self, db_filename, disposition, expected_snapshots={} ):
         """
         Construct the Blockstack State Engine
         from locally-cached db state.
@@ -113,7 +113,8 @@ class BlockstackDB( virtualchain.StateEngine ):
                                               BlockstackDB.make_opfields(),
                                               impl=blockstack_impl,
                                               initial_snapshots=initial_snapshots,
-                                              state=self )
+                                              state=self,
+                                              expected_snapshots=expected_snapshots )
 
         # announcers to track
         blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(impl=blockstack_impl) )
@@ -149,7 +150,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             log.error("FATAL: Borrowing violation")
             sys.exit(1)
 
-        blockstack_db = BlockstackDB( db_path )
+        blockstack_db = BlockstackDB( db_path, DISPOSITION_RW )
         blockstack_db_lastblock = block_number
         blockstack_db_lock.release()
 
