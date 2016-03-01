@@ -92,6 +92,7 @@ def check( state_engine ):
 
     #  snv lookup works
     test_proxy = testlib.TestAPIProxy()
+    snv_client.client.set_default_proxy( test_proxy )
     snv_rec = snv_client.lookup_snv( "foo.test", snv_block_id, snv_consensus, proxy=test_proxy )
     if 'error' in snv_rec:
         print json.dumps(snv_rec, indent=4 )
