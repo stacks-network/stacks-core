@@ -456,7 +456,7 @@ def sync_blockchain( bt_opts, last_block ):
 
     db_filename = virtualchain.get_db_filename(impl=impl)
 
-    new_db = BlockstackDB.borrow_readwrite_instance( db_filename, lastblock )
+    new_db = BlockstackDB.borrow_readwrite_instance( db_filename, last_block )
 
     virtualchain.sync_virtualchain( bt_opts, last_block, new_db )
 
