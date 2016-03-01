@@ -6,6 +6,7 @@ import subprocess
 import signal
 import shutil
 import time
+import atexit
 
 # enable all tests
 os.environ['BLOCKSTORE_TEST'] = '1'
@@ -34,6 +35,15 @@ if not globals().has_key('log'):
     log = virtualchain.session.log
 
 mock_bitcoind_connection = None
+api_server = None
+
+def atexit_kill_api_server():
+    if api_server is not None:
+        try:
+            api_server.kill()
+            api_server.wait()
+        except:
+            pass
 
 def load_scenario( scenario_name ):
     """
@@ -116,6 +126,9 @@ def run_scenario( scenario, config_file ):
     * run the scenario method
     * run the check method
     """
+
+    global api_server
+    atexit.register( atexit_kill_api_server )
 
     mock_bitcoind_save_path = "/tmp/mock_bitcoind.dat"
     if os.path.exists( mock_bitcoind_save_path ):
@@ -218,6 +231,7 @@ def run_scenario( scenario, config_file ):
 
         api_server.send_signal( signal.SIGTERM )
         api_server.wait()
+        api_server = None
         return False
 
     # run the checks on the database
@@ -230,11 +244,13 @@ def run_scenario( scenario, config_file ):
         
         api_server.send_signal( signal.SIGTERM )
         api_server.wait()
+        api_server = None
         return False 
     
     if not rc:
         api_server.send_signal( signal.SIGTERM )
         api_server.wait()
+        api_server = None
         return rc
 
     log.info("Scenario checks passed; verifying history")
@@ -244,6 +260,7 @@ def run_scenario( scenario, config_file ):
     if not rc:
         api_server.send_signal( signal.SIGTERM )
         api_server.wait()
+        api_server = None
         return rc
 
     log.info("History check passes!")
@@ -253,11 +270,13 @@ def run_scenario( scenario, config_file ):
     if not rc:
         api_server.send_signal( signal.SIGTERM )
         api_server.wait()
+        api_server = None
         return rc
 
     log.info("SNV check passes!")
     api_server.send_signal( signal.SIGTERM )
     api_server.wait()
+    api_server = None
     return rc 
 
 
