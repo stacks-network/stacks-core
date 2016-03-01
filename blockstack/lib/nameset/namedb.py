@@ -149,7 +149,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             log.error("FATAL: Borrowing violation")
             sys.exit(1)
 
-        blockstack_db = BlockstackDB( db_path )
+        blockstack_db = BlockstackDB( db_path, DISPOSITION_RW )
         blockstack_db_lastblock = block_number
         blockstack_db_lock.release()
 
