@@ -1,19 +1,19 @@
 
-# Blockstore
+# Blockstack
 
-[![PyPI](https://img.shields.io/pypi/v/blockstore.svg)](https://pypi.python.org/pypi/blockstore/)
-[![PyPI](https://img.shields.io/pypi/dm/blockstore.svg)](https://pypi.python.org/pypi/blockstore/)
+[![PyPI](https://img.shields.io/pypi/v/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
+[![PyPI](https://img.shields.io/pypi/dm/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
 [![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 
 ## Name registrations on the bitcoin blockchain
 
-Blockstore enables human-readable name registrations on the Bitcoin blockchain,
+Blockstack enables human-readable name registrations on the Bitcoin blockchain,
 along with the ability to store associated data in external datastores. You can
 use it to register globally unique names, associate data with those names, and
 transfer them between Bitcoin addresses. Anyone can perform lookups on those
 names and securely obtain the data associated with them.
 
-Blockstore uses the Bitcoin blockchain for storing name operations and data
+Blockstack uses the Bitcoin blockchain for storing name operations and data
 hashes, and the Kademlia-based distributed hash table (DHT) and other external
 datastores for storing the full data files outside of the blockchain.
 
@@ -34,26 +34,26 @@ datastores for storing the full data files outside of the blockchain.
 
 ## Overview
 
-This document is meant to provide an overview of how to get blockstore up and
+This document is meant to provide an overview of how to get blockstack up and
 running on Mac OS X, Linux, and other UNIX-like operating systems. It is meant
 to be a high-level walk-through for application developers who want to run
-their own Blockstore instance. Basic proficiency with the command-line is
+their own Blockstack instance. Basic proficiency with the command-line is
 required.
 
 ## Quick start
 
-The fastest way to get started with blockstore is to use pip:
+The fastest way to get started with blockstack is to use pip:
 
 ```
-pip install blockstore
+pip install blockstack
 ```
 
 If you encounter any problems during the pip install, see the [detailed install
-instructions](https://github.com/blockstack/blockstore/wiki/Installation).
+instructions](https://github.com/blockstack/blockstack/wiki/Installation).
 
 ## Debian package
 
-We also release blockstore as a debian package. First get GPG key of one of our developers:
+We also release blockstack as a debian package. First get GPG key of one of our developers:
 
 > wget -O - http://packages.blockstack.org/jude@onename.com.gpg.key | sudo apt-key add -
 
@@ -63,22 +63,22 @@ Then add packages.blockstack.org to your sources list:
 
 and add "deb http://packages.blockstack.org jessie main" at the end of the file.
 
-Now you can install blockstore through apt-get:
+Now you can install blockstack through apt-get:
 
-> sudo apt-get update && sudo apt-get install blockstore
+> sudo apt-get update && sudo apt-get install blockstack
 
 ## Getting started
 
-Start blockstored and index the blockchain:
+Start blockstackd and index the blockchain:
 
 ```
-$ blockstored start
+$ blockstackd start
 ```
 
 Then, perform name lookups:
 
 ```
-$ blockstore-cli lookup werner.id
+$ blockstack-cli lookup werner.id
 {
     "address": "1KRca8gGiCiTNGR65iXMPQ6d5fisDdN3ZF",
     "first_registered": 374132,
@@ -102,17 +102,17 @@ Within the install you'll find the following directories and files. You'll see
 something like this:
 
 ```
-blockstore/
+blockstack/
 ├── bin/
-│   ├── blockstored
+│   ├── blockstackd
 │   └── README.md
-├── blockstore/
+├── blockstack/
 │   ├── __init__.py
 │   ├── blockmirrord.py
 │   ├── blockmirrord.tac
-│   ├── blockstore.tac
-│   ├── blockstore-testset.tac
-│   ├── blockstored.py
+│   ├── blockstack.tac
+│   ├── blockstack-testset.tac
+│   ├── blockstackd.py
 │   ├── build_nameset.py
 │   ├── coinkit.patch
 │   ├── dht/
@@ -162,8 +162,8 @@ blockstore/
 
 ## Documentation
 
-Blockstore’s detailed documentation is located included in this repo’s
-[Wiki](https://github.com/blockstack/blockstore/wiki).
+Blockstack’s detailed documentation is located included in this repo’s
+[Wiki](https://github.com/blockstack/blockstack/wiki).
 
 
 ## Design decisions
@@ -206,10 +206,10 @@ We welcome any small or big contributions! Please take a moment to
 in order to make the contribution process easy and effective for everyone involved.
 
 We follow the [git flow model](https://github.com/nvie/gitflow)
-for managing development. This means that the [develop branch](https://github.com/blockstack/blockstore/tree/develop)
+for managing development. This means that the [develop branch](https://github.com/blockstack/blockstack/tree/develop)
 has the most recent version under development and master has the last stable release.
 
-The main authors of Blockstore are:
+The main authors of Blockstack are:
 
 **[Jude Nelson](http://onename.com/judecn)** ([@judecnelson](https://twitter.com/judecnelson))
 

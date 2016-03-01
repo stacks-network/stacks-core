@@ -2,7 +2,7 @@ python2.7
 python-virtualchain
 python-kademlia
 python-keychain
-blockstore-client
+blockstack-client
 python-base58
 python-bitcoin
 python-basicrpc
