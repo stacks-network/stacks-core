@@ -114,6 +114,9 @@ api_call_history = []
 # names we expect will fail SNV 
 snv_fail = []
 
+# names we expect will fail SNV, at a particular block 
+snv_fail_at = {}
+
 def log_consensus( **kw ):
     """
     Log the consensus hash at the current block.
@@ -131,6 +134,18 @@ def expect_snv_fail( name ):
     """
     global snv_fail
     snv_fail.append( name )
+
+
+def expect_snv_fail_at( name, block_id ):
+    """
+    Record that this name will not be SNV-lookup-able
+    """
+    global snv_fail_at
+
+    if name not in snv_fail_at.keys():
+        snv_fail_at[block_id] = [name]
+    else:
+        snv_fail_at[block_id].append(name)
 
 
 def make_proxy():
@@ -494,6 +509,7 @@ def snv_all_names( state_engine ):
     global all_consensus_hashes 
     global api_call_history
     global snv_fail
+    global snv_fail_at
 
     test_proxy = TestAPIProxy()
     blockstore_client.client.set_default_proxy( test_proxy )
@@ -502,7 +518,7 @@ def snv_all_names( state_engine ):
 
     for api_call in api_call_history:
 
-        log.debug("API call: %s %s" % (api_call.method, api_call.name))
+        log.debug("API call: %s %s at %s" % (api_call.method, api_call.name, api_call.block_id))
 
         name = None
         opcode = None
@@ -516,59 +532,66 @@ def snv_all_names( state_engine ):
             opcode = "NAME_IMPORT"
             
         if name is not None:
-            block_id = api_call.block_id 
+            block_id = int(api_call.block_id)
             consensus_hash = all_consensus_hashes[ block_id ]
 
-            all_names[ name ] = {
-                "block_id": block_id,
+            if not all_names.has_key( name ):
+                all_names[name] = {}
+                
+            all_names[name][block_id] = {
                 "consensus_hash": consensus_hash,
                 "opcode": opcode
             }
 
             if api_call.result.has_key('transaction_hash'):
-                all_names[name]['txid'] = api_call.result['transaction_hash']
+                all_names[name][block_id]['txid'] = api_call.result['transaction_hash']
 
 
     log.debug("SNV verify %s names" % len(all_names.keys()))
 
     for name in all_names.keys():
 
-        log.debug("SNV verify %s" % name)
+        for block_id in all_names[name].keys():
 
-        block_id = all_names[name]['block_id']
-        consensus_hash = all_names[name]['consensus_hash']
-        txid = all_names[name].get('txid', None)
-        opcode = all_names[name].get('opcode', None)
+            consensus_hash = all_names[name][block_id]['consensus_hash']
+            txid = all_names[name][block_id].get('txid', None)
+            opcode = all_names[name][block_id].get('opcode', None)
 
-        for i in xrange( block_id + 1, max(all_consensus_hashes.keys()) + 1 ):
+            log.debug("SNV verify %s (from %s)" % (name, block_id))
 
-            trusted_block_id = i
-            trusted_consensus_hash = all_consensus_hashes[i]
+            for i in xrange( block_id + 1, max(all_consensus_hashes.keys()) + 1 ):
 
-            snv_rec = blockstore_client.client.snv_lookup( name, block_id, trusted_consensus_hash, proxy=test_proxy )
-            if 'error' in snv_rec:
+                trusted_block_id = i
+                trusted_consensus_hash = all_consensus_hashes[i]
+
+                snv_rec = blockstore_client.client.snv_lookup( name, block_id, trusted_consensus_hash, proxy=test_proxy )
+                if 'error' in snv_rec:
+                    if name in snv_fail:
+                        log.debug("SNV lookup %s failed as expected" % name)
+                        continue 
+
+                    if name in snv_fail_at.get(block_id, []):
+                        log.debug("SNV lookup %s failed at %s as expected" % (name, block_id))
+                        continue 
+
+                    print json.dumps(snv_rec, indent=4 )
+                    return False 
+
+                if snv_rec['name'] != name:
+                    print "mismatch name"
+                    print json.dumps(snv_rec, indent=4 )
+                    return False 
+
+                if opcode is not None and snv_rec['opcode'] != opcode:
+                    print "mismatch opcode"
+                    print json.dumps(snv_rec, indent=4 )
+                    return False 
+
                 if name in snv_fail:
-                    log.debug("SNV lookup %s failed as expected" % name)
-                    continue 
+                    print "looked up name '%s' that was supposed to fail SNV" % name
+                    return False 
 
-                print json.dumps(snv_rec, indent=4 )
-                return False 
-
-            if snv_rec['name'] != name:
-                print "mismatch name"
-                print json.dumps(snv_rec, indent=4 )
-                return False 
-
-            if opcode is not None and snv_rec['opcode'] != opcode:
-                print "mismatch opcode"
-                print json.dumps(snv_rec, indent=4 )
-                return False 
-
-            if name in snv_fail:
-                print "looked up name '%s' that was supposed to fail SNV" % name
-                return False 
-
-            log.debug("SNV verified %s with (%s,%s) back to (%s,%s)" % (name, trusted_block_id, trusted_consensus_hash, block_id, consensus_hash ))
+                log.debug("SNV verified %s with (%s,%s) back to (%s,%s)" % (name, trusted_block_id, trusted_consensus_hash, block_id, consensus_hash ))
 
     return True
 
