@@ -24,7 +24,7 @@
 #hack around absolute paths
 import os
 import sys
-current_dir =  os.path.abspath(os.path.dirname(__file__))
+current_dir =  os.path.abspath(os.path.dirname(__file__) + "/..")
 sys.path.insert(0, current_dir)
 
 from txjsonrpc.netstring import jsonrpc
@@ -37,9 +37,9 @@ application = service.Application("blockstored")
 # blockstore 
 # ------------
 # from blockstored import BlockstoredRPC, reindex_blockchain
-from blockstored import BlockstoredRPC
-import lib.config
-from lib.config import REINDEX_FREQUENCY, RPC_SERVER_PORT
+import blockstore
+from blockstore.blockstored import BlockstoredRPC
+from blockstore.lib.config import REINDEX_FREQUENCY, RPC_SERVER_PORT
 
 factory_blockstore = jsonrpc.RPCFactory(BlockstoredRPC(), maxLength=8192)
 
@@ -50,10 +50,11 @@ server_blockstore.setServiceParent(application)
 # DHT 
 # -----------
 from kademlia.network import Server
-from dht.storage import BlockStorage, hostname_to_ip
-from lib import nameset as blockstore_state_engine
+from blockstore.dht.storage import BlockStorage, hostname_to_ip
+from blockstore.lib import nameset as blockstore_state_engine
 
 import virtualchain
+import blockstore
 
 if os.getenv("BLOCKSTORE_TEST") == "1":
     
@@ -71,7 +72,7 @@ if os.getenv("BLOCKSTORE_TEST") == "1":
 else:
     virtualchain.setup_virtualchain( impl=blockstore_state_engine )
 
-dht_opts = lib.config.default_dht_opts()
+dht_opts = blockstore.lib.config.default_dht_opts()
 
 if not dht_opts['disable']:
    
