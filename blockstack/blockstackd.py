@@ -1823,7 +1823,7 @@ def kill_api_server_atexit():
     global blockstackd_api_server
     if blockstackd_api_server is not None:
         blockstackd_api_server.kill()
-        blockstackd_api_server.wiat()
+        blockstackd_api_server.wait()
 
 
 def run_server( testset=False, foreground=False ):
