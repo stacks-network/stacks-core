@@ -293,7 +293,6 @@ def check( state_engine, nameop, block_id, checked_ops ):
 
     # record preorder
     nameop['block_number'] = namespace_preorder['block_number']
-    nameop['reveal_block'] = nameop['block_number']     # start counting down from the preorder, not the reveal
     state_create_put_preorder( nameop, namespace_preorder )
     state_create_put_prior_history( nameop, None )
 
