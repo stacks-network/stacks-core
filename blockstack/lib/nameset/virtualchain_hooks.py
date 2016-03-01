@@ -441,7 +441,7 @@ def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
        sys.exit(1)
 
 
-def sync_blockchain( bt_opts, last_block ):
+def sync_blockchain( bt_opts, last_block, expected_snapshots={} ):
     """
     synchronize state with the blockchain.
     build up the next blockstack_db
@@ -456,7 +456,7 @@ def sync_blockchain( bt_opts, last_block ):
 
     db_filename = virtualchain.get_db_filename(impl=impl)
 
-    new_db = BlockstackDB.borrow_readwrite_instance( db_filename, last_block )
+    new_db = BlockstackDB.borrow_readwrite_instance( db_filename, last_block, expected_snapshots=expected_snapshots )
 
     virtualchain.sync_virtualchain( bt_opts, last_block, new_db )
 

@@ -134,7 +134,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
 
     @classmethod 
-    def borrow_readwrite_instance( cls, db_path, block_number ):
+    def borrow_readwrite_instance( cls, db_path, block_number, expected_snapshots={} ):
         """
         Singleton--ensure at most one read/write connection to the db exists.
         """
@@ -150,7 +150,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             log.error("FATAL: Borrowing violation")
             sys.exit(1)
 
-        blockstack_db = BlockstackDB( db_path, DISPOSITION_RW )
+        blockstack_db = BlockstackDB( db_path, DISPOSITION_RW, expected_snapshots=expected_snapshots )
         blockstack_db_lastblock = block_number
         blockstack_db_lock.release()
 

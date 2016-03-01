@@ -1770,7 +1770,7 @@ def get_index_range():
     return (None, None)
 
 
-def index_blockchain():
+def index_blockchain( expected_snapshots={} ):
     """
     Index the blockchain:
     * find the range of blocks
@@ -1789,7 +1789,7 @@ def index_blockchain():
     # bring us up to speed
     set_indexing( True )
 
-    virtualchain_hooks.sync_blockchain( bt_opts, current_block )
+    virtualchain_hooks.sync_blockchain( bt_opts, current_block, expected_snapshots=expected_snapshots )
 
     set_indexing( False )
 
@@ -1826,7 +1826,7 @@ def kill_api_server_atexit():
         blockstackd_api_server.wait()
 
 
-def run_server( testset=False, foreground=False ):
+def run_server( testset=False, foreground=False, expected_snapshots={} ):
     """
     Run the blockstackd RPC server, optionally in the foreground.
     """
@@ -1899,7 +1899,7 @@ def run_server( testset=False, foreground=False ):
 
     while True:
 
-        rc = index_blockchain()
+        rc = index_blockchain( expected_snapshots=expected_snapshots )
         
         # wait for the next block
         # NOTE: sigint can interrupt us
@@ -2375,6 +2375,9 @@ def run_blockstackd():
    parser.add_argument(
       '--working-dir', action='store',
       help='use an alternative working directory')
+   parser.add_argument(
+      '--check-snapshots', action='store',
+      help='verify that consensus hashes calculated match those in this given .snapshots file')
 
    parser = subparsers.add_parser(
       'stop',
@@ -2488,9 +2491,23 @@ def run_blockstackd():
          log.info("Service endpoint exited with status code %s" % exit_status )
 
       else:
-    
+   
+         # use snapshots?
+         expected_snapshots = {}
+         if args.check_snapshots is not None:
+             snapshots_path = args.check_snapshots
+             try:
+                 with open(snapshots_path, "r") as f:
+                     snapshots_data = f.read()
+
+                 expected_snapshots = json.loads(snapshots_data)
+             except Exception, e:
+                 log.exception(e)
+                 log.error("Failed to read expected snapshots from '%s'" % snapshots_path)
+                 sys.exit(1)
+
          log.info('Starting blockstackd server (testset = %s) ...' % testset)
-         run_server( testset=testset )
+         run_server( testset=testset, expected_snapshots=expected_snapshots )
 
    elif args.action == 'stop':
       stop_server( clean=args.clean, kill=args.kill )
