@@ -21,3 +21,5 @@ max_subsidy = 64000000
 subsidization_keys = ./blockstack-subsidization-keys.txt
 tx_broadcaster = mock_utxo
 utxo_provider = mock_utxo
+backup_frequency = 3
+backup_max_age = 30
