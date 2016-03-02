@@ -108,21 +108,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             initial_snapshots = GENESIS_SNAPSHOT_TESTSET
             magic_Bytes = MAGIC_BYTES_TESTSET
 
-        super( BlockstackDB, self ).__init__( magic_bytes,
-                                              OPCODES,
-                                              BlockstackDB.make_opfields(),
-                                              impl=blockstack_impl,
-                                              initial_snapshots=initial_snapshots,
-                                              state=self,
-                                              expected_snapshots=expected_snapshots )
-
-        # announcers to track
-        blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(impl=blockstack_impl) )
-        self.announce_ids = blockstack_opts['announcers'].split(",")
-
-        self.set_backup_frequency( blockstack_opts['backup_frequency'] )
-        self.set_backup_max_age( blockstack_opts['backup_max_age'] )
-
+        # acquire the database
         self.db_filename = db_filename
         if os.path.exists( db_filename ):
             self.db = namedb_open( db_filename )
@@ -130,6 +116,37 @@ class BlockstackDB( virtualchain.StateEngine ):
             self.db = namedb_create( db_filename )
 
         self.disposition = disposition
+
+        # are we resuming part-way through committing transactions?
+        lastblock = self.get_lastblock( impl=blockstack_impl )
+        resume_vtxindex = 0
+        if lastblock is not None:
+
+            # how many vtxs are in the upcoming block?
+            num_vtxs = self.get_saved_num_vtxs( lastblock + 1, impl=blockstack_impl )
+            if num_vtxs is not None:
+                
+                # resume where we left off
+                cur = db.cursor()
+                vtxs_processed = namedb_get_num_block_vtxs( cur, lastblock + 1 )
+                resume_vtxindex = vtxs_processed + 1
+
+
+        super( BlockstackDB, self ).__init__( magic_bytes,
+                                              OPCODES,
+                                              BlockstackDB.make_opfields(),
+                                              impl=blockstack_impl,
+                                              initial_snapshots=initial_snapshots,
+                                              state=self,
+                                              expected_snapshots=expected_snapshots,
+                                              resume_vtxindex=resume_vtxindex )
+
+        # announcers to track
+        blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(impl=blockstack_impl) )
+        self.announce_ids = blockstack_opts['announcers'].split(",")
+
+        self.set_backup_frequency( blockstack_opts['backup_frequency'] )
+        self.set_backup_max_age( blockstack_opts['backup_max_age'] )
 
         # collision detection 
         # map block_id --> history_id_key --> list of history ID values
