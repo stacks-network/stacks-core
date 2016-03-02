@@ -351,6 +351,7 @@ NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_YEAR       # namespace reveals expire after
 if os.getenv("BLOCKSTACK_TEST") is not None:
     # testing 
     NAME_IMPORT_KEYRING_SIZE = 5                  # number of keys to derive from the import key
+    NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_DAY      # small enough so we can actually test this...
 
 else:
     NAME_IMPORT_KEYRING_SIZE = 300                  # number of keys to derive from the import key
