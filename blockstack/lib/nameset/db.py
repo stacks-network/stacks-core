@@ -373,14 +373,21 @@ def namedb_delete_prepare( cur, primary_key, primary_key_value, table_name ):
     return (query, values)
 
 
+def namedb_format_query( query, values ):
+    """
+    Turn a query into a string for printing.
+    Useful for debugging.
+    """
+
+    return "".join( ["%s %s" % (frag, "'%s'" % val if type(val) in [str, unicode] else val) for (frag, val) in zip(query.split("?"), values + ("",))] )
+
+
 def namedb_query_execute( cur, query, values ):
     """
     Execute a query.  If it fails, exit.
 
     DO NOT CALL THIS DIRECTLY.
     """
-
-    # log.debug("%s", "".join( ["%s %s" % (frag, "'%s'" % val if type(val) in [str, unicode] else val) for (frag, val) in zip(query.split("?"), values + ("",))] ))
 
     try:
         ret = cur.execute( query, values )
@@ -1305,7 +1312,7 @@ def namedb_select_where_unexpired_names( current_block ):
     """
     query_fragment = "name_records.first_registered <= ? AND " + \
                      "((namespaces.op = ? AND (namespaces.ready_block + namespaces.lifetime > ? OR name_records.last_renewed + namespaces.lifetime >= ?)) OR " + \
-                     "(namespaces.op = ? AND namespaces.reveal_block <= ?))"
+                     "(namespaces.op = ? AND namespaces.reveal_block >= ?))"
 
     query_args = (current_block, NAMESPACE_READY, current_block, current_block, NAMESPACE_REVEAL, current_block + NAMESPACE_REVEAL_EXPIRE )
 
@@ -1910,6 +1917,21 @@ def namedb_get_name_from_name_hash128( cur, name_hash128, block_number ):
         return None 
 
     return name_row['name']
+
+
+def namedb_get_num_block_vtxs( cur, block_number ):
+    """
+    How many virtual transactions were processed for this block?
+    """ 
+    select_query = "SELECT vtxindex FROM history WHERE history_id = ?;"
+    args = (block_number,)
+
+    rows = namedb_query_execute( cur, select_query, args )
+    count = 0
+    for r in rows:
+        count += 1
+
+    return count
 
 
 if __name__ == "__main__":
