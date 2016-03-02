@@ -1312,9 +1312,9 @@ def namedb_select_where_unexpired_names( current_block ):
     """
     query_fragment = "name_records.first_registered <= ? AND " + \
                      "((namespaces.op = ? AND (namespaces.ready_block + namespaces.lifetime > ? OR name_records.last_renewed + namespaces.lifetime >= ?)) OR " + \
-                     "(namespaces.op = ? AND namespaces.reveal_block >= ?))"
+                     "(namespaces.op = ? AND namespaces.reveal_block <= ? AND ? < namespaces.reveal_block + ?))"
 
-    query_args = (current_block, NAMESPACE_READY, current_block, current_block, NAMESPACE_REVEAL, current_block + NAMESPACE_REVEAL_EXPIRE )
+    query_args = (current_block, NAMESPACE_READY, current_block, current_block, NAMESPACE_REVEAL, current_block, current_block, NAMESPACE_REVEAL_EXPIRE)
 
     return (query_fragment, query_args)
 
