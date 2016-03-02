@@ -91,6 +91,8 @@ class BlockstackDB( virtualchain.StateEngine ):
         DO NOT CALL THIS DIRECTLY
         """
 
+	assert expected_snapshots != {}, "No expected snapshots"
+
         log.debug("Initialize database from '%s'" % db_filename )
         self.db = None
 
@@ -119,7 +121,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         # are we resuming part-way through committing transactions?
         lastblock = self.get_lastblock( impl=blockstack_impl )
-        resume_vtxindex = 0
+        resume_offset = 0
         if lastblock is not None:
 
             # how many vtxs are in the upcoming block?
@@ -127,9 +129,9 @@ class BlockstackDB( virtualchain.StateEngine ):
             if num_vtxs is not None:
                 
                 # resume where we left off
-                cur = db.cursor()
+                cur = self.db.cursor()
                 vtxs_processed = namedb_get_num_block_vtxs( cur, lastblock + 1 )
-                resume_vtxindex = vtxs_processed + 1
+                resume_offset = vtxs_processed + 1
 
 
         super( BlockstackDB, self ).__init__( magic_bytes,
@@ -139,7 +141,7 @@ class BlockstackDB( virtualchain.StateEngine ):
                                               initial_snapshots=initial_snapshots,
                                               state=self,
                                               expected_snapshots=expected_snapshots,
-                                              resume_vtxindex=resume_vtxindex )
+                                              resume_offset=resume_offset )
 
         # announcers to track
         blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(impl=blockstack_impl) )
