@@ -2484,29 +2484,30 @@ def run_blockstackd():
           log.error("Blockstackd appears to be running already.  If not, please run '%s stop --clean'" % (sys.argv[0]))
           sys.exit(1)
 
+   
+      # use snapshots?
+      expected_snapshots = {}
+      if args.check_snapshots is not None:
+          snapshots_path = args.check_snapshots
+          try:
+              with open(snapshots_path, "r") as f:
+                  snapshots_data = f.read()
+
+              expected_snapshots = json.loads(snapshots_data)
+              assert 'snapshots' in expected_snapshots.keys(), "Not a valid snapshots file"
+          except Exception, e:
+              log.exception(e)
+              log.error("Failed to read expected snapshots from '%s'" % snapshots_path)
+              sys.exit(1)
+
+      log.info('Starting blockstackd server (testset = %s, working dir = \'%s\', %s expected snapshots) ...' % (testset, working_dir, len(expected_snapshots['snapshots'])))
+
       if args.foreground:
 
-         log.info('Initializing blockstackd server in foreground (testset = %s, working dir = \'%s\')...' % (testset, working_dir))
-         exit_status = run_server( foreground=True, testset=testset )
+         exit_status = run_server( foreground=True, testset=testset, expected_snapshots=expected_snapshots )
          log.info("Service endpoint exited with status code %s" % exit_status )
 
       else:
-   
-         # use snapshots?
-         expected_snapshots = {}
-         if args.check_snapshots is not None:
-             snapshots_path = args.check_snapshots
-             try:
-                 with open(snapshots_path, "r") as f:
-                     snapshots_data = f.read()
-
-                 expected_snapshots = json.loads(snapshots_data)
-             except Exception, e:
-                 log.exception(e)
-                 log.error("Failed to read expected snapshots from '%s'" % snapshots_path)
-                 sys.exit(1)
-
-         log.info('Starting blockstackd server (testset = %s) ...' % testset)
          run_server( testset=testset, expected_snapshots=expected_snapshots )
 
    elif args.action == 'stop':
