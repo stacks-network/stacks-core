@@ -591,6 +591,11 @@ def snv_all_names( state_engine ):
                     print "looked up name '%s' that was supposed to fail SNV" % name
                     return False 
 
+                # QUIRK: if imported, then the fee must be a float.  otherwise, it must be an int 
+                if snv_rec['opcode'] == 'NAME_IMPORT' and type(snv_rec['op_fee']) != float:
+                    print "QUIRK: NAME_IMPORT: fee isn't a float"
+                    return False 
+
                 log.debug("SNV verified %s with (%s,%s) back to (%s,%s)" % (name, trusted_block_id, trusted_consensus_hash, block_id, consensus_hash ))
 
     return True
