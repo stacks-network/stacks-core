@@ -131,7 +131,7 @@ class BlockstackDB( virtualchain.StateEngine ):
                 # resume where we left off
                 cur = self.db.cursor()
                 vtxs_processed = namedb_get_num_block_vtxs( cur, lastblock + 1 )
-                resume_offset = vtxs_processed + 1
+                resume_offset = vtxs_processed
 
 
         super( BlockstackDB, self ).__init__( magic_bytes,
