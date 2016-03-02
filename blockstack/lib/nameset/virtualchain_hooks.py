@@ -428,6 +428,7 @@ def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
    if db_state is not None:
 
        try:
+           # flush the database
            db_state.commit_finished( block_id )
        except Exception, e:
            log.exception(e)

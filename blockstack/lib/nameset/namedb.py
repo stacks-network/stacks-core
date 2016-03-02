@@ -120,6 +120,9 @@ class BlockstackDB( virtualchain.StateEngine ):
         blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(impl=blockstack_impl) )
         self.announce_ids = blockstack_opts['announcers'].split(",")
 
+        self.set_backup_frequency( blockstack_opts['backup_frequency'] )
+        self.set_backup_max_age( blockstack_opts['backup_max_age'] )
+
         self.db_filename = db_filename
         if os.path.exists( db_filename ):
             self.db = namedb_open( db_filename )
