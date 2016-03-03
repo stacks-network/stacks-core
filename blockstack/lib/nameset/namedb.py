@@ -91,7 +91,8 @@ class BlockstackDB( virtualchain.StateEngine ):
         DO NOT CALL THIS DIRECTLY
         """
 
-	assert expected_snapshots != {}, "No expected snapshots"
+	if expected_snapshots == {}:
+           expected_snapshots = {'snapshots':{}}
 
         log.debug("Initialize database from '%s'" % db_filename )
         self.db = None

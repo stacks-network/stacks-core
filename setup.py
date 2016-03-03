@@ -35,7 +35,7 @@ setup(
     description='Name registrations on the Bitcoin blockchain with external storage',
     keywords='blockchain bitcoin btc cryptocurrency name key value store data',
     packages=find_packages(),
-    scripts=['bin/blockstackd'],
+    scripts=['bin/blockstack-server'],
     download_url='https://github.com/blockstack/blockstack/archive/master.zip',
     zip_safe=False,
     include_package_data=True,
@@ -61,7 +61,7 @@ setup(
         'txJSON-RPC>=0.3.1',
         'u-msgpack-python>=2.1',
         'utilitybelt>=0.2.6',
-        'virtualchain>=0.0.8',
+        'virtualchain>=0.0.9',
         'zope.interface>=4.1.3'
     ],
     classifiers=[
