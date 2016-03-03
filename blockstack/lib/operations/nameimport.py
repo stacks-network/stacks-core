@@ -442,7 +442,8 @@ def parse(bin_payload, recipient, update_hash ):
     """
     
     fqn = bin_payload
-    if not is_name_valid( fqn ):
+    if not is_name_valid( fqn ): 
+        log.error("Name '%s' is invalid" % fqn)
         return None 
 
     return {
