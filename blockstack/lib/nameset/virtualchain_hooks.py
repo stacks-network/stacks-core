@@ -219,7 +219,13 @@ def db_parse( block_id, txid, vtxindex, op, data, senders, inputs, outputs, fee,
    log.debug("PARSE %s at (%s, %s): %s" % (opcode, block_id, vtxindex, data.encode('hex')))
 
    # get the data
-   op = op_extract( opcode, data, senders, inputs, outputs, block_id, vtxindex, txid )
+   op = None
+   try:
+       op = op_extract( opcode, data, senders, inputs, outputs, block_id, vtxindex, txid )
+   except Exception, e:
+       log.exception(e)
+       op = None
+
    if op is not None:
 
        # propagate fees
