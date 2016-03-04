@@ -176,12 +176,12 @@ OPFIELDS = {
     ],
     NAME_REVOKE: NAMEREC_FIELDS,
     NAME_TRANSFER: NAMEREC_FIELDS +  [
-        'name_hash',            # hash(name)
+        'name_hash128',         # hash(name)
         'consensus_hash',       # consensus hash when this operation was sent
         'keep_data'             # whether or not to keep the profile data associated with the name when transferred
     ],
     NAME_UPDATE: NAMEREC_FIELDS + [
-        'name_hash',            # hash(name,consensus_hash)
+        'name_hash128',         # hash(name,consensus_hash)
         'consensus_hash'        # consensus hash when this update was sent
     ]
 }
