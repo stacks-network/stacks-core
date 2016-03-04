@@ -1240,6 +1240,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         table = state_create_get_table( nameop )
         history_id_key = state_create_get_history_id_key( nameop )
         history_id = nameop[history_id_key]
+        constraints_ignored = state_create_get_ignore_equality_constraints( nameop )
 
         # cannot have collided 
         if BlockstackDB.nameop_is_collided( nameop ):
@@ -1322,7 +1323,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
             rc = namedb_state_create_as_import( self.db, opcode, initial_state,
                                                 current_block_number, initial_state['vtxindex'], initial_state['txid'],
-                                                history_id, prior_record, table )
+                                                history_id, prior_record, table, constraints_ignored=constraints_ignored )
 
             if not rc:
                 log.error("FATAL: failed to create '%s' from prior history" % history_id )
@@ -1340,7 +1341,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
             rc = namedb_state_create_as_import( self.db, opcode, initial_state, 
                                                 current_block_number, initial_state['vtxindex'], initial_state['txid'],
-                                                history_id, None, table )
+                                                history_id, None, table, constraints_ignored=constraints_ignored )
 
             if not rc:
                 log.error("FATAL: failed to create '%s' as initial import" % history_id)
