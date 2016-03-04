@@ -22,7 +22,7 @@ setup(
     install_requires=[
         'boto==2.38.0',
         'basicrpc==0.0.2',
-        'virtualchain==0.0.6',
+        'virtualchain==0.0.9',
         'protocoin==0.1'
     ],
     classifiers=[
