@@ -131,7 +131,7 @@ def state_preorder(collision_checker):
 
 
 # sanity check decorator for state-creating operations 
-def state_create(history_id_key, table_name, collision_checker):
+def state_create(history_id_key, table_name, collision_checker, ignore_equality_constraints=[]):
     """
     Decorator for the check() method on state-creating operations.
     Makes sure that:
@@ -163,6 +163,7 @@ def state_create(history_id_key, table_name, collision_checker):
                 nameop['__table__'] = table_name
                 nameop['__history_id_key__'] = history_id_key
                 nameop['__state_create__'] = True
+                nameop['__ignore_equality_constraints__'] = ignore_equality_constraints
 
                 # sanity check
                 invariant_tags = state_create_invariant_tags()
@@ -258,6 +259,7 @@ def state_create_is_valid( nameop ):
     assert '__table__' in nameop, "No table given"
     assert '__history_id_key__' in nameop, "No history ID key given"
     assert nameop['__history_id_key__'] in nameop, "No history ID given"
+    assert '__ignore_equality_constraints__' in nameop, "No ignore-equality constraints given"
 
     return True 
 
@@ -288,6 +290,13 @@ def state_create_get_history_id_key( nameop ):
     Get the key to the history ID of a state-create name operation
     """
     return nameop['__history_id_key__']
+
+
+def state_create_get_ignore_equality_constraints( nameop ):
+    """
+    Get thie list of fields we exclude from our creation equality constraints
+    """
+    return nameop['__ignore_equality_constraints__']
 
 
 def state_transition_is_valid( nameop ):
