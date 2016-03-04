@@ -587,16 +587,16 @@ def snv_consensus_extras( name_rec, block_id, commit, db ):
                 hist = name_rec['history'][i][h]
                 if i == block_id and hist.has_key('vtxindex') and hist['vtxindex'] >= name_rec['vtxindex']:
                     # same block, but later or equal update 
-                    # log.debug("skip later (%s, %s)" % (i, h))
+                    log.debug("skip later (%s, %s) (%s >= %s)" % (i, h, hist['vtxindex'], name_rec['vtxindex']))
                     continue 
 
                 if not hist.has_key('consensus_hash'):
-                    # log.debug("no consensus hash at (%s, %s)" % (i, h))
+                    log.debug("no consensus hash at (%s, %s)" % (i, h))
                     continue
                
                 if hist['opcode'] in ["NAME_PREORDER", "NAME_PREORDER_MULTI"]:
                     # out of history
-                    # log.debug("out of history at (%s, %s)" % (i, h))
+                    log.debug("out of history at (%s, %s)" % (i, h))
                     break
                 
                 log.debug("use consensus hash %s at history(%s, %s))" % (hist['consensus_hash'], i, h ))
