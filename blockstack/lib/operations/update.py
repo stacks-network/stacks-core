@@ -49,8 +49,7 @@ FIELDS = NAMEREC_FIELDS + [
 # fields this operation mutates
 MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
     'value_hash',
-    'consensus_hash',
-    'sender_pubkey'
+    'consensus_hash'
 ]
 
 # fields to back up when applying this operation 
@@ -132,8 +131,9 @@ def check(state_engine, nameop, block_id, checked_ops ):
        return False
 
     namespace_id = get_namespace_from_name( name )
+    name_rec = state_engine.get_name( name )
 
-    if state_engine.get_name( name ) is None:
+    if name_rec is None:
        log.debug("Name '%s' does not exist" % name)
        return False
 
@@ -169,6 +169,7 @@ def check(state_engine, nameop, block_id, checked_ops ):
     # self.name_consensus_hash_name[ name_consensus_hash ] = name
     nameop['name'] = name
     nameop['consensus_hash'] = consensus_hash
+    nameop['sender_pubkey'] = name_rec['sender_pubkey']
 
     # not stored, but re-calculateable
     del nameop['name_consensus_hash']
