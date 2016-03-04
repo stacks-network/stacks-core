@@ -611,7 +611,7 @@ def namedb_namespace_update( cur, opcode, input_opdata, only_if={}, constraints_
         assert cur.rowcount == 1, "Updated %s row(s)" % cur.rowcount 
     except Exception, e:
         log.exception(e)
-        log.error("FATAL: failed to update name '%s'" % opdata['name'])
+        log.error("FATAL: failed to update name '%s'" % opdata['namespace_id'])
         log.error("Query: %s", "".join( ["%s %s" % (frag, "'%s'" % val if type(val) in [str, unicode] else val) for (frag, val) in zip(query.split("?"), values + ("",))] ))
         sys.exit(1)
 
