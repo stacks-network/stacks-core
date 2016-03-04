@@ -55,7 +55,8 @@ MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
     'first_registered',
     'last_renewed',
     'revoked',
-    'block_number'
+    'block_number',
+    'namespace_block_number'
 ]
  
 # fields to preserve when applying this operation 
@@ -167,7 +168,7 @@ def get_prev_imported( state_engine, checked_ops, name ):
     return name_rec
 
 
-@state_create( "name", "name_records", "check_noop_collision" )
+@state_create( "name", "name_records", "check_noop_collision", ignore_equality_constraints=["consensus_hash"] )
 def check( state_engine, nameop, block_id, checked_ops ):
     """
     Given a NAME_IMPORT nameop, see if we can import it.
@@ -258,7 +259,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
     prior_hist = None
     if prev_name_rec is not None:
         # set preorder and prior history...
-        prior_hist = prior_history_create( nameop, prev_name_rec, block_id, state_engine, extra_backup_fields=['consensus_hash'] )
+        prior_hist = prior_history_create( nameop, prev_name_rec, block_id, state_engine, extra_backup_fields=['consensus_hash','namespace_block_number'] )
     
     # can never have been preordered
     state_create_put_preorder( nameop, None )
