@@ -336,6 +336,9 @@ def namedb_update_prepare( cur, primary_key, input_record, table_name, must_equa
     where_values = tuple(where_values)
 
     query = "UPDATE %s SET %s WHERE %s" % (table_name, ", ".join(update_set), " AND ".join(where_set))
+
+    log.debug(namedb_format_query(query, update_values + where_values))
+
     return (query, update_values + where_values)
 
 
@@ -896,7 +899,7 @@ def namedb_name_import_sanity_check( cur, opcode, op_data, history_id, block_id,
     return True
 
 
-def namedb_state_create_as_import( db, opcode, new_record, block_id, vtxindex, txid, history_id, prior_import, record_table ):
+def namedb_state_create_as_import( db, opcode, new_record, block_id, vtxindex, txid, history_id, prior_import, record_table, constraints_ignored=[] ):
     """
     Given an operation and a new record (opcode, new_record), and point in time (block_id, vtxindex, txid)
     create the initial name as an import.  Does not work on namespaces.
@@ -956,7 +959,7 @@ def namedb_state_create_as_import( db, opcode, new_record, block_id, vtxindex, t
             sys.exit(1)
         
         cur = db.cursor()
-        rc = namedb_name_update( cur, opcode, new_record )
+        rc = namedb_name_update( cur, opcode, new_record, constraints_ignored=constraints_ignored )
 
     if not rc:
         log.error("FATAL: failed to execute import operation")
