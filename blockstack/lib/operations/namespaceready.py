@@ -44,9 +44,7 @@ FIELDS = NAMESPACE_REVEAL_FIELDS + [
 # fields this operation changes
 MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
     'ready_block',
-    'sender_pubkey',
-    'sender',
-    'address'
+    'sender'
 ]
 
 # fields to back up when applying this operation 
@@ -107,6 +105,10 @@ def check( state_engine, nameop, block_id, checked_ops ):
        # namespace already exists
        log.debug("Namespace '%s' is already registered" % namespace_id )
        return False
+
+    # preserve from revealed 
+    nameop['sender_pubkey'] = revealed_namespace['sender_pubkey']
+    nameop['address'] = revealed_namespace['address']
 
     # can commit imported nameops
     return True
