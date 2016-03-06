@@ -897,6 +897,39 @@ class BlockstackDB( virtualchain.StateEngine ):
         return self.announce_ids
 
 
+    def get_name_init_opcode( self, name, block_number=None, include_expired=False ):
+        """
+        Get the first opcode for this name.  I.e. an import, a preorder, etc.
+        If block_number is not None, then first restore the name to the way
+        it was at the block number.
+        """
+
+        if block_number is None:
+            block_number = self.lastblock 
+
+        name_rec = self.get_name( name, lastblock=block_number, include_expired=include_expired )
+        if name_rec is None:
+            return None
+
+        name_hist = name_rec['history']
+        blocks = sorted([int(b) for b in name_hist.keys()])
+        opcode = None
+
+        try:
+            assert len(blocks) != 0, "FATAL: no history for name %s" % name
+           
+            first_hist = name_hist[blocks[0]][0]
+            assert first_hist.has_key('op'), "FATAL: no op recorded for name %s" % name
+
+            opcode = op_get_opcode_name( first_hist['op'] )
+        except Exception, e:
+            log.exception(e)
+            log.error("FATAL: no history info")
+            sys.exit(1)
+
+        return opcode 
+        
+
     def is_name_expired( self, name, block_number ):
         """
         Given a name and block number, determine if it is expired at that block.
@@ -1021,7 +1054,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             return True
         else:
             return False
- 
+
 
     @classmethod
     def nameop_set_collided( cls, nameop, history_id_key, history_id ):
