@@ -268,6 +268,33 @@ def op_extract( op_name, data, senders, inputs, outputs, block_id, vtxindex, txi
     return op_data
 
 
+def op_check_quirks( state_engine, nameop, block_id, checked_ops ):
+    """
+    Given the set of arguments for op_check, apply any 
+    op-specific quirks that are needed to preserve backwards compatibility
+    """
+    if nameop['opcode'] == 'NAME_IMPORT':
+        nameop['op_fee'] = float(nameop['op_fee'])
+
+
+def op_snv_consensus_extra_quirks( extras, namerec, block_id, commit, db ):
+    """
+    Given the set of arguments to snv_consensus_extras, apply any
+    op-specific quirks that are needed to preserve backwards compatibility
+    """
+    if namerec.has_key('name') and db.get_name_init_opcode( namerec['name'] ) == 'NAME_IMPORT':
+        extras['op_fee'] = float(namerec['op_fee'])
+
+
+def op_make_restore_diff_quirks( diff, op_name, cur_rec, prev_block_number, history_index, untrusted_db, testset=False ):
+    """
+    Given the set of arguments to restore_diff, apply any op-specific quirks
+    that are needed to preserve backwards compatibility
+    """
+    if cur_rec.has_key('name') and untrusted_db.get_name_init_opcode( cur_rec['name'] ) == 'NAME_IMPORT':
+        diff['op_fee'] = float(cur_rec['op_fee'])
+
+
 def op_check( state_engine, nameop, block_id, checked_ops ):
     """
     Given the state engine, the current block, the list of pending
@@ -336,6 +363,9 @@ def op_check( state_engine, nameop, block_id, checked_ops ):
         log.error("FATAL: BUG: flipflop loop")
         sys.exit(1)
 
+    if rc:
+        op_check_quirks( state_engine, nameop, block_id, checked_ops )
+
     return rc
 
 
@@ -353,6 +383,7 @@ def op_make_restore_diff( op_name, cur_rec, prev_block_number, history_index, un
 
     method = RESTORE_METHODS[op_name]
     delta = method( cur_rec, prev_block_number, history_index, untrusted_db, testset=testset )
+    op_make_restore_diff_quirks( delta, op_name, cur_rec, prev_block_number, history_index, untrusted_db, testset=testset )
     return delta 
 
 
@@ -436,6 +467,7 @@ def op_snv_consensus_extra( op_name, prev_name_rec, prev_block_id, db ):
         return {}
 
     extras = method( prev_name_rec, prev_block_id, False, db )
+    op_snv_consensus_extra_quirks( extras, prev_name_rec, prev_block_id, False, db )
     return extras 
 
 
@@ -458,6 +490,8 @@ def op_commit_consensus_extra( op_name, name_rec, block_id, db ):
     commit_fields = SERIALIZE_FIELDS[op_name]
 
     extras = method( name_rec, block_id, True, db )
+    op_snv_consensus_extra_quirks( extras, name_rec, block_id, True, db )
+
     commit_extras = {}
     for cf in commit_fields + ['__override__']:
         if cf in extras:
