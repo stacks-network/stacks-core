@@ -137,9 +137,7 @@ def build(name, keepdata, consensus_hash, testset=False):
     return packaged_script
 
 
-# NOTE: when doing the state transition, ignore the equality test on the consensus hash.
-# this is a quirk to work around a bug in a previous implementation.
-@state_transition( "name", "name_records", ignore_equality_constraints=["consensus_hash"] )
+@state_transition( "name", "name_records" )
 def check( state_engine, nameop, block_id, checked_ops ):
     """
     Verify the validity of a name's transferrance to another private key.
@@ -540,8 +538,6 @@ def snv_consensus_extras( name_rec, block_id, commit, db ):
 
     ret_op = {}
     
-    # log.debug("SNV consensus fields at %s (%s)" % (block_id, name_rec['vtxindex']) )
-
     # reconstruct the recipient information
     ret_op['recipient'] = str(name_rec['sender'])
     ret_op['recipient_address'] = str(name_rec['address'])
@@ -568,19 +564,25 @@ def snv_consensus_extras( name_rec, block_id, commit, db ):
     ret_op['sender_pubkey'] = None
 
     # historic versions of this name record at this block
-    historic_namerecs = BlockstackDB.restore_from_history( name_rec, block_id )
+    name_rec_hist = None
+    if 'history' not in name_rec.keys():
+        name_rec_hist = db.get_name( name_rec['name'], lastblock=block_id, include_expired=True )
+    else:
+        name_rec_hist = name_rec
+
+    historic_namerecs = BlockstackDB.restore_from_history( name_rec_hist, block_id )
     vtxindex = None
 
     # find the historic name rec just before the affected one...
     for hn in historic_namerecs:
-        if hn['vtxindex'] < name_rec['vtxindex']:
+        if hn['vtxindex'] < name_rec_hist['vtxindex']:
             # happened before this
             ret_op['consensus_hash'] = hn['consensus_hash']
             vtxindex = hn['vtxindex']
    
     if not ret_op.has_key('consensus_hash'):
         # not set in this block, but in a prior block 
-        historic_namerecs = BlockstackDB.restore_from_history( name_rec, block_id - 1 )
+        historic_namerecs = BlockstackDB.restore_from_history( name_rec_hist, block_id - 1 )
         ret_op['consensus_hash'] = historic_namerecs[-1]['consensus_hash']
         vtxindex = historic_namerecs[-1]['vtxindex']
 
@@ -589,61 +591,6 @@ def snv_consensus_extras( name_rec, block_id, commit, db ):
     else:
         log.debug("Set consensus hash '%s' from same block at (%s, %s)" % (ret_op['consensus_hash'], block_id, vtxindex))
 
-    """
-    prev_consensus_hash = None
-
-    if 'history' in name_rec.keys():
-        # get the previous consensus hash.
-        # NOTE: The consensus hash that gets fed into a transfer comes from the last saved consensus hash
-        # in the history that is not a PREORDER, if there is a consensus-bearing command earlier in the history.
-        # Otherwise, it comes from the hash at the previous block.
-        # This is an artifact from an oversight in the original
-        # design of the system, but we have to adjust to it here to return the right consensus data.
-        # Search the name record's history backwards for that prior consensus hash.
-        log.debug("name_rec vtxindex = %s" % name_rec['vtxindex'])
-
-        for i in xrange(block_id, 0, -1):
-
-            if not name_rec['history'].has_key(i):
-                continue
-
-            for h in xrange(len(name_rec['history'][i])-1, -1, -1):
-
-                log.debug("consider (%s, %s)" % (i, h))
-
-                hist = name_rec['history'][i][h]
-                if i == block_id and hist.has_key('vtxindex') and hist['vtxindex'] >= name_rec['vtxindex']:
-                    # same block, but later or equal update 
-                    log.debug("skip later (%s, %s) (%s >= %s)" % (i, h, hist['vtxindex'], name_rec['vtxindex']))
-                    continue 
-
-                if not hist.has_key('consensus_hash'):
-                    log.debug("no consensus hash at (%s, %s)" % (i, h))
-                    continue
-               
-                if hist['opcode'] in ["NAME_PREORDER", "NAME_PREORDER_MULTI"]:
-                    # out of history
-                    log.debug("out of history at (%s, %s)" % (i, h))
-                    break
-                
-                log.debug("use consensus hash %s at history(%s, %s))" % (hist['consensus_hash'], i, h ))
-                prev_consensus_hash = hist['consensus_hash']
-                break
-
-            if prev_consensus_hash is not None:
-                break
-
-
-    if prev_consensus_hash is not None:
-        ret_op['consensus_hash'] = prev_consensus_hash
-    else:
-        # no prior consensus hash that would have been fed into the transfer
-        # log.debug("Use prior consensus hash at %s (%s)" % (block_id - 1, db.get_consensus_at(block_id - 1)))
-        ret_op['consensus_hash'] = db.get_consensus_at( block_id - 1 )
-    """
-
-    # the consensus hash given here *will* be different from that reported in the operation
-    op_commit_consensus_override( ret_op, "consensus_hash" )
     return ret_op
 
 
