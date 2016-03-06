@@ -227,6 +227,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
     nameop['sender'] = recipient
     nameop['address'] = recipient_address
     nameop['sender_pubkey'] = None
+    nameop['consensus_hash'] = name_rec['consensus_hash']   # QUIRK: preserved from previous name state
 
     if not nameop['keep_data']:
         nameop['value_hash'] = None
