@@ -745,13 +745,13 @@ def run_cli():
         if 'value_hash' not in record:
             result['registered'] = False
         else:
-            result['registered'] = True
+            result['creator_public_key'] = record['sender_pubkey']
             result['block_preordered_at'] = record['preorder_block_number']
             result['block_renewed_at'] = record['last_renewed']
+            result['latest_transaction_id'] = record['txid']
             result['owner_address'] = record['address']
-            result['owner_public_key'] = record['sender_pubkey']
             result['owner_script'] = record['sender']
-            result['preorder_transaction_id'] = record['txid']
+            result['registered'] = True
 
     elif args.action == 'register':
 
