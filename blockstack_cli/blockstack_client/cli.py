@@ -69,7 +69,7 @@ from binascii import hexlify
 import xmlrpclib
 
 from registrar.config import REGISTRAR_IP, REGISTRAR_PORT
-from registrar.config import BLOCKSTORED_IP, BLOCKSTORED_PORT
+from registrar.config import BLOCKSTACKD_IP, BLOCKSTACKD_PORT
 
 RPC_DAEMON = 'http://' + REGISTRAR_IP + ':' + str(REGISTRAR_PORT)
 
@@ -212,7 +212,7 @@ def get_names_owned(address):
       # hack to ensure local, until we update client
     from blockstack_client import client as bs_client
     # start session using blockstack_client
-    bs_client.session(server_host=BLOCKSTORED_IP, server_port=BLOCKSTORED_PORT,
+    bs_client.session(server_host=BLOCKSTACKD_IP, server_port=BLOCKSTACKD_PORT,
                       set_global=True)
 
     try:
@@ -625,8 +625,8 @@ def run_cli():
         else:
             result['server_alive'] = True
 
-            if 'blockstore_version' in resp:
-                result['server_version'] = resp['blockstore_version']
+            if 'blockstack_version' in resp:
+                result['server_version'] = resp['blockstack_version']
             elif 'blockstack_version' in resp:
                 result['server_version'] = resp['blockstack_version']
 
