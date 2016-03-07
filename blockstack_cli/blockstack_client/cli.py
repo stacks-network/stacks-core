@@ -71,6 +71,8 @@ import xmlrpclib
 from registrar.config import REGISTRAR_IP, REGISTRAR_PORT
 from registrar.config import BLOCKSTACKD_IP, BLOCKSTACKD_PORT
 
+from blockstack_profiles import get_person_from_legacy_format, is_profile_legacy_format
+
 RPC_DAEMON = 'http://' + REGISTRAR_IP + ':' + str(REGISTRAR_PORT)
 
 log = config.log
@@ -726,6 +728,9 @@ def run_cli():
                 client.get_immutable(str(args.name), data_id)['data'])
         except:
             data['data_record'] = None
+
+        if is_profile_legacy_format( data ):
+            data = get_person_from_legacy_format( data )
 
         result = data
 
