@@ -105,28 +105,28 @@ def initialize_wallet():
                 wallet = HDWallet(hex_privkey)
                 child = wallet.get_child_keypairs(count=2)
 
-                data = {}
                 encrypted_key = aes_encrypt(hex_privkey, hex_password)
-                data['encrypted_master_private_key'] = encrypted_key
-                data['payment_addresses'] = [child[0]]
-                data['owner_addresses'] = [child[1]]
+                wallet_file_data = {}
+                wallet_file_data['encrypted_master_private_key'] = encrypted_key
+                wallet_file_data['payment_addresses'] = [child[0]]
+                wallet_file_data['owner_addresses'] = [child[1]]
 
-                file = open(WALLET_PATH, 'w')
-                file.write(json.dumps(data))
-                file.close()
+                print "\nWallet created! Make sure to...\n", \
+                      "  1. Remember your password and write it down in a safe place\n", \
+                      "  2. Backup your encrypted master private key:\n\n", \
+                      encrypted_key + "\n"
 
-                print "Wallet created. Make sure to backup the following:"
-
-                result['wallet_password'] = password
-                result['master_private_key'] = hex_privkey
-                print_result(result)
-
-                input_prompt = "Have you backed up the above private key? (y/n): "
+                input_prompt = "Have you backed up your private key? (y/n): "
                 user_input = raw_input(input_prompt)
                 user_input = user_input.lower()
 
-                if user_input != 'y':
-                    exit_with_error("Please backup your private key first.")
+                if user_input == 'y':
+                    file = open(WALLET_PATH, 'w')
+                    file.write(json.dumps(wallet_file_data))
+                    file.close()
+                    print ""
+                else:
+                    exit_with_error("Wallet could not be created. Try again and make sure to complete the backup process.")
 
     except KeyboardInterrupt:
         exit_with_error("\nExited.")
