@@ -1899,12 +1899,20 @@ def run_server( testset=False, foreground=False, expected_snapshots={} ):
 
     while True:
 
-        rc = index_blockchain( expected_snapshots=expected_snapshots )
+	try:
+           rc = index_blockchain( expected_snapshots=expected_snapshots )
+        except Exception, e:
+           log.exception(e)
+           log.error("FATAL: caught exception while indexing")
+           blockstackd_api_server.kill()
+           blockstackd_api_server.wait()
+           blockstackd_api_server = None
+           sys.exit(1)
         
         # wait for the next block
         # NOTE: sigint can interrupt us
         deadline = time.time() + REINDEX_FREQUENCY
-        while time.time() < deadline and self.running:
+        while time.time() < deadline:
             time.sleep(1.0)
 
     # stop the API server
@@ -2486,7 +2494,7 @@ def run_blockstackd():
 
    
       # use snapshots?
-      expected_snapshots = {}
+      expected_snapshots = {"snapshots":{}}
       if args.check_snapshots is not None:
           snapshots_path = args.check_snapshots
           try:
@@ -2500,7 +2508,7 @@ def run_blockstackd():
               log.error("Failed to read expected snapshots from '%s'" % snapshots_path)
               sys.exit(1)
 
-      log.info('Starting blockstackd server (testset = %s, working dir = \'%s\', %s expected snapshots) ...' % (testset, working_dir, len(expected_snapshots['snapshots'])))
+      log.info('Starting blockstack server (testset = %s, working dir = \'%s\', %s expected snapshots) ...' % (testset, working_dir, len(expected_snapshots['snapshots'])))
 
       if args.foreground:
 

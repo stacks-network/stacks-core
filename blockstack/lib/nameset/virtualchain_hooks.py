@@ -467,7 +467,7 @@ def sync_blockchain( bt_opts, last_block, expected_snapshots={} ):
 
     virtualchain.sync_virtualchain( bt_opts, last_block, new_db )
 
-    BlockstackDB.release_readwrite_instance( new_db, lastblock )
+    BlockstackDB.release_readwrite_instance( new_db, last_block )
 
 
 def stop_sync_blockchain():
