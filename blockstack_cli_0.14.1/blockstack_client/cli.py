@@ -113,8 +113,8 @@ def initialize_wallet():
 
                 print "\nWallet created! Make sure to...\n", \
                       "  1. Remember your password and write it down in a safe place\n", \
-                      "  2. Backup your encrypted master private key:\n\n", \
-                      encrypted_key + "\n"
+                      "  2. Back up your encrypted master private key:\n\n", \
+                      "     " + encrypted_key + "\n"
 
                 input_prompt = "Have you backed up your private key? (y/n): "
                 user_input = raw_input(input_prompt)
@@ -530,7 +530,10 @@ def run_cli():
         if not os.path.exists(WALLET_PATH):
             initialize_wallet()
 
-        result['total_balance'], result['addresses'] = get_total_balance()
+        total_balance, addresses = get_total_balance()
+        result['total_balance'] = total_balance
+        if args.details:
+            result['addresses'] = addresses
 
     elif args.action == 'price':
 
@@ -606,7 +609,9 @@ def run_cli():
             initialize_wallet()
 
         result['names_owned'] = get_all_names_owned()
-        result['addresses'] = get_owner_addresses()
+
+        if args.details:
+            result['addresses'] = get_owner_addresses()
 
     elif args.action in ('info', 'status', 'ping', 'details'):
 
