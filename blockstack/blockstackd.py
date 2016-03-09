@@ -1775,25 +1775,21 @@ def index_blockchain( expected_snapshots={} ):
     Index the blockchain:
     * find the range of blocks
     * synchronize our state engine up to them
-
-    Return True on success
-    Return False on error
     """
 
     bt_opts = get_bitcoin_opts() 
     start_block, current_block = get_index_range()
 
     if start_block is None and current_block is None:
-        return False
+        log.error("Failed to find block range")
+        return
 
     # bring us up to speed
+    log.debug("Begin indexing (up to %s)" % current_block)
     set_indexing( True )
-
     virtualchain_hooks.sync_blockchain( bt_opts, current_block, expected_snapshots=expected_snapshots )
-
     set_indexing( False )
-
-    return True
+    log.debug("End indexing (up to %s)" % current_block)
 
 
 def api_server_subprocess( foreground=False, testset=False ):
@@ -1819,11 +1815,37 @@ def api_server_subprocess( foreground=False, testset=False ):
     return api_server
 
 
-def kill_api_server_atexit():
+def blockstack_exit():
+    """
+    Shut down the server on exit(3)
+    """
+
     global blockstackd_api_server
+
+    # stop API server
     if blockstackd_api_server is not None:
         blockstackd_api_server.kill()
         blockstackd_api_server.wait()
+
+    pid_file = get_pidfile_path()
+    try:
+        fin = open(pid_file, "r")
+        os.unlink(pid_file)
+    except Exception, e:
+        pass
+
+    else:
+        pid_data = fin.read().strip()
+        fin.close()
+
+        pid = int(pid_data)
+        if pid != os.getpid(): 
+
+            # kill the supervisor
+            try:
+               os.kill(pid, signal.SIGTERM)
+            except Exception, e:
+               pass
 
 
 def run_server( testset=False, foreground=False, expected_snapshots={} ):
@@ -1889,45 +1911,40 @@ def run_server( testset=False, foreground=False, expected_snapshots={} ):
     put_pidfile( pid_file, os.getpid() )
 
     # start API server
-    atexit.register( kill_api_server_atexit )
+    atexit.register( blockstack_exit )
     blockstackd_api_server = api_server_subprocess( foreground=True, testset=testset )
 
     # clear any stale indexing state
     set_indexing( False )
 
     log.debug("Begin Indexing")
+    running = True
 
-    while True:
+    while running:
 
 	try:
-           rc = index_blockchain( expected_snapshots=expected_snapshots )
+           index_blockchain( expected_snapshots=expected_snapshots )
         except Exception, e:
            log.exception(e)
            log.error("FATAL: caught exception while indexing")
-           blockstackd_api_server.kill()
-           blockstackd_api_server.wait()
-           blockstackd_api_server = None
            sys.exit(1)
         
         # wait for the next block
-        # NOTE: sigint can interrupt us
         deadline = time.time() + REINDEX_FREQUENCY
         while time.time() < deadline:
-            time.sleep(1.0)
-
-    # stop the API server
-    api_server = blockstackd_api_server
-    blockstackd_api_server = None 
-
-    api_server.kill()
-    api_server.wait()
+            try:
+                time.sleep(1.0)
+            except:
+                # interrupt
+                running = False
+                break
 
     # close logfile
     if logfile is not None:
         logfile.flush()
         logfile.close()
 
-    return api_server.returncode
+    return 0
 
 
 def setup( working_dir=None, testset=False, return_parser=False ):
