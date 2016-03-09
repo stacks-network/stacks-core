@@ -41,6 +41,7 @@ import binascii
 import copy
 import threading
 import atexit
+import errno
 
 import virtualchain
 
@@ -1660,7 +1661,6 @@ def stop_server( clean=False, kill=False ):
 
     # kill the main supervisor
     pid_file = get_pidfile_path()
-    log.info("Exiting at user request")
     try:
         fin = open(pid_file, "r")
     except Exception, e:
@@ -1673,14 +1673,24 @@ def stop_server( clean=False, kill=False ):
         pid = int(pid_data)
 
         try:
-           os.kill(pid, signal.SIGTERM)
-        except Exception, e:
-           pass
+           os.kill(pid, signal.SIGINT)
+        except OSError, oe:
+           if oe.errno == errno.ESRCH:
+              # already dead 
+              log.info("Process %s is not running" % pid)
+              try:
+                  os.unlink(pid_file)
+              except:
+                  pass
 
-        # takes at most 3 seconds 
-        time.sleep(3.0)
+              return
+
+        except Exception, e:
+            log.exception(e)
+            sys.exit(1)
 
         if kill:
+            time.sleep(3.0)
             try:
                 os.kill(pid, signal.SIGKILL)
             except Exception, e:
