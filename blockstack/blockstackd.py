@@ -1762,6 +1762,7 @@ def get_index_range():
 
     first_block = None
     last_block = None
+    delay = 1.0
     while last_block is None:
 
         first_block, last_block = virtualchain.get_index_range( bitcoind_conn )
@@ -1769,9 +1770,13 @@ def get_index_range():
         if last_block is None:
 
             # try to reconnnect
-            time.sleep(1)
-            log.error("Reconnect to bitcoind")
+            log.error("Reconnect to bitcoind in %s seconds" % delay)
+            time.sleep(delay)
             bitcoind_conn = get_bitcoind( new=True )
+
+            delay = (delay * 2) + (random.random() * delay)
+            if delay > 300:
+                delay = 300
             continue
 
         else:
