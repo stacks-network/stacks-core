@@ -70,6 +70,10 @@ def add_subparsers(subparsers):
     subparser = subparsers.add_parser(
         'balance',
         help='display the wallet balance')
+    subparser.add_argument(
+        '--details',
+        action="store_true",
+        help="whether or not the full details of the output should be shown")
 
     # ------------------------------------
     subparser = subparsers.add_parser(
@@ -129,6 +133,10 @@ def add_subparsers(subparsers):
     subparser = subparsers.add_parser(
         'names',
         help='display the names owned by local addresses')
+    subparser.add_argument(
+        '--details',
+        action="store_true",
+        help="whether or not the full details of the output should be shown")
 
     # ------------------------------------
     subparser = subparsers.add_parser(
