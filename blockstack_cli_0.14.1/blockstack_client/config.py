@@ -189,6 +189,7 @@ OPFIELDS = {
 DEBUG = True
 MAX_RPC_LEN = 1024 * 1024 * 1024
 
+MAX_NAME_LENGTH = 37        # taken from blockstack-server
 CONFIG_DIR_INIT = "~/.blockstack"
 CONFIG_DIR = os.path.expanduser(CONFIG_DIR_INIT)
 CONFIG_PATH = os.path.join(CONFIG_DIR, "client.ini")
@@ -292,7 +293,7 @@ def get_config(path=CONFIG_PATH):
         "storage_drivers": BLOCKSTACK_DEFAULT_STORAGE_DRIVERS,
         "metadata": BLOCKSTACK_METADATA_DIR,
         "blockchain_headers": SPV_HEADERS_PATH,
-        "advanced_mode": 'off',
+        "advanced_mode": 'off'
     }
 
     parser = SafeConfigParser()
@@ -336,10 +337,10 @@ def get_config(path=CONFIG_PATH):
         if parser.has_option("blockstack-client", "rpc_token"):
             config['rpc_token'] = parser.get("blockstack-client", "rpc_token")
 
+
     # import bitcoind options
-    # commenting out because of virtualchain==0.0.6 config bug
-    #bitcoind_config = virtualchain.get_bitcoind_config(path)
-    #config.update(bitcoind_config)
+    bitcoind_config = virtualchain.get_bitcoind_config(path)
+    config.update(bitcoind_config)
 
     if not os.path.isdir(config['metadata']):
         if config['metadata'].startswith(os.path.expanduser(CONFIG_DIR_INIT)):
