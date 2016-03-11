@@ -29,8 +29,7 @@ from pybitcoin.transactions.outputs import calculate_change_amount
 import virtualchain
 from virtualchain import getrawtransaction 
 
-if not globals().has_key('log'):
-    log = virtualchain.session.log
+log = virtualchain.get_logger()
 
 import bitcoin
 import json

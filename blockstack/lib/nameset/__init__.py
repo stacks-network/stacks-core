@@ -25,9 +25,9 @@ import sys
 import json
 from ..config import OPCODE_CREATION_OPS, OPCODE_TRANSITION_OPS, op_get_opcode_name
 
-if not globals().has_key('log'):
-    import virtualchain
-    log = virtualchain.session.log
+import virtualchain
+log = virtualchain.get_logger()
+
 
 # fields that *must* be present 
 CONSENSUS_FIELDS_REQUIRED = [

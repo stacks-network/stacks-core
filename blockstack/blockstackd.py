@@ -45,15 +45,13 @@ import errno
 
 import virtualchain
 
-if not globals().has_key('log'):
-    log = virtualchain.session.log
-
 try:
     import blockstack_client
 except:
     # storage API won't work
     blockstack_client = None
 
+log = virtualchain.get_logger()
 from ConfigParser import SafeConfigParser
 
 import pybitcoin

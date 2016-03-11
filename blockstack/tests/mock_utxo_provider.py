@@ -40,9 +40,7 @@ Mock UTXO provider.
 """
 
 mock_utxo_client = None
-
-if not globals().has_key('log'):
-    log = virtualchain.session.log
+log = virtualchain.get_logger()
 
 class MockUTXOProvider(object):
 

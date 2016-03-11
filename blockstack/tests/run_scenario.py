@@ -31,8 +31,7 @@ import blockstack.blockstackd as blockstackd
 
 import scenarios.testlib as testlib
 
-if not globals().has_key('log'):
-    log = virtualchain.session.log
+log = virtualchain.get_logger()
 
 mock_bitcoind_connection = None
 api_server = None
@@ -316,7 +315,7 @@ if __name__ == "__main__":
    
     if rc:
         print "SUCCESS %s" % scenario.__name__
-        shutil.rmtree( working_dir )
+        # shutil.rmtree( working_dir )
         sys.exit(0)
     else:
         print >> sys.stderr, "FAILURE %s" % scenario.__name__

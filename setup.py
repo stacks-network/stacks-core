@@ -25,9 +25,12 @@ from setuptools import setup, find_packages
 import sys
 import os
 
+# set __version__
+exec(open('blockstack/version.py').read())
+
 setup(
     name='blockstack',
-    version='0.0.11.1',
+    version=__version__,
     url='https://github.com/blockstack/blockstack',
     license='GPLv3',
     author='Blockstack.org',

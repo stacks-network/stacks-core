@@ -13,7 +13,7 @@ save_file = @MOCK_SAVE_FILE@
 
 [dht]
 disable = True
-port = 6265
+port = 16265
 servers = dht.openname.org:6265,dht.onename.com:6265,dht.halfmoonlabs.com:6265,127.0.0.1:6265
 
 [blockstack]

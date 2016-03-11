@@ -56,8 +56,7 @@ from register import get_registration_recipient_from_outputs
 
 import virtualchain
 
-if not globals().has_key('log'):
-    log = virtualchain.session.log
+log = virtualchain.get_logger()
 
 FIELDS = [
     'names',                # the names registered

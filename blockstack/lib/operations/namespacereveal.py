@@ -41,8 +41,7 @@ from ..hashing import hash_name
 from namespacepreorder import FIELDS as namespacepreorder_FIELDS
 import virtualchain
 
-if not globals().has_key('log'):
-    log = virtualchain.session.log
+log = virtualchain.get_logger()
 
 # consensus hash fields (ORDER MATTERS!)
 FIELDS = [

@@ -43,8 +43,7 @@ import virtualchain
 
 from ..scripts import get_burn_fee_from_outputs
 
-if not globals().has_key('log'):
-    log = virtualchain.session.log
+log = virtualchain.get_logger()
 
 
 def get_virtual_chain_name(testset=False):

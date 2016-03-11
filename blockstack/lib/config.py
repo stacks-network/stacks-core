@@ -25,11 +25,11 @@ import os
 import sys
 from ConfigParser import SafeConfigParser
 import pybitcoin
+import logging
 
 import virtualchain
 
-if not globals().has_key('log'):
-    log = virtualchain.session.log
+log = virtualchain.get_logger()
 
 try:
     import blockstack_client
@@ -68,14 +68,19 @@ MAX_NAMES_PER_SENDER = 25                # a sender can own at most 25 names
 
 """ RPC server configs
 """
-RPC_SERVER_PORT = 6264
+
+if os.getenv("BLOCKSTACK_TEST") is not None:
+    RPC_SERVER_PORT = 16264
+
+else:
+    RPC_SERVER_PORT = 6264
 
 """ DHT configs
 """
 # 3 years
 STORAGE_TTL = 3 * 60 * 60 * 24 * 365
 
-DHT_SERVER_PORT = 6265  # blockstackd default to port 6264
+DHT_SERVER_PORT = 6265
 
 DEFAULT_DHT_SERVERS = [('dht.blockstack.org', DHT_SERVER_PORT),
                        ('dht.onename.com', DHT_SERVER_PORT),
@@ -352,7 +357,7 @@ if os.getenv("BLOCKSTACK_TEST") is not None:
     # testing 
     NAME_IMPORT_KEYRING_SIZE = 5                  # number of keys to derive from the import key
     NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_DAY      # small enough so we can actually test this...
-    print >> sys.stderr, "WARN: in test environment"
+    print >> sys.stderr, "WARN (%s): in test environment" % os.getpid()
 
 else:
     NAME_IMPORT_KEYRING_SIZE = 300                  # number of keys to derive from the import key

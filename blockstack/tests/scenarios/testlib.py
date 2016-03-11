@@ -45,8 +45,7 @@ import pybitcoin
 
 import virtualchain
 
-if not globals().has_key('log'):
-    log = virtualchain.session.log
+log = virtualchain.get_logger()
 
 class Wallet(object):
     def __init__(self, pk_wif, value_str ):
@@ -73,7 +72,8 @@ class TestAPIProxy(object):
         self.api = blockstack.blockstackd.BlockstackdRPC()
         self.conf = {
             "start_block": blockstack.FIRST_BLOCK_MAINNET,
-            "initial_utxos": utxo_opts
+            "initial_utxos": utxo_opts,
+            "storage_drivers": "disk"
         }
         self.spv_headers_path = utxo_opts['spv_headers_path']
 
@@ -153,7 +153,7 @@ def make_proxy():
     Create a blockstack client API proxy
     """
     global utxo_opts
-    proxy = blockstack_client.client.session( server_host="localhost", server_port=6264, storage_drivers="disk", \
+    proxy = blockstack_client.client.session( server_host="localhost", server_port=16264, storage_drivers="disk", \
                                               metadata_dir=None, spv_headers_path=utxo_opts['spv_headers_path'] )
 
     return proxy
@@ -653,3 +653,4 @@ def get_bitcoind():
 def get_state_engine():
     global state_engine
     return state_engine
+
