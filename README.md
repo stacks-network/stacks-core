@@ -347,8 +347,12 @@ Try installing it using:
 If you see the following error, when you run '$ blockstack':
 > ImportError: Twisted requires zope.interface 3.6.0 or later.
 
-Then you're trying to install inside of a virtualenvironment and Twisted is
-already installed outside. Exit the virtualenvironment and uninstall Twisted:
+Try upgrading zope.interface:
+> pip install zope.interface --upgrade
+
+If that doesn't solve the issue and you're trying to install inside of a
+virtualenvironment, then Twisted is likely already installed outside the
+virtualenvironment. Exit the virtualenvironment and uninstall Twisted:
 ```
 $ deactivate
 $ sudo pip uninstall twisted
