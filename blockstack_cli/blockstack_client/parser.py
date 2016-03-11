@@ -554,7 +554,7 @@ def add_advanced_subparsers(subparsers):
         help='the data to store')
     put_mutable_parser.add_argument(
         'privatekey', type=str,
-        help='the private key assocated with the name')
+        help='the the private key associated with the name')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
