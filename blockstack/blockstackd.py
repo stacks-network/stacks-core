@@ -2346,6 +2346,38 @@ def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_pa
         return False
 
 
+def restore( working_dir, block_number ):
+    """
+    Restore the database from a backup in the backups/ directory.
+    If block_number is None, then use the latest backup.
+    Raise an exception if no such backup exists
+    """
+
+    if block_number is None:
+        all_blocks = BlockstackDB.get_backup_blocks( virtualchain_hooks )
+        if len(all_blocks) == 0:
+            log.error("No backups available")
+            return False
+
+        block_number = max(all_blocks)
+
+    found = True
+    backup_paths = BlockstackDB.get_backup_paths( block_number, virtualchain_hooks )
+    for p in backup_paths:
+        if not os.path.exists(p):
+            log.error("Missing backup file: '%s'" % p)
+            found = False
+
+    if not found:
+        return False 
+
+    rc = BlockstackDB.backup_restore( block_number, virtualchain_hooks )
+    if not rc:
+        log.error("Failed to restore backup")
+
+    return rc
+
+
 def check_testset_enabled():
     """
     Check sys.argv to see if testset is enabled.
@@ -2457,6 +2489,13 @@ def run_blockstackd():
       help='use an alternative working directory')
 
    parser = subparsers.add_parser(
+      'restore',
+      help="Restore the database from a backup")
+   parser.add_argument(
+      'block_number', nargs='?',
+      help="The block number to restore from (if not given, the last backup will be used)")
+
+   parser = subparsers.add_parser(
       'rebuilddb',
       help='Reconstruct the current database from particular block number by replaying all prior name operations')
    parser.add_argument(
@@ -2553,6 +2592,9 @@ def run_blockstackd():
 
    elif args.action == 'reconfigure':
       reconfigure( testset=testset )
+
+   elif args.action == 'restore':
+      restore( working_dir, args.block_number )
 
    elif args.action == 'clean':
       clean( confirm=(not args.force), testset=args.testset )
