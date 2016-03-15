@@ -843,6 +843,9 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, tx_o
     user who created the namespace can create names in it.
     """
 
+    if is_namespace_id_blacklisted( namespace_id ):
+        return {"error": "Invalid namespace ID"}
+
     blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
 
     # are we doing our initial indexing?
@@ -886,6 +889,9 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
     Between the namespace definition and the "namespace begin" operation, only the
     user who created the namespace can create names in it.
     """
+    
+    if is_namespace_id_blacklisted( namespace_id ):
+        return {"error": "Invalid namespace ID"}
 
     blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
 
@@ -918,6 +924,9 @@ def blockstack_namespace_ready( namespace_id, privatekey, tx_only=False, testset
     """
     Declare that a namespace is open to accepting new names.
     """
+
+    if is_namespace_id_blacklisted( namespace_id ):
+        return {"error": "Invalid namespace ID"}
 
     blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
 
