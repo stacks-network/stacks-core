@@ -27,6 +27,7 @@ from b40 import *
 from config import *
 from scripts import *
 from hashing import *
+from blacklist import is_namespace_id_blacklisted
 
 from nameset import *
 from operations import *
