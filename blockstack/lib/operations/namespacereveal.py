@@ -36,6 +36,7 @@ from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import *
 from ..nameset import *
+from ..blacklist import is_namespace_id_blacklisted
 from ..hashing import hash_name
    
 from namespacepreorder import FIELDS as namespacepreorder_FIELDS
@@ -153,6 +154,9 @@ def namespacereveal_sanity_check( namespace_id, version, lifetime, coeff, base, 
    if no_vowel_discount <= 0 or no_vowel_discount > 15:
         raise Exception("Invalid no-vowel discount %s: must be in range [0, 16)" % no_vowel_discount)
 
+   if is_namespace_id_blacklisted( namespace_id ):
+        raise Exception("Invalid namespace ID")
+
    return True
 
 
@@ -230,6 +234,10 @@ def check( state_engine, nameop, block_id, checked_ops ):
     namespace_id_hash = nameop['preorder_hash']
     sender = nameop['sender']
     namespace_preorder = None
+
+    if is_namespace_id_blacklisted( namespace_id ):
+       log.debug("Namespace '%s' is blacklisted." % namespace_id)
+       return False
 
     if not nameop.has_key('sender_pubkey'):
        log.debug("Namespace reveal requires a sender_pubkey (i.e. a p2pkh transaction)")
