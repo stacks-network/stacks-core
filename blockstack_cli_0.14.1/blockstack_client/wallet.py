@@ -51,10 +51,7 @@ from registrar.config import BLOCKSTACKD_IP, BLOCKSTACKD_PORT
 from registrar.wallet import HDWallet
 from registrar.crypto.utils import aes_encrypt, aes_decrypt
 from registrar.blockchain import get_balance, dontuseAddress
-from registrar.network import get_bs_client
-from registrar.rpc_daemon import background_process
 from registrar.utils import satoshis_to_btc
-from registrar.states import nameRegistered, ownerName, profileonBlockchain
 from registrar.blockchain import recipientNotReady, get_tx_confirmations
 
 RPC_DAEMON = 'http://' + REGISTRAR_IP + ':' + str(REGISTRAR_PORT)
@@ -248,6 +245,7 @@ def start_background_daemons():
         if they're not already running
     """
 
+    from registrar.rpc_daemon import background_process
     proxy = xmlrpclib.ServerProxy(RPC_DAEMON)
 
     try:
@@ -387,6 +385,4 @@ def findProcess(processName):
     ps.wait()
     return output
 
-
-def get_profile_public_key():
 
