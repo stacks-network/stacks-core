@@ -148,9 +148,10 @@ def make_mutable_url(data_id):
     Given the ID of the data, generate a URL that
     can be used to route reads and writes to the data.
 
-    Return a string.
+    Return a string.  Use dht+udp to convey both the scheme
+    and the transport (since it won't be in /etc/services).
     """
-    return "dht:" + pybitcoin.hash.hex_hash160(data_id)
+    return "dht+udp://" + pybitcoin.hash.hex_hash160(data_id)
 
 
 def get_immutable_handler(key):
@@ -188,13 +189,9 @@ def put_immutable_handler(key, data, txid):
     return dht_put_data(key, data)
 
 
-def put_mutable_handler(data_id, nonce, signature, data_json):
+def put_mutable_handler(data_id, data_json):
     """
     DHT implementation of the put_mutable_handler API call.
-    Given the the unchanging ID for the data, a nonce representing
-    this version of the data, the writer's signature over hash(data_id + data + nonce),
-    and the serialized JSON representing all of the above plus the data, put
-    the serialized JSON into storage.
     Return True on success; False on failure.
     """
 
@@ -210,7 +207,7 @@ def put_mutable_handler(data_id, nonce, signature, data_json):
     return True
 
 
-def delete_immutable_handler(key, txid):
+def delete_immutable_handler(key, txid, sig_key_txid):
     """
     DHT implementation of the delete_immutable_handler API call.
     Given the hash of the data and transaction ID of the update
@@ -264,7 +261,7 @@ if __name__ == "__main__":
     sys.path.insert(0, current_dir)
 
     from parsing import json_stable_serialize
-    from storage import mutable_data_parse, mutable_data
+    from storage import *
 
     test_data = [
       ["my_first_datum",        "hello world",                              1, "unused", None],
@@ -298,11 +295,11 @@ if __name__ == "__main__":
 
         data_url = make_mutable_url(d_id)
 
-        data = mutable_data(d_id, d, n, sig=s)
+        data = make_mutable_data(d_id, d, n, sig=s)
 
         data_json = json_stable_serialize(data)
 
-        rc = put_mutable_handler(d_id, n, "unused", data_json)
+        rc = put_mutable_handler(d_id, data_json)
 
         if not rc:
             raise Exception("put_mutable_handler('%s', '%s') failed" % (d_id, d))
@@ -327,7 +324,7 @@ if __name__ == "__main__":
         d_id, d, n, s, url = test_data[i]
 
         rd_json = get_mutable_handler(url)
-        rd = mutable_data_parse(rd_json)
+        rd = parse_mutable_data(rd_json)
 
         if rd is None:
             raise Exception("Failed to parse mutable data '%s'" % rd_json)
