@@ -22,9 +22,11 @@ setup(
     install_requires=[
         'boto==2.38.0',
         'basicrpc==0.0.2',
-        'virtualchain==0.0.9',
+        'virtualchain>=0.0.9',
         'protocoin==0.1',
-        'blockstack-profiles>=0.0.2'
+        'blockstack-profiles>=0.1.3',
+        'pybitcoin>=0.9.8',
+        'zone_file>=0.1.3'
     ],
     classifiers=[
         'Intended Audience :: Developers',
