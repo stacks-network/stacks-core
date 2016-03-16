@@ -23,7 +23,17 @@
 
 import json
 
-from config import log
+from config import get_logger
+log = get_logger()
+
+def exit_with_error(error_message, help_message=None):
+
+    result = {'error': error_message}
+
+    if help_message is not None:
+        result['help'] = help_message
+    print_result(result)
+    exit(0)
 
 
 def pretty_dump(data):
