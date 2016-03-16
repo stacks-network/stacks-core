@@ -66,12 +66,12 @@ from registrar.utils import satoshis_to_btc
 from registrar.states import nameRegistered, ownerName, profileonBlockchain
 from registrar.blockchain import recipientNotReady, get_tx_confirmations
 
-from blockstack_profiles import get_person_from_legacy_format, is_profile_legacy_format
+from blockstack_profiles import get_person_from_legacy_format, is_profile_in_legacy_format
 
 from .wallet import *
 from .utils import exit_with_error
 
-log = config.log
+log = config.get_logger()
 
 def check_valid_name(fqu):
 
@@ -146,7 +146,7 @@ def get_sorted_commands(display_commands=False):
                     'cost', 'get_namespace_cost', 'get_nameops_at',
                     'get_name_blockchain_record',
                     'get_namespace_blockchain_record',
-                    'get_name_record', 'lookup',
+                    'get_name_zonefile', 'lookup',
                     'get_all_names', 'get_names_in_namespace', 'consensus',
                     'lookup_snv', 'get_names_owned_by_address',
                     'preorder_tx', 'preorder_subsidized',
@@ -409,7 +409,7 @@ def run_cli():
         except:
             data['data_record'] = None
 
-        if is_profile_legacy_format( data ):
+        if is_profile_in_legacy_format( data ):
             data = get_person_from_legacy_format( data )
 
         result = data
@@ -799,8 +799,8 @@ def run_cli():
         result = client.lookup_snv(str(args.name), int(args.block_id),
                                    str(args.consensus_hash))
 
-    elif args.action == 'get_name_record':
-        result = client.get_name_record(str(args.name))
+    elif args.action == 'get_name_zonefile':
+        result = client.get_name_zonefile(str(args.name))
 
     elif args.action == 'get_names_owned_by_address':
         result = client.get_names_owned_by_address(str(args.address))
