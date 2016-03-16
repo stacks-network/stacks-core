@@ -29,7 +29,7 @@ from binascii import hexlify
 
 from ConfigParser import SafeConfigParser
 
-from .version import __version__
+from version import __version__
 
 DEBUG = True
 VERSION = __version__
@@ -198,16 +198,10 @@ SPV_HEADERS_PATH = os.path.join(CONFIG_DIR, "blockchain-headers.dat")
 
 BLOCKCHAIN_ID_MAGIC = 'id'
 
-log = logging.getLogger()
-if len(log.handlers) == 0:
-    log.setLevel(logging.DEBUG if DEBUG else logging.INFO)
-    console = logging.StreamHandler()
-    console.setLevel(logging.DEBUG if DEBUG else logging.INFO)
-    log_format = ('[%(levelname)s] [%(module)s:%(lineno)d] (' + str(os.getpid()) + ') %(message)s' if DEBUG else '%(message)s')
-    formatter = logging.Formatter(log_format)
-    console.setFormatter(formatter)
-    log.propagate = False
-    log.addHandler(console)
+USER_ZONEFILE_TTL = 3600    # cache lifetime for a user's zonefile
+
+def get_logger():
+    return virtualchain.get_logger()
 
 
 def make_default_config(path=CONFIG_PATH):
