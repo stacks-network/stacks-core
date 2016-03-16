@@ -9,12 +9,9 @@ ecdsa==0.13
 keychain==0.1.4
 protocoin==0.1
 pybitcoin==0.9.8
-pybitcointools==1.1.15
 python-bitcoinrpc==0.1
 requests==2.9.1
 six==1.10.0
-Twisted==15.5.0
 txJSON-RPC==0.3.1
 utilitybelt==0.2.6
 virtualchain==0.0.6
-zope.interface==4.1.3
