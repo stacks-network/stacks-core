@@ -524,6 +524,9 @@ def add_advanced_subparsers(subparsers):
         'name', type=str,
         help='the name that owns this data')
     subparser.add_argument(
+        'data_id', type=str,
+        help='the name of the record')
+    subparser.add_argument(
         'data', type=str,
         help='the data to store')
     subparser.add_argument(
