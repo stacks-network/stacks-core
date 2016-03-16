@@ -30,54 +30,67 @@ import sys
 current_dir =  os.path.abspath(os.path.dirname(__file__))
 sys.path.insert(0, current_dir)
 
-from parsing import json_stable_serialize
-import schemas
-
 import pybitcoin
 import bitcoin as pybitcointools
 import types
 import re
 import base64
 import json
+import hashlib
 
-from config import log
+import blockstack_profiles 
+
+from config import MAX_NAME_LENGTH, get_logger
+
+log = get_logger()
 
 class UnhandledURLException( Exception ):
    def __init__(self, url):
       super( UnhandledURLException, self ).__init__()
       self.unhandled_url = url
 
-# mutable storage route
-ROUTE_SCHEMA = {
 
-   "id": schemas.STRING,
-   "urls": [ schemas.STRING ],
-   schemas.OPTIONAL( "pubkey" ): schemas.STRING
-}
+def is_valid_hash( value ):
+    """
+    Is this string a valid 32-byte hash?
+    """
+    if type(value) not in [str, unicode]:
+        return False 
+  
+    strvalue = str(value)
+  
+    if re.match(r"^[a-fA-F0-9]+$", strvalue ) is None:
+        return False 
+  
+    if len(strvalue) != 64: 
+        return False 
 
+    return True
 
-# mutable data schema
-MUTABLE_DATA_SCHEMA = {
-
-   "id": schemas.STRING,
-   "data": schemas.B64STRING,
-   "ver": schemas.INTEGER,
-   "sig": schemas.B64STRING
-}
 
 # global list of registered data handlers
 storage_handlers = []
 
 
-def get_data_hash( data_text ):
+def get_data_hash( data_txt ):
    """
    Generate a hash over data for immutable storage.
    Return the hex string.
    """
-   return pybitcoin.hash.hex_hash160( data_text )
+   h = hashlib.sha256()
+   h.update(data_txt)
+   return h.hexdigest()
 
 
-def make_mutable_urls( data_id ):
+def get_user_zonefile_hash( data_txt ):
+   """
+   Generate a hash over a user's zonefile.
+   Return the hex string.
+   """
+   return pybitcoin.hex_hash160( data_txt )
+
+
+def make_mutable_data_urls( data_id ):
    """
    Given a data ID for mutable data, get a list of URLs to it
    by asking the storage handlers.
@@ -104,164 +117,32 @@ def make_mutable_urls( data_id ):
    return urls
 
 
-def mutable_data_route( data_id, data_urls, writer_pubkey=None ):
+def serialize_mutable_data( data_json, privatekey ):
    """
-   Construct a mutable data route as a dict.  This can be serialized to JSON.
-   Return the parsed JSON dict on success.
-   Return None on error
-   """
+   Generate a serialized mutable data record from the given information.
+   Sign it with privatekey.
 
-   # sanity check
-   if type(data_id) not in [types.StringType, types.UnicodeType]:
-      log.error("Data ID must be a string (got '%s')" % str(data_id))
-      return None
-
-   if type(data_urls) != types.ListType:
-      log.error("Data URLs must be an array of strings")
-      return None
-
-   for url in data_urls:
-      if type(url) not in [types.StringType, types.UnicodeType]:
-         log.error("Data URL must be a string (got '%s')" % str(url))
-         return None
-
-   if writer_pubkey is not None:
-      if type(writer_pubkey) not in [types.StringType, types.UnicodeType]:
-         log.error("Writer public key must be encoded as a string (got '%s')" % str(writer_pubkey))
-         return None
-
-   route = {
-      "id": data_id,
-      "urls": data_urls
-   }
-
-   if writer_pubkey is not None:
-      route['pubkey'] = writer_pubkey
-
-   return route
-
-
-def mutable_data_route_parse( route_json_text ):
-   """
-   Given the serialized JSON for a mutable data route,
-   parse it into a JSON document.
-   Return the dict with the JSON information on success
-   Return None on parse error
+   Return the serialized data (as a string) on success
    """
 
-   # sanity check
-   if type(route_json_text) not in [types.StringType, types.UnicodeType]:
-      log.error("JSON is not a valid string")
-      return None
-
-   try:
-      route_object = json.loads( route_json_text )
-   except Exception, e:
-      log.error("Not a JSON string: '%s'" % str(route_json_text))
-      return None
-
-   # validate against our route schema
-   if not schemas.schema_match( ROUTE_SCHEMA, route_object ):
-      log.error("Not a valid route: '%s'" % str(route_json_text))
-      return None
-
-   return route_object
+   tokenized_data = blockstack_profiles.sign_token_records( [data_json], privatekey )
+   serialized_data = json.dumps( tokenized_data, sort_keys=True )
+   return serialized_data
 
 
-def mutable_data_encode( data ):
-   """
-   Encode the 'data' field of a mutable data dict, making
-   it suitable for storing and printing to a console.
-   Call this method after mutable_data( encode=False )
-   to encode the data.
-   """
-
-   data['data'] = base64.b64encode( data['data'] )
-
-
-def mutable_data_decode( data ):
-   """
-   Decode the 'data' field of a mutable data dict.
-   Call this method after mutable_data_parse( decode=False )
-   to recover the data.
-   """
-
-   data['data'] = base64.b64decode( data['data'] )
-
-
-def mutable_data( data_id, data_text, ver, privkey=None, sig=None, encode=True ):
-   """
-   Generate a mutable data dict from the given information.
-   If sig is given, use sig
-   If privkey is given and sig is not, then sign the data with privkey.
-   otherwise, return None (this is an error)
-   """
-   data = {
-      "id": str(data_id),
-      "data": data_text,
-      "ver": int(ver)
-   }
-
-   if encode:
-      mutable_data_encode( data )
-
-   if sig is not None:
-      data['sig'] = sig
-
-   elif sig is None and privkey is not None:
-      data['sig'] = sign_mutable_data( data, privkey )
-
-   else:
-      # need a sig or a private key!
-      return None
-
-   return data
-
-
-def mutable_data_parse( mutable_data_json_text, decode=True ):
+def parse_mutable_data( mutable_data_json_txt, public_key ):
    """
    Given the serialized JSON for a piece of mutable data,
-   parse it into a JSON document.
-
-   If decode is True, then decode the data string as well.
+   parse it into a JSON document.  Verify that it was 
+   signed by public_key's private key.
 
    Return the parsed JSON dict on success
    Return None on error
    """
 
-   # sanity check
-   if type(mutable_data_json_text) not in [types.StringType, types.UnicodeType]:
-      log.error("JSON is not a valid string")
-      return None
-
-   try:
-      data_object = json.loads( mutable_data_json_text )
-   except Exception, e:
-      log.error("Not a JSON string: '%s'" % str(mutable_data_json_text))
-      return None
-
-   # TODO: use the schema to check for possible type conversions,
-   # and to carry out type conversions en masse.
-   if not data_object.has_key('ver'):
-      log.error("Not a valid mutable data object: missing 'ver'")
-      return None
-
-   try:
-      data_object['ver'] = int( data_object['ver'] )
-   except Exception, e:
-      log.error("Not a valid mutable data object: '%s'" % str(mutable_data_json_text))
-      return None
-
-   # validate against data schema
-   if not schemas.schema_match( MUTABLE_DATA_SCHEMA, data_object ):
-      log.error("Not a valid mutable data object: '%s'" % str(mutable_data_json_text))
-      return None
-
-   # decode data
-   if decode:
-      mutable_data_decode( data_object )
-
-   return data_object
+   mutable_data_jwt = json.loads(mutable_data_json_txt)
+   mutable_data_json = blockstack_profiles.get_profile_from_tokens( mutable_data_jwt, public_key )
+   return mutable_data_json
 
 
 def register_storage( storage_impl ):
@@ -277,6 +158,10 @@ def register_storage( storage_impl ):
    """
 
    global storage_handlers
+   if storage_impl in storage_handlers:
+       log.debug("WARN: already registered '%s'" % storage_impl)
+       return True 
+
    storage_handlers.append( storage_impl )
 
    # sanity check
@@ -290,7 +175,7 @@ def register_storage( storage_impl ):
    return True
 
 
-def get_immutable_data( data_key ):
+def get_immutable_data( data_key, hash_func=get_data_hash ):
    """
    Given the hash of the data, go through the list of
    immutable data handlers and look it up.
@@ -299,10 +184,14 @@ def get_immutable_data( data_key ):
 
    """
    global storage_handlers
+   if len(storage_handlers) == 0:
+       log.debug("No storage handlers registered")
+       return None
 
    for handler in storage_handlers:
 
       if not hasattr( handler, "get_immutable_handler" ):
+         log.debug("No method: %s.get_immutable_handler(%s)" % (handler, data_key))
          continue
 
       data = None
@@ -315,77 +204,17 @@ def get_immutable_data( data_key ):
          continue
 
       if data is None:
+         log.debug("No data: %s.get_immutable_handler(%s)" % (handler, data_key))
          continue
 
       # validate
-      data_hash = get_data_hash( data )
+      data_hash = hash_func(data)
       if data_hash != data_key:
          # nope
          log.error("Invalid data hash")
          continue
 
       return data
-
-   return None
-
-
-def get_mutable_data_route_hash( route ):
-   """
-   Given an unserialized route, get its hash.
-   Return the hash on success
-   Return None on error
-   """
-   route_json = json_stable_serialize( route )
-   if route_json is None:
-      return None
-
-   return get_data_hash( route_json )
-
-
-def get_mutable_data_route( data_id, route_hash ):
-   """
-   Given a data ID, go fetch its route.  Verify that it matches the given hash
-   Return a dict with the route information on success.
-   Return None on error.
-   """
-   global storage_handlers
-
-   for handler in storage_handlers:
-
-      if not hasattr( handler, "get_immutable_handler" ):
-         continue
-
-      route_json = None
-      route = None
-
-      try:
-
-         route_json = handler.get_immutable_handler( route_hash )
-      except Exception, e:
-
-         log.exception(e)
-         continue
-
-      if route_json is None:
-         continue
-
-      if get_data_hash( route_json ) != route_hash:
-         log.error("Invalid route: hash mismatch")
-         continue
-
-      # it had better be a JSON doc we can use
-      try:
-         route = mutable_data_route_parse( route_json )
-      except Exception, e:
-
-         log.exception(e)
-         continue
-
-      if route['id'] != data_id:
-         log.error("Invalid route: id mismatch")
-         continue
-
-      return route
 
    return None
 
@@ -414,56 +243,27 @@ def verify_raw_data( raw_data, pubkey, sigb64 ):
    return pybitcointools.ecdsa_raw_verify( data_hash, pybitcointools.decode_sig( sigb64 ), pubkey )
 
 
-def sign_mutable_data( data, privatekey ):
+def get_mutable_data( fq_data_id, data_pubkey, urls=None ):
    """
-   Given a mutable data dict and a ECDSA private key,
-   generate and return a base64-encoded signature over the fields that matter (i.e. the data_id, ver, and data).
-   Return the signature (baes64-encoded)
-   """
-
-   data_str = str(data['id']) + str(data['ver']) + str(data['data'])
-   return sign_raw_data( data_str, privatekey )
-
-
-def verify_mutable_data( data, pubkey ):
-   """
-   Given the data (as a dict) and the base64-encoded signature,
-   as well as the public key from the data route,
-   verify that the signature matches.
-   """
-
-   sigb64 = data['sig']
-
-   data_str = str(data['id']) + str(data['ver']) + str(data['data'])
-
-   return verify_raw_data( data_str, pubkey, sigb64 )
-
-
-def get_mutable_data( data_route, ver_min=None, ver_max=None, ver_check=None ):
-   """
-   Given a data's route, go fetch the data.
-
-   Optionally verify that the version ('ver') in the data returned is within [ver_min, ver_max],
-   or no less than ver_min, or no greater than ver_max.
-
-   Optionally evaluate version with ver_check, which takes the data structure and returns true if the version is valid.
+   Given a mutable data's zonefile, go fetch the data.
 
    Return a mutable data dict on success
    Return None on error
    """
 
    global storage_handlers
+   assert is_fq_data_id( fq_data_id ) or is_valid_name( fq_data_id ), "Need either a fully-qualified data ID or a Blockstack DNS name"
 
-   data_id = data_route['id']
-   data_urls = data_route['urls']
-   data_pubkey = data_route.get('pubkey', None)
+   if urls is None:
+       # generate them 
+       urls = make_mutable_data_urls( fq_data_id )
 
    for storage_handler in storage_handlers:
 
       if not hasattr(storage_handler, "get_mutable_handler"):
          continue
 
-      for url in data_urls:
+      for url in urls:
 
          data_json = None
          data = None
@@ -486,46 +286,20 @@ def get_mutable_data( data_route, ver_min=None, ver_max=None, ver_check=None ):
             # no data
             continue
 
-         # parse it, but don't decode it yet
-         data = mutable_data_parse( data_json, decode=False )
+         # parse it
+         data = parse_mutable_data( data_json, data_pubkey )
          if data is None:
-            log.error("Unparseable data")
+            log.error("Unparseable data from '%s'" % url)
             continue
-
-         # if the route includes a private key, verify it
-         if data_pubkey is not None:
-
-            rc = verify_mutable_data( data, data_pubkey )
-            if not rc:
-
-               log.error("Invalid signature")
-               continue
-
-         # can decode the data now, since we've checked the sig
-         mutable_data_decode( data )
-
-         # verify ver, if need be
-         if ver_min is not None:
-            if data['ver'] < ver_min:
-               continue
-
-         if ver_max is not None:
-            if data['ver'] > ver_max:
-               continue
-
-         if ver_check is not None:
-            rc = ver_check( data )
-            if not rc:
-               continue
 
          return data
 
    return None
 
 
-def put_immutable_data( data_text, txid ):
+def put_immutable_data( data_text, txid, data_hash=None ):
    """
-   Given a string of data (which can either be data or a route), store it into our immutable data stores.
+   Given a string of data (which can either be data or a zonefile), store it into our immutable data stores.
    Do so in a best-effort manner--this method only fails if *all* storage providers fail.
 
    Return the hash of the data on success
@@ -534,7 +308,9 @@ def put_immutable_data( data_text, txid ):
 
    global storage_handlers
 
-   data_hash = get_data_hash( data_text )
+   if data_hash is None:
+      data_hash = get_data_hash( data_text )
+
    successes = 0
 
    for handler in storage_handlers:
@@ -567,28 +343,21 @@ def put_immutable_data( data_text, txid ):
        return data_hash
 
 
-def put_mutable_data( data, privatekey ):
+def put_mutable_data( fq_data_id, data_json, privatekey ):
    """
    Given the unserialized data, store it into our mutable data stores.
-   Do so in a best-effor way.  This method only fails if all storage providers fail.
+   Do so in a best-effort way.  This method only fails if all storage providers fail.
 
-   If the data is not signed, then it will be signed with the given private key.
+   @fq_data_id is the fully-qualified data id.  It must be prefixed with the username,
+   to avoid collisions in shared mutable storage.
 
    Return True on success
    Return False on error
    """
 
-   data_id = data['id']
-   data_text = data['data']
-   ver = data['ver']
-   sig = data.get('sig', None)
+   assert is_fq_data_id( fq_data_id ) or is_valid_name(fq_data_id), "Data ID must be fully qualified or must be a valid Blockstack DNS name"
 
-   if sig is None:
-      sig = sign_mutable_data( data, privatekey )
-      data['sig'] = sig
-
-   data_json = json_stable_serialize( data )
-
+   serialized_data = serialize_mutable_data( data_json, privatekey )
    successes = 0
 
    for handler in storage_handlers:
@@ -600,7 +369,7 @@ def put_mutable_data( data, privatekey ):
 
       try:
 
-         rc = handler.put_mutable_handler( data_id, ver, sig, data_json )
+         rc = handler.put_mutable_handler( fq_data_id, serialized_data )
       except Exception, e:
 
          log.exception( e )
@@ -621,7 +390,7 @@ def put_mutable_data( data, privatekey ):
        return True
 
 
-def delete_immutable_data( data_hash, txid ):
+def delete_immutable_data( data_hash, txid, privkey ):
    """
    Given the hash of the data, the private key of the user,
    and the txid that deleted the data's hash from the blockchain,
@@ -630,6 +399,8 @@ def delete_immutable_data( data_hash, txid ):
 
    global storage_handlers
 
+   sigb64 = sign_raw_data( data_hash + txid, privkey )
+
    for handler in storage_handlers:
 
       if not hasattr( handler, "delete_immutable_handler" ):
@@ -637,7 +408,7 @@ def delete_immutable_data( data_hash, txid ):
 
       try:
 
-         handler.delete_immutable_handler( data_hash, txid )
+         handler.delete_immutable_handler( data_hash, txid, sigb64 )
       except Exception, e:
 
          log.exception( e )
@@ -648,9 +419,8 @@ def delete_immutable_data( data_hash, txid ):
 
 def delete_mutable_data( data_id, privatekey ):
    """
-   Given the data ID, route hash, user private key, and transaction ID
-   of the blockchain transaction that deleted the data route, go delete
-   both the data route and the mutable data it points to.
+   Given the data ID and private key of a user,
+   go and delete the associated mutable data.
    """
 
    global storage_handlers
@@ -672,3 +442,64 @@ def delete_mutable_data( data_id, privatekey ):
          continue
 
    return True
+
+
+def make_fq_data_id( name, data_id ):
+    """
+    Make a fully-qualified data ID, prefixed by the name.
+    """
+    return "%s:%s" % (name, data_id)
+
+
+import string
+B40_CHARS = string.digits + string.lowercase + '-_.+'
+B40_REGEX = '^[a-z0-9\-_.+]*$'
+
+def is_b40(s):
+    return (isinstance(s, str) and (re.match(B40_REGEX, s) is not None))
+
+
+def is_fq_data_id( fq_data_id ):
+    """
+    Is a data ID is fully qualified?
+    """
+    if len(fq_data_id.split(":")) < 2:
+        return False 
+
+    # name must be valid
+    name = fq_data_id.split(":")[0]
+    if not is_valid_name(name):
+        return False
+
+    return True
+
+
+def is_valid_name( name ):
+    """
+    Is a name well-formed for blockstack DNS?
+    """
+    
+    # name must be base-40, and there must be a namespace ID
+    if not is_b40(name) or name.count(".") != 1:
+        return False 
+
+    if len(name) > MAX_NAME_LENGTH:
+        return False
+
+    return True
+
+
+if __name__ == "__main__":
+    # unit tests
+    import user
+    import config
+    import pybitcoin
+
+    pk = pybitcoin.BitcoinPrivateKey()
+    data_privkey = pk.to_hex()
+    data_pubkey = pk.public_key().to_hex()
+    
+    conf = config.make_default_config()
+    
+    user_profile = user.make_empty_user_zonefile( "judecn.id", data_pubkey )
+    
