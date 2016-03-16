@@ -73,9 +73,13 @@ class TestAPIProxy(object):
         self.conf = {
             "start_block": blockstack.FIRST_BLOCK_MAINNET,
             "initial_utxos": utxo_opts,
-            "storage_drivers": "disk"
+            "storage_drivers": "disk",
+            "metadata": "/tmp/test-blockstack-client-metadata/"
         }
         self.spv_headers_path = utxo_opts['spv_headers_path']
+
+        if not os.path.exists(self.conf['metadata']):
+            os.makedirs(self.conf['metadata'], 0700)
 
     def __getattr__(self, name):
         
