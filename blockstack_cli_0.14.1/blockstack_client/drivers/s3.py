@@ -29,7 +29,8 @@ import errno
 from ConfigParser import SafeConfigParser
 
 try:
-    from ..config import log, CONFIG_PATH
+    from ..config import get_logger, CONFIG_PATH
+    log = get_logger()
 except:
     if __name__ == "__main__":
         # doing tests 
@@ -282,13 +283,9 @@ def put_immutable_handler( key, data, txid ):
     return write_chunk( immutable_data_id, data )
 
 
-def put_mutable_handler( data_id, nonce, signature, data_json ):
+def put_mutable_handler( data_id, data_json ):
     """
     S3 implementation of the put_mutable_handler API call.
-    Given the the unchanging ID for the data, a nonce representing
-    this version of the data, the writer's signature over hash(data_id + data + nonce),
-    and the serialized JSON representing all of the above plus the data, put 
-    the serialized JSON into storage.
     Return True on success; False on failure.
     """
 
@@ -296,7 +293,7 @@ def put_mutable_handler( data_id, nonce, signature, data_json ):
     return write_chunk( mutable_data_id, data_json )
 
 
-def delete_immutable_handler( key, txid ):
+def delete_immutable_handler( key, txid, sig_key_txid ):
     """
     S3 implementation of the delete_immutable_handler API call.
     Given the hash of the data and transaction ID of the update
@@ -337,9 +334,14 @@ if __name__ == "__main__":
    sys.path.insert(0, current_dir)
    
    from parsing import json_stable_serialize
-   from storage import mutable_data_parse, mutable_data
+   from storage import parse_mutable_data, serialize_mutable_data
    from config import log, CONFIG_PATH
+   from user import make_mutable_data_zonefile
    
+   pk = pybitcoin.BitcoinPrivateKey()
+   data_privkey = pk.to_hex()
+   data_pubkey = pk.public_key().to_hex()
+
    test_data = [
       ["my_first_datum",        "hello world",                              1, "unused", None],
       ["/my/second/datum",      "hello world 2",                            2, "unused", None],
@@ -373,12 +375,11 @@ if __name__ == "__main__":
       d_id, d, n, s, url = test_data[i]
       
       data_url = make_mutable_url( d_id )
+       
+      data_zonefile = make_mutable_data_zonefile( d_id, n, [data_url] )
+      data_json = serialize_mutable_data( {"id": d_id, "nonce": n, "data": d}, data_privkey )
       
-      data = mutable_data( d_id, d, n, sig=s )
-      
-      data_json = json_stable_serialize( data )
-      
-      rc = put_mutable_handler( d_id, n, "unused", data_json )
+      rc = put_mutable_handler( d_id, data_json )
       if not rc:
          raise Exception("put_mutable_handler('%s', '%s') failed" % (d_id, d))
      
@@ -402,7 +403,7 @@ if __name__ == "__main__":
       d_id, d, n, s, url = test_data[i]
       
       rd_json = get_mutable_handler( url )
-      rd = mutable_data_parse( rd_json )
+      rd = parse_mutable_data( rd_json, data_pubkey )
       if rd is None:
          raise Exception("Failed to parse mutable data '%s'" % rd_json)
       
@@ -421,7 +422,7 @@ if __name__ == "__main__":
       
       d_id, d, n, s, url = test_data[i]
       
-      rc = delete_immutable_handler( hash_data(d), "unused" )
+      rc = delete_immutable_handler( hash_data(d), "unused", "unused" )
       if not rc:
          raise Exception("delete_immutable_handler('%s' (%s)) failed" % (hash_data(d), d))
       
