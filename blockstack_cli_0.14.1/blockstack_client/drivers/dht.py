@@ -260,7 +260,6 @@ if __name__ == "__main__":
     current_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     sys.path.insert(0, current_dir)
 
-    from parsing import json_stable_serialize
     from storage import *
 
     test_data = [
@@ -297,7 +296,7 @@ if __name__ == "__main__":
 
         data = make_mutable_data(d_id, d, n, sig=s)
 
-        data_json = json_stable_serialize(data)
+        data_json = json.dumps(data,sort_keys=True)
 
         rc = put_mutable_handler(d_id, data_json)
 
