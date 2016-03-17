@@ -186,7 +186,6 @@ OPFIELDS = {
     ]
 }
 
-DEBUG = True
 MAX_RPC_LEN = 1024 * 1024 * 1024
 
 MAX_NAME_LENGTH = 37        # taken from blockstack-server
@@ -200,8 +199,10 @@ BLOCKCHAIN_ID_MAGIC = 'id'
 
 USER_ZONEFILE_TTL = 3600    # cache lifetime for a user's zonefile
 
-def get_logger():
-    return virtualchain.get_logger()
+def get_logger( debug=DEBUG ):
+    logger = virtualchain.get_logger()
+    logger.setLevel(logging.DEBUG if debug else logging.INFO)
+    return logger
 
 
 def make_default_config(path=CONFIG_PATH):
@@ -287,7 +288,7 @@ def get_config(path=CONFIG_PATH):
         "storage_drivers": BLOCKSTACK_DEFAULT_STORAGE_DRIVERS,
         "metadata": BLOCKSTACK_METADATA_DIR,
         "blockchain_headers": SPV_HEADERS_PATH,
-        "advanced_mode": 'off'
+        "advanced_mode": False
     }
 
     parser = SafeConfigParser()
@@ -321,6 +322,10 @@ def get_config(path=CONFIG_PATH):
 
         if parser.has_option("blockstack-client", "advanced_mode"):
             config['advanced_mode'] = parser.get("blockstack-client", "advanced_mode")
+            if config['advanced_mode'].upper() in ["TRUE", "1", "ON"]:
+                config['advanced_mode'] = True
+            else:
+                config['advanced_mode'] = False
 
         if parser.has_option("blockstack-client", "dht_mirror"):
             config['dht_mirror'] = parser.get("blockstack-client", "dht_mirror")
