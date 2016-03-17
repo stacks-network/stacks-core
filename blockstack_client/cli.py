@@ -45,7 +45,7 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
-from blockstack_client import config, client, schemas, parsing, user
+from blockstack_client import config, client, user
 from blockstack_client import storage, drivers
 from blockstack_client.utils import pretty_dump, print_result
 from blockstack_client.config import WALLET_PATH, WALLET_PASSWORD_LENGTH
@@ -185,7 +185,7 @@ def run_cli():
 
     add_subparsers(subparsers)
 
-    if advanced_mode == "on":
+    if advanced_mode:
         add_advanced_subparsers(subparsers)
 
     # Print default help message, if no argument is given
@@ -253,7 +253,11 @@ def run_cli():
             if args.advanced != "on" and args.advanced != "off":
                 exit_with_error("Use --advanced=on or --advanced=off")
             else:
-                config.update_config('blockstack-client', 'advanced_mode', args.advanced)
+                advanced = False
+                if args.advanced == 'on':
+                    advanced = True
+
+                config.update_config('blockstack-client', 'advanced_mode', str(advanced) )
                 data["message"] += " advanced"
                 settings_updated = True
 
@@ -319,7 +323,7 @@ def run_cli():
             result['last_block_seen'] = resp['bitcoind_blocks']
             result['consensus_hash'] = resp['consensus']
 
-            if advanced_mode == 'on':
+            if advanced_mode:
                 result['testset'] = resp['testset']
 
             proxy = get_local_proxy()
@@ -403,14 +407,12 @@ def run_cli():
             exit_with_error("%s is not registered" % fqu)
 
         try:
-            data_id = blockchain_record['value_hash']
-            data['data_record'] = json.loads(
-                client.get_immutable(str(args.name), data_id)['data'])
+            user_profile, user_zonefile = client.get_name_profile(str(args.name))
+            data['profile'] = user_profile
+            data['zonefile'] = user_zonefile
         except:
-            data['data_record'] = None
-
-        if is_profile_in_legacy_format( data ):
-            data = get_person_from_legacy_format( data )
+            data['profile'] = None
+            data['zonefile'] = None
 
         result = data
 
@@ -430,10 +432,9 @@ def run_cli():
         if 'value_hash' not in record:
             result['registered'] = False
         else:
-            result['creator_public_key'] = record['sender_pubkey']
             result['block_preordered_at'] = record['preorder_block_number']
             result['block_renewed_at'] = record['last_renewed']
-            result['latest_transaction_id'] = record['txid']
+            result['last_transaction_id'] = record['txid']
             result['owner_address'] = record['address']
             result['owner_script'] = record['sender']
             result['registered'] = True
@@ -521,7 +522,7 @@ def run_cli():
         tests_for_update_and_transfer(fqu)
 
         if profileonBlockchain(fqu, user_data):
-            msg = "Data is same as current data record, update not needed."
+            msg ="Data is same as current data record, update not needed."
             exit_with_error(msg)
 
         if not walletUnlocked():
