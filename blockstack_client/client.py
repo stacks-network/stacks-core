@@ -2359,6 +2359,90 @@ def get_immutable_by_name( name, data_id, proxy=None ):
     return get_immutable( name, None, data_id=data_id, proxy=proxy )
 
 
+def list_update_history( name, current_block=None, proxy=None ):
+    """
+    list_update_history
+
+    List all prior zonefile hashes of a name, in historic order.
+    Return a list of hashes on success.
+    Return None on error
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    if current_block is None:
+        info = proxy.getinfo()
+        info = info[0]
+        current_block = info['last_block']+1
+
+    name_history = proxy.get_name_blockchain_history( name, 0, current_block )
+    name_history = name_history[0]
+    all_update_hashes = []
+
+    for state in name_history:
+        if state.has_key('value_hash') and state['value_hash'] is not None:
+            if len(all_update_hashes) == 0 or all_update_hashes[-1] != state['value_hash']:
+                # changed
+                all_update_hashes.append( state['value_hash'] )
+
+    return all_update_hashes
+
+
+def list_zonefile_history( name, current_block=None, proxy=None ):
+    """
+    list_zonefile_history
+
+    List all prior zonefiles of a name, in historic order.
+    Return the list of zonefiles.  Each zonefile will be a dict with either the zonefile data,
+    or a dict with only the key 'error' defined.  This method can successfully return
+    some but not all zonefiles.
+    """
+    zonefile_hashes = list_update_history( name, current_block=current_block, proxy=proxy )
+    zonefiles = []
+    for zh in zonefile_hashes:
+        zonefile = load_user_zonefile( zh )
+        if zonefile is None:
+            zonefile = {'error': 'Failed to load zonefile %s' % zh}
+
+        zonefiles.append( zonefile )
+
+    return zonefiles
+       
+
+def list_immutable_data_history( name, data_id, current_block=None, proxy=None ):
+    """
+    list_immutable_data_history
+
+    List all prior hashes of an immutable datum, given its unchanging ID.
+    If the zonefile at a particular update is missing, the string "missing zonefile" will be
+    appended in its place.  If the zonefile did not define data_id at that time,
+    the string "data not defined" will be placed in the hash's place
+    """
+    zonefiles = list_zonefile_history( name, current_block=current_block, proxy=proxy )
+    hashes = []
+    for zf in zonefiles:
+        if 'error' in zf and len(zf.keys()) == 1:
+            # invalid
+            hashes.append("missing zonefile")
+            continue
+       
+        if not user_db.is_user_zonefile(zf):
+            # legacy profile 
+            hashes.append("missing zonefile")
+            continue 
+
+        data_hash = user_db.get_immutable_data_hash( zf, data_id )
+        if data_hash is None:
+            hashes.append("data not defined")
+            continue
+        
+        else:
+            hashes.append(data_hash)
+
+    return hashes
+
+
 def get_mutable(name, data_id, proxy=None, ver_min=None, ver_max=None, ver_check=None, conf=None, wallet_keys=None):
     """
     get_mutable
@@ -2374,11 +2458,12 @@ def get_mutable(name, data_id, proxy=None, ver_min=None, ver_max=None, ver_check
     Return {'data': the data, 'version': the version} on success
     Return {'error': ...} on error
     """
-    if conf is None:
-        conf = config.get_config()
 
     if proxy is None:
         proxy = get_default_proxy()
+
+    if conf is None:
+        conf = proxy.conf
 
     fq_data_id = storage.make_fq_data_id( name, data_id )
     user_profile, user_zonefile = get_name_profile( name, proxy=proxy, wallet_keys=wallet_keys )
@@ -2407,7 +2492,7 @@ def get_mutable(name, data_id, proxy=None, ver_min=None, ver_max=None, ver_check
     if mutable_data is None:
         return {'error': "Failed to look up mutable datum"}
 
-    expected_version = load_mutable_data_version( proxy.conf, name, data_id )
+    expected_version = load_mutable_data_version( conf, name, data_id )
     if expected_version is None:
         expected_version = 0
 
@@ -2427,7 +2512,7 @@ def get_mutable(name, data_id, proxy=None, ver_min=None, ver_max=None, ver_check
     elif expected_version > version:
         return {'error': 'Mutable data is stale; a later version was previously fetched'}
 
-    rc = store_mutable_data_version( proxy.conf, fq_data_id, version )
+    rc = store_mutable_data_version( conf, fq_data_id, version )
     if not rc:
         return {'error': 'Failed to store consistency information'}
 
@@ -2456,10 +2541,10 @@ def put_immutable(name, data_id, data_json, txid=None, proxy=None, wallet_keys=N
         proxy = get_default_proxy()
 
     user_profile, user_zonefile = get_name_profile( name, create_if_absent=True, proxy=proxy, wallet_keys=wallet_keys )
-    if user_profile is None:
-        log.debug("No user profile found for '%s'" % name)
-        return user_zonefile    # will be an error message 
-
+    if 'error' in user_zonefile:
+        log.debug("Unable to load user zonefile for '%s'" % name)
+        return user_zonefile
+    
     if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
         # zonefile is a legacy profile.  Convert it
         log.debug("Converting legacy profile to modern zonefile")
@@ -2471,7 +2556,14 @@ def put_immutable(name, data_id, data_json, txid=None, proxy=None, wallet_keys=N
     data_hash = storage.get_data_hash( data_txt )
     value_hash = None
 
-    # insert into user zonefile 
+    # insert into user zonefile, overwriting if need be
+    if user_db.has_immutable_data_id( user_zonefile, data_id ):
+        log.debug("WARN: overwriting old '%s'" % data_id)
+        old_hash = user_db.get_immutable_data_hash( user_zonefile, data_id )
+        rc = user_db.remove_immutable_data_zonefile( user_zonefile, old_hash )
+        if not rc:
+            return {'error': 'Failed to overwrite old immutable data'}
+
     rc = user_db.put_immutable_data_zonefile( user_zonefile, data_id, data_hash )
     if not rc:
         return {'error': 'Failed to insert immutable data into user zonefile'}
