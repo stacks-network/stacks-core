@@ -333,7 +333,6 @@ if __name__ == "__main__":
    current_dir =  os.path.abspath(os.path.join( os.path.dirname(__file__), "..") )
    sys.path.insert(0, current_dir)
    
-   from parsing import json_stable_serialize
    from storage import parse_mutable_data, serialize_mutable_data
    from config import log, CONFIG_PATH
    from user import make_mutable_data_zonefile
