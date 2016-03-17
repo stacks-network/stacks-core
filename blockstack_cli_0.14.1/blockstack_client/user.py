@@ -230,7 +230,8 @@ def put_immutable_data_zonefile( user_zonefile, data_id, data_hash ):
    k = get_immutable_data_hash( user_zonefile, data_id )
    if k is not None and k == data_hash:
        # already there 
-       return True 
+       return True
+
    elif k is not None:
        # name collision 
        return False 
@@ -277,7 +278,7 @@ def has_immutable_data( user_zonefile, data_hash ):
    assert storage.is_valid_hash( data_hash )
 
    for txtrec in user_zonefile['TXT']:
-       h = None 
+       h = None
        try:
            _, h = unpack_immutable_data_txt( txtrec['txt'] )
            assert storage.is_valid_hash(h)
@@ -285,6 +286,26 @@ def has_immutable_data( user_zonefile, data_hash ):
            continue 
 
        if h == data_hash:
+           return True 
+
+   return False
+
+
+def has_immutable_data_id( user_zonefile, data_id ):
+   """
+   Does the given user have the given immutable data?
+   Return True if so
+   Return False if not
+   """
+   for txtrec in user_zonefile['TXT']:
+       d_id = None 
+       try:
+           d_id, h = unpack_immutable_data_txt( txtrec['txt'] )
+           assert storage.is_valid_hash(h)
+       except AssertionError:
+           continue 
+
+       if d_id == data_id:
            return True 
 
    return False
