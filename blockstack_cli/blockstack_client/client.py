@@ -663,8 +663,6 @@ def parse_tx_op_return(tx):
 
     if magic != BLOCKCHAIN_ID_MAGIC:
         # not a blockchain ID operation
-        #print SPVClient.tx_hash(tx)
-        #print op_return.encode('hex')
         log.error("OP_RETURN output does not encode a blockchain ID operation")
         return (None, None)
 
@@ -2318,7 +2316,7 @@ def get_immutable(name, data_key, data_id=None, proxy=None):
         # look up hash by name 
         h = user_db.get_immutable_data_hash( user_zonefile, data_id )
         if h is None:
-            return {'error': 'No such immutable data record'}
+            return {'error': 'No such immutable datum'}
 
         if data_key is not None:
             if h != data_key:
@@ -2328,7 +2326,7 @@ def get_immutable(name, data_key, data_id=None, proxy=None):
             data_key = h
 
     elif not user_db.has_immutable_data( user_zonefile, data_key ):
-        return {'error': 'User does not have any immutable data with the given key'}
+        return {'error': 'No such immutable datum'}
 
     data = storage.get_immutable_data( data_key )
     if data is None:
@@ -2605,7 +2603,6 @@ def put_mutable(name, data_id, data_text, proxy=None, create_only=False, update_
     value_hash = None
 
     if created_new_zonefile:
-        print >> sys.stderr, json.dumps(user_zonefile, indent=4, sort_keys=True)
         # update the profile zonefile first
         _, owner_privkey = get_owner_keypair(wallet_keys=wallet_keys)
         update_result = update( name, user_zonefile, owner_privkey, proxy=proxy )
@@ -2643,7 +2640,7 @@ def put_mutable(name, data_id, data_text, proxy=None, create_only=False, update_
     return result
 
 
-def delete_immutable(name, data_key, privatekey, proxy=None, txid=None, wallet_keys=None):
+def delete_immutable(name, data_key, proxy=None, txid=None, wallet_keys=None):
     """
     delete_immutable
 
@@ -2656,9 +2653,12 @@ def delete_immutable(name, data_key, privatekey, proxy=None, txid=None, wallet_k
         proxy = get_default_proxy()
 
     legacy = False
-    user_profile, user_zonefile = get_name_profile( name, proxy=proxy, wallet_keys=wallet_keys )
-    if user_profile is None:
-        return user_zonefile    # will be an error message 
+    user_zonefile = get_name_zonefile( name, proxy=proxy )
+    if user_zonefile is None or 'error' in user_zonefile:
+        if user_zonefile is None:
+            return {'error': 'No user zonefile'}
+        else:
+            return user_zonefile
 
     if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
         # zonefile is a legacy profile.  There is no immutable data 
@@ -2670,22 +2670,23 @@ def delete_immutable(name, data_key, privatekey, proxy=None, txid=None, wallet_k
         return {'status': True}
 
     # remove 
-    user_db.remove_immutable_data( user_zonefile, data_key )
+    user_db.remove_immutable_data_zonefile( user_zonefile, data_key )
     value_hash = None
     
     if txid is None:
         # actually send the transaction
+        print json.dumps( user_zonefile )
         _, owner_privkey = get_owner_keypair(wallet_keys=wallet_keys)
         update_result = update( name, user_zonefile, owner_privkey, proxy=proxy )
         if 'error' in update_result:
             # failed to remove from zonefile 
             return update_result 
 
-        txid = update_result['txid']
+        txid = update_result['transaction_hash']
         value_hash = update_result['value_hash']
 
     result = {
-        'data_hash': value_hash,
+        'zonefile_hash': value_hash,
         'transaction_hash': txid
     }
 
@@ -2701,7 +2702,7 @@ def delete_immutable(name, data_key, privatekey, proxy=None, txid=None, wallet_k
         return result
 
 
-def delete_mutable(name, data_id, privatekey, proxy=None, wallet_keys=None):
+def delete_mutable(name, data_id, proxy=None, wallet_keys=None):
     """
     delete_mutable
 
@@ -2731,7 +2732,7 @@ def delete_mutable(name, data_id, privatekey, proxy=None, wallet_keys=None):
         return {'status': True}
 
     # unlink
-    storage.remove_mutable_data_zonefile( user_profile, data_id )
+    user_db.remove_mutable_data_zonefile( user_profile, data_id )
 
     # put new profile 
     _, data_privkey = get_data_keypair( wallet_keys=wallet_keys )
