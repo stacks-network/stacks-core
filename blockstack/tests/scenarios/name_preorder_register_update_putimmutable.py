@@ -95,14 +95,15 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
-    # should fail (name collision)
+    # should succeed (name collision)
     datasets[0]['newdata'] = "asdf"
     put_result = client.put_immutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' not in put_result:
         zonefile_hashes[0] = put_result['immutable_data_hash']
+    else:
+        print json.dumps(put_result, indent=4, sort_keys=True )
 
-    del datasets[0]['newdata']
-
+    last_hash = put_result['zonefile_hash']
     testlib.next_block( **kw )
 
 
