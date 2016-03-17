@@ -37,7 +37,7 @@ import copy
 import blockstack_profiles
 import zone_file
 
-import parsing, schemas, storage, drivers, config, spv, utils
+import storage, drivers, config, spv, utils
 import user as user_db
 from spv import SPVClient
 
@@ -321,8 +321,18 @@ def load_user_zonefile(expected_zonefile_hash):
         return None
 
     try:
+        # by default, it's a zonefile-formatted text file
         user_zonefile = zone_file.parse_zone_file( zonefile_txt )
         assert user_db.is_user_zonefile( user_zonefile ), "Not a user zonefile: %s" % user_zonefile
+    except zone_file.InvalidLineException:
+        # might be legacy profile
+        try:
+            user_zonefile = json.loads(zonefile_txt)
+        except Exception, e:
+            log.exception(e)
+            log.error("Failed to parse:\n%s" % zonefile_txt)
+            return None
+        
     except Exception, e:
         log.exception(e)
         log.error("Failed to parse:\n%s" % zonefile_txt)
@@ -2600,7 +2610,7 @@ def put_mutable(name, data_id, data_text, proxy=None, create_only=False, update_
 
     # for legacy migration...
     txid = None 
-    value_hash = None
+    zonefile_hash = None
 
     if created_new_zonefile:
         # update the profile zonefile first
@@ -2612,7 +2622,7 @@ def put_mutable(name, data_id, data_text, proxy=None, create_only=False, update_
             return update_result
 
         txid = update_result['transaction_hash']
-        value_hash = update_result['value_hash']
+        zonefile_hash = update_result['value_hash']
  
     # update the profile with the new zonefile
     rc = storage.put_mutable_data( name, user_profile, data_privkey )
@@ -2634,7 +2644,7 @@ def put_mutable(name, data_id, data_text, proxy=None, create_only=False, update_
     }
     if txid is not None:
         result['txid'] = txid
-        result['value_hash'] = value_hash
+        result['zonefile_hash'] = zonefile_hash
         result['warning'] = "Profile migrated from legacy format to zonefile format"
 
     return result
