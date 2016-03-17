@@ -497,7 +497,7 @@ def mutable_data_version( user_profile, data_id ):
     
     key = get_mutable_data_zonefile_key( user_profile, data_id )
     if key is None:
-        log.debug("No mutable data zonefiles installed for '%s'\n%s" % (data_id, json.dumps(user_profile, indent=4, sort_keys=True)))
+        log.debug("No mutable data zonefiles installed for '%s" % (data_id))
         return 0
 
     data_id, version = unpack_mutable_data_key( key )
