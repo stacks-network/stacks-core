@@ -765,14 +765,12 @@ def run_cli():
     elif args.action == 'put_mutable':
         result = client.put_mutable(str(args.name),
                                     str(args.data_id),
-                                    str(args.data),
-                                    str(args.privatekey))
+                                    str(args.data)),
 
     elif args.action == 'put_immutable':
         result = client.put_immutable(str(args.name),
                                       str(args.data_id),
                                       str(args.data),
-                                      str(args.privatekey),
                                       conf=conf)
 
     elif args.action == 'get_mutable':
@@ -780,7 +778,16 @@ def run_cli():
                                     conf=conf)
 
     elif args.action == 'get_immutable':
-        result = client.get_immutable(str(args.name), str(args.hash))
+        result = client.get_immutable(str(args.name), str(args.data_id_or_hash))
+
+    elif args.action == 'list_update_history':
+        result = client.list_update_history(str(args.name))
+
+    elif args.action == 'list_zonefile_history':
+        result = client.list_zonefile_history(str(args.name))
+
+    elif args.action == 'list_immutable_data_history':
+        result = client.list_immutable_data_history(str(args.name), str(args.data_id))
 
     elif args.action == 'delete_immutable':
         result = client.delete_immutable(str(args.name), str(args.hash),
