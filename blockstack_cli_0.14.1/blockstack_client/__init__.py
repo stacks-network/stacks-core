@@ -23,13 +23,9 @@
 
 import client
 import config
-import schemas
-import parsing
 import user
 import drivers
 import spv 
-
-from parsing import json_stable_serialize
 
 from client import getinfo, lookup, get_name_zonefile, ping, get_name_blockchain_record, get_namespace_blockchain_record, snv_lookup, lookup_snv
 from client import preorder, update, transfer, renew, revoke, get_nameops_at
