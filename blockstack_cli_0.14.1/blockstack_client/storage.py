@@ -204,7 +204,7 @@ def get_immutable_data( data_key, hash_func=get_data_hash ):
          continue
 
       if data is None:
-         log.debug("No data: %s.get_immutable_handler(%s)" % (handler, data_key))
+         log.debug("No data: %s.get_immutable_handler(%s)" % (handler.__name__, data_key))
          continue
 
       # validate
