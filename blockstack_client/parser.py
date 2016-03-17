@@ -230,13 +230,13 @@ def add_advanced_subparsers(subparsers):
     # ------------------------------------
     subparser = subparsers.add_parser(
         'get_immutable',
-        help='<name> <hash> | get immutable data from storage')
+        help='<name> <data_id_or_hash> | get immutable data from storage')
     subparser.add_argument(
         'name', type=str,
         help='the name of the user')
     subparser.add_argument(
-        'hash', type=str,
-        help='the hash of the data')
+        'data_id_or_hash', type=str,
+        help='the data ID or hash of the data')
 
     # ------------------------------------
     subparser = subparsers.add_parser(
