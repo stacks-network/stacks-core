@@ -54,6 +54,8 @@ from registrar.blockchain import get_balance, dontuseAddress
 from registrar.utils import satoshis_to_btc
 from registrar.blockchain import recipientNotReady, get_tx_confirmations
 
+import config
+
 RPC_DAEMON = 'http://' + REGISTRAR_IP + ':' + str(REGISTRAR_PORT)
 
 def initialize_wallet():
