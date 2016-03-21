@@ -26,7 +26,7 @@ setup(
         'protocoin==0.1',
         'blockstack-profiles>=0.1.3',
         'pybitcoin>=0.9.8',
-        'zone_file>=0.1.3',
+        'zone_file>=0.1.4',
         'registrar>=0.0.4'
     ],
     classifiers=[
