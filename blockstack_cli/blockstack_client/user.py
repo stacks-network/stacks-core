@@ -89,18 +89,18 @@ def make_empty_user_zonefile( username, data_pubkey, urls=None ):
    assert len(urls) > 0, "No profile URLs"
 
    user = {
-      "TXT": [
+      "txt": [
           {
             "name": "@",
             "txt": "pubkey:data:%s" % str(data_pubkey)
           }
       ],
-      "URI": []
+      "uri": []
    }
     
    for url in urls:
        urirec = url_to_uri_record( url )
-       user["URI"].append( urirec )
+       user["uri"].append( urirec )
 
    return user
 
@@ -114,7 +114,7 @@ def user_zonefile_set_profile_urls( user_zonefile, user_profile_urls ):
         urirec = url_to_uri_record( url )
         uris.append( urirec )
 
-    user_zonefile['URI'] = uris
+    user_zonefile['uri'] = uris
     return
 
 
@@ -122,20 +122,20 @@ def is_user_zonefile( d ):
     """
     Is the given dict a user zonefile?
     """
-    if 'TXT' not in d.keys():
+    if 'txt' not in d.keys():
         return False 
 
-    if 'URI' not in d.keys():
+    if 'uri' not in d.keys():
         return False 
 
-    for txt in d['TXT']:
+    for txt in d['txt']:
         if 'name' not in txt.keys():
             return False 
 
         if 'txt' not in txt.keys():
             return False 
 
-    for uri in d['URI']:
+    for uri in d['uri']:
         if 'name' not in uri.keys():
             return False 
 
@@ -156,12 +156,12 @@ def user_zonefile_data_pubkey( user_zonefile ):
     Get a user's data public key from their zonefile.
     Return None if not defined
     """
-    if not user_zonefile.has_key('TXT'):
+    if not user_zonefile.has_key('txt'):
         return None 
     
     data_pubkey = None
     # check that there is only one of these
-    for txtrec in user_zonefile['TXT']:
+    for txtrec in user_zonefile['txt']:
         if txtrec['txt'].startswith("pubkey:data:"):
             if data_pubkey is not None:
                 log.error("BUG: Multiple data pubkeys")
@@ -176,11 +176,11 @@ def user_zonefile_urls( user_zonefile ):
     """
     Given a user's zonefile, get the profile URLs
     """
-    if not user_zonefile.has_key('URI'):
+    if not user_zonefile.has_key('uri'):
         return None 
 
     ret = []
-    for urirec in user_zonefile['URI']:
+    for urirec in user_zonefile['uri']:
         if urirec.has_key('target'):
             ret.append( urirec['target'].strip('"') )
 
@@ -236,7 +236,7 @@ def put_immutable_data_zonefile( user_zonefile, data_id, data_hash ):
        # name collision 
        return False 
 
-   user_zonefile["TXT"].append( {
+   user_zonefile["txt"].append( {
        "name": "@",
        "txt": pack_immutable_data_txt( data_id, data_hash )
    })
@@ -253,7 +253,7 @@ def remove_immutable_data_zonefile( user_zonefile, data_hash ):
 
    assert storage.is_valid_hash( data_hash )
 
-   for txtrec in user_zonefile['TXT']:
+   for txtrec in user_zonefile['txt']:
        h = None
        try:
            _, h = unpack_immutable_data_txt( txtrec['txt'] )
@@ -262,7 +262,7 @@ def remove_immutable_data_zonefile( user_zonefile, data_hash ):
            continue 
 
        if h == data_hash:
-           user_zonefile['TXT'].remove(txtrec)
+           user_zonefile['txt'].remove(txtrec)
            return True
 
    return False
@@ -277,7 +277,7 @@ def has_immutable_data( user_zonefile, data_hash ):
 
    assert storage.is_valid_hash( data_hash )
 
-   for txtrec in user_zonefile['TXT']:
+   for txtrec in user_zonefile['txt']:
        h = None
        try:
            _, h = unpack_immutable_data_txt( txtrec['txt'] )
@@ -297,7 +297,7 @@ def has_immutable_data_id( user_zonefile, data_id ):
    Return True if so
    Return False if not
    """
-   for txtrec in user_zonefile['TXT']:
+   for txtrec in user_zonefile['txt']:
        d_id = None 
        try:
            d_id, h = unpack_immutable_data_txt( txtrec['txt'] )
@@ -317,7 +317,7 @@ def get_immutable_data_hash( user_zonefile, data_id ):
    Return None if not found
    """
 
-   for txtrec in user_zonefile['TXT']:
+   for txtrec in user_zonefile['txt']:
        d_id = None 
        h = None
        try:
@@ -330,6 +330,23 @@ def get_immutable_data_hash( user_zonefile, data_id ):
            return h
 
    return None
+
+
+def list_immutable_data( user_zonefile ):
+    """
+    Get the IDs and hashes of all immutable data
+    Return [(data ID, hash)]
+    """
+    ret = []
+    for txtrec in user_zonefile['txt']:
+        try:
+            d_id, h = unpack_immutable_data_txt( txtrec['txt'] )
+            assert storage.is_valid_hash(h)
+            ret.append( (d_id, h) )
+        except:
+            continue
+
+    return ret
 
 
 def has_mutable_data( user_profile, data_id ):
@@ -376,7 +393,7 @@ def get_mutable_data_zonefile_key( user_profile, data_id ):
    """
    Get the serialized zonefile key for a piece of mutable data, given
    the user's profile and data_id.
-   Return the route (as a dict) on success
+   Return the mutable data key on success (an opaque but unique string)
    Return None if not found
    """
 
@@ -387,11 +404,42 @@ def get_mutable_data_zonefile_key( user_profile, data_id ):
        if not is_mutable_data_key( packed_data_txt ):
            continue 
 
-       unpacked_data_id, version = unpack_mutable_data_key( packed_data_txt )
+       unpacked_data_id = None
+       version = None
+       try:
+           unpacked_data_id, version = unpack_mutable_data_key( packed_data_txt )
+       except:
+           continue
+
        if data_id == unpacked_data_id:
            return packed_data_txt
 
    return None
+
+
+def list_mutable_data( user_profile ):
+    """
+    Get a list of all mutable data information.
+    Return [(data_id, version)]
+    """
+    if not user_profile.has_key('data'):
+        return []
+
+    ret = []
+    for packed_data_txt in user_profile['data'].keys():
+        if not is_mutable_data_key( packed_data_txt ):
+            continue
+
+        unpacked_data_id = None
+        version = None
+        try:
+            unpacked_data_id, version = unpack_mutable_data_key( packed_data_txt )
+        except:
+            continue
+    
+        ret.append( (unpacked_data_id, version) )
+
+    return ret
 
 
 def put_mutable_data_zonefile( user_profile, data_id, version, zonefile ):
@@ -503,7 +551,7 @@ def make_mutable_data_zonefile( data_id, version, urls ):
 
     rec = {
         data_name: {
-            "URI": uris
+            "uri": uris
         }
     }
 
@@ -529,10 +577,11 @@ def mutable_data_zonefile_urls( mutable_zonefile ):
     """
     Get the URLs from a mutable data zonefile
     """
-    uri_records = mutable_zonefile.get('URI')
+    uri_records = mutable_zonefile.get('uri')
     if uri_records is None:
         return None 
 
     urls = [u['target'].strip('"') for u in uri_records]
     return urls
+
 
