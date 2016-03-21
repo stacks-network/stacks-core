@@ -37,6 +37,8 @@ import re
 import base64
 import json
 import hashlib
+import urllib
+import urllib2
 
 import blockstack_profiles 
 
@@ -180,9 +182,9 @@ def get_immutable_data( data_key, hash_func=get_data_hash ):
    Given the hash of the data, go through the list of
    immutable data handlers and look it up.
 
-   Return the data on success
-
+   Return the data (as a string) on success
    """
+
    global storage_handlers
    if len(storage_handlers) == 0:
        log.debug("No storage handlers registered")
@@ -453,7 +455,9 @@ def make_fq_data_id( name, data_id ):
 
 import string
 B40_CHARS = string.digits + string.lowercase + '-_.+'
-B40_REGEX = '^[a-z0-9\-_.+]*$'
+B40_CLASS = '[a-z0-9\-_.+]'
+B40_REGEX = '^%s*$' % B40_CLASS
+URLENCODED_CLASS = '[a-zA-Z0-9\-_.~%]'
 
 def is_b40(s):
     return (isinstance(s, str) and (re.match(B40_REGEX, s) is not None))
@@ -489,17 +493,229 @@ def is_valid_name( name ):
     return True
 
 
-if __name__ == "__main__":
-    # unit tests
-    import user
-    import config
-    import pybitcoin
+def blockstack_mutable_data_url( blockchain_id, data_id, version ):
+    """
+    Make a blockstack:// URL for mutable data
+    """
+    if version is not None:
+        if type(version) not in [int, long]:
+            raise ValueError("Verison must be an int or long")
 
-    pk = pybitcoin.BitcoinPrivateKey()
-    data_privkey = pk.to_hex()
-    data_pubkey = pk.public_key().to_hex()
+        return "blockstack://%s/mutable/%s/%s" % (urllib.quote(blockchain_id), urllib.quote(data_id), str(version))
+    else:
+        return "blockstack://%s/mutable/%s" % (urllib.quote(blockchain_id), urllib.quote(data_id))
+
+
+def blockstack_immutable_data_url( blockchain_id, data_id, data_hash ):
+    """
+    Make a blockstack:// URL for immutable data
+    """
+    if not is_valid_hash( data_hash ):
+        raise ValueError("Invalid hash: %s" % data_hash)
+
+    return "blockstack://%s/immutable/%s/%s" % (urllib.quote(blockchain_id), urllib.quote(data_id), data_hash)
+
+
+def blockstack_mutable_data_url_parse( url ):
+    """
+    Parse a blockstack:// URL for mutable data
+    Return (blockchain ID, data ID, data version)
+    * The version may be None if not given (in which case, the latest value is requested).
+    * The data ID may be None, in which case, a listing of mutable data is requested.
+
+    Raise on bad data
+    """
+
+    mutable_url_data_regex = r"blockstack://(%s+)[/]+mutable[/]+(%s+)([/]+[0-9]+)?" % (B40_CLASS, URLENCODED_CLASS)
+    mutable_url_listing_regex = r"blockstack://(%s+)[/]+mutable[/]*" % (B40_CLASS)
+
+    blockstack_id = None
+    data_id = None
+    version = None
+
+    m = re.match( mutable_url_data_regex, url )
+    if m:
+
+        blockstack_id, data_id, version = m.groups()
+
+        # version?
+        if version is not None:
+            version = version.strip("/")
+            version = int(version)
+
+        return urllib.unquote(blockstack_id), urllib.unquote(data_id), version
+
+    else:
+        # maybe a listing?
+        m = re.match( mutable_url_listing_regex, url )
+        if not m:
+            raise ValueError("Invalid URL: %s" % url)
+
+        blockstack_id = m.groups()[0]
+        return urllib.unquote(blockstack_id), None, None
+
+
+def blockstack_immutable_data_url_parse( url ):
+    """
+    Parse a blockstack:// URL for immutable data
+    Return (blockchain ID, data ID, data hash)
+    * The hash may be None if not given, in which case, the hash should be looked up from the blockchain ID's profile.
+    * The data ID may be None, in which case, the list of immutable data is requested.
+
+    Raise on bad data
+    """
     
-    conf = config.make_default_config()
+    immutable_data_regex = r"blockstack://(%s+)[/]+immutable[/]+(%s+)([/]+[a-fA-F0-9]+)?" % (B40_CLASS, URLENCODED_CLASS)
+    immutable_listing_regex = r"blockstack://(%s+)[/]+immutable[/]*" % (B40_CLASS)
+
+    m = re.match( immutable_data_regex, url )
+    if m:
+
+        blockstack_id, data_id, data_hash = m.groups()
+
+        if data_hash is not None:
+            data_hash = data_hash.lower().strip("/")
+            if not is_valid_hash( data_hash ):
+                raise ValueError("Invalid data hash: %s" % data_hash)
     
-    user_profile = user.make_empty_user_zonefile( "judecn.id", data_pubkey )
+        return urllib.unquote(blockstack_id), urllib.unquote(data_id), data_hash
+
+    else:
+        # maybe a listing?
+        m = re.match( immutable_listing_regex, url )
+        if not m:
+            raise ValueError("Invalid URL: %s" % url)
+
+        blockstack_id = m.groups()[0]
+        return urllib.unquote(blockstack_id), None, None 
+
+
+class BlockstackURLHandle( object ):
+    """
+    A file-like object that handles reads on blockstack URLs
+    """
     
+    def __init__(self, url, data=None):
+        self.name = url
+        self.data = data
+        self.fetched = False
+
+        if data is not None:
+            self.data_len = len(data)
+            self.fetched = True
+
+        self.offset = 0
+        self.closed = False
+
+        newline_list = []
+        for newline_str in ['\n', '\r', '\r\n']:
+            if newline_str in data:
+                newline_list.append( newline_str )
+
+        self.newlines = tuple(newline_list)
+        self.softspace = 0
+
+
+    def fetch(self):
+        """
+        Lazily fetch the data on read
+        """
+        if not fetched:
+            import client
+            data = client.blockstack_data_url_fetch( self.name )
+            if data is None:
+                raise urllib2.URLError("Failed to fetch '%s'" % self.name)
+
+            if 'error' in data:
+                raise urllib2.URLError("Failed to fetch '%s': %s" % (self.name, data['error']))
+
+            self.data = json.dumps(data['data'])
+            self.data_len = len(self.data)
+            self.fetched = True
+
+
+    def close(self):
+        self.data = None
+        self.closed = True
+
+
+    def flush(self):
+        pass
+
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        line = self.readline()
+        if len(line) == 0:
+            raise StopIteration()
+        else:
+            return line
+
+
+    def read(self, numbytes=None):
+
+        self.fetch()
+        if self.offset >= self.data_len:
+            return ""
+
+        if numbytes is not None:
+            ret = self.data[self.offset:min(self.data_len, self.offset+numbytes)]
+            self.offset += numbytes
+            if self.offset > self.data_len:
+                self.offset = self.data_len
+
+            return ret 
+
+        else:
+            ret = self.data[self.offset:]
+            self.offset = self.data_len
+            self.data = None
+            return ret
+
+
+    def readline(self, numbytes=None):
+        if self.data is None:
+            return ""
+
+        next_newline_offset = self.data[self.offset:].find("\n")
+        if next_newline_offset < 0:
+            # no more newlines 
+            return self.read()
+
+        else:
+            line_data = self.read( next_newline_offset+1 )
+            return line_data
+
+
+    def readlines(self, sizehint=None):
+        lines = []
+        if sizehint is None:
+            sizehint = self.data_len
+
+        total_len = 0
+        while total_len < sizehint:
+            line = self.readline()
+            lines.append(line)
+            total_len += len(line)
+
+        return lines
+
+
+class BlockstackHandler( urllib2.BaseHandler ):
+    """
+    URL opener for blockstack:// URLs.
+    Usable with urllib2.
+    """
+
+    def blockstack_open( self, req ):
+        """
+        Open a blockstack URL
+        """
+        bh = BlockstackURLHandle( req )
+        return bh
+
+
+        
+
