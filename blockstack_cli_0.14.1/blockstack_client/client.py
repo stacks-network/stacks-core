@@ -265,8 +265,19 @@ def get_default_proxy():
     Get the default API proxy to blockstack.
     """
     global default_proxy
+    if default_proxy is None:
+        # load     
+        conf = config.get_config()
+        blockstack_server = conf['server']
+        blockstack_port = conf['port']
 
-    return default_proxy
+        proxy = session(conf=conf, server_host=blockstack_server,
+                        server_port=blockstack_port)
+
+        return proxy
+
+    else:
+        return default_proxy
 
 
 def set_default_proxy(proxy):
@@ -324,8 +335,9 @@ def load_user_zonefile(expected_zonefile_hash):
         # by default, it's a zonefile-formatted text file
         user_zonefile = zone_file.parse_zone_file( zonefile_txt )
         assert user_db.is_user_zonefile( user_zonefile ), "Not a user zonefile: %s" % user_zonefile
-    except zone_file.InvalidLineException:
+    except (IndexError, ValueError, zone_file.InvalidLineException):
         # might be legacy profile
+        log.debug("WARN: failed to parse user zonefile; trying to import as legacy")
         try:
             user_zonefile = json.loads(zonefile_txt)
         except Exception, e:
@@ -1192,7 +1204,7 @@ def get_name_profile(name, create_if_absent=False, proxy=None, wallet_keys=None,
 
     # is this really a legacy profile?
     if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
-        # convert it
+        # convert it 
         user_profile = blockstack_profiles.get_person_from_legacy_format( user_zonefile )
        
     else:
@@ -2234,7 +2246,6 @@ def store_mutable_data_version(conf, fq_data_id, ver):
     """
 
     assert storage.is_fq_data_id( fq_data_id ) or storage.is_valid_name( fq_data_id ), "data ID must be a Blockstack DNS name or a fully-qualified data ID"
-    assert 'metadata' in conf, "Missing metadata directory"
 
     if conf is None:
         conf = config.get_config()
@@ -2243,6 +2254,7 @@ def store_mutable_data_version(conf, fq_data_id, ver):
         log.warning("No config found; cannot store version for '%s'" % fq_data_id)
         return False
 
+    assert 'metadata' in conf, "Missing metadata directory"
     metadata_dir = conf['metadata']
     if not os.path.isdir(metadata_dir):
         log.warning("No metadata directory found; cannot store version of '%s'" % fq_data_id)
@@ -2848,3 +2860,146 @@ def delete_mutable(name, data_id, proxy=None, wallet_keys=None):
         return {'error': 'Failed to delete mutable data from storage providers'}
 
     return {'status': True}
+
+
+def list_immutable_data( name, proxy=None ):
+    """
+    List the names and hashes of all immutable data in a user's zonefile.
+    Returns {"data": [{"data_id": data_id, "hash": hash}]} on success
+    """
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    user_zonefile = get_name_zonefile(name, proxy=proxy)
+    if user_zonefile is None:
+        return {'error': 'No user zonefile defined'}
+
+    if 'error' in user_zonefile:
+        return user_zonefile 
+
+    if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
+        # zonefile is really a legacy profile
+        return {"data": []}
+
+    names_and_hashes = user_db.list_immutable_data( user_zonefile )
+    listing = [ {"data_id": nh[0], "hash": nh[1]} for nh in names_and_hashes ]
+    return {"data": listing}
+
+
+def list_mutable_data( name, proxy=None, wallet_keys=None ):
+    """
+    List the names and versions of all mutable data in a user's zonefile
+    Returns {"data": [{"data_id": data ID, "version": version}]}
+    """
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    user_profile, user_zonefile = get_name_profile( name, proxy=proxy, wallet_keys=wallet_keys )
+    if user_zonefile is None:
+        # user_profile will contain an error message
+        return user_profile 
+
+    names_and_versions = user_db.list_mutable_data( user_profile )
+    listing = [ {"data_id": nv[0], "version": nv[1]} for nv in names_and_versions ]
+    return {"data": listing}
+
+
+def blockstack_data_url_fetch( url, proxy=None, wallet_keys=None ):
+    """
+    Given a blockstack:// url, fetch its data.
+    If the data is an immutable data url, and the hash is not given, then look up the hash first.
+    If the data is a mutable data url, and the version is not given, then look up the version as well.
+
+    Return {"data": data} on success
+    Return {"error": error message} on error
+    """
+    mutable = False
+    immutable = False
+    blockchain_id = None
+    data_id = None
+    version = None
+    data_hash = None
+
+    try:
+        blockchain_id, data_id, version = storage.blockstack_mutable_data_url_parse( url )
+        mutable = True
+    except ValueError:
+        blockchain_id, data_id, data_hash = storage.blockstack_immutable_data_url_parse( url )
+        immutable = True
+
+    if mutable:
+        if data_id is not None:
+            # get single data
+            if version is not None:
+                return get_mutable( blockchain_id, data_id, proxy=proxy, wallet_keys=wallet_keys, ver_min=version, ver_max=version+1 )
+            else:
+                return get_mutable( blockchain_id, data_id, proxy=proxy, wallet_keys=wallet_keys )
+
+        else:
+            # list data 
+            return list_mutable_data( blockchain_id, proxy=proxy, wallet_keys=wallet_keys )
+
+    else:
+        if data_id is not None:
+            # get single data
+            if data_hash is not None:
+                return get_immutable( blockchain_id, data_hash, data_id=data_id, proxy=proxy )
+
+            else:
+                return get_immutable_by_name( blockchain_id, data_id, proxy=proxy )
+
+        else:
+            # list data
+            return list_immutable_data( blockchain_id, proxy=proxy )
+
+
+
+def list_accounts( name, proxy=None, wallet_keys=None ):
+    """
+    List all of the accounts in a user's profile
+    Each account will have at least the following:
+        service:  the type of service
+        identifier:  a type-specific ID
+        role:  a type-specific role
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    user_profile, user_zonefile = get_name_profile( name, proxy=proxy, wallet_keys=wallet_keys )
+    if user_zonefile is None:
+        # user_profile will contain an error message
+        return user_profile
+
+    # user_profile will be in the new zonefile format 
+    if not user_profile.has_key("accounts"):
+        return []
+
+    else:
+        return user_profile['accounts']
+
+
+def list_pgp_keys( name, proxy=None, wallet_keys=None ):
+    """
+    List all PGP keys in a user profile.
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    accounts = list_accounts( name, proxy=proxy, wallet_keys=wallet_keys )
+    if 'error' in accounts:
+        return accounts
+
+    ret = []
+    for account in accounts:
+        if account['service'] != 'pgp':
+            continue 
+
+        ret.append({
+            "identifier": account['identifier'],
+            "contentUrl": account['contentUrl']
+        })
+
+    return ret
+
