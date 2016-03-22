@@ -594,7 +594,7 @@ class BlockstackURLHandle( object ):
     """
     A file-like object that handles reads on blockstack URLs
     """
-    
+
     def __init__(self, url, data=None):
         self.name = url
         self.data = data
@@ -603,24 +603,34 @@ class BlockstackURLHandle( object ):
         if data is not None:
             self.data_len = len(data)
             self.fetched = True
+            self.newlines = make_newlines(data)
+
+        else:
+            self.newlines = None
 
         self.offset = 0
         self.closed = False
+        self.softspace = 0
 
+
+    def make_newlines(self, data):
+        """
+        Set up newlines
+        """
+        
         newline_list = []
         for newline_str in ['\n', '\r', '\r\n']:
             if newline_str in data:
                 newline_list.append( newline_str )
 
-        self.newlines = tuple(newline_list)
-        self.softspace = 0
+        return tuple(newline_list)
 
 
     def fetch(self):
         """
         Lazily fetch the data on read
         """
-        if not fetched:
+        if not self.fetched:
             import client
             data = client.blockstack_data_url_fetch( self.name )
             if data is None:
@@ -629,7 +639,8 @@ class BlockstackURLHandle( object ):
             if 'error' in data:
                 raise urllib2.URLError("Failed to fetch '%s': %s" % (self.name, data['error']))
 
-            self.data = json.dumps(data['data'])
+            self.data = json.dumps(data)
+            self.newlines = self.make_newlines(data)
             self.data_len = len(self.data)
             self.fetched = True
 
@@ -645,6 +656,7 @@ class BlockstackURLHandle( object ):
 
     def __iter__(self):
         return self
+
 
     def next(self):
         line = self.readline()
@@ -713,9 +725,6 @@ class BlockstackHandler( urllib2.BaseHandler ):
         """
         Open a blockstack URL
         """
-        bh = BlockstackURLHandle( req )
+        bh = BlockstackURLHandle( req.get_full_url() )
         return bh
-
-
-        
 
