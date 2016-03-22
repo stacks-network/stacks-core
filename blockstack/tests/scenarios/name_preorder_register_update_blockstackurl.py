@@ -23,7 +23,9 @@
 
 import testlib
 import pybitcoin
+import urllib2
 import json
+import blockstack_client
 from blockstack_client import storage, user, client
 import blockstack_profiles
 
@@ -147,10 +149,19 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
      
 
+def get_data( url ):
+    """
+    Test urllib2 opener
+    """
+    handler = blockstack_client.BlockstackHandler()
+    opener = urllib2.build_opener( handler )
+    dat = opener.open( url )
+    return json.loads( dat.read() )
+
+
 def check( state_engine ):
 
     global wallet_keys, wallet_keys_2, datasets, zonefile_hash, zonefile_hash_2
-
 
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "test" )
@@ -213,8 +224,8 @@ def check( state_engine ):
             print json.dumps(user_profile, indent=4, sort_keys=True)
             return False
 
-    # can fetch latest by name
-    immutable_data = client.blockstack_data_url_fetch( "blockstack://foo.test/immutable/hello_world_immutable" )
+    # can fetch latest by name 
+    immutable_data = get_data( "blockstack://foo.test/immutable/hello_world_immutable" )
     if 'error' in immutable_data:
         print json.dumps(immutable_data, indent=4, sort_keys=True)
         return False 
@@ -228,7 +239,7 @@ def check( state_engine ):
         return False 
 
     # can fetch by name and hash
-    immutable_data = client.blockstack_data_url_fetch( "blockstack://foo.test/immutable/hello_world_immutable/%s" % immutable_hash )
+    immutable_data = get_data( "blockstack://foo.test/immutable/hello_world_immutable/%s" % immutable_hash )
     if 'error' in immutable_data:
         print json.dumps(immutable_data, indent=4, sort_keys=True)
         return False 
@@ -242,14 +253,16 @@ def check( state_engine ):
         return False 
 
     # hash must match (if we put the wrong hash, it must fail)
-    immutable_data = client.blockstack_data_url_fetch( "blockstack://foo.test/immutable/hello_world_immutable/%s" % ("0" * len(immutable_hash)) )
-    if 'error' not in immutable_data:
+    try:
+        immutable_data = get_data( "blockstack://foo.test/immutable/hello_world_immutable/%s" % ("0" * len(immutable_hash)))
         print "no error"
         print json.dumps(immutable_data, indent=4, sort_keys=True)
         return False
+    except urllib2.URLError:
+        pass
 
     # can list names and hashes
-    immutable_data_list = client.blockstack_data_url_fetch( "blockstack://foo.test/immutable" )
+    immutable_data_list = get_data( "blockstack://foo.test/immutable" )
     if 'error' in immutable_data_list:
         print json.dumps(immutable_data, indent=4, sort_keys=True )
         return False 
@@ -265,7 +278,7 @@ def check( state_engine ):
         return False 
 
     # can fetch latest mutable by name
-    mutable_data = client.blockstack_data_url_fetch( "blockstack://bar.test/mutable/hello_world_mutable")
+    mutable_data = get_data( "blockstack://bar.test/mutable/hello_world_mutable")
     if 'error' in mutable_data:
         print json.dumps(mutable_data, indent=4, sort_keys=True)
         return False 
@@ -278,8 +291,8 @@ def check( state_engine ):
         print "wrong version: %s" % mutable_data['data']['version']
         return False 
 
-    # can fetch by version 
-    mutable_data = client.blockstack_data_url_fetch( "blockstack://bar.test/mutable/hello_world_mutable/1")
+    # can fetch by version
+    mutable_data = get_data( "blockstack://bar.test/mutable/hello_world_mutable/1")
     if 'error' in mutable_data:
         print json.dumps(mutable_data, indent=4, sort_keys=True)
         return False 
@@ -289,14 +302,16 @@ def check( state_engine ):
         return False 
 
     # will fail to fetch if we give the wrong version 
-    mutable_data = client.blockstack_data_url_fetch( "blockstack://bar.test/mutable/hello_world_mutable/2")
-    if 'error' not in mutable_data:
+    try:
+        mutable_data = get_data("blockstack://bar.test/mutable/hello_world_mutable/2")
         print "mutable fetch by wrong version worked"
         print json.dumps(mutable_data, indent=4, sort_keys=True)
-        return False 
+        return False
+    except urllib2.URLError:
+        pass
 
-    # can list mutable data 
-    mutable_data_list = client.blockstack_data_url_fetch( "blockstack://bar.test/mutable" )
+    # can list mutable data
+    mutable_data_list = get_data( "blockstack://bar.test/mutable" )
     if 'error' in mutable_data_list:
         print json.dumps(mutable_data_list, indent=4, sort_keys=True )
         return False 
@@ -306,7 +321,6 @@ def check( state_engine ):
         print json.dumps(mutable_data_list, indent=4, sort_keys=True )
         return False 
 
-    print json.dumps(mutable_data_list, indent=4, sort_keys=True)
     if mutable_data_list['data'][0]['data_id'] != 'hello_world_mutable' or mutable_data_list['data'][0]['version'] != 1:
         print "wrong data id and/or version"
         print json.dumps(mutable_data_list, indent=4, sort_keys=True)
