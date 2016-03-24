@@ -40,6 +40,10 @@ REFRESH_BLOCKS = 25
 
 DEFAULT_NAMESPACE = "id"
 
+USERS_FILENAME = "users.json"
+CURRENT_DIR = os.path.abspath(os.path.dirname(__file__))
+USERS_FILE = os.path.join(CURRENT_DIR, USERS_FILENAME)
+
 try:
     from config_local import *
 except:
@@ -71,12 +75,12 @@ except:
             MEMCACHED_SERVERS = [memcached_server]
 
     try:
-        BLOCKSTORED_IP = os.environ['BLOCKSTORED_IP']
-        BLOCKSTORED_PORT = os.environ['BLOCKSTORED_PORT']
+        BLOCKSTACKD_IP = os.environ['BLOCKSTACKD_IP']
+        BLOCKSTACKD_PORT = os.environ['BLOCKSTACKD_PORT']
         DHT_MIRROR_IP = os.environ['DHT_MIRROR_IP']
         DHT_MIRROR_PORT = os.environ['DHT_MIRROR_PORT']
     except:
-        log.debug("Blockstored or DHT-mirror not configured properly")
+        log.debug("Blockstack-server or DHT-mirror not configured properly")
         exit(1)
 
     # if password protecting the resolver
