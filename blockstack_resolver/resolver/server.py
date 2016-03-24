@@ -2,33 +2,16 @@
 """
     Resolver
     ~~~~~
-
-    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
-    copyright: (c) 2016 by Blockstack.org
-
-This file is part of Resolver.
-
-    Resolver is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    Resolver is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with Resolver. If not, see <http://www.gnu.org/licenses/>.
+    :copyright: (c) 2014-2016 by Halfmoon Labs, Inc.
+    :copyright: (c) 2016 blockstack.org
+    :license: MIT, see LICENSE for more details.
 """
 
-import json
 import re
+import json
+import collections
 import pylibmc
 import logging
-
-import requests
-requests.packages.urllib3.disable_warnings()
 
 from flask import Flask, make_response, jsonify, abort, request
 from time import time
@@ -43,9 +26,13 @@ from .config import DEFAULT_HOST, MEMCACHED_SERVERS, MEMCACHED_USERNAME
 from .config import MEMCACHED_PASSWORD, MEMCACHED_TIMEOUT, MEMCACHED_ENABLED
 from .config import USERSTATS_TIMEOUT
 from .config import VALID_BLOCKS, RECENT_BLOCKS
-from .config import BLOCKSTORED_IP, BLOCKSTORED_PORT
+from .config import BLOCKSTACKD_IP, BLOCKSTACKD_PORT
 from .config import DHT_MIRROR_IP, DHT_MIRROR_PORT
 from .config import DEFAULT_NAMESPACE
+from .config import NAMES_FILE
+
+import requests
+requests.packages.urllib3.disable_warnings()
 
 app = Flask(__name__)
 
@@ -59,14 +46,19 @@ else:
 
 
 def get_mc_client():
+    """ Return a new connection to memcached
+    """
+
     mc = pylibmc.Client(MEMCACHED_SERVERS, binary=True,
-                    username=MEMCACHED_USERNAME, password=MEMCACHED_PASSWORD,
-                    behaviors={"no_block": True,
-                               "connect_timeout": 200})
+                        username=MEMCACHED_USERNAME,
+                        password=MEMCACHED_PASSWORD,
+                        behaviors={"no_block": True,
+                                   "connect_timeout": 200})
 
     return mc
 
 mc = get_mc_client()
+
 
 def validName(name):
     """ Return True if valid name
@@ -79,17 +71,6 @@ def validName(name):
         return True
     else:
         return False
-
-
-def refresh_user_count():
-
-    active_users_list = 'xx'  # fetch user info here
-
-    if type(active_users_list) is list:
-        mc.set("total_users", str(len(active_users_list)), int(time() + USERSTATS_TIMEOUT))
-        mc.set("total_users_old", str(len(active_users_list)), 0)
-
-    return len(active_users_list)
 
 
 def fetch_from_dht(profile_hash):
@@ -128,6 +109,10 @@ def format_profile(profile, username):
 
 
 def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
+    """ Given a fully-qualified username (username.namespace)
+        get the data associated with that fqu.
+        Return cached entries, if possible.
+    """
 
     global MEMCACHED_ENABLED
     global mc
@@ -143,25 +128,22 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
 
     if cache_reply is None:
 
-	# reload connection to mc, in case that was the problem
-        #mc = get_mc_client()
-
         try:
-            blockstore_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
-            blockstore_resp = blockstore_client.get_name_blockchain_record(username + "." + namespace)
-            blockstore_resp = blockstore_resp[0]
+            bs_client = Proxy(BLOCKSTACKD_IP, BLOCKSTACKD_PORT)
+            bs_resp = bs_client.get_name_blockchain_record(username + "." + namespace)
+            bs_resp = bs_resp[0]
         except:
             return {}
 
-        if blockstore_resp is None:
+        if bs_resp is None:
             abort(404)
 
-        if 'value_hash' in blockstore_resp:
-            profile_hash = blockstore_resp['value_hash']
+        if 'value_hash' in bs_resp:
+            profile_hash = bs_resp['value_hash']
             profile = fetch_from_dht(profile_hash)
 
             data = format_profile(profile, username)
-            data['owner_address'] = blockstore_resp['address']
+            data['owner_address'] = bs_resp['address']
 
             if MEMCACHED_ENABLED or refresh:
                 log.debug("Memcache set: %s" % username)
@@ -175,63 +157,26 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
     return data
 
 
-def get_all_users(namespace, refresh=False):
+def get_all_users():
+    """ Return all users in the .id namespace
+    """
 
-    global MEMCACHED_ENABLED
-    global mc
+    try:
+        fout = open(NAMES_FILE, 'r')
+        data = fout.read()
+        data = json.loads(data)
+        fout.close()
+    except:
+        data = {}
 
-    all_users = []
-
-    def fetch_users(offset):
-
-        received_users = []
-        batch_size = 20000  # usernames per call
-
-        try:
-            bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
-            resp = bs_client.get_names_in_namespace(namespace, offset, batch_size)
-            received_users = resp['results']
-
-        except Exception as e:
-            pass
-
-        return received_users
-
-    if MEMCACHED_ENABLED and not refresh:
-        log.debug("Memcache get all_users: %s" % namespace)
-        cache_reply = mc.get("all_users_" + str(namespace))
-    else:
-        cache_reply = None
-
-    if cache_reply is None:
-
-        #mc = get_mc_client()
-
-        offset = 0
-
-        while(1):
-
-            received_users = fetch_users(offset)
-
-            if len(received_users) == 0:
-                break
-
-            all_users += received_users
-            offset = len(all_users)
-
-        if MEMCACHED_ENABLED or refresh:
-            log.debug("Memcache set all_users: %s" % namespace)
-            mc.set("all_users_" + str(namespace), json.dumps(all_users),
-                   int(time() + MEMCACHED_TIMEOUT))
-    else:
-        all_users = json.loads(cache_reply)
-
-    return all_users
+    return data
 
 
 @app.route('/v2/users/<usernames>', methods=['GET'], strict_slashes=False)
 @crossdomain(origin='*')
 def get_users(usernames):
+    """ Fetch data from username in .id namespace
+    """
 
     reply = {}
     refresh = False
@@ -283,18 +228,40 @@ def get_users(usernames):
 @app.route('/v2/namespace', strict_slashes=False)
 @crossdomain(origin='*')
 def get_namespace():
-
-    refresh = False
-
-    try:
-        refresh = request.args.get('refresh')
-    except:
-        pass
+    """ Get stats on registration and all names registered
+        (old endpoint, still here for compatibility)
+    """
 
     reply = {}
-    total_users = get_all_users('id', refresh)
+    total_users = get_all_users()
     reply['stats'] = {'registrations': len(total_users)}
     reply['usernames'] = total_users
+
+    return jsonify(reply)
+
+
+@app.route('/v2/namespaces', strict_slashes=False)
+@crossdomain(origin='*')
+def get_all_namespaces():
+    """ Get stats on registration and all names registered
+    """
+
+    json.encoder.c_make_encoder = None
+
+    reply = {}
+    all_namespaces = []
+    total_users = get_all_users()
+
+    id_namespace = collections.OrderedDict([("namespace", "id"),
+                                            ("registrations", len(total_users)),
+                                            ("names", total_users)])
+
+    all_namespaces.append(id_namespace)
+
+    reply['namespaces'] = all_namespaces
+
+    # disable Flask's JSON sorting
+    app.config["JSON_SORT_KEYS"] = False
 
     return jsonify(reply)
 
@@ -302,16 +269,12 @@ def get_namespace():
 @app.route('/v2/users/', methods=['GET'], strict_slashes=False)
 @crossdomain(origin='*')
 def get_user_count():
-
-    refresh = False
-
-    try:
-        refresh = request.args.get('refresh')
-    except:
-        pass
+    """ Get stats on registered names
+    """
 
     reply = {}
-    total_users = get_all_users('id', refresh)
+
+    total_users = get_all_users()
     reply['stats'] = {'registrations': len(total_users)}
 
     return jsonify(reply)
@@ -319,9 +282,11 @@ def get_user_count():
 
 @app.route('/')
 def index():
+    """ Default HTML display if someone visits the resolver
+    """
 
-    reply = '<hmtl><body>Welcome to this Blockchain ID resolver, see \
-            <a href="http://github.com/blockstack/resolver"> \
+    reply = '<hmtl><body>Welcome to this Blockstack resolver, see \
+            <a href="http://github.com/blockstack/blockstack-resolver"> \
             this Github repo</a> for details.</body></html>'
 
     return reply

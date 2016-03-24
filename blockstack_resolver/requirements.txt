@@ -9,3 +9,4 @@ proofchecker==0.0.2
 pylibmc==1.5.0
 requests==2.9.1
 Werkzeug==0.11.3
+blockstack-client==0.0.12.5
