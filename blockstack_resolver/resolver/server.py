@@ -175,58 +175,14 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
     return data
 
 
-def get_all_users(namespace, refresh=False):
+def get_all_users():
 
-    global MEMCACHED_ENABLED
-    global mc
+    fout = open('/home/ubuntu/resolver/resolver/users.json','r')
+    data = fout.read()
+    data = json.loads(data)
+    fout.close()
 
-    all_users = []
-
-    def fetch_users(offset):
-
-        received_users = []
-        batch_size = 20000  # usernames per call
-
-        try:
-            bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
-            resp = bs_client.get_names_in_namespace(namespace, offset, batch_size)
-            received_users = resp['results']
-
-        except Exception as e:
-            pass
-
-        return received_users
-
-    if MEMCACHED_ENABLED and not refresh:
-        log.debug("Memcache get all_users: %s" % namespace)
-        cache_reply = mc.get("all_users_" + str(namespace))
-    else:
-        cache_reply = None
-
-    if cache_reply is None:
-
-        #mc = get_mc_client()
-
-        offset = 0
-
-        while(1):
-
-            received_users = fetch_users(offset)
-
-            if len(received_users) == 0:
-                break
-
-            all_users += received_users
-            offset = len(all_users)
-
-        if MEMCACHED_ENABLED or refresh:
-            log.debug("Memcache set all_users: %s" % namespace)
-            mc.set("all_users_" + str(namespace), json.dumps(all_users),
-                   int(time() + MEMCACHED_TIMEOUT))
-    else:
-        all_users = json.loads(cache_reply)
-
-    return all_users
+    return data
 
 
 @app.route('/v2/users/<usernames>', methods=['GET'], strict_slashes=False)
@@ -292,12 +248,37 @@ def get_namespace():
         pass
 
     reply = {}
-    total_users = get_all_users('id', refresh)
+    total_users = get_all_users()
     reply['stats'] = {'registrations': len(total_users)}
     reply['usernames'] = total_users
 
     return jsonify(reply)
 
+@app.route('/v2/namespaces', strict_slashes=False)
+@crossdomain(origin='*')
+def get_all_namespaces():
+
+    import json
+    import collections
+    json.encoder.c_make_encoder = None
+
+    #from bson import json_util
+    reply = {}
+    all_namespaces = []
+    total_users = get_all_users()
+
+    id_namespace = collections.OrderedDict([("namespace", "id"), ("registrations", len(total_users)), ("names", total_users)])
+    #id_namespace = {}
+    #id_namespace['namespace'] = 'id'
+    #id_namespace['names'] = total_users
+    #id_namespace['info'] = {'registrations': len(total_users), 'namespace': 'id'}
+
+    all_namespaces.append(id_namespace)
+    reply['namespaces'] = all_namespaces
+    #return json.dumps(reply, sort_keys=True, indent=4, separators=(',', ': '), default=json_util.default)
+
+    app.config["JSON_SORT_KEYS"] = False
+    return jsonify(reply)
 
 @app.route('/v2/users/', methods=['GET'], strict_slashes=False)
 @crossdomain(origin='*')
@@ -311,7 +292,8 @@ def get_user_count():
         pass
 
     reply = {}
-    total_users = get_all_users('id', refresh)
+ 
+    total_users = get_all_users()
     reply['stats'] = {'registrations': len(total_users)}
 
     return jsonify(reply)
@@ -320,8 +302,8 @@ def get_user_count():
 @app.route('/')
 def index():
 
-    reply = '<hmtl><body>Welcome to this Blockchain ID resolver, see \
-            <a href="http://github.com/blockstack/resolver"> \
+    reply = '<hmtl><body>Welcome to this Blockstack resolver, see \
+            <a href="http://github.com/blockstack/blockstack-resolver"> \
             this Github repo</a> for details.</body></html>'
 
     return reply
