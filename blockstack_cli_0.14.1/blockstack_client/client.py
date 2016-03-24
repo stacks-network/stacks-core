@@ -2429,7 +2429,9 @@ def list_immutable_data_history( name, data_id, current_block=None, proxy=None )
     List all prior hashes of an immutable datum, given its unchanging ID.
     If the zonefile at a particular update is missing, the string "missing zonefile" will be
     appended in its place.  If the zonefile did not define data_id at that time,
-    the string "data not defined" will be placed in the hash's place
+    the string "data not defined" will be placed in the hash's place.
+
+    Returns the list of hashes.
     """
     zonefiles = list_zonefile_history( name, current_block=current_block, proxy=proxy )
     hashes = []
