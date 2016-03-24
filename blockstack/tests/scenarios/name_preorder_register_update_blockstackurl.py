@@ -153,7 +153,7 @@ def get_data( url ):
     """
     Test urllib2 opener
     """
-    handler = blockstack_client.BlockstackHandler()
+    handler = blockstack_client.BlockstackHandler(full_response=True)
     opener = urllib2.build_opener( handler )
     dat = opener.open( url )
     return json.loads( dat.read() )
