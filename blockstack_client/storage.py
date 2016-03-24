@@ -595,9 +595,10 @@ class BlockstackURLHandle( object ):
     A file-like object that handles reads on blockstack URLs
     """
 
-    def __init__(self, url, data=None):
+    def __init__(self, url, data=None, full_response=False):
         self.name = url
         self.data = data
+        self.full_response = full_response
         self.fetched = False
 
         if data is not None:
@@ -639,7 +640,13 @@ class BlockstackURLHandle( object ):
             if 'error' in data:
                 raise urllib2.URLError("Failed to fetch '%s': %s" % (self.name, data['error']))
 
-            self.data = json.dumps(data)
+            if self.full_response:
+                self.data = json.dumps(data)
+            else:
+                self.data = data['data']
+                if type(self.data) not in [str,unicode]:
+                    self.data = json.dumps(data['data'])
+
             self.newlines = self.make_newlines(data)
             self.data_len = len(self.data)
             self.fetched = True
@@ -721,10 +728,13 @@ class BlockstackHandler( urllib2.BaseHandler ):
     Usable with urllib2.
     """
 
+    def __init__(self, full_response=False):
+        self.full_response = full_response
+
     def blockstack_open( self, req ):
         """
         Open a blockstack URL
         """
-        bh = BlockstackURLHandle( req.get_full_url() )
+        bh = BlockstackURLHandle( req.get_full_url(), full_response=self.full_response )
         return bh
 
