@@ -1,12 +1,12 @@
 #!/bin/bash
 
-echo "Enter BLOCKSTORED_IP:"
+echo "Enter BLOCKSTACKD_IP:"
 read input
-export BLOCKSTORED_IP=$input
+export BLOCKSTACKD_IP=$input
 
-echo "Enter BLOCKSTORED_PORT:"
+echo "Enter BLOCKSTACKD_PORT:"
 read input
-export BLOCKSTORED_PORT=$input
+export BLOCKSTACKD_PORT=$input
 
 echo "Enter DHT_MIRROR_IP:"
 read input

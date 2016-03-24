@@ -2,24 +2,9 @@
 """
     Resolver
     ~~~~~
-
-    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
-    copyright: (c) 2016 by Blockstack.org
-
-This file is part of Resolver.
-
-    Resolver is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    Resolver is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with Resolver. If not, see <http://www.gnu.org/licenses/>.
+    :copyright: (c) 2014-2016 by Halfmoon Labs, Inc.
+    :copyright: (c) 2016 blockstack.org
+    :license: MIT, see LICENSE for more details.
 """
 
 import os
@@ -40,9 +25,9 @@ REFRESH_BLOCKS = 25
 
 DEFAULT_NAMESPACE = "id"
 
-USERS_FILENAME = "users.json"
+NAMES_FILENAME = "names.json"
 CURRENT_DIR = os.path.abspath(os.path.dirname(__file__))
-USERS_FILE = os.path.join(CURRENT_DIR, USERS_FILENAME)
+NAMES_FILE = os.path.join(CURRENT_DIR, NAMES_FILENAME)
 
 try:
     from config_local import *

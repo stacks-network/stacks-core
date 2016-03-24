@@ -2,24 +2,9 @@
 """
     Resolver
     ~~~~~
-
-    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
-    copyright: (c) 2016 by Blockstack.org
-
-This file is part of Resolver.
-
-    Resolver is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    Resolver is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with Resolver. If not, see <http://www.gnu.org/licenses/>.
+    :copyright: (c) 2014-2016 by Halfmoon Labs, Inc.
+    :copyright: (c) 2016 blockstack.org
+    :license: MIT, see LICENSE for more details.
 """
 
 import re
@@ -44,7 +29,7 @@ from .config import VALID_BLOCKS, RECENT_BLOCKS
 from .config import BLOCKSTACKD_IP, BLOCKSTACKD_PORT
 from .config import DHT_MIRROR_IP, DHT_MIRROR_PORT
 from .config import DEFAULT_NAMESPACE
-from .config import USERS_FILE
+from .config import NAMES_FILE
 
 import requests
 requests.packages.urllib3.disable_warnings()
@@ -176,7 +161,7 @@ def get_all_users():
     """ Return all users in the .id namespace
     """
 
-    fout = open(USERS_FILE, 'r')
+    fout = open(NAMES_FILE, 'r')
     data = fout.read()
     data = json.loads(data)
     fout.close()
