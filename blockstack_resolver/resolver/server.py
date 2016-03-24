@@ -161,10 +161,13 @@ def get_all_users():
     """ Return all users in the .id namespace
     """
 
-    fout = open(NAMES_FILE, 'r')
-    data = fout.read()
-    data = json.loads(data)
-    fout.close()
+    try:
+        fout = open(NAMES_FILE, 'r')
+        data = fout.read()
+        data = json.loads(data)
+        fout.close()
+    except:
+        data = {}
 
     return data
 

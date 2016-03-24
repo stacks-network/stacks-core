@@ -26,8 +26,10 @@ REFRESH_BLOCKS = 25
 DEFAULT_NAMESPACE = "id"
 
 NAMES_FILENAME = "names.json"
+NEW_NAMES_FILENAME = 'new_names.json'
 CURRENT_DIR = os.path.abspath(os.path.dirname(__file__))
 NAMES_FILE = os.path.join(CURRENT_DIR, NAMES_FILENAME)
+NEW_NAMES_FILE = os.path.join(CURRENT_DIR, NEW_NAMES_FILENAME)
 
 try:
     from config_local import *

@@ -11,7 +11,7 @@ import json
 
 from config import BLOCKSTACKD_IP
 from config import BLOCKSTACKD_PORT
-from config import NAMES_FILE
+from config import NAMES_FILE, NEW_NAMES_FILE
 # hack to ensure local, until we update client
 from blockstack_client import client as bs_client
 # start session using blockstack_client
@@ -25,11 +25,14 @@ if __name__ == "__main__":
     offset = 0
     count = 50
 
-    fout = open(NAMES_FILE, 'r')
-    data = fout.read()
-    data = json.loads(data)
+    try:
+        fout = open(NAMES_FILE, 'r')
+        data = fout.read()
+        data = json.loads(data)
 
-    old_counter = len(data)
+        old_counter = len(data)
+    except:
+        old_counter = 0
 
     print old_counter
 
@@ -48,7 +51,7 @@ if __name__ == "__main__":
 
     if new_counter > old_counter:
 
-        fout = open('new_users.json', 'w')
+        fout = open(NEW_NAMES_FILE, 'w')
         fout.write(json.dumps(total_names))
 
     else:
