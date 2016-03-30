@@ -96,7 +96,6 @@ def fetch_namespace_from_file():
 
     blockchain_state = blockchain_file.read()
     blockchain_state = json.loads(blockchain_state)
-    blockchain_state = blockchain_state['registrations']
 
     counter = 0
 
@@ -107,10 +106,10 @@ def fetch_namespace_from_file():
 
         new_entry = {}
 
-        username = entry.rstrip('id')
+        username = entry['fqu'].rstrip('id')
         username = username.rstrip('.')
 
-        key = blockchain_state[entry]['value_hash']
+        key = entry['value_hash']
 
         check_entry = profile_data.find_one({"key": key})
 

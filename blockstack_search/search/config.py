@@ -23,6 +23,8 @@ This file is part of Search.
     along with Search. If not, see <http://www.gnu.org/licenses/>.
 """
 
+import os
+
 DEBUG = True
 
 MEMCACHED_ENABLED = True
@@ -39,8 +41,12 @@ MEMCACHED_TIMEOUT = 6 * 60 * 60
 RESOLVER_URL = 'http://resolver.onename.com'
 ALL_USERS_ENDPOINT = '/v2/users'
 
-BLOCKCHAIN_STATE_FILE = "data/blockchain_state.json"
-DHT_STATE_FILE = "data/dht_state.json"
+BLOCKCHAIN_STATE_FILENAME = "data/blockchain_state.json"
+DHT_STATE_FILENAME = "data/dht_state.json"
+
+current_dir = os.path.abspath(os.path.dirname(__file__))
+BLOCKCHAIN_STATE_FILE = os.path.join(current_dir, BLOCKCHAIN_STATE_FILENAME)
+DHT_STATE_FILE = os.path.join(current_dir, DHT_STATE_FILENAME)
 
 SUPPORTED_PROOFS = ['twitter', 'facebook', 'github', 'domain']
 
