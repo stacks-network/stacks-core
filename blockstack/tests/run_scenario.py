@@ -196,7 +196,7 @@ if __name__ == "__main__":
         os.makedirs( blockstack_state_engine.working_dir )
 
     # generate config file
-    config_file = os.path.join( blockstack_state_engine.working_dir, "blockstack.ini" ) 
+    config_file = os.path.join( blockstack_state_engine.working_dir, "blockstack-server.ini" ) 
     rc = write_config_file( scenario, config_file )
     if rc != 0:
         log.error("failed to write config file: exit %s" % rc)
