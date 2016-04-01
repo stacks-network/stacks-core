@@ -2000,14 +2000,15 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
             prev_block_number = block_number-1
             prev_history_index = history_index-1
 
-        if 'transfer_send_block_id' not in name_rec_prev:
-            log.error("FATAL: Obsolete or invalid database.  Missing 'transfer_send_block_id' field for NAME_TRANSFER at (%s, %s)" % (prev_block_number, prev_history_index))
+        if 'transfer_send_block_id' not in name_rec:
+            log.error("FATAL: Obsolete or invalid database.  Missing 'transfer_send_block_id' field for NAME_TRANSFER at (%s, %s)" % (block_number, history_index))
             sys.exit(1)
 
         sender = name_rec_prev['sender']
         address = name_rec_prev['address']
-        send_block_id = name_rec_prev['transfer_send_block_id']
 
+        send_block_id = name_rec['transfer_send_block_id']
+        
         # reconstruct recipient and sender
         name_rec['recipient'] = recipient
         name_rec['recipient_address'] = recipient_address
@@ -2092,6 +2093,11 @@ def nameop_restore_consensus_fields( name_rec, block_id ):
 
         db = get_state_engine()
 
+        if 'transfer_send_block_id' not in name_rec:
+            log.error("FATAL: Obsolete or invalid database.  Missing 'transfer_send_block_id' field for NAME_TRANSFER at (%s, %s)" % (prev_block_number, prev_history_index))
+            sys.exit(1)
+
+
         # reconstruct the recipient information
         ret_op['recipient'] = str(name_rec['sender'])
         ret_op['recipient_address'] = str(name_rec['address'])
@@ -2104,7 +2110,7 @@ def nameop_restore_consensus_fields( name_rec, block_id ):
             keep_data = False
 
         ret_op['keep_data'] = keep_data
-        ret_op['consensus_hash'] = db.get_consensus_at( block_id - 1 )
+        ret_op['consensus_hash'] = db.get_consensus_at( name_rec['transfer_send_block_id'] )
         ret_op['name_hash'] = hash256_trunc128( str(name_rec['name']) )
 
     elif opcode_name == "NAME_UPDATE":
@@ -2133,6 +2139,7 @@ def block_to_virtualchain_ops( block_id, db ):
 
     # all sequences of operations at this block, in tx order
     nameops = db.get_all_nameops_at( block_id )
+
     virtualchain_ops = []
 
     # process nameops in order by vtxindex
@@ -2183,7 +2190,7 @@ def block_to_virtualchain_ops( block_id, db ):
             # * 'opcode' (which will be fed into the consensus hash
             #             indirectly, once the fields are successfully processed and thus proven consistent with
             #             the fields),
-            # * 'transfer_send_block_id* (which will be used to find the NAME_TRANSFER consensus hash,
+            # * 'transfer_send_block_id' (which will be used to find the NAME_TRANSFER consensus hash,
             #             thus indirectly feeding this information into the consensus hash as well).
             if field not in consensus_fields and field not in ['opcode', 'transfer_send_block_id']:
                 log.warning("OP '%s': Removing untrusted field '%s'" % (opcode_name, field))
