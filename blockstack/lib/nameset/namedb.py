@@ -1307,9 +1307,9 @@ class BlockstackDB( virtualchain.StateEngine ):
                  "history_snapshot": True
               }]
 
-              if 'consensus_hash' in name_rec.keys():
-                  prior_history[ preorder['block_number'] ][0]['consensus_hash'] = name_rec['consensus_hash']
-
+              for optional_field in ['consensus_hash', 'transfer_send_block_id']:
+                  if optional_field in name_rec.keys():
+                      prior_history[ preorder['block_number'] ][0][optional_field] = name_rec[optional_field]
 
           name_record = {
             'name': name,
@@ -1396,7 +1396,7 @@ class BlockstackDB( virtualchain.StateEngine ):
           self.block_name_expires[ expires ].append( name )
 
       # save diff
-      self.save_name_diff( name, current_block_number, ['last_renewed', 'txid', 'vtxindex', 'op', 'opcode', 'consensus_hash'] )
+      self.save_name_diff( name, current_block_number, ['last_renewed', 'txid', 'vtxindex', 'op', 'opcode', 'consensus_hash', 'transfer_send_block_id'] )
 
       # apply diff
       self.name_records[name]['last_renewed'] = current_block_number
@@ -1429,7 +1429,7 @@ class BlockstackDB( virtualchain.StateEngine ):
          del self.name_consensus_hash_name[ name_consensus_hash ]
 
       # save diff
-      self.save_name_diff( name, current_block_number, ['value_hash', 'txid', 'vtxindex', 'opcode', 'op', 'consensus_hash'] )
+      self.save_name_diff( name, current_block_number, ['value_hash', 'txid', 'vtxindex', 'opcode', 'op', 'consensus_hash', 'transfer_send_block_id'] )
 
       # apply diff
       self.name_records[name]['value_hash'] = nameop['update_hash']
@@ -1487,7 +1487,7 @@ class BlockstackDB( virtualchain.StateEngine ):
       self.name_records[name]['vtxindex'] = nameop['vtxindex']
       self.name_records[name]['opcode'] = opcode
       self.name_records[name]['op'] = "%s%s" % (NAME_TRANSFER, op)
-      self.name_records[name]['transfer_send_block_id'] = transfer_send_block_id    # NOT covered by consensus hash, but points to one
+      self.name_records[name]['transfer_send_block_id'] = transfer_send_block_id    # not directly covered by consensus hash, but indirectly
 
       if not keep_data:
          self.name_records[name]['value_hash'] = None
@@ -1524,7 +1524,7 @@ class BlockstackDB( virtualchain.StateEngine ):
       op = NAME_REVOKE
 
       # save diff
-      self.save_name_diff( name, current_block_number, ['revoked', 'txid', 'vtxindex', 'opcode', 'op', 'value_hash', 'consensus_hash'] )
+      self.save_name_diff( name, current_block_number, ['revoked', 'txid', 'vtxindex', 'opcode', 'op', 'value_hash', 'consensus_hash', 'transfer_send_block_id'] )
 
       # apply diff
       self.name_records[name]['revoked'] = True
