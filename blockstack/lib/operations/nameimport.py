@@ -37,13 +37,13 @@ from ..hashing import hash256_trunc128, hash_name
 from ..nameset import *
 
 # consensus hash fields (ORDER MATTERS!) 
-FIELDS = NAMEREC_FIELDS + [
+FIELDS = NAMEREC_FIELDS[:] + [
     'sender',            # scriptPubKey hex that identifies the name recipient
     'address'            # address of the recipient
 ]
 
 # fields that change when applying this operation 
-MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
+MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS[:] + [
     'value_hash',
     'sender',
     'sender_pubkey',
@@ -56,11 +56,12 @@ MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
     'last_renewed',
     'revoked',
     'block_number',
-    'namespace_block_number'
+    'namespace_block_number',
+    'transfer_send_block_id'
 ]
  
 # fields to preserve when applying this operation 
-BACKUP_FIELDS = MUTATE_FIELDS + [
+BACKUP_FIELDS = MUTATE_FIELDS[:] + [
     'consensus_hash'
 ]
 
@@ -259,7 +260,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
     prior_hist = None
     if prev_name_rec is not None:
         # set preorder and prior history...
-        prior_hist = prior_history_create( nameop, prev_name_rec, block_id, state_engine, extra_backup_fields=['consensus_hash','namespace_block_number'] )
+        prior_hist = prior_history_create( nameop, prev_name_rec, block_id, state_engine, extra_backup_fields=['consensus_hash','namespace_block_number','transfer_send_block_id'] )
     
     # can never have been preordered
     state_create_put_preorder( nameop, None )
@@ -495,7 +496,7 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
     return ret_op
 
 
-def snv_consensus_extras( name_rec, block_id, commit, db ):
+def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
     """
     Given a name record most recently affected by an instance of this operation, 
     find the dict of consensus-affecting fields from the operation that are not
