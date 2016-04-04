@@ -34,17 +34,17 @@ from ..scripts import *
 from ..nameset import *
 
 # consensus hash fields (ORDER MATTERS!)
-FIELDS = NAMEREC_FIELDS
+FIELDS = NAMEREC_FIELDS[:]
 
 # fields that this operation changes
-MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
+MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS[:] + [
     'revoked',
     'value_hash',
     'sender_pubkey'
 ]
 
 # fields to back up when applying this operation 
-BACKUP_FIELDS = MUTATE_FIELDS + [
+BACKUP_FIELDS = NAMEREC_BACKUP_FIELDS[:] + MUTATE_FIELDS[:] + [
     'consensus_hash'
 ]
 
@@ -129,7 +129,6 @@ def check( state_engine, nameop, block_id, checked_ops ):
     # apply state transition 
     nameop['revoked'] = True
     nameop['value_hash'] = None
-
     return True
 
 
@@ -328,7 +327,7 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
     return ret_op
 
 
-def snv_consensus_extras( name_rec, block_id, commit, db ):
+def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
     """
     Calculate any derived missing data that goes into the check() operation,
     given the block number, the name record at the block number, and the db.

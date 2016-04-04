@@ -40,19 +40,19 @@ import virtualchain
 log = virtualchain.get_logger()
 
 # consensus hash fields (ORDER MATTERS!) 
-FIELDS = NAMEREC_FIELDS + [
+FIELDS = NAMEREC_FIELDS[:] + [
     'name_consensus_hash',  # hash(name,consensus_hash)
     'consensus_hash'        # consensus hash when this update was sent
 ]
 
 # fields this operation mutates
-MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
+MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS[:] + [
     'value_hash',
     'consensus_hash'
 ]
 
 # fields to back up when applying this operation 
-BACKUP_FIELDS = MUTATE_FIELDS
+BACKUP_FIELDS = NAMEREC_BACKUP_FIELDS[:] + MUTATE_FIELDS[:]
 
 
 def update_sanity_test( name, consensus_hash, data_hash ):
@@ -165,7 +165,6 @@ def check(state_engine, nameop, block_id, checked_ops ):
         return False
 
     # remember the name and consensus hash, so we don't have to re-calculate it...
-    # self.name_consensus_hash_name[ name_consensus_hash ] = name
     nameop['name'] = name
     nameop['consensus_hash'] = consensus_hash
     nameop['sender_pubkey'] = name_rec['sender_pubkey']
@@ -398,7 +397,7 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
     return ret_op
 
 
-def snv_consensus_extras( name_rec, block_id, commit, db ):
+def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
     """
     Given a name record most recently affected by an instance of this operation, 
     find the dict of consensus-affecting fields from the operation that are not

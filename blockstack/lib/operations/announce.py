@@ -315,7 +315,7 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
     return {}
 
 
-def snv_consensus_extras( name_rec, block_id, commit, db ):
+def snv_consensus_extras( new_name_rec, block_id, blockchain_name_data, db ):
     """
     Calculate any derived missing data that goes into the check() operation,
     given the block number, the name record at the block number, and the db.
