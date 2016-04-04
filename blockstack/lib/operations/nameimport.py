@@ -198,6 +198,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
     name_block_number = block_id 
     name_first_registered = block_id
     name_last_renewed = block_id
+    transfer_send_block_id = None
 
     if not nameop.has_key('sender_pubkey'):
         log.debug("Name import requires a sender_pubkey (i.e. use of a p2pkh transaction)")
@@ -253,6 +254,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
         name_first_registered = prev_name_rec['first_registered']
         name_last_renewed = prev_name_rec['last_renewed']
         preorder_hash = prev_name_rec['preorder_hash']
+        transfer_send_block_id = prev_name_rec.get('transfer_send_block_id',None)
 
     # if this name had existed prior to being imported here,
     # (i.e. the namespace was revealed and then expired), then
@@ -285,6 +287,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
     nameop['last_renewed'] = name_last_renewed
     nameop['preorder_block_number'] = preorder_block_number
     nameop['opcode'] = "NAME_IMPORT"
+    nameop['transfer_send_block_id'] = transfer_send_block_id
 
     # good!
     return True
@@ -360,8 +363,7 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
        "first_registered": block_id,        # NOTE: will get deleted if this is a re-import
        "last_renewed": block_id,            # NOTE: will get deleted if this is a re-import
        "op": NAME_IMPORT,
-       "opcode": "NAME_IMPORT",
-       "transfer_send_block_id": None
+       "opcode": "NAME_IMPORT"
     }
 
     ret.update( parsed_payload )
