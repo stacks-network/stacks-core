@@ -138,6 +138,7 @@ CREATE TABLE name_records( name STRING NOT NULL,
                            importer TEXT,
                            importer_address TEXT,
                            consensus_hash TEXT,
+                           transfer_send_block_id INT,
 
                            -- primary key includes block number, so an expired name can be re-registered 
                            PRIMARY KEY(name,block_number),
@@ -1105,7 +1106,11 @@ def namedb_history_save( cur, opcode, history_id, block_id, vtxindex, txid, inpu
     if '__all__' in prev_history_diff_fields or history_snapshot:
 
         # full back-up of this record
-        history_diff_fields = op_get_consensus_fields( prev_opcode )
+        if '__all__' in prev_history_diff_fields:
+            history_diff_fields = op_get_consensus_fields( prev_opcode )
+        else:
+            history_diff_fields = input_rec.keys()
+
         history_snapshot = True
 
         history_diff = dict( [(field, input_rec[field]) for field in history_diff_fields] )
