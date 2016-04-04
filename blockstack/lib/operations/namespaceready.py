@@ -37,12 +37,12 @@ from namespacereveal import FIELDS as NAMESPACE_REVEAL_FIELDS
 from ..nameset import * 
 
 # consensus hash fields (ORDER MATTERS!) 
-FIELDS = NAMESPACE_REVEAL_FIELDS + [
+FIELDS = NAMESPACE_REVEAL_FIELDS[:] + [
     'ready_block',      # block number at which the namespace was readied
 ]
 
 # fields this operation changes
-MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
+MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS[:] + [
     'ready_block',
     'sender'
 ]
@@ -261,7 +261,7 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
     return ret_op
 
 
-def snv_consensus_extras( name_rec, block_id, commit, db ):
+def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
     """
     Calculate any derived missing data that goes into the check() operation,
     given the block number, the name record at the block number, and the db.
