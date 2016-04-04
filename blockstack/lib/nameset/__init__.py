@@ -67,8 +67,10 @@ NAMEREC_MUTATE_FIELDS = [
     'op'
 ]
 
-# common set of backup fields 
-NAMEREC_BACKUP_FIELDS = [
+# common set of fields that will need to be backed up to a name's history when applying an operation 
+NAMEREC_BACKUP_FIELDS = NAMEREC_MUTATE_FIELDS[:]
+
+NAMEREC_NAME_BACKUP_FIELDS = [
     'transfer_send_block_id'
 ]
 
@@ -402,9 +404,6 @@ def prior_history_block_number( prior_history_rec ):
     assert prior_history_is_valid( prior_history_rec )
     return prior_history_rec.keys()[0]
 
-
-# common set of fields that will need to be backed up to a name's history when applying an operation 
-NAMEREC_BACKUP_FIELDS = NAMEREC_MUTATE_FIELDS[:]
 
 import namedb 
 import virtualchain_hooks
