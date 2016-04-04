@@ -360,7 +360,8 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
        "first_registered": block_id,        # NOTE: will get deleted if this is a re-import
        "last_renewed": block_id,            # NOTE: will get deleted if this is a re-import
        "op": NAME_IMPORT,
-       "opcode": "NAME_IMPORT"
+       "opcode": "NAME_IMPORT",
+       "transfer_send_block_id": None
     }
 
     ret.update( parsed_payload )
