@@ -412,7 +412,7 @@ def op_get_backup_fields( op_name ):
     (NOTE this is different from the mutate fields--
     some operations need to back up fields even though
     they wont be changed, since the consensus hash
-    is derived from them.
+    is derived from them.)
     """
 
     global BACKUP_FIELDS 
@@ -466,12 +466,12 @@ def op_snv_consensus_extra( op_name, prev_name_rec, prev_block_id, db ):
     if method is None:
         return {}
 
-    extras = method( prev_name_rec, prev_block_id, False, db )
+    extras = method( prev_name_rec, prev_block_id, None, db )
     op_snv_consensus_extra_quirks( extras, prev_name_rec, prev_block_id, False, db )
     return extras 
 
 
-def op_commit_consensus_extra( op_name, name_rec, block_id, db ):
+def op_commit_consensus_extra( op_name, committed_name_rec, blockchain_name_data, block_id, db ):
     """
     Like op_snv_consensus_extra, but will be called with the
     current name record and block number, in order to re-calculate
@@ -489,8 +489,8 @@ def op_commit_consensus_extra( op_name, name_rec, block_id, db ):
     method = SNV_CONSENSUS_EXTRA_METHODS[op_name]
     commit_fields = SERIALIZE_FIELDS[op_name]
 
-    extras = method( name_rec, block_id, True, db )
-    op_snv_consensus_extra_quirks( extras, name_rec, block_id, True, db )
+    extras = method( committed_name_rec, block_id, blockchain_name_data, db )
+    op_snv_consensus_extra_quirks( extras, committed_name_rec, block_id, True, db )
 
     commit_extras = {}
     for cf in commit_fields + ['__override__']:
@@ -524,7 +524,6 @@ def op_commit_consensus_has_override( consensus_extras, field ):
             return True
 
     return False
-
 
 def op_commit_consensus_sanitize( consensus_extras ):
     """
