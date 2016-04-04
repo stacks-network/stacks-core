@@ -73,9 +73,10 @@ RENEWAL_MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
 
 
 # fields to back up when applying this operation 
-REGISTER_BACKUP_FIELDS = REGISTER_MUTATE_FIELDS[:]
-RENEWAL_BACKUP_FIELDS = RENEWAL_MUTATE_FIELDS[:] + [
-    'consensus_hash'
+REGISTER_BACKUP_FIELDS = NAMEREC_BACKUP_FIELDS[:] + REGISTER_MUTATE_FIELDS[:] 
+
+RENEWAL_BACKUP_FIELDS = NAMEREC_BACKUP_FIELDS[:] + RENEWAL_MUTATE_FIELDS[:] + [
+    'consensus_hash',
 ]
 
 
@@ -200,6 +201,7 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     preorder_block_number = None 
     name_block_number = None
     consensus_hash = None
+    transfer_send_block_id = None
     opcode = nameop['opcode']
     first_registered = nameop['first_registered']
 
@@ -237,8 +239,8 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     old_name_rec = state_engine.get_name( name, include_expired=True )
 
     if preorder is not None:
+        # Case 1(a-b): registering or re-registering
 
-        # registering or re-registering
         # can't be registered already 
         if state_engine.is_name_registered( name ):
             log.debug("Name '%s' is already registered" % name)
@@ -267,26 +269,27 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         state_create_put_preorder( nameop, preorder )
 
         if old_name_rec is None:
-            # registered for the first time ever    
+            # Case 1(a): registered for the first time ever    
             name_block_number = preorder['block_number']
             state_create_put_prior_history( nameop, None )
         
         else:
-            # name expired, and is now re-registered
+            # Case 1(b): name expired, and is now re-registered
             log.debug("Re-registering name '%s'" % name )
         
             # push back preorder block number to the original preorder
             name_block_number = old_name_rec['block_number']
             first_registered = old_name_rec['first_registered']
+            transfer_send_block_id = old_name_rec['transfer_send_block_id']
 
             # re-registering
-            prior_hist = prior_history_create( nameop, old_name_rec, preorder_block_number, state_engine, extra_backup_fields=['consensus_hash','preorder_hash']) 
+            prior_hist = prior_history_create( nameop, old_name_rec, preorder_block_number, state_engine, extra_backup_fields=['consensus_hash','preorder_hash','transfer_send_block_id']) 
             state_create_put_prior_history( nameop, prior_hist )
 
 
     elif state_engine.is_name_registered( name ):
+        # Case 2: we're renewing
 
-        # we're renewing
         # name must be owned by the recipient already
         if not state_engine.is_name_owner( name, recipient ):
             log.debug("Renew: Name '%s' not owned by recipient %s" % (name, recipient))
@@ -311,15 +314,16 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         name_block_number = prev_name_rec['block_number']
         name_fee = nameop['op_fee']
         preorder_hash = prev_name_rec['preorder_hash']
+        transfer_send_block_id = prev_name_rec['transfer_send_block_id']
         opcode = "NAME_RENEWAL"     # will cause this operation to be re-checked under check_renewal()
 
         # pass along prior history 
-        prior_hist = prior_history_create( nameop, old_name_rec, block_id, state_engine, extra_backup_fields=['consensus_hash','preorder_hash']) 
+        prior_hist = prior_history_create( nameop, old_name_rec, block_id, state_engine, extra_backup_fields=['consensus_hash','preorder_hash','transfer_send_block_id'])
         state_create_put_prior_history( nameop, prior_hist )
         state_create_put_preorder( nameop, None ) 
 
     else:
-        # has never existed, and not preordered
+        # Case 3: has never existed, and not preordered
         log.debug("Name '%s' does not exist, or is not preordered by %s" % (name, sender))
         return False
 
@@ -330,7 +334,6 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     if name_fee < price_name( name_without_namespace, namespace ):
         log.debug("Name '%s' costs %s, but paid %s" % (name, price_name( name_without_namespace, namespace ), name_fee ))
         return False
-
    
     nameop['opcode'] = opcode
     nameop['op_fee'] = name_fee
@@ -344,6 +347,7 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     nameop['last_renewed'] = block_id
     nameop['preorder_block_number'] = preorder_block_number
     nameop['block_number'] = name_block_number
+    nameop['transfer_send_block_id'] = transfer_send_block_id
 
     # propagate new sender information
     nameop['sender'] = nameop['recipient']
@@ -783,7 +787,7 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
     return ret_op
 
 
-def snv_consensus_extras( name_rec, block_id, commit, db ):
+def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
     """
     Given a name record most recently affected by an instance of this operation, 
     find the dict of consensus-affecting fields from the operation that are not
