@@ -44,7 +44,7 @@ MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS[:] + [
 ]
 
 # fields to back up when applying this operation 
-BACKUP_FIELDS = NAMEREC_BACKUP_FIELDS[:] + MUTATE_FIELDS[:] + [
+BACKUP_FIELDS = NAMEREC_NAME_BACKUP_FIELDS[:] + MUTATE_FIELDS[:] + [
     'consensus_hash'
 ]
 

@@ -55,7 +55,7 @@ MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS[:] + [
 ]
 
 # fields to back up when applying this operation 
-BACKUP_FIELDS = NAMEREC_BACKUP_FIELDS[:] + MUTATE_FIELDS[:] + [
+BACKUP_FIELDS = NAMEREC_NAME_BACKUP_FIELDS[:] + MUTATE_FIELDS[:] + [
     'consensus_hash'
 ]
 
@@ -232,10 +232,10 @@ def check( state_engine, nameop, block_id, checked_ops ):
     nameop['sender'] = recipient
     nameop['address'] = recipient_address
     nameop['sender_pubkey'] = None
+    nameop['transfer_send_block_id'] = transfer_send_block_id
 
     # QUIRK: preserved from previous name state
     nameop['consensus_hash'] = name_rec['consensus_hash'] 
-    nameop['transfer_send_block_id'] = transfer_send_block_id
 
     if not nameop['keep_data']:
         nameop['value_hash'] = None
