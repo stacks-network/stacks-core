@@ -1096,55 +1096,55 @@ class BlockstackDB( virtualchain.StateEngine ):
             collisions[history_id_key].append( history_id )
 
 
-    def add_all_consensus_values( self, opcode, nameop, commit, current_block_number ):
+    def add_all_consensus_values( self, opcode, new_nameop, blockchain_name_data, current_block_number ):
         """
         Add all extra consensus-affecting fields that 
         are derived from the given name operation's fields.
 
-        If @commit is True, then find only the values that will be written to the db.
-        If @commit is False, then find all values that go into checking the operation.
+        If @blockchain_name_data is given, then find only the values that will be written to the DB
+        Otherwise, find all values that will go into checking the operation.
         """
         
         consensus_extra = None 
         
-        if commit:
-            consensus_extra = op_commit_consensus_extra( opcode, nameop, current_block_number, self )
+        if blockchain_name_data is not None:
+            consensus_extra = op_commit_consensus_extra( opcode, new_nameop, blockchain_name_data, current_block_number, self )
         else:
-            consensus_extra = op_snv_consensus_extra( opcode, nameop, current_block_number, self )
+            consensus_extra = op_snv_consensus_extra( opcode, new_nameop, current_block_number, self )
 
         # must be non-conflicting, unless explicitly set otherwise
         overwrites = []
         for k in consensus_extra.keys():
-            if k in nameop.keys():
-                if nameop[k] != consensus_extra[k] and not op_commit_consensus_has_override( consensus_extra, k ):
+            if k in new_nameop.keys():
+                if new_nameop[k] != consensus_extra[k] and not op_commit_consensus_has_override( consensus_extra, k ):
                     overwrites.append(k)
 
         try:
-            assert len(overwrites) == 0, "Derived consensus fields overwrites transaction data: %s" % ",".join(["%s -> %s" % (nameop[o], consensus_extra[o]) for o in overwrites])
+            assert len(overwrites) == 0, "Derived consensus fields overwrites transaction data: %s" % ",".join(["%s -> %s" % (new_nameop[o], consensus_extra[o]) for o in overwrites])
         except Exception, e:
             log.exception(e)
             log.error("FATAL: BUG: tried to overwrite consensus data %s".join(overwrites))
             sys.exit(1)
        
         consensus_extra = op_commit_consensus_sanitize( consensus_extra )
-        nameop.update( consensus_extra )
+        new_nameop.update( consensus_extra )
         return
 
 
-    def add_all_commit_consensus_values( self, opcode, nameop, current_block_number ):
+    def add_all_commit_consensus_values( self, opcode, new_nameop, blockchain_name_data, current_block_number ):
         """
         Find all consensus-affecting values in the operation that will also be committed
         to the database.  Add them to the nameop.
         """
-        return self.add_all_consensus_values( opcode, nameop, True, current_block_number )
+        return self.add_all_consensus_values( opcode, new_nameop, blockchain_name_data, current_block_number )
 
     
-    def add_all_snv_consensus_values( self, opcode, nameop, current_block_number ):
+    def add_all_snv_consensus_values( self, opcode, restored_nameop, current_block_number ):
         """
         Find all consensus-affecting values in the operation that will be used to check its
         validity.  Add them to the nameop.
         """
-        return self.add_all_consensus_values( opcode, nameop, False, current_block_number )
+        return self.add_all_consensus_values( opcode, restored_nameop, None, current_block_number )
 
 
     def commit_operation( self, nameop, current_block_number ):
@@ -1203,7 +1203,7 @@ class BlockstackDB( virtualchain.StateEngine ):
                 op_seq[i]['history'] = history 
 
             # set all extra consensus fields 
-            self.add_all_commit_consensus_values( opcode, op_seq[i], current_block_number )
+            self.add_all_commit_consensus_values( opcode, op_seq[i], nameop, current_block_number )
 
             # revert...
             if history is not None:
