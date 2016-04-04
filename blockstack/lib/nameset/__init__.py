@@ -67,6 +67,18 @@ NAMEREC_MUTATE_FIELDS = [
     'op'
 ]
 
+# common set of backup fields 
+NAMEREC_BACKUP_FIELDS = [
+    'transfer_send_block_id'
+]
+
+# fields that are not fed into the consensus hash, but are used to generate
+# consensus-affecting fields.  They must be present when restoring a prior
+# version of a name.
+NAMEREC_INDIRECT_CONSENSUS_FIELDS = [
+    'opcode',
+    'transfer_send_block_id'
+]
 
 def state_create_invariant_tags():
     """
@@ -204,6 +216,10 @@ def state_transition(history_id_key, table_name, ignore_equality_constraints=[])
     Make sure that:
     * there is a __table__ field set, which names the table in which this record is stored.
     * there is a __history_id_key__ field set, which identifies the table record's primary key.
+
+    Any fields named in @ignore_equality_constraints will always be set when the transition is applied.
+    That is, fields set here *must* be set on transition, and *will* be set in the database, even if
+    they have prior values in the affected name record that might constrain which rows to update.
     """
 
     def wrap( check ):
