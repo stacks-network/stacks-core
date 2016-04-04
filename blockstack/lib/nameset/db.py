@@ -1106,7 +1106,7 @@ def namedb_history_save( cur, opcode, history_id, block_id, vtxindex, txid, inpu
     if '__all__' in prev_history_diff_fields or history_snapshot:
 
         # full back-up of this record
-        if '__all__' in prev_history_diff_fields:
+        if not history_snapshot:
             history_diff_fields = op_get_consensus_fields( prev_opcode )
         else:
             history_diff_fields = input_rec.keys()
@@ -1130,6 +1130,7 @@ def namedb_history_save( cur, opcode, history_id, block_id, vtxindex, txid, inpu
 
         assert len(missing) == 0, "BUG: missing history diff fields '%s'" % ",".join(missing)
 
+        log.debug("Backup (%s, %s) from %s: %s" % (block_id, vtxindex, prev_opcode, ",".join(sorted(history_diff_fields))))
         history_diff = dict( [(field, input_rec.get(field, None)) for field in history_diff_fields] )
 
     rc = namedb_history_append( cur, history_id, block_id, vtxindex, txid, history_diff )
