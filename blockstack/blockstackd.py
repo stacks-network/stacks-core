@@ -2197,7 +2197,6 @@ def block_to_virtualchain_ops( block_id, db ):
     # all records altered at this block, in tx order, as they were
     prior_recs = db.get_all_records_at( block_id )
     log.debug("Records at %s: %s" % (block_id, len(prior_recs)))
-    
     virtualchain_ops = []
 
     # process records in order by vtxindex
@@ -2246,10 +2245,8 @@ def block_to_virtualchain_ops( block_id, db ):
 
         for field in prior_recs[i].keys():
 
-            # remove untrusted fields, except for 'opcode' (which will be fed into the consensus hash
-            # indirectly, once the fields are successfully processed and thus proven consistent with
-            # the fields.)
-            if field not in consensus_fields and field not in ['opcode']:
+            # remove untrusted fields, except for indirect consensus fields
+            if field not in consensus_fields and field not in NAMEREC_INDIRECT_CONSENSUS_FIELDS:
                 log.debug("OP '%s': Removing untrusted field '%s'" % (opcode_name, field))
                 del prior_recs[i][field]
 
