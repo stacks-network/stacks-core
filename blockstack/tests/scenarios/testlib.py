@@ -32,6 +32,7 @@ import bitcoin
 import sys
 import copy
 import json
+import gnupg
 
 # hack around absolute paths
 current_dir =  os.path.abspath(os.path.dirname(__file__) + "/../../..")
@@ -658,3 +659,44 @@ def get_state_engine():
     global state_engine
     return state_engine
 
+def gpg_key_dir( **kw ):
+    return os.path.join( kw['working_dir'], "keys" )
+
+def make_gpg_test_keys(num_keys, **kw ):
+    """
+    Set up a test gpg keyring directory.
+    Return the list of key fingerprints.
+    """
+    keydir = gpg_key_dir( **kw )
+    gpg = gnupg.GPG( gnupghome=keydir )
+    ret = []
+
+    for i in xrange(0, num_keys):
+        print "Generating GPG key %s" % i
+        key_input = gpg.gen_key_input()
+        key_res = gpg.gen_key( key_input )
+        ret.append( key_res.fingerprint )
+
+    return ret
+
+def get_gpg_key( key_id, **kw ):
+    """
+    Get the GPG key 
+    """
+    keydir = os.path.join(kw['working_dir'], "keys")
+    gpg = gnupg.GPG( gnupghome=keydir )
+    keydat = gpg.export_keys( [key_id] )
+    return keydat
+    
+
+def put_test_data( relpath, data, **kw ):
+    """
+    Put test-specific data to disk
+    """
+    path = os.path.join( kw['working_dir'], relpath )
+    with open(relpath, 'w') as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+
+    return True
