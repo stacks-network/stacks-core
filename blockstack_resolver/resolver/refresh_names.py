@@ -42,6 +42,11 @@ if __name__ == "__main__":
         if len(new_names) == 0:
             break
 
+        # check for blockstack errors
+        if len(new_names) == 1 and "error" in new_names:
+            print "Blockstack error: " + new_names["error"]
+            break
+
         total_names += new_names
         offset += count
 
