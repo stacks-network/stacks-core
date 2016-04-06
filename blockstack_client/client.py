@@ -36,6 +36,7 @@ import time
 import copy
 import blockstack_profiles
 import zone_file
+import urllib
 
 import storage, drivers, config, spv, utils
 import user as user_db
@@ -50,7 +51,7 @@ from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SER
     BLOCKSTACKD_PORT, BLOCKSTACK_METADATA_DIR, BLOCKSTACK_DEFAULT_STORAGE_DRIVERS, \
     FIRST_BLOCK_MAINNET, NAME_OPCODES, OPFIELDS, CONFIG_DIR, SPV_HEADERS_PATH, BLOCKCHAIN_ID_MAGIC, \
     NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER, NAMESPACE_PREORDER, NAME_IMPORT, \
-    USER_ZONEFILE_TTL
+    USER_ZONEFILE_TTL, CONFIG_PATH
 
 log = get_logger()
 
@@ -83,6 +84,12 @@ class BlockstackRPCClient(object):
         self.sock = None
         self.max_rpc_len = max_rpc_len
         self.timeout = timeout
+
+    """
+    def update( self, name, user_zonefile_hash, privatekey ):
+        print "fake update"
+        return {'transaction_hash': "00" * 32, 'fake_update': True} 
+    """
 
     def __getattr__(self, key):
         try:
@@ -260,7 +267,7 @@ def session(conf=None, server_host=BLOCKSTACKD_SERVER, server_port=BLOCKSTACKD_P
     return proxy
 
 
-def get_default_proxy():
+def get_default_proxy(config_path=config.CONFIG_PATH):
     """
     Get the default API proxy to blockstack.
     """
@@ -316,7 +323,7 @@ def register_storage(storage_impl):
     return rc
 
 
-def load_user_zonefile(expected_zonefile_hash):
+def load_name_zonefile(expected_zonefile_hash):
     """
     Fetch and load a user zonefile from the storage implementation with the given hex string hash,
     The user zonefile hash should have been loaded from the blockchain, and thereby be the
@@ -326,7 +333,7 @@ def load_user_zonefile(expected_zonefile_hash):
     Return None on error
     """
 
-    zonefile_txt = storage.get_immutable_data(expected_zonefile_hash, hash_func=storage.get_user_zonefile_hash)
+    zonefile_txt = storage.get_immutable_data(expected_zonefile_hash, hash_func=storage.get_user_zonefile_hash, deserialize=False)
     if zonefile_txt is None:
         log.error("Failed to load user zonefile '%s'" % expected_zonefile_hash)
         return None
@@ -393,7 +400,7 @@ def load_legacy_user_profile( name, expected_hash ):
     return new_profile
     
 
-def load_user_profile(name, user_zonefile, public_key):
+def load_name_profile(name, user_zonefile, public_key):
     """
     Fetch and load a user profile, given the user zonefile.
 
@@ -1007,6 +1014,7 @@ def get_name_update_consensus_info(name, blockchain_record, bitcoind_proxy, prox
         return update_info
 
 
+'''
 def lookup(name, proxy=None):
     """
     Get the name and (some) blockchain data:
@@ -1074,7 +1082,7 @@ def lookup(name, proxy=None):
         result['updated'] = update_info
 
     return result
-
+'''
 
 def make_wallet_keys( data_privkey=None, owner_privkey=None ):
     """
@@ -1169,13 +1177,12 @@ def get_name_zonefile( name, create_if_absent=False, proxy=None, value_hash=None
             return user_resp
 
     user_zonefile_hash = value_hash
-    user_zonefile = load_user_zonefile(user_zonefile_hash)
+    user_zonefile = load_name_zonefile(user_zonefile_hash)
     if user_zonefile is None:
         return {"error": "Failed to load zonefile"}
 
     return user_zonefile
     
-
 
 def get_name_profile(name, create_if_absent=False, proxy=None, wallet_keys=None, user_zonefile=None):
     """
@@ -1213,7 +1220,7 @@ def get_name_profile(name, create_if_absent=False, proxy=None, wallet_keys=None,
         if user_data_pubkey is None:
             return (None, {'error': 'No data public key found in user profile.'})
 
-        user_profile = load_user_profile( name, user_zonefile, user_data_pubkey )
+        user_profile = load_name_profile( name, user_zonefile, user_data_pubkey )
         if user_profile is None or 'error' in user_profile:
             if create_if_absent:
                 user_profile = user_db.make_empty_user_profile()
@@ -1241,7 +1248,7 @@ def store_name_zonefile( name, user_zonefile, txid ):
     # serialize and send off
     user_zonefile_txt = zone_file.make_zone_file( user_zonefile, origin=name, ttl=USER_ZONEFILE_TTL )
     data_hash = storage.get_user_zonefile_hash( user_zonefile_txt )
-    result = storage.put_immutable_data(user_zonefile_txt, txid, data_hash=data_hash)
+    result = storage.put_immutable_data(None, txid, data_hash=data_hash, data_text=user_zonefile_txt )
 
     rc = None
     if result is None:
@@ -2185,6 +2192,13 @@ def namespace_ready(namespace_id, privatekey, proxy=None):
     return proxy.namespace_ready(namespace_id, privatekey)
 
 
+def serialize_mutable_data_id( data_id ):
+    """
+    Turn a data ID into a suitable filesystem name
+    """
+    return urllib.quote(data_id.replace("\0", "\\0")).replace("/", r"\x2f")
+
+
 def load_mutable_data_version(conf, name, data_id):
     """
     Get the version field of a piece of mutable data from local cache.
@@ -2201,7 +2215,7 @@ def load_mutable_data_version(conf, name, data_id):
         if metadata_dir is not None and os.path.isdir(metadata_dir):
 
             # find the version file for this data
-            serialized_data_id = data_id.replace("/", "\x2f").replace('\0', "\\0")
+            serialized_data_id = serialize_mutable_data_id( data_id )
             version_file_path = os.path.join(metadata_dir, serialized_data_id + ".ver")
 
             if os.path.exists(version_file_path):
@@ -2260,7 +2274,7 @@ def store_mutable_data_version(conf, fq_data_id, ver):
         log.warning("No metadata directory found; cannot store version of '%s'" % fq_data_id)
         return False
 
-    serialized_data_id = fq_data_id.replace("/", "\x2f").replace('\0', "\\0")
+    serialized_data_id = serialize_mutable_data_id( fq_data_id )
     version_file_path = os.path.join(metadata_dir, serialized_data_id + ".ver")
 
     try:
@@ -2271,6 +2285,7 @@ def store_mutable_data_version(conf, fq_data_id, ver):
 
     except Exception, e:
         # failed for whatever reason
+        log.exception(e)
         log.warn("Failed to store version of '%s' to '%s'" % (fq_data_id, version_file_path))
         return False
 
@@ -2308,6 +2323,44 @@ def delete_mutable_data_version(conf, data_id):
         return False
 
 
+def get_and_migrate_profile( name, proxy=None, create_if_absent=False, wallet_keys=None ):
+    """
+    Get a name's profile and zonefile, optionally creating a new one along the way.  Migrate the profile to a new zonefile,
+    if the profile is in legacy format.
+
+    Return (user_profile, user_zonefile, migrated:bool) on success
+    Return ({'error': ...}, None, False) on error
+    """
+
+    created_new_zonefile = False
+    user_zonefile = get_name_zonefile( name, proxy=proxy, wallet_keys=wallet_keys )
+    if user_zonefile is None: 
+        if not create_if_absent:
+            return ({'error': 'No such zonefile'}, None, False)
+
+        log.debug("Creating new profile and zonefile for name '%s'" % name)
+        data_pubkey, _ = get_data_keypair( wallet_keys=wallet_keys )
+        user_profile = user_db.make_empty_user_profile()
+        user_zonefile = user_db.make_empty_user_zonefile( name, data_pubkey )
+
+        created_new_zonefile = True
+    
+    elif blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
+        log.debug("Migrating legacy profile to modern zonefile for name '%s'" % name)
+        data_pubkey, _ = get_data_keypair( wallet_keys=wallet_keys )
+        user_profile = blockstack_profiles.get_person_from_legacy_format( user_zonefile )
+        user_zonefile = user_db.make_empty_user_zonefile( name, data_pubkey )
+
+        created_new_zonefile = True
+
+    else:
+        user_profile, error_msg = get_name_profile( name, proxy=proxy, wallet_keys=wallet_keys, user_zonefile=user_zonefile )
+        if user_profile is None:
+            return (error_msg, None, False)
+
+    return (user_profile, user_zonefile, created_new_zonefile)
+
+
 def get_immutable(name, data_key, data_id=None, proxy=None):
     """
     get_immutable
@@ -2339,6 +2392,15 @@ def get_immutable(name, data_key, data_id=None, proxy=None):
         h = user_db.get_immutable_data_hash( user_zonefile, data_id )
         if h is None:
             return {'error': 'No such immutable datum'}
+         
+        if type(h) == list:
+            # this tool doesn't allow this to happen (one ID matches one hash),
+            # but that doesn't preclude the user from doing this with other tools.
+            if data_key is not None and data_key not in h:
+                return {'error': 'Data ID/hash mismatch'}
+
+            else:
+                return {'error': "Multiple matches for '%s': %s" % (data_id, ",".join(h))}
 
         if data_key is not None:
             if h != data_key:
@@ -2413,7 +2475,7 @@ def list_zonefile_history( name, current_block=None, proxy=None ):
     zonefile_hashes = list_update_history( name, current_block=current_block, proxy=proxy )
     zonefiles = []
     for zh in zonefile_hashes:
-        zonefile = load_user_zonefile( zh )
+        zonefile = load_name_zonefile( zh )
         if zonefile is None:
             zonefile = {'error': 'Failed to load zonefile %s' % zh}
 
@@ -2432,6 +2494,7 @@ def list_immutable_data_history( name, data_id, current_block=None, proxy=None )
     the string "data not defined" will be placed in the hash's place.
 
     Returns the list of hashes.
+    If there are multiple matches for the data ID in a zonefile, then return the list of hashes for that zonefile.
     """
     zonefiles = list_zonefile_history( name, current_block=current_block, proxy=proxy )
     hashes = []
@@ -2446,13 +2509,13 @@ def list_immutable_data_history( name, data_id, current_block=None, proxy=None )
             hashes.append("missing zonefile")
             continue 
 
-        data_hash = user_db.get_immutable_data_hash( zf, data_id )
-        if data_hash is None:
+        data_hash_or_hashes = user_db.get_immutable_data_hash( zf, data_id )
+        if data_hash_or_hashes is None:
             hashes.append("data not defined")
             continue
-        
+       
         else:
-            hashes.append(data_hash)
+            hashes.append(data_hash_or_hashes)
 
     return hashes
 
@@ -2531,7 +2594,57 @@ def get_mutable(name, data_id, proxy=None, ver_min=None, ver_max=None, ver_check
         return {'error': 'Failed to store consistency information'}
 
     return {'data': mutable_data, 'version': version}
-  
+ 
+
+def migrate_profile( name, txid=None, proxy=None, wallet_keys=None ):
+    """
+    Migrate a user's profile from the legacy format to the profile/zonefile format.
+    Return {'status': True, 'transaction_hash': txid, 'zonefile_hash': ...} on success, if the profile was migrated
+    Return {'status': True} on success, if the profile is already migrated
+    Return {'error': ...} on error
+    """
+    legacy = False
+    txid = None 
+    value_hash = None
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    user_profile, user_zonefile, legacy = get_and_migrate_profile( name, create_if_absent=True, proxy=proxy, wallet_keys=wallet_keys )
+    if 'error' in user_profile:
+        log.debug("Unable to load user zonefile for '%s'" % name)
+        return user_profile
+
+    if not legacy:
+        return {'status': True}
+
+    # store profile...
+    _, data_privkey = get_data_keypair( wallet_keys=wallet_keys )
+    rc = storage.put_mutable_data( name, user_profile, data_privkey )
+    if not rc:
+        return {'error': 'Failed to move legacy profile to profile zonefile'}
+
+    # store zonefile, if we haven't already
+    if txid is None:
+        _, owner_privkey = get_owner_keypair(wallet_keys=wallet_keys)
+        update_result = update( name, user_zonefile, owner_privkey, proxy=proxy )
+        if 'error' in update_result:
+            # failed to replicate user zonefile hash 
+            # the caller should simply try again, with the 'transaction_hash' given in the result.
+            return update_result
+
+        txid = update_result['transaction_hash']
+        value_hash = update_result['value_hash']
+
+    result = {
+        'status': True
+    }
+    if txid is not None:
+        result['transaction_hash'] = txid
+    if value_hash is not None:
+        result['zonefile_hash'] = value_hash
+
+    return result
+
 
 def put_immutable(name, data_id, data_json, txid=None, proxy=None, wallet_keys=None ):
     """
@@ -2548,47 +2661,49 @@ def put_immutable(name, data_id, data_json, txid=None, proxy=None, wallet_keys=N
     the data to the immutable storage providers (again).  This is to allow
     for retries in the case where the NAME_UPDATE went through but the
     storage providers did not receive data.
+    
+    Return {'status': True, 'transaction_hash': txid, 'immutable_data_hash': data_hash, ...} on success
+    Return {'error': ...} on error
     """
+
+    if type(data_json) not in [dict]:
+        raise ValueError("Immutable data must be a dict")
 
     legacy = False
     if proxy is None:
         proxy = get_default_proxy()
 
-    user_profile, user_zonefile = get_name_profile( name, create_if_absent=True, proxy=proxy, wallet_keys=wallet_keys )
-    if 'error' in user_zonefile:
+    user_profile, user_zonefile, legacy = get_and_migrate_profile( name, create_if_absent=True, proxy=proxy, wallet_keys=wallet_keys )
+    if 'error' in user_profile:
         log.debug("Unable to load user zonefile for '%s'" % name)
-        return user_zonefile
-    
-    if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
-        # zonefile is a legacy profile.  Convert it
-        log.debug("Converting legacy profile to modern zonefile")
-        legacy = True
-        data_pubkey, _ = get_data_keypair( wallet_keys=wallet_keys )
-        user_zonefile = user_db.make_empty_user_zonefile( name, data_pubkey )
+        return user_profile
+   
+    if legacy:
+        log.debug("User profile is legacy")
+        return {'error': "User profile is in legacy format, which does not support this operation.  You must first migrate it with the 'migrate' command."}
 
-    data_txt = json.dumps( data_json, sort_keys=True )
-    data_hash = storage.get_data_hash( data_txt )
+    data_text = storage.serialize_immutable_data( data_json )
+    data_hash = storage.get_data_hash( data_text )
     value_hash = None
 
     # insert into user zonefile, overwriting if need be
     if user_db.has_immutable_data_id( user_zonefile, data_id ):
         log.debug("WARN: overwriting old '%s'" % data_id)
         old_hash = user_db.get_immutable_data_hash( user_zonefile, data_id )
-        rc = user_db.remove_immutable_data_zonefile( user_zonefile, old_hash )
-        if not rc:
-            return {'error': 'Failed to overwrite old immutable data'}
+
+        # NOTE: can be a list, if the name matches multiple hashes.
+        # this tool doesn't do this, but it's still possible for the user to use other tools to do this.
+        if type(old_hash) != list:
+            old_hash = [old_hash]
+
+        for oh in old_hash:
+            rc = user_db.remove_immutable_data_zonefile( user_zonefile, oh )
+            if not rc:
+                return {'error': 'Failed to overwrite old immutable data'}
 
     rc = user_db.put_immutable_data_zonefile( user_zonefile, data_id, data_hash )
     if not rc:
         return {'error': 'Failed to insert immutable data into user zonefile'}
-
-    # replicate new profile on legacy migration
-    if legacy:
-        log.debug("Migrating legacy profile to modern zonefile")
-        _, data_privkey = get_data_keypair( wallet_keys=wallet_keys )
-        rc = storage.put_mutable_data( name, user_profile, data_privkey )
-        if not rc:
-            return {'error': 'Failed to move legacy profile to profile zonefile'}
 
     # update zonefile, if we haven't already
     if txid is None:
@@ -2603,13 +2718,15 @@ def put_immutable(name, data_id, data_json, txid=None, proxy=None, wallet_keys=N
         value_hash = update_result['value_hash']
 
     result = {
-        'zonefile_hash': value_hash,
         'immutable_data_hash': data_hash,
         'transaction_hash': txid
     }
 
+    if value_hash is not None:
+       result['zonefile_hash'] = value_hash 
+
     # replicate immutable data 
-    rc = storage.put_immutable_data( data_txt, txid )
+    rc = storage.put_immutable_data( data_json, txid )
     if not rc:
         result['error'] = 'Failed to store immutable data'
         return result
@@ -2619,7 +2736,7 @@ def put_immutable(name, data_id, data_json, txid=None, proxy=None, wallet_keys=N
     return result
 
 
-def put_mutable_get_version( user_profile, data_id, data_text, make_version=None ):
+def put_mutable_get_version( user_profile, data_id, data_json, make_version=None ):
     """
     Given the user profile, data_id, desired version, and callback to create a version,
     find out what the next version of the mutable datum should be.
@@ -2627,7 +2744,7 @@ def put_mutable_get_version( user_profile, data_id, data_text, make_version=None
     version = None
     mutable_version = user_db.mutable_data_version( user_profile, data_id )
     if make_version is not None:
-        version = make_version( data_id, data_text, mutable_version )
+        version = make_version( data_id, data_json, mutable_version )
 
     else:
         if mutable_version is not None:
@@ -2638,7 +2755,7 @@ def put_mutable_get_version( user_profile, data_id, data_text, make_version=None
     return version
 
 
-def put_mutable(name, data_id, data_text, proxy=None, create_only=False, update_only=False, 
+def put_mutable(name, data_id, data_json, proxy=None, create_only=False, update_only=False, 
                 txid=None, version=None, make_version=None, wallet_keys=None):
     """
     put_mutable
@@ -2649,7 +2766,7 @@ def put_mutable(name, data_id, data_text, proxy=None, create_only=False, update_
     ** Consistency **
 
     @version, if given, is the version to include in the data.
-    @make_version, if given, is a callback that takes the data_id, data_text, and current version as arguments, and generates the version to be included in the data record uploaded.
+    @make_version, if given, is a callback that takes the data_id, data_json, and current version as arguments, and generates the version to be included in the data record uploaded.
     If ver is not given, but make_ver is, then make_ver will be used to generate the version.
     If neither ver nor make_ver are given, the mutable data (if it already exists) is fetched, and the version is calculated as the larget known version + 1.
 
@@ -2658,43 +2775,27 @@ def put_mutable(name, data_id, data_text, proxy=None, create_only=False, update_
     Replication is best-effort.  If one storage provider driver succeeds, the put_mutable succeeds.  If they all fail, then put_mutable fails.
     More complex behavior can be had by creating a "meta-driver" that calls existing drivers' methods in the desired manner.
 
-    Returns a dict with 'status' set to True on success
+    Returns a dict with {'status': True, 'version': version, ...} on success
     Returns a dict with 'error' set on failure
     """
+
+    if type(data_json) not in [dict]:
+        raise ValueError("Mutable data must be a dict")
 
     if proxy is None:
         proxy = get_default_proxy()
 
     fq_data_id = storage.make_fq_data_id( name, data_id )
 
-    created_new_zonefile = False
-    user_zonefile = get_name_zonefile( name, proxy=proxy, wallet_keys=wallet_keys )
-    if user_zonefile is None: 
-        log.debug("Creating new profile and zonefile for user")
-        data_pubkey, _ = get_data_keypair( wallet_keys=wallet_keys )
-        user_profile = user_db.make_empty_user_profile()
-        user_zonefile = user_db.make_empty_user_zonefile( name, data_pubkey )
+    user_profile, user_zonefile, created_new_zonefile = get_and_migrate_profile( name, create_if_absent=True, proxy=proxy, wallet_keys=wallet_keys )
+    if 'error' in user_profile:
+        return user_profile 
 
-        created_new_zonefile = True
-    
-    elif blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
-        log.debug("Migrating legacy profile to modern zonefile")
-        data_pubkey, _ = get_data_keypair( wallet_keys=wallet_keys )
-        user_profile = blockstack_profiles.get_person_from_legacy_format( user_zonefile )
-        user_zonefile = user_db.make_empty_user_zonefile( name, data_pubkey )
+    if created_new_zonefile:
+        log.debug("User profile is legacy")
+        return {'error': "User profile is in legacy format, which does not support this operation.  You must first migrate it with the 'migrate' command."}
 
-        created_new_zonefile = True
-
-    else:
-        user_profile, error_msg = get_name_profile( name, proxy=proxy, wallet_keys=wallet_keys, user_zonefile=user_zonefile )
-        if user_profile is None:
-            return error_msg
-
-    if not created_new_zonefile:
-        exists = user_db.has_mutable_data( user_profile, data_id )
-    else:
-        exists = False
-
+    exists = user_db.has_mutable_data( user_profile, data_id )
     if not exists and update_only:
         return {'error': 'Mutable datum does not exist'}
 
@@ -2703,7 +2804,7 @@ def put_mutable(name, data_id, data_text, proxy=None, create_only=False, update_
     
     # get the version to use
     if version is None:
-        version = put_mutable_get_version( user_profile, data_id, data_text, make_version=make_version )
+        version = put_mutable_get_version( user_profile, data_id, data_json, make_version=make_version )
 
     # generate the mutable zonefile
     _, data_privkey = get_data_keypair( wallet_keys=wallet_keys )
@@ -2717,46 +2818,32 @@ def put_mutable(name, data_id, data_text, proxy=None, create_only=False, update_
     # for legacy migration...
     txid = None 
     zonefile_hash = None
-
-    if created_new_zonefile:
-        # update the profile zonefile first
-        _, owner_privkey = get_owner_keypair(wallet_keys=wallet_keys)
-        update_result = update( name, user_zonefile, owner_privkey, proxy=proxy )
-        if 'error' in update_result:
-            # failed to replicate user zonefile hash 
-            # the caller should simply try again, with the 'transaction_hash' given in the result.
-            return update_result
-
-        txid = update_result['transaction_hash']
-        zonefile_hash = update_result['value_hash']
+    result = {}
  
     # update the profile with the new zonefile
     rc = storage.put_mutable_data( name, user_profile, data_privkey )
     if not rc:
-        return {'error': 'Failed to store mutable data zonefile to profile'}
+        result['error'] = 'Failed to store mutable data zonefile to profile'
+        return result
 
     # put the mutable data record itself
-    rc = storage.put_mutable_data( fq_data_id, data_text, data_privkey )
+    rc = storage.put_mutable_data( fq_data_id, data_json, data_privkey )
     if not rc:
-        return {'error': "Failed to store mutable data"}
+        result['error'] = "Failed to store mutable data"
+        return result
 
     # remember which version this was 
     rc = store_mutable_data_version(proxy.conf, fq_data_id, version)
     if not rc:
-        return {'error': "Failed to store mutable data version"}
+        result['error'] = "Failed to store mutable data version"
+        return result
 
-    result = {
-        'status': True
-    }
-    if txid is not None:
-        result['txid'] = txid
-        result['zonefile_hash'] = zonefile_hash
-        result['warning'] = "Profile migrated from legacy format to zonefile format"
-
+    result['status'] = True
+    result['version'] = version
     return result
 
 
-def delete_immutable(name, data_key, proxy=None, txid=None, wallet_keys=None):
+def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet_keys=None):
     """
     delete_immutable
 
@@ -2781,6 +2868,20 @@ def delete_immutable(name, data_key, proxy=None, txid=None, wallet_keys=None):
         log.info("Profile is in legacy format.  No immutable data.")
         return {'status': True}
 
+    if data_key is None:
+        if data_id is not None:
+            # look up the key (or list of keys)
+            # shouldn't be a list--this tool prevents that--but deal with it nevertheless
+            data_key = user_db.get_immutable_data_hash( user_zonefile, data_id )
+            if type(data_key) == list:
+                return {'error': "Multiple hashes for '%s': %s" % (data_id, ",".join(data_key)) }
+
+            if data_key is None:
+                return {'error': "No hash for '%s'" % data_id}
+
+        else:
+            return {'error': 'No data hash or data ID given'}
+
     # already deleted?
     if not user_db.has_immutable_data( user_zonefile, data_key ):
         return {'status': True}
@@ -2791,7 +2892,6 @@ def delete_immutable(name, data_key, proxy=None, txid=None, wallet_keys=None):
     
     if txid is None:
         # actually send the transaction
-        print json.dumps( user_zonefile )
         _, owner_privkey = get_owner_keypair(wallet_keys=wallet_keys)
         update_result = update( name, user_zonefile, owner_privkey, proxy=proxy )
         if 'error' in update_result:
@@ -2810,7 +2910,7 @@ def delete_immutable(name, data_key, proxy=None, txid=None, wallet_keys=None):
     _, data_privkey = get_data_keypair( wallet_keys=wallet_keys )
     rc = storage.delete_immutable_data( data_key, txid, data_privkey )
     if not rc:
-        result['error'] = 'Failed to store immutable data'
+        result['error'] = 'Failed to delete immutable data'
         return result
 
     else:
@@ -2901,12 +3001,16 @@ def list_mutable_data( name, proxy=None, wallet_keys=None ):
         # user_profile will contain an error message
         return user_profile 
 
+    if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
+        # zonefile is really a legacy profile
+        return {"data": []}
+
     names_and_versions = user_db.list_mutable_data( user_profile )
     listing = [ {"data_id": nv[0], "version": nv[1]} for nv in names_and_versions ]
     return {"data": listing}
 
 
-def blockstack_data_url_fetch( url, proxy=None, wallet_keys=None ):
+def blockstack_url_fetch( url, proxy=None, wallet_keys=None ):
     """
     Given a blockstack:// url, fetch its data.
     If the data is an immutable data url, and the hash is not given, then look up the hash first.
@@ -2955,6 +3059,58 @@ def blockstack_data_url_fetch( url, proxy=None, wallet_keys=None ):
             return list_immutable_data( blockchain_id, proxy=proxy )
 
 
+def data_get( blockstack_url, proxy=None, wallet_keys=None, **kw ):
+    """
+    Resolve a blockstack URL to data (be it mutable or immutable).
+    """
+    return blockstack_url_fetch( blockstack_url, proxy=proxy, wallet_keys=wallet_keys )
+
+
+def data_put( blockstack_url, data, proxy=None, wallet_keys=None, **kw ):
+    """
+    Put data to a blockstack URL (be it mutable or immutable).
+    """
+    parts = storage.blockstack_data_url_parse( blockstack_url )
+    if parts['type'] == 'immutable':
+        return put_immutable( parts['blockchain_id'], parts['data_id'], data, proxy=proxy, wallet_keys=wallet_keys, **kw ) 
+    else:
+        return put_mutable( parts['blockchain_id'], parts['data_id'], data, proxy=proxy, wallet_keys=wallet_keys, **kw ) 
+
+
+def data_delete( blockstack_url, proxy=None, wallet_keys=None, **kw ):
+    """
+    Delete data from a blockstack URL (be it mutable or immutable).
+    """
+    parts = storage.blockstack_data_url_parse( blockstack_url )
+    if parts['type'] == 'immutable':
+        return delete_immutable( parts['blockchain_id'], parts['fields']['data_hash'], data_id=parts['data_id'], proxy=proxy, wallet_keys=wallet_keys, **kw )
+    else:
+        return delete_mutable( parts['blockchain_id'], parts['data_id'], proxy=proxy, wallet_keys=wallet_keys )
+
+
+def profile_update( name, new_profile, proxy=None, wallet_keys=None ):
+    """
+    Set the new profile data.  CLIENTS SHOULD NOT CALL THIS METHOD DIRECTLY.
+    Return {'status: True} on success, as well as {'transaction_hash': hash} if we updated on the blockchain.
+    Return {'error': ...} on failure.
+    """
+    
+    ret = {}
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    # update the profile with the new zonefile
+    _, data_privkey = get_data_keypair( wallet_keys=wallet_keys )
+    rc = storage.put_mutable_data( name, new_profile, data_privkey )
+    if not rc:
+        ret['error'] = 'Failed to update profile'
+        return ret
+
+    else:
+        ret['status'] = True
+
+    return ret
+
 
 def list_accounts( name, proxy=None, wallet_keys=None ):
     """
@@ -2963,6 +3119,8 @@ def list_accounts( name, proxy=None, wallet_keys=None ):
         service:  the type of service
         identifier:  a type-specific ID
         role:  a type-specific role
+
+    Return {'error': ...} on error
     """
 
     if proxy is None:
@@ -2981,11 +3139,12 @@ def list_accounts( name, proxy=None, wallet_keys=None ):
         return user_profile['accounts']
 
 
-def list_pgp_keys( name, proxy=None, wallet_keys=None ):
+def get_account( name, identifier, proxy=None, wallet_keys=None ):
     """
-    List all PGP keys in a user profile.
+    Get an account by identifier.  Return duplicates
+    Return {'accounts': account information} on success
+    Return {'error': ...} on error
     """
-
     if proxy is None:
         proxy = get_default_proxy()
 
@@ -2994,14 +3153,87 @@ def list_pgp_keys( name, proxy=None, wallet_keys=None ):
         return accounts
 
     ret = []
-    for account in accounts:
-        if account['service'] != 'pgp':
-            continue 
+    for acc in accounts:
+        if acc['identifier'] == identifier:
+            ret.append(acc)
 
-        ret.append({
-            "identifier": account['identifier'],
-            "contentUrl": account['contentUrl']
-        })
+    return {'accounts': ret}
 
-    return ret
+
+def put_account( name, service, identifier, content_url, proxy=None, wallet_keys=None, txid=None, **extra_fields ):
+    """
+    Put an account's information into a profile.
+    NOTE: the account must already be in the latest form.
+
+    Return a dict with {'status': True} on success (optionally also with 'transaction_hash' set if we updated the zonefile)
+    Return a dict with {'error': ...} set on failure.
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    need_update = False
+
+    user_profile, user_zonefile, need_update = get_and_migrate_profile( name, proxy=proxy, create_if_absent=True, wallet_keys=wallet_keys )
+    if 'error' in user_profile:
+        return user_profile
+
+    if need_update:
+        return {'error': 'Profile is in legacy format.  Please migrate it with the `migrate` command.'}
+
+    # user_profile will be in the new zonefile format 
+    if not user_profile.has_key("accounts"):
+        user_profile['accounts'] = []
+
+    new_profile = {}
+    new_profile.update( extra_fields )
+    new_profile.update( {
+        "service": service,
+        "identifier": identifier,
+        "contentUrl": content_url
+    })
+
+    user_profile['accounts'].append(new_profile)
+
+    return profile_update( name, user_profile, proxy=proxy, wallet_keys=wallet_keys )
+
+
+def delete_account( name, service, identifier, proxy=None, wallet_keys=None ):
+    """
+    Remove an account's information.
+    Return {'status': True, 'removed': [list of removed accounts], ...} on success
+    Return {'error': ...} on error
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    need_update = False 
+    removed = False
+
+    user_profile, user_zonefile, need_update = get_and_migrate_profile( name, proxy=proxy, create_if_absent=True, wallet_keys=wallet_keys )
+    if 'error' in user_profile:
+        return user_profile 
+
+    if need_update:
+        return {'error': 'Profile is in legacy format.  Please migrate it with the `migrate` command.'}
+
+    # user_profile will be in the new zonefile format
+    removed = []
+    for account in user_profile.get('accounts', []):
+        if account['service'] == service and account['identifier'] == identifier:
+            user_profile['accounts'].remove( account )
+            removed.append( account )
+
+    if len(removed) == 0:
+        return {'status': True, 'removed': []}
+
+    else:
+        res = profile_update( name, user_profile, proxy=proxy, wallet_keys=wallet_keys )
+        if 'error' in res:
+            return res 
+
+        else:
+            res['removed'] = removed
+            return res
 
