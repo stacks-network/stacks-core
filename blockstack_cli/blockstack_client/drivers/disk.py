@@ -29,7 +29,7 @@ import sys
 import traceback
 import virtualchain
 
-log = virtualchain.get_logger()
+log = virtualchain.get_logger("blockstack-client")
 
 DISK_ROOT="/tmp/blockstack-disk"
 IMMUTABLE_STORAGE_ROOT = DISK_ROOT + "/immutable"
