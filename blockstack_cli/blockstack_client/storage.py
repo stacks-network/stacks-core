@@ -341,7 +341,8 @@ def put_immutable_data( data_json, txid, data_hash=None, data_text=None ):
 
    global storage_handlers
 
-   assert (data_hash is None and data_text is None) or (data_hash is not None and data_text is not None), "Need data hash and text, or just JSON"
+   assert (data_hash is None and data_text is None and data_json is not None) or \
+          (data_hash is not None and data_text is not None), "Need data hash and text, or just JSON"
 
    if data_text is None:
       data_text = serialize_immutable_data( data_json )
@@ -732,8 +733,8 @@ class BlockstackURLHandle( object ):
         Lazily fetch the data on read
         """
         if not self.fetched:
-            import client
-            data = client.blockstack_url_fetch( self.name )
+            import data as data_mod
+            data = data_mod.blockstack_url_fetch( self.name )
             if data is None:
                 raise urllib2.URLError("Failed to fetch '%s'" % self.name)
 
