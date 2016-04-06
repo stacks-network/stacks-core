@@ -360,12 +360,12 @@ def get_config(path=CONFIG_PATH):
     return config
 
 
-def update_config(section, option, value, path=CONFIG_PATH):
+def update_config(section, option, value, config_path=CONFIG_PATH):
 
     parser = SafeConfigParser()
 
     try:
-        parser.read(path)
+        parser.read(config_path)
     except Exception, e:
         log.exception(e)
         return None
@@ -373,5 +373,5 @@ def update_config(section, option, value, path=CONFIG_PATH):
     if parser.has_option(section, option):
         parser.set(section, option, value)
 
-        with open(path, 'wb') as configfile:
+        with open(config_path, 'wb') as configfile:
             parser.write(configfile)
