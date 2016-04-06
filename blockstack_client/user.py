@@ -225,6 +225,7 @@ def put_immutable_data_zonefile( user_zonefile, data_id, data_hash ):
    Return False otherwise.
    """
  
+   data_hash = str(data_hash)
    assert storage.is_valid_hash( data_hash )
 
    k = get_immutable_data_hash( user_zonefile, data_id )
@@ -251,7 +252,8 @@ def remove_immutable_data_zonefile( user_zonefile, data_hash ):
    Return False if not present
    """
 
-   assert storage.is_valid_hash( data_hash )
+   data_hash = str(data_hash)
+   assert storage.is_valid_hash( data_hash ), "Invalid data hash '%s'" % data_hash
 
    for txtrec in user_zonefile['txt']:
        h = None
@@ -275,7 +277,8 @@ def has_immutable_data( user_zonefile, data_hash ):
    Return False if not
    """
 
-   assert storage.is_valid_hash( data_hash )
+   data_hash = str(data_hash)
+   assert storage.is_valid_hash( data_hash ), "Invalid data hash '%s'" % data_hash
 
    for txtrec in user_zonefile['txt']:
        h = None
@@ -314,9 +317,12 @@ def has_immutable_data_id( user_zonefile, data_id ):
 def get_immutable_data_hash( user_zonefile, data_id ):
    """
    Get the hash of an immutable datum by name.
-   Return None if not found
+   Return None if there is no match.
+   Return the hash if there is one match.
+   Return the list of hashes if there are multiple matches.
    """
 
+   ret = None
    for txtrec in user_zonefile['txt']:
        d_id = None 
        h = None
@@ -327,9 +333,13 @@ def get_immutable_data_hash( user_zonefile, data_id ):
            continue 
 
        if d_id == data_id:
-           return h
+           if ret is None:
+               ret = h
+           elif type(ret) != list:
+               ret = [ret]
+               ret.append(h)
 
-   return None
+   return ret
 
 
 def list_immutable_data( user_zonefile ):
@@ -360,7 +370,7 @@ def has_mutable_data( user_profile, data_id ):
 
    else:
       for packed_data_txt in user_profile['data'].keys():
-          unpacked_data_id, version = unpack_mutable_data_key( packed_data_txt )
+          unpacked_data_id, version = unpack_mutable_data_md( packed_data_txt )
           if unpacked_data_id == data_id:
               return True
 
@@ -379,10 +389,10 @@ def get_mutable_data_zonefile( user_profile, data_id ):
       return None
 
    for packed_data_txt in user_profile['data'].keys():
-       if not is_mutable_data_key( packed_data_txt ):
+       if not is_mutable_data_md( packed_data_txt ):
            continue 
 
-       unpacked_data_id, version = unpack_mutable_data_key( packed_data_txt )
+       unpacked_data_id, version = unpack_mutable_data_md( packed_data_txt )
        if data_id == unpacked_data_id:
            return user_profile['data'][packed_data_txt]
 
@@ -401,13 +411,13 @@ def get_mutable_data_zonefile_key( user_profile, data_id ):
       return None
 
    for packed_data_txt in user_profile['data'].keys():
-       if not is_mutable_data_key( packed_data_txt ):
+       if not is_mutable_data_md( packed_data_txt ):
            continue 
 
        unpacked_data_id = None
        version = None
        try:
-           unpacked_data_id, version = unpack_mutable_data_key( packed_data_txt )
+           unpacked_data_id, version = unpack_mutable_data_md( packed_data_txt )
        except:
            continue
 
@@ -427,13 +437,13 @@ def list_mutable_data( user_profile ):
 
     ret = []
     for packed_data_txt in user_profile['data'].keys():
-        if not is_mutable_data_key( packed_data_txt ):
+        if not is_mutable_data_md( packed_data_txt ):
             continue
 
         unpacked_data_id = None
         version = None
         try:
-            unpacked_data_id, version = unpack_mutable_data_key( packed_data_txt )
+            unpacked_data_id, version = unpack_mutable_data_md( packed_data_txt )
         except:
             continue
     
@@ -491,10 +501,10 @@ def remove_mutable_data_zonefile( user_profile, data_id ):
 
       # check for it
       for packed_data_txt in user_profile['data']:
-          if not is_mutable_data_key( packed_data_txt ):
+          if not is_mutable_data_md( packed_data_txt ):
               continue 
 
-          unpacked_data_id, version = unpack_mutable_data_key( packed_data_txt )
+          unpacked_data_id, version = unpack_mutable_data_md( packed_data_txt )
           if unpacked_data_id == data_id:
               del user_profile['data'][packed_data_txt]
               return True
@@ -503,14 +513,14 @@ def remove_mutable_data_zonefile( user_profile, data_id ):
       return False
 
 
-def pack_mutable_data_key( data_id, version ):
+def pack_mutable_data_md( data_id, version ):
     """
-    Pack an mutable datum's metadata into a key
+    Pack an mutable datum's metadata into a string
     """
     return "mutable:%s:%s" % (base64.b64encode(data_id), version)
 
 
-def unpack_mutable_data_key( rec ):
+def unpack_mutable_data_md( rec ):
     """
     Unpack an mutable datum's key into its metadata
     """
@@ -524,7 +534,7 @@ def unpack_mutable_data_key( rec ):
     return data_id, version
 
 
-def is_mutable_data_key( rec ):
+def is_mutable_data_md( rec ):
     """
     Is this a mutable datum's key?
     """
@@ -547,7 +557,7 @@ def make_mutable_data_zonefile( data_id, version, urls ):
         urirec = url_to_uri_record( url )
         uris.append( urirec )
 
-    data_name = pack_mutable_data_key( data_id, version )
+    data_name = pack_mutable_data_md( data_id, version )
 
     rec = {
         data_name: {
@@ -566,10 +576,10 @@ def mutable_data_version( user_profile, data_id ):
     
     key = get_mutable_data_zonefile_key( user_profile, data_id )
     if key is None:
-        log.debug("No mutable data zonefiles installed for '%s" % (data_id))
+        log.debug("No mutable data zonefiles installed for '%s'" % (data_id))
         return 0
 
-    data_id, version = unpack_mutable_data_key( key )
+    data_id, version = unpack_mutable_data_md( key )
     return version
 
 
