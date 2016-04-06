@@ -128,7 +128,26 @@ def scenario( wallets, **kw ):
     rc = client.storage.put_immutable_data( legacy_txt, result_2['transaction_hash'], data_hash=legacy_hash )
     assert rc is not None
 
-    # see that put_immutable migrates
+    testlib.next_block( **kw )
+
+    # migrate profiles 
+    res = blockstack_client.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
+    if 'error' in res:
+        res['test'] = 'Failed to initialize foo.test profile'
+        print json.dumps(res, indent=4, sort_keys=True)
+        error = True
+        return 
+
+    res = blockstack_client.migrate_profile( "bar.test", proxy=test_proxy, wallet_keys=wallet_keys_2 )
+    if 'error' in res:
+        res['test'] = 'Failed to initialize bar.test profile'
+        print json.dumps(res, indent=4, sort_keys=True)
+        error = True
+        return
+
+    testlib.next_block( **kw )
+
+    # see that put_immutable works
     put_result = client.put_immutable( "foo.test", "hello_world_immutable", {"hello": "world"}, proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True )
@@ -136,7 +155,7 @@ def scenario( wallets, **kw ):
     zonefile_hash = put_result['zonefile_hash']
     testlib.next_block( **kw )
 
-    # see that put_mutable migrates 
+    # see that put_mutable works
     put_result = client.put_mutable( "bar.test", "hello_world_mutable", {"hello": "world"}, proxy=test_proxy, wallet_keys=wallet_keys_2 )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True )

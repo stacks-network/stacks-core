@@ -24,6 +24,7 @@
 import testlib
 import pybitcoin
 import json
+import blockstack_client
 from blockstack_client import storage, user, client
 
 wallets = [
@@ -130,8 +131,18 @@ def scenario( wallets, **kw ):
     # put immutable data
     test_proxy = testlib.TestAPIProxy()
     client.set_default_proxy( test_proxy )
-
     wallet_keys = client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey )
+    
+    # migrate profile
+    res = blockstack_client.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
+    if 'error' in res:
+        res['test'] = 'Failed to initialize foo.test profile'
+        print json.dumps(res, indent=4, sort_keys=True)
+        error = True
+        return 
+
+    testlib.next_block( **kw )
+
     put_result = client.put_immutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)

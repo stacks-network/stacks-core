@@ -125,18 +125,40 @@ def scenario( wallets, **kw ):
     result_2 = testlib.blockstack_name_update( "bar.test", legacy_hash, wallets[6].privkey )
     testlib.next_block( **kw )
 
-    rc = client.storage.put_immutable_data( legacy_txt, result_1['transaction_hash'], data_hash=legacy_hash )
+    rc = client.storage.put_immutable_data( None, result_1['transaction_hash'], data_hash=legacy_hash, data_text=legacy_txt )
     assert rc is not None
 
-    rc = client.storage.put_immutable_data( legacy_txt, result_2['transaction_hash'], data_hash=legacy_hash )
+    rc = client.storage.put_immutable_data( None, result_2['transaction_hash'], data_hash=legacy_hash, data_text=legacy_txt )
     assert rc is not None
 
-    # see that put_immutable migrates
+    testlib.next_block( **kw )
+
+    # migrate 
+    res = blockstack_client.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
+    if 'error' in res:
+        res['test'] = 'Failed to initialize foo.test profile'
+        print json.dumps(res, indent=4, sort_keys=True)
+        error = True
+        return 
+    else:
+        zonefile_hash = res['zonefile_hash']
+
+    # migrate 
+    res = blockstack_client.migrate_profile( "bar.test", proxy=test_proxy, wallet_keys=wallet_keys_2 )
+    if 'error' in res:
+        res['test'] = 'Failed to initialize foo.test profile'
+        print json.dumps(res, indent=4, sort_keys=True)
+        error = True
+        return 
+    else:
+        zonefile_hash_2 = res['zonefile_hash']
+
+    testlib.next_block( **kw )
+
     put_result = client.put_immutable( "foo.test", "hello_world_immutable", {"hello": "world"}, proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True )
 
-    zonefile_hash = put_result['zonefile_hash']
     immutable_hash = put_result['immutable_data_hash']
     testlib.next_block( **kw )
 
@@ -145,7 +167,6 @@ def scenario( wallets, **kw ):
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True )
     
-    zonefile_hash_2 = put_result['zonefile_hash']
     testlib.next_block( **kw )
      
 
@@ -208,7 +229,7 @@ def check( state_engine ):
             return False 
 
         # zonefile is NOT legacy 
-        user_zonefile = client.load_user_zonefile( zonefile_hash )
+        user_zonefile = client.load_name_zonefile( zonefile_hash )
         if 'error' in user_zonefile:
             print json.dumps(user_zonefile, indent=4, sort_keys=True)
             return False 
@@ -219,7 +240,7 @@ def check( state_engine ):
             return False
 
         # still have all the right info 
-        user_profile = client.load_user_profile( name, user_zonefile, wallets[wallet_data_pubkey].pubkey_hex )
+        user_profile = client.load_name_profile( name, user_zonefile, wallets[wallet_data_pubkey].pubkey_hex )
         if 'error' in user_profile:
             print json.dumps(user_profile, indent=4, sort_keys=True)
             return False
@@ -230,7 +251,7 @@ def check( state_engine ):
         print json.dumps(immutable_data, indent=4, sort_keys=True)
         return False 
 
-    if json.loads(immutable_data['data']) != {'hello': 'world'}:
+    if immutable_data['data'] != {'hello': 'world'}:
         print "immutable fetch-latest mismatch:\n%s (%s)\n%s" % (immutable_data['data'], type(immutable_data['data']), {'hello': 'world'})
         return False 
 
@@ -244,7 +265,7 @@ def check( state_engine ):
         print json.dumps(immutable_data, indent=4, sort_keys=True)
         return False 
 
-    if json.loads(immutable_data['data']) != {'hello': 'world'}:
+    if immutable_data['data'] != {'hello': 'world'}:
         print "immutable fetch-by-hash mismatch:\n%s (%s)\n%s" % (immutable_data['data'], type(immutable_data['data']), {'hello': 'world'})
         return False 
 

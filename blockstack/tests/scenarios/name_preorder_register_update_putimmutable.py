@@ -24,6 +24,7 @@
 import testlib
 import pybitcoin
 import json
+import blockstack_client
 from blockstack_client import storage, user, client
 
 wallets = [
@@ -38,9 +39,9 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 wallet_keys = None
 
 datasets = [
-    {"dataset_1": "My first dataset!"},
-    {"dataset_2": {"id": "abcdef", "desc": "My second dataset!", "data": [1, 2, 3, 4]}},
-    {"dataset_3": "My third datset!"}
+    {u"dataset_1": u"My first dataset!"},
+    {u"dataset_2": {u"id": u"abcdef", u"desc": u"My second dataset!", u"data": [1, 2, 3, 4]}},
+    {u"dataset_3": u"My third datset!"}
 ]
 
 put_result = None
@@ -68,8 +69,18 @@ def scenario( wallets, **kw ):
 
     test_proxy = testlib.TestAPIProxy()
     client.set_default_proxy( test_proxy )
-
     wallet_keys = client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey )
+    
+    # migrate profile
+    res = blockstack_client.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
+    if 'error' in res:
+        res['test'] = 'Failed to initialize foo.test profile'
+        print json.dumps(res, indent=4, sort_keys=True)
+        error = True
+        return 
+
+    testlib.next_block( **kw )
+
     put_result = client.put_immutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
@@ -96,7 +107,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # should succeed (name collision)
-    datasets[0]['newdata'] = "asdf"
+    datasets[0][u'newdata'] = u"asdf"
     put_result = client.put_immutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' not in put_result:
         zonefile_hashes[0] = put_result['immutable_data_hash']
@@ -167,8 +178,8 @@ def check( state_engine ):
             return False 
 
         data_json = immutable_data['data']
-        if json.loads(data_json) != datasets[i]:
-            print "did not get dataset %s\ngot %s\nexpected %s" % (i, json.loads(data_json), datasets[i])
+        if data_json != datasets[i]:
+            print "did not get dataset %s\ngot %s\nexpected %s" % (i, data_json, datasets[i])
             return False 
 
         immutable_data_by_name = client.get_immutable_by_name( "foo.test", "hello_world_%s" % (i+1) )
@@ -185,8 +196,8 @@ def check( state_engine ):
             return False 
 
         data_json = immutable_data_by_name['data']
-        if json.loads(data_json) != datasets[i]:
-            print "did not get dataset hello_world_%s\ngot %s\nexpected %s" % (i+1, json.loads(data_json), datasets[i])
+        if data_json != datasets[i]:
+            print "did not get dataset hello_world_%s\ngot %s\nexpected %s" % (i+1, data_json, datasets[i])
             return False 
 
     return True
