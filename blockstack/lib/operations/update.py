@@ -37,7 +37,7 @@ from ..nameset import *
 
 import virtualchain
 
-log = virtualchain.get_logger()
+log = virtualchain.get_logger("blockstack-server")
 
 # consensus hash fields (ORDER MATTERS!) 
 FIELDS = NAMEREC_FIELDS[:] + [

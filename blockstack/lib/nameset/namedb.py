@@ -44,7 +44,7 @@ from ..b40 import is_b40
 import virtualchain
 from db import *
 
-log = virtualchain.get_logger()
+log = virtualchain.get_logger("blockstack-server")
 
 # singleton read/write instance
 blockstack_db = None

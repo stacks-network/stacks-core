@@ -29,7 +29,7 @@ from pybitcoin.transactions.outputs import calculate_change_amount
 import virtualchain
 from virtualchain import getrawtransaction 
 
-log = virtualchain.get_logger()
+log = virtualchain.get_logger("blockstack-server")
 
 import bitcoin
 import json

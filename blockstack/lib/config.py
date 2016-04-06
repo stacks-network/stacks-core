@@ -29,7 +29,7 @@ import logging
 
 import virtualchain
 
-log = virtualchain.get_logger()
+log = virtualchain.get_logger("blockstack-server")
 
 try:
     import blockstack_client

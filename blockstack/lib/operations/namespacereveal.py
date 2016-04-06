@@ -42,7 +42,7 @@ from ..hashing import hash_name
 from namespacepreorder import FIELDS as namespacepreorder_FIELDS
 import virtualchain
 
-log = virtualchain.get_logger()
+log = virtualchain.get_logger("blockstack-server")
 
 # consensus hash fields (ORDER MATTERS!)
 FIELDS = [

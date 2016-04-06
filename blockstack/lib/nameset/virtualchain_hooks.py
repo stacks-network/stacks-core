@@ -43,7 +43,7 @@ import virtualchain
 
 from ..scripts import get_burn_fee_from_outputs
 
-log = virtualchain.get_logger()
+log = virtualchain.get_logger("blockstack-server")
 
 
 def get_virtual_chain_name(testset=False):

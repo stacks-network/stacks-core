@@ -49,7 +49,7 @@ from ..b40 import *
 
 import virtualchain
 
-log = virtualchain.get_logger()
+log = virtualchain.get_logger("blockstack-server")
 
 BLOCKSTACK_DB_SCRIPT = ""
 

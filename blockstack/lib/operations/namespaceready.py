@@ -31,7 +31,7 @@ from ..blacklist import is_namespace_id_blacklisted
 
 import virtualchain
 
-log = virtualchain.get_logger()
+log = virtualchain.get_logger("blockstack-server")
 
 from namespacereveal import FIELDS as NAMESPACE_REVEAL_FIELDS
 from ..nameset import * 

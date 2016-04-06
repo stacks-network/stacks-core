@@ -26,7 +26,7 @@ import json
 from ..config import OPCODE_CREATION_OPS, OPCODE_TRANSITION_OPS, op_get_opcode_name
 
 import virtualchain
-log = virtualchain.get_logger()
+log = virtualchain.get_logger("blockstack-server")
 
 
 # fields that *must* be present 
