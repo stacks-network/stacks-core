@@ -21,24 +21,29 @@
     along with Blockstack-client.  If not, see <http://www.gnu.org/licenses/>.
 """
 
+import accounts
 import client
 import config
+import data
+import keys
+import profile
+import proxy
 import user
 import drivers
+import snv
 import spv 
 import storage
 
-from client import getinfo, get_name_zonefile, ping, get_name_blockchain_record, get_namespace_blockchain_record, snv_lookup, lookup_snv
-from client import preorder, update, transfer, renew, revoke, get_nameops_at
-from client import namespace_preorder, namespace_reveal, namespace_ready
-from client import get_immutable, get_mutable
-from client import put_immutable, put_mutable, delete_immutable, delete_mutable
-from client import list_mutable_data, list_immutable_data
-from client import blockstack_url_fetch as fetch_data
-from client import session, register_storage, get_default_proxy
-from client import migrate_profile
-from client import list_accounts, get_account, put_account, delete_account 
-from client import data_get, data_put, data_delete
+from proxy import *
+from keys import *
+from client import session, get_default_proxy, set_default_proxy, register_storage, load_storage 
+from snv import snv_lookup, lookup_snv
+from data import get_immutable, get_immutable_by_name, get_mutable, put_immutable, put_mutable, delete_immutable, \
+        delete_mutable, list_mutable_data, list_immutable_data, list_immutable_data_history, list_update_history
+from data import blockstack_url_fetch as fetch_data
+from data import data_get, data_put, data_delete
+from profile import migrate_profile
+from accounts import list_accounts, get_account, put_account, delete_account
 
 from config import get_logger, get_config
 
