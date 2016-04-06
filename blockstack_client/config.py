@@ -200,7 +200,7 @@ BLOCKCHAIN_ID_MAGIC = 'id'
 USER_ZONEFILE_TTL = 3600    # cache lifetime for a user's zonefile
 
 def get_logger( debug=DEBUG ):
-    logger = virtualchain.get_logger()
+    logger = virtualchain.get_logger("blockstack-client")
     logger.setLevel(logging.DEBUG if debug else logging.INFO)
     return logger
 
@@ -352,6 +352,10 @@ def get_config(path=CONFIG_PATH):
         else:
             log.error("Directory '%s' does not exist" % (config['metadata']))
             return None
+
+    # pass along the config path and dir
+    config['path'] = path
+    config['dir'] = os.path.dirname(path)
 
     return config
 
