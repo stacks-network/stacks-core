@@ -1204,6 +1204,22 @@ def default_mock_utxo_opts( config_file=None ):
    return default_mock_utxo_opts
 
 
+def parse_dht_servers( servers ):
+   """
+   Parse the serialized list of DHT servers
+   raise on error
+   """
+   parsed_servers = []
+   server_list = servers.split(",")
+   for server in server_list:
+      server_host, server_port = server.split(":")
+      server_port = int(server_port)
+
+      parsed_servers.append( (server_host, server_port) )
+
+   return parsed_servers
+
+
 def default_dht_opts( config_file=None ):
    """
    Get our default DHT options from the config file.
@@ -1252,14 +1268,13 @@ def default_dht_opts( config_file=None ):
 
       parsed_servers = []
       try:
-         server_list = servers.split(",")
-         for server in server_list:
-            server_host, server_port = server.split(":")
-            server_port = int(server_port)
+         if type(servers) in [str, unicode]:
+             parsed_servers = parse_dht_servers( servers )
+         else:
+             parsed_servers = servers
 
-            parsed_servers.append( (server_host, server_port) )
-
-      except:
+      except Exception, e:
+         log.exception(e)
          raise Exception("Invalid field value for dht.servers: expected 'HOST:PORT[,HOST:PORT...]'")
 
       dht_opts = {
