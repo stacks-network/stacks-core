@@ -29,13 +29,20 @@ import keys
 import profile
 import proxy
 import user
-import drivers
 import snv
 import spv 
 import storage
 
-from proxy import *
-from keys import *
+from proxy import BlockstackRPCClient, get_default_proxy, set_default_proxy, json_traceback
+from proxy import getinfo, ping, get_name_cost, get_namespace_cost, get_all_names, get_names_in_namespace, \
+        get_names_owned_by_address, get_consensus_at, get_consensus_range, get_nameops_at, \
+        get_nameops_hash_at, get_name_blockchain_record, get_namespace_blockchain_record, \
+        get_namespace_reveal_blockchain_record, preorder, register, update, transfer, revoke, renew, \
+        preorder_subsidized, register_subsidized, update_subsidized, transfer_subsidized, revoke_subsidized, renew_subsidized, \
+        send_subsidized, name_import, namespace_preorder, namespace_reveal, namespace_ready 
+        
+from keys import make_wallet_keys, get_owner_keypair, get_data_keypair
+
 from client import session, get_default_proxy, set_default_proxy, register_storage, load_storage 
 from snv import snv_lookup, lookup_snv
 from data import get_immutable, get_immutable_by_name, get_mutable, put_immutable, put_mutable, delete_immutable, \
