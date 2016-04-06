@@ -70,7 +70,7 @@ class APICallRecord(object):
 class TestAPIProxy(object):
     def __init__(self):
         global utxo_opts
-        self.api = blockstack.blockstackd.BlockstackdRPC()
+        self.client = blockstack_client.BlockstackRPCClient( 'localhost', blockstack.lib.config.RPC_SERVER_PORT )
         self.conf = {
             "start_block": blockstack.FIRST_BLOCK_MAINNET,
             "initial_utxos": utxo_opts,
@@ -84,14 +84,15 @@ class TestAPIProxy(object):
 
     def __getattr__(self, name):
         
-        if hasattr( self.api, "jsonrpc_" + name):
+        try:
             def inner(*args, **kw):
-                c = getattr( self.api, "jsonrpc_" + name)
+                c = getattr( self.client, name)
                 r = c(*args, **kw)
                 return [r]
 
             return inner
-        else:
+        except Exception, e:
+            log.exception(e)
             raise Exception("No such attribute or API call: '%s'" % name)
 
 
