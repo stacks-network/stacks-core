@@ -46,6 +46,20 @@ from config import MAX_NAME_LENGTH, get_logger
 
 log = get_logger()
 
+import string
+B40_CHARS = string.digits + string.lowercase + '-_.+'
+B40_CLASS = '[a-z0-9\-_.+]'
+B40_REGEX = '^%s*$' % B40_CLASS
+URLENCODED_CLASS = '[a-zA-Z0-9\-_.~%]'
+
+# global list of registered data handlers
+storage_handlers = []
+
+
+def is_b40(s):
+    return (isinstance(s, str) and (re.match(B40_REGEX, s) is not None))
+
+
 class UnhandledURLException( Exception ):
    def __init__(self, url):
       super( UnhandledURLException, self ).__init__()
@@ -68,10 +82,6 @@ def is_valid_hash( value ):
         return False 
 
     return True
-
-
-# global list of registered data handlers
-storage_handlers = []
 
 
 def get_data_hash( data_txt ):
@@ -177,12 +187,12 @@ def register_storage( storage_impl ):
    return True
 
 
-def get_immutable_data( data_key, hash_func=get_data_hash ):
+def get_immutable_data( data_key, hash_func=get_data_hash, deserialize=True ):
    """
    Given the hash of the data, go through the list of
    immutable data handlers and look it up.
 
-   Return the data (as a string) on success
+   Return the data (as a dict) on success.
    """
 
    global storage_handlers
@@ -216,7 +226,18 @@ def get_immutable_data( data_key, hash_func=get_data_hash ):
          log.error("Invalid data hash")
          continue
 
-      return data
+      # deserialize 
+      if deserialize:
+          try:
+              data_dict = json.loads(data)
+          except ValueError:
+              log.error("Invalid JSON for %s" % data_key)
+              continue
+
+      else:
+          data_dict = data
+
+      return data_dict
 
    return None
 
@@ -254,7 +275,9 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None ):
    """
 
    global storage_handlers
-   assert is_fq_data_id( fq_data_id ) or is_valid_name( fq_data_id ), "Need either a fully-qualified data ID or a Blockstack DNS name"
+
+   fq_data_id = str(fq_data_id)
+   assert is_fq_data_id( fq_data_id ) or is_valid_name( fq_data_id ), "Need either a fully-qualified data ID or a Blockstack DNS name: '%s'" % fq_data_id
 
    if urls is None:
        # generate them 
@@ -299,7 +322,15 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None ):
    return None
 
 
-def put_immutable_data( data_text, txid, data_hash=None ):
+def serialize_immutable_data( data_json ):
+    """
+    Serialize a piece of immutable data
+    """
+    assert type(data_json) in [dict], "Invalid immutable data: must be a dict"
+    return json.dumps(data_json, sort_keys=True)
+
+
+def put_immutable_data( data_json, txid, data_hash=None, data_text=None ):
    """
    Given a string of data (which can either be data or a zonefile), store it into our immutable data stores.
    Do so in a best-effort manner--this method only fails if *all* storage providers fail.
@@ -310,8 +341,15 @@ def put_immutable_data( data_text, txid, data_hash=None ):
 
    global storage_handlers
 
+   assert (data_hash is None and data_text is None) or (data_hash is not None and data_text is not None), "Need data hash and text, or just JSON"
+
+   if data_text is None:
+      data_text = serialize_immutable_data( data_json )
+
    if data_hash is None:
       data_hash = get_data_hash( data_text )
+   else:
+      data_hash = str(data_hash)
 
    successes = 0
 
@@ -357,7 +395,8 @@ def put_mutable_data( fq_data_id, data_json, privatekey ):
    Return False on error
    """
 
-   assert is_fq_data_id( fq_data_id ) or is_valid_name(fq_data_id), "Data ID must be fully qualified or must be a valid Blockstack DNS name"
+   fq_data_id = str(fq_data_id)
+   assert is_fq_data_id( fq_data_id ) or is_valid_name(fq_data_id), "Data ID must be fully qualified or must be a valid Blockstack DNS name (got %s)" % fq_data_id
 
    serialized_data = serialize_mutable_data( data_json, privatekey )
    successes = 0
@@ -401,6 +440,8 @@ def delete_immutable_data( data_hash, txid, privkey ):
 
    global storage_handlers
 
+   data_hash = str(data_hash)
+   txid = str(txid)
    sigb64 = sign_raw_data( data_hash + txid, privkey )
 
    for handler in storage_handlers:
@@ -414,12 +455,12 @@ def delete_immutable_data( data_hash, txid, privkey ):
       except Exception, e:
 
          log.exception( e )
-         continue
+         return False
 
    return True
 
 
-def delete_mutable_data( data_id, privatekey ):
+def delete_mutable_data( fq_data_id, privatekey ):
    """
    Given the data ID and private key of a user,
    go and delete the associated mutable data.
@@ -427,7 +468,10 @@ def delete_mutable_data( data_id, privatekey ):
 
    global storage_handlers
 
-   sigb64 = sign_raw_data( data_id, privatekey )
+   fq_data_id = str(fq_data_id)
+   assert is_fq_data_id( fq_data_id ) or is_valid_name(fq_data_id), "Data ID must be fully qualified or must be a valid Blockstack DNS name (got %s)" % fq_data_id
+
+   sigb64 = sign_raw_data( fq_data_id, privatekey )
 
    # remove data
    for handler in storage_handlers:
@@ -437,11 +481,11 @@ def delete_mutable_data( data_id, privatekey ):
 
       try:
 
-         handler.delete_mutable_handler( data_id, sigb64 )
+         handler.delete_mutable_handler( fq_data_id, sigb64 )
       except Exception, e:
 
          log.exception( e )
-         continue
+         return False
 
    return True
 
@@ -450,17 +494,7 @@ def make_fq_data_id( name, data_id ):
     """
     Make a fully-qualified data ID, prefixed by the name.
     """
-    return "%s:%s" % (name, data_id)
-
-
-import string
-B40_CHARS = string.digits + string.lowercase + '-_.+'
-B40_CLASS = '[a-z0-9\-_.+]'
-B40_REGEX = '^%s*$' % B40_CLASS
-URLENCODED_CLASS = '[a-zA-Z0-9\-_.~%]'
-
-def is_b40(s):
-    return (isinstance(s, str) and (re.match(B40_REGEX, s) is not None))
+    return str("%s:%s" % (name, data_id))
 
 
 def is_fq_data_id( fq_data_id ):
@@ -510,7 +544,7 @@ def blockstack_immutable_data_url( blockchain_id, data_id, data_hash ):
     """
     Make a blockstack:// URL for immutable data
     """
-    if not is_valid_hash( data_hash ):
+    if data_hash is not None and not is_valid_hash( data_hash ):
         raise ValueError("Invalid hash: %s" % data_hash)
 
     return "blockstack://%s/immutable/%s/%s" % (urllib.quote(blockchain_id), urllib.quote(data_id), data_hash)
@@ -590,6 +624,72 @@ def blockstack_immutable_data_url_parse( url ):
         return urllib.unquote(blockstack_id), None, None 
 
 
+def blockstack_data_url_parse( url ):
+    """
+    Parse a blockstack:// URL
+    Return {
+        'type': immutable|mutable
+        'blockchain_id': blockchain ID
+        'data_id': data_id
+        'fields': { fields }
+    } on success
+    Fields will be either {'data_hash'} on immutable 
+    or {'version'} on mutable
+
+    Return None on error
+    """
+
+    blockchain_id = None
+    data_id = None
+    url_type = None
+    fields = {}
+    try:
+        blockchain_id, data_id, data_hash = blockstack_immutable_data_url_parse( url )
+        url_type = 'immutable'
+        fields = {
+            'data_hash': data_hash
+        }
+    except:
+        try:
+            blockchain_id, data_id, version = blockstack_mutable_data_url_parse( url )
+            url_type = 'mutable'
+            fields = {
+                'version': version
+            }
+        except:
+            return None
+
+    ret = {
+        'type': url_type,
+        'blockchain_id': blockchain_id,
+        'data_id': data_id,
+        'fields': fields
+    }
+    return ret
+
+
+def blockstack_data_url( field_dict ):
+    """
+    Make a blockstack:// URL from constituent fields.
+    Takes the output of blockstack_data_url_parse
+    Return the URL on success
+    Raise on error
+    """
+    assert 'blockchain_id' in field_dict
+    assert 'type' in field_dict
+    assert field_dict['type'] in ['mutable', 'immutable']
+    assert 'data_id' in field_dict
+    assert 'fields' in field_dict
+    assert 'data_hash' in field_dict['fields'] or 'version' in field_dict['fields']
+
+    if field_dict['type'] == 'immutable':
+        return blockstack_immutable_data_url( field_dict['blockchain_id'], field_dict['data_id'], field_dict['fields']['data_hash'] )
+
+    else:
+        return blockstack_mutable_data_url( field_dict['blockchain_id'], field_dict['data_id'], field_dict['fields']['version'] )
+    
+
+
 class BlockstackURLHandle( object ):
     """
     A file-like object that handles reads on blockstack URLs
@@ -633,7 +733,7 @@ class BlockstackURLHandle( object ):
         """
         if not self.fetched:
             import client
-            data = client.blockstack_data_url_fetch( self.name )
+            data = client.blockstack_url_fetch( self.name )
             if data is None:
                 raise urllib2.URLError("Failed to fetch '%s'" % self.name)
 
