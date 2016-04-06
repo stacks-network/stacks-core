@@ -15,4 +15,5 @@ six==1.10.0
 txJSON-RPC==0.3.1
 utilitybelt==0.2.6
 virtualchain>=0.0.9,
-gnupg>=0.3.8
+gnupg>=0.3.8,
+blockstack-storage-drivers>=0.0.1.0
