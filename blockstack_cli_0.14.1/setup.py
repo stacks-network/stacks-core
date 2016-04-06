@@ -27,8 +27,7 @@ setup(
         'blockstack-profiles>=0.1.3',
         'pybitcoin>=0.9.8',
         'zone_file==0.1.6',
-        'registrar>=0.0.4',
-        'python-gnupg==0.3.8'
+        'registrar>=0.0.4'
     ],
     classifiers=[
         'Intended Audience :: Developers',
