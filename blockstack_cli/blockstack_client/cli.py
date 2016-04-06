@@ -45,9 +45,7 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
-from blockstack_client import config, client, user
-from blockstack_client import storage, drivers
-from blockstack_client.utils import pretty_dump, print_result
+from blockstack_client import config
 from blockstack_client.config import WALLET_PATH, WALLET_PASSWORD_LENGTH
 
 from blockstack_client.parser import add_subparsers, add_advanced_subparsers
@@ -66,10 +64,8 @@ from registrar.utils import satoshis_to_btc
 from registrar.states import nameRegistered, ownerName, profileonBlockchain
 from registrar.blockchain import recipientNotReady, get_tx_confirmations
 
-from blockstack_profiles import get_person_from_legacy_format, is_profile_in_legacy_format
-
 from .wallet import *
-from .utils import exit_with_error
+from .utils import exit_with_error, pretty_dump, print_result
 
 log = config.get_logger()
 
@@ -134,40 +130,11 @@ def tests_for_update_and_transfer(fqu, transfer_address=None):
             exit_with_error(msg)
 
 
-def get_sorted_commands(display_commands=False):
-    """ when adding new commands to the parser, use this function to
-        check the correct sorted order
-    """
-
-    command_list = ['status', 'ping', 'preorder', 'register', 'update',
-                    'transfer', 'renew', 'name_import', 'namespace_preorder',
-                    'namespace_ready', 'namespace_reveal', 'put_mutable',
-                    'put_immutable', 'get_mutable', 'get_immutable',
-                    'cost', 'get_namespace_cost', 'get_nameops_at',
-                    'get_name_blockchain_record',
-                    'get_namespace_blockchain_record',
-                    'get_name_zonefile', 'lookup',
-                    'get_all_names', 'get_names_in_namespace', 'consensus',
-                    'lookup_snv', 'get_names_owned_by_address',
-                    'preorder_tx', 'preorder_subsidized',
-                    'register_tx', 'register_subsidized',
-                    'update_tx', 'update_subsidized', 'update_convert',
-                    'transfer_tx', 'transfer_subsidized',
-                    'revoke_tx', 'revoke_subsidized',
-                    'renew_tx', 'renew_subsidized']
-
-    if display_commands:
-        for cmd in sorted(command_list):
-            log.debug(cmd)
-
-    return command_list
-
-
-def run_cli():
+def run_cli(config_path=CONFIG_PATH):
     """ run cli
     """
 
-    conf = config.get_config()
+    conf = config.get_config(config_path=config_path)
 
     if conf is None:
         log.error("Failed to load config")
@@ -176,13 +143,11 @@ def run_cli():
     advanced_mode = conf['advanced_mode']
 
     parser = argparse.ArgumentParser(
-      description='Blockstack cli version {}'.format(config.VERSION))
+            description='Blockstack cli version {}'.format(config.VERSION))
 
     parser.register('action', 'parsers', AliasedSubParsersAction)
 
-    subparsers = parser.add_subparsers(
-      dest='action')
-
+    subparsers = parser.add_subparsers(dest='action')
     add_subparsers(subparsers)
 
     if advanced_mode:
@@ -196,13 +161,11 @@ def run_cli():
     args, unknown_args = parser.parse_known_args()
     result = {}
 
-    conf = config.get_config()
-
     blockstack_server = conf['server']
     blockstack_port = conf['port']
 
-    proxy = client.session(conf=conf, server_host=blockstack_server,
-                           server_port=blockstack_port, set_global=True)
+    proxy = blockstack_client.session(conf=conf, server_host=blockstack_server,
+                                      server_port=blockstack_port, set_global=True)
 
     # start the two background processes (rpc daemon and monitor queue)
     start_background_daemons()
@@ -220,7 +183,7 @@ def run_cli():
         check_valid_name(fqu)
 
         try:
-            resp = client.get_name_cost(fqu)
+            resp = blockstack_client.get_name_cost(fqu)
         except socket_error:
             exit_with_error("Error connecting to server")
 
@@ -239,12 +202,12 @@ def run_cli():
         data["message"] = "Updated settings for"
 
         if args.host is not None:
-            config.update_config('blockstack-client', 'server', args.host)
+            config.update_config('blockstack-client', 'server', args.host, config_path=config_path)
             data["message"] += " host"
             settings_updated = True
 
         if args.port is not None:
-            config.update_config('blockstack-client', 'port', args.port)
+            config.update_config('blockstack-client', 'port', args.port, config_path=config_path)
             data["message"] += " port"
             settings_updated = True
 
@@ -257,12 +220,12 @@ def run_cli():
                 if args.advanced == 'on':
                     advanced = True
 
-                config.update_config('blockstack-client', 'advanced_mode', str(advanced) )
+                config.update_config('blockstack-client', 'advanced_mode', str(advanced), config_path=config_path)
                 data["message"] += " advanced"
                 settings_updated = True
 
         # reload conf
-        conf = config.get_config()
+        conf = config.get_config(config_path=config_path)
 
         if settings_updated:
             result['message'] = data['message']
@@ -296,7 +259,7 @@ def run_cli():
 
     elif args.action in ('info', 'status', 'ping', 'details'):
 
-        resp = client.getinfo()
+        resp = blockstack_client.getinfo()
 
         result = {}
 
@@ -399,7 +362,7 @@ def run_cli():
         check_valid_name(fqu)
 
         try:
-            blockchain_record = client.get_name_blockchain_record(fqu)
+            blockchain_record = blockstack_client.get_name_blockchain_record(fqu)
         except socket_error:
             exit_with_error("Error connecting to server.")
 
@@ -407,7 +370,7 @@ def run_cli():
             exit_with_error("%s is not registered" % fqu)
 
         try:
-            user_profile, user_zonefile = client.get_name_profile(str(args.name))
+            user_profile, user_zonefile = blockstack_client.get_name_profile(str(args.name))
             data['profile'] = user_profile
             data['zonefile'] = user_zonefile
         except:
@@ -425,7 +388,7 @@ def run_cli():
         check_valid_name(fqu)
 
         try:
-            record = client.get_name_blockchain_record(fqu)
+            record = blockstack_client.get_name_blockchain_record(fqu)
         except socket_error:
             exit_with_error("Error connecting to server.")
 
@@ -447,7 +410,7 @@ def run_cli():
         result = {}
         fqu = str(args.name)
         check_valid_name(fqu)
-        cost = client.get_name_cost(fqu)
+        cost = blockstack_client.get_name_cost(fqu)
 
         if 'error' in cost:
             exit_with_error(cost['error'])
@@ -586,7 +549,7 @@ def run_cli():
 
         if args.block_height is None:
             # by default get last indexed block
-            resp = client.getinfo()
+            resp = blockstack_client.getinfo()
 
             if 'error' in resp:
                 exit_with_error("Error connecting to server.")
@@ -594,14 +557,14 @@ def run_cli():
             elif 'last_block' in resp or 'blocks' in resp:
 
                 if 'last_block' in resp:
-                    args.block_height = client.getinfo()['last_block']
+                    args.block_height = blockstack_client.getinfo()['last_block']
                 elif 'blocks' in resp:
-                    args.block_height = client.getinfo()['blocks']
+                    args.block_height = blockstack_client.getinfo()['blocks']
                 else:
                     result['error'] = "Server is indexing. Try again"
                     exit(0)
 
-        resp = client.get_consensus_at(int(args.block_height))
+        resp = blockstack_client.get_consensus_at(int(args.block_height))
 
         data = {}
         data['consensus'] = resp
@@ -609,13 +572,16 @@ def run_cli():
 
         result = data
 
+    elif args.action == 'localrpc':
+        pass
+
     elif args.action == 'register_tx':
-        result = client.register(str(args.name), str(args.privatekey),
-                                 str(args.addr), tx_only=True)
+        result = blockstack_client.register(str(args.name), str(args.privatekey),
+                                            str(args.addr), tx_only=True)
 
     elif args.action == 'register_subsidized':
-        result = client.register_subsidized(str(args.name), str(args.privatekey),
-                                            str(args.addr), str(args.subsidy_key))
+        result = blockstack_client.register_subsidized(str(args.name), str(args.privatekey),
+                                                       str(args.addr), str(args.subsidy_key))
 
     elif args.action == 'update_tx':
 
@@ -623,10 +589,10 @@ def run_cli():
         if args.txid is not None:
             txid = str(args.txid)
 
-        result = client.update(str(args.name),
-                               str(args.record_json),
-                               str(args.privatekey),
-                               txid=txid, tx_only=True)
+        result = blockstack_client.update(str(args.name),
+                                          str(args.record_json),
+                                          str(args.privatekey),
+                                          txid=txid, tx_only=True)
 
     elif args.action == 'update_subsidized':
 
@@ -634,11 +600,11 @@ def run_cli():
         if args.txid is not None:
             txid = str(args.txid)
 
-        result = client.update_subsidized(str(args.name),
-                                          str(args.record_json),
-                                          str(args.public_key),
-                                          str(args.subsidy_key),
-                                          txid=txid)
+        result = blockstack_client.update_subsidized(str(args.name),
+                                                     str(args.record_json),
+                                                     str(args.public_key),
+                                                     str(args.subsidy_key),
+                                                     txid=txid)
 
     elif args.action == 'transfer_tx':
         keepdata = False
@@ -649,11 +615,11 @@ def run_cli():
         if args.keepdata.lower() == "on":
             keepdata = True
 
-        result = client.transfer(str(args.name),
-                                 str(args.address),
-                                 keepdata,
-                                 str(args.privatekey),
-                                 tx_only=True)
+        result = blockstack_client.transfer(str(args.name),
+                                            str(args.address),
+                                            keepdata,
+                                            str(args.privatekey),
+                                            tx_only=True)
 
     elif args.action == 'preorder':
 
@@ -661,8 +627,8 @@ def run_cli():
         if args.address is not None:
             register_addr = str(args.address)
 
-        result = client.preorder(str(args.name), str(args.privatekey),
-                                 register_addr=register_addr)
+        result = blockstack_client.preorder(str(args.name), str(args.privatekey),
+                                            register_addr=register_addr)
 
     elif args.action == 'preorder_tx':
 
@@ -670,15 +636,15 @@ def run_cli():
         if args.address is not None:
             register_addr = str(args.address)
 
-        result = client.preorder(str(args.name), str(args.privatekey),
-                                 register_addr=register_addr, tx_only=True)
+        result = blockstack_client.preorder(str(args.name), str(args.privatekey),
+                                            register_addr=register_addr, tx_only=True)
 
     elif args.action == 'preorder_subsidized':
 
-        result = client.preorder_subsidized(str(args.name),
-                                            str(args.public_key),
-                                            str(args.address),
-                                            str(args.subsidy_key))
+        result = blockstack_client.preorder_subsidized(str(args.name),
+                                                       str(args.public_key),
+                                                       str(args.address),
+                                                       str(args.subsidy_key))
 
     elif args.action == 'transfer_subsidized':
         keepdata = False
@@ -689,37 +655,37 @@ def run_cli():
         if args.keepdata.lower() == "on":
             keepdata = True
 
-        result = client.transfer_subsidized(str(args.name),
-                                            str(args.address),
-                                            keepdata,
-                                            str(args.public_key),
-                                            str(args.subsidy_key))
+        result = blockstack_client.transfer_subsidized(str(args.name),
+                                                       str(args.address),
+                                                       keepdata,
+                                                       str(args.public_key),
+                                                       str(args.subsidy_key))
 
     elif args.action == 'renew':
-        result = client.renew(str(args.name), str(args.privatekey))
+        result = blockstack_client.renew(str(args.name), str(args.privatekey))
 
     elif args.action == 'renew_tx':
-        result = client.renew(str(args.name), str(args.privatekey),
-                              tx_only=True)
+        result = blockstack_client.renew(str(args.name), str(args.privatekey),
+                                          tx_only=True)
 
     elif args.action == 'renew_subsidized':
-        result = client.renew_subsidized(str(args.name), str(args.public_key),
-                                         str(args.subsidy_key))
+        result = blockstack_client.renew_subsidized(str(args.name), str(args.public_key),
+                                                    str(args.subsidy_key))
 
     elif args.action == 'revoke':
-        result = client.revoke(str(args.name), str(args.privatekey))
+        result = blockstack_client.revoke(str(args.name), str(args.privatekey))
 
     elif args.action == 'revoke_tx':
-        result = client.revoke(str(args.name), str(args.privatekey),
-                               tx_only=True)
+        result = blockstack_client.revoke(str(args.name), str(args.privatekey),
+                                          tx_only=True)
 
     elif args.action == 'revoke_subsidized':
-        result = client.revoke_subsidized(str(args.name), str(args.public_key),
-                                          str(args.subsidy_key))
+        result = blockstack_client.revoke_subsidized(str(args.name), str(args.public_key),
+                                                     str(args.subsidy_key))
 
     elif args.action == 'name_import':
-        result = client.name_import(str(args.name), str(args.address),
-                                    str(args.hash), str(args.privatekey))
+        result = blockstack_client.name_import(str(args.name), str(args.address),
+                                               str(args.hash), str(args.privatekey))
 
     elif args.action == 'namespace_preorder':
 
@@ -727,9 +693,9 @@ def run_cli():
         if args.address is not None:
             reveal_addr = str(args.address)
 
-        result = client.namespace_preorder(str(args.namespace_id),
-                                           str(args.privatekey),
-                                           reveal_addr=reveal_addr)
+        result = blockstack_client.namespace_preorder(str(args.namespace_id),
+                                                      str(args.privatekey),
+                                                      reveal_addr=reveal_addr)
 
     elif args.action == 'namespace_reveal':
         bucket_exponents = args.bucket_exponents.split(',')
@@ -748,73 +714,73 @@ def run_cli():
         if lifetime < 0:
             lifetime = 0xffffffff       # means "infinite" to blockstack-server
 
-        result = client.namespace_reveal(str(args.namespace_id),
-                                         str(args.addr),
-                                         lifetime,
-                                         int(args.coeff),
-                                         int(args.base),
-                                         bucket_exponents,
-                                         int(args.nonalpha_discount),
-                                         int(args.no_vowel_discount),
-                                         str(args.privatekey))
+        result = blockstack_client.namespace_reveal(str(args.namespace_id),
+                                                    str(args.addr),
+                                                    lifetime,
+                                                    int(args.coeff),
+                                                    int(args.base),
+                                                    bucket_exponents,
+                                                    int(args.nonalpha_discount),
+                                                    int(args.no_vowel_discount),
+                                                    str(args.privatekey))
 
     elif args.action == 'namespace_ready':
-        result = client.namespace_ready(str(args.namespace_id),
-                                        str(args.privatekey))
+        result = blockstack_client.namespace_ready(str(args.namespace_id),
+                                                   str(args.privatekey))
 
     elif args.action == 'put_mutable':
-        result = client.put_mutable(str(args.name),
-                                    str(args.data_id),
-                                    str(args.data)),
+        result = blockstack_client.put_mutable(str(args.name),
+                                               str(args.data_id),
+                                               str(args.data)),
 
     elif args.action == 'put_immutable':
-        result = client.put_immutable(str(args.name),
-                                      str(args.data_id),
-                                      str(args.data),
-                                      conf=conf)
+        result = blockstack_client.put_immutable(str(args.name),
+                                                 str(args.data_id),
+                                                 str(args.data),
+                                                 conf=conf)
 
     elif args.action == 'get_mutable':
-        result = client.get_mutable(str(args.name), str(args.data_id),
-                                    conf=conf)
+        result = blockstack_client.get_mutable(str(args.name), str(args.data_id),
+                                               conf=conf)
 
     elif args.action == 'get_immutable':
-        result = client.get_immutable(str(args.name), str(args.data_id_or_hash))
+        result = blockstack_client.get_immutable(str(args.name), str(args.data_id_or_hash))
 
     elif args.action == 'list_update_history':
-        result = client.list_update_history(str(args.name))
+        result = blockstack_client.list_update_history(str(args.name))
 
     elif args.action == 'list_zonefile_history':
-        result = client.list_zonefile_history(str(args.name))
+        result = blockstack_client.list_zonefile_history(str(args.name))
 
     elif args.action == 'list_immutable_data_history':
-        result = client.list_immutable_data_history(str(args.name), str(args.data_id))
+        result = blockstack_client.list_immutable_data_history(str(args.name), str(args.data_id))
 
     elif args.action == 'delete_immutable':
-        result = client.delete_immutable(str(args.name), str(args.hash),
-                                         str(args.privatekey))
+        result = blockstack_client.delete_immutable(str(args.name), str(args.hash),
+                                                    str(args.privatekey))
 
     elif args.action == 'delete_mutable':
-        result = client.delete_mutable(str(args.name), str(args.data_id),
-                                       str(args.privatekey))
+        result = blockstack_client.delete_mutable(str(args.name), str(args.data_id),
+                                                  str(args.privatekey))
 
     elif args.action == 'get_name_blockchain_record':
-        result = client.get_name_blockchain_record(str(args.name))
+        result = blockstack_client.get_name_blockchain_record(str(args.name))
 
     elif args.action == 'get_namespace_blockchain_record':
-        result = client.get_namespace_blockchain_record(str(args.namespace_id))
+        result = blockstack_client.get_namespace_blockchain_record(str(args.namespace_id))
 
     elif args.action == 'lookup_snv':
-        result = client.lookup_snv(str(args.name), int(args.block_id),
-                                   str(args.consensus_hash))
+        result = blockstack_client.lookup_snv(str(args.name), int(args.block_id),
+                                              str(args.consensus_hash))
 
     elif args.action == 'get_name_zonefile':
-        result = client.get_name_zonefile(str(args.name))
+        result = blockstack_client.get_name_zonefile(str(args.name))
 
     elif args.action == 'get_names_owned_by_address':
-        result = client.get_names_owned_by_address(str(args.address))
+        result = blockstack_client.get_names_owned_by_address(str(args.address))
 
     elif args.action == 'get_namespace_cost':
-        result = client.get_namespace_cost(str(args.namespace_id))
+        result = blockstack_client.get_namespace_cost(str(args.namespace_id))
 
     elif args.action == 'get_all_names':
         offset = None
@@ -826,7 +792,7 @@ def run_cli():
         if args.count is not None:
             count = int(args.count)
 
-        result = client.get_all_names(offset, count)
+        result = blockstack_client.get_all_names(offset, count)
 
     elif args.action == 'get_names_in_namespace':
         offset = None
@@ -838,11 +804,11 @@ def run_cli():
         if args.count is not None:
             count = int(args.count)
 
-        result = client.get_names_in_namespace(str(args.namespace_id), offset,
-                                               count)
+        result = blockstack_client.get_names_in_namespace(str(args.namespace_id), offset,
+                                                          count)
 
     elif args.action == 'get_nameops_at':
-        result = client.get_nameops_at(int(args.block_id))
+        result = blockstack_client.get_nameops_at(int(args.block_id))
 
     print_result(result)
 
