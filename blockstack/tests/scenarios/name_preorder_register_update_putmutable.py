@@ -24,6 +24,7 @@
 import testlib
 import pybitcoin
 import json
+import time
 import blockstack_client
 
 wallets = [
@@ -50,7 +51,6 @@ zonefile_hash = None
 def scenario( wallets, **kw ):
 
     global put_result, wallet_keys, datasets, zonefile_hash, dataset_change
-
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
