@@ -23,7 +23,7 @@
 
 import testlib
 import pybitcoin
-import blockstack_client as snv_client
+import blockstack_client 
 import json
 
 wallets = [
@@ -169,33 +169,33 @@ def check( state_engine ):
 
     # snv lookup works
     test_proxy = testlib.TestAPIProxy()
-    snv_client.client.set_default_proxy( test_proxy )
+    blockstack_client.set_default_proxy( test_proxy )
 
-    snv_rec = snv_client.client.snv_lookup( "foo.test", snv_block_id_foo, last_consensus, proxy=test_proxy ) 
+    snv_rec = blockstack_client.snv_lookup( "foo.test", snv_block_id_foo, last_consensus, proxy=test_proxy ) 
     if 'error' in snv_rec:
         print json.dumps(snv_rec, indent=4 )
         return False
 
     # can use bar.test's serial number to verify foo.test
-    snv_rec_bar = snv_client.client.snv_lookup( "foo.test", snv_block_id_foo, snv_serial_number_bar, proxy=test_proxy )
+    snv_rec_bar = blockstack_client.snv_lookup( "foo.test", snv_block_id_foo, snv_serial_number_bar, proxy=test_proxy )
     if 'error' in snv_rec_bar:
         print json.dumps(snv_rec_bar, indent=4 )
         return False 
 
     # can use baz.test's serial number to verify foo.test 
-    snv_rec_baz = snv_client.client.snv_lookup( "foo.test", snv_block_id_foo, snv_serial_number_baz, proxy=test_proxy )
+    snv_rec_baz = blockstack_client.snv_lookup( "foo.test", snv_block_id_foo, snv_serial_number_baz, proxy=test_proxy )
     if 'error' in snv_rec_baz:
         print json.dumps( snv_rec_baz, indent=4 )
         return False 
 
     # can use bar.test's preorder txid to verify foo.test 
-    snv_rec_bar_tx = snv_client.client.snv_lookup( "foo.test", snv_block_id_foo, snv_txid_bar, proxy=test_proxy )
+    snv_rec_bar_tx = blockstack_client.snv_lookup( "foo.test", snv_block_id_foo, snv_txid_bar, proxy=test_proxy )
     if 'error' in snv_rec_bar_tx:
         print json.dumps( snv_rec_bar_tx, indent=4 )
         return False 
 
     # can use baz.test's preorder txid to verify foo.test 
-    snv_rec_baz_tx = snv_client.client.snv_lookup( "foo.test", snv_block_id_foo, snv_txid_baz, proxy=test_proxy )
+    snv_rec_baz_tx = blockstack_client.snv_lookup( "foo.test", snv_block_id_foo, snv_txid_baz, proxy=test_proxy )
     if 'error' in snv_rec_baz_tx:
         print json.dumps( snv_rec_baz_tx, indent=4 )
         return False 

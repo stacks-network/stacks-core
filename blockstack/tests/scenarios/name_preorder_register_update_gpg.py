@@ -26,7 +26,6 @@ import pybitcoin
 import urllib2
 import json
 import blockstack_client
-from blockstack_client import storage, user, client
 import blockstack_profiles
 import blockstack_gpg
 import time
@@ -77,9 +76,9 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     test_proxy = testlib.TestAPIProxy()
-    client.set_default_proxy( test_proxy )
-    wallet_keys = client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey )
-    wallet_keys_2 = client.make_wallet_keys( owner_privkey=wallets[6].privkey, data_privkey=wallets[7].privkey )
+    blockstack_client.set_default_proxy( test_proxy )
+    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey )
+    wallet_keys_2 = blockstack_client.make_wallet_keys( owner_privkey=wallets[6].privkey, data_privkey=wallets[7].privkey )
 
     # migrate profiles 
     res = blockstack_client.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )

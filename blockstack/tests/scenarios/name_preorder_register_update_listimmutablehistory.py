@@ -25,7 +25,6 @@ import testlib
 import pybitcoin
 import json
 import blockstack_client
-from blockstack_client import storage, user, client
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -125,13 +124,13 @@ def scenario( wallets, **kw ):
     data_history_3.append("missing zonefile")
     testlib.next_block( **kw )
 
-    rc = client.storage.put_immutable_data( legacy_txt, result['transaction_hash'], data_hash=legacy_hash )
+    rc = blockstack_client.storage.put_immutable_data( None, result['transaction_hash'], data_hash=legacy_hash, data_text=legacy_txt )
     assert rc is not None
 
     # put immutable data
     test_proxy = testlib.TestAPIProxy()
-    client.set_default_proxy( test_proxy )
-    wallet_keys = client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey )
+    blockstack_client.set_default_proxy( test_proxy )
+    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey )
     
     # migrate profile
     res = blockstack_client.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
@@ -142,8 +141,11 @@ def scenario( wallets, **kw ):
         return 
 
     testlib.next_block( **kw )
+    data_history_1.append("data not defined")
+    data_history_2.append("data not defined")
+    data_history_3.append("data not defined")
 
-    put_result = client.put_immutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
@@ -153,7 +155,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
-    put_result = client.put_immutable( "foo.test", "hello_world_2", datasets[1], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_2", datasets[1], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
@@ -163,7 +165,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
-    put_result = client.put_immutable( "foo.test", "hello_world_3", datasets[2], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_3", datasets[2], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
@@ -174,7 +176,7 @@ def scenario( wallets, **kw ):
 
     # overwrite
     datasets[0]['newdata'] = "asdf"
-    put_result = client.put_immutable( "foo.test", "hello_world_3", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_3", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True )
 
@@ -225,11 +227,11 @@ def check( state_engine ):
 
     # have right data history
     test_proxy = testlib.TestAPIProxy()
-    client.set_default_proxy( test_proxy )
+    blockstack_client.set_default_proxy( test_proxy )
 
     hist = [data_history_1, data_history_2, data_history_3]
     for i in xrange(0, len(hist)):
-        test_hist = client.list_immutable_data_history( "foo.test", "hello_world_%s" % (i+1))
+        test_hist = blockstack_client.list_immutable_data_history( "foo.test", "hello_world_%s" % (i+1))
         if test_hist != hist[i]:
             print "hello_world_%s expected: %s" % (i+1, ",".join(hist[i]))
             print "hello_world_%s got:      %s" % (i+1, ",".join(test_hist))

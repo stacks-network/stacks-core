@@ -26,7 +26,7 @@ import pybitcoin
 import json
 import sys
 import blockstack.blockstackd as blockstackd
-import blockstack_client as snv_client
+import blockstack_client
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -122,7 +122,7 @@ def check( state_engine ):
     prev_name_rec = None
     
     test_proxy = testlib.TestAPIProxy()
-    snv_client.client.set_default_proxy( test_proxy )
+    blockstack_client.set_default_proxy( test_proxy )
 
     # each name will be registered 
     for name, wallet in [('foo.test', wallets[3]), \
@@ -149,7 +149,7 @@ def check( state_engine ):
         prev_name_rec = name_rec
 
         # snv lookup works
-        snv_rec = snv_client.client.snv_lookup( name, snv_block_id, last_consensus, proxy=test_proxy )
+        snv_rec = blockstack_client.snv_lookup( name, snv_block_id, last_consensus, proxy=test_proxy )
         if 'error' in snv_rec:
             print json.dumps(snv_rec, indent=4 )
             return False

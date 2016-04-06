@@ -24,7 +24,7 @@
 import testlib
 import pybitcoin
 import json
-from blockstack_client import storage, user, client
+import blockstack_client
 import blockstack_profiles
 
 wallets = [
@@ -107,9 +107,9 @@ def check( state_engine ):
         return False 
 
     test_proxy = testlib.TestAPIProxy()
-    client.set_default_proxy( test_proxy )
+    blockstack_client.set_default_proxy( test_proxy )
 
-    update_history = client.list_update_history( name )
+    update_history = blockstack_client.list_update_history( name )
     if update_history != update_hashes:
         print "update history: %s" % ",".join(update_history)
         print "update hashes:  %s" % ",".join(update_hashes)

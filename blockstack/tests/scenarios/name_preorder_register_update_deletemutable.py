@@ -25,7 +25,6 @@ import testlib
 import pybitcoin
 import json
 import blockstack_client
-from blockstack_client import storage, user, client
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -69,8 +68,8 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     test_proxy = testlib.TestAPIProxy()
-    client.set_default_proxy( test_proxy )
-    wallet_keys = client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey )
+    blockstack_client.set_default_proxy( test_proxy )
+    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey )
 
     # migrate profile
     res = blockstack_client.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
@@ -84,17 +83,17 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
-    put_result = client.put_mutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = blockstack_client.put_mutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
     testlib.next_block( **kw )
 
-    put_result = client.put_mutable( "foo.test", "hello_world_2", datasets[1], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = blockstack_client.put_mutable( "foo.test", "hello_world_2", datasets[1], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
-    put_result = client.put_mutable( "foo.test", "hello_world_3", datasets[2], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = blockstack_client.put_mutable( "foo.test", "hello_world_3", datasets[2], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
@@ -104,13 +103,13 @@ def scenario( wallets, **kw ):
         datasets[0]["dataset_change"] = dataset_change
         datasets[0]['buf'].append(i)
 
-        put_result = client.put_mutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
+        put_result = blockstack_client.put_mutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
         if 'error' in put_result:
             print json.dumps(put_result, indent=4, sort_keys=True )
 
     # now delete everything 
     for i in xrange(0, len(datasets)):
-        delete_result = client.delete_mutable( "foo.test", "hello_world_%s" % (i+1), wallet_keys=wallet_keys)
+        delete_result = blockstack_client.delete_mutable( "foo.test", "hello_world_%s" % (i+1), wallet_keys=wallet_keys)
         if 'error' in delete_result:
             print json.dumps(delete_result, indent=4, sort_keys=True)
 
@@ -160,11 +159,11 @@ def check( state_engine ):
 
     # have no data
     test_proxy = testlib.TestAPIProxy()
-    client.set_default_proxy( test_proxy )
+    blockstack_client.set_default_proxy( test_proxy )
 
     for i in xrange(0, len(datasets)):
         print "get hello_world_%s" % (i+1)
-        dat = client.get_mutable( "foo.test", "hello_world_%s" % (i+1) )
+        dat = blockstack_client.get_mutable( "foo.test", "hello_world_%s" % (i+1) )
         if dat is not None and 'error' not in dat:
             print "still have '%s'\n%s" % ("hello_world_%s" % (i+1), json.dumps(dat,indent=4,sort_keys=True))
             return False

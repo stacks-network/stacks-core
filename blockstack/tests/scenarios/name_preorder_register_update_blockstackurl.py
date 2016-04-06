@@ -26,7 +26,6 @@ import pybitcoin
 import urllib2
 import json
 import blockstack_client
-from blockstack_client import storage, user, client
 import blockstack_profiles
 
 wallets = [
@@ -113,9 +112,9 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     test_proxy = testlib.TestAPIProxy()
-    client.set_default_proxy( test_proxy )
-    wallet_keys = client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey )
-    wallet_keys_2 = client.make_wallet_keys( owner_privkey=wallets[6].privkey, data_privkey=wallets[7].privkey )
+    blockstack_client.set_default_proxy( test_proxy )
+    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey )
+    wallet_keys_2 = blockstack_client.make_wallet_keys( owner_privkey=wallets[6].privkey, data_privkey=wallets[7].privkey )
 
     # set up legacy profile hash
     legacy_txt = json.dumps(legacy_profile,sort_keys=True)
@@ -125,10 +124,10 @@ def scenario( wallets, **kw ):
     result_2 = testlib.blockstack_name_update( "bar.test", legacy_hash, wallets[6].privkey )
     testlib.next_block( **kw )
 
-    rc = client.storage.put_immutable_data( None, result_1['transaction_hash'], data_hash=legacy_hash, data_text=legacy_txt )
+    rc = blockstack_client.storage.put_immutable_data( None, result_1['transaction_hash'], data_hash=legacy_hash, data_text=legacy_txt )
     assert rc is not None
 
-    rc = client.storage.put_immutable_data( None, result_2['transaction_hash'], data_hash=legacy_hash, data_text=legacy_txt )
+    rc = blockstack_client.storage.put_immutable_data( None, result_2['transaction_hash'], data_hash=legacy_hash, data_text=legacy_txt )
     assert rc is not None
 
     testlib.next_block( **kw )
@@ -155,7 +154,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
-    put_result = client.put_immutable( "foo.test", "hello_world_immutable", {"hello": "world"}, proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_immutable", {"hello": "world"}, proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True )
 
@@ -163,7 +162,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # see that put_mutable migrates 
-    put_result = client.put_mutable( "bar.test", "hello_world_mutable", {"hello": "world"}, proxy=test_proxy, wallet_keys=wallet_keys_2 )
+    put_result = blockstack_client.put_mutable( "bar.test", "hello_world_mutable", {"hello": "world"}, proxy=test_proxy, wallet_keys=wallet_keys_2 )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True )
     
@@ -229,7 +228,7 @@ def check( state_engine ):
             return False 
 
         # zonefile is NOT legacy 
-        user_zonefile = client.load_name_zonefile( zonefile_hash )
+        user_zonefile = blockstack_client.profile.load_name_zonefile( zonefile_hash )
         if 'error' in user_zonefile:
             print json.dumps(user_zonefile, indent=4, sort_keys=True)
             return False 
@@ -240,7 +239,7 @@ def check( state_engine ):
             return False
 
         # still have all the right info 
-        user_profile = client.load_name_profile( name, user_zonefile, wallets[wallet_data_pubkey].pubkey_hex )
+        user_profile = blockstack_client.profile.load_name_profile( name, user_zonefile, wallets[wallet_data_pubkey].pubkey_hex )
         if 'error' in user_profile:
             print json.dumps(user_profile, indent=4, sort_keys=True)
             return False

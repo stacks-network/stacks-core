@@ -158,8 +158,8 @@ def make_proxy():
     Create a blockstack client API proxy
     """
     global utxo_opts
-    proxy = blockstack_client.client.session( server_host="localhost", server_port=16264, storage_drivers="disk", \
-                                              metadata_dir=None, spv_headers_path=utxo_opts['spv_headers_path'] )
+    proxy = blockstack_client.session( server_host="localhost", server_port=16264, storage_drivers="disk", \
+                                       metadata_dir=None, spv_headers_path=utxo_opts['spv_headers_path'] )
 
     return proxy
 
@@ -169,7 +169,7 @@ def blockstack_name_preorder( name, privatekey, register_addr, tx_only=False, su
     global api_call_history 
 
     test_proxy = make_proxy()
-    blockstack_client.client.set_default_proxy( test_proxy )
+    blockstack_client.set_default_proxy( test_proxy )
 
     if tx_only:
         resp = test_proxy.preorder_tx( name, privatekey, register_addr )
@@ -185,7 +185,7 @@ def blockstack_name_preorder( name, privatekey, register_addr, tx_only=False, su
 def blockstack_name_preorder_multi( names, privatekey, register_addrs, tx_only=False, subsidy_key=None, testset=False, consensus_hash=None ):
     
     test_proxy = make_proxy()
-    blockstack_client.client.set_default_proxy( test_proxy )
+    blockstack_client.set_default_proxy( test_proxy )
     
     if tx_only:
         resp = test_proxy.preorder_multi_tx( names, privatekey, register_addrs )
@@ -201,7 +201,7 @@ def blockstack_name_preorder_multi( names, privatekey, register_addrs, tx_only=F
 def blockstack_name_register( name, privatekey, register_addr, renewal_fee=None, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
     
     test_proxy = make_proxy()
-    blockstack_client.client.set_default_proxy( test_proxy )
+    blockstack_client.set_default_proxy( test_proxy )
 
     if tx_only:
         resp = test_proxy.register_tx( name, privatekey, register_addr )
@@ -217,7 +217,7 @@ def blockstack_name_register( name, privatekey, register_addr, renewal_fee=None,
 def blockstack_name_update( name, data_hash, privatekey, user_public_key=None, tx_only=False, subsidy_key=None, testset=False, consensus_hash=None, test_api_proxy=True ):
     
     test_proxy = make_proxy()
-    blockstack_client.client.set_default_proxy( test_proxy )
+    blockstack_client.set_default_proxy( test_proxy )
 
     if not test_api_proxy:
         resp = blockstackd.blockstack_name_update( name, data_hash, privatekey, tx_only=tx_only, subsidy_key=subsidy_key, user_public_key=user_public_key, testset=testset, consensus_hash=consensus_hash )
@@ -237,7 +237,7 @@ def blockstack_name_update( name, data_hash, privatekey, user_public_key=None, t
 def blockstack_name_transfer( name, address, keepdata, privatekey, tx_only=False, user_public_key=None, subsidy_key=None, testset=False, consensus_hash=None ):
      
     test_proxy = make_proxy()
-    blockstack_client.client.set_default_proxy( test_proxy )
+    blockstack_client.set_default_proxy( test_proxy )
 
     if tx_only:
         resp = test_proxy.transfer_tx( name, address, keepdata, privatekey )
@@ -253,7 +253,7 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, tx_only=False
 def blockstack_name_renew( name, privatekey, register_addr=None, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
     
     test_proxy = make_proxy()
-    blockstack_client.client.set_default_proxy( test_proxy )
+    blockstack_client.set_default_proxy( test_proxy )
 
     if tx_only:
         resp = test_proxy.renew_tx( name, privatekey )
@@ -269,7 +269,7 @@ def blockstack_name_renew( name, privatekey, register_addr=None, tx_only=False, 
 def blockstack_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
     
     test_proxy = make_proxy()
-    blockstack_client.client.set_default_proxy( test_proxy )
+    blockstack_client.set_default_proxy( test_proxy )
 
     if tx_only:
         resp = test_proxy.revoke_tx( name, privatekey )
@@ -285,7 +285,7 @@ def blockstack_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, u
 def blockstack_name_import( name, recipient_address, update_hash, privatekey, tx_only=False, testset=False, consensus_hash=None ):
     
     test_proxy = make_proxy()
-    blockstack_client.client.set_default_proxy( test_proxy )
+    blockstack_client.set_default_proxy( test_proxy )
 
     if tx_only:
         resp = test_proxy.name_import_tx( name, recipient_address, update_hash, privatekey )
@@ -299,7 +299,7 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, tx
 def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, tx_only=False, testset=False, consensus_hash=None ):
     
     test_proxy = make_proxy()
-    blockstack_client.client.set_default_proxy( test_proxy )
+    blockstack_client.set_default_proxy( test_proxy )
 
     if tx_only:
         resp = test_proxy.namespace_preorder_tx( namespace_id, register_addr, privatekey )
@@ -313,7 +313,7 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, tx_o
 def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, tx_only=False, testset=False, consensus_hash=None ):
     
     test_proxy = make_proxy()
-    blockstack_client.client.set_default_proxy( test_proxy )
+    blockstack_client.set_default_proxy( test_proxy )
 
     if tx_only:
         resp = test_proxy.namespace_reveal_tx( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey )
@@ -327,7 +327,7 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
 def blockstack_namespace_ready( namespace_id, privatekey, tx_only=False, testset=False, consensus_hash=None ):
     
     test_proxy = make_proxy()
-    blockstack_client.client.set_default_proxy( test_proxy )
+    blockstack_client.set_default_proxy( test_proxy )
 
     if tx_only:
         resp = test_proxy.namespace_ready_tx( namespace_id, privatekey )
@@ -341,7 +341,7 @@ def blockstack_namespace_ready( namespace_id, privatekey, tx_only=False, testset
 def blockstack_announce( message, privatekey, tx_only=False, user_public_key=None, subsidy_key=None, testset=False ):
     
     test_proxy = make_proxy()
-    blockstack_client.client.set_default_proxy( test_proxy )
+    blockstack_client.set_default_proxy( test_proxy )
 
     if tx_only:
         resp = test_proxy.announce_tx( message, privatekey )
@@ -517,7 +517,7 @@ def snv_all_names( state_engine ):
     global snv_fail_at
 
     test_proxy = TestAPIProxy()
-    blockstack_client.client.set_default_proxy( test_proxy )
+    blockstack_client.set_default_proxy( test_proxy )
 
     all_names = {}  # map name to {"block_id":..., "consensus_hash":...}
 
@@ -569,7 +569,7 @@ def snv_all_names( state_engine ):
                 trusted_block_id = i
                 trusted_consensus_hash = all_consensus_hashes[i]
 
-                snv_rec = blockstack_client.client.snv_lookup( name, block_id, trusted_consensus_hash, proxy=test_proxy )
+                snv_rec = blockstack_client.snv_lookup( name, block_id, trusted_consensus_hash, proxy=test_proxy )
                 if 'error' in snv_rec:
                     if name in snv_fail:
                         log.debug("SNV lookup %s failed as expected" % name)

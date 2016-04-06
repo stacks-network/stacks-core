@@ -27,7 +27,7 @@ import json
 import shutil
 import tempfile
 import os
-import blockstack_client as snv_client
+import blockstack_client
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -152,15 +152,15 @@ def check( state_engine ):
     # snv lookup works
     # NOTE: cannot use serial numbers here, since a NAME_IMPORT does not contain a consensus hash.
     test_proxy = testlib.TestAPIProxy()
-    snv_client.client.set_default_proxy( test_proxy )
+    blockstack_client.set_default_proxy( test_proxy )
 
-    snv_rec = snv_client.client.snv_lookup( "foo.test", snv_block_id_foo, last_consensus, proxy=test_proxy ) 
+    snv_rec = blockstack_client.snv_lookup( "foo.test", snv_block_id_foo, last_consensus, proxy=test_proxy ) 
     if 'error' in snv_rec:
         print json.dumps(snv_rec, indent=4 )
         return False
 
     # can use bar.test's NAME_TRANSFER txid to verify foo.test, since it has a consensus hash 
-    snv_rec_bar_tx = snv_client.client.snv_lookup( "foo.test", snv_block_id_foo, snv_txid_bar, proxy=test_proxy )
+    snv_rec_bar_tx = blockstack_client.snv_lookup( "foo.test", snv_block_id_foo, snv_txid_bar, proxy=test_proxy )
     if 'error' in snv_rec_bar_tx:
         print json.dumps( snv_rec_bar_tx, indent=4 )
         return False 
