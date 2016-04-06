@@ -51,7 +51,7 @@ except:
     # storage API won't work
     blockstack_client = None
 
-log = virtualchain.get_logger()
+log = virtualchain.get_logger("blockstack-server")
 from ConfigParser import SafeConfigParser
 
 import pybitcoin

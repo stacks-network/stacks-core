@@ -46,7 +46,7 @@ import pybitcoin
 
 import virtualchain
 
-log = virtualchain.get_logger()
+log = virtualchain.get_logger("testlib")
 
 class Wallet(object):
     def __init__(self, pk_wif, value_str ):

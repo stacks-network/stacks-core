@@ -31,7 +31,7 @@ import blockstack.blockstackd as blockstackd
 
 import scenarios.testlib as testlib
 
-log = virtualchain.get_logger()
+log = virtualchain.get_logger("run_scenario")
 
 mock_bitcoind_connection = None
 api_server = None

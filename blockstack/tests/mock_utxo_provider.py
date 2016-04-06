@@ -40,7 +40,7 @@ Mock UTXO provider.
 """
 
 mock_utxo_client = None
-log = virtualchain.get_logger()
+log = virtualchain.get_logger("mock_utxo_provider")
 
 class MockUTXOProvider(object):
 
