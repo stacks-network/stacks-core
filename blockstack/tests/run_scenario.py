@@ -34,15 +34,6 @@ import scenarios.testlib as testlib
 log = virtualchain.get_logger("run_scenario")
 
 mock_bitcoind_connection = None
-api_server = None
-
-def atexit_kill_api_server():
-    if api_server is not None:
-        try:
-            api_server.kill()
-            api_server.wait()
-        except:
-            pass
 
 def load_scenario( scenario_name ):
     """
@@ -115,6 +106,21 @@ def write_config_file( scenario, path ):
     return 0
 
 
+def network_start():
+    """
+    Start RPC services
+    """
+    blockstackd.rpc_start()
+    blockstackd.dht_start()
+
+def network_stop():
+    """
+    Stop RPC services
+    """
+    blockstackd.rpc_stop()
+    blockstackd.dht_stop()
+
+
 def run_scenario( scenario, config_file ):
     """
     Run a test scenario:
@@ -125,9 +131,6 @@ def run_scenario( scenario, config_file ):
     * run the scenario method
     * run the check method
     """
-
-    global api_server
-    atexit.register( atexit_kill_api_server )
 
     mock_bitcoind_save_path = "/tmp/mock_bitcoind.dat"
     if os.path.exists( mock_bitcoind_save_path ):
@@ -188,16 +191,14 @@ def run_scenario( scenario, config_file ):
 
     blockstackd.set_bitcoin_opts( bitcoin_opts )
     blockstackd.set_utxo_opts( utxo_opts )
-
-    # start API server 
-    api_server = blockstackd.api_server_subprocess( foreground=True )
+    blockstackd.set_dht_opts( dht_opts )
 
     db = blockstackd.get_db_state()
     bitcoind = mock_bitcoind.connect_mock_bitcoind( utxo_opts )
     sync_virtualchain_upcall = lambda: virtualchain.sync_virtualchain( utxo_opts, bitcoind.getblockcount(), db )
     mock_utxo = blockstack.lib.connect_utxo_provider( utxo_opts )
     working_dir = virtualchain.get_working_dir()
- 
+
     # set up test environment
     testlib.set_utxo_opts( utxo_opts )
     testlib.set_utxo_client( mock_utxo )
@@ -210,6 +211,9 @@ def run_scenario( scenario, config_file ):
         "bitcoind": bitcoind,
         "bitcoind_save_path": mock_bitcoind_save_path
     }
+
+    # start taking RPC requests
+    network_start()
 
     # sync initial utxos 
     testlib.next_block( **test_env )
@@ -227,10 +231,7 @@ def run_scenario( scenario, config_file ):
         log.exception(e)
         traceback.print_exc()
         log.error("Failed to run scenario '%s'" % scenario.__name__)
-
-        api_server.send_signal( signal.SIGTERM )
-        api_server.wait()
-        api_server = None
+        network_stop()
         return False
 
     # run the checks on the database
@@ -240,16 +241,11 @@ def run_scenario( scenario, config_file ):
         log.exception(e)
         traceback.print_exc()
         log.error("Failed to run tests '%s'" % scenario.__name__)
-        
-        api_server.send_signal( signal.SIGTERM )
-        api_server.wait()
-        api_server = None
+        network_stop()
         return False 
     
     if not rc:
-        api_server.send_signal( signal.SIGTERM )
-        api_server.wait()
-        api_server = None
+        network_stop()
         return rc
 
     log.info("Scenario checks passed; verifying history")
@@ -257,9 +253,7 @@ def run_scenario( scenario, config_file ):
     # run database integrity check at each block 
     rc = testlib.check_history( db )
     if not rc:
-        api_server.send_signal( signal.SIGTERM )
-        api_server.wait()
-        api_server = None
+        network_stop()
         return rc
 
     log.info("History check passes!")
@@ -267,15 +261,11 @@ def run_scenario( scenario, config_file ):
     # run snv at each name 
     rc = testlib.snv_all_names( db )
     if not rc:
-        api_server.send_signal( signal.SIGTERM )
-        api_server.wait()
-        api_server = None
+        network_stop()
         return rc
 
     log.info("SNV check passes!")
-    api_server.send_signal( signal.SIGTERM )
-    api_server.wait()
-    api_server = None
+    network_stop()
     return rc 
 
 
