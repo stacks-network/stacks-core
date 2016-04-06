@@ -40,7 +40,6 @@ import urllib
 
 from proxy import *
 from spv import SPVClient
-import drivers
 import storage
 
 import pybitcoin
@@ -92,7 +91,7 @@ def session(conf=None, server_host=BLOCKSTACKD_SERVER, server_port=BLOCKSTACKD_P
         metadata_dir = conf['metadata']
 
     if storage_drivers is None:
-        log.error("No storage driver(s) defined in the config file.  Please set 'storage=' to a comma-separated list of %s" % ", ".join(drivers.DRIVERS))
+        log.error("No storage driver(s) defined in the config file.  Please set 'storage=' to a comma-separated list of drivers")
         sys.exit(1)
 
     # create proxy
@@ -124,16 +123,12 @@ def session(conf=None, server_host=BLOCKSTACKD_SERVER, server_port=BLOCKSTACKD_P
 def load_storage(module_name):
     """
     Load a storage implementation, given its module name.
-    Valid options can be found in blockstack.drivers.DRIVERS
     """
 
-    if module_name not in drivers.DRIVERS:
-        raise Exception("Unrecognized storage driver.  Valid options are %s" % (", ".join(drivers.DRIVERS)))
-
     try:
-        storage_impl = importlib.import_module("blockstack_client.drivers.%s" % module_name)
+        storage_impl = importlib.import_module("blockstack_storage_drivers.%s" % module_name)
     except ImportError, ie:
-        raise Exception("Failed to import blockstack.drivers.%s.  Please verify that it is accessible via your PYTHONPATH" % module_name)
+        raise Exception("Failed to import blockstack_storage_drivers.%s.  Please verify that it is installed and is accessible via your PYTHONPATH" % module_name)
 
     return storage_impl
 
