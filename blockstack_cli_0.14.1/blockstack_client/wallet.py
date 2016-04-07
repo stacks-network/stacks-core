@@ -58,7 +58,7 @@ from registrar.utils import satoshis_to_btc
 from registrar.blockchain import recipientNotReady, get_tx_confirmations
 
 import config
-from config import WALLET_PATH
+from config import WALLET_PATH, WALLET_PASSWORD_LENGTH
 
 from utils import exit_with_error
 
