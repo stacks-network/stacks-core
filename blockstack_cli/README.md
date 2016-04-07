@@ -6,7 +6,7 @@
 [![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 
 This package contains the CLI (command line interface) and reference client library for
-[blockstack-server](https://github.com/blockstack/blockstack-server). It talks to the
+[Blockstack Server](https://github.com/blockstack/blockstack-server). It talks to the
 Blockstack server and provides an interface for creating and managing names in decentralized namespaces and database tables on the blockchain.
 
 ## Installation
