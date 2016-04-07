@@ -31,6 +31,7 @@ import proxy
 import user
 import snv
 import spv 
+import rpc
 import storage
 
 from proxy import BlockstackRPCClient, get_default_proxy, set_default_proxy, json_traceback
@@ -46,10 +47,10 @@ from keys import make_wallet_keys, get_owner_keypair, get_data_keypair
 from client import session, get_default_proxy, set_default_proxy, register_storage, load_storage 
 from snv import snv_lookup, lookup_snv
 from data import get_immutable, get_immutable_by_name, get_mutable, put_immutable, put_mutable, delete_immutable, \
-        delete_mutable, list_mutable_data, list_immutable_data, list_immutable_data_history, list_update_history
+        delete_mutable, list_mutable_data, list_immutable_data, list_immutable_data_history, list_update_history, list_zonefile_history
 from data import blockstack_url_fetch as fetch_data
 from data import data_get, data_put, data_delete
-from profile import migrate_profile
+from profile import migrate_profile, get_name_profile, get_name_zonefile 
 from accounts import list_accounts, get_account, put_account, delete_account
 
 from config import get_logger, get_config
