@@ -67,6 +67,47 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
 
+from blockstack_client import \
+    delete_immutable, \
+    delete_mutable, \
+    get_all_names, \
+    get_consensus_at, \
+    get_immutable, \
+    get_mutable, \
+    get_name_blockchain_record, \
+    get_name_cost, \
+    get_name_profile, \
+    get_name_zonefile, \
+    get_nameops_at, \
+    get_names_in_namespace, \
+    get_names_owned_by_address, \
+    get_namespace_blockchain_record, \
+    get_namespace_cost, \
+    list_immutable_data_history, \
+    list_update_history, \
+    list_zonefile_history, \
+    lookup_snv, \
+    name_import, \
+    namespace_preorder, \
+    namespace_ready, \
+    namespace_reveal, \
+    preorder, \
+    preorder_subsidized, \
+    put_immutable, \
+    put_mutable, \
+    register, \
+    register_subsidized, \
+    renew, \
+    renew_subsidized, \
+    revoke, \
+    revoke_subsidized, \
+    transfer, \
+    transfer_subsidized, \
+    update, \
+    update_subsidized
+
+from blockstack_client import get_name_blockchain_record
+from blockstack_client import rpc as rpc_api
 from blockstack_client import config
 from blockstack_client.storage import is_valid_name, is_b40
 from blockstack_client.config import WALLET_PATH, WALLET_PASSWORD_LENGTH
@@ -180,7 +221,7 @@ def cli_price( args, config_path=None ):
         return {'error': error}
 
     try:
-        resp = blockstack_client.get_name_cost(fqu)
+        resp = get_name_cost(fqu)
     except socket_error:
         return {'error': 'Error connecting to server'}
 
@@ -291,7 +332,7 @@ def get_server_info( args, config_path = None ):
     Get information about the running server.
     """
 
-    resp = blockstack_client.getinfo()
+    resp = getinfo()
 
     result = {}
 
@@ -431,7 +472,7 @@ def cli_lookup( args, config_path=None ):
     check_valid_name(fqu)
 
     try:
-        blockchain_record = blockstack_client.get_name_blockchain_record(fqu)
+        blockchain_record = get_name_blockchain_record(fqu)
     except socket_error:
         return {'error': 'Error connecting to server.'}
 
@@ -439,7 +480,7 @@ def cli_lookup( args, config_path=None ):
         return {'error': '%s is not registered' % fqu}
 
     try:
-        user_profile, user_zonefile = blockstack_client.get_name_profile(str(args.name))
+        user_profile, user_zonefile = get_name_profile(str(args.name))
         data['profile'] = user_profile
         data['zonefile'] = user_zonefile
     except:
@@ -464,7 +505,7 @@ def cli_whois( args, config_path=None ):
     check_valid_name(fqu)
 
     try:
-        record = blockstack_client.get_name_blockchain_record(fqu)
+        record = get_name_blockchain_record(fqu)
     except socket_error:
         exit_with_error("Error connecting to server.")
 
@@ -494,7 +535,7 @@ def cli_register( args, config_path=None, interactive=True ):
     result = {}
     fqu = str(args.name)
     check_valid_name(fqu)
-    cost = blockstack_client.get_name_cost(fqu)
+    cost = get_name_cost(fqu)
 
     if 'error' in cost:
         return cost
@@ -666,7 +707,7 @@ def cli_advanced_consensus( args, config_path=None ):
     result = {}
     if args.block_height is None:
         # by default get last indexed block
-        resp = blockstack_client.getinfo()
+        resp = getinfo()
 
         if 'error' in resp:
             return resp
@@ -674,20 +715,62 @@ def cli_advanced_consensus( args, config_path=None ):
         elif 'last_block' in resp or 'blocks' in resp:
 
             if 'last_block' in resp:
-                args.block_height = blockstack_client.getinfo()['last_block']
+                args.block_height = getinfo()['last_block']
             elif 'blocks' in resp:
-                args.block_height = blockstack_client.getinfo()['blocks']
+                args.block_height = getinfo()['blocks']
             else:
                 result['error'] = "Server is indexing. Try again"
                 return result
 
-    resp = blockstack_client.get_consensus_at(int(args.block_height))
+    resp = get_consensus_at(int(args.block_height))
 
     data = {}
     data['consensus'] = resp
     data['block_height'] = args.block_height
 
     result = data
+    return result
+
+
+def cli_advanced_rpcctl( args, config_path=None ):
+    """
+    command: rpcctl
+    help: Control the background blockstack API endpoint
+    arg: command (str) "'start', 'stop', 'restart', or 'status'"
+    """
+
+    config_dir = config.CONFIG_DIR
+    if config_path is not None:
+        config_dir = os.path.dirname(config_path)
+
+    rc = rpc_api.local_rpc_action( str(args.command), config_dir=config_dir )
+    if rc != 0:
+        return {'error': 'RPC controller exit code %s' % rc}
+    else:
+        return {'status': True}
+
+
+def cli_advanced_rpc( args, config_path=None ):
+    """
+    command: rpc
+    help: Issue an RPC request to a locally-running API endpoint
+    arg: method (str) "The method to call"
+    opt: args (str) "A JSON list of positional arguments."
+    opt: kwargs (str) "A JSON object of keyword arguments."
+    """
+    
+    rpc_args = []
+    rpc_kw = {}
+
+    if args.args is not None:
+        rpc_args = json.loads(args.args)
+
+    if args.kwargs is not None:
+        rpc_kw = json.loads(args.kwargs)
+
+    conf = config.get_config( path=config_path )
+    portnum = conf['api_endpoint_port']
+    result = rpc_api.local_rpc_dispatch( portnum, str(args.method), *rpc_args, **rpc_kw ) 
     return result
 
 
@@ -700,8 +783,8 @@ def cli_advanced_register_tx( args, config_path=None ):
     arg: addr (str) "The address to receive the name"
     """
 
-    result = blockstack_client.register(str(args.name), str(args.privatekey),
-                                        str(args.addr), tx_only=True)
+    result = register(str(args.name), str(args.privatekey),
+                      str(args.addr), tx_only=True)
     return result
 
 
@@ -714,8 +797,8 @@ def cli_advanced_register_subsidized( args, config_path=None ):
     arg: addr (str) "The address to receive the name"
     arg: subsidy_key (str) "The private key to pay for the tx fees"
     """
-    result = blockstack_client.register_subsidized(str(args.name), str(args.privatekey),
-                                                   str(args.addr), str(args.subsidy_key))
+    result = register_subsidized(str(args.name), str(args.privatekey),
+                                 str(args.addr), str(args.subsidy_key))
 
     return result
 
@@ -734,10 +817,10 @@ def cli_advanced_update_tx( args, config_path=None ):
     if args.txid is not None:
         txid = str(args.txid)
 
-    result = blockstack_client.update(str(args.name),
-                                      str(args.data),
-                                      str(args.privatekey),
-                                      txid=txid, tx_only=True)
+    result = update(str(args.name),
+                    str(args.data),
+                    str(args.privatekey),
+                    txid=txid, tx_only=True)
 
     return result
 
@@ -757,11 +840,11 @@ def cli_advanced_update_subsidized( args, config_path=None ):
     if args.txid is not None:
         txid = str(args.txid)
 
-    result = blockstack_client.update_subsidized(str(args.name),
-                                                 str(args.data),
-                                                 str(args.public_key),
-                                                 str(args.subsidy_key),
-                                                 txid=txid)
+    result = update_subsidized(str(args.name),
+                               str(args.data),
+                               str(args.public_key),
+                               str(args.subsidy_key),
+                               txid=txid)
 
     return result
 
@@ -779,8 +862,8 @@ def cli_advanced_preorder( args, config_path=None ):
     if args.address is not None:
         register_addr = str(args.address)
 
-    result = blockstack_client.preorder(str(args.name), str(args.privatekey),
-                                        register_addr=register_addr)
+    result = preorder(str(args.name), str(args.privatekey),
+                      register_addr=register_addr)
 
     return result
 
@@ -798,8 +881,8 @@ def cli_advanced_preorder_tx( args, config_path=None ):
     if args.address is not None:
         register_addr = str(args.address)
 
-    result = blockstack_client.preorder(str(args.name), str(args.privatekey),
-                                        register_addr=register_addr, tx_only=True)
+    result = preorder(str(args.name), str(args.privatekey),
+                      register_addr=register_addr, tx_only=True)
 
     return result
 
@@ -813,10 +896,10 @@ def cli_advanced_preorder_subsidized( args, config_path=None ):
     arg: address (str) "The address of the name recipient"
     arg: subsidy_key (str) "The private key that will pay for the preorder"
     """
-    result = blockstack_client.preorder_subsidized(str(args.name),
-                                                   str(args.public_key),
-                                                   str(args.address),
-                                                   str(args.subsidy_key))
+    result = preorder_subsidized(str(args.name),
+                                 str(args.public_key),
+                                 str(args.address),
+                                 str(args.subsidy_key))
 
     return result
 
@@ -837,11 +920,11 @@ def cli_advanced_transfer_tx( args, config_path=None ):
     if args.keepdata.lower() == 'true':
         keepdata = True
 
-    result = blockstack_client.transfer( str(args.name),
-                                         str(args.address),
-                                         keepdata,
-                                         str(args.privatekey),
-                                         tx_only=True )
+    result = transfer( str(args.name),
+                       str(args.address),
+                       keepdata,
+                       str(args.privatekey),
+                       tx_only=True )
 
     return result
 
@@ -865,11 +948,11 @@ def cli_advanced_transfer_subsidized( args, config_path=None ):
     if args.keepdata.lower() == "true":
         keepdata = True
 
-    result = blockstack_client.transfer_subsidized(str(args.name),
-                                                   str(args.address),
-                                                   keepdata,
-                                                   str(args.public_key),
-                                                   str(args.subsidy_key))
+    result = transfer_subsidized(str(args.name),
+                                 str(args.address),
+                                 keepdata,
+                                 str(args.public_key),
+                                 str(args.subsidy_key))
 
     return result
 
@@ -881,7 +964,7 @@ def cli_advanced_renew( args, config_path=None ):
     arg: name (str) "The name to renew"
     arg: privatekey (str) "The private key of the name owner"
     """
-    result = blockstack_client.renew(str(args.name), str(args.privatekey))
+    result = renew(str(args.name), str(args.privatekey))
     return result
 
 
@@ -892,8 +975,8 @@ def cli_advanced_renew_tx( args, config_path=None ):
     arg: name (str) "The name to renew"
     arg: privatekey (str) "The private key of the name owner"
     """
-    result = blockstack_client.renew(str(args.name), str(args.privatekey),
-                                      tx_only=True)
+    result = renew(str(args.name), str(args.privatekey),
+                   tx_only=True)
 
     return result
 
@@ -906,8 +989,8 @@ def cli_advanced_renew_subsidized( args, config_path=None ):
     arg: public_key (str) "The public key of the name owner"
     arg: subsidy_key (str) "The private key that will pay for the renewal"
     """
-    result = blockstack_client.renew_subsidized(str(args.name), str(args.public_key),
-                                                str(args.subsidy_key))
+    result = renew_subsidized(str(args.name), str(args.public_key),
+                              str(args.subsidy_key))
 
     return result
 
@@ -919,7 +1002,7 @@ def cli_advanced_revoke( args, config_path=None ):
     arg: name (str) "The name to revoke"
     arg: privatekey (str) "The private key of the name owner"
     """
-    result = blockstack_client.revoke(str(args.name), str(args.privatekey))
+    result = revoke(str(args.name), str(args.privatekey))
     return result
 
 
@@ -930,8 +1013,8 @@ def cli_advanced_revoke_tx( args, config_path=None ):
     arg: name (str) "The name to revoke"
     arg: privatekey (str) "The private key of the name owner"
     """
-    result = blockstack_client.revoke(str(args.name), str(args.privatekey),
-                                       tx_only=True)
+    result = revoke(str(args.name), str(args.privatekey),
+                    tx_only=True)
 
     return result
 
@@ -944,8 +1027,8 @@ def cli_advanced_revoke_subsidized( args, config_path=None ):
     arg: public_key (str) "The public key of the name owner"
     arg: subsidy_key (str) "The private key that will pay for the revoke"
     """
-    result = blockstack_client.revoke_subsidized(str(args.name), str(args.public_key),
-                                                 str(args.subsidy_key))
+    result = revoke_subsidized(str(args.name), str(args.public_key),
+                               str(args.subsidy_key))
     return result
 
 
@@ -958,8 +1041,8 @@ def cli_advanced_name_import( args, config_path=None ):
     arg: hash (str) "The zonefile hash of the name"
     arg: privatekey (str) "One of the private keys of the namespace revealer"
     """
-    result = blockstack_client.name_import(str(args.name), str(args.address),
-                                           str(args.hash), str(args.privatekey))
+    result = name_import(str(args.name), str(args.address),
+                         str(args.hash), str(args.privatekey))
 
     return result
 
@@ -976,9 +1059,9 @@ def cli_advanced_namespace_preorder( args, config_path=None ):
     if args.address is not None:
         reveal_addr = str(args.address)
 
-    result = blockstack_client.namespace_preorder(str(args.namespace_id),
-                                                  str(args.privatekey),
-                                                  reveal_addr=reveal_addr)
+    result = namespace_preorder(str(args.namespace_id),
+                                str(args.privatekey),
+                                reveal_addr=reveal_addr)
 
     return result
 
@@ -1011,15 +1094,15 @@ def cli_advanced_namespace_reveal( args, config_path=None ):
     if lifetime < 0:
         lifetime = 0xffffffff       # means "infinite" to blockstack-server
 
-    result = blockstack_client.namespace_reveal(str(args.namespace_id),
-                                                str(args.addr),
-                                                lifetime,
-                                                int(args.coeff),
-                                                int(args.base),
-                                                bucket_exponents,
-                                                int(args.nonalpha_discount),
-                                                int(args.no_vowel_discount),
-                                                str(args.privatekey))
+    result = namespace_reveal(str(args.namespace_id),
+                              str(args.addr),
+                              lifetime,
+                              int(args.coeff),
+                              int(args.base),
+                              bucket_exponents,
+                              int(args.nonalpha_discount),
+                              int(args.no_vowel_discount),
+                              str(args.privatekey))
 
     return result
 
@@ -1031,8 +1114,8 @@ def cli_advanced_namespace_ready( args, config_path=None ):
     arg: namespace_id (str) "The namespace ID"
     arg: privatekey (str) "The private key of the keypair that imports names"
     """
-    result = blockstack_client.namespace_ready(str(args.namespace_id),
-                                               str(args.privatekey))
+    result = namespace_ready(str(args.namespace_id),
+                             str(args.privatekey))
 
     return result
 
@@ -1045,9 +1128,9 @@ def cli_advanced_put_mutable( args, config_path=None ):
     arg: data_id (str) "The name of the data"
     arg: data (str) "The JSON-formatted data to store"
     """
-    result = blockstack_client.put_mutable(str(args.name),
-                                           str(args.data_id),
-                                           str(args.data))
+    result = put_mutable(str(args.name),
+                         str(args.data_id),
+                         str(args.data))
 
     return result
 
@@ -1061,10 +1144,10 @@ def cli_advanced_put_immutable( args, config_path=None ):
     arg: data (str) "The JSON-formatted data to store"
     """
     conf = config.get_config( config_path=config_path )
-    result = blockstack_client.put_immutable(str(args.name),
-                                             str(args.data_id),
-                                             str(args.data),
-                                             conf=conf)
+    result = put_immutable(str(args.name),
+                           str(args.data_id),
+                           str(args.data),
+                           conf=conf)
 
     return result
 
@@ -1077,8 +1160,8 @@ def cli_advanced_get_mutable( args, config_path=None ):
     arg: data_id (str) "The name of the data"
     """
     conf = config.get_config( config_path=config_path )
-    result = blockstack_client.get_mutable(str(args.name), str(args.data_id),
-                                           conf=conf)
+    result = get_mutable(str(args.name), str(args.data_id),
+                         conf=conf)
 
     return result 
 
@@ -1090,7 +1173,7 @@ def cli_advanced_get_immutable( args, config_path=None ):
     arg: name (str) "The name that has the data"
     arg: data_id_or_hash (str) "Either the name or the SHA256 of the data to obtain"
     """
-    result = blockstack_client.get_immutable(str(args.name), str(args.data_id_or_hash))
+    result = get_immutable(str(args.name), str(args.data_id_or_hash))
     return result
 
 
@@ -1100,7 +1183,7 @@ def cli_advanced_list_update_history( args, config_path=None ):
     help: List the history of update hashes for a name
     arg: name (str) "The name whose data to list"
     """
-    result = blockstack_client.list_update_history(str(args.name))
+    result = list_update_history(str(args.name))
     return result
 
 
@@ -1110,7 +1193,7 @@ def cli_advanced_list_zonefile_history( args, config_path=None ):
     help: List the history of zonefiles for a name (if they can be obtained)
     arg: name (str) "The name whose zonefiles to list"
     """
-    result = blockstack_client.list_zonefile_history(str(args.name))
+    result = list_zonefile_history(str(args.name))
     return result
 
 
@@ -1121,7 +1204,7 @@ def cli_advanced_list_immutable_data_history( args, config_path=None ):
     arg: name (str) "The name whose data to list"
     arg: data_id (str) "The data identifier whose history to list"
     """
-    result = blockstack_client.list_immutable_data_history(str(args.name), str(args.data_id))
+    result = list_immutable_data_history(str(args.name), str(args.data_id))
     return result
 
 
@@ -1132,7 +1215,7 @@ def cli_advanced_delete_immutable( args, config_path=None ):
     arg: name (str) "The name that owns the data"
     arg: hash (str) "The SHA256 of the data to remove"
     """
-    result = blockstack_client.delete_immutable(str(args.name), str(args.hash))
+    result = delete_immutable(str(args.name), str(args.hash))
 
     return result
 
@@ -1144,7 +1227,7 @@ def cli_advanced_delete_mutable( args, config_path=None ):
     arg: name (str) "The name that owns the data"
     arg: data_id (str) "The ID of the data to remove"
     """
-    result = blockstack_client.delete_mutable(str(args.name), str(args.data_id))
+    result = delete_mutable(str(args.name), str(args.data_id))
 
 
     return result
@@ -1156,7 +1239,7 @@ def cli_advanced_get_name_blockchain_record( args, config_path=None ):
     help: Get the raw blockchain record for a name
     arg: name (str) "The name to list"
     """
-    result = blockstack_client.get_name_blockchain_record(str(args.name))
+    result = get_name_blockchain_record(str(args.name))
     return result
 
 
@@ -1166,7 +1249,7 @@ def cli_advanced_get_namespace_blockchain_record( args, config_path=None ):
     help: Get the raw namespace blockchain record for a name
     arg: namespace_id (str) "The namespace ID to list"
     """
-    result = blockstack_client.get_namespace_blockchain_record(str(args.namespace_id))
+    result = get_namespace_blockchain_record(str(args.namespace_id))
     return result
 
 
@@ -1178,8 +1261,8 @@ def cli_advanced_lookup_snv( args, config_path=None ):
     arg: block_id (int) "The block height at which to query the name"
     arg: trust_anchor (str) "The trusted consensus hash, transaction ID, or serial number from a higher block height than `block_id`"
     """
-    result = blockstack_client.lookup_snv(str(args.name), int(args.block_id),
-                                          str(args.trust_anchor))
+    result = lookup_snv(str(args.name), int(args.block_id),
+                        str(args.trust_anchor))
 
     return result
 
@@ -1190,7 +1273,7 @@ def cli_advanced_get_name_zonefile( args, config_path=None ):
     help: Get a name's zonefile, as a JSON dict
     arg: name (str) "The name to query"
     """
-    result = blockstack_client.get_name_zonefile(str(args.name))
+    result = get_name_zonefile(str(args.name))
     return result
 
 
@@ -1200,7 +1283,7 @@ def cli_advanced_get_names_owned_by_address( args, config_path=None ):
     help: Get the list of names owned by an address
     arg: address (str) "The address to query"
     """
-    result = blockstack_client.get_names_owned_by_address(str(args.address))
+    result = get_names_owned_by_address(str(args.address))
     return result
 
 
@@ -1210,7 +1293,7 @@ def cli_advanced_get_namespace_cost( args, config_path=None ):
     help: Get the cost of a namespace
     arg: namespace_id (str) "The namespace ID to query"
     """
-    result = blockstack_client.get_namespace_cost(str(args.namespace_id))
+    result = get_namespace_cost(str(args.namespace_id))
     return result
 
 
@@ -1230,7 +1313,7 @@ def cli_advanced_get_all_names( args, config_path=None ):
     if args.count is not None:
         count = int(args.count)
 
-    result = blockstack_client.get_all_names(offset, count)
+    result = get_all_names(offset, count)
     return result
 
 
@@ -1251,7 +1334,7 @@ def cli_advanced_get_names_in_namespace( args, config_path=None ):
     if args.count is not None:
         count = int(args.count)
 
-    result = blockstack_client.get_names_in_namespace(str(args.namespace_id), offset,
+    result = get_names_in_namespace(str(args.namespace_id), offset,
                                                       count)
     return result
 
@@ -1262,6 +1345,6 @@ def cli_advanced_get_nameops_at( args, config_path=None ):
     help: Get the list of name operations that occurred at a given block number
     arg: block_id (int) "The block height to query"
     """
-    result = blockstack_client.get_nameops_at(int(args.block_id))
+    result = get_nameops_at(int(args.block_id))
     return result
 
