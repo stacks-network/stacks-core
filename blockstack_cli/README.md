@@ -1,5 +1,6 @@
 # Blockstack Command Line Interface
 
+[![CircleCI](https://img.shields.io/circleci/project/blockstack/blockstack-cli/master.svg)](https://circleci.com/gh/blockstack/blockstack-cli)
 [![PyPI](https://img.shields.io/pypi/v/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
 [![PyPI](https://img.shields.io/pypi/dm/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
 [![PyPI](https://img.shields.io/pypi/l/blockstack.svg)](https://github.com/blockstack/blockstack-client/blob/master/LICENSE)
