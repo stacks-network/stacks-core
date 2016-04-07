@@ -40,6 +40,8 @@ DEFAULT_BLOCKSTACKD_SERVER = "server.blockstack.org"
 DEFAULT_DHT_MIRROR = "mirror.blockstack.org"
 DEFAULT_DHT_PORT = '6266'
 
+DEFAULT_API_PORT = 6270
+
 # initialize to default settings
 BLOCKSTACKD_SERVER = DEFAULT_BLOCKSTACKD_SERVER
 BLOCKSTACKD_PORT = DEFAULT_BLOCKSTACKD_PORT
@@ -191,7 +193,8 @@ MAX_RPC_LEN = 1024 * 1024 * 1024
 MAX_NAME_LENGTH = 37        # taken from blockstack-server
 CONFIG_DIR_INIT = "~/.blockstack"
 CONFIG_DIR = os.path.expanduser(CONFIG_DIR_INIT)
-CONFIG_PATH = os.path.join(CONFIG_DIR, "client.ini")
+CONFIG_FILENAME = "client.ini"
+CONFIG_PATH = os.path.join(CONFIG_DIR, CONFIG_FILENAME)
 WALLET_PATH = os.path.join(CONFIG_DIR, "wallet.json")
 SPV_HEADERS_PATH = os.path.join(CONFIG_DIR, "blockchain-headers.dat")
 
@@ -235,6 +238,7 @@ def make_default_config(path=CONFIG_PATH):
         parser.set('blockstack-client', 'advanced_mode', 'false')
         parser.set('blockstack-client', 'dht_mirror', DEFAULT_DHT_MIRROR)
         parser.set('blockstack-client', 'dht_mirror_port', DEFAULT_DHT_PORT)
+        parser.set('blockstack-client', 'api_endpoint_port', str(DEFAULT_API_PORT))
         rpc_token = os.urandom(32)
         parser.set('blockstack-client', 'rpc_token', hexlify(rpc_token))
 
@@ -288,7 +292,8 @@ def get_config(path=CONFIG_PATH):
         "storage_drivers": BLOCKSTACK_DEFAULT_STORAGE_DRIVERS,
         "metadata": BLOCKSTACK_METADATA_DIR,
         "blockchain_headers": SPV_HEADERS_PATH,
-        "advanced_mode": False
+        "advanced_mode": False,
+        "api_endpoint_port": DEFAULT_API_PORT
     }
 
     parser = SafeConfigParser()
@@ -332,6 +337,9 @@ def get_config(path=CONFIG_PATH):
 
         if parser.has_option("blockstack-client", "dht_mirror_port"):
             config['dht_mirror_port'] = parser.get("blockstack-client", "dht_mirror_port")
+
+        if parser.has_option("blockstack-client", "api_endpoint_port"):
+            config['api_endpoint_port'] = int(parser.get("blockstack-client", "api_endpoint_port"))
 
         if parser.has_option("blockstack-client", "rpc_token"):
             config['rpc_token'] = parser.get("blockstack-client", "rpc_token")
