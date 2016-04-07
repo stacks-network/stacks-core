@@ -57,6 +57,7 @@ parent_dir = os.path.abspath(current_dir + "/../")
 sys.path.insert(0, parent_dir)
 
 from blockstack_client import config
+from blockstack_client.client import session
 from blockstack_client.config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH
 from blockstack_client.parser import parse_methods, build_method_subparsers
 
@@ -110,7 +111,7 @@ def get_plugin_methods( module_name, prefix ):
         return None 
 
     return get_methods( prefix, mod )
-        
+     
 
 def get_cli_basic_methods():
     """
@@ -123,28 +124,29 @@ def get_cli_advanced_methods():
     """
     Get the advanced usage built-in CLI methods
     """
-    return get_builtin_methods("cli_advanced_", builtin_methods )
+    return get_methods("cli_advanced_", builtin_methods )
 
 
-def run_cli(config_path=CONFIG_PATH):
+def run_cli(argv=None, config_path=CONFIG_PATH):
     """
-    Run a CLI command from sys.argv.
+    Run a CLI command from arguments (defaults to sys.argv)
     Return the result of the command on success.
     The result will be a dict, and will have 'error' defined on error condition.
     """
 
+    if argv is None:
+        argv = sys.argv
+
+    print "\n%s\n" % argv
     conf = config.get_config(path=config_path)
 
     if conf is None:
-        log.error("Failed to load config")
-        sys.exit(1)
+        return {'error': 'Failed to load config'}
 
     advanced_mode = conf['advanced_mode']
 
     parser = argparse.ArgumentParser(
             description='Blockstack cli version {}'.format(config.VERSION))
-
-    # parser.register('action', 'parsers', AliasedSubParsersAction)
 
     all_methods = []
     subparsers = parser.add_subparsers(dest='action')
@@ -164,19 +166,19 @@ def run_cli(config_path=CONFIG_PATH):
         all_methods += advanced_method_info
 
     # Print default help message, if no argument is given
-    if len(sys.argv) == 1:
+    if len(argv) == 1:
         parser.print_help()
-        sys.exit(1)
+        return {}
 
-    args, unknown_args = parser.parse_known_args()
+    args, unknown_args = parser.parse_known_args(args=argv[1:])
     result = {}
 
     blockstack_server = conf['server']
     blockstack_port = conf['port']
 
     # initialize blockstack client
-    blockstack_client.session(conf=conf, server_host=blockstack_server,
-                              server_port=blockstack_port, set_global=True)
+    session(conf=conf, server_host=blockstack_server,
+            server_port=blockstack_port, set_global=True)
 
     # start the two background processes (rpc daemon and monitor queue)
     start_background_daemons()
