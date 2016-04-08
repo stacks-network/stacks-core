@@ -39,6 +39,8 @@ import blockstack.blockstackd as blockstackd
 import blockstack
 import pybitcoin
 
+utxo_opts = None 
+
 class Wallet(object):
     def __init__(self, pk_wif, value_str ):
         pk = pybitcoin.BitcoinPrivateKey( pk_wif )
@@ -53,6 +55,10 @@ class Wallet(object):
 class TestAPIProxy(object):
     def __init__(self):
         self.api = blockstack.blockstackd.BlockstackdRPC() 
+        self.conf = {
+            "initial_utxos": utxo_opts,
+            "start_block": blockstack.FIRST_BLOCK_MAINNET
+        }
 
     def __getattr__(self, name):
         if hasattr( self.api, "jsonrpc_" + name):
@@ -81,6 +87,10 @@ state_engine = None
 
 # consensus hash at each block
 all_consensus_hashes = {}
+
+def set_utxo_opts( utxos ):
+    global utxo_opts
+    utxo_opts = utxos
 
 def log_consensus( **kw ):
     """

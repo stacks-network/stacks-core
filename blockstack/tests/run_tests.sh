@@ -22,7 +22,7 @@ while IFS= read SCENARIO_FILE; do
       continue 
    fi
 
-   if [ "$SCENARIO_FILE" == "__init__.py" ] || [ "$SCENARIO_FILE" == "testlib.py" ]; then 
+   if [ "$SCENARIO_FILE" = "__init__.py" ] || [ "$SCENARIO_FILE" = "testlib.py" ]; then 
       continue
    fi
 
