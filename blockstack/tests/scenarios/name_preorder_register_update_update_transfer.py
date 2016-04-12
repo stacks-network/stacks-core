@@ -169,8 +169,8 @@ def check( state_engine ):
         return False 
 
     # matching snv consensus extras 
-    snv1 = transfer.snv_consensus_extras( name_rec, lastblock, True, state_engine )
-    snv2 = transfer.snv_consensus_extras( name_rec2, lastblock, True, state_engine )
+    snv1 = transfer.snv_consensus_extras( name_rec, lastblock, None, state_engine )
+    snv2 = transfer.snv_consensus_extras( name_rec2, lastblock, None, state_engine )
     if snv1['consensus_hash'] != snv2['consensus_hash']:
         print "snv consensus mismatch: %s != %s" % (snv1['consensus_hash'], snv2['consensus_hash'])
         return False 
