@@ -245,7 +245,7 @@ def check( state_engine ):
             return False
 
     # can fetch latest by name 
-    immutable_data = get_data( "blockstack://foo.test/immutable/hello_world_immutable" )
+    immutable_data = get_data( "blockstack://hello_world_immutable.foo.test/" )
     if 'error' in immutable_data:
         print json.dumps(immutable_data, indent=4, sort_keys=True)
         return False 
@@ -259,7 +259,7 @@ def check( state_engine ):
         return False 
 
     # can fetch by name and hash
-    immutable_data = get_data( "blockstack://foo.test/immutable/hello_world_immutable/%s" % immutable_hash )
+    immutable_data = get_data( "blockstack://hello_world_immutable.foo.test/#%s" % immutable_hash )
     if 'error' in immutable_data:
         print json.dumps(immutable_data, indent=4, sort_keys=True)
         return False 
@@ -274,7 +274,7 @@ def check( state_engine ):
 
     # hash must match (if we put the wrong hash, it must fail)
     try:
-        immutable_data = get_data( "blockstack://foo.test/immutable/hello_world_immutable/%s" % ("0" * len(immutable_hash)))
+        immutable_data = get_data( "blockstack://hello_world_immutable.foo.test/#%s" % ("0" * len(immutable_hash)))
         print "no error"
         print json.dumps(immutable_data, indent=4, sort_keys=True)
         return False
@@ -282,7 +282,7 @@ def check( state_engine ):
         pass
 
     # can list names and hashes
-    immutable_data_list = get_data( "blockstack://foo.test/immutable" )
+    immutable_data_list = get_data( "blockstack://foo.test/#immutable" )
     if 'error' in immutable_data_list:
         print json.dumps(immutable_data, indent=4, sort_keys=True )
         return False 
@@ -298,7 +298,7 @@ def check( state_engine ):
         return False 
 
     # can fetch latest mutable by name
-    mutable_data = get_data( "blockstack://bar.test/mutable/hello_world_mutable")
+    mutable_data = get_data( "blockstack://bar.test/hello_world_mutable")
     if 'error' in mutable_data:
         print json.dumps(mutable_data, indent=4, sort_keys=True)
         return False 
@@ -312,7 +312,7 @@ def check( state_engine ):
         return False 
 
     # can fetch by version
-    mutable_data = get_data( "blockstack://bar.test/mutable/hello_world_mutable/1")
+    mutable_data = get_data( "blockstack://bar.test/hello_world_mutable#1")
     if 'error' in mutable_data:
         print json.dumps(mutable_data, indent=4, sort_keys=True)
         return False 
@@ -323,7 +323,7 @@ def check( state_engine ):
 
     # will fail to fetch if we give the wrong version 
     try:
-        mutable_data = get_data("blockstack://bar.test/mutable/hello_world_mutable/2")
+        mutable_data = get_data("blockstack://bar.test/hello_world_mutable#2")
         print "mutable fetch by wrong version worked"
         print json.dumps(mutable_data, indent=4, sort_keys=True)
         return False
@@ -331,7 +331,7 @@ def check( state_engine ):
         pass
 
     # can list mutable data
-    mutable_data_list = get_data( "blockstack://bar.test/mutable" )
+    mutable_data_list = get_data( "blockstack://bar.test/#mutable" )
     if 'error' in mutable_data_list:
         print json.dumps(mutable_data_list, indent=4, sort_keys=True )
         return False 
