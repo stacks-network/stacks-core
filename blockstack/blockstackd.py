@@ -962,7 +962,7 @@ def blockstack_announce( message, privatekey, tx_only=False, subsidy_key=None, u
     if broadcaster_client_inst is None:
         return {"error": "Failed to connect to blockchain transaction broadcaster"}
 
-    message_hash = pybitcoin.hex_hash160( message )
+    message_hash = get_announcement_hash( message )
 
     try:
         resp = send_announce( message_hash, privatekey, blockchain_client_inst, \
