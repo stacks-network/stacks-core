@@ -67,7 +67,7 @@ class BlockstackRPCClient(object):
     RPC client for the blockstack server
     """
     def __init__(self, server, port, max_rpc_len=MAX_RPC_LEN, timeout=config.DEFAULT_TIMEOUT ):
-        self.srv = xmlrpclib.Server( "http://%s:%s" % (server, port) )
+        self.srv = xmlrpclib.Server( "http://%s:%s" % (server, port), allow_none=True )
 
     def __getattr__(self, key):
         try:
