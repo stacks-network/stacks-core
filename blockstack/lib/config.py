@@ -26,7 +26,7 @@ import sys
 from ConfigParser import SafeConfigParser
 import pybitcoin
 import logging
-
+import json
 import virtualchain
 
 log = virtualchain.get_logger("blockstack-server")
@@ -614,6 +614,16 @@ def store_announcement( announcement_hash, announcement_text, working_dir=None, 
    log.debug("Stored announcement to %s" % (announcement_text_path))
 
 
+def get_announcement_hash( announcement_text ):
+    """
+    Get the hash of an announcement
+    """
+    # NOTE: have to use the hash function used on the blockchain 
+    data_json = json.dumps({'announcement_text': announcement_text}, sort_keys=True)
+    data_hash = blockstack_client.get_blockchain_compat_hash( data_json )
+    return data_hash
+
+
 def get_announcement( announcement_hash ):
     """
     Go get an announcement's text, given its hash.
@@ -625,12 +635,18 @@ def get_announcement( announcement_hash ):
     """
 
     session = get_blockstack_client_session()   # has the side-effect of initializing all storage drivers, if they're not already.
-    data = blockstack_client.storage.get_immutable_data( announcement_hash )
+    data = blockstack_client.storage.get_immutable_data( announcement_hash, hash_func=blockstack_client.get_blockchain_compat_hash )
     if data is None:
         log.error("Failed to get announcement '%s'" % (announcement_hash))
         return None
 
-    return data
+    try:
+        message = data['announcement_text']
+    except:
+        log.error("Malfomed data")
+        return None 
+
+    return message
 
 
 def put_announcement( announcement_text, txid ):
@@ -642,11 +658,12 @@ def put_announcement( announcement_text, txid ):
 
     Return the data's hash
     """
-
+    data_json = json.dumps({'announcement_text': announcement_text}, sort_keys=True)
+    data_hash = blockstack_client.get_blockchain_compat_hash( data_json )
     session = get_blockstack_client_session()   # has the side-effect of initializing all storage drivers, if they're not already
-    data_hash = blockstack_client.storage.put_immutable_data( announcement_text, txid )
-    if data_hash is None:
-        log.error("Failed to put announcement '%s'" % (pybitcoin.hex_hash160(announcement_text)))
+    rc = blockstack_client.storage.put_immutable_data( None, txid, data_text=data_json, data_hash=data_hash )
+    if rc is None:
+        log.error("Failed to put announcement '%s'" % (data_hash))
         return None
 
     return data_hash
