@@ -63,4 +63,4 @@ from storage import blockstack_immutable_data_url_parse as parse_immutable_data_
 from storage import blockstack_data_url_parse as parse_data_url
 from storage import blockstack_data_url as make_data_url
 
-from storage import BlockstackURLHandle, BlockstackHandler, get_data_hash 
+from storage import BlockstackURLHandle, BlockstackHandler, get_data_hash, get_blockchain_compat_hash 
