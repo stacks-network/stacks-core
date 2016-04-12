@@ -45,11 +45,11 @@ datasets = [
 
 put_result = None
 last_hash = None
-zonefile_hashes = []
+immutable_data_hashes = []
 
 def scenario( wallets, **kw ):
 
-    global datasets, zonefile_hashes, put_result, last_hash
+    global datasets, immutable_data_hashes, put_result, last_hash
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
@@ -80,36 +80,36 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
-    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", datasets[0], data_url="http://www.example.com", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
-    zonefile_hashes.append( put_result['immutable_data_hash'] )
+    immutable_data_hashes.append( put_result['immutable_data_hash'] )
 
     testlib.next_block( **kw )
 
-    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_2", datasets[1], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_2", datasets[1], data_url="http://www.example.com", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
-    zonefile_hashes.append( put_result['immutable_data_hash'] )
+    immutable_data_hashes.append( put_result['immutable_data_hash'] )
 
     testlib.next_block( **kw )
 
-    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_3", datasets[2], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_3", datasets[2], data_url="http://www.example.com", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
-    zonefile_hashes.append( put_result['immutable_data_hash'] )
+    immutable_data_hashes.append( put_result['immutable_data_hash'] )
     last_hash = put_result['zonefile_hash']
 
     testlib.next_block( **kw )
 
     # should succeed (name collision)
     datasets[0][u'newdata'] = u"asdf"
-    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", datasets[0], data_url="http://www.example.com", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' not in put_result:
-        zonefile_hashes[0] = put_result['immutable_data_hash']
+        immutable_data_hashes[0] = put_result['immutable_data_hash']
     else:
         print json.dumps(put_result, indent=4, sort_keys=True )
 
@@ -163,7 +163,7 @@ def check( state_engine ):
     blockstack_client.set_default_proxy( test_proxy )
 
     for i in xrange(0, len(datasets)):
-        immutable_data = blockstack_client.get_immutable( "foo.test", zonefile_hashes[i] )
+        immutable_data = blockstack_client.get_immutable( "foo.test", immutable_data_hashes[i] )
         if immutable_data is None:
             print "No data received for dataset %s" % i
             return False 
