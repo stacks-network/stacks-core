@@ -191,7 +191,7 @@ class RegistrarServer(object):
 
         if not profileonBlockchain(fqu, profile):
 
-            if nameop is None or nameop is 'update':
+            if nameop == 'update':
                 if fqu not in DHT_IGNORE:
                     log.debug("Updating profile on blockchain: %s" % fqu)
 
@@ -217,7 +217,7 @@ class RegistrarServer(object):
         elif not ownerName(fqu, transfer_address):
             #log.debug("Not transferred: %s" % fqu)
 
-            if nameop is None or nameop == 'transfer':
+            if nameop == 'transfer':
                 log.debug("Transferring name: %s" % fqu)
 
                 payment_address, other_address = self.get_next_addresses()
