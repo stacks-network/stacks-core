@@ -183,6 +183,12 @@ def run_scenario( scenario, config_file ):
 
     # save headers as well 
     utxo_opts['spv_headers_path'] = mock_bitcoind_save_path + ".spvheaders"
+    if os.path.exists( utxo_opts['spv_headers_path'] ):
+        try:
+            os.unlink(utxo_opts['spv_headers_path'])
+        except:
+            pass
+
     with open( utxo_opts['spv_headers_path'], "w" ) as f:
         # write out "initial" headers, up to the first block
         empty_header = ("00" * 81).decode('hex')
