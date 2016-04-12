@@ -60,6 +60,9 @@ class APIDriver(object):
             # test for minimum name length
             if len(entry['username']) < MINIMUM_LENGTH_NAME:
                 log.debug("Expensive name %s. Skipping." % entry['username'])
+
+                if live_delete:
+                    self.registrations.remove({"username": entry['username']})
                 continue
 
             # test for ignoring names starting with certain patterns
