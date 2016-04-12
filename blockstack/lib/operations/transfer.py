@@ -137,7 +137,7 @@ def build(name, keepdata, consensus_hash, testset=False):
     return packaged_script
 
 
-@state_transition( "name", "name_records", ignore_equality_constraints=['transfer_send_block_id'] )
+@state_transition( "name", "name_records", ignore_equality_constraints=['transfer_send_block_id', 'consensus_hash'] )
 def check( state_engine, nameop, block_id, checked_ops ):
     """
     Verify the validity of a name's transferrance to another private key.
@@ -219,10 +219,18 @@ def check( state_engine, nameop, block_id, checked_ops ):
         log.debug("Recipient %s has exceeded name quota" % recipient)
         return False
 
-    transfer_send_block_id = state_engine.get_block_from_consensus( nameop['consensus_hash'] )
+    # QUIRK: we use the name record's previous consensus hash for generating the next one,
+    # unless there is no previous consensus hash (in which case, the current one is used).
+    transfer_consensus_hash = None
+    if name_rec.get('consensus_hash', None) is not None:
+        transfer_consensus_hash = name_rec['consensus_hash']
+    else:
+        transfer_consensus_hash = nameop['consensus_hash']
+
+    transfer_send_block_id = state_engine.get_block_from_consensus( transfer_consensus_hash )
     if transfer_send_block_id is None:
         # wrong consensus hash 
-        log.debug("Unrecognized consensus hash '%s'" % name_rec['consensus_hash'] )
+        log.debug("Unrecognized consensus hash '%s'" % transfer_consensus_hash )
         return False 
 
     # remember the name, so we don't have to look it up later
@@ -234,8 +242,8 @@ def check( state_engine, nameop, block_id, checked_ops ):
     nameop['sender_pubkey'] = None
     nameop['transfer_send_block_id'] = transfer_send_block_id
 
-    # QUIRK: preserved from previous name state
-    nameop['consensus_hash'] = name_rec['consensus_hash'] 
+    # QUIRK: preserved from previous name state, if it exists at all
+    nameop['consensus_hash'] = transfer_consensus_hash # name_rec['consensus_hash'] 
 
     if not nameop['keep_data']:
         nameop['value_hash'] = None
@@ -515,6 +523,9 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
         sys.exit(1)
 
     transfer_send_block_id = name_rec['transfer_send_block_id']
+    if transfer_send_block_id is None:
+        log.error("FATAL: no transfer-send block ID set")
+        sys.exit(1)
 
     # restore history temporarily...
     name_rec_prev = BlockstackDB.get_previous_name_version( name_rec, block_number, history_index, untrusted_db )
@@ -524,6 +535,7 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
     consensus_hash = untrusted_db.get_consensus_at( transfer_send_block_id )
     
     name_rec_script = build( str(name_rec['name']), keep_data, consensus_hash, testset=testset )
+
     name_rec_payload = unhexlify( name_rec_script )[3:]
     ret_op = parse( name_rec_payload, recipient )
 
@@ -532,8 +544,12 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db, testset=
     ret_op['recipient_address'] = recipient_address 
     ret_op['sender'] = sender 
     ret_op['address'] = address
-    ret_op['consensus_hash'] = consensus_hash
     ret_op['keep_data'] = keep_data
+
+    if consensus_hash is not None:
+        # only set if we have it; otherwise use the one that's in the name record
+        # that this delta will be applied over
+        ret_op['consensus_hash'] = consensus_hash
 
     return ret_op
 
@@ -590,77 +606,23 @@ def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
     transfer_send_block_id = name_rec['transfer_send_block_id']
 
     # get consensus hash
-    consensus_hash = db.get_consensus_at(transfer_send_block_id)
-    if consensus_hash is None:
-        log.error("FATAL: No consensus hash for '%s'" % transfer_send_block_id)
-        sys.exit(1)
+    # QUIRK: if for commit, then use whatever is currently in the name record.
+    # QUIRK: if for SNV, then use the one that was included in the NAME_TRANSFER transaction
+    consensus_hash = None
+    if blockchain_name_data is None:
+        # SNV lookup
+        consensus_hash = db.get_consensus_at(transfer_send_block_id)
+        if consensus_hash is None:
+            log.error("FATAL: No consensus hash for '%s'" % transfer_send_block_id)
+            sys.exit(1)
 
+    else:
+        # commit
+        consensus_hash = blockchain_name_data.get('consensus_hash', None)
+        
     ret_op['consensus_hash'] = consensus_hash
 
     # 'consensus_hash' will be different than what we recorded in the db
     op_commit_consensus_override( ret_op, 'consensus_hash' ) 
     return ret_op
-    
-    """
-    # historic versions of this name record at this block
-    name_rec_hist = None
-    if 'history' not in name_rec.keys():
-        name_rec_hist = db.get_name( name_rec['name'], lastblock=block_id, include_expired=True )
-    else:
-        name_rec_hist = name_rec
-
-    historic_namerecs = BlockstackDB.restore_from_history( name_rec_hist, block_id )
-    vtxindex = None
-
-    prev_consensus_hash = None
-
-    # find the consensus hash just before the affected one, in this block...
-    for hn in historic_namerecs:
-        if hn['vtxindex'] < name_rec_hist['vtxindex']:
-            # happened before this
-            prev_consensus_hash = hn['consensus_hash']
-            vtxindex = hn['vtxindex']
-  
-    if prev_consensus_hash is None:
-        # not set in this block, so search prior version of this name
-        historic_namerecs = BlockstackDB.restore_from_history( name_rec_hist, block_id - 1 )
-        ret_op['consensus_hash'] = historic_namerecs[-1]['consensus_hash']
-        vtxindex = historic_namerecs[-1]['vtxindex']
-
-    if prev_consensus_hash is None:
-        # no prior consensus hashes.
-        # use this one.
-        if blockchain_name_data is not None:
-            # we're committing, and there are no prior consensus hashes
-            # Extract the consensus hash from the blockchain data itself.
-            if not 'consensus_hash' in blockchain_name_data:
-                log.error("FATAL: no consensus hash in '%s'" % json.dumps(blockchain_name_data))
-                sys.exit(1)
-
-            prev_consensus_hash = blockchain_name_data['consensus_hash']
-
-        else:
-            # 
-
-        if commit:
-            # Case 1, on commit: we're taking a snapshot of the NAME_TRANSFER, and no such prior consensus hash exists 
-            prev_consensus_hash = name_rec['consensus_hash']
-        else:
-            # Case 1, on restore: we're taking the consensus hash at the point of the NAME_TRANSFER 
-            prev_consensus_hash = name_rec[
-
-    if not ret_op.has_key('consensus_hash'):
-        # not set in this block, but in a prior block 
-        historic_namerecs = BlockstackDB.restore_from_history( name_rec_hist, block_id - 1 )
-        ret_op['consensus_hash'] = historic_namerecs[-1]['consensus_hash']
-        vtxindex = historic_namerecs[-1]['vtxindex']
-
-        log.debug("Set consensus hash '%s' from earlier block at (%s, %s)" % (ret_op['consensus_hash'], db.get_block_from_consensus(ret_op['consensus_hash']), vtxindex))
-        
-    else:
-        log.debug("Set consensus hash '%s' from same block at (%s, %s)" % (ret_op['consensus_hash'], block_id, vtxindex))
-
-    return ret_op
-    """
-
-
+   
