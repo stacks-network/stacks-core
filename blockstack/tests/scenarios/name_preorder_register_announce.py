@@ -75,7 +75,9 @@ def scenario( wallets, **kw ):
 
 def check( state_engine ):
 
-    # not revealed, but ready 
+    expected_hash = "c48ce66b046a25ec752138274bd84cca1e57f751"
+
+    # not revealed, but ready
     ns = state_engine.get_namespace_reveal( "id" )
     if ns is not None:
         return False 
@@ -107,11 +109,11 @@ def check( state_engine ):
         return False
 
     # "hello world!" exists...
-    announce_path = os.path.join(working_dir, "announcements", "13a76219ed16c5e53e2c08dde8660609bb8f63da.txt") 
+    announce_path = os.path.join(working_dir, "announcements", expected_hash + ".txt" )
     hashes_path = os.path.join( working_dir, virtualchain.get_implementation().get_virtual_chain_name() + ".announce" )
 
     if not os.path.exists( announce_path ):
-        print >> sys.stderr, "No announcement text"
+        print >> sys.stderr, "No announcement text: %s" % announce_path
         return False 
 
     if not os.path.exists( hashes_path ):
@@ -123,8 +125,7 @@ def check( state_engine ):
     with open( announce_path, "r" ) as f:
         txt = f.read()
 
-    txt = txt.strip()
-    if txt != "hello world!":
+    if txt.strip() != "hello world!":
         print >> sys.stderr, "Wrong announcement text"
         return False 
 
@@ -134,7 +135,7 @@ def check( state_engine ):
         txt = f.read()
 
     txt = txt.strip()
-    if txt != "13a76219ed16c5e53e2c08dde8660609bb8f63da":
+    if txt != expected_hash:
         print >> sys.stderr, "Wring announcement hash text"
         return False 
 
