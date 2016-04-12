@@ -34,7 +34,7 @@ import blockstack_profiles
 
 log = config.get_logger()
 
-def url_to_uri_record( url ):
+def url_to_uri_record( url, datum_name=None ):
     """
     Convert a URL into a DNS URI record
     """
@@ -68,6 +68,9 @@ def url_to_uri_record( url ):
     else:
        name = "_%s" % scheme
 
+    if datum_name is not None:
+       name = name + "." + str(datum_name)
+
     ret = {
        "name": name,
        "priority": 10,
@@ -91,31 +94,18 @@ def make_empty_user_zonefile( username, data_pubkey, urls=None ):
    user = {
       "txt": [
           {
-            "name": "@",
+            "name": "pubkey",
             "txt": "pubkey:data:%s" % str(data_pubkey)
           }
       ],
       "uri": []
    }
-    
+   
    for url in urls:
-       urirec = url_to_uri_record( url )
+       urirec = url_to_uri_record( url, datum_name="profile" )
        user["uri"].append( urirec )
 
    return user
-
-
-def user_zonefile_set_profile_urls( user_zonefile, user_profile_urls ):
-    """
-    Add URI records to a user's zonefile that point to the profile.
-    """
-    uris = []
-    for url in urls:
-        urirec = url_to_uri_record( url )
-        uris.append( urirec )
-
-    user_zonefile['uri'] = uris
-    return
 
 
 def is_user_zonefile( d ):
@@ -198,27 +188,7 @@ def make_empty_user_profile():
     return ret
     
 
-def pack_immutable_data_txt( data_id, data_hash ):
-    """
-    Pack an immutable datum into a txt record
-    """
-    return "immutable:%s:%s" % (base64.b64encode(data_id), data_hash)
-
-
-def unpack_immutable_data_txt( rec ):
-    """
-    Unpack an immutable datum
-    """
-    parts = rec.split(":")
-    assert len(parts) == 3
-    assert parts[0] == "immutable"
-
-    data_id = base64.b64decode(parts[1])
-
-    return data_id, parts[2]
-
-
-def put_immutable_data_zonefile( user_zonefile, data_id, data_hash ):
+def put_immutable_data_zonefile( user_zonefile, data_id, data_hash, data_url=None ):
    """
    Add a data hash to a user's zonefile.  Make sure it's a valid hash as well.
    Return True on success
@@ -237,12 +207,52 @@ def put_immutable_data_zonefile( user_zonefile, data_id, data_hash ):
        # name collision 
        return False 
 
-   user_zonefile["txt"].append( {
-       "name": "@",
-       "txt": pack_immutable_data_txt( data_id, data_hash )
+   txtrec = None 
+   if data_url is not None:
+       txtrec = "%s#%s" % (data_url, data_hash)
+   else: 
+       txtrec = "#%s" % data_hash
+
+   user_zonefile["txt"].append({
+       "name": data_id,
+       "txt": txtrec
    })
 
    return True
+
+
+def get_immutable_hash_from_txt( txtrec ):
+    """
+    Given an immutable data txt record,
+    get the hash.
+    The hash is the suffix that begins with #.
+    Return None if invalid or not present
+    """
+    if '#' not in txtrec:
+        return None
+
+    h = txtrec.split('#')[-1]
+    if not storage.is_valid_hash( h ):
+        return None
+
+    return h
+
+
+def get_immutable_url_from_txt( txtrec ):
+    """
+    Given an immutable data txt record,
+    get the URL hint.
+    This is everything that starts before the last #.
+    Return None if there is no URL, or we can't parse the txt record
+    """
+    if '#' not in txtrec:
+        return None
+
+    url = "#".join( txtrec.split("#")[:-1] )
+    if len(url) == 0:
+        return None 
+
+    return url
 
 
 def remove_immutable_data_zonefile( user_zonefile, data_hash ):
@@ -258,7 +268,7 @@ def remove_immutable_data_zonefile( user_zonefile, data_hash ):
    for txtrec in user_zonefile['txt']:
        h = None
        try:
-           _, h = unpack_immutable_data_txt( txtrec['txt'] )
+           h = get_immutable_hash_from_txt( txtrec['txt'] )
            assert storage.is_valid_hash(h)
        except:
            continue 
@@ -283,7 +293,7 @@ def has_immutable_data( user_zonefile, data_hash ):
    for txtrec in user_zonefile['txt']:
        h = None
        try:
-           _, h = unpack_immutable_data_txt( txtrec['txt'] )
+           h = get_immutable_hash_from_txt( txtrec['txt'] )
            assert storage.is_valid_hash(h)
        except:
            continue 
@@ -303,7 +313,8 @@ def has_immutable_data_id( user_zonefile, data_id ):
    for txtrec in user_zonefile['txt']:
        d_id = None 
        try:
-           d_id, h = unpack_immutable_data_txt( txtrec['txt'] )
+           d_id = txtrec['name']
+           h = get_immutable_hash_from_txt( txtrec['txt'] )
            assert storage.is_valid_hash(h)
        except AssertionError:
            continue 
@@ -327,7 +338,8 @@ def get_immutable_data_hash( user_zonefile, data_id ):
        d_id = None 
        h = None
        try:
-           d_id, h = unpack_immutable_data_txt( txtrec['txt'] )
+           d_id = txtrec['name']
+           h = get_immutable_hash_from_txt( txtrec['txt'] )
            assert storage.is_valid_hash(h)
        except:
            continue 
@@ -342,6 +354,30 @@ def get_immutable_data_hash( user_zonefile, data_id ):
    return ret
 
 
+def get_immutable_data_url( user_zonefile, data_hash ):
+    """
+    Given the hash of an immutable datum, find the associated
+    URL hint (if given)
+    Return None if not given, or not found.
+    """
+
+    ret = None 
+    for txtrec in user_zonefile['txt']:
+        h = None 
+        try:
+            h = get_immutable_hash_from_txt( txtrec['txt'] )
+            if h != data_hash:
+                continue 
+
+            url = get_immutable_url_from_txt( txtrec['txt'] )
+        except:
+            continue
+
+        return url
+
+    return None
+
+
 def list_immutable_data( user_zonefile ):
     """
     Get the IDs and hashes of all immutable data
@@ -350,7 +386,8 @@ def list_immutable_data( user_zonefile ):
     ret = []
     for txtrec in user_zonefile['txt']:
         try:
-            d_id, h = unpack_immutable_data_txt( txtrec['txt'] )
+            d_id = txtrec['name']
+            h = get_immutable_hash_from_txt( txtrec['txt'] )
             assert storage.is_valid_hash(h)
             ret.append( (d_id, h) )
         except:
@@ -399,7 +436,7 @@ def get_mutable_data_zonefile( user_profile, data_id ):
    return None
 
 
-def get_mutable_data_zonefile_key( user_profile, data_id ):
+def get_mutable_data_zonefile_md( user_profile, data_id ):
    """
    Get the serialized zonefile key for a piece of mutable data, given
    the user's profile and data_id.
@@ -481,7 +518,7 @@ def put_mutable_data_zonefile( user_profile, data_id, version, zonefile ):
            return False
 
        else:
-           packed_data_txt = get_mutable_data_zonefile_key( user_profile, data_id )
+           packed_data_txt = get_mutable_data_zonefile_md( user_profile, data_id )
            del user_profile['data'][packed_data_txt]
            user_profile['data'].update( zonefile )
            return True
@@ -517,7 +554,7 @@ def pack_mutable_data_md( data_id, version ):
     """
     Pack an mutable datum's metadata into a string
     """
-    return "mutable:%s:%s" % (base64.b64encode(data_id), version)
+    return "mutable:%s:%s" % (base64.b64encode(data_id.encode('utf-8')), version)
 
 
 def unpack_mutable_data_md( rec ):
@@ -554,7 +591,7 @@ def make_mutable_data_zonefile( data_id, version, urls ):
     """
     uris = []
     for url in urls:
-        urirec = url_to_uri_record( url )
+        urirec = url_to_uri_record( url, data_id )
         uris.append( urirec )
 
     data_name = pack_mutable_data_md( data_id, version )
@@ -574,7 +611,7 @@ def mutable_data_version( user_profile, data_id ):
     Return 0 if it doesn't exist
     """
     
-    key = get_mutable_data_zonefile_key( user_profile, data_id )
+    key = get_mutable_data_zonefile_md( user_profile, data_id )
     if key is None:
         log.debug("No mutable data zonefiles installed for '%s'" % (data_id))
         return 0
