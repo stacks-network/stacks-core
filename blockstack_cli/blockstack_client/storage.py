@@ -49,6 +49,7 @@ log = get_logger()
 import string
 B40_CHARS = string.digits + string.lowercase + '-_.+'
 B40_CLASS = '[a-z0-9\-_.+]'
+B40_NO_PERIOD_CLASS = '[a-z0-9\-_+]'
 B40_REGEX = '^%s*$' % B40_CLASS
 URLENCODED_CLASS = '[a-zA-Z0-9\-_.~%]'
 
@@ -98,6 +99,15 @@ def get_user_zonefile_hash( data_txt ):
    """
    Generate a hash over a user's zonefile.
    Return the hex string.
+   """
+   return pybitcoin.hex_hash160( data_txt )
+
+
+def get_blockchain_compat_hash( data_txt ):
+   """
+   Generate a hash suitable for embedding into 
+   the blockchain (e.g. for user zonefiles and
+   announcements.
    """
    return pybitcoin.hex_hash160( data_txt )
 
@@ -187,7 +197,7 @@ def register_storage( storage_impl ):
    return True
 
 
-def get_immutable_data( data_key, hash_func=get_data_hash, deserialize=True ):
+def get_immutable_data( data_hash, data_url=None, hash_func=get_data_hash, deserialize=True ):
    """
    Given the hash of the data, go through the list of
    immutable data handlers and look it up.
@@ -200,30 +210,50 @@ def get_immutable_data( data_key, hash_func=get_data_hash, deserialize=True ):
        log.debug("No storage handlers registered")
        return None
 
-   for handler in storage_handlers:
+   for handler in [data_url] + storage_handlers:
 
-      if not hasattr( handler, "get_immutable_handler" ):
-         log.debug("No method: %s.get_immutable_handler(%s)" % (handler, data_key))
+      if handler is None:
          continue
 
       data = None
+      if handler == data_url:
+         # url hint
+         try: 
+            # assume it's something we can urlopen 
+            urlh = urllib2.urlopen( data_url )
+            data = urlh.read()
+            urlh.close()
+         except Exception, e:
+            log.exception(e)
+            log.error("Failed to load profile from '%s'" % data_url)
+            continue
 
-      try:
+      else:
+         # handler
+         if not hasattr( handler, "get_immutable_handler" ):
+            log.debug("No method: %s.get_immutable_handler(%s)" % (handler, data_hash))
+            continue
 
-         data = handler.get_immutable_handler( data_key )
-      except Exception, e:
-         log.exception( e )
-         continue
+         try:
+            data = handler.get_immutable_handler( data_hash )
+         except Exception, e:
+            log.exception( e )
+            log.debug("Method failed: %s.get_immutable_handler(%s)" % (handler, data_hash))
+            continue
 
       if data is None:
-         log.debug("No data: %s.get_immutable_handler(%s)" % (handler.__name__, data_key))
+         log.debug("No data: %s.get_immutable_handler(%s)" % (handler.__name__, data_hash))
          continue
 
       # validate
-      data_hash = hash_func(data)
-      if data_hash != data_key:
+      dh = hash_func(data)
+      if dh != data_hash:
          # nope
-         log.error("Invalid data hash")
+         if handler == data_url:
+             log.error("Invalid data hash from '%s'" % data_url)
+         else:
+             log.error("Invalid data hash from %s.get_immutable_handler" % (handler.__name__))
+
          continue
 
       # deserialize 
@@ -231,7 +261,7 @@ def get_immutable_data( data_key, hash_func=get_data_hash, deserialize=True ):
           try:
               data_dict = json.loads(data)
           except ValueError:
-              log.error("Invalid JSON for %s" % data_key)
+              log.error("Invalid JSON for %s" % data_hash)
               continue
 
       else:
@@ -536,9 +566,9 @@ def blockstack_mutable_data_url( blockchain_id, data_id, version ):
         if type(version) not in [int, long]:
             raise ValueError("Verison must be an int or long")
 
-        return "blockstack://%s/mutable/%s/%s" % (urllib.quote(blockchain_id), urllib.quote(data_id), str(version))
+        return "blockstack://%s/%s#%s" % (urllib.quote(blockchain_id), urllib.quote(data_id), str(version))
     else:
-        return "blockstack://%s/mutable/%s" % (urllib.quote(blockchain_id), urllib.quote(data_id))
+        return "blockstack://%s/%s" % (urllib.quote(blockchain_id), urllib.quote(data_id))
 
 
 def blockstack_immutable_data_url( blockchain_id, data_id, data_hash ):
@@ -548,7 +578,10 @@ def blockstack_immutable_data_url( blockchain_id, data_id, data_hash ):
     if data_hash is not None and not is_valid_hash( data_hash ):
         raise ValueError("Invalid hash: %s" % data_hash)
 
-    return "blockstack://%s/immutable/%s/%s" % (urllib.quote(blockchain_id), urllib.quote(data_id), data_hash)
+    if data_hash is not None:
+        return "blockstack://%s/%s#%s" % (urllib.quote(blockchain_id), urllib.quote(data_id), data_hash)
+    else:
+        return "blockstack://%s/%s" % (urllib.quote(blockchain_id), urllib.quote(data_id))
 
 
 def blockstack_mutable_data_url_parse( url ):
@@ -561,24 +594,26 @@ def blockstack_mutable_data_url_parse( url ):
     Raise on bad data
     """
 
-    mutable_url_data_regex = r"blockstack://(%s+)[/]+mutable[/]+(%s+)([/]+[0-9]+)?" % (B40_CLASS, URLENCODED_CLASS)
-    mutable_url_listing_regex = r"blockstack://(%s+)[/]+mutable[/]*" % (B40_CLASS)
+    mutable_url_data_regex = r"blockstack://(%s+)[/]+(%s+)(#[0-9]+)?" % (B40_CLASS, URLENCODED_CLASS)
+    mutable_url_listing_regex = r"blockstack://(%s+)[/]+#mutable" % (B40_CLASS)
 
-    blockstack_id = None
+    blockchain_id = None
     data_id = None
     version = None
 
     m = re.match( mutable_url_data_regex, url )
     if m:
 
-        blockstack_id, data_id, version = m.groups()
+        blockchain_id, data_id, version = m.groups()
+        if not is_valid_name( blockchain_id ):
+            raise ValueError("Invalid blockchain ID")
 
         # version?
         if version is not None:
-            version = version.strip("/")
+            version = version.strip("#")
             version = int(version)
 
-        return urllib.unquote(blockstack_id), urllib.unquote(data_id), version
+        return urllib.unquote(blockchain_id), urllib.unquote(data_id), version
 
     else:
         # maybe a listing?
@@ -586,8 +621,8 @@ def blockstack_mutable_data_url_parse( url ):
         if not m:
             raise ValueError("Invalid URL: %s" % url)
 
-        blockstack_id = m.groups()[0]
-        return urllib.unquote(blockstack_id), None, None
+        blockchain_id = m.groups()[0]
+        return urllib.unquote(blockchain_id), None, None
 
 
 def blockstack_immutable_data_url_parse( url ):
@@ -600,20 +635,24 @@ def blockstack_immutable_data_url_parse( url ):
     Raise on bad data
     """
     
-    immutable_data_regex = r"blockstack://(%s+)[/]+immutable[/]+(%s+)([/]+[a-fA-F0-9]+)?" % (B40_CLASS, URLENCODED_CLASS)
-    immutable_listing_regex = r"blockstack://(%s+)[/]+immutable[/]*" % (B40_CLASS)
+    immutable_data_regex = r"blockstack://(%s+)\.(%s+)\.(%s+)[/]+(#[a-fA-F0-9]+)?" % (URLENCODED_CLASS, B40_NO_PERIOD_CLASS, B40_NO_PERIOD_CLASS)
+    immutable_listing_regex = r"blockstack://(%s+)[/]+#immutable" % (B40_CLASS)
 
     m = re.match( immutable_data_regex, url )
     if m:
 
-        blockstack_id, data_id, data_hash = m.groups()
+        data_id, blockchain_name, namespace_id, data_hash = m.groups()
+        blockchain_id = "%s.%s" % (blockchain_name, namespace_id)
+
+        if not is_valid_name( blockchain_id ):
+            raise ValueError( "Invalid blockchain ID")
 
         if data_hash is not None:
-            data_hash = data_hash.lower().strip("/")
+            data_hash = data_hash.lower().strip("#")
             if not is_valid_hash( data_hash ):
                 raise ValueError("Invalid data hash: %s" % data_hash)
     
-        return urllib.unquote(blockstack_id), urllib.unquote(data_id), data_hash
+        return urllib.unquote(blockchain_id), urllib.unquote(data_id), data_hash
 
     else:
         # maybe a listing?
@@ -621,8 +660,8 @@ def blockstack_immutable_data_url_parse( url ):
         if not m:
             raise ValueError("Invalid URL: %s" % url)
 
-        blockstack_id = m.groups()[0]
-        return urllib.unquote(blockstack_id), None, None 
+        blockchain_id = m.groups()[0]
+        return urllib.unquote(blockchain_id), None, None 
 
 
 def blockstack_data_url_parse( url ):
@@ -647,16 +686,16 @@ def blockstack_data_url_parse( url ):
     try:
         blockchain_id, data_id, data_hash = blockstack_immutable_data_url_parse( url )
         url_type = 'immutable'
-        fields = {
+        fields.update( {
             'data_hash': data_hash
-        }
+        } )
     except:
         try:
             blockchain_id, data_id, version = blockstack_mutable_data_url_parse( url )
-            url_type = 'mutable'
-            fields = {
+            url_type = 'immutable'
+            fields.update( {
                 'version': version
-            }
+            } )
         except:
             return None
 
