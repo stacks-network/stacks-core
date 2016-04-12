@@ -74,10 +74,13 @@ def process_announcement( op ):
     announcer_id = op['announcer_id']
 
     # go get the text...
-    announcement_text = get_announcement( announce_hash ) 
-    log.critical("ANNOUNCEMENT (from %s): %s\n------BEGIN MESSAGE------\n%s\n------END MESSAGE------\n" % (announcer_id, announce_hash, announcement_text))
-             
-    store_announcement( announce_hash, announcement_text )
+    announcement_text = get_announcement( announce_hash )
+    if announcement_text is None:
+        log.critical( "\n\n(INTERNAL ERROR): Failed to fetch announcement with hash %s from '%s'\n\n" % (announce_hash, announcer_id))
+
+    else:
+        log.critical("ANNOUNCEMENT (from %s): %s\n------BEGIN MESSAGE------\n%s\n------END MESSAGE------\n" % (announcer_id, announce_hash, announcement_text))         
+        store_announcement( announce_hash, announcement_text )
 
 
 def check( state_engine, nameop, block_id, checked_ops ):
