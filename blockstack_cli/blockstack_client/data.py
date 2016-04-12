@@ -192,11 +192,11 @@ def delete_mutable_data_version(conf, data_id):
         return False
 
 
-def get_immutable(name, data_key, data_id=None, proxy=None):
+def get_immutable(name, data_hash, data_id=None, proxy=None):
     """
     get_immutable
 
-    Fetch a piece of immutable data.  Use @data_key to look it up
+    Fetch a piece of immutable data.  Use @data_hash to look it up
     in the user's zonefile, and then fetch and verify the data itself
     from the configured storage providers.
 
@@ -227,27 +227,28 @@ def get_immutable(name, data_key, data_id=None, proxy=None):
         if type(h) == list:
             # this tool doesn't allow this to happen (one ID matches one hash),
             # but that doesn't preclude the user from doing this with other tools.
-            if data_key is not None and data_key not in h:
+            if data_hash is not None and data_hash not in h:
                 return {'error': 'Data ID/hash mismatch'}
 
             else:
                 return {'error': "Multiple matches for '%s': %s" % (data_id, ",".join(h))}
 
-        if data_key is not None:
-            if h != data_key:
+        if data_hash is not None:
+            if h != data_hash:
                 return {'error': 'Data ID/hash mismatch'}
 
         else:
-            data_key = h
+            data_hash = h
 
-    elif not user_db.has_immutable_data( user_zonefile, data_key ):
+    elif not user_db.has_immutable_data( user_zonefile, data_hash ):
         return {'error': 'No such immutable datum'}
 
-    data = storage.get_immutable_data( data_key )
+    data_url_hint = user_db.get_immutable_data_url( user_zonefile, data_hash )
+    data = storage.get_immutable_data( data_hash, data_url=data_url_hint )
     if data is None:
         return {'error': 'No immutable data returned'}
 
-    return {'data': data, 'hash': data_key}
+    return {'data': data, 'hash': data_hash}
 
 
 def get_immutable_by_name( name, data_id, proxy=None ):
@@ -427,7 +428,7 @@ def get_mutable(name, data_id, proxy=None, ver_min=None, ver_max=None, ver_check
     return {'data': mutable_data, 'version': version}
 
 
-def put_immutable(name, data_id, data_json, txid=None, proxy=None, wallet_keys=None ):
+def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None, wallet_keys=None ):
     """
     put_immutable
 
@@ -482,7 +483,7 @@ def put_immutable(name, data_id, data_json, txid=None, proxy=None, wallet_keys=N
             if not rc:
                 return {'error': 'Failed to overwrite old immutable data'}
 
-    rc = user_db.put_immutable_data_zonefile( user_zonefile, data_id, data_hash )
+    rc = user_db.put_immutable_data_zonefile( user_zonefile, data_id, data_hash, data_url=data_url )
     if not rc:
         return {'error': 'Failed to insert immutable data into user zonefile'}
 
