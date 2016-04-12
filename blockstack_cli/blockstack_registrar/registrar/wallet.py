@@ -220,7 +220,7 @@ class HDWallet(object):
         return None
 
 # global default wallet
-wallet = HDWallet(HD_WALLET_PRIVKEY)
+wallet = HDWallet(HD_WALLET_PRIVKEY, enable_cache=True)
 
 
 def get_underfunded_addresses(list_of_addresses):
