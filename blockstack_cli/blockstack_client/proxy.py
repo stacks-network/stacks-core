@@ -37,7 +37,11 @@ import copy
 import blockstack_profiles
 import zone_file
 import urllib
-import xmlrpclib 
+from xmlrpclib import ServerProxy
+from defusedxml import xmlrpc
+
+# prevent the usual XML attacks
+xmlrpc.monkey_patch()
 
 import user as user_db
 import storage
@@ -67,7 +71,8 @@ class BlockstackRPCClient(object):
     RPC client for the blockstack server
     """
     def __init__(self, server, port, max_rpc_len=MAX_RPC_LEN, timeout=config.DEFAULT_TIMEOUT ):
-        self.srv = xmlrpclib.Server( "http://%s:%s" % (server, port), allow_none=True )
+        # TODO: honor timeout
+        self.srv = ServerProxy( "http://%s:%s" % (server, port), allow_none=True )
 
     def __getattr__(self, key):
         try:
@@ -516,7 +521,7 @@ def update(name, user_zonefile_json_or_hash, privatekey, txid=None, proxy=None, 
             return {'error': 'User profile is unparseable JSON or unparseable hash'}
 
         user_zonefile_txt = zone_file.make_zone_file( user_zonefile, origin=name, ttl=USER_ZONEFILE_TTL )
-        user_zonefile_hash = storage.get_user_zonefile_hash( user_zonefile_txt )
+        user_zonefile_hash = storage.get_name_zonefile_hash( user_zonefile_txt )
 
     # must be blockchain data for this user
     blockchain_result = get_name_blockchain_record( name, proxy=proxy )
