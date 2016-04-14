@@ -95,7 +95,7 @@ def get_data_hash( data_txt ):
    return h.hexdigest()
 
 
-def get_user_zonefile_hash( data_txt ):
+def get_name_zonefile_hash( data_txt ):
    """
    Generate a hash over a user's zonefile.
    Return the hex string.
@@ -107,7 +107,7 @@ def get_blockchain_compat_hash( data_txt ):
    """
    Generate a hash suitable for embedding into 
    the blockchain (e.g. for user zonefiles and
-   announcements.
+   announcements).
    """
    return pybitcoin.hex_hash160( data_txt )
 
@@ -307,7 +307,7 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None ):
    global storage_handlers
 
    fq_data_id = str(fq_data_id)
-   assert is_fq_data_id( fq_data_id ) or is_valid_name( fq_data_id ), "Need either a fully-qualified data ID or a Blockstack DNS name: '%s'" % fq_data_id
+   assert is_fq_data_id( fq_data_id ) or is_valid_name( fq_data_id ), "Need either a fully-qualified data ID or a blockchain ID: '%s'" % fq_data_id
 
    if urls is None:
        # generate them 
@@ -427,7 +427,7 @@ def put_mutable_data( fq_data_id, data_json, privatekey ):
    """
 
    fq_data_id = str(fq_data_id)
-   assert is_fq_data_id( fq_data_id ) or is_valid_name(fq_data_id), "Data ID must be fully qualified or must be a valid Blockstack DNS name (got %s)" % fq_data_id
+   assert is_fq_data_id( fq_data_id ) or is_valid_name(fq_data_id), "Data ID must be fully qualified or must be a valid blockchain ID (got %s)" % fq_data_id
 
    serialized_data = serialize_mutable_data( data_json, privatekey )
    successes = 0
@@ -440,10 +440,8 @@ def put_mutable_data( fq_data_id, data_json, privatekey ):
       rc = False
 
       try:
-
          rc = handler.put_mutable_handler( fq_data_id, serialized_data )
       except Exception, e:
-
          log.exception( e )
          continue
 
@@ -500,7 +498,7 @@ def delete_mutable_data( fq_data_id, privatekey ):
    global storage_handlers
 
    fq_data_id = str(fq_data_id)
-   assert is_fq_data_id( fq_data_id ) or is_valid_name(fq_data_id), "Data ID must be fully qualified or must be a valid Blockstack DNS name (got %s)" % fq_data_id
+   assert is_fq_data_id( fq_data_id ) or is_valid_name(fq_data_id), "Data ID must be fully qualified or must be a valid blockchain ID (got %s)" % fq_data_id
 
    sigb64 = sign_raw_data( fq_data_id, privatekey )
 
