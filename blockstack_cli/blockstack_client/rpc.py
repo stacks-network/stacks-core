@@ -27,7 +27,12 @@ import traceback
 import errno
 import time
 import atexit
-import xmlrpclib
+from xmlrpclib import ServerProxy
+from defusedxml import xmlrpc
+
+# prevent the usual XML attacks
+xmlrpc.monkey_path()
+
 import signal
 import json
 from blockstack_client import config
@@ -170,7 +175,7 @@ def local_rpc_dispatch( port, method_name, *args, **kw ):
     Connect to the running endpoint, issue the command,
     and return the result.
     """
-    client = xmlrpclib.ServerProxy('http://localhost:%s' % port)
+    client = ServerProxy('http://localhost:%s' % port)
     try:
         method = getattr(client, method)
         result = method( *args, **kw )
