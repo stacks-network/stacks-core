@@ -46,7 +46,11 @@ current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
 
 sys.path.insert(0, parent_dir)
-import xmlrpclib
+from xmlrpclib import ServerProxy
+from defusedxml import xmlrpc
+
+# prevent the usual XML attacks 
+xmlrpc.monkey_patch()
 
 from registrar.config import REGISTRAR_IP, REGISTRAR_PORT
 from registrar.config import BLOCKSTACKD_IP, BLOCKSTACKD_PORT
@@ -273,7 +277,7 @@ def get_names_owned(address):
 
 def get_local_proxy():
 
-    proxy = xmlrpclib.ServerProxy(RPC_DAEMON)
+    proxy = ServerProxy(RPC_DAEMON)
 
     try:
         data = proxy.ping()
@@ -291,7 +295,7 @@ def start_background_daemons():
     """
 
     from registrar.rpc_daemon import background_process
-    proxy = xmlrpclib.ServerProxy(RPC_DAEMON)
+    proxy = ServerProxy(RPC_DAEMON)
 
     try:
         data = proxy.ping()
