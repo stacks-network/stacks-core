@@ -69,7 +69,7 @@ def load_name_zonefile(expected_zonefile_hash):
     Return None on error
     """
 
-    zonefile_txt = storage.get_immutable_data(expected_zonefile_hash, hash_func=storage.get_user_zonefile_hash, deserialize=False)
+    zonefile_txt = storage.get_immutable_data(expected_zonefile_hash, hash_func=storage.get_name_zonefile_hash, deserialize=False)
     if zonefile_txt is None:
         log.error("Failed to load user zonefile '%s'" % expected_zonefile_hash)
         return None
@@ -286,7 +286,7 @@ def store_name_zonefile( name, user_zonefile, txid ):
 
     # serialize and send off
     user_zonefile_txt = zone_file.make_zone_file( user_zonefile, origin=name, ttl=USER_ZONEFILE_TTL )
-    data_hash = storage.get_user_zonefile_hash( user_zonefile_txt )
+    data_hash = storage.get_name_zonefile_hash( user_zonefile_txt )
     result = storage.put_immutable_data(None, txid, data_hash=data_hash, data_text=user_zonefile_txt )
 
     rc = None
