@@ -29,7 +29,8 @@ setup(
         'zone_file==0.1.6',
         'registrar>=0.0.4',
         'python-jsonrpc==0.8.4',
-        'blockstack-storage-drivers>=0.0.1.0'
+        'blockstack-storage-drivers>=0.0.1.0',
+        'defusedxml>=0.4.1'
     ],
     classifiers=[
         'Intended Audience :: Developers',
