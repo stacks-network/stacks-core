@@ -219,6 +219,12 @@ def storage_init():
     return True
 
 
+def handles_url( url ):
+    """
+    Does this storage driver handle this kind of URL?
+    """
+    return ".s3.amazonaws.com" in url
+
 
 def make_mutable_url( data_id ):
     """
@@ -252,7 +258,6 @@ def get_mutable_handler( url ):
     """
     S3 implementation of the get_mutable_handler API call.
     Given a route URL to data, return the data itself.
-    If we can't handle this URL, raise UnhandledURLException.
     Return the data if found.
     Return None if not.
     """

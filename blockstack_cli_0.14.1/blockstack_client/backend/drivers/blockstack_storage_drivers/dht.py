@@ -145,6 +145,13 @@ def storage_init():
     return dht_init()
 
 
+def handles_url(url):
+    """
+    Does this driver handle this kind of URL?
+    """
+    return url.startswith("dht+udp://")
+
+
 def make_mutable_url(data_id):
     """
     DHT implementation of the make_mutable_url API call.
@@ -170,7 +177,6 @@ def get_mutable_handler(data_id):
     """
     DHT implementation of the get_mutable_handler API call.
     Given a route URL to data, return the data itself.
-    If we can't handle this URL, raise UnhandledURLException.
     Return the data if found.
     Return None if not.
     """
