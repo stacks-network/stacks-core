@@ -61,6 +61,13 @@ def storage_init():
    return True 
 
 
+def handles_url( url ):
+    """
+    Does this storage driver handle this kind of URL?
+    """
+    return url.startswith("file://")
+
+
 def make_mutable_url( data_id ):
    """
    Local disk implementation of the make_mutable_url API call.
@@ -112,7 +119,6 @@ def get_mutable_handler( url ):
    """
    Local disk implementation of the get_mutable_handler API call.
    Given a route URL to data, return the data itself.
-   If we can't handle this URL, raise UnhandledURLException.
    Return the data if found.
    Return None if not.
    """
