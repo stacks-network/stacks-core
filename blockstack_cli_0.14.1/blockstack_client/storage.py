@@ -577,9 +577,9 @@ def blockstack_immutable_data_url( blockchain_id, data_id, data_hash ):
         raise ValueError("Invalid hash: %s" % data_hash)
 
     if data_hash is not None:
-        return "blockstack://%s/%s#%s" % (urllib.quote(blockchain_id), urllib.quote(data_id), data_hash)
+        return "blockstack://%s.%s/#%s" % (urllib.quote(data_id), urllib.quote(blockchain_id), data_hash)
     else:
-        return "blockstack://%s/%s" % (urllib.quote(blockchain_id), urllib.quote(data_id))
+        return "blockstack://%s.%s" % (urllib.quote(data_id), urllib.quote(blockchain_id))
 
 
 def blockstack_mutable_data_url_parse( url ):
@@ -592,6 +592,7 @@ def blockstack_mutable_data_url_parse( url ):
     Raise on bad data
     """
 
+    url = str(url)
     mutable_url_data_regex = r"blockstack://(%s+)[/]+(%s+)(#[0-9]+)?" % (B40_CLASS, URLENCODED_CLASS)
     mutable_url_listing_regex = r"blockstack://(%s+)[/]+#mutable" % (B40_CLASS)
 
@@ -604,7 +605,7 @@ def blockstack_mutable_data_url_parse( url ):
 
         blockchain_id, data_id, version = m.groups()
         if not is_valid_name( blockchain_id ):
-            raise ValueError("Invalid blockchain ID")
+            raise ValueError("Invalid blockchain ID '%s'" % blockchain_id)
 
         # version?
         if version is not None:
@@ -633,6 +634,7 @@ def blockstack_immutable_data_url_parse( url ):
     Raise on bad data
     """
     
+    url = str(url)
     immutable_data_regex = r"blockstack://(%s+)\.(%s+)\.(%s+)[/]+(#[a-fA-F0-9]+)?" % (URLENCODED_CLASS, B40_NO_PERIOD_CLASS, B40_NO_PERIOD_CLASS)
     immutable_listing_regex = r"blockstack://(%s+)[/]+#immutable" % (B40_CLASS)
 
@@ -643,7 +645,7 @@ def blockstack_immutable_data_url_parse( url ):
         blockchain_id = "%s.%s" % (blockchain_name, namespace_id)
 
         if not is_valid_name( blockchain_id ):
-            raise ValueError( "Invalid blockchain ID")
+            raise ValueError( "Invalid blockchain ID '%s'" % blockchain_id)
 
         if data_hash is not None:
             data_hash = data_hash.lower().strip("#")
@@ -687,14 +689,14 @@ def blockstack_data_url_parse( url ):
         fields.update( {
             'data_hash': data_hash
         } )
-    except:
+    except Exception, e1:
         try:
             blockchain_id, data_id, version = blockstack_mutable_data_url_parse( url )
             url_type = 'immutable'
             fields.update( {
                 'version': version
             } )
-        except:
+        except Exception, e2:
             return None
 
     ret = {
