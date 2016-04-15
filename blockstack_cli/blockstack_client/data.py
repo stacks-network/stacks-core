@@ -853,6 +853,8 @@ def data_put( blockstack_url, data, proxy=None, wallet_keys=None, **kw ):
     Put data to a blockstack URL (be it mutable or immutable).
     """
     parts = storage.blockstack_data_url_parse( blockstack_url )
+    assert parts is not None, "invalid url '%s'" % blockstack_url
+
     if parts['type'] == 'immutable':
         return put_immutable( parts['blockchain_id'], parts['data_id'], data, proxy=proxy, wallet_keys=wallet_keys, **kw ) 
     else:
@@ -864,6 +866,8 @@ def data_delete( blockstack_url, proxy=None, wallet_keys=None, **kw ):
     Delete data from a blockstack URL (be it mutable or immutable).
     """
     parts = storage.blockstack_data_url_parse( blockstack_url )
+    assert parts is not None, "invalid url '%s'" % blockstack_url
+
     if parts['type'] == 'immutable':
         return delete_immutable( parts['blockchain_id'], parts['fields']['data_hash'], data_id=parts['data_id'], proxy=proxy, wallet_keys=wallet_keys, **kw )
     else:
