@@ -23,20 +23,17 @@ sudo pip install blockstack
 ```
 
 If you encounter any problems during the pip install, see the [detailed installation
-instructions](https://github.com/blockstack/blockstack/wiki/Usage).
+instructions](https://blockstack.org/docs/installation).
 
 ### Getting Started
 
 First, start the Blockstack server and index the blockchain:
 
-```
+```bash
 $ blockstack-server start
 ```
 
-Next, learn how to register names of your own, as well as transfer them and
-associate data with them:
-
-[Full usage docs](https://blockstack.org/docs/basic-usage)
+Next, visit the [basic usage docs](https://blockstack.org/docs/basic-usage) and [extended usage docs](https://blockstack.org/docs/basic-usage) to learn how to register names of your own, as well as transfer them and associate data with them.
 
 ### Contributing
 
@@ -45,13 +42,14 @@ We welcome any small or big contributions! Please take a moment to
 
 #### Main Authors
 
-**[Jude Nelson](http://onename.com/judecn)** ([@jcnelson](https://github.com/jcnelson))
-**[Muneeb Ali](http://onename.com/muneeb)** ([@muneeb-ali](https://github.com/muneeb-ali))
-**[Ryan Shea](http://onename.com/ryan)** ([@ryaneshea](https://github.com/shea256))
+- **[Jude Nelson](http://onename.com/judecn)** ([@jcnelson](https://github.com/jcnelson))
+- **[Muneeb Ali](http://onename.com/muneeb)** ([@muneeb-ali](https://github.com/muneeb-ali))
+- **[Ryan Shea](http://onename.com/ryan)** ([@ryaneshea](https://github.com/shea256))
 
-#### Code Contributors
+#### All Code Contributors
 
-[Contributor Graph](../../graphs/contributors)
+- [Contributor Graph](../../graphs/contributors)
+- [Code Overview](https://github.com/blockstack/blockstack/blob/master/overview.md)
 
 ### Community
 
