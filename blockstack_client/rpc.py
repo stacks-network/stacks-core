@@ -31,7 +31,7 @@ from xmlrpclib import ServerProxy
 from defusedxml import xmlrpc
 
 # prevent the usual XML attacks
-xmlrpc.monkey_path()
+xmlrpc.monkey_patch()
 
 import signal
 import json
