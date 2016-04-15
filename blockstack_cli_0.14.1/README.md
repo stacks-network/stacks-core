@@ -1,17 +1,17 @@
-# Blockstack Client
+# Blockstack Command Line Interface
 
 [![PyPI](https://img.shields.io/pypi/v/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
 [![PyPI](https://img.shields.io/pypi/dm/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
 [![PyPI](https://img.shields.io/pypi/l/blockstack.svg)](https://github.com/blockstack/blockstack-client/blob/master/LICENSE)
 [![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 
-This package contains the reference client library for
-[blockstack-server](https://github.com/blockstack/blockstack-server). It talks to the
-server and provides an interface for creating and managing names in decentralized namespaces on the blockchain.
+This package contains the CLI (command line interface) and reference client library for
+[Blockstack Server](https://github.com/blockstack/blockstack-server). It talks to the
+Blockstack server and provides an interface for creating and managing names in decentralized namespaces and database tables on the blockchain.
 
 ## Installation
 
-Installing the command line interface and the client library:
+Installing the command line interface and client library:
 
 ### Debian + Ubuntu
 
@@ -22,40 +22,46 @@ $ sudo pip install blockstack --upgrade
 
 ### OS X
 
-```
+```bash
 $ sudo pip install blockstack --upgrade
 ```
 
-We recommend installing inside a [virtualenvironment](http://docs.python-guide.org/en/latest/dev/virtualenvs/). If you're installing inside a virtualenvironment then do:
-```
+We recommend installing the CLI inside of a [virtual environment](http://docs.python-guide.org/en/latest/dev/virtualenvs/), in which case you can drop the "sudo" at the beginning like so:
+
+```bash
 $ pip install blockstack --upgrade
 ```
 
-If the above install command fails, see the [trouble shooting section](#troubleshooting-installation).
+If the installation command above fails, see the [troubleshooting section](#troubleshooting-installation).
 
 ### Development Version
 
-The client is under heavy development and you might want to install the development version.
-The development version can have bug fixes for some issues you're experiencing. Anyone
-helping with testing and development should also use the development version.
+The client is under heavy development and you may want to install the
+development version, which will contain certain bug fixes for issues you may
+be experiencing. Additionally, if you're helping with testing you should use
+the development version.
 
-On Debian/Ubuntun first install required packages:
-> sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev git
+On Debian/Ubuntu, first install the required packages:
+
+```bash
+$ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev git
+```
 
 Now, install the development version:
-```
+
+```bash
 $ sudo pip install git+https://github.com/blockstack/blockstack-client.git@develop --upgrade
 $ sudo pip install git+https://github.com/blockstack/registrar.git@develop --upgrade
 
 ```
 
-If the above install commands fail, see the [trouble shooting section](#troubleshooting-installation).
+If the installation commands fail, see the [troubleshooting section](#troubleshooting-installation).
 
 ## Command Line Usage 
 
 ### Listing All Commands
 
-```
+```bash
 $ blockstack
 usage: blockstack [-h]
                   ...
@@ -80,15 +86,15 @@ optional arguments:
   -h, --help            show this help message and exit
 ```
 
-### Info  (or ping or status)
+### Info (or ping or status)
 
-```
+```bash
 $ blockstack info
 ```
 
 ##### Examples
 
-```
+```bash
 $ blockstack info
 {
     "advanced_mode": "off",
@@ -105,13 +111,13 @@ $ blockstack info
 
 ### Config
 
-```
+```bash
 $ blockstack config <options>
 ```
 
 ##### Examples
 
-```
+```bash
 $ blockstack config --host=server.blockstack.org --port=6264 --advanced=off
 {
   "message": "Updated settings for host port advanced"
@@ -120,13 +126,13 @@ $ blockstack config --host=server.blockstack.org --port=6264 --advanced=off
 
 ### Cost
 
-```
+```bash
 $ blockstack price <name>
 ```
 
 ##### Examples
 
-```
+```bash
 $ blockstack price $(whoami).id
 {
     "name_price": 0.001,
@@ -137,13 +143,13 @@ $ blockstack price $(whoami).id
 
 ### Whois
 
-```
+```bash
 $ blockstack whois <name>
 ```
 
 ##### Examples
 
-```
+```bash
 $ blockstack whois fredwilson.id
 {
     "block_preordered_at": 374084,
@@ -156,7 +162,7 @@ $ blockstack whois fredwilson.id
 }
 ```
 
-```
+```bash
 $ blockstack whois $(whoami)_$(date +"%m_%d").id
 {
   "registered": false
@@ -165,13 +171,13 @@ $ blockstack whois $(whoami)_$(date +"%m_%d").id
 
 ### Lookup
 
-```
+```bash
 $ blockstack lookup <name>
 ```
 
 ##### Examples
 
-```
+```bash
 $ blockstack lookup fredwilson.id
 {
     "data_record": {
@@ -184,7 +190,7 @@ $ blockstack lookup fredwilson.id
 
 ```
 
-```
+```bash
 $ blockstack lookup $(whoami)_$(date +"%m_%d").id
 {
     "error": "muneeb_02_22.id is not registered"
@@ -193,13 +199,13 @@ $ blockstack lookup $(whoami)_$(date +"%m_%d").id
 
 ### Register
 
-```
+```bash
 $ blockstack register <name>
 ```
 
 ##### Example
 
-```
+```bash
 $ blockstack register $(whoami)_$(date +"%m_%d").id
 Registering muneeb_02_22.id will cost 0.0002225 BTC. Continue? (y/n): y
 {
@@ -208,7 +214,7 @@ Registering muneeb_02_22.id will cost 0.0002225 BTC. Continue? (y/n): y
 }
 ```
 
-```
+```bash
 $ blockstack register fredwilson.id
 {
     "error": "fredwilson.id is already registered"
@@ -217,13 +223,13 @@ $ blockstack register fredwilson.id
 
 ### Update
 
-```
+```bash
 $ blockstack update <name> <data>
 ```
 
 ##### Examples
 
-```
+```bash
 $ blockstack update $(whoami)_$(date +"%m_%d").id '{"cname": [{ "name": "@", "alias": "https://zk9.s3.amazonaws.com" }]}'
 {
   "message": "Added to update queue. Takes ~1 hour. You can check status at anytime.",
@@ -231,7 +237,7 @@ $ blockstack update $(whoami)_$(date +"%m_%d").id '{"cname": [{ "name": "@", "al
 }
 ```
 
-```
+```bash
 $ blockstack update fredwilson.id '{}'
 {
     "error": "fredwilson.id not owned by 1UGQbEV6JXEk1onBzDoNGikrCjeXenA75"
@@ -240,13 +246,13 @@ $ blockstack update fredwilson.id '{}'
 
 ### Transfer
 
-```
+```bash
 $ blockstack transfer <name> <address>
 ```
 
 ##### Examples
 
-```
+```bash
 $ blockstack transfer $(whoami)_$(date +"%m_%d").id 1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt
 {
   "message": "Added to transfer queue. Takes ~1 hour. You can check status at anytime.",
@@ -254,7 +260,7 @@ $ blockstack transfer $(whoami)_$(date +"%m_%d").id 1Jbcrh9Lkwm73jXyxramFukViEtk
 }
 ```
 
-```
+```bash
 $ blockstack transfer fredwilson.id 1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt
 {
     "error": "fredwilson.id not owned by 1UGQbEV6JXEk1onBzDoNGikrCjeXenA75"
@@ -263,13 +269,13 @@ $ blockstack transfer fredwilson.id 1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt
 
 ### Balance
 
-```
+```bash
 $ blockstack balance
 ```
 
 ##### Examples
 
-```
+```bash
 $ blockstack balance
 {
     "addresses": [
@@ -284,13 +290,13 @@ $ blockstack balance
 
 ### Names
 
-```
+```bash
 $ blockstack names
 ```
 
 ##### Examples
 
-```
+```bash
 $ blockstack names
 {
     "names_owned": [],
@@ -302,13 +308,13 @@ $ blockstack names
 
 ### Deposit
 
-```
+```bash
 $ blockstack deposit
 ```
 
 ##### Examples
 
-```
+```bash
 $ blockstack deposit
 {
     "message": "Send bitcoins to the address specified.",
@@ -318,13 +324,13 @@ $ blockstack deposit
 
 ### Import
 
-```
+```bash
 $ blockstack import
 ```
 
 ##### Examples
 
-```
+```bash
 $ blockstack import
 {
     "message": "Send the name you want to receive to the address specified.",
@@ -337,27 +343,41 @@ $ blockstack import
 **a) Error installing pycrypto**
 
 If you see the following error, while pycrpyto installs on OS X:
-> error: command 'cc' failed with exit status 1
 
-Try installing it using:
-> $ ARCHFLAGS=-Wno-error=unused-command-line-argument-hard-error-in-future pip install pycrypto
+```bash
+error: command 'cc' failed with exit status 1
+```
+
+Try installing it with the following:
+
+```bash
+$ ARCHFLAGS=-Wno-error=unused-command-line-argument-hard-error-in-future pip install pycrypto
+```
 
 **b) Twisted error when running blockstack**
 
 If you see the following error, when you run '$ blockstack':
-> ImportError: Twisted requires zope.interface 3.6.0 or later.
+
+```bash
+ImportError: Twisted requires zope.interface 3.6.0 or later.
+```
 
 Try upgrading zope.interface:
-> pip install zope.interface --upgrade
 
-If that doesn't solve the issue and you're trying to install inside of a
-virtualenvironment, then Twisted is likely already installed outside the
-virtualenvironment. Exit the virtualenvironment and uninstall Twisted:
+```bash
+$ pip install zope.interface --upgrade
 ```
+
+If this doesn't solve the issue and you're trying to install Blockstack inside
+a virtual environment, then Twisted is likely already installed outside of the
+virtual environment, so exit the virtual environment and uninstall Twisted:
+
+```bash
 $ deactivate
 $ sudo pip uninstall twisted
 ```
-Now, install blockstack in a new virtualenvironment.
+
+Now, install blockstack in a new virtual environment.
 
 If the issue you are experiencing is not listed here, please
 [report it as a new issue](https://github.com/blockstack/blockstack-client/issues/new).
@@ -365,17 +385,20 @@ If the issue you are experiencing is not listed here, please
 ## Running Your Server
 
 The CLI by default talks to a remote server, but you can easily start your own server.
-Open a new terminal and do:
 
-```
+Open a new terminal window and run the following command:
+
+```bash
 $ blockstack-server start --foreground
 ```
 
 You can now switch the cli to use the local server:
-```
+
+```bash
 $ blockstack config --host=localhost
 ```
-More information on the server is [here](http://github.com/blockstack/blockstack-server).
+
+[More information on the Blockstack Server(http://github.com/blockstack/blockstack-server)
 
 ## Client Library
 
@@ -383,7 +406,7 @@ You can also import the blockstack client and write your own programs.
 
 Here is some example code to get you started:
 
-```
+```python
 from blockstack_client import client
 from blockstack_client.utils import print_result as pprint
 
