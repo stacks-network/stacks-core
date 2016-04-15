@@ -309,16 +309,41 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None ):
    fq_data_id = str(fq_data_id)
    assert is_fq_data_id( fq_data_id ) or is_valid_name( fq_data_id ), "Need either a fully-qualified data ID or a blockchain ID: '%s'" % fq_data_id
 
-   if urls is None:
-       # generate them 
-       urls = make_mutable_data_urls( fq_data_id )
-
    for storage_handler in storage_handlers:
 
       if not hasattr(storage_handler, "get_mutable_handler"):
          continue
 
-      for url in urls:
+      # which URLs to attempt?
+      try_urls = []
+      if urls is None:
+        
+          # make one on-the-fly
+          if not hasattr(handler, "make_mutable_url"):
+             log.warning("Storage handler %s does not support `make_mutable_url`" % handler.__name__)
+             continue
+
+          new_url = None
+
+          try:
+              new_url = storage_handler.make_mutable_url( data_id )
+          except Exception, e:
+              log.exception(e)
+              continue
+          
+          try_urls = [new_url]
+
+      else:
+          # find the set that this handler can manage 
+          for url in urls:
+              if not hasattr(storage_handler, "handles_url"):
+                  log.warning("Storage handler %s does not support `handles_url`" % handler.__name__)
+                  continue
+
+              if storage_handler.handles_url( url ):
+                  try_urls.append(url)
+
+      for url in try_urls:
 
          data_json = None
          data = None
@@ -328,7 +353,6 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None ):
             data_json = storage_handler.get_mutable_handler( url )
 
          except UnhandledURLException, uue:
-
             # handler doesn't handle this URL
             continue
 
