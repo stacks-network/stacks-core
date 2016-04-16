@@ -7,6 +7,7 @@ import signal
 import shutil
 import time
 import atexit
+import errno
 
 # enable all tests
 os.environ['BLOCKSTACK_TEST'] = '1'
@@ -136,8 +137,9 @@ def run_scenario( scenario, config_file ):
     if os.path.exists( mock_bitcoind_save_path ):
         try:
             os.unlink(mock_bitcoind_save_path)
-        except:
-            pass
+        except (IOError, OSError), oe:
+            if oe.errno != errno.ENEONT:
+                pass
 
     # use mock bitcoind
     worker_env = mock_bitcoind.make_worker_env( mock_bitcoind, mock_bitcoind_save_path )
@@ -186,8 +188,10 @@ def run_scenario( scenario, config_file ):
     if os.path.exists( utxo_opts['spv_headers_path'] ):
         try:
             os.unlink(utxo_opts['spv_headers_path'])
-        except:
-            pass
+        except (IOError, OSError), oe:
+            if oe.errno != errno.ENOENT:
+                raise
+
 
     with open( utxo_opts['spv_headers_path'], "w" ) as f:
         # write out "initial" headers, up to the first block
