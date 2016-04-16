@@ -66,7 +66,8 @@ setup(
         'virtualchain>=0.0.9',
         'zope.interface>=4.1.3',
         'defusedxml>=0.4.1',
-        'blockstack_profiles>=0.3.0'
+        'blockstack_profiles>=0.3.0',
+        'zone_file>=0.1.5'
     ],
     classifiers=[
         'Intended Audience :: Developers',
