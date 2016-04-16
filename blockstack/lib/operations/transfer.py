@@ -137,7 +137,37 @@ def build(name, keepdata, consensus_hash, testset=False):
     return packaged_script
 
 
-@state_transition( "name", "name_records", ignore_equality_constraints=['transfer_send_block_id', 'consensus_hash'] )
+def find_last_transfer_consensus_hash( name_rec, block_id, vtxindex ):
+    """
+    Given a name record, find the last non-NAME_TRANSFER consensus hash.
+    Return None if not found.
+    """
+
+    from ..nameset import BlockstackDB
+
+    history_keys = name_rec['history'].keys()
+    history_keys.sort()
+    history_keys.reverse()
+
+    for hk in history_keys:
+        history_states = BlockstackDB.restore_from_history( name_rec, block_id )
+        for history_state in reversed(history_states):
+            if history_state['block_number'] > block_id or (history_state['block_number'] == block_id and history_state['vtxindex'] > vtxindex):
+                # from the future
+                continue
+
+            if history_state['op'][0] == NAME_TRANSFER or history_state['op'][0] == NAME_PREORDER:
+                # skip NAME_TRANSFERs and NAME_PREORDERs
+                continue
+
+            if name_rec['consensus_hash'] is not None:
+                return name_rec['consensus_hash']
+
+    return None
+
+
+
+@state_transition( "name", "name_records", always_set=['transfer_send_block_id', 'consensus_hash'] )
 def check( state_engine, nameop, block_id, checked_ops ):
     """
     Verify the validity of a name's transferrance to another private key.
@@ -219,18 +249,13 @@ def check( state_engine, nameop, block_id, checked_ops ):
         log.debug("Recipient %s has exceeded name quota" % recipient)
         return False
 
-    # QUIRK: we use the name record's previous consensus hash for generating the next one,
-    # unless there is no previous consensus hash (in which case, the current one is used).
-    transfer_consensus_hash = None
-    if name_rec.get('consensus_hash', None) is not None:
-        transfer_consensus_hash = name_rec['consensus_hash']
-    else:
-        transfer_consensus_hash = nameop['consensus_hash']
-
-    transfer_send_block_id = state_engine.get_block_from_consensus( transfer_consensus_hash )
+    # QUIRK: we use either the consensus hash from the last non-NAME_TRANSFER
+    # operation, or if none exists, we use the one from the NAME_TRANSFER itself.
+    transfer_consensus_hash = find_last_transfer_consensus_hash( name_rec, block_id, nameop['vtxindex'] )
+    transfer_send_block_id = state_engine.get_block_from_consensus( nameop['consensus_hash'] )
     if transfer_send_block_id is None:
         # wrong consensus hash 
-        log.debug("Unrecognized consensus hash '%s'" % transfer_consensus_hash )
+        log.debug("Unrecognized consensus hash '%s'" % nameop['consensus_hash'] )
         return False 
 
     # remember the name, so we don't have to look it up later
@@ -241,9 +266,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
     nameop['address'] = recipient_address
     nameop['sender_pubkey'] = None
     nameop['transfer_send_block_id'] = transfer_send_block_id
-
-    # QUIRK: preserved from previous name state, if it exists at all
-    nameop['consensus_hash'] = transfer_consensus_hash # name_rec['consensus_hash'] 
+    nameop['consensus_hash'] = transfer_consensus_hash
 
     if not nameop['keep_data']:
         nameop['value_hash'] = None
@@ -603,23 +626,9 @@ def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
         log.error("FATAL: Obsolete database: no 'transfer_send_block_id' defined")
         sys.exit(1)
 
+    # restore consensus hash from then
     transfer_send_block_id = name_rec['transfer_send_block_id']
-
-    # get consensus hash
-    # QUIRK: if for commit, then use whatever is currently in the name record.
-    # QUIRK: if for SNV, then use the one that was included in the NAME_TRANSFER transaction
-    consensus_hash = None
-    if blockchain_name_data is None:
-        # SNV lookup
-        consensus_hash = db.get_consensus_at(transfer_send_block_id)
-        if consensus_hash is None:
-            log.error("FATAL: No consensus hash for '%s'" % transfer_send_block_id)
-            sys.exit(1)
-
-    else:
-        # commit
-        consensus_hash = blockchain_name_data.get('consensus_hash', None)
-        
+    consensus_hash = db.get_consensus_at( transfer_send_block_id )
     ret_op['consensus_hash'] = consensus_hash
 
     # 'consensus_hash' will be different than what we recorded in the db
