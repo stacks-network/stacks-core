@@ -872,6 +872,51 @@ class BlockstackDB( virtualchain.StateEngine ):
         else:
             return name_rec['sender']
 
+
+    def get_names_with_value_hash( self, value_hash ):
+        """
+        Get the list of names with the given value hash, at the current block height.
+        Return None if there are no such names
+        """
+        cur = self.db.cursor()
+        names = namedb_get_names_with_value_hash( cur, value_hash, self.lastblock )
+        return names
+
+
+    def get_name_value_hash_txid( self, name, value_hash ):
+        """
+        Given a name and a value hash, return the txid for the value hash.
+        Return None if the name doesn't exist, or is revoked, or did not
+        receive a NAME_UPDATE since it was last preordered.
+        """
+        rec = self.get_name( name )
+        if rec is None:
+            return None 
+
+        if rec['revoked']:
+            return None
+        
+        # find the txid of the given value hash
+        if rec['value_hash'] == value_hash:
+            return rec['txid']
+
+        else:
+            # search backwards for it 
+            hist = rec['history']
+            flat_hist = namedb_flatten_history( hist )
+            for i in xrange(len(flat_hist)-1, 0, -1):
+                delta = flat_hist[i]
+                if delta['op'] == NAME_PREORDER:
+                    # this name was re-registered. skip
+                    return None 
+
+                if delta['value_hash'] == value_hash:
+                    # this is the txid that affected it 
+                    return delta['txid']
+
+            # not found
+            return None
+        
     
     @autofill( "opcode" )
     def get_namespace_reveal( self, namespace_id ):
@@ -1053,6 +1098,13 @@ class BlockstackDB( virtualchain.StateEngine ):
         else:
             return False
 
+    
+    def is_current_value_hash( self, value_hash ):
+        """
+        Is the given hash currently mapped to a name in the database?
+        """
+        return self.get_names_with_value_hash( value_hash ) is not None
+
 
     @classmethod
     def nameop_set_collided( cls, nameop, history_id_key, history_id ):
@@ -1151,7 +1203,13 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         Commit an operation, thereby carrying out a state transition.
         """
-    
+   
+        # have to have read-write disposition 
+        if self.disposition != DISPOSITION_RW:
+            log.error("FATAL: borrowing violation: not a read-write connection")
+            traceback.print_stack()
+            sys.exit(1)
+
         cur = self.db.cursor()
         op_seq = None
         opcode = nameop.get('opcode', None)
@@ -1222,6 +1280,12 @@ class BlockstackDB( virtualchain.StateEngine ):
         DO NOT CALL THIS DIRECTLY
         """
 
+        # have to have read-write disposition 
+        if self.disposition != DISPOSITION_RW:
+            log.error("FATAL: borrowing violation: not a read-write connection")
+            traceback.print_stack()
+            sys.exit(1)
+
         cur = self.db.cursor()
 
         # cannot have collided 
@@ -1249,6 +1313,12 @@ class BlockstackDB( virtualchain.StateEngine ):
         DO NOT CALL THIS DIRECTLY
         """
 
+        # have to have read-write disposition 
+        if self.disposition != DISPOSITION_RW:
+            log.error("FATAL: borrowing violation: not a read-write connection")
+            traceback.print_stack()
+            sys.exit(1)
+
         cur = self.db.cursor()
         opcode = nameop.get('opcode', None)
 
@@ -1271,7 +1341,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         table = state_create_get_table( nameop )
         history_id_key = state_create_get_history_id_key( nameop )
         history_id = nameop[history_id_key]
-        constraints_ignored = state_create_get_ignore_equality_constraints( nameop )
+        constraints_ignored = state_create_get_always_set( nameop )
 
         # cannot have collided 
         if BlockstackDB.nameop_is_collided( nameop ):
@@ -1390,9 +1460,15 @@ class BlockstackDB( virtualchain.StateEngine ):
         DO NOT CALL THIS DIRECTLY
         """
 
+        # have to have read-write disposition 
+        if self.disposition != DISPOSITION_RW:
+            log.error("FATAL: borrowing violation: not a read-write connection")
+            traceback.print_stack()
+            sys.exit(1)
+
         cur = self.db.cursor()
         opcode = nameop.get('opcode', None)
-        constraints_ignored = state_transition_get_ignore_equality_constraints( nameop )
+        constraints_ignored = state_transition_get_always_set( nameop )
         transition = self.sanitize_op( nameop )
         
         try:
