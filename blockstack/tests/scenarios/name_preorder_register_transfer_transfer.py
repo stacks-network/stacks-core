@@ -122,4 +122,9 @@ def check( state_engine ):
         print "'foo.test' invalid owner"
         return False 
 
+    # QUIRK: consensus hash not preserved 
+    if name_rec['consensus_hash'] is not None:
+        print "quirk not preserved: consensus hash is '%s'" % name_rec['consensus_hash']
+        return False
+
     return True

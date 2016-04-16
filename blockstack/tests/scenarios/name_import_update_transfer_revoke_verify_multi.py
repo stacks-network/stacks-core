@@ -90,6 +90,18 @@ def scenario( wallets, **kw ):
         name = names[i]
         register_wallet = name_register_wallets[i]
 
+        resp = testlib.blockstack_name_update( name, str(i + 2) * 40, register_wallet.privkey )
+        if debug or  'error' in resp:
+            print json.dumps( resp, indent=4 )
+
+    testlib.next_block( **kw )
+
+    # update 3 names in the same block, again
+    for i in xrange(0, len(names)):
+
+        name = names[i]
+        register_wallet = name_register_wallets[i]
+
         resp = testlib.blockstack_name_update( name, str(i + 1) * 40, register_wallet.privkey )
         if debug or  'error' in resp:
             print json.dumps( resp, indent=4 )

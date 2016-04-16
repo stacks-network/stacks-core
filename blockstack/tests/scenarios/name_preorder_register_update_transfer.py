@@ -38,7 +38,7 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
 def scenario( wallets, **kw ):
 
-    global debug
+    global debug, consensus
 
     resp = testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     if debug or 'error' in resp:
@@ -74,6 +74,7 @@ def scenario( wallets, **kw ):
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
+    consensus = testlib.get_consensus_at( testlib.get_current_block(**kw), **kw)
     testlib.next_block( **kw )
 
     resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey ) 
@@ -121,5 +122,10 @@ def check( state_engine ):
     if name_rec['address'] != wallets[4].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[4].addr):
         print "'foo.test' invalid owner"
         return False 
+
+    # QUIRK: consensus is from NAME_UPDATE 
+    if name_rec['consensus_hash'] != consensus:
+        print "quirk not preserved: current consensus %s != %s" % (name_rec['consensus_hash'], consensus)
+        return False
 
     return True
