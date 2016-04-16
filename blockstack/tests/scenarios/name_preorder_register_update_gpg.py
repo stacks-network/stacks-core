@@ -98,7 +98,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # add account keys 
-    res = blockstack_gpg.gpg_profile_create_key( "foo.test", "foo.test's account key", immutable=False,
+    res = blockstack_gpg.gpg_profile_create_key( "foo.test", "foo_test_account_key", immutable=False,
                                                 proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw),
                                                 gpghome=testlib.gpg_key_dir(**kw), use_key_server=False )
 
@@ -111,7 +111,7 @@ def scenario( wallets, **kw ):
     else:
         key_names['foo.test'].append( res )
 
-    res = blockstack_gpg.gpg_profile_create_key( "bar.test", "bar.test's account key", immutable=False,
+    res = blockstack_gpg.gpg_profile_create_key( "bar.test", "bar_test_account_key", immutable=False,
                                                 proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw),
                                                 gpghome=testlib.gpg_key_dir(**kw), use_key_server=False )
 
@@ -127,7 +127,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # add immutable app keys 
-    res = blockstack_gpg.gpg_app_create_key( "foo.test", "secure messaging", "foo.test's immutable secmsg key", immutable=True,
+    res = blockstack_gpg.gpg_app_create_key( "foo.test", "secure_messaging", "foo_test_immutable_secmsg_key", immutable=True,
                                               proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw) )
 
     if 'error' in res:
@@ -139,7 +139,7 @@ def scenario( wallets, **kw ):
         key_names['foo.test'].append( res )
 
     testlib.next_block( **kw )
-    res = blockstack_gpg.gpg_app_create_key( "bar.test", "secure messaging", "bar.test's immutable secmsg key", immutable=True,
+    res = blockstack_gpg.gpg_app_create_key( "bar.test", "secure_messaging", "bar_test_immutable_secmsg_key", immutable=True,
                                                 proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw) )
 
     if 'error' in res:
@@ -153,7 +153,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # add mutable app keys 
-    res = blockstack_gpg.gpg_app_create_key( "foo.test", "less-secure messaging", "foo.test's mutable secmsg key",
+    res = blockstack_gpg.gpg_app_create_key( "foo.test", "less-secure_messaging", "foo_test_mutable_secmsg_key",
                                                 proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw) )
 
     if 'error' in res:
@@ -165,7 +165,7 @@ def scenario( wallets, **kw ):
         key_names['foo.test'].append( res )
 
     testlib.next_block( **kw )
-    res = blockstack_gpg.gpg_app_create_key( "bar.test", "less-secure messaging", "bar.test's mutable secmsg key",
+    res = blockstack_gpg.gpg_app_create_key( "bar.test", "less-secure_messaging", "bar_test_mutable_secmsg_key",
                                                 proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw) )
 
     if 'error' in res:
@@ -179,7 +179,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # add profile keys that we'll delete
-    res = blockstack_gpg.gpg_profile_create_key( "foo.test", "foo.test's deleted account key", immutable=True,
+    res = blockstack_gpg.gpg_profile_create_key( "foo.test", "foo_test_deleted_account_key", immutable=True,
                                                 proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw),
                                                 gpghome=testlib.gpg_key_dir(**kw), use_key_server=False)
 
@@ -194,7 +194,7 @@ def scenario( wallets, **kw ):
         foo_profile_delete_key_id = res['key_id']
 
     testlib.next_block( **kw )
-    res = blockstack_gpg.gpg_profile_create_key( "bar.test", "bar.test's deleted account key", immutable=True,
+    res = blockstack_gpg.gpg_profile_create_key( "bar.test", "bar_test_deleted_account_key", immutable=True,
                                                 proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw),
                                                 gpghome=testlib.gpg_key_dir(**kw), use_key_server=False)
 
@@ -211,7 +211,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # add immutable app keys, which we can delete
-    res = blockstack_gpg.gpg_app_create_key( "foo.test", "immutable delete", "foo.test's deleted immutable secmsg key", immutable=True,
+    res = blockstack_gpg.gpg_app_create_key( "foo.test", "immutable_delete", "foo_test_deleted_immutable_secmsg_key", immutable=True,
                                                 proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw) )
 
     foo_immutable_delete_key_id = None
@@ -225,7 +225,7 @@ def scenario( wallets, **kw ):
         foo_immutable_delete_key_id = res['key_id']
 
     testlib.next_block( **kw )
-    res = blockstack_gpg.gpg_app_create_key( "bar.test", "immutable delete", "bar.test's deleted immutable secmsg key", immutable=True,
+    res = blockstack_gpg.gpg_app_create_key( "bar.test", "immutable_delete", "bar_test_deleted_immutable_secmsg_key", immutable=True,
                                                 proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw) )
     
     bar_immutable_delete_key_id = None
@@ -241,7 +241,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # add mutable app keys which we can delete
-    res = blockstack_gpg.gpg_app_create_key( "foo.test", "mutable delete", "foo.test's deleted mutable secmsg key",
+    res = blockstack_gpg.gpg_app_create_key( "foo.test", "mutable_delete", "foo_test_deleted_mutable_secmsg_key",
                                                 proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw) )
 
     foo_mutable_delete_key_id = None
@@ -255,7 +255,7 @@ def scenario( wallets, **kw ):
         foo_mutable_delete_key_id = res['key_id']
 
     testlib.next_block( **kw )
-    res = blockstack_gpg.gpg_app_create_key( "bar.test", "mutable delete", "bar.test's deleted mutable secmsg key",
+    res = blockstack_gpg.gpg_app_create_key( "bar.test", "mutable_delete", "bar_test_deleted_mutable_secmsg_key",
                                                 proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw) )
 
     bar_mutable_delete_key_id = None
@@ -287,7 +287,7 @@ def scenario( wallets, **kw ):
         return 
 
     # delete immutable app keys 
-    res = blockstack_gpg.gpg_app_delete_key( "foo.test", "immutable delete", "foo.test's deleted immutable secmsg key", 
+    res = blockstack_gpg.gpg_app_delete_key( "foo.test", "immutable_delete", "foo_test_deleted_immutable_secmsg_key", 
                                             immutable=True, proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw))
 
     if 'error' in res:
@@ -297,7 +297,7 @@ def scenario( wallets, **kw ):
         return 
 
     testlib.next_block( **kw )
-    res = blockstack_gpg.gpg_app_delete_key( "bar.test", "immutable delete", "bar.test's deleted immutable secmsg key",
+    res = blockstack_gpg.gpg_app_delete_key( "bar.test", "immutable_delete", "bar_test_deleted_immutable_secmsg_key",
                                             immutable=True, proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw))
 
     if 'error' in res:
@@ -309,7 +309,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # delete mutable app keys
-    res = blockstack_gpg.gpg_app_delete_key( "foo.test", "mutable delete", "foo.test's deleted mutable secmsg key",
+    res = blockstack_gpg.gpg_app_delete_key( "foo.test", "mutable_delete", "foo_test_deleted_mutable_secmsg_key",
                                             proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw))
 
     if 'error' in res:
@@ -319,7 +319,7 @@ def scenario( wallets, **kw ):
         return 
 
     testlib.next_block( **kw )
-    res = blockstack_gpg.gpg_app_delete_key( "bar.test", "mutable delete", "bar.test's deleted mutable secmsg key",
+    res = blockstack_gpg.gpg_app_delete_key( "bar.test", "mutable_delete", "bar_test_deleted_mutable_secmsg_key",
                                             proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw))
 
     if 'error' in res:
@@ -384,8 +384,8 @@ def check( state_engine ):
 
         # account listing exists, and other keys are deleted
         account_key_listing = blockstack_gpg.gpg_list_profile_keys( name )
-        secure_app_listing = blockstack_gpg.gpg_list_app_keys( name, "secure messaging" )
-        less_secure_app_listing = blockstack_gpg.gpg_list_app_keys( name, "less-secure messaging" )
+        secure_app_listing = blockstack_gpg.gpg_list_app_keys( name, "secure_messaging" )
+        less_secure_app_listing = blockstack_gpg.gpg_list_app_keys( name, "less-secure_messaging" )
 
         if 'error' in account_key_listing:
             print json.dumps(account_key_listing)
