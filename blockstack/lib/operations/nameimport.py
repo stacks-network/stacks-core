@@ -169,7 +169,7 @@ def get_prev_imported( state_engine, checked_ops, name ):
     return name_rec
 
 
-@state_create( "name", "name_records", "check_noop_collision", ignore_equality_constraints=["consensus_hash"] )
+@state_create( "name", "name_records", "check_noop_collision", always_set=["consensus_hash"] )
 def check( state_engine, nameop, block_id, checked_ops ):
     """
     Given a NAME_IMPORT nameop, see if we can import it.

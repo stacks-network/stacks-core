@@ -23,6 +23,7 @@
 
 import sys
 import json
+
 from ..config import OPCODE_CREATION_OPS, OPCODE_TRANSITION_OPS, op_get_opcode_name
 
 import virtualchain
@@ -145,7 +146,7 @@ def state_preorder(collision_checker):
 
 
 # sanity check decorator for state-creating operations 
-def state_create(history_id_key, table_name, collision_checker, ignore_equality_constraints=[]):
+def state_create(history_id_key, table_name, collision_checker, always_set=[]):
     """
     Decorator for the check() method on state-creating operations.
     Makes sure that:
@@ -177,7 +178,7 @@ def state_create(history_id_key, table_name, collision_checker, ignore_equality_
                 nameop['__table__'] = table_name
                 nameop['__history_id_key__'] = history_id_key
                 nameop['__state_create__'] = True
-                nameop['__ignore_equality_constraints__'] = ignore_equality_constraints
+                nameop['__always_set__'] = always_set
 
                 # sanity check
                 invariant_tags = state_create_invariant_tags()
@@ -207,19 +208,19 @@ def state_transition_invariant_tags():
         '__table__',
         '__history_id_key__',
         '__state_transition__',
-        '__ignore_equality_constraints__'
+        '__always_set__'
     ]
 
 
 # sanity check decorator for state-transition operations 
-def state_transition(history_id_key, table_name, ignore_equality_constraints=[]):
+def state_transition(history_id_key, table_name, always_set=[]):
     """
     Decorator for the check() method on state-transition operations.
     Make sure that:
     * there is a __table__ field set, which names the table in which this record is stored.
     * there is a __history_id_key__ field set, which identifies the table record's primary key.
 
-    Any fields named in @ignore_equality_constraints will always be set when the transition is applied.
+    Any fields named in @always_set will always be set when the transition is applied.
     That is, fields set here *must* be set on transition, and *will* be set in the database, even if
     they have prior values in the affected name record that might constrain which rows to update.
     """
@@ -232,7 +233,7 @@ def state_transition(history_id_key, table_name, ignore_equality_constraints=[])
                 nameop['__table__'] = table_name
                 nameop['__history_id_key__'] = history_id_key 
                 nameop['__state_transition__'] = True
-                nameop['__ignore_equality_constraints__'] = ignore_equality_constraints
+                nameop['__always_set__'] = always_set
 
                 # sanity check
                 invariant_tags = state_transition_invariant_tags()
@@ -277,7 +278,7 @@ def state_create_is_valid( nameop ):
     assert '__table__' in nameop, "No table given"
     assert '__history_id_key__' in nameop, "No history ID key given"
     assert nameop['__history_id_key__'] in nameop, "No history ID given"
-    assert '__ignore_equality_constraints__' in nameop, "No ignore-equality constraints given"
+    assert '__always_set__' in nameop, "No always-set fields given"
 
     return True 
 
@@ -310,11 +311,11 @@ def state_create_get_history_id_key( nameop ):
     return nameop['__history_id_key__']
 
 
-def state_create_get_ignore_equality_constraints( nameop ):
+def state_create_get_always_set( nameop ):
     """
-    Get thie list of fields we exclude from our creation equality constraints
+    Get thie list of fields we will always set on create.
     """
-    return nameop['__ignore_equality_constraints__']
+    return nameop['__always_set__']
 
 
 def state_transition_is_valid( nameop ):
@@ -327,7 +328,7 @@ def state_transition_is_valid( nameop ):
     history_id_key = nameop['__history_id_key__']
     assert history_id_key in ["name", "namespace_id"], "Invalid history ID key '%s'" % history_id_key
     assert '__table__' in nameop, "Missing __table__"
-    assert '__ignore_equality_constraints__' in nameop, "No ignore-equality constraints given"
+    assert '__always_set__' in nameop, "No always-set fields given"
 
     return True
 
@@ -346,11 +347,11 @@ def state_transition_get_history_id_key( nameop ):
     return nameop['__history_id_key__']
 
 
-def state_transition_get_ignore_equality_constraints( nameop ):
+def state_transition_get_always_set( nameop ):
     """
-    Get thie list of fields we exclude from our transition equality constraints
+    Get thie list of fields we will always set on state transition
     """
-    return nameop['__ignore_equality_constraints__']
+    return nameop['__always_set__']
 
 
 def prior_history_create( op_data, old_rec, block_number, state_engine, extra_backup_fields=[] ):
