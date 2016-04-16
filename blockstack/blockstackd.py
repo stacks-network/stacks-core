@@ -43,6 +43,11 @@ import threading
 import atexit
 import errno
 from SimpleXMLRPCServer import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
+
+# stop common XML attacks 
+from defusedxml import xmlrpc
+xmlrpc.monkey_patch()
+
 import virtualchain
 
 try:
@@ -58,6 +63,7 @@ import pybitcoin
 
 from lib import nameset as blockstack_state_engine
 from lib.config import REINDEX_FREQUENCY, DEFAULT_DUST_FEE
+from lib.storage import *
 from lib import *
 
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
@@ -228,6 +234,14 @@ def rpc_traceback():
         "error": exception_data[-1],
         "traceback": exception_data
     }
+
+
+def get_blockstack_opts():
+   """
+   Get the loaded blockstack opts
+   """
+   global blockstack_opts
+   return blockstack_opts
 
 
 def get_utxo_provider_client():
@@ -1653,20 +1667,115 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return db.get_block_from_consensus( consensus_hash )
 
 
-    def rpc_get_mutable_data( self, blockchain_id, data_name ):
+    def rpc_get_zonefiles( self, zonefile_hashes ):
         """
-        Get a mutable data record written by a given user.
+        Get a user's zonefile from the local cache,
+        or (on miss), from upstream storage.
+        Only return at most 100 zonefiles.
         """
-        client = get_blockstack_client_session()
-        return client.get_mutable( str(blockchain_id), str(data_name) )
+        config = get_blockstack_opts()
+        if not config['serve_zonefiles']:
+            return {'error': 'No data'}
+
+        if len(zonefile_hashes) > 100:
+            return {'error': 'Too many requests'}
+
+        ret = {}
+        for zonefile_hash in zonefile_hashes:
+            if not is_current_zonefile_hash( zonefile_hash ):
+                continue
+
+            # check cache 
+            cached_zonefile = get_cached_zonefile( zonefile_hash, zonefile_dir=config.get('zonefiles', None))
+            if cached_zonefile is not None:
+                ret[zonefile_hash] = cached_zonefile
+                continue
+
+            log.debug("Zonefile %s is not cached" % zonefile_hash)
+
+            try:
+                # check storage providers
+                zonefile = get_zonefile_from_storage( zonefile_hash )
+            except Exception, e:
+                log.exception(e)
+                continue
+
+            store_cached_zonefile( zonefile )
+            ret[zonefile_hash] = zonefile
+
+        return {'status': True, 'zonefiles': ret}
 
 
-    def rpc_get_immutable_data( self, blockchain_id, data_hash ):
+    def rpc_put_zonefiles( self, zonefile_datas ):
         """
-        Get immutable data record written by a given user.
+        Replicate one or more zonefiles
+        Returns {'status': True, 'saved': [0|1]'} on success ('saved' is a vector of success/failure)
+        Returns {'error': ...} on error
+        Takes at most 10 zonefiles
         """
-        client = get_blockstack_client_session()
-        return client.get_immutable( str(blockchain_id), str(data_hash) )
+
+        config = get_blockstack_opts()
+        if not config['serve_zonefiles']:
+            return {'error': 'No data'}
+
+        if len(zonefile_datas) > 100:
+            return {'error': 'Too many zonefiles'}
+
+        saved = []
+
+        for zonefile_data in zonefile_datas:
+
+            zonefile_hash = hash_zonefile( zonefile_data )
+            if not is_current_zonefile_hash( zonefile_hash ):
+                log.debug("Unknown zonefile hash %s" % zonefile_hash)
+                saved.append(0)
+                continue
+
+            # it's a valid zonefile.  cache and store it.
+            rc = store_cached_zonefile( zonefile_data )
+            if not rc:
+                log.debug("Failed to store zonefile %s" % zonefile_hash)
+                saved.append(0)
+                continue
+
+            rc = store_zonefile_to_storage( zonefile_data )
+            if not rc:
+                log.debug("Failed to replicate zonefile %s to external storage" % zonefile_hash)
+                saved.append(0)
+                continue
+
+            saved.append(1)
+
+        return {'status': True, 'saved': saved}
+
+
+    def rpc_list_zonefile_peers( self ):
+        """
+        Return the list of all peers that this Blockstack node knows about
+        Returns {'status': True, 'peers': [{'host': host, 'port': port}]} on success
+        Returns {'error': ...} on error
+        """
+        config = get_blockstack_opts()
+        if not config['serve_zonefiles']:
+            return {'error': 'No data'}
+
+        working_dir = virtualchain.get_working_dir()
+        peer_list = load_cached_peers( working_dir=working_dir )
+        seed_ids = get_seed_blockchain_ids()
+        peer_ret = [{'host': h, 'port': p} for (h, p) in peer_list]
+        return {'status': True, 'peers': peer_ret, 'seeds': seed_ids }
+
+
+    def rpc_zonefile_ping(self):
+        """
+        Respond 'alive' to zonefile requests
+        if we support it.
+        """
+        config = get_blockstack_opts()
+        if not config['serve_zonefiles']:
+            return {'error': 'No data'}
+
+        return {'status': True}
 
 
 class BlockstackdRPCServer( threading.Thread, object ):
