@@ -64,7 +64,9 @@ setup(
         'u-msgpack-python>=2.1',
         'utilitybelt>=0.2.6',
         'virtualchain>=0.0.9',
-        'zope.interface>=4.1.3'
+        'zope.interface>=4.1.3',
+        'defusedxml>=0.4.1',
+        'blockstack_profiles>=0.3.0'
     ],
     classifiers=[
         'Intended Audience :: Developers',
