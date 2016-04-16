@@ -483,6 +483,39 @@ def get_announce_filename( working_dir=None ):
    return announce_filepath
 
 
+def get_zonefile_dir( working_dir=None ):
+    """
+    Get the path to the directory to hold any zonefiles we download.
+    """
+
+    blockstack_impl = get_default_virtualchain_impl()
+    if working_dir is None:
+        working_dir = virtualchain.get_working_dir(impl=blockstack_impl)
+
+    zonefile_dir = os.path.join( working_dir, "zonefiles" )
+    return zonefile_dir
+
+
+def get_peer_cache_filename( working_dir=None ):
+    """
+    Get the path to the cached peer list
+    """
+    blockstack_impl = get_default_virtualchain_impl()
+    if working_dir is None:
+        working_dir = virtualchain.get_working_dir(impl=blockstack_impl)
+
+    peer_cache_path = os.path.join( working_dir, "peers" )
+    return peer_cache_path 
+
+
+def get_config_filename():
+    """
+    Get the path to the config file
+    """
+    blockstack_impl = get_default_virtualchain_impl()
+    return virtualchain.get_config_filename(impl=blockstack_impl)
+
+
 def get_blockstack_client_session( new_blockstack_client_session_opts=None ):
     """
     Get or instantiate our storage API session.
@@ -695,6 +728,9 @@ def default_blockstack_opts( config_file=None, testset=False ):
    announcements = None
    backup_frequency = 1008  # once a week; 10 minute block time
    backup_max_age = 12096   # 12 weeks
+   zonefile_dir = get_zonefile_dir( virtualchain.get_working_dir(impl=blockstack_impl))
+   default_peer_list = None
+   serve_zonefiles = False
 
    if parser.has_section('blockstack'):
 
@@ -718,6 +754,19 @@ def default_blockstack_opts( config_file=None, testset=False ):
 
       if parser.has_option('blockstack', 'email'):
          contact_email = parser.get('blockstack', 'email')
+
+      if parser.has_option('blockstack', 'zonefiles'):
+         zonefile_dir = parser.get('blockstack', 'zonefiles')
+
+      if parser.has_option('blockstack', 'peer_list'):
+         default_peer_list = parser.get('blockstack', 'peer_list')
+
+      if parser.has_option('blockstack', 'serve_zonefiles'):
+         sv = parser.get('blockstack', 'serve_zonefiles')
+         if sv.lower() in ['true', 'yes', 'on']:
+             serve_zonefiles = True 
+         else:
+             serve_zonefiles = False 
 
       if parser.has_option('blockstack', 'announcers'):
          # must be a CSV of blockchain IDs
@@ -755,6 +804,12 @@ def default_blockstack_opts( config_file=None, testset=False ):
 
        announcements = ",".join( unseen_announcements )
 
+   if not os.path.exists( zonefile_dir ):
+       try:
+           os.makedirs( zonefile_dir, 0700 )
+       except:
+           pass 
+
    blockstack_opts = {
        'tx_broadcaster': tx_broadcaster,
        'utxo_provider': utxo_provider,
@@ -765,7 +820,10 @@ def default_blockstack_opts( config_file=None, testset=False ):
        'announcers': announcers,
        'announcements': announcements, 
        'backup_frequency': backup_frequency,
-       'backup_max_age': backup_max_age
+       'backup_max_age': backup_max_age,
+       'zonefiles': zonefile_dir,
+       'peer_list': default_peer_list,
+       'serve_zonefiles': serve_zonefiles
    }
 
    # strip Nones
@@ -780,10 +838,19 @@ def default_bitcoind_opts( config_file=None ):
    """
    Get our default bitcoind options, such as from a config file,
    or from sane defaults
-
-   TODO: deprecate in favor of virtualchain's code
    """
 
+   blockstack_impl = get_default_virtualchain_impl()
+   default_bitcoin_opts = virtualchain.get_bitcoind_config( config_file=config_file, impl=blockstack_impl )
+   
+   # strip None's
+   for (k, v) in default_bitcoin_opts.items():
+      if v is None:
+         del default_bitcoin_opts[k]
+
+   return default_bitcoin_opts
+
+   """
    bitcoind_server = None
    bitcoind_port = None
    bitcoind_user = None
@@ -872,6 +939,7 @@ def default_bitcoind_opts( config_file=None ):
          del default_bitcoin_opts[k]
 
    return default_bitcoin_opts
+   """
 
 
 def default_utxo_provider( config_file=None ):
