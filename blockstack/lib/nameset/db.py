@@ -153,6 +153,10 @@ CREATE INDEX hash_names_index ON name_records( name_hash128, name );
 """
 
 BLOCKSTACK_DB_SCRIPT += """
+CREATE INDEX value_hash_names_index on name_records( value_hash, name );
+"""
+
+BLOCKSTACK_DB_SCRIPT += """
 -- turn on foreign key constraints 
 PRAGMA foreign_keys = ON;
 """
@@ -1233,6 +1237,22 @@ def namedb_history_extract( history_rows ):
     return history
 
 
+def namedb_flatten_history( hist ):
+    """
+    Given a name's history, flatten it into a list of deltas.
+    They will be in *increasing* order.
+    """
+    ret = []
+    block_ids = sorted(hist.keys())
+    for block_id in block_ids:
+        vtxinfos = hist[block_id]
+        for vtxinfo in vtxinfos:
+            info = copy.deepcopy(vtxinfo)
+            ret.append(info)
+
+    return ret
+
+
 def namedb_get_namespace( cur, namespace_id, current_block, include_history=True ):
     """
     Get an unexpired namespace (revealed or ready) and optionally its history.
@@ -1310,7 +1330,6 @@ def namedb_get_name_by_preorder_hash( cur, preorder_hash, include_history=True )
         namerec['history'] = hist
 
     return namerec
-
 
 
 def namedb_select_where_unexpired_names( current_block ):
@@ -1925,6 +1944,29 @@ def namedb_get_name_from_name_hash128( cur, name_hash128, block_number ):
         return None 
 
     return name_row['name']
+
+
+def namedb_get_names_with_value_hash( cur, value_hash, block_number ):
+    """
+    Get the names with the given value hash.
+    Return None if there are no names.
+    """
+
+    unexpired_query, unexpired_args = namedb_select_where_unexpired_names( block_number )
+    select_query = "SELECT name FROM name_records JOIN namespaces ON name_records.namespace_id = namespaces.namespace_id " + \
+                   "WHERE value_hash = ? AND revoked = 0 AND " + unexpired_query + ";"
+
+    args = (value_hash,) + unexpired_args
+    name_rows = namedb_query_execute( cur, select_query, args )
+    names = []
+
+    for name_row in name_rows:
+        names.append( name_row['name'] )
+
+    if len(names) == 0:
+        return None
+    else:
+        return names
 
 
 def namedb_get_num_block_vtxs( cur, block_number ):
