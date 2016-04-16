@@ -137,17 +137,19 @@ def get_first_block_id():
    return start_block
 
 
-def get_db_state():
+def get_db_state( disposition=DISPOSITION_RO ):
    """
    (required by virtualchain state engine)
    
    Callback to the virtual chain state engine.
    Get a handle to our state engine implementation
    (i.e. our name database).
+
+   Note that in this implementation, the database
+   handle returned will only support read-only operations.
+   NO COMMITS WILL BE ALLOWED.
    """
    
-   global blockstack_db, blockstack_db_mtime, blockstack_db_lock, blockstack_db_lastblock
-
    # make this usable even if we haven't explicitly configured virtualchain 
    impl = virtualchain.get_implementation()
    if impl is None:
@@ -179,7 +181,7 @@ def get_db_state():
            log.exception(e)
            sys.exit(1)
 
-   db_inst = BlockstackDB( db_filename, DISPOSITION_RO )
+   db_inst = BlockstackDB( db_filename, disposition )
 
    return db_inst
 
@@ -196,8 +198,6 @@ def db_parse( block_id, txid, vtxindex, op, data, senders, inputs, outputs, fee,
    
    NOTE: the transactions that our tools put have a single sender, and a single output address.
    This is assumed by this code.
-
-   TODO: refactor--move into individual operations
    """
 
    # basic sanity checks 
@@ -462,23 +462,9 @@ def sync_blockchain( bt_opts, last_block, expected_snapshots={} ):
 
     db_filename = virtualchain.get_db_filename(impl=impl)
 
+    # NOTE: this is the only place where a read-write handle should be created,
+    # since this is the only place where the db should be modified.
     new_db = BlockstackDB.borrow_readwrite_instance( db_filename, last_block, expected_snapshots=expected_snapshots )
-
     virtualchain.sync_virtualchain( bt_opts, last_block, new_db )
-
     BlockstackDB.release_readwrite_instance( new_db, last_block )
-
-
-def stop_sync_blockchain():
-    """
-    stop synchronizing with the blockchain
-    """
-    global blockstack_db, blockstack_db_lock
-
-    blockstack_db_lock.acquire()
-    if blockstack_db is None:
-        return 
-
-    blockstack_db.stop_build()
-    blockstack_db_lock.release()
 
