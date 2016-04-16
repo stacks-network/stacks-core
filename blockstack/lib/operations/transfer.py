@@ -150,15 +150,20 @@ def find_last_transfer_consensus_hash( name_rec, block_id, vtxindex ):
     history_keys.reverse()
 
     for hk in history_keys:
-        history_states = BlockstackDB.restore_from_history( name_rec, block_id )
+        history_states = BlockstackDB.restore_from_history( name_rec, hk )
+
         for history_state in reversed(history_states):
             if history_state['block_number'] > block_id or (history_state['block_number'] == block_id and history_state['vtxindex'] > vtxindex):
                 # from the future
                 continue
 
-            if history_state['op'][0] == NAME_TRANSFER or history_state['op'][0] == NAME_PREORDER:
-                # skip NAME_TRANSFERs and NAME_PREORDERs
+            if history_state['op'][0] == NAME_TRANSFER:
+                # skip NAME_TRANSFERS
                 continue
+
+            if history_state['op'][0] == NAME_PREORDER:
+                # out of history
+                return None
 
             if name_rec['consensus_hash'] is not None:
                 return name_rec['consensus_hash']
@@ -621,15 +626,9 @@ def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
     ret_op['name_hash128'] = hash256_trunc128( str(name_rec['name']) )
     ret_op['sender_pubkey'] = None
 
-
     if blockchain_name_data is None:
-       # when was the NAME_TRANSFER sent?
-       if not name_rec.has_key('transfer_send_block_id'):
-           log.error("FATAL: Obsolete database: no 'transfer_send_block_id' defined")
-           sys.exit(1)
-       # restore consensus hash from then
-       transfer_send_block_id = name_rec['transfer_send_block_id']
-       consensus_hash = db.get_consensus_at( transfer_send_block_id )
+
+       consensus_hash = find_last_transfer_consensus_hash( name_rec, block_id, name_rec['vtxindex'] )
        ret_op['consensus_hash'] = consensus_hash
 
     else:
