@@ -621,16 +621,20 @@ def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
     ret_op['name_hash128'] = hash256_trunc128( str(name_rec['name']) )
     ret_op['sender_pubkey'] = None
 
-    # when was the NAME_TRANSFER sent?
-    if not name_rec.has_key('transfer_send_block_id'):
-        log.error("FATAL: Obsolete database: no 'transfer_send_block_id' defined")
-        sys.exit(1)
 
-    # restore consensus hash from then
-    transfer_send_block_id = name_rec['transfer_send_block_id']
-    consensus_hash = db.get_consensus_at( transfer_send_block_id )
-    ret_op['consensus_hash'] = consensus_hash
+    if blockchain_name_data is None:
+       # when was the NAME_TRANSFER sent?
+       if not name_rec.has_key('transfer_send_block_id'):
+           log.error("FATAL: Obsolete database: no 'transfer_send_block_id' defined")
+           sys.exit(1)
+       # restore consensus hash from then
+       transfer_send_block_id = name_rec['transfer_send_block_id']
+       consensus_hash = db.get_consensus_at( transfer_send_block_id )
+       ret_op['consensus_hash'] = consensus_hash
 
+    else:
+       ret_op['consensus_hash'] = blockchain_name_data['consensus_hash']
+    
     # 'consensus_hash' will be different than what we recorded in the db
     op_commit_consensus_override( ret_op, 'consensus_hash' ) 
     return ret_op
