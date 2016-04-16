@@ -1903,7 +1903,7 @@ def stop_server( clean=False, kill=False ):
         pid = int(pid_data)
 
         try:
-           os.kill(pid, signal.SIGINT)
+           os.kill(pid, signal.SIGTERM)
         except OSError, oe:
            if oe.errno == errno.ESRCH:
               # already dead 
