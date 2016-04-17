@@ -633,6 +633,10 @@ def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
 
     else:
        ret_op['consensus_hash'] = blockchain_name_data['consensus_hash']
+      
+    if ret_op['consensus_hash'] is None:
+        # no prior consensus hash; must be the one in the name operation itself 
+        ret_op['consensus_hash'] = db.get_consensus_at( name_rec['transfer_send_block_id'] )
     
     # 'consensus_hash' will be different than what we recorded in the db
     op_commit_consensus_override( ret_op, 'consensus_hash' ) 
