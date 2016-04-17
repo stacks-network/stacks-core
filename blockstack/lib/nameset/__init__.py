@@ -372,10 +372,18 @@ def prior_history_create( op_data, old_rec, block_number, state_engine, extra_ba
         log.error("FATAL: missing fields")
         sys.exit(1)
 
+    try:
+        assert 'history' in old_rec.keys()
+    except Exception, e:
+        log.exception(e)
+        log.error("FATAL: missing prior hitsory")
+        sys.exit(1)
+
     hist = {}
     for field in list(set(serialize_fields + extra_backup_fields)):
         hist[field] = old_rec.get(field, None)
 
+    hist['history'] = old_rec['history']
     state_engine.add_all_snv_consensus_values( op_get_opcode_name(hist['op']), hist, block_number ) 
     hist['history_snapshot'] = True
 
