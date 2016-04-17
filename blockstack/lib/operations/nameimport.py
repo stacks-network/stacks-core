@@ -28,6 +28,7 @@ from pybitcoin import embed_data_in_blockchain, \
 from pybitcoin.transactions.outputs import calculate_change_amount
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
+import copy
 
 from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
@@ -159,11 +160,15 @@ def get_prev_imported( state_engine, checked_ops, name ):
     """
     See if a name has been imported previously.
     Check the DB *and* current ops.
+    Make sure the returned record has the name history
     """
     imported = find_by_opcode( checked_ops, "NAME_IMPORT" )
     for opdata in reversed(imported):
         if opdata['name'] == name:
-            return opdata
+            hist = state_engine.get_name_history_diffs(name)
+            ret = copy.deepcopy(opdata)
+            ret['history'] = hist
+            return ret
  
     name_rec = state_engine.get_name( name )
     return name_rec
