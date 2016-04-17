@@ -654,6 +654,15 @@ class BlockstackDB( virtualchain.StateEngine ):
         historical_recs = namedb_restore_from_history( namespace_rec, block_number )
         return historical_recs
 
+
+    def get_name_history_diffs( self, name ):
+        """
+        Get the history deltas for a name
+        """
+        cur = self.db.cursor()
+        name_hist = namedb_get_history( cur, name )
+        return name_hist
+
     
     def get_name_history( self, name, start_block, end_block ):
         """
