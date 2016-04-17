@@ -1019,7 +1019,7 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
             return json.dumps(res)
         except Exception, e:
             print >> sys.stderr, "\n\n%s\n\n" % traceback.format_exc()
-            return json.dumps( rpc_traceback() )
+            return rpc_traceback()
 
 
 class BlockstackdRPC(SimpleXMLRPCServer):
@@ -1097,7 +1097,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         db = get_db_state()
 
-        prior_records = db.get_all_records_at( block_id )
+        prior_records = db.get_all_records_at( block_id, include_history=True )
         ret = []
         for rec in prior_records:
             restored_rec = rec_restore_snv_consensus_fields( rec, block_id )
