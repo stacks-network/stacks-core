@@ -40,7 +40,8 @@ setup(
     install_requires=[
         'virtualchain==0.0.8',
         'keychain==0.1.4',
-        'blockstack-client==0.0.12.5'
+        'blockstack-client==0.0.12.5',
+        'defusedxml>=0.4.1'
     ],
     classifiers=[
         'Intended Audience :: Developers',
