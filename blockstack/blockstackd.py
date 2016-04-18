@@ -40,6 +40,7 @@ import tempfile
 import binascii
 import copy
 import atexit
+import threading
 
 from SimpleXMLRPCServer import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
 
@@ -1638,7 +1639,7 @@ def stop_server( clean=False, kill=False ):
             pass
 
     
-   log.debug("Blockstack server stopped")
+    log.debug("Blockstack server stopped")
 
 
 def get_indexing_lockfile():
