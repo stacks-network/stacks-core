@@ -634,81 +634,8 @@ def default_bitcoind_opts( config_file=None ):
    or from sane defaults
    """
 
-   bitcoind_server = None
-   bitcoind_port = None
-   bitcoind_user = None
-   bitcoind_passwd = None
-   bitcoind_use_https = None
-   bitcoind_mock = False
-
-   loaded = False
-
-   if config_file is not None:
-
-      parser = SafeConfigParser()
-      parser.read(config_file)
-
-      if parser.has_section('bitcoind'):
-
-         if parser.has_option('bitcoind', 'server'):
-            bitcoind_server = parser.get('bitcoind', 'server')
-
-         if parser.has_option('bitcoind', 'port'):
-            bitcoind_port = parser.get('bitcoind', 'port')
-
-         if parser.has_option('bitcoind', 'user'):
-            bitcoind_user = parser.get('bitcoind', 'user')
-
-         if parser.has_option('bitcoind', 'passwd'):
-            bitcoind_passwd = parser.get('bitcoind', 'passwd')
-
-         if parser.has_option('bitcoind', 'use_https'):
-            use_https = parser.get('bitcoind', 'use_https')
-         else:
-            use_https = 'no'
-
-         if parser.has_option('bitcoind', 'mock'):
-            mock = parser.get('bitcoind', 'mock')
-         else:
-            mock = 'no'
-
-         if use_https.lower() in ["yes", "y", "true"]:
-            bitcoind_use_https = True
-         else:
-            bitcoind_use_https = False
-
-         if mock.lower() in ['yes', 'y', 'true']:
-            bitcoind_mock = True
-         else:
-            bitcoind_mock = False
-
-         loaded = True
-
-   if not loaded:
-
-      if TESTNET:
-         bitcoind_server = "localhost"
-         bitcoind_port = DEFAULT_BITCOIND_PORT_TESTNET
-         bitcoind_user = DEFAULT_BITCOIND_USERNAME
-         bitcoind_passwd = DEFAULT_BITCOIND_PASSWD
-         bitcoind_use_https = False
-
-      else:
-         bitcoind_server = DEFAULT_BITCOIND_SERVER
-         bitcoind_port = DEFAULT_BITCOIND_PORT
-         bitcoind_user = DEFAULT_BITCOIND_USERNAME
-         bitcoind_passwd = DEFAULT_BITCOIND_PASSWD
-         bitcoind_use_https = True
-
-   default_bitcoin_opts = {
-      "bitcoind_user": bitcoind_user,
-      "bitcoind_passwd": bitcoind_passwd,
-      "bitcoind_server": bitcoind_server,
-      "bitcoind_port": bitcoind_port,
-      "bitcoind_use_https": bitcoind_use_https,
-      "bitcoind_mock": bitcoind_mock
-   }
-
+   default_bitcoin_opts = virtualchain.get_bitcoind_config( config_file=config_file )
+   
    # strip None's
    for (k, v) in default_bitcoin_opts.items():
       if v is None:
