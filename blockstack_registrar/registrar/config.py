@@ -29,7 +29,7 @@ REGISTRAR_DRIVERS = ['webapp', 'api']
 IGNORE_USERNAMES = []
 IGNORE_NAMES_STARTING_WITH = []
 
-SERVER_MODE = False  # if registrar deployed as server vs. imported into lib
+SERVER_MODE = True  # if registrar deployed as server vs. imported into lib
 
 try:
     # for registrar's internal queue
@@ -54,7 +54,11 @@ except:
     HD_WALLET_PRIVKEY = None
 
 DEBUG = False  # can change in config_local
-UTXO_PROVIDER = 'blockcypher'
+
+if SERVER_MODE:
+    UTXO_PROVIDER = "bitcoind"
+else:
+    UTXO_PROVIDER = 'blockcypher'
 
 DEFAULT_HOST = '127.0.0.1'
 MEMCACHED_PORT = '11211'
@@ -74,10 +78,11 @@ DEFAULT_WALLET_DISPLAY = 2
 DEFAULT_WALLET_OFFSET = 0
 
 MINIMUM_LENGTH_NAME = 6
+MAXIMUM_LENGTH_NAME = 31  # for .id
 MAXIMUM_NAMES_PER_ADDRESS = 20
 MAX_DHT_WRITE = (8 * 1024) - 1
 
-RATE_LIMIT = 2   # target tx per block
+RATE_LIMIT = 100   # target tx per block
 SLEEP_INTERVAL = 20  # in seconds
 RETRY_INTERVAL = 10  # if a tx is not picked up by x blocks
 
