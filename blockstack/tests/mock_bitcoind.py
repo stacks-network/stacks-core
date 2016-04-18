@@ -37,6 +37,7 @@ import time
 import socket
 import hashlib 
 import binascii
+import cPickle as pickle
 from decimal import *
 
 from utilitybelt import is_valid_int
@@ -46,11 +47,13 @@ import pybitcoin
 import pybitcoin.transactions.opcodes as opcodes
 
 # hack around absolute paths 
-current_dir =  os.path.abspath(os.path.dirname(__file__) + "/../../")
+current_dir =  os.path.abspath(os.path.dirname(__file__) + "/../..")
 sys.path.insert(0, current_dir)
 
+import blockstack
 from blockstack.lib import *
 import virtualchain
+import bitcoin
 
 # global singleton
 mock_bitcoind = None
@@ -66,86 +69,106 @@ class MockBitcoindConnection( object ):
     API for virtualchain to use it for testing.
     """
 
-    def __init__(self, tx_path=None, tx_list=None, tx_grouping=1, start_block=0, start_time=0x11111111, difficulty=1.0, initial_utxos={}, **kw ):
+    def __init__(self, save_file=None, tx_path=None, tx_list=None, tx_grouping=1, \
+                 start_block=0, start_time=0x11111111, difficulty=1.0, initial_utxos={}, \
+                 spv_headers_path=None, **kw ):
         """
         Create a mock bitcoind connection, either from a 
         list of serialized transactions on-file, or a given Python
         list of serialized transactions.
 
+        If possible, restore from a saved file.  This trumps all other options.
+
         Transactions will be bundled into blocks in groups of size tx_grouping.
         """
 
-        self.block_hashes = {}    # map block ID to block hash 
-        self.blocks = {}        # map block hash to block info (including transaction IDs)
-        self.txs = {}       # map tx hash to a list of transactions
-        self.next_block_txs = []    # next block's transactions
-
+        self.block_hashes = {}      # map block ID to block hash 
+        self.blocks = {}            # map block hash to block info (including transaction IDs)
+        self.txs = {}               # map tx hash to a list of transactions
+        self.txid_to_blockhash = {} # map tx hash to block hash
+        self.next_block_txs_path = None     # next block's transactions
         self.difficulty = difficulty 
         self.time = start_time 
-        self.start_block = start_block 
+        self.start_block = start_block
         self.end_block = start_block
+        self.spv_headers_path = spv_headers_path
+
+        # for compatibility with blockstack_client (should refer to nothing)
+        self.opts = {
+            'bitcoind_server': "localhost",
+            'bitcoind_port': 31113
+        }
         
         self.block_hashes[ start_block - 1 ] = '00' * 32
         self.blocks[ '00' * 32 ] = {}
+
+        self.save_file = save_file
+        if save_file is not None:
+            self.next_block_txs_path = save_file + ".next"
+
+        if save_file is not None and os.path.exists( save_file ):
+            self.restore( save_file )
         
-        # the initial utxos might be a serialized CSV (i.e. loaded directly from the config file).
-        # if so, then parse it 
-        if type(initial_utxos) in [str, unicode]:
-            tmp = {}
-            parts = initial_utxos.split(",")
-            for utxo in parts:
-                privkey, value = utxo.split(':')
-                tmp[ privkey ] = int(value)
+        else:
+            # the initial utxos might be a serialized CSV (i.e. loaded directly from the config file).
+            # if so, then parse it 
+            if type(initial_utxos) in [str, unicode]:
+                tmp = {}
+                parts = initial_utxos.split(",")
+                for utxo in parts:
+                    privkey, value = utxo.split(':')
+                    tmp[ privkey ] = int(value)
 
-            initial_utxos = tmp
-            
-        tx_recs = []
-        if tx_path is not None:
-            with open( tx_path, "r" ) as f:
-                tmp = f.readlines()
-                tx_recs = [l.strip() for l in tmp]
-
-        elif tx_list is not None:
-            tx_recs = tx_list 
-
-        # prepend utxos
-        if len(initial_utxos) > 0:
-            initial_outputs = []
-            for (privkey, value) in initial_utxos.items():
+                initial_utxos = tmp
                 
-                addr = pybitcoin.BitcoinPrivateKey( privkey ).public_key().address()
-                out = {
-                    'value': value,
-                    'script_hex': pybitcoin.make_pay_to_address_script( addr )
+            tx_recs = []
+            if tx_path is not None:
+                with open( tx_path, "r" ) as f:
+                    tmp = f.readlines()
+                    tx_recs = [l.strip() for l in tmp]
+
+            elif tx_list is not None:
+                tx_recs = tx_list 
+
+            # prepend utxos
+            if len(initial_utxos) > 0:
+                initial_outputs = []
+                for (privkey, value) in initial_utxos.items():
+                    
+                    addr = pybitcoin.BitcoinPrivateKey( privkey ).public_key().address()
+                    out = {
+                        'value': value,
+                        'script_hex': pybitcoin.make_pay_to_address_script( addr )
+                    }
+                    initial_outputs.append( out )
+
+                tx = {
+                    'inputs': [],
+                    'outputs': initial_outputs,
+                    'locktime': 0,
+                    'version': 0xff
                 }
-                initial_outputs.append( out )
+                
+                tx_hex = tx_serialize( tx['inputs'], tx['outputs'], tx['locktime'], tx['version'] )
+                tx_recs = [tx_hex] + tx_recs
+          
+            # feed all txs
+            i = 0 
+            while True:
+                
+                txs = []
+                count = 0
+                while i < len(tx_recs) and count < tx_grouping:
+                    txs.append( tx_recs[i] )
+                    i += 1
 
-            tx = {
-                'inputs': [],
-                'outputs': initial_outputs,
-                'locktime': 0,
-                'version': 0xff
-            }
-            
-            tx_hex = tx_serialize( tx['inputs'], tx['outputs'], tx['locktime'], tx['version'] )
-            tx_recs = [tx_hex] + tx_recs
-       
-        i = 0 
-        while True:
-            
-            txs = []
-            count = 0
-            while i < len(tx_recs) and count < tx_grouping:
-                txs.append( tx_recs[i] )
-                i += 1
-
-            if len(txs) > 0:
-                for tx in txs:
-                    self.sendrawtransaction( tx )
-                self.flush_transactions()
-            
-            if i >= len(tx_recs):
-                break
+                if len(txs) > 0:
+                    for tx in txs:
+                        self.sendrawtransaction( tx )
+                    self.flush_transactions()
+                
+                if i >= len(tx_recs):
+                    break
 
 
     def getinfo( self ):
@@ -154,7 +177,7 @@ class MockBitcoindConnection( object ):
         """
 
         return {"errors": "Mock bitcoind",
-                "blocks": len(self.blocks)}
+                "blocks": len(self.blocks) + self.start_block - 1}
 
     def getblockhash( self, block_id ):
         """
@@ -199,6 +222,7 @@ class MockBitcoindConnection( object ):
         Given the transaction ID, get the raw transaction
         """
 
+
         raw_tx = self.txs.get( txid, None )
         if raw_tx is None:
             return None
@@ -207,12 +231,11 @@ class MockBitcoindConnection( object ):
             return raw_tx
 
         # parse like how bitcoind would have
-        """
-        btcd = virtualchain.create_bitcoind_connection( "openname", "opennamesystem", "btcd.onename.com", 8332, True )
-        ret = btcd.decoderawtransaction( raw_tx )
-        """
         ret = btc_decoderawtransaction_compat( raw_tx )
-
+        if ret is None:
+            return None
+        
+        ret['blockhash'] = self.txid_to_blockhash[ txid ]
         return ret
 
 
@@ -242,8 +265,12 @@ class MockBitcoindConnection( object ):
         TODO: we don't check for transaction validity here...
         """
 
-        inputs, outputs, locktime, version = tx_deserialize( tx_hex )
-        self.next_block_txs.append( tx_hex )
+        if self.next_block_txs_path is not None:
+            self.save_next( self.next_block_txs_path, tx_hex )
+
+        else:
+            print >> sys.stderr, "\n\nFATAL: no next path defined"
+            sys.exit(1)
 
     
     def decoderawtransaction( self, tx_hex ):
@@ -267,11 +294,14 @@ class MockBitcoindConnection( object ):
         TESTING ONLY
 
         Send the bufferred list of transactions as a block.
+        Save the resulting transactions to a temporary file.
         """
         
         # next block
-        txs = self.next_block_txs
-        self.next_block_txs = []
+        txs = []
+        if self.next_block_txs_path is not None and os.path.exists( self.next_block_txs_path ):
+            txs = self.restore_next( self.next_block_txs_path )
+            os.unlink( self.next_block_txs_path )
 
         # add a fake coinbase 
         txs.append( "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff53038349040d00456c69676975730052d8f72ffabe6d6dd991088decd13e658bbecc0b2b4c87306f637828917838c02a5d95d0e1bdff9b0400000000000000002f73733331312f00906b570400000000e4050000ffffffff01bf208795000000001976a9145399c3093d31e4b0af4be1215d59b857b861ad5d88ac00000000" )
@@ -286,24 +316,15 @@ class MockBitcoindConnection( object ):
         version = '01000000'
         t_hex = "%08X" % self.time
         difficulty_hex = "%08X" % self.difficulty
-        tx_merkle_tree = pybitcoin.MerkleTree( block_txs )
-        tx_merkle_root = binascii.hexlify( tx_merkle_tree.root() )
+        tx_merkle_tree = pybitcoin.MerkleTree( block_txids )
+        tx_merkle_root = tx_merkle_tree.root()
         prev_block_hash = self.block_hashes[ self.end_block - 1 ]        
 
-        block_header = version + prev_block_hash + tx_merkle_root + t_hex + difficulty_hex + '00000000'
-
-        # NOTE: not accurate; just get *a* hash
-        block_hash = make_txid( block_header )
-
-        # update nextblockhash at least 
-        self.blocks[prev_block_hash]['nextblockhash'] = block_hash 
-        
         # next block
         block = {
             'merkleroot': tx_merkle_root,
             'nonce': 0,                 # mock
             'previousblockhash': prev_block_hash,
-            'hash': block_hash,
             'version': 3,
             'tx': block_txids,
             'chainwork': '00' * 32,     # mock
@@ -312,25 +333,135 @@ class MockBitcoindConnection( object ):
             'nextblockhash': None,      # to be filled in
             'confirmations': None,      # to be filled in 
             'time': self.time,          # mock
-            'bits': 0x00000000,         # mock
-            'size': sum( [len(tx) for tx in txs] ) + len(block_hash)    # mock
+            'bits': "0x00000000",       # mock
+            'size': sum( [len(tx) for tx in txs] ) + 32   # mock
         }
-        
-        self.block_hashes[ self.end_block ] = block_hash
-        self.blocks[ block_hash ] = block
+
+        block_header = bitcoin.main.encode(block['version'], 256, 4)[::-1] + \
+                       block['previousblockhash'].decode('hex')[::-1] + \
+                       block['merkleroot'].decode('hex')[::-1] + \
+                       bitcoin.main.encode(block['time'], 256, 4)[::-1] + \
+                       bitcoin.main.encode(int(block['bits'], 16), 256, 4)[::-1] + \
+                       bitcoin.main.encode(block['nonce'], 256, 4)[::-1] 
+
+        block['hash'] = pybitcoin.bin_double_sha256( block_header )[::-1].encode('hex')
+        block['header'] = block_header
+
+        for txid in block['tx']:
+            # update txid --> blockhash map 
+            self.txid_to_blockhash[ txid ] = block['hash']
+
+        # update nextblockhash at least 
+        self.blocks[prev_block_hash]['nextblockhash'] = block['hash']
+        self.block_hashes[ self.end_block ] = block['hash']
+        self.blocks[ block['hash'] ] = block
         self.txs.update( block_txs )
 
         self.time += 600    # 10 minutes
         self.difficulty += 1
         self.end_block += 1
 
+        if self.save_file is not None:
+            self.save( self.save_file )
+
+        if self.spv_headers_path is not None:
+            with open(self.spv_headers_path, "a+") as f:
+                f.write( block_header )
+                f.write( "00".decode('hex') )    # our SPV client expects varint for tx count to be zero
+
         return [ make_txid( tx ) for tx in txs ]
+
+
+    def save( self, path ):
+        """
+        Save the contents of this mock bitcoind connection to disk.
+        """
+
+        to_save = {
+            "block_hashes": self.block_hashes,
+            "blocks": self.blocks,
+            "txs": self.txs,
+            "difficulty": self.difficulty,
+            "time": self.time,
+            "start_block": self.start_block,
+            "end_block": self.end_block,
+            "block_hashes": self.block_hashes,
+            "blocks": self.blocks
+        }
+
+        serialized_data = pickle.dumps( to_save )
+        with open( path, "w" ) as f:
+            f.write( serialized_data )
+            f.flush()
+
+
+    def save_next( self, path, tx ):
+        """
+        Save the next block's transaction data.
+        """
+
+        next_block_txs = self.restore_next( path )
+        next_block_txs.append( tx )
+
+        to_save = {
+            'next_block_txs': next_block_txs
+        }
+
+        serialized_data = pickle.dumps( to_save )
+        with open(path, "w") as f:
+            f.write( serialized_data )
+            f.flush()
+
+
+    def restore( self, path ):
+        """
+        Restore the contents of this mock bitcoind connection from disk.
+        """
+        
+        with open(path, "r") as f:
+            serialized_data = f.read()
+
+        data = pickle.loads( serialized_data )
+        
+        self.block_hashes = data['block_hashes']
+        self.blocks = data['blocks']
+        self.txs = data['txs']
+        self.difficulty = data['difficulty']
+        self.time = data['time']
+        self.start_block = data['start_block']
+        self.end_block = data['end_block']
+        self.block_hashes = data['block_hashes']
+
+        for block_hash, block_data in self.blocks.items():
+            if not block_data.has_key('tx'):
+                continue
+            
+            for txid in block_data['tx']:
+                self.txid_to_blockhash[ txid ] = block_hash
+
+
+    def restore_next( self, path ):
+        """
+        Restore transactions meant for the upcoming block.
+        """
+
+        if os.path.exists( path ):
+            with open(path, "r") as f:
+                serialized_data = f.read()
+
+            data = pickle.loads( serialized_data )
+            next_block_txs = data['next_block_txs']
+            return next_block_txs
+        else:
+            return []
 
 
 
 def connect_mock_bitcoind( mock_opts, reset=False ):
     """
-    Mock connection factory for bitcoind
+    Mock connection factory for bitcoind.
+    if MOCK_BITCOIND_SAVE_PATH is set in the environment,
+    then use that path to save/restore the mock blockchain.
     """
 
     global mock_bitcoind
@@ -470,7 +601,7 @@ def btc_decoderawtransaction_get_script_type( script ):
         # format: OP_DUP OP_HASH160 0x14 [20-byte hash] OP_EQUALVERIFY OP_CHECKSIG
         return "pubkeyhash"
 
-    elif script[-2:].lower() == 'ac':
+    if script[-2:].lower() == 'ac':
 
         # maybe a pay-to-pubkey...
         # format: [pubkey len] [pubkey] OP_CHECKSIG
@@ -478,18 +609,18 @@ def btc_decoderawtransaction_get_script_type( script ):
         if pk_hex is not None:
             return "pubkey"
 
-    elif len(script) == (24 * 2) and script[0:2].lower() == 'a9' and script[-2:].lower() == '87':
+    if len(script) == (24 * 2) and script[0:2].lower() == 'a9' and script[-2:].lower() == '87':
 
         # maybe a pay-to-script-hash...
         # format: OP_HASH160 [hash len] [hash] OP_EQUAL
         return "scripthash"
 
-    elif script[0:2].lower() == '6a':
+    if script[0:2].lower() == '6a':
         
         # format: OP_RETURN [data]
         return "nulldata"
 
-    elif script[-2:].lower() == 'ae':
+    if script[-2:].lower() == 'ae':
 
         # format (?): [instructions] OP_CHECKMULTISIG
         # TODO: not sure if this check is correct...
@@ -581,7 +712,6 @@ def btc_decoderawtransaction_compat( tx_hex ):
     }
 
     return tx_decoded
-
 
 def make_worker_env( mock_bitcoind_mod, mock_bitcoind_save_path ):
     """
