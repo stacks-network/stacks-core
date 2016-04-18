@@ -315,10 +315,10 @@ def get_db_state():
    if blockstack_db is None or mtime is None or not os.path.exists(db_filename) or sb.st_mtime != last_load_time:
        log.info("(Re)Loading blockstack state from '%s'" % db_filename )
        blockstack_db = BlockstackDB( db_filename )
+
+       if mtime is not None:
+          last_load_time = mtime 
   
-   sb = os.stat(db_filename)
-   last_load_time = sb.st_mtime
- 
    return blockstack_db
 
 
