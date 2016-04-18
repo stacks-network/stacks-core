@@ -46,7 +46,7 @@ import pybitcoin
 
 import virtualchain
 
-log = virtualchain.get_logger("testlib")
+log = virtualchain.session.log
 
 class Wallet(object):
     def __init__(self, pk_wif, value_str ):
@@ -159,7 +159,7 @@ def make_proxy():
     Create a blockstack client API proxy
     """
     global utxo_opts
-    proxy = blockstack_client.session( server_host="localhost", server_port=16264, storage_drivers="disk", \
+    proxy = blockstack_client.session( server_host="localhost", server_port=blockstack.lib.config.RPC_SERVER_PORT, storage_drivers="disk", \
                                        metadata_dir=None, spv_headers_path=utxo_opts['spv_headers_path'] )
 
     return proxy
