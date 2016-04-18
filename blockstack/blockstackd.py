@@ -1542,6 +1542,15 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return client.get_immutable( str(blockchain_id), str(data_hash) )
 
 
+    def rpc_get_block_from_consensus( self, consensus_hash ):
+        """
+        Given the consensus hash, find the block number
+        """
+        db = get_db_state()
+        return db.get_block_from_consensus( consensus_hash )
+
+
+
 class BlockstackdRPCServer( threading.Thread, object ):
     """
     RPC server thread
