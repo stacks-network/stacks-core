@@ -305,15 +305,20 @@ def get_db_state():
    global blockstack_db
    global last_load_time
 
+   mtime = None
    db_filename = virtualchain.get_db_filename()
-   sb = os.stat( db_filename )
 
-   if blockstack_db is None or sb.st_mtime != last_load_time:
-       last_load_time = sb.st_mtime
+   if os.path.exists(db_filename):
+       sb = os.stat(db_filename)
+       mtime = sb.st_mtime 
 
+   if blockstack_db is None or mtime is None or not os.path.exists(db_filename) or sb.st_mtime != last_load_time:
        log.info("(Re)Loading blockstack state from '%s'" % db_filename )
        blockstack_db = BlockstackDB( db_filename )
-   
+  
+   sb = os.stat(db_filename)
+   last_load_time = sb.st_mtime
+ 
    return blockstack_db
 
 
