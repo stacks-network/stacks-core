@@ -32,8 +32,7 @@ import blockstack.blockstackd as blockstackd
 
 import scenarios.testlib as testlib
 
-log = virtualchain.get_logger("run_scenario")
-
+log = virtualchain.session.log
 mock_bitcoind_connection = None
 
 def load_scenario( scenario_name ):
@@ -112,14 +111,13 @@ def network_start():
     Start RPC services
     """
     blockstackd.rpc_start()
-    blockstackd.dht_start()
+    time.sleep(1)
 
 def network_stop():
     """
     Stop RPC services
     """
     blockstackd.rpc_stop()
-    blockstackd.dht_stop()
 
 
 def run_scenario( scenario, config_file ):
@@ -154,7 +152,7 @@ def run_scenario( scenario, config_file ):
         worker_env["PYTHONPATH"] = os.environ["PYTHONPATH"]
 
     # virtualchain defaults...
-    virtualchain.setup_virtualchain( impl=blockstack_state_engine, bitcoind_connection_factory=mock_bitcoind.connect_mock_bitcoind, index_worker_env=worker_env )
+    virtualchain.setup_virtualchain( blockstack_state_engine, bitcoind_connection_factory=mock_bitcoind.connect_mock_bitcoind, index_worker_env=worker_env )
 
     # set up blockstack
     # NOTE: utxo_opts encodes the mock-bitcoind options 
@@ -201,9 +199,8 @@ def run_scenario( scenario, config_file ):
 
     blockstackd.set_bitcoin_opts( bitcoin_opts )
     blockstackd.set_utxo_opts( utxo_opts )
-    blockstackd.set_dht_opts( dht_opts )
 
-    db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
+    db = blockstackd.get_db_state()
     bitcoind = mock_bitcoind.connect_mock_bitcoind( utxo_opts )
     sync_virtualchain_upcall = lambda: virtualchain.sync_virtualchain( utxo_opts, bitcoind.getblockcount(), db )
     mock_utxo = blockstack.lib.connect_utxo_provider( utxo_opts )
