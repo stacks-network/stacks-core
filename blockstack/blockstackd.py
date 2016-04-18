@@ -39,6 +39,13 @@ import shutil
 import tempfile
 import binascii
 import copy
+import atexit
+
+from SimpleXMLRPCServer import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
+
+# stop common XML attacks 
+from defusedxml import xmlrpc
+xmlrpc.monkey_patch()
 
 import virtualchain
 
@@ -54,7 +61,6 @@ except:
 from ConfigParser import SafeConfigParser
 
 import pybitcoin
-from txjsonrpc.netstring import jsonrpc
 
 from lib import nameset as blockstack_state_engine
 from lib import get_db_state
@@ -71,7 +77,7 @@ bitcoin_opts = None
 utxo_opts = None
 blockchain_client = None
 blockchain_broadcaster = None
-indexer_pid = None
+rpc_server = None
 
 
 def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
@@ -246,28 +252,7 @@ def get_index_range():
             return first_block, last_block - NUM_CONFIRMATIONS
 
 
-def die_handler_server(signal, frame):
-    """
-    Handle Ctrl+C for server subprocess
-    """
-
-    log.info('Exiting blockstackd server')
-    stop_server()
-    sys.exit(0)
-
-
-
-def die_handler_indexer(signal, frame):
-    """
-    Handle Ctrl+C for indexer processe
-    """
-
-    db = get_state_engine()
-    virtualchain.stop_sync_virtualchain( db )
-    sys.exit(0)
-
-
-def json_traceback():
+def rpc_traceback():
     exception_data = traceback.format_exc().splitlines()
     return {
         "error": exception_data[-1],
@@ -458,7 +443,7 @@ def blockstack_name_preorder( name, privatekey, register_addr, tx_only=False, su
         resp = preorder_name(str(name), privatekey, str(register_addr), str(consensus_hash), blockchain_client_inst, \
             name_fee, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'], subsidy_public_key=public_key, tx_only=tx_only )
     except:
-        return json_traceback()
+        return rpc_traceback()
 
     if subsidy_key is not None:
         # sign each input
@@ -529,7 +514,7 @@ def blockstack_name_register( name, privatekey, register_addr, renewal_fee=None,
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'], \
             subsidy_public_key=public_key, user_public_key=user_public_key )
     except:
-        return json_traceback()
+        return rpc_traceback()
 
     if subsidy_key is not None and renewal_fee is not None:
         resp = make_subsidized_tx( resp['unsigned_tx'], registration_fees, blockstack_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
@@ -593,7 +578,7 @@ def blockstack_name_update( name, data_hash, privatekey, tx_only=False, user_pub
         resp = update_name(str(name), str(data_hash), str(consensus_hash), privatekey, blockchain_client_inst, \
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, user_public_key=user_public_key, testset=blockstack_opts['testset'])
     except:
-        return json_traceback()
+        return rpc_traceback()
 
     if subsidy_key is not None:
         # subsidize the transaction
@@ -654,7 +639,7 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, user_public_k
         resp = transfer_name(str(name), str(address), keepdata, str(consensus_hash), privatekey, blockchain_client_inst, \
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, user_public_key=user_public_key, testset=blockstack_opts['testset'])
     except:
-        return json_traceback()
+        return rpc_traceback()
 
     if subsidy_key is not None:
         # subsidize the transaction
@@ -735,7 +720,7 @@ def blockstack_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, u
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, \
             user_public_key=user_public_key, testset=blockstack_opts['testset'])
     except:
-        return json_traceback()
+        return rpc_traceback()
 
     if subsidy_key is not None:
         # subsidize the transaction
@@ -772,7 +757,7 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, tx
         resp = name_import( str(name), str(recipient_address), str(update_hash), str(privatekey), blockchain_client_inst, \
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'] )
     except:
-        return json_traceback()
+        return rpc_traceback()
 
     log.debug("import <%s>" % name )
 
@@ -818,7 +803,7 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, tx_o
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'] )
 
     except:
-        return json_traceback()
+        return rpc_traceback()
 
     log.debug("namespace_preorder <%s>" % (namespace_id))
     return resp
@@ -853,7 +838,7 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
                                 str(privatekey), blockchain_client_inst, \
                                 blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'], tx_only=tx_only )
     except:
-        return json_traceback()
+        return rpc_traceback()
 
     log.debug("namespace_reveal <%s, %s, %s, %s, %s, %s, %s>" % (namespace_id, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount))
     return resp
@@ -883,7 +868,7 @@ def blockstack_namespace_ready( namespace_id, privatekey, tx_only=False, testset
         resp = namespace_ready( str(namespace_id), str(privatekey), blockchain_client_inst, \
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'] )
     except:
-        return json_traceback()
+        return rpc_traceback()
 
     log.debug("namespace_ready %s" % namespace_id )
     return resp
@@ -918,7 +903,7 @@ def blockstack_announce( message, privatekey, tx_only=False, subsidy_key=None, u
             user_public_key=user_public_key, testset=blockstack_opts['testset'])
 
     except:
-        return json_traceback()
+        return rpc_traceback()
 
     if subsidy_key is not None:
         # subsidize the transaction
@@ -941,31 +926,48 @@ def blockstack_announce( message, privatekey, tx_only=False, subsidy_key=None, u
     return resp
 
 
-class BlockstackdRPC(jsonrpc.JSONRPC, object):
+class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
     """
-    Blockstackd not-quite-JSON-RPC server.
+    Hander to capture tracebacks
+    """
+    def _dispatch(self, method, params):
+        try: 
+            res = self.server.funcs["rpc_" + str(method)](*params)
 
-    We say "not quite" because the implementation serves data
-    via Netstrings, not HTTP, and does not pay attention to
-    the 'id' or 'version' fields in the JSONRPC spec.
+            # lol jsonrpc within xmlrpc
+            return json.dumps(res)
+        except Exception, e:
+            print >> sys.stderr, "\n\n%s\n\n" % traceback.format_exc()
+            return rpc_traceback()
 
-    This endpoint does *not* talk to a storage provider, but only
-    serves back information from the blockstack virtual chain.
 
-    The client is responsible for resolving this information
-    to data, via an ancillary storage provider.
+class BlockstackdRPC(SimpleXMLRPCServer):
+    """
+    Blockstackd RPC server, used for querying
+    the name database and the blockchain peer.
+
+    Methods that start with rpc_* will be registered
+    as RPC methods.
     """
 
-    def __init__(self, testset=False):
+    def __init__(self, host='localhost', port=config.RPC_SERVER_PORT, handler=BlockstackdRPCHandler, testset=False):
         self.testset = testset
-        super(BlockstackdRPC, self).__init__()
+        SimpleXMLRPCServer.__init__( self, (host, port), handler, allow_none=True )
 
-    def jsonrpc_ping(self):
+        # register methods 
+        for attr in dir(self):
+            if attr.startswith("rpc_"):
+                method = getattr(self, attr)
+                if callable(method) or hasattr(method, '__call__'):
+                    self.register_function( method )
+
+
+    def rpc_ping(self):
         reply = {}
         reply['status'] = "alive"
         return reply
 
-    def jsonrpc_get_name_blockchain_record(self, name):
+    def rpc_get_name_blockchain_record(self, name):
         """
         Lookup the blockchain-derived profile for a name.
         """
@@ -988,7 +990,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         else:
             return name_record
 
-    def jsonrpc_get_name_blockchain_history( self, name, start_block, end_block ):
+    def rpc_get_name_blockchain_history( self, name, start_block, end_block ):
         """
         Get the sequence of name operations processed for a given name.
         """
@@ -1005,7 +1007,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
             return name_history
 
 
-    def jsonrpc_get_nameops_at( self, block_id ):
+    def rpc_get_nameops_at( self, block_id ):
         """
         Get the sequence of names and namespaces altered at the given block.
         Returns the list of name operations to be fed into virtualchain.
@@ -1022,7 +1024,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return ret
 
 
-    def jsonrpc_get_nameops_hash_at( self, block_id ):
+    def rpc_get_nameops_hash_at( self, block_id ):
         """
         Get the hash over the sequence of names and namespaces altered at the given block.
         Used by SNV clients.
@@ -1044,7 +1046,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return ops_hash
 
 
-    def jsonrpc_getinfo(self):
+    def rpc_getinfo(self):
         """
         Get the number of blocks the
         """
@@ -1063,7 +1065,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return reply
 
 
-    def jsonrpc_get_names_owned_by_address(self, address):
+    def rpc_get_names_owned_by_address(self, address):
         """
         Get the list of names owned by an address.
         Valid only for names with p2pkh sender scripts.
@@ -1075,7 +1077,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return names
 
 
-    def jsonrpc_preorder( self, name, privatekey, register_addr ):
+    def rpc_preorder( self, name, privatekey, register_addr ):
         """
         Preorder a name:
         @name is the name to preorder
@@ -1089,7 +1091,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_name_preorder( str(name), str(privatekey), str(register_addr), testset=self.testset )
 
 
-    def jsonrpc_preorder_tx( self, name, privatekey, register_addr ):
+    def rpc_preorder_tx( self, name, privatekey, register_addr ):
         """
         Generate a transaction that preorders a name:
         @name is the name to preorder
@@ -1103,7 +1105,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_name_preorder( str(name), str(privatekey), str(register_addr), tx_only=True, testset=self.testset )
 
 
-    def jsonrpc_preorder_tx_subsidized( self, name, user_public_key, register_addr, subsidy_key ):
+    def rpc_preorder_tx_subsidized( self, name, user_public_key, register_addr, subsidy_key ):
         """
         Generate a transaction that preorders a name, but without paying fees.
         @name is the name to preorder
@@ -1117,7 +1119,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_name_preorder( str(name), None, str(register_addr), tx_only=True, subsidy_key=str(subsidy_key), user_public_key=str(user_public_key), testset=self.testset )
 
 
-    def jsonrpc_register( self, name, privatekey, register_addr ):
+    def rpc_register( self, name, privatekey, register_addr ):
         """
         Register a name:
         @name is the name to register
@@ -1131,7 +1133,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_name_register( str(name), str(privatekey), str(register_addr), testset=self.testset )
 
 
-    def jsonrpc_register_tx( self, name, privatekey, register_addr ):
+    def rpc_register_tx( self, name, privatekey, register_addr ):
         """
         Generate a transaction that will register a name:
         @name is the name to register
@@ -1145,7 +1147,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_name_register( str(name), str(privatekey), str(register_addr), tx_only=True, testset=self.testset )
 
 
-    def jsonrpc_register_tx_subsidized( self, name, user_public_key, register_addr, subsidy_key ):
+    def rpc_register_tx_subsidized( self, name, user_public_key, register_addr, subsidy_key ):
         """
         Generate a subsidizable transaction that will register a name
         @name is the name to register
@@ -1159,7 +1161,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_name_register( str(name), None, str(register_addr), tx_only=True, public_key=str(user_public_key), subsidy_key=str(subsidy_key), testset=self.testset )
 
 
-    def jsonrpc_update( self, name, data_hash, privatekey ):
+    def rpc_update( self, name, data_hash, privatekey ):
         """
         Update a name's record:
         @name is the name to update
@@ -1172,7 +1174,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_name_update( str(name), str(data_hash), str(privatekey), testset=self.testset )
 
 
-    def jsonrpc_update_tx( self, name, data_hash, privatekey ):
+    def rpc_update_tx( self, name, data_hash, privatekey ):
         """
         Generate a transaction that will update a name's name record hash.
         @name is the name to update
@@ -1185,7 +1187,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_name_update( str(name), str(data_hash), str(privatekey), tx_only=True, testset=self.testset )
 
 
-    def jsonrpc_update_tx_subsidized( self, name, data_hash, user_public_key, subsidy_key ):
+    def rpc_update_tx_subsidized( self, name, data_hash, user_public_key, subsidy_key ):
         """
         Generate a subsidizable transaction that will update a name's name record hash.
         @name is the name to update
@@ -1198,7 +1200,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_name_update( str(name), str(data_hash), None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
 
 
-    def jsonrpc_transfer( self, name, address, keepdata, privatekey ):
+    def rpc_transfer( self, name, address, keepdata, privatekey ):
         """
         Transfer a name's record to a new address
         @name is the name to transfer
@@ -1221,7 +1223,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_name_transfer( str(name), str(address), keepdata, str(privatekey), testset=self.testset )
 
 
-    def jsonrpc_transfer_tx( self, name, address, keepdata, privatekey ):
+    def rpc_transfer_tx( self, name, address, keepdata, privatekey ):
         """
         Generate a transaction that will transfer a name to a new address
         @name is the name to transfer
@@ -1244,7 +1246,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_name_transfer( str(name), str(address), keepdata, str(privatekey), tx_only=True, testset=self.testset )
 
 
-    def jsonrpc_transfer_tx_subsidized( self, name, address, keepdata, user_public_key, subsidy_key ):
+    def rpc_transfer_tx_subsidized( self, name, address, keepdata, user_public_key, subsidy_key ):
         """
         Generate a subsidizable transaction that will transfer a name to a new address
         @name is the name to transfer
@@ -1267,7 +1269,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_name_transfer( str(name), str(address), keepdata, None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
 
 
-    def jsonrpc_renew( self, name, privatekey ):
+    def rpc_renew( self, name, privatekey ):
         """
         Renew a name:
         @name is the name to renew
@@ -1279,7 +1281,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_name_renew( str(name), str(privatekey), testset=self.testset )
 
 
-    def jsonrpc_renew_tx( self, name, privatekey ):
+    def rpc_renew_tx( self, name, privatekey ):
         """
         Generate a transaction that will register a name:
         @name is the name to renew
@@ -1291,7 +1293,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_name_renew( str(name), str(privatekey), tx_only=True, testset=self.testset )
 
 
-    def jsonrpc_renew_tx_subsidized( self, name, user_public_key, subsidy_key ):
+    def rpc_renew_tx_subsidized( self, name, user_public_key, subsidy_key ):
         """
         Generate a subsidizable transaction that will register a name
         @name is the name to renew
@@ -1303,7 +1305,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_name_renew( name, None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
 
 
-    def jsonrpc_revoke( self, name, privatekey ):
+    def rpc_revoke( self, name, privatekey ):
         """
         revoke a name:
         @name is the name to revoke
@@ -1315,7 +1317,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_name_revoke( str(name), str(privatekey), testset=self.testset )
 
 
-    def jsonrpc_revoke_tx( self, name, privatekey ):
+    def rpc_revoke_tx( self, name, privatekey ):
         """
         Generate a transaction that will revoke a name:
         @name is the name to revoke
@@ -1327,7 +1329,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_name_revoke( str(name), str(privatekey), tx_only=True, testset=self.testset )
 
 
-    def jsonrpc_revoke_tx_subsidized( self, name, public_key, subsidy_key ):
+    def rpc_revoke_tx_subsidized( self, name, public_key, subsidy_key ):
         """
         Generate a subsidizable transaction that will revoke a name
         @name is the name to revoke
@@ -1339,21 +1341,21 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_name_revoke( str(name), None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
 
 
-    def jsonrpc_name_import( self, name, recipient_address, update_hash, privatekey ):
+    def rpc_name_import( self, name, recipient_address, update_hash, privatekey ):
         """
         Import a name into a namespace.
         """
         return blockstack_name_import( name, recipient_address, update_hash, privatekey, testset=self.testset )
 
 
-    def jsonrpc_name_import_tx( self, name, recipient_address, update_hash, privatekey ):
+    def rpc_name_import_tx( self, name, recipient_address, update_hash, privatekey ):
         """
         Generate a tx that will import a name
         """
         return blockstack_name_import( name, recipient_address, update_hash, privatekey, tx_only=True, testset=self.testset )
 
 
-    def jsonrpc_namespace_preorder( self, namespace_id, reveal_addr, privatekey ):
+    def rpc_namespace_preorder( self, namespace_id, reveal_addr, privatekey ):
         """
         Define the properties of a namespace.
         Between the namespace definition and the "namespace begin" operation, only the
@@ -1362,7 +1364,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_namespace_preorder( namespace_id, reveal_addr, privatekey, testset=self.testset )
 
 
-    def jsonrpc_namespace_preorder_tx( self, namespace_id, reveal_addr, privatekey ):
+    def rpc_namespace_preorder_tx( self, namespace_id, reveal_addr, privatekey ):
         """
         Create a signed transaction that will define the properties of a namespace.
         Between the namespace definition and the "namespace begin" operation, only the
@@ -1371,7 +1373,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_namespace_preorder( namespace_id, reveal_addr, privatekey, tx_only=True, testset=self.testset )
 
 
-    def jsonrpc_namespace_reveal( self, namespace_id, reveal_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey ):
+    def rpc_namespace_reveal( self, namespace_id, reveal_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey ):
         """
         Reveal and define the properties of a namespace.
         Between the namespace definition and the "namespace begin" operation, only the
@@ -1380,7 +1382,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_namespace_reveal( namespace_id, reveal_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, testset=self.testset )
 
 
-    def jsonrpc_namespace_reveal_tx( self, namespace_id, reveal_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey ):
+    def rpc_namespace_reveal_tx( self, namespace_id, reveal_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey ):
         """
         Generate a signed transaction that will reveal and define the properties of a namespace.
         Between the namespace definition and the "namespace begin" operation, only the
@@ -1389,21 +1391,21 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_namespace_reveal( namespace_id, reveal_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, tx_only=True, testset=self.testset )
 
 
-    def jsonrpc_namespace_ready( self, namespace_id, privatekey ):
+    def rpc_namespace_ready( self, namespace_id, privatekey ):
         """
         Declare that a namespace is open to accepting new names.
         """
         return blockstack_namespace_ready( namespace_id, privatekey, testset=self.testset )
 
 
-    def jsonrpc_namespace_ready_tx( self, namespace_id, privatekey ):
+    def rpc_namespace_ready_tx( self, namespace_id, privatekey ):
         """
         Create a signed transaction that will declare that a namespace is open to accepting new names.
         """
         return blockstack_namespace_ready( namespace_id, privatekey, tx_only=True, testset=self.testset )
 
 
-    def jsonrpc_announce( self, message, privatekey ):
+    def rpc_announce( self, message, privatekey ):
         """
         announce a message to all blockstack nodes on the blockchain
         @message is the message to send
@@ -1415,7 +1417,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_announce( str(message), str(privatekey), testset=self.testset )
 
 
-    def jsonrpc_announce_tx( self, message, privatekey ):
+    def rpc_announce_tx( self, message, privatekey ):
         """
         Generate a transaction that will make an announcement:
         @message is the message text to send
@@ -1427,7 +1429,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_announce( str(message), str(privatekey), tx_only=True, testset=self.testset )
 
 
-    def jsonrpc_announce_tx_subsidized( self, message, public_key, subsidy_key ):
+    def rpc_announce_tx_subsidized( self, message, public_key, subsidy_key ):
         """
         Generate a subsidizable transaction that will make an announcement
         @message is hte message text to send
@@ -1439,7 +1441,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return blockstack_announce( str(message), None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
 
 
-    def jsonrpc_get_name_cost( self, name ):
+    def rpc_get_name_cost( self, name ):
         """
         Return the cost of a given name, including fees
         Return value is in satoshis
@@ -1461,7 +1463,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return {"satoshis": int(math.ceil(ret))}
 
 
-    def jsonrpc_get_namespace_cost( self, namespace_id ):
+    def rpc_get_namespace_cost( self, namespace_id ):
         """
         Return the cost of a given namespace, including fees.
         Return value is in satoshis
@@ -1474,7 +1476,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return {"satoshis": int(math.ceil(ret))}
 
 
-    def jsonrpc_get_namespace_blockchain_record( self, namespace_id ):
+    def rpc_get_namespace_blockchain_record( self, namespace_id ):
         """
         Return the readied namespace with the given namespace_id
         """
@@ -1490,7 +1492,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
             return ns
 
 
-    def jsonrpc_get_all_names( self, offset, count ):
+    def rpc_get_all_names( self, offset, count ):
         """
         Return all names
         """
@@ -1502,7 +1504,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return db.get_all_names( offset=offset, count=count )
 
 
-    def jsonrpc_get_names_in_namespace( self, namespace_id, offset, count ):
+    def rpc_get_names_in_namespace( self, namespace_id, offset, count ):
         """
         Return all names in a namespace
         """
@@ -1514,7 +1516,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return db.get_names_in_namespace( namespace_id, offset=offset, count=count )
 
 
-    def jsonrpc_get_consensus_at( self, block_id ):
+    def rpc_get_consensus_at( self, block_id ):
         """
         Return the consensus hash at a block number
         """
@@ -1522,7 +1524,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return db.get_consensus_at( block_id )
 
 
-    def jsonrpc_get_mutable_data( self, blockchain_id, data_name ):
+    def rpc_get_mutable_data( self, blockchain_id, data_name ):
         """
         Get a mutable data record written by a given user.
         """
@@ -1530,7 +1532,7 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return client.get_mutable( str(blockchain_id), str(data_name) )
 
 
-    def jsonrpc_get_immutable_data( self, blockchain_id, data_hash ):
+    def rpc_get_immutable_data( self, blockchain_id, data_hash ):
         """
         Get immutable data record written by a given user.
         """
@@ -1538,69 +1540,105 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return client.get_immutable( str(blockchain_id), str(data_hash) )
 
 
-def run_indexer( testset=False ):
+class BlockstackdRPCServer( threading.Thread, object ):
     """
-    Continuously reindex the blockchain, but as a subprocess.
+    RPC server thread
     """
-
-    # set up this process
-    signal.signal( signal.SIGINT, die_handler_indexer )
-    signal.signal( signal.SIGQUIT, die_handler_indexer )
-    signal.signal( signal.SIGTERM, die_handler_indexer )
-
-    bitcoind_opts = get_bitcoin_opts()
-
-    _, last_block_id = get_index_range()
-    db = get_state_engine()
-
-    while True:
-
-        time.sleep( REINDEX_FREQUENCY )
-        virtualchain.sync_virtualchain( bitcoind_opts, last_block_id, db )
-
-        _, last_block_id = get_index_range()
-
-    return
+    def __init__(self, testset=False):
+        super( BlockstackdRPCServer, self ).__init__()
+        self.testset = testset
+        self.rpc_server = None
 
 
-def stop_server():
+    def run(self):
+        """
+        Serve until asked to stop
+        """
+        self.rpc_server = BlockstackdRPC( testset=self.testset )
+        self.rpc_server.serve_forever()
+
+
+    def stop_server(self):
+        """
+        Stop serving.  Also stops the thread.
+        """
+        self.rpc_server.shutdown()
+     
+
+def rpc_start( testset=False ):
+    """
+    Start the global RPC server thread
+    """
+    global rpc_server
+    rpc_server = BlockstackdRPCServer( testset=testset )
+
+    log.debug("Starting RPC")
+    rpc_server.start()
+
+
+def rpc_stop():
+    """
+    Stop the global RPC server thread
+    """
+    global rpc_server
+    if rpc_server is not None:
+        log.debug("Shutting down RPC")
+        rpc_server.stop_server()
+        rpc_server.join()
+        log.debug("RPC joined")
+
+
+def stop_server( clean=False, kill=False ):
     """
     Stop the blockstackd server.
     """
-    global indexer_pid
 
-    # Quick hack to kill a background daemon
+    # kill the main supervisor
     pid_file = get_pidfile_path()
-
     try:
         fin = open(pid_file, "r")
     except Exception, e:
-        return
+        pass
 
     else:
-        pid_data = fin.read()
+        pid_data = fin.read().strip()
         fin.close()
-        os.remove(pid_file)
 
         pid = int(pid_data)
 
         try:
-           os.kill(pid, signal.SIGKILL)
+           os.kill(pid, signal.SIGTERM)
+        except OSError, oe:
+           if oe.errno == errno.ESRCH:
+              # already dead 
+              log.info("Process %s is not running" % pid)
+              try:
+                  os.unlink(pid_file)
+              except:
+                  pass
+
+              return
+
         except Exception, e:
-           return
+            log.exception(e)
+            sys.exit(1)
 
-
-    if indexer_pid is not None:
+        if kill:
+            time.sleep(3.0)
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except Exception, e:
+                pass
+   
+    if clean:
+        # always blow away the pid file 
         try:
-           os.kill(indexer_pid, signal.SIGTERM)
-        except Exception, e:
-           return
+            os.unlink(pid_file)
+        except:
+            pass
 
-    # stop building new state if we're in the middle of it
-    db = get_state_engine()
-    virtualchain.stop_sync_virtualchain( db )
-
-    set_indexing( False )
+    
+   log.debug("Blockstack server stopped")
 
 
 def get_indexing_lockfile():
@@ -1642,54 +1680,56 @@ def set_indexing( flag ):
             return False
 
 
+def index_blockchain():
+    """
+    Index the blockchain:
+    * find the range of blocks
+    * synchronize our state engine up to them
+    """
+
+    bt_opts = get_bitcoin_opts() 
+    start_block, current_block = get_index_range()
+
+    if start_block is None and current_block is None:
+        log.error("Failed to find block range")
+        return
+
+    # bring us up to speed
+    log.debug("Begin indexing (up to %s)" % current_block)
+    set_indexing( True )
+    db = virtualchain_hooks.get_db_state()
+    virtualchain.sync_virtualchain( bt_opts, current_block, db )
+    set_indexing( False )
+    log.debug("End indexing (up to %s)" % current_block)
+
+
+def blockstack_exit():
+    """
+    Shut down the server on exit(3)
+    """
+    stop_server()
+
+
+def blockstack_exit_handler( sig, frame ):
+    """
+    Fatal signal handler
+    """
+    sys.exit(0)
+
+
 def run_server( testset=False, foreground=False ):
     """
     Run the blockstackd RPC server, optionally in the foreground.
     """
 
-    global indexer_pid
-
     bt_opts = get_bitcoin_opts()
 
-    tac_file = get_tacfile_path( testset=testset )
-    access_log_file = get_logfile_path() + ".access"
     indexer_log_file = get_logfile_path() + ".indexer"
     pid_file = get_pidfile_path()
     working_dir = virtualchain.get_working_dir()
 
-    start_block, current_block = get_index_range()
-
-    argv0 = os.path.normpath( sys.argv[0] )
-    blockstackd_path = os.path.join(os.getcwd(), argv0)
-
-    if os.path.exists("./%s" % argv0 ):
-        if testset:
-
-            indexer_command = ("indexer --testset --working-dir=%s" % working_dir).split()
-            indexer_command = [blockstackd_path] + indexer_command
-        else:
-            indexer_command = ("indexer --working-dir=%s" % working_dir).split()
-            indexer_command = [blockstackd_path] + indexer_command
-    else:
-        # hope its in the $PATH
-        if testset:
-            indexer_command = ("indexer --testset --working-dir=%s" % working_dir).split()
-            indexer_command = [argv0] + indexer_command
-        else:
-            indexer_command = ("indexer --working-dir=%s" % working_dir).split()
-            indexer_command = [argv0] + indexer_command
-
-
-    log.debug("Start indexer: '%s'" % (' '.join(indexer_command)))
-
     logfile = None
     if not foreground:
-
-        api_server_command = ('twistd --pidfile=%s --logfile=%s -noy' % (pid_file,
-                                                                         access_log_file)).split()
-        api_server_command.append(tac_file)
-
-
         try:
             if os.path.exists( indexer_log_file ):
                 logfile = open( indexer_log_file, "a" )
@@ -1717,7 +1757,7 @@ def run_server( testset=False, foreground=False ):
 
             elif daemon_pid > 0:
 
-                # parent!
+                # parent (intermediate child)
                 sys.exit(0)
 
             else:
@@ -1727,57 +1767,53 @@ def run_server( testset=False, foreground=False ):
 
         elif child_pid > 0:
 
-            # parent
-            # wait for child
+            # grand-parent
+            # wait for intermediate child
             pid, status = os.waitpid( child_pid, 0 )
             sys.exit(status)
-
-    else:
-
-        # foreground
-        api_server_command = ('twistd --pidfile=%s -noy' % pid_file).split()
-        api_server_command.append(tac_file)
+    
+    # put supervisor pid file
+    put_pidfile( pid_file, os.getpid() )
+    atexit.register( blockstack_exit )
 
     # start API server
-    blockstackd = subprocess.Popen( api_server_command, shell=False)
+    rpc_start()
 
+    # clear any stale indexing state
     set_indexing( False )
 
-    if start_block != current_block:
-        # bring us up to speed
-        set_indexing( True )
+    log.debug("Begin Indexing")
+    running = True
 
-        db = get_state_engine()
-        virtualchain.sync_virtualchain( bt_opts, current_block, db )
+    while running:
 
-        set_indexing( False )
+	try:
+           index_blockchain()
+        except Exception, e:
+           log.exception(e)
+           log.error("FATAL: caught exception while indexing")
+           sys.exit(1)
+        
+        # wait for the next block
+        deadline = time.time() + REINDEX_FREQUENCY
+        while time.time() < deadline:
+            try:
+                time.sleep(1.0)
+            except:
+                # interrupt
+                running = False
+                break
 
-    # fork the indexer
-    if foreground:
-        indexer = subprocess.Popen( indexer_command, shell=False )
-    else:
-        indexer = subprocess.Popen( indexer_command, shell=False, stdout=logfile, stderr=logfile )
+    # stop API server 
+    rpc_stop()
 
-    indexer_pid = indexer.pid
-
-    # wait for the API server to die (we kill it with `blockstackd stop`)
-    blockstackd.wait()
-
-    # stop our indexer subprocess
-    indexer_pid = None
-
-    os.kill( indexer.pid, signal.SIGINT )
-    indexer.wait()
-
+    # close logfile
     if logfile is not None:
         logfile.flush()
         logfile.close()
 
-    # stop building new state if we're in the middle of it
-    db = get_state_engine()
-    virtualchain.stop_sync_virtualchain( db )
+    return 0
 
-    return blockstackd.returncode
 
 
 def setup( working_dir=None, testset=False, return_parser=False ):
@@ -2371,16 +2407,6 @@ def run_blockstackd():
       help='use an alternative working directory')
 
    parser = subparsers.add_parser(
-      'indexer',
-      help='run blockstack indexer worker')
-   parser.add_argument(
-      '--testset', action='store_true',
-      help='required if the daemon is using the testing set of name operations')
-   parser.add_argument(
-      '--working-dir', action='store',
-      help='use an alternative working directory')
-
-   parser = subparsers.add_parser(
       'rebuilddb',
       help='Reconstruct the current database from particular block number by replaying all prior name operations')
    parser.add_argument(
@@ -2465,9 +2491,6 @@ def run_blockstackd():
 
    elif args.action == 'clean':
       clean( confirm=(not args.force), testset=args.testset )
-
-   elif args.action == 'indexer':
-      run_indexer( testset=args.testset )
 
    elif args.action == 'rebuilddb':
 
