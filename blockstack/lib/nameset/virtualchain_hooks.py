@@ -304,22 +304,15 @@ def get_db_state():
    
    global blockstack_db
    global last_load_time
-   
-   now = time.time()
-   
-   # force invalidation
-   if now - last_load_time > REINDEX_FREQUENCY:
-       blockstack_db = None
-       
-   if blockstack_db is not None:
-      return blockstack_db 
-   
+
    db_filename = virtualchain.get_db_filename()
-   
-   log.info("(Re)Loading blockstack state from '%s'" % db_filename )
-   blockstack_db = BlockstackDB( db_filename )
-   
-   last_load_time = time.time()
+   sb = os.stat( db_filename )
+
+   if blockstack_db is None or sb.st_mtime != last_load_time:
+       last_load_time = sb.st_mtime
+
+       log.info("(Re)Loading blockstack state from '%s'" % db_filename )
+       blockstack_db = BlockstackDB( db_filename )
    
    return blockstack_db
 
