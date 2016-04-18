@@ -114,7 +114,7 @@ def run_scenario( scenario, config_file ):
     # set up blockstack
     # NOTE: utxo_opts encodes the mock-bitcoind options 
     blockstack_opts, bitcoin_opts, utxo_opts, dht_opts = blockstack.lib.configure( config_file=config_file, interactive=False )
-   
+    
     # override multiprocessing options to ensure single-process behavior 
     utxo_opts['multiprocessing_num_procs'] = 1 
     utxo_opts['multiprocessing_num_blocks'] = 64
@@ -134,10 +134,50 @@ def run_scenario( scenario, config_file ):
     testlib.set_bitcoind( bitcoind )
     testlib.set_state_engine( db )
 
+    mock_bitcoind_save_path = "/tmp/mock_bitcoind.dat"
+
+    # use mock bitcoind
+    worker_env = mock_bitcoind.make_worker_env( mock_bitcoind, mock_bitcoind_save_path )
+    worker_env['BLOCKSTACK_TEST'] = "1"
+
+    # tell our subprocesses that we're testing 
+    os.environ.update( worker_env )
+
+    if os.environ.get("PYTHONPATH", None) is not None:
+        worker_env["PYTHONPATH"] = os.environ["PYTHONPATH"]
+
+    print worker_env
+
+    # tell our subprocesses that we're testing 
+    os.environ.update( worker_env )
+
+    if os.environ.get("PYTHONPATH", None) is not None:
+        worker_env["PYTHONPATH"] = os.environ["PYTHONPATH"]
+
+    print ""
+    print "blockstack opts"
+    print json.dumps( blockstack_opts, indent=4 )
+
+    print ""
+    print "bitcoin opts"
+    print json.dumps( bitcoin_opts, indent=4 )
+
+    print ""
+    print "UTXO opts"
+    print json.dumps( utxo_opts, indent=4 )
+
+    print ""
+    print "DHT opts"
+    print json.dumps( dht_opts, indent=4 )
+
+
     test_env = {
         "sync_virtualchain_upcall": sync_virtualchain_upcall,
-        "working_dir": working_dir
+        "working_dir": working_dir,
+        "bitcoind": bitcoind
     }
+
+    virtualchain.setup_virtualchain( blockstack_state_engine, bitcoind_connection_factory=mock_bitcoind.connect_mock_bitcoind, index_worker_env=worker_env ) 
 
     # sync initial utxos 
     testlib.next_block( **test_env )
