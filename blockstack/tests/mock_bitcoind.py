@@ -46,10 +46,9 @@ import pybitcoin
 import pybitcoin.transactions.opcodes as opcodes
 
 # hack around absolute paths 
-current_dir =  os.path.abspath(os.path.dirname(__file__) + "../..")
+current_dir =  os.path.abspath(os.path.dirname(__file__) + "/../../")
 sys.path.insert(0, current_dir)
 
-import blockstack
 from blockstack.lib import *
 import virtualchain
 
@@ -347,6 +346,10 @@ def connect_mock_bitcoind( mock_opts, reset=False ):
         return mock_bitcoind
 
 
+def connect_bitcoind( mock_opts ):
+    return connect_mock_bitcoind( mock_opts )
+
+
 def get_mock_bitcoind():
     """
     Get the global singleton mock bitcoind
@@ -580,3 +583,16 @@ def btc_decoderawtransaction_compat( tx_hex ):
     return tx_decoded
 
 
+def make_worker_env( mock_bitcoind_mod, mock_bitcoind_save_path ):
+    """
+    Create a virtual index worker environment variable dictionary
+    that will cause virtualchain to crawl the mock bitcoind blockchain.
+    """
+    
+    worker_env = {
+        # use mock_bitcoind to connect to bitcoind (but it has to import it in order to use it)
+        "VIRTUALCHAIN_MOD_CONNECT_BLOCKCHAIN": mock_bitcoind_mod.__file__,
+        "MOCK_BITCOIND_SAVE_PATH": mock_bitcoind_save_path
+    }
+
+    return worker_env
