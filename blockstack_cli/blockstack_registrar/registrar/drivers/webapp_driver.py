@@ -20,13 +20,15 @@ parent_dir = os.path.abspath(current_dir + "/../../")
 sys.path.insert(0, parent_dir)
 
 from registrar.config import DEFAULT_NAMESPACE, RATE_LIMIT
-from registrar.config import MINIMUM_LENGTH_NAME, MAXIMUM_LENGTH_NAME
+from registrar.config import MINIMUM_LENGTH_NAME
 from registrar.config import IGNORE_NAMES_STARTING_WITH
 from registrar.config import SECRET_KEY
 
 from registrar.utils import get_hash, check_banned_email, nmc_to_btc_address
 from registrar.utils import config_log, ignoreRegistration
 from registrar.utils import pretty_print as pprint
+from registrar.utils import whiteListedUser, cleanup_email
+from registrar.utils import validRegistrationEmail
 
 from registrar.states import registrationComplete, nameRegistered
 from registrar.states import profileonBlockchain, profileonDHT
@@ -81,6 +83,20 @@ class WebappDriver(object):
         self.registrations = webapp_db.user_registration
         self.updates = webapp_db.profile_update
         self.registrar_server = RegistrarServer()
+        self.email_list = []
+
+    def populate_email_list(self):
+        """ Initialize the email list, saving unique emails
+            for pending registrations
+        """
+
+        for new_user in self.registrations.find(no_cursor_timeout=True):
+
+            user = get_db_user_from_id(new_user, self.users)
+
+            cleaned_email = cleanup_email(user['email'])
+
+            self.email_list.append(cleaned_email)
 
     def process_new_users(self, nameop=None, spam_protection=False,
                           live_delete=False):
@@ -90,6 +106,8 @@ class WebappDriver(object):
 
         counter = 0
         self.registrar_server.reset_flag()
+
+        self.populate_email_list()
 
         for new_user in self.registrations.find(no_cursor_timeout=True):
 
@@ -101,10 +119,13 @@ class WebappDriver(object):
                 if live_delete:
                     log.debug("Removing %s" % user['username'])
                     self.registrations.remove({"user_id": new_user['user_id']})
+                continue
 
-            #log.debug(user['email'])
-            #log.debug(user['username'])
-            #continue
+            if whiteListedUser(user['email'], user['profile']):
+                log.debug("White-listed: %s" % user['email'])
+            else:
+                log.debug("Not registering: %s" % user['email'])
+                continue
 
             fqu = user['username'] + "." + DEFAULT_NAMESPACE
             transfer_address = nmc_to_btc_address(user['namecoin_address'])
@@ -146,15 +167,13 @@ class WebappDriver(object):
             log.debug("Expensive name %s. Skipping." % user['username'])
             return False
 
-        # test for maximum name length
-        if len(user['username']) >= MAXIMUM_LENGTH_NAME:
-            log.debug("Name is too long %s. Skipping." % user['username'])
-            return False
-
-
         # test for ignoring names starting with certain patterns
         if ignoreRegistration(user['username'], IGNORE_NAMES_STARTING_WITH):
             log.debug("Ignoring: %s" % user['username'])
+            return False
+
+        if not validRegistrationEmail(user['email'], self.email_list):
+            log.debug("Email rejected by filter: %s" % user['email'])
             return False
 
         return True
@@ -203,12 +222,10 @@ class WebappDriver(object):
                     refresh_resolver(user['username'])
                 else:
                     log.debug("Processing: %s, %s" % (fqu, user['email']))
-
                     try:
-                        self.registrar_server.process_subsidized_nameop(fqu,
-                                                                        owner_privkey=hex_privkey,
-                                                                        profile=profile,
-                                                                        nameop='update')
+                        self.registrar_server.subsidized_nameop(fqu, profile,
+                                                                hex_privkey=hex_privkey,
+                                                                nameop='update')
                     except Exception as e:
                         log.debug(e)
             else:
@@ -280,6 +297,8 @@ class WebappDriver(object):
         elif email is not None:
             user = self.users.find_one({"email": email})
             pprint(user)
+
+        return user['profile']
 
     def display_current_states(self):
         """
