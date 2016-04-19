@@ -50,8 +50,8 @@ from blockstack_client import storage, drivers
 from blockstack_client.utils import pretty_dump, print_result
 from blockstack_client.config import WALLET_PATH, WALLET_PASSWORD_LENGTH
 
-from blockstack_client.parser import add_subparsers, add_advanced_subparsers
-from blockstack_client.parser import AliasedSubParsersAction
+from blockstack_client.cli_parser import add_subparsers, add_advanced_subparsers
+from blockstack_client.cli_parser import AliasedSubParsersAction
 
 from registrar.wallet import HDWallet
 from registrar.crypto.utils import aes_encrypt, aes_decrypt
