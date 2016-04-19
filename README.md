@@ -1,211 +1,68 @@
-
-# Blockstack
+# Blockstack Server
 
 [![PyPI](https://img.shields.io/pypi/v/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
 [![PyPI](https://img.shields.io/pypi/dm/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
 [![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 
-## Name registrations on the bitcoin blockchain
+A global database for people, companies, websites and more. Decentralized, privacy-centric, and blockchain-secured.
 
-Blockstack server provides decentralized DNS by using an underlying 
-blockchain. It enables human-readable name registrations on the Bitcoin blockchain,
-along with the ability to store associated data in external datastores. You can
-use it to register globally unique names, bind data records with those names, and
-transfer them between Bitcoin addresses. Anyone can perform lookups on those
-names and securely obtain the associated data records.
+Learn more by visiting [the Blockstack Website](https://blockstack.org) and checking out the in-depth articles and documentation:
 
-Blockstack uses the Bitcoin blockchain for storing name operations and data
-hashes, and the Kademlia-based distributed hash table (DHT) and other external
-datastores for storing the full data files outside of the blockchain.
+- [How Blockstack Works](https://blockstack.org/docs/how-blockstack-works)
+- [Blockstack vs. DNS](https://blockstack.org/docs/blockstack-vs-dns)
+- [Blockstack vs. Namecoin](https://blockstack.org/docs/blockstack-vs-namecoin)
+- [Blockstack Namespaces](https://blockstack.org/docs/namespaces)
+- [Blockstack Light Clients](https://blockstack.org/docs/light-clients)
 
-## Table of contents
+### Installation
 
-* [Overview](#overview)
-* [Quick start](#quick-start)
-* [Getting started](#getting-started)
-* [What’s included](#whats-included)
-* [Documentation](#documentation)
-* [Design decisions](#design-decisions)
-* [Protocol details](#protocol-details)
-* [Definitions](#definitions)
-* [FAQ](#faq)
-* [Community](#community)
-* [Contributing](#contributing)
-* [Copyright and license](#copyright-and-license)
-
-## Overview
-
-This document is meant to provide an overview of how to get blockstack up and
-running on Mac OS X, Linux, and other UNIX-like operating systems. It is meant
-to be a high-level walk-through for application developers who want to run
-their own Blockstack instance. Basic proficiency with the command-line is
-required.
-
-## Quick start
-
-The fastest way to get started with blockstack is to use pip:
+The fastest way to get started with blockstack is with pip:
 
 ```
 sudo pip install blockstack
 ```
 
-If you encounter any problems during the pip install, see the [detailed install
-instructions](https://github.com/blockstack/blockstack/wiki/Usage).
+If you encounter any problems during the pip install, see the [detailed installation
+instructions](https://blockstack.org/docs/installation).
 
-## Getting started
+### Getting Started
 
-Start blockstack-server and index the blockchain:
+First, start the Blockstack server and index the blockchain:
 
-```
+```bash
 $ blockstack-server start
 ```
 
-Then, perform name lookups:
+Next, visit the [basic usage docs](https://blockstack.org/docs/basic-usage) and [extended usage docs](https://blockstack.org/docs/basic-usage) to learn how to register names of your own, as well as transfer them and associate data with them.
 
-```
-$ blockstack whois werner.id
-{
-    "block_preordered_at": 374132,
-    "block_renewed_at": 374132,
-    "owner_address": "1KRca8gGiCiTNGR65iXMPQ6d5fisDdN3ZF",
-    "owner_public_key": "0411d88aa37a0eea476a5b63ca4b1cd392d....",
-    "owner_script": "76a914ca19f0c96683b6cabfb5c9a406bebc6771d8ede488ac",
-    "preorder_transaction_id": "fa72483237f4b32eff10e88df9b14268fbd2e44...",
-    "registered": true
-}
-
-```
-
-Next, learn how to register names of your own, as well as transfer them and
-associate data with them:
-
-[Full usage docs](https://blockstack.org/docs/basic-usage)
-
-## What's included
-
-Within the install you'll find the following directories and files. You'll see
-something like this:
-
-```
-blockstack/
-├── bin/
-│   ├── blockstackd
-│   └── README.md
-├── blockstack/
-│   ├── __init__.py
-│   ├── blockmirrord.py
-│   ├── blockmirrord.tac
-│   ├── blockstack.tac
-│   ├── blockstack-testset.tac
-│   ├── blockstackd.py
-│   ├── build_nameset.py
-│   ├── coinkit.patch
-│   ├── dht/
-│   │   ├── __init__.py
-│   │   ├── image/
-│   │   │   ├── Dockerfile
-│   │   │   └── README.md
-│   │   ├── plugin.py
-│   │   ├── README.md
-│   │   ├── server.tac
-│   │   ├── storage.py
-│   │   └── test.py
-│   ├── lib/
-│   │   ├── __init__.py
-│   │   ├── b40.py
-│   │   ├── config.py
-│   │   ├── hashing.py
-│   │   ├── nameset/
-│   │   │   ├── __init__.py
-│   │   │   ├── namedb.py
-│   │   │   └── virtualchain_hooks.py
-│   │   ├── operations/
-│   │   │   ├── __init__.py
-│   │   │   ├── nameimport.py
-│   │   │   ├── namespacepreorder.py
-│   │   │   ├── namespaceready.py
-│   │   │   ├── namespacereveal.py
-│   │   │   ├── preorder.py
-│   │   │   ├── register.py
-│   │   │   ├── revoke.py
-│   │   │   ├── transfer.py
-│   │   │   └── update.py
-│   │   ├── README.md
-│   │   └── scripts.py
-│   ├── tests/
-│   │   └── unit_tests.py
-│   └── TODO.txt
-├── Dockerfile
-├── images/
-│   └── Dockerfile
-├── LICENSE
-├── MANIFEST.in
-├── README.md
-├── requirements.txt
-└── setup.py
-```
-
-## Documentation
-
-Blockstack’s detailed documentation is located included on the
-[website](https://blockstack.org/docs).
-
-
-## Design decisions
-
-[Design decisions](../../wiki/Design-Decisions)
-
-
-## Protocol details
-
-[Protocol details](../../wiki/Protocol-Details)
-
-## Definitions
-
-[Definitions](../../wiki/Definitions)
-
-## FAQ
-
-[FAQ](../../wiki/FAQ)
-
-## Community
-
-The Blockstack community is a group of blockchain developers
-coming together to define and develop a set of software protocols and tools to
-serve as a common backend for blockchain-powered decentralized applications. We
-are opening membership to the public, welcoming all developers and organizations
-that are interested in joining the community and contributing to Blockstack
-development.
-
-For more information, please visit the community website @
-[Blockstack.org](http://blockstack.org)
-
-Our community is welcoming on both our [public
-Slack](http://chat.blockstack.org/) and [public
-Forum](http://forum.blockstack.org/).
-
-## Contributing
+### Contributing
 
 We welcome any small or big contributions! Please take a moment to
-[review the following guidelines](https://guides.github.com/activities/contributing-to-open-source/)
-in order to make the contribution process easy and effective for everyone involved.
+[review the guidelines for contributing to open source](https://guides.github.com/activities/contributing-to-open-source/) in order to make the contribution process easy and effective for everyone involved.
 
-The main authors of Blockstack are:
+#### Main Authors
 
-**[Jude Nelson](http://onename.com/judecn)** ([@judecnelson](https://twitter.com/judecnelson))
+- **[Jude Nelson](http://onename.com/judecn)** ([@jcnelson](https://github.com/jcnelson))
+- **[Muneeb Ali](http://onename.com/muneeb)** ([@muneeb-ali](https://github.com/muneeb-ali))
+- **[Ryan Shea](http://onename.com/ryan)** ([@ryaneshea](https://github.com/shea256))
 
-**[Muneeb Ali](http://onename.com/muneeb)** ([@muneeb](https://twitter.com/muneeb))
+#### All Code Contributors
 
-**[Ryan Shea](http://onename.com/ryan)** ([@ryaneshea](https://twitter.com/ryaneshea))
+- [Contributor Graph](../../graphs/contributors)
+- [Code Overview](https://github.com/blockstack/blockstack/blob/master/overview.md)
 
-Along with [code contributors](../../graphs/contributors) and other
-[people who've helped in various ways](../../wiki/Contributors).
+### Community
 
-## Copyright and license
+The Blockstack community is a group of blockchain developers coming together to define and develop a set of software protocols and tools to serve as a common backend for blockchain-powered decentralized applications.
 
-Code and documentation copyright 2016 by Blockstack.org. 
+For more information, visit the community website at [Blockstack.org](http://blockstack.org).
 
-Code released under
-[the GPL v3 license](http://www.gnu.org/licenses/quick-guide-gplv3.en.html).
-Docs released under [Creative Commons](http://creativecommons.org/).
+- [Slack Community](http://chat.blockstack.org/)
+- [Reddit Community](http://reddit.com/r/blockstack)
 
+### Copyright and License
+
+The code and documentation copyright are attributed to blockstack.org for the year of 2016.
+
+This code is released under
+[the GPL v3 license](http://www.gnu.org/licenses/quick-guide-gplv3.en.html), and the docs are released under [the Creative Commons license](http://creativecommons.org/).
