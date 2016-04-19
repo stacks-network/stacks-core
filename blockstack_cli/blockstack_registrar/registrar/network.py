@@ -11,9 +11,8 @@ import json
 import requests
 
 from basicrpc import Proxy
-from blockstore_client.client import BlockstoreRPCClient
 
-from .config import BLOCKSTORED_IP, BLOCKSTORED_PORT
+from .config import BLOCKSTACKD_IP, BLOCKSTACKD_PORT
 from .config import DHT_MIRROR_IP, DHT_MIRROR_PORT
 from .config import RESOLVER_URL, RESOLVER_USERS_ENDPOINT
 from .config import MAX_DHT_WRITE
@@ -24,13 +23,13 @@ from .utils import pretty_dump as pprint
 log = config_log(__name__)
 
 # direct client, using Proxy
-#bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+#bs_client = Proxy(BLOCKSTACKD_IP, BLOCKSTACKD_PORT)
 dht_client = Proxy(DHT_MIRROR_IP, DHT_MIRROR_PORT)
 
 
 def get_bs_client():
 
-    #return Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+    #return Proxy(BLOCKSTACKD_IP, BLOCKSTACKD_PORT)
     return bs_client
 
 
@@ -42,9 +41,9 @@ def get_dht_client():
 def get_blockchain_record(fqu):
 
     # hack to ensure local, until we update client
-    from blockstore_client import client as bs_client
-    # start session using blockstore_client
-    bs_client.session(server_host=BLOCKSTORED_IP, server_port=BLOCKSTORED_PORT,
+    from blockstack_client import client as bs_client
+    # start session using blockstack_client
+    bs_client.session(server_host=BLOCKSTACKD_IP, server_port=BLOCKSTACKD_PORT,
                       set_global=True)
 
     data = {}
@@ -128,7 +127,7 @@ def refresh_resolver(name):
     return True
 
 
-def dontUseServer(blockstored_server):
+def dontUseServer(blockstackd_server):
     """
         Return false if server fails any tests
     """
@@ -137,7 +136,7 @@ def dontUseServer(blockstored_server):
     from basicrpc import Proxy
 
     servers_to_check = CONSENSUS_SERVERS
-    servers_to_check.append(blockstored_server)
+    servers_to_check.append(blockstackd_server)
 
     consensus_hashes = []
     # initialize to a very large number
@@ -145,7 +144,7 @@ def dontUseServer(blockstored_server):
 
     for server in servers_to_check:
 
-        bs_client = Proxy(server, BLOCKSTORED_PORT)
+        bs_client = Proxy(server, BLOCKSTACKD_PORT)
 
         last_block_seen = bs_client.getinfo()[0]['bitcoind_blocks']
         try:
@@ -164,7 +163,7 @@ def dontUseServer(blockstored_server):
 
     for server in servers_to_check:
 
-        bs_client = Proxy(server, BLOCKSTORED_PORT)
+        bs_client = Proxy(server, BLOCKSTACKD_PORT)
         consensus_hash = bs_client.get_consensus_at(last_block_everyone)[0]
         print consensus_hash
         consensus_hashes.append(consensus_hash)
