@@ -17,6 +17,13 @@ from pybitcoin import BitcoinPrivateKey
 from pybitcoin import is_b58check_address
 
 from .config import email_regrex, DEBUG
+from .config import whitelist_email_regrex
+
+try:
+    from .config_local import custom_white_list
+    from .config_local import custom_email_checks
+except:
+    pass
 
 
 def config_log(name):
@@ -77,12 +84,56 @@ def pretty_print(data):
     print pretty_dump(data)
 
 
+def cleanup_email(email):
+
+    address = email.split('@')[0]
+    domain = email.split('@')[1]
+
+    # drop everything after a +
+    address = address.split('+')[0]
+
+    # replace any .
+    address = address.replace('.', '')
+
+    return address + '@' + domain
+
+
 def check_banned_email(email):
+
+    email = cleanup_email(email)
 
     if email_regrex in email:
         return True
     else:
         return False
+
+
+def whiteListedUser(email, profile):
+    """ Wrapper function for white-listing users
+        You can define your custom white-listing mechanism
+    """
+
+    try:
+        return custom_white_list(email, profile)
+    except:
+        pass
+
+    # if no custom white-listing mechanism is defined
+    return True
+
+
+def validRegistrationEmail(email, email_list):
+    """ Wrapper function for checks for registration email
+        You can define your custom checks
+    """
+
+    try:
+        return custom_email_checks(email, email_list)
+    except:
+        pass
+
+    # if no custom white-listing mechanism is defined
+    return True
 
 
 def ignoreRegistration(name, ignore_patterns):
