@@ -60,3 +60,8 @@ target/
 
 #Ipython Notebook
 .ipynb_checkpoints
+
+# no vim 
+*.swp
+*.swo
+*.swn
