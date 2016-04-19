@@ -25,16 +25,44 @@ import traceback
 
 from blockstack.lib import nameset as blockstack_state_engine
 
-import blockstack.tests.mock_bitcoind as mock_bitcoind
+import blockstack_integration_tests.mock_bitcoind as mock_bitcoind
 
 import blockstack
 import blockstack.blockstackd as blockstackd
 
-import scenarios.testlib as testlib
+import blockstack_integration_tests.scenarios.testlib as testlib
 
 log = virtualchain.get_logger("blockstack-test-scenario")
 
 mock_bitcoind_connection = None
+
+DEFAULT_INI_TEMPLATE = """
+[bitcoind]
+passwd = opennamesystem
+server = btcd.onename.com
+port = 8332
+use_https = True
+user = openname
+mock = True
+save_file = @MOCK_SAVE_FILE@
+
+[mock_utxo]
+initial_utxos = @MOCK_INITIAL_UTXOS@
+save_file = @MOCK_SAVE_FILE@
+
+[dht]
+disable = True
+port = 16265
+servers = dht.openname.org:6265,dht.onename.com:6265,dht.halfmoonlabs.com:6265,127.0.0.1:6265
+
+[blockstack]
+max_subsidy = 64000000
+subsidization_keys = ./blockstack-subsidization-keys.txt
+tx_broadcaster = mock_utxo
+utxo_provider = mock_utxo
+backup_frequency = 3
+backup_max_age = 30
+"""
 
 def load_scenario( scenario_name ):
     """
@@ -83,19 +111,23 @@ def load_scenario( scenario_name ):
     return scenario
    
 
-def write_config_file( scenario, path ):
+def write_config_file( scenario, path, template_path=None ):
     """
     Generate the config file to use with this test scenario.
     Write it to path.
     """
-
-    initial_utxo_str = ",".join( ["%s:%s" % (w.privkey, w.value) for w in scenario.wallets] )
-    config_file_in = "blockstack-server.ini.in"
-    mock_bitcoind_save_path = "/tmp/mock_bitcoind.dat"
+    global DEFAULT_INI_TEMPLATE
 
     config_txt = None
-    with open( config_file_in, "r" ) as f:
-        config_txt = f.read()
+    if template_path is not None:
+        with open(template_path, "r") as f:
+            config_txt = f.read()
+
+    else:
+        config_txt = DEFAULT_INI_TEMPLATE[:]
+
+    initial_utxo_str = ",".join( ["%s:%s" % (w.privkey, w.value) for w in scenario.wallets] )
+    mock_bitcoind_save_path = "/tmp/mock_bitcoind.dat"
 
     config_txt = config_txt.replace( "@MOCK_INITIAL_UTXOS@", initial_utxo_str )
     config_txt = config_txt.replace( "@MOCK_SAVE_FILE@", mock_bitcoind_save_path )
