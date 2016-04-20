@@ -800,6 +800,76 @@ class BlockstackDB( virtualchain.StateEngine ):
 
       return self.namespace_reveals.get( namespace_id, None )
 
+   
+   def get_names_with_value_hash( self, value_hash ):
+      """ 
+      Find the list of names that have the given value hash.
+      Omit expired or revoked names.
+      """
+      ret = []
+      for rec in self.name_records:
+          # revoked?
+          if rec.has_key('revoked') and rec['revoked']:
+              continue 
+
+          # expired?
+          if self.is_name_expired( rec['name'], self.lastblock ):
+              continue
+
+          if rec.has_key('value_hash') and rec['value_hash'] == value_hash:
+              ret.append(rec['name'])
+
+      return ret
+
+   
+   @classmethod 
+   def flatten_history( cls, hist ):
+       """
+       Given a name's history, flatten it into a list of deltas.
+       They will be in *increasing* order.
+       """
+       ret = []
+       block_ids = sorted(hist.keys())
+       for block_id in block_ids:
+           vtxinfos = hist[block_id]
+           for vtxinfo in vtxinfos:
+               info = copy.deepcopy(vtxinfo)
+               ret.append(info)
+
+       return ret
+
+
+   def get_name_value_hash_txid( self, name, value_hash ):
+      """
+      Given the name and value hash, find the txid that put it.
+      Omit if expired or revoked (return None)
+      """
+      rec = self.get_name( name )
+      if rec is None:
+          return None 
+
+      if rec.has_key('revoked') and rec['revoked']:
+          return None 
+
+      if self.is_name_expired(rec['name']):
+          return None 
+
+      # search history, backwards
+      hist = rec['history']
+      flat_hist = BlockstackDB.flatten_history( hist )
+      for i in xrange(len(flat_hist)-1, 0, -1):
+           delta = flat_hist[i]
+           if delta.has_key('op') and delta['op'] == NAME_PREORDER:
+                # this name was re-registered. skip
+                return None 
+
+           if delta.has_key('value_hash') and ['value_hash'] == value_hash:
+                # this is the txid that affected it 
+                return delta['txid']
+
+      # not found
+      return None
+
 
    def find_expiring_at( self, block_id ):
       """
