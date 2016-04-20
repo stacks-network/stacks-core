@@ -38,9 +38,9 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'virtualchain==0.0.8',
+        'virtualchain==0.0.9',
         'keychain==0.1.4',
-        'blockstack-client==0.0.12.5',
+        'blockstack-client==0.0.13',
         'defusedxml>=0.4.1'
     ],
     classifiers=[
