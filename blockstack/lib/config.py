@@ -69,19 +69,6 @@ MAX_NAMES_PER_SENDER = 25                # a sender can own exactly one name
 """
 RPC_SERVER_PORT = 6264
 
-""" DHT configs
-"""
-# 3 years
-STORAGE_TTL = 3 * 60 * 60 * 24 * 365
-
-DHT_SERVER_PORT = 6265  # blockstackd default to port 6264
-
-DEFAULT_DHT_SERVERS = [('dht.blockstack.org', DHT_SERVER_PORT),
-                       ('dht.onename.com', DHT_SERVER_PORT),
-                       ('dht.halfmoonlabs.com', DHT_SERVER_PORT),
-                       ('127.0.0.1', DHT_SERVER_PORT)]
-
-
 """ Bitcoin configs
 """
 DEFAULT_BITCOIND_SERVER = 'btcd.onename.com'
@@ -978,84 +965,6 @@ def default_mock_utxo_opts( config_file=None ):
    return default_mock_utxo_opts
 
 
-def default_dht_opts( config_file=None ):
-   """
-   Get our default DHT options from the config file.
-   """
-
-   global DHT_SERVER_PORT, DEFAULT_DHT_SERVERS
-
-   if config_file is None:
-      config_file = virtualchain.get_config_filename()
-
-
-   defaults = {
-      'disable': str(True),
-      'port': str(DHT_SERVER_PORT),
-      'servers': ",".join( ["%s:%s" % (host, port) for (host, port) in DEFAULT_DHT_SERVERS] )
-   }
-
-   parser = SafeConfigParser( defaults )
-   parser.read( config_file )
-
-   if parser.has_section('dht'):
-
-      disable = parser.get('dht', 'disable')
-      port = parser.get('dht', 'port')
-      servers = parser.get('dht', 'servers')     # expect comma-separated list of host:port
-
-      if disable is None:
-         disable = True
-
-      if port is None:
-         port = DHT_SERVER_PORT
-
-      if servers is None:
-         servers = DEFAULT_DHT_SERVERS
-
-      if disable.lower() in ['no', 'n', '0', 'false']:
-          disable = False
-      else:
-          disable = True
-
-      try:
-         port = int(port)
-      except:
-         raise Exception("Invalid field value for dht.port: expected int")
-
-      parsed_servers = []
-      try:
-         server_list = servers.split(",")
-         for server in server_list:
-            server_host, server_port = server.split(":")
-            server_port = int(server_port)
-
-            parsed_servers.append( (server_host, server_port) )
-
-      except:
-         raise Exception("Invalid field value for dht.servers: expected 'HOST:PORT[,HOST:PORT...]'")
-
-      dht_opts = {
-         'disable': disable,
-         'port': port,
-         'servers': ",".join( ["%s:%s" % (s[0], s[1]) for s in parsed_servers] )
-      }
-
-      return dht_opts
-
-   else:
-
-      # use defaults
-      dht_opts = {
-         'disable': True,
-         'port': DHT_SERVER_PORT,
-         'servers': ",".join( ["%s:%s" % (host, port) for (host, port) in DEFAULT_DHT_SERVERS] )
-      }
-
-      return dht_opts
-
-
-
 def opt_strip( prefix, opts ):
    """
    Given a dict of opts that start with prefix,
@@ -1255,21 +1164,7 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
    utxo_opts, missing_utxo_opts, num_utxo_opts_prompted = find_missing( SUPPORTED_UTXO_PROMPT_MESSAGES[utxo_provider], utxo_params, utxo_opts, utxo_opts_defaults, prompt_missing=interactive )
    utxo_opts['utxo_provider'] = utxo_provider
 
-   dht_opts = {}
-   dht_opts_defaults = default_dht_opts( config_file=config_file )
-   dht_params = dht_opts_defaults.keys()
-
-   if not force:
-
-       # default DHT options
-       dht_opts = default_dht_opts( config_file=config_file )
-
-   dht_msg = "Please enter your DHT node configuration.\nUnless you plan on leaving Blockstack\nrunning, you should disable the DHT feature."
-
-   # NOTE: disabled
-   dht_opts, missing_dht_opts, num_dht_opts_prompted = find_missing( dht_msg, dht_params, dht_opts, dht_opts_defaults, prompt_missing=False )
-
-   if not interactive and (len(missing_bitcoin_opts) > 0 or len(missing_utxo_opts) > 0 or len(missing_dht_opts) > 0 or len(missing_blockstack_opts) > 0):
+   if not interactive and (len(missing_bitcoin_opts) > 0 or len(missing_utxo_opts) > 0 or len(missing_blockstack_opts) > 0):
 
        # cannot continue
        raise Exception("Missing configuration fields: %s" % (",".join( missing_bitcoin_opts + missing_utxo_opts )) )
@@ -1290,21 +1185,20 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
        blockstack_opts['email'] = email_opts['email']
 
    # if we prompted, then save
-   if num_bitcoind_prompted > 0 or num_utxo_opts_prompted > 0 or num_dht_opts_prompted > 0 or num_blockstack_opts_prompted > 0:
+   if num_bitcoind_prompted > 0 or num_utxo_opts_prompted > 0 or num_blockstack_opts_prompted > 0:
        print >> sys.stderr, "Saving configuration to %s" % config_file
-       write_config_file( bitcoind_opts=bitcoind_opts, utxo_opts=utxo_opts, dht_opts=dht_opts, blockstack_opts=blockstack_opts, config_file=config_file )
+       write_config_file( bitcoind_opts=bitcoind_opts, utxo_opts=utxo_opts, blockstack_opts=blockstack_opts, config_file=config_file )
 
-   return (blockstack_opts, bitcoind_opts, utxo_opts, dht_opts)
+   return (blockstack_opts, bitcoind_opts, utxo_opts)
 
 
-def write_config_file( blockstack_opts=None, bitcoind_opts=None, utxo_opts=None, dht_opts=None, config_file=None ):
+def write_config_file( blockstack_opts=None, bitcoind_opts=None, utxo_opts=None, config_file=None ):
    """
    Update a configuration file, given the bitcoind options and chain.com options.
    Return True on success
    Return False on failure
    """
 
-   print dht_opts
    if config_file is None:
       try:
          config_file = virtualchain.get_config_filename()
@@ -1346,20 +1240,6 @@ def write_config_file( blockstack_opts=None, bitcoind_opts=None, utxo_opts=None,
              raise Exception("%s is not defined" % opt_name)
 
          parser.set( utxo_opts['utxo_provider'], opt_name, "%s" % opt_value )
-
-   if dht_opts is not None and len(dht_opts) > 0:
-
-      if parser.has_section("dht"):
-          parser.remove_section("dht")
-
-      parser.add_section( "dht" )
-      for opt_name, opt_value in dht_opts.items():
-
-          if opt_value is None:
-              raise Exception("%s is not defined" % opt_name )
-
-          parser.set( "dht", opt_name, "%s" % opt_value )
-
 
    if blockstack_opts is not None and len(blockstack_opts) > 0:
 
