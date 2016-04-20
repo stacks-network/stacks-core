@@ -24,11 +24,11 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'virtualchain==0.0.9',
+        'virtualchain>=0.0.9.0',
         'blockstack-client>=0.0.13.0',
         'blockstack>=0.0.13',
         'blockstack-profiles>=0.1.3',
-        'blockstack-storage-drivers>=0.0.1.0',
+        'blockstack-storage-drivers>=0.0.1.0'
     ],
     classifiers=[
         'Intended Audience :: Developers',
