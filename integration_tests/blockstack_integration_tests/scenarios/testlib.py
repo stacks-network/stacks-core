@@ -34,10 +34,6 @@ import copy
 import json
 import gnupg
 
-# hack around absolute paths
-current_dir =  os.path.abspath(os.path.dirname(__file__) + "/../../..")
-sys.path.insert(0, current_dir)
-
 import blockstack.blockstackd as blockstackd
 
 import blockstack_client
@@ -70,12 +66,18 @@ class APICallRecord(object):
 class TestAPIProxy(object):
     def __init__(self):
         global utxo_opts
-        self.client = blockstack_client.BlockstackRPCClient( 'localhost', blockstack.lib.config.RPC_SERVER_PORT )
+
+        client_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
+        assert client_path is not None
+
+        client_config = blockstack_client.get_config(client_path)
+        
+        self.client = blockstack_client.BlockstackRPCClient( client_config['server'], client_config['port'] )
         self.conf = {
             "start_block": blockstack.FIRST_BLOCK_MAINNET,
             "initial_utxos": utxo_opts,
-            "storage_drivers": "disk",
-            "metadata": "/tmp/test-blockstack-client-metadata/"
+            "storage_drivers": client_config['storage_drivers'],
+            "metadata": client_config['metadata']
         }
         self.spv_headers_path = utxo_opts['spv_headers_path']
 
@@ -159,8 +161,14 @@ def make_proxy():
     Create a blockstack client API proxy
     """
     global utxo_opts
-    proxy = blockstack_client.session( server_host="localhost", server_port=16264, storage_drivers="disk", \
-                                       metadata_dir=None, spv_headers_path=utxo_opts['spv_headers_path'] )
+
+    client_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
+    assert client_path is not None
+
+    client_config = blockstack_client.get_config(client_path)
+
+    proxy = blockstack_client.session( server_host=client_config['server'], server_port=client_config['port'], storage_drivers=client_config['storage_drivers'], \
+                                       metadata_dir=client_config['metadata'], spv_headers_path=utxo_opts['spv_headers_path'] )
 
     return proxy
 
