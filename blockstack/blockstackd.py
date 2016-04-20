@@ -67,6 +67,7 @@ from lib import nameset as blockstack_state_engine
 from lib import get_db_state
 from lib.config import REINDEX_FREQUENCY, DEFAULT_DUST_FEE
 from lib import *
+from lib.storage import *
 
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
@@ -1542,6 +1543,88 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         db = get_db_state()
         return db.get_block_from_consensus( consensus_hash )
+
+
+    def rpc_get_zonefiles( self, zonefile_hashes ):
+        """
+        Get a user's zonefile from the local cache,
+        or (on miss), from upstream storage.
+        Only return at most 100 zonefiles.
+        """
+        config = get_blockstack_opts()
+        if not config['serve_zonefiles']:
+            return {'error': 'No data'}
+
+        if len(zonefile_hashes) > 100:
+            return {'error': 'Too many requests'}
+
+        ret = {}
+        for zonefile_hash in zonefile_hashes:
+            if not is_current_zonefile_hash( zonefile_hash ):
+                continue
+
+            # check cache 
+            cached_zonefile = get_cached_zonefile( zonefile_hash, zonefile_dir=config.get('zonefiles', None))
+            if cached_zonefile is not None:
+                ret[zonefile_hash] = cached_zonefile
+                continue
+
+            log.debug("Zonefile %s is not cached" % zonefile_hash)
+
+            try:
+                # check storage providers
+                zonefile = get_zonefile_from_storage( zonefile_hash )
+            except Exception, e:
+                log.exception(e)
+                continue
+
+            store_cached_zonefile( zonefile )
+            ret[zonefile_hash] = zonefile
+
+        return {'status': True, 'zonefiles': ret}
+
+
+    def rpc_put_zonefiles( self, zonefile_datas ):
+        """
+        Replicate one or more zonefiles
+        Returns {'status': True, 'saved': [0|1]'} on success ('saved' is a vector of success/failure)
+        Returns {'error': ...} on error
+        Takes at most 10 zonefiles
+        """
+
+        config = get_blockstack_opts()
+        if not config['serve_zonefiles']:
+            return {'error': 'No data'}
+
+        if len(zonefile_datas) > 100:
+            return {'error': 'Too many zonefiles'}
+
+        saved = []
+
+        for zonefile_data in zonefile_datas:
+
+            zonefile_hash = hash_zonefile( zonefile_data )
+            if not is_current_zonefile_hash( zonefile_hash ):
+                log.debug("Unknown zonefile hash %s" % zonefile_hash)
+                saved.append(0)
+                continue
+
+            # it's a valid zonefile.  cache and store it.
+            rc = store_cached_zonefile( zonefile_data )
+            if not rc:
+                log.debug("Failed to store zonefile %s" % zonefile_hash)
+                saved.append(0)
+                continue
+
+            rc = store_zonefile_to_storage( zonefile_data )
+            if not rc:
+                log.debug("Failed to replicate zonefile %s to external storage" % zonefile_hash)
+                saved.append(0)
+                continue
+
+            saved.append(1)
+
+        return {'status': True, 'saved': saved}
 
 
 
