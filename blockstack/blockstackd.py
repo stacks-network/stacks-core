@@ -172,20 +172,14 @@ def get_pidfile_path():
    return os.path.join( working_dir, pid_filename )
 
 
-def get_tacfile_path( testset=False ):
-   """
-   Get the TAC file path for our service endpoint.
-   Should be in the same directory as this module.
-   """
-   working_dir = os.path.abspath(os.path.dirname(__file__))
-   tac_filename = ""
+def put_pidfile( pidfile_path, pid ):
+    """
+    Put a PID into a pidfile
+    """
+    with open( pidfile_path, "w" ) as f:
+        f.write("%s" % pid)
 
-   if testset:
-      tac_filename = blockstack_state_engine.get_virtual_chain_name() + "-testset.tac"
-   else:
-      tac_filename = blockstack_state_engine.get_virtual_chain_name() + ".tac"
-
-   return os.path.join( working_dir, tac_filename )
+    return 
 
 
 def get_logfile_path():
@@ -268,7 +262,7 @@ def get_utxo_provider_client():
    """
 
    # acquire configuration (which we should already have)
-   blockstack_opts, bitcoin_opts, utxo_opts, dht_opts = configure( interactive=False )
+   blockstack_opts, bitcoin_opts, utxo_opts = configure( interactive=False )
 
    try:
        utxo_provider = connect_utxo_provider( utxo_opts )
@@ -285,7 +279,7 @@ def get_tx_broadcaster():
    """
 
    # acquire configuration (which we should already have)
-   blockstack_opts, blockchain_opts, utxo_opts, dht_opts = configure( interactive=False )
+   blockstack_opts, blockchain_opts, utxo_opts = configure( interactive=False )
 
    # is there a particular blockchain client we want for importing?
    if 'tx_broadcaster' not in blockstack_opts:
@@ -1728,7 +1722,7 @@ def blockstack_exit_handler( sig, frame ):
     sys.exit(0)
 
 
-def run_server( testset=False, foreground=False ):
+def run_server( testset=False, foreground=False, index=True ):
     """
     Run the blockstackd RPC server, optionally in the foreground.
     """
@@ -1783,35 +1777,45 @@ def run_server( testset=False, foreground=False ):
             pid, status = os.waitpid( child_pid, 0 )
             sys.exit(status)
     
+    # start API server
+    rpc_start()
+    running = True
+
     # put supervisor pid file
     put_pidfile( pid_file, os.getpid() )
     atexit.register( blockstack_exit )
 
-    # start API server
-    rpc_start()
+    if index:
+        # clear any stale indexing state
+        set_indexing( False )
+        log.debug("Begin Indexing")
 
-    # clear any stale indexing state
-    set_indexing( False )
+        while running:
 
-    log.debug("Begin Indexing")
-    running = True
-
-    while running:
-
-	try:
-           index_blockchain()
-        except Exception, e:
-           log.exception(e)
-           log.error("FATAL: caught exception while indexing")
-           sys.exit(1)
-        
-        # wait for the next block
-        deadline = time.time() + REINDEX_FREQUENCY
-        while time.time() < deadline:
+            try:
+               index_blockchain()
+            except Exception, e:
+               log.exception(e)
+               log.error("FATAL: caught exception while indexing")
+               sys.exit(1)
+            
+            # wait for the next block
+            deadline = time.time() + REINDEX_FREQUENCY
+            while time.time() < deadline:
+                try:
+                    time.sleep(1.0)
+                except:
+                    # interrupt
+                    running = False
+                    break
+    
+    else:
+        log.info("Not going to index, but will idle for testing")
+        while running:
             try:
                 time.sleep(1.0)
             except:
-                # interrupt
+                # interrupt 
                 running = False
                 break
 
@@ -1844,7 +1848,6 @@ def setup( working_dir=None, testset=False, return_parser=False ):
    global blockchain_broadcaster
    global bitcoin_opts
    global utxo_opts
-   global dht_opts
 
    # set up our implementation
    if working_dir is not None:
@@ -1868,7 +1871,7 @@ def setup( working_dir=None, testset=False, return_parser=False ):
            os.unlink( testset_path )
 
    # acquire configuration, and store it globally
-   blockstack_opts, bitcoin_opts, utxo_opts, dht_opts = configure( interactive=True, testset=testset )
+   blockstack_opts, bitcoin_opts, utxo_opts, configure( interactive=True, testset=testset )
 
    # do we need to enable testset?
    if blockstack_opts['testset']:
@@ -2383,6 +2386,9 @@ def run_blockstackd():
    parser.add_argument(
       '--working-dir', action='store',
       help='use an alternative working directory')
+   parser.add_argument(
+      '--no-index', action='store_true',
+      help='do not index the blockchain, but only run an RPC endpoint')
 
    parser = subparsers.add_parser(
       'stop',
@@ -2484,15 +2490,16 @@ def run_blockstackd():
           sys.exit(1)
 
       if args.foreground:
-
          log.info('Initializing blockstackd server in foreground (testset = %s, working dir = \'%s\')...' % (testset, working_dir))
-         exit_status = run_server( foreground=True, testset=testset )
-         log.info("Service endpoint exited with status code %s" % exit_status )
-
       else:
+         log.info('Starting blockstackd server (testset = %s, working_dir = \'%s\') ...' % (testset, working_dir))
 
-         log.info('Starting blockstackd server (testset = %s) ...' % testset)
-         run_server( testset=testset )
+      if args.no_index:
+         log.info("Not indexing the blockchain; only running an RPC endpoint")
+
+      exit_status = run_server( foreground=args.foreground, testset=testset, index=(not args.no_index) )
+      if args.foreground:
+         log.info("Service endpoint exited with status code %s" % exit_status )
 
    elif args.action == 'stop':
       stop_server()
@@ -2512,17 +2519,6 @@ def run_blockstackd():
       final_consensus_hash = rebuild_database( int(args.end_block_id), args.db_path, start_block=int(args.start_block_id), resume_dir=resume_dir )
       print "Rebuilt database in '%s'" % blockstack_state_engine.working_dir
       print "The final consensus hash is '%s'" % final_consensus_hash
-
-   elif args.action == 'repair':
-
-      resume_dir = None
-      if hasattr(args, 'resume_dir') and args.resume_dir is not None:
-          resume_dir = args.resume_dir
-
-      restart_block_id = int(args.restart_block_id)
-
-      # roll the db back in time
-      # TODO
 
    elif args.action == 'verifydb':
       rc = verify_database( args.consensus_hash, int(args.block_id), args.db_path )
