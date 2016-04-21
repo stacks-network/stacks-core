@@ -18,6 +18,8 @@ from time import time
 from basicrpc import Proxy
 
 from proofchecker import profile_to_proofs
+from blockstack_profiles import resolve_zone_file_to_profile
+from blockstack_profiles import is_profile_in_legacy_format
 
 from .crossdomain import crossdomain
 
@@ -81,15 +83,10 @@ def fetch_from_dht(profile_hash):
     dht_resp = dht_client.get(profile_hash)
     dht_resp = dht_resp[0]
 
-    try:
-        profile = json.loads(dht_resp['value'])
-    except:
-        profile = {}
-
-    return profile
+    return dht_resp['value']
 
 
-def format_profile(profile, username):
+def format_profile(profile, username, address):
     """ Process profile data and
         1) Insert verifications
         2) Check if profile data is valid JSON
@@ -97,12 +94,22 @@ def format_profile(profile, username):
 
     data = {}
 
+    # save the original profile, in case it's a zone file
+    zone_file = profile
+
+    profile = resolve_zone_file_to_profile(profile, address)
+
     if 'error' in profile:
         data['profile'] = None
         data['error'] = "Malformed profile data"
         data['verifications'] = []
     else:
-        data['profile'] = profile
+        if not is_profile_in_legacy_format(profile):
+            data['zone_file'] = zone_file
+            data['profile'] = profile
+        else:
+            data['profile'] = json.loads(profile)
+
         data['verifications'] = profile_to_proofs(profile, username)
 
     return data
@@ -142,7 +149,7 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
             profile_hash = bs_resp['value_hash']
             profile = fetch_from_dht(profile_hash)
 
-            data = format_profile(profile, username)
+            data = format_profile(profile, username, bs_resp['address'])
             data['owner_address'] = bs_resp['address']
 
             if MEMCACHED_ENABLED or refresh:
