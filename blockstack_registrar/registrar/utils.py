@@ -50,10 +50,11 @@ def get_hash(profile):
 
     if type(profile) is not dict:
         try:
-            # print "WARNING: converting to json"
+            # if string with valid JSON, convert
             profile = json.loads(profile)
         except:
-            log.debug("WARNING: not valid json")
+            # if not valid JSON
+            return hex_hash160(profile)
 
     return hex_hash160(json.dumps(profile, sort_keys=True))
 
