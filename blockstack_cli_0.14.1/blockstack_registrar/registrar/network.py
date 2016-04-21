@@ -11,6 +11,8 @@ import json
 import requests
 
 from basicrpc import Proxy
+from pybitcoin import hex_hash160
+from blockstack_profiles import is_profile_in_legacy_format
 
 from .config import BLOCKSTACKD_IP, BLOCKSTACKD_PORT
 from .config import DHT_MIRROR_IP, DHT_MIRROR_PORT
@@ -88,8 +90,12 @@ def write_dht_profile(profile):
     resp = None
     dht_client = get_dht_client()
 
-    key = get_hash(profile)
-    value = json.dumps(profile, sort_keys=True)
+    if is_profile_in_legacy_format(profile):
+        key = get_hash(profile)
+        value = json.dumps(profile, sort_keys=True)
+    else:
+        key = hex_hash160(profile)
+        value = profile
 
     if len(value) > MAX_DHT_WRITE:
         log.debug("DHT value too large: %s, %s" % (key, len(value)))
