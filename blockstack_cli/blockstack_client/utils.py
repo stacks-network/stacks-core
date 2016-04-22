@@ -60,8 +60,35 @@ def pretty_dump(data):
     return json.dumps(data, sort_keys=True, indent=4, separators=(',', ': '))
 
 
+def pretty_print(data):
+
+    try:
+        data = data[0]
+    except:
+        pass
+
+    if type(data) is not dict:
+        try:
+            data = json.loads(data)
+        except Exception as e:
+            log.debug("ERROR in pretty print: %s" % e)
+
+    print pretty_dump(data)
+
+
 def print_result(json_str):
     data = pretty_dump(json_str)
 
     if data != "{}":
         print data
+
+
+def satoshis_to_btc(satoshis):
+
+    return satoshis * 0.00000001
+
+
+def btc_to_satoshis(btc):
+
+    return int(btc / 0.00000001)
+
