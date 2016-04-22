@@ -27,10 +27,10 @@ setup(
         'blockstack-profiles>=0.1.3',
         'pybitcoin>=0.9.8',
         'zone_file==0.1.6',
-        'registrar>=0.0.4',
-        'python-jsonrpc==0.8.4',
         'blockstack-storage-drivers>=0.0.1.0',
-        'defusedxml>=0.4.1'
+        'blockstack-utxo>=0.0.1.0',
+        'defusedxml>=0.4.1',
+        'python_daemon>=2.1.1'
     ],
     classifiers=[
         'Intended Audience :: Developers',
