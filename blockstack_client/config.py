@@ -39,8 +39,13 @@ DEFAULT_BLOCKSTACKD_SERVER = "server.blockstack.org"
 
 DEFAULT_DHT_MIRROR = "mirror.blockstack.org"
 DEFAULT_DHT_PORT = '6266'
-
 DEFAULT_API_PORT = 6270
+
+DHT_MIRROR_SERVER = 'mirror.blockstack.org'
+DHT_MIRROR_PORT = 6266
+
+RESOLVER_URL = 'http://resolver.onename.com'
+RESOLVER_USERS_ENDPOINT = "/v2/users/"
 
 # initialize to default settings
 BLOCKSTACKD_SERVER = DEFAULT_BLOCKSTACKD_SERVER
@@ -50,7 +55,7 @@ WALLET_PASSWORD_LENGTH = 15
 BLOCKSTACK_METADATA_DIR = os.path.expanduser("~/.blockstack/metadata")
 BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = "disk,dht"
 
-DEFAULT_TIMEOUT = 5  # in secs
+DEFAULT_TIMEOUT = 30  # in secs
 
 # borrowed from Blockstack
 FIRST_BLOCK_MAINNET = 373601
@@ -188,25 +193,55 @@ OPFIELDS = {
     ]
 }
 
+# borrowed from Blockstack
+# never changes, so safe to duplicate
+MAXIMUM_NAMES_PER_ADDRESS = 25
+
+
 MAX_RPC_LEN = 1024 * 1024 * 1024
+MAX_DHT_WRITE = (8 * 1024) - 1
 
 MAX_NAME_LENGTH = 37        # taken from blockstack-server
-CONFIG_DIR_INIT = "~/.blockstack"
-CONFIG_DIR = os.path.expanduser(CONFIG_DIR_INIT)
+
 CONFIG_FILENAME = "client.ini"
-CONFIG_PATH = os.path.join(CONFIG_DIR, CONFIG_FILENAME)
+WALLET_FILENAME = "wallet.json"
+
+if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+    # testing 
+    CONFIG_PATH = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
+    assert CONFIG_PATH is not None, "BLOCKSTACK_CLIENT_CONFIG not set"
+
+    CONFIG_DIR = os.path.dirname(CONFIG_PATH)
+
+else:
+    CONFIG_DIR = os.path.expanduser("~/.blockstack")
+    CONFIG_PATH = os.path.join(CONFIG_DIR, CONFIG_FILENAME)
+
 WALLET_PATH = os.path.join(CONFIG_DIR, "wallet.json")
 SPV_HEADERS_PATH = os.path.join(CONFIG_DIR, "blockchain-headers.dat")
+DEFAULT_QUEUE_PATH = os.path.join(CONFIG_DIR, "queues.db")
 
 BLOCKCHAIN_ID_MAGIC = 'id'
 
 USER_ZONEFILE_TTL = 3600    # cache lifetime for a user's zonefile
+
+SLEEP_INTERVAL = 20  # in seconds
+TX_EXPIRED_INTERVAL = 10  # if a tx is not picked up by x blocks
+
+PREORDER_CONFIRMATIONS = 6
+PREORDER_MAX_CONFIRMATIONS = 130  # no. of blocks after which preorder should be removed
+TX_CONFIRMATIONS_NEEDED = 10
+MAX_TX_CONFIRMATIONS = 130
+QUEUE_LENGTH_TO_MONITOR = 50
+MINIMUM_BALANCE = 0.002
+DEFAULT_POLL_INTERVAL = 600
 
 def get_logger( debug=DEBUG ):
     logger = virtualchain.get_logger("blockstack-client")
     logger.setLevel(logging.DEBUG if debug else logging.INFO)
     return logger
 
+log = get_logger()
 
 def make_default_config(path=CONFIG_PATH):
     """
@@ -239,6 +274,11 @@ def make_default_config(path=CONFIG_PATH):
         parser.set('blockstack-client', 'dht_mirror', DEFAULT_DHT_MIRROR)
         parser.set('blockstack-client', 'dht_mirror_port', DEFAULT_DHT_PORT)
         parser.set('blockstack-client', 'api_endpoint_port', str(DEFAULT_API_PORT))
+        parser.set('blockstack-client', 'queue_file', str(DEFAULT_QUEUE_PATH))
+        parser.set('blockstack-client', 'poll_interval', str(DEFAULT_POLL_INTERVAL)),
+        parser.set('blockstack-client', 'extra_servers', "")
+        parser.set('blockstack-client', 'rpc_detach', "True")
+
         rpc_token = os.urandom(32)
         parser.set('blockstack-client', 'rpc_token', hexlify(rpc_token))
 
@@ -267,6 +307,21 @@ def find_missing(conf):
     return missing
 
 
+def parse_servers( servers ):
+   """
+   Parse the serialized list of servers.
+   Raise on error
+   """
+   parsed_servers = []
+   server_list = servers.split(",")
+   for server in server_list:
+      server_host, server_port = server.split(":")
+      server_port = int(server_port)
+      parsed_servers.append( (server_host, server_port) )
+
+   return parsed_servers
+
+
 def get_config(path=CONFIG_PATH):
 
     """
@@ -293,7 +348,13 @@ def get_config(path=CONFIG_PATH):
         "metadata": BLOCKSTACK_METADATA_DIR,
         "blockchain_headers": SPV_HEADERS_PATH,
         "advanced_mode": False,
-        "api_endpoint_port": DEFAULT_API_PORT
+        'dht_mirror': DEFAULT_DHT_MIRROR,
+        'dht_mirror_port': DEFAULT_DHT_PORT,
+        "api_endpoint_port": DEFAULT_API_PORT,
+        "queue_file": str(DEFAULT_QUEUE_PATH),
+        "poll_interval": str(DEFAULT_POLL_INTERVAL),
+        "extra_servers": "",
+        "rpc_detach": True
     }
 
     parser = SafeConfigParser()
@@ -306,7 +367,7 @@ def get_config(path=CONFIG_PATH):
 
     if parser.has_section("blockstack-client"):
 
-        # blockstackd
+        # blockstack client section!
         if parser.has_option("blockstack-client", "server"):
             config['server'] = parser.get("blockstack-client", "server")
 
@@ -344,13 +405,28 @@ def get_config(path=CONFIG_PATH):
         if parser.has_option("blockstack-client", "rpc_token"):
             config['rpc_token'] = parser.get("blockstack-client", "rpc_token")
 
+        if parser.has_option("blockstack-client", "queue_path"):
+            config['queue_path'] = parser.get("blockstack-client", "queue_path")
+
+        if parser.has_option("blockstack-client", "poll_interval"):
+            config['poll_interval'] = int(parser.get("blockstack-client", "poll_interval"))
+
+        if parser.has_option("blockstack-client", "extra_servers"):
+            config['extra_servers'] = parse_servers( parser.get("blockstack-client", "extra_servers") )
+
+        if parser.has_option("blockstack-client", "rpc_detach"):
+            if parser.get('blockstack-client', 'rpc_detach').lower() in ['true', 'on', '1']:
+                config['rpc_detach'] = True
+            else:
+                config['rpc_detach'] = False
+
 
     # import bitcoind options
     bitcoind_config = virtualchain.get_bitcoind_config(path)
     config.update(bitcoind_config)
 
     if not os.path.isdir(config['metadata']):
-        if config['metadata'].startswith(os.path.expanduser(CONFIG_DIR_INIT)):
+        if config['metadata'].startswith(CONFIG_DIR):
             try:
                 os.makedirs(config['metadata'])
             except:
