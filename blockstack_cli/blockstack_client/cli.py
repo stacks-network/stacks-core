@@ -67,20 +67,8 @@ from pybitcoin import is_b58check_address
 
 from binascii import hexlify
 
-from registrar.wallet import HDWallet
-from registrar.crypto.utils import aes_encrypt, aes_decrypt
-from registrar.blockchain import get_balance, dontuseAddress
-from registrar.network import get_bs_client
-from registrar.rpc_daemon import background_process
-from registrar.utils import satoshis_to_btc
-from registrar.states import nameRegistered, ownerName, profileonBlockchain
-from registrar.blockchain import recipientNotReady, get_tx_confirmations
-
 from wallet import *
 from utils import exit_with_error, pretty_dump, print_result
-
-# from .wallet import *
-# from .utils import exit_with_error, pretty_dump, print_result
 
 log = config.get_logger()
 
@@ -176,12 +164,9 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     blockstack_server = conf['server']
     blockstack_port = conf['port']
 
-    # initialize blockstack client
+    # initialize blockstack connection
     session(conf=conf, server_host=blockstack_server,
             server_port=blockstack_port, set_global=True)
-
-    # start the two background processes (rpc daemon and monitor queue)
-    start_background_daemons()
 
     # dispatch to the apporpriate method  
     for method_info in all_methods:
