@@ -37,8 +37,10 @@ import gnupg
 import blockstack.blockstackd as blockstackd
 
 import blockstack_client
+from blockstack_client.actions import *
 import blockstack
 import pybitcoin
+from pybitcoin.transactions.outputs import calculate_change_amount
 
 import virtualchain
 
@@ -73,6 +75,7 @@ class TestAPIProxy(object):
         client_config = blockstack_client.get_config(client_path)
         
         self.client = blockstack_client.BlockstackRPCClient( client_config['server'], client_config['port'] )
+        self.config_path = client_path
         self.conf = {
             "start_block": blockstack.FIRST_BLOCK_MAINNET,
             "initial_utxos": utxo_opts,
@@ -125,6 +128,9 @@ snv_fail = []
 # names we expect will fail SNV, at a particular block 
 snv_fail_at = {}
 
+class CLIArgs(object):
+    pass
+
 def log_consensus( **kw ):
     """
     Log the consensus hash at the current block.
@@ -170,6 +176,7 @@ def make_proxy():
     proxy = blockstack_client.session( server_host=client_config['server'], server_port=client_config['port'], storage_drivers=client_config['storage_drivers'], \
                                        metadata_dir=client_config['metadata'], spv_headers_path=utxo_opts['spv_headers_path'] )
 
+    proxy.config_path = client_path
     return proxy
 
 
@@ -363,6 +370,82 @@ def blockstack_announce( message, privatekey, tx_only=False, user_public_key=Non
     return resp
 
 
+def blockstack_client_initialize_wallet( master_privkey_wif, password, transfer_amount ):
+    """
+    Set up the client wallet
+    """
+    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
+    assert config_path is not None
+
+    pk_hex = pybitcoin.BitcoinPrivateKey( master_privkey_wif ).to_hex()
+
+    config_dir = os.path.dirname(config_path)
+    wallet_path = os.path.join( config_dir, blockstack_client.config.WALLET_PATH )
+
+    blockstack_client.wallet.initialize_wallet( password=password, hex_privkey=pk_hex, interactive=False, wallet_path=wallet_path )
+    
+    # fund the payment address
+    payment_addr_info = blockstack_client.get_payment_addresses( wallet_path=wallet_path )
+    payment_addr = str(payment_addr_info[0]['address'])
+    master_pkey = pybitcoin.BitcoinPrivateKey( master_privkey_wif )
+    master_addr = master_pkey.public_key().address()
+
+    inputs = get_unspents( master_addr )
+    change = calculate_change_amount( inputs, transfer_amount, 8000 )
+
+    outputs = [
+        {
+            "script_hex": pybitcoin.make_pay_to_address_script(payment_addr),
+            "value": transfer_amount
+        },
+        {
+            "script_hex": pybitcoin.make_pay_to_address_script(master_addr),
+            "value": change
+        }
+    ]
+
+    tx_data = blockstack.tx_serialize_and_sign( inputs, outputs, master_pkey )
+    broadcast_transaction( tx_data )
+    
+    return True
+   
+
+def blockstack_client_get_wallet():
+    """
+    Get the wallet from the running RPC daemon
+    """
+    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
+    assert config_path is not None
+
+    wallet = blockstack_client.wallet.get_wallet( config_path )
+    return wallet
+
+
+def blockstack_client_queue_state():
+    """
+    Get queue information from the client backend
+    """
+    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
+    assert config_path is not None
+   
+    conf = blockstack_client.get_config(config_path)
+    queue_info = blockstack_client.backend.queue.get_queue_state( path=conf['queue_path'])
+    return queue_info
+
+
+def blockstack_rpc_register( name, password ):
+    """
+    Register a name, using the backend RPC endpoint
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
+    args = CLIArgs()
+    args.name = name
+    resp = cli_register( args, config_path=test_proxy.config_path, password=password, interactive=False, proxy=test_proxy )
+    return resp
+
+
 def blockstack_verify_database( consensus_hash, consensus_block_id, db_path, working_db_path=None, start_block=None, testset=False ):
     return blockstackd.verify_database( consensus_hash, consensus_block_id, db_path, working_db_path=working_db_path, start_block=start_block, testset=testset )
 
@@ -504,10 +587,16 @@ def check_history( state_engine ):
         state_engine.lastblock = block_ids[0]
         expected_consensus_hash = all_consensus_hashes[ block_id ]
         untrusted_db_path = os.path.join( snapshots_dir, "blockstack.db.%s" % block_id )
+
+        working_db_dir = os.path.join( snapshots_dir, "work.%s" % block_id )
+        os.makedirs( working_db_dir )
+
+        os.environ["VIRTUALCHAIN_WORKING_DIR"] = working_db_dir
+        working_db_path = os.path.join( working_db_dir, "blockstack.db.%s" % block_id )
         
         print "\n\nverify %s - %s (%s), expect %s\n\n" % (block_ids[0], block_id+1, untrusted_db_path, expected_consensus_hash)
 
-        valid = blockstack_verify_database( expected_consensus_hash, block_id, untrusted_db_path )
+        valid = blockstack_verify_database( expected_consensus_hash, block_id, untrusted_db_path, working_db_path=working_db_path, start_block=block_ids[0] )
         if not valid:
             print "Invalid at block %s" % block_id 
             return False
