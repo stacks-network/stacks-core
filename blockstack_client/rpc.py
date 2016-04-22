@@ -23,11 +23,13 @@
 
 import os
 import sys
+import daemon
 import traceback
 import errno
 import time
 import atexit
-from xmlrpclib import ServerProxy
+import lockfile
+
 from defusedxml import xmlrpc
 
 # prevent the usual XML attacks
@@ -35,7 +37,11 @@ xmlrpc.monkey_patch()
 
 import signal
 import json
-from blockstack_client import config
+import config
+import backend
+import proxy
+
+log = config.get_logger()
 
 from SimpleXMLRPCServer import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler 
 
@@ -44,9 +50,9 @@ def local_rpc_factory( method, config_path ):
     """
     Factory for producing wrappers around CLI functions
     """
-    import blockstack_client.parser as parser
+    import blockstack_client.method_parser as method_parser
     import blockstack_client.cli as cli
-    method_info = parser.parse_methods( [method] )[0]
+    method_info = method_parser.parse_methods( [method] )[0]
 
     def argwrapper( *args, **kw ):
         argv = ["blockstack", method_info['command']] + list(args)
@@ -70,7 +76,7 @@ class BlockstackAPIEndpointHandler(SimpleXMLRPCRequestHandler):
             return json.dumps(res)
         except Exception, e:
             print >> sys.stderr, "\n\n%s\n\n" % traceback.format_exc()
-            return json.dumps( {'error': 'Caught exception', 'trace': traceback.format_exc()})
+            return json.dumps( {'error': 'Caught exception:\n%s' % traceback.format_exc()})
 
 
 class BlockstackAPIEndpoint(SimpleXMLRPCServer):
@@ -81,8 +87,11 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
     can access the Blockstack client functionality.
     """
 
-    def __init__(self, host='localhost', port=config.DEFAULT_API_PORT, plugins=[], handler=BlockstackAPIEndpointHandler, config_path=config.CONFIG_PATH ):
-        SimpleXMLRPCServer.__init__( self, (host, port), handler, allow_none=True )
+    def __init__(self, host='localhost', port=config.DEFAULT_API_PORT, plugins=[], handler=BlockstackAPIEndpointHandler, config_path=config.CONFIG_PATH, timeout=30 ):
+        self.plugin_mods = []
+        self.plugin_prefixes = []
+        SimpleXMLRPCServer.__init__( self, (host,port), handler, allow_none=True )
+        self.timeout = timeout
 
         import blockstack_client 
         import blockstack_client.cli as cli
@@ -96,33 +105,68 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
 
         # register the command-line methods (will all start with cli_)
         for method in cli.get_cli_basic_methods() + cli.get_cli_advanced_methods():
+            log.debug("Register CLI method '%s'" % method.__name__)
             self.register_function( local_rpc_factory(method, config_path), method.__name__ )
     
         # register all plugin methods 
-        for plugin_name in plugins:
-            try:
-                mod_plugin = __import__(plugin_name)
-            except ImportError, e:
-                log.error("Skipping plugin '%s', since it cannot be imported" % plugin_name)
+        for plugin_or_plugin_name in plugins:
+
+            if type(plugin_or_plugin_name) in [str, unicode]:
+                # name of a module to load
+                try:
+                    mod_plugin = __import__(plugin_name)
+                except ImportError, e:
+                    log.error("Skipping plugin '%s', since it cannot be imported" % plugin_name)
+                    continue
+            else:
+                mod_plugin = plugin_or_plugin_name
+
+            plugin_prefix = getattr(mod_plugin, "RPC_PREFIX", mod_plugin.__name__)
+            if plugin_prefix in self.plugin_prefixes:
+                log.error("Skipping conflicting plugin '%s'" % mod_plugin)
                 continue
 
-            for attr in dir(mod_plugin):
-                if not attr.startswith("__"):
-                    method = getattr(mod_plugin, attr)
+            method_list = getattr(mod_plugin, "RPC_METHODS", None)
+            if method_list is None:
+                # assume all methods that don't start with '__'
+                method_list = []
+                for attr in dir(mod_plugin):
+                    method = getattr(mod_plugin, attr, None)
                     if callable(method) or hasattr(method, '__call__'):
-                        self.register_function( method, plugin_name + method.__name__ )
+                        method_list.append(method)
+
+
+            for method in method_list:
+                if callable(method) or hasattr(method, '__call__'):
+                    log.debug("Register plugin method '%s_%s'" % (plugin_prefix, method.__name__))
+                    self.register_function( method, plugin_prefix + "_" + method.__name__ )
+
+                else:
+                    log.error("Skipping non-method '%s'" % method)
+                    continue
+
+            # keep state around
+            self.plugin_prefixes.append(plugin_prefix)
+            self.plugin_mods.append( mod_plugin )
 
         self.register_introspection_functions()
         self.register_multicall_functions()
-        
+       
+
+class BlockstackAPIEndpointClient(proxy.BlockstackRPCClient):
+    pass
+
 
 def make_local_rpc_server( portnum, plugins=[] ):
     """
     Make a local RPC server instance.
     It will be derived from BaseHTTPServer.HTTPServer.
+    @plugins can be a list of modules, or a list of strings that
+    identify module names to import.
 
     Returns a new server instance on success.
     """
+    plugins = [backend] + plugins 
     srv = BlockstackAPIEndpoint( port=portnum, plugins=plugins )
     return srv
 
@@ -141,6 +185,23 @@ def local_rpc_server_stop( srv ):
     srv.shutdown()
 
 
+def local_rpc_connect( api_port=None, config_dir=config.CONFIG_DIR ):
+    """
+    Connect to a locally-running RPC server
+    Return a server proxy object on success.
+    Raise on error.
+    """
+    if api_port is None:
+        config_path = os.path.join( config_dir, config.CONFIG_FILENAME )
+        conf = config.get_config( config_path )
+        if conf is None:
+            raise Exception("Failed to read config at '%s'" % config_path )
+
+        api_port = conf['api_endpoint_port']
+
+    return BlockstackAPIEndpointClient( "localhost", api_port )
+
+
 def local_rpc_action( command, config_dir=config.CONFIG_DIR ):
     """
     Handle an API endpoint command:
@@ -154,7 +215,7 @@ def local_rpc_action( command, config_dir=config.CONFIG_DIR ):
 
     from blockstack_client import config 
 
-    if command not in ['start', 'stop', 'status', 'restart']:
+    if command not in ['start', 'start-foreground', 'stop', 'status', 'restart']:
         raise ValueError("Invalid command '%s'" % command)
 
     config_path = os.path.join(config_dir, config.CONFIG_FILENAME) 
@@ -177,8 +238,11 @@ def local_rpc_dispatch( port, method_name, *args, **kw ):
     """
     client = ServerProxy('http://localhost:%s' % port)
     try:
-        method = getattr(client, method)
+        method = getattr(client, method_name)
         result = method( *args, **kw )
+        if type(result) in [str, unicode]:
+            result = json.loads(result)
+
         return result
     except:
         return {'error': traceback.format_exc()}
@@ -189,6 +253,13 @@ def local_rpc_pidfile_path(config_dir=config.CONFIG_DIR):
     Where do we put the PID file?
     """
     return os.path.join( config_dir, "api_endpoint.pid" )
+
+
+def local_rpc_logfile_path(config_dir=config.CONFIG_DIR):
+    """
+    Where do we put logs?
+    """
+    return os.path.join( config_dir, "api_endpoint.log" )
 
 
 def local_rpc_read_pidfile( pidfile_path ):
@@ -236,13 +307,7 @@ def local_rpc_atexit():
     atexit: clean out PID file
     """
     global rpc_pidpath
-    if rpc_pidpath is not None and os.path.exists( rpc_pidpath ):
-        try:
-            os.unlink(rpc_pidpath)
-        except:
-            pass
-
-        rpc_pidpath = None
+    local_rpc_unlink_pidfile(rpc_pidpath)
 
 
 def local_rpc_exit_handler( sig, frame ):
@@ -258,15 +323,17 @@ rpc_pidpath = None
 rpc_srv = None
 
 
-def local_rpc_start( config_dir, portnum ):
+def local_rpc_start( portnum, config_dir=config.CONFIG_DIR, foreground=False ):
     """
     Start up an API endpoint 
     Return False on error
     """
+    global rpc_pidpath
+
     # already running?
-    pidpath = local_rpc_pidfile_path( config_dir=config_dir )
-    if os.path.exists( pidpath ):
-        print >> sys.stderr, "API endpoint already running (PID %s, %s)" % (local_rpc_read_pidfile(pidpath), pidpath)
+    rpc_pidpath = local_rpc_pidfile_path( config_dir=config_dir )
+    if os.path.exists( rpc_pidpath ):
+        print >> sys.stderr, "API endpoint already running (PID %s, %s)" % (local_rpc_read_pidfile(rpc_pidpath), rpc_pidpath)
         return False
 
     signal.signal( signal.SIGINT, local_rpc_exit_handler )
@@ -275,15 +342,52 @@ def local_rpc_start( config_dir, portnum ):
 
     atexit.register( local_rpc_atexit )
 
-    # start up!
-    local_rpc_write_pidfile( pidpath )
+    if foreground:
+        # foreground
+        log.debug("Running in the foreground")
+        rpc_srv = make_local_rpc_server( portnum )
+        local_rpc_write_pidfile( rpc_pidpath )
+        local_rpc_server_run( rpc_srv )
+        local_rpc_unlink_pidfile( rpc_pidpath )
 
-    rpc_srv = make_local_rpc_server( portnum )
-    local_rpc_server_run( rpc_srv )
+    else:
+        # daemonize
+        # do we detach?
+        conf = config.get_config( os.path.join( config_dir, config.CONFIG_FILENAME ) )
+        detach = conf['rpc_detach']
+
+        log.debug("Running in the background (detach = %s)" % detach)
+        logpath = local_rpc_logfile_path( config_dir=config_dir )
+        log_fd = open(logpath, "a")
+        rpc_srv = make_local_rpc_server( portnum )
+
+        dctx = daemon.DaemonContext(
+                    signal_map={
+                        signal.SIGINT: local_rpc_exit_handler,
+                        signal.SIGQUIT: local_rpc_exit_handler,
+                        signal.SIGTERM: local_rpc_exit_handler
+                    },
+                    prevent_core=True,
+                    umask=0,
+                    files_preserve=[log_fd, rpc_srv.socket],
+                    chroot_directory=None,
+                    working_directory='/',
+                    stdout=log_fd,
+                    stderr=log_fd,
+                    stdin=None,
+                    detach_process=detach
+                )
+
+        with dctx:
+            local_rpc_write_pidfile( rpc_pidpath )
+            local_rpc_server_run( rpc_srv )
+            local_rpc_unlink_pidfile( rpc_pidpath )
+            log.debug("RPC endpoint joined")
+            
     return True
 
 
-def local_rpc_stop( config_dir ):
+def local_rpc_stop( config_dir=config.CONFIG_DIR ):
     """
     Shut down an API endpoint
     Return True if we stopped it
@@ -292,7 +396,7 @@ def local_rpc_stop( config_dir ):
     # already running?
     pidpath = local_rpc_pidfile_path( config_dir=config_dir )
     if not os.path.exists( pidpath ):
-        print >> sys.stderr, "Not running"
+        print >> sys.stderr, "Not running (%s)" % pidpath
         return False
 
     pid = local_rpc_read_pidfile( pidpath )
@@ -304,7 +408,7 @@ def local_rpc_stop( config_dir ):
         os.kill( pid, 0 )
     except OSError, oe:
         if oe.errno == errno.ESRCH:
-            print >> sys.stderr, "Removing stale PID file"
+            print >> sys.stderr, "Removing stale PID file '%s'" % pidpath
             local_rpc_unlink_pidfile( pidpath )
             return False
         else:
@@ -317,7 +421,7 @@ def local_rpc_stop( config_dir ):
         os.kill( pid, signal.SIGTERM )
     except OSError, oe:
         if oe.errno == errno.ESRCH:
-            print >> sys.stderr, "Removing stale PID file"
+            print >> sys.stderr, "Removing stale PID file '%s'" % pidpath
             local_rpc_unlink_pidfile( pidpath )
             return False
         else:
@@ -336,7 +440,7 @@ def local_rpc_stop( config_dir ):
             raise 
 
     # still running
-    time.sleep(5)
+    time.sleep(3)
     try:
         print >> sys.stderr, "Sending SIGKILL to %s" % pid
         os.kill(pid, signal.SIGKILL)
@@ -354,39 +458,57 @@ def local_rpc_stop( config_dir ):
     return True
 
 
-def local_rpc_status( config_dir ):
+def local_rpc_status( config_dir=config.CONFIG_DIR ):
     """
     Print the status of an instantiated API endpoint
-    Return True if we determined the status
-    Return False if not
+    Return True if the daemon is running.
+    Return False if not, or if unknown.
     """
     # see if it's running 
     pidpath = local_rpc_pidfile_path( config_dir=config_dir )
     if not os.path.exists(pidpath):
-        print >> sys.stderr, "Dead"
-        return True
+        return False
 
     pid = local_rpc_read_pidfile( pidpath )
     if pid is None:
-        print >> sys.stderr, "Dead"
-        return True
+        return False
 
     try:
         os.kill( pid, 0 )
-        print >> sys.stderr, "Alive"
     except OSError, oe:
         if oe.errno == errno.ESRCH:
-            print >> sys.stderr, "Dead"
-            return True
+            return False
 
         elif oe.errno == errno.EPERM:
-            print >> sys.stderr, "Unknown"
             return False
 
         else:
             raise
     
     return True
+
+
+def local_rpc_ensure_running( config_dir=config.CONFIG_DIR ):
+    """
+    Ensure that the RPC daemon is running.
+    Start it if it is not.
+    Return True on success
+    Return False on failure
+    """
+    rc = local_rpc_status( config_dir )
+    if not rc:
+        log.debug("Starting RPC endpoint (%s)" % config_dir)
+        rc = local_rpc_action( "start", config_dir=config_dir )
+        if rc != 0:
+            log.error("Failed to start RPC endpoint; exit code was %s" % rc)
+            return False
+
+        else:
+            return True
+
+    else:
+        log.debug("RPC endpoint already running (%s)" % config_dir)
+        return True
 
 
 
@@ -407,32 +529,41 @@ if __name__ == "__main__":
         sys.exit(1)
     
     if command == 'start':
-        rc = local_rpc_start( config_dir, portnum )
+        rc = local_rpc_start( portnum, config_dir=config_dir )
         if rc:
             sys.exit(0)
         else:
             sys.exit(1)
-        
-    elif command == 'status':
-        rc = local_rpc_status( config_dir )
+       
+    elif command == 'start-foreground':
+        rc = local_rpc_start( portnum, config_dir=config_dir, foreground=True )
         if rc:
             sys.exit(0)
         else:
             sys.exit(1)
 
+    elif command == 'status':
+        rc = local_rpc_status( config_dir=config_dir )
+        if rc:
+            print >> sys.stderr, "Alive"
+            sys.exit(0)
+        else:
+            print >> sys.stderr, "Dead"
+            sys.exit(1)
+
     elif command == 'stop':
-        rc = local_rpc_stop( config_dir )
+        rc = local_rpc_stop( config_dir=config_dir )
         if rc:
             sys.exit(0)
         else:
             sys.exit(1)
 
     elif command == 'restart':
-        rc = local_rpc_stop( config_dir )
+        rc = local_rpc_stop( config_dir=config_dir )
         if not rc:
             sys.exit(1)
         else:
-            rc = local_rpc_start( config_dir, portnum )
+            rc = local_rpc_start( portnum, config_dir=config_dir )
             if rc:
                 sys.exit(0)
             else:
