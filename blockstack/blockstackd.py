@@ -164,6 +164,14 @@ def set_utxo_opts( new_utxo_opts ):
    utxo_opts = new_utxo_opts
 
 
+def set_blockstack_opts( new_opts ):
+    """
+    Set new global blockstack opts
+    """
+    global blockstack_opts
+    blockstack_opts = new_opts
+
+
 def get_pidfile_path():
    """
    Get the PID file path.
@@ -1038,8 +1046,15 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             restored_op = nameop_restore_consensus_fields( op, block_id )
             restored_ops.append( restored_op )
 
-        serialized_ops = [ db_serialize( str(op['op'][0]), op, verbose=False ) for op in restored_ops ]
+        # NOTE: extracts only the operation-given fields, and ignores ancilliary record fields
+        serialized_ops = [ virtualchain.StateEngine.serialize_op( str(op['op'][0]), op, BlockstackDB.make_opfields(), verbose=False ) for op in restored_ops ]
+
+        for serialized_op in serialized_ops:
+            log.debug("SERIALIZED (%s): %s" % (block_id, serialized_op))
+
         ops_hash = virtualchain.StateEngine.make_ops_snapshot( serialized_ops )
+        log.debug("Serialized hash at (%s): %s" % (block_id, ops_hash))
+
         return ops_hash
 
 
@@ -1626,23 +1641,49 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
         return {'status': True, 'saved': saved}
 
+    
+    def rpc_get_unspents(self, address):
+        """
+        Proxy to UTXO provider to get an address's
+        unspent outputs.
+        """
+        conf = get_blockstack_opts()
+        if not conf['blockchain_proxy']:
+            return {'error': 'No such method'}
+
+        utxo_client = get_utxo_provider_client()
+        return pybitcoin.get_unspents( address, utxo_client )
+
+
+    def rpc_broadcast_transaction(self, txdata ):
+        """
+        Proxy to UTXO provider to send a transaction
+        """
+        conf = get_blockstack_opts()
+        if not conf['blockchain_proxy']:
+            return {'error': 'No such method'}
+
+        broadcaster = get_tx_broadcaster()
+        return pybitcoin.broadcast_transaction( txdata, broadcaster )
+
 
 
 class BlockstackdRPCServer( threading.Thread, object ):
     """
     RPC server thread
     """
-    def __init__(self, testset=False):
+    def __init__(self, port, testset=False):
         super( BlockstackdRPCServer, self ).__init__()
         self.testset = testset
         self.rpc_server = None
+        self.port = port
 
 
     def run(self):
         """
         Serve until asked to stop
         """
-        self.rpc_server = BlockstackdRPC( testset=self.testset )
+        self.rpc_server = BlockstackdRPC( port=self.port, testset=self.testset )
         self.rpc_server.serve_forever()
 
 
@@ -1653,12 +1694,12 @@ class BlockstackdRPCServer( threading.Thread, object ):
         self.rpc_server.shutdown()
      
 
-def rpc_start( testset=False ):
+def rpc_start( port, testset=False ):
     """
     Start the global RPC server thread
     """
     global rpc_server
-    rpc_server = BlockstackdRPCServer( testset=testset )
+    rpc_server = BlockstackdRPCServer( port, testset=testset )
 
     log.debug("Starting RPC")
     rpc_server.start()
@@ -1811,7 +1852,7 @@ def run_server( testset=False, foreground=False, index=True ):
     """
 
     bt_opts = get_bitcoin_opts()
-
+    blockstack_opts = get_blockstack_opts()
     indexer_log_file = get_logfile_path() + ".indexer"
     pid_file = get_pidfile_path()
     working_dir = virtualchain.get_working_dir()
@@ -1861,7 +1902,7 @@ def run_server( testset=False, foreground=False, index=True ):
             sys.exit(status)
     
     # start API server
-    rpc_start()
+    rpc_start(blockstack_opts['rpc_port'])
     running = True
 
     # put supervisor pid file
@@ -1954,7 +1995,7 @@ def setup( working_dir=None, testset=False, return_parser=False ):
            os.unlink( testset_path )
 
    # acquire configuration, and store it globally
-   blockstack_opts, bitcoin_opts, utxo_opts, configure( interactive=True, testset=testset )
+   blockstack_opts, bitcoin_opts, utxo_opts = configure( interactive=True, testset=testset )
 
    # do we need to enable testset?
    if blockstack_opts['testset']:
@@ -2342,7 +2383,6 @@ def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, 
         working_dir = resume_dir
 
     blockstack_state_engine.working_dir = working_dir
-
     virtualchain.setup_virtualchain( blockstack_state_engine, testset=testset )
 
     if resume_dir is None:
@@ -2366,6 +2406,9 @@ def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, 
         working_db_path = virtualchain.get_db_filename()
 
     working_db = BlockstackDB( working_db_path )
+
+    log.debug( "Working DB: %s" % working_db_path )
+    log.debug( "Untrusted DB: %s" % untrusted_db_path )
 
     # map block ID to consensus hashes
     consensus_hashes = {}
