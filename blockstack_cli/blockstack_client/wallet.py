@@ -35,46 +35,186 @@ from time import sleep
 from getpass import getpass
 from binascii import hexlify, unhexlify
 
-import requests
-requests.packages.urllib3.disable_warnings()
-
-import logging
-logging.disable(logging.CRITICAL)
-
-# Hack around absolute paths
-current_dir = os.path.abspath(os.path.dirname(__file__))
-parent_dir = os.path.abspath(current_dir + "/../")
-
-sys.path.insert(0, parent_dir)
 from xmlrpclib import ServerProxy
 from defusedxml import xmlrpc
 
 # prevent the usual XML attacks 
 xmlrpc.monkey_patch()
 
-from registrar.config import REGISTRAR_IP, REGISTRAR_PORT
-from registrar.config import BLOCKSTACKD_IP, BLOCKSTACKD_PORT
+import logging
+logging.disable(logging.CRITICAL)
 
-from registrar.wallet import HDWallet
-from registrar.crypto.utils import aes_encrypt, aes_decrypt
-from registrar.blockchain import get_balance, dontuseAddress
-from registrar.utils import satoshis_to_btc
-from registrar.blockchain import recipientNotReady, get_tx_confirmations
+import requests
+requests.packages.urllib3.disable_warnings()
+
+from keychain import PrivateKeychain
+
+from pybitcoin import make_send_to_address_tx
+from pybitcoin import BlockcypherClient
+from pybitcoin.rpc.bitcoind_client import BitcoindClient
+
+# Hack around absolute paths
+current_dir = os.path.abspath(os.path.dirname(__file__))
+parent_dir = os.path.abspath(current_dir + "/../")
+sys.path.insert(0, parent_dir)
+
+from .backend.crypto.utils import get_address_from_privkey, get_pubkey_from_privkey
+from .backend.crypto.utils import aes_encrypt, aes_decrypt
+from .backend.blockchain import get_balance, dontuseAddress, underfundedAddress
+from .utils import satoshis_to_btc, btc_to_satoshis, exit_with_error, print_result
 
 import config
-from config import WALLET_PATH, WALLET_PASSWORD_LENGTH
+from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR, CONFIG_FILENAME, WALLET_FILENAME
 
-from utils import exit_with_error
+from .proxy import get_names_owned_by_address, get_default_proxy
+from .rpc import local_rpc_connect
 
 log = config.get_logger()
 
-RPC_DAEMON = 'http://' + REGISTRAR_IP + ':' + str(REGISTRAR_PORT)
+
+class HDWallet(object):
+
+    """
+        Initialize a hierarchical deterministic wallet with
+        hex_privkey and get child addresses and private keys
+    """
+
+    def __init__(self, hex_privkey=None):
+
+        """
+            If @hex_privkey is given, use that to derive keychain
+            otherwise, use a new random seed
+        """
+
+        if hex_privkey:
+            self.priv_keychain = PrivateKeychain.from_private_key(hex_privkey)
+        else:
+            log.debug("No privatekey given, starting new wallet")
+            self.priv_keychain = PrivateKeychain()
+
+        self.master_address = self.get_master_address()
+        self.child_addresses = None
 
 
-def write_wallet( hex_privkey, password, path=WALLET_PATH ):
+    def get_master_privkey(self):
+
+        return self.priv_keychain.private_key()
+
+
+    def get_child_privkey(self, index=0):
+        """
+            @index is the child index
+
+            Returns:
+            child privkey for given @index
+        """
+
+        child = self.priv_keychain.hardened_child(index)
+        return child.private_key()
+
+
+    def get_master_address(self):
+
+        hex_privkey = self.get_master_privkey()
+        return get_address_from_privkey(hex_privkey)
+
+
+    def get_child_address(self, index=0):
+        """
+            @index is the child index
+
+            Returns:
+            child address for given @index
+        """
+
+        if self.child_addresses is not None:
+            return self.child_addresses[index]
+
+        hex_privkey = self.get_child_privkey(index)
+        return get_address_from_privkey(hex_privkey)
+
+
+    def get_child_keypairs(self, count=1, offset=0, include_privkey=False):
+        """
+            Returns (privkey, address) keypairs
+
+            Returns:
+            returns child keypairs
+
+            @include_privkey: toggles between option to return
+                             privkeys along with addresses or not
+        """
+
+        keypairs = []
+
+        for index in range(offset, offset+count):
+            address = self.get_child_address(index)
+
+            if include_privkey:
+                hex_privkey = self.get_child_privkey(index)
+                keypairs.append((address, hex_privkey))
+            else:
+                keypairs.append(address)
+
+        return keypairs
+
+
+    def get_next_keypair(self, count=1):
+        """ Get next payment address that is ready to use
+
+            Returns (payment_address, hex_privkey)
+        """
+
+        addresses = self.get_child_keypairs(count=count)
+        index = 0
+
+        for payment_address in addresses:
+
+            # find an address that can be used for payment
+
+            if dontuseAddress(payment_address):
+                log.debug("Pending tx on address: %s" % payment_address)
+
+            elif underfundedAddress(payment_address):
+                log.debug("Underfunded address: %s" % payment_address)
+
+            else:
+                return payment_address, self.get_child_privkey(index)
+
+            index += 1
+
+        log.debug("No valid address available.")
+
+        return None, None
+
+
+    def get_privkey_from_address(self, target_address, count=1):
+        """ Given a child address, return priv key of that address
+        """
+
+        addresses = self.get_child_keypairs(count=count)
+
+        index = 0
+
+        for address in addresses:
+
+            if address == target_address:
+
+                return self.get_child_privkey(index)
+
+            index += 1
+
+        return None
+
+
+
+def write_wallet( hex_privkey, password, path=None, config_dir=CONFIG_DIR ):
     """
     Generate and save the wallet to disk.
     """
+    if path is None:
+        path = os.path.join(config_dir, WALLET_FILENAME )
+
     hex_password = hexlify(password)
 
     wallet = HDWallet(hex_privkey)
@@ -97,43 +237,58 @@ def write_wallet( hex_privkey, password, path=WALLET_PATH ):
     return True
 
 
-def initialize_wallet():
+def initialize_wallet( password="", interactive=True, hex_privkey=None, config_dir=CONFIG_DIR, wallet_path=None ):
+    """
+    Initialize the wallet,
+    interatively if need be.
+    Return a dict with the wallet password and master private key.
+    Return {'error': ...} on error
+    """
+    if wallet_path is None:
+        wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+        
+    if not interactive and len(password) == 0:
+        raise Exception("Non-interactive wallet initialization requires a password of length %s or greater" % WALLET_PASSWORD_LENGTH)
 
     result = {}
     print "Initializing new wallet ..."
-    password = "temp"
 
     try:
-        while len(password) < WALLET_PASSWORD_LENGTH:
-            password = getpass("Enter new password: ")
+        if interactive:
+            while len(password) < WALLET_PASSWORD_LENGTH:
+                password = getpass("Enter new password: ")
 
-            if len(password) < WALLET_PASSWORD_LENGTH:
-                msg = "Password is too short. Please make it at"
-                msg += " least %s characters long" % WALLET_PASSWORD_LENGTH
-                print msg
-            else:
+                if len(password) < WALLET_PASSWORD_LENGTH:
+                    msg = "Password is too short. Please make it at"
+                    msg += " least %s characters long" % WALLET_PASSWORD_LENGTH
+                    print msg
 
-                confirm_password = getpass("Confirm new password: ")
+                else:
+                    break
 
-                if password != confirm_password:
-                    exit_with_error("Passwords don't match.")
+            confirm_password = getpass("Confirm new password: ")
 
-                temp_wallet = HDWallet()
-                hex_privkey = temp_wallet.get_master_privkey()
+            if password != confirm_password:
+                return {'error': 'Passwords do not match'}
 
-                write_wallet( hex_privkey, password )
-                print "Wallet created. Make sure to backup the following:"
+        if hex_privkey is None:
+            temp_wallet = HDWallet()
+            hex_privkey = temp_wallet.get_master_privkey()
 
-                result['wallet_password'] = password
-                result['master_private_key'] = hex_privkey
-                print_result(result)
+        write_wallet( hex_privkey, password, path=wallet_path )
+        print "Wallet created. Make sure to backup the following:"
 
-                input_prompt = "Have you backed up the above private key? (y/n): "
-                user_input = raw_input(input_prompt)
-                user_input = user_input.lower()
+        result['wallet_password'] = password
+        result['master_private_key'] = hex_privkey
+        print_result(result)
 
-                if user_input != 'y':
-                    exit_with_error("Please backup your private key first.")
+        if interactive:
+            input_prompt = "Have you backed up the above private key? (y/n): "
+            user_input = raw_input(input_prompt)
+            user_input = user_input.lower()
+
+            if user_input != 'y':
+                return {'error': 'Please back up your private key first'}
 
     except KeyboardInterrupt:
         exit_with_error("\nExited.")
@@ -141,19 +296,28 @@ def initialize_wallet():
     return result
 
 
-def unlock_wallet(display_enabled=False):
-
-    if walletUnlocked():
+def unlock_wallet(display_enabled=False, password=None, config_dir=CONFIG_DIR ):
+    """
+    Unlock the wallet.
+    Save the wallet to the RPC daemon on success.
+    exit on error (e.g. incorrect password)
+    Return {'status': True} on success
+    return {'error': ...} on error
+    """
+    wallet_path = os.path.join( config_dir, WALLET_FILENAME )
+    if walletUnlocked(config_dir):
         if display_enabled:
-            payment_address, owner_address, data_pubkey = get_addresses_from_file()
+            payment_address, owner_address, data_pubkey = get_addresses_from_file(wallet_path=wallet_path)
             display_wallet_info(payment_address, owner_address, data_pubkey)
     else:
 
         try:
-            password = getpass("Enter wallet password: ")
+            if password is None:
+                password = getpass("Enter wallet password: ")
+
             hex_password = hexlify(password)
 
-            file = open(WALLET_PATH, 'r')
+            file = open(wallet_path, 'r')
             data = file.read()
             data = json.loads(data)
             file.close()
@@ -163,9 +327,9 @@ def unlock_wallet(display_enabled=False):
                                           hex_password)
             except Exception, e:
                 log.exception(e)
-                exit_with_error("Incorrect password.")
+                return {'error': 'Incorrect password'}
+
             else:
-                print "Unlocked wallet."
                 wallet = HDWallet(hex_privkey)
                 child = wallet.get_child_keypairs(count=3,
                                                   include_privkey=True)
@@ -174,35 +338,46 @@ def unlock_wallet(display_enabled=False):
                 data_keypair = child[2]
                 data_pubkey = pybitcoin.BitcoinPrivateKey( data_keypair[1] ).public_key().to_hex()
 
-                save_keys_to_memory(payment_keypair, owner_keypair, data_keypair)
+                res = save_keys_to_memory(payment_keypair, owner_keypair, data_keypair, config_dir=config_dir)
+                if 'error' in res:
+                    return res
 
                 if display_enabled:
                     display_wallet_info(payment_keypair[0], owner_keypair[0], data_pubkey)
 
                 # may need to migrate data_pubkey into wallet.json
-                _, _, onfile_data_pubkey = get_addresses_from_file()
+                _, _, onfile_data_pubkey = get_addresses_from_file(wallet_path=wallet_path)
                 if onfile_data_pubkey is None:
-                    write_wallet( hex_privkey, password, path=WALLET_PATH+".tmp" )
-                    shutil.move( WALLET_PATH+".tmp", WALLET_PATH )
+                    write_wallet( hex_privkey, password, path=wallet_path+".tmp" )
+                    shutil.move( wallet_path+".tmp", wallet_path )
 
+                return {'status': True}
 
         except KeyboardInterrupt:
             print "\nExited."
+            sys.exit(1)
 
 
-def walletUnlocked():
-
-    local_proxy = get_local_proxy()
-    conf = config.get_config()
+def walletUnlocked(config_dir=CONFIG_DIR):
+    """
+    Determine whether or not the wallet is unlocked.
+    Do so by asking the local RPC backend daemon
+    """
+    config_path = os.path.join(config_dir, CONFIG_FILENAME)
+    local_proxy = local_rpc_connect(config_dir=config_dir)
+    conf = config.get_config(config_path)
 
     if local_proxy is not False:
 
         try:
-            wallet_data = local_proxy.get_wallet(conf['rpc_token'])
-            wallet_data = json.loads(wallet_data)
+            wallet_data = local_proxy.backend_get_wallet(conf['rpc_token'])
+            if 'error' in wallet_data:
+                log.error("RPC error: %s" % wallet_data['error'])
+                raise Exception("RPC error: %s" % wallet_data['error'])
+
         except Exception, e:
             log.exception(e)
-            exit_with_error("Failed to get wallet")
+            return {'error': 'Failed to get wallet'}
 
         if 'error' in wallet_data:
             return False
@@ -214,21 +389,24 @@ def walletUnlocked():
         return False
 
 
-def get_wallet():
+def get_wallet(config_path=CONFIG_PATH):
     """
-    Get the decrypted wallet from the running wallet daemon.
+    Get the decrypted wallet from the running RPC backend daemon.
     """
-    local_proxy = get_local_proxy()
-    conf = config.get_config()
+    local_proxy = local_rpc_connect(config_dir=os.path.dirname(config_path))
+    conf = config.get_config(config_path)
 
     if local_proxy is not False:
 
         try:
-            wallet_data = local_proxy.get_wallet(conf['rpc_token'])
-            wallet_data = json.loads(wallet_data)
+            wallet_data = local_proxy.backend_get_wallet(conf['rpc_token'])
+            if 'error' in wallet_data:
+                log.error("RPC error: %s" % wallet_data['error'])
+                raise Exception("RPC error: %s" % wallet_data['error'])
+
         except Exception, e:
             log.exception(e)
-            exit_with_error("Failed to get wallet")
+            return {'error': 'Failed to get wallet'}
 
         if 'error' in wallet_data:
             return None
@@ -240,7 +418,9 @@ def get_wallet():
 
 
 def display_wallet_info(payment_address, owner_address, data_public_key):
-
+    """
+    Print out useful wallet information
+    """
     print '-' * 60
     print "Payment address:\t%s" % payment_address
     print "Owner address:\t\t%s" % owner_address
@@ -259,78 +439,45 @@ def display_wallet_info(payment_address, owner_address, data_public_key):
     print '-' * 60
 
 
-def get_names_owned(address):
+def get_names_owned(address, proxy=None):
+    """
+    Get names owned by address
+    """
 
-      # hack to ensure local, until we update client
-    from blockstack_client import client as bs_client
-    # start session using blockstack_client
-    bs_client.session(server_host=BLOCKSTACKD_IP, server_port=BLOCKSTACKD_PORT,
-                      set_global=True)
+    if proxy is None:
+        proxy = get_default_proxy()
 
     try:
-        names_owned = bs_client.get_names_owned_by_address(address)
+        names_owned = get_names_owned_by_address(address, proxy=proxy)
     except socket_error:
         names_owned = "Error connecting to server"
 
     return names_owned
 
 
-def get_local_proxy():
-
-    proxy = ServerProxy(RPC_DAEMON)
-
-    try:
-        data = proxy.ping()
-    except Exception, e:
-        log.exception(e)
-        log.debug('RPC daemon is not online')
-        return False
-
-    return proxy
-
-
-def start_background_daemons():
-    """ Start the rpc_daemon and monitor processes
-        if they're not already running
+def save_keys_to_memory(payment_keypair, owner_keypair, data_keypair, config_dir=CONFIG_DIR):
     """
+    Save keys to the running RPC backend
+    """
+    proxy = local_rpc_connect(config_dir=config_dir)
 
-    from registrar.rpc_daemon import background_process
-    proxy = ServerProxy(RPC_DAEMON)
-
+    log.debug("Saving keys to memory")
     try:
-        data = proxy.ping()
-    except socket_error, se:
-        if se.errno == errno.ECONNREFUSED:
-            background_process('start_daemon')
-            sleep(2)
-        else:
-            log.exception(e)
-            exit_with_error("Failed to start background daemon")
-
-    output = findProcess('start_monitor')
-
-    if 'registrar.rpc_daemon' not in output:
-        background_process('start_monitor')
-        sleep(2)
-
-
-def save_keys_to_memory(payment_keypair, owner_keypair, data_keypair):
-
-    proxy = get_local_proxy()
-
-    if proxy is False:
-        start_background_daemons()
-
-    try:
-        data = proxy.set_wallet(payment_keypair, owner_keypair, data_keypair)
+        data = proxy.backend_set_wallet(payment_keypair, owner_keypair, data_keypair)
+        return data
     except Exception, e:
         log.exception(e)
-        exit_with_error('Error talking to local proxy')
+        return {'error': "Failed to save keys"}
 
 
-def get_addresses_from_file():
+def get_addresses_from_file(config_dir=CONFIG_DIR, wallet_path=None):
+    """
+    Load up the set of addresses from the wallet
+    """
+    if wallet_path is None:
+        wallet_path = os.path.join(config_dir, WALLET_FILENAME)
 
-    file = open(WALLET_PATH, 'r')
+    file = open(wallet_path, 'r')
     data = file.read()
     data = json.loads(data)
     file.close()
@@ -344,12 +491,14 @@ def get_addresses_from_file():
     return payment_address, owner_address, data_pubkey
 
 
-def get_payment_addresses():
-
+def get_payment_addresses(wallet_path=WALLET_PATH):
+    """
+    Get payment addresses
+    """
     payment_addresses = []
 
     # currently only using one
-    payment_address, owner_address, data_pubkey = get_addresses_from_file()
+    payment_address, owner_address, data_pubkey = get_addresses_from_file(wallet_path=wallet_path)
 
     payment_addresses.append({'address': payment_address,
                               'balance': get_balance(payment_address)})
@@ -357,12 +506,14 @@ def get_payment_addresses():
     return payment_addresses
 
 
-def get_owner_addresses():
-
+def get_owner_addresses(wallet_path=WALLET_PATH):
+    """
+    Get owner addresses
+    """
     owner_addresses = []
 
     # currently only using one
-    payment_address, owner_address, data_pubkey = get_addresses_from_file()
+    payment_address, owner_address, data_pubkey = get_addresses_from_file(wallet_path=wallet_path)
 
     owner_addresses.append({'address': owner_address,
                             'names_owned': get_names_owned(owner_address)})
@@ -370,14 +521,12 @@ def get_owner_addresses():
     return owner_addresses
 
 
-def get_all_names_owned():
+def get_all_names_owned(wallet_path=WALLET_PATH):
 
-    owner_addresses = get_owner_addresses()
-
+    owner_addresses = get_owner_addresses(wallet_path)
     names_owned = []
 
     for entry in owner_addresses:
-
         additional_names = get_names_owned(entry['address'])
         for name in additional_names:
             names_owned.append(name)
@@ -385,14 +534,12 @@ def get_all_names_owned():
     return names_owned
 
 
-def get_total_balance():
+def get_total_balance(wallet_path=WALLET_PATH):
 
-    payment_addresses = get_payment_addresses()
-
+    payment_addresses = get_payment_addresses(wallet_path)
     total_balance = 0.0
 
     for entry in payment_addresses:
-
         total_balance += float(entry['balance'])
 
     return total_balance, payment_addresses
@@ -432,14 +579,4 @@ def get_total_fees(data):
     reply['total_estimated_cost'] = registration_fee + tx_fee
 
     return reply
-
-
-def findProcess(processName):
-    ps = subprocess.Popen("ps -ef | grep "+processName, shell=True,
-                          stdout=subprocess.PIPE)
-    output = ps.stdout.read()
-    ps.stdout.close()
-    ps.wait()
-    return output
-
 
