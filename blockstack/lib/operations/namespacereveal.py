@@ -247,7 +247,7 @@ def broadcast( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exp
    if blockchain_broadcaster is None:
        blockchain_broadcaster = blockchain_client 
     
-   nulldata = build( namespace_id, BLOCKSTORE_VERSION, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, testset=testset )
+   nulldata = build( namespace_id, BLOCKSTACK_VERSION, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, testset=testset )
    
    # get inputs and from address
    private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
