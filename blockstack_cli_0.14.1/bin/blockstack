@@ -33,13 +33,25 @@ sys.path.insert(0, parent_dir)
 
 from blockstack_client.cli import run_cli, exit_with_error
 from blockstack_client.config import get_logger
+from blockstack_client.utils import pretty_print
 
 if __name__ == '__main__':
 
     log = get_logger()
 
     try:
-        run_cli()
+        result = run_cli()
+        if 'error' in result:
+            if type(result) in [str, unicode]:
+                print >> sys.stderr, result
+            else:
+                print >> sys.stderr, result['error']
+
+            sys.exit(1)
+        else:
+            pretty_print(result)
+            sys.exit(0)
+
     except Exception as e:
         log.exception(e)
         error_message = "Unexpected error, %s" % e
