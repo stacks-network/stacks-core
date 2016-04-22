@@ -65,7 +65,7 @@ def load_name_zonefile(expected_zonefile_hash):
     The user zonefile hash should have been loaded from the blockchain, and thereby be the
     authentic hash.
 
-    Return the user zonefile on success
+    Return the user zonefile (as JSON) on success
     Return None on error
     """
 
@@ -126,7 +126,7 @@ def load_legacy_user_profile( name, expected_hash ):
         log.error("Unparseable profile data")
         return None
 
-    data_hash = registrar.utils.get_hash( data_json )
+    data_hash = storage.get_blockchain_compat_hash( data_json )
     if expected_hash != data_hash:
         log.error("Hash mismatch: expected %s, got %s" % (expected_hash, data_hash))
         return None
@@ -176,11 +176,13 @@ def profile_update( name, new_profile, proxy=None, wallet_keys=None ):
 def get_name_zonefile( name, create_if_absent=False, proxy=None, value_hash=None, wallet_keys=None ):
     """
     Given the name of the user, go fetch its zonefile.
+    Verifies that the hash on the blockchain matches the zonefile.
 
-    Returns a dict with the zonefile, or 
+    Returns the zonefile (as JSON) on success (a dict), or 
     a dict with "error" defined and a message.
     Return None if there is no zonefile (i.e. the hash is null)
     """
+
     if proxy is None:
         proxy = get_default_proxy()
 
@@ -421,4 +423,64 @@ def migrate_profile( name, txid=None, proxy=None, wallet_keys=None ):
         result['zonefile_hash'] = value_hash
 
     return result
+
+
+def hash_zonefile( zonefile_json ):
+    """
+    Given a JSON-ized zonefile, calculate its hash
+    """
+    user_zonefile_txt = zone_file.make_zone_file( zonefile_json )
+    data_hash = storage.get_name_zonefile_hash( user_zonefile_txt )
+    return data_hash
+
+
+def is_zonefile_replicated(fqu, zonefile_json, proxy=None, wallet_keys=None):
+    """
+    Return True if the given zonefile (as JSON) has been replicated;
+    in particular, to the Blockstack DHT.
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    online_zonefile_json = get_name_zonefile(fqu, proxy=proxy, wallet_keys=wallet_keys)
+
+    if online_zonefile_json is None:
+        return False
+    else:
+        if hash_zonefile(zonefile_json) != hash_zonefile(online_json_zonefile):
+            return True
+        else:
+            return False
+
+
+def zonefile_publish(fqu, zonefile_json, server_list=[], wallet_keys=None):
+    """
+    Replicate a zonefile to as many blockstack servers as possible.
+    @server_list is a list of (host, port) tuple
+    Return {'status': True, 'servers': ...} on success, if we succeeded to replicate at least once.
+        'servers' will be a list of (host, port) tuples
+    Return {'error': ...} if we failed on all accounts.
+    """
+    successful_servers = []
+    for server_host, server_port in server_list:
+        try:
+            srv = BlockstackRPCClient( server_host, server_port )
+            res = srv.put_zonefiles( [zonefile_json] )
+            if 'error' in res:
+                log.error("Failed to publish zonefile to %s:%s: %s" % (server_host, server_port, res['error']))
+                continue
+
+            successful_servers.append( (server_host, server_port) )
+
+        except Exception, e:
+            log.exception(e)
+            log.error("Failed to publish zonefile to %s:%s" % (server_host, server_port))
+            continue
+
+    if len(successful_servers) > 0:
+        return {'status': True, 'servers': successful_servers}
+
+    else:
+        return {'error': 'Failed to publish zonefile'}
 
