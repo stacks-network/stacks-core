@@ -110,7 +110,7 @@ def format_profile(profile, username, address):
         else:
             data['profile'] = json.loads(profile)
 
-        data['verifications'] = profile_to_proofs(profile, username)
+        data['verifications'] = profile_to_proofs(data['profile'], username)
 
     return data
 
