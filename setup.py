@@ -23,9 +23,11 @@
 
 from setuptools import setup, find_packages
 
+exec(open("blockstack/version.py").read())
+
 setup(
     name='blockstack-server',
-    version='0.0.10.6',
+    version=__version__,
     url='https://github.com/blockstack/blockack-server',
     license='GPLv3',
     author='Blockstack.org',
@@ -38,9 +40,9 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'virtualchain==0.0.9',
+        'virtualchain>=0.0.9.0',
         'keychain==0.1.4',
-        'blockstack-client==0.0.13',
+        'blockstack-client>=0.0.13',
         'defusedxml>=0.4.1'
     ],
     classifiers=[
