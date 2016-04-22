@@ -292,7 +292,7 @@ def get_first_block_id():
    return start_block
 
 
-def get_db_state():
+def get_db_state(disposition=None):
    """
    (required by virtualchain state engine)
    
@@ -300,6 +300,8 @@ def get_db_state():
    
    Get a handle to our state engine implementation
    (i.e. our name database)
+
+   @disposition is for compatibility.  It is ignored
    """
    
    global blockstack_db
@@ -318,11 +320,11 @@ def get_db_state():
 
        if mtime is not None:
           last_load_time = mtime 
-  
+   
    return blockstack_db
 
 
-def db_parse( block_id, opcode, data, senders, inputs, outputs, fee, db_state=None ):
+def db_parse( block_id, txid, vtxindex, opcode, data, senders, inputs, outputs, fee, db_state=None ):
    """
    (required by virtualchain state engine)
    
@@ -432,7 +434,7 @@ def db_parse( block_id, opcode, data, senders, inputs, outputs, fee, db_state=No
    return op
 
 
-def db_check( block_id, checked_ops, opcode, op, txid, vtxindex, db_state=None ):
+def db_check( block_id, checked_ops, opcode, op, txid, vtxindex, to_commit_sanitized, db_state=None ):
    """
    (required by virtualchain state engine)
    
@@ -628,55 +630,6 @@ def db_commit( block_id, opcode, op, txid, vtxindex, db_state=None ):
       return None
   
    return new_namerec
-
-
-def db_serialize( op, nameop, db_state=None, verbose=True ):
-    """
-    (required by virtualchain state engine)
-
-    Serialize a given name operation
-    """
-   
-    fields = None
-    op = op[0]  # the first byte of the op string identifies the operation
-
-    opcode_name = OPCODE_NAMES.get( op, None )
-    if opcode_name is None:
-        log.error("No such opcode '%s'" % op)
-        return None 
-
-    fields = SERIALIZE_FIELDS.get( opcode_name, None )
-    if fields is None:
-        log.error("BUG: unrecongnized opcode '%s'" % opcode_name )
-        return None 
-
-    all_values = []
-    debug_all_values = []
-    missing = []
-    for field in fields:
-      if not nameop.has_key(field):
-          missing.append( field )
-
-      field_value = nameop.get(field, None)
-      if field_value is None:
-          field_value = ""
-      
-      # netstring format
-      debug_all_values.append( str(field) + "=" + str(len(str(field_value))) + ":" + str(field_value) )
-      all_values.append( str(len(str(field_value))) + ":" + str(field_value) )
-
-    if len(missing) > 0:
-      print json.dumps( nameop, indent=4 )
-      raise Exception("BUG: missing fields '%s'" % (",".join(missing)))
-
-    debug_field_values = ",".join( debug_all_values )
-
-    if verbose:
-        log.debug("SERIALIZE: %s:%s" % (op, debug_field_values ))
-
-    field_values = ",".join( all_values )
-
-    return op + ":" + field_values
 
 
 def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
