@@ -140,7 +140,7 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
             bs_resp = bs_client.get_name_blockchain_record(username + "." + namespace)
             bs_resp = bs_resp[0]
         except:
-            return {}
+            abort(500, "Connection to blockstack-server %s:%s timed out" % (BLOCKSTACKD_IP, BLOCKSTACKD_PORT))
 
         if bs_resp is None:
             abort(404)
@@ -301,7 +301,7 @@ def index():
 
 @app.errorhandler(500)
 def internal_error(error):
-    return make_response(jsonify({'error': 'Internal Server Error'}), 500)
+    return make_response(jsonify({'error': error.description}), 500)
 
 
 @app.errorhandler(404)
