@@ -50,7 +50,7 @@ from data import get_immutable, get_immutable_by_name, get_mutable, put_immutabl
         delete_mutable, list_mutable_data, list_immutable_data, list_immutable_data_history, list_update_history, list_zonefile_history
 from data import blockstack_url_fetch as fetch_data
 from data import data_get, data_put, data_delete
-from profile import migrate_profile, get_name_profile, get_name_zonefile 
+from profile import migrate_profile, get_name_profile, get_name_zonefile, zonefile_publish, hash_zonefile
 from accounts import list_accounts, get_account, put_account, delete_account
 
 from config import get_logger, get_config
@@ -66,3 +66,5 @@ from storage import blockstack_data_url as make_data_url
 from storage import BlockstackURLHandle, BlockstackHandler, get_data_hash, get_blockchain_compat_hash, get_name_zonefile_hash
 
 from config import USER_ZONEFILE_TTL
+
+from wallet import get_payment_addresses, get_owner_addresses
