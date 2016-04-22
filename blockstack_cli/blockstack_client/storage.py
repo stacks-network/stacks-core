@@ -181,7 +181,6 @@ def register_storage( storage_impl ):
 
    global storage_handlers
    if storage_impl in storage_handlers:
-       log.debug("WARN: already registered '%s'" % storage_impl)
        return True 
 
    storage_handlers.append( storage_impl )
