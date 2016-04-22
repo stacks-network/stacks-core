@@ -106,30 +106,23 @@ from blockstack_client import \
     update, \
     update_subsidized
 
-from blockstack_client import get_name_blockchain_record
-from blockstack_client import rpc as rpc_api
-from blockstack_client import config
-from blockstack_client.storage import is_valid_name, is_b40
-from blockstack_client.config import WALLET_PATH, WALLET_PASSWORD_LENGTH
+from rpc import local_rpc_connect, local_rpc_ensure_running
+import rpc as local_rpc
+import config
+from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR
+from .storage import is_valid_name, is_b40
 
 from pybitcoin import is_b58check_address
 
 from binascii import hexlify
 
-from registrar.wallet import HDWallet
-from registrar.crypto.utils import aes_encrypt, aes_decrypt
-from registrar.blockchain import get_balance, dontuseAddress
-from registrar.network import get_bs_client
-from registrar.rpc_daemon import background_process
-from registrar.utils import satoshis_to_btc
-from registrar.states import nameRegistered, ownerName, profileonBlockchain
-from registrar.blockchain import recipientNotReady, get_tx_confirmations
+from .backend.blockchain import get_balance, dontuseAddress, recipientNotReady, get_tx_confirmations
 
 from .wallet import *
 from .utils import pretty_dump, print_result
+from .proxy import *
 
 log = config.get_logger()
-
 
 def check_valid_name(fqu):
     """
@@ -161,17 +154,33 @@ def check_valid_name(fqu):
     return "The name is invalid"
 
 
-def tests_for_update_and_transfer(fqu, transfer_address=None):
-    """ Any update or transfer operation
-        should pass these tests
+def can_update_or_transfer(fqu, config_path=CONFIG_PATH, transfer_address=None, proxy=None):
+    """
+    Any update or transfer operation
+    should pass these tests:
+    * name must be registered
+    * name must be owned by the owner address in the wallet
+    * the payment address must have enough BTC
+    * the payment address can't have any pending transactions
+    * if given, the transfer address must be suitable for receiving the name
+    (i.e. it can't own too many names already).
+    
+    Return {'status': True} on success
+    Return {'error': ...} on error
     """
 
-    if not nameRegistered(fqu):
+    config_dir = os.path.dirname(config_path)
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    if not is_name_registered(fqu, proxy=proxy):
         return {'error': '%s is not registered yet.' % fqu}
 
-    payment_address, owner_address = get_addresses_from_file()
+    payment_address, owner_address, data_address = get_addresses_from_file(wallet_path=wallet_path)
 
-    if not ownerName(fqu, owner_address):
+    if not is_name_owner(fqu, owner_address, proxy=proxy):
         return {'error': '%s is not in your possession.' % fqu}
 
     tx_fee_satoshi = approx_tx_fees(num_tx=1)
@@ -193,22 +202,41 @@ def tests_for_update_and_transfer(fqu, transfer_address=None):
         if recipientNotReady(transfer_address):
             return {'error': "Address %s owns too many names already." % transfer_address}
 
+    return {'status': True}
 
-def cli_balance( args, config_path=None ):
+
+def start_rpc_endpoint(config_dir=CONFIG_DIR):
+    """
+    Decorator that will ensure that the RPC endpoint
+    is running before the wrapped function is called.
+    Raise on error
+    """
+    rc = local_rpc_ensure_running( config_dir )
+    if not rc:
+        raise Exception("Failed to start RPC endpoint (from %s)" % config_dir)
+
+    return True
+
+
+def cli_balance( args, config_path=CONFIG_PATH ):
     """
     command: balance
     help: Get and return the account balance.
     """
 
-    if not os.path.exists(WALLET_PATH):
-        initialize_wallet()
+    config_dir = os.path.dirname(config_path)
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+    if not os.path.exists(wallet_path):
+        res = initialize_wallet(wallet_path=wallet_path)
+        if 'error' in res:
+            return res
 
     result = {}
     result['total_balance'], result['addresses'] = get_total_balance()
     return result
 
 
-def cli_price( args, config_path=None ):
+def cli_price( args, config_path=CONFIG_PATH ):
     """
     command: price
     help: Get and return the price of a name
@@ -234,7 +262,7 @@ def cli_price( args, config_path=None ):
     return result
 
 
-def cli_config( args, config_path=None ):
+def cli_config( args, config_path=CONFIG_PATH ):
     """
     command: config
     help: Set configuration options
@@ -283,55 +311,72 @@ def cli_config( args, config_path=None ):
     return result
 
 
-def cli_deposit( args, config_path=None ):
+def cli_deposit( args, config_path=CONFIG_PATH ):
     """
     command: deposit
     help: Display the address with which to receive bitcoins
     """
 
-    if not os.path.exists(WALLET_PATH):
-        initialize_wallet()
+    config_dir = os.path.dirname(config_path)
+    wallet_path = os.path.join(wallet_dir, WALLET_FILENAME)
+    if not os.path.exists(wallet_path):
+        res = initialize_wallet(wallet_path=wallet_path)
+        if 'error' in res:
+            return res
 
     result = {}
     result['message'] = 'Send bitcoins to the address specified.'
-    result['address'], owner_address = get_addresses_from_file()
+    result['address'], owner_address, data_address = get_addresses_from_file(wallet_path=wallet_path)
     return result
 
 
-def cli_import( args, config_path=None ):
+def cli_import( args, config_path=CONFIG_PATH ):
     """
     command: import
     help: Display the address with which to receive names
     """
 
-    if not os.path.exists(WALLET_PATH):
-        initialize_wallet()
+    config_dir = os.path.dirname(config_path)
+    wallet_path = os.path.join(wallet_dir, WALLET_FILENAME)
+    if not os.path.exists(wallet_path):
+        res = initialize_wallet(wallet_path=wallet_path)
+        if 'error' in res:
+            return res
 
     result = {}
     result['message'] = 'Send the name you want to receive to the'
     result['message'] += ' address specified.'
-    payment_address, result['address'] = get_addresses_from_file()
+    payment_address, result['address'], data_address = get_addresses_from_file(wallet_path=wallet_path)
 
     return result
 
-def cli_names( args, config_path=None ):
+
+def cli_names( args, config_path=CONFIG_DIR ):
     """
     command: names
     help: Display the names owned by local addresses
     """
     result = {}
-    if not os.path.exists(WALLET_PATH):
-        initialize_wallet()
+
+    config_dir = os.path.dirname(config_path)
+    wallet_path = os.path.join(wallet_dir, WALLET_FILENAME)
+    if not os.path.exists(wallet_path):
+        res = initialize_wallet(wallet_path=wallet_path)
+        if 'error' in res:
+            return res
 
     result['names_owned'] = get_all_names_owned()
     result['addresses'] = get_owner_addresses()
 
 
-def get_server_info( args, config_path = None ):
+def get_server_info( args, config_path=config.CONFIG_PATH ):
     """
-    Get information about the running server.
+    Get information about the running server,
+    and any pending operations.
     """
 
+    config_dir = os.path.dirname(config_path)
+    conf = config.get_config(config_path)
     resp = getinfo()
 
     result = {}
@@ -344,6 +389,7 @@ def get_server_info( args, config_path = None ):
     if 'error' in resp:
         result['server_alive'] = False
         result['server_error'] = resp['error']
+
     else:
         result['server_alive'] = True
 
@@ -359,14 +405,14 @@ def get_server_info( args, config_path = None ):
         result['last_block_seen'] = resp['bitcoind_blocks']
         result['consensus_hash'] = resp['consensus']
 
-        if advanced_mode:
+        if conf['advanced_mode']:
             result['testset'] = resp['testset']
 
-        proxy = get_local_proxy()
+        rpc = local_rpc_connect(config_dir)
 
-        if proxy is not False:
+        if rpc is not None:
 
-            current_state = json.loads(proxy.state())
+            current_state = json.loads(rpc.backend_state())
 
             queue = {}
             pending_queue = []
@@ -426,7 +472,7 @@ def get_server_info( args, config_path = None ):
     return result
 
 
-def cli_info( args, config_path=None ):
+def cli_info( args, config_path=CONFIG_PATH ):
     """
     command: info
     help: Check server status and get details about the server
@@ -434,7 +480,7 @@ def cli_info( args, config_path=None ):
     return get_server_info( args, config_path=config_path )
 
 
-def cli_ping( args, config_path=None ):
+def cli_ping( args, config_path=CONFIG_PATH ):
     """
     command: ping
     help: Check server status and get details about the server
@@ -442,7 +488,7 @@ def cli_ping( args, config_path=None ):
     return get_server_info( args, config_path=config_path )
 
 
-def cli_status( args, config_path=None ):
+def cli_status( args, config_path=CONFIG_PATH ):
     """
     command: status
     help: Check server status and get details about the server
@@ -450,7 +496,7 @@ def cli_status( args, config_path=None ):
     return get_server_info( args, config_path=config_path )
 
 
-def cli_details( args, config_path=None ):
+def cli_details( args, config_path=CONFIG_PATH ):
     """
     command: details
     help: Check server status and get details about the server
@@ -458,7 +504,7 @@ def cli_details( args, config_path=None ):
     return get_server_info( args, config_path=config_path )
 
 
-def cli_lookup( args, config_path=None ):
+def cli_lookup( args, config_path=CONFIG_PATH ):
     """
     command: lookup
     help: Get the data record for a particular name.
@@ -469,7 +515,9 @@ def cli_lookup( args, config_path=None ):
     blockchain_record = None
     fqu = str(args.name)
 
-    check_valid_name(fqu)
+    error = check_valid_name(fqu)
+    if error:
+        return {'error': error}
 
     try:
         blockchain_record = get_name_blockchain_record(fqu)
@@ -491,7 +539,7 @@ def cli_lookup( args, config_path=None ):
     return result 
 
 
-def cli_whois( args, config_path=None ):
+def cli_whois( args, config_path=CONFIG_PATH ):
     """
     command: whois
     help: Look up a name's blockchain info
@@ -502,7 +550,9 @@ def cli_whois( args, config_path=None ):
     record = None
     fqu = str(args.name)
 
-    check_valid_name(fqu)
+    error = check_valid_name(fqu)
+    if error:
+        return {'error': error}
 
     try:
         record = get_name_blockchain_record(fqu)
@@ -522,29 +572,43 @@ def cli_whois( args, config_path=None ):
     return result
 
 
-def cli_register( args, config_path=None, interactive=True ):
+def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None ):
     """
     command: register
     help: Register a name 
     arg: name (str) "The name to register"
     """
 
-    if not os.path.exists(WALLET_PATH):
-        initialize_wallet()
+    config_dir = os.path.dirname(config_path)
+    start_rpc_endpoint(config_dir)
+
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+    if not os.path.exists(wallet_path):
+        res = initialize_wallet(wallet_path=wallet_path)
+        if 'error' in res:
+            return res
 
     result = {}
     fqu = str(args.name)
-    check_valid_name(fqu)
+    error = check_valid_name(fqu)
+    if error: 
+        return {'error': error}
+
     cost = get_name_cost(fqu)
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
 
     if 'error' in cost:
         return cost
 
-    if nameRegistered(fqu):
+    if is_name_registered(fqu, proxy=proxy):
         return {'error': '%s is already registered.' % fqu}
 
-    if not walletUnlocked():
-        unlock_wallet()
+    if not walletUnlocked(config_dir=config_dir):
+        res = unlock_wallet(config_dir=config_dir, password=password)
+        if 'error' in res:
+            return res
 
     fees = get_total_fees(cost)
 
@@ -563,7 +627,7 @@ def cli_register( args, config_path=None, interactive=True ):
             print "\nExiting."
             exit(0)
 
-    payment_address, owner_address = get_addresses_from_file()
+    payment_address, owner_address, data_address = get_addresses_from_file(wallet_path=wallet_path)
 
     if not hasEnoughBalance(payment_address, fees['total_estimated_cost']):
         msg = "Address %s doesn't have enough balance." % payment_address
@@ -578,10 +642,10 @@ def cli_register( args, config_path=None, interactive=True ):
         msg += " Wait and try later."
         return {'error': msg}
 
-    proxy = get_local_proxy()
+    rpc = local_rpc_connect( config_dir=config_dir )
 
     try:
-        resp = proxy.preorder(fqu)
+        resp = rpc.backend_preorder(fqu)
     except:
         return {'error': 'Error talking to server, try again.'}
 
@@ -597,7 +661,7 @@ def cli_register( args, config_path=None, interactive=True ):
     return result
 
 
-def cli_update( args, config_path=None ):
+def cli_update( args, config_path=CONFIG_PATH, password=None ):
     """
     command: update
     help: Update a name's zonefile
@@ -605,31 +669,43 @@ def cli_update( args, config_path=None ):
     arg: data (str) "A JSON-formatted zonefile"
     """
 
-    if not os.path.exists(WALLET_PATH):
-        initialize_wallet()
+    config_dir = os.path.dirname(config_path)
+    start_rpc_endpoint(config_dir)
+
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+    if not os.path.exists(wallet_path):
+        res = initialize_wallet(wallet_path=wallet_path)
+        if 'error' in res:
+            return res
 
     fqu = str(args.name)
-    check_valid_name(fqu)
+    error = check_valid_name(fqu)
+    if error:
+        return {'error': error}
 
     user_data = str(args.data)
     try:
         user_data = json.loads(user_data)
     except:
-        return {'error': 'Data is not in JSON format.'}
+        return {'error': 'Zonefile data is not in JSON format.'}
 
-    tests_for_update_and_transfer(fqu)
+    res = can_update_or_transfer(fqu)
+    if 'error' in res:
+        return res
 
-    if profileonBlockchain(fqu, user_data):
-        msg ="Data is same as current data record, update not needed."
+    if is_zonefile_current(fqu, user_data):
+        msg ="Zonefile data is same as current zonefile; update not needed."
         return {'error': msg}
 
-    if not walletUnlocked():
-        unlock_wallet()
+    if not walletUnlocked(config_dir=config_dir):
+        res = unlock_wallet(config_dir=config_dir, password=password)
+        if 'error' in res:
+            return res
 
-    proxy = get_local_proxy()
+    rpc = local_rpc_connect(config_dir=config_dir)
 
     try:
-        resp = proxy.update(fqu, user_data)
+        resp = rpc.backend_update(fqu, user_data)
     except:
         return {'error': 'Error talking to server, try again.'}
 
@@ -645,29 +721,43 @@ def cli_update( args, config_path=None ):
     return result
 
 
-def cli_transfer( args, config_path=None ):
+def cli_transfer( args, config_path=CONFIG_PATH, password=None ):
     """
     command: transfer
     help: Transfer a name to a new address
     arg: name (str) "The name to transfer"
     arg: address (str) "The address to receive the name"
     """
-    if not os.path.exists(WALLET_PATH):
-        initialize_wallet()
+
+    config_dir = os.path.dirname(config_path)
+    start_rpc_endpoint(config_dir)
+
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+    if not os.path.exists(wallet_path):
+        res = initialize_wallet(wallet_path=wallet_path)
+        if 'error' in res:
+            return res
 
     fqu = str(args.name)
-    check_valid_name(fqu)
+    error = check_valid_name(fqu)
+    if error:
+        return {'error': error}
+
     transfer_address = str(args.address)
 
-    tests_for_update_and_transfer(fqu, transfer_address=transfer_address)
+    res = can_update_or_transfer(fqu, transfer_address=transfer_address)
+    if 'error' in res:
+        return res
 
-    if not walletUnlocked():
-        unlock_wallet()
+    if not walletUnlocked(config_dir=config_dir):
+        res = unlock_wallet(config_dir=config_dir, password=password)
+        if 'error' in res:
+            return res
 
-    proxy = get_local_proxy()
+    rpc = local_rpc_connect(config_dir=config_dir)
 
     try:
-        resp = proxy.transfer(fqu, transfer_address)
+        resp = rpc.backend_transfer(fqu, transfer_address)
     except:
         return {'error': 'Error talking to server, try again.'}
 
@@ -683,22 +773,24 @@ def cli_transfer( args, config_path=None ):
     return result
 
 
-def cli_advanced_wallet( args, config_path=None ):
+def cli_advanced_wallet( args, config_path=CONFIG_PATH, password=None ):
     """
     command: wallet
     help: Query wallet information
     """
 
     result = None
-    if not os.path.exists(WALLET_PATH):
-        result = initialize_wallet()
+    config_dir = os.path.dirname(config_path)
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+    if not os.path.exists(wallet_path):
+        result = initialize_wallet(wallet_path=wallet_path)
     else:
-        unlock_wallet(display_enabled=True)
+        result = unlock_wallet(display_enabled=True, config_dir=config_dir, password=password)
 
     return result
 
 
-def cli_advanced_consensus( args, config_path=None ):
+def cli_advanced_consensus( args, config_path=CONFIG_PATH ):
     """
     command: consensus
     help: Get current consensus information 
@@ -732,7 +824,7 @@ def cli_advanced_consensus( args, config_path=None ):
     return result
 
 
-def cli_advanced_rpcctl( args, config_path=None ):
+def cli_advanced_rpcctl( args, config_path=CONFIG_PATH ):
     """
     command: rpcctl
     help: Control the background blockstack API endpoint
@@ -743,14 +835,14 @@ def cli_advanced_rpcctl( args, config_path=None ):
     if config_path is not None:
         config_dir = os.path.dirname(config_path)
 
-    rc = rpc_api.local_rpc_action( str(args.command), config_dir=config_dir )
+    rc = local_rpc.local_rpc_action( str(args.command), config_dir=config_dir )
     if rc != 0:
         return {'error': 'RPC controller exit code %s' % rc}
     else:
         return {'status': True}
 
 
-def cli_advanced_rpc( args, config_path=None ):
+def cli_advanced_rpc( args, config_path=CONFIG_PATH ):
     """
     command: rpc
     help: Issue an RPC request to a locally-running API endpoint
@@ -770,11 +862,11 @@ def cli_advanced_rpc( args, config_path=None ):
 
     conf = config.get_config( path=config_path )
     portnum = conf['api_endpoint_port']
-    result = rpc_api.local_rpc_dispatch( portnum, str(args.method), *rpc_args, **rpc_kw ) 
+    result = local_rpc.local_rpc_dispatch( portnum, str(args.method), *rpc_args, **rpc_kw ) 
     return result
 
 
-def cli_advanced_register_tx( args, config_path=None ):
+def cli_advanced_register_tx( args, config_path=CONFIG_PATH ):
     """
     command: register_tx
     help: Generate an unsigned transaction to register a name
@@ -788,7 +880,7 @@ def cli_advanced_register_tx( args, config_path=None ):
     return result
 
 
-def cli_advanced_register_subsidized( args, config_path=None ):
+def cli_advanced_register_subsidized( args, config_path=CONFIG_PATH ):
     """
     command: register_subsidized
     help: Generate a signed, subsidized transaction to register a name
@@ -803,7 +895,7 @@ def cli_advanced_register_subsidized( args, config_path=None ):
     return result
 
 
-def cli_advanced_update_tx( args, config_path=None ):
+def cli_advanced_update_tx( args, config_path=CONFIG_PATH ):
     """
     command: update_tx
     help: Generate an unsigned transaction to update a name
@@ -825,7 +917,7 @@ def cli_advanced_update_tx( args, config_path=None ):
     return result
 
 
-def cli_advanced_update_subsidized( args, config_path=None ):
+def cli_advanced_update_subsidized( args, config_path=CONFIG_PATH ):
     """
     command: update_subsidized
     help: Generate a signed, subsidized transaction to update a name
@@ -849,7 +941,7 @@ def cli_advanced_update_subsidized( args, config_path=None ):
     return result
 
 
-def cli_advanced_preorder( args, config_path=None ):
+def cli_advanced_preorder( args, config_path=CONFIG_PATH ):
     """
     command: preorder
     help: Preorder a name with a given private key and owner address.
@@ -868,7 +960,7 @@ def cli_advanced_preorder( args, config_path=None ):
     return result
 
 
-def cli_advanced_preorder_tx( args, config_path=None ):
+def cli_advanced_preorder_tx( args, config_path=CONFIG_PATH ):
     """
     command: preorder_tx
     help: Generate an unsigned transaction that will preorder a name
@@ -887,7 +979,7 @@ def cli_advanced_preorder_tx( args, config_path=None ):
     return result
 
 
-def cli_advanced_preorder_subsidized( args, config_path=None ):
+def cli_advanced_preorder_subsidized( args, config_path=CONFIG_PATH ):
     """
     command: preorder_subsidized
     help: Generate a subsidized transaction that will preorder a name.
@@ -904,7 +996,7 @@ def cli_advanced_preorder_subsidized( args, config_path=None ):
     return result
 
 
-def cli_advanced_transfer_tx( args, config_path=None ):
+def cli_advanced_transfer_tx( args, config_path=CONFIG_PATH ):
     """
     command: transfer_tx
     help: Generate an unsigned transaction that will transfer a name
@@ -929,7 +1021,7 @@ def cli_advanced_transfer_tx( args, config_path=None ):
     return result
 
 
-def cli_advanced_transfer_subsidized( args, config_path=None ):
+def cli_advanced_transfer_subsidized( args, config_path=CONFIG_PATH ):
     """
     command: transfer_subsidized
     help: Generate a subsidized transaction that will transfer a name
@@ -957,18 +1049,21 @@ def cli_advanced_transfer_subsidized( args, config_path=None ):
     return result
 
 
-def cli_advanced_renew( args, config_path=None ):
+def cli_advanced_renew( args, config_path=CONFIG_PATH ):
     """
     command: renew
     help: Renew a name
     arg: name (str) "The name to renew"
     arg: privatekey (str) "The private key of the name owner"
     """
+    config_dir = os.path.dirname(config_path)
+    start_rpc_endpoint(config_dir)
+
     result = renew(str(args.name), str(args.privatekey))
     return result
 
 
-def cli_advanced_renew_tx( args, config_path=None ):
+def cli_advanced_renew_tx( args, config_path=CONFIG_PATH ):
     """
     command: renew_tx
     help: Generate an unsigned transaction that will renew a name
@@ -981,7 +1076,7 @@ def cli_advanced_renew_tx( args, config_path=None ):
     return result
 
 
-def cli_advanced_renew_subsidized( args, config_path=None ):
+def cli_advanced_renew_subsidized( args, config_path=CONFIG_PATH ):
     """
     command: renew_subsidized
     help: Generate a subsidized transaction that will renew a name
@@ -995,7 +1090,7 @@ def cli_advanced_renew_subsidized( args, config_path=None ):
     return result
 
 
-def cli_advanced_revoke( args, config_path=None ):
+def cli_advanced_revoke( args, config_path=CONFIG_PATH ):
     """
     command: revoke
     help: Revoke a name, rendering it inaccessible
@@ -1006,7 +1101,7 @@ def cli_advanced_revoke( args, config_path=None ):
     return result
 
 
-def cli_advanced_revoke_tx( args, config_path=None ):
+def cli_advanced_revoke_tx( args, config_path=CONFIG_PATH ):
     """
     command: revoke_tx
     help: Generate an unsigned transaction that will revoke a name
@@ -1019,7 +1114,7 @@ def cli_advanced_revoke_tx( args, config_path=None ):
     return result
 
 
-def cli_advanced_revoke_subsidized( args, config_path=None ):
+def cli_advanced_revoke_subsidized( args, config_path=CONFIG_PATH ):
     """
     command: revoke_subsidized
     help: Generate a subsidized transaction that will revoke a name
@@ -1032,7 +1127,7 @@ def cli_advanced_revoke_subsidized( args, config_path=None ):
     return result
 
 
-def cli_advanced_name_import( args, config_path=None ):
+def cli_advanced_name_import( args, config_path=CONFIG_PATH ):
     """
     command: name_import
     help: Import a name to a revealed but not-yet-readied namespace
@@ -1047,7 +1142,7 @@ def cli_advanced_name_import( args, config_path=None ):
     return result
 
 
-def cli_advanced_namespace_preorder( args, config_path=None ):
+def cli_advanced_namespace_preorder( args, config_path=CONFIG_PATH ):
     """
     command: namespace_preorder
     help: Preorder a namespace
@@ -1066,7 +1161,7 @@ def cli_advanced_namespace_preorder( args, config_path=None ):
     return result
 
 
-def cli_advanced_namespace_reveal( args, config_path=None ):
+def cli_advanced_namespace_reveal( args, config_path=CONFIG_PATH ):
     """
     command: namespace_reveal
     help: Reveal a namespace and set its pricing parameters
@@ -1107,7 +1202,7 @@ def cli_advanced_namespace_reveal( args, config_path=None ):
     return result
 
 
-def cli_advanced_namespace_ready( args, config_path=None ):
+def cli_advanced_namespace_ready( args, config_path=CONFIG_PATH ):
     """
     command: namespace_ready
     help: Mark a namespace as ready
@@ -1120,7 +1215,7 @@ def cli_advanced_namespace_ready( args, config_path=None ):
     return result
 
 
-def cli_advanced_put_mutable( args, config_path=None ):
+def cli_advanced_put_mutable( args, config_path=CONFIG_PATH ):
     """
     command: put_mutable
     help: Put mutable data into a profile
@@ -1135,7 +1230,7 @@ def cli_advanced_put_mutable( args, config_path=None ):
     return result
 
 
-def cli_advanced_put_immutable( args, config_path=None ):
+def cli_advanced_put_immutable( args, config_path=CONFIG_PATH ):
     """
     command: put_immutable
     help: Put immutable data into a zonefile
@@ -1143,6 +1238,8 @@ def cli_advanced_put_immutable( args, config_path=None ):
     arg: data_id (str) "The name of the data"
     arg: data (str) "The JSON-formatted data to store"
     """
+    config_dir = os.path.dirname(config_path)
+    start_rpc_endpoint(config_dir)
     conf = config.get_config( config_path=config_path )
     result = put_immutable(str(args.name),
                            str(args.data_id),
@@ -1152,7 +1249,7 @@ def cli_advanced_put_immutable( args, config_path=None ):
     return result
 
 
-def cli_advanced_get_mutable( args, config_path=None ):
+def cli_advanced_get_mutable( args, config_path=CONFIG_PATH ):
     """
     command: get_mutable
     help: Get mutable data from a profile
@@ -1166,7 +1263,7 @@ def cli_advanced_get_mutable( args, config_path=None ):
     return result 
 
 
-def cli_advanced_get_immutable( args, config_path=None ):
+def cli_advanced_get_immutable( args, config_path=CONFIG_PATH ):
     """
     command: get_immutable
     help: Get immutable data from a zonefile
@@ -1177,7 +1274,7 @@ def cli_advanced_get_immutable( args, config_path=None ):
     return result
 
 
-def cli_advanced_list_update_history( args, config_path=None ):
+def cli_advanced_list_update_history( args, config_path=CONFIG_PATH ):
     """
     command: list_update_history
     help: List the history of update hashes for a name
@@ -1187,7 +1284,7 @@ def cli_advanced_list_update_history( args, config_path=None ):
     return result
 
 
-def cli_advanced_list_zonefile_history( args, config_path=None ):
+def cli_advanced_list_zonefile_history( args, config_path=CONFIG_PATH ):
     """
     command: list_zonefile_history
     help: List the history of zonefiles for a name (if they can be obtained)
@@ -1197,7 +1294,7 @@ def cli_advanced_list_zonefile_history( args, config_path=None ):
     return result
 
 
-def cli_advanced_list_immutable_data_history( args, config_path=None ):
+def cli_advanced_list_immutable_data_history( args, config_path=CONFIG_PATH ):
     """
     command: list_immutable_data_history
     help: List all prior hashes of a given immutable datum
@@ -1208,19 +1305,22 @@ def cli_advanced_list_immutable_data_history( args, config_path=None ):
     return result
 
 
-def cli_advanced_delete_immutable( args, config_path=None ):
+def cli_advanced_delete_immutable( args, config_path=CONFIG_PATH ):
     """
     command: delete_immutable
     help: Delete an immutable datum from a zonefile.
     arg: name (str) "The name that owns the data"
     arg: hash (str) "The SHA256 of the data to remove"
     """
+    
+    config_dir = os.path.dirname(config_path)
+    start_rpc_endpoint(config_dir)
     result = delete_immutable(str(args.name), str(args.hash))
 
     return result
 
 
-def cli_advanced_delete_mutable( args, config_path=None ):
+def cli_advanced_delete_mutable( args, config_path=CONFIG_PATH ):
     """
     command: delete_mutable
     help: Delete a mutable datum from a profile.
@@ -1233,7 +1333,7 @@ def cli_advanced_delete_mutable( args, config_path=None ):
     return result
 
 
-def cli_advanced_get_name_blockchain_record( args, config_path=None ):
+def cli_advanced_get_name_blockchain_record( args, config_path=CONFIG_PATH ):
     """
     command: get_name_blockchain_record
     help: Get the raw blockchain record for a name
@@ -1243,7 +1343,7 @@ def cli_advanced_get_name_blockchain_record( args, config_path=None ):
     return result
 
 
-def cli_advanced_get_namespace_blockchain_record( args, config_path=None ):
+def cli_advanced_get_namespace_blockchain_record( args, config_path=CONFIG_PATH ):
     """
     command: get_namespace_blockchain_record
     help: Get the raw namespace blockchain record for a name
@@ -1253,7 +1353,7 @@ def cli_advanced_get_namespace_blockchain_record( args, config_path=None ):
     return result
 
 
-def cli_advanced_lookup_snv( args, config_path=None ):
+def cli_advanced_lookup_snv( args, config_path=CONFIG_PATH ):
     """
     command: lookup_snv
     help: Use SNV to look up a name at a particular block height
@@ -1267,7 +1367,7 @@ def cli_advanced_lookup_snv( args, config_path=None ):
     return result
 
 
-def cli_advanced_get_name_zonefile( args, config_path=None ):
+def cli_advanced_get_name_zonefile( args, config_path=CONFIG_PATH ):
     """
     command: get_name_zonefile
     help: Get a name's zonefile, as a JSON dict
@@ -1277,7 +1377,7 @@ def cli_advanced_get_name_zonefile( args, config_path=None ):
     return result
 
 
-def cli_advanced_get_names_owned_by_address( args, config_path=None ):
+def cli_advanced_get_names_owned_by_address( args, config_path=CONFIG_PATH ):
     """
     command: get_names_owned_by_address
     help: Get the list of names owned by an address
@@ -1287,7 +1387,7 @@ def cli_advanced_get_names_owned_by_address( args, config_path=None ):
     return result
 
 
-def cli_advanced_get_namespace_cost( args, config_path=None ):
+def cli_advanced_get_namespace_cost( args, config_path=CONFIG_PATH ):
     """
     command: get_namespace_cost
     help: Get the cost of a namespace
@@ -1297,7 +1397,7 @@ def cli_advanced_get_namespace_cost( args, config_path=None ):
     return result
 
 
-def cli_advanced_get_all_names( args, config_path=None ):
+def cli_advanced_get_all_names( args, config_path=CONFIG_PATH ):
     """
     command: get_all_names
     help: Get all names in existence, optionally paginating through them
@@ -1317,7 +1417,7 @@ def cli_advanced_get_all_names( args, config_path=None ):
     return result
 
 
-def cli_advanced_get_names_in_namespace( args, config_path=None ):
+def cli_advanced_get_names_in_namespace( args, config_path=CONFIG_PATH ):
     """
     command: get_names_in_namespace
     help: Get the names in a given namespace, optionally patinating through them
@@ -1334,12 +1434,11 @@ def cli_advanced_get_names_in_namespace( args, config_path=None ):
     if args.count is not None:
         count = int(args.count)
 
-    result = get_names_in_namespace(str(args.namespace_id), offset,
-                                                      count)
+    result = get_names_in_namespace(str(args.namespace_id), offset, count)
     return result
 
 
-def cli_advanced_get_nameops_at( args, config_path=None ):
+def cli_advanced_get_nameops_at( args, config_path=CONFIG_PATH ):
     """
     command: get_nameops_at
     help: Get the list of name operations that occurred at a given block number
