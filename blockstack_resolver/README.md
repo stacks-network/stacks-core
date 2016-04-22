@@ -7,15 +7,15 @@ blockstack-resolver
 ## Overview:
 
 Blockstack-resolver is a highly scalable server for querying
-[Blockstack DNS](https://blockstack.org/docs/what-is-blockstack) e.g., the .id
-namespace. It resolves names to data records. Resolver is
-primarily meant for scaling read-only calls to the underlying blockchain.
-For achieving high throughput the resolver loads the entire namespace into
+[Blockstack](https://blockstack.org/docs/what-is-blockstack), the global Internet
+database. It resolves names to data records. Resolver is
+primarily meant for scaling read-only calls to Blockstack and introduces a caching
+layer. For achieving high throughput the resolver loads the entire namespace into
 memcached and then keeps the local copy consistent with the blockchain.
 Read-only calls don't hit the blockchain daemon and their scalability is
 completely decoupled from the scalability properties of the underlying
 blockchain software. It is blockchain-agnostic, but currently uses the
-Bitcoin blockchain. An earlier release (version 0.2) used the Namecoin blockchain.
+Bitcoin blockchain.
 
 ## Contributing 
 
@@ -24,8 +24,7 @@ We welcome all contributions! to this open-source software! Some things to note:
 * The [develop](https://github.com/blockstack/resolver/tree/develop) branch is
 the most active one and uses Bitcoin. Please use that branch for submitting
 pull requests.
-* An [earlier version](https://github.com/blockstack/resolver/releases/tag/v0.2)
-of this package had support for Namecoin. We no longer support Namecoin.
+* We no longer support Namecoin.
 
 ## API Calls:
 
