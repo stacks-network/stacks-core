@@ -299,7 +299,8 @@ def index():
     return reply
 
 
-@app.errorhandler(500):
+@app.errorhandler(500)
+def internal_error(error):
     return make_response(jsonify({'error': 'Internal Server Error'}), 500)
 
 
