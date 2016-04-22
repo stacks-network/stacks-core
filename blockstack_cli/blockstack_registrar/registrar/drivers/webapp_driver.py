@@ -13,6 +13,8 @@ import traceback
 
 from pymongo import MongoClient
 
+from blockstack_profiles import is_profile_in_legacy_format
+
 # hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../../")
@@ -73,6 +75,19 @@ def get_db_user_from_id(entry, users):
     return user
 
 
+def convert_profile_format(user):
+
+    if is_profile_in_legacy_format(user['profile']):
+        data_value = user['profile']
+    else:
+        if 'zone_file' in user:
+            data_value = user['zone_file']
+        else:
+            data_value = {}
+
+    return data_value
+
+
 class WebappDriver(object):
     """ Registrar driver for webapp
     """
@@ -129,7 +144,8 @@ class WebappDriver(object):
 
             fqu = user['username'] + "." + DEFAULT_NAMESPACE
             transfer_address = nmc_to_btc_address(user['namecoin_address'])
-            profile = user['profile']
+
+            data_value = convert_profile_format(user)
 
             log.debug("Processing: %s" % fqu)
 
@@ -139,7 +155,7 @@ class WebappDriver(object):
                 refresh_resolver(user['username'])
             else:
                 try:
-                    self.registrar_server.process_nameop(fqu, profile,
+                    self.registrar_server.process_nameop(fqu, data_value,
                                                          transfer_address,
                                                          nameop=nameop)
                 except:
@@ -209,13 +225,15 @@ class WebappDriver(object):
 
             fqu = user['username'] + "." + DEFAULT_NAMESPACE
             btc_address = nmc_to_btc_address(user['namecoin_address'])
-            profile = user['profile']
+
+            data_value = convert_profile_format(user)
+
             encrypted_privkey = new_user['encrypted_private_key']
             hex_privkey = bip38_decrypt(str(encrypted_privkey), WALLET_SECRET)
 
             if nameRegistered(fqu):
 
-                if profilePublished(fqu, profile):
+                if profilePublished(fqu, data_value):
                     log.debug("Profile match, removing: %s" % fqu)
                     self.updates.remove({"user_id": new_user['user_id']})
 
@@ -223,7 +241,7 @@ class WebappDriver(object):
                 else:
                     log.debug("Processing: %s, %s" % (fqu, user['email']))
                     try:
-                        self.registrar_server.subsidized_nameop(fqu, profile,
+                        self.registrar_server.subsidized_nameop(fqu, data_value,
                                                                 hex_privkey=hex_privkey,
                                                                 nameop='update')
                     except Exception as e:
@@ -251,10 +269,11 @@ class WebappDriver(object):
         user = self.users.find_one({"username": username})
         fqu = user['username'] + "." + DEFAULT_NAMESPACE
         transfer_address = nmc_to_btc_address(user['namecoin_address'])
-        profile = user['profile']
+
+        data_value = convert_profile_format(user)
 
         log.debug("Reprocessing user: %s" % fqu)
-        self.registrar_server.process_nameop(fqu, profile,
+        self.registrar_server.process_nameop(fqu, data_value,
                                              transfer_address,
                                              nameop=nameop)
 
@@ -298,7 +317,7 @@ class WebappDriver(object):
             user = self.users.find_one({"email": email})
             pprint(user)
 
-        return user['profile']
+        return user['profile'], user['ecdsa_public_key']
 
     def display_current_states(self):
         """
