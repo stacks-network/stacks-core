@@ -62,6 +62,6 @@ target/
 .ipynb_checkpoints
 
 # vim 
-.swp
-.swo
-.swn
+*.swp
+*.swo
+*.swn
