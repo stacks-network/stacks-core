@@ -36,7 +36,7 @@ from collections import defaultdict
 from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAX_NAMES_PER_SENDER, \
     NAME_PREORDER, NAMESPACE_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER, TRANSFER_KEEP_DATA, \
     TRANSFER_REMOVE_DATA, NAME_REVOKE, NAME_IMPORT, NAME_PREORDER_EXPIRE, \
-    NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTORE_VERSION, \
+    NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTACK_VERSION, \
     NAMESPACE_1_CHAR_COST, NAMESPACE_23_CHAR_COST, NAMESPACE_4567_CHAR_COST, NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
     TESTSET_NAMESPACE_1_CHAR_COST, TESTSET_NAMESPACE_23_CHAR_COST, TESTSET_NAMESPACE_4567_CHAR_COST, TESTSET_NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
     NAME_IMPORT_KEYRING_SIZE, GENESIS_SNAPSHOT, GENESIS_SNAPSHOT_TESTSET, default_blockstack_opts, NAMESPACE_READY, NAME_OPCODES
@@ -46,6 +46,10 @@ from ..hashing import *
 from ..b40 import is_b40
 
 import virtualchain
+
+# NOTE: ignored; here for compatibility with future versions
+DISPOSITION_RO = "readonly"
+DISPOSITION_RW = "readwrite"
 
 if not globals().has_key('log'):
     log = virtualchain.session.log
@@ -2512,8 +2516,8 @@ class BlockstackDB( virtualchain.StateEngine ):
          log.debug("Namespace '%s' is not preordered by '%s'" % (namespace_id, sender))
 
       # must be a version we support
-      if int(nameop['version']) != BLOCKSTORE_VERSION:
-         log.debug("Namespace '%s' requires version %s, but this blockstack is version %s" % (namespace_id, nameop['version'], BLOCKSTORE_VERSION))
+      if int(nameop['version']) != BLOCKSTACK_VERSION:
+         log.debug("Namespace '%s' requires version %s, but this blockstack is version %s" % (namespace_id, nameop['version'], BLOCKSTACK_VERSION))
          return False
 
       # check fee...
