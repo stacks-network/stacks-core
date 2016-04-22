@@ -25,9 +25,9 @@ def register_user(email, app_id=None, app_secret=None, email_user=True):
         app_secret = generate_app_secret()
     app_secret_hash = sha256(app_secret).hexdigest()
 
-    #generate new HD wallet key
+    # generate a new HD wallet key
     wallet = HDWallet()
-    hex_privkey = wallet.get_privkey()
+    hex_privkey = wallet.get_master_privkey()
     encrypted_privkey = aes_encrypt(hex_privkey, SECRET_KEY)
 
     user = User(

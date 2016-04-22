@@ -51,6 +51,7 @@ from .settings import BITCOIND_PASSWD, BITCOIND_USE_HTTPS
 from .settings import EMAILS_TOKEN, EMAIL_REGREX
 from .settings import DEFAULT_NAMESPACE, PAYMENT_PRIVKEY
 from .settings import SECRET_KEY, USE_DEFAULT_PAYMENT
+from .settings import SLACK_API_TOKEN
 
 bitcoind = BitcoindClient(BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER,
                           BITCOIND_PASSWD, BITCOIND_USE_HTTPS)
@@ -329,7 +330,7 @@ def search_people():
 
 
 @app.route('/v1/transactions', methods=['POST'])
-@auth_required()
+#@auth_required()
 @parameters_required(['signed_hex'])
 @crossdomain(origin='*')
 def broadcast_tx():
@@ -354,8 +355,8 @@ def broadcast_tx():
 
 
 @app.route('/v1/addresses/<address>/unspents', methods=['GET'])
-@auth_required(exception_paths=[
-    '/v1/addresses/19bXfGsGEXewR6TyAV3b89cSHBtFFewXt6/unspents'])
+#@auth_required(exception_paths=[
+#    '/v1/addresses/19bXfGsGEXewR6TyAV3b89cSHBtFFewXt6/unspents'])
 @crossdomain(origin='*')
 def get_address_unspents(address):
 
@@ -368,34 +369,41 @@ def get_address_unspents(address):
 
 
 @app.route('/v1/addresses/<addresses>/names', methods=['GET'])
-@auth_required(exception_paths=[
-    '/v1/addresses/1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP/names'])
+#@auth_required(exception_paths=[
+#    '/v1/addresses/1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP/names'])
 @crossdomain(origin='*')
 def get_address_names(addresses):
 
     resp = {}
-    names_owned = []
     results = []
 
     addresses = addresses.split(',')
 
     for address in addresses:
 
+        data = {}
+        names_owned = []
+
+        invalid_address = False
+
         try:
             is_b58check_address(str(address))
         except:
-            continue
+            data['error'] = "Invalid address"
+            invalid_address = True
 
-        bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
+        if not invalid_address:
+            bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
 
-        try:
-            resp = bs_client.get_names_owned_by_address(address)
-            names_owned = resp[0]
-        except:
-            pass
+            try:
+                resp = bs_client.get_names_owned_by_address(address)
+                names_owned = resp[0]
+            except:
+                pass
 
-        data = {'address': address,
-                'names': names_owned}
+        data['address'] = address
+        data['names'] = names_owned
+
         results.append(data)
 
     resp = {'results': results}
@@ -458,6 +466,21 @@ def get_emails_info():
 
     resp["token"] = EMAILS_TOKEN
 
+    return jsonify(resp), 200
+
+
+@app.route('/v1/slack/blockstack', methods=['GET'])
+@crossdomain(origin='*')
+def get_slack_users():
+    try:
+        resp = requests.get('https://slack.com/api/users.list?token=' + SLACK_API_TOKEN)
+    except (RequestsConnectionError, RequestsTimeout) as e:
+        raise ResolverConnectionError()
+    resp_data = json.loads(resp.text)
+    user_count = len(resp_data.get("members", 0))
+    resp = {
+        "user_count": user_count
+    }
     return jsonify(resp), 200
 
 

@@ -53,7 +53,7 @@ secrets_list = [
     'MAILGUN_API_KEY', 'SECRET_KEY',
     'API_DB_URI', 'API_DB_NAME',
     'BLOCKCYPHER_TOKEN',
-    'EMAILS_TOKEN'
+    'EMAILS_TOKEN', 'SLACK_API_TOKEN'
 ]
 
 for env_variable in os.environ:
