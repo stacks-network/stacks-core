@@ -236,6 +236,9 @@ class MockBitcoindConnection( object ):
             return None
         
         ret['blockhash'] = self.txid_to_blockhash[ txid ]
+
+        blockinfo = self.getblock(ret['blockhash'])
+        ret['confirmations'] = blockinfo['confirmations']
         return ret
 
 
@@ -417,7 +420,8 @@ class MockBitcoindConnection( object ):
         """
         Restore the contents of this mock bitcoind connection from disk.
         """
-        
+       
+        log.debug("Restore from %s" % path)
         with open(path, "r") as f:
             serialized_data = f.read()
 
@@ -473,6 +477,12 @@ def connect_mock_bitcoind( mock_opts, reset=False ):
         return mock_bitcoind 
 
     else:
+        # rewrite a few things for compatibility
+        # in particular, virtualchian's mock options all start with "bitcoind_mock_"
+        for k in mock_opts.keys():
+            if k.startswith("bitcoind_mock_"):
+                mock_opts[ k[len("bitcoind_mock_"):] ] = mock_opts[k]
+
         mock_bitcoind = MockBitcoindConnection( **mock_opts )
         return mock_bitcoind
 
