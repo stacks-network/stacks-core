@@ -12,13 +12,53 @@ import os
 import sys
 from ConfigParser import SafeConfigParser
 import pybitcoin
+import logging
+from .blockstack_utxo import BlockstackUTXOClient
 
-SUPPORTED_UTXO_PROVIDERS = [ "chain_com", "blockcypher", "blockchain_info", "bitcoind_utxo", "mock_utxo" ]
+DEBUG = True
+FIRST_BLOCK_MAINNET = 373601        # well-known value for blockstack-server; doesn't ever change
+
+def get_logger(name=None):
+    """
+    Get logger
+    """
+
+    level = logging.CRITICAL
+    if DEBUG:
+        logging.disable(logging.NOTSET)
+        level = logging.DEBUG
+
+    if name is None:
+        name = "<unknown>"
+        level = logging.CRITICAL
+
+    log = logging.getLogger(name=name)
+    log.setLevel( level )
+    console = logging.StreamHandler()
+    console.setLevel( level )
+    log_format = ('[%(levelname)s] [%(module)s:%(lineno)d] (' + str(os.getpid()) + ') %(message)s' if DEBUG else '%(message)s')
+    formatter = logging.Formatter( log_format )
+    console.setFormatter(formatter)
+    log.propagate = False
+
+    if len(log.handlers) > 0:
+        for i in xrange(0, len(log.handlers)):
+            log.handlers.pop(0)
+    
+    log.addHandler(console)
+    return log
+
+
+log = get_logger("blockstack-utxo")
+
+
+SUPPORTED_UTXO_PROVIDERS = [ "chain_com", "blockcypher", "blockchain_info", "bitcoind_utxo", "blockstack_utxo", "mock_utxo" ]
 SUPPORTED_UTXO_PARAMS = {
     "chain_com": ["api_key_id", "api_key_secret"],
     "blockcypher": ["api_token"],
     "blockchain_info": ["api_token"],
     "bitcoind_utxo": ["rpc_username", "rpc_password", "server", "port", "use_https", "version_byte"],
+    "blockstack_utxo": ["server", "port"],
     "mock_utxo": []
 }
 
@@ -81,6 +121,9 @@ def default_utxo_provider_opts( utxo_provider, config_file=None ):
 
    elif utxo_provider == "bitcoind_utxo":
        return default_bitcoind_utxo_opts( config_file=config_file )
+
+   elif utxo_provider == "blockstack_utxo":
+       return default_blockstack_utxo_opts( config_file=config_file )
 
    elif utxo_provider == "mock_utxo":
        return default_mock_utxo_opts( config_file=config_file )
@@ -270,6 +313,44 @@ def default_bitcoind_utxo_opts( config_file=None ):
    return bitcoind_utxo_opts
 
 
+def default_blockstack_utxo_opts( config_file=None ):
+   """
+   Get our default Blockstack UTXO proxy options from a config file.
+   """
+
+   if config_file is None:
+       raise Exception("No config file given")
+
+   parser = SafeConfigParser()
+   parser.read( config_file )
+
+   blockstack_utxo_opts = {}
+
+   server = None
+   port = None
+
+   if parser.has_section("blockstack_utxo"):
+
+       if parser.has_option("blockstack_utxo", "server"):
+           server = parser.get('blockstack_utxo', 'server')
+
+       if parser.has_option("blockstack_utxo", "port"):
+           port = int(parser.get("blockstack_utxo", "port"))
+
+   blockstack_utxo_opts = {
+       "utxo_provider": "blockstack_utxo",
+       "server": server,
+       "port": port
+   }
+
+   # strip Nones
+   for (k, v) in blockstack_utxo_opts.items():
+      if v is None:
+         del blockstack_utxo_opts[k]
+
+   return blockstack_utxo_opts
+
+
 def default_mock_utxo_opts( config_file=None ):
    """
    Get default options for the mock UTXO provider.
@@ -388,6 +469,9 @@ def connect_utxo_provider( utxo_opts ):
 
    elif utxo_provider == "bitcoind_utxo":
        return pybitcoin.BitcoindClient( utxo_opts['rpc_username'], utxo_opts['rpc_password'], use_https=utxo_opts['use_https'], server=utxo_opts['server'], port=utxo_opts['port'], version_byte=utxo_opts['version_byte'] )
+
+   elif utxo_provider == "blockstack_utxo":
+       return BlockstackUTXOClient( utxo_opts['server'], utxo_opts['port'] )
 
    elif utxo_provider == "mock_utxo":
        # requires blockstack tests to be installed
