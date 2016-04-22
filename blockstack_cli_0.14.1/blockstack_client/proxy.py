@@ -37,8 +37,9 @@ import copy
 import blockstack_profiles
 import zone_file
 import urllib
-from xmlrpclib import ServerProxy
+from xmlrpclib import ServerProxy, Transport
 from defusedxml import xmlrpc
+import httplib
 
 # prevent the usual XML attacks
 xmlrpc.monkey_patch()
@@ -51,6 +52,7 @@ import bitcoin
 import binascii
 from utilitybelt import is_hex
 
+import config
 from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SERVER, \
     BLOCKSTACKD_PORT, BLOCKSTACK_METADATA_DIR, BLOCKSTACK_DEFAULT_STORAGE_DRIVERS, \
     FIRST_BLOCK_MAINNET, NAME_OPCODES, OPFIELDS, CONFIG_DIR, SPV_HEADERS_PATH, BLOCKCHAIN_ID_MAGIC, \
@@ -63,6 +65,47 @@ import virtualchain
 
 from wallet import * 
 
+
+# borrowed with gratitude from Justin Cappos
+# https://seattle.poly.edu/browser/seattle/trunk/demokit/timeout_xmlrpclib.py?rev=692
+class TimeoutHTTPConnection(httplib.HTTPConnection):
+    def connect(self):
+        httplib.HTTPConnection.connect(self)
+        self.sock.settimeout(self.timeout)
+
+
+class TimeoutHTTP(httplib.HTTP):
+    _connection_class = TimeoutHTTPConnection
+
+    def set_timeout(self, timeout):
+        self._conn.timeout = timeout
+
+    def getresponse(self, **kw):
+        return self._conn.getresponse(**kw)
+
+
+class TimeoutTransport(Transport):
+    def __init__(self, *l, **kw):
+        self.timeout = kw.get('timeout', 10)
+        if 'timeout' in kw.keys():
+            del kw['timeout']
+
+        Transport.__init__(self, *l, **kw)
+
+    def make_connection(self, host):
+        conn = TimeoutHTTP(host)
+        conn.set_timeout(self.timeout)
+        return conn
+
+class TimeoutServerProxy(ServerProxy):
+    def __init__(self, uri, *l, **kw):
+        kw['transport'] = TimeoutTransport(timeout=kw.get('timeout',10), use_datetime=kw.get('use_datetime', 0))
+        if 'timeout' in kw.keys():
+            del kw['timeout']
+        
+        ServerProxy.__init__(self, uri, *l, **kw)
+
+
 # default API endpoint proxy to blockstackd
 default_proxy = None
 
@@ -71,8 +114,9 @@ class BlockstackRPCClient(object):
     RPC client for the blockstack server
     """
     def __init__(self, server, port, max_rpc_len=MAX_RPC_LEN, timeout=config.DEFAULT_TIMEOUT ):
-        # TODO: honor timeout
-        self.srv = ServerProxy( "http://%s:%s" % (server, port), allow_none=True )
+        self.srv = TimeoutServerProxy( "http://%s:%s" % (server, port), timeout=timeout, allow_none=True )
+        self.server = server
+        self.port = port
 
     def __getattr__(self, key):
         try:
@@ -88,19 +132,21 @@ class BlockstackRPCClient(object):
             return inner
 
 
-def get_default_proxy(config_path=config.CONFIG_PATH):
+def get_default_proxy(config_path=CONFIG_PATH):
     """
     Get the default API proxy to blockstack.
     """
     global default_proxy
     if default_proxy is None:
+
+        import client
+
         # load     
         conf = config.get_config()
         blockstack_server = conf['server']
         blockstack_port = conf['port']
 
-        proxy = session(conf=conf, server_host=blockstack_server,
-                        server_port=blockstack_port)
+        proxy = client.session(conf=conf, server_host=blockstack_server, server_port=blockstack_port)
 
         return proxy
 
@@ -745,5 +791,65 @@ def namespace_ready(namespace_id, privatekey, proxy=None):
         proxy = get_default_proxy()
 
     return proxy.namespace_ready(namespace_id, privatekey)
+
+
+def is_name_registered(fqu, proxy=None):
+    """
+    Return True if @fqu registered on blockchain
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    blockchain_record = get_name_blockchain_record( fqu, proxy=proxy )
+    if 'error' in blockchain_record:
+        log.debug("Failed to read blockchain record for %s" % fqu)
+        return False
+
+    if "first_registered" in blockchain_record:
+        return True
+    else:
+        return False
+
+
+def is_zonefile_current(fqu, zonefile_json, proxy=None):
+    """ 
+    Return True if hash(@zonefile_json) published on blockchain
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    blockchain_record = get_name_blockchain_record( fqu, proxy=proxy )
+    if 'error' in blockchain_record:
+        log.debug("Failed to read blockchain record for %s" % fqu)
+        return False
+
+    zonefile_hash = hash_zonefile(zonefile_json)
+
+    if 'value_hash' in record and record['value_hash'] == zonefile_hash:
+        # if hash of profile is in correct
+        return True
+
+    return False
+
+
+def is_name_owner(fqu, address, proxy=None):
+    """
+    return True if @btc_address owns @fqu
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    blockchain_record = get_name_blockchain_record( fqu, proxy=proxy )
+    if 'error' in blockchain_record:
+        log.debug("Failed to read blockchain record for %s" % fqu)
+        return False
+
+    if 'address' in record and record['address'] == address:
+        return True
+    else:
+        return False
 
 
