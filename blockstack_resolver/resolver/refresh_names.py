@@ -14,9 +14,6 @@ from config import BLOCKSTACKD_PORT
 from config import NAMES_FILE, NEW_NAMES_FILE
 # hack to ensure local, until we update client
 from blockstack_client import client as bs_client
-# start session using blockstack_client
-bs_client.session(server_host=BLOCKSTACKD_IP, server_port=BLOCKSTACKD_PORT,
-                  set_global=True)
 
 if __name__ == "__main__":
 
@@ -37,6 +34,10 @@ if __name__ == "__main__":
     print old_counter
 
     while 1:
+
+        # start session using blockstack_client
+        bs_client.session(server_host=BLOCKSTACKD_IP, server_port=BLOCKSTACKD_PORT,
+                          set_global=True)
 
         new_names = bs_client.get_all_names(offset, count)
         if len(new_names) == 0:
