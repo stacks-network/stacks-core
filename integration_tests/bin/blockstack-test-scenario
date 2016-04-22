@@ -17,19 +17,11 @@ os.environ['BLOCKSTACK_TEST'] = '1'
 import pybitcoin
 
 import virtualchain 
-import blockstack
-import blockstack.blockstackd as blockstackd
-from blockstack.lib import *
-
-from blockstack.lib import nameset as blockstack_state_engine
-
-import blockstack_integration_tests.mock_bitcoind as mock_bitcoind
-import blockstack_integration_tests.scenarios.testlib as testlib
-
 log = virtualchain.get_logger("blockstack-test-scenario")
 
 mock_bitcoind_connection = None
 TEST_RPC_PORT = 16264
+TEST_CLIENT_RPC_PORT = 16268
 
 DEFAULT_SERVER_INI_TEMPLATE = """
 [bitcoind]
@@ -53,6 +45,7 @@ tx_broadcaster = mock_utxo
 utxo_provider = mock_utxo
 backup_frequency = 3
 backup_max_age = 30
+blockchain_proxy = True
 """ % TEST_RPC_PORT
 
 DEFAULT_CLIENT_INI_TEMPLATE = """
@@ -63,8 +56,26 @@ metadata = @CLIENT_METADATA@
 storage_drivers = disk
 blockchain_headers = @CLIENT_BLOCKCHAIN_HEADERS@
 advanced_mode = true
+api_endpoint_port = %s
 rpc_token = a653b93e696a998f85f8fd2b241ff4dfcb5dd978fe1da26c413a4c2abf90321b
-""" % TEST_RPC_PORT
+poll_interval = 1
+queue_path = @CLIENT_QUEUE_PATH@
+rpc_detach = True
+
+[blockstack_utxo]
+server = localhost
+port = %s
+
+[bitcoind]
+passwd = opennamesystem
+server = btcd.onename.com
+port = 8332
+use_https = True
+user = openname
+mock = True
+save_file = @MOCK_SAVE_FILE@
+blockchain_headers = @CLIENT_BLOCKCHAIN_HEADERS@
+""" % (TEST_RPC_PORT, TEST_CLIENT_RPC_PORT, TEST_RPC_PORT)
 
 def load_scenario( scenario_name ):
     """
@@ -113,19 +124,17 @@ def load_scenario( scenario_name ):
     return scenario
    
 
-def write_config_file( scenario, path, template=None, template_path=None, client_metadata="" ):
+def generate_config_file( scenario, path, template, extra_fields):
     """
     Generate the config file to use with this test scenario.
     Write it to path.
     """
-    global DEFAULT_INI_TEMPLATE
+
+    client_metadata = extra_fields.get("CLIENT_METADATA", "")
+    queue_path = extra_fields.get("CLIENT_QUEUE_PATH", "")
 
     config_txt = None
-    if template_path is not None:
-        with open(template_path, "r") as f:
-            config_txt = f.read()
-
-    elif template is not None:
+    if template is not None:
         config_txt = template[:]
 
     else:
@@ -137,8 +146,9 @@ def write_config_file( scenario, path, template=None, template_path=None, client
 
     config_txt = config_txt.replace( "@MOCK_INITIAL_UTXOS@", initial_utxo_str )
     config_txt = config_txt.replace( "@MOCK_SAVE_FILE@", mock_bitcoind_save_path )
-    config_txt = config_txt.replace( "@CLIENT_METADATA@", client_metadata ) 
     config_txt = config_txt.replace( "@CLIENT_BLOCKCHAIN_HEADERS@", mock_bitcoind_headers_path )
+    config_txt = config_txt.replace( "@CLIENT_METADATA@", client_metadata ) 
+    config_txt = config_txt.replace( "@CLIENT_QUEUE_PATH@", queue_path )
 
     with open( path, "w" ) as f:
         f.write( config_txt )
@@ -160,7 +170,7 @@ def network_stop():
     blockstackd.rpc_stop()
 
 
-def atexit_cleanup( mock_bitcoind_save_path, mock_bitcoind_headers_path ):
+def atexit_cleanup( mock_bitcoind_save_path, mock_bitcoind_headers_path, client_config_path ):
     """
     Clean up a scenario
     """
@@ -174,8 +184,12 @@ def atexit_cleanup( mock_bitcoind_save_path, mock_bitcoind_headers_path ):
     except:
         pass
 
+    if client_config_path is not None:
+        client_config_dir = os.path.dirname(client_config_path)
+        blockstack_client.rpc.local_rpc_stop(client_config_dir)
 
-def run_scenario( scenario, config_file ):
+
+def run_scenario( scenario, config_file, client_config_file ):
     """
     Run a test scenario:
     * set up the virtualchain to use our mock UTXO provider and mock bitcoin blockchain
@@ -189,8 +203,8 @@ def run_scenario( scenario, config_file ):
     mock_bitcoind_save_path = "/tmp/mock_bitcoind.dat"
     spv_headers_path = mock_bitcoind_save_path + ".spvheaders"
 
-    atexit_cleanup( mock_bitcoind_save_path, spv_headers_path )
-    atexit.register( atexit_cleanup, mock_bitcoind_save_path, spv_headers_path )
+    atexit_cleanup( mock_bitcoind_save_path, spv_headers_path, None )
+    atexit.register( atexit_cleanup, mock_bitcoind_save_path, spv_headers_path, client_config_file )
 
     # use mock bitcoind
     worker_env = mock_bitcoind.make_worker_env( mock_bitcoind, mock_bitcoind_save_path )
@@ -238,11 +252,16 @@ def run_scenario( scenario, config_file ):
         for i in xrange(0, blockstack.FIRST_BLOCK_MAINNET ): 
             f.write( empty_header )
 
+    print "mock bitcoind save path: %s" % mock_bitcoind_save_path
+    print "mock bitcoind SPV headers: %s" % spv_headers_path
+
+    blockstackd.set_blockstack_opts( blockstack_opts )
     blockstackd.set_bitcoin_opts( bitcoin_opts )
     blockstackd.set_utxo_opts( utxo_opts )
 
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
     bitcoind = mock_bitcoind.connect_mock_bitcoind( utxo_opts )
+
     sync_virtualchain_upcall = lambda: virtualchain.sync_virtualchain( utxo_opts, bitcoind.getblockcount(), db )
     mock_utxo = blockstack.lib.connect_utxo_provider( utxo_opts )
     working_dir = virtualchain.get_working_dir()
@@ -266,10 +285,6 @@ def run_scenario( scenario, config_file ):
     # sync initial utxos 
     testlib.next_block( **test_env )
 
-    try:
-        os.unlink( mock_bitcoind_save_path )
-    except:
-        pass
 
     # load the scenario into the mock blockchain and mock utxo provider
     try:
@@ -322,12 +337,6 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print >> sys.stderr, "Usage: %s [scenario.import.path] [OPTIONAL: working dir]"
         sys.exit(1)
- 
-    # load up the scenario 
-    scenario = load_scenario( sys.argv[1] )
-    if scenario is None:
-        print "Failed to load '%s'" % sys.argv[1]
-        sys.exit(1)
 
     working_dir = None
     if len(sys.argv) > 2:
@@ -337,7 +346,7 @@ if __name__ == "__main__":
             sys.exit(1)
 
     else:
-        working_dir = "/tmp/blockstack-run-scenario.%s" % scenario.__name__
+        working_dir = "/tmp/blockstack-run-scenario.%s" % sys.argv[1]
         if os.path.exists(working_dir):
             shutil.rmtree(working_dir)
     
@@ -345,37 +354,48 @@ if __name__ == "__main__":
 
     client_working_dir = os.path.join(working_dir, "client")
     client_metadata = os.path.join(client_working_dir, "metadata")
+    client_queue_path = os.path.join( client_working_dir, "queues.db" )
+    config_file = os.path.join( working_dir, "blockstack-server.ini" ) 
+    client_config_file = os.path.join( client_working_dir, "client.ini" )
 
     os.makedirs(client_working_dir)
-    os.makedirs(client_metadata)
+    os.makedirs(client_metadata) 
 
-    # patch state engine implementation
-    os.environ['BLOCKSTACK_TEST_WORKING_DIR'] = working_dir     # for the API server
-    blockstack_state_engine.working_dir = working_dir   # for virtualchain
-    if not os.path.exists( blockstack_state_engine.working_dir ):
-        os.makedirs( blockstack_state_engine.working_dir )
-
-    # generate config file
-    config_file = os.path.join( blockstack_state_engine.working_dir, "blockstack-server.ini" ) 
-    rc = write_config_file( scenario, config_file, template=DEFAULT_SERVER_INI_TEMPLATE )
-    if rc != 0:
-        log.error("failed to write config file: exit %s" % rc)
-        sys.exit(1)
-
-    # generate config file for the client 
-    client_config_file = os.path.join( client_working_dir, "client.ini" )
-    rc = write_config_file( scenario, client_config_file, client_metadata=client_metadata, template=DEFAULT_CLIENT_INI_TEMPLATE )
-    if rc != 0:
-        log.error("failed to write config file: exit %s" % rc)
-        sys.exit(1)
-    
     # export to test 
     os.environ["BLOCKSTACK_CLIENT_CONFIG"] = client_config_file
     os.environ["BLOCKSTACK_SERVER_CONFIG"] = config_file
+    os.environ['VIRTUALCHAIN_WORKING_DIR'] = working_dir
 
-    # clean up on exit 
+    # *now* we can import blockstack 
+    import blockstack
+    import blockstack.blockstackd as blockstackd
+    from blockstack.lib import *
+
+    from blockstack.lib import nameset as blockstack_state_engine
+
+    import blockstack_integration_tests.mock_bitcoind as mock_bitcoind
+    import blockstack_integration_tests.scenarios.testlib as testlib
+
+    # load up the scenario 
+    scenario = load_scenario( sys.argv[1] )
+    if scenario is None:
+        print "Failed to load '%s'" % sys.argv[1]
+        sys.exit(1)
+
+    # generate config file
+    rc = generate_config_file( scenario, config_file, DEFAULT_SERVER_INI_TEMPLATE, {} )
+    if rc != 0:
+        log.error("failed to write config file: exit %s" % rc)
+        sys.exit(1)
+
+    # generate config file for the client
+    rc = generate_config_file( scenario, client_config_file, DEFAULT_CLIENT_INI_TEMPLATE, {"CLIENT_METADATA": client_metadata, "CLIENT_QUEUE_PATH": client_queue_path} )
+    if rc != 0:
+        log.error("failed to write config file: exit %s" % rc)
+        sys.exit(1)
+
     # run the test 
-    rc = run_scenario( scenario, config_file )
+    rc = run_scenario( scenario, config_file, client_config_file )
    
     if rc:
         print "SUCCESS %s" % scenario.__name__
