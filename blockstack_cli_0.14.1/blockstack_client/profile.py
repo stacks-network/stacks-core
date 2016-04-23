@@ -38,8 +38,8 @@ import blockstack_profiles
 import zone_file
 import urllib
 
-from proxy import *
-from keys import *
+from .proxy import *
+from .keys import *
 import storage
 import user as user_db
 
@@ -448,7 +448,7 @@ def is_zonefile_replicated(fqu, zonefile_json, proxy=None, wallet_keys=None):
     if online_zonefile_json is None:
         return False
     else:
-        if hash_zonefile(zonefile_json) != hash_zonefile(online_json_zonefile):
+        if hash_zonefile(zonefile_json) != hash_zonefile(online_zonefile_json):
             return True
         else:
             return False
