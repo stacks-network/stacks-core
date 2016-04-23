@@ -42,11 +42,11 @@ import time
 from .queue import get_queue_state, in_queue, queue_findall, queue_removeall
 from .queue import queue_append, queue_cleanall, queue_find_accepted
 
-from .nameops import backend_preorder, backend_register, backend_update, backend_transfer
+from .nameops import async_preorder, async_register, async_update, async_transfer
 from .blockchain import get_block_height
 
 from ..proxy import is_name_registered, is_zonefile_current, is_name_owner, get_default_proxy
-from ..profile import is_zonefile_replicated, zonefile_publish
+from ..profile import is_zonefile_replicated, zonefile_publish, store_name_zonefile
 
 from .crypto.utils import get_address_from_privkey, aes_decrypt, aes_encrypt
 
@@ -112,11 +112,9 @@ class RegistrarWorker(threading.Thread):
             if in_queue( "preorder", name_data['fqu'] ):
                 # was preordered but not registered
                 # send the registration 
-                res = backend_register( name_data['fqu'], payment_privkey=payment_privkey, owner_address=owner_address, proxy=proxy, queue_path=queue_path )
-                if res:
-                    return {'status': True}
-                else:
-                    return {'error': 'Failed to send registration transaction'}
+                res = async_register( name_data['fqu'], payment_privkey=payment_privkey, owner_address=owner_address, proxy=proxy, queue_path=queue_path )
+                return res
+
             else:
                 return {'error': 'Name "%s" is not preorded' % name_data['fqu'], 'not_preordered': True}
 
@@ -489,17 +487,22 @@ def preorder(fqu, config_path=CONFIG_PATH, proxy=None):
     payment_privkey = get_payment_privkey()
 
     if not is_name_registered(fqu, proxy=proxy):
-        resp = backend_preorder(fqu, None, state.owner_address, payment_privkey=payment_privkey, proxy=proxy, queue_path=state.queue_path)
+        resp = async_preorder(fqu, None, state.owner_address, payment_privkey=payment_privkey, proxy=proxy, queue_path=state.queue_path)
+    else:
+        return {'success': False, 'error': "Name is already registered"}
 
-    if resp is not None :
+    if 'error' not in resp:
         data['success'] = True
         data['message'] = "The name has been queued up for registration and"
         data['message'] += " will take a few hours to go through. You can"
         data['message'] += " check on the status at any time by running"
         data['message'] += " 'blockstack info'."
+        data['transaction_hash'] = resp['transaction_hash']
     else:
         data['success'] = False
         data['message'] = "Couldn't broadcast transaction. You can try again."
+        data['error'] = resp['error']
+
     return data
 
 
@@ -531,14 +534,18 @@ def update( fqu, zonefile, config_path=CONFIG_PATH, proxy=None, wallet_keys=None
     owner_privkey = get_owner_privkey()
     replication_error = None
 
-    if not is_zonefile_current(fqu, zonefile, proxy=proxy, wallet_keys=wallet_keys ):
-        
-        resp = backend_update(fqu, zonefile, owner_privkey,
-                              state.payment_address,
-                              payment_privkey=payment_privkey,
-                              proxy=proxy,
-                              wallet_keys=wallet_keys,
-                              queue_path=state.queue_path)
+    if not is_zonefile_current(fqu, zonefile, proxy=proxy ):
+        resp = async_update(fqu, zonefile, owner_privkey,
+                            state.payment_address,
+                            payment_privkey=payment_privkey,
+                            proxy=proxy,
+                            wallet_keys=wallet_keys,
+                            queue_path=state.queue_path)
+
+    else:
+        return {'success': True, 'warning': "The zonefile has not changed, so no update sent."}
+
+    if 'error' not in resp:
 
         if not is_zonefile_replicated( fqu, zonefile, proxy=proxy, wallet_keys=wallet_keys ):
             # replicate zonefile 
@@ -546,15 +553,18 @@ def update( fqu, zonefile, config_path=CONFIG_PATH, proxy=None, wallet_keys=None
             if 'error' in storage_resp:
                 replication_error = storage_resp['error']
 
-    if resp:
         data['success'] = True
         data['message'] = "The name has been queued up for update and"
         data['message'] += " will take ~1 hour to process. You can"
         data['message'] += " check on the status at any time by running"
         data['message'] += " 'blockstack info'."
+        data['transaction_hash'] = resp['transaction_hash']
+        data['zonefile_hash'] = resp['zonefile_hash']
     else:
         data['success'] = False
         data['message'] = "Couldn't broadcast transaction. You can try again."
+        data['error'] = resp['error']
+
 
     if replication_error is not None:
         data['warning'] = "Failed to replicate the zonefile ('%s')" % replication_error
@@ -589,19 +599,23 @@ def transfer(fqu, transfer_address, config_path=CONFIG_PATH, proxy=None ):
 
     resp = None
     if not is_name_owner(fqu, transfer_address, proxy=proxy):
-        resp = backend_transfer(fqu, transfer_address,
-                                owner_privkey,
-                                state.payment_address,
-                                payment_privkey=payment_privkey,
-                                proxy=proxy,
-                                queue_path=state.queue_path)
+        resp = async_transfer(fqu, transfer_address,
+                              owner_privkey,
+                              state.payment_address,
+                              payment_privkey=payment_privkey,
+                              proxy=proxy,
+                              queue_path=state.queue_path)
+    
+    else:
+        return {'status': False, 'error': "Name is not owned."}
 
-    if resp:
+    if 'error' not in resp:
         data['success'] = True
         data['message'] = "The name has been queued up for transfer and"
         data['message'] += " will take ~1 hour to process. You can"
         data['message'] += " check on the status at any time by running"
         data['message'] += " 'blockstack info'."
+        data['transaction_hash'] = resp['transaction_hash']
     else:
         data['success'] = False
         data['message'] = "Couldn't broadcast transaction. You can try again."
