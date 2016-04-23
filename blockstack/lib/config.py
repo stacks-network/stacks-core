@@ -539,6 +539,7 @@ def default_blockstack_opts( config_file=None, testset=False ):
    announcements = None
    rpc_port = RPC_SERVER_PORT 
    blockchain_proxy = False
+   serve_zonefiles = False
 
    if parser.has_section('blockstack'):
 
@@ -562,10 +563,17 @@ def default_blockstack_opts( config_file=None, testset=False ):
 
       if parser.has_option('blockstack', 'blockchain_proxy'):
          blockchain_proxy = parser.get('blockstack', 'blockchain_proxy')
-         if blockchain_proxy.lower() in ['1', 'yes', 'true']:
+         if blockchain_proxy.lower() in ['1', 'yes', 'true', 'on']:
              blockchain_proxy = True
          else:
              blockchain_proxy = False
+
+      if parser.has_option('blockstack', 'serve_zonefiles'):
+          serve_zonefiles = parser.get('blockstack', 'serve_zonefiles')
+          if serve_zonefiles.lower() in ['1', 'yes', 'true', 'on']:
+              serve_zonefiles = True
+          else:
+              serve_zonefiles = False
 
       if parser.has_option('blockstack', 'announcers'):
          # must be a CSV of blockchain IDs
@@ -613,7 +621,8 @@ def default_blockstack_opts( config_file=None, testset=False ):
        'email': contact_email,
        'announcers': announcers,
        'announcements': announcements,
-       'blockchain_proxy': blockchain_proxy
+       'blockchain_proxy': blockchain_proxy,
+       'serve_zonefiles': serve_zonefiles
    }
 
    # strip Nones
