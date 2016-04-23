@@ -446,6 +446,35 @@ def blockstack_rpc_register( name, password ):
     return resp
 
 
+def blockstack_rpc_update( name, zonefile_json, password ):
+    """
+    Update a name's value hash
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
+    args = CLIArgs()
+    args.name = name
+    args.data = zonefile_json 
+
+    resp = cli_update( args, config_path=test_proxy.config_path, password=password )
+    return resp
+
+
+def blockstack_get_zonefile( zonefile_hash ):
+    """
+    Get a zonefile from the RPC endpoint
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
+    zonefile_result = test_proxy.get_zonefiles( [zonefile_hash] )
+    if 'error' in zonefile_result:
+        return zonefile_result
+
+    return zonefile_result['zonefiles'][0]
+
+
 def blockstack_verify_database( consensus_hash, consensus_block_id, db_path, working_db_path=None, start_block=None, testset=False ):
     return blockstackd.verify_database( consensus_hash, consensus_block_id, db_path, working_db_path=working_db_path, start_block=start_block, testset=testset )
 
