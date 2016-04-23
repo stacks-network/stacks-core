@@ -1565,6 +1565,8 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Get a user's zonefile from the local cache,
         or (on miss), from upstream storage.
         Only return at most 100 zonefiles.
+        Return {'status': True, 'zonefiles': [zonefiles]} on success
+        Return {'error': ...} on error
         """
         config = get_blockstack_opts()
         if not config['serve_zonefiles']:
