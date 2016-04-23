@@ -65,7 +65,6 @@ import virtualchain
 
 from wallet import * 
 
-
 # borrowed with gratitude from Justin Cappos
 # https://seattle.poly.edu/browser/seattle/trunk/demokit/timeout_xmlrpclib.py?rev=692
 class TimeoutHTTPConnection(httplib.HTTPConnection):
@@ -583,13 +582,13 @@ def update(name, user_zonefile_json_or_hash, privatekey, txid=None, proxy=None, 
 
         # only want a transaction 
         if privatekey is None and public_key is not None and subsidy_key is not None:
-            result = proxy.update_tx_subsidized( name, user_profile_hash, public_key, subsidy_key )
+            result = proxy.update_tx_subsidized( name, user_zonefile_hash, public_key, subsidy_key )
 
         if privatekey is not None:
             result = proxy.update_tx( name, user_zonefile_hash, privatekey )
 
         if result is not None:
-            return result[0]
+            return result
 
     if txid is None:
 
@@ -817,6 +816,8 @@ def is_zonefile_current(fqu, zonefile_json, proxy=None):
     Return True if hash(@zonefile_json) published on blockchain
     """
 
+    from .profile import hash_zonefile
+
     if proxy is None:
         proxy = get_default_proxy()
 
@@ -827,7 +828,7 @@ def is_zonefile_current(fqu, zonefile_json, proxy=None):
 
     zonefile_hash = hash_zonefile(zonefile_json)
 
-    if 'value_hash' in record and record['value_hash'] == zonefile_hash:
+    if 'value_hash' in blockchain_record and blockchain_record['value_hash'] == zonefile_hash:
         # if hash of profile is in correct
         return True
 
@@ -847,7 +848,7 @@ def is_name_owner(fqu, address, proxy=None):
         log.debug("Failed to read blockchain record for %s" % fqu)
         return False
 
-    if 'address' in record and record['address'] == address:
+    if 'address' in blockchain_record and blockchain_record['address'] == address:
         return True
     else:
         return False
