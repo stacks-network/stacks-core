@@ -141,7 +141,7 @@ def get_default_proxy(config_path=CONFIG_PATH):
         import client
 
         # load     
-        conf = config.get_config()
+        conf = config.get_config(config_path)
         blockstack_server = conf['server']
         blockstack_port = conf['port']
 
