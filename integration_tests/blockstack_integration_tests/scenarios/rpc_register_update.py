@@ -87,12 +87,13 @@ def scenario( wallets, **kw ):
     data_pubkey = wallet['data_pubkey']
     zonefile = blockstack_client.user.make_empty_user_zonefile( "foo.test", data_pubkey )
     zonefile_json = json.dumps(zonefile)
+
     resp = testlib.blockstack_rpc_update( "foo.test", zonefile_json, "0123456789abcdef" )
     
     if 'error' in resp:
         print >> sys.stderr, "update error: %s" % resp['error']
         return False
-    print json.dumps(resp,indent=4,sort_keys=True)
+
     zonefile_hash = resp['zonefile_hash']
     
     # wait for it to go through 

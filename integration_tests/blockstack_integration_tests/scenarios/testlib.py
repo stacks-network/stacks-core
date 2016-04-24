@@ -172,9 +172,7 @@ def make_proxy():
     assert client_path is not None
 
     client_config = blockstack_client.get_config(client_path)
-
-    proxy = blockstack_client.session( server_host=client_config['server'], server_port=client_config['port'], storage_drivers=client_config['storage_drivers'], \
-                                       metadata_dir=client_config['metadata'], spv_headers_path=utxo_opts['spv_headers_path'] )
+    proxy = blockstack_client.session( conf=client_config )
 
     proxy.config_path = client_path
     return proxy
@@ -464,6 +462,7 @@ def blockstack_rpc_update( name, zonefile_json, password ):
 def blockstack_get_zonefile( zonefile_hash ):
     """
     Get a zonefile from the RPC endpoint
+    Return None if not given
     """
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
@@ -472,7 +471,10 @@ def blockstack_get_zonefile( zonefile_hash ):
     if 'error' in zonefile_result:
         return zonefile_result
 
-    return zonefile_result['zonefiles'][0]
+    if zonefile_hash not in zonefile_result['zonefiles'].keys():
+        return None
+
+    return zonefile_result['zonefiles'][zonefile_hash]
 
 
 def blockstack_verify_database( consensus_hash, consensus_block_id, db_path, working_db_path=None, start_block=None, testset=False ):
