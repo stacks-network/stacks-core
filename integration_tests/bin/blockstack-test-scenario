@@ -46,6 +46,8 @@ utxo_provider = mock_utxo
 backup_frequency = 3
 backup_max_age = 30
 blockchain_proxy = True
+serve_zonefiles = True
+zonefiles = @ZONEFILES@
 """ % TEST_RPC_PORT
 
 DEFAULT_CLIENT_INI_TEMPLATE = """
@@ -132,6 +134,9 @@ def generate_config_file( scenario, path, template, extra_fields):
 
     client_metadata = extra_fields.get("CLIENT_METADATA", "")
     queue_path = extra_fields.get("CLIENT_QUEUE_PATH", "")
+    zonefiles_dir = extra_fields.get("ZONEFILES", None)
+    if zonefiles_dir is None:
+        zonefiles_dir = "/tmp/blockstack-test-zonefiles"
 
     config_txt = None
     if template is not None:
@@ -149,6 +154,7 @@ def generate_config_file( scenario, path, template, extra_fields):
     config_txt = config_txt.replace( "@CLIENT_BLOCKCHAIN_HEADERS@", mock_bitcoind_headers_path )
     config_txt = config_txt.replace( "@CLIENT_METADATA@", client_metadata ) 
     config_txt = config_txt.replace( "@CLIENT_QUEUE_PATH@", queue_path )
+    config_txt = config_txt.replace( "@ZONEFILES@", zonefiles_dir )
 
     with open( path, "w" ) as f:
         f.write( config_txt )
@@ -162,6 +168,7 @@ def network_start():
     Start RPC services
     """
     blockstackd.rpc_start(TEST_RPC_PORT)
+
 
 def network_stop():
     """
@@ -383,7 +390,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # generate config file
-    rc = generate_config_file( scenario, config_file, DEFAULT_SERVER_INI_TEMPLATE, {} )
+    rc = generate_config_file( scenario, config_file, DEFAULT_SERVER_INI_TEMPLATE, {"ZONEFILES": os.path.join(working_dir, "zonefiles")} )
     if rc != 0:
         log.error("failed to write config file: exit %s" % rc)
         sys.exit(1)
