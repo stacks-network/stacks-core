@@ -377,8 +377,8 @@ def get_config(path=CONFIG_PATH):
             except:
                 log.error("Invalid 'port=' setting.  Please use an integer")
 
-        if parser.has_option("blockstack-client", "storage"):
-            config['storage_drivers'] = parser.get("blockstack-client", "storage")
+        if parser.has_option("blockstack-client", "storage_drivers"):
+            config['storage_drivers'] = parser.get("blockstack-client", "storage_drivers")
 
         if parser.has_option("blockstack-client", "metadata"):
             config['metadata'] = parser.get("blockstack-client", "metadata")
