@@ -98,11 +98,13 @@ def make_empty_user_zonefile( username, data_pubkey, urls=None ):
             "txt": "pubkey:data:%s" % str(data_pubkey)
           }
       ],
-      "uri": []
+      "uri": [],
+      "$origin": username,
+      "$ttl": config.USER_ZONEFILE_TTL 
    }
    
    for url in urls:
-       urirec = url_to_uri_record( url, datum_name="profile" )
+       urirec = url_to_uri_record( url )
        user["uri"].append( urirec )
 
    return user
