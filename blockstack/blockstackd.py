@@ -2169,23 +2169,36 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
         # restore history
         untrusted_name_rec = untrusted_db.get_name( str(name_rec['name']) )
         name_rec['history'] = untrusted_name_rec['history']
+        prev_block_number = None
+        prev_history_index = None
 
         # get previous owner
         if history_index > 0:
             name_rec_prev = BlockstackDB.restore_from_history( name_rec, block_number )[history_index - 1]
+            prev_block_number = block_number 
+            prev_history_index = history_index-1
+
         else:
             name_rec_prev = BlockstackDB.restore_from_history( name_rec, block_number - 1 )[history_index - 1]
+            prev_block_number = block_number-1
+            prev_history_index = history_index-1
+
+        if 'transfer_send_block_id' not in name_rec:
+            log.error("FATAL: Obsolete or invalid database.  Missing 'transfer_send_block_id' field for NAME_TRANSFER at (%s, %s)" % (block_number, history_index))
+            sys.exit(1)
 
         sender = name_rec_prev['sender']
         address = name_rec_prev['address']
 
+        send_block_id = name_rec['transfer_send_block_id']
+        
         # reconstruct recipient and sender
         name_rec['recipient'] = recipient
         name_rec['recipient_address'] = recipient_address
 
         name_rec['sender'] = sender
         name_rec['address'] = address
-        name_rec['consensus_hash'] = untrusted_db.get_consensus_at( block_number - 1 )
+        name_rec['consensus_hash'] = untrusted_db.get_consensus_at( send_block_id )
 
         name_rec_script = build_transfer( str(name_rec['name']), name_rec['keep_data'], str(name_rec['consensus_hash']), testset=testset )
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
@@ -2263,6 +2276,11 @@ def nameop_restore_consensus_fields( name_rec, block_id ):
 
         db = get_state_engine()
 
+        if 'transfer_send_block_id' not in name_rec:
+            log.error("FATAL: Obsolete or invalid database.  Missing 'transfer_send_block_id' field for NAME_TRANSFER at (%s, %s)" % (prev_block_number, prev_history_index))
+            sys.exit(1)
+
+
         # reconstruct the recipient information
         ret_op['recipient'] = str(name_rec['sender'])
         ret_op['recipient_address'] = str(name_rec['address'])
@@ -2275,7 +2293,7 @@ def nameop_restore_consensus_fields( name_rec, block_id ):
             keep_data = False
 
         ret_op['keep_data'] = keep_data
-        ret_op['consensus_hash'] = db.get_consensus_at( block_id - 1 )
+        ret_op['consensus_hash'] = db.get_consensus_at( name_rec['transfer_send_block_id'] )
         ret_op['name_hash'] = hash256_trunc128( str(name_rec['name']) )
 
     elif opcode_name == "NAME_UPDATE":
@@ -2304,6 +2322,7 @@ def block_to_virtualchain_ops( block_id, db ):
 
     # all sequences of operations at this block, in tx order
     nameops = db.get_all_nameops_at( block_id )
+
     virtualchain_ops = []
 
     # process nameops in order by vtxindex
@@ -2350,10 +2369,13 @@ def block_to_virtualchain_ops( block_id, db ):
 
         for field in nameops[i].keys():
 
-            # remove untrusted fields, except for 'opcode' (which will be fed into the consensus hash
-            # indirectly, once the fields are successfully processed and thus proven consistent with
-            # the fields.)
-            if field not in consensus_fields and field not in ['opcode']:
+            # remove untrusted fields, except for:
+            # * 'opcode' (which will be fed into the consensus hash
+            #             indirectly, once the fields are successfully processed and thus proven consistent with
+            #             the fields),
+            # * 'transfer_send_block_id' (which will be used to find the NAME_TRANSFER consensus hash,
+            #             thus indirectly feeding this information into the consensus hash as well).
+            if field not in consensus_fields and field not in ['opcode', 'transfer_send_block_id']:
                 log.warning("OP '%s': Removing untrusted field '%s'" % (opcode_name, field))
                 del nameops[i][field]
 

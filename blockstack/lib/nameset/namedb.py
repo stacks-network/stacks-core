@@ -39,7 +39,8 @@ from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAX_NAMES_PER_S
     NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTACK_VERSION, \
     NAMESPACE_1_CHAR_COST, NAMESPACE_23_CHAR_COST, NAMESPACE_4567_CHAR_COST, NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
     TESTSET_NAMESPACE_1_CHAR_COST, TESTSET_NAMESPACE_23_CHAR_COST, TESTSET_NAMESPACE_4567_CHAR_COST, TESTSET_NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
-    NAME_IMPORT_KEYRING_SIZE, GENESIS_SNAPSHOT, GENESIS_SNAPSHOT_TESTSET, default_blockstack_opts, NAMESPACE_READY, NAME_OPCODES
+    NAME_IMPORT_KEYRING_SIZE, GENESIS_SNAPSHOT, GENESIS_SNAPSHOT_TESTSET, default_blockstack_opts, NAMESPACE_READY, \
+    FIRST_BLOCK_MAINNET, FIRST_BLOCK_TESTNET, FIRST_BLOCK_MAINNET_TESTSET, FIRST_BLOCK_TESTNET_TESTSET, TESTNET, NAME_OPCODES
 
 from ..operations import build_namespace_reveal, SERIALIZE_FIELDS
 from ..hashing import *
@@ -77,16 +78,26 @@ class BlockstackDB( virtualchain.StateEngine ):
       import virtualchain_hooks
       blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename() )
       initial_snapshots = None
+      first_block = None
 
       if blockstack_opts['testset']:
           initial_snapshots = GENESIS_SNAPSHOT_TESTSET
+          if TESTNET:
+              first_block = FIRST_BLOCK_TESTNET_TESTSET
+          else:
+              first_block = FIRST_BLOCK_MAINNET_TESTSET
 
       else:
           initial_snapshots = GENESIS_SNAPSHOT
+          if TESTNET:
+              first_block = FIRST_BLOCK_TESTNET 
+          else:
+              first_block = FIRST_BLOCK_MAINNET
 
 
       super( BlockstackDB, self ).__init__( virtualchain_hooks.get_magic_bytes(), OPCODES, BlockstackDB.make_opfields(), impl=virtualchain_hooks, initial_snapshots=initial_snapshots, state=self )
 
+      self.firstblock = first_block
       self.announce_ids = blockstack_opts['announcers'].split(",")
 
       self.db_filename = db_filename
@@ -992,6 +1003,19 @@ class BlockstackDB( virtualchain.StateEngine ):
       return self.name_records[name]['revoked']
 
 
+   def lookup_block_id_from_consensus_hash( self, consensus_hash ):
+      """
+      Given a consensus hash, find the matching block ID
+      Return None if not found
+      """
+      for i in xrange(self.lastblock, self.firstblock, -1):
+          ch = self.get_consensus_at(i)
+          if ch == consensus_hash:
+              return i
+
+      return None
+
+
    @classmethod
    def restore_from_history( cls, rec, block_number ):
       """
@@ -1379,9 +1403,9 @@ class BlockstackDB( virtualchain.StateEngine ):
                  "history_snapshot": True
               }]
 
-              if 'consensus_hash' in name_rec.keys():
-                  prior_history[ preorder['block_number'] ][0]['consensus_hash'] = name_rec['consensus_hash']
-
+              for optional_field in ['consensus_hash', 'transfer_send_block_id']:
+                  if optional_field in name_rec.keys():
+                      prior_history[ preorder['block_number'] ][0][optional_field] = name_rec[optional_field]
 
           name_record = {
             'name': name,
@@ -1468,7 +1492,7 @@ class BlockstackDB( virtualchain.StateEngine ):
           self.block_name_expires[ expires ].append( name )
 
       # save diff
-      self.save_name_diff( name, current_block_number, ['last_renewed', 'txid', 'vtxindex', 'op', 'opcode', 'consensus_hash'] )
+      self.save_name_diff( name, current_block_number, ['last_renewed', 'txid', 'vtxindex', 'op', 'opcode', 'consensus_hash', 'transfer_send_block_id'] )
 
       # apply diff
       self.name_records[name]['last_renewed'] = current_block_number
@@ -1501,7 +1525,7 @@ class BlockstackDB( virtualchain.StateEngine ):
          del self.name_consensus_hash_name[ name_consensus_hash ]
 
       # save diff
-      self.save_name_diff( name, current_block_number, ['value_hash', 'txid', 'vtxindex', 'opcode', 'op', 'consensus_hash'] )
+      self.save_name_diff( name, current_block_number, ['value_hash', 'txid', 'vtxindex', 'opcode', 'op', 'consensus_hash', 'transfer_send_block_id'] )
 
       # apply diff
       self.name_records[name]['value_hash'] = nameop['update_hash']
@@ -1533,6 +1557,11 @@ class BlockstackDB( virtualchain.StateEngine ):
       txid = nameop['txid']
       opcode = nameop['opcode']
 
+      transfer_send_block_id = self.lookup_block_id_from_consensus_hash( nameop['consensus_hash'] )
+      if transfer_send_block_id is None:
+          log.error("FATAL: no block for consensus hash '%s'" % nameop['consensus_hash'])
+          sys.exit(1)
+
       op = TRANSFER_KEEP_DATA
       if not keep_data:
           op = TRANSFER_REMOVE_DATA
@@ -1540,7 +1569,7 @@ class BlockstackDB( virtualchain.StateEngine ):
       log.debug("Name '%s': %s >%s %s" % (name, sender, op, recipient))
 
       # save diff
-      changed = ['sender', 'address', 'txid', 'vtxindex', 'opcode', 'op', 'sender_pubkey', 'consensus_hash']
+      changed = ['sender', 'address', 'txid', 'vtxindex', 'opcode', 'op', 'sender_pubkey', 'consensus_hash', 'transfer_send_block_id']
       if not keep_data:
           changed.append( 'value_hash' )
 
@@ -1554,6 +1583,7 @@ class BlockstackDB( virtualchain.StateEngine ):
       self.name_records[name]['vtxindex'] = nameop['vtxindex']
       self.name_records[name]['opcode'] = opcode
       self.name_records[name]['op'] = "%s%s" % (NAME_TRANSFER, op)
+      self.name_records[name]['transfer_send_block_id'] = transfer_send_block_id    # not directly covered by consensus hash, but indirectly
 
       if not keep_data:
          self.name_records[name]['value_hash'] = None
@@ -1590,7 +1620,7 @@ class BlockstackDB( virtualchain.StateEngine ):
       op = NAME_REVOKE
 
       # save diff
-      self.save_name_diff( name, current_block_number, ['revoked', 'txid', 'vtxindex', 'opcode', 'op', 'value_hash', 'consensus_hash'] )
+      self.save_name_diff( name, current_block_number, ['revoked', 'txid', 'vtxindex', 'opcode', 'op', 'value_hash', 'consensus_hash', 'transfer_send_block_id'] )
 
       # apply diff
       self.name_records[name]['revoked'] = True
