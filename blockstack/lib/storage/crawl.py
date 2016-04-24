@@ -37,6 +37,8 @@ from ..scripts import is_name_valid
 import blockstack_client
 from blockstack_client import hash_zonefile
 
+import zone_file
+
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
 
@@ -50,6 +52,9 @@ def get_cached_zonefile( zonefile_hash, zonefile_dir=None ):
         zonefile_dir = get_zonefile_dir()
 
     zonefile_path = os.path.join( zonefile_dir, zonefile_hash )
+    if not os.path.exists( zonefile_path ):
+        return None 
+
     with open(zonefile_path, "r") as f:
         data = f.read()
 
@@ -72,17 +77,22 @@ def get_zonefile_from_storage( zonefile_hash ):
     if not is_current_zonefile_hash( zonefile_hash ):
         raise Exception("Unknown zonefile hash")
 
-    data = blockstack_client.storage.get_immutable_data( zonefile_hash, hash_func=blockstack_client.get_blockchain_compat_hash )
-    if 'error' in data:
+    zonefile_txt = blockstack_client.storage.get_immutable_data( zonefile_hash, hash_func=blockstack_client.get_blockchain_compat_hash, deserialize=False )
+    if zonefile_txt is None:
         raise Exception("Failed to get data: %s" % data['error'])
 
-    zonefile_data = data['data']
-
-    # verify 
-    if hash_zonefile( zonefile_data ) != zonefile_hash:
+    # verify
+    if blockstack_client.storage.get_name_zonefile_hash( zonefile_txt ) != zonefile_hash:
         raise Exception("Corrupt zonefile: %s" % zonefile_hash)
-    
-    return zonefile_data
+   
+    # parse 
+    try:
+        user_zonefile = zone_file.parse_zone_file( zonefile_txt )
+        assert blockstack_client.is_user_zonefile( user_zonefile ), "Not a user zonefile: %s" % zonefile_hash
+    except AssertionError, ValueError:
+        raise Exception("Failed to load zonefile %s" % zonefile_hash)
+
+    return user_zonefile
 
 
 def get_zonefile_from_peers( zonefile_hash, peers ):
@@ -163,9 +173,8 @@ def get_zonefile_txid( zonefile_dict ):
     Return the txid on success
     Return None on error
     """
-    
-    zonefile_txt = serialize_zonefile( zonefile_dict )
-    zonefile_hash = hash_zonefile( zonefile_txt )
+   
+    zonefile_hash = hash_zonefile( zonefile_dict )
     name = zonefile_dict.get('$origin')
     if name is None:
         log.debug("Missing '$origin' in zonefile")
@@ -193,13 +202,10 @@ def store_zonefile_to_storage( zonefile_dict ):
     Return True if at least one provider got it.
     Return False otherwise.
     """
-    zonefile_txt = serialize_zonefile( zonefile_dict )
-    zonefile_hash = hash_zonefile( zonefile_txt )
-    
-    if not is_current_zonefile_hash( zonefile_hash ):
-        log.error("Unknown zonefile %s" % zonefile_hash)
-        return False
-
+    zonefile_hash = hash_zonefile( zonefile_dict)
+    name = zonefile_dict['$origin']
+    zonefile_text = zone_file.make_zone_file( zonefile_dict )
+   
     # find the tx that paid for this zonefile
     txid = get_zonefile_txid( zonefile_dict )
     if txid is None:
@@ -272,6 +278,4 @@ def clean_cached_zonefile_dir( zonefile_dir=None ):
         remove_zonefile( h, zonefile_dir=zonefile_dir )
 
     return
-
-
 
