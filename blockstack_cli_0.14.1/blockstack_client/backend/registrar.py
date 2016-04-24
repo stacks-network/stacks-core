@@ -24,13 +24,12 @@
 import os
 import sys
 import lockfile
+import random
 
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
 
-import os
-import sys
 import signal
 from time import sleep
 import json
@@ -176,33 +175,35 @@ class RegistrarWorker(threading.Thread):
 
     
     @classmethod 
-    def replicate_zonefile( cls, name_data, wallet_data ):
+    def replicate_zonefile( cls, name_data, servers, wallet_data ):
         """
         Given an update queue entry,
         replicate the zonefile to as many
         blockstack servers as we can.
+        @servers should be a list of (host, port)
         Return {'status': True} on success
         Return {'error': ...} on error
         """
-        res = zonefile_publish( name_data['fqu'], name_data['zonefile'], wallet_keys=wallet_data ) 
+        res = zonefile_publish( name_data['fqu'], name_data['zonefile'], servers, wallet_keys=wallet_data ) 
         if 'error' in res:
             return res
 
         else:
-            log.info("Replicated zonefile for %s to %s" % (name_data['fqu'], ",".join( ["%s:%s" % (host, port) for (host, port) in res['servers']] )))
+            log.info("Replicated zonefile for %s to %s server(s)" % (name_data['fqu'], len(res['servers'])))
             return {'status': True}
 
 
     @classmethod
-    def replicate_zonefiles( cls, queue_path, wallet_data ):
+    def replicate_zonefiles( cls, queue_path, servers, wallet_data ):
         """
         Replicate all zonefiles for each confirmed update.
         Remove successfully-replicated updates
+        @servers should be a list of (host, port)
         """
         updates = cls.get_confirmed_updates( queue_path )
         for update in updates:
             log.debug("Zonefile update on '%s' (%s) is confirmed!  New hash is %s" % (update['fqu'], update['tx_hash'], update['zonefile_hash']))
-            res = cls.replicate_zonefile( update, wallet_data )
+            res = cls.replicate_zonefile( update, servers, wallet_data )
             if 'error' in res:
                 return res
 
@@ -212,6 +213,19 @@ class RegistrarWorker(threading.Thread):
 
         return {'status': True}
         
+
+    @classmethod 
+    def get_replica_server_list( cls, config_path ):
+        """
+        Get the list of servers to which to replicate zonefiles
+        """
+        conf = get_config(config_path)
+        servers = [(conf['server'], conf['port'])]
+        if conf.has_key('extra_servers') and len(conf['extra_servers']) > 0:
+            servers += conf['extra_servers']
+
+        return servers
+
 
     def run(self):
         """
@@ -248,7 +262,7 @@ class RegistrarWorker(threading.Thread):
             except Exception, e:
                 log.exception(e)
                 log.error("FATAL: Registrar worker exited")
-                return
+                break
 
             try:
                 # see if we can clear out any preorders
@@ -264,12 +278,13 @@ class RegistrarWorker(threading.Thread):
             except Exception, e:
                 log.exception(e)
                 log.error("FATAL: Registrar worker exited")
-                return
+                break
 
             try:
                 # see if we can replicate any zonefiles 
                 log.debug("replicate all pending zonefiles in %s" % (self.queue_path))
-                res = RegistrarWorker.replicate_zonefiles( self.queue_path, wallet_data )
+                servers = RegistrarWorker.get_replica_server_list( self.config_path )
+                res = RegistrarWorker.replicate_zonefiles( self.queue_path, servers, wallet_data )
                 if 'error' in res:
                     log.warn("Zonefile replication failed: %s" % res['error'])
 
@@ -280,7 +295,7 @@ class RegistrarWorker(threading.Thread):
             except Exception, e:
                 log.exception(e)
                 log.error("FATAL: Registrar worker exited")
-                return 
+                break
 
             # if we failed a step, then try again quickly with exponential backoff
             if failed:
@@ -296,7 +311,7 @@ class RegistrarWorker(threading.Thread):
             except:
                 # interrupted
                 log.debug("Sleep interrupted")
-                return
+                break
 
             # remove expired 
             log.debug("Cleaning all queues in %s" % self.queue_path)
