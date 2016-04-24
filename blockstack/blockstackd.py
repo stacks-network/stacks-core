@@ -1595,8 +1595,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
                 log.exception(e)
                 continue
 
-            store_cached_zonefile( zonefile )
-            ret[zonefile_hash] = zonefile
+            if zonefile is not None:
+                store_cached_zonefile( zonefile )
+                ret[zonefile_hash] = zonefile
 
         return {'status': True, 'zonefiles': ret}
 
@@ -1620,7 +1621,13 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
         for zonefile_data in zonefile_datas:
 
-            zonefile_hash = hash_zonefile( zonefile_data )
+            try: 
+                zonefile_hash = blockstack_client.hash_zonefile( zonefile_data )
+            except:
+                log.debug("Invalid zonefile")
+                saved.append(0)
+                continue
+
             if not is_current_zonefile_hash( zonefile_hash ):
                 log.debug("Unknown zonefile hash %s" % zonefile_hash)
                 saved.append(0)
