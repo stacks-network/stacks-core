@@ -51,7 +51,7 @@ from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SER
     BLOCKSTACKD_PORT, BLOCKSTACK_METADATA_DIR, BLOCKSTACK_DEFAULT_STORAGE_DRIVERS, \
     FIRST_BLOCK_MAINNET, NAME_OPCODES, OPFIELDS, CONFIG_DIR, SPV_HEADERS_PATH, BLOCKCHAIN_ID_MAGIC, \
     NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER, NAMESPACE_PREORDER, NAME_IMPORT, \
-    USER_ZONEFILE_TTL, CONFIG_PATH
+    USER_ZONEFILE_TTL, CONFIG_PATH, get_config, CONFIG_PATH
 
 log = get_logger()
 
@@ -62,9 +62,8 @@ from wallet import *
 # ancillary storage providers
 STORAGE_IMPL = None
 
-def session(conf=None, server_host=BLOCKSTACKD_SERVER, server_port=BLOCKSTACKD_PORT,
-            storage_drivers=BLOCKSTACK_DEFAULT_STORAGE_DRIVERS,
-            metadata_dir=BLOCKSTACK_METADATA_DIR, spv_headers_path=SPV_HEADERS_PATH, set_global=False):
+def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=None,
+            storage_drivers=None, metadata_dir=None, spv_headers_path=None, set_global=False):
 
     """
     Create a blockstack session:
@@ -78,6 +77,9 @@ def session(conf=None, server_host=BLOCKSTACKD_SERVER, server_port=BLOCKSTACKD_P
     Returns the API proxy object.
     """
 
+    if conf is None and config_path is not None:
+        conf = get_config(config_path)
+
     if conf is not None:
 
         missing = find_missing(conf)
@@ -85,10 +87,16 @@ def session(conf=None, server_host=BLOCKSTACKD_SERVER, server_port=BLOCKSTACKD_P
             log.error("Missing blockstack configuration fields: %s" % (", ".join(missing)))
             sys.exit(1)
 
-        server_host = conf['server']
-        server_port = conf['port']
-        storage_drivers = conf['storage_drivers']
-        metadata_dir = conf['metadata']
+        if server_host is None:
+            server_host = conf['server']
+        if server_port is None:
+            server_port = conf['port']
+        if storage_drivers is None:
+            storage_drivers = conf['storage_drivers']
+        if metadata_dir is None:
+            metadata_dir = conf['metadata']
+        if spv_headers_path is None:
+            spv_headers_path = conf['blockchain_headers']
 
     if storage_drivers is None:
         log.error("No storage driver(s) defined in the config file.  Please set 'storage=' to a comma-separated list of drivers")
