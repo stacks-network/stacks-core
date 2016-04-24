@@ -29,7 +29,6 @@
 import sys
 import os
 import boto
-import logging 
 import errno
 from ConfigParser import SafeConfigParser
 
@@ -37,9 +36,11 @@ from boto.s3.key import Key
 
 import logging
 logging.getLogger('boto').setLevel(logging.CRITICAL)
-log = logging.getLogger('blockstack-storage-drivers')
 
-DEBUG = True
+from .common import get_logger, DEBUG
+
+log = get_logger("blockstack-storage-driver-s3")
+
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 
 AWS_BUCKET = None

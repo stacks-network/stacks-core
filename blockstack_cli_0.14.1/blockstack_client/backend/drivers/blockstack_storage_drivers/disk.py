@@ -30,14 +30,15 @@
 import os
 import sys 
 import traceback
-import logging 
+import logging
+from .common import get_logger, DEBUG
 
-log = logging.getLogger('blockstack-storage-drivers')
+log = get_logger("blockstack-storage-driver-disk")
+
 DISK_ROOT="/tmp/blockstack-disk"
 IMMUTABLE_STORAGE_ROOT = DISK_ROOT + "/immutable"
 MUTABLE_STORAGE_ROOT = DISK_ROOT + "/mutable"
 
-DEBUG = True
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 
 def storage_init():
