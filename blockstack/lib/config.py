@@ -346,6 +346,18 @@ def get_announce_filename( working_dir=None ):
    return announce_filepath
 
 
+def get_zonefile_dir( working_dir=None ):
+    """
+    Get the path to the directory to hold any zonefiles we download.
+    """
+
+    if working_dir is None:
+       working_dir = virtualchain.get_working_dir()
+
+    zonefile_dir = os.path.join( working_dir, "zonefiles" )
+    return zonefile_dir
+
+
 def get_blockstack_client_session( new_blockstack_client_session_opts=None ):
     """
     Get or instantiate our storage API session.
@@ -540,6 +552,7 @@ def default_blockstack_opts( config_file=None, testset=False ):
    rpc_port = RPC_SERVER_PORT 
    blockchain_proxy = False
    serve_zonefiles = False
+   zonefile_dir = None
 
    if parser.has_section('blockstack'):
 
@@ -574,6 +587,9 @@ def default_blockstack_opts( config_file=None, testset=False ):
               serve_zonefiles = True
           else:
               serve_zonefiles = False
+
+      if parser.has_option("blockstack", "zonefiles"):
+          zonefile_dir = parser.get("blockstack", "zonefiles")
 
       if parser.has_option('blockstack', 'announcers'):
          # must be a CSV of blockchain IDs
@@ -611,6 +627,12 @@ def default_blockstack_opts( config_file=None, testset=False ):
 
        announcements = ",".join( unseen_announcements )
 
+   if zonefile_dir is not None and not os.path.exists( zonefile_dir ):
+       try:
+           os.makedirs( zonefile_dir, 0700 )
+       except:
+           pass
+
    blockstack_opts = {
        'rpc_port': rpc_port,
        'tx_broadcaster': tx_broadcaster,
@@ -622,7 +644,8 @@ def default_blockstack_opts( config_file=None, testset=False ):
        'announcers': announcers,
        'announcements': announcements,
        'blockchain_proxy': blockchain_proxy,
-       'serve_zonefiles': serve_zonefiles
+       'serve_zonefiles': serve_zonefiles,
+       'zonefiles': zonefile_dir
    }
 
    # strip Nones
