@@ -811,7 +811,10 @@ class BlockstackDB( virtualchain.StateEngine ):
       Omit expired or revoked names.
       """
       ret = []
-      for rec in self.name_records:
+      for name in self.name_records.keys():
+
+          rec = self.name_records[name]
+
           # revoked?
           if rec.has_key('revoked') and rec['revoked']:
               continue 
@@ -855,19 +858,24 @@ class BlockstackDB( virtualchain.StateEngine ):
       if rec.has_key('revoked') and rec['revoked']:
           return None 
 
-      if self.is_name_expired(rec['name']):
+      if self.is_name_expired(rec['name'], self.lastblock ):
           return None 
+
+      # current?
+      if rec['value_hash'] == value_hash:
+          return rec['txid']
 
       # search history, backwards
       hist = rec['history']
       flat_hist = BlockstackDB.flatten_history( hist )
+
       for i in xrange(len(flat_hist)-1, 0, -1):
            delta = flat_hist[i]
            if delta.has_key('op') and delta['op'] == NAME_PREORDER:
                 # this name was re-registered. skip
                 return None 
 
-           if delta.has_key('value_hash') and ['value_hash'] == value_hash:
+           if delta.has_key('value_hash') and delta['value_hash'] == value_hash:
                 # this is the txid that affected it 
                 return delta['txid']
 
