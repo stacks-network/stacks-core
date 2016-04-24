@@ -429,6 +429,9 @@ def hash_zonefile( zonefile_json ):
     """
     Given a JSON-ized zonefile, calculate its hash
     """
+    assert "$origin" in zonefile_json.keys(), "Missing $origin"
+    assert "$ttl" in zonefile_json.keys(), "Missing $ttl"
+
     user_zonefile_txt = zone_file.make_zone_file( zonefile_json )
     data_hash = storage.get_name_zonefile_hash( user_zonefile_txt )
     return data_hash
@@ -454,7 +457,7 @@ def is_zonefile_replicated(fqu, zonefile_json, proxy=None, wallet_keys=None):
             return False
 
 
-def zonefile_publish(fqu, zonefile_json, server_list=[], wallet_keys=None):
+def zonefile_publish(fqu, zonefile_json, server_list, wallet_keys=None):
     """
     Replicate a zonefile to as many blockstack servers as possible.
     @server_list is a list of (host, port) tuple
@@ -471,6 +474,7 @@ def zonefile_publish(fqu, zonefile_json, server_list=[], wallet_keys=None):
                 log.error("Failed to publish zonefile to %s:%s: %s" % (server_host, server_port, res['error']))
                 continue
 
+            log.debug("Replicated zonefile to %s:%s" % (server_host, server_port))
             successful_servers.append( (server_host, server_port) )
 
         except Exception, e:
@@ -482,5 +486,5 @@ def zonefile_publish(fqu, zonefile_json, server_list=[], wallet_keys=None):
         return {'status': True, 'servers': successful_servers}
 
     else:
-        return {'error': 'Failed to publish zonefile'}
+        return {'error': 'Failed to publish zonefile to all backend providers'}
 
