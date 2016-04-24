@@ -68,3 +68,5 @@ from storage import BlockstackURLHandle, BlockstackHandler, get_data_hash, get_b
 from config import USER_ZONEFILE_TTL
 
 from wallet import get_payment_addresses, get_owner_addresses
+
+from user import is_user_zonefile
