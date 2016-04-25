@@ -47,6 +47,7 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 wallet_keys = None
 wallet_keys_2 = None
 error = False
+gpghome = None
 
 key_names = {
     'foo.test': [], # to be filled in 
@@ -55,7 +56,7 @@ key_names = {
 
 def scenario( wallets, **kw ):
 
-    global wallet_keys, wallet_keys_2, key_names, error
+    global wallet_keys, wallet_keys_2, key_names, error, gpghome
 
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
@@ -329,11 +330,13 @@ def scenario( wallets, **kw ):
         return 
 
     testlib.next_block( **kw )
+ 
+    gpghome = testlib.gpg_key_dir(**kw)
 
 
 def check( state_engine ):
 
-    global wallet_keys, wallet_keys_2, key_names, error
+    global wallet_keys, wallet_keys_2, key_names, error, gpghome
 
     if error:
         print "Key operation failed."
@@ -410,7 +413,7 @@ def check( state_engine ):
             print "Invalid immutable keys:\n%s" % json.dumps(secure_app_listing)
             return False 
 
-        key_id, key_url = secure_app_listing[0]['identifier'], secure_app_listing[0]['contentUrl']
+        key_id, key_url = secure_app_listing[0]['keyName'], secure_app_listing[0]['contentUrl']
         if key_url != key_res[1]['key_url']:
             print "Key ID mismatch (immutable app): %s != %s\nFull listing:\n%s\n\nKeys we generated:\n%s\n" % \
                     (key_url, key_res[1]['key_url'], secure_app_listing[0], json.dumps(key_res, indent=4, sort_keys=True))
@@ -425,11 +428,28 @@ def check( state_engine ):
             print "Invalid mutable keys (mutable app):\n%s" % json.dumps(less_secure_app_listing)
             return False 
 
-        key_id, key_url = less_secure_app_listing[0]['identifier'], less_secure_app_listing[0]['contentUrl']
+        key_id, key_url = less_secure_app_listing[0]['keyName'], less_secure_app_listing[0]['contentUrl']
         if key_url != key_res[2]['key_url']:
             print "Key ID mismatch: %s != %s\nFull listing:\n%s\n\nKeys we generated:\n%s\n" % \
                     (key_url, key_res[2]['key_url'], less_secure_app_listing[0], json.dumps(key_res, indent=4, sort_keys=True))
             return False
 
+        profile_key = blockstack_gpg.gpg_profile_get_key( name, account_key_listing[0]['keyName'], gpghome=gpghome )
+        if 'error' in profile_key:
+            print "no key in account %s: %s" % (account_key_listing, profile_key['error'])
+            return False
+
+        secure_app_key = blockstack_gpg.gpg_app_get_key( name, "secure_messaging", secure_app_listing[0]['keyName'], \
+                                                         immutable=True, gpghome=gpghome )
+
+        if 'error' in secure_app_key:
+            print "no key in secure_messaging listing %s: %s" % (secure_app_listing, secure_app_key['error'])
+            return False
+
+        less_secure_app_key = blockstack_gpg.gpg_app_get_key( name, "less-secure_messaging", less_secure_app_listing[0]['keyName'], \
+                                                             gpghome=gpghome )
+        if 'error' in less_secure_app_key:
+            print "no key in less-secure_messaging listing %s: %s" % (less_secure_app_listing, less_secure_app_key['error'])
+            return False
 
     return True
