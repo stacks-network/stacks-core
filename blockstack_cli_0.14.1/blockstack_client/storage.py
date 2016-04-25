@@ -47,6 +47,7 @@ from config import MAX_NAME_LENGTH, get_logger
 log = get_logger()
 
 import string
+
 B40_CHARS = string.digits + string.lowercase + '-_.+'
 B40_CLASS = '[a-z0-9\-_.+]'
 B40_NO_PERIOD_CLASS = '[a-z0-9\-_+]'
@@ -164,6 +165,9 @@ def parse_mutable_data( mutable_data_json_txt, public_key ):
 
    mutable_data_jwt = json.loads(mutable_data_json_txt)
    mutable_data_json = blockstack_profiles.get_profile_from_tokens( mutable_data_jwt, public_key )
+   if len(mutable_data_json) == 0:
+       mutable_data_json = None
+
    return mutable_data_json
 
 
@@ -350,13 +354,12 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None ):
          try:
 
             data_json = storage_handler.get_mutable_handler( url )
-
          except UnhandledURLException, uue:
             # handler doesn't handle this URL
+            log.debug("Storage handler %s does not handle URLs like %s" % (handler.__name__, url ))
             continue
 
          except Exception, e:
-
             log.exception( e )
             continue
 
@@ -658,7 +661,7 @@ def blockstack_immutable_data_url_parse( url ):
     """
     
     url = str(url)
-    immutable_data_regex = r"blockstack://(%s+)\.(%s+)\.(%s+)[/]+(#[a-fA-F0-9]+)?" % (URLENCODED_CLASS, B40_NO_PERIOD_CLASS, B40_NO_PERIOD_CLASS)
+    immutable_data_regex = r"blockstack://(%s+)\.(%s+)\.(%s+)([/]+#[a-fA-F0-9]+)?" % (URLENCODED_CLASS, B40_NO_PERIOD_CLASS, B40_NO_PERIOD_CLASS)
     immutable_listing_regex = r"blockstack://(%s+)[/]+#immutable" % (B40_CLASS)
 
     m = re.match( immutable_data_regex, url )
@@ -671,7 +674,7 @@ def blockstack_immutable_data_url_parse( url ):
             raise ValueError( "Invalid blockchain ID '%s'" % blockchain_id)
 
         if data_hash is not None:
-            data_hash = data_hash.lower().strip("#")
+            data_hash = data_hash.lower().strip("#/")
             if not is_valid_hash( data_hash ):
                 raise ValueError("Invalid data hash: %s" % data_hash)
     
@@ -715,7 +718,7 @@ def blockstack_data_url_parse( url ):
     except Exception, e1:
         try:
             blockchain_id, data_id, version = blockstack_mutable_data_url_parse( url )
-            url_type = 'immutable'
+            url_type = 'mutable'
             fields.update( {
                 'version': version
             } )
