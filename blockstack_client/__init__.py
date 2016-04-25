@@ -49,7 +49,7 @@ from snv import snv_lookup, lookup_snv
 from data import get_immutable, get_immutable_by_name, get_mutable, put_immutable, put_mutable, delete_immutable, \
         delete_mutable, list_mutable_data, list_immutable_data, list_immutable_data_history, list_update_history, list_zonefile_history
 from data import blockstack_url_fetch as fetch_data
-from data import data_get, data_put, data_delete
+from data import data_get, data_put, data_delete, data_list
 from profile import migrate_profile, get_name_profile, get_name_zonefile, zonefile_publish, hash_zonefile
 from accounts import list_accounts, get_account, put_account, delete_account
 
@@ -67,6 +67,6 @@ from storage import BlockstackURLHandle, BlockstackHandler, get_data_hash, get_b
 
 from config import USER_ZONEFILE_TTL
 
-from wallet import get_payment_addresses, get_owner_addresses
+from wallet import get_payment_addresses, get_owner_addresses, dump_wallet, load_wallet
 
 from user import is_user_zonefile
