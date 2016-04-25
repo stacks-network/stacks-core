@@ -30,7 +30,8 @@ setup(
         'blockstack-storage-drivers>=0.0.1.0',
         'blockstack-utxo>=0.0.1.0',
         'defusedxml>=0.4.1',
-        'python_daemon>=2.1.1'
+        'python_daemon>=2.1.1',
+        'keylib>=0.0.2'
     ],
     classifiers=[
         'Intended Audience :: Developers',
