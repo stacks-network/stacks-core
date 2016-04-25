@@ -68,7 +68,7 @@ def serialize_mutable_data_id( data_id ):
     return urllib.quote(data_id.replace("\0", "\\0")).replace("/", r"\x2f")
 
 
-def load_mutable_data_version(conf, name, data_id):
+def load_mutable_data_version(conf, name, fq_data_id):
     """
     Get the version field of a piece of mutable data from local cache.
     """
@@ -84,7 +84,7 @@ def load_mutable_data_version(conf, name, data_id):
         if metadata_dir is not None and os.path.isdir(metadata_dir):
 
             # find the version file for this data
-            serialized_data_id = serialize_mutable_data_id( data_id )
+            serialized_data_id = serialize_mutable_data_id( fq_data_id )
             version_file_path = os.path.join(metadata_dir, serialized_data_id + ".ver")
 
             if os.path.exists(version_file_path):
@@ -113,7 +113,7 @@ def load_mutable_data_version(conf, name, data_id):
                 return None
 
     else:
-        log.debug("No config found; cannot load version for '%s'" % data_id)
+        log.debug("No config found; cannot load version for '%s'" % fq_data_id)
         return None
 
 
@@ -577,6 +577,8 @@ def put_mutable(name, data_id, data_json, proxy=None, create_only=False, update_
         log.debug("User profile is legacy")
         return {'error': "User profile is in legacy format, which does not support this operation.  You must first migrate it with the 'migrate' command."}
 
+    log.debug("Profile for %s is currently:\n%s" % (name, json.dumps(user_profile, indent=4, sort_keys=True)))
+
     exists = user_db.has_mutable_data( user_profile, data_id )
     if not exists and update_only:
         return {'error': 'Mutable datum does not exist'}
@@ -622,6 +624,7 @@ def put_mutable(name, data_id, data_json, proxy=None, create_only=False, update_
 
     result['status'] = True
     result['version'] = version
+    log.debug("Put '%s' to %s mutable data (version %s)\nProfile is now:\n%s" % (data_id, name, version, json.dumps(user_profile, indent=4, sort_keys=True)))
     return result
 
 
@@ -872,4 +875,22 @@ def data_delete( blockstack_url, proxy=None, wallet_keys=None, **kw ):
         return delete_immutable( parts['blockchain_id'], parts['fields']['data_hash'], data_id=parts['data_id'], proxy=proxy, wallet_keys=wallet_keys, **kw )
     else:
         return delete_mutable( parts['blockchain_id'], parts['data_id'], proxy=proxy, wallet_keys=wallet_keys )
+
+
+def data_list( name, proxy=None, wallet_keys=None ):
+    """
+    List all data for a blockchain ID
+    Return {'status': True, 'listing': [...]} on success
+    Return {'error': ...} on failure
+    """
+    immutable_listing = list_immutable_data( name, proxy=proxy )
+    mutable_listing = list_mutable_data( name, proxy=proxy, wallet_keys=wallet_keys )
+    
+    if 'error' in immutable_listing:
+        return immutable_listing
+
+    if 'error' in mutable_listing:
+        return mutable_listing
+
+    return {'status': True, 'listing': immutable_listing['data'] + mutable_listing['data']}
 
