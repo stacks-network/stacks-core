@@ -306,7 +306,8 @@ def async_update(fqu, zonefile, owner_privkey, payment_address,
 
 def async_transfer(fqu, transfer_address, owner_privkey, payment_address, payment_privkey=None, proxy=None, queue_path=DEFAULT_QUEUE_PATH):
     """
-        Transfer a previously registered fqu, using a different payment address
+        Transfer a previously registered fqu, using a different payment address.
+        Preserves the zonefile.
 
         @fqu: fully qualified name e.g., muneeb.id
         @transfer_address: new owner address
