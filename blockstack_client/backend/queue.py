@@ -499,7 +499,7 @@ def cleanup_transfer_queue(path=DEFAULT_QUEUE_PATH, proxy=None):
             exit(0)
 
         if is_name_owner(fqu, transfer_address):
-            log.debug("Transferred: %s" % fqu)
+            log.debug("Transferred: %s to %s" % (fqu, transfer_address))
             to_remove.append(entry)
 
         else:
