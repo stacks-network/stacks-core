@@ -318,7 +318,7 @@ def cli_deposit( args, config_path=CONFIG_PATH ):
     """
 
     config_dir = os.path.dirname(config_path)
-    wallet_path = os.path.join(wallet_dir, WALLET_FILENAME)
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
     if not os.path.exists(wallet_path):
         res = initialize_wallet(wallet_path=wallet_path)
         if 'error' in res:
@@ -337,7 +337,7 @@ def cli_import( args, config_path=CONFIG_PATH ):
     """
 
     config_dir = os.path.dirname(config_path)
-    wallet_path = os.path.join(wallet_dir, WALLET_FILENAME)
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
     if not os.path.exists(wallet_path):
         res = initialize_wallet(wallet_path=wallet_path)
         if 'error' in res:
@@ -359,7 +359,7 @@ def cli_names( args, config_path=CONFIG_DIR ):
     result = {}
 
     config_dir = os.path.dirname(config_path)
-    wallet_path = os.path.join(wallet_dir, WALLET_FILENAME)
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
     if not os.path.exists(wallet_path):
         res = initialize_wallet(wallet_path=wallet_path)
         if 'error' in res:
@@ -367,6 +367,8 @@ def cli_names( args, config_path=CONFIG_DIR ):
 
     result['names_owned'] = get_all_names_owned()
     result['addresses'] = get_owner_addresses()
+
+    return result
 
 
 def get_server_info( args, config_path=config.CONFIG_PATH ):
