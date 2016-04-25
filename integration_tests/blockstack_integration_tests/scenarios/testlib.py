@@ -446,7 +446,7 @@ def blockstack_rpc_register( name, password ):
 
 def blockstack_rpc_update( name, zonefile_json, password ):
     """
-    Update a name's value hash
+    Update a name's value hash to point to the new zonefile
     """
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
@@ -456,6 +456,33 @@ def blockstack_rpc_update( name, zonefile_json, password ):
     args.data = zonefile_json 
 
     resp = cli_update( args, config_path=test_proxy.config_path, password=password )
+    return resp
+
+
+def blockstack_rpc_transfer( name, new_owner_address, password ):
+    """
+    transfer a name to a new address
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
+    args = CLIArgs()
+    args.name = name
+    args.address = new_owner_address
+
+    resp = cli_transfer( args, config_path=test_proxy.config_path, password=password )
+    return resp
+
+
+def blockstack_rpc_names():
+    """
+    Get the list of nams owned by the local wallet
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
+    args = CLIArgs()
+    resp = cli_names( args, config_path=test_proxy.config_path )
     return resp
 
 
