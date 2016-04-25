@@ -30,6 +30,7 @@ import errno
 import pybitcoin
 import subprocess
 import shutil
+from keylib import ECPrivateKey
 from socket import error as socket_error
 from time import sleep
 from getpass import getpass
@@ -207,13 +208,10 @@ class HDWallet(object):
         return None
 
 
-
-def write_wallet( hex_privkey, password, path=None, config_dir=CONFIG_DIR ):
+def make_wallet( hex_privkey, password ):
     """
-    Generate and save the wallet to disk.
+    Make a wallet structure
     """
-    if path is None:
-        path = os.path.join(config_dir, WALLET_FILENAME )
 
     hex_password = hexlify(password)
 
@@ -227,9 +225,20 @@ def write_wallet( hex_privkey, password, path=None, config_dir=CONFIG_DIR ):
     data['owner_addresses'] = [child[1][0]]
     data_keypair = child[2]
 
-    data_pubkey = pybitcoin.BitcoinPrivateKey( data_keypair[1] ).public_key().to_hex()
+    data_pubkey = ECPrivateKey(data_keypair[1]).public_key().to_hex()
     data['data_pubkeys'] = [data_pubkey]
 
+    return data
+
+
+def write_wallet( hex_privkey, password, path=None, config_dir=CONFIG_DIR ):
+    """
+    Generate and save the wallet to disk.
+    """
+    if path is None:
+        path = os.path.join(config_dir, WALLET_FILENAME )
+
+    data = make_wallet( hex_privkey, password )
     with open(path, 'w') as f:
         f.write( json.dumps(data) )
         f.flush()
@@ -296,7 +305,52 @@ def initialize_wallet( password="", interactive=True, hex_privkey=None, config_d
     return result
 
 
-def unlock_wallet(display_enabled=False, password=None, config_dir=CONFIG_DIR ):
+def load_wallet( password=None, config_dir=CONFIG_DIR, wallet_path=None, include_private=False ):
+    """
+    Get the wallet from disk, and unlock it.
+    Return {'status': True, 'wallet': ...} on success
+    Return {'error': ...} on error
+    """
+    if wallet_path is None:
+        wallet_path = os.path.join( config_dir, WALLET_FILENAME )
+
+    if password is None:
+        password = getpass("Enter wallet password: ")
+
+    hex_password = hexlify(password)
+
+    file = open(wallet_path, 'r')
+    data = file.read()
+    data = json.loads(data)
+    file.close()
+    hex_privkey = None
+    try:
+        hex_privkey = aes_decrypt(data['encrypted_master_private_key'],
+                                  hex_password)
+    except Exception, e:
+        log.exception(e)
+        return {'error': 'Incorrect password'}
+
+    else:
+        wallet = HDWallet(hex_privkey)
+        child = wallet.get_child_keypairs(count=3,
+                                          include_privkey=True)
+        payment_keypair = child[0]
+        owner_keypair = child[1]
+        data_keypair = child[2]
+        data_pubkey = ECPrivateKey( data_keypair[1] ).public_key().to_hex()
+
+        wallet = make_wallet( hex_privkey, password )
+        if include_private:
+            wallet['owner_privkey'] = owner_keypair[1]
+            wallet['payment_privkey'] = payment_keypair[1]
+            wallet['data_privkey'] = data_keypair[1]
+            wallet['master_privkey'] = hex_privkey
+
+        return {'status': True, 'wallet': wallet}
+    
+
+def unlock_wallet(display_enabled=False, password=None, config_dir=CONFIG_DIR, wallet_path=None ):
     """
     Unlock the wallet.
     Save the wallet to the RPC daemon on success.
@@ -304,7 +358,9 @@ def unlock_wallet(display_enabled=False, password=None, config_dir=CONFIG_DIR ):
     Return {'status': True} on success
     return {'error': ...} on error
     """
-    wallet_path = os.path.join( config_dir, WALLET_FILENAME )
+    if wallet_path is None:
+        wallet_path = os.path.join( config_dir, WALLET_FILENAME )
+
     if walletUnlocked(config_dir):
         if display_enabled:
             payment_address, owner_address, data_pubkey = get_addresses_from_file(wallet_path=wallet_path)
@@ -336,7 +392,7 @@ def unlock_wallet(display_enabled=False, password=None, config_dir=CONFIG_DIR ):
                 payment_keypair = child[0]
                 owner_keypair = child[1]
                 data_keypair = child[2]
-                data_pubkey = pybitcoin.BitcoinPrivateKey( data_keypair[1] ).public_key().to_hex()
+                data_pubkey = ECPrivateKey( data_keypair[1] ).public_key().to_hex()
 
                 res = save_keys_to_memory(payment_keypair, owner_keypair, data_keypair, config_dir=config_dir)
                 if 'error' in res:
@@ -579,4 +635,33 @@ def get_total_fees(data):
     reply['total_estimated_cost'] = registration_fee + tx_fee
 
     return reply
+
+
+def dump_wallet(config_path=CONFIG_PATH):
+    """
+    Load the wallet private keys.
+    Return {'status': True, 'wallet': wallet} on success
+    Return {'error': ...} on error
+    """
+    from .action import start_rpc_endpoint
+
+    config_dir = os.path.dirname(config_path)
+    start_rpc_endpoint(config_dir)
+
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+    if not os.path.exists(wallet_path):
+        res = initialize_wallet(wallet_path=wallet_path)
+        if 'error' in res:
+            return res
+
+    if not walletUnlocked(config_dir=config_dir):
+        res = unlock_wallet(config_dir=config_dir, password=password)
+        if 'error' in res:
+            return res
+
+    wallet = get_wallet( config_path=config_path )
+    if wallet is None:
+        return {'error': 'Failed to load wallet'}
+
+    return {'status': True, 'wallet': wallet}
 
