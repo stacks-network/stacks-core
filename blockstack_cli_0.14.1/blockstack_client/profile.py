@@ -38,10 +38,16 @@ import blockstack_profiles
 import zone_file
 import urllib
 
+# Hack around absolute paths
+current_dir = os.path.abspath(os.path.dirname(__file__))
+parent_dir = os.path.abspath(current_dir + "/../")
+
+sys.path.insert(0, parent_dir)
+
 from .proxy import *
-from .keys import *
-import storage
-import user as user_db
+from .keys import get_data_keypair, get_owner_keypair
+from blockstack_client import storage
+from blockstack_client import user as user_db
 
 import pybitcoin
 import bitcoin
@@ -55,8 +61,6 @@ from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SER
     USER_ZONEFILE_TTL, CONFIG_PATH
 
 log = get_logger()
-
-import virtualchain
 
 
 def load_name_zonefile(expected_zonefile_hash):
@@ -263,6 +267,11 @@ def get_name_profile(name, create_if_absent=False, proxy=None, wallet_keys=None,
 
         user_profile = load_name_profile( name, user_zonefile, user_data_pubkey )
         if user_profile is None or 'error' in user_profile:
+            if user_profile is None:
+                log.debug("WARN: no user profile for %s" % name)
+            else:
+                log.debug("WARN: failed to load profile for %s: %s" % (name, user_profile['error']))
+
             if create_if_absent:
                 user_profile = user_db.make_empty_user_profile()
             else:
