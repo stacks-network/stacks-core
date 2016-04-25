@@ -61,10 +61,6 @@ from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SER
 
 log = get_logger()
 
-import virtualchain
-
-from wallet import * 
-
 # borrowed with gratitude from Justin Cappos
 # https://seattle.poly.edu/browser/seattle/trunk/demokit/timeout_xmlrpclib.py?rev=692
 class TimeoutHTTPConnection(httplib.HTTPConnection):
