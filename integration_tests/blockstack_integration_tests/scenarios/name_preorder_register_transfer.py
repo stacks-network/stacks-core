@@ -112,7 +112,7 @@ def check( state_engine ):
         return False 
 
     # QUIRK: consensus hash not stored
-    if name_rec['consensus_hash'] is not None:
+    if name_rec.has_key('consensus_hash') and name_rec['consensus_hash'] is not None:
         print "quirk not preserved: consensus hash is '%s'" % name_rec['consensus_hash']
         return False 
 
