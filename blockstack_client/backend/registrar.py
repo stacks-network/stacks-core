@@ -34,7 +34,6 @@ import signal
 from time import sleep
 import json
 import socket
-import pybitcoin
 import threading
 import time
 
@@ -463,7 +462,7 @@ def get_wallet(rpc_token=None, config_path=CONFIG_PATH, proxy=None):
 
     data['payment_address'] = state.payment_address
     data['owner_address'] = state.owner_address
-    data['data_pubkey'] = pybitcoin.BitcoinPrivateKey( get_data_privkey() ).public_key().to_hex()
+    data['data_pubkey'] = ECPrivateKey( get_data_privkey() ).public_key().to_hex()
 
     data['payment_privkey'] = get_payment_privkey()
     data['owner_privkey'] = get_owner_privkey()
@@ -609,8 +608,8 @@ def transfer(fqu, transfer_address, config_path=CONFIG_PATH, proxy=None ):
         data['error'] = "Already in queue."
         return data
 
-    payment_privkey = state.get_payment_privkey()
-    owner_privkey = state.get_owner_privkey()
+    payment_privkey = get_payment_privkey()
+    owner_privkey = get_owner_privkey()
 
     resp = None
     if not is_name_owner(fqu, transfer_address, proxy=proxy):
