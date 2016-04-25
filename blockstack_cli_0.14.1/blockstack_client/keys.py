@@ -37,6 +37,7 @@ import copy
 import blockstack_profiles
 import zone_file
 import urllib
+from keylib import ECPrivateKey
 
 import pybitcoin
 import bitcoin
@@ -50,9 +51,6 @@ from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SER
     USER_ZONEFILE_TTL, CONFIG_PATH
 
 log = get_logger()
-
-import virtualchain
-from wallet import *
 
 def make_wallet_keys( data_privkey=None, owner_privkey=None ):
     """
@@ -72,6 +70,8 @@ def get_data_keypair( wallet_keys=None ):
     """
     Get the user's data keypair
     """
+    from .wallet import get_wallet
+
     wallet = None
     if wallet_keys is not None:
         assert wallet_keys.has_key('data_privkey') and wallet_keys['data_privkey'] is not None, "No data private key set"
@@ -82,7 +82,7 @@ def get_data_keypair( wallet_keys=None ):
         assert wallet is not None
 
     data_privkey = wallet['data_privkey']
-    public_key = pybitcoin.BitcoinPrivateKey(data_privkey).public_key().to_hex()
+    public_key = ECPrivateKey(data_privkey).public_key().to_hex()
     return public_key, data_privkey
 
 
@@ -90,6 +90,8 @@ def get_owner_keypair( wallet_keys=None ):
     """
     Get the user's owner keypair
     """
+    from .wallet import get_wallet
+
     wallet = None
     if wallet_keys is not None:
         assert wallet_keys.has_key('owner_privkey') and wallet_keys['owner_privkey'] is not None, "No owner private key set"
