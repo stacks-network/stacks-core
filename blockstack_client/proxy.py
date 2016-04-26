@@ -590,9 +590,7 @@ def update(name, user_zonefile_json_or_hash, privatekey, txid=None, proxy=None, 
 
         # send a new transaction 
         result = proxy.update( name, user_zonefile_hash, privatekey )
-        if result is not None:
-            result = result[0]
-        else:
+        if result is None:
             return {'error': 'No response from server'}
         
         if 'error' in result:
