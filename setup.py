@@ -43,7 +43,8 @@ setup(
         'virtualchain>=0.0.9.0',
         'keychain==0.1.4',
         'blockstack-client>=0.0.13',
-        'defusedxml>=0.4.1'
+        'defusedxml>=0.4.1',
+        'pycrypto>=2.6.1'
     ],
     classifiers=[
         'Intended Audience :: Developers',
