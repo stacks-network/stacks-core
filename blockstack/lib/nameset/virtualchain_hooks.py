@@ -314,7 +314,7 @@ def get_db_state(disposition=None):
        sb = os.stat(db_filename)
        mtime = sb.st_mtime 
 
-   if blockstack_db is None or mtime is None or not os.path.exists(db_filename) or sb.st_mtime != last_load_time:
+   if blockstack_db is None or mtime is None or not os.path.exists(db_filename) or sb.st_mtime != last_load_time or time.time() - last_load_time > 60:
        log.info("(Re)Loading blockstack state from '%s'" % db_filename )
        blockstack_db = BlockstackDB( db_filename )
 
