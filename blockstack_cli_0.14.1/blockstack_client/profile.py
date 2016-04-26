@@ -357,20 +357,29 @@ def get_and_migrate_profile( name, proxy=None, create_if_absent=False, wallet_ke
 
     created_new_zonefile = False
     user_zonefile = get_name_zonefile( name, proxy=proxy, wallet_keys=wallet_keys )
-    if user_zonefile is None: 
+    if user_zonefile is None or 'error' in user_zonefile: 
         if not create_if_absent:
             return ({'error': 'No such zonefile'}, None, False)
 
         log.debug("Creating new profile and zonefile for name '%s'" % name)
-        data_pubkey, _ = get_data_keypair( wallet_keys=wallet_keys )
+        if 'data_privkey' in wallet_keys:
+            data_pubkey, _ = get_data_keypair( wallet_keys=wallet_keys )
+        elif 'data_pubkey' in wallet_keys:
+            data_pubkey = wallet_keys['data_pubkey']
+
         user_profile = user_db.make_empty_user_profile()
         user_zonefile = user_db.make_empty_user_zonefile( name, data_pubkey )
 
         created_new_zonefile = True
     
     elif blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
+
         log.debug("Migrating legacy profile to modern zonefile for name '%s'" % name)
-        data_pubkey, _ = get_data_keypair( wallet_keys=wallet_keys )
+        if 'data_privkey' in wallet_keys:
+            data_pubkey, _ = get_data_keypair( wallet_keys=wallet_keys )
+        elif 'data_pubkey' in wallet_keys:
+            data_pubkey = wallet_keys['data_pubkey']
+
         user_profile = blockstack_profiles.get_person_from_legacy_format( user_zonefile )
         user_zonefile = user_db.make_empty_user_zonefile( name, data_pubkey )
 
@@ -384,7 +393,7 @@ def get_and_migrate_profile( name, proxy=None, create_if_absent=False, wallet_ke
     return (user_profile, user_zonefile, created_new_zonefile)
 
 
-def migrate_profile( name, txid=None, proxy=None, wallet_keys=None ):
+def migrate_profile( name, txid=None, proxy=None, wallet_keys=None, include_profile=False ):
     """
     Migrate a user's profile from the legacy format to the profile/zonefile format.
     Return {'status': True, 'transaction_hash': txid, 'zonefile_hash': ...} on success, if the profile was migrated
@@ -392,14 +401,14 @@ def migrate_profile( name, txid=None, proxy=None, wallet_keys=None ):
     Return {'error': ...} on error
     """
     legacy = False
-    txid = None 
+    txid = None  # BUG 
     value_hash = None
     if proxy is None:
         proxy = get_default_proxy()
 
     user_profile, user_zonefile, legacy = get_and_migrate_profile( name, create_if_absent=True, proxy=proxy, wallet_keys=wallet_keys )
     if 'error' in user_profile:
-        log.debug("Unable to load user zonefile for '%s'" % name)
+        log.debug("Unable to load user zonefile for '%s': %s" % (name, user_profile['error']))
         return user_profile
 
     if not legacy:
@@ -431,6 +440,10 @@ def migrate_profile( name, txid=None, proxy=None, wallet_keys=None ):
     if value_hash is not None:
         result['zonefile_hash'] = value_hash
 
+    if include_profile:
+        result['profile'] = user_profile
+        result['zonefile'] = user_zonefile
+
     return result
 
 
@@ -457,7 +470,7 @@ def is_zonefile_replicated(fqu, zonefile_json, proxy=None, wallet_keys=None):
 
     online_zonefile_json = get_name_zonefile(fqu, proxy=proxy, wallet_keys=wallet_keys)
 
-    if online_zonefile_json is None:
+    if online_zonefile_json is None or 'error' in online_zonefile_json:
         return False
     else:
         if hash_zonefile(zonefile_json) != hash_zonefile(online_zonefile_json):
