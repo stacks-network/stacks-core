@@ -125,6 +125,22 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     if argv is None:
         argv = sys.argv
 
+    # alternative config path?
+    if '-c' in argv or '--config' in argv:
+        i = 1
+        while i < len(argv):
+            if argv[i] == '-c' or argv[i] == '--config':
+                if i + 1 >= len(argv):
+                    print >> sys.stderr, "%s: missing path" % argv[i]
+                    sys.exit(1)
+
+                config_path = argv[i+1]
+                argv.pop(i)
+                argv.pop(i)
+
+            else:
+                i+=1
+
     print "\n%s\n" % argv
     conf = config.get_config(path=config_path)
 
