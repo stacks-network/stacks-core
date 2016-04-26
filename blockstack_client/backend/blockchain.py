@@ -50,13 +50,13 @@ def get_bitcoind_client(config_file=CONFIG_PATH):
     return client
 
 
-def get_utxo_client(config_file=CONFIG_PATH):
+def get_utxo_client(config_path=CONFIG_PATH):
     """
     Connect to UTXO provider
     """
     # which UTXO provider to use?
     # opt for 'blockstack_utxo' if available, since that indicates testing 
-    available_utxo_providers = blockstack_utxo.all_utxo_providers( config_file )
+    available_utxo_providers = blockstack_utxo.all_utxo_providers( config_path )
     utxo_provider = None
 
     if 'blockstack_utxo' in available_utxo_providers:
@@ -64,7 +64,7 @@ def get_utxo_client(config_file=CONFIG_PATH):
     else:
         utxo_provider = 'blockcypher'
 
-    client = blockstack_utxo.get_utxo_provider_client( utxo_provider, config_file )
+    client = blockstack_utxo.get_utxo_provider_client( utxo_provider, config_path )
     return client
 
 
@@ -152,13 +152,13 @@ def is_tx_rejected(tx_hash, tx_sent_at_height):
     return False
 
 
-def get_utxos(address):
+def get_utxos(address, config_path=CONFIG_PATH):
     """ 
     Given an address get unspent outputs (UTXOs)
     Return array of UTXOs, empty array if none available
     """
 
-    utxo_client = get_utxo_client()
+    utxo_client = get_utxo_client(config_path=config_path)
     data = []
 
     try:
@@ -170,12 +170,12 @@ def get_utxos(address):
     return data
 
 
-def get_balance(address):
+def get_balance(address, config_path=CONFIG_PATH):
     """
     Check if BTC key being used has enough balance on unspents
     """
 
-    data = get_utxos(address)
+    data = get_utxos(address, config_path=config_path)
     satoshi_amount = 0
 
     for utxo in data:
@@ -207,7 +207,7 @@ def recipientNotReady(address, proxy=None):
     return False
 
 
-def dontuseAddress(address):
+def dontuseAddress(address, config_path=CONFIG_PATH):
     """
     Check if an address should not be used because of:
     a) it has unconfirmed TX
@@ -215,7 +215,7 @@ def dontuseAddress(address):
     """
 
     try:
-        unspents = get_utxos(address)
+        unspents = get_utxos(address, config_path=config_path)
     except Exception as e:
         log.debug(e)
         return True
@@ -230,13 +230,13 @@ def dontuseAddress(address):
     return False
 
 
-def underfundedAddress(address):
+def underfundedAddress(address, config_path=CONFIG_PATH):
     """
     Determine whether or not an address is underfunded.
     Return True if underfunded
     Return False if not.
     """
-    balance = get_balance(address)
+    balance = get_balance(address, config_path=config_path)
 
     if balance is None:
         log.debug("Balance: (%s, %s)" % (address, balance))
