@@ -196,7 +196,7 @@ def atexit_cleanup( mock_bitcoind_save_path, mock_bitcoind_headers_path, client_
         blockstack_client.rpc.local_rpc_stop(client_config_dir)
 
 
-def run_scenario( scenario, config_file, client_config_file ):
+def run_scenario( scenario, config_file, client_config_file, interactive=False, blocktime=10 ):
     """
     Run a test scenario:
     * set up the virtualchain to use our mock UTXO provider and mock bitcoin blockchain
@@ -230,7 +230,7 @@ def run_scenario( scenario, config_file, client_config_file ):
 
     # set up blockstack
     # NOTE: utxo_opts encodes the mock-bitcoind options 
-    blockstack_opts, bitcoin_opts, utxo_opts = blockstack.lib.configure( config_file=config_file, interactive=False )
+    blockstack_opts, bitcoin_opts, utxo_opts = blockstack.lib.configure( config_file=config_file, interactive=False)
    
     # override multiprocessing options to ensure single-process behavior 
     utxo_opts['multiprocessing_num_procs'] = 1 
@@ -318,6 +318,20 @@ def run_scenario( scenario, config_file, client_config_file ):
         network_stop()
         return rc
 
+    # do any more interactive tests
+    if interactive:
+        log.info("Keeping test server online for testing purposes.")
+        log.info("Blocktime is %s second(s)" % blocktime)
+        while True:
+            try:
+                db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
+                testlib.set_state_engine( db )
+                time.sleep(blocktime)
+                testlib.next_block( **test_env )
+            except KeyboardInterrupt:
+                log.info('Resume tests')
+                break
+
     log.info("Scenario checks passed; verifying history")
 
     # run database integrity check at each block 
@@ -336,16 +350,31 @@ def run_scenario( scenario, config_file, client_config_file ):
 
     log.info("SNV check passes!")
     network_stop()
-    return rc 
+    return True
 
 
 if __name__ == "__main__":
 
     if len(sys.argv) < 2:
-        print >> sys.stderr, "Usage: %s [scenario.import.path] [OPTIONAL: working dir]"
+        print >> sys.stderr, "Usage: %s [--interactive [blocktime]] [scenario.import.path] [OPTIONAL: working dir]"
         sys.exit(1)
 
     working_dir = None
+    interactive = False
+    blocktime = 10
+
+    if len(sys.argv) > 2:
+        if sys.argv[1] == '--interactive':
+            sys.argv.pop(1)
+            try:
+                blocktime = int(sys.argv[1])
+                sys.argv.pop(1)
+            except:
+                pass
+        
+            interactive = True
+            log.debug("Interactive session; blocktime is %s" % blocktime)
+
     if len(sys.argv) > 2:
         working_dir = sys.argv[2]
         if os.path.exists(working_dir):
@@ -402,7 +431,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # run the test 
-    rc = run_scenario( scenario, config_file, client_config_file )
+    rc = run_scenario( scenario, config_file, client_config_file, interactive=interactive, blocktime=blocktime )
    
     if rc:
         print "SUCCESS %s" % scenario.__name__
