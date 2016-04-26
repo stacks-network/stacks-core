@@ -408,6 +408,20 @@ def blockstack_client_initialize_wallet( master_privkey_wif, password, transfer_
     return True
    
 
+def blockstack_client_initialize_wallet( password, payment_privkey, owner_privkey, data_privkey ):
+    """
+    Get the wallet from the running RPC daemon
+    """
+    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
+    assert config_path is not None
+
+    wallet_path = os.path.join( os.path.dirname(config_path), blockstack_client.config.WALLET_FILENAME )
+
+    wallet = blockstack_client.wallet.make_wallet( password, payment_privkey=payment_privkey, owner_privkey=owner_privkey, data_privkey=data_privkey )
+    blockstack_client.wallet.write_wallet( wallet, path=wallet_path )
+    return wallet
+
+
 def blockstack_client_get_wallet():
     """
     Get the wallet from the running RPC daemon
