@@ -104,8 +104,9 @@ def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
       try:
          if bitcoin_opts.has_key('bitcoind_mock') and bitcoin_opts['bitcoind_mock']:
             # make a mock connection
-            import tests.mock_bitcoind
-            new_bitcoind = tests.mock_bitcoind.connect_mock_bitcoind( bitcoin_opts, reset=reset )
+            log.debug("Use mock bitcoind")
+            import blockstack_integration_tests.mock_bitcoind
+            new_bitcoind = blockstack_integration_tests.mock_bitcoind.connect_mock_bitcoind( bitcoin_opts, reset=reset )
 
          else:
             new_bitcoind = virtualchain.connect_bitcoind( bitcoin_opts )
@@ -1035,7 +1036,6 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Used by SNV clients.
         """
         db = get_state_engine()
-        # ops = block_to_virtualchain_ops( block_id, db )
 
         ops = db.get_all_nameops_at( block_id )
         if ops is None:
@@ -2013,9 +2013,9 @@ def setup( working_dir=None, testset=False, return_parser=False ):
 
    # if we're using the mock UTXO provider, then switch to the mock bitcoind node as well
    if utxo_opts['utxo_provider'] == 'mock_utxo':
-       import tests.mock_bitcoind
-       virtualchain.setup_virtualchain( blockstack_state_engine, testset=testset, bitcoind_connection_factory=tests.mock_bitcoind.connect_mock_bitcoind )
-       virtualchain.connect_bitcoind = tests.mock_bitcoind.connect_mock_bitcoind
+       import blockstack_integration_tests.mock_bitcoind
+       virtualchain.setup_virtualchain( blockstack_state_engine, testset=testset, bitcoind_connection_factory=blockstack_integration_tests.mock_bitcoind.connect_mock_bitcoind )
+       virtualchain.connect_bitcoind = blockstack_integration_tests.mock_bitcoind.connect_mock_bitcoind
 
    # merge in command-line bitcoind options
    config_file = virtualchain.get_config_filename()
@@ -2249,6 +2249,38 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
     return merged_ret_op
 
 
+def find_last_transfer_consensus_hash( name_rec, block_id, vtxindex ):
+    """
+    Given a name record, find the last non-NAME_TRANSFER consensus hash.
+    Return None if not found.
+    """
+
+    history_keys = name_rec['history'].keys()
+    history_keys.sort()
+    history_keys.reverse()
+
+    for hk in history_keys:
+        history_states = BlockstackDB.restore_from_history( name_rec, hk )
+
+        for history_state in reversed(history_states):
+            if history_state['block_number'] > block_id or (history_state['block_number'] == block_id and history_state['vtxindex'] > vtxindex):
+                # from the future
+                continue
+
+            if history_state['op'][0] == NAME_TRANSFER:
+                # skip NAME_TRANSFERS
+                continue
+
+            if history_state['op'][0] == NAME_PREORDER:
+                # out of history
+                return None
+
+            if name_rec['consensus_hash'] is not None:
+                return name_rec['consensus_hash']
+
+    return None
+
+
 def nameop_restore_consensus_fields( name_rec, block_id ):
     """
     Given a nameop at a point in time, ensure
@@ -2280,6 +2312,8 @@ def nameop_restore_consensus_fields( name_rec, block_id ):
             log.error("FATAL: Obsolete or invalid database.  Missing 'transfer_send_block_id' field for NAME_TRANSFER at (%s, %s)" % (prev_block_number, prev_history_index))
             sys.exit(1)
 
+        full_rec = db.get_name( name_rec['name'], include_expired=True )
+        full_history = full_rec['history']
 
         # reconstruct the recipient information
         ret_op['recipient'] = str(name_rec['sender'])
@@ -2292,8 +2326,13 @@ def nameop_restore_consensus_fields( name_rec, block_id ):
         else:
             keep_data = False
 
+        old_history = name_rec.get('history', None)
+        name_rec['history'] = full_history
+        consensus_hash = find_last_transfer_consensus_hash( name_rec, block_id, name_rec['vtxindex'] )
+        name_rec['history'] = old_history
+
         ret_op['keep_data'] = keep_data
-        ret_op['consensus_hash'] = db.get_consensus_at( name_rec['transfer_send_block_id'] )
+        ret_op['consensus_hash'] = consensus_hash
         ret_op['name_hash'] = hash256_trunc128( str(name_rec['name']) )
 
     elif opcode_name == "NAME_UPDATE":
