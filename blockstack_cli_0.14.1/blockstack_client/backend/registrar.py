@@ -36,6 +36,9 @@ import json
 import socket
 import threading
 import time
+from keylib import ECPrivateKey
+
+import blockstack_profiles
 
 from .queue import get_queue_state, in_queue, queue_findall, queue_removeall
 from .queue import queue_append, queue_cleanall, queue_find_accepted
@@ -44,7 +47,8 @@ from .nameops import async_preorder, async_register, async_update, async_transfe
 from .blockchain import get_block_height
 
 from ..proxy import is_name_registered, is_zonefile_current, is_name_owner, get_default_proxy
-from ..profile import is_zonefile_replicated, zonefile_publish, store_name_zonefile
+from ..profile import is_zonefile_replicated, zonefile_publish, store_name_zonefile, migrate_profile
+from ..user import make_empty_user_zonefile 
 
 from .crypto.utils import get_address_from_privkey, aes_decrypt, aes_encrypt
 
@@ -85,7 +89,7 @@ class RegistrarWorker(threading.Thread):
 
         self.config_path = config_path
         config = get_config(config_path)
-        self.queue_path = config['queue_path']
+        self.queue_path = config['queue_file']
         self.poll_interval = config['poll_interval']
         self.rpc_token = config['rpc_token']
         self.api_port = config['api_endpoint_port']
@@ -95,7 +99,7 @@ class RegistrarWorker(threading.Thread):
 
 
     @classmethod 
-    def register_preordered_name( cls, name_data, payment_privkey, owner_address, proxy=None, queue_path=DEFAULT_QUEUE_PATH ):
+    def register_preordered_name( cls, name_data, payment_privkey, owner_address, proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH ):
         """
         Given a preordered name, go register it.
         Return the result of broadcasting the registration operation on success.
@@ -110,7 +114,7 @@ class RegistrarWorker(threading.Thread):
             if in_queue( "preorder", name_data['fqu'] ):
                 # was preordered but not registered
                 # send the registration 
-                res = async_register( name_data['fqu'], payment_privkey=payment_privkey, owner_address=owner_address, proxy=proxy, queue_path=queue_path )
+                res = async_register( name_data['fqu'], payment_privkey=payment_privkey, owner_address=owner_address, proxy=proxy, config_path=config_path, queue_path=queue_path )
                 return res
 
             else:
@@ -130,7 +134,7 @@ class RegistrarWorker(threading.Thread):
 
 
     @classmethod 
-    def register_preorders( cls, queue_path, wallet_data, proxy=None ):
+    def register_preorders( cls, queue_path, wallet_data, config_path=CONFIG_PATH, proxy=None ):
         """
         Find all confirmed preorders, and register them.
         Return {'status': True} on success
@@ -143,7 +147,7 @@ class RegistrarWorker(threading.Thread):
         preorders = cls.get_confirmed_preorders( queue_path )
         for preorder in preorders:
             log.debug("Preorder for '%s' (%s) is confirmed!" % (preorder['fqu'], preorder['tx_hash']))
-            res = cls.register_preordered_name( preorder, wallet_data['payment_privkey'], wallet_data['owner_address'], proxy=proxy, queue_path=queue_path )
+            res = cls.register_preordered_name( preorder, wallet_data['payment_privkey'], wallet_data['owner_address'], proxy=proxy, config_path=config_path, queue_path=queue_path )
             if 'error' in res:
                 if res.get('already_registered'):
                     # can clear out, this is a dup
@@ -266,7 +270,7 @@ class RegistrarWorker(threading.Thread):
             try:
                 # see if we can clear out any preorders
                 log.debug("register all pending preorders in %s" % (self.queue_path))
-                res = RegistrarWorker.register_preorders( self.queue_path, wallet_data, proxy=self.proxy )
+                res = RegistrarWorker.register_preorders( self.queue_path, wallet_data, config_path=self.config_path, proxy=self.proxy )
                 if 'error' in res:
                     log.warn("Registration failed: %s" % res['error'])
 
@@ -344,7 +348,7 @@ class RegistrarState(object):
 
         self.config_path = config_path
         conf = get_config(config_path)
-        self.queue_path = conf['queue_path']
+        self.queue_path = conf['queue_file']
         self.proxy = proxy
         self.server_started_at = get_block_height()
         self.registrar_worker = RegistrarWorker( config_path, proxy=proxy )
@@ -487,11 +491,13 @@ def preorder(fqu, config_path=CONFIG_PATH, proxy=None):
     data = {}
 
     if state.payment_address is None or state.owner_address is None:
+        log.debug("Wallet is not unlocked")
         data['success'] = False
         data['error'] = "Wallet is not unlocked."
         return data
 
     if in_queue("preorder", fqu):
+        log.debug("Already enqueued: %s" % fqu)
         data['success'] = False
         data['error'] = "Already in queue."
         return data
@@ -501,7 +507,7 @@ def preorder(fqu, config_path=CONFIG_PATH, proxy=None):
     payment_privkey = get_payment_privkey()
 
     if not is_name_registered(fqu, proxy=proxy):
-        resp = async_preorder(fqu, None, state.owner_address, payment_privkey=payment_privkey, proxy=proxy, queue_path=state.queue_path)
+        resp = async_preorder(fqu, None, state.owner_address, payment_privkey=payment_privkey, proxy=proxy, config_path=config_path, queue_path=state.queue_path)
     else:
         return {'success': False, 'error': "Name is already registered"}
 
@@ -554,6 +560,7 @@ def update( fqu, zonefile, config_path=CONFIG_PATH, proxy=None, wallet_keys=None
                             payment_privkey=payment_privkey,
                             proxy=proxy,
                             wallet_keys=wallet_keys,
+                            config_path=config_path,
                             queue_path=state.queue_path)
 
     else:
@@ -618,6 +625,7 @@ def transfer(fqu, transfer_address, config_path=CONFIG_PATH, proxy=None ):
                               state.payment_address,
                               payment_privkey=payment_privkey,
                               proxy=proxy,
+                              config_path=config_path,
                               queue_path=state.queue_path)
     
     else:
@@ -636,6 +644,90 @@ def transfer(fqu, transfer_address, config_path=CONFIG_PATH, proxy=None ):
     return data
 
 
+
+def migrate( fqu, config_path=CONFIG_PATH, proxy=None, wallet_keys=None):
+    """
+    Migrate a profile from legacy format to the new profile/zonefile format.
+    Send update transaction and write data to the DHT and the blockstack server.
+    Replicate the zonefile data to the default storage providers.
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    state = get_plugin_state(config_path=config_path, proxy=proxy)
+    data = {}
+
+    if state.payment_address is None or state.owner_address is None:
+        data['success'] = False
+        data['error'] = "Wallet is not unlocked."
+        return data
+
+    if in_queue("update", fqu):
+        data['success'] = False
+        data['error'] = "Already in queue."
+        return data
+
+    rpc_token = get_rpc_token(config_path)
+    wallet_keys = get_wallet(rpc_token=rpc_token, config_path=config_path, proxy=proxy )
+    if 'error' in wallet_keys:
+        log.error("Failed to get wallet: %s" % wallet_keys['error'])
+        data['success'] = False
+        data['error'] = 'Failed to load wallet'
+        return data
+
+    res = migrate_profile( fqu, txid="ignored", proxy=proxy, wallet_keys=wallet_keys, include_profile=True )
+    if 'error' in res:
+        log.error("Failed to migrate profile: %s" % res['error'])
+        data['success'] = False
+        data['error'] = 'Failed to migrate profile'
+        return data
+
+    zonefile = res['zonefile']
+    resp = None
+
+    payment_privkey = get_payment_privkey()
+    owner_privkey = get_owner_privkey()
+    replication_error = None
+
+    if not is_zonefile_current(fqu, zonefile, proxy=proxy ):
+        resp = async_update(fqu, zonefile, owner_privkey,
+                            state.payment_address,
+                            payment_privkey=payment_privkey,
+                            proxy=proxy,
+                            wallet_keys=wallet_keys,
+                            queue_path=state.queue_path)
+
+    else:
+        return {'success': True, 'warning': "The zonefile has not changed, so no update sent."}
+
+    if 'error' not in resp:
+
+        if not is_zonefile_replicated( fqu, zonefile, proxy=proxy, wallet_keys=wallet_keys ):
+            # replicate zonefile 
+            storage_resp = store_name_zonefile( fqu, zonefile, resp['transaction_hash'] )
+            if 'error' in storage_resp:
+                replication_error = storage_resp['error']
+
+        data['success'] = True
+        data['message'] = "The name has been queued up for update and"
+        data['message'] += " will take ~1 hour to process. You can"
+        data['message'] += " check on the status at any time by running"
+        data['message'] += " 'blockstack info'."
+        data['transaction_hash'] = resp['transaction_hash']
+        data['zonefile_hash'] = resp['zonefile_hash']
+    else:
+        data['success'] = False
+        data['message'] = "Couldn't broadcast transaction. You can try again."
+        data['error'] = resp['error']
+
+
+    if replication_error is not None:
+        data['warning'] = "Failed to replicate the zonefile ('%s')" % replication_error
+
+    return data
+
+
 # these are the publicly-visible RPC methods
 # invoke with "backend_{method name}"
 RPC_PREFIX = "backend"
@@ -650,6 +742,7 @@ RPC_METHODS = [
     get_wallet,
     preorder,
     update,
-    transfer
+    transfer,
+    migrate
 ]
 
