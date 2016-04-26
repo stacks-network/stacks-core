@@ -87,6 +87,7 @@ from blockstack_client import \
     list_update_history, \
     list_zonefile_history, \
     lookup_snv, \
+    migrate_profile, \
     name_import, \
     namespace_preorder, \
     namespace_ready, \
@@ -106,7 +107,7 @@ from blockstack_client import \
     update, \
     update_subsidized
 
-from rpc import local_rpc_connect, local_rpc_ensure_running
+from rpc import local_rpc_connect, local_rpc_ensure_running, local_rpc_status, local_rpc_start, local_rpc_stop
 import rpc as local_rpc
 import config
 from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR
@@ -186,10 +187,10 @@ def can_update_or_transfer(fqu, config_path=CONFIG_PATH, transfer_address=None, 
     tx_fee_satoshi = approx_tx_fees(num_tx=1)
     tx_fee = satoshis_to_btc(tx_fee_satoshi)
 
-    if not hasEnoughBalance(payment_address, tx_fee):
+    if not hasEnoughBalance(payment_address, tx_fee, config_path=config_path):
         return {'error': 'Address %s doesn\'t have a sufficient balance.' % payment_address}
 
-    if dontuseAddress(payment_address):
+    if dontuseAddress(payment_address, config_path=config_path):
         return {'error': 'Address %s has pending transactions.  Wait and try later.' % payment_address}
 
     if transfer_address is not None:
@@ -232,7 +233,7 @@ def cli_balance( args, config_path=CONFIG_PATH ):
             return res
 
     result = {}
-    result['total_balance'], result['addresses'] = get_total_balance()
+    result['total_balance'], result['addresses'] = get_total_balance(config_path=config_path)
     return result
 
 
@@ -351,6 +352,54 @@ def cli_import( args, config_path=CONFIG_PATH ):
     return result
 
 
+def cli_import_wallet( args, config_path=CONFIG_PATH, password=None, force=False ):
+    """
+    command: import_wallet
+    help: Set the payment, owner, and (optionally) data private keys for the wallet.
+    arg: payment_privkey (str) "Payment private key"
+    arg: owner_privkey (str) "Name owner private key"
+    opt: data_privkey (str) "Data-signing private key"
+    """
+    config_dir = os.path.dirname(config_path)
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+    if force and os.path.exists(wallet_path):
+        # overwrite
+        os.unlink(wallet_path)
+
+    if not os.path.exists(wallet_path):
+        if password is None:
+
+            while True:
+                res = make_wallet_password(password)
+                if 'error' in res and password is None:
+                    print res['error']
+                    continue
+
+                elif password is not None:
+                    return res
+
+                else:
+                    password = res['password']
+                    break
+
+        data = make_wallet( password, payment_privkey=args.payment_privkey, owner_privkey=args.owner_privkey, data_privkey=args.data_privkey ) 
+        if 'error' in data:
+            return data
+
+        else:
+            write_wallet( data, path=wallet_path )
+
+            # update RPC daemon if we're running
+            if local_rpc_status(config_dir=config_dir):
+                local_rpc_stop(config_dir=config_dir)
+                local_rpc_start(config_dir=config_dir)
+
+            return {'status': True}
+
+    else:
+        return {'error': 'Wallet already exists!', 'message': 'Back up or remove current wallet first: %s' % wallet_path}
+
+
 def cli_names( args, config_path=CONFIG_DIR ):
     """
     command: names
@@ -365,8 +414,8 @@ def cli_names( args, config_path=CONFIG_DIR ):
         if 'error' in res:
             return res
 
-    result['names_owned'] = get_all_names_owned()
-    result['addresses'] = get_owner_addresses()
+    result['names_owned'] = get_all_names_owned(wallet_path)
+    result['addresses'] = get_owner_addresses(wallet_path)
 
     return result
 
@@ -376,11 +425,12 @@ def get_server_info( args, config_path=config.CONFIG_PATH ):
     Get information about the running server,
     and any pending operations.
     """
-
+    
     config_dir = os.path.dirname(config_path)
     conf = config.get_config(config_path)
-    resp = getinfo()
+    start_rpc_endpoint(config_dir)
 
+    resp = getinfo()
     result = {}
 
     result['server_host'] = conf['server']
@@ -410,7 +460,7 @@ def get_server_info( args, config_path=config.CONFIG_PATH ):
         if conf['advanced_mode']:
             result['testset'] = resp['testset']
 
-        rpc = local_rpc_connect(config_dir)
+        rpc = local_rpc_connect(config_dir=config_dir)
 
         if rpc is not None:
 
@@ -588,6 +638,7 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
     if not os.path.exists(wallet_path):
         res = initialize_wallet(wallet_path=wallet_path)
         if 'error' in res:
+            log.debug("initialize_wallet: %s" % res['error'])
             return res
 
     result = {}
@@ -608,8 +659,10 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
         return {'error': '%s is already registered.' % fqu}
 
     if not walletUnlocked(config_dir=config_dir):
+        log.debug("unlocking wallet (%s)" % config_dir)
         res = unlock_wallet(config_dir=config_dir, password=password)
         if 'error' in res:
+            log.debug("unlock_wallet: %s" % res['error'])
             return res
 
     fees = get_total_fees(cost)
@@ -631,7 +684,7 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
 
     payment_address, owner_address, data_address = get_addresses_from_file(wallet_path=wallet_path)
 
-    if not hasEnoughBalance(payment_address, fees['total_estimated_cost']):
+    if not hasEnoughBalance(payment_address, fees['total_estimated_cost'], config_path=config_path):
         msg = "Address %s doesn't have enough balance." % payment_address
         return {'error': msg}
 
@@ -639,7 +692,7 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
         msg = "Address %s owns too many names already." % owner_address
         return {'error': msg}
 
-    if dontuseAddress(payment_address):
+    if dontuseAddress(payment_address, config_path=config_path):
         msg = "Address %s has pending transactions." % payment_address
         msg += " Wait and try later."
         return {'error': msg}
@@ -655,6 +708,7 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
         result = resp
     else:
         if 'error' in resp:
+            log.debug("RPC error: %s" % resp['error'])
             return resp
 
         if 'message' in resp:
@@ -691,7 +745,7 @@ def cli_update( args, config_path=CONFIG_PATH, password=None ):
     except:
         return {'error': 'Zonefile data is not in JSON format.'}
 
-    res = can_update_or_transfer(fqu)
+    res = can_update_or_transfer(fqu, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -747,7 +801,7 @@ def cli_transfer( args, config_path=CONFIG_PATH, password=None ):
 
     transfer_address = str(args.address)
 
-    res = can_update_or_transfer(fqu, transfer_address=transfer_address)
+    res = can_update_or_transfer(fqu, transfer_address=transfer_address, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -760,6 +814,68 @@ def cli_transfer( args, config_path=CONFIG_PATH, password=None ):
 
     try:
         resp = rpc.backend_transfer(fqu, transfer_address)
+    except:
+        return {'error': 'Error talking to server, try again.'}
+
+    if 'success' in resp and resp['success']:
+        result = resp
+    else:
+        if 'error' in resp:
+            return resp
+
+        if 'message' in resp:
+            return {'error': resp['message']}
+
+    return result
+
+
+def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None ):
+    """
+    command: migrate
+    help: Migrate your profile from the legacy format to the new format.  This will enable all new features.
+    arg: name (str) "The name to migrate"
+    opt: txid (str) "The transaction ID of a previously-sent but failed migration"
+    """
+
+    config_dir = os.path.dirname(config_path)
+    start_rpc_endpoint(config_dir)
+
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+    if not os.path.exists(wallet_path):
+        res = initialize_wallet(wallet_path=wallet_path)
+        if 'error' in res:
+            return res
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    fqu = str(args.name)
+    error = check_valid_name(fqu)
+    if error:
+        return {'error': error}
+
+    res = can_update_or_transfer(fqu, config_path=config_path)
+    if 'error' in res:
+        return res
+
+    if not walletUnlocked(config_dir=config_dir):
+        res = unlock_wallet(config_dir=config_dir, password=password)
+        if 'error' in res:
+            return res
+
+    wallet_keys = get_wallet( config_path=config_path )
+    if 'error' in wallet_keys:
+        return wallet_keys 
+
+    user_zonefile = get_name_zonefile( fqu, proxy=proxy, wallet_keys=wallet_keys )
+    if 'error' not in user_zonefile and is_zonefile_current(fqu, user_zonefile):
+        msg ="Zonefile data is same as current zonefile; update not needed."
+        return {'error': msg}
+
+    rpc = local_rpc_connect(config_dir=config_dir)
+
+    try:
+        resp = rpc.backend_migrate(fqu)
     except:
         return {'error': 'Error talking to server, try again.'}
 
