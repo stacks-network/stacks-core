@@ -185,7 +185,7 @@ def local_rpc_server_stop( srv ):
     srv.shutdown()
 
 
-def local_rpc_connect( api_port=None, config_dir=config.CONFIG_DIR ):
+def local_rpc_connect( config_dir=config.CONFIG_DIR, api_port=None ):
     """
     Connect to a locally-running RPC server
     Return a server proxy object on success.
@@ -199,6 +199,7 @@ def local_rpc_connect( api_port=None, config_dir=config.CONFIG_DIR ):
 
         api_port = conf['api_endpoint_port']
 
+    log.debug("Connect to RPC at localhost:%s" % api_port)
     return BlockstackAPIEndpointClient( "localhost", api_port )
 
 
