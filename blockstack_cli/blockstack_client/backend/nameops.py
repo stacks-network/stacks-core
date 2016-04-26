@@ -27,7 +27,7 @@ from crypto.utils import get_address_from_privkey, get_pubkey_from_privkey
 from ..utils import pretty_print as pprint
 from ..utils import pretty_dump
 
-from ..config import PREORDER_CONFIRMATIONS, DEFAULT_QUEUE_PATH
+from ..config import PREORDER_CONFIRMATIONS, DEFAULT_QUEUE_PATH, CONFIG_PATH
 from ..config import get_logger
 
 from ..profile import hash_zonefile
@@ -61,7 +61,7 @@ def send_subsidized(hex_privkey, unsigned_tx_hex):
     return resp
 
 
-def async_preorder(fqu, paymetn_address, owner_address, payment_privkey=None, proxy=None, queue_path=DEFAULT_QUEUE_PATH):
+def async_preorder(fqu, paymetn_address, owner_address, payment_privkey=None, proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH):
     """
         Preorder a fqu (step #1)
 
@@ -89,11 +89,11 @@ def async_preorder(fqu, paymetn_address, owner_address, payment_privkey=None, pr
         return {'error': 'Address owns too many names'}
 
     payment_address = get_address_from_privkey(payment_privkey)
-    if dontuseAddress(payment_address):
+    if dontuseAddress(payment_address, config_path=config_path):
         log.debug("Payment address not ready: %s" % payment_address)
         return {'error': 'Payment address is not ready'}
 
-    elif underfundedAddress(payment_address):
+    elif underfundedAddress(payment_address, config_path=config_path):
         log.debug("Payment address under funded: %s" % payment_address)
         return {'error': 'Payment address is underfunded'}
 
@@ -121,7 +121,7 @@ def async_preorder(fqu, paymetn_address, owner_address, payment_privkey=None, pr
     return resp
 
 
-def async_register(fqu, payment_address=None, owner_address=None, payment_privkey=None, auto_preorder=True, proxy=None, queue_path=DEFAULT_QUEUE_PATH):
+def async_register(fqu, payment_address=None, owner_address=None, payment_privkey=None, auto_preorder=True, proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH):
     """
         Register a previously preordered fqu (step #2)
 
@@ -184,11 +184,11 @@ def async_register(fqu, payment_address=None, owner_address=None, payment_privke
     else:
         payment_address = get_address_from_privkey(payment_privkey)
 
-    if dontuseAddress(payment_address):
+    if dontuseAddress(payment_address, config_path=config_path):
         log.debug("Payment address not ready: %s" % payment_address)
         return {'error': 'Payment address not ready'}
 
-    elif underfundedAddress(payment_address):
+    elif underfundedAddress(payment_address, config_path=config_path):
         log.debug("Payment address under funded: %s" % payment_address)
         return {'error': 'Payment address underfunded'}
 
@@ -215,7 +215,7 @@ def async_register(fqu, payment_address=None, owner_address=None, payment_privke
         return {'error': 'Failed to send registration'}
 
 
-def async_update(fqu, zonefile, owner_privkey, payment_address,
+def async_update(fqu, zonefile, owner_privkey, payment_address, config_path=CONFIG_PATH,
                       payment_privkey=None, proxy=None, wallet_keys=None, queue_path=DEFAULT_QUEUE_PATH):
     """
         Update a previously registered fqu, using a different payment address
@@ -254,11 +254,11 @@ def async_update(fqu, zonefile, owner_privkey, payment_address,
         log.debug("Given privkey/address doesn't own this name.")
         return {'error': 'Name is not owned'}
 
-    if dontuseAddress(payment_address):
+    if dontuseAddress(payment_address, config_path=config_path):
         log.debug("Payment address not ready: %s" % payment_address)
         return {'error': 'Payment address is not ready'}
 
-    elif underfundedAddress(payment_address):
+    elif underfundedAddress(payment_address, config_path=config_path):
         log.debug("Payment address under funded: %s" % payment_address)
         return {'error': 'Payment address is underfunded'}
 
@@ -304,7 +304,7 @@ def async_update(fqu, zonefile, owner_privkey, payment_address,
         return {'error': 'Failed to broadcast update'}
 
 
-def async_transfer(fqu, transfer_address, owner_privkey, payment_address, payment_privkey=None, proxy=None, queue_path=DEFAULT_QUEUE_PATH):
+def async_transfer(fqu, transfer_address, owner_privkey, payment_address, config_path=CONFIG_PATH, payment_privkey=None, proxy=None, queue_path=DEFAULT_QUEUE_PATH):
     """
         Transfer a previously registered fqu, using a different payment address.
         Preserves the zonefile.
@@ -349,11 +349,11 @@ def async_transfer(fqu, transfer_address, owner_privkey, payment_address, paymen
         log.debug("Given privkey/address doesn't own this name.")
         return {'error': 'Given keypair does not own this name'}
 
-    if dontuseAddress(payment_address):
+    if dontuseAddress(payment_address, config_path=config_path):
         log.debug("Payment address not ready: %s" % payment_address)
         return {'error': 'Payment address is not ready'}
 
-    elif underfundedAddress(payment_address):
+    elif underfundedAddress(payment_address, config_path=config_path):
         log.debug("Payment address under funded: %s" % payment_address)
         return {'error': 'Payment address is underfunded'}
 
