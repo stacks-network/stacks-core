@@ -80,7 +80,7 @@ class HDWallet(object):
         hex_privkey and get child addresses and private keys
     """
 
-    def __init__(self, hex_privkey=None):
+    def __init__(self, hex_privkey=None, config_path=CONFIG_PATH):
 
         """
             If @hex_privkey is given, use that to derive keychain
@@ -95,6 +95,7 @@ class HDWallet(object):
 
         self.master_address = self.get_master_address()
         self.child_addresses = None
+        self.config_path = config_path
 
 
     def get_master_privkey(self):
@@ -160,11 +161,14 @@ class HDWallet(object):
         return keypairs
 
 
-    def get_next_keypair(self, count=1):
+    def get_next_keypair(self, count=1, config_path=None):
         """ Get next payment address that is ready to use
 
             Returns (payment_address, hex_privkey)
         """
+
+        if config_path is None:
+            config_path = self.config_path
 
         addresses = self.get_child_keypairs(count=count)
         index = 0
@@ -173,10 +177,10 @@ class HDWallet(object):
 
             # find an address that can be used for payment
 
-            if dontuseAddress(payment_address):
+            if dontuseAddress(payment_address, config_path=config_path):
                 log.debug("Pending tx on address: %s" % payment_address)
 
-            elif underfundedAddress(payment_address):
+            elif underfundedAddress(payment_address, config_path=config_path):
                 log.debug("Underfunded address: %s" % payment_address)
 
             else:
@@ -208,42 +212,150 @@ class HDWallet(object):
         return None
 
 
-def make_wallet( hex_privkey, password ):
+def make_wallet( password, hex_privkey=None, payment_privkey=None, owner_privkey=None, data_privkey=None, config_path=CONFIG_PATH ):
     """
     Make a wallet structure
     """
 
     hex_password = hexlify(password)
 
-    wallet = HDWallet(hex_privkey)
+    wallet = HDWallet(hex_privkey, config_path=config_path)
+    if hex_privkey is None:
+        hex_privkey = wallet.get_master_privkey()
+        
     child = wallet.get_child_keypairs(count=3, include_privkey=True)
 
     data = {}
     encrypted_key = aes_encrypt(hex_privkey, hex_password)
     data['encrypted_master_private_key'] = encrypted_key
-    data['payment_addresses'] = [child[0][0]]
-    data['owner_addresses'] = [child[1][0]]
-    data_keypair = child[2]
 
-    data_pubkey = ECPrivateKey(data_keypair[1]).public_key().to_hex()
-    data['data_pubkeys'] = [data_pubkey]
+    if payment_privkey is None:
+        data['payment_addresses'] = [child[0][0]]
+    else:
+        try:
+            data['payment_addresses'] = [pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().address()]
+        except:
+            return {'error': 'Invalid payment private key'}
+
+        data['encrypted_payment_privkey'] = aes_encrypt(payment_privkey, hex_password)
+
+    if owner_privkey is None:
+        data['owner_addresses'] = [child[1][0]]
+    else:
+        try:
+            data['owner_addresses'] = [pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().address()]
+        except:
+            return {'error': 'Invalid payment private key'}
+
+        data['encrypted_owner_privkey'] = aes_encrypt(owner_privkey, hex_password)
+
+    data_keypair = child[2]
+    if data_privkey is None:
+        data['data_pubkeys'] = [ECPrivateKey(data_keypair[1]).public_key().to_hex()]
+    else:
+        try:
+            data['data_pubkeys'] = [ECPrivateKey(data_privkey).public_key().to_hex()]
+        except:
+            return {'error': 'Invalid data private key'}
+
+        data['encrypted_data_privkey'] = aes_encrypt(data_privkey, hex_password)
+
+    data['data_pubkey'] = data['data_pubkeys'][0]
 
     return data
 
 
-def write_wallet( hex_privkey, password, path=None, config_dir=CONFIG_DIR ):
+def decrypt_wallet( data, password, config_path=CONFIG_PATH ):
+    """
+    Decrypt a wallet's encrypted fields
+    Return a dict with the decrypted fields on success
+    Return {'error': ...} on failure
+    """
+    hex_password = hexlify(password)
+    
+    try:
+        hex_privkey = aes_decrypt(data['encrypted_master_private_key'],
+                                hex_password)
+    except Exception, e:
+        log.exception(e)
+        return {'error': 'Incorrect password'}
+
+    wallet = HDWallet(hex_privkey, config_path=config_path)
+    
+    child = wallet.get_child_keypairs(count=3, include_privkey=True)
+    payment_keypair = child[0]
+    owner_keypair = child[1]
+    data_keypair = child[2]
+    data_pubkey = ECPrivateKey( data_keypair[1] ).public_key().to_hex()
+
+    ret = {}
+    keynames = ['payment_privkey', 'owner_privkey', 'data_privkey']
+    for i in xrange(0, len(keynames)):
+
+        keyname = keynames[i]
+        child_keypair = child[i]
+        encrypted_keyname = "encrypted_%s" % keyname
+
+        if data.has_key(encrypted_keyname):
+            try:
+                privkey = aes_decrypt(data[encrypted_keyname], hex_password)
+            except Exception, e:
+                log.exception(e)
+                return {'error': 'Incorrect password'}
+
+            ret[keyname] = privkey
+        else:
+            ret[keyname] = child_keypair[1]
+
+    ret['hex_privkey'] = hex_privkey
+    ret['payment_addresses'] = [pybitcoin.BitcoinPrivateKey(ret['payment_privkey']).public_key().address()]
+    ret['owner_addresses'] = [pybitcoin.BitcoinPrivateKey(ret['owner_privkey']).public_key().address()]
+    ret['data_pubkeys'] = [ECPrivateKey(ret['data_privkey']).public_key().to_hex()]
+    ret['data_pubkey'] = ret['data_pubkeys'][0]
+
+    return ret
+
+
+def write_wallet( data, path=None, config_dir=CONFIG_DIR ):
     """
     Generate and save the wallet to disk.
     """
     if path is None:
         path = os.path.join(config_dir, WALLET_FILENAME )
 
-    data = make_wallet( hex_privkey, password )
     with open(path, 'w') as f:
         f.write( json.dumps(data) )
         f.flush()
+        os.fsync(f.fileno())
 
     return True
+
+
+def make_wallet_password( password=None ):
+    """
+    Make a wallet password:
+    prompt for a wallet, and ensure it's the right length.
+    If @password is not None, verify that it's the right length.
+    Return {'status': True, 'password': ...} on success
+    Return {'error': ...} on error
+    """
+    if password is not None and len(password) > 0:
+        if len(password) < WALLET_PASSWORD_LENGTH:
+            return {'error': 'Password not long enough (%s-character minimum)' % WALLET_PASSWORD_LENGTH}
+
+        return {'status': True, 'password': password}
+
+    else:
+        p1 = getpass("Enter new password: ")
+        p2 = getpass("Confirm new password: ")
+        if p1 != p2:
+            return {'error': 'Passwords do not match'}
+
+        if len(p1) < WALLET_PASSWORD_LENGTH:
+            return {'error': 'Password not long enough (%s-character minimum)' % WALLET_PASSWORD_LENGTH}
+
+        else:
+            return {'status': True, 'password': p1}
 
 
 def initialize_wallet( password="", interactive=True, hex_privkey=None, config_dir=CONFIG_DIR, wallet_path=None ):
@@ -255,6 +367,8 @@ def initialize_wallet( password="", interactive=True, hex_privkey=None, config_d
     """
     if wallet_path is None:
         wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+
+    config_path = os.path.join(config_dir, CONFIG_FILENAME)
         
     if not interactive and len(password) == 0:
         raise Exception("Non-interactive wallet initialization requires a password of length %s or greater" % WALLET_PASSWORD_LENGTH)
@@ -265,26 +379,22 @@ def initialize_wallet( password="", interactive=True, hex_privkey=None, config_d
     try:
         if interactive:
             while len(password) < WALLET_PASSWORD_LENGTH:
-                password = getpass("Enter new password: ")
-
-                if len(password) < WALLET_PASSWORD_LENGTH:
-                    msg = "Password is too short. Please make it at"
-                    msg += " least %s characters long" % WALLET_PASSWORD_LENGTH
-                    print msg
+                res = make_wallet_password(password)
+                if 'error' in res:
+                    print res['error']
+                    continue
 
                 else:
+                    password = res['password']
                     break
 
-            confirm_password = getpass("Confirm new password: ")
-
-            if password != confirm_password:
-                return {'error': 'Passwords do not match'}
-
         if hex_privkey is None:
-            temp_wallet = HDWallet()
+            temp_wallet = HDWallet(config_path=config_path)
             hex_privkey = temp_wallet.get_master_privkey()
 
-        write_wallet( hex_privkey, password, path=wallet_path )
+        wallet = make_wallet( password, hex_privkey=hex_privkey, config_path=config_path )
+        write_wallet( wallet, path=wallet_path ) 
+
         print "Wallet created. Make sure to backup the following:"
 
         result['wallet_password'] = password
@@ -314,6 +424,8 @@ def load_wallet( password=None, config_dir=CONFIG_DIR, wallet_path=None, include
     if wallet_path is None:
         wallet_path = os.path.join( config_dir, WALLET_FILENAME )
 
+    config_path = os.path.join(config_dir, CONFIG_FILENAME )
+
     if password is None:
         password = getpass("Enter wallet password: ")
 
@@ -323,30 +435,12 @@ def load_wallet( password=None, config_dir=CONFIG_DIR, wallet_path=None, include
     data = file.read()
     data = json.loads(data)
     file.close()
-    hex_privkey = None
-    try:
-        hex_privkey = aes_decrypt(data['encrypted_master_private_key'],
-                                  hex_password)
-    except Exception, e:
-        log.exception(e)
-        return {'error': 'Incorrect password'}
+
+    wallet = decrypt_wallet( data, hex_password, config_path=config_path )
+    if 'error' in wallet:
+        return wallet
 
     else:
-        wallet = HDWallet(hex_privkey)
-        child = wallet.get_child_keypairs(count=3,
-                                          include_privkey=True)
-        payment_keypair = child[0]
-        owner_keypair = child[1]
-        data_keypair = child[2]
-        data_pubkey = ECPrivateKey( data_keypair[1] ).public_key().to_hex()
-
-        wallet = make_wallet( hex_privkey, password )
-        if include_private:
-            wallet['owner_privkey'] = owner_keypair[1]
-            wallet['payment_privkey'] = payment_keypair[1]
-            wallet['data_privkey'] = data_keypair[1]
-            wallet['master_privkey'] = hex_privkey
-
         return {'status': True, 'wallet': wallet}
     
 
@@ -358,56 +452,54 @@ def unlock_wallet(display_enabled=False, password=None, config_dir=CONFIG_DIR, w
     Return {'status': True} on success
     return {'error': ...} on error
     """
+    config_path = os.path.join( config_dir, CONFIG_FILENAME )
     if wallet_path is None:
         wallet_path = os.path.join( config_dir, WALLET_FILENAME )
 
     if walletUnlocked(config_dir):
         if display_enabled:
             payment_address, owner_address, data_pubkey = get_addresses_from_file(wallet_path=wallet_path)
-            display_wallet_info(payment_address, owner_address, data_pubkey)
+            display_wallet_info(payment_address, owner_address, data_pubkey, config_path=config_path)
     else:
 
         try:
             if password is None:
                 password = getpass("Enter wallet password: ")
 
-            hex_password = hexlify(password)
+            with open(wallet_path, "r") as f:
+                data = f.read()
+                data = json.loads(data)
 
-            file = open(wallet_path, 'r')
-            data = file.read()
-            data = json.loads(data)
-            file.close()
-            hex_privkey = None
-            try:
-                hex_privkey = aes_decrypt(data['encrypted_master_private_key'],
-                                          hex_password)
-            except Exception, e:
-                log.exception(e)
-                return {'error': 'Incorrect password'}
+            wallet = decrypt_wallet( data, password, config_path=config_path )
+            if display_enabled:
+                display_wallet_info( wallet['payment_addresses'][0], wallet['owner_addresses'][0], wallet['data_pubkeys'][0], config_path=config_path )
 
-            else:
-                wallet = HDWallet(hex_privkey)
-                child = wallet.get_child_keypairs(count=3,
-                                                  include_privkey=True)
-                payment_keypair = child[0]
-                owner_keypair = child[1]
+            # may need to migrate data_pubkey into wallet.json
+            _, _, onfile_data_pubkey = get_addresses_from_file(wallet_path=wallet_path)
+            if onfile_data_pubkey is None:
+
+                # make a data keypair 
+                w = HDWallet(wallet['hex_privkey'], config_path=config_path)
+                child = wallet.get_child_keypairs(count=3, include_privkey=True)
                 data_keypair = child[2]
-                data_pubkey = ECPrivateKey( data_keypair[1] ).public_key().to_hex()
 
-                res = save_keys_to_memory(payment_keypair, owner_keypair, data_keypair, config_dir=config_dir)
-                if 'error' in res:
-                    return res
+                wallet['data_privkey'] = data_keypair[1]
+                wallet['data_pubkeys'] = [ECPrivateKey(data_keypair[1]).public_key().to_hex()]
+                wallet['data_pubkey'] = wallet['data_pubkeys'][0]
 
-                if display_enabled:
-                    display_wallet_info(payment_keypair[0], owner_keypair[0], data_pubkey)
+                write_wallet( wallet, path=wallet_path + ".tmp" )
+                shutil.move( wallet_path + ".tmp", wallet_path )
 
-                # may need to migrate data_pubkey into wallet.json
-                _, _, onfile_data_pubkey = get_addresses_from_file(wallet_path=wallet_path)
-                if onfile_data_pubkey is None:
-                    write_wallet( hex_privkey, password, path=wallet_path+".tmp" )
-                    shutil.move( wallet_path+".tmp", wallet_path )
+            # save!
+            res = save_keys_to_memory( [wallet['payment_addresses'][0], wallet['payment_privkey']],
+                                       [wallet['owner_addresses'][0], wallet['owner_privkey']],
+                                       [wallet['data_pubkeys'][0], wallet['data_privkey']],
+                                       config_dir=config_dir )
 
-                return {'status': True}
+            if 'error' in res:
+                return res
+
+            return {'status': True}
 
         except KeyboardInterrupt:
             print "\nExited."
@@ -427,10 +519,6 @@ def walletUnlocked(config_dir=CONFIG_DIR):
 
         try:
             wallet_data = local_proxy.backend_get_wallet(conf['rpc_token'])
-            if 'error' in wallet_data:
-                log.error("RPC error: %s" % wallet_data['error'])
-                raise Exception("RPC error: %s" % wallet_data['error'])
-
         except Exception, e:
             log.exception(e)
             return {'error': 'Failed to get wallet'}
@@ -473,7 +561,7 @@ def get_wallet(config_path=CONFIG_PATH):
         return None
 
 
-def display_wallet_info(payment_address, owner_address, data_public_key):
+def display_wallet_info(payment_address, owner_address, data_public_key, config_path=CONFIG_PATH):
     """
     Print out useful wallet information
     """
@@ -486,7 +574,7 @@ def display_wallet_info(payment_address, owner_address, data_public_key):
 
     print '-' * 60
     print "Balance:"
-    print "%s: %s" % (payment_address, get_balance(payment_address))
+    print "%s: %s" % (payment_address, get_balance(payment_address, config_path=config_path))
     print '-' * 60
 
     print "Names Owned:"
@@ -547,17 +635,21 @@ def get_addresses_from_file(config_dir=CONFIG_DIR, wallet_path=None):
     return payment_address, owner_address, data_pubkey
 
 
-def get_payment_addresses(wallet_path=WALLET_PATH):
+def get_payment_addresses(config_path=CONFIG_PATH, wallet_path=None):
     """
     Get payment addresses
     """
+    config_dir = os.path.dirname(config_path)
+    if wallet_path is None:
+        wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+
     payment_addresses = []
 
     # currently only using one
     payment_address, owner_address, data_pubkey = get_addresses_from_file(wallet_path=wallet_path)
 
     payment_addresses.append({'address': payment_address,
-                              'balance': get_balance(payment_address)})
+                              'balance': get_balance(payment_address, config_path=config_path)})
 
     return payment_addresses
 
@@ -590,9 +682,9 @@ def get_all_names_owned(wallet_path=WALLET_PATH):
     return names_owned
 
 
-def get_total_balance(wallet_path=WALLET_PATH):
+def get_total_balance(config_path=CONFIG_PATH, wallet_path=WALLET_PATH):
 
-    payment_addresses = get_payment_addresses(wallet_path)
+    payment_addresses = get_payment_addresses(wallet_path, config_path=config_path)
     total_balance = 0.0
 
     for entry in payment_addresses:
@@ -610,9 +702,9 @@ def approx_tx_fees(num_tx):
     return num_tx * APPROX_FEE_PER_TX
 
 
-def hasEnoughBalance(payment_address, cost):
+def hasEnoughBalance(payment_address, cost, config_path=CONFIG_PATH):
 
-    total_balance = get_balance(payment_address)
+    total_balance = get_balance(payment_address, config_path=config_path)
 
     if total_balance > cost:
         return True
