@@ -434,20 +434,19 @@ def check( state_engine ):
                     (key_url, key_res[2]['key_url'], less_secure_app_listing[0], json.dumps(key_res, indent=4, sort_keys=True))
             return False
 
-        profile_key = blockstack_gpg.gpg_profile_get_key( name, account_key_listing[0]['keyName'], gpghome=gpghome )
+        profile_key = blockstack_gpg.gpg_profile_get_key( name, account_key_listing[0]['keyName'] )
         if 'error' in profile_key:
             print "no key in account %s: %s" % (account_key_listing, profile_key['error'])
             return False
 
         secure_app_key = blockstack_gpg.gpg_app_get_key( name, "secure_messaging", secure_app_listing[0]['keyName'], \
-                                                         immutable=True, gpghome=gpghome )
+                                                         immutable=True )
 
         if 'error' in secure_app_key:
             print "no key in secure_messaging listing %s: %s" % (secure_app_listing, secure_app_key['error'])
             return False
 
-        less_secure_app_key = blockstack_gpg.gpg_app_get_key( name, "less-secure_messaging", less_secure_app_listing[0]['keyName'], \
-                                                             gpghome=gpghome )
+        less_secure_app_key = blockstack_gpg.gpg_app_get_key( name, "less-secure_messaging", less_secure_app_listing[0]['keyName'] )
         if 'error' in less_secure_app_key:
             print "no key in less-secure_messaging listing %s: %s" % (less_secure_app_listing, less_secure_app_key['error'])
             return False
