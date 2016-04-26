@@ -39,8 +39,6 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
 def scenario( wallets, **kw ):
 
-    testlib.blockstack_client_initialize_wallet( wallets[2].privkey, "0123456789abcdef", 50000000000 )
-
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
 
@@ -50,6 +48,7 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
     testlib.next_block( **kw )
 
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, None )
     for i in xrange(0, 3):
         resp = testlib.blockstack_rpc_register( "foo_%s.test" % i, "0123456789abcdef" )
         if 'error' in resp:
@@ -91,16 +90,6 @@ def check( state_engine ):
         print "wrong namespace"
         return False 
     
-    # owned by the right address 
-    wallet = testlib.blockstack_client_get_wallet()
-    if wallet is None:
-        print "failed to get wallet"
-        return False 
-
-    if 'error' in wallet:
-        print "failed to get wallet: %s" % wallet['error']
-        return False
-
     for i in xrange(0, 3):
         # registered 
         name_rec = state_engine.get_name( "foo_%s.test" % i )
@@ -109,7 +98,7 @@ def check( state_engine ):
             return False 
 
         # owned by
-        owner_address = str(wallet['owner_address'])
+        owner_address = wallets[3].addr
         if name_rec['address'] != owner_address or name_rec['sender'] != pybitcoin.make_pay_to_address_script(owner_address):
             print "sender is wrong"
             return False 

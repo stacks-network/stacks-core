@@ -42,7 +42,6 @@ zonefile_hash = None
 def scenario( wallets, **kw ):
 
     global zonefile_hash
-    testlib.blockstack_client_initialize_wallet( wallets[2].privkey, "0123456789abcdef", 50000000000 )
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
@@ -53,6 +52,7 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
     testlib.next_block( **kw )
 
+    wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, None )
     resp = testlib.blockstack_rpc_register( "foo.test", "0123456789abcdef" )
     if 'error' in resp:
         print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
@@ -74,7 +74,7 @@ def scenario( wallets, **kw ):
     time.sleep(10)
 
     # transfer to a new address 
-    resp = testlib.blockstack_rpc_transfer( "foo.test", wallets[3].addr, "0123456789abcdef" )
+    resp = testlib.blockstack_rpc_transfer( "foo.test", wallets[4].addr, "0123456789abcdef" )
 
     if 'error' in resp:
         print >> sys.stderr, "transfer error: %s" % resp['error']
@@ -116,7 +116,7 @@ def check( state_engine ):
         return False 
 
     # owned by
-    owner_address = wallets[3].addr
+    owner_address = wallets[4].addr
     if name_rec['address'] != owner_address or name_rec['sender'] != pybitcoin.make_pay_to_address_script(owner_address):
         print "sender is wrong"
         return False 
