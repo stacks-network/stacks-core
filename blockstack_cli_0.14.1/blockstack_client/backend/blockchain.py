@@ -237,6 +237,7 @@ def underfundedAddress(address, config_path=CONFIG_PATH):
     Return False if not.
     """
     balance = get_balance(address, config_path=config_path)
+    log.debug("Balance of %s is %s" % (address, balance))
 
     if balance is None:
         log.debug("Balance: (%s, %s)" % (address, balance))
