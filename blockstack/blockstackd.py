@@ -65,7 +65,7 @@ import pybitcoin
 
 from lib import nameset as blockstack_state_engine
 from lib import get_db_state
-from lib.config import REINDEX_FREQUENCY, DEFAULT_DUST_FEE
+from lib.config import REINDEX_FREQUENCY, DEFAULT_DUST_FEE 
 from lib import *
 from lib.storage import *
 
@@ -295,7 +295,8 @@ def get_tx_broadcaster():
    if 'tx_broadcaster' not in blockstack_opts:
        return get_utxo_provider_client()
 
-   broadcaster_opts = default_utxo_provider_opts( blockstack_opts['tx_broadcaster'] )
+   config_path = virtualchain.get_config_filename()
+   broadcaster_opts = default_utxo_provider_opts( blockstack_opts['tx_broadcaster'], config_file=config_path )
 
    try:
        blockchain_broadcaster = connect_utxo_provider( broadcaster_opts )
