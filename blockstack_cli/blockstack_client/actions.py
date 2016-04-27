@@ -382,7 +382,7 @@ def cli_import_wallet( args, config_path=CONFIG_PATH, password=None, force=False
                     password = res['password']
                     break
 
-        data = make_wallet( password, payment_privkey=args.payment_privkey, owner_privkey=args.owner_privkey, data_privkey=args.data_privkey ) 
+        data = make_wallet( password, payment_privkey=args.payment_privkey, owner_privkey=args.owner_privkey, data_privkey=args.data_privkey, config_path=config_path ) 
         if 'error' in data:
             return data
 
@@ -392,7 +392,7 @@ def cli_import_wallet( args, config_path=CONFIG_PATH, password=None, force=False
             # update RPC daemon if we're running
             if local_rpc_status(config_dir=config_dir):
                 local_rpc_stop(config_dir=config_dir)
-                local_rpc_start(config_dir=config_dir)
+                start_rpc_endpoint(config_dir)
 
             return {'status': True}
 
@@ -896,9 +896,11 @@ def cli_advanced_wallet( args, config_path=CONFIG_PATH, password=None ):
     command: wallet
     help: Query wallet information
     """
-
-    result = None
+    
+    result = {}
     config_dir = os.path.dirname(config_path)
+    start_rpc_endpoint(config_dir)
+
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
     if not os.path.exists(wallet_path):
         result = initialize_wallet(wallet_path=wallet_path)
