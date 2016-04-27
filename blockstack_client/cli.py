@@ -141,7 +141,6 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             else:
                 i+=1
 
-    print "\n%s\n" % argv
     conf = config.get_config(path=config_path)
 
     if conf is None:
@@ -191,7 +190,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
 
         method = method_info['method']
         result = method( args, config_path=config_path )
-        
+       
         return result
 
     # not found 
