@@ -410,7 +410,7 @@ def initialize_wallet( password="", interactive=True, hex_privkey=None, config_d
                 return {'error': 'Please back up your private key first'}
 
     except KeyboardInterrupt:
-        exit_with_error("\nExited.")
+        return {'error': 'Interrupted'}
 
     return result
 
@@ -429,14 +429,12 @@ def load_wallet( password=None, config_dir=CONFIG_DIR, wallet_path=None, include
     if password is None:
         password = getpass("Enter wallet password: ")
 
-    hex_password = hexlify(password)
-
     file = open(wallet_path, 'r')
     data = file.read()
     data = json.loads(data)
     file.close()
 
-    wallet = decrypt_wallet( data, hex_password, config_path=config_path )
+    wallet = decrypt_wallet( data, password, config_path=config_path )
     if 'error' in wallet:
         return wallet
 
@@ -460,6 +458,9 @@ def unlock_wallet(display_enabled=False, password=None, config_dir=CONFIG_DIR, w
         if display_enabled:
             payment_address, owner_address, data_pubkey = get_addresses_from_file(wallet_path=wallet_path)
             display_wallet_info(payment_address, owner_address, data_pubkey, config_path=config_path)
+
+        return {'status': True}
+
     else:
 
         try:
@@ -502,8 +503,7 @@ def unlock_wallet(display_enabled=False, password=None, config_dir=CONFIG_DIR, w
             return {'status': True}
 
         except KeyboardInterrupt:
-            print "\nExited."
-            sys.exit(1)
+            return {'error': 'Interrupted'}
 
 
 def walletUnlocked(config_dir=CONFIG_DIR):
@@ -729,13 +729,13 @@ def get_total_fees(data):
     return reply
 
 
-def dump_wallet(config_path=CONFIG_PATH):
+def dump_wallet(config_path=CONFIG_PATH, password=None):
     """
     Load the wallet private keys.
     Return {'status': True, 'wallet': wallet} on success
     Return {'error': ...} on error
     """
-    from .action import start_rpc_endpoint
+    from .actions import start_rpc_endpoint
 
     config_dir = os.path.dirname(config_path)
     start_rpc_endpoint(config_dir)
