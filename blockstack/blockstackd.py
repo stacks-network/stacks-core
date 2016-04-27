@@ -955,7 +955,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
     as RPC methods.
     """
 
-    def __init__(self, host='localhost', port=config.RPC_SERVER_PORT, handler=BlockstackdRPCHandler, testset=False):
+    def __init__(self, host='0.0.0.0', port=config.RPC_SERVER_PORT, handler=BlockstackdRPCHandler, testset=False):
         self.testset = testset
         log.info("Listening on %s:%s" % (host, port))
         SimpleXMLRPCServer.__init__( self, (host, port), handler, allow_none=True )
