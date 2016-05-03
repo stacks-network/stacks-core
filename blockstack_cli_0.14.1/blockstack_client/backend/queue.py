@@ -14,7 +14,7 @@ import os
 import sys
 import json
 
-from ..config import DEFAULT_QUEUE_PATH, QUEUE_LENGTH_TO_MONITOR, PREORDER_MAX_CONFIRMATIONS
+from ..config import DEFAULT_QUEUE_PATH, QUEUE_LENGTH_TO_MONITOR, PREORDER_MAX_CONFIRMATIONS, CONFIG_PATH
 from ..proxy import get_default_proxy
 
 from ..profile import hash_zonefile, is_zonefile_replicated
@@ -227,6 +227,7 @@ def in_queue( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
 
 def queue_append(queue_id, fqu, tx_hash, payment_address=None,
                  owner_address=None, transfer_address=None,
+                 config_path=CONFIG_PATH,
                  zonefile=None, path=DEFAULT_QUEUE_PATH):
 
     """
@@ -238,7 +239,7 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
 
     # required for all queues
     new_entry['payment_address'] = payment_address
-    new_entry['block_height'] = get_block_height()
+    new_entry['block_height'] = get_block_height(config_path=config_path)
 
     # optional, depending on queue
     new_entry['owner_address'] = owner_address
@@ -262,64 +263,64 @@ def extract_entry( rowdata ):
     return entry
 
 
-def is_entry_accepted( entry ):
+def is_entry_accepted( entry, config_path=CONFIG_PATH ):
     """
     Given a queue entry, determine if it was
     accepted onto the blockchain.
     Return True if so.
     Return False on error.
     """
-    return is_tx_accepted( entry['tx_hash'] )
+    return is_tx_accepted( entry['tx_hash'], config_path=config_path )
 
 
-def is_entry_rejected( entry ):
+def is_entry_rejected( entry, config_path=CONFIG_PATH ):
     """
     Given a queue entry, determine if it has 
     been pending for long enough that we can
     safely assume it won't be incorporated.
     """
-    return is_tx_rejected( entry['tx_hash'] )
+    return is_tx_rejected( entry['tx_hash'], config_path=config_path )
 
 
-def is_preorder_expired( entry ):
+def is_preorder_expired( entry, config_path=CONFIG_PATH ):
     """
     Given a preorder entry, determine whether or
     not it is expired
     """
-    tx_confirmations = get_tx_confirmations(entry['tx_hash'])
+    tx_confirmations = get_tx_confirmations(entry['tx_hash'], config_path=config_path)
     if tx_confirmations > PREORDER_MAX_CONFIRMATIONS:
         return True
 
     return False
 
 
-def is_register_expired( entry ):
+def is_register_expired( entry, config_path=CONFIG_PATH ):
     """
     Is a registration expired?
     as in, is it older than its preorder?
     """
-    return is_preorder_expired( entry )
+    return is_preorder_expired( entry, config_path=config_path )
 
 
-def is_update_expired( entry ):
+def is_update_expired( entry, config_path=CONFIG_PATH ):
     """
     Is an update expired?
     """
-    confirmations = get_tx_confirmations(entry['tx_hash'])
+    confirmations = get_tx_confirmations(entry['tx_hash'], config_path=config_path)
     if confirmations > MAX_TX_CONFIRMATIONS:
         return True
 
     return False
 
 
-def is_transfer_expired( entry ):
+def is_transfer_expired( entry, config_path=CONFIG_PATH ):
     """
     Is a transfer expired?
     """
-    return is_update_expired(entry)
+    return is_update_expired(entry, config_path=config_path)
 
 
-def display_queue(queue_id, display_details=False, path=DEFAULT_QUEUE_PATH):
+def display_queue(queue_id, display_details=False, path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
     """
     Print debugging information about a queue
     """
@@ -330,7 +331,7 @@ def display_queue(queue_id, display_details=False, path=DEFAULT_QUEUE_PATH):
         entry = extract_entry(rowdata)
 
         try:
-            confirmations = get_tx_confirmations(entry['tx_hash'])
+            confirmations = get_tx_confirmations(entry['tx_hash'], config_path=config_path)
         except:
             continue
 
@@ -355,7 +356,7 @@ def display_queue(queue_id, display_details=False, path=DEFAULT_QUEUE_PATH):
     log.debug('-' * 5)
 
 
-def cleanup_pending_queue( path=DEFAULT_QUEUE_PATH, proxy=None ):
+def cleanup_pending_queue( path=DEFAULT_QUEUE_PATH, proxy=None, config_path=CONFIG_PATH ):
     """
     Clear out elements from the registration-pending queue.
     They will be removed if the registration went through.
@@ -364,7 +365,7 @@ def cleanup_pending_queue( path=DEFAULT_QUEUE_PATH, proxy=None ):
     """
 
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path=config_path)
     
     rows = queuedb_findall("pending", path=path )
     to_remove = []
@@ -375,11 +376,11 @@ def cleanup_pending_queue( path=DEFAULT_QUEUE_PATH, proxy=None ):
             log.debug("Name registered. Removing pending: %s" % entry['fqu'])
             to_remove.append(entry)
 
-    queue_removeall( to_remove )
+    queue_removeall( to_remove, path=path )
     return True
 
 
-def cleanup_preorder_queue(cleanup_rejected=False, path=DEFAULT_QUEUE_PATH, proxy=None):
+def cleanup_preorder_queue(cleanup_rejected=False, path=DEFAULT_QUEUE_PATH, proxy=None, config_path=CONFIG_PATH):
     """
     Clear out the preorder queue.
     Remove rows that refer to registered names, or to stale preorders.
@@ -388,7 +389,7 @@ def cleanup_preorder_queue(cleanup_rejected=False, path=DEFAULT_QUEUE_PATH, prox
     """
 
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path=config_path)
 
     rows = queuedb_findall("preorder", path=path)
     to_remove = []
@@ -401,16 +402,16 @@ def cleanup_preorder_queue(cleanup_rejected=False, path=DEFAULT_QUEUE_PATH, prox
             continue
 
         # clear stale preorder
-        if is_preorder_expired( entry ):
+        if is_preorder_expired( entry, config_path=config_path ):
             log.debug("Removing stale preorder: %s" % entry['fqu'])
             to_remove.append(entry)
             continue
 
-    queue_removeall( to_remove )
+    queue_removeall( to_remove, path=path )
     return True
 
 
-def cleanup_register_queue(cleanup_rejected=False, path=DEFAULT_QUEUE_PATH, proxy=None):
+def cleanup_register_queue(cleanup_rejected=False, path=DEFAULT_QUEUE_PATH, proxy=None, config_path=CONFIG_PATH):
     """
     Clear out the register queue.
     Remove rows that refer to registered names, or to stale preorders.
@@ -419,7 +420,7 @@ def cleanup_register_queue(cleanup_rejected=False, path=DEFAULT_QUEUE_PATH, prox
     """
 
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path=config_path)
 
     rows = queuedb_findall("register", path=path)
     to_remove = []
@@ -432,16 +433,16 @@ def cleanup_register_queue(cleanup_rejected=False, path=DEFAULT_QUEUE_PATH, prox
             continue
 
         # clear stale preorder
-        if is_register_expired( entry ):
+        if is_register_expired( entry, config_path=config_path ):
             log.debug("Removing stale register: %s" % entry['fqu'])
             to_remove.append(entry)
             continue
 
-    queue_removeall( to_remove )
+    queue_removeall( to_remove, path=path )
     return True
 
 
-def cleanup_update_queue(path=DEFAULT_QUEUE_PATH, proxy=None):
+def cleanup_update_queue(path=DEFAULT_QUEUE_PATH, proxy=None, config_path=CONFIG_PATH):
     """
     Clear out the register queue.
     Remove rows that refer to registered names, or to stale preorders.
@@ -450,7 +451,7 @@ def cleanup_update_queue(path=DEFAULT_QUEUE_PATH, proxy=None):
     """
 
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path=config_path)
 
     rows = queuedb_findall("update", path=path)
     to_remove = []
@@ -465,17 +466,17 @@ def cleanup_update_queue(path=DEFAULT_QUEUE_PATH, proxy=None):
             to_remove.append(entry)
 
         else:
-            if is_update_expired(entry):
+            if is_update_expired(entry, config_path=config_path):
                 log.debug("Removing tx with > max confirmations: (%s, confirmations %s)"
                           % (fqu, confirmations))
 
                 to_remove.append(entry)
 
-    queue_removeall( to_remove )
+    queue_removeall( to_remove, path=path )
     return True
 
 
-def cleanup_transfer_queue(path=DEFAULT_QUEUE_PATH, proxy=None):
+def cleanup_transfer_queue(path=DEFAULT_QUEUE_PATH, proxy=None, config_path=CONFIG_PATH):
     """
     Clear out the register queue.
     Remove rows that refer to registered names, or to stale preorders.
@@ -484,7 +485,7 @@ def cleanup_transfer_queue(path=DEFAULT_QUEUE_PATH, proxy=None):
     """
 
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path=config_path)
 
     rows = queuedb_findall("transfer", path=path)
     to_remove = []
@@ -503,17 +504,17 @@ def cleanup_transfer_queue(path=DEFAULT_QUEUE_PATH, proxy=None):
             to_remove.append(entry)
 
         else:
-            if is_transfer_expired(entry):
+            if is_transfer_expired(entry, config_path=config_path):
                 log.debug("Removing tx with > max confirmations: (%s, %s, confirmations %s)"
                           % (fqu, transfer_address, confirmations))
 
                 to_remove.append(entry)
 
-    queue_removeall( to_remove )
+    queue_removeall( to_remove, path=path )
     return True
 
 
-def queue_cleanall(path=DEFAULT_QUEUE_PATH, proxy=None):
+def queue_cleanall(path=DEFAULT_QUEUE_PATH, proxy=None, config_path=CONFIG_PATH):
     """
     Clean all queues
     Return True on success
@@ -521,24 +522,24 @@ def queue_cleanall(path=DEFAULT_QUEUE_PATH, proxy=None):
     """
 
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path=config_path)
 
-    cleanup_pending_queue(path=path)
-    cleanup_preorder_queue(cleanup_rejected=True, path=path, proxy=proxy)
-    cleanup_register_queue(cleanup_rejected=True, path=path, proxy=proxy)
-    cleanup_update_queue(path=path, proxy=proxy)
-    cleanup_transfer_queue(path=path, proxy=proxy)
+    cleanup_pending_queue(path=path, proxy=proxy, config_path=config_path)
+    cleanup_preorder_queue(cleanup_rejected=True, path=path, proxy=proxy, config_path=config_path)
+    cleanup_register_queue(cleanup_rejected=True, path=path, proxy=proxy, config_path=config_path)
+    cleanup_update_queue(path=path, proxy=proxy, config_path=config_path )
+    cleanup_transfer_queue(path=path, proxy=proxy, config_path=config_path )
 
 
-def display_queue_info(display_details=False, path=DEFAULT_QUEUE_PATH):
+def display_queue_info(display_details=False, path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
     """
     Dump all information about our queues 
     to stderr.
     """
-    display_queue("preorder", display_details, path=path)
-    display_queue("register", display_details, path=path)
-    display_queue("update", display_details, path=path)
-    display_queue("transfer", display_details, path=path)
+    display_queue("preorder", display_details, path=path, config_path=config_path)
+    display_queue("register", display_details, path=path, config_path=config_path)
+    display_queue("update", display_details, path=path, config_path=config_path)
+    display_queue("transfer", display_details, path=path, config_path=config_path)
 
 
 def get_queue_state(queue_ids=None, path=DEFAULT_QUEUE_PATH):
@@ -554,7 +555,8 @@ def get_queue_state(queue_ids=None, path=DEFAULT_QUEUE_PATH):
         queue_ids = [queue_ids]
 
     for queue_id in queue_ids:
-        rows = queuedb_findall( queue_id, path=path ) 
+        raw_rows = queuedb_findall( queue_id, path=path )
+        rows = [extract_entry(r) for r in raw_rows]
         state += rows
 
     return state
@@ -567,7 +569,7 @@ def queue_findall( queue_id, path=DEFAULT_QUEUE_PATH ):
     return get_queue_state( queue_id, path=path )
 
 
-def queue_remove_expired(queue_id, path=DEFAULT_QUEUE_PATH):
+def queue_remove_expired(queue_id, path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
     """
     Remove expired transactions
     from the given queue.
@@ -578,11 +580,11 @@ def queue_remove_expired(queue_id, path=DEFAULT_QUEUE_PATH):
     to_remove = []
     for rowdata in rows:
         entry = extract_entry(rowdata)
-        if is_entry_rejected( entry ):
+        if is_entry_rejected( entry, config_path=config_path ):
             log.debug("TX rejected by network, removing TX: %s" % entry['tx_hash'])
             to_remove.append(entry)
 
-    queue_removeall( to_remove )
+    queue_removeall( to_remove, path=path )
     return True
 
 
@@ -598,7 +600,7 @@ def queue_removeall( entries, path=DEFAULT_QUEUE_PATH ):
     return True
 
 
-def queue_find_accepted( queue_id, path=DEFAULT_QUEUE_PATH ):
+def queue_find_accepted( queue_id, path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH ):
     """
     Find all pending operations in the given queue
     that have been accepted.
@@ -607,7 +609,7 @@ def queue_find_accepted( queue_id, path=DEFAULT_QUEUE_PATH ):
     accepted = []
     for rowdata in rows:
         entry = extract_entry(rowdata)
-        if is_entry_accepted( entry ):
+        if is_entry_accepted( entry, config_path=config_path ):
             accepted.append(entry)
 
     return accepted
