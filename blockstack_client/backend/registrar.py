@@ -23,8 +23,8 @@
 
 import os
 import sys
-import lockfile
 import random
+import signal
 
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -36,12 +36,13 @@ import json
 import socket
 import threading
 import time
+import tempfile
 from keylib import ECPrivateKey
 
 import blockstack_profiles
 
-from .queue import get_queue_state, in_queue, queue_findall, queue_removeall
-from .queue import queue_append, queue_cleanall, queue_find_accepted
+from .queue import get_queue_state, in_queue, queue_removeall
+from .queue import queue_cleanall, queue_find_accepted
 
 from .nameops import async_preorder, async_register, async_update, async_transfer
 from .blockchain import get_block_height
@@ -69,33 +70,74 @@ def get_rpc_token(config_path=CONFIG_PATH):
     return config.get('rpc_token', None )
 
 
-def get_plugin_state(config_path, proxy=None):
+def get_plugin_state(config_path=None, proxy=None):
     """
     Create singleton plugin state.
     """
     global __plugin_state
     if __plugin_state is None:
-        __plugin_state = RegistrarState(config_path, proxy=proxy)
+        raise Exception("State is not initialized")
 
+    state = __plugin_state
+
+    if config_path is None:
+        config_path = state.config_path
+        if config_path is None:
+            config_path = CONFIG_PATH
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    return (state, config_path, proxy)
+
+
+def set_plugin_state(config_path=None):
+    """
+    Set singleton state 
+    """
+    global __plugin_state
+    assert config_path is not None
+    log.info("Initialize Registrar State from %s" % (config_path))
+    __plugin_state = RegistrarState(config_path)
+    __plugin_state.start()
     return __plugin_state
+
+
+def plugin_shutdown(config_path=None):
+    """
+    Shut down existing state
+    """
+    global __plugin_state
+    if __plugin_state is None:
+        return
+
+    log.info("Shut down Registrar State")
+    __plugin_state.request_stop()
+    __plugin_state.join()
+    __plugin_state = None
 
 
 class RegistrarWorker(threading.Thread):
     """
     Worker thread for waiting for transactions to go through.
     """
-    def __init__(self, config_path, proxy=None):
+    def __init__(self, config_path):
         super(RegistrarWorker, self).__init__()
 
         self.config_path = config_path
         config = get_config(config_path)
-        self.queue_path = config['queue_file']
+        self.queue_path = config['queue_path']
         self.poll_interval = config['poll_interval']
         self.rpc_token = config['rpc_token']
         self.api_port = config['api_endpoint_port']
-        self.running = False
+        self.running = True
         self.extra_servers = config['extra_servers']
-        self.proxy = proxy
+        self.lockfile_path = None
+
+        log.debug("Queue path:      %s" % self.queue_path)
+        log.debug("Poll interval:   %s" % self.poll_interval)
+        log.debug("API port:        %s" % self.api_port)
+        log.debug("Extra Blockstack servers: %s" % self.extra_servers)
 
 
     @classmethod 
@@ -108,10 +150,10 @@ class RegistrarWorker(threading.Thread):
         Return {'error': ..., 'not_preordered': True} if the name was not preordered
         """
         if proxy is None:
-            proxy = get_default_proxy(self.config_path)
+            proxy = get_default_proxy(config_path=config_path)
 
-        if not is_name_registered( name_data['fqu'] ):
-            if in_queue( "preorder", name_data['fqu'] ):
+        if not is_name_registered( name_data['fqu'], proxy=proxy ):
+            if in_queue( "preorder", name_data['fqu'], path=queue_path ):
                 # was preordered but not registered
                 # send the registration 
                 res = async_register( name_data['fqu'], payment_privkey=payment_privkey, owner_address=owner_address, proxy=proxy, config_path=config_path, queue_path=queue_path )
@@ -125,11 +167,11 @@ class RegistrarWorker(threading.Thread):
 
 
     @classmethod
-    def get_confirmed_preorders( cls, queue_path ):
+    def get_confirmed_preorders( cls, config_path, queue_path ):
         """
         Find all the confirmed preorders
         """
-        accepted = queue_find_accepted( "preorder", path=queue_path )
+        accepted = queue_find_accepted( "preorder", path=queue_path, config_path=config_path )
         return accepted
 
 
@@ -142,9 +184,9 @@ class RegistrarWorker(threading.Thread):
         """
 
         if proxy is None:
-            proxy = get_default_proxy(self.config_path)
+            proxy = get_default_proxy(config_path=config_path)
 
-        preorders = cls.get_confirmed_preorders( queue_path )
+        preorders = cls.get_confirmed_preorders( config_path, queue_path )
         for preorder in preorders:
             log.debug("Preorder for '%s' (%s) is confirmed!" % (preorder['fqu'], preorder['tx_hash']))
             res = cls.register_preordered_name( preorder, wallet_data['payment_privkey'], wallet_data['owner_address'], proxy=proxy, config_path=config_path, queue_path=queue_path )
@@ -169,11 +211,11 @@ class RegistrarWorker(threading.Thread):
 
 
     @classmethod 
-    def get_confirmed_updates( cls, queue_path ):
+    def get_confirmed_updates( cls, config_path, queue_path ):
         """
         Find all confirmed updates
         """
-        accepted = queue_find_accepted( "update", path=queue_path )
+        accepted = queue_find_accepted( "update", path=queue_path, config_path=config_path )
         return accepted
 
     
@@ -197,13 +239,13 @@ class RegistrarWorker(threading.Thread):
 
 
     @classmethod
-    def replicate_zonefiles( cls, queue_path, servers, wallet_data ):
+    def replicate_zonefiles( cls, queue_path, servers, wallet_data, config_path=CONFIG_PATH ):
         """
         Replicate all zonefiles for each confirmed update.
         Remove successfully-replicated updates
         @servers should be a list of (host, port)
         """
-        updates = cls.get_confirmed_updates( queue_path )
+        updates = cls.get_confirmed_updates( config_path, queue_path )
         for update in updates:
             log.debug("Zonefile update on '%s' (%s) is confirmed!  New hash is %s" % (update['fqu'], update['tx_hash'], update['zonefile_hash']))
             res = cls.replicate_zonefile( update, servers, wallet_data )
@@ -212,7 +254,7 @@ class RegistrarWorker(threading.Thread):
 
             else:
                 # clear 
-                queue_removeall( [update] )
+                queue_removeall( [update], path=queue_path )
 
         return {'status': True}
         
@@ -230,6 +272,63 @@ class RegistrarWorker(threading.Thread):
         return servers
 
 
+    def cleanup_lockfile(self, path):
+        """
+        Remove a lockfile (exit handler)
+        """
+        if self.lockfile_path is None:
+            return
+
+        try:
+            os.unlink(self.lockfile_path)
+            self.lockfile_path = None
+        except:
+            pass
+
+
+    def request_stop(self):
+        """
+        Stop this thread
+        """
+        self.running = False
+
+
+    def is_lockfile_stale( self, path ):
+        """
+        Is the given lockfile stale?
+        """
+    
+        with open(path, "r") as f:
+            dat = f.read()
+            try:
+                pid = int(dat.strip())
+            except:
+                # corrupt
+                pid = -1
+
+        return pid != os.getpid()
+
+
+    def lockfile_write( self, fd ):
+        """
+        Put a lockfile
+        Return True on success
+        Return False on error
+        """
+        
+        buf = "%s\n" % os.getpid()
+        nw = 0
+        while nw < len(buf):
+            try:
+                rc = os.write( fd, buf[nw:] )
+                nw += rc
+            except:
+                log.error("Failed to write lockfile")
+                return False
+
+        return True
+
+
     def run(self):
         """
         Watch the various queues:
@@ -239,38 +338,75 @@ class RegistrarWorker(threading.Thread):
         failed = False
         poll_interval = self.poll_interval
 
-        log.debug("Registrar worker starting up...")
-        
-        lockfile_path = os.path.join( os.path.dirname(self.config_path), "registrar.lock" )
-        lock = lockfile.LockFile(lockfile_path)
+        log.info("Registrar worker entered")
+
+        # set up a lockfile
+        self.lockfile_path = os.path.join( os.path.dirname(self.config_path), "registrar.lock" )
+        if os.path.exists(self.lockfile_path):
+            # is it stale?
+            if self.is_lockfile_stale( self.lockfile_path ):
+                log.debug("Removing stale lockfile")
+                os.unlink(self.lockfile_path)
+
+            else:
+                log.debug("Extra worker exiting (lockfile exists)")
+                return
+
         try:
-            lock.acquire(0)
-        except:
-            log.debug("Extra registrar thread exiting")
+            fd, path = tempfile.mkstemp(prefix=".registrar.lock.", dir=os.path.dirname(self.config_path))
+            os.link( path, self.lockfile_path )
+            
+            try:
+                os.unlink(path)
+            except:
+                pass
+
+            # success!  write the lockfile
+            rc = self.lockfile_write( fd )
+            os.close( fd )
+
+            if not rc:
+                log.error("Failed to write lockfile")
+                return
+
+        except (IOError, OSError):
+            try:
+                os.unlink(path)
+            except:
+                pass
+
+            log.debug("Extra worker exiting (failed to lock)")
             return
 
-        while True:
+        log.debug("Registrar worker starting up")
+
+        while self.running:
 
             failed = False
             wallet_data = None
+            proxy = get_default_proxy( config_path=self.config_path )
+
             try:
-                wallet_data = get_wallet( self.rpc_token, config_path=self.config_path, proxy=self.proxy )
+                wallet_data = get_wallet( self.rpc_token, config_path=self.config_path, proxy=proxy )
 
                 # wait until the owner address is set 
-                while wallet_data['owner_address'] is None:
+                while wallet_data['owner_address'] is None and self.running:
                     log.debug("Owner address not set...")
-                    wallet_data = get_wallet( self.rpc_token, config_path=self.config_path, proxy=self.proxy )
+                    wallet_data = get_wallet( self.rpc_token, config_path=self.config_path, proxy=proxy )
                     time.sleep(1.0)
+                
+                # preemption point
+                if not self.running:
+                    break
 
             except Exception, e:
                 log.exception(e)
-                log.error("FATAL: Registrar worker exited")
                 break
 
             try:
                 # see if we can clear out any preorders
                 log.debug("register all pending preorders in %s" % (self.queue_path))
-                res = RegistrarWorker.register_preorders( self.queue_path, wallet_data, config_path=self.config_path, proxy=self.proxy )
+                res = RegistrarWorker.register_preorders( self.queue_path, wallet_data, config_path=self.config_path, proxy=proxy )
                 if 'error' in res:
                     log.warn("Registration failed: %s" % res['error'])
 
@@ -280,14 +416,13 @@ class RegistrarWorker(threading.Thread):
 
             except Exception, e:
                 log.exception(e)
-                log.error("FATAL: Registrar worker exited")
-                break
+                failed = True
 
             try:
                 # see if we can replicate any zonefiles 
                 log.debug("replicate all pending zonefiles in %s" % (self.queue_path))
                 servers = RegistrarWorker.get_replica_server_list( self.config_path )
-                res = RegistrarWorker.replicate_zonefiles( self.queue_path, servers, wallet_data )
+                res = RegistrarWorker.replicate_zonefiles( self.queue_path, servers, wallet_data, config_path=self.config_path )
                 if 'error' in res:
                     log.warn("Zonefile replication failed: %s" % res['error'])
 
@@ -297,8 +432,7 @@ class RegistrarWorker(threading.Thread):
 
             except Exception, e:
                 log.exception(e)
-                log.error("FATAL: Registrar worker exited")
-                break
+                failed = True
 
             # if we failed a step, then try again quickly with exponential backoff
             if failed:
@@ -310,7 +444,13 @@ class RegistrarWorker(threading.Thread):
            
             try:
                 log.debug("Sleep for %s" % poll_interval)
-                time.sleep(poll_interval)
+                for i in xrange(0, int(poll_interval) * 10):
+                    time.sleep(0.1)
+
+                    # preemption point
+                    if not self.running:
+                        break
+
             except:
                 # interrupted
                 log.debug("Sleep interrupted")
@@ -318,10 +458,10 @@ class RegistrarWorker(threading.Thread):
 
             # remove expired 
             log.debug("Cleaning all queues in %s" % self.queue_path)
-            queue_cleanall( path=self.queue_path, proxy=self.proxy )
+            queue_cleanall( path=self.queue_path, proxy=proxy, config_path=self.config_path )
 
-        log.debug("Registrar worker exited")
-        lock.release()
+        log.info("Registrar worker exited")
+        self.cleanup_lockfile( self.lockfile_path )
 
 
 class RegistrarState(object):
@@ -341,18 +481,26 @@ class RegistrarState(object):
     registrar_worker = None
     queue_path = None
 
-    def __init__(self, config_path, proxy=None):
-
-        if proxy is None:
-            proxy = get_default_proxy(config_path)
+    def __init__(self, config_path):
 
         self.config_path = config_path
         conf = get_config(config_path)
-        self.queue_path = conf['queue_file']
-        self.proxy = proxy
-        self.server_started_at = get_block_height()
-        self.registrar_worker = RegistrarWorker( config_path, proxy=proxy )
+        self.queue_path = conf['queue_path']
+        log.info("Registrar initialized (config: %s, queues: %s)" % (config_path, self.queue_path))
+        self.server_started_at = get_block_height( config_path=config_path )
+        self.registrar_worker = RegistrarWorker( config_path )
+
+
+    def start(self):
         self.registrar_worker.start()
+
+    def request_stop(self):
+        log.debug("Registrar worker request stop")
+        self.registrar_worker.request_stop()
+
+    def join(self):
+        log.debug("Registrar worker join")
+        self.registrar_worker.join()
 
 
 def ping():
@@ -369,18 +517,20 @@ def state():
     Return status on current registrations
     """
 
-    data = get_queue_state()
+    state, config_path, proxy = get_plugin_state()
+    log.debug("Get queue state from %s" % state.queue_path)
+    data = get_queue_state(path=state.queue_path)
     return json.dumps(data)
 
 
-def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=CONFIG_PATH, proxy=None):
+def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=None, proxy=None):
     """
     Keeps payment privkey in memory (instead of disk)
     for the time that server is alive
     Return {'success': True} on success
     Return {'error': ...} on error
     """
-    state = get_plugin_state(config_path, proxy=proxy)
+    state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     rpc_token = get_rpc_token(config_path)
 
     state.payment_address = payment_keypair[0]
@@ -397,21 +547,21 @@ def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=CONFIG_
     return data
 
 
-def get_start_block(config_path=CONFIG_PATH, proxy=None):
+def get_start_block(config_path=None, proxy=None):
     """
     Get the block at which rpc daemon was started
     Return None if not set
     """
-    state = get_plugin_state(config_path, proxy=proxy)
+    state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     return state.server_started_at
 
 
-def get_payment_privkey(config_path=CONFIG_PATH, proxy=None):
+def get_payment_privkey(config_path=None, proxy=None):
     """
     Get the decrypted payment private key
     Return None if not set
     """
-    state = get_plugin_state(config_path, proxy=proxy)
+    state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     rpc_token = get_rpc_token(config_path)
     if state.encrypted_payment_privkey is None:
         return None
@@ -420,12 +570,12 @@ def get_payment_privkey(config_path=CONFIG_PATH, proxy=None):
     return str(privkey)
 
 
-def get_owner_privkey(config_path=CONFIG_PATH, proxy=None):
+def get_owner_privkey(config_path=None, proxy=None):
     """
     Get the decrypted owner private key
     Return None if not set
     """
-    state = get_plugin_state(config_path, proxy)
+    state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     rpc_token = get_rpc_token(config_path)
     if state.encrypted_owner_privkey is None:
         return None
@@ -434,12 +584,12 @@ def get_owner_privkey(config_path=CONFIG_PATH, proxy=None):
     return str(privkey)
 
 
-def get_data_privkey(config_path=CONFIG_PATH, proxy=None):
+def get_data_privkey(config_path=None, proxy=None):
     """
     Get the decrypted data private key
     Return None if not set
     """
-    state = get_plugin_state(config_path=CONFIG_PATH, proxy=proxy)
+    state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     rpc_token = get_rpc_token(config_path=config_path)
     if state.encrypted_data_privkey is None:
         return None 
@@ -448,7 +598,7 @@ def get_data_privkey(config_path=CONFIG_PATH, proxy=None):
     return str(privkey)
 
 
-def get_wallet(rpc_token=None, config_path=CONFIG_PATH, proxy=None):
+def get_wallet(rpc_token=None, config_path=None, proxy=None):
     """
     Keeps payment privkey in memory (instead of disk)
     for the time that server is alive
@@ -456,7 +606,7 @@ def get_wallet(rpc_token=None, config_path=CONFIG_PATH, proxy=None):
     Return {'error':...} on error
     """
 
-    state = get_plugin_state(config_path, proxy=proxy)
+    state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     data = {}
     valid_rpc_token = get_rpc_token(config_path=config_path)
 
@@ -475,7 +625,7 @@ def get_wallet(rpc_token=None, config_path=CONFIG_PATH, proxy=None):
     return data
 
 
-def preorder(fqu, config_path=CONFIG_PATH, proxy=None):
+def preorder(fqu, config_path=None, proxy=None):
     """
     Send preorder transaction and enter it in queue.
     The entered registration is picked up
@@ -484,10 +634,7 @@ def preorder(fqu, config_path=CONFIG_PATH, proxy=None):
     Return {'error': ...} on error
     """
 
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    state = get_plugin_state(config_path=config_path, proxy=proxy)
+    state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     data = {}
 
     if state.payment_address is None or state.owner_address is None:
@@ -496,7 +643,7 @@ def preorder(fqu, config_path=CONFIG_PATH, proxy=None):
         data['error'] = "Wallet is not unlocked."
         return data
 
-    if in_queue("preorder", fqu):
+    if in_queue("preorder", fqu, path=state.queue_path):
         log.debug("Already enqueued: %s" % fqu)
         data['success'] = False
         data['error'] = "Already in queue."
@@ -526,16 +673,13 @@ def preorder(fqu, config_path=CONFIG_PATH, proxy=None):
     return data
 
 
-def update( fqu, zonefile, config_path=CONFIG_PATH, proxy=None, wallet_keys=None):
+def update( fqu, zonefile, config_path=None, proxy=None, wallet_keys=None):
     """
     Send update transaction and write data to the DHT and the blockstack server.
     Replicate the zonefile data to the default storage providers.
     """
 
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    state = get_plugin_state(config_path=config_path, proxy=proxy)
+    state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     data = {}
 
     if state.payment_address is None or state.owner_address is None:
@@ -543,7 +687,7 @@ def update( fqu, zonefile, config_path=CONFIG_PATH, proxy=None, wallet_keys=None
         data['error'] = "Wallet is not unlocked."
         return data
 
-    if in_queue("update", fqu):
+    if in_queue("update", fqu, path=state.queue_path):
         data['success'] = False
         data['error'] = "Already in queue."
         return data
@@ -593,16 +737,13 @@ def update( fqu, zonefile, config_path=CONFIG_PATH, proxy=None, wallet_keys=None
     return data
 
 
-def transfer(fqu, transfer_address, config_path=CONFIG_PATH, proxy=None ):
+def transfer(fqu, transfer_address, config_path=None, proxy=None ):
     """
     Send transfer transaction.
     Keeps the zonefile data.
     """
 
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    state = get_plugin_state(config_path=config_path, proxy=proxy)
+    state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     data = {}
 
     if state.payment_address is None or state.owner_address is None:
@@ -610,7 +751,7 @@ def transfer(fqu, transfer_address, config_path=CONFIG_PATH, proxy=None ):
         data['error'] = "Wallet is not unlocked."
         return data
 
-    if in_queue("transfer", fqu):
+    if in_queue("transfer", fqu, path=state.queue_path):
         data['success'] = False
         data['error'] = "Already in queue."
         return data
@@ -645,17 +786,14 @@ def transfer(fqu, transfer_address, config_path=CONFIG_PATH, proxy=None ):
 
 
 
-def migrate( fqu, config_path=CONFIG_PATH, proxy=None, wallet_keys=None):
+def migrate( fqu, config_path=None, proxy=None, wallet_keys=None):
     """
     Migrate a profile from legacy format to the new profile/zonefile format.
     Send update transaction and write data to the DHT and the blockstack server.
     Replicate the zonefile data to the default storage providers.
     """
 
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    state = get_plugin_state(config_path=config_path, proxy=proxy)
+    state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     data = {}
 
     if state.payment_address is None or state.owner_address is None:
@@ -663,7 +801,7 @@ def migrate( fqu, config_path=CONFIG_PATH, proxy=None, wallet_keys=None):
         data['error'] = "Wallet is not unlocked."
         return data
 
-    if in_queue("update", fqu):
+    if in_queue("update", fqu, path=state.queue_path):
         data['success'] = False
         data['error'] = "Already in queue."
         return data
@@ -696,6 +834,7 @@ def migrate( fqu, config_path=CONFIG_PATH, proxy=None, wallet_keys=None):
                             payment_privkey=payment_privkey,
                             proxy=proxy,
                             wallet_keys=wallet_keys,
+                            config_path=config_path,
                             queue_path=state.queue_path)
 
     else:
@@ -746,3 +885,5 @@ RPC_METHODS = [
     migrate
 ]
 
+RPC_INIT = set_plugin_state 
+RPC_SHUTDOWN = plugin_shutdown
