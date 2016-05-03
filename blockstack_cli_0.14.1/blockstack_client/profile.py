@@ -401,7 +401,6 @@ def migrate_profile( name, txid=None, proxy=None, wallet_keys=None, include_prof
     Return {'error': ...} on error
     """
     legacy = False
-    txid = None  # BUG 
     value_hash = None
     if proxy is None:
         proxy = get_default_proxy()
