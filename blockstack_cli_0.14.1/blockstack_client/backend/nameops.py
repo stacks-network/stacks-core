@@ -18,7 +18,7 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 from .queue import in_queue, queue_append, queue_findone
 
-from .blockchain import get_tx_confirmations, get_utxos, get_utxo_client
+from .blockchain import get_tx_confirmations, get_utxo_client
 from .blockchain import dontuseAddress, underfundedAddress
 from .blockchain import recipientNotReady
 
@@ -42,7 +42,7 @@ from ..proxy import is_name_registered, is_name_owner
 log = get_logger()
 
 
-def send_subsidized(hex_privkey, unsigned_tx_hex):
+def send_subsidized(hex_privkey, unsigned_tx_hex, config_path=CONFIG_PATH):
     """
     Send a given transaction, but pay for it with the given key.
     """
@@ -50,7 +50,7 @@ def send_subsidized(hex_privkey, unsigned_tx_hex):
 
     # sign all unsigned inputs
     signed_tx = pybitcoin.sign_all_unsigned_inputs(hex_privkey, unsigned_tx_hex)
-    utxo_client = get_utxo_client()
+    utxo_client = get_utxo_client(config_path=config_path)
     resp = pybitcoin.broadcast_transaction( signed_tx, utxo_client )
 
     if 'transaction_hash' not in resp:
@@ -73,14 +73,14 @@ def async_preorder(fqu, paymetn_address, owner_address, payment_privkey=None, pr
     """
 
     if proxy is None:
-        proxy = get_default_proxy
+        proxy = get_default_proxy(config_path=config_path)
 
     # stale preorder will get removed from preorder_queue
-    if in_queue("register", fqu):
+    if in_queue("register", fqu, path=queue_path):
         log.debug("Already in register queue: %s" % fqu)
         return {'error': 'Already in register queue'}
 
-    if in_queue("preorder", fqu):
+    if in_queue("preorder", fqu, path=queue_path):
         log.debug("Already in preorder queue: %s" % fqu)
         return {'error': 'Already in preorder queue'}
 
@@ -112,6 +112,7 @@ def async_preorder(fqu, paymetn_address, owner_address, payment_privkey=None, pr
         queue_append("preorder", fqu, resp['transaction_hash'],
                      payment_address=payment_address,
                      owner_address=owner_address,
+                     config_path=config_path,
                      path=queue_path)
     else:
         log.debug("Error preordering: %s with %s for %s" % (fqu, payment_address, owner_address))
@@ -137,15 +138,15 @@ def async_register(fqu, payment_address=None, owner_address=None, payment_privke
     """
 
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path=config_path)
 
     # check register_queue first
     # stale preorder will get removed from preorder_queue
-    if in_queue("register", fqu):
+    if in_queue("register", fqu, path=queue_path):
         log.debug("Already in register queue: %s" % fqu)
         return {'error': 'Already in register queue'}
 
-    if not in_queue("preorder", fqu):
+    if not in_queue("preorder", fqu, path=queue_path):
         if auto_preorder:
             return blockstack_preorder(fqu, payment_address, owner_address, proxy=proxy)
         else:
@@ -162,7 +163,7 @@ def async_register(fqu, payment_address=None, owner_address=None, payment_privke
         return {'error': 'No preorder found'}
 
     preorder_tx = preorder_entry[0]['tx_hash']
-    tx_confirmations = get_tx_confirmations(preorder_tx)
+    tx_confirmations = get_tx_confirmations(preorder_tx, config_path=config_path)
 
     if tx_confirmations < PREORDER_CONFIRMATIONS:
         log.debug("Waiting on preorder confirmations: (%s, %s)"
@@ -205,6 +206,7 @@ def async_register(fqu, payment_address=None, owner_address=None, payment_privke
         queue_append("register", fqu, resp['transaction_hash'],
                      payment_address=payment_address,
                      owner_address=owner_address,
+                     config_path=config_path,
                      path=queue_path)
 
         return resp
@@ -229,9 +231,9 @@ def async_update(fqu, zonefile, owner_privkey, payment_address, config_path=CONF
     """
 
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path=config_path)
 
-    if in_queue("update", fqu):
+    if in_queue("update", fqu, path=queue_path):
         log.debug("Already in update queue: %s" % fqu)
         return {'error': 'Already in update queue'}
 
@@ -274,6 +276,7 @@ def async_update(fqu, zonefile, owner_privkey, payment_address, config_path=CONF
 
     try:
         resp = blockstack_update_subsidized(fqu, zonefile_hash,
+                                            proxy=proxy,
                                             public_key=owner_public_key,
                                             subsidy_key=payment_privkey)
     except Exception as e:
@@ -287,12 +290,13 @@ def async_update(fqu, zonefile, owner_privkey, payment_address, config_path=CONF
         log.debug(resp)
         return {'error': 'Failed to make update'}
 
-    broadcast_resp = send_subsidized(owner_privkey, unsigned_tx)
+    broadcast_resp = send_subsidized(owner_privkey, unsigned_tx, config_path=config_path)
 
     if 'transaction_hash' in broadcast_resp:
         queue_append("update", fqu, broadcast_resp['transaction_hash'],
                      zonefile=zonefile,
                      owner_address=owner_address,
+                     config_path=config_path,
                      path=queue_path)
 
         broadcast_resp['zonefile_hash'] = zonefile_hash
@@ -319,9 +323,9 @@ def async_transfer(fqu, transfer_address, owner_privkey, payment_address, config
     """
 
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path=config_path)
 
-    if in_queue("transfer", fqu):
+    if in_queue("transfer", fqu, path=queue_path):
         log.debug("Already in transfer queue: %s" % fqu)
         return {'error': 'Already in transfer queue'}
 
@@ -383,12 +387,13 @@ def async_transfer(fqu, transfer_address, owner_privkey, payment_address, config
         log.debug(pprint(resp))
         return resp
 
-    broadcast_resp = send_subsidized(owner_privkey, unsigned_tx)
+    broadcast_resp = send_subsidized(owner_privkey, unsigned_tx, config_path=config_path)
 
     if 'transaction_hash' in broadcast_resp:
         queue_append("transfer", fqu, broadcast_resp['transaction_hash'],
                      owner_address=owner_address,
                      transfer_address=transfer_address,
+                     config_path=config_path,
                      path=queue_path)
     else:
         log.debug("Error transferring: %s" % fqu)
