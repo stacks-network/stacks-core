@@ -200,7 +200,7 @@ def can_update_or_transfer(fqu, config_path=CONFIG_PATH, transfer_address=None, 
         except:
             return {'error': "Address %s is not a valid Bitcoin address." % transfer_address}
 
-        if recipientNotReady(transfer_address):
+        if recipientNotReady(transfer_address, proxy=proxy):
             return {'error': "Address %s owns too many names already." % transfer_address}
 
     return {'status': True}
@@ -466,17 +466,20 @@ def get_server_info( args, config_path=config.CONFIG_PATH ):
 
             current_state = json.loads(rpc.backend_state())
 
-            queue = {}
-            pending_queue = []
-            preorder_queue = []
-            register_queue = []
-            update_queue = []
-            transfer_queue = []
+            queue_types = {
+                "preorder": [],
+                "register": [],
+                "update": [],
+                "transfer": []
+            }
 
             def format_new_entry(entry):
+                """
+                Determine data to display
+                """
                 new_entry = {}
                 new_entry['name'] = entry['fqu']
-                confirmations = get_tx_confirmations(entry['tx_hash'])
+                confirmations = get_tx_confirmations(entry['tx_hash'], config_path=config_path)
                 if confirmations is None:
                     confirmations = 0
                 new_entry['confirmations'] = confirmations
@@ -485,6 +488,9 @@ def get_server_info( args, config_path=config.CONFIG_PATH ):
             def format_queue_display(preorder_queue,
                                      register_queue):
 
+                """
+                Omit duplicates
+                """
                 for entry in register_queue:
                     name = entry['name']
                     for check_entry in preorder_queue:
@@ -492,34 +498,20 @@ def get_server_info( args, config_path=config.CONFIG_PATH ):
                             preorder_queue.remove(check_entry)
 
             for entry in current_state:
+                if entry['type'] not in queue_types.keys():
+                    log.error("Unknown entry type '%s'" % entry['type'])
+                    continue
 
-                if 'type' in entry:
-                    if entry['type'] == 'preorder':
-                        preorder_queue.append(format_new_entry(entry))
-                    elif entry['type'] == 'register':
-                        register_queue.append(format_new_entry(entry))
-                    elif entry['type'] == 'update':
-                        update_queue.append(format_new_entry(entry))
-                    elif entry['type'] == 'transfer':
-                        transfer_queue.append(format_new_entry(entry))
+                queue_types[ entry['type'] ].append( format_new_entry(entry) )
 
-            format_queue_display(preorder_queue,
-                                 register_queue)
+            format_queue_display(queue_types['preorder'], queue_types['register'])
 
-            if len(preorder_queue) != 0:
-                queue['preorder'] = preorder_queue
+            for queue_type in queue_types.keys():
+                if len(queue_types[queue_type]) == 0:
+                    del queue_types[queue_type]
 
-            if len(register_queue) != 0:
-                queue['register'] = register_queue
-
-            if len(update_queue) != 0:
-                queue['update'] = update_queue
-
-            if len(transfer_queue) != 0:
-                queue['transfer'] = transfer_queue
-
-            if queue != {}:
-                result['queue'] = queue
+            if len(queue_types) > 0:
+                result['queue'] = queue_types
 
     return result
 
@@ -688,7 +680,7 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
         msg = "Address %s doesn't have enough balance." % payment_address
         return {'error': msg}
 
-    if recipientNotReady(owner_address):
+    if recipientNotReady(owner_address, proxy=proxy):
         msg = "Address %s owns too many names already." % owner_address
         return {'error': msg}
 
@@ -847,7 +839,7 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None ):
             return res
 
     if proxy is None:
-        proxy = get_default_proxy()
+        proxy = get_default_proxy(config_path=config_path)
 
     fqu = str(args.name)
     error = check_valid_name(fqu)
@@ -868,7 +860,7 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None ):
         return wallet_keys 
 
     user_zonefile = get_name_zonefile( fqu, proxy=proxy, wallet_keys=wallet_keys )
-    if 'error' not in user_zonefile and is_zonefile_current(fqu, user_zonefile):
+    if user_zonefile is not None and 'error' not in user_zonefile and is_zonefile_current(fqu, user_zonefile):
         msg ="Zonefile data is same as current zonefile; update not needed."
         return {'error': msg}
 
@@ -876,7 +868,7 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None ):
 
     try:
         resp = rpc.backend_migrate(fqu)
-    except:
+    except Exception, e:
         return {'error': 'Error talking to server, try again.'}
 
     if 'success' in resp and resp['success']:
