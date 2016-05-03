@@ -35,17 +35,19 @@ from ..proxy import get_name_blockchain_record as blockstack_get_name_blockchain
 
 log = get_logger() 
 
-def get_bitcoind_client(config_file=CONFIG_PATH):
+def get_bitcoind_client(config_path=CONFIG_PATH):
     """
     Connect to bitcoind
     """
-    bitcoind_opts = virtualchain.get_bitcoind_config(config_file=config_file)
+    bitcoind_opts = virtualchain.get_bitcoind_config(config_file=config_path)
     if bitcoind_opts['bitcoind_mock']:
         # testing 
+        log.debug("Connect to mock bitcoind (%s)" % config_path)
         from blockstack_integration_tests import connect_mock_bitcoind
         client = connect_mock_bitcoind( bitcoind_opts, reset=True )
     else:
         # production
+        log.debug("Connect to production bitcoind (%s)" % config_path)
         client = virtualchain.connect_bitcoind( bitcoind_opts )
     return client
 
@@ -68,7 +70,7 @@ def get_utxo_client(config_path=CONFIG_PATH):
     return client
 
 
-def get_block_height():
+def get_block_height(config_path=CONFIG_PATH):
     """
     Return block height (currently uses bitcoind)
     """
@@ -76,7 +78,7 @@ def get_block_height():
     resp = None
 
     # get a fresh local client (needed after waking up from sleep)
-    bitcoind_client = get_bitcoind_client()
+    bitcoind_client = get_bitcoind_client(config_path=config_path)
 
     try:
         data = bitcoind_client.getinfo()
@@ -91,7 +93,7 @@ def get_block_height():
     return resp
 
 
-def get_tx_confirmations(tx_hash):
+def get_tx_confirmations(tx_hash, config_path=CONFIG_PATH):
     """
     Get the number of confirmations for a transaction
     Return None if not given
@@ -100,14 +102,14 @@ def get_tx_confirmations(tx_hash):
     resp = None
 
     # get a fresh local client (needed after waking up from sleep)
-    bitcoind_client = get_bitcoind_client()
+    bitcoind_client = get_bitcoind_client(config_path=config_path)
 
     try:
         # second argument of '1' asks for results in JSON
         tx_data = bitcoind_client.getrawtransaction(tx_hash, 1)
         if tx_data is None:
             resp = 0
-            log.debug("No such tx %s (%s configured from %s)" % (tx_hash, bitcoind_client, CONFIG_PATH))
+            log.debug("No such tx %s (%s configured from %s)" % (tx_hash, bitcoind_client, config_path))
 
         else:
             if 'confirmations' in tx_data:
@@ -118,32 +120,31 @@ def get_tx_confirmations(tx_hash):
             log.debug("Tx %s has %s confirmations" % (tx_hash, resp))
 
     except Exception as e:
-        log.exception(e)
         log.debug("ERROR: tx details: %s" % tx_hash)
 
     return resp
 
 
-def is_tx_accepted( tx_hash, num_needed=TX_CONFIRMATIONS_NEEDED ):
+def is_tx_accepted( tx_hash, num_needed=TX_CONFIRMATIONS_NEEDED, config_path=CONFIG_PATH ):
     """
     Determine whether or not a transaction was accepted.
     """
-    tx_confirmations = get_tx_confirmations(tx_hash)
+    tx_confirmations = get_tx_confirmations(tx_hash, config_path=config_path)
     if tx_confirmations > num_needed:
         return True
 
     return False
 
 
-def is_tx_rejected(tx_hash, tx_sent_at_height):
+def is_tx_rejected(tx_hash, tx_sent_at_height, config_path=CONFIG_PATH):
     """
     Determine whether or not a transaction was "rejected".
     That is, determine whether or not the transaction is still
     unconfirmed, so the caller can do something like e.g.
     resend it.
     """
-    current_height = get_block_height()
-    tx_confirmations = get_tx_confirmations(tx_hash)
+    current_height = get_block_height(config_path=config_path)
+    tx_confirmations = get_tx_confirmations(tx_hash, config_path=config_path)
 
     if (current_height - tx_sent_at_height) > TX_EXPIRED_INTERVAL and tx_confirmations == 0:
         # if no confirmations and retry limit hits
