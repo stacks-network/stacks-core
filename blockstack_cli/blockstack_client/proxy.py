@@ -117,6 +117,7 @@ class BlockstackRPCClient(object):
         try:
             return object.__getattr__(self, key)
         except AttributeError:
+            log.debug("RPC http://%s:%s %s" % (self.server, self.port, key))
             def inner(*args, **kw):
                 func = getattr(self.srv, key)
                 res = func(*args, **kw)
@@ -136,11 +137,17 @@ def get_default_proxy(config_path=CONFIG_PATH):
 
         import client
 
+        if config_path.startswith("/home"):
+            print config_path
+            traceback.print_stack()
+            sys.exit(0)
+
         # load     
         conf = config.get_config(config_path)
         blockstack_server = conf['server']
         blockstack_port = conf['port']
 
+        log.debug("Default proxy to %s:%s" % (blockstack_server, blockstack_port))
         proxy = client.session(conf=conf, server_host=blockstack_server, server_port=blockstack_port)
 
         return proxy
@@ -598,6 +605,7 @@ def update(name, user_zonefile_json_or_hash, privatekey, txid=None, proxy=None, 
 
         if 'transaction_hash' not in result:
             # failed
+            print result
             result['error'] = 'No transaction hash returned'
             return result
 
@@ -620,11 +628,11 @@ def update(name, user_zonefile_json_or_hash, privatekey, txid=None, proxy=None, 
     return result
 
 
-def update_subsidized(name, user_zonefile_json_or_hash, public_key, subsidy_key, txid=None):
+def update_subsidized(name, user_zonefile_json_or_hash, public_key, subsidy_key, txid=None, proxy=None):
     """
     update_subsidized
     """
-    return update(name, user_zonefile_json_or_hash, None, txid=txid, public_key=public_key, subsidy_key=subsidy_key, tx_only=True)
+    return update(name, user_zonefile_json_or_hash, None, txid=txid, public_key=public_key, subsidy_key=subsidy_key, tx_only=True, proxy=proxy)
 
 
 def transfer(name, address, keep_data, privatekey, proxy=None, tx_only=False):
@@ -648,7 +656,6 @@ def transfer_subsidized(name, address, keep_data, public_key, subsidy_key, proxy
     """
     if proxy is None:
         proxy = get_default_proxy()
-
     return proxy.transfer_tx_subsidized(name, address, keep_data, public_key, subsidy_key)
 
 
