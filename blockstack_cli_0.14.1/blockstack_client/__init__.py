@@ -53,7 +53,7 @@ from data import data_get, data_put, data_delete, data_list
 from profile import migrate_profile, get_name_profile, get_name_zonefile, zonefile_publish, hash_zonefile
 from accounts import list_accounts, get_account, put_account, delete_account
 
-from config import get_logger, get_config
+from config import get_logger, get_config, CONFIG_PATH, CONFIG_FILENAME
 
 from storage import blockstack_mutable_data_url as make_mutable_data_url
 from storage import blockstack_mutable_data_url_parse as parse_mutable_data_url
