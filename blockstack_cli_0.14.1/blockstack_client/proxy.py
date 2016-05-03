@@ -136,11 +136,13 @@ def get_default_proxy(config_path=CONFIG_PATH):
     if default_proxy is None:
 
         import client
-
+    
+        """
         if config_path.startswith("/home"):
             print config_path
             traceback.print_stack()
             sys.exit(0)
+        """
 
         # load     
         conf = config.get_config(config_path)
