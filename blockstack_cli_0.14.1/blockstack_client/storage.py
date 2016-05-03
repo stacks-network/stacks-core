@@ -42,7 +42,7 @@ import urllib2
 
 import blockstack_profiles 
 
-from config import MAX_NAME_LENGTH, get_logger
+from config import MAX_NAME_LENGTH, get_logger, CONFIG_PATH
 
 log = get_logger()
 
@@ -761,11 +761,13 @@ class BlockstackURLHandle( object ):
     A file-like object that handles reads on blockstack URLs
     """
 
-    def __init__(self, url, data=None, full_response=False):
+    def __init__(self, url, data=None, full_response=False, config_path=CONFIG_PATH, wallet_keys=None ):
         self.name = url
         self.data = data
         self.full_response = full_response
         self.fetched = False
+        self.config_path = config_path
+        self.wallet_keys = wallet_keys
 
         if data is not None:
             self.data_len = len(data)
@@ -799,7 +801,10 @@ class BlockstackURLHandle( object ):
         """
         if not self.fetched:
             import data as data_mod
-            data = data_mod.blockstack_url_fetch( self.name )
+            from .proxy import get_default_proxy
+
+            proxy = get_default_proxy( config_path=self.config_path )
+            data = data_mod.blockstack_url_fetch( self.name, proxy=proxy, wallet_keys=self.wallet_keys )
             if data is None:
                 raise urllib2.URLError("Failed to fetch '%s'" % self.name)
 
@@ -894,13 +899,14 @@ class BlockstackHandler( urllib2.BaseHandler ):
     Usable with urllib2.
     """
 
-    def __init__(self, full_response=False):
+    def __init__(self, full_response=False, config_path=CONFIG_PATH):
         self.full_response = full_response
+        self.config_path = config_path
 
     def blockstack_open( self, req ):
         """
         Open a blockstack URL
         """
-        bh = BlockstackURLHandle( req.get_full_url(), full_response=self.full_response )
+        bh = BlockstackURLHandle( req.get_full_url(), full_response=self.full_response, config_path=self.config_path )
         return bh
 
