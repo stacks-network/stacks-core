@@ -274,7 +274,7 @@ def make_default_config(path=CONFIG_PATH):
         parser.set('blockstack-client', 'dht_mirror', DEFAULT_DHT_MIRROR)
         parser.set('blockstack-client', 'dht_mirror_port', DEFAULT_DHT_PORT)
         parser.set('blockstack-client', 'api_endpoint_port', str(DEFAULT_API_PORT))
-        parser.set('blockstack-client', 'queue_file', str(DEFAULT_QUEUE_PATH))
+        parser.set('blockstack-client', 'queue_path', str(DEFAULT_QUEUE_PATH))
         parser.set('blockstack-client', 'poll_interval', str(DEFAULT_POLL_INTERVAL)),
         parser.set('blockstack-client', 'extra_servers', "")
         parser.set('blockstack-client', 'rpc_detach', "True")
@@ -315,6 +315,10 @@ def parse_servers( servers ):
    parsed_servers = []
    server_list = servers.split(",")
    for server in server_list:
+      server = server.strip()
+      if len(server) == 0:
+          continue
+
       server_host, server_port = server.split(":")
       server_port = int(server_port)
       parsed_servers.append( (server_host, server_port) )
@@ -351,7 +355,7 @@ def get_config(path=CONFIG_PATH):
         'dht_mirror': DEFAULT_DHT_MIRROR,
         'dht_mirror_port': DEFAULT_DHT_PORT,
         "api_endpoint_port": DEFAULT_API_PORT,
-        "queue_file": str(DEFAULT_QUEUE_PATH),
+        "queue_path": str(DEFAULT_QUEUE_PATH),
         "poll_interval": str(DEFAULT_POLL_INTERVAL),
         "extra_servers": "",
         "rpc_detach": True
