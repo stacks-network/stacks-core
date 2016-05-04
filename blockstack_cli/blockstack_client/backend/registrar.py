@@ -86,7 +86,7 @@ def get_plugin_state(config_path=None, proxy=None):
             config_path = CONFIG_PATH
 
     if proxy is None:
-        proxy = get_default_proxy(config_path)
+        proxy = get_default_proxy(config_path=config_path)
 
     return (state, config_path, proxy)
 
@@ -165,6 +165,70 @@ class RegistrarWorker(threading.Thread):
         else:
             return {'error': 'Name "%s" is already registered' % name_data['fqu'], 'already_registered': True}
 
+    
+    @classmethod
+    def create_name_profile( cls, name_data, proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH, wallet_keys=None ):
+        """
+        Given a newly-registered name, go generate and store an empty
+        profile and zonefile for it.
+        Return {'status': True, 'transaction_hash': ..., 'zonefile_hash': ...} on success
+        Return {'error': ...} on error
+        """
+        if proxy is None:
+            proxy = get_default_proxy(config_path=config_path)
+
+        if not is_name_registered( name_data['fqu'], proxy=proxy ):
+            return {'error': 'Name not registered'}
+        
+        res = migrate( name_data['fqu'], config_path=config_path, proxy=proxy, wallet_keys=wallet_keys )
+        assert 'success' in res
+
+        if not res['success']:
+            log.error("migrate %s: %s" % (name_data['fqu'], res['error']))
+            return {'error': res['error']}
+        else:
+            
+            assert 'transaction_hash' in res
+            assert 'zonefile_hash' in res
+
+            return {'status': True, 'transaction_hash': res['transaction_hash'], 'zonefile_hash': res['zonefile_hash']}
+
+
+    @classmethod
+    def create_name_profiles( cls, queue_path, wallet_data, config_path=CONFIG_PATH, proxy=None ):
+        """
+        Find all confirmed registrations, and give them empty zonefiles and profiles.
+        Return {'status': True} on success
+        Return {'error': ...} on failure
+        """
+        if proxy is None:
+            proxy = get_default_proxy(config_path=config_path)
+
+        registers = cls.get_confirmed_registers( config_path, queue_path )
+        for register in registers:
+
+            log.debug("Register for '%s' (%s) is confirmed!" % (register['fqu'], register['tx_hash']))
+            res = cls.create_name_profile( register, proxy=proxy, wallet_keys=wallet_data, queue_path=queue_path, config_path=config_path )
+            if 'error' in res:
+                log.error("Failed to make name profile for %s: %s" % (register['fqu'], res['error']))
+                return {'error': 'Failed to set up name profile'}
+
+            else:
+                # success!
+                log.debug("Sent update for '%s'" % register['fqu'])
+                queue_removeall( [register], path=queue_path )
+
+        return {'status': True}
+
+
+    @classmethod
+    def get_confirmed_registers( cls, config_path, queue_path ):
+        """
+        Find all the confirmed registers
+        """
+        accepted = queue_find_accepted( "register", path=queue_path, config_path=config_path )
+        return accepted
+
 
     @classmethod
     def get_confirmed_preorders( cls, config_path, queue_path ):
@@ -181,6 +245,7 @@ class RegistrarWorker(threading.Thread):
         Find all confirmed preorders, and register them.
         Return {'status': True} on success
         Return {'error': ...} on error
+        'names' maps to the list of queued name data for names that were registered
         """
 
         if proxy is None:
@@ -188,6 +253,7 @@ class RegistrarWorker(threading.Thread):
 
         preorders = cls.get_confirmed_preorders( config_path, queue_path )
         for preorder in preorders:
+
             log.debug("Preorder for '%s' (%s) is confirmed!" % (preorder['fqu'], preorder['tx_hash']))
             res = cls.register_preordered_name( preorder, wallet_data['payment_privkey'], wallet_data['owner_address'], proxy=proxy, config_path=config_path, queue_path=queue_path )
             if 'error' in res:
@@ -195,12 +261,10 @@ class RegistrarWorker(threading.Thread):
                     # can clear out, this is a dup
                     log.debug("%s is already registered!" % preorder['fqu'])
                     queue_removeall( [preorder], path=queue_path )
-                    res = {'status': True}
 
                 else:
                     log.error("Failed to register preordered name %s: %s" % (preorder['fqu'], res['error']))
-
-                return res
+                    return {'error': 'Failed to preorder a name'} 
 
             else:
                 # clear 
@@ -411,6 +475,21 @@ class RegistrarWorker(threading.Thread):
                     log.warn("Registration failed: %s" % res['error'])
 
                     # try exponential backoff
+                    failed = True
+                    poll_interval = 1.0
+
+            except Exception, e:
+                log.exception(e)
+                failed = True
+
+            try:
+                # see if we can initiate any profiles
+                log.debug("initialize all profiles for registered names in %s" % (self.queue_path))
+                res = RegistrarWorker.create_name_profiles( self.queue_path, wallet_data, config_path=self.config_path, proxy=proxy )
+                if 'error' in res:
+                    log.warn('Profile creation failed: %s' % res['error'])
+
+                    # try exponential backoff 
                     failed = True
                     poll_interval = 1.0
 
@@ -791,6 +870,9 @@ def migrate( fqu, config_path=None, proxy=None, wallet_keys=None):
     Migrate a profile from legacy format to the new profile/zonefile format.
     Send update transaction and write data to the DHT and the blockstack server.
     Replicate the zonefile data to the default storage providers.
+
+    Return {'success': True, 'transaciton_hash': ..., 'zonefile_hash': ...} on success
+    Return {'success': False, 'error': ...} on failure
     """
 
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
