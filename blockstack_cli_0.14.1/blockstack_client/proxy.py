@@ -136,13 +136,13 @@ def get_default_proxy(config_path=CONFIG_PATH):
     if default_proxy is None:
 
         import client
-    
-        """
-        if config_path.startswith("/home"):
-            print config_path
-            traceback.print_stack()
-            sys.exit(0)
-        """
+
+        if os.environ.get("BLOCKSTACK_CLIENT_TEST_ALTERNATIVE_CONFIG", None) == "1":
+            # feature test: make sure alternative config paths get propagated
+            if config_path.startswith("/home"):
+                print config_path
+                traceback.print_stack()
+                sys.exit(0)
 
         # load     
         conf = config.get_config(config_path)
@@ -809,6 +809,25 @@ def is_name_registered(fqu, proxy=None):
         return False
 
     if "first_registered" in blockchain_record:
+        return True
+    else:
+        return False
+
+
+def has_zonefile_hash(fqu, proxy=None ):
+    """
+    Return True if @fqu has a zonefile hash on the blockchain
+    """
+    
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    blockchain_record = get_name_blockchain_record(fqu, proxy=proxy )
+    if 'error' in blockchain_record:
+        log.debug("Failed to read blockchain record for %s" % fqu)
+        return False
+
+    if 'value_hash' in blockchain_record and blockchain_record['value_hash'] is not None:
         return True
     else:
         return False
