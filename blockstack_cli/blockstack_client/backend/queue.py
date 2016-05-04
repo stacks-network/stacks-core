@@ -18,7 +18,7 @@ from ..config import DEFAULT_QUEUE_PATH, QUEUE_LENGTH_TO_MONITOR, PREORDER_MAX_C
 from ..proxy import get_default_proxy
 
 from ..profile import hash_zonefile, is_zonefile_replicated
-from ..proxy import is_name_registered, is_name_owner
+from ..proxy import is_name_registered, is_name_owner, has_zonefile_hash
 from .blockchain import get_block_height, get_tx_confirmations, is_tx_rejected, is_tx_accepted
 
 QUEUE_SQL = """
@@ -356,30 +356,6 @@ def display_queue(queue_id, display_details=False, path=DEFAULT_QUEUE_PATH, conf
     log.debug('-' * 5)
 
 
-def cleanup_pending_queue( path=DEFAULT_QUEUE_PATH, proxy=None, config_path=CONFIG_PATH ):
-    """
-    Clear out elements from the registration-pending queue.
-    They will be removed if the registration went through.
-    Return True on success
-    Raise on error
-    """
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path=config_path)
-    
-    rows = queuedb_findall("pending", path=path )
-    to_remove = []
-    for rowdata in rows:
-        entry = extract_entry(rowdata)
-
-        if is_name_registered(entry['fqu'], proxy=proxy ):
-            log.debug("Name registered. Removing pending: %s" % entry['fqu'])
-            to_remove.append(entry)
-
-    queue_removeall( to_remove, path=path )
-    return True
-
-
 def cleanup_preorder_queue(cleanup_rejected=False, path=DEFAULT_QUEUE_PATH, proxy=None, config_path=CONFIG_PATH):
     """
     Clear out the preorder queue.
@@ -414,7 +390,7 @@ def cleanup_preorder_queue(cleanup_rejected=False, path=DEFAULT_QUEUE_PATH, prox
 def cleanup_register_queue(cleanup_rejected=False, path=DEFAULT_QUEUE_PATH, proxy=None, config_path=CONFIG_PATH):
     """
     Clear out the register queue.
-    Remove rows that refer to registered names, or to stale preorders.
+    Remove rows that refer to registered names that have zonefile hashes, or to stale preorders.
     Return True on success
     Raise on error.
     """
@@ -427,8 +403,8 @@ def cleanup_register_queue(cleanup_rejected=False, path=DEFAULT_QUEUE_PATH, prox
     for rowdata in rows:
         entry = extract_entry(rowdata)
 
-        if is_name_registered(entry['fqu'], proxy=proxy):
-            log.debug("Name registered. Removing preorder: %s" % entry['fqu'])
+        if has_zonefile_hash(entry['fqu'], proxy=proxy):
+            log.debug("Name registered and updated. Removing register: %s" % entry['fqu'])
             to_remove.append(entry)
             continue
 
@@ -524,7 +500,6 @@ def queue_cleanall(path=DEFAULT_QUEUE_PATH, proxy=None, config_path=CONFIG_PATH)
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    cleanup_pending_queue(path=path, proxy=proxy, config_path=config_path)
     cleanup_preorder_queue(cleanup_rejected=True, path=path, proxy=proxy, config_path=config_path)
     cleanup_register_queue(cleanup_rejected=True, path=path, proxy=proxy, config_path=config_path)
     cleanup_update_queue(path=path, proxy=proxy, config_path=config_path )
@@ -549,7 +524,7 @@ def get_queue_state(queue_ids=None, path=DEFAULT_QUEUE_PATH):
     """
     state = []
     if queue_ids is None:
-        queue_ids = ["preorder", "register", "update", "transfer", "pending"]
+        queue_ids = ["preorder", "register", "update", "transfer"]
 
     elif type(queue_ids) not in [list]:
         queue_ids = [queue_ids]
