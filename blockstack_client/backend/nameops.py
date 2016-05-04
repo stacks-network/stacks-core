@@ -218,7 +218,7 @@ def async_register(fqu, payment_address=None, owner_address=None, payment_privke
 
 
 def async_update(fqu, zonefile, owner_privkey, payment_address, config_path=CONFIG_PATH,
-                      payment_privkey=None, proxy=None, wallet_keys=None, queue_path=DEFAULT_QUEUE_PATH):
+                 payment_privkey=None, proxy=None, wallet_keys=None, queue_path=DEFAULT_QUEUE_PATH):
     """
         Update a previously registered fqu, using a different payment address
 
