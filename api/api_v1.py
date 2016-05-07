@@ -42,6 +42,7 @@ from .models import Blockchainid, Email
 from .dkim import dns_resolver, parse_pubkey_from_data, DKIM_RECORD_PREFIX
 from .utils import sizeInvalid
 from .db import db_client
+from .s3 import s3_upload_file
 
 from .settings import RESOLVER_URL, SEARCH_URL
 from .settings import BLOCKCYPHER_TOKEN
@@ -481,6 +482,28 @@ def get_slack_users():
     resp = {
         "user_count": user_count
     }
+    return jsonify(resp), 200
+
+
+@app.route('/v1/upload', methods=['POST'])
+@parameters_required(['key', 'value'])
+@crossdomain(origin='*')
+def upload_data():
+    data = json.loads(request.data)
+
+    file_url = s3_upload_file('blockstack', data['value'], data['key'],
+                              public=True)
+
+    if file_url is not None:
+        resp = {
+            "success": True,
+            "url": file_url
+        }
+    else:
+        resp = {
+            "success": False
+        }
+
     return jsonify(resp), 200
 
 

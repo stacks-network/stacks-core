@@ -31,6 +31,8 @@ BITCOIND_USER = 'openname'
 BITCOIND_PASSWD = 'opennamesystem'
 BITCOIND_USE_HTTPS = True
 
+AWS_ACCESS_KEY_ID = 'AKIAIC4UN2FELE7MKFBQ'
+
 MAX_PROFILE_LIMIT = (8 * 1024) - 50  # roughly 8kb max limit
 
 EMAIL_REGREX = r'[^@]+@[^@]+\.[^@]+'
@@ -53,7 +55,8 @@ secrets_list = [
     'MAILGUN_API_KEY', 'SECRET_KEY',
     'API_DB_URI', 'API_DB_NAME',
     'BLOCKCYPHER_TOKEN',
-    'EMAILS_TOKEN', 'SLACK_API_TOKEN'
+    'EMAILS_TOKEN', 'SLACK_API_TOKEN',
+    'AWS_SECRET_ACCESS_KEY'
 ]
 
 for env_variable in os.environ:
