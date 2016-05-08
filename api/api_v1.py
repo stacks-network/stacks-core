@@ -491,8 +491,8 @@ def get_slack_users():
 def upload_data():
     data = json.loads(request.data)
 
-    file_url = s3_upload_file('blockstack', data['value'], data['key'],
-                              public=True)
+    file_url = s3_upload_file(
+        'blockstack', data['value'], 'staging/' + data['key'], public=True)
 
     if file_url is not None:
         resp = {
