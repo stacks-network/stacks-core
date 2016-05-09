@@ -62,6 +62,9 @@ from registrar.utils import satoshis_to_btc
 from registrar.states import nameRegistered, ownerName, profileonBlockchain
 from registrar.blockchain import recipientNotReady, get_tx_confirmations
 
+from blockstack_profiles import resolve_zone_file_to_profile
+from blockstack_profiles import is_profile_in_legacy_format
+
 from pybitcoin import is_b58check_address
 
 from binascii import hexlify
@@ -720,12 +723,21 @@ def run_cli():
         if 'value_hash' not in blockchain_record:
             exit_with_error("%s is not registered" % fqu)
 
-        try:
-            data_id = blockchain_record['value_hash']
-            data['data_record'] = json.loads(
-                client.get_immutable(str(args.name), data_id)['data'])
-        except:
-            data['data_record'] = None
+        data_id = blockchain_record['value_hash']
+        owner_address = blockchain_record['address']
+        profile = client.get_immutable(str(args.name), data_id)['data']
+
+        zone_file = profile
+        profile = resolve_zone_file_to_profile(profile, owner_address)
+
+        if not is_profile_in_legacy_format(profile):
+            data['data_record'] = profile
+            data['zone_file'] = zone_file
+        else:
+            data['data_record'] = json.loads(profile)
+        #except Exception as e:
+        #    print e
+        #    data['data_record'] = None
 
         result = data
 
