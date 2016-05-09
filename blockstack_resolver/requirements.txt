@@ -5,9 +5,8 @@ Flask==0.10.1
 itsdangerous==0.24
 Jinja2==2.8
 MarkupSafe==0.23
-proofchecker==0.0.2
+blockstack-proofs==0.0.4
 pylibmc==1.5.0
 requests==2.9.1
 Werkzeug==0.11.3
-blockstack-client==0.0.12.5
 blockstack-profiles==0.4.2
