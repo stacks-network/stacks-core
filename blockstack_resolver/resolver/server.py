@@ -17,7 +17,7 @@ from flask import Flask, make_response, jsonify, abort, request
 from time import time
 from basicrpc import Proxy
 
-from proofchecker import profile_to_proofs
+from blockstack_proofs import profile_to_proofs, profile_v3_to_proofs
 from blockstack_profiles import resolve_zone_file_to_profile
 from blockstack_profiles import is_profile_in_legacy_format
 
@@ -80,7 +80,12 @@ def fetch_from_dht(profile_hash):
     """
 
     dht_client = Proxy(DHT_MIRROR_IP, DHT_MIRROR_PORT)
-    dht_resp = dht_client.get(profile_hash)
+
+    try:
+        dht_resp = dht_client.get(profile_hash)
+    except:
+        abort(500, "Connection to DHT timed out")
+
     dht_resp = dht_resp[0]
 
     return dht_resp['value']
@@ -107,10 +112,10 @@ def format_profile(profile, username, address):
         if not is_profile_in_legacy_format(profile):
             data['zone_file'] = zone_file
             data['profile'] = profile
+            data['verifications'] = profile_v3_to_proofs(data['profile'], username)
         else:
             data['profile'] = json.loads(profile)
-
-        data['verifications'] = profile_to_proofs(data['profile'], username)
+            data['verifications'] = profile_to_proofs(data['profile'], username)
 
     return data
 
