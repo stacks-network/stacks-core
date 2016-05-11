@@ -107,7 +107,7 @@ from blockstack_client import \
     update, \
     update_subsidized
 
-from rpc import local_rpc_connect, local_rpc_ensure_running, local_rpc_status, local_rpc_start, local_rpc_stop
+from rpc import local_rpc_connect, local_rpc_ensure_running, local_rpc_status, local_rpc_stop
 import rpc as local_rpc
 import config
 from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR
@@ -206,13 +206,13 @@ def can_update_or_transfer(fqu, config_path=CONFIG_PATH, transfer_address=None, 
     return {'status': True}
 
 
-def start_rpc_endpoint(config_dir=CONFIG_DIR):
+def start_rpc_endpoint(config_dir=CONFIG_DIR, password=None):
     """
     Decorator that will ensure that the RPC endpoint
     is running before the wrapped function is called.
     Raise on error
     """
-    rc = local_rpc_ensure_running( config_dir )
+    rc = local_rpc_ensure_running( config_dir, password=password )
     if not rc:
         raise Exception("Failed to start RPC endpoint (from %s)" % config_dir)
 
@@ -392,7 +392,7 @@ def cli_import_wallet( args, config_path=CONFIG_PATH, password=None, force=False
             # update RPC daemon if we're running
             if local_rpc_status(config_dir=config_dir):
                 local_rpc_stop(config_dir=config_dir)
-                start_rpc_endpoint(config_dir)
+                start_rpc_endpoint(config_dir, password=password)
 
             return {'status': True}
 
@@ -624,7 +624,7 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
     """
 
     config_dir = os.path.dirname(config_path)
-    start_rpc_endpoint(config_dir)
+    start_rpc_endpoint(config_dir, password=password)
 
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
     if not os.path.exists(wallet_path):
@@ -718,7 +718,7 @@ def cli_update( args, config_path=CONFIG_PATH, password=None ):
     """
 
     config_dir = os.path.dirname(config_path)
-    start_rpc_endpoint(config_dir)
+    start_rpc_endpoint(config_dir, password=password)
 
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
     if not os.path.exists(wallet_path):
@@ -778,7 +778,7 @@ def cli_transfer( args, config_path=CONFIG_PATH, password=None ):
     """
 
     config_dir = os.path.dirname(config_path)
-    start_rpc_endpoint(config_dir)
+    start_rpc_endpoint(config_dir, password=password)
 
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
     if not os.path.exists(wallet_path):
@@ -830,7 +830,7 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None ):
     """
 
     config_dir = os.path.dirname(config_path)
-    start_rpc_endpoint(config_dir)
+    start_rpc_endpoint(config_dir, password=password)
 
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
     if not os.path.exists(wallet_path):
@@ -891,7 +891,7 @@ def cli_advanced_wallet( args, config_path=CONFIG_PATH, password=None ):
     
     result = {}
     config_dir = os.path.dirname(config_path)
-    start_rpc_endpoint(config_dir)
+    start_rpc_endpoint(config_dir, password=password)
 
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
     if not os.path.exists(wallet_path):
@@ -1096,12 +1096,10 @@ def cli_advanced_preorder_subsidized( args, config_path=CONFIG_PATH ):
     command: preorder_subsidized
     help: Generate a subsidized transaction that will preorder a name.
     arg: name (str) "The name to preorder"
-    arg: public_key (str) "The public key of keypair that will send the preorder tx"
     arg: address (str) "The address of the name recipient"
     arg: subsidy_key (str) "The private key that will pay for the preorder"
     """
     result = preorder_subsidized(str(args.name),
-                                 str(args.public_key),
                                  str(args.address),
                                  str(args.subsidy_key))
 
