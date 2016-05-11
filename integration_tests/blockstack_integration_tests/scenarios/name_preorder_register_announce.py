@@ -75,7 +75,7 @@ def scenario( wallets, **kw ):
 
 def check( state_engine ):
 
-    expected_hash = "c48ce66b046a25ec752138274bd84cca1e57f751"
+    expected_hash = "13a76219ed16c5e53e2c08dde8660609bb8f63da"
 
     # not revealed, but ready
     ns = state_engine.get_namespace_reveal( "id" )
