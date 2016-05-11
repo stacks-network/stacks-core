@@ -23,10 +23,6 @@
 import os
 import sys
 
-# hack around absolute paths 
-current_dir =  os.path.abspath(os.path.dirname(__file__) + "/../..")
-sys.path.insert(0, current_dir)
-
 from blockstack.lib import *
 import hashlib
 import binascii
