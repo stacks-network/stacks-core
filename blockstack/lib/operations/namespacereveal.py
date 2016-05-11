@@ -38,9 +38,7 @@ from ..scripts import blockstack_script_to_hex, add_magic_bytes
 from ..hashing import hash_name
    
 import virtualchain
-
-if not globals().has_key('log'):
-    log = virtualchain.session.log
+log = virtualchain.get_logger("blockstack-log")
 
 # consensus hash fields (ORDER MATTERS!)
 FIELDS = [

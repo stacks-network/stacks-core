@@ -30,9 +30,7 @@ from ..config import *
 from ..scripts import *
 
 import virtualchain
-
-if not globals().has_key('log'):
-    log = virtualchain.session.log
+log = virtualchain.get_logger("blockstack-server")
 
 from namespacereveal import FIELDS as NAMESPACE_REVEAL_FIELDS
 
