@@ -279,11 +279,9 @@ def list_update_history( name, current_block=None, proxy=None ):
 
     if current_block is None:
         info = proxy.getinfo()
-        info = info[0]
         current_block = info['last_block']+1
 
     name_history = proxy.get_name_blockchain_history( name, 0, current_block )
-    name_history = name_history[0]
     all_update_hashes = []
 
     for state in name_history:
@@ -489,7 +487,7 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
 
     # update zonefile, if we haven't already
     if txid is None:
-        _, owner_privkey = get_owner_keypair(wallet_keys=wallet_keys)
+        _, owner_privkey = get_owner_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
         update_result = update( name, user_zonefile, owner_privkey, proxy=proxy )
         if 'error' in update_result:
             # failed to replicate user zonefile hash 
@@ -591,7 +589,7 @@ def put_mutable(name, data_id, data_json, proxy=None, create_only=False, update_
         version = put_mutable_get_version( user_profile, data_id, data_json, make_version=make_version )
 
     # generate the mutable zonefile
-    _, data_privkey = get_data_keypair( wallet_keys=wallet_keys )
+    _, data_privkey = get_data_keypair( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
     urls = storage.make_mutable_data_urls( fq_data_id )
     mutable_zonefile = user_db.make_mutable_data_zonefile( data_id, version, urls )
 
@@ -677,7 +675,7 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
     
     if txid is None:
         # actually send the transaction
-        _, owner_privkey = get_owner_keypair(wallet_keys=wallet_keys)
+        _, owner_privkey = get_owner_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
         update_result = update( name, user_zonefile, owner_privkey, proxy=proxy )
         if 'error' in update_result:
             # failed to remove from zonefile 
@@ -692,7 +690,7 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
     }
 
     # delete immutable data 
-    _, data_privkey = get_data_keypair( wallet_keys=wallet_keys )
+    _, data_privkey = get_data_keypair( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
     rc = storage.delete_immutable_data( data_key, txid, data_privkey )
     if not rc:
         result['error'] = 'Failed to delete immutable data'
@@ -736,7 +734,7 @@ def delete_mutable(name, data_id, proxy=None, wallet_keys=None):
     user_db.remove_mutable_data_zonefile( user_profile, data_id )
 
     # put new profile 
-    _, data_privkey = get_data_keypair( wallet_keys=wallet_keys )
+    _, data_privkey = get_data_keypair( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
     rc = storage.put_mutable_data( name, user_profile, data_privkey )
     if not rc:
         return {'error': 'Failed to unlink mutable data from profile'}
