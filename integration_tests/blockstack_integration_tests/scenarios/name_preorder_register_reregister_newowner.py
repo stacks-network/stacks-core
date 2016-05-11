@@ -34,12 +34,12 @@ wallets = [
 ]
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
-first_block = None
+last_first_block = None
 first_preorder = None
 
 def scenario( wallets, **kw ):
 
-    global first_block, first_preorder
+    global last_first_block, first_preorder
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
@@ -67,8 +67,7 @@ def scenario( wallets, **kw ):
 
         testlib.next_block( **kw )
 
-        if first_block is None:
-            first_block = testlib.get_current_block( **kw )
+        last_first_block = testlib.get_current_block( **kw )
 
         if i == 4:
             break
@@ -78,7 +77,7 @@ def scenario( wallets, **kw ):
 
 def check( state_engine ):
 
-    global first_block, first_preorder
+    global last_first_block, first_preorder
 
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "test" )
@@ -109,13 +108,13 @@ def check( state_engine ):
         return False
 
     # check blocks 
-    if name_rec['first_registered'] != first_block:
-        print "wrong first_registered; expected %s" % first_block
+    if name_rec['first_registered'] != last_first_block:
+        print "wrong first_registered; expected %s" % last_first_block
         print json.dumps(name_rec, indent=4 )
         return False 
 
     if name_rec['block_number'] != first_preorder:
-        print "wrong block_number; expected %s" % first_preorder
+        print "wrong block_number; expected %s" % last_first_preorder
         print json.dumps(name_rec, indent=4)
         return False
 
