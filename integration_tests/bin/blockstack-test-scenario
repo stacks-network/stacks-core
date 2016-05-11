@@ -13,6 +13,7 @@ import traceback
 
 # enable all tests
 os.environ['BLOCKSTACK_TEST'] = '1'
+os.environ['BLOCKSTACK_CLIENT_TEST_ALTERNATIVE_CONFIG'] = '1'
 
 import pybitcoin
 
@@ -377,16 +378,14 @@ if __name__ == "__main__":
 
     if len(sys.argv) > 2:
         working_dir = sys.argv[2]
-        if os.path.exists(working_dir):
-            log.error("Directory exists: %s" % working_dir)
-            sys.exit(1)
 
     else:
         working_dir = "/tmp/blockstack-run-scenario.%s" % sys.argv[1]
         if os.path.exists(working_dir):
             shutil.rmtree(working_dir)
-    
-    os.makedirs(working_dir)
+   
+    if not os.path.exists(working_dir):
+        os.makedirs(working_dir)
 
     client_working_dir = os.path.join(working_dir, "client")
     client_metadata = os.path.join(client_working_dir, "metadata")
