@@ -165,7 +165,7 @@ def profile_update( name, new_profile, proxy=None, wallet_keys=None ):
         proxy = get_default_proxy()
 
     # update the profile with the new zonefile
-    _, data_privkey = get_data_keypair( wallet_keys=wallet_keys )
+    _, data_privkey = get_data_keypair( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
     rc = storage.put_mutable_data( name, new_profile, data_privkey )
     if not rc:
         ret['error'] = 'Failed to update profile'
@@ -217,7 +217,7 @@ def get_name_zonefile( name, create_if_absent=False, proxy=None, value_hash=None
         else:
             # make an empty zonefile and return that
             # get user's data public key 
-            public_key, _ = get_data_keypair(wallet_keys=wallet_keys)
+            public_key, _ = get_data_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
             user_resp = user_db.make_empty_user_zonefile(name, public_key)
             return user_resp
 
@@ -309,21 +309,6 @@ def store_name_zonefile( name, user_zonefile, txid ):
     return (rc, data_hash)
 
 
-def store_name_profile(username, user_profile, wallet_keys=None):
-    """
-    Store JSON user profile data to the mutable storage providers, synchronously.
-
-    The wallet must be initialized before calling this.
-
-    Return True on success
-    Return False on error
-    """
-
-    _, data_privkey = get_data_keypair(wallet_keys=wallet_keys)
-    rc = storage.put_mutable_data( username, user_profile, data_privkey )
-    return rc
-
-
 def remove_name_zonefile(user, txid):
     """
     Delete JSON user zonefile data from immutable storage providers, synchronously.
@@ -363,7 +348,7 @@ def get_and_migrate_profile( name, proxy=None, create_if_absent=False, wallet_ke
 
         log.debug("Creating new profile and zonefile for name '%s'" % name)
         if 'data_privkey' in wallet_keys:
-            data_pubkey, _ = get_data_keypair( wallet_keys=wallet_keys )
+            data_pubkey, _ = get_data_keypair( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
         elif 'data_pubkey' in wallet_keys:
             data_pubkey = wallet_keys['data_pubkey']
 
@@ -376,7 +361,7 @@ def get_and_migrate_profile( name, proxy=None, create_if_absent=False, wallet_ke
 
         log.debug("Migrating legacy profile to modern zonefile for name '%s'" % name)
         if 'data_privkey' in wallet_keys:
-            data_pubkey, _ = get_data_keypair( wallet_keys=wallet_keys )
+            data_pubkey, _ = get_data_keypair( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
         elif 'data_pubkey' in wallet_keys:
             data_pubkey = wallet_keys['data_pubkey']
 
@@ -414,14 +399,14 @@ def migrate_profile( name, txid=None, proxy=None, wallet_keys=None, include_prof
         return {'status': True}
 
     # store profile...
-    _, data_privkey = get_data_keypair( wallet_keys=wallet_keys )
+    _, data_privkey = get_data_keypair( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
     rc = storage.put_mutable_data( name, user_profile, data_privkey )
     if not rc:
         return {'error': 'Failed to move legacy profile to profile zonefile'}
 
     # store zonefile, if we haven't already
     if txid is None:
-        _, owner_privkey = get_owner_keypair(wallet_keys=wallet_keys)
+        _, owner_privkey = get_owner_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
         update_result = update( name, user_zonefile, owner_privkey, proxy=proxy )
         if 'error' in update_result:
             # failed to replicate user zonefile hash 
