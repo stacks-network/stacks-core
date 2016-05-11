@@ -59,7 +59,7 @@ sys.path.insert(0, parent_dir)
 from blockstack_client import config
 from blockstack_client.client import session
 from blockstack_client.config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH
-from blockstack_client.parser import parse_methods, build_method_subparsers
+from blockstack_client.method_parser import parse_methods, build_method_subparsers
 
 import blockstack_client.actions as builtin_methods
 
