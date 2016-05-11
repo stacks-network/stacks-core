@@ -49,9 +49,7 @@ from defusedxml import xmlrpc
 xmlrpc.monkey_patch()
 
 import virtualchain
-
-if not globals().has_key('log'):
-    log = virtualchain.session.log
+log = virtualchain.get_logger("blockstack-server")
 
 try:
     import blockstack_client
@@ -1068,13 +1066,15 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
         info = bitcoind.getinfo()
         reply = {}
-        reply['bitcoind_blocks'] = info['blocks']
-
+        reply['bitcoind_blocks'] = info['blocks']       # legacy
+        reply['blockchain_blocks'] = info['blocks']
+        
         db = get_state_engine()
         reply['consensus'] = db.get_current_consensus()
         reply['blocks'] = db.get_current_block()
         reply['blockstack_version'] = "%s" % VERSION
         reply['testset'] = str(self.testset)
+        reply['last_block'] = reply['blocks']
         return reply
 
 
@@ -1118,18 +1118,17 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return blockstack_name_preorder( str(name), str(privatekey), str(register_addr), tx_only=True, testset=self.testset )
 
 
-    def rpc_preorder_tx_subsidized( self, name, user_public_key, register_addr, subsidy_key ):
+    def rpc_preorder_tx_subsidized( self, name, register_addr, subsidy_key ):
         """
         Generate a transaction that preorders a name, but without paying fees.
         @name is the name to preorder
         @register_addr is the address of the key pair that will own the name
-        @public_key is the client's public key that will sign the preorder transaction
         (it must be *different* from the register_addr keypair)
 
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
         """
-        return blockstack_name_preorder( str(name), None, str(register_addr), tx_only=True, subsidy_key=str(subsidy_key), user_public_key=str(user_public_key), testset=self.testset )
+        return blockstack_name_preorder( str(name), None, str(register_addr), tx_only=True, subsidy_key=str(subsidy_key), testset=self.testset )
 
 
     def rpc_register( self, name, privatekey, register_addr ):
@@ -1166,12 +1165,12 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         @name is the name to register
         @register_addr is the address of the key pair that will own the name
         (given earlier in the preorder)
-        public_key is the public key whose private counterpart sent the preorder transaction.
+        @user_public_key is the public key whose private counterpart sent the preorder transaction.
 
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
         """
-        return blockstack_name_register( str(name), None, str(register_addr), tx_only=True, public_key=str(user_public_key), subsidy_key=str(subsidy_key), testset=self.testset )
+        return blockstack_name_register( str(name), None, str(register_addr), tx_only=True, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), testset=self.testset )
 
 
     def rpc_update( self, name, data_hash, privatekey ):
@@ -1342,11 +1341,13 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return blockstack_name_revoke( str(name), str(privatekey), tx_only=True, testset=self.testset )
 
 
-    def rpc_revoke_tx_subsidized( self, name, public_key, subsidy_key ):
+    def rpc_revoke_tx_subsidized( self, name, user_public_key, subsidy_key ):
         """
         Generate a subsidizable transaction that will revoke a name
         @name is the name to revoke
         @privatekey is the private key that owns the name
+        @user_public_key is the public key of the name owner. Must be given if @subsidy_key is given.
+        @subsidy_key is the key that will pay for the tx
 
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
@@ -1555,7 +1556,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
     def rpc_get_block_from_consensus( self, consensus_hash ):
         """
-        Given the consensus hash, find the block number
+        Given the consensus hash, find the block number (or None)
         """
         db = get_db_state()
         return db.get_block_from_consensus( consensus_hash )
@@ -2261,10 +2262,13 @@ def find_last_transfer_consensus_hash( name_rec, block_id, vtxindex ):
     history_keys.reverse()
 
     for hk in history_keys:
+        if hk > block_id:
+            continue
+        
         history_states = BlockstackDB.restore_from_history( name_rec, hk )
 
         for history_state in reversed(history_states):
-            if history_state['block_number'] > block_id or (history_state['block_number'] == block_id and history_state['vtxindex'] > vtxindex):
+            if hk == block_id and history_state['vtxindex'] > vtxindex:
                 # from the future
                 continue
 
@@ -2272,12 +2276,12 @@ def find_last_transfer_consensus_hash( name_rec, block_id, vtxindex ):
                 # skip NAME_TRANSFERS
                 continue
 
-            if history_state['op'][0] == NAME_PREORDER:
+            if history_state['op'][0] in [NAME_IMPORT, NAME_REGISTRATION]:
                 # out of history
                 return None
 
-            if name_rec['consensus_hash'] is not None:
-                return name_rec['consensus_hash']
+            if history_state.has_key('consensus_hash') and history_state['consensus_hash'] is not None:
+                return history_state['consensus_hash']
 
     return None
 
@@ -2333,7 +2337,13 @@ def nameop_restore_consensus_fields( name_rec, block_id ):
         name_rec['history'] = old_history
 
         ret_op['keep_data'] = keep_data
-        ret_op['consensus_hash'] = consensus_hash
+        if consensus_hash is not None:
+            print "restore consensus hash (%s,%s): %s" % (block_id, name_rec['vtxindex'], consensus_hash)
+            ret_op['consensus_hash'] = consensus_hash
+        else:
+            ret_op['consensus_hash'] = db.get_consensus_at( name_rec['transfer_send_block_id'] )
+            print "Use consensus hash from %s: %s" % (name_rec['transfer_send_block_id'], ret_op['consensus_hash'])
+
         ret_op['name_hash'] = hash256_trunc128( str(name_rec['name']) )
 
     elif opcode_name == "NAME_UPDATE":
@@ -2341,11 +2351,19 @@ def nameop_restore_consensus_fields( name_rec, block_id ):
         # reconstruct name_hash
         ret_op['name_hash'] = hash256_trunc128( str(name_rec['name']) + str(name_rec['consensus_hash']) )
 
+    elif opcode_name == "NAME_REVOKE":
+
+        ret_op['revoked'] = True
+
     ret_op = virtualchain.virtualchain_set_opfields( ret_op, virtualchain_opcode=getattr( config, opcode_name ), virtualchain_txid=str(name_rec['txid']), virtualchain_txindex=int(name_rec['vtxindex']) )
     ret_op['opcode'] = opcode_name
 
     merged_op = copy.deepcopy( name_rec )
     merged_op.update( ret_op )
+
+    if 'name_hash' in merged_op.keys():
+        nh = merged_op['name_hash']
+        merged_op['name_hash128'] = nh
 
     return merged_op
 
