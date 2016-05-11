@@ -27,10 +27,7 @@ from pybitcoin import BitcoinPrivateKey, BitcoinPublicKey, script_to_hex, make_p
 from pybitcoin.transactions.outputs import calculate_change_amount
 
 import virtualchain
-from virtualchain import getrawtransaction 
-
-if not globals().has_key('log'):
-    log = virtualchain.session.log
+log = virtualchain.get_logger("blockstack-server")
 
 import bitcoin
 import json
@@ -331,7 +328,7 @@ def tx_analyze_inputs( inputs, bitcoind_opts ):
         ret_inp = {}
         ret_inp.update( inp )
         
-        input_tx_hex = getrawtransaction( bitcoind_opts, ret_inp["transaction_hash"] )
+        input_tx_hex = virtualchain.getrawtransaction( bitcoind_opts, ret_inp["transaction_hash"] )
         if input_tx_hex is None:
             raise Exception("No such transaction '%s'" % ret_inp["transaction_hash"])
         
