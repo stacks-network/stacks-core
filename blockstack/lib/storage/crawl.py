@@ -79,7 +79,7 @@ def get_zonefile_from_storage( zonefile_hash ):
 
     zonefile_txt = blockstack_client.storage.get_immutable_data( zonefile_hash, hash_func=blockstack_client.get_blockchain_compat_hash, deserialize=False )
     if zonefile_txt is None:
-        raise Exception("Failed to get data: %s" % data['error'])
+        raise Exception("Failed to get data")
 
     # verify
     if blockstack_client.storage.get_name_zonefile_hash( zonefile_txt ) != zonefile_hash:
