@@ -41,9 +41,7 @@ from ..operations import parse_preorder, parse_registration, parse_update, parse
     SERIALIZE_FIELDS
 
 import virtualchain
-
-if not globals().has_key('log'):
-    log = virtualchain.session.log
+log = virtualchain.get_logger("blockstack-log")
 
 blockstack_db = None
 last_load_time = 0
