@@ -47,13 +47,11 @@ from ..hashing import *
 from ..b40 import is_b40
 
 import virtualchain
+log = virtualchain.get_logger("blockstack-log")
 
 # NOTE: ignored; here for compatibility with future versions
 DISPOSITION_RO = "readonly"
 DISPOSITION_RW = "readwrite"
-
-if not globals().has_key('log'):
-    log = virtualchain.session.log
 
 
 class BlockstackDB( virtualchain.StateEngine ):
@@ -1244,7 +1242,9 @@ class BlockstackDB( virtualchain.StateEngine ):
               log.debug("Expire incomplete namespace '%s'" % namespace_id)
               del self.namespace_reveals[ namespace_id ]
               del self.namespace_id_to_hash[ namespace_id ]
-              del self.import_addresses[ namespace_id ]
+
+              if namespace_id in self.import_addresses.keys():
+                  del self.import_addresses[ namespace_id ]
 
               expired[namespace_id] = []
 
@@ -1400,7 +1400,9 @@ class BlockstackDB( virtualchain.StateEngine ):
                  "op_fee": name_rec['op_fee'],
                  "importer": name_rec['importer'],
                  "importer_address": name_rec['importer_address'],
-                 "history_snapshot": True
+                 "history_snapshot": True,
+                 "first_registered": name_rec['first_registered'],
+                 "last_renewed": name_rec['last_renewed']
               }]
 
               for optional_field in ['consensus_hash', 'transfer_send_block_id']:
