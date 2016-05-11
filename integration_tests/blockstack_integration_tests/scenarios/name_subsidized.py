@@ -88,7 +88,7 @@ def scenario( wallets, **kw ):
     send_subsidized( None, resp, **kw )
     testlib.next_block( **kw )
 
-    resp = testlib.blockstack_name_register( "foo.test", None, wallets[3].addr, subsidy_key=subsidy_wallet.privkey )
+    resp = testlib.blockstack_name_register( "foo.test", None, wallets[3].addr, user_public_key=wallets[3].pubkey_hex, subsidy_key=subsidy_wallet.privkey )
     if debug or  'error' in resp:
         print json.dumps( resp, indent=4 )
 
