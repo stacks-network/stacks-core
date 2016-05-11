@@ -28,7 +28,17 @@ import binascii
 import sys
 import base58
 import traceback
-from blockstack import op_extract, OPCODE_NAMES
+from blockstack import OPCODE_NAMES
+
+try:
+    # not in all versions...
+    from blockstack import op_extract
+except:
+    from blockstack import db_parse, NAME_OPCODES
+
+    def op_extract( op_name, data, senders, inputs, outputs, block_id, vtxindex, txid ):
+        opcode = NAME_OPCODES.get(op_name, None)
+        return db_parse( block_id, txid, vtxindex, opcode, data, senders, inputs, outputs, None )
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
