@@ -541,7 +541,7 @@ def local_rpc_status( config_dir=blockstack_config.CONFIG_DIR ):
     return True
 
 
-def local_rpc_ensure_running( config_dir=blockstack_config.CONFIG_DIR ):
+def local_rpc_ensure_running( config_dir=blockstack_config.CONFIG_DIR, password=None ):
     """
     Ensure that the RPC daemon is running.
     Start it if it is not.
@@ -551,7 +551,18 @@ def local_rpc_ensure_running( config_dir=blockstack_config.CONFIG_DIR ):
     rc = local_rpc_status( config_dir )
     if not rc:
         log.debug("Starting RPC endpoint (%s)" % config_dir)
+
+        pass_password = False
+        if password is not None and os.environ.get('BLOCKSTACK_CLIENT_WALLET_PASSWORD', None) is None:
+            # pass password to local rpc daemon
+            os.environ['BLOCKSTACK_CLIENT_WALLET_PASSWORD'] = password
+            pass_password = True
+
         rc = local_rpc_action( "start", config_dir=config_dir )
+
+        if pass_password:
+            del os.environ['BLOCKSTACK_CLIENT_WALLET_PASSWORD']
+
         if rc != 0:
             log.error("Failed to start RPC endpoint; exit code was %s" % rc)
             return False
@@ -582,14 +593,17 @@ if __name__ == "__main__":
         sys.exit(1)
     
     if command == 'start':
-        rc = local_rpc_start( portnum, config_dir=config_dir )
+        # maybe inherited password through the environment?
+        passwd = os.environ.get("BLOCKSTACK_CLIENT_WALLET_PASSWORD", None)
+        rc = local_rpc_start( portnum, config_dir=config_dir, password=passwd )
         if rc:
             sys.exit(0)
         else:
             sys.exit(1)
        
     elif command == 'start-foreground':
-        rc = local_rpc_start( portnum, config_dir=config_dir, foreground=True )
+        passwd = os.environ.get("BLOCKSTACK_CLIENT_WALLET_PASSWORD", None)
+        rc = local_rpc_start( portnum, config_dir=config_dir, foreground=True, password=passwd )
         if rc:
             sys.exit(0)
         else:
