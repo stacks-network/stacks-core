@@ -80,7 +80,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
-    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", datasets[0], data_url="http://www.example.com", proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", datasets[0], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
@@ -88,7 +88,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
-    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_2", datasets[1], data_url="http://www.example.com", proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_2", datasets[1], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
@@ -96,7 +96,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
-    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_3", datasets[2], data_url="http://www.example.com", proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_3", datasets[2], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
@@ -107,7 +107,7 @@ def scenario( wallets, **kw ):
 
     # should succeed (name collision)
     datasets[0][u'newdata'] = u"asdf"
-    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", datasets[0], data_url="http://www.example.com", proxy=test_proxy, wallet_keys=wallet_keys )
+    put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", datasets[0], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' not in put_result:
         immutable_data_hashes[0] = put_result['immutable_data_hash']
     else:
