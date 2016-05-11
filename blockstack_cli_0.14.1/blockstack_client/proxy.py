@@ -460,7 +460,7 @@ def preorder(name, privatekey, register_addr=None, proxy=None, tx_only=False):
     return resp
 
 
-def preorder_subsidized(name, public_key, register_addr, subsidy_key, proxy=None):
+def preorder_subsidized(name, register_addr, subsidy_key, proxy=None):
     """
     preorder a name, but subsidize it with the given subsidy_key.
     Return a SIGHASH_ANYONECANPAY transaction, where the client must sign each
@@ -473,7 +473,7 @@ def preorder_subsidized(name, public_key, register_addr, subsidy_key, proxy=None
 
     try:
         # get preorder tx
-        resp = proxy.preorder_tx_subsidized(name, public_key, register_addr, subsidy_key)
+        resp = proxy.preorder_tx_subsidized(name, register_addr, subsidy_key)
 
     except Exception as e:
         resp['error'] = str(e)
