@@ -536,6 +536,8 @@ def walletUnlocked(config_dir=CONFIG_DIR):
 def get_wallet(config_path=CONFIG_PATH):
     """
     Get the decrypted wallet from the running RPC backend daemon.
+    Returns the wallet data on success
+    Returns None on error
     """
     local_proxy = local_rpc_connect(config_dir=os.path.dirname(config_path))
     conf = config.get_config(config_path)
