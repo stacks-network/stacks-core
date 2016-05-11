@@ -26,6 +26,8 @@ import pybitcoin
 import time
 import json
 import sys
+import os
+import blockstack_client
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -69,6 +71,13 @@ def scenario( wallets, **kw ):
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
     time.sleep(10)
 
+    # wait for update to get confirmed 
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+
+    print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
+    time.sleep(10)
+
 
 
 def check( state_engine ):
@@ -106,4 +115,20 @@ def check( state_engine ):
         print "Still in queue:\n%s" % json.dumps(queue_info, indent=4, sort_keys=True)
         return False
 
+    # have an update haash 
+    if 'value_hash' not in name_rec or name_rec.get('value_hash', None) is None:
+        print "No value hash"
+        return False 
+
+    # have a zonefile 
+    zonefile = testlib.blockstack_get_zonefile( name_rec['value_hash'] )
+    if 'error' in zonefile:
+        print "zonefile lookup error: %s" % zonefile['error']
+        return False
+
+    # hashes to this zonefile 
+    if blockstack_client.hash_zonefile( zonefile ) != name_rec['value_hash']:
+        print "wrong zonefile: %s != %s" % (blockstack_client.hash_zonefile(zonefile), name_rec['value_hash'])
+        return False
+    
     return True

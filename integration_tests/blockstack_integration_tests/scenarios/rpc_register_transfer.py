@@ -73,6 +73,13 @@ def scenario( wallets, **kw ):
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
     time.sleep(10)
 
+    # wait for update to get confirmed 
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+
+    print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
+    time.sleep(10)
+
     # transfer to a new address 
     resp = testlib.blockstack_rpc_transfer( "foo.test", wallets[4].addr, "0123456789abcdef" )
 
