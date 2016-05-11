@@ -434,7 +434,7 @@ def check( state_engine ):
                     (key_url, key_res[2]['key_url'], less_secure_app_listing[0], json.dumps(key_res, indent=4, sort_keys=True))
             return False
 
-        profile_key = blockstack_gpg.gpg_profile_get_key( name, account_key_listing[0]['keyName'] )
+        profile_key = blockstack_gpg.gpg_profile_get_key( name, account_key_listing[0]['keyName'], gpghome=gpghome )
         if 'error' in profile_key:
             print "no key in account %s: %s" % (account_key_listing, profile_key['error'])
             return False
