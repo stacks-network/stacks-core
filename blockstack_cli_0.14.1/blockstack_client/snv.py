@@ -142,7 +142,11 @@ def get_block_from_consensus(consensus_hash, proxy=None):
         proxy = get_default_proxy()
 
     resp = proxy.get_block_from_consensus(consensus_hash)
-    if type(resp) == list:
+    if resp is None:
+        resp = {'error': 'No such consensus hash'}
+
+    elif type(resp) == list:
+        # backwards-compatibility
         if len(resp) == 0:
             resp = {'error': 'No data returned'}
         else:
@@ -754,10 +758,8 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
 
     # get the final nameops
     historic_nameops = get_nameops_at(block_id, proxy=proxy)
-    if 'error' in historic_nameops:
+    if type(historic_nameops) == dict and 'error' in historic_nameops:
         return {'error': 'BUG: no nameops found'}
-
-    historic_nameops = historic_nameops[0]
 
     # sanity check...
     for historic_op in historic_nameops:
