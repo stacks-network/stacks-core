@@ -1,21 +1,26 @@
 #!/bin/sh
 
 usage() {
-   echo "Usage: $0 [path/to/scenarios] [path/to/test/output/dir] [OPTIONAL: path/to/tests/to/skip.txt]"
+   echo "Usage: $0 [path/to/test/output/dir] [OPTIONAL: path/to/tests/to/skip.txt]"
    exit 1
 }
 
-if [ $# -lt 2 ]; then 
+if [ $# -lt 1 ]; then 
    usage $0
 fi
 
-SCENARIOS="$1"
-OUTPUTS="$2"
-TESTS_SKIP="$3"
+RUN_SCENARIO="blockstack-test-scenario"
+SCENARIOS_PYTHON="blockstack_integration_tests.scenarios"
+SCENARIOS="$(python -c "import blockstack_integration_tests; import blockstack_integration_tests.scenarios; print blockstack_integration_tests.scenarios.__path__[0]")"
+if [ $? -ne 0 ]; then 
+   echo >&2 "Failed to load blockstack integration test scenarios"
+   exit 1
+fi
+
+OUTPUTS="$1"
+TESTS_SKIP="$2"
 
 test -d "$OUTPUTS" || mkdir -p "$OUTPUTS"
-
-SCENARIOS_PYTHON="$(echo "$SCENARIOS" | sed 's/[\/]+/\./g')"
 
 while IFS= read SCENARIO_FILE; do
    
@@ -41,7 +46,7 @@ while IFS= read SCENARIO_FILE; do
       echo -n "$SCENARIO_MODULE ... "
 
       mkdir -p "$TESTDIR"
-      ./run_scenario.py "$SCENARIO_MODULE" "$TESTDIR" > "$OUTPUTS/$SCENARIO_MODULE_BASE.log" 2>&1
+      "$RUN_SCENARIO" "$SCENARIO_MODULE" "$TESTDIR" > "$OUTPUTS/$SCENARIO_MODULE_BASE.log" 2>&1
 
       RC=$?
 
