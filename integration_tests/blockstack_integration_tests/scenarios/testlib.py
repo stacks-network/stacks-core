@@ -40,6 +40,7 @@ import blockstack_client
 from blockstack_client.actions import *
 import blockstack
 import pybitcoin
+import keylib
 from pybitcoin.transactions.outputs import calculate_change_amount
 
 import virtualchain
@@ -52,7 +53,8 @@ class Wallet(object):
 
         self._pk = pk
         self.privkey = pk_wif
-        self.pubkey_hex = pk.public_key().to_hex()
+        self.pubkey_hex = pk.public_key().to_hex()                          # coordinate (uncompressed) EC public key
+        self.ec_pubkey_hex = keylib.ECPrivateKey(pk_wif).public_key().to_hex()  # parameterized (compressed) EC public key
         self.addr = pk.public_key().address()
         self.value = int(value_str)
 
@@ -80,7 +82,8 @@ class TestAPIProxy(object):
             "start_block": blockstack.FIRST_BLOCK_MAINNET,
             "initial_utxos": utxo_opts,
             "storage_drivers": client_config['storage_drivers'],
-            "metadata": client_config['metadata']
+            "metadata": client_config['metadata'],
+            'path': client_path
         }
         self.spv_headers_path = utxo_opts['spv_headers_path']
 
@@ -93,7 +96,7 @@ class TestAPIProxy(object):
             def inner(*args, **kw):
                 c = getattr( self.client, name)
                 r = c(*args, **kw)
-                return [r]
+                return r
 
             return inner
         except Exception, e:
@@ -195,7 +198,7 @@ def blockstack_name_preorder( name, privatekey, register_addr, tx_only=False, su
     api_call_history.append( APICallRecord( "preorder", name, resp ) )
     return resp
 
-
+"""
 def blockstack_name_preorder_multi( names, privatekey, register_addrs, tx_only=False, subsidy_key=None, testset=False, consensus_hash=None ):
     
     test_proxy = make_proxy()
@@ -210,7 +213,7 @@ def blockstack_name_preorder_multi( names, privatekey, register_addrs, tx_only=F
 
     api_call_history.append( APICallRecord( "preorder_multi", name, resp ) )
     return resp
-
+"""
 
 def blockstack_name_register( name, privatekey, register_addr, renewal_fee=None, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
     
@@ -220,7 +223,7 @@ def blockstack_name_register( name, privatekey, register_addr, renewal_fee=None,
     if tx_only:
         resp = test_proxy.register_tx( name, privatekey, register_addr )
     elif subsidy_key is not None:
-        resp = test_proxy.register_tx_subsidized( name, privatekey, register_addr, subsidy_key )
+        resp = test_proxy.register_tx_subsidized( name, user_public_key, register_addr, subsidy_key )
     else:
         resp = test_proxy.register( name, privatekey, register_addr )
 
@@ -368,7 +371,7 @@ def blockstack_announce( message, privatekey, tx_only=False, user_public_key=Non
     return resp
 
 
-def blockstack_client_initialize_wallet( master_privkey_wif, password, transfer_amount ):
+def blockstack_client_initialize_wallet( password, master_privkey_wif, transfer_amount ):
     """
     Set up the client wallet
     """
