@@ -30,9 +30,7 @@ from blockstack_utxo import *
 from ..version import __version__
 
 import virtualchain
-
-if not globals().has_key('log'):
-    log = virtualchain.session.log
+log = virtualchain.get_logger("blockstack-server")
 
 try:
     import blockstack_client
@@ -267,7 +265,14 @@ TESTSET_NAMESPACE_8UP_CHAR_COST = 10000
 NAMESPACE_PREORDER_EXPIRE = BLOCKS_PER_DAY      # namespace preorders expire after 1 day, if not revealed
 NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_YEAR       # namespace reveals expire after 1 year, if not readied.
 
-NAME_IMPORT_KEYRING_SIZE = 300                  # number of keys to derive from the import key
+if os.getenv("BLOCKSTACK_TEST") is not None:
+    # testing 
+    NAME_IMPORT_KEYRING_SIZE = 5                  # number of keys to derive from the import key
+    NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_DAY      # small enough so we can actually test this...
+    print >> sys.stderr, "WARN (%s): in test environment" % os.getpid()
+
+else:
+    NAME_IMPORT_KEYRING_SIZE = 300                  # number of keys to derive from the import key
 
 NUM_CONFIRMATIONS = 6                         # number of blocks to wait for before accepting names
 
@@ -373,7 +378,7 @@ def get_blockstack_client_session( new_blockstack_client_session_opts=None ):
     if new_blockstack_client_session_opts is not None:
         opts = new_blockstack_client_session_opts
     else:
-        opts = blockstack_client.config.get_config()
+        opts = blockstack_client.get_config()
 
     if opts is None:
         return None
@@ -499,7 +504,7 @@ def get_announcement( announcement_hash ):
     """
 
     session = get_blockstack_client_session()   # has the side-effect of initializing all storage drivers, if they're not already.
-    data = blockstack_client.storage.get_immutable_data( announcement_hash )
+    data = blockstack_client.storage.get_immutable_data( announcement_hash, hash_func=blockstack_client.get_blockchain_compat_hash, deserialize=False )
     if data is None:
         log.error("Failed to get announcement '%s'" % (announcement_hash))
         return None
@@ -518,8 +523,9 @@ def put_announcement( announcement_text, txid ):
     """
 
     session = get_blockstack_client_session()   # has the side-effect of initializing all storage drivers, if they're not already
-    data_hash = blockstack_client.storage.put_immutable_data( announcement_text, txid )
-    if data_hash is None:
+    data_hash = blockstack_client.get_blockchain_compat_hash(announcement_text)
+    res = blockstack_client.storage.put_immutable_data( None, txid, data_hash=data_hash, data_text=announcement_text )
+    if res is None:
         log.error("Failed to put announcement '%s'" % (pybitcoin.hex_hash160(announcement_text)))
         return None
 
