@@ -239,7 +239,11 @@ def check( state_engine ):
             return False
 
         # still have all the right info 
-        user_profile = blockstack_client.profile.load_name_profile( name, user_zonefile, wallets[wallet_data_pubkey].pubkey_hex )
+        user_profile = blockstack_client.profile.load_name_profile( name, user_zonefile, wallets[wallet_data_pubkey].ec_pubkey_hex )
+        if user_profile is None:
+            print "Unable to load user profile for %s (%s)" % (name, wallets[wallet_data_pubkey].pubkey_hex)
+            return False
+
         if 'error' in user_profile:
             print json.dumps(user_profile, indent=4, sort_keys=True)
             return False
