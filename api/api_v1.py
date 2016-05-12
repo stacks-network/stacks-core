@@ -125,12 +125,14 @@ def register_user():
     if 'error' in profile_lookup.data and profile_lookup.status_code == 200:
 
         if 'profile' in data:
-            profile = data['profile']
+            zone_file = data['profile']
+            if isinstance(zone_file, dict):
+                zone_file = json.dumps(zone_file)
         else:
-            profile = {
+            zone_file = json.dumps({
                 'status': 'registered',
                 'message': REGISTRATION_MESSAGE
-            }
+            })
     else:
         raise UsernameTakenError()
 
@@ -149,7 +151,7 @@ def register_user():
         """
         pass
     else:
-        new_entry = Blockchainid(username=username, profile=json.dumps(profile),
+        new_entry = Blockchainid(username=username, profile=zone_file,
                             transfer_address=data['recipient_address'])
         try:
             new_entry.save()

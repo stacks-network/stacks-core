@@ -97,7 +97,7 @@ class InvalidProfileDataError(APIError):
                "an error with the way the data was handled.")
 
 
-class InvalidProfileSize(APIError):
+class InvalidProfileSizeError(APIError):
     status_code = 401
     message = ("Profile data is invalid, because it exceeds maximum size.")
 
