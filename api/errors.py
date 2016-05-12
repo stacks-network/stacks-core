@@ -97,7 +97,12 @@ class InvalidProfileDataError(APIError):
                "an error with the way the data was handled.")
 
 
-class InvalidProfileSizeError(APIError):
+class InvalidZoneFileTypeError(APIError):
+    status_code = 401
+    message = ("The zone file supplied must be a string.")
+
+
+class InvalidZoneFileSizeError(APIError):
     status_code = 401
     message = ("Profile data is invalid, because it exceeds maximum size.")
 

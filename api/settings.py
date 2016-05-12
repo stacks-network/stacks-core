@@ -71,8 +71,8 @@ else:
     DEBUG = True
     APP_URL = 'localhost:5000'
 
-    API_DB_NAME = 'onename-api-test'
-    API_DB_URI = 'mongodb://%s:%s/%s' % ('localhost', str(27017), API_DB_NAME)
+    #API_DB_NAME = 'onename-api-test'
+    #API_DB_URI = 'mongodb://%s:%s/%s' % ('localhost', str(27017), API_DB_NAME)
 
 
 # Needed for mongoengine

@@ -250,7 +250,6 @@ class RegisterUserTest(unittest.TestCase):
         data = test_post_request(self, build_url('/users'), payload,
                                  headers=self.headers)
 
-        print data
         check_data(self, data, required_keys=self.required_keys)
 
 

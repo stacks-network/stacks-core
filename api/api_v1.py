@@ -5,11 +5,11 @@
     ~~~~~
 """
 
+import re
+import ssl
 import json
 import traceback
 import requests
-import ssl
-import re
 
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import Timeout as RequestsTimeout
@@ -28,31 +28,36 @@ from registrar.utils import pretty_print as pprint
 from registrar.config import DEFAULT_CHILD_ADDRESSES
 
 from . import app
-from .errors import InvalidProfileDataError, UsernameTakenError, \
-    InternalProcessingError, ResolverConnectionError, \
-    BroadcastTransactionError, DatabaseLookupError, InternalSSLError, \
-    DatabaseSaveError, DKIMPubkeyError, UsernameNotRegisteredError, \
-    UpgradeInprogressError, InvalidProfileSize, \
-    EmailTokenError, InvalidEmailError, \
-    GenericError, PaymentError, InvalidAddressError
+from .errors import (
+    InvalidProfileDataError, UsernameTakenError,
+    InternalProcessingError, ResolverConnectionError,
+    BroadcastTransactionError, DatabaseLookupError, InternalSSLError,
+    DatabaseSaveError, DKIMPubkeyError, UsernameNotRegisteredError,
+    UpgradeInprogressError, InvalidZoneFileSizeError,
+    EmailTokenError, InvalidEmailError,
+    GenericError, PaymentError, InvalidAddressError,
+    InvalidZoneFileTypeError
+)
 
 from .parameters import parameters_required
 from .auth import auth_required, get_authenticated_user
 from .models import Blockchainid, Email
 from .dkim import dns_resolver, parse_pubkey_from_data, DKIM_RECORD_PREFIX
-from .utils import sizeInvalid
+from .utils import zone_file_is_too_big
 from .db import db_client
 from .s3 import s3_upload_file
 
-from .settings import RESOLVER_URL, SEARCH_URL
-from .settings import BLOCKCYPHER_TOKEN
-from .settings import BLOCKSTORED_IP, BLOCKSTORED_PORT
-from .settings import BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER
-from .settings import BITCOIND_PASSWD, BITCOIND_USE_HTTPS
-from .settings import EMAILS_TOKEN, EMAIL_REGREX
-from .settings import DEFAULT_NAMESPACE, PAYMENT_PRIVKEY
-from .settings import SECRET_KEY, USE_DEFAULT_PAYMENT
-from .settings import SLACK_API_TOKEN
+from .settings import (
+    RESOLVER_URL, SEARCH_URL,
+    BLOCKCYPHER_TOKEN,
+    BLOCKSTORED_IP, BLOCKSTORED_PORT,
+    BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER,
+    BITCOIND_PASSWD, BITCOIND_USE_HTTPS,
+    EMAILS_TOKEN, EMAIL_REGREX,
+    DEFAULT_NAMESPACE, PAYMENT_PRIVKEY,
+    SECRET_KEY, USE_DEFAULT_PAYMENT,
+    SLACK_API_TOKEN
+)
 
 bitcoind = BitcoindClient(BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER,
                           BITCOIND_PASSWD, BITCOIND_USE_HTTPS)
@@ -120,14 +125,15 @@ def register_user():
 
     username = data['username']
 
-    profile_lookup = api_user(username)
+    user_lookup = api_user(username)
 
-    if 'error' in profile_lookup.data and profile_lookup.status_code == 200:
-
+    if 'error' in user_lookup.data and user_lookup.status_code == 200:
         if 'profile' in data:
-            zone_file = data['profile']
+            zone_file = str(data['profile'])
             if isinstance(zone_file, dict):
                 zone_file = json.dumps(zone_file)
+        elif 'zone_file' in data:
+            zone_file = str(data['zone_file'])
         else:
             zone_file = json.dumps({
                 'status': 'registered',
@@ -136,15 +142,18 @@ def register_user():
     else:
         raise UsernameTakenError()
 
-    if sizeInvalid(profile):
-        raise InvalidProfileSize()
+    if not isinstance(zone_file, str):
+        raise InvalidZoneFileTypeError()
+
+    if zone_file_is_too_big(zone_file):
+        raise InvalidZoneFileSizeError()
 
     if not is_b58check_address(str(data['recipient_address'])):
         raise InvalidAddressError(data['recipient_address'])
 
-    matching_profiles = Blockchainid.objects(username=username)
+    matching_records = Blockchainid.objects(username=username)
 
-    if len(matching_profiles):
+    if len(matching_records):
         """ Someone else already tried registering this name
             but the username is not yet registered on the blockchain.
             Don't tell the client that someone else's request is processing.
@@ -152,7 +161,7 @@ def register_user():
         pass
     else:
         new_entry = Blockchainid(username=username, profile=zone_file,
-                            transfer_address=data['recipient_address'])
+                                 transfer_address=data['recipient_address'])
         try:
             new_entry.save()
         except Exception as e:

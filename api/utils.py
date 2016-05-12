@@ -62,8 +62,7 @@ def utf8len(s):
         return len(s.encode('utf-8'))
 
 
-def sizeInvalid(profile):
-
+def zone_file_is_too_big(profile):
     if utf8len(json.dumps(profile)) > MAX_PROFILE_LIMIT:
         return True
     else:
