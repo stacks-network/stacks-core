@@ -84,9 +84,13 @@ def fetch_from_dht(profile_hash):
     try:
         dht_resp = dht_client.get(profile_hash)
     except:
-        abort(500, "Connection to DHT timed out")
+        #abort(500, "Connection to DHT timed out")
+        return {"error": "data not in DHT"}
 
     dht_resp = dht_resp[0]
+
+    if dht_resp is None:
+        return {"error": "data not in DHT"}
 
     return dht_resp['value']
 
@@ -104,9 +108,9 @@ def format_profile(profile, username, address):
 
     profile = resolve_zone_file_to_profile(profile, address)
 
-    if 'error' in profile:
-        data['profile'] = None
-        data['error'] = "Malformed profile data"
+    if profile is None:
+        data['profile'] = {}
+        data['error'] = "Malformed profile data or data not saved in DHT yet"
         data['verifications'] = []
     else:
         if not is_profile_in_legacy_format(profile):
@@ -209,7 +213,7 @@ def get_users(usernames):
         info = get_profile(username, refresh=refresh)
 
         if 'error' in info:
-            reply = {"error": "Not found"}
+            reply[username] = info
             return jsonify(reply), 502
         else:
             reply[username] = info
