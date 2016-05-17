@@ -113,7 +113,13 @@ def format_profile(profile, username, address):
 
         return data
 
-    profile = resolve_zone_file_to_profile(profile, address)
+    try:
+        profile = resolve_zone_file_to_profile(profile, address)
+    except:
+        if 'message' in profile:
+            data['profile'] = json.loads(profile)
+            data['verifications'] = []
+            return data
 
     if profile is None:
         data['profile'] = {}
