@@ -27,7 +27,6 @@ import traceback
 import errno
 import time
 import atexit
-import lockfile
 
 from defusedxml import xmlrpc
 
