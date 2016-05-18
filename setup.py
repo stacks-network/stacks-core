@@ -20,9 +20,8 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'boto==2.38.0',
         'basicrpc==0.0.2',
-        'virtualchain==0.0.9',
+        'virtualchain==0.0.9.0',
         'protocoin==0.1',
         'blockstack-profiles>=0.1.3',
         'pybitcoin>=0.9.8',
@@ -30,7 +29,6 @@ setup(
         'blockstack-storage-drivers>=0.0.1.0',
         'blockstack-utxo>=0.0.1.0',
         'defusedxml>=0.4.1',
-        'python_daemon>=2.1.1',
         'keylib>=0.0.2'
     ],
     classifiers=[
