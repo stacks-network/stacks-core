@@ -555,6 +555,8 @@ def default_blockstack_opts( config_file=None, testset=False ):
    contact_email = None
    announcers = "judecn.id,muneeb.id,shea256.id"
    announcements = None
+   backup_frequency = 1008  # once a week; 10 minute block time
+   backup_max_age = 12096   # 12 weeks
    rpc_port = RPC_SERVER_PORT 
    blockchain_proxy = False
    serve_zonefiles = False
@@ -573,6 +575,12 @@ def default_blockstack_opts( config_file=None, testset=False ):
 
       if parser.has_option('blockstack', 'max_subsidy'):
          max_subsidy = int( parser.get('blockstack', 'max_subsidy'))
+
+      if parser.has_option('blockstack', 'backup_frequency'):
+         backup_frequency = int( parser.get('blockstack', 'backup_frequency'))
+
+      if parser.has_option('blockstack', 'backup_max_age'):
+         backup_max_age = int( parser.get('blockstack', 'backup_max_age') )
 
       if parser.has_option('blockstack', 'email'):
          contact_email = parser.get('blockstack', 'email')
@@ -649,6 +657,8 @@ def default_blockstack_opts( config_file=None, testset=False ):
        'email': contact_email,
        'announcers': announcers,
        'announcements': announcements,
+       'backup_frequency': backup_frequency,
+       'backup_max_age': backup_max_age,
        'blockchain_proxy': blockchain_proxy,
        'serve_zonefiles': serve_zonefiles,
        'zonefiles': zonefile_dir

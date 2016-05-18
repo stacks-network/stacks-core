@@ -98,6 +98,9 @@ class BlockstackDB( virtualchain.StateEngine ):
       self.firstblock = first_block
       self.announce_ids = blockstack_opts['announcers'].split(",")
 
+      self.set_backup_frequency( blockstack_opts['backup_frequency'] )
+      self.set_backup_max_age( blockstack_opts['backup_max_age'] )
+
       self.db_filename = db_filename
 
       self.name_records = {}                  # map name.ns_id to a dict containing the name record
