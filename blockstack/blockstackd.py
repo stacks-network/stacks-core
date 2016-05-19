@@ -1765,7 +1765,10 @@ def stop_server( clean=False, kill=False ):
             sys.exit(1)
 
         if kill:
-            time.sleep(3.0)
+            clean = True
+            timeout = 5.0
+            log.info("Waiting %s seconds before sending SIGKILL to %s" % pid)
+            time.sleep(timeout)
             try:
                 os.kill(pid, signal.SIGKILL)
             except Exception, e:
@@ -1848,7 +1851,7 @@ def blockstack_exit():
     """
     Shut down the server on exit(3)
     """
-    stop_server()
+    stop_server(kill=True)
 
 
 def blockstack_exit_handler( sig, frame ):
@@ -2757,7 +2760,7 @@ def run_blockstackd():
          log.info("Service endpoint exited with status code %s" % exit_status )
 
    elif args.action == 'stop':
-      stop_server()
+      stop_server(kill=True)
 
    elif args.action == 'reconfigure':
       reconfigure( testset=testset )
