@@ -41,6 +41,7 @@ import binascii
 import copy
 import atexit
 import threading
+import errno
 
 from SimpleXMLRPCServer import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
 
