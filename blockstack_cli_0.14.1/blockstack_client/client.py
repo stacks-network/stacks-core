@@ -309,6 +309,7 @@ def load_user(record_hash):
     """
 
     user_json = storage.get_immutable_data(record_hash)
+
     if user_json is None:
         log.error("Failed to load user record '%s'" % record_hash)
         return None
@@ -319,8 +320,9 @@ def load_user(record_hash):
         log.error("Profile hash mismatch: expected '%s', got '%s'" % (record_hash, user_record_hash))
         return None
 
-    user = user_db.parse_user(user_json)
-    return user
+    #user = user_db.parse_user(user_json)
+    #return user
+    return user_json
 
 
 def get_zone_file(name):
