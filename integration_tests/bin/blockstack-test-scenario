@@ -23,6 +23,10 @@ log = virtualchain.get_logger("blockstack-test-scenario")
 mock_bitcoind_connection = None
 TEST_RPC_PORT = 16264
 TEST_CLIENT_RPC_PORT = 16268
+BLOCKSTACK_STORAGE_DRIVERS = "disk"
+
+if os.environ.get("BLOCKSTACK_STORAGE_DRIVERS", None) is not None:
+    BLOCKSTACK_STORAGE_DRIVERS = os.environ.get("BLOCKSTACK_STORAGE_DRIVERS")
 
 DEFAULT_SERVER_INI_TEMPLATE = """
 [bitcoind]
@@ -56,7 +60,7 @@ DEFAULT_CLIENT_INI_TEMPLATE = """
 server = localhost
 port = %s
 metadata = @CLIENT_METADATA@
-storage_drivers = disk
+storage_drivers = %s
 blockchain_headers = @CLIENT_BLOCKCHAIN_HEADERS@
 advanced_mode = true
 api_endpoint_port = %s
@@ -78,7 +82,7 @@ user = openname
 mock = True
 save_file = @MOCK_SAVE_FILE@
 blockchain_headers = @CLIENT_BLOCKCHAIN_HEADERS@
-""" % (TEST_RPC_PORT, TEST_CLIENT_RPC_PORT, TEST_RPC_PORT)
+""" % (TEST_RPC_PORT, BLOCKSTACK_STORAGE_DRIVERS, TEST_CLIENT_RPC_PORT, TEST_RPC_PORT)
 
 def load_scenario( scenario_name ):
     """
