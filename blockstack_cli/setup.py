@@ -23,7 +23,8 @@ setup(
         'boto==2.38.0',
         'basicrpc==0.0.2',
         'virtualchain==0.0.6',
-        'protocoin==0.1'
+        'protocoin==0.1',
+        'blockstack-profiles==0.4.3'
     ],
     classifiers=[
         'Intended Audience :: Developers',
