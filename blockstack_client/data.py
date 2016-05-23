@@ -846,7 +846,17 @@ def data_get( blockstack_url, proxy=None, wallet_keys=None, **kw ):
     """
     Resolve a blockstack URL to data (be it mutable or immutable).
     """
-    return blockstack_url_fetch( blockstack_url, proxy=proxy, wallet_keys=wallet_keys )
+    begin = None
+    end = None
+
+    begin = time.time()
+    ret = blockstack_url_fetch( blockstack_url, proxy=proxy, wallet_keys=wallet_keys )
+    end = time.time()
+
+    if os.environ.get("BLOCKSTACK_TEST") == "1":
+        log.debug("[BENCHMARK] data_get %s" % (end - begin))
+
+    return ret
 
 
 def data_put( blockstack_url, data, proxy=None, wallet_keys=None, **kw ):
@@ -856,10 +866,23 @@ def data_put( blockstack_url, data, proxy=None, wallet_keys=None, **kw ):
     parts = storage.blockstack_data_url_parse( blockstack_url )
     assert parts is not None, "invalid url '%s'" % blockstack_url
 
+    end = None
+    begin = None
+
     if parts['type'] == 'immutable':
-        return put_immutable( parts['blockchain_id'], parts['data_id'], data, proxy=proxy, wallet_keys=wallet_keys, **kw ) 
+        begin = time.time()
+        ret = put_immutable( parts['blockchain_id'], parts['data_id'], data, proxy=proxy, wallet_keys=wallet_keys, **kw ) 
+        end = time.time()
+
     else:
-        return put_mutable( parts['blockchain_id'], parts['data_id'], data, proxy=proxy, wallet_keys=wallet_keys, **kw ) 
+        begin = time.time()
+        ret = put_mutable( parts['blockchain_id'], parts['data_id'], data, proxy=proxy, wallet_keys=wallet_keys, **kw ) 
+        end = time.time()
+
+    if os.environ.get("BLOCKSTACK_TEST") == "1":
+        log.debug("[BENCHMARK] data_put %s" % (end - begin))
+
+    return ret
 
 
 def data_delete( blockstack_url, proxy=None, wallet_keys=None, **kw ):
