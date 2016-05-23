@@ -30,6 +30,8 @@ import sys
 import os
 import boto
 import errno
+import zlib
+import time
 from ConfigParser import SafeConfigParser
 
 from boto.s3.key import Key
@@ -46,6 +48,22 @@ log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 AWS_BUCKET = None
 AWS_ACCESS_KEY_ID = None 
 AWS_SECRET_ACCESS_KEY = None
+
+#-------------------------
+def compress_chunk( chunk_buf ):
+    """
+    compress a chunk of data
+    """
+    data = zlib.compress(chunk_buf, 9)
+    return data
+
+#-------------------------
+def decompress_chunk( chunk_buf ):
+    """
+    decompress a chunk of data
+    """
+    data = zlib.decompress(chunk_buf)
+    return data
 
 #-------------------------
 def get_bucket( bucket_name ):
@@ -100,14 +118,25 @@ def write_chunk( chunk_path, chunk_buf ):
     k.key = chunk_path
 
     rc = True
+    begin = None
+    end = None
+    size = None
     try:
-        k.set_contents_from_string( chunk_buf )
+        compressed_data = compress_chunk( chunk_buf )
+        size = len(compressed_data)
+
+        begin = time.time()
+        k.set_contents_from_string( compressed_data )
+        end = time.time()
         
     except Exception, e:
         log.error("Failed to write '%s'" % chunk_path)
         log.exception(e)
         rc = False
     
+    if os.environ.get("BLOCKSTACK_TEST") == "1":
+        log.debug("[BENCHMARK] s3.write_chunk %s: %s" % (size, end - begin))
+
     return rc
 
 #-------------------------
@@ -133,13 +162,24 @@ def read_chunk( chunk_path ):
     k.key = chunk_path
 
     data = None
+    begin = None
+    end = None
+    size = None
     try:
-        data = k.get_contents_as_string()
+        begin = time.time()
+        compressed_data = k.get_contents_as_string()
+        end = time.time()
+        size = len(compressed_data)
+
+        data = decompress_chunk( compressed_data )
         
     except Exception, e:
         log.error("Failed to read '%s'" % chunk_path)
         log.exception(e)
         
+    if os.environ.get("BLOCKSTACK_TEST") == "1":
+        log.debug("[BENCHMARK] s3.read_chunk %s: %s" % (size, end - begin))
+
     return data
     
     
@@ -181,7 +221,7 @@ def delete_chunk( chunk_path ):
 # ---------------------------------------------------------
 
 
-def storage_init():
+def storage_init(conf):
     """
     S3 implementation of the storage_init API call.
     Do one-time global setup: read our S3 API tokens and bucket name.
@@ -190,12 +230,13 @@ def storage_init():
     """
     global AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_BUCKET
 
-    if os.path.exists( CONFIG_PATH ):
+    config_path = conf['path']
+    if os.path.exists( config_path ):
 
         parser = SafeConfigParser()
         
         try:
-            parser.read(CONFIG_PATH)
+            parser.read(config_path)
         except Exception, e:
             log.exception(e)
             return False
@@ -214,7 +255,7 @@ def storage_init():
             
     # we can't proceed unless we have all three.
     if AWS_ACCESS_KEY_ID is None or AWS_SECRET_ACCESS_KEY is None or AWS_BUCKET is None:
-        log.error("Config file '%s': section 's3' is missing 'bucket', 'api_key_id', and/or 'api_key_secret'" % CONFIG_PATH )
+        log.error("Config file '%s': section 's3' is missing 'bucket', 'api_key_id', and/or 'api_key_secret'" % config_path )
         return False 
     
     return True
@@ -330,6 +371,7 @@ if __name__ == "__main__":
    
    import pybitcoin 
    import json 
+   import blockstack_client
    
    # hack around absolute paths
    current_dir =  os.path.abspath(os.path.dirname(__file__))
@@ -338,10 +380,15 @@ if __name__ == "__main__":
    current_dir =  os.path.abspath(os.path.join( os.path.dirname(__file__), "..") )
    sys.path.insert(0, current_dir)
    
-   from storage import parse_mutable_data, serialize_mutable_data
-   from config import log, CONFIG_PATH
-   from user import make_mutable_data_zonefile
+   from blockstack_client.storage import parse_mutable_data, serialize_mutable_data
+   from blockstack_client.config import log, get_config
+   from blockstack_client.user import make_mutable_data_zonefile
    
+   CONFIG_PATH = os.environ.get('BLOCKSTACK_CONFIG_PATH', None)
+   assert CONFIG_PATH, "Missing BLOCKSTACK_CONFIG_PATH from environment"
+
+   conf = get_config(CONFIG_PATH)
+
    pk = pybitcoin.BitcoinPrivateKey()
    data_privkey = pk.to_hex()
    data_pubkey = pk.public_key().to_hex()
@@ -356,7 +403,7 @@ if __name__ == "__main__":
    def hash_data( d ):
       return pybitcoin.hash.hex_hash160( d )
    
-   rc = storage_init()
+   rc = storage_init(conf)
    if not rc:
       raise Exception("Failed to initialize")
    
