@@ -149,6 +149,8 @@ def serialize_mutable_data( data_json, privatekey ):
    """
 
    tokenized_data = blockstack_profiles.sign_token_records( [data_json], privatekey )
+   del tokenized_data[0]['decodedToken']
+
    serialized_data = json.dumps( tokenized_data, sort_keys=True )
    return serialized_data
 
