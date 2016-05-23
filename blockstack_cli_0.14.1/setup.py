@@ -20,7 +20,6 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'basicrpc==0.0.2',
         'virtualchain==0.0.9.0',
         'protocoin==0.1',
         'blockstack-profiles>=0.1.3',
