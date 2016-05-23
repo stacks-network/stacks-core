@@ -112,7 +112,7 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
             log.error("Failed to load storage driver '%s'" % (storage_driver))
             sys.exit(1)
 
-        rc = register_storage(storage_impl)
+        rc = register_storage(storage_impl, conf)
         if not rc:
             log.error("Failed to initialize storage driver '%s'" % (storage_driver))
             sys.exit(1)
@@ -141,13 +141,13 @@ def load_storage(module_name):
     return storage_impl
 
 
-def register_storage(storage_impl):
+def register_storage(storage_impl, conf):
     """
     Register a storage implementation.
     """
     rc = storage.register_storage(storage_impl)
     if rc:
-        rc = storage_impl.storage_init()
+        rc = storage_impl.storage_init(conf)
 
     return rc
 
