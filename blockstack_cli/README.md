@@ -16,13 +16,14 @@ Installing the command line interface and client library:
 ### Debian + Ubuntu
 
 ```
-$ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev
+$ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev libffi-dev
 $ sudo pip install blockstack --upgrade
 ```
 
 ### OS X
 
 ```bash
+$ brew install libffi openssl
 $ sudo pip install blockstack --upgrade
 ```
 
