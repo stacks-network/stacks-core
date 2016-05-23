@@ -41,7 +41,7 @@ MUTABLE_STORAGE_ROOT = DISK_ROOT + "/mutable"
 
 log.setLevel( logging.DEBUG if DEBUG else logging.INFO )
 
-def storage_init():
+def storage_init(conf):
    """
    Local disk implementation of the storage_init API call.
    Do one-time global setup--i.e. make directories.
