@@ -427,8 +427,9 @@ def get_mutable_data_zonefile( user_profile, data_id ):
    if not user_profile.has_key('data'):
       return None
 
+   packed_prefix = pack_mutable_data_md_prefix( data_id )
    for packed_data_txt in user_profile['data'].keys():
-       if not is_mutable_data_md( packed_data_txt ):
+       if not packed_data_txt.startswith(packed_prefix):
            continue 
 
        unpacked_data_id, version = unpack_mutable_data_md( packed_data_txt )
@@ -436,6 +437,28 @@ def get_mutable_data_zonefile( user_profile, data_id ):
            return user_profile['data'][packed_data_txt]
 
    return None
+
+
+def get_mutable_data_zonefile_ex( user_profile, data_id ):
+   """
+   Get the zonefile and associated metadata for a piece of mutable data, given
+   the user's profile and data_id.
+   Return the (route (as a dict), version, metadata key) on success
+   Return (None, None, None) if not found
+   """
+
+   if not user_profile.has_key('data'):
+      return (None, None, None)
+
+   for packed_data_txt in user_profile['data'].keys():
+       if not is_mutable_data_md( packed_data_txt ):
+           continue 
+
+       unpacked_data_id, version = unpack_mutable_data_md( packed_data_txt )
+       if data_id == unpacked_data_id:
+           return (user_profile['data'][packed_data_txt], version, packed_data_txt)
+
+   return (None, None, None)
 
 
 def get_mutable_data_zonefile_md( user_profile, data_id ):
@@ -505,8 +528,7 @@ def put_mutable_data_zonefile( user_profile, data_id, version, zonefile ):
        user_profile['data'].update( zonefile )
        return True
   
-   existing_version = mutable_data_version( user_profile, data_id )
-   existing_zonefile = get_mutable_data_zonefile( user_profile, data_id )
+   existing_zonefile, existing_version, existing_md = get_mutable_data_zonefile_ex( user_profile, data_id )
    
    if existing_zonefile is None:
        # first case of this mutable datum
@@ -520,9 +542,7 @@ def put_mutable_data_zonefile( user_profile, data_id, version, zonefile ):
            return False
 
        else:
-           packed_data_txt = get_mutable_data_zonefile_md( user_profile, data_id )
-           del user_profile['data'][packed_data_txt]
-           user_profile['data'].update( zonefile )
+           user_profile['data'][existing_md] = zonefile
            return True
 
 
@@ -557,6 +577,13 @@ def pack_mutable_data_md( data_id, version ):
     Pack an mutable datum's metadata into a string
     """
     return "mutable:%s:%s" % (base64.b64encode(data_id.encode('utf-8')), version)
+
+
+def pack_mutable_data_md_prefix( data_id ):
+    """
+    Pack an mutable datum's metadata prefix into a string (i.e. skip the version)
+    """
+    return "mutable:%s:" % (base64.b64encode(data_id.encode('utf-8')))
 
 
 def unpack_mutable_data_md( rec ):
