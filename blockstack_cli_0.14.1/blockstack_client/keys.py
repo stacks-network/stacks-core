@@ -66,7 +66,7 @@ def make_wallet_keys( data_privkey=None, owner_privkey=None ):
     }
 
 
-def get_data_keypair( wallet_keys=None, config_path=CONFIG_PATH ):
+def get_data_privkey( wallet_keys=None, config_path=CONFIG_PATH ):
     """
     Get the user's data keypair
     """
@@ -82,8 +82,16 @@ def get_data_keypair( wallet_keys=None, config_path=CONFIG_PATH ):
         assert wallet is not None
 
     data_privkey = wallet['data_privkey']
-    public_key = ECPrivateKey(data_privkey).public_key().to_hex()
-    return public_key, data_privkey
+    return data_privkey
+
+
+def get_data_keypair( wallet_keys=None, config_path=CONFIG_PATH ):
+    """
+    Get the user's data keypair
+    """
+    privkey = get_data_privkey( wallet_keys=wallet_keys, config_path=config_path )
+    public_key = ECPrivateKey(privkey).public_key().to_hex()
+    return public_key, privkey
 
 
 def get_owner_keypair( wallet_keys=None, config_path=CONFIG_PATH ):
