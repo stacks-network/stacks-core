@@ -589,7 +589,7 @@ def put_mutable(name, data_id, data_json, proxy=None, create_only=False, update_
         version = put_mutable_get_version( user_profile, data_id, data_json, make_version=make_version )
 
     # generate the mutable zonefile
-    _, data_privkey = get_data_keypair( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
+    data_privkey = get_data_privkey( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
     urls = storage.make_mutable_data_urls( fq_data_id )
     mutable_zonefile = user_db.make_mutable_data_zonefile( data_id, version, urls )
 
@@ -690,7 +690,7 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
     }
 
     # delete immutable data 
-    _, data_privkey = get_data_keypair( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
+    data_privkey = get_data_privkey( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
     rc = storage.delete_immutable_data( data_key, txid, data_privkey )
     if not rc:
         result['error'] = 'Failed to delete immutable data'
@@ -734,7 +734,7 @@ def delete_mutable(name, data_id, proxy=None, wallet_keys=None):
     user_db.remove_mutable_data_zonefile( user_profile, data_id )
 
     # put new profile 
-    _, data_privkey = get_data_keypair( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
+    data_privkey = get_data_privkey( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
     rc = storage.put_mutable_data( name, user_profile, data_privkey )
     if not rc:
         return {'error': 'Failed to unlink mutable data from profile'}
