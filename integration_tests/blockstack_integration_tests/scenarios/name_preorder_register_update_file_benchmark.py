@@ -37,7 +37,7 @@ try:
     assert aws_secret
     assert aws_bucket
     assert storage_drivers
-    assert storage_drivers == "s3"
+    assert "s3" in storage_drivers
     file_sizes = [int(fs) for fs in file_sizes.split(",")]
     samples = int(samples)
 except Exception, e:
