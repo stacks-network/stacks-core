@@ -1144,7 +1144,10 @@ def run_cli():
         if args.count is not None:
             count = int(args.count)
 
-        result = client.get_all_names(offset, count)
+        names = client.get_all_names(offset, count)
+        for name in names:
+            print(name)
+        result = {}
 
     elif args.action == 'get_names_in_namespace':
         offset = None
