@@ -134,7 +134,7 @@ def write_chunk( chunk_path, chunk_buf ):
         log.exception(e)
         rc = False
     
-    if os.environ.get("BLOCKSTACK_TEST") == "1":
+    if os.environ.get("BLOCKSTACK_TEST") == "1" and rc:
         log.debug("[BENCHMARK] s3.write_chunk %s: %s" % (size, end - begin))
 
     return rc
