@@ -19,8 +19,8 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'boto==2.38.0',
-        'basicrpc==0.0.2',
+        'boto>=2.38.0',
+        'basicrpc>=0.0.2',
         'pybitcoin>=0.9.8'
     ],
     classifiers=[
