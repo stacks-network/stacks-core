@@ -35,35 +35,35 @@ import binascii
 
 from .preorder import build as build_preorder, \
     broadcast as preorder_name, parse as parse_preorder, \
-    get_fees as preorder_fees
+    get_fees as preorder_fees, state_transition as preorder_state_transition
 from .register import build as build_registration, \
     broadcast as register_name, parse as parse_registration, \
-    get_fees as registration_fees
+    get_fees as registration_fees, state_transition as register_state_transition
 from .transfer import build as build_transfer, \
     broadcast as transfer_name, parse as parse_transfer, \
     make_outputs as make_transfer_ouptuts, \
-    get_fees as transfer_fees
+    get_fees as transfer_fees, state_transition as transfer_state_transition
 from .update import build as build_update, \
     broadcast as update_name, parse as parse_update, \
-    get_fees as update_fees
+    get_fees as update_fees, state_transition as update_state_transition
 from .revoke import build as build_revoke, \
     broadcast as revoke_name, parse as parse_revoke, \
-    get_fees as revoke_fees
+    get_fees as revoke_fees, state_transition as revoke_state_transition
 from .namespacepreorder import build as build_namespace_preorder, \
     broadcast as namespace_preorder, parse as parse_namespace_preorder, \
-    get_fees as namespace_preorder_fees
+    get_fees as namespace_preorder_fees, state_transition as namespace_preorder_state_transition
 from .nameimport import build as build_name_import, \
     broadcast as name_import, parse as parse_name_import, \
-    get_fees as name_import_fees
+    get_fees as name_import_fees, state_transition as name_import_state_transition
 from .namespacereveal import build as build_namespace_reveal, \
     broadcast as namespace_reveal, parse as parse_namespace_reveal, \
-    get_fees as namespace_reveal_fees
+    get_fees as namespace_reveal_fees, state_transition as namespace_reveal_state_transition
 from .namespaceready import build as build_namespace_ready, \
     broadcast as namespace_ready, parse as parse_namespace_ready, \
-    get_fees as namespace_ready_fees
+    get_fees as namespace_ready_fees, state_transition as namespace_ready_state_transition
 from .announce import build as build_announce, \
     broadcast as send_announce, parse as parse_announce, \
-    get_fees as announce_fees
+    get_fees as announce_fees, state_transition as announce_state_transition
 
 from .register import get_registration_recipient_from_outputs 
 
