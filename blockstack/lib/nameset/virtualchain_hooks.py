@@ -27,7 +27,8 @@ import os
 from binascii import hexlify, unhexlify
 import time
 
-import pybitcoin 
+from keylib import ECPublicKey, ECPrivateKey
+
 import traceback
 import json
 import copy
@@ -41,6 +42,8 @@ from ..operations import parse_preorder, parse_registration, parse_update, parse
     SERIALIZE_FIELDS
 
 import virtualchain
+import virtualchain.lib.blockchain.bitcoin as virtualchain_bitcoin
+
 log = virtualchain.get_logger("blockstack-log")
 
 blockstack_db = None
@@ -57,16 +60,24 @@ def get_burn_fee_from_outputs( outputs ):
     
     ret = None
     for output in outputs:
-       
+      
+        """
         output_script = output['scriptPubKey']
         output_asm = output_script.get('asm')
         output_hex = output_script.get('hex')
         output_addresses = output_script.get('addresses')
         
-        if output_asm[0:9] != 'OP_RETURN' and BLOCKSTORE_BURN_ADDRESS == output_addresses[0]:
+        if output_asm[0:9] != 'OP_RETURN' and BLOCKSTACK_BURN_ADDRESS == output_addresses[0]:
             
             # recipient's script_pubkey and address
             ret = int(output['value']*(10**8))
+            break
+        """
+        if output.type() != "data":
+            continue
+
+        if output.addresses()[0] == BLOCKSTACK_BURN_ADDRESS:
+            ret = int(output.amount() * (10**8))
             break
     
     return ret 
@@ -97,7 +108,7 @@ def get_public_key_hex_from_tx( inputs, address ):
             pubkey = None 
             
             try:
-                pubkey = pybitcoin.BitcoinPublicKey( str(pubkey_hex) ) 
+                pubkey = ECPublicKey( str(pubkey_hex) ) 
             except Exception, e: 
                 traceback.print_exc()
                 log.warning("Invalid public key '%s'" % pubkey_hex)
@@ -351,7 +362,8 @@ def db_parse( block_id, txid, vtxindex, opcode, data, senders, inputs, outputs, 
    
    if len(senders) == 0:
       raise Exception("No senders for (%s, %s)" % (opcode, hexlify(data)))
-  
+ 
+   """
    # the first sender is always the first non-nulldata output script hex, and by construction
    # of Blockstack, this is always the principal that issued the operation.
    if 'script_pubkey' not in senders[0].keys():
@@ -367,9 +379,20 @@ def db_parse( block_id, txid, vtxindex, opcode, data, senders, inputs, outputs, 
    
    sender = str(senders[0]['script_pubkey'])
    address = str(senders[0]['addresses'][0])
+   """
+   # the first sender is always the first non-nulldata output script hex, and by construction
+   # of Blockstack, this is always the principal that issued the operation.
+   if len(senders[0].addresses()) != 1:
+       log.error("Multisig transactions are unsupported for (%s, %s)" % (opcode, hexlify(data)))
+       return None 
 
+   sender = senders[0].sender_id()
+   address = senders[0].addresses()[0]
+               
+   """
    if str(senders[0]['script_type']) == 'pubkeyhash':
       sender_pubkey_hex = get_public_key_hex_from_tx( inputs, address )
+   """
    
    if sender_pubkey_hex is None:
       log.warning("No public key found for (%s, %s)" % (opcode, hexlify(data)))
@@ -380,7 +403,7 @@ def db_parse( block_id, txid, vtxindex, opcode, data, senders, inputs, outputs, 
       # these operations have a designated recipient that is *not* the sender
       try:
          recipient = get_registration_recipient_from_outputs( outputs )
-         recipient_address = pybitcoin.script_hex_to_address( recipient )
+         recipient_address = virtualchain_bitcoin.script_hex_to_address( recipient )
       except Exception, e:
          log.exception(e)
          raise Exception("No registration address for (%s, %s)" % (opcode, hexlify(data)))
@@ -390,7 +413,7 @@ def db_parse( block_id, txid, vtxindex, opcode, data, senders, inputs, outputs, 
       # these operations have a designated recipient that is *not* the sender
       try:
          recipient = get_transfer_recipient_from_outputs( outputs )
-         recipient_address = pybitcoin.script_hex_to_address( recipient )
+         recipient_address = virtualchain_bitcoin.script_hex_to_address( recipient )
       except Exception, e:
          log.exception(e)
          raise Exception("No recipient for (%s, %s)" % (opcode, hexlify(data)))
