@@ -46,6 +46,10 @@ setup(
         'defusedxml>=0.4.1',
         'pycrypto>=2.6.1'
     ],
+    dependency_links=[
+        'git://github.com/blockstack/blockstack-virtualchain.git@release-candidate#egg=virtualchain-0.0.9.0',
+	'git://github.com/blockstack/blockstack-cli@release-candidate#egg=blockstack-client-0.0.13.0'
+    ],
     classifiers=[
         'Intended Audience :: Developers',
         'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
