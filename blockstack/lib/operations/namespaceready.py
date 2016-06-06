@@ -21,15 +21,19 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pybitcoin import embed_data_in_blockchain, BlockchainInfoClient, hex_hash160, make_op_return_tx, serialize_transaction, broadcast_transaction, make_op_return_outputs
+# from blockstack_utxo import get_unspents, broadcast_transaction, analyze_private_key
+import virtualchain
+from virtualchain.lib.blockchain.bitcoin import make_op_return_script, \
+        calculate_change_amount, make_pay_to_address_script
+
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
 from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import *
+from ..blockchain import get_tx_inputs
 
-import virtualchain
 log = virtualchain.get_logger("blockstack-server")
 
 from namespacereveal import FIELDS as NAMESPACE_REVEAL_FIELDS
@@ -66,6 +70,20 @@ def build( namespace_id, testset=False ):
    return packaged_script
 
 
+def state_transition( namespace_id, private_key ):
+   
+   blockchain_name = namespace_to_blockchain( namespace_id )
+   nulldata = build( namespace_id )
+   
+   pubk = ECPrivateKey( private_key ).public_key()
+   from_address = pubk.address()
+   inputs = get_tx_inputs( blockchain_name, from_address )
+   
+   # OP_RETURN outputs 
+   outputs = make_op_return_outputs( nulldata, inputs, from_address, fee=DEFAULT_OP_RETURN_FEE, format='hex' )
+   return inputs, outputs
+
+
 def broadcast( namespace_id, private_key, blockchain_client, testset=False, tx_only=False, blockchain_broadcaster=None ):
    
    if blockchain_broadcaster is None:
@@ -73,15 +91,16 @@ def broadcast( namespace_id, private_key, blockchain_client, testset=False, tx_o
     
    nulldata = build( namespace_id, testset=testset )
    
-   # get inputs and from address
-   private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
+   pubk = ECPrivateKey( private_key ).public_key()
+   from_address = pubk.address()
+   inputs = get_unspents( from_address, blockchain_client )
    
    # OP_RETURN outputs 
    outputs = make_op_return_outputs( nulldata, inputs, from_address, fee=DEFAULT_OP_RETURN_FEE, format='hex' )
    
    if tx_only:
        
-       unsigned_tx = serialize_transaction( inputs, outputs )
+       unsigned_tx = tx_serialize( inputs, outputs )
        return {'unsigned_tx': signed_tx}
 
    else:

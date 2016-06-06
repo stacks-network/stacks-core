@@ -21,14 +21,12 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
-    analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, b58check_encode, b58check_decode, BlockchainInfoClient, \
-    hex_hash160, bin_hash160, BitcoinPrivateKey, BitcoinPublicKey, script_hex_to_address, get_unspents, \
-    make_op_return_outputs
+# from blockstack_utxo import get_unspents, broadcast_transaction, analyze_private_key, serialize_sign_and_broadcast
+import virtualchain
+from virtualchain.lib.blockchain.bitcoin import tx_serialize, script_hex_to_address, make_op_return_script, \
+        calculate_change_amount, make_pay_to_address_script
 
-
-from pybitcoin.transactions.outputs import calculate_change_amount
+from keylib import ECPrivateKey, ECPublicKey
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
@@ -36,6 +34,8 @@ from ..b40 import b40_to_hex, is_b40
 from ..config import *
 from ..scripts import *
 from ..hashing import hash_name
+from ..blockchain import get_tx_inputs
+from ..nameset import get_namespace_from_name
 
 # consensus hash fields (ORDER MATTERS!)
 FIELDS = [
@@ -52,7 +52,7 @@ FIELDS = [
      'op_fee',              # blockstack fee (sent to burn address)
 ]
 
-def build(name, script_pubkey, register_addr, consensus_hash, name_hash=None, testset=False):
+def build(name, script_pubkey, register_addr, consensus_hash, name_hash=None):
     """
     Takes a name, including the namespace ID (but not the id: scheme), a script_publickey to prove ownership
     of the subsequent NAME_REGISTER operation, and the current consensus hash for this block (to prove that the 
@@ -82,7 +82,7 @@ def build(name, script_pubkey, register_addr, consensus_hash, name_hash=None, te
 
     script = 'NAME_PREORDER 0x%s 0x%s' % (name_hash, consensus_hash)
     hex_script = blockstack_script_to_hex(script)
-    packaged_script = add_magic_bytes(hex_script, testset=testset)
+    packaged_script = add_magic_bytes(hex_script)
     
     return packaged_script
 
@@ -111,9 +111,44 @@ def make_outputs( data, inputs, sender_addr, fee, format='bin' ):
          "value": calculate_change_amount(inputs, bill, dust_fee)},
         
         # burn address
-        {"script_hex": make_pay_to_address_script(BLOCKSTORE_BURN_ADDRESS),
+        {"script_hex": make_pay_to_address_script(BLOCKSTACK_BURN_ADDRESS),
          "value": op_fee}
     ]
+
+
+def state_transition(name, private_key, register_addr, consensus_hash, fee, subsidy_public_key=None):
+    """
+    Builds and broadcasts a preorder transaction.
+
+    @subsidy_public_key: if given, the public part of the subsidy key 
+    """
+
+    namespace_id = get_namespace_from_name( name )
+    blockchain_name = namespace_to_blockchain( namespace_id )
+    
+    # sanity check 
+    if subsidy_public_key is None and private_key is None:
+        raise Exception("Missing both client public and private key")
+
+    pubk = None
+    script_pubkey = None    # to be mixed into preorder hash
+    
+    if subsidy_public_key is not None:
+        # subsidizing
+        pubk = ECPublicKey( subsidy_public_key )
+        script_pubkey = get_script_pubkey( subsidy_public_key )
+
+    else:
+        # ordering directly
+        pubk = ECPrivateKey( private_key ).public_key()
+        script_pubkey = get_script_pubkey( public_key )
+       
+    from_address = pubk.address()
+    inputs = get_tx_inputs( blockchain_name, from_address )
+    
+    nulldata = build( name, script_pubkey, register_addr, consensus_hash, testset=testset)
+    outputs = make_outputs(nulldata, inputs, from_address, fee, format='hex')
+    return inputs, outputs
 
 
 def broadcast(name, private_key, register_addr, consensus_hash, blockchain_client, fee, blockchain_broadcaster=None, subsidy_public_key=None, tx_only=False, testset=False):
@@ -134,40 +169,35 @@ def broadcast(name, private_key, register_addr, consensus_hash, blockchain_clien
     if blockchain_broadcaster is None:
         blockchain_broadcaster = blockchain_client 
 
-    from_address = None     # change address
-    inputs = None
-    private_key_obj = None
+    pubk = None
     script_pubkey = None    # to be mixed into preorder hash
     
     if subsidy_public_key is not None:
         # subsidizing
-        pubk = BitcoinPublicKey( subsidy_public_key )
-        
-        from_address = BitcoinPublicKey( subsidy_public_key ).address()
-
-        inputs = get_unspents( from_address, blockchain_client )
+        pubk = ECPublicKey( subsidy_public_key )
         script_pubkey = get_script_pubkey( subsidy_public_key )
 
     else:
         # ordering directly
-        pubk = BitcoinPrivateKey( private_key ).public_key()
-        public_key = pubk.to_hex()
+        pubk = ECPrivateKey( private_key ).public_key()
         script_pubkey = get_script_pubkey( public_key )
-        
-        # get inputs and from address using private key
-        private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
-        
+       
+    from_address = pubk.address()
+    inputs = get_unspents( from_address, blockchain_client )
+    
     nulldata = build( name, script_pubkey, register_addr, consensus_hash, testset=testset)
     outputs = make_outputs(nulldata, inputs, from_address, fee, format='hex')
     
     if tx_only:
 
-        unsigned_tx = serialize_transaction( inputs, outputs )
+        unsigned_tx = tx_serialize( inputs, outputs )
         return {"unsigned_tx": unsigned_tx}
     
     else:
         # serialize, sign, and broadcast the tx
-        response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_broadcaster)
+        signed_tx = tx_serialize_sign( inputs, outputs, private_key )
+        response = broadcast_transaction( inputs, outputs, blockchain_broadcaster )
+        # response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_broadcaster)
         response.update({'data': nulldata})
         return response
 
@@ -225,7 +255,7 @@ def get_fees( inputs, outputs ):
         log.error("outputs[2] has no decipherable burn address")
         return (None, None) 
     
-    if addr_hash != BLOCKSTORE_BURN_ADDRESS:
+    if addr_hash != BLOCKSTACK_BURN_ADDRESS:
         log.error("outputs[2] is not the burn address")
         return (None, None)
     

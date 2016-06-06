@@ -21,20 +21,24 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pybitcoin import embed_data_in_blockchain, make_op_return_tx, make_op_return_outputs, \
-        make_op_return_script, broadcast_transaction, serialize_transaction, \
-        script_hex_to_address, get_unspents
+# from blockstack_utxo import get_unspents, broadcast_transaction, analyze_private_key
+import virtualchain
+from virtualchain.lib.blockchain.bitcoin import make_op_return_script, \
+        calculate_change_amount, make_pay_to_address_script
+
+from keylib import ECPrivateKey, ECPublicKey
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
 from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import *
+from ..blockchain import get_tx_inputs
 
 # consensus hash fields (none for announcements)
 FIELDS = []
 
-def build(message_hash, testset=False):
+def build(message_hash):
     """
      
     Record format:
@@ -53,7 +57,7 @@ def build(message_hash, testset=False):
 
     readable_script = "ANNOUNCE 0x%s" % (message_hash)
     hex_script = blockstack_script_to_hex(readable_script)
-    packaged_script = add_magic_bytes(hex_script, testset=testset)
+    packaged_script = add_magic_bytes(hex_script)
     
     return packaged_script 
 
@@ -89,6 +93,40 @@ def make_outputs( data, inputs, change_address, pay_fee=True ):
     ]
 
 
+def state_transition(blockchain_name, message_hash, private_key, user_public_key=None):
+    
+    # sanity check 
+    pay_fee = True
+    if user_public_key is not None:
+        pay_fee = False
+
+    if user_public_key is None and private_key is None:
+        raise Exception("Missing both public and private key")
+    
+    if len(message_hash) != 40:
+        raise Exception("Invalid message hash: not 20 bytes")
+
+    if not is_hex( message_hash ):
+        raise Exception("Invalid message hash: not hex")
+
+    pubk = None 
+
+    if user_public_key is not None:
+        # subsidizing 
+        pubk = ECPublicKey( user_public_key )
+
+    else:
+        # ordering directly
+        pubk = ECPrivateKey( private_key ).public_key()
+
+    from_address = pubk.address()
+    inputs = get_tx_inputs( blockchain_name, from_address )
+
+    nulldata = build(message_hash)
+    outputs = make_outputs( nulldata, inputs, from_address, pay_fee=pay_fee )
+    return inputs, outputs
+  
+
 def broadcast(message_hash, private_key, blockchain_client, testset=False, blockchain_broadcaster=None, user_public_key=None, tx_only=False):
     
     # sanity check 
@@ -112,35 +150,30 @@ def broadcast(message_hash, private_key, blockchain_client, testset=False, block
     if blockchain_broadcaster is None:
         blockchain_broadcaster = blockchain_client 
     
-    from_address = None 
-    inputs = None
-    private_key_obj = None
-    
+    pubk = None 
+
     if user_public_key is not None:
         # subsidizing 
-        pubk = BitcoinPublicKey( user_public_key )
+        pubk = ECPublicKey( user_public_key )
 
-        from_address = pubk.address()
-        inputs = get_unspents( from_address, blockchain_client )
+    else:
+        # ordering directly
+        pubk = ECPrivateKey( private_key ).public_key()
 
-    elif private_key is not None:
-        # ordering directly 
-        pubk = BitcoinPrivateKey( private_key ).public_key()
-        public_key = pubk.to_hex()
-        
-        private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
-         
+    from_address = pubk.address()
+    inputs = get_unspents( from_address, blockchain_client )
+
     nulldata = build(message_hash, testset=testset)
     outputs = make_outputs( nulldata, inputs, from_address, pay_fee=pay_fee )
    
     if tx_only:
        
-        unsigned_tx = serialize_transaction( inputs, outputs )
+        unsigned_tx = tx_serialize( inputs, outputs )
         return {'unsigned_tx': unsigned_tx}
 
     else:
        
-        signed_tx = tx_serialize_and_sign( inputs, outputs, private_key_obj )
+        signed_tx = tx_serialize_sign( inputs, outputs, private_key )
         response = broadcast_transaction( signed_tx, blockchain_broadcaster )
         response.update({'data': nulldata})
         return response

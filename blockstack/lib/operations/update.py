@@ -21,10 +21,8 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pybitcoin import embed_data_in_blockchain, make_op_return_tx, BlockchainInfoClient, BitcoinPrivateKey, \
-    BitcoinPublicKey, get_unspents, script_hex_to_address, hex_hash160, broadcast_transaction, serialize_transaction, \
-    make_op_return_outputs, make_op_return_script
-
+from blockstack_utxo import get_unspents, broadcast_transaction
+from keylib import ECPrivateKey, ECPublicKey
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
@@ -33,9 +31,13 @@ from ..config import *
 from ..scripts import *
 from ..hashing import hash256_trunc128
 
-from ..nameset import NAMEREC_FIELDS
+from ..nameset import NAMEREC_FIELDS, get_namespace_from_name
+from ..blockchain import get_tx_inputs
 
 import virtualchain
+from virtualchain import hex_hash160
+from virtualchain.lib.blockchain.bitcoin import script_hex_to_address, make_op_return_script, tx_serialize, tx_serialize_and_sign, tx_output_is_op_return
+
 log = virtualchain.get_logger("blockstack-server")
 
 # consensus hash fields (ORDER MATTERS!) 
@@ -64,7 +66,7 @@ def update_sanity_test( name, consensus_hash, data_hash ):
     return True
 
 
-def build(name, consensus_hash, data_hash=None, testset=False):
+def build(name, consensus_hash, data_hash=None):
     """
     Takes in the name to update the data for and the data update itself.
     Name must include the namespace ID, but not the scheme.
@@ -84,7 +86,7 @@ def build(name, consensus_hash, data_hash=None, testset=False):
     
     readable_script = 'NAME_UPDATE 0x%s 0x%s' % (hex_name, data_hash)
     hex_script = blockstack_script_to_hex(readable_script)
-    packaged_script = add_magic_bytes(hex_script, testset=testset)
+    packaged_script = add_magic_bytes(hex_script)
 
     return packaged_script
 
@@ -120,6 +122,40 @@ def make_outputs( data, inputs, change_address, pay_fee=True ):
     ]
 
 
+def state_transition(name, data_hash, consensus_hash, private_key, user_public_key=None):
+    """
+    Write a name update into the blockchain.
+    Returns a JSON object with 'data' set to the nulldata and 'transaction_hash' set to the transaction hash on success.
+    """
+    
+    namespace_id = get_namespace_from_name(name)
+    blockchain_name = namespace_to_blockchain( namespace_id )
+
+    # sanity check 
+    pay_fee = True
+    if user_public_key is not None:
+        pay_fee = False
+
+    if user_public_key is None and private_key is None:
+        raise Exception("Missing both public and private key")
+    
+    pubk = None 
+    if user_public_key is not None:
+        # subsidizing 
+        pubk = ECPublicKey( user_public_key )
+
+    else:
+        # ordering directly
+        pubk = ECPrivateKey( private_key ).public_key()
+       
+    from_address = pubk.address()
+    inputs = get_tx_inputs( blockchain_name, from_address )
+
+    nulldata = build(name, consensus_hash, data_hash=data_hash)
+    outputs = make_outputs( nulldata, inputs, from_address, pay_fee=pay_fee )
+    return inputs, outputs
+
+
 def broadcast(name, data_hash, consensus_hash, private_key, blockchain_client, blockchain_broadcaster=None, tx_only=False, user_public_key=None, testset=False):
     """
     Write a name update into the blockchain.
@@ -141,37 +177,29 @@ def broadcast(name, data_hash, consensus_hash, private_key, blockchain_client, b
     if blockchain_broadcaster is None:
         blockchain_broadcaster = blockchain_client 
     
-    from_address = None 
-    inputs = None
-    private_key_obj = None
-    
+    pubk = None 
     if user_public_key is not None:
         # subsidizing 
-        pubk = BitcoinPublicKey( user_public_key )
-        from_address = pubk.address()
-        
-        # get inputs from utxo provider 
-        inputs = get_unspents( from_address, blockchain_client )
+        pubk = ECPublicKey( user_public_key )
 
-    elif private_key is not None:
+    else:
         # ordering directly
-        pubk = BitcoinPrivateKey( private_key ).public_key()
-        public_key = pubk.to_hex()
-        
-        # get inputs and from address using private key
-        private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
-        
+        pubk = ECPrivateKey( private_key ).public_key()
+       
+    from_address = pubk.address()
+    inputs = get_unspents( from_address, blockchain_client )
+
     nulldata = build(name, consensus_hash, data_hash=data_hash, testset=testset)
     outputs = make_outputs( nulldata, inputs, from_address, pay_fee=pay_fee )
     
     if tx_only:
        
-        unsigned_tx = serialize_transaction( inputs, outputs )
+        unsigned_tx = tx_serialize( inputs, outputs )
         return {'unsigned_tx': unsigned_tx}
 
     else:
        
-        signed_tx = tx_serialize_and_sign( inputs, outputs, private_key_obj )
+        signed_tx = tx_serialize_sign( inputs, outputs, private_key )
         response = broadcast_transaction( signed_tx, blockchain_broadcaster )
         response.update({'data': nulldata})
         return response

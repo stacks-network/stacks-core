@@ -21,12 +21,12 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
-    analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, b58check_encode, b58check_decode, BlockchainInfoClient, hex_hash160, \
-    BitcoinPrivateKey, get_unspents, script_hex_to_address
+# from blockstack_utxo import get_unspents, broadcast_transaction, analyze_private_key
+import virtualchain
+from virtualchain.lib.blockchain.bitcoin import tx_serialize, script_hex_to_address, make_op_return_script, \
+        calculate_change_amount, make_pay_to_address_script
 
-from pybitcoin.transactions.outputs import calculate_change_amount
+from keylib import ECPrivateKey, ECPublicKey
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
@@ -34,9 +34,9 @@ from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import *
 from ..hashing import hash256_trunc128
-from ..nameset import NAMEREC_FIELDS
+from ..nameset import NAMEREC_FIELDS, get_namespace_from_name
+from ..blockchain import get_tx_inputs
 
-import virtualchain
 log = virtualchain.get_logger("blockstack-server")
 
 # consensus hash fields (ORDER MATTERS!)
@@ -61,6 +61,7 @@ def get_registration_recipient_from_outputs( outputs ):
     ret = None
     for output in outputs:
        
+        """
         output_script = output['scriptPubKey']
         output_asm = output_script.get('asm')
         output_hex = output_script.get('hex')
@@ -72,6 +73,12 @@ def get_registration_recipient_from_outputs( outputs ):
             # ret = (output_hex, output_addresses[0])
             ret = output_hex
             break
+        """
+        if output.type() != "data":
+            continue
+        
+        ret = output.sender_id()
+        break
             
     if ret is None:
        raise Exception("No registration address found")
@@ -79,7 +86,7 @@ def get_registration_recipient_from_outputs( outputs ):
     return ret 
 
 
-def build(name, testset=False):
+def build(name):
     """
     Takes in the name that was preordered, including the namespace ID (but not the id: scheme)
     Returns a hex string representing up to LENGTHS['blockchain_id_name'] bytes.
@@ -97,7 +104,7 @@ def build(name, testset=False):
 
     readable_script = "NAME_REGISTRATION 0x%s" % (hexlify(name))
     hex_script = blockstack_script_to_hex(readable_script)
-    packaged_script = add_magic_bytes(hex_script, testset=testset)
+    packaged_script = add_magic_bytes(hex_script)
     
     return packaged_script 
 
@@ -168,12 +175,46 @@ def make_outputs( data, change_inputs, register_addr, change_addr, renewal_fee=N
         outputs.append(
             
             # burn address (when renewing)
-            {"script_hex": make_pay_to_address_script(BLOCKSTORE_BURN_ADDRESS),
+            {"script_hex": make_pay_to_address_script(BLOCKSTACK_BURN_ADDRESS),
              "value": op_fee}
         )
 
     return outputs
     
+ 
+def state_transition(name, private_key, register_addr, renewal_fee=None, user_public_key=None, subsidy_public_key=None):
+    
+    namespace_id = get_namespace_from_name( name )
+    blockchain_name = namespace_to_blockchain( namespace_id )
+
+    if subsidy_public_key is None and private_key is None:
+        raise Exception("Missing both public and private key")
+      
+    subsidized_renewal = False
+    
+    if subsidy_public_key is not None:
+        # subsidizing
+        
+        if user_public_key is not None and renewal_fee is not None:
+            # renewing, and subsidizing the renewal
+            pubk = ECPublicKey( user_public_key )
+            subsidized_renewal = True
+
+        else:
+            # registering or renewing under the subsidy key
+            pubk = ECPublicKey( subsidy_public_key )
+
+    elif private_key is not None:
+        # ordering directly
+        pubk = ECPrivateKey( private_key ).public_key()
+       
+    from_address = pubk.address()
+    unspents = get_tx_inputs( blockchain_name, from_address )
+
+    nulldata = build(name)
+    outputs = make_outputs(nulldata, change_inputs, register_addr, from_address, renewal_fee=renewal_fee, pay_fee=(not subsidized_renewal), format='hex')
+    return inputs, outputs
+   
 
 def broadcast(name, private_key, register_addr, blockchain_client, renewal_fee=None, blockchain_broadcaster=None, tx_only=False, user_public_key=None, subsidy_public_key=None, testset=False):
     
@@ -190,47 +231,42 @@ def broadcast(name, private_key, register_addr, blockchain_client, renewal_fee=N
     
     if blockchain_broadcaster is None:
         blockchain_broadcaster = blockchain_client 
-    
-    from_address = None 
-    change_inputs = None
-    private_key_obj = None
+   
     subsidized_renewal = False
     
     if subsidy_public_key is not None:
         # subsidizing
-        pubk = BitcoinPublicKey( subsidy_public_key )
         
         if user_public_key is not None and renewal_fee is not None:
             # renewing, and subsidizing the renewal
-            from_address = BitcoinPublicKey( user_public_key ).address() 
+            pubk = ECPublicKey( user_public_key )
             subsidized_renewal = True
 
         else:
             # registering or renewing under the subsidy key
-            from_address = pubk.address()
-
-        change_inputs = get_unspents( from_address, blockchain_client )
+            pubk = ECPublicKey( subsidy_public_key )
 
     elif private_key is not None:
         # ordering directly
-        pubk = BitcoinPrivateKey( private_key ).public_key()
-        public_key = pubk.to_hex()
-        
-        # get inputs and from address using private key
-        private_key_obj, from_address, change_inputs = analyze_private_key(private_key, blockchain_client)
-        
+        pubk = ECPrivateKey( private_key ).public_key()
+       
+    from_address = pubk.address()
+    unspents = get_unspents( from_ddress, blockchain_client )
+
     nulldata = build(name, testset=testset)
     outputs = make_outputs(nulldata, change_inputs, register_addr, from_address, renewal_fee=renewal_fee, pay_fee=(not subsidized_renewal), format='hex')
    
     if tx_only:
         
-        unsigned_tx = serialize_transaction( change_inputs, outputs )
+        unsigned_tx = tx_serialize( change_inputs, outputs )
         return {"unsigned_tx": unsigned_tx}
     
     else:
         
         # serialize, sign, and broadcast the tx
-        response = serialize_sign_and_broadcast(change_inputs, outputs, private_key_obj, blockchain_broadcaster)
+        signed_tx = tx_serialize_sign( change_inputs, outputs, private_key )
+        response = broadcast_transaction( signed_tx, blockchain_broadcaster )
+        # response = serialize_sign_and_broadcast(change_inputs, outputs, private_key_obj, blockchain_broadcaster)
         response.update({'data': nulldata})
         return response
 
@@ -295,7 +331,7 @@ def get_fees( inputs, outputs ):
         if addr_hash is None:
             return (None, None) 
         
-        if addr_hash != BLOCKSTORE_BURN_PUBKEY_HASH:
+        if addr_hash != BLOCKSTACK_BURN_PUBKEY_HASH:
             return (None, None)
     
         dust_fee = (len(inputs) + 3) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE

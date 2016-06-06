@@ -21,11 +21,10 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
-    analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, b58check_encode, b58check_decode, BlockchainInfoClient, hex_hash160
-
-from pybitcoin.transactions.outputs import calculate_change_amount
+# from blockstack_utxo import get_unspents, broadcast_transaction, analyze_private_key
+import virtualchain
+from virtualchain.lib.blockchain.bitcoin import make_op_return_script, \
+        calculate_change_amount, make_pay_to_address_script
 
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
@@ -36,8 +35,8 @@ from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import blockstack_script_to_hex, add_magic_bytes
 from ..hashing import hash_name
+from ..blockchain import get_tx_inputs
    
-import virtualchain
 log = virtualchain.get_logger("blockstack-log")
 
 # consensus hash fields (ORDER MATTERS!)
@@ -145,7 +144,7 @@ def namespacereveal_sanity_check( namespace_id, version, lifetime, coeff, base, 
 
 # version: 2 bytes
 # namespace ID: up to 19 bytes
-def build( namespace_id, version, reveal_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, testset=False ):
+def build( namespace_id, version, reveal_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount ):
    """
    Record to mark the beginning of a namespace import in the blockchain.
    This reveals the namespace ID, and encodes the preorder's namespace rules.
@@ -196,12 +195,12 @@ def build( namespace_id, version, reveal_addr, lifetime, coeff, base, bucket_exp
    
    readable_script = "NAMESPACE_REVEAL 0x%s 0x%s 0x%s 0x%s 0x%s 0x%s 0x%s" % (life_hex, coeff_hex, base_hex, bucket_hex, discount_hex, version_hex, namespace_id_hex)
    hex_script = blockstack_script_to_hex(readable_script)
-   packaged_script = add_magic_bytes(hex_script, testset=testset)
+   packaged_script = add_magic_bytes(hex_script)
    
    return packaged_script
 
 
-def make_outputs( data, inputs, reveal_addr, change_addr, format='bin', testset=False ):
+def make_outputs( data, inputs, reveal_addr, change_addr, format='bin' ):
     """
     Make outputs for a register:
     [0] OP_RETURN with the name 
@@ -227,6 +226,33 @@ def make_outputs( data, inputs, reveal_addr, change_addr, format='bin', testset=
     
     
 
+def state_transition( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, private_key ):
+   """
+   Propagate a namespace.
+   
+   Arguments:
+   namespace_id         human-readable (i.e. base-40) name of the namespace
+   reveal_addr          address to own this namespace until it is ready
+   lifetime:            the number of blocks for which names will be valid (pass a negative value for "infinite")
+   coeff:               cost multipler
+   base_cost:           the base cost (i.e. cost of a 1-character name), in satoshis 
+   bucket_exponents:    bucket cost exponents to which to raise the base cost 
+   nonalpha_discount:   discount multipler for non-alpha-character names 
+   no_vowel_discount:   discount multipler for no-vowel names
+   """
+   
+   blockchain_name = virtualchain.namespace_to_blockchain(namespace_id) 
+   nulldata = build( namespace_id, BLOCKSTACK_VERSION, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount )
+   
+   pubk = ECPrivateKey( private_key ).public_key()
+   from_address = pubk.address()
+   inputs = get_tx_inputs( blockchain_name, from_address )
+
+   # build custom outputs here
+   outputs = make_outputs(nulldata, inputs, reveal_addr, from_address, format='hex')
+   return inputs, outputs
+
+
 def broadcast( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, private_key, blockchain_client, tx_only=False, blockchain_broadcaster=None, testset=False ):
    """
    Propagate a namespace.
@@ -247,19 +273,22 @@ def broadcast( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exp
     
    nulldata = build( namespace_id, BLOCKSTACK_VERSION, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, testset=testset )
    
-   # get inputs and from address
-   private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
-    
+   pubk = ECPrivateKey( private_key ).public_key()
+   from_address = pubk.address()
+   inputs = get_unspents( from_address, blockchain_client )
+
    # build custom outputs here
    outputs = make_outputs(nulldata, inputs, reveal_addr, from_address, format='hex')
     
    if tx_only:
-        unsigned_tx = serialize_transaction( inputs, outputs )
+        unsigned_tx = tx_serialize( inputs, outputs )
         return {"unsigned_tx": unsigned_tx}
    
    else:
         # serialize, sign, and broadcast the tx
-        response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_broadcaster)
+        signed_tx = tx_serialize_sign( inputs, outputs, private_key )
+        response = broadcast_transaction( signed_tx, blockchain_broadcaster )
+        # response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_broadcaster)
             
         # response = {'success': True }
         response.update({'data': nulldata})

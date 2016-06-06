@@ -21,20 +21,24 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
-    analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, BitcoinPrivateKey, BitcoinPublicKey, get_unspents, script_hex_to_address
- 
-from pybitcoin.transactions.outputs import calculate_change_amount
+from keylib import ECPrivateKey, ECPublicKey
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
+
+from blockstack_utxo import analyze_private_key, get_unspents, broadcast_transaction
+
+import virtualchain.lib.blockchain.bitcoin as virtualchain_bitcoin
+from virtualchain_bitcoin import make_pay_to_address_script, \
+        make_op_return_script, script_hex_to_address, calculate_change_amount, \
+        calculate_change_amount, tx_serialize
 
 from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import *
 from ..hashing import hash256_trunc128
 
-from ..nameset import NAMEREC_FIELDS
+from ..nameset import NAMEREC_FIELDS, get_namespace_from_name
+from ..blockchain import get_tx_inputs
 
 # consensus hash fields (ORDER MATTERS!) 
 FIELDS = NAMEREC_FIELDS + [
@@ -56,7 +60,8 @@ def get_transfer_recipient_from_outputs( outputs ):
     
     ret = None
     for output in outputs:
-       
+      
+        """
         output_script = output['scriptPubKey']
         output_asm = output_script.get('asm')
         output_hex = output_script.get('hex')
@@ -66,6 +71,12 @@ def get_transfer_recipient_from_outputs( outputs ):
             
             ret = output_hex
             break
+        """
+        if output.type() != "data":
+            break
+
+        ret = output.sender_id()
+        break
             
     if ret is None:
        raise Exception("No recipients found")
@@ -90,7 +101,7 @@ def transfer_sanity_check( name, consensus_hash ):
     return True
 
 
-def build(name, keepdata, consensus_hash, testset=False):
+def build(name, keepdata, consensus_hash):
     """
     Takes in a name to transfer.  Name must include the namespace ID, but not the scheme.
     
@@ -118,7 +129,7 @@ def build(name, keepdata, consensus_hash, testset=False):
     
     readable_script = 'NAME_TRANSFER 0x%s 0x%s 0x%s' % (disposition_hex, name_hash, consensus_hash)
     hex_script = blockstack_script_to_hex(readable_script)
-    packaged_script = add_magic_bytes(hex_script, testset=testset)
+    packaged_script = add_magic_bytes(hex_script)
     
     return packaged_script
 
@@ -153,6 +164,37 @@ def make_outputs( data, inputs, new_name_owner_address, change_address, pay_fee=
     ]
 
 
+def state_transition(name, destination_address, keepdata, consensus_hash, private_key, user_public_key=None):
+    
+    namespace_id = get_namespace_from_name(name)
+    blockchain_name = namespace_to_blockchain( namespace_id )
+
+    # sanity check 
+    pay_fee = True
+    if user_public_key is not None:
+        pay_fee = False
+
+    if user_public_key is None and private_key is None:
+        raise Exception("Missing both public and private key")
+    
+    pubk = None
+    
+    if user_public_key is not None:
+        # subsidizing 
+        pubk = ECPublicKey( user_public_key )
+
+    else:
+        # ordering directly 
+        pubk = ECPrivateKey( private_key ).public_key()
+        
+    from_address = pubk.address()
+    inputs = get_tx_inputs( blockchain_name, from_address )
+
+    nulldata = build(name, keepdata, consensus_hash )
+    outputs = make_outputs(nulldata, inputs, destination_address, from_address, pay_fee=pay_fee, format='hex')
+    return inputs, outputs
+
+
 def broadcast(name, destination_address, keepdata, consensus_hash, private_key, blockchain_client, blockchain_broadcaster=None, tx_only=False, user_public_key=None, testset=False):
     
     # sanity check 
@@ -169,37 +211,33 @@ def broadcast(name, destination_address, keepdata, consensus_hash, private_key, 
     
     if blockchain_broadcaster is None:
         blockchain_broadcaster = blockchain_client 
-    
-    from_address = None 
-    inputs = None
-    private_key_obj = None
+   
+    pubk = None
     
     if user_public_key is not None:
         # subsidizing 
-        pubk = BitcoinPublicKey( user_public_key )
+        pubk = ECPublicKey( user_public_key )
 
-        from_address = pubk.address()
-        inputs = get_unspents( from_address, blockchain_client )
-
-    elif private_key is not None:
+    else:
         # ordering directly 
-        pubk = BitcoinPrivateKey( private_key ).public_key()
-        public_key = pubk.to_hex()
+        pubk = ECPrivateKey( private_key ).public_key()
         
-        # get inputs and from address using private key
-        private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
-        
+    from_address = pubk.address()
+    inputs = get_unspents( from_address, blockchain_client )
+
     nulldata = build(name, keepdata, consensus_hash, testset=testset)
     outputs = make_outputs(nulldata, inputs, destination_address, from_address, pay_fee=pay_fee, format='hex')
     
     if tx_only:
     
-        unsigned_tx = serialize_transaction( inputs, outputs )
+        unsigned_tx = tx_serialize( inputs, outputs )
         return {"unsigned_tx": unsigned_tx}
     
     else:
         # serialize, sign, and broadcast the tx
-        response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_broadcaster)
+        signed_tx = tx_serialize_sign( inputs, outputs, private_key )
+        response = broadcast_transaction( signed_tx, blockchain_broadcaster )
+        # response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_broadcaster)
         response.update({'data': nulldata})
         return response
 

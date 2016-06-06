@@ -21,23 +21,25 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pybitcoin import embed_data_in_blockchain, make_op_return_tx, make_op_return_outputs, \
-        make_op_return_script, broadcast_transaction, serialize_transaction, \
-        script_hex_to_address, get_unspents
+# from blockstack_utxo import get_unspents, broadcast_transaction, analyze_private_key 
+import virtualchain
+from virtualchain.lib.blockchain.bitcoin import tx_serialize, script_hex_to_address, make_op_return_script
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
+from keylib import ECPublicKey, ECPrivateKey
 
 from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import *
 
-from ..nameset import NAMEREC_FIELDS
+from ..blockchain import get_tx_inputs
+from ..nameset import NAMEREC_FIELDS, get_namespace_from_name
 
 # consensus hash fields (ORDER MATTERS!)
 FIELDS = NAMEREC_FIELDS
 
 
-def build(name, testset=False):
+def build(name):
     """
     Takes in the name, including the namespace ID (but not the id: scheme)
     Returns a hex string representing up to LENGTHS['blockchain_id_name'] bytes.
@@ -55,7 +57,7 @@ def build(name, testset=False):
 
     readable_script = "NAME_REVOKE 0x%s" % (hexlify(name))
     hex_script = blockstack_script_to_hex(readable_script)
-    packaged_script = add_magic_bytes(hex_script, testset=testset)
+    packaged_script = add_magic_bytes(hex_script)
     
     return packaged_script 
 
@@ -91,8 +93,40 @@ def make_outputs( data, inputs, change_address, pay_fee=True ):
     ]
 
 
-def broadcast(name, private_key, blockchain_client, testset=False, blockchain_broadcaster=None, user_public_key=None, tx_only=False):
+def state_transition(name, private_key, user_public_key=None):
     
+    namespace_id = get_namespace_from_name( name )
+    blockchain_name = namespace_to_blockchain( namespace_id )
+
+    # sanity check 
+    pay_fee = True
+    if user_public_key is not None:
+        pay_fee = False
+
+    pubk = None 
+    if user_public_key is not None:
+        # subsidizing 
+        pubk = ECPublicKey( user_public_key )
+
+    else:
+        # ordering directly 
+        pubk = ECPrivateKey( private_key ).public_key()
+        
+    from_address = pubk.address()
+    inputs = get_unspents( from_address, blockchain_client )
+   
+    nulldata = build(name, testset=testset)
+    outputs = make_outputs( nulldata, inputs, from_address, pay_fee=pay_fee )
+
+    return inputs, outputs
+
+
+
+def broadcast(name, private_key, user_public_key=None):
+    
+    namespace_id = get_namespace_from_name( name )
+    blockchain_name = namespace_to_blockchain( namespace_id )
+
     # sanity check 
     pay_fee = True
     if user_public_key is not None:
@@ -108,30 +142,25 @@ def broadcast(name, private_key, blockchain_client, testset=False, blockchain_br
     if blockchain_broadcaster is None:
         blockchain_broadcaster = blockchain_client 
     
-    from_address = None 
-    inputs = None
-    private_key_obj = None
-    
+
+    pubk = None 
     if user_public_key is not None:
         # subsidizing 
-        pubk = BitcoinPublicKey( user_public_key )
+        pubk = ECPublicKey( user_public_key )
 
-        from_address = pubk.address()
-        inputs = get_unspents( from_address, blockchain_client )
-
-    elif private_key is not None:
+    else:
         # ordering directly 
-        pubk = BitcoinPrivateKey( private_key ).public_key()
-        public_key = pubk.to_hex()
+        pubk = ECPrivateKey( private_key ).public_key()
         
-        private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
-         
+    from_address = pubk.address()
+    inputs = get_unspents( from_address, blockchain_client )
+   
     nulldata = build(name, testset=testset)
     outputs = make_outputs( nulldata, inputs, from_address, pay_fee=pay_fee )
-   
+
     if tx_only:
        
-        unsigned_tx = serialize_transaction( inputs, outputs )
+        unsigned_tx = tx_serialize( inputs, outputs )
         return {'unsigned_tx': unsigned_tx}
 
     else:

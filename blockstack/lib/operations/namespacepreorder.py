@@ -21,11 +21,12 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
-    analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, b58check_encode, b58check_decode, BlockchainInfoClient, hex_hash160
+# from blockstack_utxo import get_unspents, broadcast_transaction, analyze_private_key, serialize_sign_and_broadcast
+import virtualchain
+from virtualchain.lib.blockchain.bitcoin import make_op_return_script, \
+        calculate_change_amount, make_pay_to_address_script
 
-from pybitcoin.transactions.outputs import calculate_change_amount
+from keylib import ECPrivateKey
 
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
@@ -34,6 +35,7 @@ from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import *
 from ..hashing import hash_name
+from ..blockchain import get_tx_inputs
 
 # consensus hash fields (ORDER MATTERS!) 
 FIELDS = [
@@ -117,10 +119,39 @@ def make_outputs( data, inputs, change_addr, fee, pay_fee=True, format='bin' ):
          "value": calculate_change_amount(inputs, bill, dust_fee)},
         
         # burn address
-        {"script_hex": make_pay_to_address_script(BLOCKSTORE_BURN_ADDRESS),
+        {"script_hex": make_pay_to_address_script(BLOCKSTACK_BURN_ADDRESS),
          "value": op_fee}
     ]
     
+
+def state_transition( namespace_id, register_addr, consensus_hash, private_key, fee ):
+   """
+   Propagate a namespace.
+   
+   Arguments:
+   namespace_id         human-readable (i.e. base-40) name of the namespace
+   register_addr        the addr of the key that will reveal the namespace (mixed into the preorder to prevent name preimage attack races)
+   private_key          the Bitcoin address that created this namespace, and can populate it.
+   """
+  
+   blockchain_name = virtualchain.namespace_to_blocokchain( namespace_id )
+
+   pk = ECPrivateKey( private_key )
+   pubk = pk.public_key()
+   from_address = pubk.address()
+   pubkey_hex = pubk.to_hex()
+
+   inputs = get_tx_outputs( blockchain_name, from_address )
+
+   # build custom outputs here
+   pubkey_hex = pk.public_key().to_hex()
+   script_pubkey = get_script_pubkey( pubkey_hex )
+
+   nulldata = build( namespace_id, script_pubkey, register_addr, consensus_hash )
+   outputs = make_outputs(nulldata, inputs, from_address, fee, format='hex')
+    
+   return inputs, outputs 
+
 
 def broadcast( namespace_id, register_addr, consensus_hash, private_key, blockchain_client, fee, pay_fee=True, tx_only=False, testset=False, blockchain_broadcaster=None ):
    """
@@ -134,26 +165,28 @@ def broadcast( namespace_id, register_addr, consensus_hash, private_key, blockch
   
    if blockchain_broadcaster is None:
        blockchain_broadcaster = blockchain_client 
-   
-   pubkey_hex = BitcoinPrivateKey( private_key ).public_key().to_hex()
-   
+
+   pubk = ECPrivateKey( private_key ).public_key()
+   from_address = pubk.address()
+   inputs = get_unspents( from_address, blockchain_client )
+
+   # build custom outputs here
+
+   pubkey_hex = ECPrivateKey( private_key ).public_key().to_hex()
    script_pubkey = get_script_pubkey( pubkey_hex )
    nulldata = build( namespace_id, script_pubkey, register_addr, consensus_hash, testset=testset )
-   
-   # get inputs and from address
-   private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
-    
-   # build custom outputs here
    outputs = make_outputs(nulldata, inputs, from_address, fee, format='hex')
     
    if tx_only:
        
-        unsigned_tx = serialize_transaction( inputs, outputs )
+        unsigned_tx = tx_serialize( inputs, outputs )
         return {"unsigned_tx": unsigned_tx}
        
    else:
         # serialize, sign, and broadcast the tx
-        response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_broadcaster)
+        signed_tx = tx_serialize_sign( inputs, outputs, private_key )
+        response = broadcast_transaction( signed_tx, blockchain_broadcaster )
+        # response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_broadcaster)
             
         # response = {'success': True }
         response.update({'data': nulldata})

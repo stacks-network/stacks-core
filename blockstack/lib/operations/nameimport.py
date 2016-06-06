@@ -21,11 +21,13 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from pybitcoin import embed_data_in_blockchain, \
-    analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, b58check_encode, b58check_decode, serialize_transaction
- 
-from pybitcoin.transactions.outputs import calculate_change_amount
+# from blockstack_utxo import get_unspents, broadcast_transaction, analyze_private_key
+import virtualchain
+from virtualchain.lib.blockchain.bitcoin import make_op_return_script, \
+        calculate_change_amount, make_pay_to_address_script
+
+from keylib import b58check_encode
+
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
@@ -33,8 +35,8 @@ from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
 from ..scripts import *
 from ..hashing import hash256_trunc128
-
-from ..nameset import NAMEREC_FIELDS
+from ..blockchain import get_tx_inputs
+from ..nameset import NAMEREC_FIELDS, get_namespace_from_name
 
 # consensus hash fields (ORDER MATTERS!) 
 FIELDS = NAMEREC_FIELDS + [
@@ -59,7 +61,8 @@ def get_import_update_hash_from_outputs( outputs, recipient ):
     ret = None
     count = 0
     for output in outputs:
-       
+      
+        """
         output_script = output['scriptPubKey']
         output_asm = output_script.get('asm')
         output_hex = output_script.get('hex')
@@ -69,6 +72,13 @@ def get_import_update_hash_from_outputs( outputs, recipient ):
             
             ret = hexlify( b58check_decode( str(output_addresses[0]) ) )
             break
+        """
+        if output.type() != "data":
+            continue
+
+        if output.sender_id() != recipient:
+            ret = hexlify(b58check_decode( output.addresses()[0] ))
+            break
             
     if ret is None:
        raise Exception("No update hash found")
@@ -76,7 +86,7 @@ def get_import_update_hash_from_outputs( outputs, recipient ):
     return ret 
 
 
-def build(name, testset=False):
+def build(name):
     """
     Takes in a name to import.  Name must include the namespace ID.
     
@@ -96,7 +106,7 @@ def build(name, testset=False):
 
     readable_script = "NAME_IMPORT 0x%s" % (hexlify(name))
     hex_script = blockstack_script_to_hex(readable_script)
-    packaged_script = add_magic_bytes(hex_script, testset=testset)
+    packaged_script = add_magic_bytes(hex_script)
     
     return packaged_script
 
@@ -133,30 +143,46 @@ def make_outputs( data, inputs, recipient_address, sender_address, update_hash_b
     ]
 
 
+def state_transition(name, recipient_address, update_hash, private_key):
+   
+    blockchain_name = namespace_to_blockchain( get_namespace_from_name( name ) )
+
+    pubk = ECPrivateKey( private_key ).public_key()
+    from_address = pubk.address()
+    inputs = get_tx_inputs( blockchain_name, from_address )
+
+    # NAME_IMPORT outputs
+    nulldata = build(name)
+    update_hash_b58 = b58check_encode( unhexlify(update_hash) )
+    outputs = make_outputs(nulldata, inputs, recipient_address, from_address, update_hash_b58, format='hex')
+
+    return inputs, outputs
+    
+
 def broadcast(name, recipient_address, update_hash, private_key, blockchain_client, blockchain_broadcaster=None, tx_only=False, testset=False):
    
     if blockchain_broadcaster is None:
         blockchain_broadcaster = blockchain_client 
     
-    nulldata = build(name, testset=testset)
-    
-    # convert update_hash from a hex string so it looks like an address
-    update_hash_b58 = b58check_encode( unhexlify(update_hash) )
-    
-    # get inputs and from address
-    private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
-    
+    pubk = ECPrivateKey( private_key ).public_key()
+    from_address = pubk.address()
+    inputs = get_unspents( from_address, blockchain_client )
+
     # NAME_IMPORT outputs
+    nulldata = build(name, testset=testset)
+    update_hash_b58 = b58check_encode( unhexlify(update_hash) )
     outputs = make_outputs(nulldata, inputs, recipient_address, from_address, update_hash_b58, format='hex')
     
     if tx_only:
         
-        unsigned_tx = serialize_transaction( inputs, outputs )
+        unsigned_tx = tx_serialize( inputs, outputs )
         return {"unsigned_tx": unsigned_tx}
     
     else:
         # serialize, sign, and broadcast the tx
-        response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_broadcaster)
+        signed_tx = tx_serialize_sign( inputs, outputs, private_key )
+        response = broadcast_transaction( signed_tx, blockchain_broadcaster )
+        # response = serialize_sign_and_broadcast(inputs, outputs, private_key_obj, blockchain_broadcaster)
         
         # response = {'success': True }
         response.update({'data': nulldata})
