@@ -23,7 +23,7 @@
 
 from utilitybelt import dev_urandom_entropy, is_hex
 from binascii import hexlify, unhexlify
-from pybitcoin.hash import hex_hash160, bin_hash160, bin_sha256, bin_double_sha256, hex_to_bin_reversed, bin_to_hex_reversed
+from virtualchain import hex_hash160, bin_hash160, bin_sha256, bin_double_sha256, hex_to_bin_reversed, bin_to_hex_reversed
 
 from .b40 import b40_to_bin
 from .config import LENGTHS
