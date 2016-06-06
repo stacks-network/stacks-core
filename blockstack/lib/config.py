@@ -24,10 +24,10 @@
 import os
 import sys
 from ConfigParser import SafeConfigParser
-import pybitcoin
 import blockstack_utxo
 from blockstack_utxo import *
 from ..version import __version__
+import traceback
 
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
@@ -43,6 +43,10 @@ VERSION = __version__
 
 # namespace version
 BLOCKSTACK_VERSION = 1
+NAMESPACE_ID_BLOCKCHAIN = "bitcoin"
+
+# supported blockchains 
+OTHER_SUPPORTED_BLOCKCHAINS = []
 
 """ constants
 """
@@ -274,11 +278,9 @@ if os.getenv("BLOCKSTACK_TEST") is not None:
 else:
     NAME_IMPORT_KEYRING_SIZE = 300                  # number of keys to derive from the import key
 
-NUM_CONFIRMATIONS = 6                         # number of blocks to wait for before accepting names
-
 # burn address for fees (the address of public key 0x0000000000000000000000000000000000000000)
-BLOCKSTORE_BURN_PUBKEY_HASH = "0000000000000000000000000000000000000000"
-BLOCKSTORE_BURN_ADDRESS = "1111111111111111111114oLvT2"
+BLOCKSTACK_BURN_PUBKEY_HASH = "0000000000000000000000000000000000000000"
+BLOCKSTACK_BURN_ADDRESS = "1111111111111111111114oLvT2"
 
 # default namespace record (i.e. for names with no namespace ID)
 NAMESPACE_DEFAULT = {
@@ -326,6 +328,15 @@ ANNOUNCEMENTS = []
 
 blockstack_client_session = None
 blockstack_client_session_opts = None
+
+
+def namespace_to_blockchain( namespace_id ):
+    """
+    Determine which blockchain holds names for a particular namespace.
+    For now, they all live on bitcoin.
+    """
+    return "bitcoin"
+
 
 def get_testset_filename( working_dir=None ):
    """
@@ -526,7 +537,7 @@ def put_announcement( announcement_text, txid ):
     data_hash = blockstack_client.get_blockchain_compat_hash(announcement_text)
     res = blockstack_client.storage.put_immutable_data( None, txid, data_hash=data_hash, data_text=announcement_text )
     if res is None:
-        log.error("Failed to put announcement '%s'" % (pybitcoin.hex_hash160(announcement_text)))
+        log.error("Failed to put announcement '%s'" % (virtualchain.hex_hash160(announcement_text)))
         return None
 
     return data_hash
@@ -672,19 +683,26 @@ def default_blockstack_opts( config_file=None, testset=False ):
    return blockstack_opts
 
 
-def default_bitcoind_opts( config_file=None ):
+def default_bitcoind_opts( config_file ):
    """
    Get our default bitcoind options, such as from a config file,
    or from sane defaults
    """
 
-   default_bitcoin_opts = virtualchain.get_bitcoind_config( config_file=config_file )
+   default_bitcoin_opts = virtualchain.get_blockchain_config( "bitcoin", config_file )
    
    # strip None's
    for (k, v) in default_bitcoin_opts.items():
       if v is None:
          del default_bitcoin_opts[k]
 
+   if 'bitcoind_use_https' in default_bitcoin_opts and type(default_bitcoin_opts['bitcoind_use_https']) in [str,unicode]:
+       if default_bitcoin_opts['bitcoind_use_https'].lower() in ['true', 'on', '1']:
+           default_bitcoin_opts['bitcoind_use_https'] = True
+       else:
+           default_bitcoin_opts['bitcoind_use_https'] = False
+
+   default_bitcoin_opts['blockchain'] = 'bitcoin'
    return default_bitcoin_opts
 
 
@@ -794,7 +812,7 @@ def find_missing( message, all_params, given_opts, default_opts, prompt_missing=
    return given_opts, missing_params, num_prompted
 
 
-def configure( config_file=None, force=False, interactive=True, testset=False ):
+def configure( config_file=None, force=False, interactive=True, testset=False, other_blockchains=OTHER_SUPPORTED_BLOCKCHAINS ):
    """
    Configure blockstack:  find and store configuration parameters to the config file.
 
@@ -803,10 +821,10 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
 
    Optionally force a re-prompting for all configuration details (with force=True)
 
-   Return (bitcoind_opts, utxo_opts)
+   Return (blockstack_opts, bitcoind_opts, utxo_opts, other_blockchain_opts, other_blockchain_services )
    """
 
-   global SUPPORTED_UTXO_PROVIDERS, SUPPORTED_UTXO_PARAMS, SUPPORTED_UTXO_PROMPT_MESSAGES
+   global SUPPORTED_UTXO_PROMPT_MESSAGES
 
    if config_file is None:
       try:
@@ -815,11 +833,14 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
       except:
          raise
 
+   log.debug("Load config from '%s'" % config_file)
    if not os.path.exists( config_file ):
        # definitely ask for everything
        force = True
 
+   # ===================
    # get blockstack opts
+   # ===================
    blockstack_opts = {}
    blockstack_opts_defaults = default_blockstack_opts( config_file=config_file, testset=testset )
    blockstack_params = blockstack_opts_defaults.keys()
@@ -834,26 +855,32 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
    # NOTE: disabled
    blockstack_opts, missing_blockstack_opts, num_blockstack_opts_prompted = find_missing( blockstack_msg, blockstack_params, blockstack_opts, blockstack_opts_defaults, prompt_missing=False )
 
+   # ====================
+   # get bitcoind opts
+   # ====================
    utxo_provider = None
    if 'utxo_provider' in blockstack_opts:
        utxo_provider = blockstack_opts['utxo_provider']
    else:
-       utxo_provider = default_utxo_provider( config_file=config_file )
+       utxo_provider = default_blockchain_provider( config_file=config_file )
 
    bitcoind_message  = "Blockstack does not have enough information to connect\n"
    bitcoind_message += "to bitcoind.  Please supply the following parameters, or\n"
    bitcoind_message += "press [ENTER] to select the default value."
 
    bitcoind_opts = {}
-   bitcoind_opts_defaults = default_bitcoind_opts( config_file=config_file )
+   bitcoind_opts_defaults = default_bitcoind_opts( config_file )
    bitcoind_params = bitcoind_opts_defaults.keys()
 
    if not force:
 
       # get default set of bitcoind opts
-      bitcoind_opts = default_bitcoind_opts( config_file=config_file )
+      bitcoind_opts = default_bitcoind_opts( config_file )
 
 
+   # ======================
+   # get UTXO provider opts
+   # ======================
    # get any missing bitcoind fields
    bitcoind_opts, missing_bitcoin_opts, num_bitcoind_prompted = find_missing( bitcoind_message, bitcoind_params, bitcoind_opts, bitcoind_opts_defaults, prompt_missing=interactive, strip_prefix="bitcoind_" )
 
@@ -875,14 +902,13 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
        else:
            raise Exception("No UTXO provider given")
 
-   utxo_opts = {}
-   utxo_opts_defaults = default_utxo_provider_opts( utxo_provider, config_file=config_file )
+   utxo_opts_defaults = default_blockchain_provider_opts( utxo_provider, config_file=config_file )
    utxo_params = SUPPORTED_UTXO_PARAMS[ utxo_provider ]
 
    if not force:
 
       # get current set of utxo opts
-      utxo_opts = default_utxo_provider_opts( utxo_provider, config_file=config_file )
+      utxo_opts = default_blockchain_provider_opts( utxo_provider, config_file=config_file )
 
    utxo_opts, missing_utxo_opts, num_utxo_opts_prompted = find_missing( SUPPORTED_UTXO_PROMPT_MESSAGES[utxo_provider], utxo_params, utxo_opts, utxo_opts_defaults, prompt_missing=interactive )
    utxo_opts['utxo_provider'] = utxo_provider
@@ -892,6 +918,23 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
        # cannot continue
        raise Exception("Missing configuration fields: %s" % (",".join( missing_bitcoin_opts + missing_utxo_opts )) )
 
+
+   # =========================
+   # get other blockchain opts
+   # =========================
+   other_blockchain_opts = {}
+   other_service_opts = {}
+   for blockchain_name in other_blockchains:
+       if blockchain_name == "bitcoin":
+           continue
+
+       # TODO
+       raise NotImplementedError("Support for other blockchains and their service APIs is not yet implemented")
+
+
+   # ========================
+   # contact info
+   # ========================
    # ask for contact info, so we can send out notifications for bugfixes and upgrades
    if blockstack_opts.get('email', None) is None:
        email_msg = "Would you like to receive notifications\n"
@@ -910,14 +953,18 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
    # if we prompted, then save
    if num_bitcoind_prompted > 0 or num_utxo_opts_prompted > 0 or num_blockstack_opts_prompted > 0:
        print >> sys.stderr, "Saving configuration to %s" % config_file
-       write_config_file( bitcoind_opts=bitcoind_opts, utxo_opts=utxo_opts, blockstack_opts=blockstack_opts, config_file=config_file )
+       write_config_file( bitcoind_opts=bitcoind_opts, utxo_opts=utxo_opts, blockstack_opts=blockstack_opts, other_blockchain_opts=other_blockchain_opts, other_service_opts=other_service_opts, config_file=config_file )
 
-   return (blockstack_opts, bitcoind_opts, utxo_opts)
+   return (blockstack_opts, bitcoind_opts, utxo_opts, other_blockchain_opts, other_service_opts)
 
 
-def write_config_file( blockstack_opts=None, bitcoind_opts=None, utxo_opts=None, config_file=None ):
+def write_config_file( blockstack_opts=None, bitcoind_opts=None, utxo_opts=None, other_blockchain_opts=None, other_service_opts=None, config_file=None ):
    """
    Update a configuration file, given the bitcoind options and chain.com options.
+
+   @other_blockchain_opts should be a dict keyed by blockchain name, mapping to a dict of blockchain-specific options.
+   @other_service_opts should be a dict keyed by blockchain name, mapping to a dict of blockchain-service-specific options.
+
    Return True on success
    Return False on failure
    """
@@ -943,8 +990,14 @@ def write_config_file( blockstack_opts=None, bitcoind_opts=None, utxo_opts=None,
 
       parser.add_section( 'bitcoind' )
       for opt_name, opt_value in tmp_bitcoind_opts.items():
+
+         # don't log these meta-fields
+         if opt_name in ['blockchain']:
+             continue 
+
          if opt_value is None:
              raise Exception("%s is not defined" % opt_name)
+
          parser.set( 'bitcoind', opt_name, "%s" % opt_value )
 
    if utxo_opts is not None and len(utxo_opts) > 0:
@@ -955,8 +1008,8 @@ def write_config_file( blockstack_opts=None, bitcoind_opts=None, utxo_opts=None,
       parser.add_section( utxo_opts['utxo_provider'] )
       for opt_name, opt_value in utxo_opts.items():
 
-         # don't log this meta-field
-         if opt_name == 'utxo_provider':
+         # don't log these meta-fields
+         if opt_name in ['utxo_provider', 'service_provider', 'blockchain']:
              continue
 
          if opt_value is None:
@@ -976,6 +1029,40 @@ def write_config_file( blockstack_opts=None, bitcoind_opts=None, utxo_opts=None,
               raise Exception("%s is not defined" % opt_name )
 
           parser.set( "blockstack", opt_name, "%s" % opt_value )
+
+   if other_blockchain_opts is not None and len(other_blockchain_opts) > 0:
+       # record each other blockchain's information 
+       for blockchain_name in other_blockchain_opts:
+           if parser.has_section(blockchain_name):
+               parser.remove_section(blockchain_name)
+
+           for opt_name, opt_value in other_blockchain_opts[blockchain_name]:
+
+                # don't log meta-fields
+                if opt_name in ['blockchain']:
+                    continue
+
+                if opt_value is None:
+                    raise Exception("%s.%s is not defined" % (blockchain_name, opt_value))
+
+                parser.set(blockchain_name, opt_name, "%s" % opt_value)
+
+   if other_service_opts is not None and len(other_service_opts) > 0:
+        # record each other blockchain service's information
+        for service_name in other_service_opts:
+            if parser.has_section(service_name):
+                parser.remove_section(service_name)
+
+            for opt_name, opt_value in other_service_opts[service_name]:
+
+                # don't log meta-fields 
+                if opt_name in ['service_provider', 'blockchain']:
+                    continue
+
+                if opt_value is None:
+                    raise Exception("%s.%s is not defined" % (service_name, opt_value))
+
+                parser.set(service_name, opt_name, "%s" % opt_value)
 
 
    with open(config_file, "w") as fout:
