@@ -2068,7 +2068,7 @@ def clean( testset=False, confirm=True ):
     exit_status = 0
 
     if confirm:
-        warning = "WARNING: THIS WILL DELETE YOUR BLOCKSTORE DATABASE!\n"
+        warning = "WARNING: THIS WILL DELETE YOUR BLOCKSTACK DATABASE!\n"
         warning+= "Database: '%s'\n" % blockstack_state_engine.working_dir
         warning+= "Are you sure you want to proceed?\n"
         warning+= "Type 'YES' if so: "
@@ -2737,7 +2737,7 @@ def run_blockstackd():
                                                 bitcoin_opts['bitcoind_user']))
 
    if args.action == 'version':
-      print "Blockstack version: %s.%s" % (VERSION, BLOCKSTORE_VERSION)
+      print "Blockstack version: %s" % VERSION
       print "Testset: %s" % testset
       sys.exit(0)
 

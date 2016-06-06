@@ -117,7 +117,7 @@ def make_outputs( data, inputs, change_addr, fee, pay_fee=True, format='bin' ):
          "value": calculate_change_amount(inputs, bill, dust_fee)},
         
         # burn address
-        {"script_hex": make_pay_to_address_script(BLOCKSTORE_BURN_ADDRESS),
+        {"script_hex": make_pay_to_address_script(BLOCKSTACK_BURN_ADDRESS),
          "value": op_fee}
     ]
     

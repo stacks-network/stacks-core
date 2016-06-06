@@ -290,7 +290,7 @@ def tx_output_is_burn( output ):
     Is an output's script an OP_RETURN script to our burn address?
     """
     addr = pybitcoin.script_hex_to_address( output['script_hex'] )
-    return (addr == BLOCKSTORE_BURN_ADDRESS)
+    return (addr == BLOCKSTACK_BURN_ADDRESS)
 
 
 def tx_make_subsidization_output( payer_utxo_inputs, payer_address, op_fee, dust_fee ):

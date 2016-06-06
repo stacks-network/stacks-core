@@ -168,7 +168,7 @@ def make_outputs( data, change_inputs, register_addr, change_addr, renewal_fee=N
         outputs.append(
             
             # burn address (when renewing)
-            {"script_hex": make_pay_to_address_script(BLOCKSTORE_BURN_ADDRESS),
+            {"script_hex": make_pay_to_address_script(BLOCKSTACK_BURN_ADDRESS),
              "value": op_fee}
         )
 
@@ -295,7 +295,7 @@ def get_fees( inputs, outputs ):
         if addr_hash is None:
             return (None, None) 
         
-        if addr_hash != BLOCKSTORE_BURN_PUBKEY_HASH:
+        if addr_hash != BLOCKSTACK_BURN_PUBKEY_HASH:
             return (None, None)
     
         dust_fee = (len(inputs) + 3) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE

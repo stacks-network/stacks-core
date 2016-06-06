@@ -111,7 +111,7 @@ def make_outputs( data, inputs, sender_addr, fee, format='bin' ):
          "value": calculate_change_amount(inputs, bill, dust_fee)},
         
         # burn address
-        {"script_hex": make_pay_to_address_script(BLOCKSTORE_BURN_ADDRESS),
+        {"script_hex": make_pay_to_address_script(BLOCKSTACK_BURN_ADDRESS),
          "value": op_fee}
     ]
 
@@ -225,7 +225,7 @@ def get_fees( inputs, outputs ):
         log.error("outputs[2] has no decipherable burn address")
         return (None, None) 
     
-    if addr_hash != BLOCKSTORE_BURN_ADDRESS:
+    if addr_hash != BLOCKSTACK_BURN_ADDRESS:
         log.error("outputs[2] is not the burn address")
         return (None, None)
     
