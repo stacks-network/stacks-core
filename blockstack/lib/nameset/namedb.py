@@ -27,10 +27,11 @@ import binascii
 import hashlib
 import math
 import keychain
-import pybitcoin
 import os
 import copy
 import shutil
+
+from keylib import ECPublicKey, ECPrivateKey
 
 from collections import defaultdict
 from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAX_NAMES_PER_SENDER, \
@@ -223,7 +224,7 @@ class BlockstackDB( virtualchain.StateEngine ):
                  continue
 
              pubkey_hex = name_record['sender_pubkey']
-             pubkey_addr = pybitcoin.BitcoinPublicKey( str(pubkey_hex) ).address()
+             pubkey_addr = ECPublicKey( str(pubkey_hex) ).address()
 
              if pubkey_addr != namespace_reveal['recipient_address']:
                  continue
@@ -325,7 +326,7 @@ class BlockstackDB( virtualchain.StateEngine ):
       Generate all possible NAME_IMPORT addresses from the NAMESPACE_REVEAL public key
       """
 
-      pubkey_addr = pybitcoin.BitcoinPublicKey( str(pubkey_hex) ).address()
+      pubkey_addr = ECPublicKey( str(pubkey_hex) ).address()
 
       # do we have a cached one on disk?
       cached_keychain = os.path.join( virtualchain.get_working_dir(), "%s.keychain" % pubkey_addr)
@@ -2430,7 +2431,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
       # sender p2pkh script must use a public key derived from the namespace revealer's public key
       sender_pubkey_hex = str(nameop['sender_pubkey'])
-      sender_pubkey = pybitcoin.BitcoinPublicKey( str(sender_pubkey_hex) )
+      sender_pubkey = ECPublicKey( str(sender_pubkey_hex) )
       sender_address = sender_pubkey.address()
 
       import_addresses = self.import_addresses.get(namespace_id, None)
