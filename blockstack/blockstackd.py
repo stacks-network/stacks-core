@@ -50,6 +50,7 @@ from defusedxml import xmlrpc
 xmlrpc.monkey_patch()
 
 import virtualchain
+
 log = virtualchain.get_logger("blockstack-server")
 
 try:
@@ -60,11 +61,9 @@ except:
 
 from ConfigParser import SafeConfigParser
 
-import pybitcoin
-
 from lib import nameset as blockstack_state_engine
 from lib import get_db_state
-from lib.config import REINDEX_FREQUENCY, DEFAULT_DUST_FEE 
+from lib.config import REINDEX_FREQUENCY, DEFAULT_DUST_FEE, NAMESPACE_ID_BLOCKCHAIN 
 from lib import *
 from lib.storage import *
 
@@ -72,104 +71,7 @@ import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
 
 # global variables, for use with the RPC server and the twisted callback
-blockstack_opts = None
-bitcoind = None
-bitcoin_opts = None
-utxo_opts = None
-blockchain_client = None
-blockchain_broadcaster = None
 rpc_server = None
-
-
-def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
-   """
-   Get or instantiate our bitcoind client.
-   Optionally re-set the bitcoind options.
-   """
-   global bitcoind
-   global bitcoin_opts
-
-   if reset:
-       bitcoind = None
-
-   elif not new and bitcoind is not None:
-      return bitcoind
-
-   if new or bitcoind is None:
-      if new_bitcoind_opts is not None:
-         bitcoin_opts = new_bitcoind_opts
-
-      new_bitcoind = None
-      try:
-         if bitcoin_opts.has_key('bitcoind_mock') and bitcoin_opts['bitcoind_mock']:
-            # make a mock connection
-            log.debug("Use mock bitcoind")
-            import blockstack_integration_tests.mock_bitcoind
-            new_bitcoind = blockstack_integration_tests.mock_bitcoind.connect_mock_bitcoind( bitcoin_opts, reset=reset )
-
-         else:
-            new_bitcoind = virtualchain.connect_bitcoind( bitcoin_opts )
-
-         if new:
-             return new_bitcoind
-
-         else:
-             # save for subsequent reuse
-             bitcoind = new_bitcoind
-             return bitcoind
-
-      except Exception, e:
-         log.exception( e )
-         return None
-
-
-def get_bitcoin_opts():
-   """
-   Get the bitcoind connection arguments.
-   """
-
-   global bitcoin_opts
-   return bitcoin_opts
-
-
-def get_utxo_opts():
-   """
-   Get UTXO provider options.
-   """
-   global utxo_opts
-   return utxo_opts
-
-
-def get_blockstack_opts():
-   """
-   Get blockstack configuration options.
-   """
-   global blockstack_opts
-   return blockstack_opts
-
-
-def set_bitcoin_opts( new_bitcoin_opts ):
-   """
-   Set new global bitcoind operations
-   """
-   global bitcoin_opts
-   bitcoin_opts = new_bitcoin_opts
-
-
-def set_utxo_opts( new_utxo_opts ):
-   """
-   Set new global chian.com options
-   """
-   global utxo_opts
-   utxo_opts = new_utxo_opts
-
-
-def set_blockstack_opts( new_opts ):
-    """
-    Set new global blockstack opts
-    """
-    global blockstack_opts
-    blockstack_opts = new_opts
 
 
 def get_pidfile_path():
@@ -225,9 +127,9 @@ def get_lastblock():
         return None
 
 
-def get_index_range():
+def get_index_range(blockchain_name):
     """
-    Get the bitcoin block index range.
+    Get the block index range for the given blockchain.
     Mask connection failures with timeouts.
     Always try to reconnect.
 
@@ -236,24 +138,25 @@ def get_index_range():
     cryptocurrency node knows about.
     """
 
-    bitcoind_session = get_bitcoind( new=True )
+    num_confirmations = virtualchain.blockchain_confirmations(blockchain_name)
+    blockchain_client = get_blockchain_client( blockchain_name, new=True )
 
     first_block = None
     last_block = None
     while last_block is None:
 
-        first_block, last_block = virtualchain.get_index_range( bitcoind_session )
+        first_block, last_block = virtualchain.get_index_range( blockchain_client )
 
         if last_block is None:
 
             # try to reconnnect
             time.sleep(1)
-            log.error("Reconnect to bitcoind")
-            bitcoind_session = get_bitcoind( new=True )
+            log.error("Reconnect to blockchain '%s'" % blockchain_name)
+            blockchain_client = get_blockchain_client( blockchain_name, new=True )
             continue
 
         else:
-            return first_block, last_block - NUM_CONFIRMATIONS
+            return first_block, last_block - num_confirmations
 
 
 def rpc_traceback():
@@ -262,48 +165,6 @@ def rpc_traceback():
         "error": exception_data[-1],
         "traceback": exception_data
     }
-
-
-def get_utxo_provider_client():
-   """
-   Get or instantiate our blockchain UTXO provider's client.
-   Return None if we were unable to connect
-   """
-
-   # acquire configuration (which we should already have)
-   blockstack_opts, bitcoin_opts, utxo_opts = configure( interactive=False )
-
-   try:
-       utxo_provider = connect_utxo_provider( utxo_opts )
-       return utxo_provider
-   except Exception, e:
-       log.exception(e)
-       return None
-
-
-def get_tx_broadcaster():
-   """
-   Get or instantiate our blockchain UTXO provider's transaction broadcaster.
-   fall back to the utxo provider client, if one is not designated
-   """
-
-   # acquire configuration (which we should already have)
-   blockstack_opts, blockchain_opts, utxo_opts = configure( interactive=False )
-
-   # is there a particular blockchain client we want for importing?
-   if 'tx_broadcaster' not in blockstack_opts:
-       return get_utxo_provider_client()
-
-   config_path = virtualchain.get_config_filename()
-   broadcaster_opts = default_utxo_provider_opts( blockstack_opts['tx_broadcaster'], config_file=config_path )
-
-   try:
-       blockchain_broadcaster = connect_utxo_provider( broadcaster_opts )
-       return blockchain_broadcaster
-   except:
-       log.exception(e)
-       return None
-
 
 
 def get_name_cost( name ):
@@ -339,20 +200,22 @@ def get_max_subsidy( testset=False ):
     Return (subsidy, key)
     """
 
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    # blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    blockstack_opts = get_blockstack_opts()
     if blockstack_opts.get("max_subsidy") is None:
         return (None, None)
 
     return blockstack_opts["max_subsidy"]
 
 
-def make_subsidized_tx( unsigned_tx, fee_cb, max_subsidy, subsidy_key, blockchain_client_inst ):
+def make_subsidized_tx( blockchain_name, unsigned_tx, fee_cb, max_subsidy, subsidy_key ):
     """
     Create a subsidized transaction
     transaction and a callback that determines the fee structure.
     """
 
     # subsidize the transaction
+     
     subsidized_tx = tx_make_subsidizable( unsigned_tx, fee_cb, max_subsidy, subsidy_key, blockchain_client_inst )
     if subsidized_tx is None:
         return {"error": "Order exceeds maximum subsidy"}
@@ -364,20 +227,7 @@ def make_subsidized_tx( unsigned_tx, fee_cb, max_subsidy, subsidy_key, blockchai
         return resp
 
 
-def broadcast_subsidized_tx( subsidized_tx ):
-    """
-    Broadcast a subsidized tx to the blockchain.
-    """
-    broadcaster_client_inst = get_tx_broadcaster()
-    if broadcaster_client_inst is None:
-        return {"error": "Failed to connect to blockchain transaction broadcaster"}
-
-    # broadcast
-    response = pybitcoin.broadcast_transaction( subsidized_tx, broadcaster_client_inst, format='hex' )
-    return response
-
-
-def blockstack_name_preorder( name, privatekey, register_addr, tx_only=False, subsidy_key=None, testset=False, consensus_hash=None ):
+def blockstack_name_preorder( name, privatekey, register_addr, tx_only=False, subsidy_key=None, consensus_hash=None ):
     """
     Preorder a name.
 
@@ -395,20 +245,23 @@ def blockstack_name_preorder( name, privatekey, register_addr, tx_only=False, su
     Return a JSON object with 'error' set on error.
     """
 
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    # blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    blockchain_name = namespace_to_blockchain( get_namespace_from_name( name ) )
+    blockstack_opts = get_blockstack_opts()
 
     # are we doing our initial indexing?
     if is_indexing():
         return {"error": "Indexing blockchain"}
 
-    blockchain_client_inst = get_utxo_provider_client()
+    """
+    blockchain_client_inst = blockchain_service_connect(blockchain_name)
     if blockchain_client_inst is None:
         return {"error": "Failed to connect to blockchain UTXO provider"}
 
-    broadcaster_client_inst = get_tx_broadcaster()
+    broadcaster_client_inst = tx_broadcast_service_connect(blockchain_name)
     if broadcaster_client_inst is None:
         return {"error": "Failed to connect to blockchain transaction broadcaster"}
-
+    """
     db = get_state_engine()
 
     if consensus_hash is None:
@@ -421,8 +274,6 @@ def blockstack_name_preorder( name, privatekey, register_addr, tx_only=False, su
     if db.is_name_registered( name ):
         # name can't be registered
         return {"error": "Name already registered"}
-
-    namespace_id = get_namespace_from_name( name )
 
     if not db.is_namespace_ready( namespace_id ):
         # namespace must be ready; otherwise this is a waste
@@ -441,24 +292,37 @@ def blockstack_name_preorder( name, privatekey, register_addr, tx_only=False, su
         tx_only = True
 
         # the sender will be the subsidizer (otherwise it will be the given private key's owner)
-        public_key = BitcoinPrivateKey( subsidy_key ).public_key().to_hex()
+        public_key = ECPrivateKey( subsidy_key ).public_key().to_hex()
 
     resp = {}
+    inputs = []
+    outputs = []
     try:
+        """
         resp = preorder_name(str(name), privatekey, str(register_addr), str(consensus_hash), blockchain_client_inst, \
             name_fee, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'], subsidy_public_key=public_key, tx_only=tx_only )
+        """
+        inputs, outputs = preorder_state_transition( str(name), privatekey, str(register_addr), str(consensus_hash), name_fee, subsidy_public_key=public_key )
     except:
         return rpc_traceback()
 
     if subsidy_key is not None:
-        # sign each input
-        inputs, outputs, _, _ = tx_deserialize( resp['unsigned_tx'] )
-        tx_signed = tx_serialize_and_sign( inputs, outputs, subsidy_key )
-
+        # make subsidized
+        tx_signed = make_transaction( blockchain_name, inputs, outputs, subsidy_key )
         resp = {
             'subsidized_tx': tx_signed
         }
 
+    elif not tx_only:
+        # send transaction
+        resp = send_transaction( blockchain_name, inputs, outputs, privatekey )
+
+    else:
+        # give back transaction 
+        tx_unsigned = make_transaction( blockchain_name, inputs, outputs, None )
+        resp = {
+          'unsigned_tx': tx_unsigned
+        }
 
     log.debug('preorder <name, consensus_hash>: <%s, %s>' % (name, consensus_hash))
 
@@ -485,19 +349,25 @@ def blockstack_name_register( name, privatekey, register_addr, renewal_fee=None,
     Return a JSON object with 'error' set on error.
     """
 
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    namespace_id = get_namespace_from_name( name )
+    blockchain_name = namespace_to_blockchain( namespace_id )
+    
+    # blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    blockstack_opts = get_blockstack_opts()
 
     # are we doing our initial indexing?
     if is_indexing():
         return {"error": "Indexing blockchain"}
 
-    blockchain_client_inst = get_utxo_provider_client()
+    """
+    blockchain_client_inst = blockchain_service_connect(blockchain_name)
     if blockchain_client_inst is None:
         return {"error": "Failed to connect to blockchain UTXO provider"}
 
-    broadcaster_client_inst = get_tx_broadcaster()
+    broadcaster_client_inst = tx_broadcast_service_connect(blockchain_name)
     if broadcaster_client_inst is None:
         return {"error": "Failed to connect to blockchain transaction broadcaster"}
+    """
 
     db = get_state_engine()
 
@@ -511,28 +381,41 @@ def blockstack_name_register( name, privatekey, register_addr, renewal_fee=None,
         tx_only = True
 
         # the sender will be the subsidizer (otherwise it will be the given private key's owner)
-        public_key = BitcoinPrivateKey( subsidy_key ).public_key().to_hex()
+        public_key = ECPrivateKey( subsidy_key ).public_key().to_hex()
 
+    inputs = []
+    outputs = []
     resp = {}
     try:
+        """
         resp = register_name(str(name), privatekey, str(register_addr), blockchain_client_inst, renewal_fee=renewal_fee, \
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'], \
             subsidy_public_key=public_key, user_public_key=user_public_key )
+        """
+        inputs, outputs = register_state_transition( str(name), privatekey, str(register_ddr), renewal_fee=renewal_fee, subsidy_public_key=public_key, user_public_key=user_public_key )
     except:
         return rpc_traceback()
 
     if subsidy_key is not None and renewal_fee is not None:
-        resp = make_subsidized_tx( resp['unsigned_tx'], registration_fees, blockstack_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
+        inputs, outputs = subsidize_state_transition( blockchain_name, inputs, outputs, registration_fees, blockstack_opts['max_subsidy'], subsidy_key ) 
 
-    elif subsidy_key is not None:
-        # sign each input
-        inputs, outputs, _, _ = tx_deserialize( resp['unsigned_tx'] )
-        tx_signed = tx_serialize_and_sign( inputs, outputs, subsidy_key )
+    if subsidy_key is None:
+        if tx_only:
+            # only want unsigned tx 
+            tx_unsigned = make_transaction( blockchain_name, inputs, outputs, None )
+            resp = {
+                "unsigned_tx": tx_unsigned
+            }
 
+        else:
+            # send it off!
+            resp = send_transaction( blockchain_name, inputs, outputs, privatekey )
+
+    else:
+        tx_subsidized = make_transaction( blockchain_name, inputs, outputs, subsidy_key )
         resp = {
-            'subsidized_tx': tx_signed
+            'subsidized_tx': tx_subsidized
         }
-
 
     log.debug("name register/renew: %s" % name)
     return resp
@@ -552,20 +435,27 @@ def blockstack_name_update( name, data_hash, privatekey, tx_only=False, user_pub
     Return a JSON object on success
     Return a JSON object with 'error' set on error.
     """
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    
+    namespace_id = get_namespace_from_name( name )
+    blockchain_name = namespace_to_blockchain( namespace_id )
+    
+    # blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    blockstack_opts = get_blockstack_opts()
 
     # are we doing our initial indexing?
     if is_indexing():
         return {"error": "Indexing blockchain"}
 
 
-    blockchain_client_inst = get_utxo_provider_client()
+    """
+    blockchain_client_inst = blockchain_service_connect(blockchain_name)
     if blockchain_client_inst is None:
         return {"error": "Failed to connect to blockchain UTXO provider"}
 
-    broadcaster_client_inst = get_tx_broadcaster()
+    broadcaster_client_inst = tx_broadcast_service_connect(blockchain_name)
     if broadcaster_client_inst is None:
         return {"error": "Failed to connect to blockchain transaction broadcaster"}
+    """
 
     db = get_state_engine()
 
@@ -579,15 +469,35 @@ def blockstack_name_update( name, data_hash, privatekey, tx_only=False, user_pub
         return {"error": "Failed to connect to blockchain UTXO provider"}
 
     resp = {}
+    inputs = []
+    outputs = []
     try:
+        """
         resp = update_name(str(name), str(data_hash), str(consensus_hash), privatekey, blockchain_client_inst, \
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, user_public_key=user_public_key, testset=blockstack_opts['testset'])
+        """
+        inputs, outputs = update_state_transition( str(name), str(data_hash), str(consensus_hash), privatekey, user_public_key=user_public_key )
     except:
         return rpc_traceback()
 
-    if subsidy_key is not None:
-        # subsidize the transaction
-        resp = make_subsidized_tx( resp['unsigned_tx'], update_fees, blockstack_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
+    if subsidy_key is None:
+        if tx_only:
+            # only want unsigned tx 
+            tx_unsigned = make_transaction( blockchain_name, inputs, outputs, None )
+            resp = {
+                "unsigned_tx": tx_unsigned
+            }
+
+        else:
+            # send it off!
+            resp = send_transaction( blockchain_name, inputs, outputs, privatekey )
+
+    else:
+        inputs, outputs = subsidize_state_transition( blockchain_name, inputs, outputs, update_fees, blockstack_opts['max_subsidy'], subsidy_key ) 
+        tx_subsidized = make_transaction( blockchain_name, inputs, outputs, subsidy_key )
+        resp = {
+            'subsidized_tx': tx_subsidized
+        }
 
     log.debug('name update <name, data_hash, consensus_hash>: <%s, %s, %s>' % (name, data_hash, consensus_hash))
     return resp
@@ -608,19 +518,26 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, user_public_k
     Return a JSON object on success
     Return a JSON object with 'error' set on error.
     """
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    
+    namespace_id = get_namespace_from_name( name )
+    blockchain_name = namespace_to_blockchain( namespace_id )
+
+    # blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    blockstack_opts = get_blockstack_opts()
 
     # are we doing our initial indexing?
     if is_indexing():
         return {"error": "Indexing blockchain"}
 
-    blockchain_client_inst = get_utxo_provider_client()
+    """
+    blockchain_client_inst = blockchain_service_connect(blockchain_name)
     if blockchain_client_inst is None:
         return {"error": "Failed to connect to blockchain UTXO provider"}
 
-    broadcaster_client_inst = get_tx_broadcaster()
+    broadcaster_client_inst = tx_broadcast_service_connect(blockchain_name)
     if broadcaster_client_inst is None:
         return {"error": "Failed to connect to blockchain transaction broadcaster"}
+    """
 
     db = get_state_engine()
 
@@ -640,15 +557,35 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, user_public_k
             keepdata = False
 
     resp = {}
+    inputs = []
+    outputs = []
     try:
+        """
         resp = transfer_name(str(name), str(address), keepdata, str(consensus_hash), privatekey, blockchain_client_inst, \
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, user_public_key=user_public_key, testset=blockstack_opts['testset'])
+        """
+        inputs, outputs = transfer_state_transition( str(name), str(address), keepdata, str(consensus_hash), private_key, user_public_key=user_public_key )
     except:
         return rpc_traceback()
 
-    if subsidy_key is not None:
-        # subsidize the transaction
-        resp = make_subsidized_tx( resp['unsigned_tx'], transfer_fees, blockstack_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
+    if subsidy_key is None:
+        if tx_only:
+            # only want unsigned tx 
+            tx_unsigned = make_transaction( blockchain_name, inputs, outputs, None )
+            resp = {
+                "unsigned_tx": tx_unsigned
+            }
+
+        else:
+            # send it off!
+            resp = send_transaction( blockchain_name, inputs, outputs, privatekey )
+
+    else:
+        inputs, outputs = subsidize_state_transition( blockchain_name, inputs, outputs, transfer_fees, blockstack_opts['max_subsidy'], subsidy_key ) 
+        tx_subsidized = make_transaction( blockchain_name, inputs, outputs, subsidy_key )
+        resp = {
+            'subsidized_tx': tx_subsidized
+        }
 
     log.debug('name transfer <name, address>: <%s, %s>' % (name, address))
 
@@ -683,7 +620,7 @@ def blockstack_name_renew( name, privatekey, register_addr=None, tx_only=False, 
     if register_addr is None:
         register_addr = name_rec['address']
 
-    if str(register_addr) != str(pybitcoin.BitcoinPrivateKey( privatekey ).public_key().address()):
+    if str(register_addr) != str(ECPrivateKey( privatekey ).public_key().address()):
         return {"error": "Only the name's owner can send a renew request"}
 
     renewal_fee = get_name_cost( name )
@@ -705,31 +642,58 @@ def blockstack_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, u
     Return a JSON object with 'error' set on error.
     """
 
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    namespace_id = get_namespace_from_name( name )
+    blockchain_name = namespace_to_blockchain( namespace_id )
+    
+    # blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    blockstack_opts = get_blockstack_opts()
 
     # are we doing our initial indexing?
     if is_indexing():
         return {"error": "Indexing blockchain"}
 
-    blockchain_client_inst = get_utxo_provider_client()
+    """
+    blockchain_client_inst = blockchain_service_connect(blockchain_name)
     if blockchain_client_inst is None:
-        return {"error": "Failed to connect to blockchain UTXO provider"}
+        return {"error": "Failed to connect to blockchain service provider"}
 
-    broadcaster_client_inst = get_tx_broadcaster()
+    broadcaster_client_inst = tx_broadcast_service_connect(blockchain_name)
     if broadcaster_client_inst is None:
         return {"error": "Failed to connect to blockchain transaction broadcaster"}
+    """
 
     resp = {}
+    inputs = []
+    outputs = []
     try:
+        """
         resp = revoke_name(str(name), privatekey, blockchain_client_inst, \
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, \
             user_public_key=user_public_key, testset=blockstack_opts['testset'])
+        """
+        inputs, outputs = revoke_state_transition( str(name), user_public_key=user_public_key )
     except:
         return rpc_traceback()
 
-    if subsidy_key is not None:
-        # subsidize the transaction
-        resp = make_subsidized_tx( resp['unsigned_tx'], revoke_fees, blockstack_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
+    
+    if subsidy_key is None:
+        if tx_only:
+            # only want unsigned tx 
+            tx_unsigned = make_transaction( blockchain_name, inputs, outputs, None )
+            resp = {
+                "unsigned_tx": tx_unsigned
+            }
+
+        else:
+            # send it off!
+            resp = send_transaction( blockchain_name, inputs, outputs, privatekey )
+
+    else:
+        inputs, outputs = subsidize_state_transition( blockchain_name, inputs, outputs, revoke_fees, blockstack_opts['max_subsidy'], subsidy_key ) 
+        tx_subsidized = make_transaction( blockchain_name, inputs, outputs, subsidy_key )
+        resp = {
+            'subsidized_tx': tx_subsidized
+        }
 
     log.debug("name revoke <%s>" % name )
 
@@ -741,28 +705,45 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, tx
     Import a name into a namespace.
     """
 
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    namespace_id = get_namespace_from_name( name )
+    blockchain_name = namespace_to_blockchain( namespace_id )
+    # blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    blockstack_opts = get_blockstack_opts()
 
     # are we doing our initial indexing?
     if is_indexing():
         return {"error": "Indexing blockchain"}
 
-    blockchain_client_inst = get_utxo_provider_client()
+    """
+    blockchain_client_inst = blockchain_service_connect(blockchain_name)
     if blockchain_client_inst is None:
-        return {"error": "Failed to connect to blockchain UTXO provider"}
+        return {"error": "Failed to connect to blockchain service provider"}
 
-    broadcaster_client_inst = get_tx_broadcaster()
+    broadcaster_client_inst = tx_broadcast_service_connect(blockchain_name)
     if broadcaster_client_inst is None:
         return {"error": "Failed to connect to blockchain transaction broadcaster"}
-
+    """
     db = get_state_engine()
 
     resp = {}
+    inputs = []
+    outputs = []
     try:
+        """
         resp = name_import( str(name), str(recipient_address), str(update_hash), str(privatekey), blockchain_client_inst, \
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'] )
+        """
+        inputs, outputs = name_import_state_transition( str(name), str(recipient_address), str(update_hash), privatekey )
     except:
         return rpc_traceback()
+
+    if tx_only:
+        tx_unsigned = make_transaction( blockchain_name, inputs, outputs, None )
+        resp = {
+            'unsigned_tx': tx_unsigned
+        }
+    else:
+        resp = send_transaction( blockchain_name, inputs, outputs, privatekey )
 
     log.debug("import <%s>" % name )
 
@@ -776,7 +757,9 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, tx_o
     user who created the namespace can create names in it.
     """
 
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    # blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    blockchain_name = namespace_to_blockchain( namespace_id )
+    blockstack_opts = get_blockstack_opts()
 
     # are we doing our initial indexing?
     if is_indexing():
@@ -784,14 +767,15 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, tx_o
 
     db = get_state_engine()
 
-    blockchain_client_inst = get_utxo_provider_client()
+    """
+    blockchain_client_inst = blockchain_service_connect(NAMESPACE_ID_BLOCKCHAIN)
     if blockchain_client_inst is None:
         return {"error": "Failed to connect to blockchain UTXO provider"}
 
-    broadcaster_client_inst = get_tx_broadcaster()
+    broadcaster_client_inst = tx_broadcast_service_connect(NAMESPACE_ID_BLOCKCHAIN)
     if broadcaster_client_inst is None:
         return {"error": "Failed to connect to blockchain transaction broadcaster"}
-
+    """
     if consensus_hash is None:
         consensus_hash = db.get_current_consensus()
 
@@ -803,12 +787,24 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, tx_o
     log.debug("Namespace '%s' will cost %s satoshis" % (namespace_id, namespace_fee))
 
     resp = {}
+    inputs = []
+    outputs = []
     try:
+        """
         resp = namespace_preorder( str(namespace_id), str(register_addr), str(consensus_hash), str(privatekey), blockchain_client_inst, namespace_fee, \
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'] )
-
+        """
+        inputs, outputs = namespace_preorder_state_transition( str(namespace_id), str(register_addr), str(consensus_hash), privatekey, namespace_fee )
     except:
         return rpc_traceback()
+
+    if tx_only:
+        tx_unsigned = make_transaction( blockchain_name, inputs, outputs, None )
+        resp = {
+            'unsigned_tx': tx_unsigned
+        }
+    else:
+        resp = send_transaction( blockchain_name, inputs, outputs, privatekey )
 
     log.debug("namespace_preorder <%s>" % (namespace_id))
     return resp
@@ -821,30 +817,50 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
     user who created the namespace can create names in it.
     """
 
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    # blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    blockchain_name = namespace_to_blockchain(namespace_id)
+    blockstack_opts = get_blockstack_opts()
 
     # are we doing our initial indexing?
     if is_indexing():
         return {"error": "Indexing blockchain"}
 
-    blockchain_client_inst = get_utxo_provider_client()
+    """
+    blockchain_client_inst = blockchain_service_connect(NAMESPACE_ID_BLOCKCHAIN)
     if blockchain_client_inst is None:
         return {"error": "Failed to connect to blockchain UTXO provider"}
 
-    broadcaster_client_inst = get_tx_broadcaster()
+    broadcaster_client_inst = tx_broadcast_service_connect(NAMESPACE_ID_BLOCKCHAIN)
     if broadcaster_client_inst is None:
         return {"error": "Failed to connect to blockchain transaction broadcaster"}
+    """
 
     resp = {}
+    inputs = []
+    outputs = []
     try:
+        """
         resp = namespace_reveal( str(namespace_id), str(register_addr), int(lifetime), \
                                 int(coeff), int(base), list(bucket_exponents), \
                                 int(nonalpha_discount), int(no_vowel_discount), \
                                 str(privatekey), blockchain_client_inst, \
                                 blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'], tx_only=tx_only )
+        """
+        inputs, outputs = namespace_reveal_state_transition( str(namespace_id), str(register_addr), int(lifetime), int(coeff), int(base), \
+                                                             list(bucket_exponents), int(nonalpha_discount), int(no_vowel_discount), \
+                                                             privatekey )
+
     except:
         return rpc_traceback()
 
+    if tx_only:
+        tx_unsigned = make_transaction(blockchain_name, inputs, outputs, None)
+        resp = {
+            'unsigned_tx': tx_unsigned
+        }
+    else:
+        resp = send_transaction(blockchain_name, inputs, outputs, privatekey)
+    
     log.debug("namespace_reveal <%s, %s, %s, %s, %s, %s, %s>" % (namespace_id, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount))
     return resp
 
@@ -854,26 +870,43 @@ def blockstack_namespace_ready( namespace_id, privatekey, tx_only=False, testset
     Declare that a namespace is open to accepting new names.
     """
 
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    # blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    blockchain_name = namespace_to_blockchain(namespace_id)
+    blockstack_opts = get_blockstack_opts()
 
     # are we doing our initial indexing?
     if is_indexing():
         return {"error": "Indexing blockchain"}
 
-    blockchain_client_inst = get_utxo_provider_client()
+    """
+    blockchain_client_inst = blockchain_service_connect(NAMESPACE_ID_BLOCKCHAIN)
     if blockchain_client_inst is None:
         return {"error": "Failed to connect to blockchain UTXO provider"}
 
-    broadcaster_client_inst = get_tx_broadcaster()
+    broadcaster_client_inst = tx_broadcast_service_connect(NAMESPACE_ID_BLOCKCHAIN)
     if broadcaster_client_inst is None:
         return {"error": "Failed to connect to blockchain transaction broadcaster"}
+    """
 
     resp = {}
+    inputs = []
+    outputs = []
     try:
+        """
         resp = namespace_ready( str(namespace_id), str(privatekey), blockchain_client_inst, \
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'] )
+        """
+        inputs, outputs = namespace_ready_state_transition( str(namespace_id), privatekey )
     except:
         return rpc_traceback()
+
+    if tx_only:
+        tx_unsigned = make_transaction(blockchain_name, inputs, outputs, None)
+        resp = {
+            'unsigned_tx': tx_unsigned
+        }
+    else:
+        resp = send_transaction(blockchain_name, inputs, outputs, privatekey)
 
     log.debug("namespace_ready %s" % namespace_id )
     return resp
@@ -885,46 +918,62 @@ def blockstack_announce( message, privatekey, tx_only=False, subsidy_key=None, u
     If we're sending the tx out, then also replicate the message text to storage providers, via the blockstack_client library
     """
 
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    # blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    blockstack_opts = get_blockstack_opts()
 
     # are we doing our initial indexing?
     if is_indexing():
         return {"error": "Indexing blockchain"}
 
-    blockchain_client_inst = get_utxo_provider_client()
+    """
+    blockchain_client_inst = blockchain_service_connect(NAMESPACE_ID_BLOCKCHAIN)
     if blockchain_client_inst is None:
         return {"error": "Failed to connect to blockchain UTXO provider"}
 
-    broadcaster_client_inst = get_tx_broadcaster()
+    broadcaster_client_inst = tx_broadcast_service_connect(NAMESPACE_ID_BLOCKCHAIN)
     if broadcaster_client_inst is None:
         return {"error": "Failed to connect to blockchain transaction broadcaster"}
+    """
 
-    message_hash = pybitcoin.hex_hash160( message )
+    message_hash = virtualchain.hex_hash160( message )
 
     resp = {}
     try:
+        """
         resp = send_announce( message_hash, privatekey, blockchain_client_inst, \
             tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, \
             user_public_key=user_public_key, testset=blockstack_opts['testset'])
-
+        """
+        inputs, outputs = announce_state_transition( message_hash, privatekey )
     except:
         return rpc_traceback()
 
-    if subsidy_key is not None:
-        # subsidize the transaction
-        resp = make_subsidized_tx( resp['unsigned_tx'], announce_fees, blockstack_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
-
-    elif not tx_only:
-        # propagate the data to back-end storage
-        data_hash = put_announcement( message, resp['transaction_hash'] )
-        if data_hash is None:
+    if subsidy_key is None:
+        if tx_only:
+            # only want unsigned tx 
+            tx_unsigned = make_transaction( blockchain_name, inputs, outputs, None )
             resp = {
-                'error': 'failed to storage message text',
-                'transaction_hash': resp['transaction_hash']
+                "unsigned_tx": tx_unsigned
             }
 
         else:
-            resp['data_hash'] = data_hash
+            # send it off!
+            resp = send_transaction( blockchain_name, inputs, outputs, privatekey )
+            if 'error' not in resp:
+                # success!
+                data_hash = put_announcement( message, resp['transaction_hash'] )
+                if data_hash is None:
+                    resp['error'] = 'Failed to store message text'
+
+                else:
+                    resp['data_hash'] = data_hash
+
+    else:
+        inputs, outputs = subsidize_state_transition( blockchain_name, inputs, outputs, announce_fees, blockstack_opts['max_subsidy'], subsidy_key ) 
+        tx_subsidized = make_transaction( blockchain_name, inputs, outputs, subsidy_key )
+        resp = {
+            'subsidized_tx': tx_subsidized
+        }
 
     log.debug("announce <%s>" % message_hash )
 
@@ -1062,10 +1111,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         Get the number of blocks the
         """
-        bitcoind_opts = default_bitcoind_opts( virtualchain.get_config_filename() )
-        bitcoind = get_bitcoind( new_bitcoind_opts=bitcoind_opts, new=True )
+        bitcoin_client = get_blockchain_client( "bitcoin", new=True )
 
-        info = bitcoind.getinfo()
+        info = bitcoin_client.getinfo()
         reply = {}
         reply['bitcoind_blocks'] = info['blocks']       # legacy
         reply['blockchain_blocks'] = info['blocks']
@@ -1654,7 +1702,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return {'status': True, 'saved': saved}
 
     
-    def rpc_get_unspents(self, address):
+    def rpc_get_inputs(self, blockchain_name, address):
         """
         Proxy to UTXO provider to get an address's
         unspent outputs.
@@ -1663,11 +1711,11 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if not conf['blockchain_proxy']:
             return {'error': 'No such method'}
 
-        utxo_client = get_utxo_provider_client()
-        return pybitcoin.get_unspents( address, utxo_client )
+        inputs = get_tx_inputs( blockchain_name, None, address=address )
+        return inputs
 
 
-    def rpc_broadcast_transaction(self, txdata ):
+    def rpc_send_transaction(self, blockchain_name, txdata ):
         """
         Proxy to UTXO provider to send a transaction
         """
@@ -1675,8 +1723,8 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if not conf['blockchain_proxy']:
             return {'error': 'No such method'}
 
-        broadcaster = get_tx_broadcaster()
-        return pybitcoin.broadcast_transaction( txdata, broadcaster )
+        res = send_raw_transaction( blockchain_name, tx_data )
+        return res
 
 
 
@@ -1831,7 +1879,7 @@ def index_blockchain():
     * synchronize our state engine up to them
     """
 
-    bt_opts = get_bitcoin_opts() 
+    bc_opts = get_blockchain_opts() 
     start_block, current_block = get_index_range()
 
     if start_block is None and current_block is None:
@@ -1842,7 +1890,7 @@ def index_blockchain():
     log.debug("Begin indexing (up to %s)" % current_block)
     set_indexing( True )
     db = virtualchain_hooks.get_db_state()
-    virtualchain.sync_virtualchain( bt_opts, current_block, db )
+    virtualchain.sync_virtualchain( bc_opts, current_block, db )
     set_indexing( False )
     log.debug("End indexing (up to %s)" % current_block)
 
@@ -1866,7 +1914,6 @@ def run_server( testset=False, foreground=False, index=True ):
     Run the blockstackd RPC server, optionally in the foreground.
     """
 
-    bt_opts = get_bitcoin_opts()
     blockstack_opts = get_blockstack_opts()
     indexer_log_file = get_logfile_path() + ".indexer"
     pid_file = get_pidfile_path()
@@ -1985,8 +2032,8 @@ def setup( working_dir=None, testset=False, return_parser=False ):
    global blockstack_opts
    global blockchain_client
    global blockchain_broadcaster
-   global bitcoin_opts
-   global utxo_opts
+   global blockchain_opts
+   global service_opts
 
    # set up our implementation
    if working_dir is not None:
@@ -2010,38 +2057,44 @@ def setup( working_dir=None, testset=False, return_parser=False ):
            os.unlink( testset_path )
 
    # acquire configuration, and store it globally
-   blockstack_opts, bitcoin_opts, utxo_opts = configure( interactive=True, testset=testset )
+   blockstack_opts, bitcoin_opts, utxo_opts, other_blockchain_opts, other_service_opts = configure( interactive=True, testset=testset )
 
    # do we need to enable testset?
-   if blockstack_opts['testset']:
+   if bitcoin_opts['testset']:
        virtualchain.setup_virtualchain( blockstack_state_engine, testset=True )
        testset = True
 
    # if we're using the mock UTXO provider, then switch to the mock bitcoind node as well
-   if utxo_opts['utxo_provider'] == 'mock_utxo':
+   if utxo_opts['service_provider'] == 'mock_utxo':
        import blockstack_integration_tests.mock_bitcoind
-       virtualchain.setup_virtualchain( blockstack_state_engine, testset=testset, bitcoind_connection_factory=blockstack_integration_tests.mock_bitcoind.connect_mock_bitcoind )
-       virtualchain.connect_bitcoind = blockstack_integration_tests.mock_bitcoind.connect_mock_bitcoind
+       virtualchain.setup_virtualchain( blockstack_state_engine, testset=testset, blockchain_connection_factory=blockstack_integration_tests.mock_bitcoind.connect_mock_bitcoind )
 
-   # merge in command-line bitcoind options
+   # merge in command-line blockchain options
    config_file = virtualchain.get_config_filename()
 
    arg_bitcoin_opts = None
    argparser = None
 
    if return_parser:
-      arg_bitcoin_opts, argparser = virtualchain.parse_bitcoind_args( return_parser=return_parser )
+      arg_bitcoin_opts, argparser = virtualchain.parse_blockchain_args( "bitcoin", return_parser=return_parser )
 
    else:
-      arg_bitcoin_opts = virtualchain.parse_bitcoind_args( return_parser=return_parser )
+      arg_bitcoin_opts = virtualchain.parse_blockchain_args( "bitcoin", return_parser=return_parser )
 
    # command-line overrides config file
    for (k, v) in arg_bitcoin_opts.items():
       bitcoin_opts[k] = v
 
    # store options
-   set_bitcoin_opts( bitcoin_opts )
-   set_utxo_opts( utxo_opts )
+   set_blockstack_opts( blockstack_opts )
+   set_blockchain_opts( "bitcoin", bitcoin_opts )
+   set_service_opts( "bitcoin", utxo_opts )
+
+   for blockchain_name in other_blockchain_opts:
+       set_blockchain_opts( blockchain_name, other_blockchain_opts[blockchain_name] )
+
+   for blockchain_name in other_service_opts:
+       set_service_opts( blockchain_name, other_service_opts[blockchain_name] )
 
    if return_parser:
       return argparser
@@ -2068,7 +2121,7 @@ def clean( testset=False, confirm=True ):
     exit_status = 0
 
     if confirm:
-        warning = "WARNING: THIS WILL DELETE YOUR BLOCKSTORE DATABASE!\n"
+        warning = "WARNING: THIS WILL DELETE YOUR BLOCKSTACK DATABASE!\n"
         warning+= "Database: '%s'\n" % blockstack_state_engine.working_dir
         warning+= "Are you sure you want to proceed?\n"
         warning+= "Type 'YES' if so: "
@@ -2732,12 +2785,8 @@ def run_blockstackd():
 
    args, _ = argparser.parse_known_args()
 
-   log.debug("bitcoin options: (%s, %s, %s)" % (bitcoin_opts['bitcoind_server'],
-                                                bitcoin_opts['bitcoind_port'],
-                                                bitcoin_opts['bitcoind_user']))
-
    if args.action == 'version':
-      print "Blockstack version: %s.%s" % (VERSION, BLOCKSTORE_VERSION)
+      print "Blockstack version: %s.%s" % (VERSION, BLOCKSTACK_VERSION)
       print "Testset: %s" % testset
       sys.exit(0)
 
