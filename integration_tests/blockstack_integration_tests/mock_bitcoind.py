@@ -50,10 +50,13 @@ import pybitcoin.transactions.opcodes as opcodes
 current_dir =  os.path.abspath(os.path.dirname(__file__) + "/../..")
 sys.path.insert(0, current_dir)
 
-import blockstack
-from blockstack.lib import *
 import virtualchain
 import bitcoin
+
+log = virtualchain.get_logger("mock-bitcoind")
+
+import blockstack_client
+from blockstack_client.scripts import *
 
 # global singleton
 mock_bitcoind = None
@@ -170,6 +173,12 @@ class MockBitcoindConnection( object ):
                 if i >= len(tx_recs):
                     break
 
+
+    def estimatefee( self, nblocks ):
+        """
+        Mock estimatefee
+        """
+        return 0.0005
 
     def getinfo( self ):
         """
@@ -732,7 +741,13 @@ def make_worker_env( mock_bitcoind_mod, mock_bitcoind_save_path ):
     worker_env = {
         # use mock_bitcoind to connect to bitcoind (but it has to import it in order to use it)
         "VIRTUALCHAIN_MOD_CONNECT_BLOCKCHAIN": mock_bitcoind_mod.__file__,
-        "MOCK_BITCOIND_SAVE_PATH": mock_bitcoind_save_path
+        "MOCK_BITCOIND_SAVE_PATH": mock_bitcoind_save_path,
     }
+
+    if os.environ.get("BLOCKSTACK_SERVER_CONFIG", None) is not None:
+        worker_env["BLOCKSTACK_SERVER_CONFIG"] = os.environ["BLOCKSTACK_SERVER_CONFIG"]
+
+    if os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None) is not None:
+        worker_env["BLOCKSTACK_CLIENT_CONFIG"] = os.environ["BLOCKSTACK_CLIENT_CONFIG"]
 
     return worker_env
