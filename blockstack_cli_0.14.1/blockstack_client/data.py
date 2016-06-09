@@ -917,3 +917,42 @@ def data_list( name, proxy=None, wallet_keys=None ):
 
     return {'status': True, 'listing': immutable_listing['data'] + mutable_listing['data']}
 
+
+
+def get_announcement( announcement_hash ):
+    """
+    Go get an announcement's text, given its hash.
+    Use the blockstack client library, so we can get at
+    the storage drivers for the storage systems the sender used
+    to host it.
+
+    Return the data on success
+    """
+
+    data = storage.get_immutable_data( announcement_hash, hash_func=blockstack_client.get_blockchain_compat_hash, deserialize=False )
+    if data is None:
+        log.error("Failed to get announcement '%s'" % (announcement_hash))
+        return None
+
+    return data
+
+
+
+def put_announcement( announcement_text, txid ):
+    """
+    Go put an announcement into back-end storage.
+    Use the blockstack client library, so we can get at
+    the storage drivers for the storage systems this host
+    is configured to use.
+
+    Return the data's hash
+    """
+
+    data_hash = storage.get_blockchain_compat_hash(announcement_text)
+    res = storage.put_immutable_data( None, txid, data_hash=data_hash, data_text=announcement_text )
+    if res is None:
+        log.error("Failed to put announcement '%s'" % (pybitcoin.hex_hash160(announcement_text)))
+        return None
+
+    return data_hash
+
