@@ -542,7 +542,9 @@ def put_mutable_data_zonefile( user_profile, data_id, version, zonefile ):
            return False
 
        else:
-           user_profile['data'][existing_md] = zonefile
+           # replace
+           del user_profile['data'][existing_md]
+           user_profile['data'].update( zonefile )
            return True
 
 
