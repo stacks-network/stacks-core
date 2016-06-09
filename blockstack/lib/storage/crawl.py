@@ -64,7 +64,13 @@ def get_cached_zonefile( zonefile_hash, zonefile_dir=None ):
         remove_cached_zonefile( zonefile_hash, zonefile_dir=zonefile_dir )
         return None
 
-    return data
+    try:
+        zonefile_dict = zone_file.parse_zone_file( zonefile_txt )
+        assert blockstack_client.is_user_zonefile( user_zonefile ), "Not a user zonefile: %s" % zonefile_hash
+        return zonefile_dict
+    except Exception, e:
+        log.error("Failed to parse zonefile")
+        return None
 
 
 def get_zonefile_from_storage( zonefile_hash ):
@@ -82,7 +88,7 @@ def get_zonefile_from_storage( zonefile_hash ):
         raise Exception("Failed to get data")
 
     # verify
-    if blockstack_client.storage.get_name_zonefile_hash( zonefile_txt ) != zonefile_hash:
+    if blockstack_client.storage.get_zonefile_data_hash( zonefile_txt ) != zonefile_hash:
         raise Exception("Corrupt zonefile: %s" % zonefile_hash)
    
     # parse 
@@ -151,7 +157,7 @@ def store_cached_zonefile( zonefile_dict, zonefile_dir=None ):
         zonefile_dir = get_zonefile_dir()
 
     zonefile_data = json.dumps(zonefile_dict, sort_keys=True)
-    zonefile_hash = blockstack_client.get_name_zonefile_hash( zonefile_data )
+    zonefile_hash = blockstack_client.get_zonefile_data_hash( zonefile_data )
     zonefile_path = os.path.join( zonefile_dir, zonefile_hash )
         
     try:
@@ -181,11 +187,11 @@ def get_zonefile_txid( zonefile_dict ):
         return None
 
     # must be a valid name 
-    if not is_name_valid( name ):
+    db = get_db_state()
+    name_rec = db.get_name( name )
+    if name_rec is None:
         log.debug("Invalid name in zonefile")
         return None
-
-    db = get_db_state()
 
     # what's the associated transaction ID?
     txid = db.get_name_value_hash_txid( name, zonefile_hash )
@@ -202,7 +208,7 @@ def store_zonefile_to_storage( zonefile_dict ):
     Return True if at least one provider got it.
     Return False otherwise.
     """
-    zonefile_hash = hash_zonefile( zonefile_dict)
+    zonefile_hash = hash_zonefile( zonefile_dict )
     name = zonefile_dict['$origin']
     zonefile_text = zone_file.make_zone_file( zonefile_dict )
    
@@ -211,7 +217,7 @@ def store_zonefile_to_storage( zonefile_dict ):
     if txid is None:
         log.error("No txid for zonefile hash '%s' (for '%s')" % (zonefile_hash, name))
         return False
-    
+   
     rc = blockstack_client.storage.put_immutable_data( None, txid, data_hash=zonefile_hash, data_text=zonefile_text )
     if not rc:
         log.error("Failed to store zonefile '%s' (%s) for '%s'" (zonefile_hash, txid, name))
