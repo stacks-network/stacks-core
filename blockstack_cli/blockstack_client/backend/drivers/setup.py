@@ -21,6 +21,7 @@ setup(
     install_requires=[
         'boto>=2.38.0',
         'basicrpc>=0.0.2',
+        'zone_file>=0.1.6',
         'pybitcoin>=0.9.8'
     ],
     classifiers=[
