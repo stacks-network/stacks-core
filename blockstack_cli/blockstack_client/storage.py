@@ -96,7 +96,7 @@ def get_data_hash( data_txt ):
    return h.hexdigest()
 
 
-def get_name_zonefile_hash( data_txt ):
+def get_zonefile_data_hash( data_txt ):
    """
    Generate a hash over a user's zonefile.
    Return the hex string.
@@ -111,6 +111,14 @@ def get_blockchain_compat_hash( data_txt ):
    announcements).
    """
    return pybitcoin.hex_hash160( data_txt )
+
+
+def get_storage_handlers():
+   """
+   Get the list of loaded storage handler instances
+   """
+   global storage_handlers
+   return storage_handlers
 
 
 def make_mutable_data_urls( data_id ):
@@ -344,14 +352,14 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None ):
       if urls is None:
         
           # make one on-the-fly
-          if not hasattr(handler, "make_mutable_url"):
-             log.warning("Storage handler %s does not support `make_mutable_url`" % handler.__name__)
+          if not hasattr(storage_handler, "make_mutable_url"):
+             log.warning("Storage handler %s does not support `make_mutable_url`" % storage_handler.__name__)
              continue
 
           new_url = None
 
           try:
-              new_url = storage_handler.make_mutable_url( data_id )
+              new_url = storage_handler.make_mutable_url( fq_data_id )
           except Exception, e:
               log.exception(e)
               continue
@@ -362,7 +370,7 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None ):
           # find the set that this handler can manage 
           for url in urls:
               if not hasattr(storage_handler, "handles_url"):
-                  log.warning("Storage handler %s does not support `handles_url`" % handler.__name__)
+                  log.warning("Storage handler %s does not support `handles_url`" % storage_handler.__name__)
                   continue
 
               if storage_handler.handles_url( url ):
@@ -378,7 +386,7 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None ):
             data_json = storage_handler.get_mutable_handler( url )
          except UnhandledURLException, uue:
             # handler doesn't handle this URL
-            log.debug("Storage handler %s does not handle URLs like %s" % (handler.__name__, url ))
+            log.debug("Storage handler %s does not handle URLs like %s" % (storage_handler.__name__, url ))
             continue
 
          except Exception, e:
@@ -473,6 +481,8 @@ def put_mutable_data( fq_data_id, data_json, privatekey ):
    Return True on success
    Return False on error
    """
+
+   global storage_handlers 
 
    fq_data_id = str(fq_data_id)
    assert is_fq_data_id( fq_data_id ) or is_valid_name(fq_data_id), "Data ID must be fully qualified or must be a valid blockchain ID (got %s)" % fq_data_id
