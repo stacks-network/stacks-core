@@ -188,45 +188,36 @@ def blockstack_name_preorder( name, privatekey, register_addr, tx_only=False, su
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
 
+    """
     if tx_only:
         resp = test_proxy.preorder_tx( name, privatekey, register_addr )
     elif subsidy_key is not None:
         resp = test_proxy.preorder_tx_subsidized( name, register_addr, subsidy_key )
     else:
         resp = test_proxy.preorder( name, privatekey, register_addr )
+    """
+
+    name_cost_info = test_proxy.get_name_cost( name )
+    resp = blockstack_client.do_preorder( name, privatekey, register_addr, name_cost_info['satoshis'], test_proxy, config_path=test_proxy.config_path, proxy=test_proxy )
 
     api_call_history.append( APICallRecord( "preorder", name, resp ) )
     return resp
 
-"""
-def blockstack_name_preorder_multi( names, privatekey, register_addrs, tx_only=False, subsidy_key=None, testset=False, consensus_hash=None ):
-    
-    test_proxy = make_proxy()
-    blockstack_client.set_default_proxy( test_proxy )
-    
-    if tx_only:
-        resp = test_proxy.preorder_multi_tx( names, privatekey, register_addrs )
-    elif subsidy_key is not None:
-        resp = test_proxy.preorder_multi_tx_subsidized( names, None, register_addrs, subsidy_key )
-    else:
-        resp = test_proxy.preorder_multi( names, privatekey, register_addrs )
-
-    api_call_history.append( APICallRecord( "preorder_multi", name, resp ) )
-    return resp
-"""
 
 def blockstack_name_register( name, privatekey, register_addr, renewal_fee=None, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
     
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
 
+    """
     if tx_only:
         resp = test_proxy.register_tx( name, privatekey, register_addr )
     elif subsidy_key is not None:
         resp = test_proxy.register_tx_subsidized( name, user_public_key, register_addr, subsidy_key )
     else:
         resp = test_proxy.register( name, privatekey, register_addr )
-
+    """
+    resp = blockstack_client.do_register( name, privatekey, register_addr, test_proxy, renewal_fee=renewal_fee, config_path=test_proxy.config_path, proxy=test_proxy )
     api_call_history.append( APICallRecord( "register", name, resp ) )
     return resp
 
@@ -236,6 +227,7 @@ def blockstack_name_update( name, data_hash, privatekey, user_public_key=None, t
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
 
+    """
     if not test_api_proxy:
         resp = blockstackd.blockstack_name_update( name, data_hash, privatekey, tx_only=tx_only, subsidy_key=subsidy_key, user_public_key=user_public_key, testset=testset, consensus_hash=consensus_hash )
 
@@ -246,7 +238,8 @@ def blockstack_name_update( name, data_hash, privatekey, user_public_key=None, t
             resp = test_proxy.update_tx_subsidized( name, data_hash, user_public_key, subsidy_key )
         else:
             resp = test_proxy.update( name, data_hash, privatekey )
-
+    """
+    resp = blockstack_client.do_update( name, data_hash, privatekey, privatekey, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy )
     api_call_history.append( APICallRecord( "update", name, resp ) )
     return resp
 
@@ -256,13 +249,16 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, tx_only=False
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
 
+    """
     if tx_only:
         resp = test_proxy.transfer_tx( name, address, keepdata, privatekey )
     elif subsidy_key is not None:
         resp = test_proxy.transfer_tx_subsidized( name, address, keepdata, user_public_key, subsidy_key )
     else:
         resp = test_proxy.transfer( name, address, keepdata, privatekey )
+    """
 
+    resp = blockstack_client.do_transfer( name, address, keepdata, privatekey, privatekey, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy)
     api_call_history.append( APICallRecord( "transfer", name, resp ) )
     return resp
 
@@ -272,12 +268,17 @@ def blockstack_name_renew( name, privatekey, register_addr=None, tx_only=False, 
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
 
+    """
     if tx_only:
         resp = test_proxy.renew_tx( name, privatekey )
     elif subsidy_key is not None:
         resp = test_proxy.renew_tx_subsidized( name, user_public_key, subsidy_key )
     else:
         resp = test_proxy.renew( name, privatekey )
+    """
+
+    name_cost_info = test_proxy.get_name_cost( name )
+    resp = blockstack_client.do_renewal( name, privatekey, register_addr, name_cost_info['satoshis'], test_proxy, config_path=test_proxy.config_path, proxy=test_proxy )
 
     api_call_history.append( APICallRecord( "renew", name, resp ) )
     return resp
@@ -288,13 +289,16 @@ def blockstack_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, u
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
 
+    """
     if tx_only:
         resp = test_proxy.revoke_tx( name, privatekey )
     elif subsidy_key is not None:
         resp = test_proxy.revoke_tx_subsidized( name, user_public_key, subsidy_key )
     else:
         resp = test_proxy.revoke( name, privatekey )
+    """
 
+    resp = blockstack_client.do_revoke( name, privatekey, privatekey, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy )
     api_call_history.append( APICallRecord( "revoke", name, resp ) )
     return resp
 
@@ -304,11 +308,14 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, tx
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
 
+    """
     if tx_only:
         resp = test_proxy.name_import_tx( name, recipient_address, update_hash, privatekey )
     else:
         resp = test_proxy.name_import( name, recipient_address, update_hash, privatekey )
+    """
 
+    resp = blockstack_client.do_name_import( name, privatekey, recipient_address, update_hash, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy )
     api_call_history.append( APICallRecord( "name_import", name, resp ) )
     return resp
 
@@ -318,11 +325,15 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, tx_o
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
 
+    """
     if tx_only:
         resp = test_proxy.namespace_preorder_tx( namespace_id, register_addr, privatekey )
     else:
         resp = test_proxy.namespace_preorder( namespace_id, register_addr, privatekey )
+    """
 
+    namespace_cost = test_proxy.get_namespace_cost( namespace_id )
+    resp = blockstack_client.do_namespace_preorder( namespace_id, namespace_cost['satoshis'], privatekey, register_addr, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy )
     api_call_history.append( APICallRecord( "namespace_preorder", namespace_id, resp ) )
     return resp
 
@@ -332,11 +343,14 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
 
+    """
     if tx_only:
         resp = test_proxy.namespace_reveal_tx( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey )
     else:
         resp = test_proxy.namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey )
+    """
 
+    resp = blockstack_client.do_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy)
     api_call_history.append( APICallRecord( "namespace_reveal", namespace_id, resp ) )
     return resp
 
@@ -346,11 +360,14 @@ def blockstack_namespace_ready( namespace_id, privatekey, tx_only=False, testset
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
 
+    """
     if tx_only:
         resp = test_proxy.namespace_ready_tx( namespace_id, privatekey )
     else:
         resp = test_proxy.namespace_ready( namespace_id, privatekey )
-
+    """
+    
+    resp = blockstack_client.do_namespace_ready( namespace_id, privatekey, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy ) 
     api_call_history.append( APICallRecord( "namespace_ready", namespace_id, resp ) )
     return resp
 
@@ -363,7 +380,7 @@ def blockstack_announce( message, privatekey, tx_only=False, user_public_key=Non
     if tx_only:
         resp = test_proxy.announce_tx( message, privatekey )
     elif subsidy_key is not None:
-        resp = test_proxy.announce_tx_subsidized( message, user_public_key, subsidy_key )
+        resp = test_proxy.announce_tx_subsidized( message, user_public_key, subsidy_key, proxy=test_proxy )
     else:
         resp = test_proxy.announce( message, privatekey )
 
