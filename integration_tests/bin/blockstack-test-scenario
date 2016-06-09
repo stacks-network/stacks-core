@@ -11,6 +11,11 @@ import errno
 import importlib
 import traceback
 
+blockstack = None
+blockstackd = None
+mock_bitcoind = None
+testlib = None
+
 # enable all tests
 os.environ['BLOCKSTACK_TEST'] = '1'
 os.environ['BLOCKSTACK_CLIENT_TEST_ALTERNATIVE_CONFIG'] = '1'
@@ -46,12 +51,13 @@ save_file = @MOCK_SAVE_FILE@
 rpc_port = %s
 max_subsidy = 64000000
 subsidization_keys = ./blockstack-subsidization-keys.txt
-tx_broadcaster = mock_utxo
-utxo_provider = mock_utxo
+blockchain_tx_sender = mock_utxo
+blockchain_service = mock_utxo
 backup_frequency = 3
 backup_max_age = 30
 blockchain_proxy = True
 serve_zonefiles = True
+serve_profiles = True
 zonefiles = @ZONEFILES@
 """ % TEST_RPC_PORT
 
@@ -60,7 +66,7 @@ DEFAULT_CLIENT_INI_TEMPLATE = """
 server = localhost
 port = %s
 metadata = @CLIENT_METADATA@
-storage_drivers = %s
+storage_drivers = @CLIENT_STORAGE_DRIVERS@
 blockchain_headers = @CLIENT_BLOCKCHAIN_HEADERS@
 advanced_mode = true
 api_endpoint_port = %s
@@ -74,15 +80,15 @@ server = localhost
 port = %s
 
 [bitcoind]
-passwd = opennamesystem
-server = btcd.onename.com
+passwd = blockstacksystem
+server = bitcoin.blockstack.org
 port = 8332
 use_https = True
-user = openname
+user = blockstack
 mock = True
 save_file = @MOCK_SAVE_FILE@
 blockchain_headers = @CLIENT_BLOCKCHAIN_HEADERS@
-""" % (TEST_RPC_PORT, BLOCKSTACK_STORAGE_DRIVERS, TEST_CLIENT_RPC_PORT, TEST_RPC_PORT)
+""" % (TEST_RPC_PORT, TEST_CLIENT_RPC_PORT, TEST_RPC_PORT)
 
 def load_scenario( scenario_name ):
     """
@@ -140,6 +146,7 @@ def generate_config_file( scenario, path, template, extra_fields):
     client_metadata = extra_fields.get("CLIENT_METADATA", "")
     queue_path = extra_fields.get("CLIENT_QUEUE_PATH", "")
     zonefiles_dir = extra_fields.get("ZONEFILES", None)
+    storage_drivers = extra_fields.get("CLIENT_STORAGE_DRIVERS", BLOCKSTACK_STORAGE_DRIVERS)
     if zonefiles_dir is None:
         zonefiles_dir = "/tmp/blockstack-test-zonefiles"
 
@@ -160,6 +167,7 @@ def generate_config_file( scenario, path, template, extra_fields):
     config_txt = config_txt.replace( "@CLIENT_METADATA@", client_metadata ) 
     config_txt = config_txt.replace( "@CLIENT_QUEUE_PATH@", queue_path )
     config_txt = config_txt.replace( "@ZONEFILES@", zonefiles_dir )
+    config_txt = config_txt.replace( "@CLIENT_STORAGE_DRIVERS@", storage_drivers )
 
     with open( path, "w" ) as f:
         f.write( config_txt )
@@ -235,7 +243,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
     # set up blockstack
     # NOTE: utxo_opts encodes the mock-bitcoind options 
-    blockstack_opts, bitcoin_opts, utxo_opts = blockstack.lib.configure( config_file=config_file, interactive=False)
+    blockstack_opts, bitcoin_opts, utxo_opts = configure( config_file=config_file, interactive=False)
    
     # override multiprocessing options to ensure single-process behavior 
     utxo_opts['multiprocessing_num_procs'] = 1 
@@ -243,17 +251,20 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
     # pass along extra arguments
     utxo_opts['save_file'] = mock_bitcoind_save_path
+    utxo_opts['blockchain'] = 'blockstack_integration_tests.mock_bitcoind'
+    utxo_opts['blockchain_server'] = '127.0.0.1'
+    utxo_opts['blockchain_port'] = 8332
 
     print ""
     print "blockstack opts"
     print json.dumps( blockstack_opts, indent=4 )
 
     print ""
-    print "bitcoin opts"
+    print "blockchain opts"
     print json.dumps( bitcoin_opts, indent=4 )
 
     print ""
-    print "UTXO opts"
+    print "blockchain service opts"
     print json.dumps( utxo_opts, indent=4 )
 
     # save headers as well 
@@ -264,8 +275,8 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         for i in xrange(0, blockstack.FIRST_BLOCK_MAINNET ): 
             f.write( empty_header )
 
-    print "mock bitcoind save path: %s" % mock_bitcoind_save_path
-    print "mock bitcoind SPV headers: %s" % spv_headers_path
+    print "mock blockchain chainstate save path: %s" % mock_bitcoind_save_path
+    print "mock blockchain headers: %s" % spv_headers_path
 
     blockstackd.set_blockstack_opts( blockstack_opts )
     blockstackd.set_bitcoin_opts( bitcoin_opts )
@@ -275,8 +286,10 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     bitcoind = mock_bitcoind.connect_mock_bitcoind( utxo_opts )
 
     sync_virtualchain_upcall = lambda: virtualchain.sync_virtualchain( utxo_opts, bitcoind.getblockcount(), db )
-    mock_utxo = blockstack.lib.connect_utxo_provider( utxo_opts )
+    mock_utxo = blockstack.blockstackd.get_utxo_provider_client()
     working_dir = virtualchain.get_working_dir()
+
+    print "working_dir: %s" % working_dir
 
     # set up test environment
     testlib.set_utxo_opts( utxo_opts )
@@ -421,6 +434,11 @@ if __name__ == "__main__":
         print "Failed to load '%s'" % sys.argv[1]
         sys.exit(1)
 
+    # did the scenario change this variable?
+    storage_drivers = BLOCKSTACK_STORAGE_DRIVERS
+    if os.environ.get("CLIENT_STORAGE_DRIVERS", None) is not None:
+        storage_drivers = os.environ.get("CLIENT_STORAGE_DRIVERS")
+
     # generate config file
     rc = generate_config_file( scenario, config_file, DEFAULT_SERVER_INI_TEMPLATE, {"ZONEFILES": os.path.join(working_dir, "zonefiles")} )
     if rc != 0:
@@ -428,7 +446,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # generate config file for the client
-    rc = generate_config_file( scenario, client_config_file, DEFAULT_CLIENT_INI_TEMPLATE, {"CLIENT_METADATA": client_metadata, "CLIENT_QUEUE_PATH": client_queue_path} )
+    rc = generate_config_file( scenario, client_config_file, DEFAULT_CLIENT_INI_TEMPLATE, {"CLIENT_METADATA": client_metadata, "CLIENT_QUEUE_PATH": client_queue_path, "CLIENT_STORAGE_DRIVERS": storage_drivers})
     if rc != 0:
         log.error("failed to write config file: exit %s" % rc)
         sys.exit(1)
