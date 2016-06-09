@@ -228,7 +228,7 @@ def in_queue( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
 def queue_append(queue_id, fqu, tx_hash, payment_address=None,
                  owner_address=None, transfer_address=None,
                  config_path=CONFIG_PATH,
-                 zonefile=None, path=DEFAULT_QUEUE_PATH):
+                 zonefile=None, profile=None, path=DEFAULT_QUEUE_PATH):
 
     """
     Append a processing name operation to the named queue for the given name.
@@ -245,6 +245,7 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
     new_entry['owner_address'] = owner_address
     new_entry['transfer_address'] = transfer_address
     new_entry['zonefile'] = zonefile
+    new_entry['profile'] = profile
     if zonefile is not None:
         new_entry['zonefile_hash'] = hash_zonefile(zonefile)
 
@@ -356,26 +357,17 @@ def display_queue(queue_id, display_details=False, path=DEFAULT_QUEUE_PATH, conf
     log.debug('-' * 5)
 
 
-def cleanup_preorder_queue(cleanup_rejected=False, path=DEFAULT_QUEUE_PATH, proxy=None, config_path=CONFIG_PATH):
+def cleanup_preorder_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
     """
     Clear out the preorder queue.
     Remove rows that refer to registered names, or to stale preorders.
     Return True on success.
     Raise on error
     """
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path=config_path)
-
     rows = queuedb_findall("preorder", path=path)
     to_remove = []
     for rowdata in rows:
         entry = extract_entry(rowdata)
-
-        if is_name_registered(entry['fqu'], proxy=proxy):
-            log.debug("Name registered. Removing preorder: %s" % entry['fqu'])
-            to_remove.append(entry)
-            continue
 
         # clear stale preorder
         if is_preorder_expired( entry, config_path=config_path ):
@@ -387,28 +379,19 @@ def cleanup_preorder_queue(cleanup_rejected=False, path=DEFAULT_QUEUE_PATH, prox
     return True
 
 
-def cleanup_register_queue(cleanup_rejected=False, path=DEFAULT_QUEUE_PATH, proxy=None, config_path=CONFIG_PATH):
+def cleanup_register_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
     """
     Clear out the register queue.
     Remove rows that refer to registered names that have zonefile hashes, or to stale preorders.
     Return True on success
     Raise on error.
     """
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path=config_path)
-
     rows = queuedb_findall("register", path=path)
     to_remove = []
     for rowdata in rows:
         entry = extract_entry(rowdata)
 
-        if has_zonefile_hash(entry['fqu'], proxy=proxy):
-            log.debug("Name registered and updated. Removing register: %s" % entry['fqu'])
-            to_remove.append(entry)
-            continue
-
-        # clear stale preorder
+        # clear stale register
         if is_register_expired( entry, config_path=config_path ):
             log.debug("Removing stale register: %s" % entry['fqu'])
             to_remove.append(entry)
@@ -418,51 +401,37 @@ def cleanup_register_queue(cleanup_rejected=False, path=DEFAULT_QUEUE_PATH, prox
     return True
 
 
-def cleanup_update_queue(path=DEFAULT_QUEUE_PATH, proxy=None, config_path=CONFIG_PATH):
+def cleanup_update_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
     """
     Clear out the register queue.
     Remove rows that refer to registered names, or to stale preorders.
     Return True on success
     Raise on error.
     """
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path=config_path)
-
     rows = queuedb_findall("update", path=path)
     to_remove = []
     for rowdata in rows:
         entry = extract_entry(rowdata)
         
-        fqu = entry['fqu']
-        zonefile = entry['zonefile']
-        
-        if is_zonefile_replicated(fqu, zonefile, proxy=proxy):
-            log.debug("Profile hash updated: %s" % fqu)
+        # clear stale update
+        if is_update_expired(entry, config_path=config_path):
+            log.debug("Removing tx with > max confirmations: (%s, confirmations %s)"
+                      % (fqu, confirmations))
+
             to_remove.append(entry)
-
-        else:
-            if is_update_expired(entry, config_path=config_path):
-                log.debug("Removing tx with > max confirmations: (%s, confirmations %s)"
-                          % (fqu, confirmations))
-
-                to_remove.append(entry)
+            continue
 
     queue_removeall( to_remove, path=path )
     return True
 
 
-def cleanup_transfer_queue(path=DEFAULT_QUEUE_PATH, proxy=None, config_path=CONFIG_PATH):
+def cleanup_transfer_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
     """
     Clear out the register queue.
     Remove rows that refer to registered names, or to stale preorders.
     Return True on success
     Raise on error.
     """
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path=config_path)
-
     rows = queuedb_findall("transfer", path=path)
     to_remove = []
     for rowdata in rows:
@@ -475,35 +444,29 @@ def cleanup_transfer_queue(path=DEFAULT_QUEUE_PATH, proxy=None, config_path=CONF
             log.debug("Transfer address not saved")
             exit(0)
 
-        if is_name_owner(fqu, transfer_address):
-            log.debug("Transferred: %s to %s" % (fqu, transfer_address))
+        # clear stale transfer
+        if is_transfer_expired(entry, config_path=config_path):
+            log.debug("Removing tx with > max confirmations: (%s, %s, confirmations %s)"
+                      % (fqu, transfer_address, confirmations))
+
             to_remove.append(entry)
-
-        else:
-            if is_transfer_expired(entry, config_path=config_path):
-                log.debug("Removing tx with > max confirmations: (%s, %s, confirmations %s)"
-                          % (fqu, transfer_address, confirmations))
-
-                to_remove.append(entry)
+            continue
 
     queue_removeall( to_remove, path=path )
     return True
 
 
-def queue_cleanall(path=DEFAULT_QUEUE_PATH, proxy=None, config_path=CONFIG_PATH):
+def queue_cleanall(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
     """
     Clean all queues
     Return True on success
     Raise on error
     """
 
-    if proxy is None:
-        proxy = get_default_proxy(config_path=config_path)
-
-    cleanup_preorder_queue(cleanup_rejected=True, path=path, proxy=proxy, config_path=config_path)
-    cleanup_register_queue(cleanup_rejected=True, path=path, proxy=proxy, config_path=config_path)
-    cleanup_update_queue(path=path, proxy=proxy, config_path=config_path )
-    cleanup_transfer_queue(path=path, proxy=proxy, config_path=config_path )
+    cleanup_preorder_queue(path=path, config_path=config_path)
+    cleanup_register_queue(path=path, config_path=config_path)
+    cleanup_update_queue(path=path, config_path=config_path )
+    cleanup_transfer_queue(path=path, config_path=config_path )
 
 
 def display_queue_info(display_details=False, path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
