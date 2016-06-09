@@ -31,7 +31,6 @@ from ..utils import pretty_print as pprint
 
 from ..proxy import get_default_proxy
 from ..proxy import get_names_owned_by_address as blockstack_get_names_owned_by_address
-from ..proxy import get_name_blockchain_record as blockstack_get_name_blockchain_record
 
 log = get_logger() 
 
@@ -125,6 +124,23 @@ def get_tx_confirmations(tx_hash, config_path=CONFIG_PATH):
     return resp
 
 
+def get_tx_fee( tx_hex, config_path=CONFIG_PATH ):
+    """
+    Get the tx fee from bitcoind
+    Return the fee on success, in satoshis
+    Return None on error
+    """
+    bitcoind_client = get_bitcoind_client(config_path=config_path)
+    try:
+        # try to confirm in 2 blocks
+        fee = bitcoind_client.estimatefee(2)
+        return round((fee * (len(tx_hex) / 1024.0)) * 10**8)
+    except Exception, e:
+        log.exception(e)
+        log.debug("Failed to estimate fee")
+        return None
+
+
 def is_tx_accepted( tx_hash, num_needed=TX_CONFIRMATIONS_NEEDED, config_path=CONFIG_PATH ):
     """
     Determine whether or not a transaction was accepted.
@@ -153,13 +169,15 @@ def is_tx_rejected(tx_hash, tx_sent_at_height, config_path=CONFIG_PATH):
     return False
 
 
-def get_utxos(address, config_path=CONFIG_PATH):
+def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None):
     """ 
     Given an address get unspent outputs (UTXOs)
     Return array of UTXOs, empty array if none available
     """
 
-    utxo_client = get_utxo_client(config_path=config_path)
+    if utxo_client is None:
+        utxo_client = get_utxo_client(config_path=config_path)
+
     data = []
 
     try:
@@ -171,12 +189,17 @@ def get_utxos(address, config_path=CONFIG_PATH):
     return data
 
 
-def get_balance(address, config_path=CONFIG_PATH):
+def get_balance(address, config_path=CONFIG_PATH, utxo_client=None):
     """
     Check if BTC key being used has enough balance on unspents
+    Returns value in satoshis on success
+    Return None on failure
     """
 
-    data = get_utxos(address, config_path=config_path)
+    data = get_utxos(address, config_path=config_path, utxo_client=utxo_client)
+    if 'error' in data:
+        return None 
+
     satoshi_amount = 0
 
     for utxo in data:
@@ -184,17 +207,32 @@ def get_balance(address, config_path=CONFIG_PATH):
         if 'value' in utxo:
             satoshi_amount += utxo['value']
 
-    btc_amount = satoshis_to_btc(satoshi_amount)
-    btc_amount = float(btc_amount)
-
-    return btc_amount
+    return satoshi_amount
 
 
-def recipientNotReady(address, proxy=None):
+def is_address_usable(address, config_path=CONFIG_PATH, utxo_client=None):
     """
-    Check if address can own more names or not
+    Check if an address is usable (i.e. it has no unconfirmed transactions)
     """
+    try:
+        unspents = get_utxos(address, config_path=config_path, utxo_client=None)
+    except Exception as e:
+        log.debug(e)
+        return False
 
+    for unspent in unspents:
+
+        if 'confirmations' in unspent:
+            if int(unspent['confirmations']) == 0:
+                return False
+
+    return True
+
+
+def can_receive_name( address, proxy=None ):
+    """
+    Can an address receive a name?
+    """
     if proxy is None:
         proxy = get_default_proxy()
 
@@ -202,51 +240,7 @@ def recipientNotReady(address, proxy=None):
     names_owned = resp
 
     if len(names_owned) > MAXIMUM_NAMES_PER_ADDRESS:
-        return True
-
-    # if tests pass, then can use the address
-    return False
-
-
-def dontuseAddress(address, config_path=CONFIG_PATH):
-    """
-    Check if an address should not be used because of:
-    a) it has unconfirmed TX
-    b) it has more than maximum registered names (blockstack restriction)
-    """
-
-    try:
-        unspents = get_utxos(address, config_path=config_path)
-    except Exception as e:
-        log.debug(e)
-        return True
-
-    for unspent in unspents:
-
-        if 'confirmations' in unspent:
-            if int(unspent['confirmations']) == 0:
-                return True
-
-    # if all tests pass, then can use the address
-    return False
-
-
-def underfundedAddress(address, config_path=CONFIG_PATH):
-    """
-    Determine whether or not an address is underfunded.
-    Return True if underfunded
-    Return False if not.
-    """
-    balance = get_balance(address, config_path=config_path)
-    log.debug("Balance of %s is %s" % (address, balance))
-
-    if balance is None:
-        log.debug("Balance: (%s, %s)" % (address, balance))
-        return True
-
-    if float(balance) <= MINIMUM_BALANCE:
-        return True
-    else:
         return False
 
+    return True
 
