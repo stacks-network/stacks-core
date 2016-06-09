@@ -25,4 +25,4 @@ import auth
 import crawl
 
 from crawl import get_cached_zonefile, get_zonefile_from_storage, get_zonefile_from_peers, store_cached_zonefile, store_zonefile_to_storage
-from auth import is_current_zonefile_hash, verify_zonefile
+from auth import is_current_zonefile_hash, verify_zonefile, serialize_zonefile
