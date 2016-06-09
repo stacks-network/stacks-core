@@ -44,6 +44,9 @@ from ..tx import sign_and_broadcast_tx, preorder_tx, register_tx, update_tx, tra
 
 from ..scripts import tx_make_subsidizable
 
+from ..data import put_announcement
+from ..storage import get_blockchain_compat_hash
+
 from ..operations import fees_update, fees_transfer, fees_revoke
 
 log = get_logger()
@@ -643,7 +646,7 @@ def do_namespace_ready( namespace_id, reveal_privkey, utxo_client, config_path=C
     return resp
 
 
-def do_announce( message_hash, sender_privkey, utxo_client, config_path=CONFIG_PATH, proxy=None ):
+def do_announce( message_text, sender_privkey, utxo_client, config_path=CONFIG_PATH, proxy=None ):
     """
     Send an announcement hash to the blockchain
     Return {'status': True, 'transaction_hash': ...} on success
@@ -653,6 +656,7 @@ def do_announce( message_hash, sender_privkey, utxo_client, config_path=CONFIG_P
     if proxy is None:
         proxy = get_default_proxy()
 
+    message_hash = get_blockchain_compat_hash( message_text )
     sender_pubkey_hex = pybitcoin.BitcoinPrivateKey( sender_privkey ).public_key().to_hex()
     sender_address = pybitcoin.BitcoinPrivateKey( sender_privkey ).public_key().address()
 
@@ -666,12 +670,19 @@ def do_announce( message_hash, sender_privkey, utxo_client, config_path=CONFIG_P
     resp = {}
 
     try:
-        resp = sign_and_serialize_tx( unsigned_tx, sender_privkey, utxo_client=utxo_client )
+        resp = sign_and_broadcast_tx( unsigned_tx, sender_privkey, utxo_client=utxo_client )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast announce transaction'}
+    
+    # stash the announcement text 
+    res = put_announcement( message_text, resp['transaction_hash'] )
+    if 'error' in res:
+        return {'error': 'Failed to store message text', 'transaction_hash': resp['transaction_hash'], 'message_hash': message_hash}
 
-    return resp
+    else:
+        resp['message_hash'] = message_hash
+        return resp
 
 
 def async_preorder(fqu, payment_privkey, owner_address, cost, proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH):
