@@ -73,7 +73,7 @@ def load_name_zonefile(expected_zonefile_hash):
     Return None on error
     """
 
-    zonefile_txt = storage.get_immutable_data(expected_zonefile_hash, hash_func=storage.get_name_zonefile_hash, deserialize=False)
+    zonefile_txt = storage.get_immutable_data(expected_zonefile_hash, hash_func=storage.get_zonefile_data_hash, deserialize=False)
     if zonefile_txt is None:
         log.error("Failed to load user zonefile '%s'" % expected_zonefile_hash)
         return None
@@ -297,7 +297,7 @@ def store_name_zonefile( name, user_zonefile, txid ):
 
     # serialize and send off
     user_zonefile_txt = zone_file.make_zone_file( user_zonefile, origin=name, ttl=USER_ZONEFILE_TTL )
-    data_hash = storage.get_name_zonefile_hash( user_zonefile_txt )
+    data_hash = storage.get_zonefile_data_hash( user_zonefile_txt )
     result = storage.put_immutable_data(None, txid, data_hash=data_hash, data_text=user_zonefile_txt )
 
     rc = None
@@ -378,59 +378,6 @@ def get_and_migrate_profile( name, proxy=None, create_if_absent=False, wallet_ke
     return (user_profile, user_zonefile, created_new_zonefile)
 
 
-def migrate_profile( name, txid=None, proxy=None, wallet_keys=None, include_profile=False ):
-    """
-    Migrate a user's profile from the legacy format to the profile/zonefile format.
-    Return {'status': True, 'transaction_hash': txid, 'zonefile_hash': ...} on success, if the profile was migrated
-    Return {'status': True} on success, if the profile is already migrated
-    Return {'error': ...} on error
-    """
-    legacy = False
-    value_hash = None
-    if proxy is None:
-        proxy = get_default_proxy()
-
-    user_profile, user_zonefile, legacy = get_and_migrate_profile( name, create_if_absent=True, proxy=proxy, wallet_keys=wallet_keys )
-    if 'error' in user_profile:
-        log.debug("Unable to load user zonefile for '%s': %s" % (name, user_profile['error']))
-        return user_profile
-
-    if not legacy:
-        return {'status': True}
-
-    # store profile...
-    _, data_privkey = get_data_keypair( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
-    rc = storage.put_mutable_data( name, user_profile, data_privkey )
-    if not rc:
-        return {'error': 'Failed to move legacy profile to profile zonefile'}
-
-    # store zonefile, if we haven't already
-    if txid is None:
-        _, owner_privkey = get_owner_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
-        update_result = update( name, user_zonefile, owner_privkey, proxy=proxy )
-        if 'error' in update_result:
-            # failed to replicate user zonefile hash 
-            # the caller should simply try again, with the 'transaction_hash' given in the result.
-            return update_result
-
-        txid = update_result['transaction_hash']
-        value_hash = update_result['value_hash']
-
-    result = {
-        'status': True
-    }
-    if txid is not None:
-        result['transaction_hash'] = txid
-    if value_hash is not None:
-        result['zonefile_hash'] = value_hash
-
-    if include_profile:
-        result['profile'] = user_profile
-        result['zonefile'] = user_zonefile
-
-    return result
-
-
 def hash_zonefile( zonefile_json ):
     """
     Given a JSON-ized zonefile, calculate its hash
@@ -439,14 +386,14 @@ def hash_zonefile( zonefile_json ):
     assert "$ttl" in zonefile_json.keys(), "Missing $ttl"
 
     user_zonefile_txt = zone_file.make_zone_file( zonefile_json )
-    data_hash = storage.get_name_zonefile_hash( user_zonefile_txt )
+    data_hash = storage.get_zonefile_data_hash( user_zonefile_txt )
     return data_hash
 
 
 def is_zonefile_replicated(fqu, zonefile_json, proxy=None, wallet_keys=None):
     """
-    Return True if the given zonefile (as JSON) has been replicated;
-    in particular, to the Blockstack DHT.
+    Return True if the given zonefile (as JSON) has been replicated.
+    Return False if not
     """
 
     if proxy is None:
@@ -471,13 +418,21 @@ def zonefile_publish(fqu, zonefile_json, server_list, wallet_keys=None):
         'servers' will be a list of (host, port) tuples
     Return {'error': ...} if we failed on all accounts.
     """
+    zonefile_txt = zone_file.make_zone_file( zonefile_json )
     successful_servers = []
     for server_host, server_port in server_list:
         try:
+
+            log.debug("Replicate zonefile to %s:%s" % (server_host, server_port))
+
             srv = BlockstackRPCClient( server_host, server_port )
-            res = srv.put_zonefiles( [zonefile_json] )
+            res = srv.put_zonefiles( [zonefile_txt] )
             if 'error' in res:
                 log.error("Failed to publish zonefile to %s:%s: %s" % (server_host, server_port, res['error']))
+                continue
+
+            if len(res['saved']) != 1 and res['saved'][0] != 1:
+                log.error("Server %s:%s failed to replicate zonefile" % (server_host, server_port))
                 continue
 
             log.debug("Replicated zonefile to %s:%s" % (server_host, server_port))
