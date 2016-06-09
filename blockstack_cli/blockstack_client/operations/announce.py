@@ -24,7 +24,9 @@
 import pybitcoin
 from pybitcoin import embed_data_in_blockchain, make_op_return_tx, make_op_return_outputs, \
         make_op_return_script, broadcast_transaction, serialize_transaction, \
-        script_hex_to_address, get_unspents
+        script_hex_to_address, get_unspents, make_pay_to_address_script
+
+from pybitcoin.transactions.outputs import calculate_change_amount
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
 
@@ -59,26 +61,15 @@ def build(message_hash):
     return packaged_script 
 
 
-def make_outputs( data, inputs, change_address, tx_fee, pay_fee=True ):
+def make_outputs( data, inputs, change_address, tx_fee ):
     """
     Make outputs for an announcement.
     """
 
-    dust_fee = None
-    op_fee = None
-    dust_value = None 
+    dust_fee = (len(inputs) + 1) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE + tx_fee
+    op_fee = DEFAULT_DUST_FEE
+    dust_value = DEFAULT_DUST_FEE
     
-    if pay_fee:
-        dust_fee = (len(inputs) + 1) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE + tx_fee
-        op_fee = DEFAULT_DUST_FEE
-        dust_value = DEFAULT_DUST_FEE
-    
-    else:
-        # will be subsidized
-        dust_fee = 0
-        op_fee = 0
-        dust_value = 0
-   
     return [
         # main output
         {"script_hex": make_op_return_script(str(data), format='hex'),
@@ -103,11 +94,11 @@ def make_transaction(message_hash, user_public_key, blockchain_client, tx_fee=0)
     inputs = None
     private_key_obj = None
     
-    pubk = BitcoinPublicKey( user_public_key )
+    pubk = pybitcoin.BitcoinPublicKey( user_public_key )
     from_address = pubk.address()
     inputs = get_unspents( from_address, blockchain_client )
     nulldata = build(message_hash)
-    outputs = make_outputs( nulldata, inputs, from_address, tx_fee, pay_fee=pay_fee )
+    outputs = make_outputs( nulldata, inputs, from_address, tx_fee )
    
     return (inputs, outputs)
 
