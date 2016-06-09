@@ -149,6 +149,8 @@ def store_mutable_data_version(conf, fq_data_id, ver):
     try:
         with open(version_file_path, "w+") as f:
             f.write("%s" % ver)
+            f.flush()
+            os.fsync(f.fileno())
 
         return True
 
