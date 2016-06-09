@@ -42,6 +42,7 @@ import copy
 import atexit
 import threading
 import errno
+import zone_file
 
 from SimpleXMLRPCServer import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
 
@@ -377,25 +378,28 @@ def broadcast_subsidized_tx( subsidized_tx ):
     return response
 
 
-def blockstack_name_preorder( name, privatekey, register_addr, tx_only=False, subsidy_key=None, testset=False, consensus_hash=None ):
+def blockstack_name_preorder( name, privatekey, register_addr, user_public_key=None, subsidize=False, testset=False, consensus_hash=None ):
     """
     Preorder a name.
 
     @name: the name to preorder
     @register_addr: the address that will own the name upon registration
-    @privatekey: the private key that will pay for the preorder. Can be None if we're subsidizing (in which case subsidy_key is required)
-    @tx_only: if True, then return only the unsigned serialized transaction.  Do not broadcast it.
-    @pay_fee: if False, then return a subsidized serialized transaction, where we have signed our
+    @privatekey: the private key that will pay for the preorder. Can be None if we're only generating a tx
     inputs/outputs with SIGHASH_ANYONECANPAY.  The caller will need to sign their input and then
     broadcast it.
-    @subsidy_key: if given, then this transaction will be subsidized with this key and returned (but not broadcasted)
-    This forcibly sets tx_only=True and pay_fee=False.
+    @subsidize: set to true if we're subsidizing
 
     Return a JSON object on success.
     Return a JSON object with 'error' set on error.
     """
 
     blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    subsidy_key = None
+
+    if subsidize:
+        subsidy_key = blockstack_opts['subsidy_key']
+        if subsidy_key is None:
+            return {'error': 'This server does not subsidize transactions'}
 
     # are we doing our initial indexing?
     if is_indexing():
@@ -438,15 +442,20 @@ def blockstack_name_preorder( name, privatekey, register_addr, tx_only=False, su
     public_key = None
     if subsidy_key is not None:
         subsidy_key = str(subsidy_key)
-        tx_only = True
 
         # the sender will be the subsidizer (otherwise it will be the given private key's owner)
         public_key = BitcoinPrivateKey( subsidy_key ).public_key().to_hex()
 
+    elif user_public_key is not None:
+        user_public_key = str(user_public_key)
+
+        # use the user's public key
+        public_key = BitcoinPublicKey( user_public_key ).to_hex()
+
     resp = {}
     try:
         resp = preorder_name(str(name), privatekey, str(register_addr), str(consensus_hash), blockchain_client_inst, \
-            name_fee, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'], subsidy_public_key=public_key, tx_only=tx_only )
+            name_fee, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'], user_public_key=user_public_key )
     except:
         return rpc_traceback()
 
@@ -459,13 +468,12 @@ def blockstack_name_preorder( name, privatekey, register_addr, tx_only=False, su
             'subsidized_tx': tx_signed
         }
 
-
     log.debug('preorder <name, consensus_hash>: <%s, %s>' % (name, consensus_hash))
 
     return resp
 
 
-def blockstack_name_register( name, privatekey, register_addr, renewal_fee=None, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
+def blockstack_name_register( name, privatekey, register_addr, renewal_fee=None, subsidize=False, user_public_key=None, testset=False, consensus_hash=None ):
     """
     Register or renew a name
 
@@ -477,15 +485,18 @@ def blockstack_name_register( name, privatekey, register_addr, renewal_fee=None,
     name owner's address.
     @renewal_fee: if given, this is the fee to renew the name (must be at least the
     cost of the name itself)
-    @tx_only: if True, then return only the unsigned serialized transaction. Do not broadcast it.
-    @pay_fee: if False, then do not pay any associated dust or operational fees.  This should be used
-    to generate a signed serialized transaction that another key will later subsidize
 
     Return a JSON object on success
     Return a JSON object with 'error' set on error.
     """
 
     blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    subsidy_key = None
+
+    if subsidize:
+        subsidy_key = blockstack_opts['subsidy_key']
+        if subsidy_key is None:
+            return {'error': 'This server does not subsidize transactions'}
 
     # are we doing our initial indexing?
     if is_indexing():
@@ -508,7 +519,6 @@ def blockstack_name_register( name, privatekey, register_addr, renewal_fee=None,
     public_key = None
     if subsidy_key is not None:
         subsidy_key = str(subsidy_key)
-        tx_only = True
 
         # the sender will be the subsidizer (otherwise it will be the given private key's owner)
         public_key = BitcoinPrivateKey( subsidy_key ).public_key().to_hex()
@@ -516,8 +526,8 @@ def blockstack_name_register( name, privatekey, register_addr, renewal_fee=None,
     resp = {}
     try:
         resp = register_name(str(name), privatekey, str(register_addr), blockchain_client_inst, renewal_fee=renewal_fee, \
-            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'], \
-            subsidy_public_key=public_key, user_public_key=user_public_key )
+            blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'], \
+            subsidize=subsidize, user_public_key=user_public_key )
     except:
         return rpc_traceback()
 
@@ -538,21 +548,25 @@ def blockstack_name_register( name, privatekey, register_addr, renewal_fee=None,
     return resp
 
 
-def blockstack_name_update( name, data_hash, privatekey, tx_only=False, user_public_key=None, subsidy_key=None, testset=False, consensus_hash=None ):
+def blockstack_name_update( name, data_hash, privatekey, user_public_key=None, subsidize=False, testset=False, consensus_hash=None ):
     """
     Update a name with new data.
 
     @name: the name to update
     @data_hash: the hash of the new name record
     @privatekey: the private key of the owning address.
-    @tx_only: if True, then return only the unsigned serialized transaction.  Do not broadcast it.
-    @pay_fee: if False, then do not pay any associated dust or operational fees.  This should be
     used to generate a signed serialized transaction that another key will later subsidize.
 
     Return a JSON object on success
     Return a JSON object with 'error' set on error.
     """
     blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    subsidy_key = None
+
+    if subsidize:
+        subsidy_key = blockstack_opts['subsidy_key']
+        if subsidy_key is None:
+            return {'error': 'This server does not subsidize transactions'}
 
     # are we doing our initial indexing?
     if is_indexing():
@@ -581,7 +595,7 @@ def blockstack_name_update( name, data_hash, privatekey, tx_only=False, user_pub
     resp = {}
     try:
         resp = update_name(str(name), str(data_hash), str(consensus_hash), privatekey, blockchain_client_inst, \
-            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, user_public_key=user_public_key, testset=blockstack_opts['testset'])
+            subsidize=subsidize, blockchain_broadcaster=broadcaster_client_inst, user_public_key=user_public_key, testset=blockstack_opts['testset'])
     except:
         return rpc_traceback()
 
@@ -593,7 +607,7 @@ def blockstack_name_update( name, data_hash, privatekey, tx_only=False, user_pub
     return resp
 
 
-def blockstack_name_transfer( name, address, keepdata, privatekey, user_public_key=None, subsidy_key=None, tx_only=False, testset=False, consensus_hash=None ):
+def blockstack_name_transfer( name, address, keepdata, privatekey, user_public_key=None, subsidize=False, testset=False, consensus_hash=None ):
     """
     Transfer a name to a new address.
 
@@ -601,14 +615,17 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, user_public_k
     @address:  the new address to own the name
     @keepdata: if True, then keep the name record tied to the name.  Otherwise, discard it.
     @privatekey: the private key of the owning address.
-    @tx_only: if True, then return only the unsigned serialized transaction.  Do not broadcast it.
-    @pay_fee: if False, then do not pay any associated dust or operational fees.  This should be
-    used to generate a signed serialized transaction that another key will later subsidize.
 
     Return a JSON object on success
     Return a JSON object with 'error' set on error.
     """
     blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    subsidy_key = None
+
+    if subsidize:
+        subsidy_key = blockstack_opts['subsidy_key']
+        if subsidy_key is None:
+            return {'error': 'This server does not subsidize transactions'}
 
     # are we doing our initial indexing?
     if is_indexing():
@@ -642,7 +659,7 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, user_public_k
     resp = {}
     try:
         resp = transfer_name(str(name), str(address), keepdata, str(consensus_hash), privatekey, blockchain_client_inst, \
-            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, user_public_key=user_public_key, testset=blockstack_opts['testset'])
+            subsidize=subsidize, blockchain_broadcaster=broadcaster_client_inst, user_public_key=user_public_key, testset=blockstack_opts['testset'])
     except:
         return rpc_traceback()
 
@@ -655,19 +672,24 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, user_public_k
     return resp
 
 
-def blockstack_name_renew( name, privatekey, register_addr=None, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
+def blockstack_name_renew( name, privatekey, register_addr=None, subsidize=False, user_public_key=None, testset=False, consensus_hash=None ):
     """
     Renew a name
 
     @name: the name to renew
     @privatekey: the private key of the name owner
-    @tx_only: if True, then return only the unsigned serialized transaction.  Do not broadcast it.
-    @pay_fee: if False, then do not pay any associated dust or operational fees.  This should be
-    used to generate a signed serialized transaction that another key will later subsidize.
 
     Return a JSON object on success
     Return a JSON object with 'error' set on error.
     """
+    
+    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    subsidy_key = None
+
+    if subsidize:
+        subsidy_key = blockstack_opts['subsidy_key']
+        if subsidy_key is None:
+            return {'error': 'This server does not subsidize transactions'}
 
     # are we doing our initial indexing?
     if is_indexing():
@@ -688,24 +710,27 @@ def blockstack_name_renew( name, privatekey, register_addr=None, tx_only=False, 
 
     renewal_fee = get_name_cost( name )
 
-    return blockstack_name_register( name, privatekey, register_addr, renewal_fee=renewal_fee, tx_only=tx_only, subsidy_key=subsidy_key, user_public_key=user_public_key, testset=testset )
+    return blockstack_name_register( name, privatekey, register_addr, renewal_fee=renewal_fee, subsidize=subsidize, user_public_key=user_public_key, testset=testset )
 
 
-def blockstack_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
+def blockstack_name_revoke( name, privatekey, subsidize=False, user_public_key=None, testset=False, consensus_hash=None ):
     """
     Revoke a name and all its data.
 
     @name: the name to renew
     @privatekey: the private key of the name owner
-    @tx_only: if True, then return only the unsigned serialized transaction.  Do not broadcast it.
-    @pay_fee: if False, then do not pay any associated dust or operational fees.  This should be
-    used to generate a signed serialized transaction that another key will later subsidize.
 
     Return a JSON object on success
     Return a JSON object with 'error' set on error.
     """
 
     blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    subsidy_key = None
+
+    if subsidize:
+        subsidy_key = blockstack_opts['subsidy_key']
+        if subsidy_key is None:
+            return {'error': 'This server does not subsidize transactions'}
 
     # are we doing our initial indexing?
     if is_indexing():
@@ -722,7 +747,7 @@ def blockstack_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, u
     resp = {}
     try:
         resp = revoke_name(str(name), privatekey, blockchain_client_inst, \
-            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, \
+            subsidize=subsidize, blockchain_broadcaster=broadcaster_client_inst, \
             user_public_key=user_public_key, testset=blockstack_opts['testset'])
     except:
         return rpc_traceback()
@@ -736,7 +761,7 @@ def blockstack_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, u
     return resp
 
 
-def blockstack_name_import( name, recipient_address, update_hash, privatekey, tx_only=False, testset=False, consensus_hash=None ):
+def blockstack_name_import( name, recipient_address, update_hash, privatekey, user_public_key=None, testset=False, consensus_hash=None ):
     """
     Import a name into a namespace.
     """
@@ -760,7 +785,7 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, tx
     resp = {}
     try:
         resp = name_import( str(name), str(recipient_address), str(update_hash), str(privatekey), blockchain_client_inst, \
-            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'] )
+                            blockchain_broadcaster=broadcaster_client_inst, user_public_key=user_public_key, testset=blockstack_opts['testset'] )
     except:
         return rpc_traceback()
 
@@ -769,7 +794,7 @@ def blockstack_name_import( name, recipient_address, update_hash, privatekey, tx
     return resp
 
 
-def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, tx_only=False, testset=False, consensus_hash=None ):
+def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, user_public_key=None, testset=False, consensus_hash=None ):
     """
     Define the properties of a namespace.
     Between the namespace definition and the "namespace begin" operation, only the
@@ -805,7 +830,7 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, tx_o
     resp = {}
     try:
         resp = namespace_preorder( str(namespace_id), str(register_addr), str(consensus_hash), str(privatekey), blockchain_client_inst, namespace_fee, \
-            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'] )
+            blockchain_broadcaster=broadcaster_client_inst, user_public_key=user_public_key, testset=blockstack_opts['testset'] )
 
     except:
         return rpc_traceback()
@@ -814,7 +839,7 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, tx_o
     return resp
 
 
-def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, tx_only=False, testset=False, consensus_hash=None ):
+def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, user_public_key=None, testset=False, consensus_hash=None ):
     """
     Reveal and define the properties of a namespace.
     Between the namespace definition and the "namespace begin" operation, only the
@@ -841,7 +866,9 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
                                 int(coeff), int(base), list(bucket_exponents), \
                                 int(nonalpha_discount), int(no_vowel_discount), \
                                 str(privatekey), blockchain_client_inst, \
-                                blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'], tx_only=tx_only )
+                                blockchain_broadcaster=broadcaster_client_inst, \
+                                user_public_key=user_public_key, \
+                                testset=blockstack_opts['testset'] )
     except:
         return rpc_traceback()
 
@@ -849,7 +876,7 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
     return resp
 
 
-def blockstack_namespace_ready( namespace_id, privatekey, tx_only=False, testset=False, consensus_hash=None ):
+def blockstack_namespace_ready( namespace_id, privatekey, user_public_key=None, testset=False, consensus_hash=None ):
     """
     Declare that a namespace is open to accepting new names.
     """
@@ -871,7 +898,7 @@ def blockstack_namespace_ready( namespace_id, privatekey, tx_only=False, testset
     resp = {}
     try:
         resp = namespace_ready( str(namespace_id), str(privatekey), blockchain_client_inst, \
-            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'] )
+            user_public_key=user_public_key, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'] )
     except:
         return rpc_traceback()
 
@@ -879,13 +906,20 @@ def blockstack_namespace_ready( namespace_id, privatekey, tx_only=False, testset
     return resp
 
 
-def blockstack_announce( message, privatekey, tx_only=False, subsidy_key=None, user_public_key=None, testset=False ):
+def blockstack_announce( message, privatekey, subsidize=False, user_public_key=None, testset=False ):
     """
     Send an announcement via the blockchain.
     If we're sending the tx out, then also replicate the message text to storage providers, via the blockstack_client library
     """
 
     blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
+    subsidy_key = None
+
+    if subsidize:
+        subsidy_key = blockstack_opts['subsidy_key']
+        if subsidy_key is None:
+            return {'error': 'This server does not subsidize transactions'}
+
 
     # are we doing our initial indexing?
     if is_indexing():
@@ -904,7 +938,7 @@ def blockstack_announce( message, privatekey, tx_only=False, subsidy_key=None, u
     resp = {}
     try:
         resp = send_announce( message_hash, privatekey, blockchain_client_inst, \
-            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, \
+            subsidize=subsidize, blockchain_broadcaster=broadcaster_client_inst, \
             user_public_key=user_public_key, testset=blockstack_opts['testset'])
 
     except:
@@ -937,10 +971,12 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
     """
     def _dispatch(self, method, params):
         try: 
+            log.debug("%s(%s)" % ("rpc_" + str(method), params))
             res = self.server.funcs["rpc_" + str(method)](*params)
 
             # lol jsonrpc within xmlrpc
-            return json.dumps(res)
+            ret = json.dumps(res)
+            return ret
         except Exception, e:
             print >> sys.stderr, "\n\n%s\n\n" % traceback.format_exc()
             return rpc_traceback()
@@ -1091,35 +1127,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return names
 
 
-    def rpc_preorder( self, name, privatekey, register_addr ):
-        """
-        Preorder a name:
-        @name is the name to preorder
-        @register_addr is the address of the key pair that will own the name
-        @privatekey is the private key that will send the preorder transaction
-        (it must be *different* from the register_addr keypair)
-
-        Returns a JSON object with the transaction ID on success.
-        Returns a JSON object with 'error' on error.
-        """
-        return blockstack_name_preorder( str(name), str(privatekey), str(register_addr), testset=self.testset )
-
-
-    def rpc_preorder_tx( self, name, privatekey, register_addr ):
-        """
-        Generate a transaction that preorders a name:
-        @name is the name to preorder
-        @register_addr is the address of the key pair that will own the name
-        @privatekey is the private key that will send the preorder transaction
-        (it must be *different* from the register_addr keypair)
-
-        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
-        Return a JSON object with 'error' on error.
-        """
-        return blockstack_name_preorder( str(name), str(privatekey), str(register_addr), tx_only=True, testset=self.testset )
-
-
-    def rpc_preorder_tx_subsidized( self, name, register_addr, subsidy_key ):
+    def rpc_preorder_tx_subsidized( self, name, user_public_key, register_addr ):
         """
         Generate a transaction that preorders a name, but without paying fees.
         @name is the name to preorder
@@ -1129,38 +1137,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
         """
-        return blockstack_name_preorder( str(name), None, str(register_addr), tx_only=True, subsidy_key=str(subsidy_key), testset=self.testset )
+        return blockstack_name_preorder( str(name), None, str(register_addr), user_public_key=str(user_public_key), subsidize=True, testset=self.testset )
 
 
-    def rpc_register( self, name, privatekey, register_addr ):
-        """
-        Register a name:
-        @name is the name to register
-        @register_addr is the address of the key pair that will own the name
-        (given earlier in the preorder)
-        @privatekey is the private key that sent the preorder transaction.
-
-        Returns a JSON object with the transaction ID on success.
-        Returns a JSON object with 'error' on error.
-        """
-        return blockstack_name_register( str(name), str(privatekey), str(register_addr), testset=self.testset )
-
-
-    def rpc_register_tx( self, name, privatekey, register_addr ):
-        """
-        Generate a transaction that will register a name:
-        @name is the name to register
-        @register_addr is the address of the key pair that will own the name
-        (given earlier in the preorder)
-        @privatekey is the private key that sent the preorder transaction.
-
-        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
-        Return a JSON object with 'error' on error.
-        """
-        return blockstack_name_register( str(name), str(privatekey), str(register_addr), tx_only=True, testset=self.testset )
-
-
-    def rpc_register_tx_subsidized( self, name, user_public_key, register_addr, subsidy_key ):
+    def rpc_register_tx_subsidized( self, name, user_public_key, register_addr ):
         """
         Generate a subsidizable transaction that will register a name
         @name is the name to register
@@ -1171,102 +1151,29 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
         """
-        return blockstack_name_register( str(name), None, str(register_addr), tx_only=True, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), testset=self.testset )
+        return blockstack_name_register( str(name), None, str(register_addr), user_public_key=str(user_public_key), subsidize=True, testset=self.testset )
 
 
-    def rpc_update( self, name, data_hash, privatekey ):
-        """
-        Update a name's record:
-        @name is the name to update
-        @data_hash is the hash of the new name record
-        @privatekey is the private key that owns the name
-
-        Returns a JSON object with the transaction ID on success.
-        Returns a JSON object with 'error' on error.
-        """
-        return blockstack_name_update( str(name), str(data_hash), str(privatekey), testset=self.testset )
-
-
-    def rpc_update_tx( self, name, data_hash, privatekey ):
-        """
-        Generate a transaction that will update a name's name record hash.
-        @name is the name to update
-        @data_hash is the hash of the new name record
-        @privatekey is the private key that owns the name
-
-        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
-        Return a JSON object with 'error' on error.
-        """
-        return blockstack_name_update( str(name), str(data_hash), str(privatekey), tx_only=True, testset=self.testset )
-
-
-    def rpc_update_tx_subsidized( self, name, data_hash, user_public_key, subsidy_key ):
+    def rpc_update_tx_subsidized( self, name, data_hash, user_public_key ):
         """
         Generate a subsidizable transaction that will update a name's name record hash.
         @name is the name to update
         @data_hash is the hash of the new name record
-        @privatekey is the private key that owns the name
 
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
         """
-        return blockstack_name_update( str(name), str(data_hash), None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
+        return blockstack_name_update( str(name), str(data_hash), None, user_public_key=str(user_public_key), subsidize=True, testset=self.testset )
 
 
-    def rpc_transfer( self, name, address, keepdata, privatekey ):
-        """
-        Transfer a name's record to a new address
-        @name is the name to transfer
-        @address is the new address that will own the name
-        @keepdata determines whether or not the name record will
-        remain associated with the name on transfer.
-        @privatekey is the private key that owns the name
-
-        Returns a JSON object with the transaction ID on success.
-        Returns a JSON object with 'error' on error.
-        """
-
-        # coerce boolean
-        if type(keepdata) != bool:
-            if str(keepdata) == "True":
-                keepdata = True
-            else:
-                keepdata = False
-
-        return blockstack_name_transfer( str(name), str(address), keepdata, str(privatekey), testset=self.testset )
-
-
-    def rpc_transfer_tx( self, name, address, keepdata, privatekey ):
-        """
-        Generate a transaction that will transfer a name to a new address
-        @name is the name to transfer
-        @address is the new address that will own the name
-        @keepdata determines whether or not the name record will
-        remain associated with the name on transfer.
-        @privatekey is the private key that owns the name
-
-        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
-        Return a JSON object with 'error' on error.
-        """
-
-        # coerce boolean
-        if type(keepdata) != bool:
-            if str(keepdata) == "True":
-                keepdata = True
-            else:
-                keepdata = False
-
-        return blockstack_name_transfer( str(name), str(address), keepdata, str(privatekey), tx_only=True, testset=self.testset )
-
-
-    def rpc_transfer_tx_subsidized( self, name, address, keepdata, user_public_key, subsidy_key ):
+    def rpc_transfer_tx_subsidized( self, name, address, keepdata, user_public_key ):
         """
         Generate a subsidizable transaction that will transfer a name to a new address
         @name is the name to transfer
         @address is the new address that will own the name
         @keepdata determines whether or not the name record will
         remain associated with the name on transfer.
-        @privatekey is the private key that owns the name
+        @user_public_key is the public key that owns the name
 
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
@@ -1279,181 +1186,44 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             else:
                 keepdata = False
 
-        return blockstack_name_transfer( str(name), str(address), keepdata, None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
+        return blockstack_name_transfer( str(name), str(address), keepdata, None, user_public_key=str(user_public_key), subsidize=True, testset=self.testset )
 
 
-    def rpc_renew( self, name, privatekey ):
-        """
-        Renew a name:
-        @name is the name to renew
-        @privatekey is the private key that owns the name
-
-        Returns a JSON object with the transaction ID on success.
-        Returns a JSON object with 'error' on error.
-        """
-        return blockstack_name_renew( str(name), str(privatekey), testset=self.testset )
-
-
-    def rpc_renew_tx( self, name, privatekey ):
-        """
-        Generate a transaction that will register a name:
-        @name is the name to renew
-        @privatekey is the private key that owns the name
-
-        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
-        Return a JSON object with 'error' on error.
-        """
-        return blockstack_name_renew( str(name), str(privatekey), tx_only=True, testset=self.testset )
-
-
-    def rpc_renew_tx_subsidized( self, name, user_public_key, subsidy_key ):
+    def rpc_renew_tx_subsidized( self, name, user_public_key ):
         """
         Generate a subsidizable transaction that will register a name
         @name is the name to renew
-        @privatekey is the private key that owns the name
+        @public_key is the public key that owns the name
 
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
         """
-        return blockstack_name_renew( name, None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
+        return blockstack_name_renew( name, None, user_public_key=str(user_public_key), subsidize=True, testset=self.testset )
 
 
-    def rpc_revoke( self, name, privatekey ):
-        """
-        revoke a name:
-        @name is the name to revoke
-        @privatekey is the private key that owns the name
-
-        Returns a JSON object with the transaction ID on success.
-        Returns a JSON object with 'error' on error.
-        """
-        return blockstack_name_revoke( str(name), str(privatekey), testset=self.testset )
-
-
-    def rpc_revoke_tx( self, name, privatekey ):
-        """
-        Generate a transaction that will revoke a name:
-        @name is the name to revoke
-        @privatekey is the private key that owns the name
-
-        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
-        Return a JSON object with 'error' on error.
-        """
-        return blockstack_name_revoke( str(name), str(privatekey), tx_only=True, testset=self.testset )
-
-
-    def rpc_revoke_tx_subsidized( self, name, user_public_key, subsidy_key ):
+    def rpc_revoke_tx_subsidized( self, name, user_public_key ):
         """
         Generate a subsidizable transaction that will revoke a name
         @name is the name to revoke
         @privatekey is the private key that owns the name
         @user_public_key is the public key of the name owner. Must be given if @subsidy_key is given.
-        @subsidy_key is the key that will pay for the tx
 
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
         """
-        return blockstack_name_revoke( str(name), None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
+        return blockstack_name_revoke( str(name), None, user_public_key=str(user_public_key), subsidize=True, testset=self.testset )
 
 
-    def rpc_name_import( self, name, recipient_address, update_hash, privatekey ):
-        """
-        Import a name into a namespace.
-        """
-        return blockstack_name_import( name, recipient_address, update_hash, privatekey, testset=self.testset )
-
-
-    def rpc_name_import_tx( self, name, recipient_address, update_hash, privatekey ):
-        """
-        Generate a tx that will import a name
-        """
-        return blockstack_name_import( name, recipient_address, update_hash, privatekey, tx_only=True, testset=self.testset )
-
-
-    def rpc_namespace_preorder( self, namespace_id, reveal_addr, privatekey ):
-        """
-        Define the properties of a namespace.
-        Between the namespace definition and the "namespace begin" operation, only the
-        user who created the namespace can create names in it.
-        """
-        return blockstack_namespace_preorder( namespace_id, reveal_addr, privatekey, testset=self.testset )
-
-
-    def rpc_namespace_preorder_tx( self, namespace_id, reveal_addr, privatekey ):
-        """
-        Create a signed transaction that will define the properties of a namespace.
-        Between the namespace definition and the "namespace begin" operation, only the
-        user who created the namespace can create names in it.
-        """
-        return blockstack_namespace_preorder( namespace_id, reveal_addr, privatekey, tx_only=True, testset=self.testset )
-
-
-    def rpc_namespace_reveal( self, namespace_id, reveal_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey ):
-        """
-        Reveal and define the properties of a namespace.
-        Between the namespace definition and the "namespace begin" operation, only the
-        user who created the namespace can create names in it.
-        """
-        return blockstack_namespace_reveal( namespace_id, reveal_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, testset=self.testset )
-
-
-    def rpc_namespace_reveal_tx( self, namespace_id, reveal_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey ):
-        """
-        Generate a signed transaction that will reveal and define the properties of a namespace.
-        Between the namespace definition and the "namespace begin" operation, only the
-        user who created the namespace can create names in it.
-        """
-        return blockstack_namespace_reveal( namespace_id, reveal_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, tx_only=True, testset=self.testset )
-
-
-    def rpc_namespace_ready( self, namespace_id, privatekey ):
-        """
-        Declare that a namespace is open to accepting new names.
-        """
-        return blockstack_namespace_ready( namespace_id, privatekey, testset=self.testset )
-
-
-    def rpc_namespace_ready_tx( self, namespace_id, privatekey ):
-        """
-        Create a signed transaction that will declare that a namespace is open to accepting new names.
-        """
-        return blockstack_namespace_ready( namespace_id, privatekey, tx_only=True, testset=self.testset )
-
-
-    def rpc_announce( self, message, privatekey ):
-        """
-        announce a message to all blockstack nodes on the blockchain
-        @message is the message to send
-        @privatekey is the private key that will sign the announcement
-
-        Returns a JSON object with the transaction ID on success.
-        Returns a JSON object with 'error' on error.
-        """
-        return blockstack_announce( str(message), str(privatekey), testset=self.testset )
-
-
-    def rpc_announce_tx( self, message, privatekey ):
-        """
-        Generate a transaction that will make an announcement:
-        @message is the message text to send
-        @privatekey is the private key that signs the message
-
-        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
-        Return a JSON object with 'error' on error.
-        """
-        return blockstack_announce( str(message), str(privatekey), tx_only=True, testset=self.testset )
-
-
-    def rpc_announce_tx_subsidized( self, message, public_key, subsidy_key ):
+    def rpc_announce_tx_subsidized( self, message, user_public_key ):
         """
         Generate a subsidizable transaction that will make an announcement
-        @message is hte message text to send
-        @privatekey is the private key that signs the message
+        @message is the message text to send
+        @user_public_key is the public key of the sender
 
         Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
         Return a JSON object with 'error' on error.
         """
-        return blockstack_announce( str(message), None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
+        return blockstack_announce( str(message), None, user_public_key=str(user_public_key), subsidize=True, testset=self.testset )
 
 
     def rpc_get_name_cost( self, name ):
@@ -1493,17 +1263,25 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
     def rpc_get_namespace_blockchain_record( self, namespace_id ):
         """
-        Return the readied namespace with the given namespace_id
+        Return the namespace with the given namespace_id
         """
 
         db = get_state_engine()
         ns = db.get_namespace( namespace_id )
         if ns is None:
-            if is_indexing():
-                return {"error": "Indexing blockchain"}
-            else:
-                return {"error": "No such ready namespace"}
+            # maybe revealed?
+            ns = db.get_namespace_reveal( namespace_id )
+            if ns is None:
+                if is_indexing():
+                    return {"error": "Indexing blockchain"}
+                else:
+                    return {"error": "No such namespace"}
+
+            ns['ready'] = False
+            return ns
+
         else:
+            ns['ready'] = True
             return ns
 
 
@@ -1563,6 +1341,57 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return db.get_block_from_consensus( consensus_hash )
 
 
+    def get_zonefile( self, config, zonefile_hash ):
+        """
+        Get a zonefile by hash, caching it along the way.
+        Return the zonefile (as a dict) on success
+        Return None on error
+        """
+    
+        # check cache 
+        cached_zonefile = get_cached_zonefile( zonefile_hash, zonefile_dir=config.get('zonefiles', None))
+        if cached_zonefile is not None:
+            return cached_zonefile
+
+        log.debug("Zonefile %s is not cached" % zonefile_hash)
+
+        try:
+            # check storage providers
+            zonefile = get_zonefile_from_storage( zonefile_hash )
+        except Exception, e:
+            log.exception(e)
+            return None
+
+        if zonefile is not None:
+            store_cached_zonefile( zonefile )
+            return zonefile
+        else:
+            return None
+
+
+    def get_zonefile_by_name( self, config, name ):
+        """
+        Get a zonefile by name
+        Return the zonefile (as a dict) on success
+        Return None one error
+        """
+        db = get_state_engine()
+        name_rec = db.get_name( name )
+        if name_rec is None:
+            return None
+
+        zonefile_hash = name_rec.get('value_hash', None)
+        if zonefile_hash is None:
+            return None
+
+        # find zonefile 
+        zonefile = self.get_zonefile( config, zonefile_hash )
+        if zonefile is None:
+            return None
+
+        return zonefile
+
+
     def rpc_get_zonefiles( self, zonefile_hashes ):
         """
         Get a user's zonefile from the local cache,
@@ -1570,6 +1399,8 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Only return at most 100 zonefiles.
         Return {'status': True, 'zonefiles': [zonefiles]} on success
         Return {'error': ...} on error
+
+        zonefiles will be serialized to string
         """
         config = get_blockstack_opts()
         if not config['serve_zonefiles']:
@@ -1583,31 +1414,19 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             if not is_current_zonefile_hash( zonefile_hash ):
                 continue
 
-            # check cache 
-            cached_zonefile = get_cached_zonefile( zonefile_hash, zonefile_dir=config.get('zonefiles', None))
-            if cached_zonefile is not None:
-                ret[zonefile_hash] = cached_zonefile
+            zonefile = self.get_zonefile( config, zonefile_hash )
+            if zonefile is None:
                 continue
 
-            log.debug("Zonefile %s is not cached" % zonefile_hash)
-
-            try:
-                # check storage providers
-                zonefile = get_zonefile_from_storage( zonefile_hash )
-            except Exception, e:
-                log.exception(e)
-                continue
-
-            if zonefile is not None:
-                store_cached_zonefile( zonefile )
-                ret[zonefile_hash] = zonefile
+            else:
+                ret[zonefile_hash] = serialize_zonefile( zonefile )
 
         return {'status': True, 'zonefiles': ret}
 
 
     def rpc_put_zonefiles( self, zonefile_datas ):
         """
-        Replicate one or more zonefiles
+        Replicate one or more zonefiles, given as serialized strings.
         Returns {'status': True, 'saved': [0|1]'} on success ('saved' is a vector of success/failure)
         Returns {'error': ...} on error
         Takes at most 10 zonefiles
@@ -1621,29 +1440,38 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return {'error': 'Too many zonefiles'}
 
         saved = []
+        db = get_state_engine()
 
         for zonefile_data in zonefile_datas:
+          
+            if type(zonefile_data) not in [str,unicode]:
+                log.debug("Invalid non-text zonefile")
+                saved.append(0)
+                continue
 
             try: 
-                zonefile_hash = blockstack_client.hash_zonefile( zonefile_data )
-            except:
+                zonefile = zone_file.parse_zone_file( str(zonefile_data) )
+                zonefile_hash = blockstack_client.get_zonefile_data_hash( str(zonefile_data) )
+            except Exception, e:
+                log.exception(e)
                 log.debug("Invalid zonefile")
                 saved.append(0)
                 continue
 
-            if not is_current_zonefile_hash( zonefile_hash ):
+            name_rec = db.get_name( zonefile['$origin'] )
+            if str(name_rec['value_hash']) != zonefile_hash:
                 log.debug("Unknown zonefile hash %s" % zonefile_hash)
                 saved.append(0)
                 continue
 
             # it's a valid zonefile.  cache and store it.
-            rc = store_cached_zonefile( zonefile_data )
+            rc = store_cached_zonefile( zonefile )
             if not rc:
                 log.debug("Failed to store zonefile %s" % zonefile_hash)
                 saved.append(0)
                 continue
 
-            rc = store_zonefile_to_storage( zonefile_data )
+            rc = store_zonefile_to_storage( zonefile )
             if not rc:
                 log.debug("Failed to replicate zonefile %s to external storage" % zonefile_hash)
                 saved.append(0)
@@ -1651,7 +1479,77 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
             saved.append(1)
 
+        log.debug("Saved %s zonefile(s)\n", sum(saved))
         return {'status': True, 'saved': saved}
+
+
+    def rpc_get_profile(self, name):
+        """
+        Get a profile for a particular name
+        """
+        config = get_blockstack_opts()
+        if not config['serve_profiles']:
+            return {'error': 'No data'}
+
+        # find zonefile 
+        zonefile_dict = self.get_zonefile_by_name( config, name )
+        if zonefile_dict is None:
+            return {'error': 'No zonefile'}
+
+        # find the profile
+        try:
+            profile, _ = blockstack_client.get_name_profile(name, user_zonefile=zonefile_dict)
+        except:
+            log.debug("Failed to load profile for '%s'" % name)
+            return {'error': 'Failed to load profile'}
+
+        return {'status': True, 'profile': profile}
+
+
+    def rpc_put_profile(self, name, profile_txt ):
+        """
+        Store a profile for a particular name
+        profile_txt must be a serialized JWT signed by the key in the user's zonefile
+        """
+        config = get_blockstack_opts()
+        if not config['serve_profiles']:
+            return {'error': 'No data'}
+
+        # find zonefile 
+        zonefile_dict = self.get_zonefile_by_name( config, name )
+        if zonefile_dict is None:
+            return {'error': 'No zonefile'}
+
+        user_data_pubkey = blockstack_client.user_zonefile_data_pubkey( zonefile_dict )
+        if user_data_pubkey is None:
+            return {'error': 'No data public key found in user profile.'}
+
+        try:
+            user_profile = blockstack_client.parse_signed_data( profile_txt, user_data_pubkey )
+        except:
+            log.exception(e)
+            return {'error': 'Failed to authenticate profile'}
+        
+        # authentic! store it
+        successes = 0
+        for handler in blockstack_client.get_storage_handlers():
+            try:
+                log.debug("Store profile with %s" % handler.__name__)
+                rc = handler.put_mutable_handler( name, profile_txt )
+            except Exception, e:
+                log.exception(e)
+                continue
+
+            if not rc:
+                log.error("Failed to use handler %s to store profile for %s" % (handler, name))
+                continue
+
+            successes += 1
+
+        if successes == 0:
+            return {'error': 'Failed to replicate profile'}
+        else:
+            return {'status': True, 'num_replicas': successes, 'num_failures': len(blockstack_client.get_storage_handlers()) - successes}
 
     
     def rpc_get_unspents(self, address):
@@ -1711,6 +1609,10 @@ def rpc_start( port, testset=False ):
     Start the global RPC server thread
     """
     global rpc_server
+
+    # let everyone in this thread know the PID
+    os.environ["BLOCKSTACK_RPC_PID"] = str(os.getpid())
+
     rpc_server = BlockstackdRPCServer( port, testset=testset )
 
     log.debug("Starting RPC")
@@ -2117,12 +2019,12 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
         return None
 
     if opcode_name == "NAME_PREORDER":
-        name_rec_script = build_preorder( None, None, None, str(name_rec['consensus_hash']), name_hash=str(name_rec['preorder_name_hash']), testset=testset )
+        name_rec_script = build_preorder( None, None, None, str(name_rec['consensus_hash']), name_hash=str(name_rec['preorder_name_hash']) )
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         ret_op = parse_preorder( name_rec_payload )
 
     elif opcode_name == "NAME_REGISTRATION":
-        name_rec_script = build_registration( str(name_rec['name']), testset=testset )
+        name_rec_script = build_registration( str(name_rec['name']) )
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         ret_op = parse_registration( name_rec_payload )
 
@@ -2154,7 +2056,7 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
         if name_rec['value_hash'] is not None:
             data_hash = str(name_rec['value_hash'])
 
-        name_rec_script = build_update( str(name_rec['name']), str(name_rec['consensus_hash']), data_hash=data_hash, testset=testset )
+        name_rec_script = build_update( str(name_rec['name']), str(name_rec['consensus_hash']), data_hash=data_hash )
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         ret_op = parse_update(name_rec_payload)
 
@@ -2206,19 +2108,19 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
         name_rec['address'] = address
         name_rec['consensus_hash'] = untrusted_db.get_consensus_at( send_block_id )
 
-        name_rec_script = build_transfer( str(name_rec['name']), name_rec['keep_data'], str(name_rec['consensus_hash']), testset=testset )
+        name_rec_script = build_transfer( str(name_rec['name']), name_rec['keep_data'], str(name_rec['consensus_hash']) )
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         ret_op = parse_transfer(name_rec_payload, name_rec['recipient'] )
 
         del name_rec['history']
 
     elif opcode_name == "NAME_REVOKE":
-        name_rec_script = build_revoke( str(name_rec['name']), testset=testset )
+        name_rec_script = build_revoke( str(name_rec['name']) )
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         ret_op = parse_revoke( name_rec_payload )
 
     elif opcode_name == "NAME_IMPORT":
-        name_rec_script = build_name_import( str(name_rec['name']), testset=testset )
+        name_rec_script = build_name_import( str(name_rec['name']) )
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
 
         # reconstruct recipient and importer
@@ -2230,20 +2132,20 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
         ret_op = parse_name_import( name_rec_payload, str(name_rec['recipient']), str(name_rec['value_hash']) )
 
     elif opcode_name == "NAMESPACE_PREORDER":
-        name_rec_script = build_namespace_preorder( None, None, None, str(name_rec['consensus_hash']), namespace_id_hash=str(name_rec['namespace_id_hash']), testset=testset )
+        name_rec_script = build_namespace_preorder( None, None, None, str(name_rec['consensus_hash']), namespace_id_hash=str(name_rec['namespace_id_hash']) )
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         ret_op = parse_namespace_preorder(name_rec_payload)
 
     elif opcode_name == "NAMESPACE_REVEAL":
         name_rec_script = build_namespace_reveal( str(name_rec['namespace_id']), name_rec['version'], str(name_rec['recipient_address']), \
                                                   name_rec['lifetime'], name_rec['coeff'], name_rec['base'], name_rec['buckets'],
-                                                  name_rec['nonalpha_discount'], name_rec['no_vowel_discount'], testset=testset )
+                                                  name_rec['nonalpha_discount'], name_rec['no_vowel_discount'] )
 
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         ret_op = parse_namespace_reveal( name_rec_payload, str(name_rec['sender']), str(name_rec['recipient_address']) )
 
     elif opcode_name == "NAMESPACE_READY":
-        name_rec_script = build_namespace_ready( str(name_rec['namespace_id']), testset=testset )
+        name_rec_script = build_namespace_ready( str(name_rec['namespace_id']) )
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         ret_op = parse_namespace_ready( name_rec_payload )
 

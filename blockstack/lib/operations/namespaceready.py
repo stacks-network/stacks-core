@@ -39,6 +39,7 @@ FIELDS = NAMESPACE_REVEAL_FIELDS + [
     'ready_block',      # block number at which the namespace was readied
 ]
 
+'''
 def build( namespace_id, testset=False ):
    """
    Record to mark the end of a namespace import in the blockchain.
@@ -66,8 +67,11 @@ def build( namespace_id, testset=False ):
    return packaged_script
 
 
-def broadcast( namespace_id, private_key, blockchain_client, testset=False, tx_only=False, blockchain_broadcaster=None ):
+def broadcast( namespace_id, private_key, blockchain_client, user_public_key=None, testset=False, blockchain_broadcaster=None ):
    
+   tx_only = False
+   # TODO: support tx_only 
+
    if blockchain_broadcaster is None:
        blockchain_broadcaster = blockchain_client 
     
@@ -125,4 +129,4 @@ def get_fees( inputs, outputs ):
     the subsidization of namespaces.
     """
     return (None, None)
-
+'''

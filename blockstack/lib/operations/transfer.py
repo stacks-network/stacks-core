@@ -72,7 +72,7 @@ def get_transfer_recipient_from_outputs( outputs ):
     
     return ret 
 
-
+'''
 def transfer_sanity_check( name, consensus_hash ):
     """
     Verify that data for a transfer is valid.
@@ -153,13 +153,16 @@ def make_outputs( data, inputs, new_name_owner_address, change_address, pay_fee=
     ]
 
 
-def broadcast(name, destination_address, keepdata, consensus_hash, private_key, blockchain_client, blockchain_broadcaster=None, tx_only=False, user_public_key=None, testset=False):
+def broadcast(name, destination_address, keepdata, consensus_hash, private_key, blockchain_client, blockchain_broadcaster=None, subsidize=False, user_public_key=None, testset=False):
     
-    # sanity check 
-    pay_fee = True
+    # sanity check
+    tx_only = False
     if user_public_key is not None:
-        pay_fee = False
         tx_only = True 
+
+    pay_fee = True
+    if subsidize:
+        pay_fee = False
 
     if user_public_key is None and private_key is None:
         raise Exception("Missing both public and private key")
@@ -177,7 +180,6 @@ def broadcast(name, destination_address, keepdata, consensus_hash, private_key, 
     if user_public_key is not None:
         # subsidizing 
         pubk = BitcoinPublicKey( user_public_key )
-
         from_address = pubk.address()
         inputs = get_unspents( from_address, blockchain_client )
 
@@ -185,8 +187,6 @@ def broadcast(name, destination_address, keepdata, consensus_hash, private_key, 
         # ordering directly 
         pubk = BitcoinPrivateKey( private_key ).public_key()
         public_key = pubk.to_hex()
-        
-        # get inputs and from address using private key
         private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
         
     nulldata = build(name, keepdata, consensus_hash, testset=testset)
@@ -277,4 +277,4 @@ def get_fees( inputs, outputs ):
     op_fee = DEFAULT_DUST_FEE
     
     return (dust_fee, op_fee)
-
+'''

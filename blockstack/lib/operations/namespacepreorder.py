@@ -49,6 +49,7 @@ FIELDS = [
     'address'               # address from the scriptPubKey
 ]
 
+'''
 def build( namespace_id, script_pubkey, register_addr, consensus_hash, namespace_id_hash=None, testset=False ):
    """
    Preorder a namespace with the given consensus hash.  This records that someone has begun to create 
@@ -122,7 +123,7 @@ def make_outputs( data, inputs, change_addr, fee, pay_fee=True, format='bin' ):
     ]
     
 
-def broadcast( namespace_id, register_addr, consensus_hash, private_key, blockchain_client, fee, pay_fee=True, tx_only=False, testset=False, blockchain_broadcaster=None ):
+def broadcast( namespace_id, register_addr, consensus_hash, private_key, blockchain_client, fee, pay_fee=True, user_public_key=None, testset=False, blockchain_broadcaster=None ):
    """
    Propagate a namespace.
    
@@ -132,6 +133,9 @@ def broadcast( namespace_id, register_addr, consensus_hash, private_key, blockch
    private_key          the Bitcoin address that created this namespace, and can populate it.
    """
   
+   # TODO: support tx_only 
+   tx_only = False
+
    if blockchain_broadcaster is None:
        blockchain_broadcaster = blockchain_client 
    
@@ -190,4 +194,4 @@ def get_fees( inputs, outputs ):
     the subsidization of namespaces.
     """
     return (None, None)
-
+'''

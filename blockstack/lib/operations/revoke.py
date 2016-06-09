@@ -36,7 +36,7 @@ from ..nameset import NAMEREC_FIELDS
 # consensus hash fields (ORDER MATTERS!)
 FIELDS = NAMEREC_FIELDS
 
-
+'''
 def build(name, testset=False):
     """
     Takes in the name, including the namespace ID (but not the id: scheme)
@@ -91,13 +91,16 @@ def make_outputs( data, inputs, change_address, pay_fee=True ):
     ]
 
 
-def broadcast(name, private_key, blockchain_client, testset=False, blockchain_broadcaster=None, user_public_key=None, tx_only=False):
+def broadcast(name, private_key, blockchain_client, testset=False, blockchain_broadcaster=None, subsidize=False, user_public_key=None ):
     
     # sanity check 
+    tx_only = False
     pay_fee = True
     if user_public_key is not None:
-        pay_fee = False
         tx_only = True
+
+    if subsidize:
+        pay_fee = False
 
     if user_public_key is None and private_key is None:
         raise Exception("Missing both public and private key")
@@ -115,7 +118,6 @@ def broadcast(name, private_key, blockchain_client, testset=False, blockchain_br
     if user_public_key is not None:
         # subsidizing 
         pubk = BitcoinPublicKey( user_public_key )
-
         from_address = pubk.address()
         inputs = get_unspents( from_address, blockchain_client )
 
@@ -123,7 +125,6 @@ def broadcast(name, private_key, blockchain_client, testset=False, blockchain_br
         # ordering directly 
         pubk = BitcoinPrivateKey( private_key ).public_key()
         public_key = pubk.to_hex()
-        
         private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
          
     nulldata = build(name, testset=testset)
@@ -186,4 +187,4 @@ def get_fees( inputs, outputs ):
     op_fee = 0
     
     return (dust_fee, op_fee)
-
+'''

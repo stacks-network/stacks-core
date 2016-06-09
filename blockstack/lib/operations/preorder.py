@@ -52,6 +52,7 @@ FIELDS = [
      'op_fee',              # blockstack fee (sent to burn address)
 ]
 
+'''
 def build(name, script_pubkey, register_addr, consensus_hash, name_hash=None, testset=False):
     """
     Takes a name, including the namespace ID (but not the id: scheme), a script_publickey to prove ownership
@@ -116,19 +117,18 @@ def make_outputs( data, inputs, sender_addr, fee, format='bin' ):
     ]
 
 
-def broadcast(name, private_key, register_addr, consensus_hash, blockchain_client, fee, blockchain_broadcaster=None, subsidy_public_key=None, tx_only=False, testset=False):
+def broadcast(name, private_key, register_addr, consensus_hash, blockchain_client, fee, blockchain_broadcaster=None, user_public_key=None, testset=False):
     """
     Builds and broadcasts a preorder transaction.
-
-    @subsidy_public_key: if given, the public part of the subsidy key 
     """
 
-    if subsidy_public_key is not None:
+    tx_only = False
+    if user_public_key is not None:
         # subsidizing, and only want the tx 
         tx_only = True
     
     # sanity check 
-    if subsidy_public_key is None and private_key is None:
+    if user_public_key is None and private_key is None:
         raise Exception("Missing both client public and private key")
     
     if blockchain_broadcaster is None:
@@ -139,14 +139,13 @@ def broadcast(name, private_key, register_addr, consensus_hash, blockchain_clien
     private_key_obj = None
     script_pubkey = None    # to be mixed into preorder hash
     
-    if subsidy_public_key is not None:
-        # subsidizing
-        pubk = BitcoinPublicKey( subsidy_public_key )
-        
-        from_address = BitcoinPublicKey( subsidy_public_key ).address()
+    if user_public_key is not None:
+        # tx only
+        pubk = BitcoinPublicKey( user_public_key )
 
+        from_address = BitcoinPublicKey( user_public_key ).address()
         inputs = get_unspents( from_address, blockchain_client )
-        script_pubkey = get_script_pubkey( subsidy_public_key )
+        script_pubkey = get_script_pubkey( user_public_key )
 
     else:
         # ordering directly
@@ -233,3 +232,4 @@ def get_fees( inputs, outputs ):
     op_fee = outputs[2]["value"]
     
     return (dust_fee, op_fee)
+'''
