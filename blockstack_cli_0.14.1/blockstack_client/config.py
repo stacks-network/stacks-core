@@ -57,6 +57,20 @@ BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = "disk,dht"
 
 DEFAULT_TIMEOUT = 30  # in secs
 
+""" transaction fee configs
+"""
+
+DEFAULT_OP_RETURN_FEE = 10000
+DEFAULT_DUST_FEE = 5500
+DEFAULT_OP_RETURN_VALUE = 0
+DEFAULT_FEE_PER_KB = 10000
+
+
+""" magic bytes configs
+"""
+
+MAGIC_BYTES = 'id'
+
 # borrowed from Blockstack
 FIRST_BLOCK_MAINNET = 373601
 
@@ -73,6 +87,10 @@ NAME_IMPORT = ';'
 NAMESPACE_PREORDER = '*'
 NAMESPACE_REVEAL = '&'
 NAMESPACE_READY = '!'
+
+# extra bytes affecting a transfer
+TRANSFER_KEEP_DATA = '>'
+TRANSFER_REMOVE_DATA = '~'
 
 # borrowed from Blockstack
 # these never change, so it's fine to duplicate them here
@@ -194,7 +212,42 @@ OPFIELDS = {
 }
 
 # borrowed from Blockstack
-# never changes, so safe to duplicate
+# never changes so safe to duplicate to avoid gratuitous imports
+# op-return formats
+LENGTHS = {
+    'magic_bytes': 2,
+    'opcode': 1,
+    'preorder_name_hash': 20,
+    'consensus_hash': 16,
+    'namelen': 1,
+    'name_min': 1,
+    'name_max': 34,
+    'name_hash': 16,
+    'update_hash': 20,
+    'data_hash': 20,
+    'blockchain_id_name': 37,
+    'blockchain_id_namespace_life': 4,
+    'blockchain_id_namespace_coeff': 1,
+    'blockchain_id_namespace_base': 1,
+    'blockchain_id_namespace_buckets': 8,
+    'blockchain_id_namespace_discounts': 1,
+    'blockchain_id_namespace_version': 2,
+    'blockchain_id_namespace_id': 19,
+    'announce': 20,
+    'max_op_length': 40
+}
+
+
+# namespace version
+BLOCKSTACK_VERSION = 1
+NAME_SCHEME = MAGIC_BYTES + NAME_REGISTRATION
+ 
+# burn address for fees (the address of public key 0x0000000000000000000000000000000000000000)
+BLOCKSTACK_BURN_PUBKEY_HASH = "0000000000000000000000000000000000000000"
+BLOCKSTACK_BURN_ADDRESS = "1111111111111111111114oLvT2"
+
+# borrowed from Blockstack
+# never changes, so safe to duplicate to avoid gratuitous imports
 MAXIMUM_NAMES_PER_ADDRESS = 25
 
 
