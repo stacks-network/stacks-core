@@ -61,13 +61,13 @@ sys.path.insert(0, parent_dir)
 
 from .backend.crypto.utils import get_address_from_privkey, get_pubkey_from_privkey
 from .backend.crypto.utils import aes_encrypt, aes_decrypt
-from .backend.blockchain import get_balance, dontuseAddress, underfundedAddress
+from .backend.blockchain import get_balance, is_address_usable, get_tx_fee
 from .utils import satoshis_to_btc, btc_to_satoshis, exit_with_error, print_result
 
 import config
-from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR, CONFIG_FILENAME, WALLET_FILENAME
+from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR, CONFIG_FILENAME, WALLET_FILENAME, MINIMUM_BALANCE
 
-from .proxy import get_names_owned_by_address, get_default_proxy
+from .proxy import get_names_owned_by_address, get_default_proxy, get_name_cost
 from .rpc import local_rpc_connect
 
 log = config.get_logger()
@@ -176,11 +176,11 @@ class HDWallet(object):
         for payment_address in addresses:
 
             # find an address that can be used for payment
-
-            if dontuseAddress(payment_address, config_path=config_path):
+            if not is_address_usable(payment_address, config_path=config_path):
                 log.debug("Pending tx on address: %s" % payment_address)
 
-            elif underfundedAddress(payment_address, config_path=config_path):
+            balance = get_balance( payment_address, config_path=config_path )
+            if balance < MINIMUM_BALANCE: 
                 log.debug("Underfunded address: %s" % payment_address)
 
             else:
@@ -574,15 +574,26 @@ def display_wallet_info(payment_address, owner_address, data_public_key, config_
     if data_public_key is not None:
         print "Data public key:\t%s" % data_public_key
 
-    print '-' * 60
-    print "Balance:"
-    print "%s: %s" % (payment_address, get_balance(payment_address, config_path=config_path))
-    print '-' * 60
+    balance = get_balance( payment_address, config_path=config_path )
+    if balance is None:
+        print "Failed to look up balance"
 
-    print "Names Owned:"
+    else:
+        balance = satoshis_to_btc( balance )
+        print '-' * 60
+        print "Balance:"
+        print "%s: %s" % (payment_address, balance)
+        print '-' * 60
+
     names_owned = get_names_owned(owner_address)
-    print "%s: %s" % (owner_address, names_owned)
-    print '-' * 60
+    if 'error' in names_owned:
+        print "Failed to look up names owned"
+
+    else:
+        print "Names Owned:"
+        names_owned = get_names_owned(owner_address)
+        print "%s: %s" % (owner_address, names_owned)
+        print '-' * 60
 
 
 def get_names_owned(address, proxy=None):
@@ -690,45 +701,9 @@ def get_total_balance(config_path=CONFIG_PATH, wallet_path=WALLET_PATH):
     total_balance = 0.0
 
     for entry in payment_addresses:
-        total_balance += float(entry['balance'])
+        total_balance += entry['balance']
 
     return total_balance, payment_addresses
-
-
-def approx_tx_fees(num_tx):
-    """ Just a rough approximation on tx fees
-        It slightly over estimates
-        Should be replaced by checking for fee estimation from bitcoind
-    """
-    APPROX_FEE_PER_TX = 8000  # in satoshis
-    return num_tx * APPROX_FEE_PER_TX
-
-
-def hasEnoughBalance(payment_address, cost, config_path=CONFIG_PATH):
-
-    total_balance = get_balance(payment_address, config_path=config_path)
-
-    if total_balance > cost:
-        return True
-    else:
-        return False
-
-
-def get_total_fees(data):
-
-    reply = {}
-
-    registration_fee_satoshi = data['satoshis']
-    tx_fee_satoshi = approx_tx_fees(num_tx=2)
-
-    registration_fee = satoshis_to_btc(registration_fee_satoshi)
-    tx_fee = satoshis_to_btc(tx_fee_satoshi)
-
-    reply['name_price'] = registration_fee
-    reply['transaction_fee'] = tx_fee
-    reply['total_estimated_cost'] = registration_fee + tx_fee
-
-    return reply
 
 
 def dump_wallet(config_path=CONFIG_PATH, password=None):
