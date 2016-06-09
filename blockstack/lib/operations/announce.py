@@ -34,6 +34,7 @@ from ..scripts import *
 # consensus hash fields (none for announcements)
 FIELDS = []
 
+'''
 def build(message_hash, testset=False):
     """
      
@@ -89,13 +90,16 @@ def make_outputs( data, inputs, change_address, pay_fee=True ):
     ]
 
 
-def broadcast(message_hash, private_key, blockchain_client, testset=False, blockchain_broadcaster=None, user_public_key=None, tx_only=False):
+def broadcast(message_hash, private_key, blockchain_client, testset=False, blockchain_broadcaster=None, user_public_key=None, subsidize=False):
     
     # sanity check 
+    tx_only = False
     pay_fee = True
     if user_public_key is not None:
-        pay_fee = False
         tx_only = True
+
+    if subsidize:
+        pay_fee = False
 
     if user_public_key is None and private_key is None:
         raise Exception("Missing both public and private key")
@@ -117,17 +121,13 @@ def broadcast(message_hash, private_key, blockchain_client, testset=False, block
     private_key_obj = None
     
     if user_public_key is not None:
-        # subsidizing 
         pubk = BitcoinPublicKey( user_public_key )
-
         from_address = pubk.address()
         inputs = get_unspents( from_address, blockchain_client )
 
     elif private_key is not None:
-        # ordering directly 
         pubk = BitcoinPrivateKey( private_key ).public_key()
         public_key = pubk.to_hex()
-        
         private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
          
     nulldata = build(message_hash, testset=testset)
@@ -193,4 +193,4 @@ def get_fees( inputs, outputs ):
     op_fee = 0
     
     return (dust_fee, op_fee)
-
+'''

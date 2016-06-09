@@ -42,7 +42,7 @@ from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAX_NAMES_PER_S
     NAME_IMPORT_KEYRING_SIZE, GENESIS_SNAPSHOT, GENESIS_SNAPSHOT_TESTSET, default_blockstack_opts, NAMESPACE_READY, \
     FIRST_BLOCK_MAINNET, FIRST_BLOCK_TESTNET, FIRST_BLOCK_MAINNET_TESTSET, FIRST_BLOCK_TESTNET_TESTSET, TESTNET, NAME_OPCODES
 
-from ..operations import build_namespace_reveal, SERIALIZE_FIELDS
+from ..operations import SERIALIZE_FIELDS
 from ..hashing import *
 from ..b40 import is_b40
 
@@ -838,7 +838,11 @@ class BlockstackDB( virtualchain.StateEngine ):
           if rec.has_key('value_hash') and rec['value_hash'] == value_hash:
               ret.append(rec['name'])
 
-      return ret
+      if len(ret) == 0:
+          return None
+
+      else:
+          return ret
 
    
    @classmethod 

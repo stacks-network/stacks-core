@@ -29,6 +29,8 @@ import blockstack_utxo
 from blockstack_utxo import *
 from ..version import __version__
 
+import blockstack_client
+from blockstack_client.config import LENGTHS, DEFAULT_OP_RETURN_FEE, DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_VALUE, DEFAULT_FEE_PER_KB 
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
 
@@ -67,7 +69,10 @@ MAX_NAMES_PER_SENDER = 25                # a sender can own exactly one name
 
 """ RPC server configs
 """
-RPC_SERVER_PORT = 6264
+if os.getenv("BLOCKSTACK_TEST") is not None:
+    RPC_SERVER_PORT = 16264
+else:
+    RPC_SERVER_PORT = 6264
 
 """ Bitcoin configs
 """
@@ -191,7 +196,8 @@ NAME_OPCODES = {
 
 NAMESPACE_LIFE_INFINITE = 0xffffffff
 
-# op-return formats
+'''
+# op-return formats (now in blockstack_client)
 LENGTHS = {
     'magic_bytes': 2,
     'opcode': 1,
@@ -214,6 +220,7 @@ LENGTHS = {
     'announce': 20,
     'max_op_length': 40
 }
+'''
 
 MIN_OP_LENGTHS = {
     'preorder': LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'],
@@ -236,10 +243,13 @@ OP_RETURN_MAX_SIZE = 40
 """ transaction fee configs
 """
 
+'''
+# (now in blockstack_client)
 DEFAULT_OP_RETURN_FEE = 10000
 DEFAULT_DUST_FEE = 5500
 DEFAULT_OP_RETURN_VALUE = 0
 DEFAULT_FEE_PER_KB = 10000
+'''
 
 """ name price configs
 """
@@ -277,8 +287,8 @@ else:
 NUM_CONFIRMATIONS = 6                         # number of blocks to wait for before accepting names
 
 # burn address for fees (the address of public key 0x0000000000000000000000000000000000000000)
-BLOCKSTORE_BURN_PUBKEY_HASH = "0000000000000000000000000000000000000000"
-BLOCKSTORE_BURN_ADDRESS = "1111111111111111111114oLvT2"
+BLOCKSTACK_BURN_PUBKEY_HASH = "0000000000000000000000000000000000000000"
+BLOCKSTACK_BURN_ADDRESS = "1111111111111111111114oLvT2"
 
 # default namespace record (i.e. for names with no namespace ID)
 NAMESPACE_DEFAULT = {
@@ -552,6 +562,7 @@ def default_blockstack_opts( config_file=None, testset=False ):
    utxo_provider = None
    testset_first_block = None
    max_subsidy = 0
+   subsidy_key = None
    contact_email = None
    announcers = "judecn.id,muneeb.id,shea256.id"
    announcements = None
@@ -560,6 +571,7 @@ def default_blockstack_opts( config_file=None, testset=False ):
    rpc_port = RPC_SERVER_PORT 
    blockchain_proxy = False
    serve_zonefiles = False
+   serve_profiles = False
    zonefile_dir = None
 
    if parser.has_section('blockstack'):
@@ -575,6 +587,9 @@ def default_blockstack_opts( config_file=None, testset=False ):
 
       if parser.has_option('blockstack', 'max_subsidy'):
          max_subsidy = int( parser.get('blockstack', 'max_subsidy'))
+
+      if parser.has_option('blockstack', 'subsidy_key'):
+         subsidy_key = parser.get('blockstack', 'subsidy_key')
 
       if parser.has_option('blockstack', 'backup_frequency'):
          backup_frequency = int( parser.get('blockstack', 'backup_frequency'))
@@ -601,6 +616,13 @@ def default_blockstack_opts( config_file=None, testset=False ):
               serve_zonefiles = True
           else:
               serve_zonefiles = False
+
+      if parser.has_option('blockstack', 'serve_profiles'):
+          serve_profiles = parser.get('blockstack', 'serve_profiles')
+          if serve_profiles.lower() in ['1', 'yes', 'true', 'on']:
+              serve_profiles = True
+          else:
+              serve_profiles = False
 
       if parser.has_option("blockstack", "zonefiles"):
           zonefile_dir = parser.get("blockstack", "zonefiles")
@@ -654,6 +676,7 @@ def default_blockstack_opts( config_file=None, testset=False ):
        'testset': testset,
        'testset_first_block': testset_first_block,
        'max_subsidy': max_subsidy,
+       'subsidy_key': subsidy_key,
        'email': contact_email,
        'announcers': announcers,
        'announcements': announcements,
@@ -661,6 +684,7 @@ def default_blockstack_opts( config_file=None, testset=False ):
        'backup_max_age': backup_max_age,
        'blockchain_proxy': blockchain_proxy,
        'serve_zonefiles': serve_zonefiles,
+       'serve_profiles': serve_profiles,
        'zonefiles': zonefile_dir
    }
 
@@ -803,7 +827,7 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
 
    Optionally force a re-prompting for all configuration details (with force=True)
 
-   Return (bitcoind_opts, utxo_opts)
+   Return (blockstack_opts, bitcoind_opts, utxo_opts)
    """
 
    global SUPPORTED_UTXO_PROVIDERS, SUPPORTED_UTXO_PARAMS, SUPPORTED_UTXO_PROMPT_MESSAGES

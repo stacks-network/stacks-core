@@ -44,6 +44,7 @@ FIELDS = NAMEREC_FIELDS + [
     'consensus_hash'        # consensus hash when this update was sent
 ]
 
+'''
 def update_sanity_test( name, consensus_hash, data_hash ):
     """
     Verify the validity of an update's data
@@ -120,7 +121,7 @@ def make_outputs( data, inputs, change_address, pay_fee=True ):
     ]
 
 
-def broadcast(name, data_hash, consensus_hash, private_key, blockchain_client, blockchain_broadcaster=None, tx_only=False, user_public_key=None, testset=False):
+def broadcast(name, data_hash, consensus_hash, private_key, blockchain_client, blockchain_broadcaster=None, subsidize=False, user_public_key=None, testset=False):
     """
     Write a name update into the blockchain.
     Returns a JSON object with 'data' set to the nulldata and 'transaction_hash' set to the transaction hash on success.
@@ -128,9 +129,12 @@ def broadcast(name, data_hash, consensus_hash, private_key, blockchain_client, b
     
     # sanity check 
     pay_fee = True
+    tx_only = False
     if user_public_key is not None:
-        pay_fee = False
         tx_only = True
+
+    if subsidize:
+        pay_fee = False
 
     if user_public_key is None and private_key is None:
         raise Exception("Missing both public and private key")
@@ -149,16 +153,12 @@ def broadcast(name, data_hash, consensus_hash, private_key, blockchain_client, b
         # subsidizing 
         pubk = BitcoinPublicKey( user_public_key )
         from_address = pubk.address()
-        
-        # get inputs from utxo provider 
         inputs = get_unspents( from_address, blockchain_client )
 
     elif private_key is not None:
         # ordering directly
         pubk = BitcoinPrivateKey( private_key ).public_key()
         public_key = pubk.to_hex()
-        
-        # get inputs and from address using private key
         private_key_obj, from_address, inputs = analyze_private_key(private_key, blockchain_client)
         
     nulldata = build(name, consensus_hash, data_hash=data_hash, testset=testset)
@@ -242,3 +242,4 @@ def serialize( nameop ):
     """
     
     return NAME_UPDATE + ":" + str(nameop['name_hash']) + "," + str(nameop['update_hash'])
+'''

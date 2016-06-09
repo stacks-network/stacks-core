@@ -33,6 +33,24 @@ import namespaceready
 import announce
 import binascii
 
+SERIALIZE_FIELDS = {
+    "NAME_PREORDER": preorder.FIELDS,
+    "NAME_REGISTRATION": register.FIELDS,
+    "NAME_UPDATE": update.FIELDS,
+    "NAME_TRANSFER": transfer.FIELDS,
+    "NAME_REVOKE": revoke.FIELDS,
+    "NAME_IMPORT": nameimport.FIELDS,
+    "NAMESPACE_PREORDER": namespacepreorder.FIELDS,
+    "NAMESPACE_REVEAL": namespacereveal.FIELDS,
+    "NAMESPACE_READY": namespaceready.FIELDS,
+    "ANNOUNCE": announce.FIELDS
+}
+
+# NOTE: most operation logic lives in the client
+from blockstack_client.operations import *
+
+
+"""
 from .preorder import build as build_preorder, \
     broadcast as preorder_name, parse as parse_preorder, \
     get_fees as preorder_fees
@@ -64,25 +82,13 @@ from .namespaceready import build as build_namespace_ready, \
 from .announce import build as build_announce, \
     broadcast as send_announce, parse as parse_announce, \
     get_fees as announce_fees
+"""
 
 from .register import get_registration_recipient_from_outputs 
 
 from .transfer import get_transfer_recipient_from_outputs
 
 from .nameimport import get_import_update_hash_from_outputs
-
-SERIALIZE_FIELDS = {
-    "NAME_PREORDER": preorder.FIELDS,
-    "NAME_REGISTRATION": register.FIELDS,
-    "NAME_UPDATE": update.FIELDS,
-    "NAME_TRANSFER": transfer.FIELDS,
-    "NAME_REVOKE": revoke.FIELDS,
-    "NAME_IMPORT": nameimport.FIELDS,
-    "NAMESPACE_PREORDER": namespacepreorder.FIELDS,
-    "NAMESPACE_REVEAL": namespacereveal.FIELDS,
-    "NAMESPACE_READY": namespaceready.FIELDS,
-    "ANNOUNCE": announce.FIELDS
-}
 
 
 

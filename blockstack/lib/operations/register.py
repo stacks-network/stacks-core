@@ -78,7 +78,7 @@ def get_registration_recipient_from_outputs( outputs ):
     
     return ret 
 
-
+'''
 def build(name, testset=False):
     """
     Takes in the name that was preordered, including the namespace ID (but not the id: scheme)
@@ -168,18 +168,18 @@ def make_outputs( data, change_inputs, register_addr, change_addr, renewal_fee=N
         outputs.append(
             
             # burn address (when renewing)
-            {"script_hex": make_pay_to_address_script(BLOCKSTORE_BURN_ADDRESS),
+            {"script_hex": make_pay_to_address_script(BLOCKSTACK_BURN_ADDRESS),
              "value": op_fee}
         )
 
     return outputs
     
 
-def broadcast(name, private_key, register_addr, blockchain_client, renewal_fee=None, blockchain_broadcaster=None, tx_only=False, user_public_key=None, subsidy_public_key=None, testset=False):
+def broadcast(name, private_key, register_addr, blockchain_client, renewal_fee=None, blockchain_broadcaster=None, user_public_key=None, subsidy_public_key=None, testset=False):
     
     # sanity check 
-    if subsidy_public_key is not None:
-        # if subsidizing, we're only giving back a tx to be signed
+    tx_only = False
+    if subsidy_public_key is not None or user_public_key is not None:
         tx_only = True
 
     if subsidy_public_key is None and private_key is None:
@@ -211,12 +211,15 @@ def broadcast(name, private_key, register_addr, blockchain_client, renewal_fee=N
 
         change_inputs = get_unspents( from_address, blockchain_client )
 
+    elif user_public_key is not None:
+        pubk = BitcoinPublicKey( user_public_key )
+        from_address = pubk.address()
+        change_inputs = get_unspents( from_address, blockchain_client )
+
     elif private_key is not None:
         # ordering directly
         pubk = BitcoinPrivateKey( private_key ).public_key()
         public_key = pubk.to_hex()
-        
-        # get inputs and from address using private key
         private_key_obj, from_address, change_inputs = analyze_private_key(private_key, blockchain_client)
         
     nulldata = build(name, testset=testset)
@@ -295,7 +298,7 @@ def get_fees( inputs, outputs ):
         if addr_hash is None:
             return (None, None) 
         
-        if addr_hash != BLOCKSTORE_BURN_PUBKEY_HASH:
+        if addr_hash != BLOCKSTACK_BURN_PUBKEY_HASH:
             return (None, None)
     
         dust_fee = (len(inputs) + 3) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
@@ -305,4 +308,4 @@ def get_fees( inputs, outputs ):
         dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
     
     return (dust_fee, op_fee)
-    
+'''

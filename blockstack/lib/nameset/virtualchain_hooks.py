@@ -63,7 +63,7 @@ def get_burn_fee_from_outputs( outputs ):
         output_hex = output_script.get('hex')
         output_addresses = output_script.get('addresses')
         
-        if output_asm[0:9] != 'OP_RETURN' and BLOCKSTORE_BURN_ADDRESS == output_addresses[0]:
+        if output_asm[0:9] != 'OP_RETURN' and BLOCKSTACK_BURN_ADDRESS == output_addresses[0]:
             
             # recipient's script_pubkey and address
             ret = int(output['value']*(10**8))

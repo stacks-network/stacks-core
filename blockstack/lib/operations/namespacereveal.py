@@ -66,6 +66,7 @@ FIELDS = [
     'no_vowel_discount',    # multiplicative coefficient that drops a name's price if it has no vowels
 ]
 
+'''
 def serialize_int( int_field, numbytes ):
    """
    Serialize an integer to a hex string that is padlen characters long.
@@ -227,7 +228,7 @@ def make_outputs( data, inputs, reveal_addr, change_addr, format='bin', testset=
     
     
 
-def broadcast( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, private_key, blockchain_client, tx_only=False, blockchain_broadcaster=None, testset=False ):
+def broadcast( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, private_key, blockchain_client, user_public_key=None, blockchain_broadcaster=None, testset=False ):
    """
    Propagate a namespace.
    
@@ -241,6 +242,9 @@ def broadcast( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exp
    nonalpha_discount:   discount multipler for non-alpha-character names 
    no_vowel_discount:   discount multipler for no-vowel names
    """
+
+   tx_only = False
+   # TODO: support tx_only
    
    if blockchain_broadcaster is None:
        blockchain_broadcaster = blockchain_client 
@@ -353,4 +357,4 @@ def get_fees( inputs, outputs ):
     the subsidization of namespaces.
     """
     return (None, None)
-
+'''

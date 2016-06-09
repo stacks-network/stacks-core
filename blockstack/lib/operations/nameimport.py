@@ -75,7 +75,7 @@ def get_import_update_hash_from_outputs( outputs, recipient ):
     
     return ret 
 
-
+'''
 def build(name, testset=False):
     """
     Takes in a name to import.  Name must include the namespace ID.
@@ -133,8 +133,11 @@ def make_outputs( data, inputs, recipient_address, sender_address, update_hash_b
     ]
 
 
-def broadcast(name, recipient_address, update_hash, private_key, blockchain_client, blockchain_broadcaster=None, tx_only=False, testset=False):
+def broadcast(name, recipient_address, update_hash, private_key, blockchain_client, blockchain_broadcaster=None, user_public_key=None, testset=False):
    
+    tx_only = False
+    # TODO: support tx_only
+
     if blockchain_broadcaster is None:
         blockchain_broadcaster = blockchain_client 
     
@@ -188,3 +191,4 @@ def get_fees( inputs, outputs ):
     the subsidization of namespaces.
     """
     return (None, None)
+'''
