@@ -281,7 +281,7 @@ if __name__ == "__main__":
     def hash_data(d):
         return pybitcoin.hash.hex_hash160(d)
 
-    rc = storage_init()
+    rc = storage_init({})
     if not rc:
         raise Exception("Failed to initialize")
 
