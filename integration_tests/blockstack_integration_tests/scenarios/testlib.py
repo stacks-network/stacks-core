@@ -377,13 +377,16 @@ def blockstack_announce( message, privatekey, tx_only=False, user_public_key=Non
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
 
+    """
     if tx_only:
         resp = test_proxy.announce_tx( message, privatekey )
     elif subsidy_key is not None:
         resp = test_proxy.announce_tx_subsidized( message, user_public_key, subsidy_key, proxy=test_proxy )
     else:
         resp = test_proxy.announce( message, privatekey )
+    """
 
+    resp = blockstack_client.do_announce( message, privatekey, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy )
     api_call_history.append( APICallRecord( "announce", message, resp ) )
     return resp
 
