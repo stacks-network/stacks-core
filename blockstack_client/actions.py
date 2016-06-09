@@ -87,25 +87,8 @@ from blockstack_client import \
     list_update_history, \
     list_zonefile_history, \
     lookup_snv, \
-    migrate_profile, \
-    name_import, \
-    namespace_preorder, \
-    namespace_ready, \
-    namespace_reveal, \
-    preorder, \
-    preorder_subsidized, \
     put_immutable, \
-    put_mutable, \
-    register, \
-    register_subsidized, \
-    renew, \
-    renew_subsidized, \
-    revoke, \
-    revoke_subsidized, \
-    transfer, \
-    transfer_subsidized, \
-    update, \
-    update_subsidized
+    put_mutable
 
 from rpc import local_rpc_connect, local_rpc_ensure_running, local_rpc_status, local_rpc_stop
 import rpc as local_rpc
@@ -117,7 +100,8 @@ from pybitcoin import is_b58check_address
 
 from binascii import hexlify
 
-from .backend.blockchain import get_balance, dontuseAddress, recipientNotReady, get_tx_confirmations
+from .backend.blockchain import get_balance, is_address_usable, can_receive_name, get_tx_confirmations
+from .backend.nameops import estimate_preorder_tx_fee, estimate_register_tx_fee, estimate_update_tx_fee
 
 from .wallet import *
 from .utils import pretty_dump, print_result
@@ -186,11 +170,12 @@ def can_update_or_transfer(fqu, config_path=CONFIG_PATH, transfer_address=None, 
 
     tx_fee_satoshi = approx_tx_fees(num_tx=1)
     tx_fee = satoshis_to_btc(tx_fee_satoshi)
+    balance = get_balance( payment_address, config_path=config_path )
 
-    if not hasEnoughBalance(payment_address, tx_fee, config_path=config_path):
-        return {'error': 'Address %s doesn\'t have a sufficient balance.' % payment_address}
+    if balance < tx_fee:
+        return {'error': 'Address %s doesn\'t have a sufficient balance (need %s).' % (payment_address, balance)}
 
-    if dontuseAddress(payment_address, config_path=config_path):
+    if not is_address_usable(payment_address, config_path=config_path):
         return {'error': 'Address %s has pending transactions.  Wait and try later.' % payment_address}
 
     if transfer_address is not None:
@@ -200,10 +185,37 @@ def can_update_or_transfer(fqu, config_path=CONFIG_PATH, transfer_address=None, 
         except:
             return {'error': "Address %s is not a valid Bitcoin address." % transfer_address}
 
-        if recipientNotReady(transfer_address, proxy=proxy):
+        if not can_receive_name(transfer_address, proxy=proxy):
             return {'error': "Address %s owns too many names already." % transfer_address}
 
     return {'status': True}
+
+
+def get_total_registration_fees(name, owner_pubkey_hex, payment_privkey, proxy=None, config_path=CONFIG_PATH):
+
+    try:
+        resp = get_name_cost(name, proxy=proxy)
+    except Exception, e:
+        log.exception(e)
+        return {'error': 'Could not connect to server'}
+
+    if 'error' in resp:
+        return {'error': 'Could not determine price of name: %s' % resp['error']}
+
+    utxo_client = get_utxo_client( config_path=config_path )
+    
+    # fee stimation: cost of name + cost of preorder transaction + cost of registration transaction + cost of update transaction
+    payment_pubkey_hex = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().to_hex()
+
+    reply = {}
+    reply['name_price'] = data['satoshis']
+    reply['preorder_tx_fee'] = estimate_preorder_tx_fee( name, data['satoshis'], payment_pubkey_hex, utxo_client, config_path=config_path )
+    reply['register_tx_fee'] = estimate_register_tx_fee( name, payment_pubkey_hex, utxo_client, config_path=config_path )
+    reply['update_tx_fee'] = estimate_update_tx_fee( name, owner_pubkey_hex, payment_privkey, utxo_client, config_path=config_path )
+
+    reply['total_estimated_cost'] = reply['name_price'] + reply['preorder_tx_fee'] + reply['register_tx_fee'] + reply['update_tx_fee']
+
+    return reply
 
 
 def start_rpc_endpoint(config_dir=CONFIG_DIR, password=None):
@@ -234,15 +246,19 @@ def cli_balance( args, config_path=CONFIG_PATH ):
 
     result = {}
     result['total_balance'], result['addresses'] = get_total_balance(config_path=config_path)
+    result['total_balance'] = satoshis_to_btc( result['total_balance'] )
     return result
 
 
-def cli_price( args, config_path=CONFIG_PATH ):
+def cli_price( args, config_path=CONFIG_PATH, proxy=None):
     """
     command: price
     help: Get and return the price of a name
     arg: name (str) "Name to query"
     """
+
+    if proxy is None:
+        proxy = get_default_proxy()
 
     fqu = str(args.name)
     error = check_valid_name(fqu)
@@ -250,17 +266,29 @@ def cli_price( args, config_path=CONFIG_PATH ):
         return {'error': error}
 
     try:
-        resp = get_name_cost(fqu)
+        resp = get_name_cost(fqu, proxy=proxy)
     except socket_error:
         return {'error': 'Error connecting to server'}
 
     if 'error' in resp:
         return resp
 
-    data = get_total_fees(resp)
+    if not walletUnlocked(config_dir=config_dir):
+        log.debug("unlocking wallet (%s)" % config_dir)
+        res = unlock_wallet(config_dir=config_dir, password=password)
+        if 'error' in res:
+            log.debug("unlock_wallet: %s" % res['error'])
+            return res
 
-    result = data
-    return result
+    wallet_keys = get_wallet( config_path=config_path )
+    if 'error' in wallet_keys:
+        return wallet_keys
+    
+    owner_privkey = wallet_keys['owner_privkey']
+    payment_privkey = wallet_keys['payment_privkey']
+
+    fees = get_total_registration_fees(fqu, pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex(), payment_privkey, proxy=proxy, config_path=config_path)
+    return fees
 
 
 def cli_config( args, config_path=CONFIG_PATH ):
@@ -623,6 +651,9 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
     arg: name (str) "The name to register"
     """
 
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
     config_dir = os.path.dirname(config_path)
     start_rpc_endpoint(config_dir, password=password)
 
@@ -639,14 +670,6 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
     if error: 
         return {'error': error}
 
-    cost = get_name_cost(fqu)
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    if 'error' in cost:
-        return cost
-
     if is_name_registered(fqu, proxy=proxy):
         return {'error': '%s is already registered.' % fqu}
 
@@ -657,12 +680,19 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
             log.debug("unlock_wallet: %s" % res['error'])
             return res
 
-    fees = get_total_fees(cost)
+    wallet_keys = get_wallet( config_path=config_path )
+    if 'error' in wallet_keys:
+        return wallet_keys
+    
+    owner_privkey = wallet_keys['owner_privkey']
+    payment_privkey = wallet_keys['payment_privkey']
+
+    fees = get_total_registration_fees(fqu, pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex(), payment_privkey, proxy=proxy, config_path=config_path)
 
     if interactive:
         try:
             cost = fees['total_estimated_cost']
-            input_prompt = "Registering %s will cost %s BTC." % (fqu, cost)
+            input_prompt = "Registering %s will cost %s BTC." % (fqu, float(cost)/(10**8))
             input_prompt += " Continue? (y/n): "
             user_input = raw_input(input_prompt)
             user_input = user_input.lower()
@@ -675,16 +705,16 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
             exit(0)
 
     payment_address, owner_address, data_address = get_addresses_from_file(wallet_path=wallet_path)
-
-    if not hasEnoughBalance(payment_address, fees['total_estimated_cost'], config_path=config_path):
-        msg = "Address %s doesn't have enough balance." % payment_address
+    balance = get_balance( payment_address )
+    if balance < fees['total_estimated_cost']:
+        msg = "Address %s doesn't have enough balance (need %s)." % (payment_address, balance)
         return {'error': msg}
 
-    if recipientNotReady(owner_address, proxy=proxy):
+    if not can_receive_name(owner_address, proxy=proxy):
         msg = "Address %s owns too many names already." % owner_address
         return {'error': msg}
 
-    if dontuseAddress(payment_address, config_path=config_path):
+    if not is_address_usable(payment_address, config_path=config_path):
         msg = "Address %s has pending transactions." % payment_address
         msg += " Wait and try later."
         return {'error': msg}
@@ -983,12 +1013,13 @@ def cli_advanced_register_tx( args, config_path=CONFIG_PATH ):
     command: register_tx
     help: Generate an unsigned transaction to register a name
     arg: name (str) "The name to register"
-    arg: privatekey (str) "The private key to send the registration transaction"
+    arg: public_key (str) "The public key to send the registration transaction"
     arg: addr (str) "The address to receive the name"
     """
 
-    result = register(str(args.name), str(args.privatekey),
-                      str(args.addr), tx_only=True)
+    # BROKEN
+    result = register_tx(str(args.name), str(args.public_key),
+                      str(args.addr))
     return result
 
 
@@ -997,12 +1028,12 @@ def cli_advanced_register_subsidized( args, config_path=CONFIG_PATH ):
     command: register_subsidized
     help: Generate a signed, subsidized transaction to register a name
     arg: name (str) "The name to register"
-    arg: privatekey (str) "The private key to send the registration tx"
+    arg: public_key (str) "The public key that sent the preorder tx"
     arg: addr (str) "The address to receive the name"
-    arg: subsidy_key (str) "The private key to pay for the tx fees"
     """
-    result = register_subsidized(str(args.name), str(args.privatekey),
-                                 str(args.addr), str(args.subsidy_key))
+    # BROKEN
+    result = register_subsidized(str(args.name), str(args.public_key),
+                                 str(args.addr))
 
     return result
 
@@ -1013,18 +1044,17 @@ def cli_advanced_update_tx( args, config_path=CONFIG_PATH ):
     help: Generate an unsigned transaction to update a name
     arg: name (str) "The name to update"
     arg: data (str) "The JSON-formatted zone file"
-    arg: privatekey (str) "The private key of the name's address"
-    opt: txid (str) "The transaction ID of a previously-sent but failed update"
+    arg: public_key (str) "The public key of the name's address"
     """
 
+    # BROKEN
     txid = None
     if args.txid is not None:
         txid = str(args.txid)
 
-    result = update(str(args.name),
+    result = update_tx(str(args.name),
                     str(args.data),
-                    str(args.privatekey),
-                    txid=txid, tx_only=True)
+                    str(args.public_key))
 
     return result
 
@@ -1036,10 +1066,10 @@ def cli_advanced_update_subsidized( args, config_path=CONFIG_PATH ):
     arg: name (str) "The name to update"
     arg: data (str) "The JSON-formatted zone file"
     arg: public_key (str) "The public key of the name's address"
-    arg: subsidy_key (str) "The private key that will pay for the update"
     opt: txid (str) "The transaction ID of a previously-sent but failed update"
     """
         
+    # BROKEN
     txid = None
     if args.txid is not None:
         txid = str(args.txid)
@@ -1047,27 +1077,7 @@ def cli_advanced_update_subsidized( args, config_path=CONFIG_PATH ):
     result = update_subsidized(str(args.name),
                                str(args.data),
                                str(args.public_key),
-                               str(args.subsidy_key),
                                txid=txid)
-
-    return result
-
-
-def cli_advanced_preorder( args, config_path=CONFIG_PATH ):
-    """
-    command: preorder
-    help: Preorder a name with a given private key and owner address.
-    arg: name (str) "The name to preorder"
-    arg: privatekey (str) "The private key to pay for the preorder"
-    opt: address (str) "The address to receive the name (automatically generated if not given)"
-    """
-
-    register_addr = None
-    if args.address is not None:
-        register_addr = str(args.address)
-
-    result = preorder(str(args.name), str(args.privatekey),
-                      register_addr=register_addr)
 
     return result
 
@@ -1077,16 +1087,17 @@ def cli_advanced_preorder_tx( args, config_path=CONFIG_PATH ):
     command: preorder_tx
     help: Generate an unsigned transaction that will preorder a name
     arg: name (str) "The name to preorder"
-    arg: privatekey (str) "The private key to pay for the preorder"
+    arg: public_key (str) "The public key to pay for the preorder"
     opt: address (str) "The address to receive the name (automatically generated if not given)"
     """
 
+    # BROKEN
     register_addr = None
     if args.address is not None:
         register_addr = str(args.address)
 
-    result = preorder(str(args.name), str(args.privatekey),
-                      register_addr=register_addr, tx_only=True)
+    result = preorder_tx(str(args.name), str(args.public_key),
+                      register_addr=register_addr)
 
     return result
 
@@ -1097,11 +1108,10 @@ def cli_advanced_preorder_subsidized( args, config_path=CONFIG_PATH ):
     help: Generate a subsidized transaction that will preorder a name.
     arg: name (str) "The name to preorder"
     arg: address (str) "The address of the name recipient"
-    arg: subsidy_key (str) "The private key that will pay for the preorder"
     """
+    # BROKEN
     result = preorder_subsidized(str(args.name),
-                                 str(args.address),
-                                 str(args.subsidy_key))
+                                 str(args.address))
 
     return result
 
@@ -1115,6 +1125,7 @@ def cli_advanced_transfer_tx( args, config_path=CONFIG_PATH ):
     arg: keepdata (str) "Whether or not to preserve the zonefile (True or False)"
     arg: privatekey (str) "The private key of the name owner"
     """
+    # BROKEN
     keepdata = False
     if args.keepdata.lower() not in ['true', 'false']:
         return {'error': "Pass 'true' or 'false' for keepdata"}
@@ -1139,8 +1150,8 @@ def cli_advanced_transfer_subsidized( args, config_path=CONFIG_PATH ):
     arg: address (str) "The address to receive the name"
     arg: keepdata (str) "Whether or not to preserve the zonefile (True or False)"
     arg: public_key (str) "The public key of the name owner"
-    arg: subsidy_key (str) "The private key that will pay for the transfer"
     """
+    # BROKEN
 
     keepdata = False
     if args.keepdata.lower() not in ["true", "false"]:
@@ -1153,8 +1164,7 @@ def cli_advanced_transfer_subsidized( args, config_path=CONFIG_PATH ):
     result = transfer_subsidized(str(args.name),
                                  str(args.address),
                                  keepdata,
-                                 str(args.public_key),
-                                 str(args.subsidy_key))
+                                 str(args.public_key))
 
     return result
 
@@ -1166,6 +1176,7 @@ def cli_advanced_renew( args, config_path=CONFIG_PATH ):
     arg: name (str) "The name to renew"
     arg: privatekey (str) "The private key of the name owner"
     """
+    # BROKEN
     config_dir = os.path.dirname(config_path)
     start_rpc_endpoint(config_dir)
 
@@ -1180,6 +1191,7 @@ def cli_advanced_renew_tx( args, config_path=CONFIG_PATH ):
     arg: name (str) "The name to renew"
     arg: privatekey (str) "The private key of the name owner"
     """
+    # BROKEN
     result = renew(str(args.name), str(args.privatekey),
                    tx_only=True)
 
@@ -1194,6 +1206,7 @@ def cli_advanced_renew_subsidized( args, config_path=CONFIG_PATH ):
     arg: public_key (str) "The public key of the name owner"
     arg: subsidy_key (str) "The private key that will pay for the renewal"
     """
+    # BROKEN
     result = renew_subsidized(str(args.name), str(args.public_key),
                               str(args.subsidy_key))
 
@@ -1207,6 +1220,7 @@ def cli_advanced_revoke( args, config_path=CONFIG_PATH ):
     arg: name (str) "The name to revoke"
     arg: privatekey (str) "The private key of the name owner"
     """
+    # BROKEN
     result = revoke(str(args.name), str(args.privatekey))
     return result
 
@@ -1218,6 +1232,7 @@ def cli_advanced_revoke_tx( args, config_path=CONFIG_PATH ):
     arg: name (str) "The name to revoke"
     arg: privatekey (str) "The private key of the name owner"
     """
+    # BROKEN
     result = revoke(str(args.name), str(args.privatekey),
                     tx_only=True)
 
@@ -1232,6 +1247,7 @@ def cli_advanced_revoke_subsidized( args, config_path=CONFIG_PATH ):
     arg: public_key (str) "The public key of the name owner"
     arg: subsidy_key (str) "The private key that will pay for the revoke"
     """
+    # BROKEN
     result = revoke_subsidized(str(args.name), str(args.public_key),
                                str(args.subsidy_key))
     return result
@@ -1246,6 +1262,7 @@ def cli_advanced_name_import( args, config_path=CONFIG_PATH ):
     arg: hash (str) "The zonefile hash of the name"
     arg: privatekey (str) "One of the private keys of the namespace revealer"
     """
+    # BROKEN
     result = name_import(str(args.name), str(args.address),
                          str(args.hash), str(args.privatekey))
 
@@ -1260,6 +1277,7 @@ def cli_advanced_namespace_preorder( args, config_path=CONFIG_PATH ):
     arg: privatekey (str) "The private key to send and pay for the preorder"
     opt: reveal_addr (str) "The address of the keypair that will import names (automatically generated if not given)"
     """
+    # BROKEN
     reveal_addr = None
     if args.address is not None:
         reveal_addr = str(args.address)
@@ -1283,8 +1301,10 @@ def cli_advanced_namespace_reveal( args, config_path=CONFIG_PATH ):
     arg: bucket_exponents (str) "A 16-field CSV of name-length exponents in the price function."
     arg: nonalpha_discount (int) "The denominator that defines the discount for names with non-alpha characters."
     arg: no_vowel_discount (int) "The denominator that defines the discount for names without vowels."
-    arg: privatekey (str) "The private key of the import keypair (whose address is `addr` above)."
+    arg: priv
+    result = atekey (str) "The private key of the import keypair (whose address is `addr` above)."
     """
+    # BROKEN
     bucket_exponents = args.bucket_exponents.split(',')
     if len(bucket_exponents) != 16:
         return {'error': '`bucket_exponents` must be a 16-value CSV of integers'}
@@ -1319,6 +1339,7 @@ def cli_advanced_namespace_ready( args, config_path=CONFIG_PATH ):
     arg: namespace_id (str) "The namespace ID"
     arg: privatekey (str) "The private key of the keypair that imports names"
     """
+    # BROKEN
     result = namespace_ready(str(args.namespace_id),
                              str(args.privatekey))
 
