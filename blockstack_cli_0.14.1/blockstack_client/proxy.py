@@ -385,82 +385,7 @@ def get_namespace_blockchain_record(namespace_id, proxy=None):
     return ret
 
 
-def get_namespace_reveal_blockchain_record(namespace_id, proxy=None):
-    """
-    Get a revealed (but not readied) namespace's information
-    """
-    if proxy is None:
-        proxy = get_default_proxy()
-
-    ret = proxy.get_namespace_reveal_blockchain_record(namespace_id)
-    if type(ret) == list:
-        if len(ret) == 0:
-            ret = {'error': 'No data returned'}
-            return ret
-        else:
-            ret = ret[0]
-
-    if ret is not None:
-        # this isn't needed
-        if 'opcode' in ret:
-            del ret['opcode']
-
-    return ret
-
-
-def preorder(name, privatekey, register_addr=None, proxy=None, tx_only=False):
-    """
-    preorder.
-    Generate a private key to derive a change address for the register,
-    if one is not given already.
-    """
-
-    register_privkey_wif = None
-
-    if register_addr is None:
-        privkey = pybitcoin.BitcoinPrivateKey()
-        pubkey = privkey.public_key()
-
-        register_addr = pubkey.address()
-
-        register_privkey_wif = privkey.to_wif()
-        print register_privkey_wif
-        print register_addr
-
-    # make sure the reveal address is *not* the address of this private key
-    privkey = pybitcoin.BitcoinPrivateKey(privatekey)
-    if register_addr == privkey.public_key().address():
-        return {"error": "Register address derived from private key"}
-
-    resp = {}
-
-    if proxy is None:
-        proxy = get_default_proxy()
-
-    try:
-        if tx_only:
-
-            # get unsigned preorder
-            resp = proxy.preorder_tx(name, privatekey, register_addr)
-
-        else:
-            # send preorder
-            resp = proxy.preorder(name, privatekey, register_addr)
-
-    except Exception as e:
-        resp['error'] = str(e)
-
-    if 'error' in resp:
-        return resp
-
-    # give the client back the key to the addr we used
-    if register_privkey_wif is not None:
-        resp['register_privatekey'] = register_privkey_wif
-
-    return resp
-
-
-def preorder_subsidized(name, register_addr, subsidy_key, proxy=None):
+def preorder_subsidized(name, register_addr, proxy=None):
     """
     preorder a name, but subsidize it with the given subsidy_key.
     Return a SIGHASH_ANYONECANPAY transaction, where the client must sign each
@@ -473,7 +398,7 @@ def preorder_subsidized(name, register_addr, subsidy_key, proxy=None):
 
     try:
         # get preorder tx
-        resp = proxy.preorder_tx_subsidized(name, register_addr, subsidy_key)
+        resp = proxy.preorder_tx_subsidized(name, register_addr)
 
     except Exception as e:
         resp['error'] = str(e)
@@ -481,9 +406,10 @@ def preorder_subsidized(name, register_addr, subsidy_key, proxy=None):
     return resp
 
 
-def register(name, privatekey, register_addr, proxy=None, tx_only=False):
+def register_lowlevel(name, privatekey, register_addr, proxy=None):
     """
     register
+    DO NOT CALL DIRECTLY
     """
 
     resp = {}
@@ -492,14 +418,9 @@ def register(name, privatekey, register_addr, proxy=None, tx_only=False):
         proxy = get_default_proxy()
 
     try:
-        if tx_only:
-
-            # get unsigned preorder
-            resp = proxy.register_tx(name, privatekey, register_addr)
-
-        else:
-            # send preorder
-            resp = proxy.register(name, privatekey, register_addr)
+            
+        # send registration tx
+        resp = proxy.register(name, privatekey, register_addr)
 
     except Exception as e:
         resp['error'] = str(e)
@@ -507,12 +428,32 @@ def register(name, privatekey, register_addr, proxy=None, tx_only=False):
     return resp
 
 
+def register_tx(name, owner_public_key, register_addr, proxy=None):
+    """
+    get a register transaction
+    """
+
+    resp = {}
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    try:
+        # get unsigned registration tx
+        resp = proxy.register_tx(name, owner_public_key, register_addr)
+
+    except Exception as e:
+        resp['error'] = str(e)
+
+    return resp
+
 
 def register_subsidized(name, public_key, register_addr, subsidy_key, proxy=None):
     """
     make a transaction that will register a name, but subsidize it with the given subsidy_key.
     Return a SIGHASH_ANYONECANPAY transaction, where the client must sign each
     input originating from register_addr
+    DO NOT CALL UNLESS THE SERVER IS LOCAL
     """
     resp = {}
 
@@ -529,9 +470,9 @@ def register_subsidized(name, public_key, register_addr, subsidy_key, proxy=None
     return resp
 
 
-def update(name, user_zonefile_json_or_hash, privatekey, txid=None, proxy=None, tx_only=False, public_key=None, subsidy_key=None):
+def update_lowlevel(name, user_zonefile_json_or_hash, privatekey, txid=None, proxy=None, public_key=None, subsidize=False ):
     """
-    Low-level update.
+    Low-level update.  DO NOT CALL DIRECTLY
 
     Update a name record.  Send a new transaction that attaches the given zonefile JSON (or a hash of it) to the name.
 
@@ -541,6 +482,10 @@ def update(name, user_zonefile_json_or_hash, privatekey, txid=None, proxy=None, 
     """
 
     import profile 
+
+    tx_only = False
+    if privatekey is None or public_key is not None or subsidize:
+        tx_only = True
 
     # sanity check
     if privatekey is None and public_key is None:
@@ -571,8 +516,9 @@ def update(name, user_zonefile_json_or_hash, privatekey, txid=None, proxy=None, 
             return {'error': 'User profile is unparseable JSON or unparseable hash'}
 
         user_zonefile_txt = zone_file.make_zone_file( user_zonefile, origin=name, ttl=USER_ZONEFILE_TTL )
-        user_zonefile_hash = storage.get_name_zonefile_hash( user_zonefile_txt )
+        user_zonefile_hash = storage.get_zonefile_data_hash( user_zonefile_txt )
 
+    """
     # must be blockchain data for this user
     blockchain_result = get_name_blockchain_record( name, proxy=proxy )
     if blockchain_result is None:
@@ -580,17 +526,18 @@ def update(name, user_zonefile_json_or_hash, privatekey, txid=None, proxy=None, 
     
     if 'error' in blockchain_result:
         return blockchain_result
+    """
 
     if tx_only:
 
         result = None
 
         # only want a transaction 
-        if privatekey is None and public_key is not None and subsidy_key is not None:
-            result = proxy.update_tx_subsidized( name, user_zonefile_hash, public_key, subsidy_key )
+        if subsidize:
+            result = proxy.update_tx_subsidized( name, user_zonefile_hash, public_key )
 
-        if privatekey is not None:
-            result = proxy.update_tx( name, user_zonefile_hash, privatekey )
+        else:
+            result = proxy.update_tx( name, user_zonefile_hash, public_key )
 
         if result is not None:
             return result
@@ -607,7 +554,6 @@ def update(name, user_zonefile_json_or_hash, privatekey, txid=None, proxy=None, 
 
         if 'transaction_hash' not in result:
             # failed
-            print result
             result['error'] = 'No transaction hash returned'
             return result
 
@@ -630,16 +576,24 @@ def update(name, user_zonefile_json_or_hash, privatekey, txid=None, proxy=None, 
     return result
 
 
+def update_tx(name, user_zonefile_json_or_hash, public_key, proxy=None ):
+    """
+    Get an update tx
+    """
+    return update_lowlevel(name, user_zonefile_json_or_hash, None, public_key=public_key, proxy=proxy )
+
+
 def update_subsidized(name, user_zonefile_json_or_hash, public_key, subsidy_key, txid=None, proxy=None):
     """
     update_subsidized
     """
-    return update(name, user_zonefile_json_or_hash, None, txid=txid, public_key=public_key, subsidy_key=subsidy_key, tx_only=True, proxy=proxy)
+    return update_lowlevel(name, user_zonefile_json_or_hash, None, txid=txid, public_key=public_key, subsidy_key=subsidy_key, proxy=proxy)
 
 
 def transfer(name, address, keep_data, privatekey, proxy=None, tx_only=False):
     """
     transfer
+    DO NOT CALL UNLESS THE SERVER IS LOCAL
     """
 
     if proxy is None:
