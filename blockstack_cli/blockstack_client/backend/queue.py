@@ -17,7 +17,7 @@ import json
 from ..config import DEFAULT_QUEUE_PATH, QUEUE_LENGTH_TO_MONITOR, PREORDER_MAX_CONFIRMATIONS, CONFIG_PATH
 from ..proxy import get_default_proxy
 
-from ..profile import hash_zonefile, is_zonefile_replicated
+from ..storage import hash_zonefile
 from ..proxy import is_name_registered, is_name_owner, has_zonefile_hash
 from .blockchain import get_block_height, get_tx_confirmations, is_tx_rejected, is_tx_accepted
 

@@ -39,6 +39,8 @@ import json
 import hashlib
 import urllib
 import urllib2
+import zone_file
+from collections import defaultdict
 
 import blockstack_profiles 
 
@@ -111,6 +113,18 @@ def get_blockchain_compat_hash( data_txt ):
    announcements).
    """
    return pybitcoin.hex_hash160( data_txt )
+
+
+def hash_zonefile( zonefile_json ):
+    """
+    Given a JSON-ized zonefile, calculate its hash
+    """
+    assert "$origin" in zonefile_json.keys(), "Missing $origin"
+    assert "$ttl" in zonefile_json.keys(), "Missing $ttl"
+
+    user_zonefile_txt = zone_file.make_zone_file( zonefile_json )
+    data_hash = get_zonefile_data_hash( user_zonefile_txt )
+    return data_hash
 
 
 def get_storage_handlers():
@@ -412,7 +426,7 @@ def serialize_immutable_data( data_json ):
     """
     Serialize a piece of immutable data
     """
-    assert type(data_json) in [dict], "Invalid immutable data: must be a dict"
+    assert type(data_json) in [dict,list,defaultdict], "Invalid immutable data: must be a dict or list(got type %s)" % type(data_json)
     return json.dumps(data_json, sort_keys=True)
 
 
@@ -575,6 +589,44 @@ def delete_mutable_data( fq_data_id, privatekey ):
          return False
 
    return True
+
+
+def get_announcement( announcement_hash ):
+    """
+    Go get an announcement's text, given its hash.
+    Use the blockstack client library, so we can get at
+    the storage drivers for the storage systems the sender used
+    to host it.
+
+    Return the data on success
+    """
+
+    data = get_immutable_data( announcement_hash, hash_func=get_blockchain_compat_hash, deserialize=False )
+    if data is None:
+        log.error("Failed to get announcement '%s'" % (announcement_hash))
+        return None
+
+    return data
+
+
+
+def put_announcement( announcement_text, txid ):
+    """
+    Go put an announcement into back-end storage.
+    Use the blockstack client library, so we can get at
+    the storage drivers for the storage systems this host
+    is configured to use.
+
+    Return the data's hash
+    """
+
+    data_hash = get_blockchain_compat_hash(announcement_text)
+    res = put_immutable_data( None, txid, data_hash=data_hash, data_text=announcement_text )
+    if res is None:
+        log.error("Failed to put announcement '%s'" % (data_hash))
+        return None
+
+    return data_hash
 
 
 def make_fq_data_id( name, data_id ):
