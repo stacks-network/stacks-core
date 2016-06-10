@@ -1,5 +1,6 @@
 # list of tests to ignore
 virtualchain_abort
+name_preorder_register_update_file_benchmark
 
 # skip multi-preorder and multi-register for now, since it's not ready
 name_preorder_multi
