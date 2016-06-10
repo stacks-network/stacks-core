@@ -52,7 +52,7 @@ from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SER
 
 log = get_logger()
 
-def make_wallet_keys( data_privkey=None, owner_privkey=None ):
+def make_wallet_keys( data_privkey=None, owner_privkey=None, payment_privkey=None ):
     """
     For testing.  DO NOT USE
     """
@@ -60,9 +60,15 @@ def make_wallet_keys( data_privkey=None, owner_privkey=None ):
     pk_data = pybitcoin.BitcoinPrivateKey( data_privkey ).to_hex()
     pk_owner = pybitcoin.BitcoinPrivateKey( owner_privkey ).to_hex()
 
+    if payment_privkey is None:
+        payment_privkey = owner_privkey
+
+    pk_payment = pybitcoin.BitcoinPrivateKey( payment_privkey ).to_hex()
+
     return {
         'data_privkey': pk_data,
-        'owner_privkey': pk_owner
+        'owner_privkey': pk_owner,
+        'payment_privkey': pk_payment
     }
 
 
@@ -113,4 +119,23 @@ def get_owner_keypair( wallet_keys=None, config_path=CONFIG_PATH ):
     public_key = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
     return public_key, owner_privkey
 
+
+def get_payment_keypair( wallet_keys=None, config_path=CONFIG_PATH ):
+    """
+    Get the user's payment keypair
+    """
+    from .wallet import get_wallet 
+
+    wallet = None
+    if wallet_keys is not None:
+        assert wallet_keys.has_key('payment_privkey') and wallet_keys['payment_privkey'] is not None, "No payment private key set"
+        wallet = wallet_keys
+
+    else:
+        wallet = get_wallet( config_path=CONFIG_PATH )
+        assert wallet is not None
+
+    payment_privkey = wallet['payment_privkey']
+    public_key = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().to_hex()
+    return public_key, payment_privkey
 

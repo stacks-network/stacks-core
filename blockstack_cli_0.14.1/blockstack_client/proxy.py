@@ -792,7 +792,7 @@ def is_zonefile_current(fqu, zonefile_json, proxy=None):
     Return True if hash(@zonefile_json) published on blockchain
     """
 
-    from .profile import hash_zonefile
+    from .storage import hash_zonefile
 
     if proxy is None:
         proxy = get_default_proxy()
