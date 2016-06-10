@@ -52,7 +52,7 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
-    resp = testlib.blockstack_name_revoke( "foo.test", wallets[4].privkey )
+    resp = testlib.blockstack_name_revoke( "foo.test", wallets[4].privkey, safety_checks=False )
     testlib.next_block( **kw )
 
 

@@ -82,14 +82,14 @@ def scenario( wallets, **kw ):
     wallet_keys_2 = blockstack_client.make_wallet_keys( owner_privkey=wallets[6].privkey, data_privkey=wallets[7].privkey )
 
     # migrate profiles 
-    res = blockstack_client.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
+    res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in res:
         res['test'] = 'Failed to initialize foo.test profile'
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
         return 
 
-    res = blockstack_client.migrate_profile( "bar.test", proxy=test_proxy, wallet_keys=wallet_keys_2 )
+    res = testlib.migrate_profile( "bar.test", proxy=test_proxy, wallet_keys=wallet_keys_2 )
     if 'error' in res:
         res['test'] = 'Failed to initialize bar.test profile'
         print json.dumps(res, indent=4, sort_keys=True)

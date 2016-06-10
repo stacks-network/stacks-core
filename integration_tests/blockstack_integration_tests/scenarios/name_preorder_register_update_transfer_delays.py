@@ -49,7 +49,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
     testlib.next_block( **kw )
 
-    resp = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, consensus_hash=consensus_hash )
+    resp = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
@@ -58,7 +58,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
     testlib.next_block( **kw )
 
-    resp = testlib.blockstack_namespace_ready( "test", wallets[1].privkey, consensus_hash=consensus_hash )
+    resp = testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
@@ -76,7 +76,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
     testlib.next_block( **kw )
     
-    resp = testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr, consensus_hash=consensus_hash )
+    resp = testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 

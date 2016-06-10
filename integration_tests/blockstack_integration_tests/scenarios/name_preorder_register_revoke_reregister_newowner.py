@@ -56,21 +56,21 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # can't do anything with the name for another 10 blocks
-    resp = testlib.blockstack_name_update( "foo.test", "11" * 20, wallets[3].privkey )
+    resp = testlib.blockstack_name_update( "foo.test", "11" * 20, wallets[3].privkey, safety_checks=False )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
     # should fail
-    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey )
+    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey, safety_checks=False )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
     # should fail
-    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey )
+    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, safety_checks=False )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
@@ -81,21 +81,21 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
     # verify that operations continue to fail
-    resp = testlib.blockstack_name_update( "foo.test", "11" * 20, wallets[3].privkey )
+    resp = testlib.blockstack_name_update( "foo.test", "11" * 20, wallets[3].privkey, safety_checks=False )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
     # should fail
-    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey )
+    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey, safety_checks=False )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
     # should fail
-    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey )
+    resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, safety_checks=False )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 

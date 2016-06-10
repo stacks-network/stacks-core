@@ -26,6 +26,7 @@ import pybitcoin
 import time
 import json
 import sys
+import blockstack_client
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -108,6 +109,30 @@ def check( state_engine ):
         if name_rec['address'] != owner_address or name_rec['sender'] != pybitcoin.make_pay_to_address_script(owner_address):
             print "sender is wrong"
             return False 
+
+        # have a zonefile 
+        zonefile = testlib.blockstack_get_zonefile( name_rec['value_hash'] )
+        if zonefile is None or 'error' in zonefile:
+            if zonefile is not None:
+                print "zonefile lookup error: %s" % zonefile['error']
+            else:
+                print "no zonefile returned"
+            return False
+
+        # hashes to this zonefile 
+        if blockstack_client.hash_zonefile( zonefile ) != name_rec['value_hash']:
+            print "wrong zonefile: %s != %s" % (blockstack_client.hash_zonefile(zonefile), name_rec['value_hash'])
+            return False
+
+        # verify that the profile is there 
+        profile = testlib.blockstack_get_profile( "foo_%s.test" % i )
+        if profile is None or 'error' in profile:
+            if profile is None:
+                print "no profile returned"
+            else:
+                print "profile lookup error: %s" % profile['error']
+
+            return False
 
     # all queues are drained 
     queue_info = testlib.blockstack_client_queue_state()

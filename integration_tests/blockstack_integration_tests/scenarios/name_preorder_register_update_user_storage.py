@@ -173,8 +173,8 @@ def check( state_engine ):
     print "http://localhost:%s" % blockstack.RPC_SERVER_PORT
     try:
         profile_resp_txt = srv.get_profile("foo.test")
-        profile_resp = json.loads(profile_json_txt)
-        assert 'error' not in profile_json
+        profile_resp = json.loads(profile_resp_txt)
+        assert 'error' not in profile_resp
         assert 'profile' in profile_resp
         profile = profile_resp['profile']
         assert 'data' in profile 

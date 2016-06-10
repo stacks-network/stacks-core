@@ -49,8 +49,8 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
    
     # only wallets[3] should get it
-    testlib.blockstack_name_register( "foo.test", wallets[4].privkey, wallets[3].addr )
-    testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
+    testlib.blockstack_name_register( "foo.test", wallets[4].privkey, wallets[3].addr, safety_checks=False )
+    testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr, safety_checks=False )
     testlib.next_block( **kw )
 
 

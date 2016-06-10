@@ -46,17 +46,17 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
     testlib.next_block( **kw )
 
-    testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
-    testlib.blockstack_name_preorder( "foo.test", wallets[4].privkey, wallets[5].addr )
-    testlib.blockstack_name_preorder( "foo.test", wallets[0].privkey, wallets[1].addr )
-    testlib.blockstack_name_preorder( "foo.test", wallets[5].privkey, wallets[2].addr )
+    testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr, safety_checks=False )
+    testlib.blockstack_name_preorder( "foo.test", wallets[4].privkey, wallets[5].addr, safety_checks=False )
+    testlib.blockstack_name_preorder( "foo.test", wallets[0].privkey, wallets[1].addr, safety_checks=False )
+    testlib.blockstack_name_preorder( "foo.test", wallets[5].privkey, wallets[2].addr, safety_checks=False )
     testlib.next_block( **kw )
 
     # all of these should fail, since they're in the same block
-    testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
-    testlib.blockstack_name_register( "foo.test", wallets[4].privkey, wallets[5].addr )
-    testlib.blockstack_name_register( "foo.test", wallets[0].privkey, wallets[1].addr )
-    testlib.blockstack_name_register( "foo.test", wallets[5].privkey, wallets[2].addr )
+    testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr, safety_checks=False )
+    testlib.blockstack_name_register( "foo.test", wallets[4].privkey, wallets[5].addr, safety_checks=False )
+    testlib.blockstack_name_register( "foo.test", wallets[0].privkey, wallets[1].addr, safety_checks=False )
+    testlib.blockstack_name_register( "foo.test", wallets[5].privkey, wallets[2].addr, safety_checks=False )
     testlib.next_block( **kw )
 
 def check( state_engine ):

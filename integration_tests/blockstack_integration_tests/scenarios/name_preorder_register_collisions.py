@@ -42,55 +42,55 @@ debug = True
 
 def scenario( wallets, **kw ):
 
-    resp = testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
+    resp = testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey, safety_checks=False )
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
     # should get rejected
-    resp = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
+    resp = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, safety_checks=False )
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     # should get rejected (NOTE: the underlying mock utxo provider doesn't handle double-spends!)
-    resp = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
+    resp = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, safety_checks=False )
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
     # should get accepted
-    resp = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
+    resp = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey, safety_checks=False )
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     # should get rejected (but only because the namespace isn't revealed until the block goes through)
-    resp = testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
+    resp = testlib.blockstack_namespace_ready( "test", wallets[1].privkey, safety_checks=False )
     if debug or  'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
-    resp = testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
+    resp = testlib.blockstack_namespace_ready( "test", wallets[1].privkey, safety_checks=False )
     if debug or  'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
-    resp = testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
+    resp = testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr, safety_checks=False )
     if debug or  'error' in resp:
         print json.dumps( resp, indent=4 )
    
     testlib.next_block( **kw )
 
     # should get rejected
-    resp = testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
+    resp = testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr, safety_checks=False )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     # should get rejected (NOTE: the underlying mock utxo provider doesn't handle double-spends!)
-    resp = testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
+    resp = testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr, safety_checks=False )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
@@ -99,36 +99,36 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
     
     # should succeed
-    resp = testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
+    resp = testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr, safety_checks=False )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
     # (this should succeed)
-    resp = testlib.blockstack_name_update( "foo.test", "11" * 20, wallets[3].privkey )
+    resp = testlib.blockstack_name_update( "foo.test", "11" * 20, wallets[3].privkey, safety_checks=False )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     # (this should also succeed)
-    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey )
+    resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey, safety_checks=False )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
 
     # (this should succeed)
-    resp = testlib.blockstack_name_renew( "foo.test", wallets[4].privkey )
+    resp = testlib.blockstack_name_renew( "foo.test", wallets[4].privkey, safety_checks=False )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     # (this should also succeed)
-    resp = testlib.blockstack_name_update( "foo.test", "22" * 20, wallets[4].privkey )
+    resp = testlib.blockstack_name_update( "foo.test", "22" * 20, wallets[4].privkey, safety_checks=False )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     # (this should succeed)
-    resp = testlib.blockstack_name_transfer( "foo.test", wallets[3].addr, True, wallets[4].privkey )
+    resp = testlib.blockstack_name_transfer( "foo.test", wallets[3].addr, True, wallets[4].privkey, safety_checks=False )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
@@ -136,7 +136,7 @@ def scenario( wallets, **kw ):
    
     # lots of updates 
     for i in xrange(0, 9):
-        resp = testlib.blockstack_name_update( "foo.test", ("%s%s" % (i,i)) * 20, wallets[3].privkey )
+        resp = testlib.blockstack_name_update( "foo.test", ("%s%s" % (i,i)) * 20, wallets[3].privkey, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
@@ -146,11 +146,11 @@ def scenario( wallets, **kw ):
     for i in xrange(0, 5):
 
         #resp = testlib.blockstack_name_transfer( "foo.test", wallets[3].addr, True, wallets[4].privkey )
-        resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey )
+        resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
-        resp = testlib.blockstack_name_transfer( "foo.test", wallets[3].addr, True, wallets[4].privkey )
+        resp = testlib.blockstack_name_transfer( "foo.test", wallets[3].addr, True, wallets[4].privkey, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
@@ -160,19 +160,19 @@ def scenario( wallets, **kw ):
     # update/transfer/update/transfer
     for i in xrange(0, 5):
 
-        resp = testlib.blockstack_name_transfer("foo.test", wallets[4].addr, True, wallets[3].privkey )
+        resp = testlib.blockstack_name_transfer("foo.test", wallets[4].addr, True, wallets[3].privkey, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
-        resp = testlib.blockstack_name_update("foo.test", "aa" * 20, wallets[4].privkey )
+        resp = testlib.blockstack_name_update("foo.test", "aa" * 20, wallets[4].privkey, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
-        resp = testlib.blockstack_name_transfer("foo.test", wallets[3].addr, True, wallets[4].privkey )
+        resp = testlib.blockstack_name_transfer("foo.test", wallets[3].addr, True, wallets[4].privkey, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
-        resp = testlib.blockstack_name_update("foo.test", "bb" * 20, wallets[3].privkey )
+        resp = testlib.blockstack_name_update("foo.test", "bb" * 20, wallets[3].privkey, safety_checks=False )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 

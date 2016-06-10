@@ -115,20 +115,33 @@ def check( state_engine ):
         print "Still in queue:\n%s" % json.dumps(queue_info, indent=4, sort_keys=True)
         return False
 
-    # have an update haash 
+    # have an update hash 
     if 'value_hash' not in name_rec or name_rec.get('value_hash', None) is None:
         print "No value hash"
         return False 
 
     # have a zonefile 
     zonefile = testlib.blockstack_get_zonefile( name_rec['value_hash'] )
-    if 'error' in zonefile:
-        print "zonefile lookup error: %s" % zonefile['error']
+    if zonefile is None or 'error' in zonefile:
+        if zonefile is not None:
+            print "zonefile lookup error: %s" % zonefile['error']
+        else:
+            print "no zonefile returned"
         return False
 
     # hashes to this zonefile 
     if blockstack_client.hash_zonefile( zonefile ) != name_rec['value_hash']:
         print "wrong zonefile: %s != %s" % (blockstack_client.hash_zonefile(zonefile), name_rec['value_hash'])
         return False
-    
+
+    # verify that the profile is there 
+    profile = testlib.blockstack_get_profile( "foo.test" )
+    if profile is None or 'error' in profile:
+        if profile is None:
+            print "no profile returned"
+        else:
+            print "profile lookup error: %s" % profile['error']
+
+        return False
+
     return True

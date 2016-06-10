@@ -67,7 +67,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
         testlib.next_block( **kw )
    
-        resp = testlib.blockstack_name_register( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr, consensus_hash=consensus_hash )
+        resp = testlib.blockstack_name_register( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
