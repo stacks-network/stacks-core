@@ -100,8 +100,8 @@ from pybitcoin import is_b58check_address
 
 from binascii import hexlify
 
-from .backend.blockchain import get_balance, is_address_usable, can_receive_name, get_tx_confirmations
-from .backend.nameops import estimate_preorder_tx_fee, estimate_register_tx_fee, estimate_update_tx_fee
+from .backend.blockchain import get_balance, is_address_usable, can_receive_name, get_tx_confirmations, get_utxo_client
+from .backend.nameops import estimate_preorder_tx_fee, estimate_register_tx_fee, estimate_update_tx_fee, estimate_transfer_tx_fee
 
 from .wallet import *
 from .utils import pretty_dump, print_result
@@ -139,7 +139,7 @@ def check_valid_name(fqu):
     return "The name is invalid"
 
 
-def can_update_or_transfer(fqu, config_path=CONFIG_PATH, transfer_address=None, proxy=None):
+def can_update_or_transfer(fqu, owner_pubkey_hex, payment_privkey, config_path=CONFIG_PATH, transfer_address=None, proxy=None):
     """
     Any update or transfer operation
     should pass these tests:
@@ -163,13 +163,18 @@ def can_update_or_transfer(fqu, config_path=CONFIG_PATH, transfer_address=None, 
     if not is_name_registered(fqu, proxy=proxy):
         return {'error': '%s is not registered yet.' % fqu}
 
+    utxo_client = get_utxo_client( config_path=config_path )
     payment_address, owner_address, data_address = get_addresses_from_file(wallet_path=wallet_path)
 
     if not is_name_owner(fqu, owner_address, proxy=proxy):
         return {'error': '%s is not in your possession.' % fqu}
 
-    tx_fee_satoshi = approx_tx_fees(num_tx=1)
-    tx_fee = satoshis_to_btc(tx_fee_satoshi)
+    # get tx fee 
+    if transfer_address is not None:
+        tx_fee = estimate_transfer_tx_fee( fqu, owner_pubkey_hex, payment_privkey, utxo_client, config_path=config_path ) 
+    else:
+        tx_fee = estimate_update_tx_fee( fqu, owner_pubkey_hex, payment_privkey, utxo_client, config_path=config_path )
+
     balance = get_balance( payment_address, config_path=config_path )
 
     if balance < tx_fee:
@@ -194,13 +199,13 @@ def can_update_or_transfer(fqu, config_path=CONFIG_PATH, transfer_address=None, 
 def get_total_registration_fees(name, owner_pubkey_hex, payment_privkey, proxy=None, config_path=CONFIG_PATH):
 
     try:
-        resp = get_name_cost(name, proxy=proxy)
+        data = get_name_cost(name, proxy=proxy)
     except Exception, e:
         log.exception(e)
         return {'error': 'Could not connect to server'}
 
-    if 'error' in resp:
-        return {'error': 'Could not determine price of name: %s' % resp['error']}
+    if 'error' in data:
+        return {'error': 'Could not determine price of name: %s' % data['error']}
 
     utxo_client = get_utxo_client( config_path=config_path )
     
@@ -644,6 +649,34 @@ def cli_whois( args, config_path=CONFIG_PATH ):
     return result
 
 
+def get_wallet_keys( config_path, password ):
+    """
+    Load up the wallet keys
+    Return the dict with the keys on success
+    Return {'error': ...} on failure
+    """
+    
+    config_dir = os.path.dirname(config_path)
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+    if not os.path.exists(wallet_path):
+        res = initialize_wallet(wallet_path=wallet_path)
+        if 'error' in res:
+            return res
+
+    if not walletUnlocked(config_dir=config_dir):
+        log.debug("unlocking wallet (%s)" % config_dir)
+        res = unlock_wallet(config_dir=config_dir, password=password)
+        if 'error' in res:
+            log.debug("unlock_wallet: %s" % res['error'])
+            return res
+
+    wallet_keys = get_wallet( config_path=config_path )
+    if 'error' in wallet_keys:
+        return wallet_keys
+
+    return wallet_keys
+
+
 def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None ):
     """
     command: register
@@ -657,13 +690,6 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
     config_dir = os.path.dirname(config_path)
     start_rpc_endpoint(config_dir, password=password)
 
-    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-    if not os.path.exists(wallet_path):
-        res = initialize_wallet(wallet_path=wallet_path)
-        if 'error' in res:
-            log.debug("initialize_wallet: %s" % res['error'])
-            return res
-
     result = {}
     fqu = str(args.name)
     error = check_valid_name(fqu)
@@ -673,21 +699,19 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
     if is_name_registered(fqu, proxy=proxy):
         return {'error': '%s is already registered.' % fqu}
 
-    if not walletUnlocked(config_dir=config_dir):
-        log.debug("unlocking wallet (%s)" % config_dir)
-        res = unlock_wallet(config_dir=config_dir, password=password)
-        if 'error' in res:
-            log.debug("unlock_wallet: %s" % res['error'])
-            return res
-
-    wallet_keys = get_wallet( config_path=config_path )
+    wallet_keys = get_wallet_keys( config_path, password )
     if 'error' in wallet_keys:
         return wallet_keys
-    
+
     owner_privkey = wallet_keys['owner_privkey']
     payment_privkey = wallet_keys['payment_privkey']
+    data_privkey = wallet_keys['data_privkey']
+    owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
+    owner_address = pybitcoin.BitcoinPublicKey(owner_pubkey).address()
+    payment_address = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().address()
+    data_address = pybitcoin.BitcoinPrivateKey(data_privkey).public_key().address()
 
-    fees = get_total_registration_fees(fqu, pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex(), payment_privkey, proxy=proxy, config_path=config_path)
+    fees = get_total_registration_fees(fqu, owner_pubkey, payment_privkey, proxy=proxy, config_path=config_path)
 
     if interactive:
         try:
@@ -704,7 +728,6 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
             print "\nExiting."
             exit(0)
 
-    payment_address, owner_address, data_address = get_addresses_from_file(wallet_path=wallet_path)
     balance = get_balance( payment_address )
     if balance < fees['total_estimated_cost']:
         msg = "Address %s doesn't have enough balance (need %s)." % (payment_address, balance)
@@ -749,14 +772,8 @@ def cli_update( args, config_path=CONFIG_PATH, password=None ):
 
     config_dir = os.path.dirname(config_path)
     start_rpc_endpoint(config_dir, password=password)
-
-    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-    if not os.path.exists(wallet_path):
-        res = initialize_wallet(wallet_path=wallet_path)
-        if 'error' in res:
-            return res
-
     fqu = str(args.name)
+
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
@@ -767,23 +784,26 @@ def cli_update( args, config_path=CONFIG_PATH, password=None ):
     except:
         return {'error': 'Zonefile data is not in JSON format.'}
 
-    res = can_update_or_transfer(fqu, config_path=config_path)
-    if 'error' in res:
-        return res
-
     if is_zonefile_current(fqu, user_data):
         msg ="Zonefile data is same as current zonefile; update not needed."
         return {'error': msg}
 
-    if not walletUnlocked(config_dir=config_dir):
-        res = unlock_wallet(config_dir=config_dir, password=password)
-        if 'error' in res:
-            return res
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
+
+    owner_privkey = wallet_keys['owner_privkey']
+    payment_privkey = wallet_keys['payment_privkey']
+    owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
+
+    res = can_update_or_transfer(fqu, owner_pubkey, payment_privkey, config_path=config_path)
+    if 'error' in res:
+        return res
 
     rpc = local_rpc_connect(config_dir=config_dir)
 
     try:
-        resp = rpc.backend_update(fqu, user_data)
+        resp = rpc.backend_update(fqu, user_data, None)
     except:
         return {'error': 'Error talking to server, try again.'}
 
@@ -810,11 +830,9 @@ def cli_transfer( args, config_path=CONFIG_PATH, password=None ):
     config_dir = os.path.dirname(config_path)
     start_rpc_endpoint(config_dir, password=password)
 
-    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-    if not os.path.exists(wallet_path):
-        res = initialize_wallet(wallet_path=wallet_path)
-        if 'error' in res:
-            return res
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
 
     fqu = str(args.name)
     error = check_valid_name(fqu)
@@ -822,15 +840,13 @@ def cli_transfer( args, config_path=CONFIG_PATH, password=None ):
         return {'error': error}
 
     transfer_address = str(args.address)
+    owner_privkey = wallet_keys['owner_privkey']
+    payment_privkey = wallet_keys['payment_privkey']
+    owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
 
-    res = can_update_or_transfer(fqu, transfer_address=transfer_address, config_path=config_path)
+    res = can_update_or_transfer(fqu, owner_pubkey, payment_privkey, transfer_address=transfer_address, config_path=config_path)
     if 'error' in res:
         return res
-
-    if not walletUnlocked(config_dir=config_dir):
-        res = unlock_wallet(config_dir=config_dir, password=password)
-        if 'error' in res:
-            return res
 
     rpc = local_rpc_connect(config_dir=config_dir)
 
@@ -862,12 +878,6 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None ):
     config_dir = os.path.dirname(config_path)
     start_rpc_endpoint(config_dir, password=password)
 
-    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-    if not os.path.exists(wallet_path):
-        res = initialize_wallet(wallet_path=wallet_path)
-        if 'error' in res:
-            return res
-
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
@@ -876,18 +886,18 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None ):
     if error:
         return {'error': error}
 
-    res = can_update_or_transfer(fqu, config_path=config_path)
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
+
+    transfer_address = str(args.address)
+    owner_privkey = wallet_keys['owner_privkey']
+    payment_privkey = wallet_keys['payment_privkey']
+    owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
+
+    res = can_update_or_transfer(fqu, owner_pubkey, payment_privkey, config_path=config_path)
     if 'error' in res:
         return res
-
-    if not walletUnlocked(config_dir=config_dir):
-        res = unlock_wallet(config_dir=config_dir, password=password)
-        if 'error' in res:
-            return res
-
-    wallet_keys = get_wallet( config_path=config_path )
-    if 'error' in wallet_keys:
-        return wallet_keys 
 
     user_zonefile = get_name_zonefile( fqu, proxy=proxy, wallet_keys=wallet_keys )
     if user_zonefile is not None and 'error' not in user_zonefile and is_zonefile_current(fqu, user_zonefile):
@@ -1301,8 +1311,7 @@ def cli_advanced_namespace_reveal( args, config_path=CONFIG_PATH ):
     arg: bucket_exponents (str) "A 16-field CSV of name-length exponents in the price function."
     arg: nonalpha_discount (int) "The denominator that defines the discount for names with non-alpha characters."
     arg: no_vowel_discount (int) "The denominator that defines the discount for names without vowels."
-    arg: priv
-    result = atekey (str) "The private key of the import keypair (whose address is `addr` above)."
+    arg: privatekey (str) "The private key of the import keypair (whose address is `addr` above)."
     """
     # BROKEN
     bucket_exponents = args.bucket_exponents.split(',')

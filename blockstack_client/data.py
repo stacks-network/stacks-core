@@ -44,6 +44,7 @@ import storage
 from keys import *
 from profile import *
 from proxy import *
+from storage import hash_zonefile
 
 import pybitcoin
 import bitcoin
@@ -428,7 +429,7 @@ def get_mutable(name, data_id, proxy=None, ver_min=None, ver_max=None, ver_check
     return {'data': mutable_data, 'version': version}
 
 
-def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None, wallet_keys=None ):
+def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None, utxo_client=None, wallet_keys=None ):
     """
     put_immutable
 
@@ -448,6 +449,9 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
     Return {'error': ...} on error
     """
 
+    from backend.nameops import do_update
+    from backend.blockchain import get_utxo_client 
+
     if type(data_json) not in [dict]:
         raise ValueError("Immutable data must be a dict")
 
@@ -466,7 +470,6 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
 
     data_text = storage.serialize_immutable_data( data_json )
     data_hash = storage.get_data_hash( data_text )
-    value_hash = None
 
     # insert into user zonefile, overwriting if need be
     if user_db.has_immutable_data_id( user_zonefile, data_id ):
@@ -487,30 +490,37 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
     if not rc:
         return {'error': 'Failed to insert immutable data into user zonefile'}
 
+    zonefile_hash = hash_zonefile( user_zonefile )
+
     # update zonefile, if we haven't already
     if txid is None:
+        _, payment_privkey = get_payment_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
         _, owner_privkey = get_owner_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
-        update_result = update( name, user_zonefile, owner_privkey, proxy=proxy )
+        utxo_client = get_utxo_client( config_path=proxy.conf['path'] )
+
+        update_result = do_update( name, zonefile_hash, owner_privkey, payment_privkey, utxo_client, config_path=proxy.conf['path'], proxy=proxy )
         if 'error' in update_result:
             # failed to replicate user zonefile hash 
             # the caller should simply try again, with the 'transaction_hash' given in the result.
             return update_result
 
         txid = update_result['transaction_hash']
-        value_hash = update_result['value_hash']
 
     result = {
         'immutable_data_hash': data_hash,
-        'transaction_hash': txid
+        'transaction_hash': txid,
+        'zonefile_hash': zonefile_hash
     }
-
-    if value_hash is not None:
-       result['zonefile_hash'] = value_hash 
 
     # replicate immutable data 
     rc = storage.put_immutable_data( data_json, txid )
     if not rc:
         result['error'] = 'Failed to store immutable data'
+        return result
+
+    rc = store_name_zonefile( name, user_zonefile, txid )
+    if not rc:
+        result['error'] = 'Failed to store zonefile'
         return result
 
     # success!
@@ -637,6 +647,9 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
     Return a dict with {'error': ...} on failure
     """
 
+    from backend.nameops import do_update
+    from backend.blockchain import get_utxo_client
+
     if proxy is None:
         proxy = get_default_proxy()
 
@@ -673,23 +686,32 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
 
     # remove 
     user_db.remove_immutable_data_zonefile( user_zonefile, data_key )
-    value_hash = None
+
+    zonefile_hash = hash_zonefile( user_zonefile )
     
     if txid is None:
         # actually send the transaction
+        _, payment_privkey = get_payment_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
         _, owner_privkey = get_owner_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
-        update_result = update( name, user_zonefile, owner_privkey, proxy=proxy )
+        utxo_client = get_utxo_client( config_path=proxy.conf['path'] )
+
+        update_result = do_update( name, zonefile_hash, owner_privkey, payment_privkey, utxo_client, config_path=proxy.conf['path'], proxy=proxy )
         if 'error' in update_result:
             # failed to remove from zonefile 
             return update_result 
 
         txid = update_result['transaction_hash']
-        value_hash = update_result['value_hash']
 
     result = {
-        'zonefile_hash': value_hash,
+        'zonefile_hash': zonefile_hash,
         'transaction_hash': txid
     }
+    
+    # put new zonefile 
+    rc = store_name_zonefile( name, user_zonefile, txid )
+    if not rc:
+        result['error'] = 'Failed to put new zonefile'
+        return result
 
     # delete immutable data 
     data_privkey = get_data_privkey( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
@@ -916,43 +938,4 @@ def data_list( name, proxy=None, wallet_keys=None ):
         return mutable_listing
 
     return {'status': True, 'listing': immutable_listing['data'] + mutable_listing['data']}
-
-
-
-def get_announcement( announcement_hash ):
-    """
-    Go get an announcement's text, given its hash.
-    Use the blockstack client library, so we can get at
-    the storage drivers for the storage systems the sender used
-    to host it.
-
-    Return the data on success
-    """
-
-    data = storage.get_immutable_data( announcement_hash, hash_func=blockstack_client.get_blockchain_compat_hash, deserialize=False )
-    if data is None:
-        log.error("Failed to get announcement '%s'" % (announcement_hash))
-        return None
-
-    return data
-
-
-
-def put_announcement( announcement_text, txid ):
-    """
-    Go put an announcement into back-end storage.
-    Use the blockstack client library, so we can get at
-    the storage drivers for the storage systems this host
-    is configured to use.
-
-    Return the data's hash
-    """
-
-    data_hash = storage.get_blockchain_compat_hash(announcement_text)
-    res = storage.put_immutable_data( None, txid, data_hash=data_hash, data_text=announcement_text )
-    if res is None:
-        log.error("Failed to put announcement '%s'" % (pybitcoin.hex_hash160(announcement_text)))
-        return None
-
-    return data_hash
 

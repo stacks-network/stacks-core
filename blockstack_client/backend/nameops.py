@@ -30,8 +30,6 @@ from ..utils import pretty_dump
 from ..config import PREORDER_CONFIRMATIONS, DEFAULT_QUEUE_PATH, CONFIG_PATH
 from ..config import get_logger
 
-from ..profile import hash_zonefile
-
 from ..proxy import get_default_proxy
 from ..proxy import getinfo as blockstack_getinfo
 from ..proxy import get_name_cost as blockstack_get_name_cost
@@ -43,9 +41,7 @@ from ..tx import sign_and_broadcast_tx, preorder_tx, register_tx, update_tx, tra
         namespace_preorder_tx, namespace_reveal_tx, namespace_ready_tx, announce_tx, name_import_tx, sign_tx
 
 from ..scripts import tx_make_subsidizable
-
-from ..data import put_announcement
-from ..storage import get_blockchain_compat_hash
+from ..storage import get_blockchain_compat_hash, hash_zonefile, put_announcement
 
 from ..operations import fees_update, fees_transfer, fees_revoke
 
@@ -227,7 +223,7 @@ def estimate_announce_tx_fee( sender_pubkey_hex, utxo_client, config_path=CONFIG
     return tx_fee
 
 
-def do_preorder( fqu, payment_privkey, owner_address, cost, utxo_client, config_path=CONFIG_PATH, proxy=None ):
+def do_preorder( fqu, payment_privkey, owner_address, cost, utxo_client, config_path=CONFIG_PATH, proxy=None, consensus_hash=None, safety_checks=True ):
     """
     Preorder a name
     Return {'status': True, 'transaction_hash': ...} on success
@@ -236,6 +232,8 @@ def do_preorder( fqu, payment_privkey, owner_address, cost, utxo_client, config_
 
     if proxy is None:
         proxy = get_default_proxy()
+
+    fqu = str(fqu)
 
     if not can_receive_name(owner_address, proxy=proxy):
         log.debug("Address %s owns too many names already." % owner_address)
@@ -248,11 +246,13 @@ def do_preorder( fqu, payment_privkey, owner_address, cost, utxo_client, config_
         log.debug("Payment address not ready: %s" % payment_address)
         return {'error': 'Payment address is not ready'}
 
-    blockstack_info = blockstack_getinfo( proxy=proxy )
-    if 'error' in blockstack_info:
-        return {'error': 'Failed to get consensus hash'}
+    if consensus_hash is None:
+        blockstack_info = blockstack_getinfo( proxy=proxy )
+        if 'error' in blockstack_info:
+            return {'error': 'Failed to get consensus hash'}
 
-    consensus_hash = blockstack_info['consensus']
+        consensus_hash = blockstack_info['consensus']
+
     tx_fee = estimate_preorder_tx_fee( fqu, cost, payment_pubkey_hex, utxo_client, config_path=config_path )
     if tx_fee is None:
         return {'error': 'Failed to estimate the tx fee'}
@@ -269,7 +269,7 @@ def do_preorder( fqu, payment_privkey, owner_address, cost, utxo_client, config_
     return resp
 
 
-def do_register( fqu, payment_privkey, owner_address, utxo_client, renewal_fee=None, config_path=CONFIG_PATH, proxy=None ):
+def do_register( fqu, payment_privkey, owner_address, utxo_client, renewal_fee=None, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
     """
     Register/renew a name
     Return {'status': True, 'transaction_hash': ...} on success
@@ -278,26 +278,28 @@ def do_register( fqu, payment_privkey, owner_address, utxo_client, renewal_fee=N
     if proxy is None:
         proxy = get_default_proxy()
     
+    fqu = str(fqu)
     resp = {}
     payment_pubkey_hex = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().to_hex()
     payment_address = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().address()
 
-    # name must not be registered yet (unless we're renewing)
-    if renewal_fee is None:
-        if is_name_registered(fqu, proxy=proxy):
-            log.debug("Already registered %s" % fqu)
-            return {'error': 'Already registered'}
+    if safety_checks:
+        # name must not be registered yet (unless we're renewing)
+        if renewal_fee is None:
+            if is_name_registered(fqu, proxy=proxy):
+                log.debug("Already registered %s" % fqu)
+                return {'error': 'Already registered'}
 
-    else:
-        # check ownership
-        blockchain_record = blockstack_get_name_blockchain_record( fqu, proxy=proxy )
-        if blockchain_record is None or 'error' in blockchain_record:
-            log.debug("Failed to read blockchain record for %s" % fqu)
-            return {'error': 'Failed to read blockchain record for name'}
+        else:
+            # check ownership
+            blockchain_record = blockstack_get_name_blockchain_record( fqu, proxy=proxy )
+            if blockchain_record is None or 'error' in blockchain_record:
+                log.debug("Failed to read blockchain record for %s" % fqu)
+                return {'error': 'Failed to read blockchain record for name'}
 
-        if owner_address != blockchain_record['address']:
-            log.debug("Given privkey/address doesn't own this name.")
-            return {'error': 'Not name owner'}
+            if owner_address != blockchain_record['address']:
+                log.debug("Given privkey/address doesn't own this name.")
+                return {'error': 'Not name owner'}
 
     # check address usability
     if not is_address_usable(payment_address, config_path=config_path, utxo_client=utxo_client):
@@ -319,7 +321,7 @@ def do_register( fqu, payment_privkey, owner_address, utxo_client, renewal_fee=N
     return resp
 
 
-def do_update( fqu, zonefile_hash, owner_privkey, payment_privkey, utxo_client, config_path=CONFIG_PATH, proxy=None ):
+def do_update( fqu, zonefile_hash, owner_privkey, payment_privkey, utxo_client, config_path=CONFIG_PATH, proxy=None, consensus_hash=None, safety_checks=True ):
     """
     Put a new zonefile hash for a name
     Return {'status': True, 'transaction_hash': ...} on success
@@ -329,27 +331,32 @@ def do_update( fqu, zonefile_hash, owner_privkey, payment_privkey, utxo_client, 
     if proxy is None:
         proxy = get_default_proxy
     
+    fqu = str(fqu)
     owner_public_key = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
     owner_address = pybitcoin.BitcoinPublicKey(owner_public_key).address()
     payment_address = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().address()
 
     # get consensus hash
-    blockstack_info = blockstack_getinfo(proxy=proxy)
-    if 'error' in blockstack_info:
-        log.debug("Failed to look up consensus hash: %s" % blockstack_info['error'])
-        return {'error': 'Failed to look up consensus hash'}
+    if consensus_hash is None:
+        blockstack_info = blockstack_getinfo(proxy=proxy)
+        if 'error' in blockstack_info:
+            log.debug("Failed to look up consensus hash: %s" % blockstack_info['error'])
+            return {'error': 'Failed to look up consensus hash'}
 
-    consensus_hash = blockstack_info['consensus']
+        consensus_hash = blockstack_info['consensus']
+    else:
+        log.warn("Using caller-supplied consensus hash '%s'" % consensus_hash)
 
-    # check ownership
-    blockchain_record = blockstack_get_name_blockchain_record( fqu, proxy=proxy )
-    if blockchain_record is None or 'error' in blockchain_record:
-        log.debug("Failed to read blockchain record for %s" % fqu)
-        return {'error': 'Failed to read blockchain record for name'}
+    if safety_checks:
+        # check ownership
+        blockchain_record = blockstack_get_name_blockchain_record( fqu, proxy=proxy )
+        if blockchain_record is None or 'error' in blockchain_record:
+            log.debug("Failed to read blockchain record for %s" % fqu)
+            return {'error': 'Failed to read blockchain record for name'}
 
-    if owner_address != blockchain_record['address']:
-        log.debug("Given privkey/address doesn't own this name.")
-        return {'error': 'Not name owner'}
+        if owner_address != blockchain_record['address']:
+            log.debug("Given privkey/address doesn't own this name.")
+            return {'error': 'Not name owner'}
 
     # check address usability
     if not is_address_usable(payment_address, config_path=config_path):
@@ -374,7 +381,7 @@ def do_update( fqu, zonefile_hash, owner_privkey, payment_privkey, utxo_client, 
     return resp
 
 
-def do_transfer( fqu, transfer_address, keep_data, owner_privkey, payment_privkey, utxo_client, config_path=CONFIG_PATH, proxy=None ):
+def do_transfer( fqu, transfer_address, keep_data, owner_privkey, payment_privkey, utxo_client, config_path=CONFIG_PATH, proxy=None, consensus_hash=None, safety_checks=True ):
     """
     Transfer a name to a new address
     Return {'status': True, 'transaction_hash': ...} on success
@@ -384,33 +391,36 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey, payment_privke
     if proxy is None:
         proxy = get_default_proxy()
 
+    fqu = str(fqu)
     owner_pubkey_hex = pybitcoin.BitcoinPrivateKey( owner_privkey ).public_key().to_hex()
     owner_address = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().address()
     payment_address = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().address()
 
     # get consensus hash
-    blockstack_info = blockstack_getinfo(proxy=proxy)
-    if 'error' in blockstack_info:
-        log.debug("Failed to look up consensus hash: %s" % blockstack_info['error'])
-        return {'error': 'Failed to look up consensus hash'}
+    if consensus_hash is None:
+        blockstack_info = blockstack_getinfo(proxy=proxy)
+        if 'error' in blockstack_info:
+            log.debug("Failed to look up consensus hash: %s" % blockstack_info['error'])
+            return {'error': 'Failed to look up consensus hash'}
 
-    consensus_hash = blockstack_info['consensus']
+        consensus_hash = blockstack_info['consensus']
 
-    # name must exist
-    blockchain_record = blockstack_get_name_blockchain_record( fqu, proxy=proxy )
-    if blockchain_record is None or 'error' in blockchain_record:
-        log.debug("Failed to read blockchain record for %s" % fqu)
-        return {'error': 'Failed to read blockchain record for name'}
+    if safety_checks:
+        # name must exist
+        blockchain_record = blockstack_get_name_blockchain_record( fqu, proxy=proxy )
+        if blockchain_record is None or 'error' in blockchain_record:
+            log.debug("Failed to read blockchain record for %s" % fqu)
+            return {'error': 'Failed to read blockchain record for name'}
 
-    # must be owner
-    if blockchain_record['address'] != owner_address:
-        log.debug("Given privkey/address doesn't own this name.")
-        return {'error': 'Given keypair does not own this name'}
+        # must be owner
+        if blockchain_record['address'] != owner_address:
+            log.debug("Given privkey/address doesn't own this name.")
+            return {'error': 'Given keypair does not own this name'}
 
-    # recipient must have space
-    if not can_receive_name(transfer_address, proxy=proxy):
-        log.debug("Address %s owns too many names already." % transfer_address)
-        return {'error': 'Recipient owns too many names'}
+        # recipient must have space
+        if not can_receive_name(transfer_address, proxy=proxy):
+            log.debug("Address %s owns too many names already." % transfer_address)
+            return {'error': 'Recipient owns too many names'}
     
     # payment address must be usable
     if not is_address_usable(payment_address, config_path=config_path):
@@ -435,16 +445,16 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey, payment_privke
     return resp
 
 
-def do_renewal( fqu, payment_privkey, owner_address, renewal_fee, utxo_client, config_path=CONFIG_PATH, proxy=None ):
+def do_renewal( fqu, payment_privkey, owner_address, renewal_fee, utxo_client, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
     """
     Renew a name
     Return {'status': True, 'transaction_hash': ...} on success
     Return {'error': ...} on failure
     """
-    return do_register( fqu, payment_privkey, owner_address, utxo_client, renewal_fee=renewal_fee, config_path=config_path, proxy=proxy )
+    return do_register( fqu, payment_privkey, owner_address, utxo_client, renewal_fee=renewal_fee, config_path=config_path, proxy=proxy, safety_checks=safety_checks )
 
 
-def do_revoke( fqu, owner_privkey, payment_privkey, utxo_client, config_path=CONFIG_PATH, proxy=None ):
+def do_revoke( fqu, owner_privkey, payment_privkey, utxo_client, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
     """
     Revoke a name
     Return {'status': True, 'transaction_hash': ...} on success
@@ -453,22 +463,24 @@ def do_revoke( fqu, owner_privkey, payment_privkey, utxo_client, config_path=CON
     if proxy is None:
         proxy = get_default_proxy()
 
+    fqu = str(fqu)
     owner_pubkey_hex = pybitcoin.BitcoinPrivateKey( owner_privkey ).public_key().to_hex()
     tx_fee = estimate_revoke_tx_fee( fqu, owner_pubkey_hex, payment_privkey, utxo_client, config_path=config_path )
 
     owner_address = pybitcoin.BitcoinPublicKey( owner_pubkey_hex ).address()
     payment_address = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().address()
 
-    # name must exist
-    blockchain_record = blockstack_get_name_blockchain_record( fqu, proxy=proxy )
-    if blockchain_record is None or 'error' in blockchain_record:
-        log.debug("Failed to read blockchain record for %s" % fqu)
-        return {'error': 'Failed to read blockchain record for name'}
+    if safety_checks:
+        # name must exist
+        blockchain_record = blockstack_get_name_blockchain_record( fqu, proxy=proxy )
+        if blockchain_record is None or 'error' in blockchain_record:
+            log.debug("Failed to read blockchain record for %s" % fqu)
+            return {'error': 'Failed to read blockchain record for name'}
 
-    # must be owner
-    if blockchain_record['address'] != owner_address:
-        log.debug("Given privkey/address doesn't own this name.")
-        return {'error': 'Given keypair does not own this name'}
+        # must be owner
+        if blockchain_record['address'] != owner_address:
+            log.debug("Given privkey/address doesn't own this name.")
+            return {'error': 'Given keypair does not own this name'}
 
     unsigned_tx = revoke_tx( fqu, owner_pubkey_hex, utxo_client, subsidize=True, tx_fee=tx_fee )
     subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_revoke, 21 ** (10**6) * (10**8), payment_privkey, utxo_client, tx_fee=tx_fee )
@@ -486,7 +498,7 @@ def do_revoke( fqu, owner_privkey, payment_privkey, utxo_client, config_path=CON
     return resp
 
 
-def do_name_import( fqu, importer_privkey, recipient_address, zonefile_hash, utxo_client, config_path=CONFIG_PATH, proxy=None ):
+def do_name_import( fqu, importer_privkey, recipient_address, zonefile_hash, utxo_client, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
     """
     Import a name
     Return {'status': True, 'transaction_hash': ...} on success
@@ -495,6 +507,7 @@ def do_name_import( fqu, importer_privkey, recipient_address, zonefile_hash, utx
     if proxy is None:
         proxy = get_default_proxy()
 
+    fqu = str(fqu)
     payment_pubkey_hex = pybitcoin.BitcoinPrivateKey( importer_privkey ).public_key().to_hex()
     payment_address = pybitcoin.BitcoinPrivateKey( importer_privkey ).public_key().address()
     tx_fee = estimate_name_import_tx_fee( fqu, payment_pubkey_hex, utxo_client, config_path=config_path )
@@ -513,7 +526,7 @@ def do_name_import( fqu, importer_privkey, recipient_address, zonefile_hash, utx
     return resp
 
 
-def do_namespace_preorder( namespace_id, cost, payment_privkey, reveal_address, utxo_client, config_path=CONFIG_PATH, proxy=None ):
+def do_namespace_preorder( namespace_id, cost, payment_privkey, reveal_address, utxo_client, consensus_hash=None, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
     """
     Preorder a namespace
     Return {'status': True, 'transaction_hash': ...} on success
@@ -522,29 +535,32 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey, reveal_address, 
     if proxy is None:
         proxy = get_default_proxy()
 
+    fqu = str(namespace_id)
     payment_pubkey_hex = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().to_hex()
     payment_address = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().address()
 
-    blockstack_info = blockstack_getinfo( proxy=proxy )
-    if 'error' in blockstack_info:
-        return {'error': 'Failed to get consensus hash'}
+    if consensus_hash is None:
+        blockstack_info = blockstack_getinfo( proxy=proxy )
+        if 'error' in blockstack_info:
+            return {'error': 'Failed to get consensus hash'}
 
-    consensus_hash = blockstack_info['consensus']
+        consensus_hash = blockstack_info['consensus']
 
-    # namespace must not exist
-    blockchain_record = blockstack_get_namespace_blockchain_record( namespace_id, proxy=proxy )
-    if blockchain_record is None or 'error' in blockchain_record:
-        if blockchain_record is None:
-            log.debug("FAiled to read blockchain record for %s" % namespace_id)
-            return {'error': 'Failed to read blockchain record for namespace'}
+    if safety_checks:
+        # namespace must not exist
+        blockchain_record = blockstack_get_namespace_blockchain_record( namespace_id, proxy=proxy )
+        if blockchain_record is None or 'error' in blockchain_record:
+            if blockchain_record is None:
+                log.debug("FAiled to read blockchain record for %s" % namespace_id)
+                return {'error': 'Failed to read blockchain record for namespace'}
 
-        if blockchain_record['error'] != 'No such namespace':
-            log.debug("Failed to read blockchain record for %s" % namespace_id)
-            return {'error': 'Failed to read blockchain record for namespace'}
+            if blockchain_record['error'] != 'No such namespace':
+                log.debug("Failed to read blockchain record for %s" % namespace_id)
+                return {'error': 'Failed to read blockchain record for namespace'}
 
-    else:
-        # exists 
-        return {'error': 'Namespace already exists'}
+        else:
+            # exists 
+            return {'error': 'Namespace already exists'}
 
     tx_fee = estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_pubkey_hex, utxo_client, config_path=config_path )
     if tx_fee is None:
@@ -564,7 +580,7 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey, reveal_address, 
     return resp
 
 
-def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, payment_privkey, utxo_client, config_path=CONFIG_PATH, proxy=None ):
+def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, payment_privkey, utxo_client, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
     """
     Reveal a namespace
     Return {'status': True, 'transaction_hash': ...} on success
@@ -573,19 +589,21 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
     if proxy is None:
         proxy = get_default_proxy()
 
+    fqu = str(namespace_id)
     payment_pubkey_hex = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().to_hex()
     payment_address = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().address()
     
-    # namespace must not exist
-    blockchain_record = blockstack_get_namespace_blockchain_record( namespace_id, proxy=proxy )
-    if blockchain_record is None or 'error' in blockchain_record:
-        if blockchain_record['error'] != 'No such namespace':
-            log.debug("Failed to read blockchain record for %s" % namespace_id)
-            return {'error': 'Failed to read blockchain record for namespace'}
+    if safety_checks:
+        # namespace must not exist
+        blockchain_record = blockstack_get_namespace_blockchain_record( namespace_id, proxy=proxy )
+        if blockchain_record is None or 'error' in blockchain_record:
+            if blockchain_record['error'] != 'No such namespace':
+                log.debug("Failed to read blockchain record for %s" % namespace_id)
+                return {'error': 'Failed to read blockchain record for namespace'}
 
-    else:
-        # exists 
-        return {'error': 'Namespace already exists'}
+        else:
+            # exists 
+            return {'error': 'Namespace already exists'}
 
     tx_fee = estimate_namespace_reveal_tx_fee( namespace_id, payment_pubkey_hex, utxo_client, config_path=config_path )
     if tx_fee is None:
@@ -605,7 +623,7 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
     return resp
 
 
-def do_namespace_ready( namespace_id, reveal_privkey, utxo_client, config_path=CONFIG_PATH, proxy=None ):
+def do_namespace_ready( namespace_id, reveal_privkey, utxo_client, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
     """
     Open a namespace for registration
     Return {'status': True, 'transaction_hash': ...} on success
@@ -615,18 +633,20 @@ def do_namespace_ready( namespace_id, reveal_privkey, utxo_client, config_path=C
     if proxy is None:
         proxy = get_default_proxy()
 
+    fqu = str(namespace_id)
     reveal_pubkey_hex = pybitcoin.BitcoinPrivateKey( reveal_privkey ).public_key().to_hex()
     reveal_address = pybitcoin.BitcoinPrivateKey( reveal_privkey ).public_key().address()
 
-    # namespace must exist, but not be ready
-    blockchain_record = blockstack_get_namespace_blockchain_record( namespace_id, proxy=proxy )
-    if blockchain_record is None or 'error' in blockchain_record:
-        log.debug("Failed to read blockchain record for %s" % namespace_id)
-        return {'error': 'Failed to read blockchain record for namespace'}
+    if safety_checks:
+        # namespace must exist, but not be ready
+        blockchain_record = blockstack_get_namespace_blockchain_record( namespace_id, proxy=proxy )
+        if blockchain_record is None or 'error' in blockchain_record:
+            log.debug("Failed to read blockchain record for %s" % namespace_id)
+            return {'error': 'Failed to read blockchain record for namespace'}
 
-    if blockchain_record['ready']:
-        # exists 
-        return {'error': 'Namespace already exists'}
+        if blockchain_record['ready']:
+            # exists 
+            return {'error': 'Namespace already exists'}
 
     tx_fee = estimate_namespace_ready_tx_fee( namespace_id, reveal_pubkey_hex, utxo_client, config_path=config_path )
     if tx_fee is None:
@@ -646,7 +666,7 @@ def do_namespace_ready( namespace_id, reveal_privkey, utxo_client, config_path=C
     return resp
 
 
-def do_announce( message_text, sender_privkey, utxo_client, config_path=CONFIG_PATH, proxy=None ):
+def do_announce( message_text, sender_privkey, utxo_client, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
     """
     Send an announcement hash to the blockchain
     Return {'status': True, 'transaction_hash': ...} on success
@@ -656,6 +676,7 @@ def do_announce( message_text, sender_privkey, utxo_client, config_path=CONFIG_P
     if proxy is None:
         proxy = get_default_proxy()
 
+    message_text = str(message_text)
     message_hash = get_blockchain_compat_hash( message_text )
     sender_pubkey_hex = pybitcoin.BitcoinPrivateKey( sender_privkey ).public_key().to_hex()
     sender_address = pybitcoin.BitcoinPrivateKey( sender_privkey ).public_key().address()
@@ -700,6 +721,7 @@ def async_preorder(fqu, payment_privkey, owner_address, cost, proxy=None, config
         proxy = get_default_proxy(config_path=config_path)
 
     utxo_client = get_utxo_client( config_path=config_path )
+    payment_address = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().address()
     
     # stale preorder will get removed from preorder_queue
     if in_queue("register", fqu, path=queue_path):
@@ -750,6 +772,7 @@ def async_register(fqu, payment_privkey, owner_address, auto_preorder=True, prox
         proxy = get_default_proxy(config_path=config_path)
 
     utxo_client = get_utxo_client(config_path=config_path)
+    payment_address = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().address()
 
     # check register_queue first
     # stale preorder will get removed from preorder_queue
@@ -788,7 +811,7 @@ def async_register(fqu, payment_privkey, owner_address, auto_preorder=True, prox
 
     try:
         resp = do_register( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path, proxy=proxy )
-    except:
+    except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast registration transaction'}
 
@@ -824,6 +847,7 @@ def async_update(fqu, zonefile, profile, owner_private_key, payment_privkey, con
         proxy = get_default_proxy(config_path=config_path)
 
     utxo_client = get_utxo_client(config_path=config_path)
+    owner_address = pybitcoin.BitcoinPrivateKey(owner_private_key).public_key().address()
 
     if in_queue("update", fqu, path=queue_path):
         log.debug("Already in update queue: %s" % fqu)
@@ -838,20 +862,20 @@ def async_update(fqu, zonefile, profile, owner_private_key, payment_privkey, con
         log.exception(e)
         return {'error': 'Failed to sign and broadcast update transaction'}
 
-    if 'transaction_hash' in broadcast_resp:
-        queue_append("update", fqu, broadcast_resp['transaction_hash'],
+    if 'transaction_hash' in resp:
+        queue_append("update", fqu, resp['transaction_hash'],
                      zonefile=zonefile,
                      profile=profile,
                      owner_address=owner_address,
                      config_path=config_path,
                      path=queue_path)
 
-        broadcast_resp['zonefile_hash'] = zonefile_hash
-        return broadcast_resp
+        resp['zonefile_hash'] = zonefile_hash
+        return resp
 
     else:
         log.debug("Error updating: %s" % fqu)
-        log.debug(broadcast_resp)
+        log.debug(resp)
         return {'error': 'Failed to broadcast update transaction'}
 
 
@@ -873,6 +897,7 @@ def async_transfer(fqu, transfer_address, owner_privkey, payment_privkey, config
         proxy = get_default_proxy(config_path=config_path)
 
     utxo_client = get_utxo_client(config_path=config_path)
+    owner_address = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().address()
 
     if in_queue("transfer", fqu, path=queue_path):
         log.debug("Already in transfer queue: %s" % fqu)
@@ -884,15 +909,15 @@ def async_transfer(fqu, transfer_address, owner_privkey, payment_privkey, config
         log.exception(e)
         return {'error': 'Failed to sign and broadcast transfer transaction'}
 
-    if 'transaction_hash' in broadcast_resp:
-        queue_append("transfer", fqu, broadcast_resp['transaction_hash'],
+    if 'transaction_hash' in resp:
+        queue_append("transfer", fqu, resp['transaction_hash'],
                      owner_address=owner_address,
                      transfer_address=transfer_address,
                      config_path=config_path,
                      path=queue_path)
     else:
         log.debug("Error transferring: %s" % fqu)
-        log.debug(broadcast_resp)
+        log.debug(resp)
         return {'error': 'Failed to broadcast transfer transaction'}
 
-    return broadcast_resp
+    return resp

@@ -45,10 +45,11 @@ parent_dir = os.path.abspath(current_dir + "/../")
 sys.path.insert(0, parent_dir)
 
 from .proxy import *
-from .keys import get_data_keypair, get_owner_keypair
+from .keys import get_data_keypair, get_owner_keypair, get_payment_keypair
 from blockstack_client import storage
-from blockstack_client import user as user_db
+from blockstack_client import user as user_d
 
+from storage import hash_zonefile
 import pybitcoin
 import bitcoin
 import binascii
@@ -376,18 +377,6 @@ def get_and_migrate_profile( name, proxy=None, create_if_absent=False, wallet_ke
             return (error_msg, None, False)
 
     return (user_profile, user_zonefile, created_new_zonefile)
-
-
-def hash_zonefile( zonefile_json ):
-    """
-    Given a JSON-ized zonefile, calculate its hash
-    """
-    assert "$origin" in zonefile_json.keys(), "Missing $origin"
-    assert "$ttl" in zonefile_json.keys(), "Missing $ttl"
-
-    user_zonefile_txt = zone_file.make_zone_file( zonefile_json )
-    data_hash = storage.get_zonefile_data_hash( user_zonefile_txt )
-    return data_hash
 
 
 def is_zonefile_replicated(fqu, zonefile_json, proxy=None, wallet_keys=None):

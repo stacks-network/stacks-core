@@ -41,7 +41,7 @@ from proxy import getinfo, ping, get_name_cost, get_namespace_cost, get_all_name
         preorder_subsidized, register_subsidized, update_subsidized, transfer_subsidized, revoke_subsidized, renew_subsidized, \
         send_subsidized 
         
-from keys import make_wallet_keys, get_owner_keypair, get_data_keypair
+from keys import make_wallet_keys, get_owner_keypair, get_data_keypair, get_payment_keypair
 
 from client import session, get_default_proxy, set_default_proxy, register_storage, load_storage 
 from snv import snv_lookup, lookup_snv
@@ -49,8 +49,8 @@ from data import get_immutable, get_immutable_by_name, get_mutable, put_immutabl
         delete_mutable, list_mutable_data, list_immutable_data, list_immutable_data_history, list_update_history, list_zonefile_history
 from data import blockstack_url_fetch as fetch_data
 from data import data_get, data_put, data_delete, data_list
-from data import get_announcement, put_announcement
-from profile import get_name_profile, get_name_zonefile, zonefile_publish, hash_zonefile
+from storage import get_announcement, put_announcement
+from profile import get_name_profile, get_name_zonefile, zonefile_publish, get_and_migrate_profile
 from accounts import list_accounts, get_account, put_account, delete_account
 
 from config import get_logger, get_config, CONFIG_PATH, CONFIG_FILENAME
@@ -62,7 +62,7 @@ from storage import blockstack_immutable_data_url_parse as parse_immutable_data_
 
 from storage import blockstack_data_url_parse as parse_data_url
 from storage import blockstack_data_url as make_data_url
-from storage import get_storage_handlers
+from storage import get_storage_handlers, hash_zonefile
 
 from storage import BlockstackURLHandle, BlockstackHandler, get_data_hash, get_blockchain_compat_hash, get_zonefile_data_hash
 from storage import parse_mutable_data as parse_signed_data
