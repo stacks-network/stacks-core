@@ -22,19 +22,13 @@ setup(
     install_requires=[
         'virtualchain>=0.0.9.0',
         'protocoin>=0.1',
-        'blockstack-profiles>=0.1.3',
+        'blockstack-profiles>=0.4.3',
         'pybitcoin>=0.9.8',
-        'zone_file>=0.1.6',
-        'blockstack-storage-drivers>=0.0.1.0',
+        'blockstack_zones>=0.1.6',
+        'blockstack-storage-drivers>=0.0.1.1',
         'blockstack-utxo>=0.0.1.0',
         'defusedxml>=0.4.1',
-        'keylib>=0.0.2'
-    ],
-    dependency_links=[
-        'git://github.com/blockstack/blockstack-virtualchain.git@release-candidate#egg=virtualchain-0.0.9.0',
-        'git://github.com/blockstack/blockstack-utxo.git@release-candidate#egg=blockstack-utxo-0.0.1.0',
-        'git://github.com/blockstack/blockstack-storage-drivers.git@release-candidate#egg=blockstack-storage-drivers-0.0.1.0',
-        'git://github.com/blockstack/dns-zone-file-py@release-candidate#egg=zone_file-0.1.6'
+        'keylib>=0.0.5'
     ],
     classifiers=[
         'Intended Audience :: Developers',
