@@ -28,7 +28,8 @@ setup(
         'blockstack-client>=0.0.13.0',
         'blockstack-server>=0.0.10.8',
         'blockstack-profiles>=0.1.3',
-        'blockstack-storage-drivers>=0.0.1.0'
+        'blockstack-storage-drivers>=0.0.1.0',
+        'blockstack-zones>=0.1.6'
     ],
     classifiers=[
         'Intended Audience :: Developers',

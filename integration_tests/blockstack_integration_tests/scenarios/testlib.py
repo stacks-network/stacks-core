@@ -33,7 +33,7 @@ import sys
 import copy
 import json
 import gnupg
-import zone_file
+import blockstack_zones
 
 import blockstack.blockstackd as blockstackd
 
@@ -542,13 +542,13 @@ def blockstack_get_zonefile( zonefile_hash ):
     if zonefile_hash not in zonefile_result['zonefiles'].keys():
         return None
 
-    zonefile = zone_file.parse_zone_file( zonefile_result['zonefiles'][zonefile_hash] )
+    zonefile = blockstack_zones.parse_zone_file( zonefile_result['zonefiles'][zonefile_hash] )
 
     # verify
     if zonefile_hash != blockstack_client.hash_zonefile( zonefile ):
         return None
 
-    return zone_file.parse_zone_file( zonefile_result['zonefiles'][zonefile_hash] )
+    return blockstack_zones.parse_zone_file( zonefile_result['zonefiles'][zonefile_hash] )
 
 
 def blockstack_get_profile( name ):
