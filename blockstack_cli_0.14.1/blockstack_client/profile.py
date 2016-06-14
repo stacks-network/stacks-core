@@ -35,7 +35,7 @@ import random
 import time
 import copy
 import blockstack_profiles
-import zone_file
+import blockstack_zones 
 import urllib
 
 # Hack around absolute paths
@@ -81,9 +81,9 @@ def load_name_zonefile(expected_zonefile_hash):
 
     try:
         # by default, it's a zonefile-formatted text file
-        user_zonefile = zone_file.parse_zone_file( zonefile_txt )
+        user_zonefile = blockstack_zones.parse_zone_file( zonefile_txt )
         assert user_db.is_user_zonefile( user_zonefile ), "Not a user zonefile: %s" % user_zonefile
-    except (IndexError, ValueError, zone_file.InvalidLineException):
+    except (IndexError, ValueError, blockstack_zones.InvalidLineException):
         # might be legacy profile
         log.debug("WARN: failed to parse user zonefile; trying to import as legacy")
         try:
@@ -297,7 +297,7 @@ def store_name_zonefile( name, user_zonefile, txid ):
     assert user_data_pubkey is not None, "BUG: user zonefile is missing data public key"
 
     # serialize and send off
-    user_zonefile_txt = zone_file.make_zone_file( user_zonefile, origin=name, ttl=USER_ZONEFILE_TTL )
+    user_zonefile_txt = blockstack_zones.make_zone_file( user_zonefile, origin=name, ttl=USER_ZONEFILE_TTL )
     data_hash = storage.get_zonefile_data_hash( user_zonefile_txt )
     result = storage.put_immutable_data(None, txid, data_hash=data_hash, data_text=user_zonefile_txt )
 
@@ -407,7 +407,7 @@ def zonefile_publish(fqu, zonefile_json, server_list, wallet_keys=None):
         'servers' will be a list of (host, port) tuples
     Return {'error': ...} if we failed on all accounts.
     """
-    zonefile_txt = zone_file.make_zone_file( zonefile_json )
+    zonefile_txt = blockstack_zones.make_zone_file( zonefile_json )
     successful_servers = []
     for server_host, server_port in server_list:
         try:
