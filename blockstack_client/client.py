@@ -35,7 +35,6 @@ import random
 import time
 import copy
 import blockstack_profiles
-import zone_file
 import urllib
 
 from proxy import *
