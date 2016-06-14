@@ -37,7 +37,7 @@ from ..scripts import is_name_valid
 import blockstack_client
 from blockstack_client import hash_zonefile
 
-import zone_file
+import blockstack_zones
 
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
@@ -65,7 +65,7 @@ def get_cached_zonefile( zonefile_hash, zonefile_dir=None ):
         return None
 
     try:
-        zonefile_dict = zone_file.parse_zone_file( zonefile_txt )
+        zonefile_dict = blockstack_zones.parse_zone_file( zonefile_txt )
         assert blockstack_client.is_user_zonefile( user_zonefile ), "Not a user zonefile: %s" % zonefile_hash
         return zonefile_dict
     except Exception, e:
@@ -93,7 +93,7 @@ def get_zonefile_from_storage( zonefile_hash ):
    
     # parse 
     try:
-        user_zonefile = zone_file.parse_zone_file( zonefile_txt )
+        user_zonefile = blockstack_zones.parse_zone_file( zonefile_txt )
         assert blockstack_client.is_user_zonefile( user_zonefile ), "Not a user zonefile: %s" % zonefile_hash
     except AssertionError, ValueError:
         raise Exception("Failed to load zonefile %s" % zonefile_hash)
@@ -210,7 +210,7 @@ def store_zonefile_to_storage( zonefile_dict ):
     """
     zonefile_hash = hash_zonefile( zonefile_dict )
     name = zonefile_dict['$origin']
-    zonefile_text = zone_file.make_zone_file( zonefile_dict )
+    zonefile_text = blockstack_zones.make_zone_file( zonefile_dict )
    
     # find the tx that paid for this zonefile
     txid = get_zonefile_txid( zonefile_dict )
