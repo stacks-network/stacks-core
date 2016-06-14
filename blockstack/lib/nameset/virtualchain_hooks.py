@@ -259,12 +259,7 @@ def get_magic_bytes():
    
    Get the magic byte sequence for our OP_RETURNs
    """
-   blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename() )
-   if blockstack_opts['testset']:
-       return MAGIC_BYTES_TESTSET
-   
-   else:
-       return MAGIC_BYTES_MAINSET
+   return MAGIC_BYTES_MAINSET
 
 
 def get_first_block_id():
@@ -273,20 +268,7 @@ def get_first_block_id():
    
    Get the id of the first block to start indexing.
    """ 
-   blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename() )
-   start_block = None
-   
-   if TESTNET:
-       if blockstack_opts['testset']:
-           start_block = FIRST_BLOCK_TESTNET_TESTSET
-       else:
-           start_block = FIRST_BLOCK_TESTNET
-   else:
-       if blockstack_opts['testset']:
-           start_block = FIRST_BLOCK_MAINNET_TESTSET
-       else:
-           start_block = FIRST_BLOCK_MAINNET
-
+   start_block = FIRST_BLOCK_MAINNET
    return start_block
 
 
