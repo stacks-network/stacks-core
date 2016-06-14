@@ -39,7 +39,7 @@ import json
 import hashlib
 import urllib
 import urllib2
-import zone_file
+import blockstack_zones
 from collections import defaultdict
 
 import blockstack_profiles 
@@ -122,7 +122,7 @@ def hash_zonefile( zonefile_json ):
     assert "$origin" in zonefile_json.keys(), "Missing $origin"
     assert "$ttl" in zonefile_json.keys(), "Missing $ttl"
 
-    user_zonefile_txt = zone_file.make_zone_file( zonefile_json )
+    user_zonefile_txt = blockstack_zones.make_zone_file( zonefile_json )
     data_hash = get_zonefile_data_hash( user_zonefile_txt )
     return data_hash
 
