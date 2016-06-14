@@ -38,9 +38,8 @@ from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAX_NAMES_PER_S
     TRANSFER_REMOVE_DATA, NAME_REVOKE, NAME_IMPORT, NAME_PREORDER_EXPIRE, \
     NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTACK_VERSION, \
     NAMESPACE_1_CHAR_COST, NAMESPACE_23_CHAR_COST, NAMESPACE_4567_CHAR_COST, NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
-    TESTSET_NAMESPACE_1_CHAR_COST, TESTSET_NAMESPACE_23_CHAR_COST, TESTSET_NAMESPACE_4567_CHAR_COST, TESTSET_NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
-    NAME_IMPORT_KEYRING_SIZE, GENESIS_SNAPSHOT, GENESIS_SNAPSHOT_TESTSET, default_blockstack_opts, NAMESPACE_READY, \
-    FIRST_BLOCK_MAINNET, FIRST_BLOCK_TESTNET, FIRST_BLOCK_MAINNET_TESTSET, FIRST_BLOCK_TESTNET_TESTSET, TESTNET, NAME_OPCODES
+    NAME_IMPORT_KEYRING_SIZE, GENESIS_SNAPSHOT, default_blockstack_opts, NAMESPACE_READY, \
+    FIRST_BLOCK_MAINNET, NAME_OPCODES
 
 from ..operations import SERIALIZE_FIELDS
 from ..hashing import *
@@ -75,23 +74,8 @@ class BlockstackDB( virtualchain.StateEngine ):
 
       import virtualchain_hooks
       blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename() )
-      initial_snapshots = None
-      first_block = None
-
-      if blockstack_opts['testset']:
-          initial_snapshots = GENESIS_SNAPSHOT_TESTSET
-          if TESTNET:
-              first_block = FIRST_BLOCK_TESTNET_TESTSET
-          else:
-              first_block = FIRST_BLOCK_MAINNET_TESTSET
-
-      else:
-          initial_snapshots = GENESIS_SNAPSHOT
-          if TESTNET:
-              first_block = FIRST_BLOCK_TESTNET 
-          else:
-              first_block = FIRST_BLOCK_MAINNET
-
+      initial_snapshots = GENESIS_SNAPSHOT
+      first_block = FIRST_BLOCK_MAINNET
 
       super( BlockstackDB, self ).__init__( virtualchain_hooks.get_magic_bytes(), OPCODES, BlockstackDB.make_opfields(), impl=virtualchain_hooks, initial_snapshots=initial_snapshots, state=self )
 
@@ -2686,29 +2670,15 @@ def price_namespace( namespace_id ):
    Calculate the cost of a namespace.
    """
 
-   testset = default_blockstack_opts( virtualchain.get_config_filename() )['testset']
-
    if len(namespace_id) == 1:
-       if testset:
-           return TESTSET_NAMESPACE_1_CHAR_COST
-       else:
-           return NAMESPACE_1_CHAR_COST
+       return NAMESPACE_1_CHAR_COST
 
    elif len(namespace_id) in [2, 3]:
-       if testset:
-           return TESTSET_NAMESPACE_23_CHAR_COST
-       else:
-           return NAMESPACE_23_CHAR_COST
+       return NAMESPACE_23_CHAR_COST
 
    elif len(namespace_id) in [4, 5, 6, 7]:
-       if testset:
-           return TESTSET_NAMESPACE_4567_CHAR_COST
-       else:
-           return NAMESPACE_4567_CHAR_COST
+       return NAMESPACE_4567_CHAR_COST
 
    else:
-       if testset:
-           return TESTSET_NAMESPACE_8UP_CHAR_COST
-       else:
-           return NAMESPACE_8UP_CHAR_COST
+       return NAMESPACE_8UP_CHAR_COST
 
