@@ -24,7 +24,7 @@
 import os
 import sys
 import json
-import zone_file
+import blockstack_zones
 
 import blockstack_client
 
@@ -53,7 +53,7 @@ def serialize_zonefile( zonefile_data ):
     Serialize a zonefile to string
     """
     
-    zonefile_txt = zone_file.make_zone_file( zonefile_data )
+    zonefile_txt = blockstack_zones.make_zone_file( zonefile_data )
     return zonefile_txt
 
 
