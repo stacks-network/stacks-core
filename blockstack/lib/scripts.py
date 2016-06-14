@@ -44,10 +44,7 @@ except:
     from b40 import *
 
 def add_magic_bytes(hex_script, testset=False):
-    if not testset:
-        magic_bytes = MAGIC_BYTES_MAINSET
-    else:
-        magic_bytes = MAGIC_BYTES_TESTSET
+    magic_bytes = MAGIC_BYTES_MAINSET
     return hexlify(magic_bytes) + hex_script
 
 
