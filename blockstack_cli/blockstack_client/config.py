@@ -34,18 +34,10 @@ from version import __version__
 DEBUG = True
 VERSION = __version__
 
-DEFAULT_BLOCKSTACKD_PORT = '6264'
-DEFAULT_BLOCKSTACKD_SERVER = "server.blockstack.org"
+DEFAULT_BLOCKSTACKD_PORT = 6264     # blockstackd port
+DEFAULT_BLOCKSTACKD_SERVER = "node.blockstack.org"
 
-DEFAULT_DHT_MIRROR = "mirror.blockstack.org"
-DEFAULT_DHT_PORT = '6266'
-DEFAULT_API_PORT = 6270
-
-DHT_MIRROR_SERVER = 'mirror.blockstack.org'
-DHT_MIRROR_PORT = 6266
-
-RESOLVER_URL = 'http://resolver.onename.com'
-RESOLVER_USERS_ENDPOINT = "/v2/users/"
+DEFAULT_API_PORT = 6270     # RPC endpoint port
 
 # initialize to default settings
 BLOCKSTACKD_SERVER = DEFAULT_BLOCKSTACKD_SERVER
@@ -250,9 +242,7 @@ BLOCKSTACK_BURN_ADDRESS = "1111111111111111111114oLvT2"
 # never changes, so safe to duplicate to avoid gratuitous imports
 MAXIMUM_NAMES_PER_ADDRESS = 25
 
-
 MAX_RPC_LEN = 1024 * 1024 * 1024
-MAX_DHT_WRITE = (8 * 1024) - 1
 
 MAX_NAME_LENGTH = 37        # taken from blockstack-server
 
@@ -324,8 +314,6 @@ def make_default_config(path=CONFIG_PATH):
         parser.set('blockstack-client', 'storage_drivers', BLOCKSTACK_DEFAULT_STORAGE_DRIVERS)
         parser.set('blockstack-client', 'blockchain_headers', SPV_HEADERS_PATH)
         parser.set('blockstack-client', 'advanced_mode', 'false')
-        parser.set('blockstack-client', 'dht_mirror', DEFAULT_DHT_MIRROR)
-        parser.set('blockstack-client', 'dht_mirror_port', DEFAULT_DHT_PORT)
         parser.set('blockstack-client', 'api_endpoint_port', str(DEFAULT_API_PORT))
         parser.set('blockstack-client', 'queue_path', str(DEFAULT_QUEUE_PATH))
         parser.set('blockstack-client', 'poll_interval', str(DEFAULT_POLL_INTERVAL)),
@@ -405,8 +393,6 @@ def get_config(path=CONFIG_PATH):
         "metadata": BLOCKSTACK_METADATA_DIR,
         "blockchain_headers": SPV_HEADERS_PATH,
         "advanced_mode": False,
-        'dht_mirror': DEFAULT_DHT_MIRROR,
-        'dht_mirror_port': DEFAULT_DHT_PORT,
         "api_endpoint_port": DEFAULT_API_PORT,
         "queue_path": str(DEFAULT_QUEUE_PATH),
         "poll_interval": str(DEFAULT_POLL_INTERVAL),
@@ -449,12 +435,6 @@ def get_config(path=CONFIG_PATH):
                 config['advanced_mode'] = True
             else:
                 config['advanced_mode'] = False
-
-        if parser.has_option("blockstack-client", "dht_mirror"):
-            config['dht_mirror'] = parser.get("blockstack-client", "dht_mirror")
-
-        if parser.has_option("blockstack-client", "dht_mirror_port"):
-            config['dht_mirror_port'] = parser.get("blockstack-client", "dht_mirror_port")
 
         if parser.has_option("blockstack-client", "api_endpoint_port"):
             config['api_endpoint_port'] = int(parser.get("blockstack-client", "api_endpoint_port"))
