@@ -20,7 +20,7 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'virtualchain>=0.0.9.0',
+        'virtualchain>=0.0.9.1',
         'protocoin>=0.1',
         'blockstack-profiles>=0.4.3',
         'pybitcoin>=0.9.8',
