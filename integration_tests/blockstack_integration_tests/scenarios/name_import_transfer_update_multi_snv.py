@@ -157,12 +157,14 @@ def check( state_engine ):
     snv_rec = blockstack_client.snv_lookup( "foo.test", snv_block_id_foo, last_consensus, proxy=test_proxy ) 
     if 'error' in snv_rec:
         print json.dumps(snv_rec, indent=4 )
+        print "failed to look up foo.test from consensus hash %s" % last_consensus
         return False
 
     # can use bar.test's NAME_TRANSFER txid to verify foo.test, since it has a consensus hash 
     snv_rec_bar_tx = blockstack_client.snv_lookup( "foo.test", snv_block_id_foo, snv_txid_bar, proxy=test_proxy )
     if 'error' in snv_rec_bar_tx:
         print json.dumps( snv_rec_bar_tx, indent=4 )
+        print "failed to look up foo.test from transaction %s" % snv_txid_bar
         return False 
 
     if snv_rec != snv_rec_bar_tx:

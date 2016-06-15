@@ -85,6 +85,8 @@ class MockBitcoindConnection( object ):
         Transactions will be bundled into blocks in groups of size tx_grouping.
         """
 
+        assert save_file is not None
+
         self.block_hashes = {}      # map block ID to block hash 
         self.blocks = {}            # map block hash to block info (including transaction IDs)
         self.txs = {}               # map tx hash to a list of transactions
@@ -234,6 +236,7 @@ class MockBitcoindConnection( object ):
 
         raw_tx = self.txs.get( txid, None )
         if raw_tx is None:
+            log.error("No such transaction %s" % txid)
             return None
 
         if not verbose:
@@ -242,6 +245,7 @@ class MockBitcoindConnection( object ):
         # parse like how bitcoind would have
         ret = btc_decoderawtransaction_compat( raw_tx )
         if ret is None:
+            log.error("Failed to decode %s" % txid)
             return None
         
         ret['blockhash'] = self.txid_to_blockhash[ txid ]
@@ -276,6 +280,12 @@ class MockBitcoindConnection( object ):
 
         TODO: we don't check for transaction validity here...
         """
+
+        tx_hex = tx_serialize( *tx_deserialize( tx_hex ) )
+
+        txid = make_txid(str(tx_hex))
+
+        self.txs[txid] = tx_hex
 
         if self.next_block_txs_path is not None:
             self.save_next( self.next_block_txs_path, tx_hex )
@@ -321,7 +331,7 @@ class MockBitcoindConnection( object ):
         block_txs = {}
         block_txids = []
         for tx in txs:
-            txid = make_txid( tx )
+            txid = make_txid( str(tx) )
             block_txids.append( txid )
             block_txs[ txid ] = tx
 
@@ -381,7 +391,7 @@ class MockBitcoindConnection( object ):
                 f.write( block_header )
                 f.write( "00".decode('hex') )    # our SPV client expects varint for tx count to be zero
 
-        return [ make_txid( tx ) for tx in txs ]
+        return [ make_txid( str(tx) ) for tx in txs ]
 
 
     def save( self, path ):
@@ -486,13 +496,8 @@ def connect_mock_bitcoind( mock_opts, reset=False ):
         return mock_bitcoind 
 
     else:
-        # rewrite a few things for compatibility
-        # in particular, virtualchian's mock options all start with "bitcoind_mock_"
-        for k in mock_opts.keys():
-            if k.startswith("bitcoind_mock_"):
-                mock_opts[ k[len("bitcoind_mock_"):] ] = mock_opts[k]
-
         mock_bitcoind = MockBitcoindConnection( **mock_opts )
+        log.debug("Reconnect mock bitcoind %s (%s)" % (mock_bitcoind, mock_opts))
         return mock_bitcoind
 
 
@@ -513,6 +518,7 @@ def make_txid( tx_hex ):
     Create a transaction ID from a serialized transaction.
     """
 
+    tx_hex = str(tx_hex)
     sha256 = hashlib.sha256()
     sha256.update( binascii.unhexlify(tx_hex) )
     sha256_1 = sha256.digest()
@@ -658,7 +664,7 @@ def btc_decoderawtransaction_compat( tx_hex ):
     """
 
     inputs, outputs, locktime, version = tx_deserialize( tx_hex )
-    txid = make_txid( tx_hex )
+    txid = make_txid( str(tx_hex) )
 
     vin = []
     vout = []
@@ -704,7 +710,7 @@ def btc_decoderawtransaction_compat( tx_hex ):
             addresses.append( addr )
 
         vout_out = {
-            "value": float(out['value']) / 10e7,
+            "value": Decimal(out['value']) / Decimal(10e7),
             "mock_bitcoind_value_satoshi": out['value'],  # NOTE: extra
             "n": i,
             "scriptPubKey": {
