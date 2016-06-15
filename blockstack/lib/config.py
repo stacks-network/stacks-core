@@ -296,18 +296,6 @@ NAMESPACE_DEFAULT = {
 }
 
 
-""" UTXOs
-"""
-
-SUPPORTED_UTXO_PROMPT_MESSAGES = {
-    "chain_com": "Please enter your chain.com API key and secret.",
-    "blockcypher": "Please enter your Blockcypher API token.",
-    "blockchain_info": "Please enter your blockchain.info API token.",
-    "bitcoind_utxo": "Please enter your fully-indexed bitcoind node information.",
-    "blockstack_utxo": "Please enter your Blockstack server info.",
-    "mock_utxo": "Mock UTXO provider.  Do not use in production."
-}
-
 
 """
 Which announcements has this blockstack node seen so far?
@@ -680,128 +668,6 @@ def default_blockstack_opts( config_file=None, testset=False ):
    return blockstack_opts
 
 
-def default_bitcoind_opts( config_file=None ):
-   """
-   Get our default bitcoind options, such as from a config file,
-   or from sane defaults
-   """
-
-   default_bitcoin_opts = virtualchain.get_bitcoind_config( config_file=config_file )
-   
-   # strip None's
-   for (k, v) in default_bitcoin_opts.items():
-      if v is None:
-         del default_bitcoin_opts[k]
-
-   return default_bitcoin_opts
-
-
-def opt_strip( prefix, opts ):
-   """
-   Given a dict of opts that start with prefix,
-   remove the prefix from each of them.
-   """
-
-   ret = {}
-   for (opt_name, opt_value) in opts.items():
-
-      # remove prefix
-      if opt_name.startswith(prefix):
-         opt_name = opt_name[len(prefix):]
-
-      ret[ opt_name ] = opt_value
-
-   return ret
-
-
-def opt_restore( prefix, opts ):
-   """
-   Given a dict of opts, add the given prefix to each key
-   """
-
-   ret = {}
-
-   for (opt_name, opt_value) in opts.items():
-
-      ret[ prefix + opt_name ] = opt_value
-
-   return ret
-
-
-def interactive_prompt( message, parameters, default_opts, strip_prefix="" ):
-   """
-   Prompt the user for a series of parameters
-   Return a dict mapping the parameter name to the
-   user-given value.
-   """
-
-   # pretty-print the message
-   lines = message.split("\n")
-   max_line_len = max( [len(l) for l in lines] )
-
-   print '-' * max_line_len
-   print message
-   print '-' * max_line_len
-
-   ret = {}
-
-   for param in parameters:
-
-      formatted_param = param
-      if param.startswith( strip_prefix ):
-          formatted_param = param[len(strip_prefix):]
-
-      prompt_str = "%s: "  % formatted_param
-      if param in default_opts.keys():
-          prompt_str = "%s (default: '%s'): " % (formatted_param, default_opts[param])
-
-      value = raw_input(prompt_str)
-
-      if len(value) > 0:
-         ret[param] = value
-      elif param in default_opts.keys():
-         ret[param] = default_opts[param]
-      else:
-         ret[param] = None
-
-
-   return ret
-
-
-def find_missing( message, all_params, given_opts, default_opts, prompt_missing=True, strip_prefix="" ):
-   """
-   Find and interactively prompt the user for missing parameters,
-   given the list of all valid parameters and a dict of known options.
-
-   Return the (updated dict of known options, missing, num_prompted), with the user's input.
-   """
-
-   # are we missing anything?
-   missing_params = []
-   for missing_param in all_params:
-      if missing_param not in given_opts.keys():
-         missing_params.append( missing_param )
-
-   num_prompted = 0
-   if len(missing_params) > 0:
-
-      if prompt_missing:
-         missing_values = interactive_prompt( message, missing_params, default_opts, strip_prefix=strip_prefix )
-         given_opts.update( missing_values )
-         num_prompted = len(missing_values)
-
-      else:
-         # count the number missing, and go with defaults
-         for default_key in default_opts.keys():
-            if default_key not in given_opts:
-                num_prompted += 1
-
-         given_opts.update( default_opts )
-
-
-   return given_opts, missing_params, num_prompted
-
-
 def configure( config_file=None, force=False, interactive=True, testset=False ):
    """
    Configure blockstack:  find and store configuration parameters to the config file.
@@ -811,10 +677,8 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
 
    Optionally force a re-prompting for all configuration details (with force=True)
 
-   Return (blockstack_opts, bitcoind_opts, utxo_opts)
+   Return {'blockstack': {...}, 'bitcoind': {...}}
    """
-
-   global SUPPORTED_UTXO_PROVIDERS, SUPPORTED_UTXO_PARAMS, SUPPORTED_UTXO_PROMPT_MESSAGES
 
    if config_file is None:
       try:
@@ -840,63 +704,34 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
    blockstack_msg = "ADVANCED USERS ONLY.\nPlease enter blockstack configuration hints."
 
    # NOTE: disabled
-   blockstack_opts, missing_blockstack_opts, num_blockstack_opts_prompted = find_missing( blockstack_msg, blockstack_params, blockstack_opts, blockstack_opts_defaults, prompt_missing=False )
-
-   utxo_provider = None
-   if 'utxo_provider' in blockstack_opts:
-       utxo_provider = blockstack_opts['utxo_provider']
-   else:
-       utxo_provider = default_utxo_provider( config_file=config_file )
+   blockstack_opts, missing_blockstack_opts, num_blockstack_opts_prompted = blockstack_client.config.find_missing( blockstack_msg, \
+                                                                                                                   blockstack_params, \
+                                                                                                                   blockstack_opts, \
+                                                                                                                   blockstack_opts_defaults, \
+                                                                                                                   prompt_missing=False )
 
    bitcoind_message  = "Blockstack does not have enough information to connect\n"
    bitcoind_message += "to bitcoind.  Please supply the following parameters, or\n"
    bitcoind_message += "press [ENTER] to select the default value."
 
    bitcoind_opts = {}
-   bitcoind_opts_defaults = default_bitcoind_opts( config_file=config_file )
+   bitcoind_opts_defaults = blockstack_client.config.default_bitcoind_opts( config_file=config_file )
    bitcoind_params = bitcoind_opts_defaults.keys()
 
    if not force:
 
       # get default set of bitcoind opts
-      bitcoind_opts = default_bitcoind_opts( config_file=config_file )
+      bitcoind_opts = blockstack_client.config.default_bitcoind_opts( config_file=config_file )
 
 
    # get any missing bitcoind fields
-   bitcoind_opts, missing_bitcoin_opts, num_bitcoind_prompted = find_missing( bitcoind_message, bitcoind_params, bitcoind_opts, bitcoind_opts_defaults, prompt_missing=interactive, strip_prefix="bitcoind_" )
+   bitcoind_opts, missing_bitcoin_opts, num_bitcoind_prompted = blockstack_client.config.find_missing( bitcoind_message, \
+                                                                                                       bitcoind_params, \
+                                                                                                       bitcoind_opts, \
+                                                                                                       bitcoind_opts_defaults, \
+                                                                                                       prompt_missing=interactive )
 
-   # find the current utxo provider
-   while utxo_provider is None or utxo_provider not in SUPPORTED_UTXO_PROVIDERS:
-
-       # prompt for it?
-       if interactive or force:
-
-           utxo_message  = 'NOTE: Blockstack currently requires an external API\n'
-           utxo_message += 'for querying unspent transaction outputs.  The set of\n'
-           utxo_message += 'supported providers are:\n'
-           utxo_message += "\t\n".join( SUPPORTED_UTXO_PROVIDERS ) + "\n"
-           utxo_message += "Please get the requisite API tokens and enter them here."
-
-           utxo_provider_dict = interactive_prompt( utxo_message, ['utxo_provider'], {} )
-           utxo_provider = utxo_provider_dict['utxo_provider']
-
-       else:
-           raise Exception("No UTXO provider given")
-
-   utxo_opts = {}
-   utxo_opts_defaults = default_utxo_provider_opts( utxo_provider, config_file=config_file )
-   utxo_params = SUPPORTED_UTXO_PARAMS[ utxo_provider ]
-
-   if not force:
-
-      # get current set of utxo opts
-      utxo_opts = default_utxo_provider_opts( utxo_provider, config_file=config_file )
-
-   utxo_opts, missing_utxo_opts, num_utxo_opts_prompted = find_missing( SUPPORTED_UTXO_PROMPT_MESSAGES[utxo_provider], utxo_params, utxo_opts, utxo_opts_defaults, prompt_missing=interactive )
-   utxo_opts['utxo_provider'] = utxo_provider
-
-   if not interactive and (len(missing_bitcoin_opts) > 0 or len(missing_utxo_opts) > 0 or len(missing_blockstack_opts) > 0):
-
+   if not interactive and (len(missing_bitcoin_opts) > 0 or len(missing_blockstack_opts) > 0):
        # cannot continue
        raise Exception("Missing configuration fields: %s" % (",".join( missing_bitcoin_opts + missing_utxo_opts )) )
 
@@ -909,87 +744,22 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
        email_msg+= "If not, leave this field blank.\n\n"
        email_msg+= "Your email address will be used solely\n"
        email_msg+= "for this purpose.\n"
-       email_opts, _, email_prompted = find_missing( email_msg, ['email'], {}, {'email': ''}, prompt_missing=interactive )
+       email_opts, _, email_prompted = blockstack_client.config.find_missing( email_msg, ['email'], {}, {'email': ''}, prompt_missing=interactive )
 
        # merge with blockstack section
        num_blockstack_opts_prompted += 1
        blockstack_opts['email'] = email_opts['email']
 
+   ret = {
+      'blockstack': blockstack_opts,
+      'bitcoind': bitcoind_opts
+   }
+
    # if we prompted, then save
-   if num_bitcoind_prompted > 0 or num_utxo_opts_prompted > 0 or num_blockstack_opts_prompted > 0:
+   if num_bitcoind_prompted > 0 or num_blockstack_opts_prompted > 0:
        print >> sys.stderr, "Saving configuration to %s" % config_file
-       write_config_file( bitcoind_opts=bitcoind_opts, utxo_opts=utxo_opts, blockstack_opts=blockstack_opts, config_file=config_file )
+       blockstack_client.config.write_config_file( ret, config_file )
 
-   return (blockstack_opts, bitcoind_opts, utxo_opts)
-
-
-def write_config_file( blockstack_opts=None, bitcoind_opts=None, utxo_opts=None, config_file=None ):
-   """
-   Update a configuration file, given the bitcoind options and chain.com options.
-   Return True on success
-   Return False on failure
-   """
-
-   if config_file is None:
-      try:
-         config_file = virtualchain.get_config_filename()
-      except:
-         return False
-
-   if config_file is None:
-      return False
-
-   parser = SafeConfigParser()
-   parser.read(config_file)
-
-   if bitcoind_opts is not None and len(bitcoind_opts) > 0:
-
-      tmp_bitcoind_opts = opt_strip( "bitcoind_", bitcoind_opts )
-
-      if parser.has_section('bitcoind'):
-          parser.remove_section('bitcoind')
-
-      parser.add_section( 'bitcoind' )
-      for opt_name, opt_value in tmp_bitcoind_opts.items():
-         if opt_value is None:
-             raise Exception("%s is not defined" % opt_name)
-         parser.set( 'bitcoind', opt_name, "%s" % opt_value )
-
-   if utxo_opts is not None and len(utxo_opts) > 0:
-
-      if parser.has_section( utxo_opts['utxo_provider'] ):
-          parser.remove_section( utxo_opts['utxo_provider'] )
-
-      parser.add_section( utxo_opts['utxo_provider'] )
-      for opt_name, opt_value in utxo_opts.items():
-
-         # don't log this meta-field
-         if opt_name == 'utxo_provider':
-             continue
-
-         if opt_value is None:
-             raise Exception("%s is not defined" % opt_name)
-
-         parser.set( utxo_opts['utxo_provider'], opt_name, "%s" % opt_value )
-
-   if blockstack_opts is not None and len(blockstack_opts) > 0:
-
-      if parser.has_section("blockstack"):
-          parser.remove_section("blockstack")
-
-      parser.add_section( "blockstack" )
-      for opt_name, opt_value in blockstack_opts.items():
-
-          if opt_value is None:
-              raise Exception("%s is not defined" % opt_name )
-
-          parser.set( "blockstack", opt_name, "%s" % opt_value )
-
-
-   with open(config_file, "w") as fout:
-      os.fchmod( fout.fileno(), 0600 )
-      parser.write( fout )
-
-   return True
+   return ret 
 
 

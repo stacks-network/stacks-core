@@ -72,15 +72,13 @@ from lib.storage import *
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
 
-# global variables, for use with the RPC server and the twisted callback
+# global variables, for use with the RPC server 
 blockstack_opts = None
 bitcoind = None
 bitcoin_opts = None
-utxo_opts = None
-blockchain_client = None
-blockchain_broadcaster = None
+utxo_client = None
+tx_broadcaster = None
 rpc_server = None
-
 
 def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
    """
@@ -133,14 +131,6 @@ def get_bitcoin_opts():
    return bitcoin_opts
 
 
-def get_utxo_opts():
-   """
-   Get UTXO provider options.
-   """
-   global utxo_opts
-   return utxo_opts
-
-
 def get_blockstack_opts():
    """
    Get blockstack configuration options.
@@ -155,14 +145,6 @@ def set_bitcoin_opts( new_bitcoin_opts ):
    """
    global bitcoin_opts
    bitcoin_opts = new_bitcoin_opts
-
-
-def set_utxo_opts( new_utxo_opts ):
-   """
-   Set new global chian.com options
-   """
-   global utxo_opts
-   utxo_opts = new_utxo_opts
 
 
 def set_blockstack_opts( new_opts ):
@@ -263,47 +245,6 @@ def rpc_traceback():
         "error": exception_data[-1],
         "traceback": exception_data
     }
-
-
-def get_utxo_provider_client():
-   """
-   Get or instantiate our blockchain UTXO provider's client.
-   Return None if we were unable to connect
-   """
-
-   # acquire configuration (which we should already have)
-   blockstack_opts, bitcoin_opts, utxo_opts = configure( interactive=False )
-
-   try:
-       utxo_provider = connect_utxo_provider( utxo_opts )
-       return utxo_provider
-   except Exception, e:
-       log.exception(e)
-       return None
-
-
-def get_tx_broadcaster():
-   """
-   Get or instantiate our blockchain UTXO provider's transaction broadcaster.
-   fall back to the utxo provider client, if one is not designated
-   """
-
-   # acquire configuration (which we should already have)
-   blockstack_opts, blockchain_opts, utxo_opts = configure( interactive=False )
-
-   # is there a particular blockchain client we want for importing?
-   if 'tx_broadcaster' not in blockstack_opts:
-       return get_utxo_provider_client()
-
-   config_path = virtualchain.get_config_filename()
-   broadcaster_opts = default_utxo_provider_opts( blockstack_opts['tx_broadcaster'], config_file=config_path )
-
-   try:
-       blockchain_broadcaster = connect_utxo_provider( broadcaster_opts )
-       return blockchain_broadcaster
-   except:
-       log.exception(e)
-       return None
 
 
 
@@ -466,7 +407,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         Get the number of blocks the
         """
-        bitcoind_opts = default_bitcoind_opts( virtualchain.get_config_filename() )
+        bitcoind_opts = blockstack_client.default_bitcoind_opts( virtualchain.get_config_filename() )
         bitcoind = get_bitcoind( new_bitcoind_opts=bitcoind_opts, new=True )
 
         info = bitcoind.getinfo()
@@ -825,25 +766,36 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         Proxy to UTXO provider to get an address's
         unspent outputs.
+        ONLY USE FOR TESTING
         """
+        global utxo_client
+
         conf = get_blockstack_opts()
         if not conf['blockchain_proxy']:
             return {'error': 'No such method'}
 
-        utxo_client = get_utxo_provider_client()
-        return pybitcoin.get_unspents( address, utxo_client )
+        if utxo_client is None:
+            utxo_client = blockstack_client.get_utxo_provider_client()
+
+        unspents = pybitcoin.get_unspents( address, utxo_client )
+        return unspents
 
 
     def rpc_broadcast_transaction(self, txdata ):
         """
         Proxy to UTXO provider to send a transaction
+        ONLY USE FOR TESTING
         """
+        global utxo_client 
+
         conf = get_blockstack_opts()
         if not conf['blockchain_proxy']:
             return {'error': 'No such method'}
 
-        broadcaster = get_tx_broadcaster()
-        return pybitcoin.broadcast_transaction( txdata, broadcaster )
+        if utxo_client is None:
+            utxo_client = blockstack_client.get_utxo_provider_client()
+
+        return pybitcoin.broadcast_transaction( txdata, utxo_client )
 
 
 
@@ -1154,10 +1106,7 @@ def setup( working_dir=None, testset=False, return_parser=False ):
    """
 
    global blockstack_opts
-   global blockchain_client
-   global blockchain_broadcaster
    global bitcoin_opts
-   global utxo_opts
 
    # set up our implementation
    if working_dir is not None:
@@ -1181,18 +1130,9 @@ def setup( working_dir=None, testset=False, return_parser=False ):
            os.unlink( testset_path )
 
    # acquire configuration, and store it globally
-   blockstack_opts, bitcoin_opts, utxo_opts = configure( interactive=True, testset=testset )
-
-   # do we need to enable testset?
-   if blockstack_opts['testset']:
-       virtualchain.setup_virtualchain( blockstack_state_engine, testset=True )
-       testset = True
-
-   # if we're using the mock UTXO provider, then switch to the mock bitcoind node as well
-   if utxo_opts['utxo_provider'] == 'mock_utxo':
-       import blockstack_integration_tests.mock_bitcoind
-       virtualchain.setup_virtualchain( blockstack_state_engine, testset=testset, bitcoind_connection_factory=blockstack_integration_tests.mock_bitcoind.connect_mock_bitcoind )
-       virtualchain.connect_bitcoind = blockstack_integration_tests.mock_bitcoind.connect_mock_bitcoind
+   opts = configure( interactive=True )
+   blockstack_opts = opts['blockstack']
+   bitcoi_opts = opts['bitcoind']
 
    # merge in command-line bitcoind options
    config_file = virtualchain.get_config_filename()
@@ -1212,7 +1152,6 @@ def setup( working_dir=None, testset=False, return_parser=False ):
 
    # store options
    set_bitcoin_opts( bitcoin_opts )
-   set_utxo_opts( utxo_opts )
 
    if return_parser:
       return argparser
