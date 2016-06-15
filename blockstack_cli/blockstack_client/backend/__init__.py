@@ -7,4 +7,3 @@ from nameops import estimate_preorder_tx_fee, estimate_register_tx_fee, estimate
         estimate_namespace_reveal_tx_fee, estimate_namespace_ready_tx_fee, estimate_announce_tx_fee, \
         estimate_name_import_tx_fee
 
-from blockchain import get_utxo_client
