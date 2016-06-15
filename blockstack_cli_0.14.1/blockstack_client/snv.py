@@ -36,6 +36,8 @@ import copy
 import blockstack_profiles
 import urllib
 
+from .backend.blockchain import get_bitcoind_client
+
 from keys import *
 from proxy import *
 from profile import *
@@ -177,11 +179,15 @@ def txid_to_block_data(txid, bitcoind_proxy, proxy=None):
             untrusted_block_hash = untrusted_tx_data['blockhash']
             untrusted_block_data = bitcoind_proxy.getblock(untrusted_block_hash)
             break
+        except (OSError, IOError), ie:
+            log.exception(ie)
+            log.error("Network error; retrying...")
+            timeout = timeout * 2 + random.randint(0, timeout)
+            continue
+
         except Exception, e:
             log.exception(e)
-            log.error("Unable to obtain block data; retrying...")
-            time.sleep(timeout)
-            timeout = timeout * 2 + random.random() * timeout
+            return (None, None, None)
 
     # first, can we trust this block? is it in the SPV headers?
     untrusted_block_header_hex = virtualchain.block_header_to_hex(untrusted_block_data, untrusted_block_data['previousblockhash'])
@@ -849,7 +855,7 @@ def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_co
 
     trusted_serial_number_or_txid_or_consensus_hash = str(trusted_serial_number_or_txid_or_consensus_hash)
 
-    bitcoind_proxy = virtualchain.connect_bitcoind(proxy.conf)
+    bitcoind_proxy = get_bitcoind_client( config_path=proxy.conf['path'] )
     trusted_serial_number = None
     trusted_txid = None
     trusted_consensus_hash = None
