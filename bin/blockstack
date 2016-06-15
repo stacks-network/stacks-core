@@ -32,12 +32,13 @@ parent_dir = os.path.abspath(current_dir + "/../")
 sys.path.insert(0, parent_dir)
 
 from blockstack_client.cli import run_cli, exit_with_error
-from blockstack_client.config import get_logger
+from blockstack_client.config import get_logger, configure
 from blockstack_client.utils import pretty_print
 
 if __name__ == '__main__':
 
     log = get_logger()
+    configure(interactive=True, force=False)
 
     try:
         result = run_cli()
@@ -54,8 +55,7 @@ if __name__ == '__main__':
 
     except Exception as e:
         log.exception(e)
-        error_message = "Unexpected error, %s" % e
+        error_message = "Unexpected error:\n%s" % traceback.format_exc()
         help_message = 'Try getting latest version of CLI'
         help_message += ' with "sudo pip install blockstack --upgrade"'
-        #print traceback.print_exc()
         exit_with_error(error_message, help_message)
