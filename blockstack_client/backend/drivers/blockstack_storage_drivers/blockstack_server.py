@@ -33,7 +33,7 @@ import logging
 import xmlrpclib
 import json
 
-import zone_file
+import blockstack_zones
 
 # stop common XML attacks 
 from defusedxml import xmlrpc
@@ -118,7 +118,7 @@ def put_data( data_id, data_txt, zonefile=False ):
     if zonefile:
         # must be a zonefile 
         try:
-            zf = zone_file.parse_zone_file( data_txt )
+            zf = blockstack_zones.parse_zone_file( data_txt )
         except:
             log.error("Failed to parse zone file for %s" % data_id)
             return False
