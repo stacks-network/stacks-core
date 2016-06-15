@@ -1102,9 +1102,6 @@ def setup( working_dir=None, return_parser=False ):
    Otherwise return None.
    """
 
-   global blockstack_opts
-   global bitcoin_opts
-
    # set up our implementation
    if working_dir is not None:
        if not os.path.exists( working_dir ):
@@ -1118,6 +1115,8 @@ def setup( working_dir=None, return_parser=False ):
    opts = configure( interactive=True )
    blockstack_opts = opts['blockstack']
    bitcoin_opts = opts['bitcoind']
+
+   log.debug("config:\n%s" % json.dumps(opts, sort_keys=True, indent=4))
 
    # merge in command-line bitcoind options
    config_file = virtualchain.get_config_filename()
@@ -1137,6 +1136,7 @@ def setup( working_dir=None, return_parser=False ):
 
    # store options
    set_bitcoin_opts( bitcoin_opts )
+   set_blockstack_opts( blockstack_opts )
 
    if return_parser:
       return argparser

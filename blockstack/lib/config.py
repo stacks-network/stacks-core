@@ -679,6 +679,8 @@ def configure( config_file=None, force=False, interactive=True ):
        print >> sys.stderr, "Saving configuration to %s" % config_file
        blockstack_client.config.write_config_file( ret, config_file )
 
+   # prefix our bitcoind options, so they work with virtualchain
+   ret['bitcoind'] = blockstack_client.config.opt_restore("bitcoind_", ret['bitcoind'])
    return ret 
 
 
