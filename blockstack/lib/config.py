@@ -40,7 +40,6 @@ except:
     blockstack_client = None
 
 DEBUG = True
-TESTNET = False
 VERSION = __version__
 
 # namespace version
@@ -185,32 +184,6 @@ NAME_OPCODES = {
 
 NAMESPACE_LIFE_INFINITE = 0xffffffff
 
-'''
-# op-return formats (now in blockstack_client)
-LENGTHS = {
-    'magic_bytes': 2,
-    'opcode': 1,
-    'preorder_name_hash': 20,
-    'consensus_hash': 16,
-    'namelen': 1,
-    'name_min': 1,
-    'name_max': 34,
-    'name_hash': 16,
-    'update_hash': 20,
-    'data_hash': 20,
-    'blockchain_id_name': 37,
-    'blockchain_id_namespace_life': 4,
-    'blockchain_id_namespace_coeff': 1,
-    'blockchain_id_namespace_base': 1,
-    'blockchain_id_namespace_buckets': 8,
-    'blockchain_id_namespace_discounts': 1,
-    'blockchain_id_namespace_version': 2,
-    'blockchain_id_namespace_id': 19,
-    'announce': 20,
-    'max_op_length': 40
-}
-'''
-
 MIN_OP_LENGTHS = {
     'preorder': LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'],
     'registration': LENGTHS['name_min'],
@@ -228,17 +201,6 @@ MIN_OP_LENGTHS = {
 }
 
 OP_RETURN_MAX_SIZE = 40
-
-""" transaction fee configs
-"""
-
-'''
-# (now in blockstack_client)
-DEFAULT_OP_RETURN_FEE = 10000
-DEFAULT_DUST_FEE = 5500
-DEFAULT_OP_RETURN_VALUE = 0
-DEFAULT_FEE_PER_KB = 10000
-'''
 
 """ name price configs
 """
@@ -308,18 +270,6 @@ ANNOUNCEMENTS = []
 
 blockstack_client_session = None
 blockstack_client_session_opts = None
-
-def get_testset_filename( working_dir=None ):
-   """
-   Get the path to the file to determine whether or not we're in testset.
-   """
-
-   if working_dir is None:
-       working_dir = virtualchain.get_working_dir()
-
-   testset_filepath = os.path.join( working_dir, virtualchain.get_implementation().get_virtual_chain_name() ) + ".testset"
-   return testset_filepath
-
 
 def get_announce_filename( working_dir=None ):
    """
@@ -514,7 +464,7 @@ def put_announcement( announcement_text, txid ):
     return data_hash
 
 
-def default_blockstack_opts( config_file=None, testset=False ):
+def default_blockstack_opts( config_file=None ):
    """
    Get our default blockstack opts from a config file
    or from sane defaults.
@@ -523,18 +473,12 @@ def default_blockstack_opts( config_file=None, testset=False ):
    if config_file is None:
       config_file = virtualchain.get_config_filename()
 
-   testset_path = get_testset_filename( virtualchain.get_working_dir() )
    announce_path = get_announce_filename( virtualchain.get_working_dir() )
 
    parser = SafeConfigParser()
    parser.read( config_file )
 
    blockstack_opts = {}
-   tx_broadcaster = None
-   utxo_provider = None
-   testset_first_block = None
-   max_subsidy = 0
-   subsidy_key = None
    contact_email = None
    announcers = "judecn.id,muneeb.id,shea256.id"
    announcements = None
@@ -542,26 +486,11 @@ def default_blockstack_opts( config_file=None, testset=False ):
    backup_max_age = 12096   # 12 weeks
    rpc_port = RPC_SERVER_PORT 
    blockchain_proxy = False
-   serve_zonefiles = False
+   serve_zonefiles = True
    serve_profiles = False
    zonefile_dir = None
 
    if parser.has_section('blockstack'):
-
-      if parser.has_option('blockstack', 'tx_broadcaster'):
-         tx_broadcaster = parser.get('blockstack', 'tx_broadcaster')
-
-      if parser.has_option('blockstack', 'utxo_provider'):
-         utxo_provider = parser.get('blockstack', 'utxo_provider')
-
-      if parser.has_option('blockstack', 'testset_first_block'):
-         testset_first_block = int( parser.get('blockstack', 'testset_first_block') )
-
-      if parser.has_option('blockstack', 'max_subsidy'):
-         max_subsidy = int( parser.get('blockstack', 'max_subsidy'))
-
-      if parser.has_option('blockstack', 'subsidy_key'):
-         subsidy_key = parser.get('blockstack', 'subsidy_key')
 
       if parser.has_option('blockstack', 'backup_frequency'):
          backup_frequency = int( parser.get('blockstack', 'backup_frequency'))
@@ -616,10 +545,6 @@ def default_blockstack_opts( config_file=None, testset=False ):
          if valid:
              announcers = ",".join(announcer_list)
 
-   if os.path.exists( testset_path ):
-       # testset file flag set
-       testset = True
-
    if os.path.exists( announce_path ):
        # load announcement list
        with open( announce_path, "r" ) as f:
@@ -643,12 +568,6 @@ def default_blockstack_opts( config_file=None, testset=False ):
 
    blockstack_opts = {
        'rpc_port': rpc_port,
-       'tx_broadcaster': tx_broadcaster,
-       'utxo_provider': utxo_provider,
-       'testset': testset,
-       'testset_first_block': testset_first_block,
-       'max_subsidy': max_subsidy,
-       'subsidy_key': subsidy_key,
        'email': contact_email,
        'announcers': announcers,
        'announcements': announcements,
@@ -668,7 +587,7 @@ def default_blockstack_opts( config_file=None, testset=False ):
    return blockstack_opts
 
 
-def configure( config_file=None, force=False, interactive=True, testset=False ):
+def configure( config_file=None, force=False, interactive=True ):
    """
    Configure blockstack:  find and store configuration parameters to the config file.
 
@@ -693,13 +612,13 @@ def configure( config_file=None, force=False, interactive=True, testset=False ):
 
    # get blockstack opts
    blockstack_opts = {}
-   blockstack_opts_defaults = default_blockstack_opts( config_file=config_file, testset=testset )
+   blockstack_opts_defaults = default_blockstack_opts( config_file=config_file )
    blockstack_params = blockstack_opts_defaults.keys()
 
    if not force:
 
        # default blockstack options
-       blockstack_opts = default_blockstack_opts( config_file=config_file, testset=testset )
+       blockstack_opts = default_blockstack_opts( config_file=config_file )
 
    blockstack_msg = "ADVANCED USERS ONLY.\nPlease enter blockstack configuration hints."
 

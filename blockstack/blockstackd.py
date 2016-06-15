@@ -299,8 +299,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
     as RPC methods.
     """
 
-    def __init__(self, host='0.0.0.0', port=config.RPC_SERVER_PORT, handler=BlockstackdRPCHandler, testset=False):
-        self.testset = testset
+    def __init__(self, host='0.0.0.0', port=config.RPC_SERVER_PORT, handler=BlockstackdRPCHandler ):
         log.info("Listening on %s:%s" % (host, port))
         SimpleXMLRPCServer.__init__( self, (host, port), handler, allow_none=True )
 
@@ -419,7 +418,6 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         reply['consensus'] = db.get_current_consensus()
         reply['blocks'] = db.get_current_block()
         reply['blockstack_version'] = "%s" % VERSION
-        reply['testset'] = str(self.testset)
         reply['last_block'] = reply['blocks']
         return reply
 
@@ -803,9 +801,8 @@ class BlockstackdRPCServer( threading.Thread, object ):
     """
     RPC server thread
     """
-    def __init__(self, port, testset=False):
+    def __init__(self, port ):
         super( BlockstackdRPCServer, self ).__init__()
-        self.testset = testset
         self.rpc_server = None
         self.port = port
 
@@ -814,7 +811,7 @@ class BlockstackdRPCServer( threading.Thread, object ):
         """
         Serve until asked to stop
         """
-        self.rpc_server = BlockstackdRPC( port=self.port, testset=self.testset )
+        self.rpc_server = BlockstackdRPC( port=self.port )
         self.rpc_server.serve_forever()
 
 
@@ -825,7 +822,7 @@ class BlockstackdRPCServer( threading.Thread, object ):
         self.rpc_server.shutdown()
      
 
-def rpc_start( port, testset=False ):
+def rpc_start( port ):
     """
     Start the global RPC server thread
     """
@@ -834,7 +831,7 @@ def rpc_start( port, testset=False ):
     # let everyone in this thread know the PID
     os.environ["BLOCKSTACK_RPC_PID"] = str(os.getpid())
 
-    rpc_server = BlockstackdRPCServer( port, testset=testset )
+    rpc_server = BlockstackdRPCServer( port )
 
     log.debug("Starting RPC")
     rpc_server.start()
@@ -984,7 +981,7 @@ def blockstack_exit_handler( sig, frame ):
     sys.exit(0)
 
 
-def run_server( testset=False, foreground=False, index=True ):
+def run_server( foreground=False, index=True ):
     """
     Run the blockstackd RPC server, optionally in the foreground.
     """
@@ -1093,7 +1090,7 @@ def run_server( testset=False, foreground=False, index=True ):
 
 
 
-def setup( working_dir=None, testset=False, return_parser=False ):
+def setup( working_dir=None, return_parser=False ):
    """
    Do one-time initialization.
    Call this to set up global state and set signal handlers.
@@ -1115,24 +1112,12 @@ def setup( working_dir=None, testset=False, return_parser=False ):
 
        blockstack_state_engine.working_dir = working_dir
 
-   virtualchain.setup_virtualchain( blockstack_state_engine, testset=testset )
-
-   testset_path = get_testset_filename( working_dir )
-   if testset:
-       # flag testset so our subprocesses see it
-       if not os.path.exists( testset_path ):
-           with open( testset_path, "w+" ) as f:
-              pass
-
-   else:
-       # flag not set
-       if os.path.exists( testset_path ):
-           os.unlink( testset_path )
+   virtualchain.setup_virtualchain( blockstack_state_engine )
 
    # acquire configuration, and store it globally
    opts = configure( interactive=True )
    blockstack_opts = opts['blockstack']
-   bitcoi_opts = opts['bitcoind']
+   bitcoin_opts = opts['bitcoind']
 
    # merge in command-line bitcoind options
    config_file = virtualchain.get_config_filename()
@@ -1159,16 +1144,16 @@ def setup( working_dir=None, testset=False, return_parser=False ):
       return None
 
 
-def reconfigure( testset=False ):
+def reconfigure():
    """
    Reconfigure blockstackd.
    """
-   configure( force=True, testset=testset )
+   configure( force=True )
    print "Blockstack successfully reconfigured."
    sys.exit(0)
 
 
-def clean( testset=False, confirm=True ):
+def clean( confirm=True ):
     """
     Remove blockstack's db, lastblock, and snapshot files.
     Prompt for confirmation
@@ -1211,7 +1196,7 @@ def clean( testset=False, confirm=True ):
     sys.exit(exit_status)
 
 
-def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db, testset=False ):
+def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db ):
     """
     Given a record from the blockstack database,
     convert it into a virtualchain operation to
@@ -1569,7 +1554,7 @@ def block_to_virtualchain_ops( block_id, db ):
     return virtualchain_ops
 
 
-def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, resume_dir=None, start_block=None, testset=False ):
+def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, resume_dir=None, start_block=None ):
     """
     Given a target block ID and a path to an (untrusted) db, reconstruct it in a temporary directory by
     replaying all the nameops it contains.
@@ -1586,7 +1571,7 @@ def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, 
         working_dir = resume_dir
 
     blockstack_state_engine.working_dir = working_dir
-    virtualchain.setup_virtualchain( blockstack_state_engine, testset=testset )
+    virtualchain.setup_virtualchain( blockstack_state_engine )
 
     if resume_dir is None:
         # not resuming
@@ -1630,7 +1615,7 @@ def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, 
     return consensus_hashes[ target_block_id ]
 
 
-def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_path, working_db_path=None, start_block=None, testset=False ):
+def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_path, working_db_path=None, start_block=None ):
     """
     Verify that a database is consistent with a
     known-good consensus hash.
@@ -1642,7 +1627,7 @@ def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_pa
     database.
     """
 
-    final_consensus_hash = rebuild_database( consensus_block_id, untrusted_db_path, working_db_path=working_db_path, start_block=start_block, testset=testset )
+    final_consensus_hash = rebuild_database( consensus_block_id, untrusted_db_path, working_db_path=working_db_path, start_block=start_block )
 
     # did we reach the consensus hash we expected?
     if final_consensus_hash == trusted_consensus_hash:
@@ -1685,18 +1670,6 @@ def restore( working_dir, block_number ):
     return rc
 
 
-def check_testset_enabled():
-    """
-    Check sys.argv to see if testset is enabled.
-    Must be done before we initialize the virtual chain.
-    """
-    for arg in sys.argv:
-        if arg == "--testset":
-            return True
-
-    return False
-
-
 def check_alternate_working_dir():
     """
     Check sys.argv to see if there is an alternative
@@ -1727,9 +1700,8 @@ def run_blockstackd():
    run blockstackd
    """
 
-   testset = check_testset_enabled()
    working_dir = check_alternate_working_dir()
-   argparser = setup( testset=testset, working_dir=working_dir, return_parser=True )
+   argparser = setup( working_dir=working_dir, return_parser=True )
 
    # get RPC server options
    subparsers = argparser.add_subparsers(
@@ -1742,9 +1714,6 @@ def run_blockstackd():
       '--foreground', action='store_true',
       help='start the blockstackd server in foreground')
    parser.add_argument(
-      '--testset', action='store_true',
-      help='run with the set of name operations used for testing, instead of the main set')
-   parser.add_argument(
       '--working-dir', action='store',
       help='use an alternative working directory')
    parser.add_argument(
@@ -1755,18 +1724,12 @@ def run_blockstackd():
       'stop',
       help='stop the blockstackd server')
    parser.add_argument(
-      '--testset', action='store_true',
-      help='required if the daemon is using the testing set of name operations')
-   parser.add_argument(
       '--working-dir', action='store',
       help='use an alternative working directory')
 
    parser = subparsers.add_parser(
-      'reconfigure',
+      'configure',
       help='reconfigure the blockstackd server')
-   parser.add_argument(
-      '--testset', action='store_true',
-      help='required if the daemon is using the testing set of name operations')
    parser.add_argument(
       '--working-dir', action='store',
       help='use an alternative working directory')
@@ -1777,9 +1740,6 @@ def run_blockstackd():
    parser.add_argument(
       '--force', action='store_true',
       help='Do not confirm the request to delete.')
-   parser.add_argument(
-      '--testset', action='store_true',
-      help='required if the daemon is using the testing set of name operations')
    parser.add_argument(
       '--working-dir', action='store',
       help='use an alternative working directory')
@@ -1842,13 +1802,8 @@ def run_blockstackd():
 
    args, _ = argparser.parse_known_args()
 
-   log.debug("bitcoin options: (%s, %s, %s)" % (bitcoin_opts['bitcoind_server'],
-                                                bitcoin_opts['bitcoind_port'],
-                                                bitcoin_opts['bitcoind_user']))
-
    if args.action == 'version':
       print "Blockstack version: %s" % VERSION
-      print "Testset: %s" % testset
       sys.exit(0)
 
    if args.action == 'start':
@@ -1858,28 +1813,28 @@ def run_blockstackd():
           sys.exit(1)
 
       if args.foreground:
-         log.info('Initializing blockstackd server in foreground (testset = %s, working dir = \'%s\')...' % (testset, working_dir))
+         log.info('Initializing blockstackd server in foreground (working dir = \'%s\')...' % (working_dir))
       else:
-         log.info('Starting blockstackd server (testset = %s, working_dir = \'%s\') ...' % (testset, working_dir))
+         log.info('Starting blockstackd server (working_dir = \'%s\') ...' % (working_dir))
 
       if args.no_index:
          log.info("Not indexing the blockchain; only running an RPC endpoint")
 
-      exit_status = run_server( foreground=args.foreground, testset=testset, index=(not args.no_index) )
+      exit_status = run_server( foreground=args.foreground, index=(not args.no_index) )
       if args.foreground:
          log.info("Service endpoint exited with status code %s" % exit_status )
 
    elif args.action == 'stop':
       stop_server(kill=True)
 
-   elif args.action == 'reconfigure':
-      reconfigure( testset=testset )
+   elif args.action == 'configure':
+      reconfigure()
 
    elif args.action == 'restore':
       restore( working_dir, args.block_number )
 
    elif args.action == 'clean':
-      clean( confirm=(not args.force), testset=args.testset )
+      clean( confirm=(not args.force) )
 
    elif args.action == 'rebuilddb':
 
@@ -1905,7 +1860,7 @@ def run_blockstackd():
    elif args.action == 'importdb':
       old_working_dir = blockstack_state_engine.working_dir
       blockstack_state_engine.working_dir = None
-      virtualchain.setup_virtualchain( blockstack_state_engine, testset=testset )
+      virtualchain.setup_virtualchain( blockstack_state_engine )
 
       db_path = virtualchain.get_db_filename()
       old_snapshots_path = os.path.join( old_working_dir, os.path.basename( virtualchain.get_snapshots_filename() ) )
