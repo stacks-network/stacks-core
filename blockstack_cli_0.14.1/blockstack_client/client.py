@@ -80,12 +80,6 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
         conf = get_config(config_path)
 
     if conf is not None:
-
-        missing = find_missing(conf)
-        if len(missing) > 0:
-            log.error("Missing blockstack configuration fields: %s" % (", ".join(missing)))
-            sys.exit(1)
-
         if server_host is None:
             server_host = conf['server']
         if server_port is None:
