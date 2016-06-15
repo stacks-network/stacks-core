@@ -691,7 +691,7 @@ def do_announce( message_text, sender_privkey, utxo_client, tx_broadcaster, conf
     resp = {}
 
     try:
-        resp = sign_and_broadcast_tx( unsigned_tx, sender_privkey, tx_broadcaster )
+        resp = sign_and_broadcast_tx( unsigned_tx, sender_privkey, tx_broadcaster=tx_broadcaster )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast announce transaction'}
