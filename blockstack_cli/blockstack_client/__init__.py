@@ -41,7 +41,8 @@ from proxy import getinfo, ping, get_name_cost, get_namespace_cost, get_all_name
         
 from keys import make_wallet_keys, get_owner_keypair, get_data_keypair, get_payment_keypair
 
-from client import session, get_default_proxy, set_default_proxy, register_storage, load_storage 
+from client import session, get_default_proxy, set_default_proxy, register_storage, load_storage
+
 from snv import snv_lookup, lookup_snv
 from data import get_immutable, get_immutable_by_name, get_mutable, put_immutable, put_mutable, delete_immutable, \
         delete_mutable, list_mutable_data, list_immutable_data, list_immutable_data_history, list_update_history, list_zonefile_history
@@ -51,7 +52,7 @@ from storage import get_announcement, put_announcement
 from profile import get_name_profile, get_name_zonefile, zonefile_publish, get_and_migrate_profile
 from accounts import list_accounts, get_account, put_account, delete_account
 
-from config import get_logger, get_config, CONFIG_PATH, CONFIG_FILENAME
+from config import get_logger, get_config, CONFIG_PATH, CONFIG_FILENAME, get_utxo_provider_client, get_tx_broadcaster, default_bitcoind_opts
 
 from storage import blockstack_mutable_data_url as make_mutable_data_url
 from storage import blockstack_mutable_data_url_parse as parse_mutable_data_url
