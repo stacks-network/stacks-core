@@ -24,7 +24,7 @@ from ..config import MAXIMUM_NAMES_PER_ADDRESS
 from ..config import BLOCKSTACKD_SERVER, BLOCKSTACKD_PORT
 
 from ..config import MINIMUM_BALANCE, CONFIG_PATH
-from ..config import get_logger
+from ..config import get_logger, get_utxo_provider_client
 
 from ..utils import satoshis_to_btc
 from ..utils import pretty_print as pprint
@@ -42,30 +42,18 @@ def get_bitcoind_client(config_path=CONFIG_PATH):
     if bitcoind_opts['bitcoind_mock']:
         # testing 
         log.debug("Connect to mock bitcoind (%s)" % config_path)
+       
+        # mock bitcoind requires mock utxo options as well
+        utxo_opts = blockstack_utxo.default_mock_utxo_opts(config_path)
+        bitcoind_opts.update(utxo_opts)
+
         from blockstack_integration_tests import connect_mock_bitcoind
         client = connect_mock_bitcoind( bitcoind_opts, reset=True )
     else:
         # production
         log.debug("Connect to production bitcoind (%s)" % config_path)
         client = virtualchain.connect_bitcoind( bitcoind_opts )
-    return client
 
-
-def get_utxo_client(config_path=CONFIG_PATH):
-    """
-    Connect to UTXO provider
-    """
-    # which UTXO provider to use?
-    # opt for 'blockstack_utxo' if available, since that indicates testing 
-    available_utxo_providers = blockstack_utxo.all_utxo_providers( config_path )
-    utxo_provider = None
-
-    if 'blockstack_utxo' in available_utxo_providers:
-        utxo_provider = 'blockstack_utxo'
-    else:
-        utxo_provider = 'blockcypher'
-
-    client = blockstack_utxo.get_utxo_provider_client( utxo_provider, config_path )
     return client
 
 
@@ -176,7 +164,7 @@ def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None):
     """
 
     if utxo_client is None:
-        utxo_client = get_utxo_client(config_path=config_path)
+        utxo_client = get_utxo_provider_client(config_path=config_path)
 
     data = []
 
@@ -217,7 +205,7 @@ def is_address_usable(address, config_path=CONFIG_PATH, utxo_client=None):
     try:
         unspents = get_utxos(address, config_path=config_path, utxo_client=None)
     except Exception as e:
-        log.debug(e)
+        log.exception(e)
         return False
 
     for unspent in unspents:
