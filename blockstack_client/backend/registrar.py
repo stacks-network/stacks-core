@@ -133,13 +133,11 @@ class RegistrarWorker(threading.Thread):
         self.rpc_token = config['rpc_token']
         self.api_port = config['api_endpoint_port']
         self.running = True
-        self.extra_servers = config['extra_servers']
         self.lockfile_path = None
 
         log.debug("Queue path:      %s" % self.queue_path)
         log.debug("Poll interval:   %s" % self.poll_interval)
         log.debug("API port:        %s" % self.api_port)
-        log.debug("Extra Blockstack servers: %s" % self.extra_servers)
 
 
     @classmethod 
@@ -385,9 +383,6 @@ class RegistrarWorker(threading.Thread):
         """
         conf = get_config(config_path)
         servers = [(conf['server'], conf['port'])]
-        if conf.has_key('extra_servers') and len(conf['extra_servers']) > 0:
-            servers += conf['extra_servers']
-
         return servers
 
 
