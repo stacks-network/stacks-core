@@ -39,8 +39,8 @@ from basicrpc import Proxy
     includes the DHT node implementation.
 """
 
-DHT_SERVER_PORT = 6265  # blockstackd default to port 6264
-MIRROR_TCP_PORT = 6266
+DHT_SERVER_PORT = 6265  # direct DHT connection
+MIRROR_TCP_PORT = 6266  # connection to our mirror
 
 DEFAULT_DHT_SERVERS = [('dht.blockstack.org', DHT_SERVER_PORT),
                        ('dht.onename.com', DHT_SERVER_PORT),
