@@ -54,7 +54,7 @@ from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SER
     BLOCKSTACKD_PORT, BLOCKSTACK_METADATA_DIR, BLOCKSTACK_DEFAULT_STORAGE_DRIVERS, \
     FIRST_BLOCK_MAINNET, NAME_OPCODES, OPFIELDS, CONFIG_DIR, SPV_HEADERS_PATH, BLOCKCHAIN_ID_MAGIC, \
     NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER, NAMESPACE_PREORDER, NAME_IMPORT, \
-    USER_ZONEFILE_TTL, CONFIG_PATH
+    USER_ZONEFILE_TTL, CONFIG_PATH, get_utxo_provider_client, get_tx_broadcaster
 
 log = get_logger()
 
@@ -449,7 +449,6 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
     """
 
     from backend.nameops import do_update
-    from backend.blockchain import get_utxo_client 
 
     if type(data_json) not in [dict]:
         raise ValueError("Immutable data must be a dict")
@@ -495,9 +494,10 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
     if txid is None:
         _, payment_privkey = get_payment_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
         _, owner_privkey = get_owner_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
-        utxo_client = get_utxo_client( config_path=proxy.conf['path'] )
+        utxo_client = get_utxo_provider_client( config_path=proxy.conf['path'] )
+        broadcaster_client = get_tx_broadcaster( config_path=proxy.conf['path'] )
 
-        update_result = do_update( name, zonefile_hash, owner_privkey, payment_privkey, utxo_client, config_path=proxy.conf['path'], proxy=proxy )
+        update_result = do_update( name, zonefile_hash, owner_privkey, payment_privkey, utxo_client, broadcaster_client, config_path=proxy.conf['path'], proxy=proxy )
         if 'error' in update_result:
             # failed to replicate user zonefile hash 
             # the caller should simply try again, with the 'transaction_hash' given in the result.
@@ -647,7 +647,6 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
     """
 
     from backend.nameops import do_update
-    from backend.blockchain import get_utxo_client
 
     if proxy is None:
         proxy = get_default_proxy()
@@ -692,9 +691,10 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
         # actually send the transaction
         _, payment_privkey = get_payment_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
         _, owner_privkey = get_owner_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
-        utxo_client = get_utxo_client( config_path=proxy.conf['path'] )
+        utxo_client = get_utxo_provider_client( config_path=proxy.conf['path'] )
+        broadcaster_client = get_tx_broadcaster( config_path=proxy.conf['path'] )
 
-        update_result = do_update( name, zonefile_hash, owner_privkey, payment_privkey, utxo_client, config_path=proxy.conf['path'], proxy=proxy )
+        update_result = do_update( name, zonefile_hash, owner_privkey, payment_privkey, utxo_client, broadcaster_client, config_path=proxy.conf['path'], proxy=proxy )
         if 'error' in update_result:
             # failed to remove from zonefile 
             return update_result 
