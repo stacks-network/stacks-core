@@ -38,7 +38,7 @@ log = get_logger("blockstack-storage-driver-disk")
 if os.environ.get("BLOCKSTACK_TEST", None) is not None:
     DISK_ROOT = "/tmp/blockstack-disk"
 else:
-    DISK_ROOT = os.expanduser("~/.blockstack/storage-disk")
+    DISK_ROOT = os.path.expanduser("~/.blockstack/storage-disk")
 
 IMMUTABLE_STORAGE_ROOT = DISK_ROOT + "/immutable"
 MUTABLE_STORAGE_ROOT = DISK_ROOT + "/mutable"
