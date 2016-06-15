@@ -23,8 +23,7 @@
 
 import pybitcoin
 from .operations import *
-from .backend.blockchain import get_utxo_client
-from .config import CONFIG_PATH
+from .config import CONFIG_PATH, get_utxo_provider_client, get_tx_broadcaster
 from pybitcoin import serialize_transaction, sign_all_unsigned_inputs, broadcast_transaction
 
 def preorder_tx( *args, **kw ):
@@ -114,25 +113,25 @@ def sign_tx( tx_hex, private_key_hex ):
     return sign_all_unsigned_inputs( private_key_hex, tx_hex )
 
 
-def broadcast_tx( tx_hex, config_path=CONFIG_PATH, utxo_client=None ):
+def broadcast_tx( tx_hex, config_path=CONFIG_PATH, tx_broadcaster=None ):
     """
     Send a signed transaction to the blockchain
     """
-    if utxo_client is None:
-        utxo_client = get_utxo_client( config_path=config_path )
+    if tx_broadcaster is None:
+        tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 
-    resp = broadcast_transaction( tx_hex, utxo_client )
+    resp = broadcast_transaction( tx_hex, tx_broadcaster )
     if 'transaction_hash' not in resp:
         resp['error'] = 'Failed to broadcast transaction: %s' % tx_hex
 
     return resp
 
 
-def sign_and_broadcast_tx( tx_hex, private_key_hex, config_path=CONFIG_PATH, utxo_client=None ):
+def sign_and_broadcast_tx( tx_hex, private_key_hex, config_path=CONFIG_PATH, tx_broadcaster=None ):
     """
     Sign and send a transaction
     """
     signed_tx = sign_tx( tx_hex, private_key_hex )
-    resp = broadcast_tx( signed_tx, config_path=config_path, utxo_client=None )
+    resp = broadcast_tx( signed_tx, config_path=config_path, tx_broadcaster=tx_broadcaster )
     return resp
 
