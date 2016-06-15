@@ -18,7 +18,7 @@ parent_dir = os.path.abspath(current_dir + "/../")
 
 from .queue import in_queue, queue_append, queue_findone
 
-from .blockchain import get_tx_confirmations, get_utxo_client
+from .blockchain import get_tx_confirmations
 from .blockchain import is_address_usable
 from .blockchain import can_receive_name, get_balance, get_tx_fee
 
@@ -27,7 +27,7 @@ from crypto.utils import get_address_from_privkey, get_pubkey_from_privkey
 from ..utils import pretty_print as pprint
 from ..utils import pretty_dump
 
-from ..config import PREORDER_CONFIRMATIONS, DEFAULT_QUEUE_PATH, CONFIG_PATH
+from ..config import PREORDER_CONFIRMATIONS, DEFAULT_QUEUE_PATH, CONFIG_PATH, get_utxo_provider_client, get_tx_broadcaster
 from ..config import get_logger
 
 from ..proxy import get_default_proxy
@@ -223,7 +223,7 @@ def estimate_announce_tx_fee( sender_pubkey_hex, utxo_client, config_path=CONFIG
     return tx_fee
 
 
-def do_preorder( fqu, payment_privkey, owner_address, cost, utxo_client, config_path=CONFIG_PATH, proxy=None, consensus_hash=None, safety_checks=True ):
+def do_preorder( fqu, payment_privkey, owner_address, cost, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, consensus_hash=None, safety_checks=True ):
     """
     Preorder a name
     Return {'status': True, 'transaction_hash': ...} on success
@@ -261,7 +261,7 @@ def do_preorder( fqu, payment_privkey, owner_address, cost, utxo_client, config_
 
     try:
         unsigned_tx = preorder_tx( fqu, payment_pubkey_hex, owner_address, cost, consensus_hash, utxo_client, tx_fee=tx_fee )
-        resp = sign_and_broadcast_tx( unsigned_tx, payment_privkey, utxo_client=utxo_client )
+        resp = sign_and_broadcast_tx( unsigned_tx, payment_privkey, tx_broadcaster=tx_broadcaster )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to create and broadcast preorder transaction'}
@@ -269,7 +269,7 @@ def do_preorder( fqu, payment_privkey, owner_address, cost, utxo_client, config_
     return resp
 
 
-def do_register( fqu, payment_privkey, owner_address, utxo_client, renewal_fee=None, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
+def do_register( fqu, payment_privkey, owner_address, utxo_client, tx_broadcaster, renewal_fee=None, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
     """
     Register/renew a name
     Return {'status': True, 'transaction_hash': ...} on success
@@ -313,7 +313,7 @@ def do_register( fqu, payment_privkey, owner_address, utxo_client, renewal_fee=N
     unsigned_tx = register_tx( fqu, payment_pubkey_hex, owner_address, utxo_client, renewal_fee=renewal_fee, tx_fee=tx_fee )
 
     try:
-        resp = sign_and_broadcast_tx( unsigned_tx, payment_privkey, config_path=config_path, utxo_client=utxo_client )
+        resp = sign_and_broadcast_tx( unsigned_tx, payment_privkey, config_path=config_path, tx_broadcaster=tx_broadcaster )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast transaction'}
@@ -321,7 +321,7 @@ def do_register( fqu, payment_privkey, owner_address, utxo_client, renewal_fee=N
     return resp
 
 
-def do_update( fqu, zonefile_hash, owner_privkey, payment_privkey, utxo_client, config_path=CONFIG_PATH, proxy=None, consensus_hash=None, safety_checks=True ):
+def do_update( fqu, zonefile_hash, owner_privkey, payment_privkey, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, consensus_hash=None, safety_checks=True ):
     """
     Put a new zonefile hash for a name
     Return {'status': True, 'transaction_hash': ...} on success
@@ -373,7 +373,7 @@ def do_update( fqu, zonefile_hash, owner_privkey, payment_privkey, utxo_client, 
 
     resp = {}
     try:
-        resp = sign_and_broadcast_tx( subsidized_tx, owner_privkey, config_path=config_path, utxo_client=utxo_client )
+        resp = sign_and_broadcast_tx( subsidized_tx, owner_privkey, config_path=config_path, tx_broadcaster=tx_broadcaster )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast transaction'}
@@ -381,7 +381,7 @@ def do_update( fqu, zonefile_hash, owner_privkey, payment_privkey, utxo_client, 
     return resp
 
 
-def do_transfer( fqu, transfer_address, keep_data, owner_privkey, payment_privkey, utxo_client, config_path=CONFIG_PATH, proxy=None, consensus_hash=None, safety_checks=True ):
+def do_transfer( fqu, transfer_address, keep_data, owner_privkey, payment_privkey, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, consensus_hash=None, safety_checks=True ):
     """
     Transfer a name to a new address
     Return {'status': True, 'transaction_hash': ...} on success
@@ -437,7 +437,7 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey, payment_privke
 
     resp = {}
     try:
-        resp = sign_and_broadcast_tx( subsidized_tx, owner_privkey, config_path=config_path, utxo_client=utxo_client )
+        resp = sign_and_broadcast_tx( subsidized_tx, owner_privkey, config_path=config_path, tx_broadcaster=tx_broadcaster )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast transaction'}
@@ -445,16 +445,16 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey, payment_privke
     return resp
 
 
-def do_renewal( fqu, payment_privkey, owner_address, renewal_fee, utxo_client, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
+def do_renewal( fqu, payment_privkey, owner_address, renewal_fee, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
     """
     Renew a name
     Return {'status': True, 'transaction_hash': ...} on success
     Return {'error': ...} on failure
     """
-    return do_register( fqu, payment_privkey, owner_address, utxo_client, renewal_fee=renewal_fee, config_path=config_path, proxy=proxy, safety_checks=safety_checks )
+    return do_register( fqu, payment_privkey, owner_address, utxo_client, tx_broadcaster, renewal_fee=renewal_fee, config_path=config_path, proxy=proxy, safety_checks=safety_checks )
 
 
-def do_revoke( fqu, owner_privkey, payment_privkey, utxo_client, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
+def do_revoke( fqu, owner_privkey, payment_privkey, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
     """
     Revoke a name
     Return {'status': True, 'transaction_hash': ...} on success
@@ -490,7 +490,7 @@ def do_revoke( fqu, owner_privkey, payment_privkey, utxo_client, config_path=CON
 
     resp = {}
     try:
-        resp = sign_and_broadcast_tx( subsidized_tx, owner_privkey, config_path=config_path, utxo_client=utxo_client )
+        resp = sign_and_broadcast_tx( subsidized_tx, owner_privkey, config_path=config_path, tx_broadcaster=tx_broadcaster )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast revoke transaction'}
@@ -498,7 +498,7 @@ def do_revoke( fqu, owner_privkey, payment_privkey, utxo_client, config_path=CON
     return resp
 
 
-def do_name_import( fqu, importer_privkey, recipient_address, zonefile_hash, utxo_client, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
+def do_name_import( fqu, importer_privkey, recipient_address, zonefile_hash, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
     """
     Import a name
     Return {'status': True, 'transaction_hash': ...} on success
@@ -518,7 +518,7 @@ def do_name_import( fqu, importer_privkey, recipient_address, zonefile_hash, utx
     log.debug("Import (%s, %s, %s)" % (fqu, recipient_address, zonefile_hash))
     resp = {}
     try:
-        resp = sign_and_broadcast_tx( signed_tx, importer_privkey, config_path=config_path, utxo_client=utxo_client )
+        resp = sign_and_broadcast_tx( signed_tx, importer_privkey, config_path=config_path, tx_broadcaster=tx_broadcaster )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast import transaction'}
@@ -526,7 +526,7 @@ def do_name_import( fqu, importer_privkey, recipient_address, zonefile_hash, utx
     return resp
 
 
-def do_namespace_preorder( namespace_id, cost, payment_privkey, reveal_address, utxo_client, consensus_hash=None, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
+def do_namespace_preorder( namespace_id, cost, payment_privkey, reveal_address, utxo_client, tx_broadcaster, consensus_hash=None, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
     """
     Preorder a namespace
     Return {'status': True, 'transaction_hash': ...} on success
@@ -572,7 +572,7 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey, reveal_address, 
     resp = {}
 
     try:
-        resp = sign_and_broadcast_tx( unsigned_tx, payment_privkey, utxo_client=utxo_client )
+        resp = sign_and_broadcast_tx( unsigned_tx, payment_privkey, tx_broadcaster=tx_broadcaster)
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast namespace preorder transaction'}
@@ -580,7 +580,7 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey, reveal_address, 
     return resp
 
 
-def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, payment_privkey, utxo_client, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
+def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, payment_privkey, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
     """
     Reveal a namespace
     Return {'status': True, 'transaction_hash': ...} on success
@@ -615,7 +615,7 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
     resp = {}
 
     try:
-        resp = sign_and_broadcast_tx( unsigned_tx, payment_privkey, utxo_client=utxo_client )
+        resp = sign_and_broadcast_tx( unsigned_tx, payment_privkey, tx_broadcaster=tx_broadcaster )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast namespace reveal transaction'}
@@ -623,7 +623,7 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
     return resp
 
 
-def do_namespace_ready( namespace_id, reveal_privkey, utxo_client, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
+def do_namespace_ready( namespace_id, reveal_privkey, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
     """
     Open a namespace for registration
     Return {'status': True, 'transaction_hash': ...} on success
@@ -658,7 +658,7 @@ def do_namespace_ready( namespace_id, reveal_privkey, utxo_client, config_path=C
     resp = {}
 
     try:
-        resp = sign_and_broadcast_tx( unsigned_tx, reveal_privkey, utxo_client=utxo_client )
+        resp = sign_and_broadcast_tx( unsigned_tx, reveal_privkey, tx_broadcaster=tx_broadcaster )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast namespace ready transaction'}
@@ -666,7 +666,7 @@ def do_namespace_ready( namespace_id, reveal_privkey, utxo_client, config_path=C
     return resp
 
 
-def do_announce( message_text, sender_privkey, utxo_client, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
+def do_announce( message_text, sender_privkey, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
     """
     Send an announcement hash to the blockchain
     Return {'status': True, 'transaction_hash': ...} on success
@@ -691,7 +691,7 @@ def do_announce( message_text, sender_privkey, utxo_client, config_path=CONFIG_P
     resp = {}
 
     try:
-        resp = sign_and_broadcast_tx( unsigned_tx, sender_privkey, utxo_client=utxo_client )
+        resp = sign_and_broadcast_tx( unsigned_tx, sender_privkey, tx_broadcaster )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast announce transaction'}
@@ -720,7 +720,9 @@ def async_preorder(fqu, payment_privkey, owner_address, cost, proxy=None, config
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    utxo_client = get_utxo_client( config_path=config_path )
+    utxo_client = get_utxo_provider_client( config_path=config_path )
+    tx_broadcaster = get_tx_broadcaster( config_path=config_path )
+
     payment_address = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().address()
     
     # stale preorder will get removed from preorder_queue
@@ -733,7 +735,7 @@ def async_preorder(fqu, payment_privkey, owner_address, cost, proxy=None, config
         return {'error': 'Already in preorder queue'}
 
     try:
-        resp = do_preorder( fqu, payment_privkey, owner_address, cost, utxo_client, config_path=CONFIG_PATH )
+        resp = do_preorder( fqu, payment_privkey, owner_address, cost, utxo_client, tx_broadcaster, config_path=CONFIG_PATH )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast preorder transaction'}
@@ -771,7 +773,9 @@ def async_register(fqu, payment_privkey, owner_address, auto_preorder=True, prox
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    utxo_client = get_utxo_client(config_path=config_path)
+    utxo_client = get_utxo_provider_client(config_path=config_path)
+    tx_broadcaster = get_tx_broadcaster( config_path=config_path )
+
     payment_address = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().address()
 
     # check register_queue first
@@ -789,7 +793,7 @@ def async_register(fqu, payment_privkey, owner_address, auto_preorder=True, prox
                 return {'error': 'Failed to look up name cost'}
 
             # do preorder
-            return do_preorder(fqu, payment_address, owner_address, cost_info, utxo_client, proxy=proxy)
+            return do_preorder(fqu, payment_address, owner_address, cost_info, utxo_client, tx_broadcaster, proxy=proxy)
 
         else:
             log.debug("No preorder sent yet: %s" % fqu)
@@ -810,7 +814,7 @@ def async_register(fqu, payment_privkey, owner_address, auto_preorder=True, prox
         return {'error': 'Waiting on preorder confirmations'}
 
     try:
-        resp = do_register( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path, proxy=proxy )
+        resp = do_register( fqu, payment_privkey, owner_address, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast registration transaction'}
@@ -846,7 +850,8 @@ def async_update(fqu, zonefile, profile, owner_private_key, payment_privkey, con
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    utxo_client = get_utxo_client(config_path=config_path)
+    utxo_client = get_utxo_provider_client(config_path=config_path)
+    tx_broadcaster = get_tx_broadcaster(config_path=config_path)
     owner_address = pybitcoin.BitcoinPrivateKey(owner_private_key).public_key().address()
 
     if in_queue("update", fqu, path=queue_path):
@@ -857,7 +862,7 @@ def async_update(fqu, zonefile, profile, owner_private_key, payment_privkey, con
 
     resp = {}
     try:
-        resp = do_update( fqu, zonefile_hash, owner_private_key, payment_privkey, utxo_client, config_path=config_path, proxy=proxy )
+        resp = do_update( fqu, zonefile_hash, owner_private_key, payment_privkey, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast update transaction'}
@@ -896,7 +901,8 @@ def async_transfer(fqu, transfer_address, owner_privkey, payment_privkey, config
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    utxo_client = get_utxo_client(config_path=config_path)
+    utxo_client = get_utxo_provider_client(config_path=config_path)
+    tx_broadcaster = get_tx_broadcaster(config_path=config_path)
     owner_address = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().address()
 
     if in_queue("transfer", fqu, path=queue_path):
@@ -904,7 +910,7 @@ def async_transfer(fqu, transfer_address, owner_privkey, payment_privkey, config
         return {'error': 'Already in transfer queue'}
 
     try:
-        resp = do_transfer( fqu, transfer_address, True, owner_privkey, payment_privkey, utxo_client, config_path=config_path, proxy=proxy )
+        resp = do_transfer( fqu, transfer_address, True, owner_privkey, payment_privkey, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy )
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to sign and broadcast transfer transaction'}
