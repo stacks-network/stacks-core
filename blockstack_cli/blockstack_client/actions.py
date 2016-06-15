@@ -93,14 +93,14 @@ from blockstack_client import \
 from rpc import local_rpc_connect, local_rpc_ensure_running, local_rpc_status, local_rpc_stop
 import rpc as local_rpc
 import config
-from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR
+from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR, configure, get_utxo_provider_client
 from .storage import is_valid_name, is_b40
 
 from pybitcoin import is_b58check_address
 
 from binascii import hexlify
 
-from .backend.blockchain import get_balance, is_address_usable, can_receive_name, get_tx_confirmations, get_utxo_client
+from .backend.blockchain import get_balance, is_address_usable, can_receive_name, get_tx_confirmations
 from .backend.nameops import estimate_preorder_tx_fee, estimate_register_tx_fee, estimate_update_tx_fee, estimate_transfer_tx_fee
 
 from .wallet import *
@@ -163,7 +163,7 @@ def can_update_or_transfer(fqu, owner_pubkey_hex, payment_privkey, config_path=C
     if not is_name_registered(fqu, proxy=proxy):
         return {'error': '%s is not registered yet.' % fqu}
 
-    utxo_client = get_utxo_client( config_path=config_path )
+    utxo_client = get_utxo_provider_client( config_path=config_path )
     payment_address, owner_address, data_address = get_addresses_from_file(wallet_path=wallet_path)
 
     if not is_name_owner(fqu, owner_address, proxy=proxy):
@@ -207,7 +207,7 @@ def get_total_registration_fees(name, owner_pubkey_hex, payment_privkey, proxy=N
     if 'error' in data:
         return {'error': 'Could not determine price of name: %s' % data['error']}
 
-    utxo_client = get_utxo_client( config_path=config_path )
+    utxo_client = get_utxo_provider_client( config_path=config_path )
     
     # fee stimation: cost of name + cost of preorder transaction + cost of registration transaction + cost of update transaction
     payment_pubkey_hex = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().to_hex()
@@ -236,6 +236,18 @@ def start_rpc_endpoint(config_dir=CONFIG_DIR, password=None):
     return True
 
 
+def cli_configure( args, config_path=CONFIG_PATH ):
+    """
+    command: configure
+    help: Interactively configure the client.
+    """
+
+    opts = configure( interactive=True, force=False, config_file=config_path )
+    result = {}
+    result['path'] = opts['blockstack-client']['path']
+    return result
+
+
 def cli_balance( args, config_path=CONFIG_PATH ):
     """
     command: balance
@@ -251,7 +263,6 @@ def cli_balance( args, config_path=CONFIG_PATH ):
 
     result = {}
     result['total_balance'], result['addresses'] = get_total_balance(config_path=config_path)
-    result['total_balance'] = satoshis_to_btc( result['total_balance'] )
     return result
 
 
