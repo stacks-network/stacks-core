@@ -1701,6 +1701,7 @@ def run_blockstackd():
    """
 
    working_dir = check_alternate_working_dir()
+   blockstack_state_engine.working_dir = working_dir
    argparser = setup( working_dir=working_dir, return_parser=True )
 
    # get RPC server options
