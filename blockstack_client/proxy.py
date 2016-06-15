@@ -59,7 +59,7 @@ from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SER
     NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER, NAMESPACE_PREORDER, NAME_IMPORT, \
     USER_ZONEFILE_TTL, CONFIG_PATH
 
-log = get_logger()
+log = get_logger("blockstack-client")
 
 # borrowed with gratitude from Justin Cappos
 # https://seattle.poly.edu/browser/seattle/trunk/demokit/timeout_xmlrpclib.py?rev=692
