@@ -35,7 +35,11 @@ from .common import get_logger, DEBUG
 
 log = get_logger("blockstack-storage-driver-disk")
 
-DISK_ROOT="/tmp/blockstack-disk"
+if os.environ.get("BLOCKSTACK_TEST", None) is not None:
+    DISK_ROOT = "/tmp/blockstack-disk"
+else:
+    DISK_ROOT = os.expanduser("~/.blockstack/storage-disk")
+
 IMMUTABLE_STORAGE_ROOT = DISK_ROOT + "/immutable"
 MUTABLE_STORAGE_ROOT = DISK_ROOT + "/mutable"
 
