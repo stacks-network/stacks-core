@@ -40,7 +40,7 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'virtualchain>=0.0.9.0',
+        'virtualchain>=0.0.9.1',
         'keychain>=0.1.4',
         'blockstack-client>=0.0.13.0',
         'defusedxml>=0.4.1',
