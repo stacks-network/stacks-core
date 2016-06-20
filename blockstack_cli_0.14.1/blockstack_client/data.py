@@ -394,12 +394,11 @@ def get_mutable(name, data_id, proxy=None, ver_min=None, ver_max=None, ver_check
     mutable_data_zonefile = user_db.get_mutable_data_zonefile( user_profile, data_id )
     assert mutable_data_zonefile is not None, "BUG: could not look up mutable datum '%s'.'%s'" % (name, data_id)
 
-    # get user's data public key, or owner address
-    data_address = None
+    # get user's data public key and owner address
     data_pubkey = user_db.user_zonefile_data_pubkey( user_zonefile )
+    data_address = name_record['address']
     if data_pubkey is None:
         log.warn("Falling back to owner address for authentication")
-        data_address = name_record['address']
 
     # get the mutable data itself
     urls = user_db.mutable_data_zonefile_urls( mutable_data_zonefile )
@@ -973,4 +972,67 @@ def data_list( name, proxy=None, wallet_keys=None ):
         return mutable_listing
 
     return {'status': True, 'listing': immutable_listing['data'] + mutable_listing['data']}
+
+
+def set_data_pubkey( name, data_pubkey, proxy=None, wallet_keys=None, txid=None ):
+    """
+    Set the data public key for a name.
+    Overwrites the public key that is present (if given at all).
+
+    WARN: you will need to re-sign all your data after you do this; otherwise
+    no one will be able to use your current zonefile contents (with your new 
+    key) to verify their authenticity.
+
+    Return {'status': True, 'transaction_hash': ...} on success
+    Return {'error': ...} on error
+    """
+
+    from backend.nameops import do_update
+
+    legacy = False
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    user_profile, user_zonefile, legacy = get_and_migrate_profile( name, create_if_absent=True, proxy=proxy, wallet_keys=wallet_keys )
+    if 'error' in user_profile:
+        log.debug("Unable to load user zonefile for '%s'" % name)
+        return user_profile
+   
+    if legacy:
+        log.debug("User profile is legacy")
+        return {'error': "User profile is in legacy format, which does not support this operation.  You must first migrate it with the 'migrate' command."}
+
+    
+    user_db.user_zonefile_set_data_pubkey( user_zonefile, data_pubkey )
+    zonefile_hash = hash_zonefile( user_zonefile )
+
+    # update zonefile, if we haven't already
+    if txid is None:
+        _, payment_privkey = get_payment_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
+        _, owner_privkey = get_owner_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
+        utxo_client = get_utxo_provider_client( config_path=proxy.conf['path'] )
+        broadcaster_client = get_tx_broadcaster( config_path=proxy.conf['path'] )
+
+        update_result = do_update( name, zonefile_hash, owner_privkey, payment_privkey, utxo_client, broadcaster_client, config_path=proxy.conf['path'], proxy=proxy )
+        if 'error' in update_result:
+            # failed to replicate user zonefile hash 
+            # the caller should simply try again, with the 'transaction_hash' given in the result.
+            return update_result
+
+        txid = update_result['transaction_hash']
+
+    result = {
+        'transaction_hash': txid,
+        'zonefile_hash': zonefile_hash
+    }
+
+    # replicate zonefile
+    rc = store_name_zonefile( name, user_zonefile, txid )
+    if not rc:
+        result['error'] = 'Failed to store zonefile'
+        return result
+
+    # success!
+    result['status'] = True
+    return result
 
