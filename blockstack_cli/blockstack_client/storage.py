@@ -170,19 +170,20 @@ def serialize_mutable_data( data_json, privatekey ):
    Return the serialized data (as a string) on success
    """
 
-   """
    tokenized_data = blockstack_profiles.sign_token_records( [data_json], privatekey )
    del tokenized_data[0]['decodedToken']
 
    serialized_data = json.dumps( tokenized_data, sort_keys=True )
    return serialized_data
+
    """
    stable_serialized_data = json.dumps(data_json, sort_keys=True)
    sig = sign_raw_data( stable_serialized_data, privatekey ) 
    return json.dumps({'data': stable_serialized_data, 'sig': sig})
+   """
 
 
-def parse_mutable_data( mutable_data_json_txt, public_key ):
+def parse_mutable_data( mutable_data_json_txt, public_key, public_key_hash=None ):
    """
    Given the serialized JSON for a piece of mutable data,
    parse it into a JSON document.  Verify that it was 
@@ -192,13 +193,19 @@ def parse_mutable_data( mutable_data_json_txt, public_key ):
    Return None on error
    """
 
-   """
+   public_key_or_hash = public_key
+   if public_key_or_hash is None:
+       public_key_or_hash = public_key_hash 
+
+   assert public_key_or_hash is not None, "No public key or hash given"
+   
    mutable_data_jwt = json.loads(mutable_data_json_txt)
-   mutable_data_json = blockstack_profiles.get_profile_from_tokens( mutable_data_jwt, public_key )
+   mutable_data_json = blockstack_profiles.get_profile_from_tokens( mutable_data_jwt, public_key_or_hash )
    if len(mutable_data_json) == 0:
        mutable_data_json = None
 
    return mutable_data_json
+
    """
    signed_data = json.loads(mutable_data_json_txt)
    assert 'data' in signed_data
@@ -212,6 +219,7 @@ def parse_mutable_data( mutable_data_json_txt, public_key ):
 
    data = json.loads(raw_data)
    return data
+   """
 
 
 
@@ -343,7 +351,7 @@ def verify_raw_data( raw_data, pubkey, sigb64 ):
    return pybitcointools.ecdsa_raw_verify( data_hash, pybitcointools.decode_sig( sigb64 ), pubkey )
 
 
-def get_mutable_data( fq_data_id, data_pubkey, urls=None ):
+def get_mutable_data( fq_data_id, data_pubkey, urls=None, data_address=None ):
    """
    Given a mutable data's zonefile, go fetch the data.
 
@@ -412,7 +420,7 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None ):
             continue
 
          # parse it
-         data = parse_mutable_data( data_json, data_pubkey )
+         data = parse_mutable_data( data_json, data_pubkey, public_key_hash=data_address )
          if data is None:
             log.error("Unparseable data from '%s'" % url)
             continue
@@ -500,6 +508,7 @@ def put_mutable_data( fq_data_id, data_json, privatekey ):
 
    fq_data_id = str(fq_data_id)
    assert is_fq_data_id( fq_data_id ) or is_valid_name(fq_data_id), "Data ID must be fully qualified or must be a valid blockchain ID (got %s)" % fq_data_id
+   assert privatekey is not None
 
    serialized_data = serialize_mutable_data( data_json, privatekey )
    successes = 0
