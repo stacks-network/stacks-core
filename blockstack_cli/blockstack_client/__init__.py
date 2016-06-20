@@ -48,6 +48,7 @@ from data import get_immutable, get_immutable_by_name, get_mutable, put_immutabl
         delete_mutable, list_mutable_data, list_immutable_data, list_immutable_data_history, list_update_history, list_zonefile_history
 from data import blockstack_url_fetch as fetch_data
 from data import data_get, data_put, data_delete, data_list
+from data import set_data_pubkey
 from storage import get_announcement, put_announcement
 from profile import get_name_profile, get_name_zonefile, zonefile_publish, get_and_migrate_profile
 from accounts import list_accounts, get_account, put_account, delete_account
