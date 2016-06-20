@@ -341,8 +341,9 @@ class RegistrarWorker(threading.Thread):
             log.info("Replicated zonefile for %s to %s server(s)" % (name_data['fqu'], len(res['servers'])))
 
             # replicate profile as well, if given
+            # use the data keypair
             if name_data['profile'] is not None:
-                _, data_privkey = get_data_keypair( wallet_keys=wallet_data, config_path=config_path )
+                _, data_privkey = get_data_keypair( zonefile_data, wallet_keys=wallet_data, config_path=config_path )
                 rc = put_mutable_data( name_data['fqu'], name_data['profile'], data_privkey )
                 if not rc:
                     return {'error': 'Failed to store profile'}
@@ -703,9 +704,9 @@ def get_start_block(config_path=None, proxy=None):
     return state.server_started_at
 
 
-def get_payment_privkey(config_path=None, proxy=None):
+def get_wallet_payment_privkey(config_path=None, proxy=None):
     """
-    Get the decrypted payment private key
+    Get the decrypted payment private key from the wallet
     Return None if not set
     """
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
@@ -717,9 +718,9 @@ def get_payment_privkey(config_path=None, proxy=None):
     return str(privkey)
 
 
-def get_owner_privkey(config_path=None, proxy=None):
+def get_wallet_owner_privkey(config_path=None, proxy=None):
     """
-    Get the decrypted owner private key
+    Get the decrypted owner private key from the wallet
     Return None if not set
     """
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
@@ -731,9 +732,9 @@ def get_owner_privkey(config_path=None, proxy=None):
     return str(privkey)
 
 
-def get_data_privkey(config_path=None, proxy=None):
+def get_wallet_data_privkey(config_path=None, proxy=None):
     """
-    Get the decrypted data private key
+    Get the decrypted data private key from the wallet
     Return None if not set
     """
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
@@ -763,11 +764,11 @@ def get_wallet(rpc_token=None, config_path=None, proxy=None):
 
     data['payment_address'] = state.payment_address
     data['owner_address'] = state.owner_address
-    data['data_pubkey'] = ECPrivateKey( get_data_privkey() ).public_key().to_hex()
+    data['data_pubkey'] = ECPrivateKey( get_wallet_data_privkey() ).public_key().to_hex()
 
-    data['payment_privkey'] = get_payment_privkey()
-    data['owner_privkey'] = get_owner_privkey()
-    data['data_privkey'] = get_data_privkey()
+    data['payment_privkey'] = get_wallet_payment_privkey()
+    data['owner_privkey'] = get_wallet_owner_privkey()
+    data['data_privkey'] = get_wallet_data_privkey()
 
     return data
 
@@ -803,7 +804,7 @@ def preorder(fqu, config_path=None, proxy=None):
         data['error'] = "Failed to look up name cost: %s" % cost_info['error']
         return data
 
-    payment_privkey = get_payment_privkey()
+    payment_privkey = get_wallet_payment_privkey()
 
     if not is_name_registered(fqu, proxy=proxy):
         resp = async_preorder(fqu, payment_privkey, state.owner_address, cost_info['satoshis'], proxy=proxy, config_path=config_path, queue_path=state.queue_path)
@@ -845,8 +846,8 @@ def update( fqu, zonefile, profile, config_path=None, proxy=None, wallet_keys=No
 
     resp = None
 
-    payment_privkey = get_payment_privkey()
-    owner_privkey = get_owner_privkey()
+    payment_privkey = get_wallet_payment_privkey()
+    owner_privkey = get_wallet_owner_privkey()
     replication_error = None
 
     if not is_zonefile_current(fqu, zonefile, proxy=proxy ):
@@ -901,8 +902,8 @@ def transfer(fqu, transfer_address, config_path=None, proxy=None ):
         data['error'] = "Already in queue."
         return data
 
-    payment_privkey = get_payment_privkey()
-    owner_privkey = get_owner_privkey()
+    payment_privkey = get_wallet_payment_privkey()
+    owner_privkey = get_wallet_owner_privkey()
 
     resp = None
     if not is_name_owner(fqu, transfer_address, proxy=proxy):
@@ -970,8 +971,8 @@ def migrate( fqu, config_path=None, proxy=None, wallet_keys=None):
 
     resp = None
 
-    payment_privkey = get_payment_privkey()
-    owner_privkey = get_owner_privkey()
+    payment_privkey = get_wallet_payment_privkey()
+    owner_privkey = get_wallet_owner_privkey()
     replication_error = None
 
     if not is_zonefile_current(fqu, user_zonefile, proxy=proxy ):
@@ -1017,9 +1018,9 @@ RPC_METHODS = [
     state,
     set_wallet,
     get_start_block,
-    get_payment_privkey,
-    get_owner_privkey,
-    get_data_privkey,
+    get_wallet_payment_privkey,
+    get_wallet_owner_privkey,
+    get_wallet_data_privkey,
     get_wallet,
     preorder,
     update,
