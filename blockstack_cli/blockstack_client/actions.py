@@ -54,6 +54,7 @@ import subprocess
 from socket import error as socket_error
 from time import sleep
 from getpass import getpass
+import time
 
 import requests
 requests.packages.urllib3.disable_warnings()
@@ -229,6 +230,11 @@ def start_rpc_endpoint(config_dir=CONFIG_DIR, password=None):
     is running before the wrapped function is called.
     Raise on error
     """
+    if not wallet_exists(config_dir=config_dir):
+        res = initialize_wallet(wallet_path=wallet_path)
+        if 'error' in res:
+            return res
+
     rc = local_rpc_ensure_running( config_dir, password=password )
     if not rc:
         raise Exception("Failed to start RPC endpoint (from %s)" % config_dir)
@@ -256,7 +262,7 @@ def cli_balance( args, config_path=CONFIG_PATH ):
 
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-    if not os.path.exists(wallet_path):
+    if not wallet_exists(config_dir=config_dir):
         res = initialize_wallet(wallet_path=wallet_path)
         if 'error' in res:
             return res
@@ -656,6 +662,10 @@ def cli_whois( args, config_path=CONFIG_PATH ):
         result['owner_address'] = record['address']
         result['owner_script'] = record['sender']
         result['registered'] = True
+
+        if record.has_key('expire_block'):
+            result['expire_block'] = record['expire_block']
+            result['approx_expiration_date'] = time.strftime( "%Y %b %d %H:%M:%S UTC", FIRST_BLOCK_TIME_UTC + (record['expire_block'] - FIRST_BLOCK_MAINNET) * 600 )
 
     return result
 
