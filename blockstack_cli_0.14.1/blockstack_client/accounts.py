@@ -119,12 +119,15 @@ def put_account( name, service, identifier, content_url, proxy=None, wallet_keys
 
     need_update = False
 
-    user_profile, user_zonefile, need_update = get_and_migrate_profile( name, proxy=proxy, create_if_absent=True, wallet_keys=wallet_keys )
+    user_profile, user_zonefile, need_update = get_and_migrate_profile( name, proxy=proxy, create_if_absent=True, wallet_keys=wallet_keys, include_name_record=True )
     if 'error' in user_profile:
         return user_profile
 
     if need_update:
         return {'error': 'Profile is in legacy format.  Please migrate it with the `migrate` command.'}
+
+    name_record = user_zonefile['name_record']
+    del user_zonefile['name_record']
 
     # user_profile will be in the new zonefile format 
     if not user_profile.has_key("accounts"):
@@ -140,7 +143,7 @@ def put_account( name, service, identifier, content_url, proxy=None, wallet_keys
 
     user_profile['accounts'].append(new_profile)
 
-    return profile_update( name, user_profile, proxy=proxy, wallet_keys=wallet_keys )
+    return profile_update( name, user_zonefile, user_profile, name_record['address'], proxy=proxy, wallet_keys=wallet_keys )
 
 
 def delete_account( name, service, identifier, proxy=None, wallet_keys=None ):
@@ -156,12 +159,15 @@ def delete_account( name, service, identifier, proxy=None, wallet_keys=None ):
     need_update = False 
     removed = False
 
-    user_profile, user_zonefile, need_update = get_and_migrate_profile( name, proxy=proxy, create_if_absent=True, wallet_keys=wallet_keys )
+    user_profile, user_zonefile, need_update = get_and_migrate_profile( name, proxy=proxy, create_if_absent=True, wallet_keys=wallet_keys, include_name_record=True )
     if 'error' in user_profile:
         return user_profile 
 
     if need_update:
         return {'error': 'Profile is in legacy format.  Please migrate it with the `migrate` command.'}
+
+    name_record = user_zonefile['name_record']
+    del user_zonefile['name_record']
 
     # user_profile will be in the new zonefile format
     removed = []
@@ -174,7 +180,7 @@ def delete_account( name, service, identifier, proxy=None, wallet_keys=None ):
         return {'status': True, 'removed': []}
 
     else:
-        res = profile_update( name, user_profile, proxy=proxy, wallet_keys=wallet_keys )
+        res = profile_update( name, user_zonefile, user_profile, name_record['address'], proxy=proxy, wallet_keys=wallet_keys )
         if 'error' in res:
             return res 
 
