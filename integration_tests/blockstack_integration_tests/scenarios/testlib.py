@@ -884,7 +884,11 @@ def migrate_profile( name, proxy=None, wallet_keys=None ):
     
     _, payment_privkey = blockstack_client.get_payment_keypair( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
     _, owner_privkey = blockstack_client.get_owner_keypair( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
-    _, data_privkey = blockstack_client.get_data_keypair( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
+    _, data_privkey = blockstack_client.get_data_keypair( user_zonefile, wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
+
+    if data_privkey is None:
+        log.warn("No data private key set; falling back to owner private key")
+        data_privkey = owner_privkey 
 
     user_zonefile_hash = blockstack_client.hash_zonefile( user_zonefile )
     
