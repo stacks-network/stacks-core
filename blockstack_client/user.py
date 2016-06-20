@@ -92,16 +92,21 @@ def make_empty_user_zonefile( username, data_pubkey, urls=None ):
    assert len(urls) > 0, "No profile URLs"
 
    user = {
-      "txt": [
-          {
-            "name": "pubkey",
-            "txt": "pubkey:data:%s" % str(data_pubkey)
-          }
-      ],
+      "txt": [],
       "uri": [],
       "$origin": username,
       "$ttl": config.USER_ZONEFILE_TTL 
    }
+
+   if data_pubkey is not None:
+       if not user.has_key('txt'):
+           user['txt'] = []
+
+       user['txt'].append( {
+            "name": "pubkey",
+            "txt": "pubkey:data:%s" % str(data_pubkey)
+          }
+       )
    
    for url in urls:
        urirec = url_to_uri_record( url )
@@ -113,19 +118,18 @@ def make_empty_user_zonefile( username, data_pubkey, urls=None ):
 def is_user_zonefile( d ):
     """
     Is the given dict a user zonefile?
+    * the zonefile must have a URI record
     """
-    if 'txt' not in d.keys():
-        return False 
-
     if 'uri' not in d.keys():
         return False 
 
-    for txt in d['txt']:
-        if 'name' not in txt.keys():
-            return False 
+    if d.has_key('txt'):
+        for txt in d['txt']:
+            if 'name' not in txt.keys():
+                return False 
 
-        if 'txt' not in txt.keys():
-            return False 
+            if 'txt' not in txt.keys():
+                return False 
 
     for uri in d['uri']:
         if 'name' not in uri.keys():
@@ -143,10 +147,11 @@ def is_user_zonefile( d ):
     return True
 
 
-def user_zonefile_data_pubkey( user_zonefile ):
+def user_zonefile_data_pubkey( user_zonefile, key_prefix='pubkey:data:' ):
     """
     Get a user's data public key from their zonefile.
     Return None if not defined
+    Raise if there are multiple ones.
     """
     if not user_zonefile.has_key('txt'):
         return None 
@@ -154,12 +159,12 @@ def user_zonefile_data_pubkey( user_zonefile ):
     data_pubkey = None
     # check that there is only one of these
     for txtrec in user_zonefile['txt']:
-        if txtrec['txt'].startswith("pubkey:data:"):
+        if txtrec['txt'].startswith(key_prefix):
             if data_pubkey is not None:
                 log.error("BUG: Multiple data pubkeys")
-                return None  
+                raise ValueError("Multiple data pubkeys starting with '%s'" % key_prefix)
 
-            data_pubkey = txtrec['txt'][len("pubkey:data:"):]
+            data_pubkey = txtrec['txt'][len(key_prefix):]
 
     return data_pubkey
 
@@ -215,6 +220,9 @@ def put_immutable_data_zonefile( user_zonefile, data_id, data_hash, data_url=Non
    else: 
        txtrec = "#%s" % data_hash
 
+   if not user_zonefile.has_key('txt'):
+       user_zonefile['txt'] = []
+
    user_zonefile["txt"].append({
        "name": data_id,
        "txt": txtrec
@@ -267,6 +275,9 @@ def remove_immutable_data_zonefile( user_zonefile, data_hash ):
    data_hash = str(data_hash)
    assert storage.is_valid_hash( data_hash ), "Invalid data hash '%s'" % data_hash
 
+   if not user_zonefile.has_key('txt'):
+       return False 
+
    for txtrec in user_zonefile['txt']:
        h = None
        try:
@@ -292,6 +303,9 @@ def has_immutable_data( user_zonefile, data_hash ):
    data_hash = str(data_hash)
    assert storage.is_valid_hash( data_hash ), "Invalid data hash '%s'" % data_hash
 
+   if not user_zonefile.has_key('txt'):
+       return False 
+
    for txtrec in user_zonefile['txt']:
        h = None
        try:
@@ -312,6 +326,9 @@ def has_immutable_data_id( user_zonefile, data_id ):
    Return True if so
    Return False if not
    """
+   if not user_zonefile.has_key('txt'):
+       return False 
+
    for txtrec in user_zonefile['txt']:
        d_id = None 
        try:
@@ -334,6 +351,9 @@ def get_immutable_data_hash( user_zonefile, data_id ):
    Return the hash if there is one match.
    Return the list of hashes if there are multiple matches.
    """
+
+   if not user_zonefile.has_key('txt'):
+       return None 
 
    ret = None
    for txtrec in user_zonefile['txt']:
@@ -363,7 +383,10 @@ def get_immutable_data_url( user_zonefile, data_hash ):
     Return None if not given, or not found.
     """
 
-    ret = None 
+    ret = None
+    if not user_zonefile.has_key('txt'):
+        return None 
+
     for txtrec in user_zonefile['txt']:
         h = None 
         try:
@@ -386,6 +409,9 @@ def list_immutable_data( user_zonefile ):
     Return [(data ID, hash)]
     """
     ret = []
+    if not user_zonefile.has_key('txt'):
+        return ret 
+
     for txtrec in user_zonefile['txt']:
         try:
             d_id = txtrec['name']
