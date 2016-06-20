@@ -176,12 +176,6 @@ def serialize_mutable_data( data_json, privatekey ):
    serialized_data = json.dumps( tokenized_data, sort_keys=True )
    return serialized_data
 
-   """
-   stable_serialized_data = json.dumps(data_json, sort_keys=True)
-   sig = sign_raw_data( stable_serialized_data, privatekey ) 
-   return json.dumps({'data': stable_serialized_data, 'sig': sig})
-   """
-
 
 def parse_mutable_data( mutable_data_json_txt, public_key, public_key_hash=None ):
    """
@@ -205,22 +199,6 @@ def parse_mutable_data( mutable_data_json_txt, public_key, public_key_hash=None 
        mutable_data_json = None
 
    return mutable_data_json
-
-   """
-   signed_data = json.loads(mutable_data_json_txt)
-   assert 'data' in signed_data
-   assert 'sig' in signed_data 
-   sig = signed_data['sig']
-   raw_data = signed_data['data']
-
-   res = verify_raw_data( raw_data, public_key, sig )
-   if not res:
-       raise Exception("Failed to verify data with public key %s" % public_key)
-
-   data = json.loads(raw_data)
-   return data
-   """
-
 
 
 def register_storage( storage_impl ):
