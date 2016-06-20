@@ -415,6 +415,18 @@ def initialize_wallet( password="", interactive=True, hex_privkey=None, config_d
     return result
 
 
+def wallet_exists(config_dir=CONFIG_DIR, wallet_path=None):
+    """
+    Does a wallet exist?
+    Return True if so
+    Return False if not
+    """
+    if wallet_path is None:
+        wallet_path = os.path.join(config_dir, WALLET_FILENAME )
+
+    return os.path.exists(wallet_path)
+
+
 def load_wallet( password=None, config_dir=CONFIG_DIR, wallet_path=None, include_private=False ):
     """
     Get the wallet from disk, and unlock it.
