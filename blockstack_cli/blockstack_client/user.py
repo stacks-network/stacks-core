@@ -169,6 +169,32 @@ def user_zonefile_data_pubkey( user_zonefile, key_prefix='pubkey:data:' ):
     return data_pubkey
 
 
+def user_zonefile_set_data_pubkey( user_zonefile, pubkey_hex, key_prefix='pubkey:data:' ):
+    """
+    Set the data public key in the zonefile.
+    NOTE: you will need to re-sign all your data!
+    """
+    if not user_zonefile.has_key('txt'):
+        user_zonefile['txt'] = []
+
+    for i in xrange(0, len(user_zonefile['txt'])):
+        if user_zonefile['txt'][i]['txt'].startswith(key_prefix):
+            # overwrite
+            user_zonefile['txt'][i]['txt'] = {
+                "name": "pubkey",
+                "txt": "%s%s" % (key_prefix, str(data_pubkey))
+            }
+            return True
+
+    # not present.  add.
+    user_zonefile['txt'].append({
+        "name": "pubkey",
+        "txt": "%s%s" % (key_prefix, str(pubkey_hex))
+    })
+    
+    return True
+
+
 def user_zonefile_urls( user_zonefile ):
     """
     Given a user's zonefile, get the profile URLs
