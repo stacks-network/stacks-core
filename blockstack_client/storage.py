@@ -181,24 +181,36 @@ def parse_mutable_data( mutable_data_json_txt, public_key, public_key_hash=None 
    """
    Given the serialized JSON for a piece of mutable data,
    parse it into a JSON document.  Verify that it was 
-   signed by public_key's private key.
+   signed by public_key's or public_key_hash's private key.
+
+   Try to verify with both keys, if given.
 
    Return the parsed JSON dict on success
    Return None on error
    """
 
-   public_key_or_hash = public_key
-   if public_key_or_hash is None:
-       public_key_or_hash = public_key_hash 
+   assert public_key is not None or public_key_hash is not None, "need a public key or public key hash"
 
-   assert public_key_or_hash is not None, "No public key or hash given"
-   
    mutable_data_jwt = json.loads(mutable_data_json_txt)
-   mutable_data_json = blockstack_profiles.get_profile_from_tokens( mutable_data_jwt, public_key_or_hash )
-   if len(mutable_data_json) == 0:
-       mutable_data_json = None
+   mutable_data_json = None 
 
-   return mutable_data_json
+   # try pubkey, if given 
+   if public_key is not None:
+       mutable_data_json = blockstack_profiles.get_profile_from_tokens( mutable_data_jwt, public_key )
+       if len(mutable_data_json) > 0:
+           return mutable_data_json
+       else:
+           log.warn("Failed to verify with public key")
+
+   # try pubkey address 
+   if public_key_hash is not None:
+       mutable_data_json = blockstack_profiles.get_profile_from_tokens( mutable_data_jwt, public_key_hash )
+       if len(mutable_data_json) > 0:
+           return mutable_data_json
+       else:
+           log.warn("Failed to verify with public key hash")
+
+   return None
 
 
 def register_storage( storage_impl ):
