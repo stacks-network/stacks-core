@@ -37,6 +37,7 @@ import copy
 import blockstack_profiles
 import blockstack_zones 
 import urllib
+from keylib import ECPrivateKey
 
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -45,7 +46,7 @@ parent_dir = os.path.abspath(current_dir + "/../")
 sys.path.insert(0, parent_dir)
 
 from .proxy import *
-from .keys import get_data_keypair, get_owner_keypair, get_payment_keypair
+from .keys import get_owner_keypair, get_payment_keypair, get_data_or_owner_privkey
 from blockstack_client import storage
 from blockstack_client import user as user_d
 
@@ -139,22 +140,55 @@ def load_legacy_user_profile( name, expected_hash ):
     assert blockstack_profiles.is_profile_in_legacy_format( data_json )
     new_profile = blockstack_profiles.get_person_from_legacy_format( data_json )
     return new_profile
-    
 
-def load_name_profile(name, user_zonefile, public_key):
+
+def load_name_profile(name, user_zonefile, user_address):
     """
     Fetch and load a user profile, given the user zonefile.
+    Try to verify using the public key in the zonefile (if one
+    is present), and fall back to the user-address if need be
+    (it should be the hash of the profile JWT's public key).
 
     Return the user profile on success
     Return None on error
     """
-    
+    # get user's data public key
+    try:
+        user_data_pubkey = user_db.user_zonefile_data_pubkey( user_zonefile )
+    except ValueError, v:
+        # user decided to put multiple keys under the same name into the zonefile.
+        # so don't use them.
+        log.exception(v)
+        user_data_pubkey = None 
+
+    if user_data_pubkey is None and user_address is None:
+        raise Exception("Missing user data public key and address; cannot verify profile")
+
+    if user_data_pubkey is None:
+        log.warn("No data public key set; falling back to hash of owner public key for profile authentication")
+
+    # get user's data public key from the zonefile
     urls = user_db.user_zonefile_urls( user_zonefile )
-    user_profile = storage.get_mutable_data( name, public_key, urls=urls )
+    user_profile = storage.get_mutable_data( name, user_data_pubkey, data_address=user_address, urls=urls )
     return user_profile
 
 
-def profile_update( name, new_profile, proxy=None, wallet_keys=None ):
+def load_data_pubkey_for_new_zonefile( wallet_keys={}, config_path=CONFIG_PATH ):
+    """
+    Find the right public key to use for data when creating a new zonefile.
+    If the wallet has a data keypair defined, use that.
+    Otherwise, fall back to the owner public key
+    """
+    data_pubkey = None
+    if 'data_privkey' in wallet_keys:
+        data_pubkey = ECPrivateKey(wallet_keys['data_privkey']).public_key().to_hex()
+    elif 'data_pubkey' in wallet_keys:
+        data_pubkey = wallet_keys['data_pubkey']
+
+    return data_pubkey
+
+
+def profile_update( name, user_zonefile, new_profile, owner_address, proxy=None, wallet_keys=None ):
     """
     Set the new profile data.  CLIENTS SHOULD NOT CALL THIS METHOD DIRECTLY.
     Return {'status: True} on success, as well as {'transaction_hash': hash} if we updated on the blockchain.
@@ -166,7 +200,13 @@ def profile_update( name, new_profile, proxy=None, wallet_keys=None ):
         proxy = get_default_proxy()
 
     # update the profile with the new zonefile
-    _, data_privkey = get_data_keypair( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
+    data_privkey_res = get_data_or_owner_privkey( user_zonefile, owner_address, wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
+    if 'error' in data_privkey_res:
+        return {'error': data_privkey_res['error']}
+    else:
+        data_privkey = data_privkey_res['privatekey']
+        assert data_privkey is not None
+
     rc = storage.put_mutable_data( name, new_profile, data_privkey )
     if not rc:
         ret['error'] = 'Failed to update profile'
@@ -178,7 +218,7 @@ def profile_update( name, new_profile, proxy=None, wallet_keys=None ):
     return ret
 
 
-def get_name_zonefile( name, create_if_absent=False, proxy=None, value_hash=None, wallet_keys=None ):
+def get_name_zonefile( name, create_if_absent=False, proxy=None, wallet_keys=None, name_record=None, include_name_record=False ):
     """
     Given the name of the user, go fetch its zonefile.
     Verifies that the hash on the blockchain matches the zonefile.
@@ -186,27 +226,30 @@ def get_name_zonefile( name, create_if_absent=False, proxy=None, value_hash=None
     Returns the zonefile (as JSON) on success (a dict), or 
     a dict with "error" defined and a message.
     Return None if there is no zonefile (i.e. the hash is null)
+
+    if 'include_name_record' is true, then zonefile will contain
+    an extra key called 'name_record' that includes the blockchain name record.
     """
 
     if proxy is None:
         proxy = get_default_proxy()
 
-    if value_hash is None:
-        # find name record first
+    # find name record first
+    if name_record is None:
         name_record = get_name_blockchain_record(name, proxy=proxy)
 
-        if name_record is None:
-            # failed to look up
-            return {'error': "No such name"}
+    if name_record is None:
+        # failed to look up
+        return {'error': "No such name"}
 
-        if len(name_record) == 0:
-            return {"error": "No such name"}
+    if len(name_record) == 0:
+        return {"error": "No such name"}
 
-        # sanity check
-        if 'value_hash' not in name_record:
-            return {"error": "Name has no user record hash defined"}
+    # sanity check
+    if 'value_hash' not in name_record:
+        return {"error": "Name has no user record hash defined"}
 
-        value_hash = name_record['value_hash']
+    value_hash = name_record['value_hash']
 
     # is there a user record loaded?
     if value_hash in [None, "null", ""]:
@@ -217,9 +260,13 @@ def get_name_zonefile( name, create_if_absent=False, proxy=None, value_hash=None
 
         else:
             # make an empty zonefile and return that
-            # get user's data public key 
-            public_key, _ = get_data_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
+            # get user's data public key
+            public_key = load_data_pubkey_for_new_zonefile( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
             user_resp = user_db.make_empty_user_zonefile(name, public_key)
+
+            if include_name_record:
+                user_resp['name_record'] = name_record
+
             return user_resp
 
     user_zonefile_hash = value_hash
@@ -227,10 +274,16 @@ def get_name_zonefile( name, create_if_absent=False, proxy=None, value_hash=None
     if user_zonefile is None:
         return {"error": "Failed to load zonefile"}
 
-    return user_zonefile
+    if include_name_record:
+        user_zonefile['name_record'] = name_record
+
+    # force dict, so we see keyerrors
+    ret = {}
+    ret.update( user_zonefile )
+    return ret
     
 
-def get_name_profile(name, create_if_absent=False, proxy=None, wallet_keys=None, user_zonefile=None):
+def get_name_profile(name, create_if_absent=False, proxy=None, wallet_keys=None, user_zonefile=None, name_record=None, include_name_record=False ):
     """
     Given the name of the user, look up the user's record hash,
     and then get the record itself from storage.
@@ -240,7 +293,7 @@ def get_name_profile(name, create_if_absent=False, proxy=None, wallet_keys=None,
     returned zonefile will still be a legacy profile, however.
     The caller can check this and perform the conversion automatically.
 
-    Returns (profile, zonefile) on success.
+    Returns (profile, zonefile) on success.  If include_name_record is True, then zonefile['name_record'] will be defined and will contain the user's blockchain information
     Returns (None, {'error': ...}) on failure
     """
 
@@ -248,12 +301,15 @@ def get_name_profile(name, create_if_absent=False, proxy=None, wallet_keys=None,
         proxy = get_default_proxy()
  
     if user_zonefile is None:
-        user_zonefile = get_name_zonefile( name, create_if_absent=create_if_absent, proxy=proxy, wallet_keys=wallet_keys )
+        user_zonefile = get_name_zonefile( name, create_if_absent=create_if_absent, proxy=proxy, wallet_keys=wallet_keys, name_record=name_record, include_name_record=True )
         if user_zonefile is None:
             return (None, {'error': 'No user zonefile'})
 
         if 'error' in user_zonefile:
             return (None, user_zonefile)
+
+        name_record = user_zonefile['name_record']
+        del user_zonefile['name_record']
 
     # is this really a legacy profile?
     if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
@@ -261,12 +317,22 @@ def get_name_profile(name, create_if_absent=False, proxy=None, wallet_keys=None,
         user_profile = blockstack_profiles.get_person_from_legacy_format( user_zonefile )
        
     else:
-        # get user's data public key 
-        user_data_pubkey = user_db.user_zonefile_data_pubkey( user_zonefile )
-        if user_data_pubkey is None:
-            return (None, {'error': 'No data public key found in user profile.'})
+        # get user's data public key
+        try:
+            user_data_pubkey = user_db.user_zonefile_data_pubkey( user_zonefile )
+        except ValueError:
+            # user decided to put multiple keys under the same name into the zonefile.
+            # so don't use them.
+            user_data_pubkey = None 
 
-        user_profile = load_name_profile( name, user_zonefile, user_data_pubkey )
+        if user_data_pubkey is None and name_record is None:
+            name_record = proxy.get_name_blockchain_record( name )
+            if name_record is None or 'error' in name_record:
+                log.error("Failed to look up name record for '%s'" % name)
+                return (None, {'error': 'Failed to look up name record'})
+
+        user_address = name_record['address']
+        user_profile = load_name_profile( name, user_zonefile, user_address )
         if user_profile is None or 'error' in user_profile:
             if user_profile is None:
                 log.debug("WARN: no user profile for %s" % name)
@@ -277,6 +343,17 @@ def get_name_profile(name, create_if_absent=False, proxy=None, wallet_keys=None,
                 user_profile = user_db.make_empty_user_profile()
             else:
                 return (None, {'error': 'Failed to load user profile'})
+
+    # finally, if the caller asked for the name record, and we didn't get a chance to look it up,
+    # then go get it.
+    if include_name_record:
+        if name_record is None:
+            name_record = proxy.get_name_blockchain_record( name )
+            if name_record is None or 'error' in name_record:
+                log.error("Failed to look up name record for '%s'" % name)
+                return (None, {'error': 'Failed to look up name record'})
+
+        user_zonefile['name_record'] = name_record
 
     return (user_profile, user_zonefile)
 
@@ -291,10 +368,6 @@ def store_name_zonefile( name, user_zonefile, txid ):
     """
 
     assert not blockstack_profiles.is_profile_in_legacy_format(user_zonefile), "User zonefile is a legacy profile"
-
-    # make sure our data pubkey is there 
-    user_data_pubkey = user_db.user_zonefile_data_pubkey( user_zonefile )
-    assert user_data_pubkey is not None, "BUG: user zonefile is missing data public key"
 
     # serialize and send off
     user_zonefile_txt = blockstack_zones.make_zone_file( user_zonefile, origin=name, ttl=USER_ZONEFILE_TTL )
@@ -332,49 +405,88 @@ def remove_name_zonefile(user, txid):
     return (rc, data_hash)
 
 
-def get_and_migrate_profile( name, proxy=None, create_if_absent=False, wallet_keys=None ):
+def get_and_migrate_profile( name, proxy=None, create_if_absent=False, wallet_keys=None, include_name_record=False ):
     """
     Get a name's profile and zonefile, optionally creating a new one along the way.  Migrate the profile to a new zonefile,
     if the profile is in legacy format.
+
+    Only pass 'create_if_absent=True' for names we own
+
+    If @include_name_record is set, then the resulting zonefile will have a key called 'name_record' that includes the name record.
 
     Return (user_profile, user_zonefile, migrated:bool) on success
     Return ({'error': ...}, None, False) on error
     """
 
+    if proxy is None:
+        proxy = get_default_proxy()
+
     created_new_zonefile = False
-    user_zonefile = get_name_zonefile( name, proxy=proxy, wallet_keys=wallet_keys )
+    created_new_profile = False
+
+    name_record = None
+    user_zonefile = get_name_zonefile( name, proxy=proxy, wallet_keys=wallet_keys, include_name_record=True )
     if user_zonefile is None or 'error' in user_zonefile: 
         if not create_if_absent:
             return ({'error': 'No such zonefile'}, None, False)
 
+        # creating. we'd better have a data public key
         log.debug("Creating new profile and zonefile for name '%s'" % name)
-        if 'data_privkey' in wallet_keys:
-            data_pubkey, _ = get_data_keypair( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
-        elif 'data_pubkey' in wallet_keys:
-            data_pubkey = wallet_keys['data_pubkey']
+            
+        data_pubkey = load_data_pubkey_for_new_zonefile( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
+        if data_pubkey is None:
+            log.warn("No data keypair set; will fall back to owner private key for data signing")
 
         user_profile = user_db.make_empty_user_profile()
         user_zonefile = user_db.make_empty_user_zonefile( name, data_pubkey )
 
+        # look up name too 
+        name_record = proxy.get_name_blockchain_record(name)
+        if name_record is None:
+            return {'error': 'No such name'}
+
+        if 'error' in name_record:
+            return {'error': 'Failed to look up name: %s' % name_record['error']}
+
         created_new_zonefile = True
+        created_new_profile = True
     
-    elif blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
+    else:
+        name_record = user_zonefile['name_record']
+        del user_zonefile['name_record']
+
+    if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
 
         log.debug("Migrating legacy profile to modern zonefile for name '%s'" % name)
-        if 'data_privkey' in wallet_keys:
-            data_pubkey, _ = get_data_keypair( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
-        elif 'data_pubkey' in wallet_keys:
-            data_pubkey = wallet_keys['data_pubkey']
+        
+        data_pubkey = load_data_pubkey_for_new_zonefile( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
+        if data_pubkey is None:
+            log.warn("No data keypair set; will fall back to owner private key for data signing")
 
         user_profile = blockstack_profiles.get_person_from_legacy_format( user_zonefile )
         user_zonefile = user_db.make_empty_user_zonefile( name, data_pubkey )
 
         created_new_zonefile = True
+        created_new_profile = True
 
     else:
-        user_profile, error_msg = get_name_profile( name, proxy=proxy, wallet_keys=wallet_keys, user_zonefile=user_zonefile )
-        if user_profile is None:
-            return (error_msg, None, False)
+        if not created_new_profile:
+            user_profile, error_msg = get_name_profile( name, proxy=proxy, wallet_keys=wallet_keys, user_zonefile=user_zonefile, name_record=name_record )
+            if user_profile is None:
+                return (error_msg, None, False)
+
+        elif create_if_absent:
+            log.debug("Creating new profile for existing zonefile for name '%s'" % name)
+            user_profile = user_db.make_empty_user_profile()
+            created_new_profile = True
+
+        else:
+            raise Exception("Should be unreachable")
+
+
+    if include_name_record:
+        # put it back
+        user_zonefile['name_record'] = name_record 
 
     return (user_profile, user_zonefile, created_new_zonefile)
 
