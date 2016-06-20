@@ -68,6 +68,7 @@ MAGIC_BYTES = 'id'
 
 # borrowed from Blockstack
 FIRST_BLOCK_MAINNET = 373601
+FIRST_BLOCK_TIME_UTC = 1441737751 
 
 # borrowed from Blockstack
 # Opcodes
