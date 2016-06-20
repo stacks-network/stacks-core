@@ -361,7 +361,7 @@ def local_rpc_start( portnum, config_dir=blockstack_config.CONFIG_DIR, foregroun
     Start up an API endpoint 
     Return False on error
     """
-    from blockstack_client.wallet import load_wallet
+    from blockstack_client.wallet import load_wallet, initialize_wallet
 
     global rpc_pidpath, rpc_srv, running
     config_path = os.path.join(config_dir, blockstack_config.CONFIG_FILENAME)
