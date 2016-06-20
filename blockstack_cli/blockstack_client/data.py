@@ -357,7 +357,7 @@ def get_mutable(name, data_id, proxy=None, ver_min=None, ver_max=None, ver_check
     get_mutable
 
     Fetch a piece of mutable data.  Use @data_id to look it up in the user's
-    pofile, and then fetch and erify the data itself from the configured 
+    profile, and then fetch and erify the data itself from the configured 
     storage providers.
 
     If @ver_min is given, ensure the data's version is greater or equal to it.
@@ -375,10 +375,14 @@ def get_mutable(name, data_id, proxy=None, ver_min=None, ver_max=None, ver_check
         conf = proxy.conf
 
     fq_data_id = storage.make_fq_data_id( name, data_id )
-    user_profile, user_zonefile = get_name_profile( name, proxy=proxy, wallet_keys=wallet_keys )
+    user_profile, user_zonefile = get_name_profile( name, proxy=proxy, wallet_keys=wallet_keys, include_name_record=True )
     if user_profile is None:
         return user_zonefile    # will be an error message
    
+    # recover name record 
+    name_record = user_zonefile['name_record']
+    del user_zonefile['name_record']
+
     if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
         # profile has not been converted to the new zonefile format yet.
         return {'error': 'Profile is in a legacy format that does not support mutable data.'}
@@ -390,14 +394,16 @@ def get_mutable(name, data_id, proxy=None, ver_min=None, ver_max=None, ver_check
     mutable_data_zonefile = user_db.get_mutable_data_zonefile( user_profile, data_id )
     assert mutable_data_zonefile is not None, "BUG: could not look up mutable datum '%s'.'%s'" % (name, data_id)
 
-    # get user's data public key 
+    # get user's data public key, or owner address
+    data_address = None
     data_pubkey = user_db.user_zonefile_data_pubkey( user_zonefile )
     if data_pubkey is None:
-        return {'error': "No data public key defined in this user's zonefile"}
+        log.warn("Falling back to owner address for authentication")
+        data_address = name_record['address']
 
     # get the mutable data itself
     urls = user_db.mutable_data_zonefile_urls( mutable_data_zonefile )
-    mutable_data = storage.get_mutable_data(fq_data_id, data_pubkey, urls=urls )
+    mutable_data = storage.get_mutable_data(fq_data_id, data_pubkey, urls=urls, data_address=data_address )
     if mutable_data is None:
         return {'error': "Failed to look up mutable datum"}
 
@@ -578,13 +584,17 @@ def put_mutable(name, data_id, data_json, proxy=None, create_only=False, update_
 
     fq_data_id = storage.make_fq_data_id( name, data_id )
 
-    user_profile, user_zonefile, created_new_zonefile = get_and_migrate_profile( name, create_if_absent=True, proxy=proxy, wallet_keys=wallet_keys )
+    name_record = None
+    user_profile, user_zonefile, created_new_zonefile = get_and_migrate_profile( name, create_if_absent=True, proxy=proxy, wallet_keys=wallet_keys, include_name_record=True )
     if 'error' in user_profile:
         return user_profile 
 
     if created_new_zonefile:
         log.debug("User profile is legacy")
         return {'error': "User profile is in legacy format, which does not support this operation.  You must first migrate it with the 'migrate' command."}
+
+    name_record = user_zonefile['name_record']
+    del user_zonefile['name_record']
 
     log.debug("Profile for %s is currently:\n%s" % (name, json.dumps(user_profile, indent=4, sort_keys=True)))
 
@@ -600,7 +610,15 @@ def put_mutable(name, data_id, data_json, proxy=None, create_only=False, update_
         version = put_mutable_get_version( user_profile, data_id, data_json, make_version=make_version )
 
     # generate the mutable zonefile
-    data_privkey = get_data_privkey( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
+    data_privkey = get_data_or_owner_privkey( user_zonefile, name_record['address'], wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
+    if 'error' in data_privkey:
+        # error text
+        return {'error': data_privkey['error']}
+
+    else:
+        data_privkey = data_privkey['privatekey']
+        assert data_privkey is not None
+
     urls = storage.make_mutable_data_urls( fq_data_id )
     mutable_zonefile = user_db.make_mutable_data_zonefile( data_id, version, urls )
 
@@ -652,12 +670,15 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
         proxy = get_default_proxy()
 
     legacy = False
-    user_zonefile = get_name_zonefile( name, proxy=proxy )
+    user_zonefile = get_name_zonefile( name, proxy=proxy, include_name_record=True )
     if user_zonefile is None or 'error' in user_zonefile:
         if user_zonefile is None:
             return {'error': 'No user zonefile'}
         else:
             return user_zonefile
+
+    name_record = user_zonefile['name_record']
+    del user_zonefile['name_record']
 
     if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
         # zonefile is a legacy profile.  There is no immutable data 
@@ -713,7 +734,13 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
         return result
 
     # delete immutable data 
-    data_privkey = get_data_privkey( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
+    data_privkey = get_data_or_owner_privkey( user_zonefile, name_record['address'], wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
+    if 'error' in data_privkey:
+        return {'error': data_privkey['error']}
+    else:
+        data_privkey = data_privkey['privatekey']
+        assert data_privkey is not None
+
     rc = storage.delete_immutable_data( data_key, txid, data_privkey )
     if not rc:
         result['error'] = 'Failed to delete immutable data'
@@ -740,9 +767,12 @@ def delete_mutable(name, data_id, proxy=None, wallet_keys=None):
  
     fq_data_id = storage.make_fq_data_id( name, data_id )
     legacy = False
-    user_profile, user_zonefile = get_name_profile( name, proxy=proxy, wallet_keys=wallet_keys )
+    user_profile, user_zonefile = get_name_profile( name, proxy=proxy, wallet_keys=wallet_keys, include_name_record=True )
     if user_profile is None:
         return user_zonefile    # will be an error message 
+
+    name_record = user_zonefile['name_record']
+    del user_zonefile['name_record']
 
     if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
         # zonefile is a legacy profile.  There is no immutable data 
@@ -757,7 +787,13 @@ def delete_mutable(name, data_id, proxy=None, wallet_keys=None):
     user_db.remove_mutable_data_zonefile( user_profile, data_id )
 
     # put new profile 
-    data_privkey = get_data_privkey( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
+    data_privkey = get_data_or_owner_privkey( user_zonefile, name_record['address'], wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
+    if 'error' in data_privkey:
+        return {'error': data_privkey['error']}
+    else:
+        data_privkey = data_privkey['privatekey']
+        assert data_privkey is not None
+
     rc = storage.put_mutable_data( name, user_profile, data_privkey )
     if not rc:
         return {'error': 'Failed to unlink mutable data from profile'}
