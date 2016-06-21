@@ -94,7 +94,7 @@ from blockstack_client import \
 from rpc import local_rpc_connect, local_rpc_ensure_running, local_rpc_status, local_rpc_stop
 import rpc as local_rpc
 import config
-from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR, configure, get_utxo_provider_client
+from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR, configure, FIRST_BLOCK_TIME_UTC, get_utxo_provider_client
 from .storage import is_valid_name, is_b40
 
 from pybitcoin import is_b58check_address
