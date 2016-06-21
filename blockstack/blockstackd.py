@@ -187,6 +187,10 @@ def get_state_engine():
    """
    Get a handle to the blockstack virtual chain state engine.
    """
+   if is_indexing():
+       # load fresh
+       invalidate_db_state()
+
    return get_db_state()
 
 
@@ -554,7 +558,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         Given the consensus hash, find the block number (or None)
         """
-        db = get_db_state()
+        db = get_state_engine()
         return db.get_block_from_consensus( consensus_hash )
 
 
@@ -896,7 +900,7 @@ def stop_server( clean=False, kill=False ):
         if kill:
             clean = True
             timeout = 5.0
-            log.info("Waiting %s seconds before sending SIGKILL to %s" % pid)
+            log.info("Waiting %s seconds before sending SIGKILL to %s" % (timeout, pid))
             time.sleep(timeout)
             try:
                 os.kill(pid, signal.SIGKILL)
