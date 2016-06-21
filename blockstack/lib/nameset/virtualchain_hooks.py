@@ -45,6 +45,7 @@ log = virtualchain.get_logger("blockstack-log")
 
 blockstack_db = None
 last_load_time = 0
+last_check_time = 0
 
 def get_burn_fee_from_outputs( outputs ):
     """
@@ -286,6 +287,7 @@ def get_db_state(disposition=None):
    
    global blockstack_db
    global last_load_time
+   global last_check_time
 
    mtime = None
    db_filename = virtualchain.get_db_filename()
@@ -294,12 +296,16 @@ def get_db_state(disposition=None):
        sb = os.stat(db_filename)
        mtime = sb.st_mtime 
 
-   if blockstack_db is None or mtime is None or not os.path.exists(db_filename) or sb.st_mtime != last_load_time or time.time() - last_load_time > 60:
+   if blockstack_db is None or mtime is None or not os.path.exists(db_filename) or sb.st_mtime != last_load_time or time.time() - last_check_time > 600:
        log.info("(Re)Loading blockstack state from '%s'" % db_filename )
        blockstack_db = BlockstackDB( db_filename )
 
        if mtime is not None:
           last_load_time = mtime 
+
+       last_check_time = time.time()
+   else:
+       log.debug("Using cached blockstack state")
    
    return blockstack_db
 
