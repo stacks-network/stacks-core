@@ -304,6 +304,15 @@ def get_db_state(disposition=None):
    return blockstack_db
 
 
+def invalidate_db_state():
+    """
+    Clear out in-RAM cached db state
+    """
+    log.info("Invalidating cached blockstack state")
+    global blockstack_db
+    blockstack_db = None 
+
+
 def db_parse( block_id, txid, vtxindex, opcode, data, senders, inputs, outputs, fee, db_state=None ):
    """
    (required by virtualchain state engine)

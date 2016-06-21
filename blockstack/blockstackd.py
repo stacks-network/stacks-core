@@ -64,7 +64,7 @@ from ConfigParser import SafeConfigParser
 import pybitcoin
 
 from lib import nameset as blockstack_state_engine
-from lib import get_db_state
+from lib import get_db_state, invalidate_db_state
 from lib.config import REINDEX_FREQUENCY, DEFAULT_DUST_FEE 
 from lib import *
 from lib.storage import *
@@ -319,7 +319,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
     def rpc_get_name_blockchain_record(self, name):
         """
-        Lookup the blockchain-derived profile for a name.
+        Lookup the blockchain-derived whois info for a name.
         """
 
         db = get_state_engine()
@@ -331,6 +331,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
         name_record = db.get_name(str(name))
 
+        namespace_id = get_namespace_from_name(name)
+        namespace_record = db.get_namespace(namespace_id)
+
         if name_record is None:
             if is_indexing():
                 return {"error": "Indexing blockchain"}
@@ -338,7 +341,13 @@ class BlockstackdRPC(SimpleXMLRPCServer):
                 return {"error": "Not found."}
 
         else:
+
+            # when does this name expire (if it expires)?
+            if namespace_record['lifetime'] != NAMESPACE_LIFE_INFINITE:
+                name_record['expire_block'] = namespace_record['lifetime'] + name_record['last_renewed']
+
             return name_record
+
 
     def rpc_get_name_blockchain_history( self, name, start_block, end_block ):
         """
@@ -961,10 +970,13 @@ def index_blockchain():
     # bring us up to speed
     log.debug("Begin indexing (up to %s)" % current_block)
     set_indexing( True )
-    db = virtualchain_hooks.get_db_state()
+    db = get_state_engine()
     virtualchain.sync_virtualchain( bt_opts, current_block, db )
     set_indexing( False )
     log.debug("End indexing (up to %s)" % current_block)
+
+    # invalidate in-RAM copy, so we re-load it on next get_state_engine()
+    invalidate_db_state()
 
 
 def blockstack_exit():
