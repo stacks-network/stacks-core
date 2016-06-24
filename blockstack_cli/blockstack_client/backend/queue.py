@@ -228,7 +228,7 @@ def in_queue( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
 def queue_append(queue_id, fqu, tx_hash, payment_address=None,
                  owner_address=None, transfer_address=None,
                  config_path=CONFIG_PATH,
-                 zonefile=None, profile=None, path=DEFAULT_QUEUE_PATH):
+                 zonefile=None, profile=None, zonefile_hash=None, path=DEFAULT_QUEUE_PATH):
 
     """
     Append a processing name operation to the named queue for the given name.
@@ -246,8 +246,11 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
     new_entry['transfer_address'] = transfer_address
     new_entry['zonefile'] = zonefile
     new_entry['profile'] = profile
-    if zonefile is not None:
-        new_entry['zonefile_hash'] = hash_zonefile(zonefile)
+    if zonefile_hash is None and zonefile is not None:
+        zonefile_hash = hash_zonefile(zonefile)
+
+    if zonefile_hash is not None:
+        new_entry['zonefile_hash'] = zonefile_hash
 
     queuedb_insert( queue_id, fqu, tx_hash, new_entry, path=path )
     return True
@@ -319,6 +322,20 @@ def is_transfer_expired( entry, config_path=CONFIG_PATH ):
     Is a transfer expired?
     """
     return is_update_expired(entry, config_path=config_path)
+
+
+def is_renew_expired( entry, config_path=CONFIG_PATH ):
+    """
+    Is a renew expired?
+    """
+    return is_update_expired(entry, config_path=config_path)
+
+
+def is_revoke_expired( entry, config_path=CONFIG_PATH ):
+    """
+    Is a revoke expired?
+    """
+    return is_revoke_expired(entry, config_path=CONFIG_PATH)
 
 
 def display_queue(queue_id, display_details=False, path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
@@ -403,8 +420,8 @@ def cleanup_register_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
 
 def cleanup_update_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
     """
-    Clear out the register queue.
-    Remove rows that refer to registered names, or to stale preorders.
+    Clear out the update queue.
+    Remove rows that refer to registered names, or to stale updates.
     Return True on success
     Raise on error.
     """
@@ -427,8 +444,8 @@ def cleanup_update_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
 
 def cleanup_transfer_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
     """
-    Clear out the register queue.
-    Remove rows that refer to registered names, or to stale preorders.
+    Clear out the transfer queue.
+    Remove rows that refer to registered names, or to stale transfers.
     Return True on success
     Raise on error.
     """
@@ -456,6 +473,54 @@ def cleanup_transfer_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
     return True
 
 
+def cleanup_renew_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
+    """
+    Clear out the renew queue.
+    Remove rows that refer to renewed names, or stale renews.
+    Return True on success
+    Raise on error
+    """
+    rows = queuedb_findall("renew", path=path)
+    to_remove = []
+    for rowdata in rows:
+        entry = extract_entry(rowdata)
+        
+        # clear stale renew
+        if is_renew_expired(entry, config_path=config_path):
+            log.debug("Removing tx with > max confirmations: (%s, confirmations %s)"
+                      % (fqu, confirmations))
+
+            to_remove.append(entry)
+            continue
+
+    queue_removeall( to_remove, path=path )
+    return True
+
+
+def cleanup_revoke_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
+    """
+    Clear out the revoke queue.
+    Remove rows that refer to revoked names, or stale revokes.
+    Return True on success
+    Raise on error
+    """
+    rows = queuedb_findall("revoke", path=path)
+    to_remove = []
+    for rowdata in rows:
+        entry = extract_entry(rowdata)
+        
+        # clear stale renew
+        if is_revoke_expired(entry, config_path=config_path):
+            log.debug("Removing tx with > max confirmations: (%s, confirmations %s)"
+                      % (fqu, confirmations))
+
+            to_remove.append(entry)
+            continue
+
+    queue_removeall( to_remove, path=path )
+    return True
+
+
 def queue_cleanall(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
     """
     Clean all queues
@@ -467,6 +532,8 @@ def queue_cleanall(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
     cleanup_register_queue(path=path, config_path=config_path)
     cleanup_update_queue(path=path, config_path=config_path )
     cleanup_transfer_queue(path=path, config_path=config_path )
+    cleanup_renew_queue(path=path, config_path=config_path)
+    cleanup_revoke_queue(path=path, config_path=config_path)
 
 
 def display_queue_info(display_details=False, path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
@@ -478,6 +545,8 @@ def display_queue_info(display_details=False, path=DEFAULT_QUEUE_PATH, config_pa
     display_queue("register", display_details, path=path, config_path=config_path)
     display_queue("update", display_details, path=path, config_path=config_path)
     display_queue("transfer", display_details, path=path, config_path=config_path)
+    display_queue("renew", display_details, path=path, config_path=config_path)
+    display_queue("revoke", display_details, path=path, config_path=config_path)
 
 
 def get_queue_state(queue_ids=None, path=DEFAULT_QUEUE_PATH):
@@ -487,7 +556,7 @@ def get_queue_state(queue_ids=None, path=DEFAULT_QUEUE_PATH):
     """
     state = []
     if queue_ids is None:
-        queue_ids = ["preorder", "register", "update", "transfer"]
+        queue_ids = ["preorder", "register", "update", "transfer", "renew", "revoke"]
 
     elif type(queue_ids) not in [list]:
         queue_ids = [queue_ids]
