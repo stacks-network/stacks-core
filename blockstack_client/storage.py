@@ -157,7 +157,8 @@ def make_mutable_data_urls( data_id ):
          log.exception(e)
          continue
 
-      urls.append( new_url )
+      if new_url is not None:
+          urls.append( new_url )
 
    return urls
 
@@ -242,12 +243,15 @@ def register_storage( storage_impl ):
    return True
 
 
-def get_immutable_data( data_hash, data_url=None, hash_func=get_data_hash, deserialize=True ):
+def get_immutable_data( data_hash, data_url=None, hash_func=get_data_hash, fqu=None, data_id=None, zonefile=False, deserialize=True ):
    """
    Given the hash of the data, go through the list of
    immutable data handlers and look it up.
 
+   Optionally pass the fully-qualified name (@fqu) and human-readable data ID.
+
    Return the data (as a dict) on success.
+   Return None on failure
    """
 
    global storage_handlers
@@ -280,7 +284,7 @@ def get_immutable_data( data_hash, data_url=None, hash_func=get_data_hash, deser
             continue
 
          try:
-            data = handler.get_immutable_handler( data_hash )
+            data = handler.get_immutable_handler( data_hash, data_id=data_id, zonefile=zonefile, fqu=fqu )
          except Exception, e:
             log.exception( e )
             log.debug("Method failed: %s.get_immutable_handler(%s)" % (handler, data_hash))
@@ -354,6 +358,12 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None, data_address=None ):
    fq_data_id = str(fq_data_id)
    assert is_fq_data_id( fq_data_id ) or is_valid_name( fq_data_id ), "Need either a fully-qualified data ID or a blockchain ID: '%s'" % fq_data_id
 
+   fqu = None
+   if is_fq_data_id(fq_data_id):
+       fqu = fq_data_id.split(":")[0]
+   else:
+       fqu = fq_data_id
+
    for storage_handler in storage_handlers:
 
       if not hasattr(storage_handler, "get_mutable_handler"):
@@ -395,7 +405,7 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None, data_address=None ):
 
          try:
 
-            data_json = storage_handler.get_mutable_handler( url )
+            data_json = storage_handler.get_mutable_handler( url, fqu=fqu )
          except UnhandledURLException, uue:
             # handler doesn't handle this URL
             log.debug("Storage handler %s does not handle URLs like %s" % (storage_handler.__name__, url ))
