@@ -34,7 +34,11 @@ from ConfigParser import SafeConfigParser
 
 from version import __version__
 
-DEBUG = True
+if os.environ.get("BLOCKSTACK_TEST") is not None and os.environ.get("BLOCKSTACK_TEST_NODEBUG") is None:
+    DEBUG = True
+else:
+    DEBUG = False
+
 VERSION = __version__
 
 DEFAULT_BLOCKSTACKD_PORT = 6264     # blockstackd port
