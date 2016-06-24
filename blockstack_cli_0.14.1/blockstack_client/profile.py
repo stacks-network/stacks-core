@@ -325,13 +325,18 @@ def get_name_profile(name, create_if_absent=False, proxy=None, wallet_keys=None,
             # so don't use them.
             user_data_pubkey = None 
 
+        # convert to address
+        user_address = None
         if user_data_pubkey is None and name_record is None:
             name_record = proxy.get_name_blockchain_record( name )
             if name_record is None or 'error' in name_record:
                 log.error("Failed to look up name record for '%s'" % name)
                 return (None, {'error': 'Failed to look up name record'})
 
-        user_address = name_record['address']
+            user_address = name_record['address']
+        else:
+            user_address = pybitcoin.BitcoinPublicKey(user_data_pubkey).address()
+
         user_profile = load_name_profile( name, user_zonefile, user_address )
         if user_profile is None or 'error' in user_profile:
             if user_profile is None:
