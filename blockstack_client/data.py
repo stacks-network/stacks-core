@@ -307,7 +307,7 @@ def list_zonefile_history( name, current_block=None, proxy=None ):
     zonefile_hashes = list_update_history( name, current_block=current_block, proxy=proxy )
     zonefiles = []
     for zh in zonefile_hashes:
-        zonefile = load_name_zonefile( zh )
+        zonefile = load_name_zonefile( name, zh )
         if zonefile is None:
             zonefile = {'error': 'Failed to load zonefile %s' % zh}
 
