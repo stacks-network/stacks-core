@@ -132,14 +132,14 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
         if renewal_fee is not None:
             # renewing
             dust_fee = 0
-            dust_value = 0
+            dust_value = DEFAULT_DUST_FEE
             op_fee = max(renewal_fee, DEFAULT_DUST_FEE)
             bill = 0
             
         else:
             # registering
             dust_fee = 0
-            dust_value = 0
+            dust_value = DEFAULT_DUST_FEE
             op_fee = 0
             bill = 0
   
@@ -150,7 +150,7 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
     
         # register address
         {"script_hex": make_pay_to_address_script(register_addr),
-         "value": dust_fee},
+         "value": dust_value},
         
         # change address (can be the subsidy address)
         {"script_hex": make_pay_to_address_script(change_addr),
@@ -173,30 +173,17 @@ def make_transaction(name, user_public_key, register_addr, blockchain_client, su
     from_address = None 
     change_inputs = None
     subsidized_renewal = False
-    
-    if subsidy_public_key is not None:
-        # subsidizing
-        pubk = pybitcoin.BitcoinPublicKey( subsidy_public_key )
-        
-        if user_public_key is not None and renewal_fee is not None:
-            # renewing, and subsidizing the renewal
-            from_address = pybitcoin.BitcoinPublicKey( user_public_key ).address() 
-            subsidized_renewal = True
 
-        else:
-            # registering or renewing under the subsidy key
-            from_address = pubk.address()
-
-        change_inputs = get_unspents( from_address, blockchain_client )
-
-    else:
-        pubk = pybitcoin.BitcoinPublicKey( user_public_key )
-        from_address = pubk.address()
-        change_inputs = get_unspents( from_address, blockchain_client )
+    pubk = pybitcoin.BitcoinPublicKey( user_public_key )
+    from_address = pubk.address()
+    change_inputs = get_unspents( from_address, blockchain_client )
+    if renewal_fee is not None:
+        assert pybitcoin.BitcoinPublicKey(user_public_key).address() == register_addr, "%s (%s) != %s" % (user_public_key, pybitcoin.BitcoinPublicKey(user_public_key).address(), register_addr)
+        subsidized_renewal = True
 
     nulldata = build(name)
     outputs = make_outputs(nulldata, change_inputs, register_addr, from_address, tx_fee, renewal_fee=renewal_fee, pay_fee=(not subsidized_renewal) )
-  
+ 
     return (change_inputs, outputs)
 
 
@@ -237,21 +224,22 @@ def get_fees( inputs, outputs ):
     op_fee = 0
     
     if len(outputs) != 3 and len(outputs) != 4:
+        log.debug("len(outputs) == %s" % len(outputs))
         return (None, None)
     
     # 0: op_return
     if not tx_output_is_op_return( outputs[0] ):
+        log.debug("output[0] is not an OP_RETURN")
         return (None, None) 
-    
-    if outputs[0]["value"] != 0:
-        return (None, None) 
-    
+   
     # 1: reveal address 
     if script_hex_to_address( outputs[1]["script_hex"] ) is None:
+        log.debug("output[1] is not a p2pkh script")
         return (None, None)
     
     # 2: change address 
     if script_hex_to_address( outputs[2]["script_hex"] ) is None:
+        log.debug("output[2] is not a p2pkh script")
         return (None, None)
     
     # 3: burn address, if given 
@@ -259,9 +247,11 @@ def get_fees( inputs, outputs ):
         
         addr_hash = script_hex_to_address( outputs[3]["script_hex"] )
         if addr_hash is None:
+            log.debug("output[3] is not a p2pkh script")
             return (None, None) 
         
-        if addr_hash != BLOCKSTACK_BURN_PUBKEY_HASH:
+        if addr_hash != BLOCKSTACK_BURN_ADDRESS:
+            log.debug("output[3] is not the burn address (got %s)" % addr_hash)
             return (None, None)
     
         dust_fee = (len(inputs) + 3) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
