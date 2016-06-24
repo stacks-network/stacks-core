@@ -246,7 +246,7 @@ def get_immutable(name, data_hash, data_id=None, proxy=None):
         return {'error': 'No such immutable datum'}
 
     data_url_hint = user_db.get_immutable_data_url( user_zonefile, data_hash )
-    data = storage.get_immutable_data( data_hash, data_url=data_url_hint )
+    data = storage.get_immutable_data( data_hash, fqu=name, data_id=data_id, data_url=data_url_hint )
     if data is None:
         return {'error': 'No immutable data returned'}
 
