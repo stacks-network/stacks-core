@@ -162,10 +162,10 @@ def make_mutable_url( data_id ):
     # xmlrpc endpoint
     return "http://%s:%s/RPC2#%s" % (SERVER_NAME, SERVER_PORT, data_id)
 
-def get_immutable_handler( key ):
+def get_immutable_handler( key, **kw ):
     return get_data( key, zonefile=True )
 
-def get_mutable_handler( url ):
+def get_mutable_handler( url, **kw ):
     parts = url.split("#")
     if len(parts) != 2:
         log.error("Invalid url '%s'" % url)
@@ -175,14 +175,14 @@ def get_mutable_handler( url ):
     return get_data( data_id, zonefile=False )
 
 
-def put_immutable_handler( key, data, txid ):
+def put_immutable_handler( key, data, txid, **kw ):
     return put_data( key, data, zonefile=True )
 
-def put_mutable_handler( data_id, data_bin ):
+def put_mutable_handler( data_id, data_bin, **kw ):
     return put_data( data_id, data_bin, zonefile=False )
 
-def delete_immutable_handler( key, txid, sig_key_txid ):
+def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
     return True
 
-def delete_mutable_handler( data_id, signature ):
+def delete_mutable_handler( data_id, signature, **kw ):
     return True
