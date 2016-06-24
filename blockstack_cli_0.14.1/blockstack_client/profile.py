@@ -65,7 +65,7 @@ from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SER
 log = get_logger()
 
 
-def load_name_zonefile(expected_zonefile_hash):
+def load_name_zonefile(name, expected_zonefile_hash):
     """
     Fetch and load a user zonefile from the storage implementation with the given hex string hash,
     The user zonefile hash should have been loaded from the blockchain, and thereby be the
@@ -75,7 +75,7 @@ def load_name_zonefile(expected_zonefile_hash):
     Return None on error
     """
 
-    zonefile_txt = storage.get_immutable_data(expected_zonefile_hash, hash_func=storage.get_zonefile_data_hash, deserialize=False)
+    zonefile_txt = storage.get_immutable_data(expected_zonefile_hash, hash_func=storage.get_zonefile_data_hash, fqu=name, zonefile=True, deserialize=False)
     if zonefile_txt is None:
         log.error("Failed to load user zonefile '%s'" % expected_zonefile_hash)
         return None
@@ -270,7 +270,7 @@ def get_name_zonefile( name, create_if_absent=False, proxy=None, wallet_keys=Non
             return user_resp
 
     user_zonefile_hash = value_hash
-    user_zonefile = load_name_zonefile(user_zonefile_hash)
+    user_zonefile = load_name_zonefile(name, user_zonefile_hash)
     if user_zonefile is None:
         return {"error": "Failed to load zonefile"}
 
