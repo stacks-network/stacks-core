@@ -398,6 +398,9 @@ def is_name_registered(fqu, proxy=None):
         log.debug("Failed to read blockchain record for %s" % fqu)
         return False
 
+    if blockchain_record.has_key('revoked') and blockchain_record['revoked']:
+        return False
+
     if "first_registered" in blockchain_record:
         return True
     else:
