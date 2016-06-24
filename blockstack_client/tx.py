@@ -23,8 +23,10 @@
 
 import pybitcoin
 from .operations import *
-from .config import CONFIG_PATH, get_utxo_provider_client, get_tx_broadcaster
+from .config import CONFIG_PATH, get_utxo_provider_client, get_tx_broadcaster, get_logger
 from pybitcoin import serialize_transaction, sign_all_unsigned_inputs, broadcast_transaction
+
+log = get_logger("blockstack-client")
 
 def preorder_tx( *args, **kw ):
     """
