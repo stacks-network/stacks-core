@@ -283,6 +283,7 @@ def get_immutable_data( data_hash, data_url=None, hash_func=get_data_hash, fqu=N
             log.debug("No method: %s.get_immutable_handler(%s)" % (handler, data_hash))
             continue
 
+         log.debug("Try %s" % handler.__name__)
          try:
             data = handler.get_immutable_handler( data_hash, data_id=data_id, zonefile=zonefile, fqu=fqu )
          except Exception, e:
@@ -316,6 +317,7 @@ def get_immutable_data( data_hash, data_url=None, hash_func=get_data_hash, fqu=N
       else:
           data_dict = data
 
+      log.debug("loaded with %s" % handler.__name__)
       return data_dict
 
    return None
@@ -403,6 +405,7 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None, data_address=None ):
          data_json = None
          data = None
 
+         log.debug("Try %s" % storage_handler.__name__)
          try:
 
             data_json = storage_handler.get_mutable_handler( url, fqu=fqu )
@@ -425,6 +428,7 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None, data_address=None ):
             log.error("Unparseable data from '%s'" % url)
             continue
 
+         log.debug("loaded with %s" % storage_handler.__name__)
          return data
 
    return None
