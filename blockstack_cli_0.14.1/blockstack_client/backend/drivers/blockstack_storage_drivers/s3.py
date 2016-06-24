@@ -285,7 +285,7 @@ def make_mutable_url( data_id ):
     return "https://%s.s3.amazonaws.com/mutable-%s" % (AWS_BUCKET, data_id)
 
 
-def get_immutable_handler( key ):
+def get_immutable_handler( key, **kw ):
     """
     S3 implementation of the get_immutable_handler API call.
     Given the hash of the data, return the data.
@@ -296,7 +296,7 @@ def get_immutable_handler( key ):
     return read_chunk( immutable_data_id )
 
 
-def get_mutable_handler( url ):
+def get_mutable_handler( url, **kw ):
     """
     S3 implementation of the get_mutable_handler API call.
     Given a route URL to data, return the data itself.
@@ -316,7 +316,7 @@ def get_mutable_handler( url ):
     return read_chunk( mutable_data_id )
 
 
-def put_immutable_handler( key, data, txid ):
+def put_immutable_handler( key, data, txid, **kw ):
     """
     S3 implmentation of the put_immutable_handler API call.
     Given the hash of the data (key), the serialized data itself,
@@ -329,7 +329,7 @@ def put_immutable_handler( key, data, txid ):
     return write_chunk( immutable_data_id, data )
 
 
-def put_mutable_handler( data_id, data_json ):
+def put_mutable_handler( data_id, data_json, **kw ):
     """
     S3 implementation of the put_mutable_handler API call.
     Return True on success; False on failure.
@@ -339,7 +339,7 @@ def put_mutable_handler( data_id, data_json ):
     return write_chunk( mutable_data_id, data_json )
 
 
-def delete_immutable_handler( key, txid, sig_key_txid ):
+def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
     """
     S3 implementation of the delete_immutable_handler API call.
     Given the hash of the data and transaction ID of the update
@@ -351,7 +351,7 @@ def delete_immutable_handler( key, txid, sig_key_txid ):
     return delete_chunk( immutable_data_id )
 
 
-def delete_mutable_handler( data_id, signature ):
+def delete_mutable_handler( data_id, signature, **kw ):
     """
     S3 implementation of the delete_mutable_handler API call.
     Given the unchanging data ID for the data and the writer's

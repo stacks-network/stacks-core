@@ -90,7 +90,7 @@ def make_mutable_url( data_id ):
    return "file://%s/%s" % (MUTABLE_STORAGE_ROOT, data_id_noslash)
 
 
-def get_immutable_handler( key ):
+def get_immutable_handler( key, **kw ):
    """
    Local disk implementation of the get_immutable_handler API call.
    Given the hash of the data, return the data.
@@ -120,7 +120,7 @@ def get_immutable_handler( key ):
       return None
 
 
-def get_mutable_handler( url ):
+def get_mutable_handler( url, **kw ):
    """
    Local disk implementation of the get_mutable_handler API call.
    Given a route URL to data, return the data itself.
@@ -153,7 +153,7 @@ def get_mutable_handler( url ):
       return None 
 
 
-def put_immutable_handler( key, data, txid ):
+def put_immutable_handler( key, data, txid, **kw ):
    """
    Local disk implmentation of the put_immutable_handler API call.
    Given the hash of the data (key), the serialized data itself,
@@ -190,7 +190,7 @@ def put_immutable_handler( key, data, txid ):
    return True 
 
 
-def put_mutable_handler( data_id, data_bin ):
+def put_mutable_handler( data_id, data_bin, **kw ):
    """
    Local disk implementation of the put_mutable_handler API call.
    Return True on success; False on failure.
@@ -227,7 +227,7 @@ def put_mutable_handler( data_id, data_bin ):
    return True 
 
 
-def delete_immutable_handler( key, txid, sig_key_txid ):
+def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
    """
    Local disk implementation of the delete_immutable_handler API call.
    Given the hash of the data and transaction ID of the update
@@ -247,7 +247,7 @@ def delete_immutable_handler( key, txid, sig_key_txid ):
    return True 
 
 
-def delete_mutable_handler( data_id, signature ):
+def delete_mutable_handler( data_id, signature, **kw ):
    """
    Local disk implementation of the delete_mutable_handler API call.
    Given the unchanging data ID for the data and the writer's

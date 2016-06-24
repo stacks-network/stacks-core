@@ -164,7 +164,7 @@ def make_mutable_url(data_id):
     return "dht+udp://" + pybitcoin.hash.hex_hash160(data_id)
 
 
-def get_immutable_handler(key):
+def get_immutable_handler(key, **kw):
     """
     DHT implementation of the get_immutable_handler API call.
     Given the hash of the data, return the data.
@@ -173,7 +173,7 @@ def get_immutable_handler(key):
     return dht_get_key(key)
 
 
-def get_mutable_handler(data_id):
+def get_mutable_handler(data_id, **kw):
     """
     DHT implementation of the get_mutable_handler API call.
     Given a route URL to data, return the data itself.
@@ -183,7 +183,7 @@ def get_mutable_handler(data_id):
     return dht_get_key(dht_data_hash(data_id))
 
 
-def put_immutable_handler(key, data, txid):
+def put_immutable_handler(key, data, txid, **kw):
     """
     DHT implmentation of the put_immutable_handler API call.
     Given the hash of the data (key), the serialized data itself,
@@ -198,7 +198,7 @@ def put_immutable_handler(key, data, txid):
     return dht_put_data(key, data)
 
 
-def put_mutable_handler(data_id, data_json):
+def put_mutable_handler(data_id, data_json, **kw):
     """
     DHT implementation of the put_mutable_handler API call.
     Return True on success; False on failure.
@@ -216,7 +216,7 @@ def put_mutable_handler(data_id, data_json):
     return True
 
 
-def delete_immutable_handler(key, txid, sig_key_txid):
+def delete_immutable_handler(key, txid, sig_key_txid, **kw):
     """
     DHT implementation of the delete_immutable_handler API call.
     Given the hash of the data and transaction ID of the update
@@ -230,7 +230,7 @@ def delete_immutable_handler(key, txid, sig_key_txid):
     return dht_put_data(key, None)
 
 
-def delete_mutable_handler(data_id, signature):
+def delete_mutable_handler(data_id, signature, **kw):
     """
     DHT implementation of the delete_mutable_handler API call.
     Given the unchanging data ID for the data and the writer's
