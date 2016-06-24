@@ -43,7 +43,7 @@ from ..tx import sign_and_broadcast_tx, preorder_tx, register_tx, update_tx, tra
 from ..scripts import tx_make_subsidizable
 from ..storage import get_blockchain_compat_hash, hash_zonefile, put_announcement
 
-from ..operations import fees_update, fees_transfer, fees_revoke
+from ..operations import fees_update, fees_transfer, fees_revoke, fees_registration
 
 log = get_logger()
 
@@ -81,13 +81,23 @@ def estimate_register_tx_fee( name, payment_pubkey_hex, utxo_client, config_path
     return tx_fee
 
 
-def estimate_renewal_tx_fee( name, payment_pubkey_hex, utxo_client, config_path=CONFIG_PATH ):
+def estimate_renewal_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=CONFIG_PATH ):
     """
     Estimate the transaction fee of a renewal
     Return the number of satoshis on success
     Return None on error
     """
-    return estimate_register_tx_fee( name, payment_pubkey_hex, utxo_client, config_path=config_path )
+    
+    fake_privkey = '5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX'   # fake private key
+    payment_pubkey_hex = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().to_hex()
+    address = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().address()
+
+    unsigned_tx = register_tx( name, payment_pubkey_hex, address, utxo_client, renewal_fee=1234567890 )
+    subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_registration, 21 * 10**14, payment_privkey, utxo_client )
+    signed_tx = sign_tx( subsidized_tx, fake_privkey )
+    tx_fee = get_tx_fee( signed_tx, config_path=config_path )
+
+    return tx_fee
 
 
 def estimate_update_tx_fee( name, owner_pubkey_hex, payment_privkey, utxo_client, config_path=CONFIG_PATH ):
@@ -445,13 +455,55 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey, payment_privke
     return resp
 
 
-def do_renewal( fqu, payment_privkey, owner_address, renewal_fee, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
+def do_renewal( fqu, owner_privkey, payment_privkey, renewal_fee, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
     """
     Renew a name
     Return {'status': True, 'transaction_hash': ...} on success
     Return {'error': ...} on failure
     """
-    return do_register( fqu, payment_privkey, owner_address, utxo_client, tx_broadcaster, renewal_fee=renewal_fee, config_path=config_path, proxy=proxy, safety_checks=safety_checks )
+    if proxy is None:
+        proxy = get_default_proxy()
+    
+    fqu = str(fqu)
+    resp = {}
+    payment_pubkey_hex = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().to_hex()
+    payment_address = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().address()
+    owner_pubkey_hex = pybitcoin.BitcoinPrivateKey( owner_privkey ).public_key().to_hex()
+    owner_address = pybitcoin.BitcoinPrivateKey( owner_privkey ).public_key().address()
+
+    if safety_checks:
+        if not is_name_registered(fqu, proxy=proxy):
+            log.debug("Already registered %s" % fqu)
+            return {'error': 'Already registered'}
+            
+        blockchain_record = blockstack_get_name_blockchain_record( fqu, proxy=proxy )
+        if blockchain_record is None or 'error' in blockchain_record:
+            log.debug("Failed to read blockchain record for %s" % fqu)
+            return {'error': 'Failed to read blockchain record for name'}
+
+        if owner_address != blockchain_record['address']:
+            log.debug("Given privkey/address doesn't own this name.")
+            return {'error': 'Not name owner'}
+
+    # check address usability
+    if not is_address_usable(payment_address, config_path=config_path, utxo_client=utxo_client):
+        log.debug("Payment address not ready: %s" % payment_address)
+        return {'error': 'Payment address has unconfirmed transactions'}
+
+    tx_fee = estimate_renewal_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path ) 
+    log.debug("Renewing (%s, %s, %s), tx_fee = %s, renewal_fee = %s" % (fqu, payment_address, owner_address, tx_fee, renewal_fee))
+
+    # now send it
+    unsigned_tx = register_tx( fqu, owner_pubkey_hex, owner_address, utxo_client, renewal_fee=renewal_fee, tx_fee=tx_fee )
+    subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_registration, 21 ** (10**6) * (10**8), payment_privkey, utxo_client, tx_fee=tx_fee )
+
+    try:
+        resp = sign_and_broadcast_tx( subsidized_tx, owner_privkey, config_path=config_path, tx_broadcaster=tx_broadcaster )
+    except Exception, e:
+        log.exception(e)
+        return {'error': 'Failed to sign and broadcast transaction'}
+
+    return resp
 
 
 def do_revoke( fqu, owner_privkey, payment_privkey, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
@@ -835,7 +887,7 @@ def async_register(fqu, payment_privkey, owner_address, auto_preorder=True, prox
 
 
 def async_update(fqu, zonefile, profile, owner_private_key, payment_privkey, config_path=CONFIG_PATH,
-                 proxy=None, wallet_keys=None, queue_path=DEFAULT_QUEUE_PATH):
+                 zonefile_hash=None, proxy=None, queue_path=DEFAULT_QUEUE_PATH):
     """
         Update a previously registered fqu, using a different payment address
 
@@ -846,6 +898,9 @@ def async_update(fqu, zonefile, profile, owner_private_key, payment_privkey, con
 
         Returns True/False and stores tx_hash in queue
     """
+
+    if zonefile_hash is None and zonefile is None:
+        raise Exception("No zonefile or zonefile hash given")
 
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
@@ -858,7 +913,8 @@ def async_update(fqu, zonefile, profile, owner_private_key, payment_privkey, con
         log.debug("Already in update queue: %s" % fqu)
         return {'error': 'Already in update queue'}
 
-    zonefile_hash = hash_zonefile( zonefile )
+    if zonefile_hash is None:
+        zonefile_hash = hash_zonefile( zonefile )
 
     resp = {}
     try:
@@ -871,6 +927,7 @@ def async_update(fqu, zonefile, profile, owner_private_key, payment_privkey, con
         queue_append("update", fqu, resp['transaction_hash'],
                      zonefile=zonefile,
                      profile=profile,
+                     zonefile_hash=zonefile_hash,
                      owner_address=owner_address,
                      config_path=config_path,
                      path=queue_path)
@@ -927,3 +984,76 @@ def async_transfer(fqu, transfer_address, owner_privkey, payment_privkey, config
         return {'error': 'Failed to broadcast transfer transaction'}
 
     return resp
+
+
+def async_renew(fqu, owner_privkey, payment_privkey, renewal_fee, proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH):
+    """
+        Renew an already-registered name.
+
+        @fqu: fully qualified name e.g., muneeb.id
+
+        Return {'status': True, ...} on success
+        Return {'error': ...} on error
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path=config_path)
+
+    utxo_client = get_utxo_provider_client(config_path=config_path)
+    tx_broadcaster = get_tx_broadcaster( config_path=config_path )
+
+    # check renew queue first
+    if in_queue("renew", fqu, path=queue_path):
+        log.debug("Already in renew queue: %s" % fqu)
+        return {'error': 'Already in renew queue'}
+
+    try:
+        resp = do_renewal( fqu, owner_privkey, payment_privkey, renewal_fee, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy )
+    except Exception, e:
+        log.exception(e)
+        return {'error': 'Failed to sign and broadcast renewal transaction'}
+
+    if 'error' in resp or 'transaction_hash' not in resp:
+        log.debug("Error renewing: %s" % fqu)
+        log.debug(resp)
+        return {'error': 'Failed to send renewal'}
+
+    else:
+        return resp
+
+
+def async_revoke(fqu, owner_privkey, payment_privkey, proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH):
+    """
+        Revoke a name.
+
+        @fqu: fully qualified name e.g., muneeb.id
+
+        Return {'status': True, ...} on success
+        Return {'error': ...} on error
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path=config_path)
+
+    utxo_client = get_utxo_provider_client(config_path=config_path)
+    tx_broadcaster = get_tx_broadcaster( config_path=config_path )
+    
+    # check revoke queue first
+    if in_queue("revoke", fqu, path=queue_path):
+        log.debug("Already in revoke queue: %s" % fqu)
+        return {'error': 'Already in revoke queue'}
+
+    try:
+        resp = do_revoke( fqu, owner_privkey, payment_privkey, utxo_client, tx_broadcaster, config_path=config_path, proxy=proxy )
+    except Exception, e:
+        log.exception(e)
+        return {'error': 'Failed to sign and broadcast revoke transaction'}
+
+    if 'error' in resp or 'transaction_hash' not in resp:
+        log.debug("Error revoking: %s" % fqu)
+        log.debug(pprint(resp))
+        return {'error': 'Failed to send revoke'}
+
+    else:
+        return resp
+
