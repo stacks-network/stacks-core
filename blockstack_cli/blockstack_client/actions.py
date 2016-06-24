@@ -55,7 +55,8 @@ from socket import error as socket_error
 from time import sleep
 from getpass import getpass
 import time
-
+import blockstack_zones
+import blockstack_profiles
 import requests
 requests.packages.urllib3.disable_warnings()
 
@@ -84,6 +85,7 @@ from blockstack_client import \
     get_names_owned_by_address, \
     get_namespace_blockchain_record, \
     get_namespace_cost, \
+    is_user_zonefile, \
     list_immutable_data_history, \
     list_update_history, \
     list_zonefile_history, \
@@ -95,14 +97,15 @@ from rpc import local_rpc_connect, local_rpc_ensure_running, local_rpc_status, l
 import rpc as local_rpc
 import config
 from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR, configure, FIRST_BLOCK_TIME_UTC, get_utxo_provider_client
-from .storage import is_valid_name, is_b40
+from .storage import is_valid_name, is_valid_hash, is_b40
 
 from pybitcoin import is_b58check_address
 
 from binascii import hexlify
 
 from .backend.blockchain import get_balance, is_address_usable, can_receive_name, get_tx_confirmations
-from .backend.nameops import estimate_preorder_tx_fee, estimate_register_tx_fee, estimate_update_tx_fee, estimate_transfer_tx_fee
+from .backend.nameops import estimate_preorder_tx_fee, estimate_register_tx_fee, estimate_update_tx_fee, estimate_transfer_tx_fee, \
+                            do_update, estimate_renewal_tx_fee
 
 from .wallet import *
 from .utils import pretty_dump, print_result
@@ -140,9 +143,9 @@ def check_valid_name(fqu):
     return "The name is invalid"
 
 
-def can_update_or_transfer(fqu, owner_pubkey_hex, payment_privkey, config_path=CONFIG_PATH, transfer_address=None, proxy=None):
+def operation_sanity_check(fqu, owner_pubkey_hex, payment_privkey, config_path=CONFIG_PATH, transfer_address=None, proxy=None):
     """
-    Any update or transfer operation
+    Any update, transfer, renew, or revoke operation
     should pass these tests:
     * name must be registered
     * name must be owned by the owner address in the wallet
@@ -224,12 +227,15 @@ def get_total_registration_fees(name, owner_pubkey_hex, payment_privkey, proxy=N
     return reply
 
 
-def start_rpc_endpoint(config_dir=CONFIG_DIR, password=None):
+def start_rpc_endpoint(config_dir=CONFIG_DIR, password=None, wallet_path=None):
     """
     Decorator that will ensure that the RPC endpoint
     is running before the wrapped function is called.
     Raise on error
     """
+
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+
     if not wallet_exists(config_dir=config_dir):
         res = initialize_wallet(wallet_path=wallet_path)
         if 'error' in res:
@@ -284,6 +290,8 @@ def cli_price( args, config_path=CONFIG_PATH, proxy=None):
 
     fqu = str(args.name)
     error = check_valid_name(fqu)
+    config_dir = os.path.dirname(config_path)
+
     if error:
         return {'error': error}
 
@@ -507,9 +515,6 @@ def get_server_info( args, config_path=config.CONFIG_PATH ):
         result['last_block_seen'] = resp['bitcoind_blocks']
         result['consensus_hash'] = resp['consensus']
 
-        if conf['advanced_mode']:
-            result['testset'] = resp['testset']
-
         rpc = local_rpc_connect(config_dir=config_dir)
 
         if rpc is not None:
@@ -617,10 +622,16 @@ def cli_lookup( args, config_path=CONFIG_PATH ):
         blockchain_record = get_name_blockchain_record(fqu)
     except socket_error:
         return {'error': 'Error connecting to server.'}
+ 
+
+    if 'error' in blockchain_record:
+        return blockchain_record
 
     if 'value_hash' not in blockchain_record:
-        return {'error': '%s is not registered' % fqu}
+        return {'error': '%s has no profile' % fqu}
 
+    if blockchain_record.has_key('revoked') and blockchain_record['revoked']:
+        return {'error': 'Name is revoked.  Use get_name_blockchain_record for details.'}
     try:
         user_profile, user_zonefile = get_name_profile(str(args.name))
         data['profile'] = user_profile
@@ -653,15 +664,24 @@ def cli_whois( args, config_path=CONFIG_PATH ):
     except socket_error:
         exit_with_error("Error connecting to server.")
 
-    if 'value_hash' not in record:
-        result['registered'] = False
+    if 'error' in record:
+        return record
+
     else:
+        if record.has_key('revoked') and record['revoked']:
+            return {'error': 'Name is revoked.  Use get_name_blockchain_record for details.'}
+
         result['block_preordered_at'] = record['preorder_block_number']
         result['block_renewed_at'] = record['last_renewed']
         result['last_transaction_id'] = record['txid']
         result['owner_address'] = record['address']
         result['owner_script'] = record['sender']
-        result['registered'] = True
+
+        if not record.has_key('value_hash') or record['value_hash'] in [None, "null", ""]:
+            result['has_zonefile'] = False
+        else:
+            result['has_zonefile'] = True
+            result['zonefile_hash'] = record['value_hash']
 
         if record.has_key('expire_block'):
             result['expire_block'] = record['expire_block']
@@ -733,6 +753,8 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
     data_address = pybitcoin.BitcoinPrivateKey(data_privkey).public_key().address()
 
     fees = get_total_registration_fees(fqu, owner_pubkey, payment_privkey, proxy=proxy, config_path=config_path)
+    if 'error' in fees:
+        return fees
 
     if interactive:
         try:
@@ -786,9 +808,9 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
 def cli_update( args, config_path=CONFIG_PATH, password=None ):
     """
     command: update
-    help: Update a name's zonefile
+    help: Set a name's zonefile.  Does not affect the profile data.
     arg: name (str) "The name to update"
-    arg: data (str) "A JSON-formatted zonefile"
+    arg: data (str) "A bare zonefile, or a JSON-serialized zonefile."
     """
 
     config_dir = os.path.dirname(config_path)
@@ -803,7 +825,39 @@ def cli_update( args, config_path=CONFIG_PATH, password=None ):
     try:
         user_data = json.loads(user_data)
     except:
-        return {'error': 'Zonefile data is not in JSON format.'}
+        try:
+            user_data = blockstack_zones.parse_zone_file(user_data)
+
+            # force dict, not defaultdict
+            tmp = {}
+            tmp.update(user_data)
+            user_data = tmp
+        except:
+            return {'error': 'Zonefile data is invalid.'}
+
+    # is this a zonefile?
+    try:
+        user_zonefile = blockstack_zones.make_zone_file(user_data)
+    except Exception, e:
+        log.exception(e)
+        log.error("Invalid zonefile")
+        return {'error': 'Invalid zonefile\n%s' % traceback.format_exc()}
+
+    # sanity checks...
+    if user_data['$origin'] != fqu:
+        return {'error': 'Invalid $origin; must use your name'}
+
+    if not user_data.has_key('$ttl'):
+        return {'error': 'Missing $ttl; please supply a positive integer'}
+
+    if not is_user_zonefile(user_data):
+        return {'error': 'Zonefile is missing or has invalid URI and/or TXT records'}
+
+    try:
+        ttl = int(user_data['$ttl'])
+        assert ttl >= 0
+    except Exception, e:
+        return {'error': 'Invalid $ttl; must be a positive integer'}
 
     if is_zonefile_current(fqu, user_data):
         msg ="Zonefile data is same as current zonefile; update not needed."
@@ -817,15 +871,15 @@ def cli_update( args, config_path=CONFIG_PATH, password=None ):
     payment_privkey = wallet_keys['payment_privkey']
     owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
 
-    res = can_update_or_transfer(fqu, owner_pubkey, payment_privkey, config_path=config_path)
+    res = operation_sanity_check(fqu, owner_pubkey, payment_privkey, config_path=config_path)
     if 'error' in res:
         return res
 
     rpc = local_rpc_connect(config_dir=config_dir)
 
     try:
-        resp = rpc.backend_update(fqu, user_data, None)
-    except:
+        resp = rpc.backend_update(fqu, user_data, None, None)
+    except Exception, e:
         return {'error': 'Error talking to server, try again.'}
 
     if 'success' in resp and resp['success']:
@@ -865,7 +919,7 @@ def cli_transfer( args, config_path=CONFIG_PATH, password=None ):
     payment_privkey = wallet_keys['payment_privkey']
     owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
 
-    res = can_update_or_transfer(fqu, owner_pubkey, payment_privkey, transfer_address=transfer_address, config_path=config_path)
+    res = operation_sanity_check(fqu, owner_pubkey, payment_privkey, transfer_address=transfer_address, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -886,6 +940,179 @@ def cli_transfer( args, config_path=CONFIG_PATH, password=None ):
             return {'error': resp['message']}
 
     return result
+
+
+def cli_renew( args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None ):
+    """
+    command: renew
+    help: Renew a name 
+    arg: name (str) "The name to renew"
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    config_dir = os.path.dirname(config_path)
+    start_rpc_endpoint(config_dir, password=password)
+
+    result = {}
+    fqu = str(args.name)
+    error = check_valid_name(fqu)
+    if error: 
+        return {'error': error}
+
+    if not is_name_registered(fqu, proxy=proxy):
+        return {'error': '%s does not exist.' % fqu}
+
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
+
+    owner_privkey = wallet_keys['owner_privkey']
+    payment_privkey = wallet_keys['payment_privkey']
+    owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
+    owner_address = pybitcoin.BitcoinPublicKey(owner_pubkey).address()
+    payment_address = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().address()
+
+    if not is_name_owner(fqu, owner_address, proxy=proxy):
+        return {'error': '%s is not in your possession.' % fqu}
+
+    # estimate renewal fees 
+    try:
+        renewal_fee = get_name_cost(fqu, proxy=proxy)
+    except Exception, e:
+        log.exception(e)
+        return {'error': 'Could not connect to server'}
+
+    if 'error' in renewal_fee:
+        return {'error': 'Could not determine price of name: %s' % renewal_fee['error']}
+
+    utxo_client = get_utxo_provider_client( config_path=config_path )
+    
+    # fee stimation: cost of name + cost of renewal transaction
+    payment_pubkey_hex = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().to_hex()
+
+    name_price = renewal_fee['satoshis']
+    renewal_tx_fee = estimate_renewal_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path )
+    cost = name_price + renewal_tx_fee
+
+    if interactive:
+        try:
+            cost = name_price + renewal_tx_fee
+            input_prompt = "Renewing %s will cost %s BTC." % (fqu, float(cost)/(10**8))
+            input_prompt += " Continue? (y/n): "
+            user_input = raw_input(input_prompt)
+            user_input = user_input.lower()
+
+            if user_input != 'y':
+                print "Not renewing."
+                exit(0)
+        except KeyboardInterrupt:
+            print "\nExiting."
+            exit(0)
+
+    balance = get_balance( payment_address )
+    if balance < cost:
+        msg = "Address %s doesn't have enough balance (need %s)." % (payment_address, balance)
+        return {'error': msg}
+
+    if not is_address_usable(payment_address, config_path=config_path):
+        msg = "Address %s has pending transactions." % payment_address
+        msg += " Wait and try later."
+        return {'error': msg}
+
+    rpc = local_rpc_connect( config_dir=config_dir )
+
+    try:
+        resp = rpc.backend_renew(fqu, name_price)
+    except:
+        return {'error': 'Error talking to server, try again.'}
+
+    if 'success' in resp and resp['success']:
+        result = resp
+    else:
+        if 'error' in resp:
+            log.debug("RPC error: %s" % resp['error'])
+            return resp
+
+        if 'message' in resp:
+            return {'error': resp['message']}
+
+    return result
+
+
+def cli_revoke( args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None ):
+    """
+    command: revoke
+    help: Revoke a name.  THIS CANNOT BE UNDONE. 
+    arg: name (str) "The name to revoke"
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    config_dir = os.path.dirname(config_path)
+    start_rpc_endpoint(config_dir, password=password)
+
+    result = {}
+    fqu = str(args.name)
+    error = check_valid_name(fqu)
+    if error: 
+        return {'error': error}
+
+    if not is_name_registered(fqu, proxy=proxy):
+        return {'error': '%s does not exist.' % fqu}
+
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
+
+    owner_privkey = wallet_keys['owner_privkey']
+    payment_privkey = wallet_keys['payment_privkey']
+    owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
+    owner_address = pybitcoin.BitcoinPublicKey(owner_pubkey).address()
+    payment_address = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().address()
+
+    res = operation_sanity_check(fqu, owner_pubkey, payment_privkey, config_path=config_path)
+    if 'error' in res:
+        return res
+
+    if interactive:
+        try:
+            input_prompt = "==============================\n"
+            input_prompt+= "WARNING: THIS CANNOT BE UNDONE\n"
+            input_prompt+= "==============================\n"
+            input_prompt+= " Are you sure? (y/n): "
+            user_input = raw_input(input_prompt)
+            user_input = user_input.lower()
+
+            if user_input != 'y':
+                print "Not revoking."
+                exit(0)
+
+        except KeyboardInterrupt:
+            print "\nExiting."
+            exit(0)
+
+    rpc = local_rpc_connect( config_dir=config_dir )
+
+    try:
+        resp = rpc.backend_revoke(fqu)
+    except:
+        return {'error': 'Error talking to server, try again.'}
+
+    if 'success' in resp and resp['success']:
+        result = resp
+    else:
+        if 'error' in resp:
+            log.debug("RPC error: %s" % resp['error'])
+            return resp
+
+        if 'message' in resp:
+            return {'error': resp['message']}
+
+    return result
+
 
 
 def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None ):
@@ -916,14 +1143,19 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None ):
     payment_privkey = wallet_keys['payment_privkey']
     owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
 
-    res = can_update_or_transfer(fqu, owner_pubkey, payment_privkey, config_path=config_path)
+    res = operation_sanity_check(fqu, owner_pubkey, payment_privkey, config_path=config_path)
     if 'error' in res:
         return res
 
     user_zonefile = get_name_zonefile( fqu, proxy=proxy, wallet_keys=wallet_keys )
-    if user_zonefile is not None and 'error' not in user_zonefile and is_zonefile_current(fqu, user_zonefile):
-        msg ="Zonefile data is same as current zonefile; update not needed."
-        return {'error': msg}
+    if user_zonefile is not None and 'error' not in user_zonefile:
+        if is_zonefile_current(fqu, user_zonefile):
+            msg ="Zonefile data is same as current zonefile; update not needed."
+            return {'error': msg}
+
+        if not blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
+            msg = "Not a legacy profile; cannot migrate."
+            return {'error': msg}
 
     rpc = local_rpc_connect(config_dir=config_dir)
 
@@ -1036,251 +1268,6 @@ def cli_advanced_rpc( args, config_path=CONFIG_PATH ):
     conf = config.get_config( path=config_path )
     portnum = conf['api_endpoint_port']
     result = local_rpc.local_rpc_dispatch( portnum, str(args.method), *rpc_args, **rpc_kw ) 
-    return result
-
-
-def cli_advanced_register_tx( args, config_path=CONFIG_PATH ):
-    """
-    command: register_tx
-    help: Generate an unsigned transaction to register a name
-    arg: name (str) "The name to register"
-    arg: public_key (str) "The public key to send the registration transaction"
-    arg: addr (str) "The address to receive the name"
-    """
-
-    # BROKEN
-    result = register_tx(str(args.name), str(args.public_key),
-                      str(args.addr))
-    return result
-
-
-def cli_advanced_register_subsidized( args, config_path=CONFIG_PATH ):
-    """
-    command: register_subsidized
-    help: Generate a signed, subsidized transaction to register a name
-    arg: name (str) "The name to register"
-    arg: public_key (str) "The public key that sent the preorder tx"
-    arg: addr (str) "The address to receive the name"
-    """
-    # BROKEN
-    result = register_subsidized(str(args.name), str(args.public_key),
-                                 str(args.addr))
-
-    return result
-
-
-def cli_advanced_update_tx( args, config_path=CONFIG_PATH ):
-    """
-    command: update_tx
-    help: Generate an unsigned transaction to update a name
-    arg: name (str) "The name to update"
-    arg: data (str) "The JSON-formatted zone file"
-    arg: public_key (str) "The public key of the name's address"
-    """
-
-    # BROKEN
-    txid = None
-    if args.txid is not None:
-        txid = str(args.txid)
-
-    result = update_tx(str(args.name),
-                    str(args.data),
-                    str(args.public_key))
-
-    return result
-
-
-def cli_advanced_update_subsidized( args, config_path=CONFIG_PATH ):
-    """
-    command: update_subsidized
-    help: Generate a signed, subsidized transaction to update a name
-    arg: name (str) "The name to update"
-    arg: data (str) "The JSON-formatted zone file"
-    arg: public_key (str) "The public key of the name's address"
-    opt: txid (str) "The transaction ID of a previously-sent but failed update"
-    """
-        
-    # BROKEN
-    txid = None
-    if args.txid is not None:
-        txid = str(args.txid)
-
-    result = update_subsidized(str(args.name),
-                               str(args.data),
-                               str(args.public_key),
-                               txid=txid)
-
-    return result
-
-
-def cli_advanced_preorder_tx( args, config_path=CONFIG_PATH ):
-    """
-    command: preorder_tx
-    help: Generate an unsigned transaction that will preorder a name
-    arg: name (str) "The name to preorder"
-    arg: public_key (str) "The public key to pay for the preorder"
-    opt: address (str) "The address to receive the name (automatically generated if not given)"
-    """
-
-    # BROKEN
-    register_addr = None
-    if args.address is not None:
-        register_addr = str(args.address)
-
-    result = preorder_tx(str(args.name), str(args.public_key),
-                      register_addr=register_addr)
-
-    return result
-
-
-def cli_advanced_preorder_subsidized( args, config_path=CONFIG_PATH ):
-    """
-    command: preorder_subsidized
-    help: Generate a subsidized transaction that will preorder a name.
-    arg: name (str) "The name to preorder"
-    arg: address (str) "The address of the name recipient"
-    """
-    # BROKEN
-    result = preorder_subsidized(str(args.name),
-                                 str(args.address))
-
-    return result
-
-
-def cli_advanced_transfer_tx( args, config_path=CONFIG_PATH ):
-    """
-    command: transfer_tx
-    help: Generate an unsigned transaction that will transfer a name
-    arg: name (str) "The name to transfer"
-    arg: address (str) "The address to receive the name"
-    arg: keepdata (str) "Whether or not to preserve the zonefile (True or False)"
-    arg: privatekey (str) "The private key of the name owner"
-    """
-    # BROKEN
-    keepdata = False
-    if args.keepdata.lower() not in ['true', 'false']:
-        return {'error': "Pass 'true' or 'false' for keepdata"}
-
-    if args.keepdata.lower() == 'true':
-        keepdata = True
-
-    result = transfer( str(args.name),
-                       str(args.address),
-                       keepdata,
-                       str(args.privatekey),
-                       tx_only=True )
-
-    return result
-
-
-def cli_advanced_transfer_subsidized( args, config_path=CONFIG_PATH ):
-    """
-    command: transfer_subsidized
-    help: Generate a subsidized transaction that will transfer a name
-    arg: name (str) "The name to transfer"
-    arg: address (str) "The address to receive the name"
-    arg: keepdata (str) "Whether or not to preserve the zonefile (True or False)"
-    arg: public_key (str) "The public key of the name owner"
-    """
-    # BROKEN
-
-    keepdata = False
-    if args.keepdata.lower() not in ["true", "false"]:
-        print >> sys.stderr, "Pass 'true' or 'false' for keepdata"
-        sys.exit(1)
-
-    if args.keepdata.lower() == "true":
-        keepdata = True
-
-    result = transfer_subsidized(str(args.name),
-                                 str(args.address),
-                                 keepdata,
-                                 str(args.public_key))
-
-    return result
-
-
-def cli_advanced_renew( args, config_path=CONFIG_PATH ):
-    """
-    command: renew
-    help: Renew a name
-    arg: name (str) "The name to renew"
-    arg: privatekey (str) "The private key of the name owner"
-    """
-    # BROKEN
-    config_dir = os.path.dirname(config_path)
-    start_rpc_endpoint(config_dir)
-
-    result = renew(str(args.name), str(args.privatekey))
-    return result
-
-
-def cli_advanced_renew_tx( args, config_path=CONFIG_PATH ):
-    """
-    command: renew_tx
-    help: Generate an unsigned transaction that will renew a name
-    arg: name (str) "The name to renew"
-    arg: privatekey (str) "The private key of the name owner"
-    """
-    # BROKEN
-    result = renew(str(args.name), str(args.privatekey),
-                   tx_only=True)
-
-    return result
-
-
-def cli_advanced_renew_subsidized( args, config_path=CONFIG_PATH ):
-    """
-    command: renew_subsidized
-    help: Generate a subsidized transaction that will renew a name
-    arg: name (str) "The name to renew"
-    arg: public_key (str) "The public key of the name owner"
-    arg: subsidy_key (str) "The private key that will pay for the renewal"
-    """
-    # BROKEN
-    result = renew_subsidized(str(args.name), str(args.public_key),
-                              str(args.subsidy_key))
-
-    return result
-
-
-def cli_advanced_revoke( args, config_path=CONFIG_PATH ):
-    """
-    command: revoke
-    help: Revoke a name, rendering it inaccessible
-    arg: name (str) "The name to revoke"
-    arg: privatekey (str) "The private key of the name owner"
-    """
-    # BROKEN
-    result = revoke(str(args.name), str(args.privatekey))
-    return result
-
-
-def cli_advanced_revoke_tx( args, config_path=CONFIG_PATH ):
-    """
-    command: revoke_tx
-    help: Generate an unsigned transaction that will revoke a name
-    arg: name (str) "The name to revoke"
-    arg: privatekey (str) "The private key of the name owner"
-    """
-    # BROKEN
-    result = revoke(str(args.name), str(args.privatekey),
-                    tx_only=True)
-
-    return result
-
-
-def cli_advanced_revoke_subsidized( args, config_path=CONFIG_PATH ):
-    """
-    command: revoke_subsidized
-    help: Generate a subsidized transaction that will revoke a name
-    arg: name (str) "The name to revoke"
-    arg: public_key (str) "The public key of the name owner"
-    arg: subsidy_key (str) "The private key that will pay for the revoke"
-    """
-    # BROKEN
-    result = revoke_subsidized(str(args.name), str(args.public_key),
-                               str(args.subsidy_key))
     return result
 
 
@@ -1606,5 +1593,56 @@ def cli_advanced_get_nameops_at( args, config_path=CONFIG_PATH ):
     arg: block_id (int) "The block height to query"
     """
     result = get_nameops_at(int(args.block_id))
+    return result
+
+
+def cli_advanced_set_zonefile_hash( args, config_path=CONFIG_PATH, password=None ):
+    """
+    command: set_zonefile_hash
+    help: Directly set the hash associated with the name in the blockchain.
+    arg: name (str) "The name to update"
+    arg: zonefile_hash (str) "The RIPEMD160(SHA256(zonefile)) hash"
+    """
+    config_dir = os.path.dirname(config_path)
+    start_rpc_endpoint(config_dir, password=password)
+    fqu = str(args.name)
+
+    error = check_valid_name(fqu)
+    if error:
+        return {'error': error}
+
+    zonefile_hash = str(args.zonefile_hash)
+    if re.match(r"^[a-fA-F0-9]+$", zonefile_hash ) is None or len(zonefile_hash) != 40:
+        return {'error': 'Not a valid zonefile hash'}
+    
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
+
+    owner_privkey = wallet_keys['owner_privkey']
+    payment_privkey = wallet_keys['payment_privkey']
+    owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
+
+    res = operation_sanity_check(fqu, owner_pubkey, payment_privkey, config_path=config_path)
+    if 'error' in res:
+        return res
+
+    rpc = local_rpc_connect(config_dir=config_dir)
+
+    try:
+        resp = rpc.backend_update(fqu, None, None, zonefile_hash)
+    except Exception, e:
+        log.exception(e)
+        return {'error': 'Error talking to server, try again.'}
+
+    if 'success' in resp and resp['success']:
+        result = resp
+    else:
+        if 'error' in resp:
+            return resp
+
+        if 'message' in resp:
+            return {'error': resp['message']}
+
     return result
 
