@@ -44,7 +44,7 @@ import blockstack_profiles
 from .queue import get_queue_state, in_queue, queue_removeall
 from .queue import queue_cleanall, queue_find_accepted
 
-from .nameops import async_preorder, async_register, async_update, async_transfer
+from .nameops import async_preorder, async_register, async_update, async_transfer, async_renew, async_revoke
 from .blockchain import get_block_height
 
 from ..keys import get_data_keypair
@@ -129,9 +129,9 @@ class RegistrarWorker(threading.Thread):
         self.config_path = config_path
         config = get_config(config_path)
         self.queue_path = config['queue_path']
-        self.poll_interval = config['poll_interval']
+        self.poll_interval = int(config['poll_interval'])
         self.rpc_token = config['rpc_token']
-        self.api_port = config['api_endpoint_port']
+        self.api_port = int(config['api_endpoint_port'])
         self.running = True
         self.lockfile_path = None
 
@@ -167,7 +167,7 @@ class RegistrarWorker(threading.Thread):
 
     
     @classmethod
-    def init_profile( cls, name_data, proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH, wallet_keys=None ):
+    def init_profile( cls, name_data, proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH ):
         """
         Given a newly-registered name, go broadcast the hash of its empty zonefile.
         Return {'status': True, 'transaction_hash': ..., 'zonefile_hash': ...} on success
@@ -176,7 +176,7 @@ class RegistrarWorker(threading.Thread):
         if proxy is None:
             proxy = get_default_proxy(config_path=config_path)
 
-        res = migrate( name_data['fqu'], config_path=config_path, proxy=proxy, wallet_keys=wallet_keys )
+        res = migrate( name_data['fqu'], config_path=config_path, proxy=proxy )
         assert 'success' in res
 
         if not res['success']:
@@ -193,7 +193,7 @@ class RegistrarWorker(threading.Thread):
 
 
     @classmethod
-    def init_profiles( cls, queue_path, wallet_data, config_path=CONFIG_PATH, proxy=None ):
+    def init_profiles( cls, queue_path, config_path=CONFIG_PATH, proxy=None ):
         """
         Find all confirmed registrations, create empty zonefiles for them and broadcast their hashes to the blockchain.
         Queue up the zonefiles and profiles for subsequent replication.
@@ -208,7 +208,7 @@ class RegistrarWorker(threading.Thread):
         for register in registers:
 
             log.debug("Register for '%s' (%s) is confirmed!" % (register['fqu'], register['tx_hash']))
-            res = cls.init_profile( register, proxy=proxy, wallet_keys=wallet_data, queue_path=queue_path, config_path=config_path )
+            res = cls.init_profile( register, proxy=proxy, queue_path=queue_path, config_path=config_path )
             if 'error' in res:
                 log.error("Failed to make name profile for %s: %s" % (register['fqu'], res['error']))
                 ret = {'error': 'Failed to set up name profile'}
@@ -324,6 +324,10 @@ class RegistrarWorker(threading.Thread):
       
         # is the zonefile hash replicated?
         zonefile_data = name_data['zonefile']
+        if zonefile_data is None:
+            log.debug("No zonefile set for %s" % name_data['fqu'])
+            return {'status': True}
+
         zonefile_hash = hash_zonefile( zonefile_data )
         name_rec = get_name_blockchain_record( name_data['fqu'], proxy=proxy )
         if 'error' in name_rec:
@@ -538,7 +542,7 @@ class RegistrarWorker(threading.Thread):
                 # see if we can put any zonefiles
                 # clear out any confirmed registers
                 log.debug("put zonefile hashes for registered names in %s" % (self.queue_path))
-                res = RegistrarWorker.init_profiles( self.queue_path, wallet_data, config_path=self.config_path, proxy=proxy )
+                res = RegistrarWorker.init_profiles( self.queue_path, config_path=self.config_path, proxy=proxy )
                 if 'error' in res:
                     log.warn('zonefile hash broadcast failed: %s' % res['error'])
 
@@ -826,10 +830,12 @@ def preorder(fqu, config_path=None, proxy=None):
     return data
 
 
-def update( fqu, zonefile, profile, config_path=None, proxy=None, wallet_keys=None):
+def update( fqu, zonefile, profile, zonefile_hash, config_path=None, proxy=None ):
     """
     Send a new zonefile hash.  Queue the zonefile for subsequent replication.
     """
+
+    assert zonefile is not None or zonefile_hash is not None, "need zonefile or zonefile hash"
 
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     data = {}
@@ -850,12 +856,15 @@ def update( fqu, zonefile, profile, config_path=None, proxy=None, wallet_keys=No
     owner_privkey = get_wallet_owner_privkey()
     replication_error = None
 
-    if not is_zonefile_current(fqu, zonefile, proxy=proxy ):
+    if zonefile is None or not is_zonefile_current(fqu, zonefile, proxy=proxy ):
+        if zonefile_hash is None:
+            zonefile_hash = hash_zonefile(zonefile)
+
         resp = async_update(fqu, zonefile, profile,
                             owner_privkey,
                             payment_privkey,
+                            zonefile_hash=zonefile_hash,
                             proxy=proxy,
-                            wallet_keys=wallet_keys,
                             config_path=config_path,
                             queue_path=state.queue_path)
 
@@ -930,7 +939,7 @@ def transfer(fqu, transfer_address, config_path=None, proxy=None ):
     return data
 
 
-def migrate( fqu, config_path=None, proxy=None, wallet_keys=None):
+def migrate( fqu, config_path=None, proxy=None ):
     """
     Create an empty profile/zonefile for a name, and send the hash of the 
     zonefile to the blockchain.  Queue up the zonefile and profile for replication.
@@ -980,7 +989,6 @@ def migrate( fqu, config_path=None, proxy=None, wallet_keys=None):
                             owner_privkey,
                             payment_privkey,
                             proxy=proxy,
-                            wallet_keys=wallet_keys,
                             config_path=config_path,
                             queue_path=state.queue_path)
 
@@ -1010,6 +1018,97 @@ def migrate( fqu, config_path=None, proxy=None, wallet_keys=None):
     return data
 
 
+def renew( fqu, renewal_fee, config_path=None, proxy=None ):
+    """
+    Renew a name
+    """
+
+    state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
+    data = {}
+
+    if state.payment_address is None or state.owner_address is None:
+        data['success'] = False
+        data['error'] = "Wallet is not unlocked."
+        return data
+
+    if in_queue("renew", fqu, path=state.queue_path):
+        data['success'] = False
+        data['error'] = "Already in queue."
+        return data
+
+    resp = None
+
+    payment_privkey = get_wallet_payment_privkey()
+    owner_privkey = get_wallet_owner_privkey()
+
+    resp = async_renew(fqu, owner_privkey, payment_privkey, renewal_fee,
+                       proxy=proxy,
+                       config_path=config_path,
+                       queue_path=state.queue_path)
+
+    if 'error' not in resp:
+
+        data['success'] = True
+        data['message'] = "The name has been queued up for renewal and"
+        data['message'] += " will take ~1 hour to process. You can"
+        data['message'] += " check on the status at any time by running"
+        data['message'] += " 'blockstack info'."
+        data['transaction_hash'] = resp['transaction_hash']
+    else:
+        data['success'] = False
+        data['message'] = "Couldn't broadcast transaction. You can try again."
+        data['error'] = resp['error']
+
+
+    return data
+
+
+
+def revoke( fqu, config_path=None, proxy=None ):
+    """
+    Revoke a name
+    """
+
+    state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
+    data = {}
+
+    if state.payment_address is None or state.owner_address is None:
+        data['success'] = False
+        data['error'] = "Wallet is not unlocked."
+        return data
+
+    if in_queue("revoke", fqu, path=state.queue_path):
+        data['success'] = False
+        data['error'] = "Already in queue."
+        return data
+
+    resp = None
+
+    payment_privkey = get_wallet_payment_privkey()
+    owner_privkey = get_wallet_owner_privkey()
+
+    resp = async_revoke(fqu, owner_privkey, payment_privkey,
+                        proxy=proxy,
+                        config_path=config_path,
+                        queue_path=state.queue_path)
+
+    if 'error' not in resp:
+
+        data['success'] = True
+        data['message'] = "The name has been queued up for renewal and"
+        data['message'] += " will take ~1 hour to process. You can"
+        data['message'] += " check on the status at any time by running"
+        data['message'] += " 'blockstack info'."
+        data['transaction_hash'] = resp['transaction_hash']
+    else:
+        data['success'] = False
+        data['message'] = "Couldn't broadcast transaction. You can try again."
+        data['error'] = resp['error']
+
+
+    return data
+
+
 # these are the publicly-visible RPC methods
 # invoke with "backend_{method name}"
 RPC_PREFIX = "backend"
@@ -1025,7 +1124,9 @@ RPC_METHODS = [
     preorder,
     update,
     transfer,
-    migrate
+    migrate,
+    renew,
+    revoke
 ]
 
 RPC_INIT = set_plugin_state 
