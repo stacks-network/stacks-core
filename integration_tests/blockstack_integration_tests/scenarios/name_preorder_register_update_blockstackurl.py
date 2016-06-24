@@ -228,7 +228,7 @@ def check( state_engine ):
             return False 
 
         # zonefile is NOT legacy 
-        user_zonefile = blockstack_client.profile.load_name_zonefile( zonefile_hash )
+        user_zonefile = blockstack_client.profile.load_name_zonefile( name, zonefile_hash )
         if 'error' in user_zonefile:
             print json.dumps(user_zonefile, indent=4, sort_keys=True)
             return False 

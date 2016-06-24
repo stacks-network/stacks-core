@@ -174,10 +174,10 @@ def check( state_engine ):
     try:
         profile_resp_txt = srv.get_profile("foo.test")
         profile_resp = json.loads(profile_resp_txt)
-        assert 'error' not in profile_resp
-        assert 'profile' in profile_resp
+        assert 'error' not in profile_resp, "error:\n%s" % json.dumps(profile_resp, indent=4, sort_keys=True)
+        assert 'profile' in profile_resp, "missing profile:\n%s" % json.dumps(profile_resp, indent=4, sort_keys=True)
         profile = profile_resp['profile']
-        assert 'data' in profile 
+        assert 'data' in profile, "missing data:\n%s" % json.dumps(profile, indent=4, sort_keys=True)
         assert len(profile['data']) == 3
     except Exception, e:
         traceback.print_exc()

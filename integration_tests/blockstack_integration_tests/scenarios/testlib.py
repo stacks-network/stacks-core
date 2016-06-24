@@ -259,7 +259,10 @@ def blockstack_name_renew( name, privatekey, register_addr=None, subsidy_key=Non
     name_cost_info = test_proxy.get_name_cost( name )
     if register_addr is None:
         register_addr = pybitcoin.BitcoinPrivateKey(privatekey).public_key().address()
-    resp = blockstack_client.do_renewal( name, privatekey, register_addr, name_cost_info['satoshis'], test_proxy, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
+    else:
+        assert register_addr == pybitcoin.BitcoinPrivateKey(privatekey).public_key().address()
+
+    resp = blockstack_client.do_renewal( name, privatekey, privatekey, name_cost_info['satoshis'], test_proxy, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
 
     api_call_history.append( APICallRecord( "renew", name, resp ) )
     return resp
