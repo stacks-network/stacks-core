@@ -187,10 +187,6 @@ def get_state_engine():
    """
    Get a handle to the blockstack virtual chain state engine.
    """
-   if is_indexing():
-       # load fresh
-       invalidate_db_state()
-
    return get_db_state()
 
 
@@ -980,8 +976,9 @@ def index_blockchain():
     set_indexing( False )
     log.debug("End indexing (up to %s)" % current_block)
 
-    # invalidate in-RAM copy, so we re-load it on next get_state_engine()
+    # invalidate and reload the in-RAM copy
     invalidate_db_state()
+    get_state_engine()
 
 
 def blockstack_exit():
