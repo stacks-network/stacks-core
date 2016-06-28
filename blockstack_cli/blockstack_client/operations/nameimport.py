@@ -96,16 +96,23 @@ def make_outputs( data, inputs, recipient_address, sender_address, update_hash_b
     ]
 
 
-def make_transaction(name, recipient_address, update_hash, user_public_key, blockchain_client, tx_fee=0):
-   
+def make_transaction(name, recipient_address, update_hash, payment_addr, blockchain_client, tx_fee=0):
+  
+    name = str(name)
+    recipient_address = str(recipient_address)
+    update_hash = str(update_hash)
+    payment_addr = str(payment_addr)
+    tx_fee = int(tx_fee)
+
+    assert is_name_valid(name)
+    assert len(update_hash) == LENGTHS['update_hash'] * 2
+
     nulldata = build(name)
     
     # convert update_hash from a hex string so it looks like an address
     update_hash_b58 = b58check_encode( unhexlify(update_hash) )
-    pubk = pybitcoin.BitcoinPublicKey( user_public_key )
-    from_address = pubk.address()
-    inputs = get_unspents( from_address, blockchain_client )
-    outputs = make_outputs(nulldata, inputs, recipient_address, from_address, update_hash_b58, tx_fee)
+    inputs = get_unspents( payment_addr, blockchain_client )
+    outputs = make_outputs(nulldata, inputs, recipient_address, payment_addr, update_hash_b58, tx_fee)
 
     return (inputs, outputs)
 
