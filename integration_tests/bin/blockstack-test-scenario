@@ -51,6 +51,7 @@ blockchain_proxy = True
 serve_zonefiles = True
 serve_profiles = True
 zonefiles = @ZONEFILES@
+analytics_key = abcdef0123456789
 """ % TEST_RPC_PORT
 
 DEFAULT_CLIENT_INI_TEMPLATE = """
@@ -68,6 +69,7 @@ queue_path = @CLIENT_QUEUE_PATH@
 rpc_detach = True
 blockchain_reader = mock_utxo
 blockchain_writer = mock_utxo
+anonymous_statistics = True
 
 [blockchain-reader]
 utxo_provider = mock_utxo
