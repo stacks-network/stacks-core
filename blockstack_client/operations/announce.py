@@ -81,8 +81,12 @@ def make_outputs( data, inputs, change_address, tx_fee ):
     ]
 
 
-def make_transaction(message_hash, user_public_key, blockchain_client, tx_fee=0):
+def make_transaction(message_hash, payment_addr, blockchain_client, tx_fee=0):
     
+    message_hash = str(message_hash)
+    payment_addr = str(payment_addr)
+    tx_fee = int(tx_fee)
+
     # sanity check 
     if len(message_hash) != 40:
         raise Exception("Invalid message hash: not 20 bytes")
@@ -90,15 +94,12 @@ def make_transaction(message_hash, user_public_key, blockchain_client, tx_fee=0)
     if not is_hex( message_hash ):
         raise Exception("Invalid message hash: not hex")
     
-    from_address = None 
     inputs = None
     private_key_obj = None
     
-    pubk = pybitcoin.BitcoinPublicKey( user_public_key )
-    from_address = pubk.address()
-    inputs = get_unspents( from_address, blockchain_client )
+    inputs = get_unspents( payment_addr, blockchain_client )
     nulldata = build(message_hash)
-    outputs = make_outputs( nulldata, inputs, from_address, tx_fee )
+    outputs = make_outputs( nulldata, inputs, payment_addr, tx_fee )
    
     return (inputs, outputs)
 

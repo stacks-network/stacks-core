@@ -92,22 +92,23 @@ def make_outputs( data, inputs, change_address, tx_fee, pay_fee=True ):
     ]
 
 
-def make_transaction(name, user_public_key, blockchain_client, tx_fee=0, subsidize=False ):
+def make_transaction(name, payment_addr, blockchain_client, tx_fee=0, subsidize=False ):
+    
+    name = str(name)
+    payment_addr = str(payment_addr)
+    tx_fee = int(tx_fee)
+
+    assert is_name_valid(name)
     
     # sanity check 
     pay_fee = True
     if subsidize:
         pay_fee = False
 
-    from_address = None 
-    inputs = None
-    
-    pubk = pybitcoin.BitcoinPublicKey( user_public_key )
-    from_address = pubk.address()
-    inputs = get_unspents( from_address, blockchain_client )
+    inputs = get_unspents( payment_addr, blockchain_client )
 
     nulldata = build(name)
-    outputs = make_outputs( nulldata, inputs, from_address, tx_fee, pay_fee=pay_fee )
+    outputs = make_outputs( nulldata, inputs, payment_addr, tx_fee, pay_fee=pay_fee )
    
     return (inputs, outputs)
 

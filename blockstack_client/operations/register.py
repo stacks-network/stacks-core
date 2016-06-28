@@ -168,21 +168,28 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
     return outputs
     
 
-def make_transaction(name, user_public_key, register_addr, blockchain_client, subsidy_public_key=None, tx_fee=0, renewal_fee=None):
+def make_transaction(name, payment_addr, register_addr, blockchain_client, tx_fee=0, renewal_fee=None):
     
-    from_address = None 
+    payment_addr = str(payment_addr)
+    register_addr = str(register_addr)
+    name = str(name)
+    tx_fee = int(tx_fee)
+    
+    assert is_name_valid(name)
+
+    if renewal_fee is not None:
+        renewal_fee = int(renewal_fee)
+
     change_inputs = None
     subsidized_renewal = False
-
-    pubk = pybitcoin.BitcoinPublicKey( user_public_key )
-    from_address = pubk.address()
-    change_inputs = get_unspents( from_address, blockchain_client )
+    
+    change_inputs = get_unspents( payment_addr, blockchain_client )
     if renewal_fee is not None:
-        assert pybitcoin.BitcoinPublicKey(user_public_key).address() == register_addr, "%s (%s) != %s" % (user_public_key, pybitcoin.BitcoinPublicKey(user_public_key).address(), register_addr)
+        assert payment_addr == register_addr, "%s != %s" % (payment_addr, register_addr)
         subsidized_renewal = True
 
     nulldata = build(name)
-    outputs = make_outputs(nulldata, change_inputs, register_addr, from_address, tx_fee, renewal_fee=renewal_fee, pay_fee=(not subsidized_renewal) )
+    outputs = make_outputs(nulldata, change_inputs, register_addr, payment_addr, tx_fee, renewal_fee=renewal_fee, pay_fee=(not subsidized_renewal) )
  
     return (change_inputs, outputs)
 

@@ -64,17 +64,21 @@ def build( namespace_id):
    return packaged_script
 
 
-def make_transaction( namespace_id, user_public_key, blockchain_client, tx_fee=0 ):
-   
+def make_transaction( namespace_id, payment_addr, blockchain_client, tx_fee=0 ):
+  
+   namespace_id = str(namespace_id)
+   payment_addr = str(payment_addr)
+   tx_fee = int(tx_fee)
+
+   assert is_namespace_valid( namespace_id )
+
    nulldata = build( namespace_id )
    
    # get inputs and from public key
-   pubk = pybitcoin.BitcoinPublicKey( user_public_key )
-   from_address = pubk.address()
-   inputs = get_unspents( from_address, blockchain_client )
+   inputs = get_unspents( payment_addr, blockchain_client )
    
    # OP_RETURN outputs 
-   outputs = make_op_return_outputs( nulldata, inputs, from_address, fee=(DEFAULT_OP_RETURN_FEE + tx_fee), format='hex' )
+   outputs = make_op_return_outputs( nulldata, inputs, payment_addr, fee=(DEFAULT_OP_RETURN_FEE + tx_fee), format='hex' )
   
    return (inputs, outputs)
 

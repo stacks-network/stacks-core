@@ -113,26 +113,30 @@ def make_outputs( data, inputs, change_address, tx_fee, pay_fee=True ):
     ]
 
 
-def make_transaction(name, data_hash, consensus_hash, user_public_key, blockchain_client, tx_fee=0, subsidize=False):
+def make_transaction(name, data_hash, consensus_hash, payment_addr, blockchain_client, tx_fee=0, subsidize=False):
     """
     Write a name update into the blockchain.
     Returns a JSON object with 'data' set to the nulldata and 'transaction_hash' set to the transaction hash on success.
     """
+
+    name = str(name)
+    data_hash = str(data_hash)
+    consensus_hash = str(consensus_hash)
+    payment_addr = str(payment_addr)
+    tx_fee = int(tx_fee)
+
+    assert len(consensus_hash) == LENGTHS['consensus_hash'] * 2
+    assert is_name_valid(name)
     
     # sanity check 
     pay_fee = True
     if subsidize:
         pay_fee = False
 
-    from_address = None 
-    inputs = None
-    
-    pubk = BitcoinPublicKey( user_public_key )
-    from_address = pubk.address()
-    inputs = get_unspents( from_address, blockchain_client )
+    inputs = get_unspents( payment_addr, blockchain_client )
 
     nulldata = build(name, consensus_hash, data_hash=data_hash)
-    outputs = make_outputs( nulldata, inputs, from_address, tx_fee, pay_fee=pay_fee )
+    outputs = make_outputs( nulldata, inputs, payment_addr, tx_fee, pay_fee=pay_fee )
     
     return (inputs, outputs)
 
