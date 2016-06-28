@@ -28,7 +28,8 @@ setup(
         'blockstack-storage-drivers>=0.0.1.3',
         'blockstack-utxo>=0.0.1.1',
         'defusedxml>=0.4.1',
-        'keylib>=0.0.5'
+        'keylib>=0.0.5',
+        'mixpanel>=4.3.1'
     ],
     classifiers=[
         'Intended Audience :: Developers',
