@@ -65,6 +65,19 @@ def is_name_valid( fqn ):
     return True
 
 
+def is_namespace_valid( namespace_id ):
+    """
+    Is a namespace ID valid?
+    """
+    if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
+        return False
+
+    if len(namespace_id) == 0 or len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
+        return False
+
+    return True
+
+
 def blockstack_script_to_hex(script):
     """ Parse the readable version of a script, return the hex version.
     """
@@ -106,7 +119,16 @@ def get_script_pubkey( public_key ):
    
    hash160 = pybitcoin.BitcoinPublicKey(public_key).hash160()
    script_pubkey = pybitcoin.script_to_hex( 'OP_DUP OP_HASH160 %s OP_EQUALVERIFY OP_CHECKSIG' % hash160)
-   return  script_pubkey
+   return script_pubkey
+
+
+def get_script_pubkey_from_addr( address ):
+   """
+   Make a p2pkh script from an address
+   """
+   hash160 = pybitcoin.b58check_decode(address).encode('hex')
+   script_pubkey = pybitcoin.script_to_hex( 'OP_DUP OP_HASH160 %s OP_EQUALVERIFY OP_CHECKSIG' % hash160)
+   return script_pubkey
 
 
 def hash_name(name, script_pubkey, register_addr=None):
