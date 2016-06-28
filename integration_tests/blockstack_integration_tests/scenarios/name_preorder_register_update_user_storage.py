@@ -170,7 +170,6 @@ def check( state_engine ):
 
     # replicated to blockstack server 
     srv = xmlrpclib.ServerProxy("http://localhost:%s" % blockstack.RPC_SERVER_PORT)
-    print "http://localhost:%s" % blockstack.RPC_SERVER_PORT
     try:
         profile_resp_txt = srv.get_profile("foo.test")
         profile_resp = json.loads(profile_resp_txt)
