@@ -119,6 +119,9 @@ def dht_get_key(data_key):
 
         if type(ret) == types.DictType and ret.has_key("value"):
             ret = ret["value"]
+    
+    else:
+        raise Exception("No data returned from %s" % data_key)
 
     return ret
 
