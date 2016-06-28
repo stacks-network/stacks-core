@@ -660,7 +660,7 @@ def get_addresses_from_file(config_dir=CONFIG_DIR, wallet_path=None):
     return payment_address, owner_address, data_pubkey
 
 
-def get_payment_addresses(config_path=CONFIG_PATH, wallet_path=None):
+def get_payment_addresses_and_balances(config_path=CONFIG_PATH, wallet_path=None):
     """
     Get payment addresses
     """
@@ -679,7 +679,7 @@ def get_payment_addresses(config_path=CONFIG_PATH, wallet_path=None):
     return payment_addresses
 
 
-def get_owner_addresses(wallet_path=WALLET_PATH):
+def get_owner_addresses_and_names(wallet_path=WALLET_PATH):
     """
     Get owner addresses
     """
@@ -696,7 +696,7 @@ def get_owner_addresses(wallet_path=WALLET_PATH):
 
 def get_all_names_owned(wallet_path=WALLET_PATH):
 
-    owner_addresses = get_owner_addresses(wallet_path)
+    owner_addresses = get_owner_addresses_and_names(wallet_path)
     names_owned = []
 
     for entry in owner_addresses:
@@ -709,7 +709,7 @@ def get_all_names_owned(wallet_path=WALLET_PATH):
 
 def get_total_balance(config_path=CONFIG_PATH, wallet_path=WALLET_PATH):
 
-    payment_addresses = get_payment_addresses(wallet_path, config_path=config_path)
+    payment_addresses = get_payment_addresses_and_balances(wallet_path, config_path=config_path)
     total_balance = 0.0
 
     for entry in payment_addresses:
