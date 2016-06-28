@@ -187,6 +187,10 @@ def get_state_engine():
    """
    Get a handle to the blockstack virtual chain state engine.
    """
+   if is_indexing():
+       # load fresh
+       invalidate_db_state()
+
    return get_db_state()
 
 
@@ -258,15 +262,18 @@ def get_name_cost( name ):
 
     namespace_id = get_namespace_from_name( name )
     if namespace_id is None or len(namespace_id) == 0:
+        log.debug("No namespace '%s'" % namespace_id)
         return None
 
     namespace = db.get_namespace( namespace_id )
     if namespace is None:
         # maybe importing?
+        log.debug("Revealing namespace '%s'" % namespace_id)
         namespace = db.get_namespace_reveal( namespace_id )
 
     if namespace is None:
         # no such namespace
+        log.debug("No namespace '%s'" % namespace_id)
         return None
 
     name_fee = price_name( get_name_from_fq_name( name ), namespace )
@@ -806,6 +813,17 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return pybitcoin.broadcast_transaction( txdata, utxo_client )
 
 
+    def rpc_get_analytics_key(self, client_uuid ):
+        """
+        Get the analytics key
+        """
+        conf = get_blockstack_opts()
+        if not conf.has_key('analytics_key') or conf['analytics_key'] is None:
+            return {'error': 'No analytics key'}
+        
+        log.debug("Give key to %s" % client_uuid)
+        return {'analytics_key': conf['analytics_key']}
+
 
 class BlockstackdRPCServer( threading.Thread, object ):
     """
@@ -976,9 +994,8 @@ def index_blockchain():
     set_indexing( False )
     log.debug("End indexing (up to %s)" % current_block)
 
-    # invalidate and reload the in-RAM copy
+    # invalidate in-RAM copy, so we re-load it on next get_state_engine()
     invalidate_db_state()
-    get_state_engine()
 
 
 def blockstack_exit():
