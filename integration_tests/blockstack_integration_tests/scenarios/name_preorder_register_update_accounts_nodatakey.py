@@ -171,7 +171,7 @@ def check( state_engine ):
             return False 
 
         account = accounts[0]
-        on_file_accounts = blockstack_client.get_account( "foo.test", "serviceFooID", proxy=test_proxy, wallet_keys=wallet_keys )
+        on_file_accounts = blockstack_client.get_account( "foo.test", "serviceFoo", "serviceFooID", proxy=test_proxy, wallet_keys=wallet_keys )
         if 'error' in on_file_accounts:
             print json.dumps(on_file_account, sort_keys=True, indent=4)
             return False 
