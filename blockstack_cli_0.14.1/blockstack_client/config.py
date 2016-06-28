@@ -25,6 +25,8 @@ import os
 import logging
 import copy
 import traceback
+import uuid
+
 import virtualchain
 from blockstack_utxo import *
 
@@ -214,6 +216,7 @@ OPFIELDS = {
 # borrowed from Blockstack
 # never changes so safe to duplicate to avoid gratuitous imports
 # op-return formats
+# Byte-lengths of fields
 LENGTHS = {
     'magic_bytes': 2,
     'opcode': 1,
@@ -432,6 +435,46 @@ def default_bitcoind_opts( config_file=None ):
    return default_bitcoin_opts
 
 
+def client_uuid_path( config_dir=CONFIG_DIR ):
+    """
+    where is the client UUID stored
+    """
+    uuid_path = os.path.join(config_dir, "client.uuid")
+    return uuid_path
+
+
+def get_or_set_uuid( config_dir=CONFIG_DIR ):
+    """
+    Get or set the UUID for this installation.
+    Return the UUID either way
+    Return None on failure
+    """
+    uuid_path = client_uuid_path(config_dir=config_dir)
+    u = None
+    if not os.path.exists(uuid_path):
+       try:
+           u = str(uuid.uuid4())
+           with open(uuid_path, "w") as f:
+               f.write(u)
+               f.flush()
+               os.fsync(f.fileno())
+
+       except Exception, e:
+            log.exception(e)
+            return None
+
+    else:
+       try:
+           with open(uuid_path, "r") as f:
+               u = f.read()
+               u = u.strip()
+
+       except Exception, e:
+           log.exception(e)
+           return None
+
+    return u 
+
 
 def configure( config_file=CONFIG_PATH, force=False, interactive=True ):
    """
@@ -446,7 +489,8 @@ def configure( config_file=CONFIG_PATH, force=False, interactive=True ):
       'blockstack-client': { ... },
       'bitcoind': { ... },
       'blockchain-reader': { ... },
-      'blockchain-writer': { ... }
+      'blockchain-writer': { ... },
+      'uuid': ...
    }
    """
 
@@ -455,6 +499,8 @@ def configure( config_file=CONFIG_PATH, force=False, interactive=True ):
    if not os.path.exists( config_file ):
        # definitely ask for everything
        force = True
+
+   config_dir = os.path.dirname(config_file)
 
    # get blockstack client opts
    blockstack_message  = "Your client does not have enough information to connect\n"
@@ -583,6 +629,11 @@ def configure( config_file=CONFIG_PATH, force=False, interactive=True ):
        num_blockstack_opts_prompted += 1
        blockstack_opts['email'] = email_opts['email']
 
+   # get client UUID for analytics
+   u = get_or_set_uuid( config_dir=config_dir )
+   if u is None:
+       raise Exception("Failed to get/set UUID")
+
    ret = {
       'blockstack-client': blockstack_opts,
       'bitcoind': bitcoind_opts,
@@ -597,6 +648,8 @@ def configure( config_file=CONFIG_PATH, force=False, interactive=True ):
        # rename appropriately, so other packages can find them
        write_config_file( ret, config_file )
 
+   # set this here, so we don't save it
+   ret['uuid'] = u
    return ret
 
 
@@ -698,10 +751,11 @@ def read_config_file(path=CONFIG_PATH):
         parser.set('blockstack-client', 'advanced_mode', 'false')
         parser.set('blockstack-client', 'api_endpoint_port', str(DEFAULT_API_PORT))
         parser.set('blockstack-client', 'queue_path', str(DEFAULT_QUEUE_PATH))
-        parser.set('blockstack-client', 'poll_interval', str(DEFAULT_POLL_INTERVAL)),
+        parser.set('blockstack-client', 'poll_interval', str(DEFAULT_POLL_INTERVAL))
         parser.set('blockstack-client', 'rpc_detach', "True")
         parser.set('blockstack-client', 'blockchain_reader', DEFAULT_BLOCKCHAIN_READER)
         parser.set('blockstack-client', 'blockchain_writer', DEFAULT_BLOCKCHAIN_WRITER)
+        parser.set('blockstack-client', 'anonymous_statistics', True)
 
         rpc_token = os.urandom(32)
         parser.set('blockstack-client', 'rpc_token', hexlify(rpc_token))
@@ -780,6 +834,7 @@ def get_config(path=CONFIG_PATH):
     # pass along the config path and dir
     blockstack_opts['path'] = path
     blockstack_opts['dir'] = os.path.dirname(path)
+    blockstack_opts['uuid'] = opts['uuid']
 
     return blockstack_opts
 
