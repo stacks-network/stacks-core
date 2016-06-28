@@ -489,6 +489,7 @@ def default_blockstack_opts( config_file=None ):
    serve_zonefiles = True
    serve_profiles = False
    zonefile_dir = None
+   analytics_key = None
 
    if parser.has_section('blockstack'):
 
@@ -545,6 +546,9 @@ def default_blockstack_opts( config_file=None ):
          if valid:
              announcers = ",".join(announcer_list)
 
+      if parser.has_option('blockstack', 'analytics_key'):
+         analytics_key = parser.get('blockstack', 'analytics_key')
+
    if os.path.exists( announce_path ):
        # load announcement list
        with open( announce_path, "r" ) as f:
@@ -576,7 +580,8 @@ def default_blockstack_opts( config_file=None ):
        'blockchain_proxy': blockchain_proxy,
        'serve_zonefiles': serve_zonefiles,
        'serve_profiles': serve_profiles,
-       'zonefiles': zonefile_dir
+       'zonefiles': zonefile_dir,
+       'analytics_key': analytics_key
    }
 
    # strip Nones
