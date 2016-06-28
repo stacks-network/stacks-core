@@ -69,7 +69,7 @@ from storage import parse_mutable_data as parse_signed_data
 
 from config import USER_ZONEFILE_TTL
 
-from wallet import get_payment_addresses, get_owner_addresses, dump_wallet, load_wallet, get_wallet
+from wallet import get_payment_addresses_and_balances, get_owner_addresses_and_names, dump_wallet, load_wallet, get_wallet
 
 from user import is_user_zonefile, user_zonefile_data_pubkey
 
