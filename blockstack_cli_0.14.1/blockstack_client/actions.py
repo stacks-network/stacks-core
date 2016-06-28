@@ -89,6 +89,10 @@ from blockstack_client import \
     list_immutable_data_history, \
     list_update_history, \
     list_zonefile_history, \
+    list_accounts, \
+    get_account, \
+    put_account, \
+    delete_account, \
     lookup_snv, \
     put_immutable, \
     put_mutable
@@ -110,6 +114,7 @@ from .backend.nameops import estimate_preorder_tx_fee, estimate_register_tx_fee,
 from .wallet import *
 from .utils import pretty_dump, print_result
 from .proxy import *
+from .client import analytics_event
 
 log = config.get_logger()
 
@@ -143,7 +148,7 @@ def check_valid_name(fqu):
     return "The name is invalid"
 
 
-def operation_sanity_check(fqu, owner_pubkey_hex, payment_privkey, config_path=CONFIG_PATH, transfer_address=None, proxy=None):
+def operation_sanity_check(fqu, payment_privkey, config_path=CONFIG_PATH, transfer_address=None, proxy=None):
     """
     Any update, transfer, renew, or revoke operation
     should pass these tests:
@@ -175,9 +180,9 @@ def operation_sanity_check(fqu, owner_pubkey_hex, payment_privkey, config_path=C
 
     # get tx fee 
     if transfer_address is not None:
-        tx_fee = estimate_transfer_tx_fee( fqu, owner_pubkey_hex, payment_privkey, utxo_client, config_path=config_path ) 
+        tx_fee = estimate_transfer_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path ) 
     else:
-        tx_fee = estimate_update_tx_fee( fqu, owner_pubkey_hex, payment_privkey, utxo_client, config_path=config_path )
+        tx_fee = estimate_update_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path )
 
     balance = get_balance( payment_address, config_path=config_path )
 
@@ -200,7 +205,7 @@ def operation_sanity_check(fqu, owner_pubkey_hex, payment_privkey, config_path=C
     return {'status': True}
 
 
-def get_total_registration_fees(name, owner_pubkey_hex, payment_privkey, proxy=None, config_path=CONFIG_PATH):
+def get_total_registration_fees(name, payment_privkey, owner_address, proxy=None, config_path=CONFIG_PATH):
 
     try:
         data = get_name_cost(name, proxy=proxy)
@@ -211,16 +216,15 @@ def get_total_registration_fees(name, owner_pubkey_hex, payment_privkey, proxy=N
     if 'error' in data:
         return {'error': 'Could not determine price of name: %s' % data['error']}
 
+    payment_address = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().address()
     utxo_client = get_utxo_provider_client( config_path=config_path )
     
     # fee stimation: cost of name + cost of preorder transaction + cost of registration transaction + cost of update transaction
-    payment_pubkey_hex = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().to_hex()
-
     reply = {}
     reply['name_price'] = data['satoshis']
-    reply['preorder_tx_fee'] = estimate_preorder_tx_fee( name, data['satoshis'], payment_pubkey_hex, utxo_client, config_path=config_path )
-    reply['register_tx_fee'] = estimate_register_tx_fee( name, payment_pubkey_hex, utxo_client, config_path=config_path )
-    reply['update_tx_fee'] = estimate_update_tx_fee( name, owner_pubkey_hex, payment_privkey, utxo_client, config_path=config_path )
+    reply['preorder_tx_fee'] = int(estimate_preorder_tx_fee( name, data['satoshis'], payment_address, utxo_client, config_path=config_path ))
+    reply['register_tx_fee'] = int(estimate_register_tx_fee( name, payment_address, utxo_client, config_path=config_path ))
+    reply['update_tx_fee'] = int(estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=config_path ))
 
     reply['total_estimated_cost'] = reply['name_price'] + reply['preorder_tx_fee'] + reply['register_tx_fee'] + reply['update_tx_fee']
 
@@ -278,7 +282,7 @@ def cli_balance( args, config_path=CONFIG_PATH ):
     return result
 
 
-def cli_price( args, config_path=CONFIG_PATH, proxy=None):
+def cli_price( args, config_path=CONFIG_PATH, proxy=None, password=None):
     """
     command: price
     help: Get and return the price of a name
@@ -291,83 +295,36 @@ def cli_price( args, config_path=CONFIG_PATH, proxy=None):
     fqu = str(args.name)
     error = check_valid_name(fqu)
     config_dir = os.path.dirname(config_path)
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
 
     if error:
         return {'error': error}
 
-    try:
-        resp = get_name_cost(fqu, proxy=proxy)
-    except socket_error:
-        return {'error': 'Error connecting to server'}
+    start_rpc_endpoint(config_dir, password=password)
 
-    if 'error' in resp:
-        return resp
-
-    if not walletUnlocked(config_dir=config_dir):
-        log.debug("unlocking wallet (%s)" % config_dir)
-        res = unlock_wallet(config_dir=config_dir, password=password)
-        if 'error' in res:
-            log.debug("unlock_wallet: %s" % res['error'])
-            return res
-
-    wallet_keys = get_wallet( config_path=config_path )
+    wallet_keys = get_wallet_keys( config_path, password )
     if 'error' in wallet_keys:
         return wallet_keys
-    
+
     owner_privkey = wallet_keys['owner_privkey']
     payment_privkey = wallet_keys['payment_privkey']
 
-    fees = get_total_registration_fees(fqu, pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex(), payment_privkey, proxy=proxy, config_path=config_path)
+    owner_address = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().address()
+
+    # must be available 
+    try:
+        blockchain_record = get_name_blockchain_record(fqu)
+    except socket_error:
+        return {'error': 'Error connecting to server.'}
+
+    if 'owner_address' in blockchain_record:
+        return {'error': 'Name already registered.'}
+
+    
+    payment_address, owner_address, data_pubkey = get_addresses_from_file(config_dir=config_dir, wallet_path=wallet_path)
+    fees = get_total_registration_fees( fqu, payment_privkey, owner_address, proxy=proxy, config_path=config_path )
+    analytics_event( "Name price", {} )
     return fees
-
-
-def cli_config( args, config_path=CONFIG_PATH ):
-    """
-    command: config
-    help: Set configuration options
-    arg: --host (str) "Hostname/IP of the Blockstack server"
-    arg: --port (int) "Server port to connect to"
-    arg: --advanced (str)  "Can be 'on' or 'off"
-    """
-
-    data = {}
-
-    settings_updated = False
-
-    data["message"] = "Updated settings for"
-
-    if args.host is not None:
-        config.update_config('blockstack-client', 'server', args.host, config_path=config_path)
-        data["message"] += " host"
-        settings_updated = True
-
-    if args.port is not None:
-        config.update_config('blockstack-client', 'port', args.port, config_path=config_path)
-        data["message"] += " port"
-        settings_updated = True
-
-    if args.advanced is not None:
-
-        if args.advanced != "on" and args.advanced != "off":
-            return {'error': "Use --advanced=on or --advanced=off"}
-        else:
-            advanced = False
-            if args.advanced == 'on':
-                advanced = True
-
-            config.update_config('blockstack-client', 'advanced_mode', str(advanced), config_path=config_path)
-            data["message"] += " advanced"
-            settings_updated = True
-
-    # reload conf
-    conf = config.get_config(config_path=config_path)
-
-    if settings_updated:
-        result['message'] = data['message']
-    else:
-        result['message'] = "No config settings were updated."
-
-    return result
 
 
 def cli_deposit( args, config_path=CONFIG_PATH ):
@@ -634,13 +591,17 @@ def cli_lookup( args, config_path=CONFIG_PATH ):
         return {'error': 'Name is revoked.  Use get_name_blockchain_record for details.'}
     try:
         user_profile, user_zonefile = get_name_profile(str(args.name))
+        if 'error' in user_zonefile:
+            return user_zonefile
+
         data['profile'] = user_profile
         data['zonefile'] = user_zonefile
-    except:
-        data['profile'] = None
-        data['zonefile'] = None
+    except Exception, e:
+        log.exception(e)
+        return {'error': 'Failed to look up name\n%s' % traceback.format_exc()}
 
     result = data
+    analytics_event( "Name lookup", {} )
     return result 
 
 
@@ -687,6 +648,7 @@ def cli_whois( args, config_path=CONFIG_PATH ):
             result['expire_block'] = record['expire_block']
             result['approx_expiration_date'] = time.strftime( "%Y %b %d %H:%M:%S UTC", time.gmtime(FIRST_BLOCK_TIME_UTC + (record['expire_block'] - FIRST_BLOCK_MAINNET) * 600) )
 
+    analytics_event( "Whois", {} )
     return result
 
 
@@ -752,7 +714,7 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
     payment_address = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().address()
     data_address = pybitcoin.BitcoinPrivateKey(data_privkey).public_key().address()
 
-    fees = get_total_registration_fees(fqu, owner_pubkey, payment_privkey, proxy=proxy, config_path=config_path)
+    fees = get_total_registration_fees(fqu, payment_privkey, owner_address, proxy=proxy, config_path=config_path)
     if 'error' in fees:
         return fees
 
@@ -802,6 +764,7 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
         if 'message' in resp:
             return {'error': resp['message']}
 
+    analytics_event( "Register name", {"total_estimated_cost": fees['total_estimated_cost']} )
     return result
 
 
@@ -863,15 +826,14 @@ def cli_update( args, config_path=CONFIG_PATH, password=None ):
         msg ="Zonefile data is same as current zonefile; update not needed."
         return {'error': msg}
 
+    # load wallet
     wallet_keys = get_wallet_keys( config_path, password )
     if 'error' in wallet_keys:
         return wallet_keys
 
-    owner_privkey = wallet_keys['owner_privkey']
     payment_privkey = wallet_keys['payment_privkey']
-    owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
 
-    res = operation_sanity_check(fqu, owner_pubkey, payment_privkey, config_path=config_path)
+    res = operation_sanity_check(fqu, payment_privkey, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -891,6 +853,7 @@ def cli_update( args, config_path=CONFIG_PATH, password=None ):
         if 'message' in resp:
             return {'error': resp['message']}
 
+    analytics_event( "Update name", {} )
     return result
 
 
@@ -914,12 +877,15 @@ def cli_transfer( args, config_path=CONFIG_PATH, password=None ):
     if error:
         return {'error': error}
 
-    transfer_address = str(args.address)
-    owner_privkey = wallet_keys['owner_privkey']
-    payment_privkey = wallet_keys['payment_privkey']
-    owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
+    # load wallet
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
 
-    res = operation_sanity_check(fqu, owner_pubkey, payment_privkey, transfer_address=transfer_address, config_path=config_path)
+    payment_privkey = wallet_keys['payment_privkey']
+
+    transfer_address = str(args.address)
+    res = operation_sanity_check(fqu, payment_privkey, transfer_address=transfer_address, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -939,6 +905,7 @@ def cli_transfer( args, config_path=CONFIG_PATH, password=None ):
         if 'message' in resp:
             return {'error': resp['message']}
 
+    analytics_event( "Transfer name", {} )
     return result
 
 
@@ -1038,6 +1005,7 @@ def cli_renew( args, config_path=CONFIG_PATH, interactive=True, password=None, p
         if 'message' in resp:
             return {'error': resp['message']}
 
+    analytics_event( "Renew name", {'total_estimated_cost': cost} )
     return result
 
 
@@ -1073,7 +1041,7 @@ def cli_revoke( args, config_path=CONFIG_PATH, interactive=True, password=None, 
     owner_address = pybitcoin.BitcoinPublicKey(owner_pubkey).address()
     payment_address = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().address()
 
-    res = operation_sanity_check(fqu, owner_pubkey, payment_privkey, config_path=config_path)
+    res = operation_sanity_check(fqu, payment_privkey, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -1111,6 +1079,7 @@ def cli_revoke( args, config_path=CONFIG_PATH, interactive=True, password=None, 
         if 'message' in resp:
             return {'error': resp['message']}
 
+    analytics_event( "Revoke name", {} )
     return result
 
 
@@ -1138,12 +1107,11 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None ):
     if 'error' in wallet_keys:
         return wallet_keys
 
-    transfer_address = str(args.address)
     owner_privkey = wallet_keys['owner_privkey']
     payment_privkey = wallet_keys['payment_privkey']
     owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
 
-    res = operation_sanity_check(fqu, owner_pubkey, payment_privkey, config_path=config_path)
+    res = operation_sanity_check(fqu, payment_privkey, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -1172,6 +1140,142 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None ):
 
         if 'message' in resp:
             return {'error': resp['message']}
+
+    analytics_event( "Migrate name", {} )
+    return result
+
+
+def cli_list_accounts( args, proxy=None, config_path=CONFIG_PATH, password=None ):
+    """
+    command: list_accounts
+    help: List the set of accounts associated with a name.
+    arg: name (str) "The name to query."
+    """ 
+
+    result = {}
+    config_dir = os.path.dirname(config_path)
+    start_rpc_endpoint(config_dir, password=password)
+
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
+    
+    if proxy is None:
+        proxy = get_default_proxy(config_path=config_path)
+
+    result = list_accounts( args.name, proxy=proxy, wallet_keys=wallet_keys )
+    if 'error' not in result:
+        analytics_event( "List accounts", {} )
+
+    return result
+   
+
+def cli_get_account( args, proxy=None, config_path=CONFIG_PATH, password=None ):
+    """
+    command: get_account
+    help: Get a particular account from a name.
+    arg: name (str) "The name to query."
+    arg: service (str) "The service for which this account was created."
+    arg: identifier (str) "The name of the account."
+    """
+
+    result = {}
+    config_dir = os.path.dirname(config_path)
+    start_rpc_endpoint(config_dir, password=password)
+
+    if not is_valid_name(args.name) or len(args.service) == 0 or len(args.identifier) == 0:
+        return {'error': 'Invalid name or identifier'}
+
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
+    
+    if proxy is None:
+        proxy = get_default_proxy(config_path=config_path)
+
+    result = get_account( args.name, args.service, args.identifier, proxy=proxy, wallet_keys=wallet_keys )
+    if 'error' not in result:
+        analytics_event( "Get account", {} )
+
+    return result
+    
+
+def cli_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None ):
+    """
+    command: put_account
+    help: Set a particular account's details.  If the account already exists, it will be overwritten.
+    arg: name (str) "The name to query."
+    arg: service (str) "The service this account is for."
+    arg: identifier (str) "The name of the account."
+    arg: content_url (str) "The URL that points to external contact data."
+    opt: extra_data (str) "A comma-separated list of 'name1=value1,name2=value2,name3=value3...' with any extra account information you need in the account."
+    """
+
+    result = {}
+    config_dir = os.path.dirname(config_path)
+    start_rpc_endpoint(config_dir, password=password)
+
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
+    
+    if proxy is None:
+        proxy = get_default_proxy(config_path=config_path)
+
+    if not is_valid_name(args.name):
+        return {'error': 'Invalid name'}
+
+    if len(args.service) == 0 or len(args.identifier) == 0 or len(args.content_url) == 0:
+        return {'error': 'Invalid data'}
+
+    # parse extra data 
+    extra_data = {}
+    if hasattr(args, "extra_data") and args.extra_data is not None:
+        extra_data_str = str(args.extra_data)
+        if len(extra_data_str) > 0:
+            extra_data_pairs = extra_data_str.split(",")
+            for p in extra_data_pairs:
+                if '=' not in p:
+                    return {'error': "Could not interpret '%s' in '%s'" % (p, extra_data_str)}
+
+                parts = p.split("=")
+                k = parts[0]
+                v = "=".join(parts[1:])
+                extra_data[k] = v
+
+    result = put_account( args.name, args.service, args.identifier, args.content_url, proxy=proxy, wallet_keys=wallet_keys, **extra_data )
+    if 'error' not in result:
+        analytics_event( "Put account", {} )
+
+    return result
+
+
+def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None ):
+    """
+    command: delete_account
+    help: Delete a particular account.
+    arg: name (str) "The name to query."
+    arg: service (str) "The service the account is for."
+    arg: identifier (str) "The identifier of the account to delete."
+    """
+
+    result = {}
+    config_dir = os.path.dirname(config_path)
+    start_rpc_endpoint(config_dir, password=password)
+
+    if not is_valid_name(args.name) or len(args.service) == 0 or len(args.identifier) == 0:
+        return {'error': 'Invalid name or identifier'}
+
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
+    
+    if proxy is None:
+        proxy = get_default_proxy(config_path=config_path)
+
+    result = delete_account( args.name, args.service, args.identifier, proxy=proxy, wallet_keys=wallet_keys )
+    if 'error' not in result:
+        analytics_event( "Delete account", {} )
 
     return result
 
@@ -1623,7 +1727,7 @@ def cli_advanced_set_zonefile_hash( args, config_path=CONFIG_PATH, password=None
     payment_privkey = wallet_keys['payment_privkey']
     owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
 
-    res = operation_sanity_check(fqu, owner_pubkey, payment_privkey, config_path=config_path)
+    res = operation_sanity_check(fqu, payment_privkey, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -1644,5 +1748,6 @@ def cli_advanced_set_zonefile_hash( args, config_path=CONFIG_PATH, password=None
         if 'message' in resp:
             return {'error': resp['message']}
 
+    analytics_event( "Set zonefile hash", {} )
     return result
 
