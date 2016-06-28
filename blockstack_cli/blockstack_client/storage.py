@@ -317,7 +317,6 @@ def get_immutable_data( data_hash, data_url=None, hash_func=get_data_hash, fqu=N
       else:
           data_dict = data
 
-      log.debug("loaded with %s" % handler.__name__)
       return data_dict
 
    return None
