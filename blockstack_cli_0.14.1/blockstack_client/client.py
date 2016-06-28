@@ -60,6 +60,7 @@ from wallet import *
 
 # ancillary storage providers
 STORAGE_IMPL = None
+ANALYTICS_KEY = None
 
 def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=None,
             storage_drivers=None, metadata_dir=None, spv_headers_path=None, set_global=False):
@@ -144,3 +145,131 @@ def register_storage(storage_impl, conf):
 
     return rc
 
+
+def get_analytics_key( uuid, proxy=None ):
+    """
+    Get the analytics key from the blockstack server
+    """
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    key = None
+    if os.environ.get("BLOCKSTACK_TEST_ANALYTICS_KEY", None) is not None:
+        key = {'analytics_key': os.environ.get("BLOCKSTACK_TEST_ANALYTICS_KEY")}
+
+    else:
+        try:
+            key = proxy.get_analytics_key( uuid )
+        except Exception, e:
+            log.debug("Failed to get analytics key")
+            return None
+
+    if 'error' in key:
+        log.debug("Failed to fetch analytics key: %s" % key['error'])
+        return None 
+
+    if not 'analytics_key' in key.keys():
+        log.debug("No analytics key returned")
+        return None
+
+    return key['analytics_key']
+
+
+def analytics_event( event_type, event_payload, config_path=CONFIG_PATH, proxy=None ):
+    """
+    Log an analytics event
+    Return True if logged
+    Return False if not
+    """
+    global ANALYTICS_KEY
+
+    try:
+        import mixpanel 
+    except:
+        log.debug("mixpanel is not installed; no analytics will be reported")
+        return False
+
+    conf = get_config(path=config_path)
+    if conf is None:
+        log.debug("Failed to load config")
+        return False
+
+    if not conf['anonymous_statistics']:
+        return False
+   
+    u = conf['uuid']
+    if ANALYTICS_KEY is None:
+        ANALYTICS_KEY = get_analytics_key( u )
+        if ANALYTICS_KEY is None:
+            return False
+
+    # log the event
+    log.debug("Track event '%s': %s" % (event_type, event_payload))
+    mp = mixpanel.Mixpanel(ANALYTICS_KEY)
+    mp.track( event_type, event_payload )
+    return True
+
+
+def analytics_user_register( u, config_path=CONFIG_PATH, proxy=None ):
+    """
+    Register a user with the analytics service
+    """
+    global ANALYTICS_KEY
+
+    try:
+        import mixpanel 
+    except:
+        log.debug("mixpanel is not installed; no analytics will be reported")
+        return False
+
+    conf = get_config(path=config_path)
+    if conf is None:
+        log.debug("Failed to load config")
+        return False
+
+    if not conf['anonymous_statistics']:
+        return False
+    
+    if ANALYTICS_KEY is None:
+        ANALYTICS_KEY = get_analytics_key( u )
+        if ANALYTICS_KEY is None:
+            return False
+
+    # register the user 
+    log.debug("Register user '%s'" % u)
+    mp = mixpanel.Mixpanel(ANALYTICS_KEY)
+    mp.people_set_once(u, {})
+    return True
+
+
+def analytics_user_update( payload, proxy=None ):
+    """
+    Register a user with the analytics service
+    """
+    global ANALYTICS_KEY
+
+    try:
+        import mixpanel 
+    except:
+        log.debug("mixpanel is not installed; no analytics will be reported")
+        return False
+
+    conf = get_config(config_path)
+    if conf is None:
+        log.debug("Failed to load config")
+        return False
+
+    if not conf['anonymous_statistics']:
+        return False
+    
+    u = conf['uuid']
+    if ANALYTICS_KEY is None:
+        ANALYTICS_KEY = get_analytics_key( u )
+        if ANALYTICS_KEY is None:
+            return False
+
+    # register the user 
+    log.debug("Register user '%s'" % u)
+    mp = mixpanel.Mixpanel(ANALYTICS_KEY)
+    mp.people_append( u, payload )
+    return True
