@@ -72,22 +72,22 @@ def list_accounts( name, proxy=None, wallet_keys=None ):
         proxy = get_default_proxy()
 
     user_profile, user_zonefile = get_name_profile( name, proxy=proxy, wallet_keys=wallet_keys )
-    if user_zonefile is None:
-        # user_profile will contain an error message
-        return user_profile
-
+    if user_profile is None:
+        # user_zonefile will contain an error message
+        return user_zonefile
+        
     # user_profile will be in the new zonefile format 
-    if not user_profile.has_key("accounts"):
-        return []
+    if not user_profile.has_key("account"):
+        return {'accounts': []}
 
     else:
-        return user_profile['accounts']
+        return {'accounts': user_profile['account']}
 
 
-def get_account( name, identifier, proxy=None, wallet_keys=None ):
+def get_account( name, service, identifier, proxy=None, wallet_keys=None ):
     """
     Get an account by identifier.  Return duplicates
-    Return {'accounts': account information} on success
+    Return {'account': account information} on success
     Return {'error': ...} on error
     """
     if proxy is None:
@@ -98,11 +98,11 @@ def get_account( name, identifier, proxy=None, wallet_keys=None ):
         return accounts
 
     ret = []
-    for acc in accounts:
-        if acc['identifier'] == identifier:
+    for acc in accounts['accounts']:
+        if acc['identifier'] == identifier and acc['service'] == service:
             ret.append(acc)
 
-    return {'accounts': ret}
+    return {'account': ret}
 
 
 def put_account( name, service, identifier, content_url, proxy=None, wallet_keys=None, txid=None, **extra_fields ):
@@ -130,8 +130,8 @@ def put_account( name, service, identifier, content_url, proxy=None, wallet_keys
     del user_zonefile['name_record']
 
     # user_profile will be in the new zonefile format 
-    if not user_profile.has_key("accounts"):
-        user_profile['accounts'] = []
+    if not user_profile.has_key("account"):
+        user_profile['account'] = []
 
     new_profile = {}
     new_profile.update( extra_fields )
@@ -141,7 +141,7 @@ def put_account( name, service, identifier, content_url, proxy=None, wallet_keys
         "contentUrl": content_url
     })
 
-    user_profile['accounts'].append(new_profile)
+    user_profile['account'].append(new_profile)
 
     return profile_update( name, user_zonefile, user_profile, name_record['address'], proxy=proxy, wallet_keys=wallet_keys )
 
@@ -171,9 +171,9 @@ def delete_account( name, service, identifier, proxy=None, wallet_keys=None ):
 
     # user_profile will be in the new zonefile format
     removed = []
-    for account in user_profile.get('accounts', []):
+    for account in user_profile.get('account', []):
         if account['service'] == service and account['identifier'] == identifier:
-            user_profile['accounts'].remove( account )
+            user_profile['account'].remove( account )
             removed.append( account )
 
     if len(removed) == 0:
