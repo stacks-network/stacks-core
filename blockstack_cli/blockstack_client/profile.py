@@ -84,6 +84,12 @@ def load_name_zonefile(name, expected_zonefile_hash):
         # by default, it's a zonefile-formatted text file
         user_zonefile = blockstack_zones.parse_zone_file( zonefile_txt )
         assert user_db.is_user_zonefile( user_zonefile ), "Not a user zonefile: %s" % user_zonefile
+
+        # force dict 
+        tmp = {}
+        tmp.update(user_zonefile)
+        user_zonefile = tmp
+
     except (IndexError, ValueError, blockstack_zones.InvalidLineException):
         # might be legacy profile
         log.debug("WARN: failed to parse user zonefile; trying to import as legacy")
@@ -277,10 +283,7 @@ def get_name_zonefile( name, create_if_absent=False, proxy=None, wallet_keys=Non
     if include_name_record:
         user_zonefile['name_record'] = name_record
 
-    # force dict, so we see keyerrors
-    ret = {}
-    ret.update( user_zonefile )
-    return ret
+    return user_zonefile
     
 
 def get_name_profile(name, create_if_absent=False, proxy=None, wallet_keys=None, user_zonefile=None, name_record=None, include_name_record=False ):
@@ -320,6 +323,10 @@ def get_name_profile(name, create_if_absent=False, proxy=None, wallet_keys=None,
         # get user's data public key
         try:
             user_data_pubkey = user_db.user_zonefile_data_pubkey( user_zonefile )
+            if user_data_pubkey is not None:
+                log.debug("user public key: %s (%s)" % (user_data_pubkey, type(user_data_pubkey)))
+                user_data_pubkey = str(user_data_pubkey)
+
         except ValueError:
             # user decided to put multiple keys under the same name into the zonefile.
             # so don't use them.
@@ -327,11 +334,12 @@ def get_name_profile(name, create_if_absent=False, proxy=None, wallet_keys=None,
 
         # convert to address
         user_address = None
-        if user_data_pubkey is None and name_record is None:
-            name_record = proxy.get_name_blockchain_record( name )
-            if name_record is None or 'error' in name_record:
-                log.error("Failed to look up name record for '%s'" % name)
-                return (None, {'error': 'Failed to look up name record'})
+        if user_data_pubkey is None:
+            if name_record is None:
+                name_record = proxy.get_name_blockchain_record( name )
+                if name_record is None or 'error' in name_record:
+                    log.error("Failed to look up name record for '%s'" % name)
+                    return (None, {'error': 'Failed to look up name record'})
 
             user_address = name_record['address']
         else:
