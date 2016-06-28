@@ -45,10 +45,10 @@ from ..storage import get_blockchain_compat_hash, hash_zonefile, put_announcemen
 
 from ..operations import fees_update, fees_transfer, fees_revoke, fees_registration
 
-log = get_logger()
+log = get_logger("blockstack-client")
 
 
-def estimate_preorder_tx_fee( name, name_cost, payment_pubkey_hex, utxo_client, config_path=CONFIG_PATH ):
+def estimate_preorder_tx_fee( name, name_cost, payment_addr, utxo_client, config_path=CONFIG_PATH ):
     """
     Estimate the transaction fee of a preorder
     Return the number of satoshis on success
@@ -58,14 +58,16 @@ def estimate_preorder_tx_fee( name, name_cost, payment_pubkey_hex, utxo_client, 
     fake_privkey = '5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX'   # fake private key
     fake_consensus_hash = 'd4049672223f42aac2855d2fbf2f38f0'
 
-    unsigned_tx = preorder_tx( name, payment_pubkey_hex, fake_owner_address, name_cost, fake_consensus_hash, utxo_client )
+    unsigned_tx = preorder_tx( name, payment_addr, fake_owner_address, name_cost, fake_consensus_hash, utxo_client )
     signed_tx = sign_tx( unsigned_tx, fake_privkey )
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
+
+    log.debug("preorder tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
 
     return tx_fee
 
 
-def estimate_register_tx_fee( name, payment_pubkey_hex, utxo_client, config_path=CONFIG_PATH ):
+def estimate_register_tx_fee( name, payment_addr, utxo_client, config_path=CONFIG_PATH ):
     """
     Estimate the transaction fee of a register
     Return the number of satoshis on success
@@ -74,9 +76,11 @@ def estimate_register_tx_fee( name, payment_pubkey_hex, utxo_client, config_path
     fake_owner_address = '1PJeKxYXfTjE26FGFXmSuYpfnP2oRBu9kp'  # fake address
     fake_privkey = '5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX'   # fake private key
 
-    unsigned_tx = register_tx( name, payment_pubkey_hex, fake_owner_address, utxo_client )
+    unsigned_tx = register_tx( name, payment_addr, fake_owner_address, utxo_client )
     signed_tx = sign_tx( unsigned_tx, fake_privkey )
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
+
+    log.debug("register tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
 
     return tx_fee
 
@@ -92,15 +96,17 @@ def estimate_renewal_tx_fee( name, payment_privkey, owner_address, utxo_client, 
     payment_pubkey_hex = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().to_hex()
     address = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().address()
 
-    unsigned_tx = register_tx( name, payment_pubkey_hex, address, utxo_client, renewal_fee=1234567890 )
+    unsigned_tx = register_tx( name, address, address, utxo_client, renewal_fee=1234567890 )
     subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_registration, 21 * 10**14, payment_privkey, utxo_client )
     signed_tx = sign_tx( subsidized_tx, fake_privkey )
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
 
+    log.debug("renewal tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
+
     return tx_fee
 
 
-def estimate_update_tx_fee( name, owner_pubkey_hex, payment_privkey, utxo_client, config_path=CONFIG_PATH ):
+def estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=CONFIG_PATH ):
     """
     Estimate the transaction fee of an update
     Return the number of satoshis on success
@@ -110,15 +116,18 @@ def estimate_update_tx_fee( name, owner_pubkey_hex, payment_privkey, utxo_client
     fake_consensus_hash = 'd4049672223f42aac2855d2fbf2f38f0'
     fake_zonefile_hash = '20b512149140494c0f7d565023973226908f6940'
 
-    unsigned_tx = update_tx( name, fake_zonefile_hash, fake_consensus_hash, owner_pubkey_hex, utxo_client, subsidize=True )
+    unsigned_tx = update_tx( name, fake_zonefile_hash, fake_consensus_hash, owner_address, utxo_client, subsidize=True )
     subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_update, 21 * 10**14, payment_privkey, utxo_client )
     signed_subsidized_tx = sign_tx( subsidized_tx, fake_privkey )
 
     tx_fee = get_tx_fee( signed_subsidized_tx, config_path=config_path )
+    
+    log.debug("update tx %s bytes, %s satoshis" % (len(signed_subsidized_tx), int(tx_fee)))
+
     return tx_fee
 
 
-def estimate_transfer_tx_fee( name, owner_pubkey_hex, payment_privkey, utxo_client, config_path=CONFIG_PATH ):
+def estimate_transfer_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=CONFIG_PATH ):
     """
     Estimate the transaction fee of a transfer
     Return the number of satoshis on success
@@ -128,15 +137,18 @@ def estimate_transfer_tx_fee( name, owner_pubkey_hex, payment_privkey, utxo_clie
     fake_privkey = '5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX'   # fake private key
     fake_consensus_hash = 'd4049672223f42aac2855d2fbf2f38f0'
     
-    unsigned_tx = transfer_tx( name, fake_recipient_address, True, fake_consensus_hash, owner_pubkey_hex, utxo_client, subsidize=True )
+    unsigned_tx = transfer_tx( name, fake_recipient_address, True, fake_consensus_hash, owner_address, utxo_client, subsidize=True )
     subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_transfer, 21 * 10**14, payment_privkey, utxo_client )
     signed_subsidized_tx = sign_tx( subsidized_tx, fake_privkey )
 
     tx_fee = get_tx_fee( signed_subsidized_tx, config_path=config_path )
+    
+    log.debug("transfer tx %s bytes, %s satoshis" % (len(signed_subsidized_tx), int(tx_fee)))
+
     return tx_fee
 
 
-def estimate_revoke_tx_fee( name, owner_pubkey_hex, payment_privkey, utxo_client, config_path=CONFIG_PATH ):
+def estimate_revoke_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=CONFIG_PATH ):
     """
     Estimate the transaction fee of a revoke
     Return the number of satoshis on success
@@ -144,15 +156,18 @@ def estimate_revoke_tx_fee( name, owner_pubkey_hex, payment_privkey, utxo_client
     """
     fake_privkey = '5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX'   # fake private key
 
-    unsigned_tx = revoke_tx( name, owner_pubkey_hex, utxo_client, subsidize=True )
+    unsigned_tx = revoke_tx( name, owner_address, utxo_client, subsidize=True )
     subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_revoke, 21 * 10**14, payment_privkey, utxo_client )
     signed_subsidized_tx = sign_tx( subsidized_tx, fake_privkey )
 
     tx_fee = get_tx_fee( signed_subsidized_tx, config_path=config_path )
+
+    log.debug("revoke tx %s bytes, %s satoshis" % (len(signed_subsidized_tx), int(tx_fee)))
+
     return tx_fee
 
 
-def estimate_name_import_tx_fee( fqu, payment_pubkey_hex, utxo_client, config_path=CONFIG_PATH ):
+def estimate_name_import_tx_fee( fqu, payment_addr, utxo_client, config_path=CONFIG_PATH ):
     """
     Estimate the transaction fee of a name import
     Return the number of satoshis on success
@@ -162,14 +177,16 @@ def estimate_name_import_tx_fee( fqu, payment_pubkey_hex, utxo_client, config_pa
     fake_zonefile_hash = '20b512149140494c0f7d565023973226908f6940'
     fake_recipient_address = '1LL4X7wNUBCWoDhfVLA2cHE7xk1ZJMT98Q'
 
-    unsigned_tx = name_import_tx( fqu, fake_recipient_address, fake_zonefile_hash, payment_pubkey_hex, utxo_client )
+    unsigned_tx = name_import_tx( fqu, fake_recipient_address, fake_zonefile_hash, payment_addr, utxo_client )
     signed_tx = sign_tx( unsigned_tx, fake_privkey )
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
+
+    log.debug("name import tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
 
     return tx_fee
 
 
-def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_pubkey_hex, utxo_client, config_path=CONFIG_PATH ):
+def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utxo_client, config_path=CONFIG_PATH ):
     """
     Estimate the transaction fee of a namespace preorder
     Return the number of satoshis on success
@@ -179,14 +196,15 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_pubkey_hex, 
     fake_reveal_address = '1LL4X7wNUBCWoDhfVLA2cHE7xk1ZJMT98Q'
     fake_consensus_hash = 'd4049672223f42aac2855d2fbf2f38f0'
 
-    unsigned_tx = namespace_preorder_tx( namespace_id, fake_reveal_address, cost, fake_consensus_hash, payment_pubkey_hex, utxo_client )
+    unsigned_tx = namespace_preorder_tx( namespace_id, fake_reveal_address, cost, fake_consensus_hash, payment_address, utxo_client )
     signed_tx = sign_tx( unsigned_tx, fake_privkey )
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
     
+    log.debug("namespace preorder tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
     return tx_fee
 
 
-def estimate_namespace_reveal_tx_fee( namespace_id, payment_pubkey_hex, utxo_client, config_path=CONFIG_PATH ):
+def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client, config_path=CONFIG_PATH ):
     """
     Estimate the transaction fee of a namespace reveal
     Return the number of satoshis on success
@@ -195,14 +213,15 @@ def estimate_namespace_reveal_tx_fee( namespace_id, payment_pubkey_hex, utxo_cli
     fake_privkey = '5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX'   # fake private key
     fake_reveal_address = '1LL4X7wNUBCWoDhfVLA2cHE7xk1ZJMT98Q'
 
-    unsigned_tx = namespace_reveal_tx( namespace_id, fake_reveal_address, 1, 2, 3, [4,5,6,7,8,9,10,11,12,13,14,15,0,1,2,3], 4, 5, payment_pubkey_hex, utxo_client )
+    unsigned_tx = namespace_reveal_tx( namespace_id, fake_reveal_address, 1, 2, 3, [4,5,6,7,8,9,10,11,12,13,14,15,0,1,2,3], 4, 5, payment_address, utxo_client )
     signed_tx = sign_tx( unsigned_tx, fake_privkey )
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
 
+    log.debug("namespace reveal tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
     return tx_fee
 
 
-def estimate_namespace_ready_tx_fee( namespace_id, reveal_pubkey_hex, utxo_client, config_path=CONFIG_PATH ):
+def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, config_path=CONFIG_PATH ):
     """
     Estimate the transaction fee of a namespace ready
     Return the number of satoshis on success
@@ -210,14 +229,15 @@ def estimate_namespace_ready_tx_fee( namespace_id, reveal_pubkey_hex, utxo_clien
     """
     fake_privkey = '5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX'   # fake private key
 
-    unsigned_tx = namespace_ready_tx( namespace_id, reveal_pubkey_hex, utxo_client )
+    unsigned_tx = namespace_ready_tx( namespace_id, reveal_addr, utxo_client )
     signed_tx = sign_tx( unsigned_tx, fake_privkey ) 
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
 
+    log.debug("namespace ready tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
     return tx_fee
 
 
-def estimate_announce_tx_fee( sender_pubkey_hex, utxo_client, config_path=CONFIG_PATH ):
+def estimate_announce_tx_fee( sender_address, utxo_client, config_path=CONFIG_PATH ):
     """
     Estimate the transaction fee of an announcement tx
     Return the number of satoshis on success
@@ -226,10 +246,11 @@ def estimate_announce_tx_fee( sender_pubkey_hex, utxo_client, config_path=CONFIG
     fake_privkey = '5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX'   # fake private key
     fake_announce_hash = '20b512149140494c0f7d565023973226908f6940'
 
-    unsigned_tx = announce_tx( fake_announce_hash, sender_pubkey_hex, utxo_client )
+    unsigned_tx = announce_tx( fake_announce_hash, sender_address, utxo_client )
     signed_tx = sign_tx( unsigned_tx, fake_privkey )
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
 
+    log.debug("announce tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
     return tx_fee
 
 
@@ -263,14 +284,14 @@ def do_preorder( fqu, payment_privkey, owner_address, cost, utxo_client, tx_broa
 
         consensus_hash = blockstack_info['consensus']
 
-    tx_fee = estimate_preorder_tx_fee( fqu, cost, payment_pubkey_hex, utxo_client, config_path=config_path )
+    tx_fee = estimate_preorder_tx_fee( fqu, cost, payment_address, utxo_client, config_path=config_path )
     if tx_fee is None:
         return {'error': 'Failed to estimate the tx fee'}
 
     log.debug("Preordering (%s, %s, %s), tx_fee = %s" % (fqu, payment_address, owner_address, tx_fee))
 
     try:
-        unsigned_tx = preorder_tx( fqu, payment_pubkey_hex, owner_address, cost, consensus_hash, utxo_client, tx_fee=tx_fee )
+        unsigned_tx = preorder_tx( fqu, payment_address, owner_address, cost, consensus_hash, utxo_client, tx_fee=tx_fee )
         resp = sign_and_broadcast_tx( unsigned_tx, payment_privkey, tx_broadcaster=tx_broadcaster )
     except Exception, e:
         log.exception(e)
@@ -316,11 +337,11 @@ def do_register( fqu, payment_privkey, owner_address, utxo_client, tx_broadcaste
         log.debug("Payment address not ready: %s" % payment_address)
         return {'error': 'Payment address has unconfirmed transactions'}
 
-    tx_fee = estimate_register_tx_fee( fqu, payment_pubkey_hex, utxo_client, config_path=config_path ) 
+    tx_fee = estimate_register_tx_fee( fqu, payment_address, utxo_client, config_path=config_path ) 
     log.debug("Registering (%s, %s, %s), tx_fee = %s" % (fqu, payment_address, owner_address, tx_fee))
 
     # now send it
-    unsigned_tx = register_tx( fqu, payment_pubkey_hex, owner_address, utxo_client, renewal_fee=renewal_fee, tx_fee=tx_fee )
+    unsigned_tx = register_tx( fqu, payment_address, owner_address, utxo_client, renewal_fee=renewal_fee, tx_fee=tx_fee )
 
     try:
         resp = sign_and_broadcast_tx( unsigned_tx, payment_privkey, config_path=config_path, tx_broadcaster=tx_broadcaster )
@@ -373,12 +394,12 @@ def do_update( fqu, zonefile_hash, owner_privkey, payment_privkey, utxo_client, 
         log.debug("Payment address not ready: %s" % payment_address)
         return {'error': 'Payment address has unconfirmed transactions'}
 
-    tx_fee = estimate_update_tx_fee( fqu, owner_public_key, payment_privkey, utxo_client, config_path=config_path ) 
+    tx_fee = estimate_update_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path ) 
 
     log.debug("Updating (%s, %s)" % (fqu, zonefile_hash))
     log.debug("<owner, payment> (%s, %s) tx_fee = %s" % (owner_address, payment_address, tx_fee))
 
-    unsigned_tx = update_tx( fqu, zonefile_hash, consensus_hash, owner_public_key, utxo_client, subsidize=True, tx_fee=tx_fee )
+    unsigned_tx = update_tx( fqu, zonefile_hash, consensus_hash, owner_address, utxo_client, subsidize=True, tx_fee=tx_fee )
     subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_update, 21 * (10**6) * (10**8), payment_privkey, utxo_client, tx_fee=tx_fee )
 
     resp = {}
@@ -437,9 +458,9 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey, payment_privke
         log.debug("Payment address not ready: %s" % payment_address)
         return {'error': 'Payment address has unconfirmed transactions'}
 
-    tx_fee = estimate_transfer_tx_fee( fqu, owner_pubkey_hex, payment_privkey, utxo_client, config_path=config_path )
+    tx_fee = estimate_transfer_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path )
 
-    unsigned_tx = transfer_tx( fqu, transfer_address, keep_data, consensus_hash, owner_pubkey_hex, utxo_client, subsidize=True, tx_fee=tx_fee )
+    unsigned_tx = transfer_tx( fqu, transfer_address, keep_data, consensus_hash, owner_address, utxo_client, subsidize=True, tx_fee=tx_fee )
     subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_transfer, 21 * (10**6) * (10**8), payment_privkey, utxo_client, tx_fee=tx_fee )
 
     log.debug("Transferring (%s, %s)" % (fqu, transfer_address))
@@ -494,7 +515,7 @@ def do_renewal( fqu, owner_privkey, payment_privkey, renewal_fee, utxo_client, t
     log.debug("Renewing (%s, %s, %s), tx_fee = %s, renewal_fee = %s" % (fqu, payment_address, owner_address, tx_fee, renewal_fee))
 
     # now send it
-    unsigned_tx = register_tx( fqu, owner_pubkey_hex, owner_address, utxo_client, renewal_fee=renewal_fee, tx_fee=tx_fee )
+    unsigned_tx = register_tx( fqu, owner_address, owner_address, utxo_client, renewal_fee=renewal_fee, tx_fee=tx_fee )
     subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_registration, 21 ** (10**6) * (10**8), payment_privkey, utxo_client, tx_fee=tx_fee )
 
     try:
@@ -517,7 +538,8 @@ def do_revoke( fqu, owner_privkey, payment_privkey, utxo_client, tx_broadcaster,
 
     fqu = str(fqu)
     owner_pubkey_hex = pybitcoin.BitcoinPrivateKey( owner_privkey ).public_key().to_hex()
-    tx_fee = estimate_revoke_tx_fee( fqu, owner_pubkey_hex, payment_privkey, utxo_client, config_path=config_path )
+    owner_address = pybitcoin.BitcoinPublicKey(owner_pubkey_hex).address()
+    tx_fee = estimate_revoke_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path )
 
     owner_address = pybitcoin.BitcoinPublicKey( owner_pubkey_hex ).address()
     payment_address = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().address()
@@ -534,7 +556,7 @@ def do_revoke( fqu, owner_privkey, payment_privkey, utxo_client, tx_broadcaster,
             log.debug("Given privkey/address doesn't own this name.")
             return {'error': 'Given keypair does not own this name'}
 
-    unsigned_tx = revoke_tx( fqu, owner_pubkey_hex, utxo_client, subsidize=True, tx_fee=tx_fee )
+    unsigned_tx = revoke_tx( fqu, owner_address, utxo_client, subsidize=True, tx_fee=tx_fee )
     subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_revoke, 21 ** (10**6) * (10**8), payment_privkey, utxo_client, tx_fee=tx_fee )
 
     log.debug("Revoking %s" % fqu)
@@ -562,9 +584,9 @@ def do_name_import( fqu, importer_privkey, recipient_address, zonefile_hash, utx
     fqu = str(fqu)
     payment_pubkey_hex = pybitcoin.BitcoinPrivateKey( importer_privkey ).public_key().to_hex()
     payment_address = pybitcoin.BitcoinPrivateKey( importer_privkey ).public_key().address()
-    tx_fee = estimate_name_import_tx_fee( fqu, payment_pubkey_hex, utxo_client, config_path=config_path )
+    tx_fee = estimate_name_import_tx_fee( fqu, payment_address, utxo_client, config_path=config_path )
 
-    unsigned_tx = name_import_tx( fqu, recipient_address, zonefile_hash, payment_pubkey_hex, utxo_client, tx_fee=tx_fee )
+    unsigned_tx = name_import_tx( fqu, recipient_address, zonefile_hash, payment_address, utxo_client, tx_fee=tx_fee )
     signed_tx = sign_tx( unsigned_tx, importer_privkey )
 
     log.debug("Import (%s, %s, %s)" % (fqu, recipient_address, zonefile_hash))
@@ -614,13 +636,13 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey, reveal_address, 
             # exists 
             return {'error': 'Namespace already exists'}
 
-    tx_fee = estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_pubkey_hex, utxo_client, config_path=config_path )
+    tx_fee = estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utxo_client, config_path=config_path )
     if tx_fee is None:
         return {'error': 'Failed to estimate the tx fee'}
 
     log.debug("Preordering namespace (%s, %s, %s), tx_fee = %s" % (namespace_id, payment_address, reveal_address, tx_fee))
 
-    unsigned_tx = namespace_preorder_tx( namespace_id, reveal_address, cost, consensus_hash, payment_pubkey_hex, utxo_client, tx_fee=tx_fee )
+    unsigned_tx = namespace_preorder_tx( namespace_id, reveal_address, cost, consensus_hash, payment_address, utxo_client, tx_fee=tx_fee )
     resp = {}
 
     try:
@@ -657,13 +679,13 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
             # exists 
             return {'error': 'Namespace already exists'}
 
-    tx_fee = estimate_namespace_reveal_tx_fee( namespace_id, payment_pubkey_hex, utxo_client, config_path=config_path )
+    tx_fee = estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client, config_path=config_path )
     if tx_fee is None:
         return {'error': 'Failed to estimate the tx fee'}
 
     log.debug("Revealing namespace (%s, %s, %s), tx_fee = %s" % (namespace_id, payment_address, reveal_address, tx_fee))
 
-    unsigned_tx = namespace_reveal_tx( namespace_id, reveal_address, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, payment_pubkey_hex, utxo_client, tx_fee=tx_fee )
+    unsigned_tx = namespace_reveal_tx( namespace_id, reveal_address, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, payment_address, utxo_client, tx_fee=tx_fee )
     resp = {}
 
     try:
@@ -700,13 +722,13 @@ def do_namespace_ready( namespace_id, reveal_privkey, utxo_client, tx_broadcaste
             # exists 
             return {'error': 'Namespace already exists'}
 
-    tx_fee = estimate_namespace_ready_tx_fee( namespace_id, reveal_pubkey_hex, utxo_client, config_path=config_path )
+    tx_fee = estimate_namespace_ready_tx_fee( namespace_id, reveal_address, utxo_client, config_path=config_path )
     if tx_fee is None:
         return {'error': 'Failed to estimate the tx fee'}
 
     log.debug("Readying namespace (%s, %s), tx_fee = %s" % (namespace_id, reveal_address, tx_fee) )
 
-    unsigned_tx = namespace_ready_tx( namespace_id, reveal_pubkey_hex, utxo_client, tx_fee=tx_fee )
+    unsigned_tx = namespace_ready_tx( namespace_id, reveal_address, utxo_client, tx_fee=tx_fee )
     resp = {}
 
     try:
@@ -733,13 +755,13 @@ def do_announce( message_text, sender_privkey, utxo_client, tx_broadcaster, conf
     sender_pubkey_hex = pybitcoin.BitcoinPrivateKey( sender_privkey ).public_key().to_hex()
     sender_address = pybitcoin.BitcoinPrivateKey( sender_privkey ).public_key().address()
 
-    tx_fee = estimate_announce_tx_fee( sender_pubkey_hex, utxo_client, config_path=config_path )
+    tx_fee = estimate_announce_tx_fee( sender_address, utxo_client, config_path=config_path )
     if tx_fee is None:
         return {'error': 'Failed to estimate the tx fee'}
 
     log.debug("Announce (%s, %s) tx_fee = %s" % (message_hash, sender_address, tx_fee))
 
-    unsigned_tx = announce_tx( message_hash, sender_pubkey_hex, utxo_client, tx_fee=tx_fee )
+    unsigned_tx = announce_tx( message_hash, sender_address, utxo_client, tx_fee=tx_fee )
     resp = {}
 
     try:
