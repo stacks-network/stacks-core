@@ -32,13 +32,22 @@ parent_dir = os.path.abspath(current_dir + "/../")
 sys.path.insert(0, parent_dir)
 
 from blockstack_client.cli import run_cli, exit_with_error
-from blockstack_client.config import get_logger, configure
+from blockstack_client.config import get_logger, configure, CONFIG_PATH, client_uuid_path
+from blockstack_client.client import analytics_event, analytics_user_register, analytics_user_update
 from blockstack_client.utils import pretty_print
 
 if __name__ == '__main__':
 
     log = get_logger()
-    configure(interactive=True, force=False)
+    uuid_path = client_uuid_path()
+    first_time = False
+
+    if not os.path.exists(uuid_path):
+        first_time = True
+
+    res = configure(interactive=True, force=False)
+    if res.has_key('uuid') and first_time:
+        analytics_user_register( res['uuid'] )
 
     try:
         result = run_cli()
