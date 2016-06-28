@@ -38,6 +38,7 @@ from ..scripts import *
 import virtualchain
 log = virtualchain.get_logger("blockstack-client")
 
+
 def build( namespace_id, script_pubkey, register_addr, consensus_hash, namespace_id_hash=None):
    """
    Preorder a namespace with the given consensus hash.  This records that someone has begun to create 
@@ -65,7 +66,11 @@ def build( namespace_id, script_pubkey, register_addr, consensus_hash, namespace
        
        if len(namespace_id) == 0 or len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
           raise Exception("Invalid namespace ID length '%s (expected length between 1 and %s)" % (namespace_id, LENGTHS['blockchain_id_namespace_id']))
-   
+  
+       # NOTE: dup of the above checks
+       if not is_namespace_valid(namespace_id):
+          raise Exception("Invalid namespace ID")
+
        namespace_id_hash = hash_name(namespace_id, script_pubkey, register_addr=register_addr)
    
    readable_script = "NAMESPACE_PREORDER 0x%s 0x%s" % (namespace_id_hash, consensus_hash)
@@ -111,7 +116,7 @@ def make_outputs( data, inputs, change_addr, fee, tx_fee, pay_fee=True ):
     ]
     
 
-def make_transaction( namespace_id, register_addr, fee, consensus_hash, payment_public_key, blockchain_client, tx_fee=0 ):
+def make_transaction( namespace_id, register_addr, fee, consensus_hash, payment_addr, blockchain_client, tx_fee=0 ):
    """
    Propagate a namespace.
    
@@ -120,17 +125,25 @@ def make_transaction( namespace_id, register_addr, fee, consensus_hash, payment_
    register_addr        the addr of the key that will reveal the namespace (mixed into the preorder to prevent name preimage attack races)
    private_key          the Bitcoin address that created this namespace, and can populate it.
    """
-  
-   script_pubkey = get_script_pubkey( payment_public_key )
+
+   namespace_id = str(namespace_id)
+   register_addr = str(register_addr)
+   fee = int(fee)
+   consensus_hash = str(consensus_hash)
+   payment_addr = str(payment_addr)
+   tx_fee = int(tx_fee)
+
+   assert is_namespace_valid(namespace_id)
+   assert len(consensus_hash) == LENGTHS['consensus_hash'] * 2
+
+   script_pubkey = get_script_pubkey_from_addr( payment_addr )
    nulldata = build( namespace_id, script_pubkey, register_addr, consensus_hash )
    
    # get inputs and from address
-   pubk = pybitcoin.BitcoinPublicKey( payment_public_key )
-   from_address = pubk.address()
-   inputs = get_unspents( from_address, blockchain_client )
+   inputs = get_unspents( payment_addr, blockchain_client )
     
    # build custom outputs here
-   outputs = make_outputs(nulldata, inputs, from_address, fee, tx_fee )
+   outputs = make_outputs(nulldata, inputs, payment_addr, fee, tx_fee )
    
    return (inputs, outputs)
 

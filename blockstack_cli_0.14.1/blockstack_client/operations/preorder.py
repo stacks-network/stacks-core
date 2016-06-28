@@ -104,25 +104,31 @@ def make_outputs( data, inputs, sender_addr, fee, tx_fee ):
     ]
 
 
-def make_transaction(name, user_public_key, register_addr, fee, consensus_hash, blockchain_client, tx_fee=0):
+def make_transaction(name, payment_addr, register_addr, fee, consensus_hash, blockchain_client, tx_fee=0):
     """
     Builds and broadcasts a preorder transaction.
     """
 
-    from_address = None     # change address
+    payment_addr = str(payment_addr)
+    register_addr = str(register_addr)
+    name = str(name)
+    consensus_hash = str(consensus_hash)
+    fee = int(fee)
+    tx_fee = int(tx_fee)
+
+    assert is_name_valid(name)
+    assert len(consensus_hash) == LENGTHS['consensus_hash'] * 2
+
     inputs = None
     private_key_obj = None
     script_pubkey = None    # to be mixed into preorder hash
     
     # tx only
-    pubk = pybitcoin.BitcoinPublicKey( user_public_key )
-
-    from_address = pybitcoin.BitcoinPublicKey( user_public_key ).address()
-    inputs = get_unspents( from_address, blockchain_client )
-    script_pubkey = get_script_pubkey( user_public_key )
+    inputs = get_unspents( payment_addr, blockchain_client )
+    script_pubkey = get_script_pubkey_from_addr( payment_addr )
 
     nulldata = build( name, script_pubkey, register_addr, consensus_hash)
-    outputs = make_outputs(nulldata, inputs, from_address, fee, tx_fee)
+    outputs = make_outputs(nulldata, inputs, payment_addr, fee, tx_fee)
     
     return (inputs, outputs)
 

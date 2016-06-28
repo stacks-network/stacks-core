@@ -35,7 +35,7 @@ import json
 
 from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
-from ..scripts import blockstack_script_to_hex, add_magic_bytes, hash_name
+from ..scripts import blockstack_script_to_hex, add_magic_bytes, hash_name, is_namespace_valid
    
 import virtualchain
 log = virtualchain.get_logger("blockstack-log")
@@ -202,7 +202,7 @@ def make_outputs( data, inputs, reveal_addr, change_addr, tx_fee):
     
     
 
-def make_transaction( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, user_public_key, blockchain_client, tx_fee=0 ):
+def make_transaction( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, payment_addr, blockchain_client, tx_fee=0 ):
    """
    Propagate a namespace.
    
@@ -217,15 +217,31 @@ def make_transaction( namespace_id, reveal_addr, lifetime, coeff, base_cost, buc
    no_vowel_discount:   discount multipler for no-vowel names
    """
 
+   namespace_id = str(namespace_id)
+   reveal_addr = str(reveal_addr)
+   lifetime = int(lifetime)
+   coeff = int(coeff)
+   base_cost = int(base_cost)
+   nonalpha_discount = int(nonalpha_discount)
+   no_vowel_discount = int(no_vowel_discount)
+   payment_addr = str(payment_addr)
+   tx_fee = int(tx_fee)
+
+   bexp = []
+   for be in bucket_exponents:
+       bexp.append(int(be))
+
+   bucket_exponents = bexp
+
+   assert is_namespace_valid(namespace_id)
+
    nulldata = build( namespace_id, BLOCKSTACK_VERSION, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount )
    
    # get inputs and from public key
-   pubk = pybitcoin.BitcoinPublicKey( user_public_key )
-   from_address = pubk.address()
-   inputs = get_unspents( from_address, blockchain_client )
+   inputs = get_unspents( payment_addr, blockchain_client )
     
    # build custom outputs here
-   outputs = make_outputs(nulldata, inputs, reveal_addr, from_address, tx_fee)
+   outputs = make_outputs(nulldata, inputs, reveal_addr, payment_addr, tx_fee)
    
    return (inputs, outputs)
 
