@@ -168,9 +168,24 @@ def check( state_engine ):
         print "name has wrong owner"
         return False 
 
-    # replicated to blockstack server 
     srv = xmlrpclib.ServerProxy("http://localhost:%s" % blockstack.RPC_SERVER_PORT)
+
+    # zonefile and profile replicated to blockstack server 
     try:
+        zonefile_by_name_str = srv.get_zonefiles_by_names(['foo.test'])
+        zonefile_by_hash_str = srv.get_zonefiles([name_rec['value_hash']])
+       
+        zonefile_by_name = json.loads(zonefile_by_name_str)
+        zonefile_by_hash = json.loads(zonefile_by_hash_str)
+
+        assert 'error' not in zonefile_by_name, json.dumps(zonefile_by_name, indent=4, sort_keys=True)
+        assert 'error' not in zonefile_by_hash, json.dumps(zonefile_by_hash, indent=4, sort_keys=True)
+
+        zf1 = zonefile_by_name['zonefiles']['foo.test']
+        zf2 = zonefile_by_hash['zonefiles'][name_rec['value_hash']]
+        
+        assert zf1 == zf2
+
         profile_resp_txt = srv.get_profile("foo.test")
         profile_resp = json.loads(profile_resp_txt)
         assert 'error' not in profile_resp, "error:\n%s" % json.dumps(profile_resp, indent=4, sort_keys=True)
