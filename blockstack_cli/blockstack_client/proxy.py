@@ -146,6 +146,7 @@ def get_default_proxy(config_path=CONFIG_PATH):
 
         # load     
         conf = config.get_config(config_path)
+        assert conf is not None, "Failed to get config from '%s'" % config_path
         blockstack_server = conf['server']
         blockstack_port = conf['port']
 
