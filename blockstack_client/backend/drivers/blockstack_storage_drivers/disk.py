@@ -31,7 +31,7 @@ import os
 import sys 
 import traceback
 import logging
-from .common import get_logger, DEBUG
+from common import get_logger, DEBUG
 
 log = get_logger("blockstack-storage-driver-disk")
 
