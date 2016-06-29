@@ -26,6 +26,8 @@ import pybitcoin
 import json
 import blockstack_client
 
+log = blockstack_client.get_logger("blockstack-integration-tests")
+
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
     testlib.Wallet( "5KHqsiU9qa77frZb6hQy9ocV7Sus9RWJcQGYYBJJBb2Efj1o77e", 100000000000 ),
@@ -77,6 +79,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # put immutable (with owner key)
+    log.debug("put immutable 1 with owner key")
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1_immutable", datasets[0], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
@@ -86,6 +89,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
     
     # put immutable (with owner key)
+    log.debug("put immutable 2 with owner key")
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_2_immutable", datasets[1], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
@@ -95,6 +99,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # put mutable (with owner key)
+    log.debug("put mutable 1 with owner key")
     put_result = blockstack_client.put_mutable( "foo.test", "hello_world_1_mutable", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
@@ -102,6 +107,7 @@ def scenario( wallets, **kw ):
         return
 
     # put mutable (with owner key)
+    log.debug("put mutable 2 with owner key")
     put_result = blockstack_client.put_mutable( "foo.test", "hello_world_2_mutable", datasets[1], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
@@ -123,13 +129,17 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # put immutable (with new key)
+    log.debug("put immutable with new key")
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_3_immutable", datasets[2], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
+        error = True
+        return
 
     testlib.next_block( **kw )
 
     # put mutable (with new key)
+    log.debug("put mutable with new key")
     put_result = blockstack_client.put_mutable( "foo.test", "hello_world_3_mutable", datasets[2], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
@@ -139,6 +149,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # delete immutable (new key)
+    log.debug("delete immutable with new key")
     result = blockstack_client.delete_immutable( "foo.test", None, data_id="hello_world_1_immutable", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in result:
         print json.dumps(result, indent=4, sort_keys=True)
@@ -148,6 +159,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # delete mutable (new key)
+    log.debug("delete mutable with new key")
     result = blockstack_client.delete_mutable( "foo.test", "hello_world_1_mutable", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in result:
         print json.dumps(result, indent=4, sort_keys=True)
@@ -220,16 +232,16 @@ def check( state_engine ):
 
         mutable_data = blockstack_client.get_mutable( "foo.test", "hello_world_%s_mutable" % (i+1), proxy=test_proxy )
         if mutable_data is None:
-            print "No data received for mutable dataset %s" % i
+            print "No data received for mutable dataset %s" % (i+1)
             return False
 
         if 'error' in mutable_data:
-            print "No data received for mutable dataset %s: %s" % (i, mutable_data['error'])
+            print "No data received for mutable dataset %s: %s" % (i+1, mutable_data['error'])
             return False
 
         data_json = mutable_data['data']
         if data_json != datasets[i]:
-            print "did not get dataset %s\ngot %s\nexpected %s" % (i, data_json, datasets[i])
+            print "did not get dataset %s\ngot %s\nexpected %s" % (i+1, data_json, datasets[i])
             return False
 
     # should fail 

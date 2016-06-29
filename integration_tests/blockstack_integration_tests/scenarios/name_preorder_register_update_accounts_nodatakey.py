@@ -170,13 +170,13 @@ def check( state_engine ):
             print json.dumps(accounts, indent=4, sort_keys=True)
             return False 
 
-        account = accounts[0]
+        account = accounts['accounts'][0]
         on_file_accounts = blockstack_client.get_account( "foo.test", "serviceFoo", "serviceFooID", proxy=test_proxy, wallet_keys=wallet_keys )
         if 'error' in on_file_accounts:
             print json.dumps(on_file_account, sort_keys=True, indent=4)
             return False 
 
-        on_file_account = on_file_accounts['accounts'][0]
+        on_file_account = on_file_accounts['account'][0]
 
         if account != on_file_account:
             print "wrong service\nexpected:\n%s\n\ngot:\n%s\n" % \
