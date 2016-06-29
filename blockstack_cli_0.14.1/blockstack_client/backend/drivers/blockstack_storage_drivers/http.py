@@ -26,7 +26,7 @@
 import os
 import sys
 import requests
-from .common import get_logger
+from common import get_logger
 
 log = get_logger("blockstack-storage-drivers-http")
 

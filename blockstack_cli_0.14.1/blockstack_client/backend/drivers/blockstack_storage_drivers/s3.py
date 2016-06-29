@@ -39,7 +39,7 @@ from boto.s3.key import Key
 import logging
 logging.getLogger('boto').setLevel(logging.CRITICAL)
 
-from .common import get_logger, DEBUG
+from common import get_logger, DEBUG
 
 log = get_logger("blockstack-storage-driver-s3")
 
@@ -388,6 +388,7 @@ if __name__ == "__main__":
    assert CONFIG_PATH, "Missing BLOCKSTACK_CONFIG_PATH from environment"
 
    conf = get_config(CONFIG_PATH)
+   print json.dumps(conf, indent=4, sort_keys=True)
 
    pk = pybitcoin.BitcoinPrivateKey()
    data_privkey = pk.to_hex()
