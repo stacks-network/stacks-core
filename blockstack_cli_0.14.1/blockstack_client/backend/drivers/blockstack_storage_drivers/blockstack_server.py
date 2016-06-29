@@ -32,6 +32,7 @@ import traceback
 import logging
 import xmlrpclib
 import json
+from ConfigParser import SafeConfigParser
 
 import blockstack_zones
 
@@ -39,7 +40,10 @@ import blockstack_zones
 from defusedxml import xmlrpc
 xmlrpc.monkey_patch()
 
-from .common import get_logger, DEBUG
+from common import get_logger, DEBUG
+
+SERVER_NAME = None
+SERVER_PORT = None 
 
 if os.environ.get("BLOCKSTACK_TEST", None) == "1":
     SERVER_NAME = "localhost"
@@ -50,7 +54,7 @@ else:
     SERVER_PORT = 6264
 
 log = get_logger("blockstack-storage-driver-blockstack-server")
-
+log.setLevel(logging.DEBUG)
 
 def get_data( data_id, zonefile=False ):
     """
@@ -66,7 +70,7 @@ def get_data( data_id, zonefile=False ):
     ses = xmlrpclib.ServerProxy( url, allow_none=True )
     
     if zonefile:
-        res = ses.get_zonefiles( [data_id] )
+        res = ses.get_zonefiles_by_names( [data_id] )
         try:
             data = json.loads(res)
         except:
@@ -78,9 +82,10 @@ def get_data( data_id, zonefile=False ):
             return None
         else:
             try:
-                return data['zonefiles'][0]
+                return data['zonefiles'][data_id]
             except:
                 log.error("Failed to parse zonefile")
+                print data
                 return None
 
     else:
@@ -150,7 +155,38 @@ def put_data( data_id, data_txt, zonefile=False ):
 
 
 def storage_init(conf):
+    # read config options from the config file, if given 
+    global SERVER_NAME, SERVER_PORT
+
+    config_path = conf['path']
+    if os.path.exists( config_path ):
+
+        parser = SafeConfigParser()
+        
+        try:
+            parser.read(config_path)
+        except Exception, e:
+            log.exception(e)
+            return False
+
+        if parser.has_section('blockstack-server-storage'):
+            
+            if parser.has_option('blockstack-server-storage', 'server'):
+                SERVER_NAME = parser.get('blockstack-server-storage', 'server')
+                
+            if parser.has_option('blockstack-server-storage', 'port'):
+                SERVER_PORT = int(parser.get('blockstack-server-storage', 'port'))
+           
+    else:
+        raise Exception("No such file or directory: %s" % config_path)
+            
+    # we can't proceed unless we have them.
+    if SERVER_NAME is None or SERVER_PORT is None:
+        log.error("Config file '%s': section 'blockstack_server_storage' is missing 'host' and/or 'port'")
+        return False
+
     return True
+
 
 def handles_url( url ):
     if url.startswith("http://") and len(url.split("#")) == 2 and url.split("#")[1].endswith("/RPC2"):
@@ -186,3 +222,26 @@ def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
 
 def delete_mutable_handler( data_id, signature, **kw ):
     return True
+
+if __name__ == "__main__":
+    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
+    assert config_path is not None, "You must set BLOCKSTACK_CLIENT_CONFIG"
+
+    import blockstack_client
+    config = blockstack_client.get_config(config_path)
+    assert config is not None
+
+    print json.dumps(config, indent=4, sort_keys=True)
+    storage_init(config)
+
+    assert len(sys.argv) > 1, "You must specify one or more names"
+    for name in sys.argv[1:]:
+        zonefile = get_data(name, zonefile=True)
+        assert zonefile is not None and 'error' not in zonefile, "Bad zonefile: %s" % zonefile
+        profile = get_data( name )
+        assert profile is not None and 'error' not in profile, "Bad profile: %s" % profile
+
+        print "zonefile:\n%s" % zonefile
+        print "profile:\n%s" % json.dumps(profile, indent=4, sort_keys=True)
+        print ""
+
