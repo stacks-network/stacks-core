@@ -753,13 +753,17 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
         # find the profile
         try:
-            profile, _ = blockstack_client.get_name_profile(name, user_zonefile=zonefile_dict, name_record=name_rec)
+            profile, zonefile = blockstack_client.get_name_profile(name, user_zonefile=zonefile_dict, name_record=name_rec)
         except Exception, e:
             log.exception(e)
             log.debug("Failed to load profile for '%s'" % name)
             return {'error': 'Failed to load profile'}
 
-        return {'status': True, 'profile': profile}
+        if 'error' in zonefile:
+            return zonefile
+        
+        else:
+            return {'status': True, 'profile': profile}
 
 
     def rpc_put_profile(self, name, profile_txt ):
