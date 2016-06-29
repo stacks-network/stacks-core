@@ -1099,7 +1099,10 @@ def run_server( foreground=False, index=True ):
             # wait for intermediate child
             pid, status = os.waitpid( child_pid, 0 )
             sys.exit(status)
-    
+   
+    # make sure client is initialized 
+    get_blockstack_client_session()
+
     # start API server
     rpc_start(blockstack_opts['rpc_port'])
     running = True
