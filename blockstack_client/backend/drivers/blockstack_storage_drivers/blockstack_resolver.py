@@ -33,10 +33,11 @@ import logging
 import json
 import requests
 import pybitcoin
+from ConfigParser import SafeConfigParser
 
 import blockstack_zones
 
-from .common import get_logger, DEBUG
+from common import get_logger, DEBUG
 
 log = get_logger("blockstack-storage-driver-blockstack-s3-readonly")
 
@@ -115,7 +116,36 @@ def get_profile( fqu ):
 
 
 def storage_init(conf):
+    # read config options from the config file, if given 
+    global STORAGE_URL, RESOLVER_URL
+
+    config_path = conf['path']
+    if os.path.exists( config_path ):
+
+        parser = SafeConfigParser()
+        
+        try:
+            parser.read(config_path)
+        except Exception, e:
+            log.exception(e)
+            return False
+
+        if parser.has_section('blockstack-resolver-storage'):
+            
+            if parser.has_option('blockstack-resolver-storage', 'storage_url'):
+                SERVER_NAME = parser.get('blockstack-resolver-storage', 'storage_url')
+                
+            if parser.has_option('blockstack-resolver-storage', 'resolver_url'):
+                SERVER_PORT = int(parser.get('blockstack-resolver-storage', 'resolver_url'))
+            
+            
+    # we can't proceed unless we have them.
+    if STORAGE_URL is None or RESOLVER_URL is None:
+        log.error("Config file '%s': section 'blockstack_resolver_storage' is missing 'resolver_url' and/or 'storage_url'")
+        return False
+
     return True
+
 
 def handles_url( url ):
     if RESOLVER_URL in url or STORAGE_URL in url:
