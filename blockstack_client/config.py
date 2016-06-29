@@ -755,7 +755,7 @@ def read_config_file(path=CONFIG_PATH):
         parser.set('blockstack-client', 'rpc_detach', "True")
         parser.set('blockstack-client', 'blockchain_reader', DEFAULT_BLOCKCHAIN_READER)
         parser.set('blockstack-client', 'blockchain_writer', DEFAULT_BLOCKCHAIN_WRITER)
-        parser.set('blockstack-client', 'anonymous_statistics', True)
+        parser.set('blockstack-client', 'anonymous_statistics', "True")
 
         rpc_token = os.urandom(32)
         parser.set('blockstack-client', 'rpc_token', hexlify(rpc_token))
