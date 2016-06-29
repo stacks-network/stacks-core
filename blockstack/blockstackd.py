@@ -715,6 +715,12 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if not config['serve_profiles']:
             return {'error': 'No data'}
 
+        # find the name record 
+        db = get_state_engine()
+        name_rec = db.get_name(name)
+        if name_rec is None:
+            return {'error': 'No such name'}
+
         # find zonefile 
         zonefile_dict = self.get_zonefile_by_name( config, name )
         if zonefile_dict is None:
@@ -722,7 +728,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
         # find the profile
         try:
-            profile, _ = blockstack_client.get_name_profile(name, user_zonefile=zonefile_dict)
+            profile, _ = blockstack_client.get_name_profile(name, user_zonefile=zonefile_dict, name_record=name_rec)
         except Exception, e:
             log.exception(e)
             log.debug("Failed to load profile for '%s'" % name)
@@ -736,6 +742,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Store a profile for a particular name
         profile_txt must be a serialized JWT signed by the key in the user's zonefile
         """
+
         config = get_blockstack_opts()
         if not config['serve_profiles']:
             return {'error': 'No data'}
