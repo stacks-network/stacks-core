@@ -201,7 +201,7 @@ def parse_mutable_data( mutable_data_json_txt, public_key, public_key_hash=None 
        if len(mutable_data_json) > 0:
            return mutable_data_json
        else:
-           log.warn("Failed to verify with public key")
+           log.warn("Failed to verify with public key '%s'" % public_key)
 
    # try pubkey address 
    if public_key_hash is not None:
@@ -209,7 +209,7 @@ def parse_mutable_data( mutable_data_json_txt, public_key, public_key_hash=None 
        if len(mutable_data_json) > 0:
            return mutable_data_json
        else:
-           log.warn("Failed to verify with public key hash")
+           log.warn("Failed to verify with public key hash '%s'" % public_key_hash)
 
    return None
 

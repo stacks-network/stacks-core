@@ -321,11 +321,14 @@ def get_name_profile(name, create_if_absent=False, proxy=None, wallet_keys=None,
        
     else:
         # get user's data public key
+        user_address = None
+        old_address = None
+
         try:
             user_data_pubkey = user_db.user_zonefile_data_pubkey( user_zonefile )
             if user_data_pubkey is not None:
-                log.debug("user public key: %s (%s)" % (user_data_pubkey, type(user_data_pubkey)))
                 user_data_pubkey = str(user_data_pubkey)
+                user_address = pybitcoin.BitcoinPublicKey(user_data_pubkey).address()
 
         except ValueError:
             # user decided to put multiple keys under the same name into the zonefile.
@@ -333,20 +336,26 @@ def get_name_profile(name, create_if_absent=False, proxy=None, wallet_keys=None,
             user_data_pubkey = None 
 
         # convert to address
-        user_address = None
-        if user_data_pubkey is None:
-            if name_record is None:
-                name_record = proxy.get_name_blockchain_record( name )
-                if name_record is None or 'error' in name_record:
-                    log.error("Failed to look up name record for '%s'" % name)
-                    return (None, {'error': 'Failed to look up name record'})
+        if name_record is None:
+            name_record = proxy.get_name_blockchain_record( name )
+            if name_record is None or 'error' in name_record:
+                log.error("Failed to look up name record for '%s'" % name)
+                return (None, {'error': 'Failed to look up name record'})
 
-            user_address = name_record['address']
-        else:
-            user_address = pybitcoin.BitcoinPublicKey(user_data_pubkey).address()
+        old_address = name_record['address']
+        if user_address is None:
+            # cut to the chase
+            user_address = old_address
 
         user_profile = load_name_profile( name, user_zonefile, user_address )
         if user_profile is None or 'error' in user_profile:
+
+            if old_address != user_address:
+                log.debug("Falling back to old owner address")
+                user_profile = load_name_profile( name, user_zonefile, old_address )
+        
+        if user_profile is None or 'error' in user_profile:
+
             if user_profile is None:
                 log.debug("WARN: no user profile for %s" % name)
             else:

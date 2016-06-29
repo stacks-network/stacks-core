@@ -430,7 +430,7 @@ def cli_names( args, config_path=CONFIG_DIR ):
             return res
 
     result['names_owned'] = get_all_names_owned(wallet_path)
-    result['addresses'] = get_owner_addresses(wallet_path)
+    result['addresses'] = get_owner_addresses_and_names(wallet_path)
 
     return result
 
