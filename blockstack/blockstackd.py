@@ -614,7 +614,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
     def rpc_get_zonefiles( self, zonefile_hashes ):
         """
-        Get a user's zonefile from the local cache,
+        Get a users zonefiles from the local cache,
         or (on miss), from upstream storage.
         Only return at most 100 zonefiles.
         Return {'status': True, 'zonefiles': [zonefiles]} on success
@@ -640,6 +640,35 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
             else:
                 ret[zonefile_hash] = serialize_zonefile( zonefile )
+
+        return {'status': True, 'zonefiles': ret}
+
+
+    def rpc_get_zonefiles_by_names( self, names ):
+        """
+        Get a users' zonefiles from the local cache,
+        or (on miss), from upstream storage.
+        Only return at most 100 zonefiles.
+        Return {'status': True, 'zonefiles': [zonefiles]} on success
+        Return {'error': ...} on error
+
+        zonefiles will be serialized to string
+        """
+        config = get_blockstack_opts()
+        if not config['serve_zonefiles']:
+            return {'error': 'No data'}
+
+        if len(names) > 100:
+            return {'error': 'Too many requests'}
+
+        ret = {}
+        for name in names:
+            zonefile = self.get_zonefile_by_name( config, name )
+            if zonefile is None:
+                continue
+
+            else:
+                ret[name] = serialize_zonefile( zonefile )
 
         return {'status': True, 'zonefiles': ret}
 
