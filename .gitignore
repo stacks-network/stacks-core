@@ -41,3 +41,6 @@ data
 
 # vim
 *.swp
+
+#Docker
+Docker/blockstore.ini
