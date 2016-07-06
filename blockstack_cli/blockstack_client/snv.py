@@ -681,11 +681,6 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
     if proxy is None:
         proxy = get_default_proxy()
 
-    # get current consensus hash and block ID
-    current_info = getinfo(proxy=proxy)
-    if 'error' in current_info:
-        return current_info
-
     # work backwards in time, using a Merkle skip-list constructed
     # by blockstackd over the set of consensus hashes.
     next_block_id = current_block_id
@@ -716,7 +711,7 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
             nameops_hash = prev_nameops_hashes[ next_block_id ]
 
         # print "prev_nameops_hashes[%s] = %s" % (next_block_id, nameops_hash)
-
+        """
         ch_block_ids = []
         while next_block_id - (2**(i+1) - 1) >= FIRST_BLOCK_MAINNET:
 
@@ -734,8 +729,49 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
                     # skip this one
                     ch_block_ids.pop()
                     break
+        """
+        # find out which consensus hashes we'll need
+        to_fetch = []
+        ch_block_ids = []
+        while next_block_id - (2**(i+1) - 1) >= FIRST_BLOCK_MAINNET:
 
-        prev_consensus_hashes_list = [ prev_consensus_hashes[b] for b in ch_block_ids ]
+            i += 1
+            prev_block_id = next_block_id - (2**i - 1)
+            ch_block_ids.append(prev_block_id)
+
+            if not prev_consensus_hashes.has_key(prev_block_id):
+                to_fetch.append( prev_block_id )
+
+
+        # get the consensus hashes
+        chs = {}
+        if len(to_fetch) > 0:
+            chs = get_consensus_hashes( to_fetch, proxy=proxy )
+
+        prev_consensus_block_ids = []
+        for b in ch_block_ids:
+
+            # NOTE: we process to_fetch *in decreasing order* so we know when we're missing data
+            if not chs.has_key(b) and not prev_consensus_hashes.has_key(b):
+                log.error("Missing consensus hash response for %s" % b)
+                return {'error': "Server did not reply valid data"}
+
+            prev_consensus_block_ids.append(b)
+            if prev_consensus_hashes.has_key(b):
+                # already got this one
+                continue
+
+            ch = str(chs[b])
+            if ch != "None":
+                prev_consensus_hashes[b] = ch
+
+            else:
+                # no consensus hash for this block and all future blocks
+                prev_consensus_block_ids.pop()
+                break
+                
+        # prev_consensus_hashes_list = [ prev_consensus_hashes[b] for b in ch_block_ids ]
+        prev_consensus_hashes_list = [ prev_consensus_hashes[b] for b in prev_consensus_block_ids ]
 
         # calculate the snapshot, and see if it matches
         ch = virtualchain.StateEngine.make_snapshot_from_ops_hash(nameops_hash, prev_consensus_hashes_list)
