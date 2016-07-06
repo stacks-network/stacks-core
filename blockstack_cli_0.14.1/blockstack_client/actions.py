@@ -1580,8 +1580,6 @@ def cli_advanced_delete_mutable( args, config_path=CONFIG_PATH ):
     arg: data_id (str) "The ID of the data to remove"
     """
     result = delete_mutable(str(args.name), str(args.data_id))
-
-
     return result
 
 
