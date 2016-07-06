@@ -70,6 +70,9 @@ class BlockstackDB( virtualchain.StateEngine ):
       """
       Construct a blockstack state engine, optionally from locally-cached
       blockstack database state.
+
+      Within the context of blockstack-server:
+      * do NOT instantiate directly.  Use the virtualchain_hooks helper method (get_db_state())
       """
 
       import virtualchain_hooks
