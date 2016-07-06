@@ -335,7 +335,11 @@ def interactive_prompt( message, parameters, default_opts ):
       if param in default_opts.keys():
           prompt_str = "%s (default: '%s'): " % (formatted_param, default_opts[param])
 
-      value = raw_input(prompt_str)
+      try:
+          value = raw_input(prompt_str)
+      except KeyboardInterrupt:
+          log.debug("Exiting on keyboard interrupt")
+          sys.exit(0)
 
       if len(value) > 0:
          ret[param] = value
