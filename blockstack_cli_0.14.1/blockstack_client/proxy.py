@@ -305,6 +305,40 @@ def get_consensus_at(block_height, proxy=None):
     return resp
 
 
+def get_consensus_hashes(block_heights, proxy=None):
+    """
+    Get consensus hashes for a list of blocks
+    NOTE: returns {block_height (int): consensus_hash (str)}
+    (coerces the key to an int)
+    """
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    resp = proxy.get_consensus_hashes(block_heights)
+    if type(resp) == list:
+        if len(resp) == 0:
+            resp = {'error': 'No data returned'}
+        else:
+            resp = resp[0]
+
+    if 'error' in resp:
+        return resp
+
+    else:
+        if type(resp) != dict:
+            return {'error': 'Invalid data: expected dict'}
+
+        ret = {}
+        for h in resp.keys():
+            try:
+                hint = int(h)
+                ret[hint] = resp[h]
+            except:
+                return {'error': 'Invalid data: expected int'}
+            
+        return ret
+
+
 def get_consensus_range(block_id_start, block_id_end, proxy=None):
     """
     Get a range of consensus hashes.  The range is inclusive.
