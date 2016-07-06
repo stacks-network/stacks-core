@@ -30,6 +30,7 @@ import time
 import pybitcoin 
 import traceback
 import json
+import threading
 import copy
 
 from .namedb import BlockstackDB
@@ -46,6 +47,7 @@ log = virtualchain.get_logger("blockstack-log")
 blockstack_db = None
 last_load_time = 0
 last_check_time = 0
+reload_lock = threading.Lock()
 
 def get_burn_fee_from_outputs( outputs ):
     """
@@ -273,6 +275,41 @@ def get_first_block_id():
    return start_block
 
 
+def need_db_reload( mtime ):
+   """
+   Do we need to reload the database?
+   @mtime: last-mod time of the on-disk database (pass None if not known)
+   """
+   global blockstack_db
+   global last_load_time
+   global last_check_time
+
+   db_filename = virtualchain.get_db_filename()
+
+   sb = None
+   if os.path.exists(db_filename) and mtime is None:
+       sb = os.stat(db_filename)
+       mtime = sb.st_mtime 
+
+   if blockstack_db is None:
+       # doesn't exist in RAM
+       return True
+     
+   if mtime is None or os.path.exists(db_filename):
+       # doesn't exist on disk 
+       return True 
+   
+   if sb is not None and sb.st_mtime != last_load_time:
+       # stale--new version exists on disk
+       return True 
+   
+   if time.time() - last_check_time > 600:
+       # just for good measure--don't keep it around past the blocktime
+       return True
+
+   return False
+
+
 def get_db_state(disposition=None):
    """
    (required by virtualchain state engine)
@@ -288,6 +325,7 @@ def get_db_state(disposition=None):
    global blockstack_db
    global last_load_time
    global last_check_time
+   global reload_lock
 
    mtime = None
    db_filename = virtualchain.get_db_filename()
@@ -296,9 +334,17 @@ def get_db_state(disposition=None):
        sb = os.stat(db_filename)
        mtime = sb.st_mtime 
 
-   if blockstack_db is None or mtime is None or not os.path.exists(db_filename) or sb.st_mtime != last_load_time or time.time() - last_check_time > 600:
-       log.info("(Re)Loading blockstack state from '%s'" % db_filename )
-       blockstack_db = BlockstackDB( db_filename )
+   # opportunistic check
+   if need_db_reload( mtime ):
+
+       reload_lock.acquire()
+
+       if need_db_reload( mtime ):
+           # actually need it
+           log.info("(Re)Loading blockstack state from '%s'" % db_filename )
+           blockstack_db = BlockstackDB( db_filename )
+    
+       reload_lock.release()
 
        if mtime is not None:
           last_load_time = mtime 
@@ -314,9 +360,13 @@ def invalidate_db_state():
     """
     Clear out in-RAM cached db state
     """
-    log.info("Invalidating cached blockstack state")
     global blockstack_db
+    global reload_lock
+
+    reload_lock.acquire()
+    log.info("Invalidating cached blockstack state")
     blockstack_db = None 
+    reload_lock.release()
 
 
 def db_parse( block_id, txid, vtxindex, opcode, data, senders, inputs, outputs, fee, db_state=None ):
