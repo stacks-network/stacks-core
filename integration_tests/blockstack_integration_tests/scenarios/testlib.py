@@ -450,6 +450,34 @@ def blockstack_rpc_transfer( name, new_owner_address, password ):
     return resp
 
 
+def blockstack_rpc_renew( name, password ):
+    """
+    Renew a name, using the backend RPC endpoint
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
+    args = CLIArgs()
+    args.name = name
+
+    resp = cli_renew( args, config_path=test_proxy.config_path, password=password, interactive=False, proxy=test_proxy )
+    return resp
+
+
+def blockstack_rpc_revoke( name, password ):
+    """
+    Revoke a name, using the backend RPC endpoint
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
+    args = CLIArgs()
+    args.name = name
+
+    resp = cli_revoke( args, config_path=test_proxy.config_path, password=password, interactive=False, proxy=test_proxy )
+    return resp
+
+
 def blockstack_rpc_names():
     """
     Get the list of nams owned by the local wallet
