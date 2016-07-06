@@ -24,11 +24,13 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'virtualchain>=0.0.9.0',
+        'virtualchain>=0.0.13.0',
         'blockstack-client>=0.0.13.0',
-        'blockstack-server>=0.0.10.8',
+        'blockstack-server>=0.0.13.0',
         'blockstack-profiles>=0.1.3',
-        'blockstack-storage-drivers>=0.0.1.0',
+        'blockstack-storage-drivers>=0.0.13.0',
+        'blockstack-file>=0.0.13.0',
+        'blockstack-gpg>=0.0.13.0',
         'blockstack-zones>=0.1.6'
     ],
     classifiers=[
