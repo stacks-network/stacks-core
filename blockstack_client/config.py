@@ -36,10 +36,12 @@ from ConfigParser import SafeConfigParser
 
 from version import __version__
 
+DEBUG = False
 if os.environ.get("BLOCKSTACK_TEST") is not None and os.environ.get("BLOCKSTACK_TEST_NODEBUG") is None:
     DEBUG = True
-else:
-    DEBUG = False
+
+if os.environ.get("BLOCKSTACK_DEBUG") is not None:
+    DEBUG = True
 
 VERSION = __version__
 
@@ -417,7 +419,7 @@ def opt_restore( prefix, opts ):
    return ret
 
 
-def default_bitcoind_opts( config_file=None ):
+def default_bitcoind_opts( config_file=None, prefix=False ):
    """
    Get our default bitcoind options, such as from a config file,
    or from sane defaults
@@ -431,7 +433,9 @@ def default_bitcoind_opts( config_file=None ):
          del default_bitcoin_opts[k]
 
    # strip 'bitcoind_'
-   default_bitcoin_opts = opt_strip("bitcoind_", default_bitcoin_opts)
+   if not prefix:
+       default_bitcoin_opts = opt_strip("bitcoind_", default_bitcoin_opts)
+
    return default_bitcoin_opts
 
 
