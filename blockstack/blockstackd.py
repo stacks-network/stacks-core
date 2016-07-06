@@ -549,6 +549,22 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return db.get_consensus_at( block_id )
 
 
+    def rpc_get_consensus_hashes( self, block_id_list ):
+        """
+        Return the consensus hashes at multiple block numbers
+        Return a dict mapping each block ID to its consensus hash
+        """
+        if is_indexing():
+            return {'error': 'Indexing blockchain'}
+
+        db = get_state_engine()
+        ret = {}
+        for block_id in block_id_list:
+            ret[block_id] = db.get_consensus_at(block_id)
+
+        return ret
+
+
     def rpc_get_mutable_data( self, blockchain_id, data_name ):
         """
         Get a mutable data record written by a given user.
