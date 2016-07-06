@@ -275,10 +275,9 @@ def get_first_block_id():
    return start_block
 
 
-def need_db_reload( mtime ):
+def need_db_reload():
    """
-   Do we need to reload the database?
-   @mtime: last-mod time of the on-disk database (pass None if not known)
+   Do we need to instantiate/reload the database?
    """
    global blockstack_db
    global last_load_time
@@ -287,24 +286,27 @@ def need_db_reload( mtime ):
    db_filename = virtualchain.get_db_filename()
 
    sb = None
-   if os.path.exists(db_filename) and mtime is None:
+   if os.path.exists(db_filename):
        sb = os.stat(db_filename)
-       mtime = sb.st_mtime 
 
    if blockstack_db is None:
        # doesn't exist in RAM
+       log.debug("cache consistency: DB is not in RAM")
        return True
      
-   if mtime is None or os.path.exists(db_filename):
+   if not os.path.exists(db_filename):
        # doesn't exist on disk 
+       log.debug("cache consistency: DB does not exist on disk")
        return True 
    
    if sb is not None and sb.st_mtime != last_load_time:
        # stale--new version exists on disk
+       log.debug("cache consistency: DB was modified; in-RAM copy is stale")
        return True 
    
    if time.time() - last_check_time > 600:
        # just for good measure--don't keep it around past the blocktime
+       log.debug("cache consistency: Blocktime has passed")
        return True
 
    return False
@@ -327,6 +329,8 @@ def get_db_state(disposition=None):
    global last_check_time
    global reload_lock
 
+   reload_lock.acquire()
+
    mtime = None
    db_filename = virtualchain.get_db_filename()
 
@@ -334,25 +338,19 @@ def get_db_state(disposition=None):
        sb = os.stat(db_filename)
        mtime = sb.st_mtime 
 
-   # opportunistic check
-   if need_db_reload( mtime ):
+   if need_db_reload():
+       log.info("(Re)Loading blockstack state from '%s'" % db_filename )
+       blockstack_db = BlockstackDB( db_filename )
 
-       reload_lock.acquire()
-
-       if need_db_reload( mtime ):
-           # actually need it
-           log.info("(Re)Loading blockstack state from '%s'" % db_filename )
-           blockstack_db = BlockstackDB( db_filename )
-    
-       reload_lock.release()
-
+       last_check_time = time.time()
        if mtime is not None:
           last_load_time = mtime 
 
-       last_check_time = time.time()
    else:
-       log.debug("Using cached blockstack state")
-   
+       log.debug("cache consistency: Using cached blockstack state")
+
+   reload_lock.release()
+
    return blockstack_db
 
 
