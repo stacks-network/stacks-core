@@ -424,7 +424,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         Get the number of blocks the
         """
-        bitcoind_opts = blockstack_client.default_bitcoind_opts( virtualchain.get_config_filename() )
+        bitcoind_opts = blockstack_client.default_bitcoind_opts( virtualchain.get_config_filename(), prefix=True )
         bitcoind = get_bitcoind( new_bitcoind_opts=bitcoind_opts, new=True )
         
         if bitcoind is None:
