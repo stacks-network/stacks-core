@@ -1,14 +1,10 @@
-# Blockstack Core
+# Blockstack Server
 
-[![PyPI](https://img.shields.io/pypi/v/blockstack.svg)](https://pypi.python.org/pypi/blockstack-core/)
-[![PyPI](https://img.shields.io/pypi/dm/blockstack.svg)](https://pypi.python.org/pypi/blockstack-core/)
+[![PyPI](https://img.shields.io/pypi/v/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
+[![PyPI](https://img.shields.io/pypi/dm/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
 [![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 
-Blockstack is a new decentralized web, where users own their data and apps run on user devices without the need for hosting.
-
-Blockstack Core handles the main functionality of the system. It is responsible for processing blockchain transactions, creating virtualchain state, and building the peer network amongst other things. Blockstack Core provides RPC and RESTful interfaces for Blockstack clients.
-
-The latest stable release of Blockstack Core is 0.14.0.
+A global database for people, companies, websites and more. Decentralized, privacy-centric, and blockchain-secured.
 
 Learn more by visiting [the Blockstack Website](https://blockstack.org) and checking out the in-depth articles and documentation:
 
@@ -17,16 +13,6 @@ Learn more by visiting [the Blockstack Website](https://blockstack.org) and chec
 - [Blockstack vs. Namecoin](https://blockstack.org/docs/blockstack-vs-namecoin)
 - [Blockstack Namespaces](https://blockstack.org/docs/namespaces)
 - [Blockstack Light Clients](https://blockstack.org/docs/light-clients)
-
-You can also read the Blockstack paper:
-
-- ["Blockstack: A Global Naming and Storage System Secured by Blockchains"](https://blockstack.org/blockstack.pdf), Proc. USENIX Annual Technical Conference (ATC ’16), June 2016
-
-**Developers**:  You can try out Blockstack Core in a local sandbox using our [integration test framework](https://github.com/blockstack/blockstack-integration-tests/tree/rc-0.14.0).
-
-### Community
-
-If you ever need more help or want to know more and chat with the user and developer communities, please stop by the [Blockstack Slack](https://blockstack.slack.com).  This project uses the \#core channel.
 
 ### Installation
 
@@ -47,7 +33,7 @@ First, start the Blockstack server and index the blockchain:
 $ blockstack-server start
 ```
 
-Next, visit the [usage docs](https://blockstack.org/docs) to learn how to register names of your own, as well as transfer them and associate data with them.
+Next, visit the [basic usage docs](https://blockstack.org/docs/basic-usage) and [extended usage docs](https://blockstack.org/docs/extended-usage) to learn how to register names of your own, as well as transfer them and associate data with them.
 
 ### Contributing
 
@@ -67,10 +53,12 @@ We welcome any small or big contributions! Please take a moment to
 
 ### Community
 
-We have an active community of developers and the best place to interact with the community is:
+The Blockstack community is a group of blockchain developers coming together to define and develop a set of software protocols and tools to serve as a common backend for blockchain-powered decentralized applications.
 
-- [Live chat on Slack](http://chat.blockstack.org/) (1,900+ members)
-- [Blockstack Reddit](http://reddit.com/r/blockstack)
+For more information, visit the community website at [Blockstack.org](http://blockstack.org).
+
+- [Slack Community](http://chat.blockstack.org/)
+- [Reddit Community](http://reddit.com/r/blockstack)
 
 ### Copyright and License
 
