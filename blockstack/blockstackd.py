@@ -107,7 +107,12 @@ def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
             new_bitcoind = blockstack_integration_tests.mock_bitcoind.connect_mock_bitcoind( bitcoin_opts, reset=reset )
 
          else:
-            new_bitcoind = virtualchain.connect_bitcoind( bitcoin_opts )
+            try:
+                new_bitcoind = virtualchain.connect_bitcoind( bitcoin_opts )
+            except KeyError, ke:
+                log.exception(ke)
+                log.error("Invalid configuration: %s" % bitcoin_opts)
+                return None
 
          if new:
              return new_bitcoind
@@ -220,6 +225,7 @@ def get_index_range():
     """
 
     bitcoind_session = get_bitcoind( new=True )
+    assert bitcoind_session is not None
 
     first_block = None
     last_block = None
@@ -420,6 +426,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         bitcoind_opts = blockstack_client.default_bitcoind_opts( virtualchain.get_config_filename() )
         bitcoind = get_bitcoind( new_bitcoind_opts=bitcoind_opts, new=True )
+        
+        if bitcoind is None:
+            return {'error': 'Internal server error: failed to connect to bitcoind'}
 
         info = bitcoind.getinfo()
         reply = {}
@@ -533,6 +542,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         Return the consensus hash at a block number
         """
+        if is_indexing():
+            return {'error': 'Indexing blockchain'}
+
         db = get_state_engine()
         return db.get_consensus_at( block_id )
 
@@ -976,6 +988,13 @@ def get_indexing_lockfile():
     return os.path.join( virtualchain.get_working_dir(), "blockstack.indexing" )
 
 
+def get_bootstrap_lockfile():
+    """
+    Return path to the indexing lockfile
+    """
+    return os.path.join( virtualchain.get_working_dir(), "blockstack.bootstrapping" )
+
+
 def is_indexing():
     """
     Is the blockstack daemon synchronizing with the blockchain?
@@ -1006,6 +1025,38 @@ def set_indexing( flag ):
             return True
         except:
             return False
+
+
+def set_bootstrapped( flag ):
+    """
+    Set a flag in the filesystem as to whether or not we have sync'ed up to the latest block
+    """
+    bootstrap_path = get_bootstrap_lockfile()
+    if flag:
+        try:
+            fd = open( bootstrap_path, "w+" )
+            fd.close()
+            return True
+        except:
+            return False
+
+    else:
+        try:
+            os.unlink( bootstrap_path )
+            return True
+        except:
+            return False
+
+
+def is_bootstrapped():
+    """
+    Have we sync'ed up to the latest block?
+    """
+    bootstrap_path = get_bootstrap_lockfile()
+    if os.path.exists(bootstrap_path):
+        return True
+    else:
+        return False
 
 
 def index_blockchain():
