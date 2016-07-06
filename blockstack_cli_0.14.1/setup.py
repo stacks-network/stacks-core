@@ -24,7 +24,7 @@ setup(
         'protocoin>=0.1',
         'blockstack-profiles>=0.4.3',
         'pybitcoin>=0.9.8',
-        'blockstack_zones>=0.1.6',
+        'blockstack-zones>=0.1.6',
         'blockstack-storage-drivers>=0.0.1.4',
         'blockstack-utxo>=0.0.1.1',
         'defusedxml>=0.4.1',
