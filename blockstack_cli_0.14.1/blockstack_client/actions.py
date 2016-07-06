@@ -278,7 +278,7 @@ def cli_balance( args, config_path=CONFIG_PATH ):
             return res
 
     result = {}
-    result['total_balance'], result['addresses'] = get_total_balance(config_path=config_path)
+    result['total_balance'], result['addresses'] = get_total_balance(wallet_path=wallet_path, config_path=config_path)
     return result
 
 
