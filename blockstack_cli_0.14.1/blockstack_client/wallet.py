@@ -709,7 +709,7 @@ def get_all_names_owned(wallet_path=WALLET_PATH):
 
 def get_total_balance(config_path=CONFIG_PATH, wallet_path=WALLET_PATH):
 
-    payment_addresses = get_payment_addresses_and_balances(wallet_path, config_path=config_path)
+    payment_addresses = get_payment_addresses_and_balances(wallet_path=wallet_path, config_path=config_path)
     total_balance = 0.0
 
     for entry in payment_addresses:
