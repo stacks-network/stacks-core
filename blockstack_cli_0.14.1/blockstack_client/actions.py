@@ -258,7 +258,7 @@ def cli_configure( args, config_path=CONFIG_PATH ):
     help: Interactively configure the client.
     """
 
-    opts = configure( interactive=True, force=False, config_file=config_path )
+    opts = configure( interactive=True, force=True, config_file=config_path )
     result = {}
     result['path'] = opts['blockstack-client']['path']
     return result
