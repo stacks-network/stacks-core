@@ -122,6 +122,41 @@ def get_cli_advanced_methods():
     return get_methods("cli_advanced_", builtin_methods )
 
 
+def prompt_args( arginfolist, prompt_func ):
+    """
+    Prompt for args, using parsed method information
+    Use prompt_func(arghelp, argname) to do the prompt
+    Return a list of parsed arguments
+    Return None on error
+    """
+    arglist = []
+    for argdata in arginfolist:
+        argname = argdata['name']
+        arghelp = argdata['help']
+
+        try:
+            
+            arg = None
+            while True:
+                try:
+                    arg = prompt_func(arghelp, argname)
+                    break
+                except ValueError:
+                    print "Invalid data.  Please try again."
+                    continue
+
+            arglist.append(arg)
+
+        except KeyboardInterrupt:
+            print "Keyboard interrupt"
+            return None
+        except Exception, e:
+            log.exception(e)
+            return None
+
+    return arglist
+
+
 def run_cli(argv=None, config_path=CONFIG_PATH):
     """
     Run a CLI command from arguments (defaults to sys.argv)
@@ -181,7 +216,34 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
         parser.print_help()
         return {}
 
-    args, unknown_args = parser.parse_known_args(args=argv[1:])
+    interactive = False
+    args = None
+    directive = None
+
+    try:
+        args, unknown_args = parser.parse_known_args(args=argv[1:])
+        directive = args.action
+    except SystemExit:
+        # bad arguments
+        # special case: if the method is specified, but no method arguments are given,
+        # then switch to prompting the user for individual arguments.
+        try:
+            directive_parser = argparse.ArgumentParser(description='Blockstack cli version {}'.format(config.VERSION))
+            directive_subparsers = directive_parser.add_subparsers(dest='action')
+
+            # only parse the directive
+            build_method_subparsers( directive_subparsers, all_methods, include_args=False, include_opts=False ) 
+            directive_args, directive_unknown_args = directive_parser.parse_known_args( args=argv[1:] )
+
+            # want interactive prompting
+            interactive = True
+            directive = directive_args.action
+
+        except SystemExit:
+            # still invalid 
+            parser.print_help()
+            return {'error': 'Invalid arguments.  Try passing "-h".'}
+
     result = {}
 
     blockstack_server = conf['server']
@@ -193,12 +255,34 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
 
     # dispatch to the apporpriate method  
     for method_info in all_methods:
-        if args.action != method_info['command']:
+        if directive != method_info['command']:
             continue
 
         method = method_info['method']
+        
+        # interactive?
+        if interactive:
+            print ""
+            print "Interactive prompt engaged.  Press Ctrl+C to quit"
+            print "Help for '%s': %s" % (method_info['command'], method_info['help'])
+            print ""
+            
+            required_args = prompt_args( method_info['args'], lambda arghelp, argname: raw_input("%s ('%s'): " % (arghelp, argname)) )
+            if required_args is None:
+                return {'error': 'Failed to prompt for arguments'}
+
+            optional_args = prompt_args( method_info['opts'], lambda arghelp, argname: raw_input("optional: %s ('%s'): " % (arghelp, argname) ))
+            if optional_args is None:
+                return {'error': 'Failed to prompt for arguments'}
+
+            full_args = [method_info['command']] + required_args + optional_args
+            try:
+                args, unknown_args = parser.parse_known_args( args=full_args )
+            except SystemExit:
+                # invalid arguments
+                return {'error': 'Invalid arguments.  Please try again.'}
+
         result = method( args, config_path=config_path )
-       
         return result
 
     # not found 
