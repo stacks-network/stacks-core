@@ -695,6 +695,34 @@ def write_config_file( opts, config_file ):
     return True
 
 
+def write_config_field( config_path, section_name, field_name, field_value ):
+   """
+   Set a particular config file field
+   Return True on success
+   Return False on error
+   """
+   if not os.path.exists(config_path):
+       return False
+
+   parser = SafeConfigParser()
+   parser.read(config_path)
+
+   parser.set(section_name, field_name, "%s" % field_value)
+   with open(config_path, "w") as fout:
+       os.fchmod(fout.fileno(), 0600 )
+       parser.write(fout)
+
+   return True
+
+
+def set_advanced_mode( status, config_path=CONFIG_PATH ):
+   """ 
+   Enable or disable advanced mode
+   @status must be a bool
+   """
+   return write_config_field( config_path, "blockstack-client", "advanced_mode", str(status) )
+   
+
 def get_utxo_provider_client(config_path=CONFIG_PATH):
    """
    Get or instantiate our blockchain UTXO provider's client.
@@ -729,6 +757,23 @@ def get_tx_broadcaster(config_path=CONFIG_PATH):
    except:
        log.exception(e)
        return None
+
+
+def str_to_bool( s ):
+    """
+    Convert "true" to True; "false" to False
+    """
+    if type(s) not in [str, unicode]:
+        raise ValueError("'%s' is not a string" % s)
+
+    if s.lower() == "false":
+        return False 
+
+    elif s.lower() == "true":
+        return True 
+
+    else:
+        raise ValueError("Indeterminate boolean '%s'" % s)
 
 
 def read_config_file(path=CONFIG_PATH):
@@ -804,11 +849,26 @@ def read_config_file(path=CONFIG_PATH):
     parser = SafeConfigParser()
     parser.read(path)
 
+    # these are booleans--convert them 
+    bool_values = {
+        'blockstack-client': [
+            'advanced_mode',
+            'rpc_detach',
+            'anonymous_statistics'
+        ]
+    }
+
     ret = {}
     for sec in parser.sections():
         ret[sec] = {}
         for opt in parser.options(sec):
-            ret[sec][opt] = parser.get(sec, opt)
+            if bool_values.has_key(sec) and opt in bool_values[sec]:
+                # decode to bool
+                ret[sec][opt] = str_to_bool( parser.get(sec, opt) )
+
+            else:
+                # literal
+                ret[sec][opt] = parser.get(sec, opt)
 
     ret['path'] = path
     ret['dir'] = os.path.dirname(path)
