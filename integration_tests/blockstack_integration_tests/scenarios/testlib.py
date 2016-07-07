@@ -330,6 +330,7 @@ def blockstack_announce( message, privatekey, user_public_key=None, subsidy_key=
     return resp
 
 
+'''
 def blockstack_client_initialize_wallet( password, master_privkey_wif, transfer_amount ):
     """
     Set up the client wallet
@@ -368,7 +369,7 @@ def blockstack_client_initialize_wallet( password, master_privkey_wif, transfer_
     broadcast_transaction( tx_data )
     
     return True
-   
+'''
 
 def blockstack_client_initialize_wallet( password, payment_privkey, owner_privkey, data_privkey ):
     """
@@ -392,6 +393,23 @@ def blockstack_client_get_wallet():
     assert config_path is not None
 
     wallet = blockstack_client.wallet.get_wallet( config_path )
+    return wallet
+
+
+def blockstack_client_set_wallet( password, payment_privkey, owner_privkey, data_privkey ):
+    """
+    Set the wallet to a runnin RPC daemon
+    """
+    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
+    assert config_path is not None
+
+    config_dir = os.path.dirname(config_path)
+
+    wallet = blockstack_client_initialize_wallet( password, payment_privkey, owner_privkey, data_privkey )
+
+    print "\nrestarting RPC daemon\n"
+    blockstack_client.rpc.local_rpc_stop(config_dir=config_dir)
+    blockstack_client.actions.start_rpc_endpoint(config_dir, password=password)
     return wallet
 
 
