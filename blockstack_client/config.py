@@ -504,7 +504,7 @@ def configure( config_file=CONFIG_PATH, force=False, interactive=True ):
 
    global SUPPORTED_UTXO_PROVIDERS, SUPPORTED_UTXO_PARAMS, SUPPORTED_UTXO_PROMPT_MESSAGES
 
-   if not os.path.exists( config_file ):
+   if not os.path.exists( config_file ) and interactive:
        # definitely ask for everything
        force = True
 
@@ -620,7 +620,7 @@ def configure( config_file=CONFIG_PATH, force=False, interactive=True ):
    if not interactive and (len(missing_bitcoin_opts) > 0 or len(missing_writer_opts) > 0 or len(missing_reader_opts) > 0 or len(missing_blockstack_opts) > 0):
 
        # cannot continue
-       raise Exception("Missing configuration fields: %s" % (",".join( missing_bitcoin_opts + missing_utxo_opts )) )
+       raise Exception("Missing configuration fields: %s" % (",".join( missing_bitcoin_opts + missing_writer_opts + missing_reader_opts + missing_blockstack_opts )) )
 
    # ask for contact info, so we can send out notifications for bugfixes and upgrades
    if blockstack_opts.get('email', None) is None:
@@ -839,10 +839,13 @@ def get_config(path=CONFIG_PATH):
     bitcoin_opts = opt_restore("bitcoind_", bitcoin_opts)
     blockstack_opts.update(bitcoin_opts)
     
-    # pass along the config path and dir
+    # pass along the config path and dir, and statistics info
     blockstack_opts['path'] = path
     blockstack_opts['dir'] = os.path.dirname(path)
     blockstack_opts['uuid'] = opts['uuid']
+    if not blockstack_opts.has_key('anonymous_statistics'):
+        # not disabled 
+        blockstack_opts['anonymous_statistics'] = True
 
     return blockstack_opts
 
