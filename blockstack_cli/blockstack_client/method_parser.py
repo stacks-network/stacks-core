@@ -124,7 +124,7 @@ def parse_methods( method_list ):
     return ret
 
 
-def build_method_subparsers( subparsers, method_infos ):
+def build_method_subparsers( subparsers, method_infos, include_args=True, include_opts=True ):
     """
     Using parsed method information from parse_methods,
     populate a parser with subparsers for the method's command,
@@ -135,11 +135,13 @@ def build_method_subparsers( subparsers, method_infos ):
     for method_info in method_infos:
         subparser = subparsers.add_parser( method_info['command'], help=method_info['help'] )
 
-        for arg in method_info['args']:
-            subparser.add_argument( arg['name'], type=arg['type'], help=arg['help'] )
+        if include_args:
+            for arg in method_info['args']:
+                subparser.add_argument( arg['name'], type=arg['type'], help=arg['help'] )
 
-        for opt in method_info['opts']:
-            subparser.add_argument( opt['name'], type=opt['type'], nargs='?', help=opt['help'] )
+        if include_opts:
+            for opt in method_info['opts']:
+                subparser.add_argument( opt['name'], type=opt['type'], nargs='?', help=opt['help'] )
 
     return True
 
