@@ -435,7 +435,7 @@ def cli_names( args, config_path=CONFIG_DIR ):
     return result
 
 
-def get_server_info( args, config_path=config.CONFIG_PATH ):
+def get_server_info( args, config_path=config.CONFIG_PATH, get_local_info=False ):
     """
     Get information about the running server,
     and any pending operations.
@@ -443,7 +443,6 @@ def get_server_info( args, config_path=config.CONFIG_PATH ):
     
     config_dir = os.path.dirname(config_path)
     conf = config.get_config(config_path)
-    start_rpc_endpoint(config_dir)
 
     resp = getinfo()
     result = {}
@@ -472,58 +471,61 @@ def get_server_info( args, config_path=config.CONFIG_PATH ):
         result['last_block_seen'] = resp['bitcoind_blocks']
         result['consensus_hash'] = resp['consensus']
 
-        rpc = local_rpc_connect(config_dir=config_dir)
+        if get_local_info:
+            # get state of pending names
+            start_rpc_endpoint(config_dir)
+            rpc = local_rpc_connect(config_dir=config_dir)
 
-        if rpc is not None:
+            if rpc is not None:
 
-            current_state = json.loads(rpc.backend_state())
+                current_state = json.loads(rpc.backend_state())
 
-            queue_types = {
-                "preorder": [],
-                "register": [],
-                "update": [],
-                "transfer": []
-            }
+                queue_types = {
+                    "preorder": [],
+                    "register": [],
+                    "update": [],
+                    "transfer": []
+                }
 
-            def format_new_entry(entry):
-                """
-                Determine data to display
-                """
-                new_entry = {}
-                new_entry['name'] = entry['fqu']
-                confirmations = get_tx_confirmations(entry['tx_hash'], config_path=config_path)
-                if confirmations is None:
-                    confirmations = 0
-                new_entry['confirmations'] = confirmations
-                return new_entry
+                def format_new_entry(entry):
+                    """
+                    Determine data to display
+                    """
+                    new_entry = {}
+                    new_entry['name'] = entry['fqu']
+                    confirmations = get_tx_confirmations(entry['tx_hash'], config_path=config_path)
+                    if confirmations is None:
+                        confirmations = 0
+                    new_entry['confirmations'] = confirmations
+                    return new_entry
 
-            def format_queue_display(preorder_queue,
-                                     register_queue):
+                def format_queue_display(preorder_queue,
+                                         register_queue):
 
-                """
-                Omit duplicates
-                """
-                for entry in register_queue:
-                    name = entry['name']
-                    for check_entry in preorder_queue:
-                        if check_entry['name'] == name:
-                            preorder_queue.remove(check_entry)
+                    """
+                    Omit duplicates
+                    """
+                    for entry in register_queue:
+                        name = entry['name']
+                        for check_entry in preorder_queue:
+                            if check_entry['name'] == name:
+                                preorder_queue.remove(check_entry)
 
-            for entry in current_state:
-                if entry['type'] not in queue_types.keys():
-                    log.error("Unknown entry type '%s'" % entry['type'])
-                    continue
+                for entry in current_state:
+                    if entry['type'] not in queue_types.keys():
+                        log.error("Unknown entry type '%s'" % entry['type'])
+                        continue
 
-                queue_types[ entry['type'] ].append( format_new_entry(entry) )
+                    queue_types[ entry['type'] ].append( format_new_entry(entry) )
 
-            format_queue_display(queue_types['preorder'], queue_types['register'])
+                format_queue_display(queue_types['preorder'], queue_types['register'])
 
-            for queue_type in queue_types.keys():
-                if len(queue_types[queue_type]) == 0:
-                    del queue_types[queue_type]
+                for queue_type in queue_types.keys():
+                    if len(queue_types[queue_type]) == 0:
+                        del queue_types[queue_type]
 
-            if len(queue_types) > 0:
-                result['queue'] = queue_types
+                if len(queue_types) > 0:
+                    result['queue'] = queue_types
 
     return result
 
@@ -533,7 +535,7 @@ def cli_info( args, config_path=CONFIG_PATH ):
     command: info
     help: Check server status and get details about the server
     """
-    return get_server_info( args, config_path=config_path )
+    return get_server_info( args, config_path=config_path, get_local_info=True )
 
 
 def cli_ping( args, config_path=CONFIG_PATH ):
@@ -549,7 +551,7 @@ def cli_status( args, config_path=CONFIG_PATH ):
     command: status
     help: Check server status and get details about the server
     """
-    return get_server_info( args, config_path=config_path )
+    return get_server_info( args, config_path=config_path, get_local_info=True )
 
 
 def cli_details( args, config_path=CONFIG_PATH ):
@@ -557,7 +559,7 @@ def cli_details( args, config_path=CONFIG_PATH ):
     command: details
     help: Check server status and get details about the server
     """
-    return get_server_info( args, config_path=config_path )
+    return get_server_info( args, config_path=config_path, get_local_info=True )
 
 
 def cli_lookup( args, config_path=CONFIG_PATH ):
