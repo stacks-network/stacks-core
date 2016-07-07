@@ -22,7 +22,7 @@ setup(
     install_requires=[
         'virtualchain>=0.0.13.0',
         'protocoin>=0.1',
-        'blockstack-profiles>=0.4.3',
+        'blockstack-profiles>=0.4.4',
         'pybitcoin>=0.9.8',
         'blockstack-zones>=0.1.6',
         'blockstack-storage-drivers>=0.0.13.0',
