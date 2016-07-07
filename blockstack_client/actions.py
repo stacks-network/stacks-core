@@ -100,7 +100,7 @@ from blockstack_client import \
 from rpc import local_rpc_connect, local_rpc_ensure_running, local_rpc_status, local_rpc_stop
 import rpc as local_rpc
 import config
-from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR, configure, FIRST_BLOCK_TIME_UTC, get_utxo_provider_client
+from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR, configure, FIRST_BLOCK_TIME_UTC, get_utxo_provider_client, set_advanced_mode
 from .storage import is_valid_name, is_valid_hash, is_b40
 
 from pybitcoin import is_b58check_address
@@ -1278,6 +1278,25 @@ def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None
         analytics_event( "Delete account", {} )
 
     return result
+
+
+def cli_set_advanced_mode( args, config_path=CONFIG_PATH ):
+    """
+    command: set_advanced_mode
+    help: Enable advanced mode.
+    arg: status (str) "On or Off."
+    """
+
+    status = str(args.status).lower()
+    if status not in ['on', 'off']:
+        return {'error': 'Invalid option; please use "on" or "off"'}
+
+    if status == 'on':
+        set_advanced_mode(True, config_path=config_path)
+    else:
+        set_advanced_mode(False, config_path=config_path)
+
+    return {'status': True}
 
 
 def cli_advanced_wallet( args, config_path=CONFIG_PATH, password=None ):
