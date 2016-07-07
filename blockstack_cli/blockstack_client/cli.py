@@ -105,7 +105,14 @@ def get_cli_basic_methods():
     """
     Get the basic built-in CLI methods
     """
-    return get_methods("cli_", builtin_methods )
+    all_methods = get_methods("cli_", builtin_methods )
+    ret = []
+    for m in all_methods:
+        # filter advanced methods 
+        if 'cli_advanced_' not in m.__name__:
+            ret.append(m)
+
+    return ret
 
 
 def get_cli_advanced_methods():
@@ -163,6 +170,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
 
     if advanced_mode:
         # add advanced methods 
+        log.debug("Enabling advanced methods")
         advanced_methods = get_cli_advanced_methods()
         advanced_method_info = parse_methods( advanced_methods )
         build_method_subparsers( subparsers, advanced_method_info )
