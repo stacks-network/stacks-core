@@ -122,6 +122,7 @@ def get_tx_fee( tx_hex, config_path=CONFIG_PATH ):
     try:
         # try to confirm in 2 blocks
         fee = bitcoind_client.estimatefee(2)
+        fee = float(fee) 
         return round((fee * (len(tx_hex) / 1024.0)) * 10**8)
     except Exception, e:
         log.exception(e)
