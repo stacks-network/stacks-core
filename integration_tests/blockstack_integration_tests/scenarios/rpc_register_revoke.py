@@ -32,8 +32,8 @@ wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
     testlib.Wallet( "5KHqsiU9qa77frZb6hQy9ocV7Sus9RWJcQGYYBJJBb2Efj1o77e", 100000000000 ),
     testlib.Wallet( "5Kg5kJbQHvk1B64rJniEmgbD83FpZpbw2RjdAZEzTefs9ihN3Bz", 100000000000 ),
-    testlib.Wallet( "5JuVsoS9NauksSkqEjbUZxWwgGDQbMwPsEfoRBSpLpgDX1RtLX7", 100000000000 ),
-    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 100000000000 )
+    testlib.Wallet( "5JuVsoS9NauksSkqEjbUZxWwgGDQbMwPsEfoRBSpLpgDX1RtLX7", 5500 ),
+    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 5500 )
 ]
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
@@ -123,11 +123,9 @@ def scenario( wallets, **kw ):
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge the revoke"
     time.sleep(10)
 
-    proxy = testlib.make_proxy()
-    res = blockstack_client.get_name_blockchain_record( "foo.test", proxy=proxy )
-    if 'error' not in res:
-        print >> sys.stderr, json.dumps(res, indent=4, sort_keys=True)
-        return False
+    # wait for it to go through 
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
 
 
 
@@ -150,11 +148,15 @@ def check( state_engine ):
         print "wrong namespace"
         return False 
     
-    # registered 
+    # registered but revoked 
     name_rec = state_engine.get_name( "foo.test" )
     if name_rec is None:
-        print "name does not exist"
+        print "name doesn't exist"
         return False 
+
+    if not name_rec['revoked']:
+        print "name not revoked"
+        return False
 
     # owned by
     owner_address = wallets[3].addr
@@ -162,20 +164,8 @@ def check( state_engine ):
         print "sender is wrong"
         return False 
 
-    # value hash 
-    if name_rec['value_hash'] != zonefile_hash:
-        print "wrong zonefile hash: %s != %s" % (name_rec['value_hash'], zonefile_hash)
-        return False
-
-    # replicated?
-    zonefile = testlib.blockstack_get_zonefile( zonefile_hash )
-    if 'error' in zonefile:
-        print "zonefile error: %s" % zonefile['error']
-        return False
-
-    # right hash?
-    if blockstack_client.hash_zonefile( zonefile ) != zonefile_hash:
-        print "wrong zonefile: %s != %s" % (blockstack_client.hash_zonefile(zonefile), zonefile_hash)
+    if name_rec['value_hash'] is not None:
+        print "still have zonefile"
         return False
 
     # all queues are drained 
