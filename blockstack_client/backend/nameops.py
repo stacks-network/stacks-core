@@ -61,6 +61,9 @@ def estimate_preorder_tx_fee( name, name_cost, payment_addr, utxo_client, config
     unsigned_tx = preorder_tx( name, payment_addr, fake_owner_address, name_cost, fake_consensus_hash, utxo_client )
     signed_tx = sign_tx( unsigned_tx, fake_privkey )
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
+    if tx_fee is None:
+        log.error("Failed to get tx fee")
+        return None
 
     log.debug("preorder tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
 
@@ -79,6 +82,9 @@ def estimate_register_tx_fee( name, payment_addr, utxo_client, config_path=CONFI
     unsigned_tx = register_tx( name, payment_addr, fake_owner_address, utxo_client )
     signed_tx = sign_tx( unsigned_tx, fake_privkey )
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
+    if tx_fee is None:
+        log.error("Failed to get tx fee")
+        return None
 
     log.debug("register tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
 
@@ -100,6 +106,9 @@ def estimate_renewal_tx_fee( name, payment_privkey, owner_address, utxo_client, 
     subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_registration, 21 * 10**14, payment_privkey, utxo_client )
     signed_tx = sign_tx( subsidized_tx, fake_privkey )
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
+    if tx_fee is None:
+        log.error("Failed to get tx fee")
+        return None
 
     log.debug("renewal tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
 
@@ -121,6 +130,9 @@ def estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, c
     signed_subsidized_tx = sign_tx( subsidized_tx, fake_privkey )
 
     tx_fee = get_tx_fee( signed_subsidized_tx, config_path=config_path )
+    if tx_fee is None:
+        log.error("Failed to get tx fee")
+        return None
     
     log.debug("update tx %s bytes, %s satoshis" % (len(signed_subsidized_tx), int(tx_fee)))
 
@@ -142,6 +154,9 @@ def estimate_transfer_tx_fee( name, payment_privkey, owner_address, utxo_client,
     signed_subsidized_tx = sign_tx( subsidized_tx, fake_privkey )
 
     tx_fee = get_tx_fee( signed_subsidized_tx, config_path=config_path )
+    if tx_fee is None:
+        log.error("Failed to get tx fee")
+        return None
     
     log.debug("transfer tx %s bytes, %s satoshis" % (len(signed_subsidized_tx), int(tx_fee)))
 
@@ -161,6 +176,9 @@ def estimate_revoke_tx_fee( name, payment_privkey, owner_address, utxo_client, c
     signed_subsidized_tx = sign_tx( subsidized_tx, fake_privkey )
 
     tx_fee = get_tx_fee( signed_subsidized_tx, config_path=config_path )
+    if tx_fee is None:
+        log.error("Failed to get tx fee")
+        return None
 
     log.debug("revoke tx %s bytes, %s satoshis" % (len(signed_subsidized_tx), int(tx_fee)))
 
@@ -180,6 +198,9 @@ def estimate_name_import_tx_fee( fqu, payment_addr, utxo_client, config_path=CON
     unsigned_tx = name_import_tx( fqu, fake_recipient_address, fake_zonefile_hash, payment_addr, utxo_client )
     signed_tx = sign_tx( unsigned_tx, fake_privkey )
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
+    if tx_fee is None:
+        log.error("Failed to get tx fee")
+        return None
 
     log.debug("name import tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
 
@@ -199,6 +220,9 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utx
     unsigned_tx = namespace_preorder_tx( namespace_id, fake_reveal_address, cost, fake_consensus_hash, payment_address, utxo_client )
     signed_tx = sign_tx( unsigned_tx, fake_privkey )
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
+    if tx_fee is None:
+        log.error("Failed to get tx fee")
+        return None
     
     log.debug("namespace preorder tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
     return tx_fee
@@ -216,6 +240,9 @@ def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client
     unsigned_tx = namespace_reveal_tx( namespace_id, fake_reveal_address, 1, 2, 3, [4,5,6,7,8,9,10,11,12,13,14,15,0,1,2,3], 4, 5, payment_address, utxo_client )
     signed_tx = sign_tx( unsigned_tx, fake_privkey )
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
+    if tx_fee is None:
+        log.error("Failed to get tx fee")
+        return None
 
     log.debug("namespace reveal tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
     return tx_fee
@@ -232,6 +259,9 @@ def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, con
     unsigned_tx = namespace_ready_tx( namespace_id, reveal_addr, utxo_client )
     signed_tx = sign_tx( unsigned_tx, fake_privkey ) 
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
+    if tx_fee is None:
+        log.error("Failed to get tx fee")
+        return None
 
     log.debug("namespace ready tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
     return tx_fee
@@ -249,6 +279,9 @@ def estimate_announce_tx_fee( sender_address, utxo_client, config_path=CONFIG_PA
     unsigned_tx = announce_tx( fake_announce_hash, sender_address, utxo_client )
     signed_tx = sign_tx( unsigned_tx, fake_privkey )
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
+    if tx_fee is None:
+        log.error("Failed to get tx fee")
+        return None
 
     log.debug("announce tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
     return tx_fee
@@ -286,7 +319,7 @@ def do_preorder( fqu, payment_privkey, owner_address, cost, utxo_client, tx_broa
 
     tx_fee = estimate_preorder_tx_fee( fqu, cost, payment_address, utxo_client, config_path=config_path )
     if tx_fee is None:
-        return {'error': 'Failed to estimate the tx fee'}
+        return {'error': 'Failed to get fee estimate'}
 
     log.debug("Preordering (%s, %s, %s), tx_fee = %s" % (fqu, payment_address, owner_address, tx_fee))
 
@@ -337,7 +370,10 @@ def do_register( fqu, payment_privkey, owner_address, utxo_client, tx_broadcaste
         log.debug("Payment address not ready: %s" % payment_address)
         return {'error': 'Payment address has unconfirmed transactions'}
 
-    tx_fee = estimate_register_tx_fee( fqu, payment_address, utxo_client, config_path=config_path ) 
+    tx_fee = estimate_register_tx_fee( fqu, payment_address, utxo_client, config_path=config_path )
+    if tx_fee is None:
+        return {'error': 'Failed to get fee estimate'}
+
     log.debug("Registering (%s, %s, %s), tx_fee = %s" % (fqu, payment_address, owner_address, tx_fee))
 
     # now send it
@@ -395,6 +431,8 @@ def do_update( fqu, zonefile_hash, owner_privkey, payment_privkey, utxo_client, 
         return {'error': 'Payment address has unconfirmed transactions'}
 
     tx_fee = estimate_update_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path ) 
+    if tx_fee is None:
+        return {'error': 'Failed to get fee estimate'}
 
     log.debug("Updating (%s, %s)" % (fqu, zonefile_hash))
     log.debug("<owner, payment> (%s, %s) tx_fee = %s" % (owner_address, payment_address, tx_fee))
@@ -459,6 +497,8 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey, payment_privke
         return {'error': 'Payment address has unconfirmed transactions'}
 
     tx_fee = estimate_transfer_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path )
+    if tx_fee is None:
+        return {'error': 'Failed to get fee estimate'}
 
     unsigned_tx = transfer_tx( fqu, transfer_address, keep_data, consensus_hash, owner_address, utxo_client, subsidize=True, tx_fee=tx_fee )
     subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_transfer, 21 * (10**6) * (10**8), payment_privkey, utxo_client, tx_fee=tx_fee )
@@ -512,6 +552,9 @@ def do_renewal( fqu, owner_privkey, payment_privkey, renewal_fee, utxo_client, t
         return {'error': 'Payment address has unconfirmed transactions'}
 
     tx_fee = estimate_renewal_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path ) 
+    if tx_fee is None:
+        return {'error': 'Failed to get fee estimate'}
+
     log.debug("Renewing (%s, %s, %s), tx_fee = %s, renewal_fee = %s" % (fqu, payment_address, owner_address, tx_fee, renewal_fee))
 
     # now send it
@@ -540,6 +583,8 @@ def do_revoke( fqu, owner_privkey, payment_privkey, utxo_client, tx_broadcaster,
     owner_pubkey_hex = pybitcoin.BitcoinPrivateKey( owner_privkey ).public_key().to_hex()
     owner_address = pybitcoin.BitcoinPublicKey(owner_pubkey_hex).address()
     tx_fee = estimate_revoke_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path )
+    if tx_fee is None:
+        return {'error': 'Failed to get fee estimate'}
 
     owner_address = pybitcoin.BitcoinPublicKey( owner_pubkey_hex ).address()
     payment_address = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().address()
@@ -585,6 +630,8 @@ def do_name_import( fqu, importer_privkey, recipient_address, zonefile_hash, utx
     payment_pubkey_hex = pybitcoin.BitcoinPrivateKey( importer_privkey ).public_key().to_hex()
     payment_address = pybitcoin.BitcoinPrivateKey( importer_privkey ).public_key().address()
     tx_fee = estimate_name_import_tx_fee( fqu, payment_address, utxo_client, config_path=config_path )
+    if tx_fee is None:
+        return {'error': 'Failed to get fee estimate'}
 
     unsigned_tx = name_import_tx( fqu, recipient_address, zonefile_hash, payment_address, utxo_client, tx_fee=tx_fee )
     signed_tx = sign_tx( unsigned_tx, importer_privkey )
@@ -638,7 +685,7 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey, reveal_address, 
 
     tx_fee = estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utxo_client, config_path=config_path )
     if tx_fee is None:
-        return {'error': 'Failed to estimate the tx fee'}
+        return {'error': 'Failed to get fee estimate'}
 
     log.debug("Preordering namespace (%s, %s, %s), tx_fee = %s" % (namespace_id, payment_address, reveal_address, tx_fee))
 
@@ -681,7 +728,7 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
 
     tx_fee = estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client, config_path=config_path )
     if tx_fee is None:
-        return {'error': 'Failed to estimate the tx fee'}
+        return {'error': 'Failed to get fee estimate'}
 
     log.debug("Revealing namespace (%s, %s, %s), tx_fee = %s" % (namespace_id, payment_address, reveal_address, tx_fee))
 
@@ -724,7 +771,7 @@ def do_namespace_ready( namespace_id, reveal_privkey, utxo_client, tx_broadcaste
 
     tx_fee = estimate_namespace_ready_tx_fee( namespace_id, reveal_address, utxo_client, config_path=config_path )
     if tx_fee is None:
-        return {'error': 'Failed to estimate the tx fee'}
+        return {'error': 'Failed to get fee estimate'}
 
     log.debug("Readying namespace (%s, %s), tx_fee = %s" % (namespace_id, reveal_address, tx_fee) )
 
@@ -757,7 +804,7 @@ def do_announce( message_text, sender_privkey, utxo_client, tx_broadcaster, conf
 
     tx_fee = estimate_announce_tx_fee( sender_address, utxo_client, config_path=config_path )
     if tx_fee is None:
-        return {'error': 'Failed to estimate the tx fee'}
+        return {'error': 'Failed to get fee estimate'}
 
     log.debug("Announce (%s, %s) tx_fee = %s" % (message_hash, sender_address, tx_fee))
 
