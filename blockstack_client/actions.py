@@ -184,6 +184,9 @@ def operation_sanity_check(fqu, payment_privkey, config_path=CONFIG_PATH, transf
     else:
         tx_fee = estimate_update_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path )
 
+    if tx_fee is None:
+        return {'error': 'Failed to get fee estimate'}
+
     balance = get_balance( payment_address, config_path=config_path )
 
     if balance < tx_fee:
@@ -222,9 +225,22 @@ def get_total_registration_fees(name, payment_privkey, owner_address, proxy=None
     # fee stimation: cost of name + cost of preorder transaction + cost of registration transaction + cost of update transaction
     reply = {}
     reply['name_price'] = data['satoshis']
-    reply['preorder_tx_fee'] = int(estimate_preorder_tx_fee( name, data['satoshis'], payment_address, utxo_client, config_path=config_path ))
-    reply['register_tx_fee'] = int(estimate_register_tx_fee( name, payment_address, utxo_client, config_path=config_path ))
-    reply['update_tx_fee'] = int(estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=config_path ))
+
+    preorder_tx_fee = estimate_preorder_tx_fee( name, data['satoshis'], payment_address, utxo_client, config_path=config_path )
+    if preorder_tx_fee is None:
+        return {'error': 'Failed to estimate tx fee'}
+
+    register_tx_fee = estimate_register_tx_fee( name, payment_address, utxo_client, config_path=config_path )
+    if register_tx_fee is None:
+        return {'error': 'Failed to estimate tx fee'}
+
+    update_tx_fee = estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=config_path )
+    if update_tx_fee is None:
+        return {'error': 'Failed to estimate tx fee'}
+
+    reply['preorder_tx_fee'] = int(preorder_tx_fee) 
+    reply['register_tx_fee'] = int(register_tx_fee)
+    reply['update_tx_fee'] = int(update_tx_fee)
 
     reply['total_estimated_cost'] = reply['name_price'] + reply['preorder_tx_fee'] + reply['register_tx_fee'] + reply['update_tx_fee']
 
@@ -713,7 +729,7 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
     data_privkey = wallet_keys['data_privkey']
     owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
     owner_address = pybitcoin.BitcoinPublicKey(owner_pubkey).address()
-    payment_address = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().address()
+    payment_address = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().address()
     data_address = pybitcoin.BitcoinPrivateKey(data_privkey).public_key().address()
 
     fees = get_total_registration_fees(fqu, payment_privkey, owner_address, proxy=proxy, config_path=config_path)
@@ -963,6 +979,9 @@ def cli_renew( args, config_path=CONFIG_PATH, interactive=True, password=None, p
 
     name_price = renewal_fee['satoshis']
     renewal_tx_fee = estimate_renewal_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path )
+    if renewal_tx_fee is None:
+        return {'error': 'Failed to estimate fee'}
+
     cost = name_price + renewal_tx_fee
 
     if interactive:
