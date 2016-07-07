@@ -45,7 +45,8 @@ if __name__ == '__main__':
     if not os.path.exists(uuid_path):
         first_time = True
 
-    res = configure(interactive=True, force=False)
+    # make sure we have sane defaults, and we have registered this installation
+    res = configure(interactive=False, force=False)
     if res.has_key('uuid') and first_time:
         analytics_user_register( res['uuid'] )
 
