@@ -159,7 +159,13 @@ def store_cached_zonefile( zonefile_dict, zonefile_dir=None ):
     if not os.path.exists(zonefile_dir):
         os.makedirs(zonefile_dir, 0700 )
 
-    zonefile_data = json.dumps(zonefile_dict, sort_keys=True)
+    try:
+        zonefile_data = blockstack_zones.make_zone_file( zonefile_dict )
+    except Exception, e:
+        log.exception(e)
+        log.error("Invalid zonefile dict")
+        return False
+
     zonefile_hash = blockstack_client.get_zonefile_data_hash( zonefile_data )
     zonefile_path = os.path.join( zonefile_dir, zonefile_hash )
         
