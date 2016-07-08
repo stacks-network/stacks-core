@@ -285,6 +285,8 @@ def tx_make_subsidization_output( payer_utxo_inputs, payer_address, op_fee, dust
     
     Return the payer output to include in the transaction on success, which should pay for the operation's
     fee and dust.
+
+    Raise ValueError it here aren't enough inputs to subsidize
     """
 
     return {
@@ -300,6 +302,8 @@ def tx_make_subsidizable( blockstack_tx, fee_cb, max_fee, subsidy_key, utxo_clie
     * Add subsidization inputs/outputs
     * Make sure the subsidy does not exceed the maximum subsidy fee
     * Sign our inputs with SIGHASH_ANYONECANPAY
+
+    Raise ValueError if there are not enough inputs to subsidize
     """
    
     # get subsidizer key info
