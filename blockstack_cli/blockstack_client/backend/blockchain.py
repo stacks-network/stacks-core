@@ -107,7 +107,7 @@ def get_tx_confirmations(tx_hash, config_path=CONFIG_PATH):
             log.debug("Tx %s has %s confirmations" % (tx_hash, resp))
 
     except Exception as e:
-        log.debug("ERROR: tx details: %s" % tx_hash)
+        log.debug("ERROR: failed to query tx details for %s" % tx_hash)
 
     return resp
 
