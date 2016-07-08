@@ -31,4 +31,5 @@ from .operations import *
 
 import operations
 import nameset
+import storage
 import config
