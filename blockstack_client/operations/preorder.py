@@ -81,6 +81,7 @@ def make_outputs( data, inputs, sender_addr, fee, tx_fee ):
     [0] OP_RETURN with the name 
     [1] address with the NAME_PREORDER sender's address
     [2] pay-to-address with the *burn address* with the fee
+    Raise ValueError if there are not enough inputs to make the transaction
     """
     
     op_fee = max(fee, DEFAULT_DUST_FEE)

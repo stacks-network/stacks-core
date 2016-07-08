@@ -65,7 +65,10 @@ def build( namespace_id):
 
 
 def make_transaction( namespace_id, payment_addr, blockchain_client, tx_fee=0 ):
-  
+   """
+   Make the namespace ready transaction
+   Raise ValueError if there are not enough inputs to make the transaction
+   """
    namespace_id = str(namespace_id)
    payment_addr = str(payment_addr)
    tx_fee = int(tx_fee)

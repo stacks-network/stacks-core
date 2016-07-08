@@ -91,6 +91,7 @@ def build(name, keepdata, consensus_hash):
 def make_outputs( data, inputs, new_name_owner_address, change_address, tx_fee=0, pay_fee=True):
     """
     Builds the outputs for a name transfer operation.
+    Raise ValueError if there are not enough inputs to make the transaction
     """
     
     dust_fee = None

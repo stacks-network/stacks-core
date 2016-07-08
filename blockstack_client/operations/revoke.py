@@ -64,6 +64,7 @@ def build(name):
 def make_outputs( data, inputs, change_address, tx_fee, pay_fee=True ):
     """
     Make outputs for a revoke.
+    Raise ValueError if there are not enough inputs to make the transaction
     """
 
     dust_fee = None
