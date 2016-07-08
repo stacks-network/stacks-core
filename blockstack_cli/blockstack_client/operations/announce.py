@@ -64,6 +64,7 @@ def build(message_hash):
 def make_outputs( data, inputs, change_address, tx_fee ):
     """
     Make outputs for an announcement.
+    Raise ValueError if there are not enough inputs to make the transaction
     """
 
     dust_fee = (len(inputs) + 1) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE + tx_fee

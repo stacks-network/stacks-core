@@ -71,6 +71,8 @@ def make_outputs( data, inputs, recipient_address, sender_address, update_hash_b
     * [1] is the new owner (recipient)
     * [2] is the update hash
     * [3] is the change sent to the original owner
+
+    Raise ValueError if there are not enough inputs to make the transaction
     """
     
     dust_fee = DEFAULT_OP_RETURN_FEE + (len(inputs) + 3) * DEFAULT_DUST_FEE + tx_fee

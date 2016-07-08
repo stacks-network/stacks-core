@@ -102,6 +102,7 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
     [1] pay-to-address with the *register_addr*, not the sender's address.
     [2] change address with the NAME_PREORDER sender's address
     [3] (OPTIONAL) renewal fee, sent to the burn address
+    Raise ValueError if there are not enough inputs to make the transaction
     """
     
     dust_fee = None

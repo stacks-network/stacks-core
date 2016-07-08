@@ -182,6 +182,7 @@ def make_outputs( data, inputs, reveal_addr, change_addr, tx_fee):
     [0] OP_RETURN with the name 
     [1] pay-to-address with the *reveal_addr*, not the sender's address.
     [2] change address with the NAMESPACE_PREORDER sender's address
+    Raise ValueError if there are not enough inputs to make the transaction
     """
     
     total_to_send = DEFAULT_OP_RETURN_FEE + DEFAULT_DUST_FEE
