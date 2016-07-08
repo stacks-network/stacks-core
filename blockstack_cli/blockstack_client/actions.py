@@ -255,9 +255,6 @@ def get_total_registration_fees(name, payment_privkey, owner_address, proxy=None
     if not insufficient_funds:
         reply['total_estimated_cost'] = int(reply['name_price']) + reply['preorder_tx_fee'] + reply['register_tx_fee'] + reply['update_tx_fee']
 
-    else:
-        reply['error'] = "Insufficient funds"
-
     return reply
 
 
