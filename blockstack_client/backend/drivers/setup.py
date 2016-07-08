@@ -22,7 +22,7 @@ setup(
         'boto>=2.38.0',
         'basicrpc>=0.0.2',
         'blockstack_zones>=0.1.6',
-        'pybitcoin>=0.9.8'
+        'pybitcoin>=0.9.9'
     ],
     classifiers=[
         'Intended Audience :: Developers',
