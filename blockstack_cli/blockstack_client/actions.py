@@ -294,7 +294,7 @@ def cli_configure( args, config_path=CONFIG_PATH ):
 def cli_balance( args, config_path=CONFIG_PATH ):
     """
     command: balance
-    help: Get and return the account balance.
+    help: Get the account balance.
     """
 
     config_dir = os.path.dirname(config_path)
@@ -312,7 +312,7 @@ def cli_balance( args, config_path=CONFIG_PATH ):
 def cli_price( args, config_path=CONFIG_PATH, proxy=None, password=None):
     """
     command: price
-    help: Get and return the price of a name
+    help: Get the price of a name
     arg: name (str) "Name to query"
     """
 
@@ -592,7 +592,7 @@ def cli_details( args, config_path=CONFIG_PATH ):
 def cli_lookup( args, config_path=CONFIG_PATH ):
     """
     command: lookup
-    help: Get the data record for a particular name.
+    help: Get the zone file and profile for a particular name.
     arg: name (str) "The name to look up"
     """
     data = {}
@@ -637,7 +637,7 @@ def cli_lookup( args, config_path=CONFIG_PATH ):
 def cli_whois( args, config_path=CONFIG_PATH ):
     """
     command: whois
-    help: Look up a name's blockchain info
+    help: Look up the blockchain info for a name
     arg: name (str) "The name to look up"
     """
     result = {}
@@ -800,7 +800,7 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
 def cli_update( args, config_path=CONFIG_PATH, password=None ):
     """
     command: update
-    help: Set a name's zonefile.  Does not affect the profile data.
+    help: Set the zone file for a name
     arg: name (str) "The name to update"
     arg: data (str) "A bare zonefile, or a JSON-serialized zonefile."
     """
@@ -1119,7 +1119,7 @@ def cli_revoke( args, config_path=CONFIG_PATH, interactive=True, password=None, 
 def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None ):
     """
     command: migrate
-    help: Migrate your profile from the legacy format to the new format.  This will enable all new features.
+    help: Migrate a profile from the legacy format to the new format.
     arg: name (str) "The name to migrate"
     opt: txid (str) "The transaction ID of a previously-sent but failed migration"
     """
