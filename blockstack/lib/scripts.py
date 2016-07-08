@@ -53,6 +53,8 @@ def is_name_valid( fqn ):
     Is a fully-qualified name acceptable?
     Return True if so
     Return False if not
+
+    TODO: DRY up; use client
     """
 
     if fqn.count( "." ) != 1:
@@ -73,6 +75,21 @@ def is_name_valid( fqn ):
     if len(name_hex) > LENGTHS['blockchain_id_name'] * 2:
        # too long
        return False 
+
+    return True
+
+
+def is_namespace_valid( namespace_id ):
+    """
+    Is a namespace ID valid?
+
+    TODO: DRY up; use client
+    """
+    if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
+        return False
+
+    if len(namespace_id) == 0 or len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
+        return False
 
     return True
 
