@@ -31,6 +31,7 @@ log = get_logger("blockstack-client")
 def preorder_tx( *args, **kw ):
     """
     Make an unsigned preorder transaction
+    Raise ValueError if there are not enough inputs to make the transaction
     """
     inputs, outputs = tx_preorder( *args, **kw )
     return pybitcoin.serialize_transaction( inputs, outputs )
@@ -39,6 +40,7 @@ def preorder_tx( *args, **kw ):
 def register_tx( *args, **kw ):
     """
     Make an unsigned register transaction
+    Raise ValueError if there are not enough inputs to make the transaction
     """
     inputs, outputs = tx_register( *args, **kw )
     return pybitcoin.serialize_transaction( inputs, outputs )
@@ -47,6 +49,7 @@ def register_tx( *args, **kw ):
 def update_tx( *args, **kw ):
     """
     Make an unsigned update transaction
+    Raise ValueError if there are not enough inputs to make the transaction
     """
     inputs, outputs = tx_update( *args, **kw )
     return pybitcoin.serialize_transaction( inputs, outputs )
@@ -55,6 +58,7 @@ def update_tx( *args, **kw ):
 def transfer_tx( *args, **kw ):
     """
     Make an unsigned transfer transaction
+    Raise ValueError if there are not enough inputs to make the transaction
     """
     inputs, outputs = tx_transfer( *args, **kw ) 
     return pybitcoin.serialize_transaction( inputs, outputs )
@@ -63,6 +67,7 @@ def transfer_tx( *args, **kw ):
 def revoke_tx( *args, **kw ):
     """
     Make an unsigned revoke transaction
+    Raise ValueError if there are not enough inputs to make the transaction
     """
     inputs, outputs = tx_revoke( *args, **kw )
     return pybitcoin.serialize_transaction( inputs, outputs )
@@ -71,6 +76,7 @@ def revoke_tx( *args, **kw ):
 def namespace_preorder_tx( *args, **kw ):
     """
     Make an unsigned namespace preorder transaction
+    Raise ValueError if there are not enough inputs to make the transaction
     """
     inputs, outputs = tx_namespace_preorder( *args, **kw )
     return pybitcoin.serialize_transaction( inputs, outputs )
@@ -79,6 +85,7 @@ def namespace_preorder_tx( *args, **kw ):
 def namespace_reveal_tx( *args, **kw ):
     """
     Make an unsigned namespace reveal transaction 
+    Raise ValueError if there are not enough inputs to make the transaction
     """
     inputs, outputs = tx_namespace_reveal( *args, **kw )
     return pybitcoin.serialize_transaction( inputs, outputs )
@@ -87,6 +94,7 @@ def namespace_reveal_tx( *args, **kw ):
 def namespace_ready_tx( *args, **kw ):
     """
     Make an unsigned namespace ready transaction 
+    Raise ValueError if there are not enough inputs to make the transaction
     """
     inputs, outputs = tx_namespace_ready( *args, **kw )
     return pybitcoin.serialize_transaction( inputs, outputs )
@@ -95,6 +103,7 @@ def namespace_ready_tx( *args, **kw ):
 def name_import_tx( *args, **kw ):
     """
     Make an unsigned name import transaction
+    Raise ValueError if there are not enough inputs to make the transaction
     """
     inputs, outputs = tx_name_import( *args, **kw )
     return pybitcoin.serialize_transaction( inputs, outputs )
@@ -103,6 +112,7 @@ def name_import_tx( *args, **kw ):
 def announce_tx( *args, **kw ):
     """
     Make an unsigned announce transaction
+    Raise ValueError if there are not enough inputs to make the transaction
     """
     inputs, outputs = tx_announce( *args, **kw )
     return pybitcoin.serialize_transaction( inputs, outputs )
