@@ -372,21 +372,40 @@ class RegistrarWorker(threading.Thread):
         if 'error' in res:
             return res
 
-        else:
-            log.info("Replicated zonefile for %s to %s server(s)" % (name_data['fqu'], len(res['servers'])))
+        if 'status' not in res:
+            log.error("Invalid server reply: no status")
+            return {'error': 'Failed to replicate zonefile: invalid server reply'}
 
-            # replicate profile as well, if given
-            # use the data keypair
-            if name_data['profile'] is not None:
-                _, data_privkey = get_data_keypair( zonefile_data, wallet_keys=wallet_data, config_path=config_path )
-                rc = put_mutable_data( name_data['fqu'], name_data['profile'], data_privkey )
-                if not rc:
-                    return {'error': 'Failed to store profile'}
-                else:
-                    return {'status': True}
+        if type(res['status']) != bool or not res['status']:
+            log.error("Invalid server reply: invalid status")
+            return {'error': 'Failed to replicate zonefile: invalid server reply'}
 
+        if 'saved' not in res:
+            log.error("Invalid server reply: no 'saved' key")
+            return {'error': 'Failed to replicate zonefile: invalid server reply'}
+
+        if type(res['saved']) != list:
+            log.error("Invalid server reply: no saved vector")
+            return {'error': 'Failed to replicate zonefile: invalid server reply'}
+
+        if res['saved'][0] != 1:
+            log.error("Server failed to save zonefile")
+            return {'error': 'Failed to replicate zonefile'}
+
+        log.info("Replicated zonefile for %s to %s server(s)" % (name_data['fqu'], len(res['servers'])))
+
+        # replicate profile as well, if given
+        # use the data keypair
+        if name_data['profile'] is not None:
+            _, data_privkey = get_data_keypair( zonefile_data, wallet_keys=wallet_data, config_path=config_path )
+            rc = put_mutable_data( name_data['fqu'], name_data['profile'], data_privkey )
+            if not rc:
+                return {'error': 'Failed to store profile'}
             else:
                 return {'status': True}
+
+        else:
+            return {'status': True}
 
 
     @classmethod
