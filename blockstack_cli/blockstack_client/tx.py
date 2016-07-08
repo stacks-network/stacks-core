@@ -123,9 +123,12 @@ def broadcast_tx( tx_hex, config_path=CONFIG_PATH, tx_broadcaster=None ):
         tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 
     resp = broadcast_transaction( tx_hex, tx_broadcaster )
-    if 'transaction_hash' not in resp:
+    if 'tx_hash' not in resp:
         resp['error'] = 'Failed to broadcast transaction: %s' % tx_hex
 
+    # for compatibility
+    resp['transaction_hash'] = resp['tx_hash']
+    del resp['tx_hash']
     return resp
 
 
