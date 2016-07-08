@@ -144,7 +144,7 @@ class RegistrarWorker(threading.Thread):
     def register_preordered_name( cls, name_data, payment_privkey, owner_address, proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH ):
         """
         Given a preordered name, go register it.
-        Return the result of broadcasting the registration operation on success.
+        Return the result of broadcasting the registration operation on success (idempotent--if already broadcasted, then return the broadcast information).
         Return {'error': ...} on error
         Return {'error': ..., 'already_registered': True} if the name is already registered
         Return {'error': ..., 'not_preordered': True} if the name was not preordered
@@ -154,10 +154,18 @@ class RegistrarWorker(threading.Thread):
 
         if not is_name_registered( name_data['fqu'], proxy=proxy ):
             if in_queue( "preorder", name_data['fqu'], path=queue_path ):
-                # was preordered but not registered
-                # send the registration 
-                res = async_register( name_data['fqu'], payment_privkey, owner_address, proxy=proxy, config_path=config_path, queue_path=queue_path )
-                return res
+                if not in_queue("register", name_data['fqu'], path=queue_path):
+                    # was preordered but not registered
+                    # send the registration 
+                    res = async_register( name_data['fqu'], payment_privkey, owner_address, proxy=proxy, config_path=config_path, queue_path=queue_path )
+                    return res
+                else:
+                    # already queued 
+                    reg_result = queuedb_find( "register", name_data['fqu'], limit=1, path=queue_path )
+                    if len(reg_result) == 1:
+                        return {'status': True, 'transaction_hash': reg_result[0]['tx_hash']}
+                    else:
+                        raise Exception("Inconsistency: name '%s' is queued and then unqueued" % name_data['fqu'])
 
             else:
                 return {'error': 'Name "%s" is not preorded' % name_data['fqu'], 'not_preordered': True}
@@ -170,11 +178,21 @@ class RegistrarWorker(threading.Thread):
     def init_profile( cls, name_data, proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH ):
         """
         Given a newly-registered name, go broadcast the hash of its empty zonefile.
+        Idempotent--if the name is already migrated, then return the result of the pending transaction
         Return {'status': True, 'transaction_hash': ..., 'zonefile_hash': ...} on success
         Return {'error': ...} on error
         """
         if proxy is None:
             proxy = get_default_proxy(config_path=config_path)
+
+        if in_queue('update', name_data['fqu'], path=queue_path):
+            # already processed 
+            up_result = queuedb_find( "update", name_data['fqu'], limit=1, path=queue_path )
+            if len(up_result) == 1:
+                return {'status': True, 'transaction_hash': up_result[0]['tx_hash'], 'zonefile_hash': up_result[0].get('zonefile_hash', None)}
+
+            else:
+                raise Exception("Queue inconsistency: name '%s' is and is not pending update" % up_result['fqu'])
 
         res = migrate( name_data['fqu'], config_path=config_path, proxy=proxy )
         assert 'success' in res
@@ -206,6 +224,12 @@ class RegistrarWorker(threading.Thread):
         ret = {'status': True}
         registers = cls.get_confirmed_registers( config_path, queue_path )
         for register in registers:
+
+            # already migrated?
+            if in_queue("update", register['fqu'], path=queue_path):
+                log.warn("Already initialized profile for name '%s'" % register['fqu'])
+                queue_removeall( [register], path=queue_path )
+                continue
 
             log.debug("Register for '%s' (%s) is confirmed!" % (register['fqu'], register['tx_hash']))
             res = cls.init_profile( register, proxy=proxy, queue_path=queue_path, config_path=config_path )
@@ -274,6 +298,13 @@ class RegistrarWorker(threading.Thread):
         for preorder in preorders:
 
             log.debug("Preorder for '%s' (%s) is confirmed!" % (preorder['fqu'], preorder['tx_hash']))
+            
+            # did we already register?
+            if in_queue("register", preorder['fqu'], path=queue_path):
+                log.warn("Already queued name '%s' for registration" % preorder['fqu'])
+                queue_removeall( [preorder], path=queue_path )
+                continue
+
             res = cls.register_preordered_name( preorder, wallet_data['payment_privkey'], wallet_data['owner_address'], proxy=proxy, config_path=config_path, queue_path=queue_path )
             if 'error' in res:
                 if res.get('already_registered'):
