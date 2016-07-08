@@ -168,7 +168,7 @@ def get_analytics_key( uuid, proxy=None ):
         log.debug("Failed to fetch analytics key: %s" % key['error'])
         return None 
 
-    if not 'analytics_key' in key.keys():
+    if 'analytics_key' not in key.keys():
         log.debug("No analytics key returned")
         return None
 
@@ -206,7 +206,7 @@ def analytics_event( event_type, event_payload, config_path=CONFIG_PATH, proxy=N
     # log the event
     log.debug("Track event '%s': %s" % (event_type, event_payload))
     mp = mixpanel.Mixpanel(ANALYTICS_KEY)
-    mp.track( event_type, event_payload )
+    mp.track( u, event_type, event_payload )
     return True
 
 
@@ -244,7 +244,7 @@ def analytics_user_register( u, config_path=CONFIG_PATH, proxy=None ):
 
 def analytics_user_update( payload, proxy=None ):
     """
-    Register a user with the analytics service
+    Update a user's info on the analytics service
     """
     global ANALYTICS_KEY
 
@@ -268,8 +268,8 @@ def analytics_user_update( payload, proxy=None ):
         if ANALYTICS_KEY is None:
             return False
 
-    # register the user 
-    log.debug("Register user '%s'" % u)
+    # update the user 
+    log.debug("Update user '%s'" % u)
     mp = mixpanel.Mixpanel(ANALYTICS_KEY)
     mp.people_append( u, payload )
     return True
