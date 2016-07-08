@@ -85,6 +85,7 @@ def build(name, consensus_hash, data_hash=None):
 def make_outputs( data, inputs, change_address, tx_fee, pay_fee=True ):
     """
     Make outputs for an update.
+    Raise ValueError if there are not enough inputs to make the transaction
     """
 
     dust_fee = None
