@@ -219,6 +219,7 @@ def get_total_registration_fees(name, payment_privkey, owner_address, proxy=None
     if 'error' in data:
         return {'error': 'Could not determine price of name: %s' % data['error']}
 
+    insufficient_funds = False
     payment_address = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().address()
     utxo_client = get_utxo_provider_client( config_path=config_path )
     
@@ -228,21 +229,34 @@ def get_total_registration_fees(name, payment_privkey, owner_address, proxy=None
 
     preorder_tx_fee = estimate_preorder_tx_fee( name, data['satoshis'], payment_address, utxo_client, config_path=config_path )
     if preorder_tx_fee is None:
-        return {'error': 'Failed to estimate tx fee'}
+        preorder_tx_fee = "ERROR: Could not calculate preorder fee:  Insufficient funds in %s" % payment_address
+        insufficient_funds = True
+    else:
+        preorder_tx_fee = int(preorder_tx_fee)
 
     register_tx_fee = estimate_register_tx_fee( name, payment_address, utxo_client, config_path=config_path )
     if register_tx_fee is None:
-        return {'error': 'Failed to estimate tx fee'}
+        register_tx_fee = "ERROR: Could not calculate register fee:  Insufficient funds in %s" % payment_address
+        insufficient_funds = True
+    else:
+        register_tx_fee = int(register_tx_fee)
 
     update_tx_fee = estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=config_path )
     if update_tx_fee is None:
-        return {'error': 'Failed to estimate tx fee'}
+        update_tx_fee = "ERROR: Could not calculate update fee:  Insufficient funds in %s" % payment_address
+        insufficient_funds = True
+    else:
+        update_tx_fee = int(update_tx_fee)
 
-    reply['preorder_tx_fee'] = int(preorder_tx_fee) 
-    reply['register_tx_fee'] = int(register_tx_fee)
-    reply['update_tx_fee'] = int(update_tx_fee)
+    reply['preorder_tx_fee'] = preorder_tx_fee
+    reply['register_tx_fee'] = register_tx_fee
+    reply['update_tx_fee'] = update_tx_fee
 
-    reply['total_estimated_cost'] = reply['name_price'] + reply['preorder_tx_fee'] + reply['register_tx_fee'] + reply['update_tx_fee']
+    if not insufficient_funds:
+        reply['total_estimated_cost'] = int(reply['name_price']) + reply['preorder_tx_fee'] + reply['register_tx_fee'] + reply['update_tx_fee']
+
+    else:
+        reply['error'] = "Insufficient funds"
 
     return reply
 
