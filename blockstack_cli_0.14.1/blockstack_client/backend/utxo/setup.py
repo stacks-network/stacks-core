@@ -19,7 +19,7 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'pybitcoin>=0.9.8'
+        'pybitcoin>=0.9.9'
     ],
     classifiers=[
         'Intended Audience :: Developers',
