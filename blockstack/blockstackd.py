@@ -331,6 +331,12 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Lookup the blockchain-derived whois info for a name.
         """
 
+        if type(name) not in [str, unicode]:
+            return {'error': 'invalid name'}
+
+        if not is_name_valid(name):
+            return {'error': 'invalid name'}
+
         db = get_state_engine()
 
         try:
@@ -362,6 +368,18 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         Get the sequence of name operations processed for a given name.
         """
+        if type(name) not in [str, unicode]:
+            return {'error': 'invalid name'}
+
+        if not is_name_valid(name):
+            return {'error': 'invalid name'}
+
+        if type(start_block) not in [int, long]:
+            return {'error': 'invalid start block'}
+
+        if type(end_block) not in [int, long]:
+            return {'error': 'invalid end block'}
+
         db = get_state_engine()
         name_history = db.get_name_history( name, start_block, end_block )
 
@@ -381,6 +399,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Returns the list of name operations to be fed into virtualchain.
         Used by SNV clients.
         """
+        if type(block_id) not in [int, long]:
+            return {'error': 'invalid block ID'}
+
         db = get_state_engine()
 
         all_ops = db.get_all_nameops_at( block_id )
@@ -397,6 +418,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Get the hash over the sequence of names and namespaces altered at the given block.
         Used by SNV clients.
         """
+        if type(block_id) not in [int, long]:
+            return {'error': 'invalid block ID'}
+
         db = get_state_engine()
 
         ops = db.get_all_nameops_at( block_id )
@@ -448,6 +472,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Get the list of names owned by an address.
         Valid only for names with p2pkh sender scripts.
         """
+        if type(address) not in [str, unicode]:
+            return {'error': 'invalid address'}
+
         db = get_state_engine()
         names = db.get_names_owned_by_address( address )
         if names is None:
@@ -461,10 +488,11 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return value is in satoshis
         """
 
-        # are we doing our initial indexing?
+        if type(name) not in [str, unicode]:
+            return {'error': 'invalid name'}
 
-        if len(name) > LENGTHS['blockchain_id_name']:
-            return {"error": "Name too long"}
+        if not is_name_valid(name):
+            return {'error': 'invalid name'}
 
         ret = get_name_cost( name )
         if ret is None:
@@ -483,8 +511,11 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return value is in satoshis
         """
 
-        if len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
-            return {"error": "Namespace ID too long"}
+        if type(namespace_id) not in [str, unicode]:
+            return {'error': 'invalid namespace ID'}
+
+        if not is_namespace_valid(namespace_id):
+            return {'error': 'invalid namespace ID'}
 
         ret = price_namespace(namespace_id)
         return {"satoshis": int(math.ceil(ret))}
@@ -494,6 +525,12 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         Return the namespace with the given namespace_id
         """
+
+        if type(namespace_id) not in [str, unicode]:
+            return {'error': 'invalid namespace ID'}
+
+        if not is_namespace_valid(namespace_id):
+            return {'error': 'invalid namespace ID'}
 
         db = get_state_engine()
         ns = db.get_namespace( namespace_id )
@@ -518,6 +555,12 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         Return all names
         """
+        if type(offset) not in [int, long]:
+            return {'error': 'invalid offset'}
+
+        if type(count) not in [int, long]:
+            return {'error': 'invalid count'}
+
         # are we doing our initial indexing?
         if is_indexing():
             return {"error": "Indexing blockchain"}
@@ -530,6 +573,18 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         Return all names in a namespace
         """
+        if type(namespace_id) not in [str, unicode]:
+            return {'error': 'invalid namespace ID'}
+    
+        if type(offset) not in [int, long]:
+            return {'error': 'invalid offset'}
+
+        if type(count) not in [int, long]:
+            return {'error': 'invalid count'}
+
+        if not is_namespace_valid( namespace_id ):
+            return {'error': 'invalid namespace ID'}
+
         # are we doing our initial indexing?
         if is_indexing():
             return {"error": "Indexing blockchain"}
@@ -542,6 +597,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         Return the consensus hash at a block number
         """
+        if type(block_id) not in [int, long]:
+            return {'error': 'Invalid block ID'}
+
         if is_indexing():
             return {'error': 'Indexing blockchain'}
 
@@ -557,6 +615,13 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if is_indexing():
             return {'error': 'Indexing blockchain'}
 
+        if type(block_id_list) != list:
+            return {'error': 'Invalid block IDs'}
+
+        for bid in block_id_list:
+            if type(bid) not in [int, long]:
+                return {'error': 'Invalid block ID'}
+
         db = get_state_engine()
         ret = {}
         for block_id in block_id_list:
@@ -569,6 +634,15 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         Get a mutable data record written by a given user.
         """
+        if type(blockchain_id) not in [str, unicode]:
+            return {'error': 'Invalid blockchain ID'}
+
+        if not is_name_valid(blockchain_id):
+            return {'error': 'Invalid blockchain ID'}
+
+        if type(data_name) not in [str, unicode]:
+            return {'error': 'Invalid data name'}
+
         client = get_blockstack_client_session()
         return client.get_mutable( str(blockchain_id), str(data_name) )
 
@@ -577,6 +651,15 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         Get immutable data record written by a given user.
         """
+        if type(blockchain_id) not in [str, unicode]:
+            return {'error': 'Invalid blockchain ID'}
+
+        if not is_name_valid(blockchain_id):
+            return {'error': 'Invalid blockchain ID'}
+
+        if type(data_hash) not in [str, unicode]:
+            return {'error': 'Invalid data hash'}
+
         client = get_blockstack_client_session()
         return client.get_immutable( str(blockchain_id), str(data_hash) )
 
@@ -585,6 +668,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         Given the consensus hash, find the block number (or None)
         """
+        if type(consensus_hash) not in [str, unicode]:
+            return {'error': 'Not a valid consensus hash'}
+
         db = get_state_engine()
         return db.get_block_from_consensus( consensus_hash )
 
@@ -654,10 +740,17 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if not config['serve_zonefiles']:
             return {'error': 'No data'}
 
+        if type(zonefile_hashes) != list:
+            return {'error': 'Invalid zonefile hashes'}
+
         if len(zonefile_hashes) > 100:
             return {'error': 'Too many requests'}
 
         ret = {}
+        for zonefile_hash in zonefile_hashes:
+            if type(zonefile_hash) not in [str, unicode]:
+                return {'error': 'Not a zonefile hash'}
+
         for zonefile_hash in zonefile_hashes:
             if not is_current_zonefile_hash( zonefile_hash ):
                 continue
@@ -686,10 +779,20 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if not config['serve_zonefiles']:
             return {'error': 'No data'}
 
+        if type(names) != list:
+            return {'error': 'Invalid data'}
+
         if len(names) > 100:
             return {'error': 'Too many requests'}
 
         ret = {}
+        for name in names:
+            if type(name) not in [str, unicode]:
+                return {'error': 'Invalid name'}
+
+            if not is_name_valid(name):
+                return {'error': 'Invalid name'}
+
         for name in names:
             zonefile = self.get_zonefile_by_name( config, name )
             if zonefile is None:
@@ -713,6 +816,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if not config['serve_zonefiles']:
             return {'error': 'No data'}
 
+        if type(zonefile_datas) != list:
+            return {'error': 'Invalid data'}
+
         if len(zonefile_datas) > 100:
             return {'error': 'Too many zonefiles'}
 
@@ -723,6 +829,11 @@ class BlockstackdRPC(SimpleXMLRPCServer):
           
             if type(zonefile_data) not in [str,unicode]:
                 log.debug("Invalid non-text zonefile")
+                saved.append(0)
+                continue
+
+            if len(zonefile_data) > RPC_MAX_ZONEFILE_LEN:
+                log.debug("Zonefile too long")
                 saved.append(0)
                 continue
 
@@ -764,6 +875,12 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         Get a profile for a particular name
         """
+        if type(name) not in [str, unicode]:
+            return {'error': 'Invalid name'}
+
+        if not is_name_valid(name):
+            return {'error': 'Invalid name'}
+
         config = get_blockstack_opts()
         if not config['serve_profiles']:
             return {'error': 'No data'}
@@ -800,6 +917,18 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         profile_txt must be a serialized JWT signed by the key in the user's zonefile
         """
 
+        if type(name) not in [str, unicode]:
+            return {'error': 'Invalid name'}
+
+        if not is_name_valid(name):
+            return {'error': 'Invalid name'}
+
+        if type(profile_txt) not in [str, unicode]:
+            return {'error': 'Profile must be a serialized JWT'}
+
+        if len(profile_txt) > RPC_MAX_PROFILE_LEN:
+            return {'error': 'Serialized profile is too big'}
+
         config = get_blockstack_opts()
         if not config['serve_profiles']:
             return {'error': 'No data'}
@@ -809,24 +938,41 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if zonefile_dict is None:
             return {'error': 'No zonefile'}
 
+        # first, try to verify with zonefile public key (if one is given)
         user_data_pubkey = blockstack_client.user_zonefile_data_pubkey( zonefile_dict )
-        if user_data_pubkey is None:
-            return {'error': 'No data public key found in user profile.'}
-
-        try:
-            user_profile = blockstack_client.parse_signed_data( profile_txt, user_data_pubkey )
-        except:
-            log.exception(e)
-            return {'error': 'Failed to authenticate profile'}
+        if user_data_pubkey is not None:
+            try:
+                user_profile = blockstack_client.parse_signed_data( profile_txt, user_data_pubkey )
+            except Exception, e:
+                log.exception(e)
+                return {'error': 'Failed to authenticate profile'}
         
+        else:
+            log.warn("Falling back to verifying with owner address")
+            db = get_state_engine()
+            name_rec = db.get_name( name )
+            if name_rec is None:
+                return {'error': 'No such name'}
+
+            owner_addr = name_rec.get('address', None)
+            if owner_addr is None:
+                return {'error': 'No owner address'}
+
+            try:
+                user_profile = blockstack_client.parse_signed_data( profile_txt, None, public_key_hash=owner_addr )
+            except Exception, e:
+                log.exception(e)
+                return {'error': 'Failed to authenticate profile'}
+
         # authentic! store it
         successes = 0
         for handler in blockstack_client.get_storage_handlers():
             try:
-                log.debug("Store profile with %s" % handler.__name__)
                 rc = handler.put_mutable_handler( name, profile_txt )
+                log.debug("Stored profile with %s" % handler.__name__)
             except Exception, e:
                 log.exception(e)
+                log.error("Failed to store profile with '%s'" % handler.__name__)
                 continue
 
             if not rc:
@@ -849,6 +995,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         global utxo_client
 
+        if type(address) not in [int, long]:
+            return {'error': 'invalid address'}
+
         conf = get_blockstack_opts()
         if not conf['blockchain_proxy']:
             return {'error': 'No such method'}
@@ -867,6 +1016,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         global utxo_client 
 
+        if type(txdata) not in [str, unicode]:
+            return {'error': 'invalid transaction'}
+
         conf = get_blockstack_opts()
         if not conf['blockchain_proxy']:
             return {'error': 'No such method'}
@@ -881,6 +1033,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         Get the analytics key
         """
+
+        if type(client_uuid) not in [str, unicode]:
+            return {'error': 'invalid uuid'}
+
         conf = get_blockstack_opts()
         if not conf.has_key('analytics_key') or conf['analytics_key'] is None:
             return {'error': 'No analytics key'}
