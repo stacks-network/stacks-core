@@ -30,7 +30,7 @@ import blockstack_client
 
 import virtualchain
 from ..nameset import get_db_state
-from blockstack_client import hash_zonefile
+from blockstack_client import hash_zonefile, get_zonefile_data_hash
 
 log = virtualchain.get_logger("blockstack-server")
 
@@ -57,11 +57,12 @@ def serialize_zonefile( zonefile_data ):
     return zonefile_txt
 
 
-def verify_zonefile( zonefile_data, value_hash ):
+def verify_zonefile( zonefile_str, value_hash ):
     """
     Verify that a zonefile hashes to the given value hash
+    @zonefile_str must be the zonefile as a serialized string
     """
-    zonefile_hash = hash_zonefile( zonefile_data )
+    zonefile_hash = get_zonefile_data_hash( zonefile_str )
     if zonefile_hash != value_hash:
         log.debug("Zonefile hash mismatch: expected %s, got %s" % (value_hash, zonefile_hash))
         return False 
@@ -69,15 +70,15 @@ def verify_zonefile( zonefile_data, value_hash ):
     return True
 
 
-def is_valid_zonefile( zonefile_data, value_hash ):
+def is_valid_zonefile( zonefile_str, value_hash ):
     """
     Is the given zonefile valid:
     * does it hash to the given value_hash?
     * is the value_hash current?
 
-    zonefile_data should be a dict
+    zonefile_str should be the serialized zonefile
     """
-    if not verify_zonefile( zonefile_data, value_hash ):
+    if not verify_zonefile( zonefile_str, value_hash ):
         return False
 
     if not is_current_zonefile_hash( value_hash ):
