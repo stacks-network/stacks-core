@@ -71,7 +71,7 @@ def load_name_zonefile(name, expected_zonefile_hash):
     The user zonefile hash should have been loaded from the blockchain, and thereby be the
     authentic hash.
 
-    Return the user zonefile (as JSON) on success
+    Return the user zonefile (as a dict) on success
     Return None on error
     """
 
@@ -80,14 +80,15 @@ def load_name_zonefile(name, expected_zonefile_hash):
         log.error("Failed to load user zonefile '%s'" % expected_zonefile_hash)
         return None
 
+    user_zonefile = None
     try:
         # by default, it's a zonefile-formatted text file
-        user_zonefile = blockstack_zones.parse_zone_file( zonefile_txt )
-        assert user_db.is_user_zonefile( user_zonefile ), "Not a user zonefile: %s" % user_zonefile
+        user_zonefile_defaultdict = blockstack_zones.parse_zone_file( zonefile_txt )
+        assert user_db.is_user_zonefile( user_zonefile_defaultdict ), "Not a user zonefile"
 
         # force dict 
         tmp = {}
-        tmp.update(user_zonefile)
+        tmp.update(user_zonefile_defaultdict)
         user_zonefile = tmp
 
     except (IndexError, ValueError, blockstack_zones.InvalidLineException):
@@ -95,14 +96,18 @@ def load_name_zonefile(name, expected_zonefile_hash):
         log.debug("WARN: failed to parse user zonefile; trying to import as legacy")
         try:
             user_zonefile = json.loads(zonefile_txt)
+            if type(user_zonefile) != dict:
+                log.debug("Not a legacy user zonefile")
+                return None
+
         except Exception, e:
             log.exception(e)
-            log.error("Failed to parse:\n%s" % zonefile_txt)
+            log.error("Failed to parse zonefile")
             return None
         
     except Exception, e:
         log.exception(e)
-        log.error("Failed to parse:\n%s" % zonefile_txt)
+        log.error("Failed to parse zonefile")
         return None 
 
     return user_zonefile
@@ -278,7 +283,7 @@ def get_name_zonefile( name, create_if_absent=False, proxy=None, wallet_keys=Non
     user_zonefile_hash = value_hash
     user_zonefile = load_name_zonefile(name, user_zonefile_hash)
     if user_zonefile is None:
-        return {"error": "Failed to load zonefile"}
+        return {"error": "Failed to load user zonefile"}
 
     if include_name_record:
         user_zonefile['name_record'] = name_record
