@@ -200,7 +200,7 @@ def queuedb_remove( queue_id, fqu, tx_hash, path=DEFAULT_QUEUE_PATH ):
     Raise on error
     """
     sql = "DELETE FROM entries WHERE queue_id = ? AND fqu = ? AND tx_hash = ?;"
-    args = (fqu, queue_id, tx_hash)
+    args = (queue_id, fqu, tx_hash)
 
     db = queuedb_open(path)
     if db is None:
@@ -600,9 +600,9 @@ def queue_removeall( entries, path=DEFAULT_QUEUE_PATH ):
     Remove all given entries form their given queues
     """
     for entry in entries:
-        rc = queuedb_remove( entry['fqu'], entry['type'], entry['tx_hash'], path=path )
+        rc = queuedb_remove( entry['type'], entry['fqu'], entry['tx_hash'], path=path )
         if not rc:
-            raise Exception("Failed to remove %s.%s.%s" % (entry['fqu'], entry['type'], entry['tx_hash']))
+            raise Exception("Failed to remove %s.%s.%s" % (entry['type'], entry['fqu'], entry['tx_hash']))
 
     return True
 
