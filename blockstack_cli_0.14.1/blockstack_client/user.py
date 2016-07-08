@@ -117,21 +117,50 @@ def make_empty_user_zonefile( username, data_pubkey, urls=None ):
 
 def is_user_zonefile( d ):
     """
-    Is the given dict a user zonefile?
+    Is the given dict (or dict-like object) a user zonefile?
     * the zonefile must have a URI record
     """
+
+    if not hasattr(d, "keys") or not callable(d.keys):
+        log.error("Not a dict-like object")
+        return False
+
+    if not hasattr(d, "has_key") or not callable(d.has_key):
+        log.error("Not a dict-like object")
+        return False
+
+    if not hasattr(d, "__getitem__") or not callable(d.__getitem__):
+        log.error("Not a dict-like object")
+        return False
+
     if 'uri' not in d.keys():
         return False 
 
     if d.has_key('txt'):
+        if not hasattr(d['txt'], "__iter__") or not callable(d['txt'].__iter__):
+            log.error("txt is not a list-like object")
+            return False
+
         for txt in d['txt']:
+            if not hasattr(txt, "keys") or not callable(txt.keys):
+                log.error("txt item is not a dict-like object")
+                return False
+
             if 'name' not in txt.keys():
                 return False 
 
             if 'txt' not in txt.keys():
                 return False 
 
+    if not hasattr(d['uri'], '__iter__') or not callable(d['uri'].__iter__):
+        lo.error("uri is not a list-like object")
+        return False
+
     for uri in d['uri']:
+        if not hasattr(uri, "keys") and not callable(uri.keys):
+            log.error("uri item is not a dict-like object")
+            return False
+
         if 'name' not in uri.keys():
             return False 
 
