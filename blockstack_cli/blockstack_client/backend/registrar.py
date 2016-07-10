@@ -134,10 +134,16 @@ class RegistrarWorker(threading.Thread):
         self.api_port = int(config['api_endpoint_port'])
         self.running = True
         self.lockfile_path = None
+        self.required_storage_drivers = config.get('storage_drivers_required_write', None)
+        if self.required_storage_drivers is None:
+            self.required_storage_drivers = config.get("storage_drivers", "").split(",")
+        else:
+            self.required_storage_drivers = self.required_storage_drivers.split(",")
 
         log.debug("Queue path:      %s" % self.queue_path)
         log.debug("Poll interval:   %s" % self.poll_interval)
         log.debug("API port:        %s" % self.api_port)
+        log.debug("Storage:         %s" % ",".join(self.required_storage_drivers))
 
 
     @classmethod 
@@ -342,7 +348,7 @@ class RegistrarWorker(threading.Thread):
 
     
     @classmethod 
-    def replicate_profile_data( cls, name_data, servers, wallet_data, config_path, proxy=None ):
+    def replicate_profile_data( cls, name_data, servers, wallet_data, storage_drivers, config_path, proxy=None ):
         """
         Given an update queue entry,
         replicate the zonefile to as many
@@ -372,44 +378,30 @@ class RegistrarWorker(threading.Thread):
         if 'error' in res:
             return res
 
-        if 'status' not in res:
-            log.error("Invalid server reply: no status")
-            return {'error': 'Failed to replicate zonefile: invalid server reply'}
-
-        if type(res['status']) != bool or not res['status']:
-            log.error("Invalid server reply: invalid status")
-            return {'error': 'Failed to replicate zonefile: invalid server reply'}
-
-        if 'saved' not in res:
-            log.error("Invalid server reply: no 'saved' key")
-            return {'error': 'Failed to replicate zonefile: invalid server reply'}
-
-        if type(res['saved']) != list:
-            log.error("Invalid server reply: no saved vector")
-            return {'error': 'Failed to replicate zonefile: invalid server reply'}
-
-        if res['saved'][0] != 1:
-            log.error("Server failed to save zonefile")
-            return {'error': 'Failed to replicate zonefile'}
-
         log.info("Replicated zonefile for %s to %s server(s)" % (name_data['fqu'], len(res['servers'])))
+
+        log.info("Name info:\n%s\n" % json.dumps(name_data, indent=4, sort_keys=True))
 
         # replicate profile as well, if given
         # use the data keypair
-        if name_data['profile'] is not None:
+        if name_data.has_key('profile') and name_data['profile'] is not None:
             _, data_privkey = get_data_keypair( zonefile_data, wallet_keys=wallet_data, config_path=config_path )
-            rc = put_mutable_data( name_data['fqu'], name_data['profile'], data_privkey )
+            log.info("About to replicate profile data for %s" % name_data['fqu'])
+            rc = put_mutable_data( name_data['fqu'], name_data['profile'], data_privkey, required=storage_drivers )
             if not rc:
+                log.info("Failed to replicate profile for %s" % (name_data['fqu']))
                 return {'error': 'Failed to store profile'}
             else:
+                log.info("Replicated profile for %s" % (name_data['fqu']))
                 return {'status': True}
 
         else:
+            log.info("No profile to replicate for '%s'" % (name_data['fqu']))
             return {'status': True}
 
 
     @classmethod
-    def replicate_profiles( cls, queue_path, servers, wallet_data, config_path=CONFIG_PATH, proxy=None ):
+    def replicate_profiles( cls, queue_path, servers, wallet_data, storage_drivers, config_path=CONFIG_PATH, proxy=None ):
         """
         Replicate all zonefiles for each confirmed update.
         Remove successfully-replicated updates
@@ -419,7 +411,7 @@ class RegistrarWorker(threading.Thread):
         updates = cls.get_confirmed_updates( config_path, queue_path )
         for update in updates:
             log.debug("Zonefile update on '%s' (%s) is confirmed!  New hash is %s" % (update['fqu'], update['tx_hash'], update['zonefile_hash']))
-            res = cls.replicate_profile_data( update, servers, wallet_data, config_path, proxy=proxy )
+            res = cls.replicate_profile_data( update, servers, wallet_data, config_path, storage_drivers, proxy=proxy )
             if 'error' in res:
                 log.error("Failed to update %s: %s" % (update['fqu'], res['error']))
                 ret = {'error': 'Failed to finish an update'}
@@ -609,7 +601,7 @@ class RegistrarWorker(threading.Thread):
                 # clear out any confirmed updates
                 log.debug("replicate all pending zonefiles and profiles in %s" % (self.queue_path))
                 servers = RegistrarWorker.get_replica_server_list( self.config_path )
-                res = RegistrarWorker.replicate_profiles( self.queue_path, servers, wallet_data, config_path=self.config_path, proxy=proxy )
+                res = RegistrarWorker.replicate_profiles( self.queue_path, servers, wallet_data, self.required_storage_drivers, config_path=self.config_path, proxy=proxy )
                 if 'error' in res:
                     log.warn("Zonefile/profile replication failed: %s" % res['error'])
 
