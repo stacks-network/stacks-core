@@ -192,7 +192,12 @@ def parse_mutable_data( mutable_data_json_txt, public_key, public_key_hash=None 
 
    assert public_key is not None or public_key_hash is not None, "need a public key or public key hash"
 
-   mutable_data_jwt = json.loads(mutable_data_json_txt)
+   try:
+       mutable_data_jwt = json.loads(mutable_data_json_txt)
+   except:
+       log.error("Invalid JSON")
+       return None 
+
    mutable_data_json = None 
 
    # try pubkey, if given 
@@ -270,6 +275,8 @@ def get_immutable_data( data_hash, data_url=None, hash_func=get_data_hash, fqu=N
    else:
        handlers_to_use = storage_handlers
 
+   log.debug("get_immutable %s" % data_hash)
+
    for handler in [data_url] + handlers_to_use:
 
       if handler is None:
@@ -328,6 +335,7 @@ def get_immutable_data( data_hash, data_url=None, hash_func=get_data_hash, fqu=N
       else:
           data_dict = data
 
+      log.debug("loaded %s with %s" % (data_hash, handler.__name__))
       return data_dict
 
    return None
@@ -387,6 +395,7 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None, data_address=None, own
    else:
        handlers_to_use = storage_handlers
 
+   log.debug("get_mutable %s" % fq_data_id)
    for storage_handler in handlers_to_use:
 
       if not hasattr(storage_handler, "get_mutable_handler"):
@@ -455,7 +464,7 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None, data_address=None, own
                 log.error("Unparseable data from '%s'" % url)
                 continue
 
-         log.debug("loaded with %s" % storage_handler.__name__)
+         log.debug("loaded '%s' with %s" % (url, storage_handler.__name__))
          return data
 
    return None
