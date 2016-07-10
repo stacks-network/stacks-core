@@ -282,7 +282,7 @@ def start_rpc_endpoint(config_dir=CONFIG_DIR, password=None, wallet_path=None):
 def cli_configure( args, config_path=CONFIG_PATH ):
     """
     command: configure
-    help: Interactively configure the client.
+    help: Interactively configure the client
     """
 
     opts = configure( interactive=True, force=True, config_file=config_path )
@@ -294,7 +294,7 @@ def cli_configure( args, config_path=CONFIG_PATH ):
 def cli_balance( args, config_path=CONFIG_PATH ):
     """
     command: balance
-    help: Get the account balance.
+    help: Get the account balance
     """
 
     config_dir = os.path.dirname(config_path)
@@ -392,54 +392,6 @@ def cli_import( args, config_path=CONFIG_PATH ):
     payment_address, result['address'], data_address = get_addresses_from_file(wallet_path=wallet_path)
 
     return result
-
-
-def cli_import_wallet( args, config_path=CONFIG_PATH, password=None, force=False ):
-    """
-    command: import_wallet
-    help: Set the payment, owner, and (optionally) data private keys for the wallet.
-    arg: payment_privkey (str) "Payment private key"
-    arg: owner_privkey (str) "Name owner private key"
-    opt: data_privkey (str) "Data-signing private key"
-    """
-    config_dir = os.path.dirname(config_path)
-    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-    if force and os.path.exists(wallet_path):
-        # overwrite
-        os.unlink(wallet_path)
-
-    if not os.path.exists(wallet_path):
-        if password is None:
-
-            while True:
-                res = make_wallet_password(password)
-                if 'error' in res and password is None:
-                    print res['error']
-                    continue
-
-                elif password is not None:
-                    return res
-
-                else:
-                    password = res['password']
-                    break
-
-        data = make_wallet( password, payment_privkey=args.payment_privkey, owner_privkey=args.owner_privkey, data_privkey=args.data_privkey, config_path=config_path ) 
-        if 'error' in data:
-            return data
-
-        else:
-            write_wallet( data, path=wallet_path )
-
-            # update RPC daemon if we're running
-            if local_rpc_status(config_dir=config_dir):
-                local_rpc_stop(config_dir=config_dir)
-                start_rpc_endpoint(config_dir, password=password)
-
-            return {'status': True}
-
-    else:
-        return {'error': 'Wallet already exists!', 'message': 'Back up or remove current wallet first: %s' % wallet_path}
 
 
 def cli_names( args, config_path=CONFIG_DIR ):
@@ -560,7 +512,7 @@ def get_server_info( args, config_path=config.CONFIG_PATH, get_local_info=False 
 def cli_info( args, config_path=CONFIG_PATH ):
     """
     command: info
-    help: Check server status and get details about the server
+    help: Get details about pending name commands
     """
     return get_server_info( args, config_path=config_path, get_local_info=True )
 
@@ -568,31 +520,15 @@ def cli_info( args, config_path=CONFIG_PATH ):
 def cli_ping( args, config_path=CONFIG_PATH ):
     """
     command: ping
-    help: Check server status and get details about the server
+    help: Check server status and get server details
     """
     return get_server_info( args, config_path=config_path )
-
-
-def cli_status( args, config_path=CONFIG_PATH ):
-    """
-    command: status
-    help: Check server status and get details about the server
-    """
-    return get_server_info( args, config_path=config_path, get_local_info=True )
-
-
-def cli_details( args, config_path=CONFIG_PATH ):
-    """
-    command: details
-    help: Check server status and get details about the server
-    """
-    return get_server_info( args, config_path=config_path, get_local_info=True )
 
 
 def cli_lookup( args, config_path=CONFIG_PATH ):
     """
     command: lookup
-    help: Get the zone file and profile for a particular name.
+    help: Get the zone file and profile for a particular name
     arg: name (str) "The name to look up"
     """
     data = {}
@@ -1044,7 +980,7 @@ def cli_renew( args, config_path=CONFIG_PATH, interactive=True, password=None, p
 def cli_revoke( args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None ):
     """
     command: revoke
-    help: Revoke a name.  THIS CANNOT BE UNDONE. 
+    help: Revoke a name 
     arg: name (str) "The name to revoke"
     """
 
@@ -1116,10 +1052,10 @@ def cli_revoke( args, config_path=CONFIG_PATH, interactive=True, password=None, 
 
 
 
-def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None ):
+def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None, interactive=True, force=False ):
     """
     command: migrate
-    help: Migrate a profile from the legacy format to the new format.
+    help: Migrate a profile to the latest profile format
     arg: name (str) "The name to migrate"
     opt: txid (str) "The transaction ID of a previously-sent but failed migration"
     """
@@ -1149,13 +1085,26 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None ):
 
     user_zonefile = get_name_zonefile( fqu, proxy=proxy, wallet_keys=wallet_keys )
     if user_zonefile is not None and 'error' not in user_zonefile:
+        
+        # got a zonefile...
         if is_zonefile_current(fqu, user_zonefile):
             msg ="Zonefile data is same as current zonefile; update not needed."
             return {'error': msg}
 
         if not blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
-            msg = "Not a legacy profile; cannot migrate."
-            return {'error': msg}
+            # maybe this is intentional (like fixing a corrupt zonefile)
+            # ask if so
+            if interactive:
+                pass
+
+            else:
+                if not force:
+                    msg = "Not a legacy profile; cannot migrate."
+                    return {'error': msg}
+                else:
+                    # do it anyway
+                    pass
+                    
 
     rpc = local_rpc_connect(config_dir=config_dir)
 
@@ -1177,7 +1126,75 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None ):
     return result
 
 
-def cli_list_accounts( args, proxy=None, config_path=CONFIG_PATH, password=None ):
+def cli_set_advanced_mode( args, config_path=CONFIG_PATH ):
+    """
+    command: set_advanced_mode
+    help: Enable advanced commands
+    arg: status (str) "On or Off."
+    """
+
+    status = str(args.status).lower()
+    if status not in ['on', 'off']:
+        return {'error': 'Invalid option; please use "on" or "off"'}
+
+    if status == 'on':
+        set_advanced_mode(True, config_path=config_path)
+    else:
+        set_advanced_mode(False, config_path=config_path)
+
+    return {'status': True}
+
+
+def cli_advanced_import_wallet( args, config_path=CONFIG_PATH, password=None, force=False ):
+    """
+    command: import_wallet
+    help: Set the payment, owner, and (optionally) data private keys for the wallet.
+    arg: payment_privkey (str) "Payment private key"
+    arg: owner_privkey (str) "Name owner private key"
+    opt: data_privkey (str) "Data-signing private key"
+    """
+    config_dir = os.path.dirname(config_path)
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+    if force and os.path.exists(wallet_path):
+        # overwrite
+        os.unlink(wallet_path)
+
+    if not os.path.exists(wallet_path):
+        if password is None:
+
+            while True:
+                res = make_wallet_password(password)
+                if 'error' in res and password is None:
+                    print res['error']
+                    continue
+
+                elif password is not None:
+                    return res
+
+                else:
+                    password = res['password']
+                    break
+
+        data = make_wallet( password, payment_privkey=args.payment_privkey, owner_privkey=args.owner_privkey, data_privkey=args.data_privkey, config_path=config_path ) 
+        if 'error' in data:
+            return data
+
+        else:
+            write_wallet( data, path=wallet_path )
+
+            # update RPC daemon if we're running
+            if local_rpc_status(config_dir=config_dir):
+                local_rpc_stop(config_dir=config_dir)
+                start_rpc_endpoint(config_dir, password=password)
+
+            return {'status': True}
+
+    else:
+        return {'error': 'Wallet already exists!', 'message': 'Back up or remove current wallet first: %s' % wallet_path}
+
+
+
+def cli_advanced_list_accounts( args, proxy=None, config_path=CONFIG_PATH, password=None ):
     """
     command: list_accounts
     help: List the set of accounts associated with a name.
@@ -1202,7 +1219,7 @@ def cli_list_accounts( args, proxy=None, config_path=CONFIG_PATH, password=None 
     return result
    
 
-def cli_get_account( args, proxy=None, config_path=CONFIG_PATH, password=None ):
+def cli_advanced_get_account( args, proxy=None, config_path=CONFIG_PATH, password=None ):
     """
     command: get_account
     help: Get a particular account from a name.
@@ -1232,7 +1249,7 @@ def cli_get_account( args, proxy=None, config_path=CONFIG_PATH, password=None ):
     return result
     
 
-def cli_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None ):
+def cli_advanced_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None ):
     """
     command: put_account
     help: Set a particular account's details.  If the account already exists, it will be overwritten.
@@ -1282,7 +1299,7 @@ def cli_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None ):
     return result
 
 
-def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None ):
+def cli_advanced_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None ):
     """
     command: delete_account
     help: Delete a particular account.
@@ -1310,25 +1327,6 @@ def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None
         analytics_event( "Delete account", {} )
 
     return result
-
-
-def cli_set_advanced_mode( args, config_path=CONFIG_PATH ):
-    """
-    command: set_advanced_mode
-    help: Enable advanced mode.
-    arg: status (str) "On or Off."
-    """
-
-    status = str(args.status).lower()
-    if status not in ['on', 'off']:
-        return {'error': 'Invalid option; please use "on" or "off"'}
-
-    if status == 'on':
-        set_advanced_mode(True, config_path=config_path)
-    else:
-        set_advanced_mode(False, config_path=config_path)
-
-    return {'status': True}
 
 
 def cli_advanced_wallet( args, config_path=CONFIG_PATH, password=None ):
