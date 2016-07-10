@@ -32,6 +32,7 @@ import traceback
 import logging
 import xmlrpclib
 import json
+import re
 from ConfigParser import SafeConfigParser
 
 import blockstack_zones
@@ -56,6 +57,14 @@ else:
 log = get_logger("blockstack-storage-driver-blockstack-server")
 log.setLevel(logging.DEBUG)
 
+
+def is_zonefile_hash( data_id ):
+    """
+    Is the given ID a zonefile hash?
+    """
+    return (re.match("^[0-9a-fA-F]{40}$", data_id) is not None)
+
+
 def get_data( data_id, zonefile=False ):
     """
     Get data or a zonefile from the server.
@@ -70,7 +79,14 @@ def get_data( data_id, zonefile=False ):
     ses = xmlrpclib.ServerProxy( url, allow_none=True )
     
     if zonefile:
-        res = ses.get_zonefiles_by_names( [data_id] )
+        log.debug("Get zonefile for %s" % data_id)
+
+        res = None
+        if is_zonefile_hash(data_id):
+            res = ses.get_zonefiles([data_id])
+        else:
+            res = ses.get_zonefiles_by_names( [data_id] )
+
         try:
             data = json.loads(res)
         except:
@@ -89,6 +105,7 @@ def get_data( data_id, zonefile=False ):
                 return None
 
     else:
+        log.debug("Get profile for %s" % data_id)
         res = ses.get_profile( data_id )
         try:
             data = json.loads(res)
@@ -127,7 +144,8 @@ def put_data( data_id, data_txt, zonefile=False ):
         except:
             log.error("Failed to parse zone file for %s" % data_id)
             return False
-
+ 
+        log.debug("Replicate zonefile for %s" % data_id)
         res_json = ses.put_zonefiles( [data_txt] )
         try:
             res = json.loads(res_json)
@@ -146,6 +164,7 @@ def put_data( data_id, data_txt, zonefile=False ):
             return True
 
     else:
+        log.debug("Replicate profile for %s" % data_id)
         res = ses.put_profile( data_id, data_txt )
         if 'error' in res:
             log.error("Failed to put %s: %s" % (data_id, res))
@@ -199,7 +218,16 @@ def make_mutable_url( data_id ):
     return "http://%s:%s/RPC2#%s" % (SERVER_NAME, SERVER_PORT, data_id)
 
 def get_immutable_handler( key, **kw ):
-    return get_data( key, zonefile=True )
+    """
+    Only works on user zonefiles, and only works on names
+    """
+    fqu = kw.get("fqu", None)
+    zonefile = kw.get("zonefile", False)
+    if fqu is None:
+        # fall back to whatever the key is
+        fqu = key
+
+    return get_data( fqu, zonefile=zonefile )
 
 def get_mutable_handler( url, **kw ):
     parts = url.split("#")
@@ -238,7 +266,7 @@ if __name__ == "__main__":
     for name in sys.argv[1:]:
         zonefile = get_data(name, zonefile=True)
         assert zonefile is not None and 'error' not in zonefile, "Bad zonefile: %s" % zonefile
-        profile = get_data( name )
+        profile = get_data( name, zonefile=False )
         assert profile is not None and 'error' not in profile, "Bad profile: %s" % profile
 
         print "zonefile:\n%s" % zonefile
