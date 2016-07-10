@@ -129,6 +129,9 @@ def load_storage(module_name):
 
     try:
         storage_impl = importlib.import_module("blockstack_storage_drivers.%s" % module_name)
+        name = storage_impl.__name__.split(".")[-1]
+        storage_impl.__name__ = name
+        log.debug("Loaded storage driver '%s'" % name)
     except ImportError, ie:
         raise Exception("Failed to import blockstack_storage_drivers.%s.  Please verify that it is installed and is accessible via your PYTHONPATH" % module_name)
 
