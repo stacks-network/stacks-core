@@ -731,7 +731,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Get a users zonefiles from the local cache,
         or (on miss), from upstream storage.
         Only return at most 100 zonefiles.
-        Return {'status': True, 'zonefiles': [zonefiles]} on success
+        Return {'status': True, 'zonefiles': {zonefile_hash: zonefile}} on success
         Return {'error': ...} on error
 
         zonefiles will be serialized to string
@@ -770,7 +770,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Get a users' zonefiles from the local cache,
         or (on miss), from upstream storage.
         Only return at most 100 zonefiles.
-        Return {'status': True, 'zonefiles': [zonefiles]} on success
+        Return {'status': True, 'zonefiles': {name: zonefile}]} on success
         Return {'error': ...} on error
 
         zonefiles will be serialized to string
