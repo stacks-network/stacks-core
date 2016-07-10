@@ -308,7 +308,7 @@ def get_mutable_handler( url, **kw ):
     mutable_data_id = None 
     try:
         parts = url.split('/')
-        mutable_data_id = parts[-1]
+        mutable_data_id = "mutable-%s" % parts[-1]
     except Exception, e:
         log.exception(e)
         return None 
@@ -407,8 +407,18 @@ if __name__ == "__main__":
    rc = storage_init(conf)
    if not rc:
       raise Exception("Failed to initialize")
-   
-   
+  
+   if len(sys.argv) > 1:
+       # try to get these profiles 
+       for name in sys.argv[1:]:
+           prof = get_mutable_handler( make_mutable_url( name ) )
+           if prof is None:
+               raise Exception("Failed to get %s" % name)
+
+           print json.dumps(prof, indent=4, sort_keys=True)
+  
+       sys.exit(0)
+
    # put_immutable_handler
    print "put_immutable_handler"
    for i in xrange(0, len(test_data)):
