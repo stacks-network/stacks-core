@@ -675,7 +675,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return db.get_block_from_consensus( consensus_hash )
 
 
-    def get_zonefile( self, config, zonefile_hash ):
+    def get_zonefile( self, config, zonefile_hash, zonefile_storage_drivers ):
         """
         Get a zonefile by hash, caching it along the way.
         Return the zonefile (as a dict) on success
@@ -691,7 +691,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
         try:
             # check storage providers
-            zonefile = get_zonefile_from_storage( zonefile_hash )
+            zonefile = get_zonefile_from_storage( zonefile_hash, drivers=zonefile_storage_drivers )
         except Exception, e:
             log.exception(e)
             return None
@@ -703,7 +703,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return None
 
 
-    def get_zonefile_by_name( self, conf, name ):
+    def get_zonefile_by_name( self, conf, name, zonefile_storage_drivers ):
         """
         Get a zonefile by name
         Return the zonefile (as a dict) on success
@@ -719,7 +719,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return None
 
         # find zonefile 
-        zonefile = self.get_zonefile( conf, zonefile_hash )
+        zonefile = self.get_zonefile( conf, zonefile_hash, zonefile_storage_drivers )
         if zonefile is None:
             return None
 
@@ -746,6 +746,8 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if len(zonefile_hashes) > 100:
             return {'error': 'Too many requests'}
 
+        zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
+
         ret = {}
         for zonefile_hash in zonefile_hashes:
             if type(zonefile_hash) not in [str, unicode]:
@@ -755,7 +757,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             if not is_current_zonefile_hash( zonefile_hash ):
                 continue
 
-            zonefile = self.get_zonefile( conf, zonefile_hash )
+            zonefile = self.get_zonefile( conf, zonefile_hash, zonefile_storage_drivers )
             if zonefile is None:
                 continue
 
@@ -784,6 +786,8 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
         if len(names) > 100:
             return {'error': 'Too many requests'}
+        
+        zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
 
         ret = {}
         for name in names:
@@ -794,7 +798,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
                 return {'error': 'Invalid name'}
 
         for name in names:
-            zonefile = self.get_zonefile_by_name( conf, name )
+            zonefile = self.get_zonefile_by_name( conf, name, zonefile_storage_drivers )
             if zonefile is None:
                 continue
 
@@ -887,6 +891,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if not conf['serve_profiles']:
             return {'error': 'No data'}
 
+        zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
+        profile_storage_drivers = conf['profile_storage_drivers'].split(",")
+
         # find the name record 
         db = get_state_engine()
         name_rec = db.get_name(name)
@@ -894,13 +901,13 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return {'error': 'No such name'}
 
         # find zonefile 
-        zonefile_dict = self.get_zonefile_by_name( conf, name )
+        zonefile_dict = self.get_zonefile_by_name( conf, name, zonefile_storage_drivers )
         if zonefile_dict is None:
             return {'error': 'No zonefile'}
 
         # find the profile
         try:
-            profile, zonefile = blockstack_client.get_name_profile(name, user_zonefile=zonefile_dict, name_record=name_rec)
+            profile, zonefile = blockstack_client.get_name_profile(name, profile_storage_drivers=profile_storage_drivers, zonefile_storage_drivers=zonefile_storage_drivers, user_zonefile=zonefile_dict, name_record=name_rec)
         except Exception, e:
             log.exception(e)
             log.debug("Failed to load profile for '%s'" % name)
@@ -936,9 +943,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return {'error': 'No data'}
 
         profile_storage_drivers = conf['profile_storage_drivers'].split(",")
+        zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
 
         # find zonefile 
-        zonefile_dict = self.get_zonefile_by_name( conf, name )
+        zonefile_dict = self.get_zonefile_by_name( conf, name, zonefile_storage_drivers )
         if zonefile_dict is None:
             return {'error': 'No zonefile'}
 
