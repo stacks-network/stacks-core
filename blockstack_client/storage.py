@@ -441,7 +441,7 @@ def serialize_immutable_data( data_json ):
     return json.dumps(data_json, sort_keys=True)
 
 
-def put_immutable_data( data_json, txid, data_hash=None, data_text=None ):
+def put_immutable_data( data_json, txid, data_hash=None, data_text=None, required=[] ):
    """
    Given a string of data (which can either be data or a zonefile), store it into our immutable data stores.
    Do so in a best-effort manner--this method only fails if *all* storage providers fail.
@@ -468,7 +468,13 @@ def put_immutable_data( data_json, txid, data_hash=None, data_text=None ):
    for handler in storage_handlers:
 
       if not getattr(handler, "put_immutable_handler"):
-         continue
+         # this one failed 
+         if handler.__name__ in required:
+             # fatal
+             log.debug("Failed to replicate to required storage provider '%s'" % handler.__name__)
+             return None
+         else:
+             continue
 
       rc = False
 
@@ -478,12 +484,18 @@ def put_immutable_data( data_json, txid, data_hash=None, data_text=None ):
       except Exception, e:
 
          log.exception(e)
-         continue
+         if handler.__name__ in required:
+             # fatal
+             log.debug("Failed to replicate to required storage provider '%s'" % handler.__name__)
+             return None
+         else:
+             continue
 
       if not rc:
-         log.error("Failed to replicate with '%s'" % handler.__name__)
+         log.debug("Failed to replicate with '%s'" % handler.__name__)
 
       else:
+         log.debug("Replication succeeded with '%s'" % handler.__name__)
          successes += 1
 
    if successes == 0:
@@ -495,7 +507,7 @@ def put_immutable_data( data_json, txid, data_hash=None, data_text=None ):
        return data_hash
 
 
-def put_mutable_data( fq_data_id, data_json, privatekey ):
+def put_mutable_data( fq_data_id, data_json, privatekey, required=[] ):
    """
    Given the unserialized data, store it into our mutable data stores.
    Do so in a best-effort way.  This method only fails if all storage providers fail.
@@ -519,7 +531,11 @@ def put_mutable_data( fq_data_id, data_json, privatekey ):
    for handler in storage_handlers:
 
       if not hasattr( handler, "put_mutable_handler" ):
-         continue
+          if handler.__name__ in required:
+              log.debug("Failed to replicate with required storage provider '%s'" % handler.__name__)
+              return None
+          else:
+              continue
 
       rc = False
 
@@ -527,10 +543,19 @@ def put_mutable_data( fq_data_id, data_json, privatekey ):
          rc = handler.put_mutable_handler( fq_data_id, serialized_data )
       except Exception, e:
          log.exception( e )
-         continue
+         if handler.__name__ in required:
+             log.debug("Failed to replicate with required storage provider '%s'" % handler.__name__)
+             return None 
+         else:
+             continue
 
       if not rc:
-         log.error("Failed to replicate with '%s'" % handler.__name__)
+         if handler.__name__ in required:
+             log.debug("Failed to replicate with required storage provider '%s'" % handler.__name__)
+             return None 
+         else:
+             log.debug("Failed to replicate with '%s'" % handler.__name__)
+             continue
 
       else:
          successes += 1
