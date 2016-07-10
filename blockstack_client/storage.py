@@ -243,7 +243,7 @@ def register_storage( storage_impl ):
    return True
 
 
-def get_immutable_data( data_hash, data_url=None, hash_func=get_data_hash, fqu=None, data_id=None, zonefile=False, deserialize=True ):
+def get_immutable_data( data_hash, data_url=None, hash_func=get_data_hash, fqu=None, data_id=None, zonefile=False, deserialize=True, drivers=None ):
    """
    Given the hash of the data, go through the list of
    immutable data handlers and look it up.
@@ -259,7 +259,18 @@ def get_immutable_data( data_hash, data_url=None, hash_func=get_data_hash, fqu=N
        log.debug("No storage handlers registered")
        return None
 
-   for handler in [data_url] + storage_handlers:
+   handlers_to_use = []
+   if drivers is not None:
+       # whitelist of drivers to try 
+       for d in drivers:
+           for h in storage_handlers:
+               if h.__name__ == d:
+                   handlers_to_use.append(h)
+
+   else:
+       handlers_to_use = storage_handlers
+
+   for handler in [data_url] + handlers_to_use:
 
       if handler is None:
          continue
@@ -346,7 +357,7 @@ def verify_raw_data( raw_data, pubkey, sigb64 ):
    return pybitcointools.ecdsa_raw_verify( data_hash, pybitcointools.decode_sig( sigb64 ), pubkey )
 
 
-def get_mutable_data( fq_data_id, data_pubkey, urls=None, data_address=None ):
+def get_mutable_data( fq_data_id, data_pubkey, urls=None, data_address=None, owner_address=None, drivers=None ):
    """
    Given a mutable data's zonefile, go fetch the data.
 
@@ -365,7 +376,18 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None, data_address=None ):
    else:
        fqu = fq_data_id
 
-   for storage_handler in storage_handlers:
+   handlers_to_use = []
+   if drivers is not None:
+       # whitelist of drivers to try 
+       for d in drivers:
+           for h in storage_handlers:
+               if h.__name__ == d:
+                   handlers_to_use.append(h)
+
+   else:
+       handlers_to_use = storage_handlers
+
+   for storage_handler in handlers_to_use:
 
       if not hasattr(storage_handler, "get_mutable_handler"):
          continue
@@ -425,8 +447,13 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None, data_address=None ):
          # parse it
          data = parse_mutable_data( data_json, data_pubkey, public_key_hash=data_address )
          if data is None:
-            log.error("Unparseable data from '%s'" % url)
-            continue
+            # maybe try owner address?
+            if owner_address is not None:
+                data = parse_mutable_data( data_json, data_pubkey, public_key_hash=owner_address )
+
+            if data is None:
+                log.error("Unparseable data from '%s'" % url)
+                continue
 
          log.debug("loaded with %s" % storage_handler.__name__)
          return data
