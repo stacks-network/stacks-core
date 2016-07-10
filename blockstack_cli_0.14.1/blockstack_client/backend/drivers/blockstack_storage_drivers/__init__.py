@@ -24,3 +24,6 @@
 import dht
 import disk
 import s3
+import blockstack_resolver
+import blockstack_server
+import http
