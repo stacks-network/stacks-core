@@ -52,6 +52,8 @@ serve_zonefiles = True
 serve_profiles = True
 zonefiles = @ZONEFILES@
 analytics_key = abcdef0123456789
+zonefile_storage_drivers = disk
+profile_storage_drivers = disk
 """ % TEST_RPC_PORT
 
 DEFAULT_CLIENT_INI_TEMPLATE = """
@@ -60,6 +62,7 @@ server = localhost
 port = %s
 metadata = @CLIENT_METADATA@
 storage_drivers = @CLIENT_STORAGE_DRIVERS@
+storage_drivers_required_write = disk,blockstack-server
 blockchain_headers = @CLIENT_BLOCKCHAIN_HEADERS@
 advanced_mode = true
 api_endpoint_port = %s
@@ -69,7 +72,7 @@ queue_path = @CLIENT_QUEUE_PATH@
 rpc_detach = True
 blockchain_reader = mock_utxo
 blockchain_writer = mock_utxo
-anonymous_statistics = True
+anonymous_statistics = False
 
 [blockchain-reader]
 utxo_provider = mock_utxo
