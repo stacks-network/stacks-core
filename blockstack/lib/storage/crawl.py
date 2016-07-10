@@ -66,7 +66,7 @@ def get_cached_zonefile( zonefile_hash, zonefile_dir=None ):
 
     try:
         zonefile_dict = blockstack_zones.parse_zone_file( data )
-        assert blockstack_client.is_user_zonefile( user_zonefile ), "Not a user zonefile: %s" % zonefile_hash
+        assert blockstack_client.is_user_zonefile( zonefile_dict ), "Not a user zonefile: %s" % zonefile_hash
         return zonefile_dict
     except Exception, e:
         log.error("Failed to parse zonefile")
