@@ -464,6 +464,7 @@ def put_immutable_data( data_json, txid, data_hash=None, data_text=None, require
       data_hash = str(data_hash)
 
    successes = 0
+   log.debug("put_immutable_data(%s), required=%s" % (data_hash, ",".join(required)))
 
    for handler in storage_handlers:
 
@@ -479,7 +480,7 @@ def put_immutable_data( data_json, txid, data_hash=None, data_text=None, require
       rc = False
 
       try:
-
+         log.debug("Try '%s'" % handler.__name__)
          rc = handler.put_immutable_handler( data_hash, data_text, txid )
       except Exception, e:
 
@@ -528,6 +529,8 @@ def put_mutable_data( fq_data_id, data_json, privatekey, required=[] ):
    serialized_data = serialize_mutable_data( data_json, privatekey )
    successes = 0
 
+   log.debug("put_mutable_data(%s), required=%s" % (fq_data_id, ",".join(required)))
+
    for handler in storage_handlers:
 
       if not hasattr( handler, "put_mutable_handler" ):
@@ -540,6 +543,7 @@ def put_mutable_data( fq_data_id, data_json, privatekey, required=[] ):
       rc = False
 
       try:
+         log.debug("Try '%s'" % handler.__name__)
          rc = handler.put_mutable_handler( fq_data_id, serialized_data )
       except Exception, e:
          log.exception( e )
