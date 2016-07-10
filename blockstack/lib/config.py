@@ -493,6 +493,8 @@ def default_blockstack_opts( config_file=None ):
    serve_profiles = False
    zonefile_dir = None
    analytics_key = None
+   zonefile_storage_drivers = ""
+   profile_storage_drivers = ""
 
    if parser.has_section('blockstack'):
 
@@ -528,6 +530,12 @@ def default_blockstack_opts( config_file=None ):
               serve_profiles = True
           else:
               serve_profiles = False
+
+      if parser.has_option("blockstack", "zonefile_storage_drivers"):
+          zonefile_storage_drivers = parser.get("blockstack", "zonefile_storage_drivers")
+
+      if parser.has_option("blockstack", "profile_storage_drivers"):
+          profile_storage_drivers = parser.get("blockstack", "profile_storage_drivers")
 
       if parser.has_option("blockstack", "zonefiles"):
           zonefile_dir = parser.get("blockstack", "zonefiles")
@@ -583,6 +591,8 @@ def default_blockstack_opts( config_file=None ):
        'blockchain_proxy': blockchain_proxy,
        'serve_zonefiles': serve_zonefiles,
        'serve_profiles': serve_profiles,
+       'zonefile_storage_drivers': zonefile_storage_drivers,
+       'profile_storage_drivers': profile_storage_drivers,
        'zonefiles': zonefile_dir,
        'analytics_key': analytics_key
    }
