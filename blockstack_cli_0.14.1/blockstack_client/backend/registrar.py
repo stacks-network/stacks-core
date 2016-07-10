@@ -60,7 +60,7 @@ from ..config import SLEEP_INTERVAL, get_config, get_logger, CONFIG_PATH, DEFAUL
 DEBUG = True
 
 __plugin_state = None
-log = get_logger()
+log = get_logger("blockstack-client-registrar")
 
 
 def get_rpc_token(config_path=CONFIG_PATH):
@@ -386,7 +386,7 @@ class RegistrarWorker(threading.Thread):
         # use the data keypair
         if name_data.has_key('profile') and name_data['profile'] is not None:
             _, data_privkey = get_data_keypair( zonefile_data, wallet_keys=wallet_data, config_path=config_path )
-            log.info("About to replicate profile data for %s" % name_data['fqu'])
+            log.info("Replicate profile data for %s to %s" % (name_data['fqu'], ",".join(storage_drivers)))
             rc = put_mutable_data( name_data['fqu'], name_data['profile'], data_privkey, required=storage_drivers )
             if not rc:
                 log.info("Failed to replicate profile for %s" % (name_data['fqu']))
@@ -411,7 +411,7 @@ class RegistrarWorker(threading.Thread):
         updates = cls.get_confirmed_updates( config_path, queue_path )
         for update in updates:
             log.debug("Zonefile update on '%s' (%s) is confirmed!  New hash is %s" % (update['fqu'], update['tx_hash'], update['zonefile_hash']))
-            res = cls.replicate_profile_data( update, servers, wallet_data, config_path, storage_drivers, proxy=proxy )
+            res = cls.replicate_profile_data( update, servers, wallet_data, storage_drivers, config_path, proxy=proxy )
             if 'error' in res:
                 log.error("Failed to update %s: %s" % (update['fqu'], res['error']))
                 ret = {'error': 'Failed to finish an update'}
