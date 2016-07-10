@@ -75,7 +75,7 @@ class MockUTXOProvider(object):
 
         NOTE: assumes that the tx outputs use *only* pay-to-pubkey-hash scripts.
 
-        Return {"transaction_hash": txid}
+        Return {"tx_hash": txid}
         """
 
         # update the current unspent set.
@@ -145,7 +145,7 @@ class MockUTXOProvider(object):
             self.bitcoind.sendrawtransaction( hex_tx )
 
         resp = {
-            'transaction_hash': txid
+            'tx_hash': txid
         }
         return resp
 
