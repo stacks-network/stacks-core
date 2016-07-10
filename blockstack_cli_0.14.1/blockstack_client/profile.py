@@ -559,8 +559,29 @@ def zonefile_publish(fqu, zonefile_json, server_list, wallet_keys=None):
                 log.error("Failed to publish zonefile to %s:%s: %s" % (server_host, server_port, res['error']))
                 continue
 
-            if len(res['saved']) != 1 and res['saved'][0] != 1:
-                log.error("Server %s:%s failed to replicate zonefile" % (server_host, server_port))
+            if 'status' not in res:
+                log.error("Invalid server reply: no status")
+                print res
+                continue
+
+            if type(res['status']) != bool or not res['status']:
+                log.error("Invalid server reply: invalid status")
+                print res
+                continue
+
+            if 'saved' not in res:
+                log.error("Invalid server reply: no 'saved' key")
+                print res
+                continue
+
+            if type(res['saved']) != list:
+                log.error("Invalid server reply: no saved vector")
+                print res
+                continue 
+
+            if len(res['saved']) < 1 or res['saved'][0] != 1:
+                log.error("Server %s:%s failed to save zonefile" % (server_host, server_port))
+                print res
                 continue
 
             log.debug("Replicated zonefile to %s:%s" % (server_host, server_port))
