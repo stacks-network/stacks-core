@@ -283,7 +283,7 @@ def get_immutable_data( data_hash, data_url=None, hash_func=get_data_hash, fqu=N
             log.debug("No method: %s.get_immutable_handler(%s)" % (handler, data_hash))
             continue
 
-         log.debug("Try %s" % handler.__name__)
+         log.debug("Try %s (%s)" % (handler.__name__, data_hash))
          try:
             data = handler.get_immutable_handler( data_hash, data_id=data_id, zonefile=zonefile, fqu=fqu )
          except Exception, e:
@@ -404,7 +404,7 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None, data_address=None ):
          data_json = None
          data = None
 
-         log.debug("Try %s" % storage_handler.__name__)
+         log.debug("Try %s (%s)" % (storage_handler.__name__, url))
          try:
 
             data_json = storage_handler.get_mutable_handler( url, fqu=fqu )
@@ -419,6 +419,7 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None, data_address=None ):
 
          if data_json is None:
             # no data
+            log.debug("No data from %s (%s)" % (storage_handler.__name__, url))
             continue
 
          # parse it
