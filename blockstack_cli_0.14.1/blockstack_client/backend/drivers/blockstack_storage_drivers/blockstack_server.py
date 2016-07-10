@@ -208,7 +208,7 @@ def storage_init(conf):
 
 
 def handles_url( url ):
-    if url.startswith("http://") and len(url.split("#")) == 2 and url.split("#")[1].endswith("/RPC2"):
+    if (url.startswith("http://") or url.startswith("https://")) and len(url.split("#")) == 2 and url.split("#")[0].endswith("/RPC2"):
         return True
     else:
         return False
@@ -228,6 +228,7 @@ def get_immutable_handler( key, **kw ):
         fqu = key
 
     return get_data( fqu, zonefile=zonefile )
+
 
 def get_mutable_handler( url, **kw ):
     parts = url.split("#")
