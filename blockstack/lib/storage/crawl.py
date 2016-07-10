@@ -211,7 +211,7 @@ def get_zonefile_txid( zonefile_dict ):
     return txid
 
 
-def store_zonefile_to_storage( zonefile_dict ):
+def store_zonefile_to_storage( zonefile_dict, required=[] ):
     """
     Upload a zonefile to our storage providers.
     Return True if at least one provider got it.
@@ -227,9 +227,9 @@ def store_zonefile_to_storage( zonefile_dict ):
         log.error("No txid for zonefile hash '%s' (for '%s')" % (zonefile_hash, name))
         return False
    
-    rc = blockstack_client.storage.put_immutable_data( None, txid, data_hash=zonefile_hash, data_text=zonefile_text )
+    rc = blockstack_client.storage.put_immutable_data( None, txid, data_hash=zonefile_hash, data_text=zonefile_text, required=required )
     if not rc:
-        log.error("Failed to store zonefile '%s' (%s) for '%s'" (zonefile_hash, txid, name))
+        log.error("Failed to store zonefile '%s' (%s) for '%s'" % (zonefile_hash, txid, name))
         return False
 
     return True
