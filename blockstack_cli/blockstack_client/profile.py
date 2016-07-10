@@ -65,7 +65,7 @@ from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SER
 log = get_logger()
 
 
-def load_name_zonefile(name, expected_zonefile_hash):
+def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None):
     """
     Fetch and load a user zonefile from the storage implementation with the given hex string hash,
     The user zonefile hash should have been loaded from the blockchain, and thereby be the
@@ -75,7 +75,7 @@ def load_name_zonefile(name, expected_zonefile_hash):
     Return None on error
     """
 
-    zonefile_txt = storage.get_immutable_data(expected_zonefile_hash, hash_func=storage.get_zonefile_data_hash, fqu=name, zonefile=True, deserialize=False)
+    zonefile_txt = storage.get_immutable_data(expected_zonefile_hash, hash_func=storage.get_zonefile_data_hash, fqu=name, zonefile=True, deserialize=False, drivers=storage_drivers)
     if zonefile_txt is None:
         log.error("Failed to load user zonefile '%s'" % expected_zonefile_hash)
         return None
@@ -153,7 +153,7 @@ def load_legacy_user_profile( name, expected_hash ):
     return new_profile
 
 
-def load_name_profile(name, user_zonefile, user_address):
+def load_name_profile(name, user_zonefile, data_address, owner_address, storage_drivers=None):
     """
     Fetch and load a user profile, given the user zonefile.
     Try to verify using the public key in the zonefile (if one
@@ -172,15 +172,16 @@ def load_name_profile(name, user_zonefile, user_address):
         log.exception(v)
         user_data_pubkey = None 
 
-    if user_data_pubkey is None and user_address is None:
+    if user_data_pubkey is None and data_address is None and owner_address is None:
         raise Exception("Missing user data public key and address; cannot verify profile")
 
     if user_data_pubkey is None:
-        log.warn("No data public key set; falling back to hash of owner public key for profile authentication")
+        log.warn("No data public key set; falling back to hash of data and/or owner public key for profile authentication")
 
     # get user's data public key from the zonefile
     urls = user_db.user_zonefile_urls( user_zonefile )
-    user_profile = storage.get_mutable_data( name, user_data_pubkey, data_address=user_address, urls=urls )
+
+    user_profile = storage.get_mutable_data( name, user_data_pubkey, data_address=data_address, owner_address=owner_address, urls=urls, drivers=storage_drivers )
     return user_profile
 
 
@@ -229,7 +230,7 @@ def profile_update( name, user_zonefile, new_profile, owner_address, proxy=None,
     return ret
 
 
-def get_name_zonefile( name, create_if_absent=False, proxy=None, wallet_keys=None, name_record=None, include_name_record=False ):
+def get_name_zonefile( name, storage_drivers=None, create_if_absent=False, proxy=None, wallet_keys=None, name_record=None, include_name_record=False ):
     """
     Given the name of the user, go fetch its zonefile.
     Verifies that the hash on the blockchain matches the zonefile.
@@ -281,7 +282,7 @@ def get_name_zonefile( name, create_if_absent=False, proxy=None, wallet_keys=Non
             return user_resp
 
     user_zonefile_hash = value_hash
-    user_zonefile = load_name_zonefile(name, user_zonefile_hash)
+    user_zonefile = load_name_zonefile(name, user_zonefile_hash, storage_drivers=storage_drivers)
     if user_zonefile is None:
         return {"error": "Failed to load user zonefile"}
 
@@ -291,7 +292,7 @@ def get_name_zonefile( name, create_if_absent=False, proxy=None, wallet_keys=Non
     return user_zonefile
     
 
-def get_name_profile(name, create_if_absent=False, proxy=None, wallet_keys=None, user_zonefile=None, name_record=None, include_name_record=False ):
+def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=None, create_if_absent=False, proxy=None, wallet_keys=None, user_zonefile=None, name_record=None, include_name_record=False ):
     """
     Given the name of the user, look up the user's record hash,
     and then get the record itself from storage.
@@ -309,7 +310,7 @@ def get_name_profile(name, create_if_absent=False, proxy=None, wallet_keys=None,
         proxy = get_default_proxy()
  
     if user_zonefile is None:
-        user_zonefile = get_name_zonefile( name, create_if_absent=create_if_absent, proxy=proxy, wallet_keys=wallet_keys, name_record=name_record, include_name_record=True )
+        user_zonefile = get_name_zonefile( name, create_if_absent=create_if_absent, proxy=proxy, wallet_keys=wallet_keys, name_record=name_record, include_name_record=True, storage_drivers=zonefile_storage_drivers )
         if user_zonefile is None:
             return (None, {'error': 'No user zonefile'})
 
@@ -352,13 +353,14 @@ def get_name_profile(name, create_if_absent=False, proxy=None, wallet_keys=None,
             # cut to the chase
             user_address = old_address
 
-        user_profile = load_name_profile( name, user_zonefile, user_address )
+        user_profile = load_name_profile( name, user_zonefile, user_address, old_address, storage_drivers=profile_storage_drivers )
+        """
         if user_profile is None or 'error' in user_profile:
 
             if old_address != user_address:
                 log.debug("Falling back to old owner address")
-                user_profile = load_name_profile( name, user_zonefile, old_address )
-        
+                user_profile = load_name_profile( name, user_zonefile, old_address, storage_drivers=profile_storage_drivers )
+        """
         if user_profile is None or 'error' in user_profile:
 
             if user_profile is None:
@@ -432,7 +434,7 @@ def remove_name_zonefile(user, txid):
     return (rc, data_hash)
 
 
-def get_and_migrate_profile( name, proxy=None, create_if_absent=False, wallet_keys=None, include_name_record=False ):
+def get_and_migrate_profile( name, zonefile_storage_drivers=None, profile_storage_drivers=None, proxy=None, create_if_absent=False, wallet_keys=None, include_name_record=False ):
     """
     Get a name's profile and zonefile, optionally creating a new one along the way.  Migrate the profile to a new zonefile,
     if the profile is in legacy format.
@@ -452,7 +454,7 @@ def get_and_migrate_profile( name, proxy=None, create_if_absent=False, wallet_ke
     created_new_profile = False
 
     name_record = None
-    user_zonefile = get_name_zonefile( name, proxy=proxy, wallet_keys=wallet_keys, include_name_record=True )
+    user_zonefile = get_name_zonefile( name, storage_drivers=zonefile_storage_drivers, proxy=proxy, wallet_keys=wallet_keys, include_name_record=True )
     if user_zonefile is None or 'error' in user_zonefile: 
         if not create_if_absent:
             return ({'error': 'No such zonefile'}, None, False)
@@ -498,7 +500,8 @@ def get_and_migrate_profile( name, proxy=None, create_if_absent=False, wallet_ke
 
     else:
         if not created_new_profile:
-            user_profile, error_msg = get_name_profile( name, proxy=proxy, wallet_keys=wallet_keys, user_zonefile=user_zonefile, name_record=name_record )
+            user_profile, error_msg = get_name_profile( name, zonefile_storage_drivers=zonefile_storage_drivers, profile_storage_drivers=profile_storage_drivers,
+                                                        proxy=proxy, wallet_keys=wallet_keys, user_zonefile=user_zonefile, name_record=name_record )
             if user_profile is None:
                 return (error_msg, None, False)
 
@@ -518,7 +521,7 @@ def get_and_migrate_profile( name, proxy=None, create_if_absent=False, wallet_ke
     return (user_profile, user_zonefile, created_new_zonefile)
 
 
-def is_zonefile_replicated(fqu, zonefile_json, proxy=None, wallet_keys=None):
+def is_zonefile_replicated(fqu, zonefile_json, zonefile_storage_drivers=None, proxy=None, wallet_keys=None):
     """
     Return True if the given zonefile (as JSON) has been replicated.
     Return False if not
@@ -527,7 +530,7 @@ def is_zonefile_replicated(fqu, zonefile_json, proxy=None, wallet_keys=None):
     if proxy is None:
         proxy = get_default_proxy()
 
-    online_zonefile_json = get_name_zonefile(fqu, proxy=proxy, wallet_keys=wallet_keys)
+    online_zonefile_json = get_name_zonefile(fqu, storage_drivers=zonefile_storage_drivers, proxy=proxy, wallet_keys=wallet_keys)
 
     if online_zonefile_json is None or 'error' in online_zonefile_json:
         return False
