@@ -58,6 +58,9 @@ WALLET_PASSWORD_LENGTH = 15
 BLOCKSTACK_METADATA_DIR = os.path.expanduser("~/.blockstack/metadata")
 BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = "disk,dht,http,blockstack_resolver,blockstack_server"
 
+# storage drivers that must successfully acknowledge each write
+BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE = "disk,blockstack_server"
+
 DEFAULT_TIMEOUT = 30  # in secs
 
 """ transaction fee configs
@@ -800,6 +803,7 @@ def read_config_file(path=CONFIG_PATH):
         parser.set('blockstack-client', 'port', str(BLOCKSTACKD_PORT))
         parser.set('blockstack-client', 'metadata', BLOCKSTACK_METADATA_DIR)
         parser.set('blockstack-client', 'storage_drivers', BLOCKSTACK_DEFAULT_STORAGE_DRIVERS)
+        parser.set('blockstack-client', 'storage_drivers_required_write', BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE)
         parser.set('blockstack-client', 'blockchain_headers', SPV_HEADERS_PATH)
         parser.set('blockstack-client', 'advanced_mode', 'false')
         parser.set('blockstack-client', 'api_endpoint_port', str(DEFAULT_API_PORT))
