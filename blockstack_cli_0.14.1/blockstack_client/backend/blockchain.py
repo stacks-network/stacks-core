@@ -120,10 +120,16 @@ def get_tx_fee( tx_hex, config_path=CONFIG_PATH ):
     """
     bitcoind_client = get_bitcoind_client(config_path=config_path)
     try:
-        # try to confirm in 2 blocks
+        # try to confirm in 2-3 blocks
         fee = bitcoind_client.estimatefee(2)
+        if fee < 0:
+            log.error("Failed to estimate tx fee")
+            return None 
+
         fee = float(fee) 
-        return round((fee * (len(tx_hex) / 1024.0)) * 10**8)
+
+        # / 2048, since tx_hex is a hex string
+        return round((fee * (len(tx_hex) / 2048.0)) * 10**8)
     except Exception, e:
         log.exception(e)
         log.debug("Failed to estimate fee")
