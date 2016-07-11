@@ -112,7 +112,7 @@ def get_profile( fqu ):
     ret = {}
     ret['token'] = res['token']
     ret['parentPublicKey'] = res['parentPublicKey']
-    return ret
+    return json.dumps([ret])
 
 
 def storage_init(conf):
