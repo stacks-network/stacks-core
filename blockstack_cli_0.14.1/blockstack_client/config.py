@@ -56,7 +56,7 @@ BLOCKSTACKD_PORT = DEFAULT_BLOCKSTACKD_PORT
 WALLET_PASSWORD_LENGTH = 15
 
 BLOCKSTACK_METADATA_DIR = os.path.expanduser("~/.blockstack/metadata")
-BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = "disk,dht,http,blockstack_resolver,blockstack_server"
+BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = "disk,blockstack_resolver,blockstack_server,http,dht"
 
 # storage drivers that must successfully acknowledge each write
 BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE = "disk,blockstack_server"
