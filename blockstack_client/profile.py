@@ -153,7 +153,7 @@ def load_legacy_user_profile( name, expected_hash ):
     return new_profile
 
 
-def load_name_profile(name, user_zonefile, data_address, owner_address, use_zonefile_urls=True, storage_drivers=None):
+def load_name_profile(name, user_zonefile, data_address, owner_address, use_zonefile_urls=True, storage_drivers=None, decode=True):
     """
     Fetch and load a user profile, given the user zonefile.
     Try to verify using the public key in the zonefile (if one
@@ -183,7 +183,7 @@ def load_name_profile(name, user_zonefile, data_address, owner_address, use_zone
     if use_zonefile_urls:
         urls = user_db.user_zonefile_urls( user_zonefile )
 
-    user_profile = storage.get_mutable_data( name, user_data_pubkey, data_address=data_address, owner_address=owner_address, urls=urls, drivers=storage_drivers )
+    user_profile = storage.get_mutable_data( name, user_data_pubkey, data_address=data_address, owner_address=owner_address, urls=urls, drivers=storage_drivers, decode=decode )
     return user_profile
 
 
@@ -294,7 +294,17 @@ def get_name_zonefile( name, storage_drivers=None, create_if_absent=False, proxy
     return user_zonefile
     
 
-def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=None, create_if_absent=False, proxy=None, wallet_keys=None, user_zonefile=None, name_record=None, include_name_record=False, use_zonefile_urls=True ):
+def get_name_profile(name, zonefile_storage_drivers=None,
+                           profile_storage_drivers=None,
+                           create_if_absent=False,
+                           proxy=None,
+                           wallet_keys=None,
+                           user_zonefile=None,
+                           name_record=None,
+                           include_name_record=False,
+                           use_zonefile_urls=True,
+                           decode_profile=True ):
+
     """
     Given the name of the user, look up the user's record hash,
     and then get the record itself from storage.
@@ -355,7 +365,7 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
             # cut to the chase
             user_address = old_address
 
-        user_profile = load_name_profile( name, user_zonefile, user_address, old_address, use_zonefile_urls=use_zonefile_urls, storage_drivers=profile_storage_drivers )
+        user_profile = load_name_profile( name, user_zonefile, user_address, old_address, use_zonefile_urls=use_zonefile_urls, storage_drivers=profile_storage_drivers, decode=decode_profile )
         if user_profile is None or 'error' in user_profile:
 
             if user_profile is None:
