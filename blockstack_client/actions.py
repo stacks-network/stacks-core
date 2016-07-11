@@ -476,6 +476,7 @@ def get_server_info( args, config_path=config.CONFIG_PATH, get_local_info=False 
                     if confirmations is None:
                         confirmations = 0
                     new_entry['confirmations'] = confirmations
+                    new_entry['tx_hash'] = entry['tx_hash']
                     return new_entry
 
                 def format_queue_display(preorder_queue,
