@@ -909,8 +909,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         try:
             # NOTE: since we did not generate this zonefile (i.e. it's untrusted input, and we may be using different storage drivers),
             # don't trust its URLs.  Auto-generate them using our designated drivers instead.
+            # Also, do not attempt to decode the profile.  The client will do this instead (avoid any decode-related attack vectors)
             profile, zonefile = blockstack_client.get_name_profile(name, profile_storage_drivers=profile_storage_drivers, zonefile_storage_drivers=zonefile_storage_drivers,
-                                                                   user_zonefile=zonefile_dict, name_record=name_rec, use_zonefile_urls=False)
+                                                                   user_zonefile=zonefile_dict, name_record=name_rec, use_zonefile_urls=False, decode_profile=False)
         except Exception, e:
             log.exception(e)
             log.debug("Failed to load profile for '%s'" % name)
