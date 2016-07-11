@@ -195,7 +195,7 @@ def parse_mutable_data( mutable_data_json_txt, public_key, public_key_hash=None 
    try:
        mutable_data_jwt = json.loads(mutable_data_json_txt)
    except:
-       log.error("Invalid JSON")
+       log.error("Invalid JSON: '%s' (%s)" % (mutable_data_json_txt, type(mutable_data_json_txt)))
        return None 
 
    mutable_data_json = None 
@@ -365,7 +365,7 @@ def verify_raw_data( raw_data, pubkey, sigb64 ):
    return pybitcointools.ecdsa_raw_verify( data_hash, pybitcointools.decode_sig( sigb64 ), pubkey )
 
 
-def get_mutable_data( fq_data_id, data_pubkey, urls=None, data_address=None, owner_address=None, drivers=None ):
+def get_mutable_data( fq_data_id, data_pubkey, urls=None, data_address=None, owner_address=None, drivers=None, decode=True ):
    """
    Given a mutable data's zonefile, go fetch the data.
 
@@ -453,18 +453,23 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None, data_address=None, own
             log.debug("No data from %s (%s)" % (storage_handler.__name__, url))
             continue
 
-         # parse it
-         data = parse_mutable_data( data_json, data_pubkey, public_key_hash=data_address )
-         if data is None:
-            # maybe try owner address?
-            if owner_address is not None:
-                data = parse_mutable_data( data_json, data_pubkey, public_key_hash=owner_address )
+         # parse it, if desired
+         if decode:
+             data = parse_mutable_data( data_json, data_pubkey, public_key_hash=data_address )
+             if data is None:
+                # maybe try owner address?
+                if owner_address is not None:
+                    data = parse_mutable_data( data_json, data_pubkey, public_key_hash=owner_address )
 
-            if data is None:
-                log.error("Unparseable data from '%s'" % url)
-                continue
+                if data is None:
+                    log.error("Unparseable data from '%s'" % url)
+                    continue
 
-         log.debug("loaded '%s' with %s" % (url, storage_handler.__name__))
+             log.debug("loaded '%s' with %s" % (url, storage_handler.__name__))
+         else:
+             data = data_json
+             log.debug("fetched (but did not decode) '%s' with '%s'" % (url, storage_handler.__name__))
+
          return data
 
    return None
