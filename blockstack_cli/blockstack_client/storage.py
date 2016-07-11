@@ -192,10 +192,12 @@ def parse_mutable_data( mutable_data_json_txt, public_key, public_key_hash=None 
 
    assert public_key is not None or public_key_hash is not None, "need a public key or public key hash"
 
+   mutable_data_jwt = None
    try:
        mutable_data_jwt = json.loads(mutable_data_json_txt)
+       assert type(mutable_data_jwt) in [dict, list]
    except:
-       log.error("Invalid JSON: '%s' (%s)" % (mutable_data_json_txt, type(mutable_data_json_txt)))
+       log.error("Invalid JSON")
        return None 
 
    mutable_data_json = None 
