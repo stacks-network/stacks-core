@@ -193,7 +193,7 @@ def operation_sanity_check(fqu, payment_privkey, config_path=CONFIG_PATH, transf
         return {'error': 'Address %s doesn\'t have a sufficient balance (need %s).' % (payment_address, balance)}
 
     if not is_address_usable(payment_address, config_path=config_path):
-        return {'error': 'Address %s has pending transactions.  Wait and try later.' % payment_address}
+        return {'error': 'Address %s has insufficiently confirmed transactions.  Wait and try later.' % payment_address}
 
     if transfer_address is not None:
 
@@ -700,7 +700,7 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
 
     balance = get_balance( payment_address )
     if balance < fees['total_estimated_cost']:
-        msg = "Address %s doesn't have enough balance (need %s)." % (payment_address, balance)
+        msg = "Address %s doesn't have enough balance (need %s)." % (payment_address, fees['total_estimated_cost'])
         return {'error': msg}
 
     if not can_receive_name(owner_address, proxy=proxy):
@@ -708,7 +708,7 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
         return {'error': msg}
 
     if not is_address_usable(payment_address, config_path=config_path):
-        msg = "Address %s has pending transactions." % payment_address
+        msg = "Address %s has insufficiently confirmed transactions." % payment_address
         msg += " Wait and try later."
         return {'error': msg}
 
@@ -952,7 +952,7 @@ def cli_renew( args, config_path=CONFIG_PATH, interactive=True, password=None, p
         return {'error': msg}
 
     if not is_address_usable(payment_address, config_path=config_path):
-        msg = "Address %s has pending transactions." % payment_address
+        msg = "Address %s has insufficiently confirmed transactions." % payment_address
         msg += " Wait and try later."
         return {'error': msg}
 
