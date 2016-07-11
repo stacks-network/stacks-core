@@ -40,6 +40,7 @@ import tempfile
 from keylib import ECPrivateKey
 
 import blockstack_profiles
+import blockstack_zones
 
 from .queue import get_queue_state, in_queue, queue_removeall
 from .queue import queue_cleanall, queue_find_accepted
@@ -51,7 +52,7 @@ from ..keys import get_data_keypair
 from ..proxy import is_name_registered, is_zonefile_current, is_name_owner, get_default_proxy, get_name_blockchain_record, get_name_cost
 from ..profile import zonefile_publish, store_name_zonefile, get_and_migrate_profile
 from ..user import make_empty_user_zonefile 
-from ..storage import put_mutable_data, hash_zonefile
+from ..storage import put_mutable_data, put_immutable_data, hash_zonefile
 
 from .crypto.utils import get_address_from_privkey, aes_decrypt, aes_encrypt
 
@@ -380,9 +381,14 @@ class RegistrarWorker(threading.Thread):
 
         log.info("Replicated zonefile for %s to %s server(s)" % (name_data['fqu'], len(res['servers'])))
 
-        log.info("Name info:\n%s\n" % json.dumps(name_data, indent=4, sort_keys=True))
+        # replicate to our own storage providers as well 
+        serialized_zonefile = blockstack_zones.make_zone_file( zonefile_data )
+        rc = put_immutable_data( None, name_data['tx_hash'], data_hash=zonefile_hash, data_text=serialized_zonefile, required=storage_drivers )
+        if not rc:
+            log.info("Failed to replicate zonefile for %s" % (name_data['fqu']))
+            return {'error': 'Failed to store user zonefile'}
 
-        # replicate profile as well, if given
+        # replicate profile to storage, if given
         # use the data keypair
         if name_data.has_key('profile') and name_data['profile'] is not None:
             _, data_privkey = get_data_keypair( zonefile_data, wallet_keys=wallet_data, config_path=config_path )
