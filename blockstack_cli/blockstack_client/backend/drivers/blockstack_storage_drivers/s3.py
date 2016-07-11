@@ -308,7 +308,7 @@ def get_mutable_handler( url, **kw ):
     mutable_data_id = None 
     try:
         parts = url.split('/')
-        mutable_data_id = "mutable-%s" % parts[-1]
+        mutable_data_id = parts[-1]
     except Exception, e:
         log.exception(e)
         return None 
