@@ -33,6 +33,7 @@ import blockstack_client
 import xmlrpclib
 import blockstack
 import traceback
+import blockstack_zones 
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -185,12 +186,20 @@ def check( state_engine ):
         zf2 = zonefile_by_hash['zonefiles'][name_rec['value_hash']]
         
         assert zf1 == zf2
+        zonefile = blockstack_zones.parse_zone_file( zf1 )
+
+        user_pubkey = blockstack_client.user.user_zonefile_data_pubkey( zonefile )
+        assert user_pubkey is not None, "no zonefile public key"
 
         profile_resp_txt = srv.get_profile("foo.test")
         profile_resp = json.loads(profile_resp_txt)
         assert 'error' not in profile_resp, "error:\n%s" % json.dumps(profile_resp, indent=4, sort_keys=True)
         assert 'profile' in profile_resp, "missing profile:\n%s" % json.dumps(profile_resp, indent=4, sort_keys=True)
-        profile = profile_resp['profile']
+
+        # profile will be in 'raw' form
+        raw_profile = profile_resp['profile']
+        profile = blockstack_client.storage.parse_mutable_data( raw_profile, user_pubkey )
+
         assert 'data' in profile, "missing data:\n%s" % json.dumps(profile, indent=4, sort_keys=True)
         assert len(profile['data']) == 3
     except Exception, e:
