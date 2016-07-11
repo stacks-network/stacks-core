@@ -158,7 +158,7 @@ def is_tx_rejected(tx_hash, tx_sent_at_height, config_path=CONFIG_PATH):
     return False
 
 
-def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None):
+def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=6):
     """ 
     Given an address get unspent outputs (UTXOs)
     Return array of UTXOs, empty array if none available
@@ -175,17 +175,23 @@ def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None):
         log.exception(e)
         log.debug("Error in getting UTXOs from UTXO provider: %s" % e)
 
-    return data
+    # filter minimum confirmations 
+    ret = []
+    for d in data:
+        if not d.has_key('confirmations') or d['confirmations'] >= min_confirmations:
+            ret.append(d)
+
+    return ret
 
 
-def get_balance(address, config_path=CONFIG_PATH, utxo_client=None):
+def get_balance(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=6):
     """
     Check if BTC key being used has enough balance on unspents
     Returns value in satoshis on success
     Return None on failure
     """
 
-    data = get_utxos(address, config_path=config_path, utxo_client=utxo_client)
+    data = get_utxos(address, config_path=config_path, utxo_client=utxo_client, min_confirmations=min_confirmations)
     if 'error' in data:
         return None 
 
@@ -199,12 +205,12 @@ def get_balance(address, config_path=CONFIG_PATH, utxo_client=None):
     return satoshi_amount
 
 
-def is_address_usable(address, config_path=CONFIG_PATH, utxo_client=None):
+def is_address_usable(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=6):
     """
     Check if an address is usable (i.e. it has no unconfirmed transactions)
     """
     try:
-        unspents = get_utxos(address, config_path=config_path, utxo_client=None)
+        unspents = get_utxos(address, config_path=config_path, utxo_client=None, min_confirmations=min_confirmations)
     except Exception as e:
         log.exception(e)
         return False
