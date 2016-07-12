@@ -42,7 +42,6 @@ import blockstack_zones
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
 
-
 def get_cached_zonefile( zonefile_hash, zonefile_dir=None ):
     """
     Get a cached zonefile from local disk
@@ -108,29 +107,40 @@ def get_zonefile_from_peers( zonefile_hash, peers ):
     for the zonefile via RPC
     Return a zonefile that matches the given hash on success.
     Return None if no zonefile could be obtained.
+    Calculate the on-disk path to storing a zonefile's information, given the zonefile hash
     """
-
-    zonefile_data = None 
-
+ 
     for (host, port) in peers:
 
         rpc = blockstack_client.BlockstackRPCClient( host, port )
         zonefile_data = rpc.get_zonefiles( [zonefile_hash] )
 
+        if type(zonefile_data) != dict:
+            # next peer
+            log.debug("Peer %s:%s did not reutrn valid data" % (host, port))
+            zonefile_data = None
+            continue
+
         if 'error' in zonefile_data:
             # next peer 
-            log.error("Peer %s:%s: %s" % (host, port, zonefile_data['error']) )
+            log.debug("Peer %s:%s: %s" % (host, port, zonefile_data['error']) )
             zonefile_data = None
             continue
 
         if not zonefile_data['zonefiles'].has_key(zonefile_hash):
             # nope
-            log.error("Peer %s:%s did not return %s" % zonefile_hash)
+            log.debug("Peer %s:%s did not return %s" % zonefile_hash)
             zonefile_data = None
             continue
 
         # extract zonefile
         zonefile_data = zonefile_data['zonefiles'][zonefile_hash]
+
+        if type(zonefile_data) != dict:
+            # not a dict 
+            log.debug("Peer %s:%s did not return a zonefile for %s" % (host, port, zonefile_hash))
+            zonefile_data = None
+            continue
 
         # verify zonefile
         h = hash_zonefile( zonefile_data )
@@ -143,6 +153,20 @@ def get_zonefile_from_peers( zonefile_hash, peers ):
         break
 
     return zonefile_data
+
+
+def cached_zonefile_dir( zonefile_dir, zonefile_hash ):
+    """
+    Calculate the on-disk path to storing a zonefile's information, given the zonefile hash
+    """
+
+    # split into directories, so we don't try to cram millions of files into one directory
+    zonefile_dir_parts = []
+    for i in xrange(0, len(zonefile_hash), 8):
+        zonefile_dir_parts.append( zonefile_hash[i:i+8] )
+
+    zonefile_dir_path = os.path.join(zonefile_dir, "/".join(zonefile_dir_parts))
+    return zonefile_dir_path
 
 
 def store_cached_zonefile( zonefile_dict, zonefile_dir=None ):
@@ -167,8 +191,11 @@ def store_cached_zonefile( zonefile_dict, zonefile_dir=None ):
         return False
 
     zonefile_hash = blockstack_client.get_zonefile_data_hash( zonefile_data )
-    zonefile_path = os.path.join( zonefile_dir, zonefile_hash )
-        
+    zonefile_dir_path = cached_zonefile_dir( zonefile_dir, zonefile_hash )
+    if not os.path.exists(zonefile_dir_path):
+        os.makedirs(zonefile_dir_path)
+
+    zonefile_path = os.path.join(zonefile_dir_path, "zonefile.txt")
     try:
         with open( zonefile_path, "w" ) as f:
             f.write(zonefile_data)
