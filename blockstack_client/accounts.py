@@ -105,7 +105,7 @@ def get_account( name, service, identifier, proxy=None, wallet_keys=None ):
     return {'account': ret}
 
 
-def put_account( name, service, identifier, content_url, proxy=None, wallet_keys=None, txid=None, **extra_fields ):
+def put_account( name, service, identifier, content_url, proxy=None, wallet_keys=None, txid=None, required_drivers=None, **extra_fields ):
     """
     Put an account's information into a profile.
     NOTE: the account must already be in the latest form.
@@ -143,7 +143,7 @@ def put_account( name, service, identifier, content_url, proxy=None, wallet_keys
 
     user_profile['account'].append(new_profile)
 
-    return profile_update( name, user_zonefile, user_profile, name_record['address'], proxy=proxy, wallet_keys=wallet_keys )
+    return profile_update( name, user_zonefile, user_profile, name_record['address'], proxy=proxy, wallet_keys=wallet_keys, required_drivers=required_drivers )
 
 
 def delete_account( name, service, identifier, proxy=None, wallet_keys=None ):
