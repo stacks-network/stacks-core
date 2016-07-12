@@ -241,7 +241,7 @@ def user_zonefile_urls( user_zonefile ):
 
 def make_empty_user_profile():
     """
-    Given a user's name, create an empty profile (as a modern zonefile)
+    Given a user's name, create an empty profile.
     """
     ret = {
         "@type": "Person",
