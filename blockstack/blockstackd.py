@@ -72,7 +72,7 @@ from lib.storage import *
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
 
-# global variables, for use with the RPC server 
+# global variables, for use with the RPC server
 blockstack_opts = None
 bitcoind = None
 bitcoin_opts = None
@@ -158,7 +158,7 @@ def set_blockstack_opts( new_opts ):
     """
     global blockstack_opts
     blockstack_opts = new_opts
-
+    
 
 def get_pidfile_path():
    """
@@ -193,7 +193,7 @@ def get_state_engine():
    Get a handle to the blockstack virtual chain state engine.
    """
    return get_db_state()
-
+     
 
 def get_lastblock():
     """
@@ -692,6 +692,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         try:
             # check storage providers
             zonefile = get_zonefile_from_storage( zonefile_hash, drivers=zonefile_storage_drivers )
+        except blockstack_zones.InvalidLineException:
+            # legacy profile
+            return None
         except Exception, e:
             log.exception(e)
             return None
@@ -924,10 +927,12 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return {'status': True, 'profile': profile}
 
 
-    def rpc_put_profile(self, name, profile_txt ):
+    def rpc_put_profile(self, name, profile_txt, prev_profile_hash, sigb64 ):
         """
         Store a profile for a particular name
-        profile_txt must be a serialized JWT signed by the key in the user's zonefile
+        @profile_txt must be a serialized JWT signed by the key in the user's zonefile.
+        @prev_profile_hash must be the hex string representation of the hash of the previous profile
+        @sig must cover prev_profile_hash+profile_txt
         """
 
         if type(name) not in [str, unicode]:
@@ -948,6 +953,12 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
         profile_storage_drivers = conf['profile_storage_drivers'].split(",")
         zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
+
+        # find name record 
+        db = get_db_state()
+        name_rec = db.get_name(name)
+        if name_rec is None:
+            return {'error': 'No such name'}
 
         # find zonefile 
         zonefile_dict = self.get_zonefile_by_name( conf, name, zonefile_storage_drivers )
@@ -980,26 +991,63 @@ class BlockstackdRPC(SimpleXMLRPCServer):
                 log.exception(e)
                 return {'error': 'Failed to authenticate profile'}
 
-        # authentic! store it
+        # authentic!
+        # next, verify that the previous profile actually does have this hash 
+        try:
+            old_profile_txt, zonefile = blockstack_client.get_name_profile(name, profile_storage_drivers=profile_storage_drivers, zonefile_storage_drivers=zonefile_storage_drivers,
+                                                                           user_zonefile=zonefile_dict, name_record=name_rec, use_zonefile_urls=False, decode_profile=False)
+        except Exception, e:
+            log.exception(e)
+            log.debug("Failed to load profile for '%s'" % name)
+            return {'error': 'Failed to load profile'}
+
+        old_profile_hash = pybitcoin.hex_hash160(old_profile_txt)
+        if old_profile_hash != prev_profile_hash:
+            return {'error': 'Invalid previous profile hash'}
+
+        # which public key?
+        data_pubkey = blockstack_client.user.user_zonefile_data_pubkey( zonefile )
+        if data_pubkey is None:
+            # fall back to owner pubkey from profile
+            try:
+                profile_jwt = json.loads(old_profile_txt)
+                if type(profile_jwt) == list:
+                    profile_jwt = profile_jwt[0]
+
+                assert type(profile_jwt) == dict
+                assert 'parentPublicKey' in profile_jwt.keys()
+
+                data_pubkey = profile_jwt['parentPublicKey']
+            except:
+                return {'error': 'Could not determine user data public key'}
+
+        # finally, verify the signature over the previous profile hash and this new profile
+        rc = blockstack_client.storage.verify_raw_data( "%s%s" % (prev_profile_hash, profile_txt), data_pubkey, sigb64 )
+        if not rc:
+            return {'error': 'Invalid signature'}
+
+        # success!  store it
         successes = 0
         for handler in blockstack_client.get_storage_handlers():
             try:
                 rc = handler.put_mutable_handler( name, profile_txt, required=profile_storage_drivers )
-                log.debug("Stored profile with %s" % handler.__name__)
             except Exception, e:
                 log.exception(e)
                 log.error("Failed to store profile with '%s'" % handler.__name__)
                 continue
 
             if not rc:
-                log.error("Failed to use handler %s to store profile for %s" % (handler, name))
+                log.error("Failed to use handler '%s' to store profile for '%s'" % (handler.__name__, name))
                 continue
+            else:
+                log.debug("Stored profile for '%s' with '%s'" % (name, handler.__name__))
 
             successes += 1
 
         if successes == 0:
             return {'error': 'Failed to replicate profile'}
         else:
+            log.debug("Stored profile from '%s'" % name)
             return {'status': True, 'num_replicas': successes, 'num_failures': len(blockstack_client.get_storage_handlers()) - successes}
 
     
