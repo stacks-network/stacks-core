@@ -570,6 +570,12 @@ def put_mutable_data( fq_data_id, data_json, privatekey, required=[] ):
    assert is_fq_data_id( fq_data_id ) or is_valid_name(fq_data_id), "Data ID must be fully qualified or must be a valid blockchain ID (got %s)" % fq_data_id
    assert privatekey is not None
 
+   fqu = None
+   if is_fq_data_id(fq_data_id):
+       fqu = fq_data_id.split(":")[0]
+   else:
+       fqu = fq_data_id
+
    serialized_data = serialize_mutable_data( data_json, privatekey )
    successes = 0
 
@@ -588,7 +594,7 @@ def put_mutable_data( fq_data_id, data_json, privatekey, required=[] ):
 
       try:
          log.debug("Try '%s'" % handler.__name__)
-         rc = handler.put_mutable_handler( fq_data_id, serialized_data )
+         rc = handler.put_mutable_handler( fq_data_id, serialized_data, fqu=fqu )
       except Exception, e:
          log.exception( e )
          if handler.__name__ in required:
