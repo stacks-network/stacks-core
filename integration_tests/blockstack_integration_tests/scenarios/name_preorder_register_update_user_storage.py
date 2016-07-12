@@ -106,6 +106,22 @@ def scenario( wallets, **kw ):
     blockstack_client.set_default_proxy( test_proxy )
     wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey )
 
+    # make a few accounts
+    res = blockstack_client.put_account("foo.test", "serviceFoo", "serviceFooID", "foo://bar.com", proxy=test_proxy, wallet_keys=wallet_keys, foofield="foo!", required_drivers=['disk'] )
+    if 'error' in res:
+        res['test'] = 'Failed to create foo.test serviceFoo account'
+        print json.dumps(res, indent=4, sort_keys=True)
+        error = True
+        return 
+
+    res = blockstack_client.put_account("foo.test", "serviceBar", "serviceBarID", "bar://baz.com", proxy=test_proxy, wallet_keys=wallet_keys, barfield="bar!", required_drivers=['disk'] ) 
+    if 'error' in res:
+        res['test'] = 'Failed to create foo.test serviceBar account'
+        print json.dumps(res, indent=4, sort_keys=True)
+        error = True
+        return 
+
+    # put some data
     put_result = blockstack_client.put_mutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
@@ -120,7 +136,7 @@ def scenario( wallets, **kw ):
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
-    # increment version too
+    # increment data version too
     datasets[0]['buf'] = []
     for i in xrange(0, 5):
         datasets[0]["dataset_change"] = dataset_change
@@ -242,5 +258,14 @@ def check( state_engine ):
     if dat['version'] != 6:
         print "version is %s (expected 6)" % dat['version']
         return False 
+
+    # there should be no failures in the API log
+    api_log_path = os.path.join(os.path.dirname(test_proxy.conf['path']), "api_endpoint.log")
+    with open(api_log_path, "r") as f:
+        api_log = f.read()
+
+    if "Traceback (most recent call last)" in api_log_path:
+        print "exception thrown by client"
+        return False
 
     return True
