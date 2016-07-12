@@ -1250,7 +1250,7 @@ def cli_advanced_get_account( args, proxy=None, config_path=CONFIG_PATH, passwor
     return result
     
 
-def cli_advanced_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None ):
+def cli_advanced_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None, required_drivers=None ):
     """
     command: put_account
     help: Set a particular account's details.  If the account already exists, it will be overwritten.
@@ -1293,7 +1293,7 @@ def cli_advanced_put_account( args, proxy=None, config_path=CONFIG_PATH, passwor
                 v = "=".join(parts[1:])
                 extra_data[k] = v
 
-    result = put_account( args.name, args.service, args.identifier, args.content_url, proxy=proxy, wallet_keys=wallet_keys, **extra_data )
+    result = put_account( args.name, args.service, args.identifier, args.content_url, proxy=proxy, wallet_keys=wallet_keys, required_drivers=required_drivers, **extra_data )
     if 'error' not in result:
         analytics_event( "Put account", {} )
 
