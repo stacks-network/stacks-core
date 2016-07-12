@@ -210,6 +210,7 @@ def analytics_event( event_type, event_payload, config_path=CONFIG_PATH, proxy=N
     log.debug("Track event '%s': %s" % (event_type, event_payload))
     mp = mixpanel.Mixpanel(ANALYTICS_KEY)
     mp.track( u, event_type, event_payload )
+    mp.track( u, "Perform action", {} )
     return True
 
 
