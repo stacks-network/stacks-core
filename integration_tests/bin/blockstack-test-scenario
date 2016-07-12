@@ -54,6 +54,7 @@ zonefiles = @ZONEFILES@
 analytics_key = abcdef0123456789
 zonefile_storage_drivers = disk
 profile_storage_drivers = disk
+atlas = False
 """ % TEST_RPC_PORT
 
 DEFAULT_CLIENT_INI_TEMPLATE = """
