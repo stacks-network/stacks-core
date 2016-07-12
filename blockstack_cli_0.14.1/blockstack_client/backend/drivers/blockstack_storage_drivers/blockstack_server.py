@@ -36,6 +36,7 @@ import re
 from ConfigParser import SafeConfigParser
 
 import blockstack_zones
+import pybitcoin
 
 # stop common XML attacks 
 from defusedxml import xmlrpc
@@ -113,22 +114,28 @@ def get_data( data_id, zonefile=False ):
             log.error("Failed to parse profile from %s" % data_id)
             return None
 
+        if type(data) != dict:
+            log.error("Invalid profile data for %s" % data_id)
+            return None
+
         if 'error' in data:
             log.error("Get profile %s: %s" % (data_id, data['error']))
             return None 
-        else:
-            try:
-                return data['profile']
-            except:
-                log.error("Failed to parse profile")
-                return None
+
+        try:
+            return data['profile']
+        except:
+            log.error("Failed to parse profile")
+            return None
 
 
-def put_data( data_id, data_txt, zonefile=False ):
+def put_data( data_id, data_txt, zonefile=False, fqu=None ):
     """
-    Put data or a zoneflie to the server.
+    Put data or a zonefile to the server.
     """
     
+    import blockstack_client
+
     if os.environ.get("BLOCKSTACK_RPC_PID", None) == str(os.getpid()):
         # don't talk to ourselves 
         log.debug("Do not put_data to ourselves")
@@ -163,14 +170,40 @@ def put_data( data_id, data_txt, zonefile=False ):
         else:
             return True
 
-    else:
+    elif data_id == fqu:
         log.debug("Replicate profile for %s" % data_id)
-        res = ses.put_profile( data_id, data_txt )
+
+        # get current profile
+        cur_profile_txt = get_data( data_id, zonefile=False )
+        if cur_profile_txt is None:
+            log.warning("Could not get profile for %s" % data_id)
+            cur_profile_txt = ""
+
+        # get the data private key (or owner private key if not given)
+        wallet_info = blockstack_client.get_wallet()
+        data_privkey = wallet_info.get('data_privkey', None)
+        if data_privkey is None:
+            data_privkey = wallet_info.get('owner_privkey', None)
+
+        # sign this request
+        cur_profile_hash = pybitcoin.hex_hash160( cur_profile_txt )
+        sigb64 = blockstack_client.storage.sign_raw_data( "%s%s" % (cur_profile_hash, data_txt), data_privkey )
+
+        # include signature
+        res = ses.put_profile( data_id, data_txt, cur_profile_hash, sigb64 )
         if 'error' in res:
             log.error("Failed to put %s: %s" % (data_id, res))
             return False
         else:
             return True
+
+    else:
+        # neither profile nor zonefile
+        if os.environ.get("BLOCKSTACK_TEST", None) is not None:
+            # for testing
+            raise Exception("Failed to replicate profile or zonefile")
+        else:
+            return False
 
 
 def storage_init(conf):
@@ -244,7 +277,7 @@ def put_immutable_handler( key, data, txid, **kw ):
     return put_data( key, data, zonefile=True )
 
 def put_mutable_handler( data_id, data_bin, **kw ):
-    return put_data( data_id, data_bin, zonefile=False )
+    return put_data( data_id, data_bin, zonefile=False, fqu=kw.get('fqu', None) )
 
 def delete_immutable_handler( key, txid, sig_key_txid, **kw ):
     return True
