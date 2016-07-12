@@ -160,7 +160,7 @@ def load_name_profile(name, user_zonefile, data_address, owner_address, use_zone
     is present), and fall back to the user-address if need be
     (it should be the hash of the profile JWT's public key).
 
-    Return the user profile on success
+    Return the user profile on success (either as a dict, or as a string if decode=False)
     Return None on error
     """
     # get user's data public key
@@ -202,7 +202,7 @@ def load_data_pubkey_for_new_zonefile( wallet_keys={}, config_path=CONFIG_PATH )
     return data_pubkey
 
 
-def profile_update( name, user_zonefile, new_profile, owner_address, proxy=None, wallet_keys=None ):
+def profile_update( name, user_zonefile, new_profile, owner_address, proxy=None, wallet_keys=None, required_drivers=None ):
     """
     Set the new profile data.  CLIENTS SHOULD NOT CALL THIS METHOD DIRECTLY.
     Return {'status: True} on success, as well as {'transaction_hash': hash} if we updated on the blockchain.
@@ -213,6 +213,18 @@ def profile_update( name, user_zonefile, new_profile, owner_address, proxy=None,
     if proxy is None:
         proxy = get_default_proxy()
 
+    config = proxy.conf
+
+    required_storage_drivers = None
+    if required_drivers is None:
+        required_storage_drivers = config.get('storage_drivers_required_write', None)
+        if required_storage_drivers is None:
+            required_storage_drivers = config.get("storage_drivers", "").split(",")
+        else:
+            required_storage_drivers = self.required_storage_drivers.split(",")
+    else:
+        required_storage_drivers = required_drivers
+
     # update the profile with the new zonefile
     data_privkey_res = get_data_or_owner_privkey( user_zonefile, owner_address, wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
     if 'error' in data_privkey_res:
@@ -221,7 +233,8 @@ def profile_update( name, user_zonefile, new_profile, owner_address, proxy=None,
         data_privkey = data_privkey_res['privatekey']
         assert data_privkey is not None
 
-    rc = storage.put_mutable_data( name, new_profile, data_privkey )
+    log.debug("Save updated profile for '%s' to %s" % (name, ",".join(required_storage_drivers)))
+    rc = storage.put_mutable_data( name, new_profile, data_privkey, required=required_storage_drivers )
     if not rc:
         ret['error'] = 'Failed to update profile'
         return ret
@@ -366,7 +379,7 @@ def get_name_profile(name, zonefile_storage_drivers=None,
             user_address = old_address
 
         user_profile = load_name_profile( name, user_zonefile, user_address, old_address, use_zonefile_urls=use_zonefile_urls, storage_drivers=profile_storage_drivers, decode=decode_profile )
-        if user_profile is None or 'error' in user_profile:
+        if user_profile is None or (type(user_profile) not in [str, unicode] and 'error' in user_profile):
 
             if user_profile is None:
                 log.debug("WARN: no user profile for %s" % name)
@@ -477,10 +490,10 @@ def get_and_migrate_profile( name, zonefile_storage_drivers=None, profile_storag
         # look up name too 
         name_record = proxy.get_name_blockchain_record(name)
         if name_record is None:
-            return {'error': 'No such name'}
+            return ({'error': 'No such name'}, None, False)
 
         if 'error' in name_record:
-            return {'error': 'Failed to look up name: %s' % name_record['error']}
+            return ({'error': 'Failed to look up name: %s' % name_record['error']}, None, False)
 
         created_new_zonefile = True
         created_new_profile = True
