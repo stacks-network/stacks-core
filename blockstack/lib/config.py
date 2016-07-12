@@ -73,8 +73,9 @@ if os.getenv("BLOCKSTACK_TEST") is not None:
 else:
     RPC_SERVER_PORT = 6264
 
-RPC_MAX_ZONEFILE_LEN = 8192     # 8KB
+RPC_MAX_ZONEFILE_LEN = 4096     # 4KB
 RPC_MAX_PROFILE_LEN = 1024000   # 1MB
+
 
 """ Bitcoin configs
 """
