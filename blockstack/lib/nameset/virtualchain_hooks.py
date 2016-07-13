@@ -30,6 +30,7 @@ import time
 import pybitcoin 
 import traceback
 import json
+import threading
 import copy
 
 from .namedb import BlockstackDB
@@ -41,12 +42,12 @@ from ..operations import parse_preorder, parse_registration, parse_update, parse
     SERIALIZE_FIELDS
 
 import virtualchain
-
-if not globals().has_key('log'):
-    log = virtualchain.session.log
+log = virtualchain.get_logger("blockstack-log")
 
 blockstack_db = None
 last_load_time = 0
+last_check_time = 0
+reload_lock = threading.Lock()
 
 def get_burn_fee_from_outputs( outputs ):
     """
@@ -65,7 +66,7 @@ def get_burn_fee_from_outputs( outputs ):
         output_hex = output_script.get('hex')
         output_addresses = output_script.get('addresses')
         
-        if output_asm[0:9] != 'OP_RETURN' and BLOCKSTORE_BURN_ADDRESS == output_addresses[0]:
+        if output_asm[0:9] != 'OP_RETURN' and BLOCKSTACK_BURN_ADDRESS == output_addresses[0]:
             
             # recipient's script_pubkey and address
             ret = int(output['value']*(10**8))
@@ -261,12 +262,7 @@ def get_magic_bytes():
    
    Get the magic byte sequence for our OP_RETURNs
    """
-   blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename() )
-   if blockstack_opts['testset']:
-       return MAGIC_BYTES_TESTSET
-   
-   else:
-       return MAGIC_BYTES_MAINSET
+   return MAGIC_BYTES_MAINSET
 
 
 def get_first_block_id():
@@ -275,24 +271,48 @@ def get_first_block_id():
    
    Get the id of the first block to start indexing.
    """ 
-   blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename() )
-   start_block = None
-   
-   if TESTNET:
-       if blockstack_opts['testset']:
-           start_block = FIRST_BLOCK_TESTNET_TESTSET
-       else:
-           start_block = FIRST_BLOCK_TESTNET
-   else:
-       if blockstack_opts['testset']:
-           start_block = FIRST_BLOCK_MAINNET_TESTSET
-       else:
-           start_block = FIRST_BLOCK_MAINNET
-
+   start_block = FIRST_BLOCK_MAINNET
    return start_block
 
 
-def get_db_state():
+def need_db_reload():
+   """
+   Do we need to instantiate/reload the database?
+   """
+   global blockstack_db
+   global last_load_time
+   global last_check_time
+
+   db_filename = virtualchain.get_db_filename()
+
+   sb = None
+   if os.path.exists(db_filename):
+       sb = os.stat(db_filename)
+
+   if blockstack_db is None:
+       # doesn't exist in RAM
+       log.debug("cache consistency: DB is not in RAM")
+       return True
+     
+   if not os.path.exists(db_filename):
+       # doesn't exist on disk 
+       log.debug("cache consistency: DB does not exist on disk")
+       return True 
+   
+   if sb is not None and sb.st_mtime != last_load_time:
+       # stale--new version exists on disk
+       log.debug("cache consistency: DB was modified; in-RAM copy is stale")
+       return True 
+   
+   if time.time() - last_check_time > 600:
+       # just for good measure--don't keep it around past the blocktime
+       log.debug("cache consistency: Blocktime has passed")
+       return True
+
+   return False
+
+
+def get_db_state(disposition=None):
    """
    (required by virtualchain state engine)
    
@@ -300,31 +320,54 @@ def get_db_state():
    
    Get a handle to our state engine implementation
    (i.e. our name database)
+
+   @disposition is for compatibility.  It is ignored
    """
    
    global blockstack_db
    global last_load_time
-   
-   now = time.time()
-   
-   # force invalidation
-   if now - last_load_time > REINDEX_FREQUENCY:
-       blockstack_db = None
-       
-   if blockstack_db is not None:
-      return blockstack_db 
-   
+   global last_check_time
+   global reload_lock
+
+   reload_lock.acquire()
+
+   mtime = None
    db_filename = virtualchain.get_db_filename()
-   
-   log.info("(Re)Loading blockstack state from '%s'" % db_filename )
-   blockstack_db = BlockstackDB( db_filename )
-   
-   last_load_time = time.time()
-   
+
+   if os.path.exists(db_filename):
+       sb = os.stat(db_filename)
+       mtime = sb.st_mtime 
+
+   if need_db_reload():
+       log.info("(Re)Loading blockstack state from '%s'" % db_filename )
+       blockstack_db = BlockstackDB( db_filename )
+
+       last_check_time = time.time()
+       if mtime is not None:
+          last_load_time = mtime 
+
+   else:
+       log.debug("cache consistency: Using cached blockstack state")
+
+   reload_lock.release()
+
    return blockstack_db
 
 
-def db_parse( block_id, opcode, data, senders, inputs, outputs, fee, db_state=None ):
+def invalidate_db_state():
+    """
+    Clear out in-RAM cached db state
+    """
+    global blockstack_db
+    global reload_lock
+
+    reload_lock.acquire()
+    log.info("Invalidating cached blockstack state")
+    blockstack_db = None 
+    reload_lock.release()
+
+
+def db_parse( block_id, txid, vtxindex, opcode, data, senders, inputs, outputs, fee, db_state=None ):
    """
    (required by virtualchain state engine)
    
@@ -434,7 +477,7 @@ def db_parse( block_id, opcode, data, senders, inputs, outputs, fee, db_state=No
    return op
 
 
-def db_check( block_id, checked_ops, opcode, op, txid, vtxindex, db_state=None ):
+def db_check( block_id, checked_ops, opcode, op, txid, vtxindex, to_commit_sanitized, db_state=None ):
    """
    (required by virtualchain state engine)
    
@@ -630,55 +673,6 @@ def db_commit( block_id, opcode, op, txid, vtxindex, db_state=None ):
       return None
   
    return new_namerec
-
-
-def db_serialize( op, nameop, db_state=None, verbose=True ):
-    """
-    (required by virtualchain state engine)
-
-    Serialize a given name operation
-    """
-   
-    fields = None
-    op = op[0]  # the first byte of the op string identifies the operation
-
-    opcode_name = OPCODE_NAMES.get( op, None )
-    if opcode_name is None:
-        log.error("No such opcode '%s'" % op)
-        return None 
-
-    fields = SERIALIZE_FIELDS.get( opcode_name, None )
-    if fields is None:
-        log.error("BUG: unrecongnized opcode '%s'" % opcode_name )
-        return None 
-
-    all_values = []
-    debug_all_values = []
-    missing = []
-    for field in fields:
-      if not nameop.has_key(field):
-          missing.append( field )
-
-      field_value = nameop.get(field, None)
-      if field_value is None:
-          field_value = ""
-      
-      # netstring format
-      debug_all_values.append( str(field) + "=" + str(len(str(field_value))) + ":" + str(field_value) )
-      all_values.append( str(len(str(field_value))) + ":" + str(field_value) )
-
-    if len(missing) > 0:
-      print json.dumps( nameop, indent=4 )
-      raise Exception("BUG: missing fields '%s'" % (",".join(missing)))
-
-    debug_field_values = ",".join( debug_all_values )
-
-    if verbose:
-        log.debug("SERIALIZE: %s:%s" % (op, debug_field_values ))
-
-    field_values = ",".join( all_values )
-
-    return op + ":" + field_values
 
 
 def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):

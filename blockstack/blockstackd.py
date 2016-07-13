@@ -39,11 +39,19 @@ import shutil
 import tempfile
 import binascii
 import copy
+import atexit
+import threading
+import errno
+import blockstack_zones
+
+from SimpleXMLRPCServer import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
+
+# stop common XML attacks 
+from defusedxml import xmlrpc
+xmlrpc.monkey_patch()
 
 import virtualchain
-
-if not globals().has_key('log'):
-    log = virtualchain.session.log
+log = virtualchain.get_logger("blockstack-server")
 
 try:
     import blockstack_client
@@ -54,25 +62,23 @@ except:
 from ConfigParser import SafeConfigParser
 
 import pybitcoin
-from txjsonrpc.netstring import jsonrpc
 
 from lib import nameset as blockstack_state_engine
-from lib import get_db_state
-from lib.config import REINDEX_FREQUENCY, DEFAULT_DUST_FEE
+from lib import get_db_state, invalidate_db_state
+from lib.config import REINDEX_FREQUENCY, DEFAULT_DUST_FEE 
 from lib import *
+from lib.storage import *
 
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
 
-# global variables, for use with the RPC server and the twisted callback
+# global variables, for use with the RPC server
 blockstack_opts = None
 bitcoind = None
 bitcoin_opts = None
-utxo_opts = None
-blockchain_client = None
-blockchain_broadcaster = None
-indexer_pid = None
-
+utxo_client = None
+tx_broadcaster = None
+rpc_server = None
 
 def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
    """
@@ -96,11 +102,17 @@ def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
       try:
          if bitcoin_opts.has_key('bitcoind_mock') and bitcoin_opts['bitcoind_mock']:
             # make a mock connection
-            import tests.mock_bitcoind
-            new_bitcoind = tests.mock_bitcoind.connect_mock_bitcoind( bitcoin_opts, reset=reset )
+            log.debug("Use mock bitcoind")
+            import blockstack_integration_tests.mock_bitcoind
+            new_bitcoind = blockstack_integration_tests.mock_bitcoind.connect_mock_bitcoind( bitcoin_opts, reset=reset )
 
          else:
-            new_bitcoind = virtualchain.connect_bitcoind( bitcoin_opts )
+            try:
+                new_bitcoind = virtualchain.connect_bitcoind( bitcoin_opts )
+            except KeyError, ke:
+                log.exception(ke)
+                log.error("Invalid configuration: %s" % bitcoin_opts)
+                return None
 
          if new:
              return new_bitcoind
@@ -124,14 +136,6 @@ def get_bitcoin_opts():
    return bitcoin_opts
 
 
-def get_utxo_opts():
-   """
-   Get UTXO provider options.
-   """
-   global utxo_opts
-   return utxo_opts
-
-
 def get_blockstack_opts():
    """
    Get blockstack configuration options.
@@ -148,13 +152,13 @@ def set_bitcoin_opts( new_bitcoin_opts ):
    bitcoin_opts = new_bitcoin_opts
 
 
-def set_utxo_opts( new_utxo_opts ):
-   """
-   Set new global chian.com options
-   """
-   global utxo_opts
-   utxo_opts = new_utxo_opts
-
+def set_blockstack_opts( new_opts ):
+    """
+    Set new global blockstack opts
+    """
+    global blockstack_opts
+    blockstack_opts = new_opts
+    
 
 def get_pidfile_path():
    """
@@ -165,20 +169,14 @@ def get_pidfile_path():
    return os.path.join( working_dir, pid_filename )
 
 
-def get_tacfile_path( testset=False ):
-   """
-   Get the TAC file path for our service endpoint.
-   Should be in the same directory as this module.
-   """
-   working_dir = os.path.abspath(os.path.dirname(__file__))
-   tac_filename = ""
+def put_pidfile( pidfile_path, pid ):
+    """
+    Put a PID into a pidfile
+    """
+    with open( pidfile_path, "w" ) as f:
+        f.write("%s" % pid)
 
-   if testset:
-      tac_filename = blockstack_state_engine.get_virtual_chain_name() + "-testset.tac"
-   else:
-      tac_filename = blockstack_state_engine.get_virtual_chain_name() + ".tac"
-
-   return os.path.join( working_dir, tac_filename )
+    return 
 
 
 def get_logfile_path():
@@ -195,7 +193,7 @@ def get_state_engine():
    Get a handle to the blockstack virtual chain state engine.
    """
    return get_db_state()
-
+     
 
 def get_lastblock():
     """
@@ -227,6 +225,7 @@ def get_index_range():
     """
 
     bitcoind_session = get_bitcoind( new=True )
+    assert bitcoind_session is not None
 
     first_block = None
     last_block = None
@@ -246,73 +245,12 @@ def get_index_range():
             return first_block, last_block - NUM_CONFIRMATIONS
 
 
-def die_handler_server(signal, frame):
-    """
-    Handle Ctrl+C for server subprocess
-    """
-
-    log.info('Exiting blockstackd server')
-    stop_server()
-    sys.exit(0)
-
-
-
-def die_handler_indexer(signal, frame):
-    """
-    Handle Ctrl+C for indexer processe
-    """
-
-    db = get_state_engine()
-    virtualchain.stop_sync_virtualchain( db )
-    sys.exit(0)
-
-
-def json_traceback():
+def rpc_traceback():
     exception_data = traceback.format_exc().splitlines()
     return {
         "error": exception_data[-1],
         "traceback": exception_data
     }
-
-
-def get_utxo_provider_client():
-   """
-   Get or instantiate our blockchain UTXO provider's client.
-   Return None if we were unable to connect
-   """
-
-   # acquire configuration (which we should already have)
-   blockstack_opts, bitcoin_opts, utxo_opts, dht_opts = configure( interactive=False )
-
-   try:
-       utxo_provider = connect_utxo_provider( utxo_opts )
-       return utxo_provider
-   except Exception, e:
-       log.exception(e)
-       return None
-
-
-def get_tx_broadcaster():
-   """
-   Get or instantiate our blockchain UTXO provider's transaction broadcaster.
-   fall back to the utxo provider client, if one is not designated
-   """
-
-   # acquire configuration (which we should already have)
-   blockstack_opts, blockchain_opts, utxo_opts, dht_opts = configure( interactive=False )
-
-   # is there a particular blockchain client we want for importing?
-   if 'tx_broadcaster' not in blockstack_opts:
-       return get_utxo_provider_client()
-
-   broadcaster_opts = default_utxo_provider_opts( blockstack_opts['tx_broadcaster'] )
-
-   try:
-       blockchain_broadcaster = connect_utxo_provider( broadcaster_opts )
-       return blockchain_broadcaster
-   except:
-       log.exception(e)
-       return None
 
 
 
@@ -326,649 +264,78 @@ def get_name_cost( name ):
 
     namespace_id = get_namespace_from_name( name )
     if namespace_id is None or len(namespace_id) == 0:
+        log.debug("No namespace '%s'" % namespace_id)
         return None
 
     namespace = db.get_namespace( namespace_id )
     if namespace is None:
         # maybe importing?
+        log.debug("Revealing namespace '%s'" % namespace_id)
         namespace = db.get_namespace_reveal( namespace_id )
 
     if namespace is None:
         # no such namespace
+        log.debug("No namespace '%s'" % namespace_id)
         return None
 
     name_fee = price_name( get_name_from_fq_name( name ), namespace )
     return name_fee
 
 
-def get_max_subsidy( testset=False ):
+class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
     """
-    Get the maximum subsidy we offer, and get a key with a suitable balance
-    to pay the subsidy.
-
-    Return (subsidy, key)
+    Hander to capture tracebacks
     """
+    def _dispatch(self, method, params):
+        try: 
+            log.debug("%s(%s)" % ("rpc_" + str(method), params))
+            res = self.server.funcs["rpc_" + str(method)](*params)
 
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
-    if blockstack_opts.get("max_subsidy") is None:
-        return (None, None)
+            # lol jsonrpc within xmlrpc
+            ret = json.dumps(res)
+            return ret
+        except Exception, e:
+            print >> sys.stderr, "\n\n%s\n\n" % traceback.format_exc()
+            return rpc_traceback()
 
-    return blockstack_opts["max_subsidy"]
 
-
-def make_subsidized_tx( unsigned_tx, fee_cb, max_subsidy, subsidy_key, blockchain_client_inst ):
+class BlockstackdRPC(SimpleXMLRPCServer):
     """
-    Create a subsidized transaction
-    transaction and a callback that determines the fee structure.
-    """
+    Blockstackd RPC server, used for querying
+    the name database and the blockchain peer.
 
-    # subsidize the transaction
-    subsidized_tx = tx_make_subsidizable( unsigned_tx, fee_cb, max_subsidy, subsidy_key, blockchain_client_inst )
-    if subsidized_tx is None:
-        return {"error": "Order exceeds maximum subsidy"}
-
-    else:
-        resp = {
-            "subsidized_tx": subsidized_tx
-        }
-        return resp
-
-
-def broadcast_subsidized_tx( subsidized_tx ):
-    """
-    Broadcast a subsidized tx to the blockchain.
-    """
-    broadcaster_client_inst = get_tx_broadcaster()
-    if broadcaster_client_inst is None:
-        return {"error": "Failed to connect to blockchain transaction broadcaster"}
-
-    # broadcast
-    response = pybitcoin.broadcast_transaction( subsidized_tx, broadcaster_client_inst, format='hex' )
-    return response
-
-
-def blockstack_name_preorder( name, privatekey, register_addr, tx_only=False, subsidy_key=None, testset=False, consensus_hash=None ):
-    """
-    Preorder a name.
-
-    @name: the name to preorder
-    @register_addr: the address that will own the name upon registration
-    @privatekey: the private key that will pay for the preorder. Can be None if we're subsidizing (in which case subsidy_key is required)
-    @tx_only: if True, then return only the unsigned serialized transaction.  Do not broadcast it.
-    @pay_fee: if False, then return a subsidized serialized transaction, where we have signed our
-    inputs/outputs with SIGHASH_ANYONECANPAY.  The caller will need to sign their input and then
-    broadcast it.
-    @subsidy_key: if given, then this transaction will be subsidized with this key and returned (but not broadcasted)
-    This forcibly sets tx_only=True and pay_fee=False.
-
-    Return a JSON object on success.
-    Return a JSON object with 'error' set on error.
+    Methods that start with rpc_* will be registered
+    as RPC methods.
     """
 
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
-
-    # are we doing our initial indexing?
-    if is_indexing():
-        return {"error": "Indexing blockchain"}
-
-    blockchain_client_inst = get_utxo_provider_client()
-    if blockchain_client_inst is None:
-        return {"error": "Failed to connect to blockchain UTXO provider"}
-
-    broadcaster_client_inst = get_tx_broadcaster()
-    if broadcaster_client_inst is None:
-        return {"error": "Failed to connect to blockchain transaction broadcaster"}
-
-    db = get_state_engine()
-
-    if consensus_hash is None:
-        consensus_hash = db.get_current_consensus()
-
-    if consensus_hash is None:
-        # consensus hash must exist
-        return {"error": "Nameset snapshot not found."}
-
-    if db.is_name_registered( name ):
-        # name can't be registered
-        return {"error": "Name already registered"}
-
-    namespace_id = get_namespace_from_name( name )
-
-    if not db.is_namespace_ready( namespace_id ):
-        # namespace must be ready; otherwise this is a waste
-        return {"error": "Namespace is not ready"}
-
-    name_fee = get_name_cost( name )
-
-    log.debug("The price of '%s' is %s satoshis" % (name, name_fee))
-
-    if privatekey is not None:
-        privatekey = str(privatekey)
-
-    public_key = None
-    if subsidy_key is not None:
-        subsidy_key = str(subsidy_key)
-        tx_only = True
-
-        # the sender will be the subsidizer (otherwise it will be the given private key's owner)
-        public_key = BitcoinPrivateKey( subsidy_key ).public_key().to_hex()
-
-    resp = {}
-    try:
-        resp = preorder_name(str(name), privatekey, str(register_addr), str(consensus_hash), blockchain_client_inst, \
-            name_fee, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'], subsidy_public_key=public_key, tx_only=tx_only )
-    except:
-        return json_traceback()
-
-    if subsidy_key is not None:
-        # sign each input
-        inputs, outputs, _, _ = tx_deserialize( resp['unsigned_tx'] )
-        tx_signed = tx_serialize_and_sign( inputs, outputs, subsidy_key )
-
-        resp = {
-            'subsidized_tx': tx_signed
-        }
-
-
-    log.debug('preorder <name, consensus_hash>: <%s, %s>' % (name, consensus_hash))
-
-    return resp
-
-
-def blockstack_name_register( name, privatekey, register_addr, renewal_fee=None, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
-    """
-    Register or renew a name
-
-    @name: the name to register
-    @register_addr: the address that will own the name (must be the same as the address
-    given on preorder)
-    @privatekey: if registering, this is the key that will pay for the registration (must
-    be the same key as the key used to preorder).  If renewing, this is the private key of the
-    name owner's address.
-    @renewal_fee: if given, this is the fee to renew the name (must be at least the
-    cost of the name itself)
-    @tx_only: if True, then return only the unsigned serialized transaction. Do not broadcast it.
-    @pay_fee: if False, then do not pay any associated dust or operational fees.  This should be used
-    to generate a signed serialized transaction that another key will later subsidize
-
-    Return a JSON object on success
-    Return a JSON object with 'error' set on error.
-    """
-
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
-
-    # are we doing our initial indexing?
-    if is_indexing():
-        return {"error": "Indexing blockchain"}
-
-    blockchain_client_inst = get_utxo_provider_client()
-    if blockchain_client_inst is None:
-        return {"error": "Failed to connect to blockchain UTXO provider"}
-
-    broadcaster_client_inst = get_tx_broadcaster()
-    if broadcaster_client_inst is None:
-        return {"error": "Failed to connect to blockchain transaction broadcaster"}
-
-    db = get_state_engine()
-
-    if db.is_name_registered( name ) and renewal_fee is None:
-        # *must* be given, so we don't accidentally charge
-        return {"error": "Name already registered"}
-
-    public_key = None
-    if subsidy_key is not None:
-        subsidy_key = str(subsidy_key)
-        tx_only = True
-
-        # the sender will be the subsidizer (otherwise it will be the given private key's owner)
-        public_key = BitcoinPrivateKey( subsidy_key ).public_key().to_hex()
-
-    resp = {}
-    try:
-        resp = register_name(str(name), privatekey, str(register_addr), blockchain_client_inst, renewal_fee=renewal_fee, \
-            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'], \
-            subsidy_public_key=public_key, user_public_key=user_public_key )
-    except:
-        return json_traceback()
-
-    if subsidy_key is not None and renewal_fee is not None:
-        resp = make_subsidized_tx( resp['unsigned_tx'], registration_fees, blockstack_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
-
-    elif subsidy_key is not None:
-        # sign each input
-        inputs, outputs, _, _ = tx_deserialize( resp['unsigned_tx'] )
-        tx_signed = tx_serialize_and_sign( inputs, outputs, subsidy_key )
-
-        resp = {
-            'subsidized_tx': tx_signed
-        }
-
-
-    log.debug("name register/renew: %s" % name)
-    return resp
-
-
-def blockstack_name_update( name, data_hash, privatekey, tx_only=False, user_public_key=None, subsidy_key=None, testset=False, consensus_hash=None ):
-    """
-    Update a name with new data.
-
-    @name: the name to update
-    @data_hash: the hash of the new name record
-    @privatekey: the private key of the owning address.
-    @tx_only: if True, then return only the unsigned serialized transaction.  Do not broadcast it.
-    @pay_fee: if False, then do not pay any associated dust or operational fees.  This should be
-    used to generate a signed serialized transaction that another key will later subsidize.
-
-    Return a JSON object on success
-    Return a JSON object with 'error' set on error.
-    """
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
-
-    # are we doing our initial indexing?
-    if is_indexing():
-        return {"error": "Indexing blockchain"}
-
-
-    blockchain_client_inst = get_utxo_provider_client()
-    if blockchain_client_inst is None:
-        return {"error": "Failed to connect to blockchain UTXO provider"}
-
-    broadcaster_client_inst = get_tx_broadcaster()
-    if broadcaster_client_inst is None:
-        return {"error": "Failed to connect to blockchain transaction broadcaster"}
-
-    db = get_state_engine()
-
-    if consensus_hash is None:
-        consensus_hash = db.get_current_consensus()
-
-    if consensus_hash is None:
-        return {"error": "Nameset snapshot not found."}
-
-    if blockchain_client_inst is None:
-        return {"error": "Failed to connect to blockchain UTXO provider"}
-
-    resp = {}
-    try:
-        resp = update_name(str(name), str(data_hash), str(consensus_hash), privatekey, blockchain_client_inst, \
-            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, user_public_key=user_public_key, testset=blockstack_opts['testset'])
-    except:
-        return json_traceback()
-
-    if subsidy_key is not None:
-        # subsidize the transaction
-        resp = make_subsidized_tx( resp['unsigned_tx'], update_fees, blockstack_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
-
-    log.debug('name update <name, data_hash, consensus_hash>: <%s, %s, %s>' % (name, data_hash, consensus_hash))
-    return resp
-
-
-def blockstack_name_transfer( name, address, keepdata, privatekey, user_public_key=None, subsidy_key=None, tx_only=False, testset=False, consensus_hash=None ):
-    """
-    Transfer a name to a new address.
-
-    @name: the name to transfer
-    @address:  the new address to own the name
-    @keepdata: if True, then keep the name record tied to the name.  Otherwise, discard it.
-    @privatekey: the private key of the owning address.
-    @tx_only: if True, then return only the unsigned serialized transaction.  Do not broadcast it.
-    @pay_fee: if False, then do not pay any associated dust or operational fees.  This should be
-    used to generate a signed serialized transaction that another key will later subsidize.
-
-    Return a JSON object on success
-    Return a JSON object with 'error' set on error.
-    """
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
-
-    # are we doing our initial indexing?
-    if is_indexing():
-        return {"error": "Indexing blockchain"}
-
-    blockchain_client_inst = get_utxo_provider_client()
-    if blockchain_client_inst is None:
-        return {"error": "Failed to connect to blockchain UTXO provider"}
-
-    broadcaster_client_inst = get_tx_broadcaster()
-    if broadcaster_client_inst is None:
-        return {"error": "Failed to connect to blockchain transaction broadcaster"}
-
-    db = get_state_engine()
-
-    if consensus_hash is None:
-        consensus_hash = db.get_current_consensus()
-
-    if consensus_hash is None:
-        return {"error": "Nameset snapshot not found."}
-
-    if blockchain_client_inst is None:
-        return {"error": "Failed to connect to blockchain UTXO provider"}
-
-    if type(keepdata) != bool:
-        if str(keepdata) == "True":
-            keepdata = True
-        else:
-            keepdata = False
-
-    resp = {}
-    try:
-        resp = transfer_name(str(name), str(address), keepdata, str(consensus_hash), privatekey, blockchain_client_inst, \
-            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, user_public_key=user_public_key, testset=blockstack_opts['testset'])
-    except:
-        return json_traceback()
-
-    if subsidy_key is not None:
-        # subsidize the transaction
-        resp = make_subsidized_tx( resp['unsigned_tx'], transfer_fees, blockstack_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
-
-    log.debug('name transfer <name, address>: <%s, %s>' % (name, address))
-
-    return resp
-
-
-def blockstack_name_renew( name, privatekey, register_addr=None, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
-    """
-    Renew a name
-
-    @name: the name to renew
-    @privatekey: the private key of the name owner
-    @tx_only: if True, then return only the unsigned serialized transaction.  Do not broadcast it.
-    @pay_fee: if False, then do not pay any associated dust or operational fees.  This should be
-    used to generate a signed serialized transaction that another key will later subsidize.
-
-    Return a JSON object on success
-    Return a JSON object with 'error' set on error.
-    """
-
-    # are we doing our initial indexing?
-    if is_indexing():
-        return {"error": "Indexing blockchain"}
-
-    # renew the name for the caller
-    db = get_state_engine()
-    name_rec = db.get_name( name )
-    if name_rec is None:
-        return {"error": "Name is not registered"}
-
-    # renew to the caller (should be the same as the sender)
-    if register_addr is None:
-        register_addr = name_rec['address']
-
-    if str(register_addr) != str(pybitcoin.BitcoinPrivateKey( privatekey ).public_key().address()):
-        return {"error": "Only the name's owner can send a renew request"}
-
-    renewal_fee = get_name_cost( name )
-
-    return blockstack_name_register( name, privatekey, register_addr, renewal_fee=renewal_fee, tx_only=tx_only, subsidy_key=subsidy_key, user_public_key=user_public_key, testset=testset )
-
-
-def blockstack_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, user_public_key=None, testset=False, consensus_hash=None ):
-    """
-    Revoke a name and all its data.
-
-    @name: the name to renew
-    @privatekey: the private key of the name owner
-    @tx_only: if True, then return only the unsigned serialized transaction.  Do not broadcast it.
-    @pay_fee: if False, then do not pay any associated dust or operational fees.  This should be
-    used to generate a signed serialized transaction that another key will later subsidize.
-
-    Return a JSON object on success
-    Return a JSON object with 'error' set on error.
-    """
-
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
-
-    # are we doing our initial indexing?
-    if is_indexing():
-        return {"error": "Indexing blockchain"}
-
-    blockchain_client_inst = get_utxo_provider_client()
-    if blockchain_client_inst is None:
-        return {"error": "Failed to connect to blockchain UTXO provider"}
-
-    broadcaster_client_inst = get_tx_broadcaster()
-    if broadcaster_client_inst is None:
-        return {"error": "Failed to connect to blockchain transaction broadcaster"}
-
-    resp = {}
-    try:
-        resp = revoke_name(str(name), privatekey, blockchain_client_inst, \
-            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, \
-            user_public_key=user_public_key, testset=blockstack_opts['testset'])
-    except:
-        return json_traceback()
-
-    if subsidy_key is not None:
-        # subsidize the transaction
-        resp = make_subsidized_tx( resp['unsigned_tx'], revoke_fees, blockstack_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
-
-    log.debug("name revoke <%s>" % name )
-
-    return resp
-
-
-def blockstack_name_import( name, recipient_address, update_hash, privatekey, tx_only=False, testset=False, consensus_hash=None ):
-    """
-    Import a name into a namespace.
-    """
-
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
-
-    # are we doing our initial indexing?
-    if is_indexing():
-        return {"error": "Indexing blockchain"}
-
-    blockchain_client_inst = get_utxo_provider_client()
-    if blockchain_client_inst is None:
-        return {"error": "Failed to connect to blockchain UTXO provider"}
-
-    broadcaster_client_inst = get_tx_broadcaster()
-    if broadcaster_client_inst is None:
-        return {"error": "Failed to connect to blockchain transaction broadcaster"}
-
-    db = get_state_engine()
-
-    resp = {}
-    try:
-        resp = name_import( str(name), str(recipient_address), str(update_hash), str(privatekey), blockchain_client_inst, \
-            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'] )
-    except:
-        return json_traceback()
-
-    log.debug("import <%s>" % name )
-
-    return resp
-
-
-def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, tx_only=False, testset=False, consensus_hash=None ):
-    """
-    Define the properties of a namespace.
-    Between the namespace definition and the "namespace begin" operation, only the
-    user who created the namespace can create names in it.
-    """
-
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
-
-    # are we doing our initial indexing?
-    if is_indexing():
-        return {"error": "Indexing blockchain"}
-
-    db = get_state_engine()
-
-    blockchain_client_inst = get_utxo_provider_client()
-    if blockchain_client_inst is None:
-        return {"error": "Failed to connect to blockchain UTXO provider"}
-
-    broadcaster_client_inst = get_tx_broadcaster()
-    if broadcaster_client_inst is None:
-        return {"error": "Failed to connect to blockchain transaction broadcaster"}
-
-    if consensus_hash is None:
-        consensus_hash = db.get_current_consensus()
-
-    if consensus_hash is None:
-        return {"error": "Nameset snapshot not found."}
-
-    namespace_fee = price_namespace( namespace_id )
-
-    log.debug("Namespace '%s' will cost %s satoshis" % (namespace_id, namespace_fee))
-
-    resp = {}
-    try:
-        resp = namespace_preorder( str(namespace_id), str(register_addr), str(consensus_hash), str(privatekey), blockchain_client_inst, namespace_fee, \
-            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'] )
-
-    except:
-        return json_traceback()
-
-    log.debug("namespace_preorder <%s>" % (namespace_id))
-    return resp
-
-
-def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, tx_only=False, testset=False, consensus_hash=None ):
-    """
-    Reveal and define the properties of a namespace.
-    Between the namespace definition and the "namespace begin" operation, only the
-    user who created the namespace can create names in it.
-    """
-
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
-
-    # are we doing our initial indexing?
-    if is_indexing():
-        return {"error": "Indexing blockchain"}
-
-    blockchain_client_inst = get_utxo_provider_client()
-    if blockchain_client_inst is None:
-        return {"error": "Failed to connect to blockchain UTXO provider"}
-
-    broadcaster_client_inst = get_tx_broadcaster()
-    if broadcaster_client_inst is None:
-        return {"error": "Failed to connect to blockchain transaction broadcaster"}
-
-    resp = {}
-    try:
-        resp = namespace_reveal( str(namespace_id), str(register_addr), int(lifetime), \
-                                int(coeff), int(base), list(bucket_exponents), \
-                                int(nonalpha_discount), int(no_vowel_discount), \
-                                str(privatekey), blockchain_client_inst, \
-                                blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'], tx_only=tx_only )
-    except:
-        return json_traceback()
-
-    log.debug("namespace_reveal <%s, %s, %s, %s, %s, %s, %s>" % (namespace_id, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount))
-    return resp
-
-
-def blockstack_namespace_ready( namespace_id, privatekey, tx_only=False, testset=False, consensus_hash=None ):
-    """
-    Declare that a namespace is open to accepting new names.
-    """
-
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
-
-    # are we doing our initial indexing?
-    if is_indexing():
-        return {"error": "Indexing blockchain"}
-
-    blockchain_client_inst = get_utxo_provider_client()
-    if blockchain_client_inst is None:
-        return {"error": "Failed to connect to blockchain UTXO provider"}
-
-    broadcaster_client_inst = get_tx_broadcaster()
-    if broadcaster_client_inst is None:
-        return {"error": "Failed to connect to blockchain transaction broadcaster"}
-
-    resp = {}
-    try:
-        resp = namespace_ready( str(namespace_id), str(privatekey), blockchain_client_inst, \
-            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, testset=blockstack_opts['testset'] )
-    except:
-        return json_traceback()
-
-    log.debug("namespace_ready %s" % namespace_id )
-    return resp
-
-
-def blockstack_announce( message, privatekey, tx_only=False, subsidy_key=None, user_public_key=None, testset=False ):
-    """
-    Send an announcement via the blockchain.
-    If we're sending the tx out, then also replicate the message text to storage providers, via the blockstack_client library
-    """
-
-    blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(), testset=testset )
-
-    # are we doing our initial indexing?
-    if is_indexing():
-        return {"error": "Indexing blockchain"}
-
-    blockchain_client_inst = get_utxo_provider_client()
-    if blockchain_client_inst is None:
-        return {"error": "Failed to connect to blockchain UTXO provider"}
-
-    broadcaster_client_inst = get_tx_broadcaster()
-    if broadcaster_client_inst is None:
-        return {"error": "Failed to connect to blockchain transaction broadcaster"}
-
-    message_hash = pybitcoin.hex_hash160( message )
-
-    resp = {}
-    try:
-        resp = send_announce( message_hash, privatekey, blockchain_client_inst, \
-            tx_only=tx_only, blockchain_broadcaster=broadcaster_client_inst, \
-            user_public_key=user_public_key, testset=blockstack_opts['testset'])
-
-    except:
-        return json_traceback()
-
-    if subsidy_key is not None:
-        # subsidize the transaction
-        resp = make_subsidized_tx( resp['unsigned_tx'], announce_fees, blockstack_opts['max_subsidy'], subsidy_key, blockchain_client_inst )
-
-    elif not tx_only:
-        # propagate the data to back-end storage
-        data_hash = put_announcement( message, resp['transaction_hash'] )
-        if data_hash is None:
-            resp = {
-                'error': 'failed to storage message text',
-                'transaction_hash': resp['transaction_hash']
-            }
-
-        else:
-            resp['data_hash'] = data_hash
-
-    log.debug("announce <%s>" % message_hash )
-
-    return resp
-
-
-class BlockstackdRPC(jsonrpc.JSONRPC, object):
-    """
-    Blockstackd not-quite-JSON-RPC server.
-
-    We say "not quite" because the implementation serves data
-    via Netstrings, not HTTP, and does not pay attention to
-    the 'id' or 'version' fields in the JSONRPC spec.
-
-    This endpoint does *not* talk to a storage provider, but only
-    serves back information from the blockstack virtual chain.
-
-    The client is responsible for resolving this information
-    to data, via an ancillary storage provider.
-    """
-
-    def __init__(self, testset=False):
-        self.testset = testset
-        super(BlockstackdRPC, self).__init__()
-
-    def jsonrpc_ping(self):
+    def __init__(self, host='0.0.0.0', port=config.RPC_SERVER_PORT, handler=BlockstackdRPCHandler ):
+        log.info("Listening on %s:%s" % (host, port))
+        SimpleXMLRPCServer.__init__( self, (host, port), handler, allow_none=True )
+
+        # register methods 
+        for attr in dir(self):
+            if attr.startswith("rpc_"):
+                method = getattr(self, attr)
+                if callable(method) or hasattr(method, '__call__'):
+                    self.register_function( method )
+
+
+    def rpc_ping(self):
         reply = {}
         reply['status'] = "alive"
         return reply
 
-    def jsonrpc_get_name_blockchain_record(self, name):
+
+    def rpc_get_name_blockchain_record(self, name):
         """
-        Lookup the blockchain-derived profile for a name.
+        Lookup the blockchain-derived whois info for a name.
         """
+
+        if type(name) not in [str, unicode]:
+            return {'error': 'invalid name'}
+
+        if not is_name_valid(name):
+            return {'error': 'invalid name'}
 
         db = get_state_engine()
 
@@ -979,6 +346,9 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
 
         name_record = db.get_name(str(name))
 
+        namespace_id = get_namespace_from_name(name)
+        namespace_record = db.get_namespace(namespace_id)
+
         if name_record is None:
             if is_indexing():
                 return {"error": "Indexing blockchain"}
@@ -986,12 +356,30 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
                 return {"error": "Not found."}
 
         else:
+
+            # when does this name expire (if it expires)?
+            if namespace_record['lifetime'] != NAMESPACE_LIFE_INFINITE:
+                name_record['expire_block'] = namespace_record['lifetime'] + name_record['last_renewed']
+
             return name_record
 
-    def jsonrpc_get_name_blockchain_history( self, name, start_block, end_block ):
+
+    def rpc_get_name_blockchain_history( self, name, start_block, end_block ):
         """
         Get the sequence of name operations processed for a given name.
         """
+        if type(name) not in [str, unicode]:
+            return {'error': 'invalid name'}
+
+        if not is_name_valid(name):
+            return {'error': 'invalid name'}
+
+        if type(start_block) not in [int, long]:
+            return {'error': 'invalid start block'}
+
+        if type(end_block) not in [int, long]:
+            return {'error': 'invalid end block'}
+
         db = get_state_engine()
         name_history = db.get_name_history( name, start_block, end_block )
 
@@ -1005,12 +393,15 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
             return name_history
 
 
-    def jsonrpc_get_nameops_at( self, block_id ):
+    def rpc_get_nameops_at( self, block_id ):
         """
         Get the sequence of names and namespaces altered at the given block.
         Returns the list of name operations to be fed into virtualchain.
         Used by SNV clients.
         """
+        if type(block_id) not in [int, long]:
+            return {'error': 'invalid block ID'}
+
         db = get_state_engine()
 
         all_ops = db.get_all_nameops_at( block_id )
@@ -1022,13 +413,15 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return ret
 
 
-    def jsonrpc_get_nameops_hash_at( self, block_id ):
+    def rpc_get_nameops_hash_at( self, block_id ):
         """
         Get the hash over the sequence of names and namespaces altered at the given block.
         Used by SNV clients.
         """
+        if type(block_id) not in [int, long]:
+            return {'error': 'invalid block ID'}
+
         db = get_state_engine()
-        # ops = block_to_virtualchain_ops( block_id, db )
 
         ops = db.get_all_nameops_at( block_id )
         if ops is None:
@@ -1039,35 +432,49 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
             restored_op = nameop_restore_consensus_fields( op, block_id )
             restored_ops.append( restored_op )
 
-        serialized_ops = [ db_serialize( str(op['op'][0]), op, verbose=False ) for op in restored_ops ]
+        # NOTE: extracts only the operation-given fields, and ignores ancilliary record fields
+        serialized_ops = [ virtualchain.StateEngine.serialize_op( str(op['op'][0]), op, BlockstackDB.make_opfields(), verbose=False ) for op in restored_ops ]
+
+        for serialized_op in serialized_ops:
+            log.debug("SERIALIZED (%s): %s" % (block_id, serialized_op))
+
         ops_hash = virtualchain.StateEngine.make_ops_snapshot( serialized_ops )
+        log.debug("Serialized hash at (%s): %s" % (block_id, ops_hash))
+
         return ops_hash
 
 
-    def jsonrpc_getinfo(self):
+    def rpc_getinfo(self):
         """
         Get the number of blocks the
         """
-        bitcoind_opts = default_bitcoind_opts( virtualchain.get_config_filename() )
+        bitcoind_opts = blockstack_client.default_bitcoind_opts( virtualchain.get_config_filename(), prefix=True )
         bitcoind = get_bitcoind( new_bitcoind_opts=bitcoind_opts, new=True )
+        
+        if bitcoind is None:
+            return {'error': 'Internal server error: failed to connect to bitcoind'}
 
         info = bitcoind.getinfo()
         reply = {}
-        reply['bitcoind_blocks'] = info['blocks']
-
+        reply['bitcoind_blocks'] = info['blocks']       # legacy
+        reply['blockchain_blocks'] = info['blocks']
+        
         db = get_state_engine()
         reply['consensus'] = db.get_current_consensus()
         reply['blocks'] = db.get_current_block()
         reply['blockstack_version'] = "%s" % VERSION
-        reply['testset'] = str(self.testset)
+        reply['last_block'] = reply['blocks']
         return reply
 
 
-    def jsonrpc_get_names_owned_by_address(self, address):
+    def rpc_get_names_owned_by_address(self, address):
         """
         Get the list of names owned by an address.
         Valid only for names with p2pkh sender scripts.
         """
+        if type(address) not in [str, unicode]:
+            return {'error': 'invalid address'}
+
         db = get_state_engine()
         names = db.get_names_owned_by_address( address )
         if names is None:
@@ -1075,380 +482,17 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return names
 
 
-    def jsonrpc_preorder( self, name, privatekey, register_addr ):
-        """
-        Preorder a name:
-        @name is the name to preorder
-        @register_addr is the address of the key pair that will own the name
-        @privatekey is the private key that will send the preorder transaction
-        (it must be *different* from the register_addr keypair)
-
-        Returns a JSON object with the transaction ID on success.
-        Returns a JSON object with 'error' on error.
-        """
-        return blockstack_name_preorder( str(name), str(privatekey), str(register_addr), testset=self.testset )
-
-
-    def jsonrpc_preorder_tx( self, name, privatekey, register_addr ):
-        """
-        Generate a transaction that preorders a name:
-        @name is the name to preorder
-        @register_addr is the address of the key pair that will own the name
-        @privatekey is the private key that will send the preorder transaction
-        (it must be *different* from the register_addr keypair)
-
-        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
-        Return a JSON object with 'error' on error.
-        """
-        return blockstack_name_preorder( str(name), str(privatekey), str(register_addr), tx_only=True, testset=self.testset )
-
-
-    def jsonrpc_preorder_tx_subsidized( self, name, user_public_key, register_addr, subsidy_key ):
-        """
-        Generate a transaction that preorders a name, but without paying fees.
-        @name is the name to preorder
-        @register_addr is the address of the key pair that will own the name
-        @public_key is the client's public key that will sign the preorder transaction
-        (it must be *different* from the register_addr keypair)
-
-        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
-        Return a JSON object with 'error' on error.
-        """
-        return blockstack_name_preorder( str(name), None, str(register_addr), tx_only=True, subsidy_key=str(subsidy_key), user_public_key=str(user_public_key), testset=self.testset )
-
-
-    def jsonrpc_register( self, name, privatekey, register_addr ):
-        """
-        Register a name:
-        @name is the name to register
-        @register_addr is the address of the key pair that will own the name
-        (given earlier in the preorder)
-        @privatekey is the private key that sent the preorder transaction.
-
-        Returns a JSON object with the transaction ID on success.
-        Returns a JSON object with 'error' on error.
-        """
-        return blockstack_name_register( str(name), str(privatekey), str(register_addr), testset=self.testset )
-
-
-    def jsonrpc_register_tx( self, name, privatekey, register_addr ):
-        """
-        Generate a transaction that will register a name:
-        @name is the name to register
-        @register_addr is the address of the key pair that will own the name
-        (given earlier in the preorder)
-        @privatekey is the private key that sent the preorder transaction.
-
-        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
-        Return a JSON object with 'error' on error.
-        """
-        return blockstack_name_register( str(name), str(privatekey), str(register_addr), tx_only=True, testset=self.testset )
-
-
-    def jsonrpc_register_tx_subsidized( self, name, user_public_key, register_addr, subsidy_key ):
-        """
-        Generate a subsidizable transaction that will register a name
-        @name is the name to register
-        @register_addr is the address of the key pair that will own the name
-        (given earlier in the preorder)
-        public_key is the public key whose private counterpart sent the preorder transaction.
-
-        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
-        Return a JSON object with 'error' on error.
-        """
-        return blockstack_name_register( str(name), None, str(register_addr), tx_only=True, public_key=str(user_public_key), subsidy_key=str(subsidy_key), testset=self.testset )
-
-
-    def jsonrpc_update( self, name, data_hash, privatekey ):
-        """
-        Update a name's record:
-        @name is the name to update
-        @data_hash is the hash of the new name record
-        @privatekey is the private key that owns the name
-
-        Returns a JSON object with the transaction ID on success.
-        Returns a JSON object with 'error' on error.
-        """
-        return blockstack_name_update( str(name), str(data_hash), str(privatekey), testset=self.testset )
-
-
-    def jsonrpc_update_tx( self, name, data_hash, privatekey ):
-        """
-        Generate a transaction that will update a name's name record hash.
-        @name is the name to update
-        @data_hash is the hash of the new name record
-        @privatekey is the private key that owns the name
-
-        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
-        Return a JSON object with 'error' on error.
-        """
-        return blockstack_name_update( str(name), str(data_hash), str(privatekey), tx_only=True, testset=self.testset )
-
-
-    def jsonrpc_update_tx_subsidized( self, name, data_hash, user_public_key, subsidy_key ):
-        """
-        Generate a subsidizable transaction that will update a name's name record hash.
-        @name is the name to update
-        @data_hash is the hash of the new name record
-        @privatekey is the private key that owns the name
-
-        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
-        Return a JSON object with 'error' on error.
-        """
-        return blockstack_name_update( str(name), str(data_hash), None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
-
-
-    def jsonrpc_transfer( self, name, address, keepdata, privatekey ):
-        """
-        Transfer a name's record to a new address
-        @name is the name to transfer
-        @address is the new address that will own the name
-        @keepdata determines whether or not the name record will
-        remain associated with the name on transfer.
-        @privatekey is the private key that owns the name
-
-        Returns a JSON object with the transaction ID on success.
-        Returns a JSON object with 'error' on error.
-        """
-
-        # coerce boolean
-        if type(keepdata) != bool:
-            if str(keepdata) == "True":
-                keepdata = True
-            else:
-                keepdata = False
-
-        return blockstack_name_transfer( str(name), str(address), keepdata, str(privatekey), testset=self.testset )
-
-
-    def jsonrpc_transfer_tx( self, name, address, keepdata, privatekey ):
-        """
-        Generate a transaction that will transfer a name to a new address
-        @name is the name to transfer
-        @address is the new address that will own the name
-        @keepdata determines whether or not the name record will
-        remain associated with the name on transfer.
-        @privatekey is the private key that owns the name
-
-        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
-        Return a JSON object with 'error' on error.
-        """
-
-        # coerce boolean
-        if type(keepdata) != bool:
-            if str(keepdata) == "True":
-                keepdata = True
-            else:
-                keepdata = False
-
-        return blockstack_name_transfer( str(name), str(address), keepdata, str(privatekey), tx_only=True, testset=self.testset )
-
-
-    def jsonrpc_transfer_tx_subsidized( self, name, address, keepdata, user_public_key, subsidy_key ):
-        """
-        Generate a subsidizable transaction that will transfer a name to a new address
-        @name is the name to transfer
-        @address is the new address that will own the name
-        @keepdata determines whether or not the name record will
-        remain associated with the name on transfer.
-        @privatekey is the private key that owns the name
-
-        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
-        Return a JSON object with 'error' on error.
-        """
-
-        # coerce boolean
-        if type(keepdata) != bool:
-            if str(keepdata) == "True":
-                keepdata = True
-            else:
-                keepdata = False
-
-        return blockstack_name_transfer( str(name), str(address), keepdata, None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
-
-
-    def jsonrpc_renew( self, name, privatekey ):
-        """
-        Renew a name:
-        @name is the name to renew
-        @privatekey is the private key that owns the name
-
-        Returns a JSON object with the transaction ID on success.
-        Returns a JSON object with 'error' on error.
-        """
-        return blockstack_name_renew( str(name), str(privatekey), testset=self.testset )
-
-
-    def jsonrpc_renew_tx( self, name, privatekey ):
-        """
-        Generate a transaction that will register a name:
-        @name is the name to renew
-        @privatekey is the private key that owns the name
-
-        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
-        Return a JSON object with 'error' on error.
-        """
-        return blockstack_name_renew( str(name), str(privatekey), tx_only=True, testset=self.testset )
-
-
-    def jsonrpc_renew_tx_subsidized( self, name, user_public_key, subsidy_key ):
-        """
-        Generate a subsidizable transaction that will register a name
-        @name is the name to renew
-        @privatekey is the private key that owns the name
-
-        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
-        Return a JSON object with 'error' on error.
-        """
-        return blockstack_name_renew( name, None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
-
-
-    def jsonrpc_revoke( self, name, privatekey ):
-        """
-        revoke a name:
-        @name is the name to revoke
-        @privatekey is the private key that owns the name
-
-        Returns a JSON object with the transaction ID on success.
-        Returns a JSON object with 'error' on error.
-        """
-        return blockstack_name_revoke( str(name), str(privatekey), testset=self.testset )
-
-
-    def jsonrpc_revoke_tx( self, name, privatekey ):
-        """
-        Generate a transaction that will revoke a name:
-        @name is the name to revoke
-        @privatekey is the private key that owns the name
-
-        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
-        Return a JSON object with 'error' on error.
-        """
-        return blockstack_name_revoke( str(name), str(privatekey), tx_only=True, testset=self.testset )
-
-
-    def jsonrpc_revoke_tx_subsidized( self, name, public_key, subsidy_key ):
-        """
-        Generate a subsidizable transaction that will revoke a name
-        @name is the name to revoke
-        @privatekey is the private key that owns the name
-
-        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
-        Return a JSON object with 'error' on error.
-        """
-        return blockstack_name_revoke( str(name), None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
-
-
-    def jsonrpc_name_import( self, name, recipient_address, update_hash, privatekey ):
-        """
-        Import a name into a namespace.
-        """
-        return blockstack_name_import( name, recipient_address, update_hash, privatekey, testset=self.testset )
-
-
-    def jsonrpc_name_import_tx( self, name, recipient_address, update_hash, privatekey ):
-        """
-        Generate a tx that will import a name
-        """
-        return blockstack_name_import( name, recipient_address, update_hash, privatekey, tx_only=True, testset=self.testset )
-
-
-    def jsonrpc_namespace_preorder( self, namespace_id, reveal_addr, privatekey ):
-        """
-        Define the properties of a namespace.
-        Between the namespace definition and the "namespace begin" operation, only the
-        user who created the namespace can create names in it.
-        """
-        return blockstack_namespace_preorder( namespace_id, reveal_addr, privatekey, testset=self.testset )
-
-
-    def jsonrpc_namespace_preorder_tx( self, namespace_id, reveal_addr, privatekey ):
-        """
-        Create a signed transaction that will define the properties of a namespace.
-        Between the namespace definition and the "namespace begin" operation, only the
-        user who created the namespace can create names in it.
-        """
-        return blockstack_namespace_preorder( namespace_id, reveal_addr, privatekey, tx_only=True, testset=self.testset )
-
-
-    def jsonrpc_namespace_reveal( self, namespace_id, reveal_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey ):
-        """
-        Reveal and define the properties of a namespace.
-        Between the namespace definition and the "namespace begin" operation, only the
-        user who created the namespace can create names in it.
-        """
-        return blockstack_namespace_reveal( namespace_id, reveal_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, testset=self.testset )
-
-
-    def jsonrpc_namespace_reveal_tx( self, namespace_id, reveal_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey ):
-        """
-        Generate a signed transaction that will reveal and define the properties of a namespace.
-        Between the namespace definition and the "namespace begin" operation, only the
-        user who created the namespace can create names in it.
-        """
-        return blockstack_namespace_reveal( namespace_id, reveal_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, tx_only=True, testset=self.testset )
-
-
-    def jsonrpc_namespace_ready( self, namespace_id, privatekey ):
-        """
-        Declare that a namespace is open to accepting new names.
-        """
-        return blockstack_namespace_ready( namespace_id, privatekey, testset=self.testset )
-
-
-    def jsonrpc_namespace_ready_tx( self, namespace_id, privatekey ):
-        """
-        Create a signed transaction that will declare that a namespace is open to accepting new names.
-        """
-        return blockstack_namespace_ready( namespace_id, privatekey, tx_only=True, testset=self.testset )
-
-
-    def jsonrpc_announce( self, message, privatekey ):
-        """
-        announce a message to all blockstack nodes on the blockchain
-        @message is the message to send
-        @privatekey is the private key that will sign the announcement
-
-        Returns a JSON object with the transaction ID on success.
-        Returns a JSON object with 'error' on error.
-        """
-        return blockstack_announce( str(message), str(privatekey), testset=self.testset )
-
-
-    def jsonrpc_announce_tx( self, message, privatekey ):
-        """
-        Generate a transaction that will make an announcement:
-        @message is the message text to send
-        @privatekey is the private key that signs the message
-
-        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
-        Return a JSON object with 'error' on error.
-        """
-        return blockstack_announce( str(message), str(privatekey), tx_only=True, testset=self.testset )
-
-
-    def jsonrpc_announce_tx_subsidized( self, message, public_key, subsidy_key ):
-        """
-        Generate a subsidizable transaction that will make an announcement
-        @message is hte message text to send
-        @privatekey is the private key that signs the message
-
-        Return a JSON object with the signed serialized transaction on success.  It will not be broadcast.
-        Return a JSON object with 'error' on error.
-        """
-        return blockstack_announce( str(message), None, user_public_key=str(user_public_key), subsidy_key=str(subsidy_key), tx_only=True, testset=self.testset )
-
-
-    def jsonrpc_get_name_cost( self, name ):
+    def rpc_get_name_cost( self, name ):
         """
         Return the cost of a given name, including fees
         Return value is in satoshis
         """
 
-        # are we doing our initial indexing?
+        if type(name) not in [str, unicode]:
+            return {'error': 'invalid name'}
 
-        if len(name) > LENGTHS['blockchain_id_name']:
-            return {"error": "Name too long"}
+        if not is_name_valid(name):
+            return {'error': 'invalid name'}
 
         ret = get_name_cost( name )
         if ret is None:
@@ -1461,39 +505,62 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return {"satoshis": int(math.ceil(ret))}
 
 
-    def jsonrpc_get_namespace_cost( self, namespace_id ):
+    def rpc_get_namespace_cost( self, namespace_id ):
         """
         Return the cost of a given namespace, including fees.
         Return value is in satoshis
         """
 
-        if len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
-            return {"error": "Namespace ID too long"}
+        if type(namespace_id) not in [str, unicode]:
+            return {'error': 'invalid namespace ID'}
+
+        if not is_namespace_valid(namespace_id):
+            return {'error': 'invalid namespace ID'}
 
         ret = price_namespace(namespace_id)
         return {"satoshis": int(math.ceil(ret))}
 
 
-    def jsonrpc_get_namespace_blockchain_record( self, namespace_id ):
+    def rpc_get_namespace_blockchain_record( self, namespace_id ):
         """
-        Return the readied namespace with the given namespace_id
+        Return the namespace with the given namespace_id
         """
+
+        if type(namespace_id) not in [str, unicode]:
+            return {'error': 'invalid namespace ID'}
+
+        if not is_namespace_valid(namespace_id):
+            return {'error': 'invalid namespace ID'}
 
         db = get_state_engine()
         ns = db.get_namespace( namespace_id )
         if ns is None:
-            if is_indexing():
-                return {"error": "Indexing blockchain"}
-            else:
-                return {"error": "No such ready namespace"}
+            # maybe revealed?
+            ns = db.get_namespace_reveal( namespace_id )
+            if ns is None:
+                if is_indexing():
+                    return {"error": "Indexing blockchain"}
+                else:
+                    return {"error": "No such namespace"}
+
+            ns['ready'] = False
+            return ns
+
         else:
+            ns['ready'] = True
             return ns
 
 
-    def jsonrpc_get_all_names( self, offset, count ):
+    def rpc_get_all_names( self, offset, count ):
         """
         Return all names
         """
+        if type(offset) not in [int, long]:
+            return {'error': 'invalid offset'}
+
+        if type(count) not in [int, long]:
+            return {'error': 'invalid count'}
+
         # are we doing our initial indexing?
         if is_indexing():
             return {"error": "Indexing blockchain"}
@@ -1502,10 +569,22 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return db.get_all_names( offset=offset, count=count )
 
 
-    def jsonrpc_get_names_in_namespace( self, namespace_id, offset, count ):
+    def rpc_get_names_in_namespace( self, namespace_id, offset, count ):
         """
         Return all names in a namespace
         """
+        if type(namespace_id) not in [str, unicode]:
+            return {'error': 'invalid namespace ID'}
+    
+        if type(offset) not in [int, long]:
+            return {'error': 'invalid offset'}
+
+        if type(count) not in [int, long]:
+            return {'error': 'invalid count'}
+
+        if not is_namespace_valid( namespace_id ):
+            return {'error': 'invalid namespace ID'}
+
         # are we doing our initial indexing?
         if is_indexing():
             return {"error": "Indexing blockchain"}
@@ -1514,93 +593,628 @@ class BlockstackdRPC(jsonrpc.JSONRPC, object):
         return db.get_names_in_namespace( namespace_id, offset=offset, count=count )
 
 
-    def jsonrpc_get_consensus_at( self, block_id ):
+    def rpc_get_consensus_at( self, block_id ):
         """
         Return the consensus hash at a block number
         """
+        if type(block_id) not in [int, long]:
+            return {'error': 'Invalid block ID'}
+
+        if is_indexing():
+            return {'error': 'Indexing blockchain'}
+
         db = get_state_engine()
         return db.get_consensus_at( block_id )
 
 
-    def jsonrpc_get_mutable_data( self, blockchain_id, data_name ):
+    def rpc_get_consensus_hashes( self, block_id_list ):
+        """
+        Return the consensus hashes at multiple block numbers
+        Return a dict mapping each block ID to its consensus hash
+        """
+        if is_indexing():
+            return {'error': 'Indexing blockchain'}
+
+        if type(block_id_list) != list:
+            return {'error': 'Invalid block IDs'}
+
+        for bid in block_id_list:
+            if type(bid) not in [int, long]:
+                return {'error': 'Invalid block ID'}
+
+        db = get_state_engine()
+        ret = {}
+        for block_id in block_id_list:
+            ret[block_id] = db.get_consensus_at(block_id)
+
+        return ret
+
+
+    def rpc_get_mutable_data( self, blockchain_id, data_name ):
         """
         Get a mutable data record written by a given user.
         """
+        if type(blockchain_id) not in [str, unicode]:
+            return {'error': 'Invalid blockchain ID'}
+
+        if not is_name_valid(blockchain_id):
+            return {'error': 'Invalid blockchain ID'}
+
+        if type(data_name) not in [str, unicode]:
+            return {'error': 'Invalid data name'}
+
         client = get_blockstack_client_session()
         return client.get_mutable( str(blockchain_id), str(data_name) )
 
 
-    def jsonrpc_get_immutable_data( self, blockchain_id, data_hash ):
+    def rpc_get_immutable_data( self, blockchain_id, data_hash ):
         """
         Get immutable data record written by a given user.
         """
+        if type(blockchain_id) not in [str, unicode]:
+            return {'error': 'Invalid blockchain ID'}
+
+        if not is_name_valid(blockchain_id):
+            return {'error': 'Invalid blockchain ID'}
+
+        if type(data_hash) not in [str, unicode]:
+            return {'error': 'Invalid data hash'}
+
         client = get_blockstack_client_session()
         return client.get_immutable( str(blockchain_id), str(data_hash) )
 
 
-def run_indexer( testset=False ):
+    def rpc_get_block_from_consensus( self, consensus_hash ):
+        """
+        Given the consensus hash, find the block number (or None)
+        """
+        if type(consensus_hash) not in [str, unicode]:
+            return {'error': 'Not a valid consensus hash'}
+
+        db = get_state_engine()
+        return db.get_block_from_consensus( consensus_hash )
+
+
+    def get_zonefile( self, config, zonefile_hash, zonefile_storage_drivers ):
+        """
+        Get a zonefile by hash, caching it along the way.
+        Return the zonefile (as a dict) on success
+        Return None on error
+        """
+    
+        # check cache 
+        cached_zonefile = get_cached_zonefile( zonefile_hash, zonefile_dir=config.get('zonefiles', None))
+        if cached_zonefile is not None:
+            return cached_zonefile
+
+        log.debug("Zonefile %s is not cached" % zonefile_hash)
+
+        try:
+            # check storage providers
+            zonefile = get_zonefile_from_storage( zonefile_hash, drivers=zonefile_storage_drivers )
+        except blockstack_zones.InvalidLineException:
+            # legacy profile
+            return None
+        except Exception, e:
+            log.exception(e)
+            return None
+
+        if zonefile is not None:
+            store_cached_zonefile( zonefile )
+            return zonefile
+        else:
+            return None
+
+
+    def get_zonefile_by_name( self, conf, name, zonefile_storage_drivers ):
+        """
+        Get a zonefile by name
+        Return the zonefile (as a dict) on success
+        Return None one error
+        """
+        db = get_state_engine()
+        name_rec = db.get_name( name )
+        if name_rec is None:
+            return None
+
+        zonefile_hash = name_rec.get('value_hash', None)
+        if zonefile_hash is None:
+            return None
+
+        # find zonefile 
+        zonefile = self.get_zonefile( conf, zonefile_hash, zonefile_storage_drivers )
+        if zonefile is None:
+            return None
+
+        return zonefile
+
+
+    def rpc_get_zonefiles( self, zonefile_hashes ):
+        """
+        Get a users zonefiles from the local cache,
+        or (on miss), from upstream storage.
+        Only return at most 100 zonefiles.
+        Return {'status': True, 'zonefiles': {zonefile_hash: zonefile}} on success
+        Return {'error': ...} on error
+
+        zonefiles will be serialized to string
+        """
+        conf = get_blockstack_opts()
+        if not conf['serve_zonefiles']:
+            return {'error': 'No data'}
+
+        if type(zonefile_hashes) != list:
+            return {'error': 'Invalid zonefile hashes'}
+
+        if len(zonefile_hashes) > 100:
+            return {'error': 'Too many requests'}
+
+        zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
+
+        ret = {}
+        for zonefile_hash in zonefile_hashes:
+            if type(zonefile_hash) not in [str, unicode]:
+                return {'error': 'Not a zonefile hash'}
+
+        for zonefile_hash in zonefile_hashes:
+            if not is_current_zonefile_hash( zonefile_hash ):
+                continue
+
+            zonefile = self.get_zonefile( conf, zonefile_hash, zonefile_storage_drivers )
+            if zonefile is None:
+                continue
+
+            else:
+                ret[zonefile_hash] = serialize_zonefile( zonefile )
+
+        return {'status': True, 'zonefiles': ret}
+
+
+    def rpc_get_zonefiles_by_names( self, names ):
+        """
+        Get a users' zonefiles from the local cache,
+        or (on miss), from upstream storage.
+        Only return at most 100 zonefiles.
+        Return {'status': True, 'zonefiles': {name: zonefile}]} on success
+        Return {'error': ...} on error
+
+        zonefiles will be serialized to string
+        """
+        conf = get_blockstack_opts()
+        if not conf['serve_zonefiles']:
+            return {'error': 'No data'}
+
+        if type(names) != list:
+            return {'error': 'Invalid data'}
+
+        if len(names) > 100:
+            return {'error': 'Too many requests'}
+        
+        zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
+
+        ret = {}
+        for name in names:
+            if type(name) not in [str, unicode]:
+                return {'error': 'Invalid name'}
+
+            if not is_name_valid(name):
+                return {'error': 'Invalid name'}
+
+        for name in names:
+            zonefile = self.get_zonefile_by_name( conf, name, zonefile_storage_drivers )
+            if zonefile is None:
+                continue
+
+            else:
+                ret[name] = serialize_zonefile( zonefile )
+
+        return {'status': True, 'zonefiles': ret}
+
+
+    def rpc_put_zonefiles( self, zonefile_datas ):
+        """
+        Replicate one or more zonefiles, given as serialized strings.
+        Returns {'status': True, 'saved': [0|1]'} on success ('saved' is a vector of success/failure)
+        Returns {'error': ...} on error
+        Takes at most 10 zonefiles
+        """
+
+        conf = get_blockstack_opts()
+
+        if not conf['serve_zonefiles']:
+            return {'error': 'No data'}
+
+        if type(zonefile_datas) != list:
+            return {'error': 'Invalid data'}
+
+        if len(zonefile_datas) > 100:
+            return {'error': 'Too many zonefiles'}
+
+        saved = []
+        db = get_state_engine()
+        zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
+
+        for zonefile_data in zonefile_datas:
+          
+            if type(zonefile_data) not in [str,unicode]:
+                log.debug("Invalid non-text zonefile")
+                saved.append(0)
+                continue
+
+            if len(zonefile_data) > RPC_MAX_ZONEFILE_LEN:
+                log.debug("Zonefile too long")
+                saved.append(0)
+                continue
+
+            try: 
+                zonefile = blockstack_zones.parse_zone_file( str(zonefile_data) )
+                zonefile_hash = blockstack_client.get_zonefile_data_hash( str(zonefile_data) )
+            except Exception, e:
+                log.exception(e)
+                log.debug("Invalid zonefile")
+                saved.append(0)
+                continue
+
+            name_rec = db.get_name( zonefile['$origin'] )
+            if str(name_rec['value_hash']) != zonefile_hash:
+                log.debug("Unknown zonefile hash %s" % zonefile_hash)
+                saved.append(0)
+                continue
+
+            # it's a valid zonefile.  cache and store it.
+            rc = store_cached_zonefile( zonefile )
+            if not rc:
+                log.debug("Failed to store zonefile %s" % zonefile_hash)
+                saved.append(0)
+                continue
+
+            rc = store_zonefile_to_storage( zonefile, required=zonefile_storage_drivers )
+            if not rc:
+                log.debug("Failed to replicate zonefile %s to external storage" % zonefile_hash)
+                saved.append(0)
+                continue
+
+            saved.append(1)
+
+        log.debug("Saved %s zonefile(s)\n", sum(saved))
+        return {'status': True, 'saved': saved}
+
+
+    def rpc_get_profile(self, name):
+        """
+        Get a profile for a particular name
+        """
+        if type(name) not in [str, unicode]:
+            return {'error': 'Invalid name'}
+
+        if not is_name_valid(name):
+            return {'error': 'Invalid name'}
+
+        conf = get_blockstack_opts()
+        if not conf['serve_profiles']:
+            return {'error': 'No data'}
+
+        zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
+        profile_storage_drivers = conf['profile_storage_drivers'].split(",")
+
+        # find the name record 
+        db = get_state_engine()
+        name_rec = db.get_name(name)
+        if name_rec is None:
+            return {'error': 'No such name'}
+
+        # find zonefile 
+        zonefile_dict = self.get_zonefile_by_name( conf, name, zonefile_storage_drivers )
+        if zonefile_dict is None:
+            return {'error': 'No zonefile'}
+
+        # find the profile
+        try:
+            # NOTE: since we did not generate this zonefile (i.e. it's untrusted input, and we may be using different storage drivers),
+            # don't trust its URLs.  Auto-generate them using our designated drivers instead.
+            # Also, do not attempt to decode the profile.  The client will do this instead (avoid any decode-related attack vectors)
+            profile, zonefile = blockstack_client.get_name_profile(name, profile_storage_drivers=profile_storage_drivers, zonefile_storage_drivers=zonefile_storage_drivers,
+                                                                   user_zonefile=zonefile_dict, name_record=name_rec, use_zonefile_urls=False, decode_profile=False)
+        except Exception, e:
+            log.exception(e)
+            log.debug("Failed to load profile for '%s'" % name)
+            return {'error': 'Failed to load profile'}
+
+        if 'error' in zonefile:
+            return zonefile
+        
+        else:
+            return {'status': True, 'profile': profile}
+
+
+    def rpc_put_profile(self, name, profile_txt, prev_profile_hash, sigb64 ):
+        """
+        Store a profile for a particular name
+        @profile_txt must be a serialized JWT signed by the key in the user's zonefile.
+        @prev_profile_hash must be the hex string representation of the hash of the previous profile
+        @sig must cover prev_profile_hash+profile_txt
+        """
+
+        if type(name) not in [str, unicode]:
+            return {'error': 'Invalid name'}
+
+        if not is_name_valid(name):
+            return {'error': 'Invalid name'}
+
+        if type(profile_txt) not in [str, unicode]:
+            return {'error': 'Profile must be a serialized JWT'}
+
+        if len(profile_txt) > RPC_MAX_PROFILE_LEN:
+            return {'error': 'Serialized profile is too big'}
+
+        conf = get_blockstack_opts()
+        if not conf['serve_profiles']:
+            return {'error': 'No data'}
+
+        profile_storage_drivers = conf['profile_storage_drivers'].split(",")
+        zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
+
+        # find name record 
+        db = get_db_state()
+        name_rec = db.get_name(name)
+        if name_rec is None:
+            return {'error': 'No such name'}
+
+        # find zonefile 
+        zonefile_dict = self.get_zonefile_by_name( conf, name, zonefile_storage_drivers )
+        if zonefile_dict is None:
+            return {'error': 'No zonefile'}
+
+        # first, try to verify with zonefile public key (if one is given)
+        user_data_pubkey = blockstack_client.user_zonefile_data_pubkey( zonefile_dict )
+        if user_data_pubkey is not None:
+            try:
+                user_profile = blockstack_client.parse_signed_data( profile_txt, user_data_pubkey )
+            except Exception, e:
+                log.exception(e)
+                return {'error': 'Failed to authenticate profile'}
+        
+        else:
+            log.warn("Falling back to verifying with owner address")
+            db = get_state_engine()
+            name_rec = db.get_name( name )
+            if name_rec is None:
+                return {'error': 'No such name'}
+
+            owner_addr = name_rec.get('address', None)
+            if owner_addr is None:
+                return {'error': 'No owner address'}
+
+            try:
+                user_profile = blockstack_client.parse_signed_data( profile_txt, None, public_key_hash=owner_addr )
+            except Exception, e:
+                log.exception(e)
+                return {'error': 'Failed to authenticate profile'}
+
+        # authentic!
+        # next, verify that the previous profile actually does have this hash 
+        try:
+            old_profile_txt, zonefile = blockstack_client.get_name_profile(name, profile_storage_drivers=profile_storage_drivers, zonefile_storage_drivers=zonefile_storage_drivers,
+                                                                           user_zonefile=zonefile_dict, name_record=name_rec, use_zonefile_urls=False, decode_profile=False)
+        except Exception, e:
+            log.exception(e)
+            log.debug("Failed to load profile for '%s'" % name)
+            return {'error': 'Failed to load profile'}
+
+        old_profile_hash = pybitcoin.hex_hash160(old_profile_txt)
+        if old_profile_hash != prev_profile_hash:
+            return {'error': 'Invalid previous profile hash'}
+
+        # which public key?
+        data_pubkey = blockstack_client.user.user_zonefile_data_pubkey( zonefile )
+        if data_pubkey is None:
+            # fall back to owner pubkey from profile
+            try:
+                profile_jwt = json.loads(old_profile_txt)
+                if type(profile_jwt) == list:
+                    profile_jwt = profile_jwt[0]
+
+                assert type(profile_jwt) == dict
+                assert 'parentPublicKey' in profile_jwt.keys()
+
+                data_pubkey = profile_jwt['parentPublicKey']
+            except:
+                return {'error': 'Could not determine user data public key'}
+
+        # finally, verify the signature over the previous profile hash and this new profile
+        rc = blockstack_client.storage.verify_raw_data( "%s%s" % (prev_profile_hash, profile_txt), data_pubkey, sigb64 )
+        if not rc:
+            return {'error': 'Invalid signature'}
+
+        # success!  store it
+        successes = 0
+        for handler in blockstack_client.get_storage_handlers():
+            try:
+                rc = handler.put_mutable_handler( name, profile_txt, required=profile_storage_drivers )
+            except Exception, e:
+                log.exception(e)
+                log.error("Failed to store profile with '%s'" % handler.__name__)
+                continue
+
+            if not rc:
+                log.error("Failed to use handler '%s' to store profile for '%s'" % (handler.__name__, name))
+                continue
+            else:
+                log.debug("Stored profile for '%s' with '%s'" % (name, handler.__name__))
+
+            successes += 1
+
+        if successes == 0:
+            return {'error': 'Failed to replicate profile'}
+        else:
+            log.debug("Stored profile from '%s'" % name)
+            return {'status': True, 'num_replicas': successes, 'num_failures': len(blockstack_client.get_storage_handlers()) - successes}
+
+    
+    def rpc_get_unspents(self, address):
+        """
+        Proxy to UTXO provider to get an address's
+        unspent outputs.
+        ONLY USE FOR TESTING
+        """
+        global utxo_client
+
+        if type(address) not in [int, long]:
+            return {'error': 'invalid address'}
+
+        conf = get_blockstack_opts()
+        if not conf['blockchain_proxy']:
+            return {'error': 'No such method'}
+
+        if utxo_client is None:
+            utxo_client = blockstack_client.get_utxo_provider_client()
+
+        unspents = pybitcoin.get_unspents( address, utxo_client )
+        return unspents
+
+
+    def rpc_broadcast_transaction(self, txdata ):
+        """
+        Proxy to UTXO provider to send a transaction
+        ONLY USE FOR TESTING
+        """
+        global utxo_client 
+
+        if type(txdata) not in [str, unicode]:
+            return {'error': 'invalid transaction'}
+
+        conf = get_blockstack_opts()
+        if not conf['blockchain_proxy']:
+            return {'error': 'No such method'}
+
+        if utxo_client is None:
+            utxo_client = blockstack_client.get_utxo_provider_client()
+
+        return pybitcoin.broadcast_transaction( txdata, utxo_client )
+
+
+    def rpc_get_analytics_key(self, client_uuid ):
+        """
+        Get the analytics key
+        """
+
+        if type(client_uuid) not in [str, unicode]:
+            return {'error': 'invalid uuid'}
+
+        conf = get_blockstack_opts()
+        if not conf.has_key('analytics_key') or conf['analytics_key'] is None:
+            return {'error': 'No analytics key'}
+        
+        log.debug("Give key to %s" % client_uuid)
+        return {'analytics_key': conf['analytics_key']}
+
+
+class BlockstackdRPCServer( threading.Thread, object ):
     """
-    Continuously reindex the blockchain, but as a subprocess.
+    RPC server thread
     """
-
-    # set up this process
-    signal.signal( signal.SIGINT, die_handler_indexer )
-    signal.signal( signal.SIGQUIT, die_handler_indexer )
-    signal.signal( signal.SIGTERM, die_handler_indexer )
-
-    bitcoind_opts = get_bitcoin_opts()
-
-    _, last_block_id = get_index_range()
-    db = get_state_engine()
-
-    while True:
-
-        time.sleep( REINDEX_FREQUENCY )
-        virtualchain.sync_virtualchain( bitcoind_opts, last_block_id, db )
-
-        _, last_block_id = get_index_range()
-
-    return
+    def __init__(self, port ):
+        super( BlockstackdRPCServer, self ).__init__()
+        self.rpc_server = None
+        self.port = port
 
 
-def stop_server():
+    def run(self):
+        """
+        Serve until asked to stop
+        """
+        self.rpc_server = BlockstackdRPC( port=self.port )
+        self.rpc_server.serve_forever()
+
+
+    def stop_server(self):
+        """
+        Stop serving.  Also stops the thread.
+        """
+        self.rpc_server.shutdown()
+     
+
+def rpc_start( port ):
+    """
+    Start the global RPC server thread
+    """
+    global rpc_server
+
+    # let everyone in this thread know the PID
+    os.environ["BLOCKSTACK_RPC_PID"] = str(os.getpid())
+
+    rpc_server = BlockstackdRPCServer( port )
+
+    log.debug("Starting RPC")
+    rpc_server.start()
+
+
+def rpc_stop():
+    """
+    Stop the global RPC server thread
+    """
+    global rpc_server
+    if rpc_server is not None:
+        log.debug("Shutting down RPC")
+        rpc_server.stop_server()
+        rpc_server.join()
+        log.debug("RPC joined")
+
+
+def stop_server( clean=False, kill=False ):
     """
     Stop the blockstackd server.
     """
-    global indexer_pid
 
-    # Quick hack to kill a background daemon
+    # kill the main supervisor
     pid_file = get_pidfile_path()
-
     try:
         fin = open(pid_file, "r")
     except Exception, e:
-        return
+        pass
 
     else:
-        pid_data = fin.read()
+        pid_data = fin.read().strip()
         fin.close()
-        os.remove(pid_file)
 
         pid = int(pid_data)
 
         try:
-           os.kill(pid, signal.SIGKILL)
+           os.kill(pid, signal.SIGTERM)
+        except OSError, oe:
+           if oe.errno == errno.ESRCH:
+              # already dead 
+              log.info("Process %s is not running" % pid)
+              try:
+                  os.unlink(pid_file)
+              except:
+                  pass
+
+              return
+
         except Exception, e:
-           return
+            log.exception(e)
+            sys.exit(1)
 
-
-    if indexer_pid is not None:
+        if kill:
+            clean = True
+            timeout = 5.0
+            log.info("Waiting %s seconds before sending SIGKILL to %s" % (timeout, pid))
+            time.sleep(timeout)
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except Exception, e:
+                pass
+   
+    if clean:
+        # always blow away the pid file 
         try:
-           os.kill(indexer_pid, signal.SIGTERM)
-        except Exception, e:
-           return
+            os.unlink(pid_file)
+        except:
+            pass
 
-    # stop building new state if we're in the middle of it
-    db = get_state_engine()
-    virtualchain.stop_sync_virtualchain( db )
-
-    set_indexing( False )
+    
+    log.debug("Blockstack server stopped")
 
 
 def get_indexing_lockfile():
@@ -1608,6 +1222,13 @@ def get_indexing_lockfile():
     Return path to the indexing lockfile
     """
     return os.path.join( virtualchain.get_working_dir(), "blockstack.indexing" )
+
+
+def get_bootstrap_lockfile():
+    """
+    Return path to the indexing lockfile
+    """
+    return os.path.join( virtualchain.get_working_dir(), "blockstack.bootstrapping" )
 
 
 def is_indexing():
@@ -1642,54 +1263,92 @@ def set_indexing( flag ):
             return False
 
 
-def run_server( testset=False, foreground=False ):
+def set_bootstrapped( flag ):
+    """
+    Set a flag in the filesystem as to whether or not we have sync'ed up to the latest block
+    """
+    bootstrap_path = get_bootstrap_lockfile()
+    if flag:
+        try:
+            fd = open( bootstrap_path, "w+" )
+            fd.close()
+            return True
+        except:
+            return False
+
+    else:
+        try:
+            os.unlink( bootstrap_path )
+            return True
+        except:
+            return False
+
+
+def is_bootstrapped():
+    """
+    Have we sync'ed up to the latest block?
+    """
+    bootstrap_path = get_bootstrap_lockfile()
+    if os.path.exists(bootstrap_path):
+        return True
+    else:
+        return False
+
+
+def index_blockchain():
+    """
+    Index the blockchain:
+    * find the range of blocks
+    * synchronize our state engine up to them
+    """
+
+    bt_opts = get_bitcoin_opts() 
+    start_block, current_block = get_index_range()
+
+    if start_block is None and current_block is None:
+        log.error("Failed to find block range")
+        return
+
+    # bring us up to speed
+    log.debug("Begin indexing (up to %s)" % current_block)
+    set_indexing( True )
+    db = get_state_engine()
+    virtualchain.sync_virtualchain( bt_opts, current_block, db )
+    set_indexing( False )
+    log.debug("End indexing (up to %s)" % current_block)
+
+    # invalidate in-RAM copy, and reload eagerly
+    invalidate_db_state()
+    get_state_engine()
+
+
+def blockstack_exit():
+    """
+    Shut down the server on exit(3)
+    """
+    stop_server(kill=True)
+
+
+def blockstack_exit_handler( sig, frame ):
+    """
+    Fatal signal handler
+    """
+    sys.exit(0)
+
+
+def run_server( foreground=False, index=True ):
     """
     Run the blockstackd RPC server, optionally in the foreground.
     """
 
-    global indexer_pid
-
     bt_opts = get_bitcoin_opts()
-
-    tac_file = get_tacfile_path( testset=testset )
-    access_log_file = get_logfile_path() + ".access"
+    blockstack_opts = get_blockstack_opts()
     indexer_log_file = get_logfile_path() + ".indexer"
     pid_file = get_pidfile_path()
     working_dir = virtualchain.get_working_dir()
 
-    start_block, current_block = get_index_range()
-
-    argv0 = os.path.normpath( sys.argv[0] )
-    blockstackd_path = os.path.join(os.getcwd(), argv0)
-
-    if os.path.exists("./%s" % argv0 ):
-        if testset:
-
-            indexer_command = ("indexer --testset --working-dir=%s" % working_dir).split()
-            indexer_command = [blockstackd_path] + indexer_command
-        else:
-            indexer_command = ("indexer --working-dir=%s" % working_dir).split()
-            indexer_command = [blockstackd_path] + indexer_command
-    else:
-        # hope its in the $PATH
-        if testset:
-            indexer_command = ("indexer --testset --working-dir=%s" % working_dir).split()
-            indexer_command = [argv0] + indexer_command
-        else:
-            indexer_command = ("indexer --working-dir=%s" % working_dir).split()
-            indexer_command = [argv0] + indexer_command
-
-
-    log.debug("Start indexer: '%s'" % (' '.join(indexer_command)))
-
     logfile = None
     if not foreground:
-
-        api_server_command = ('twistd --pidfile=%s --logfile=%s -noy' % (pid_file,
-                                                                         access_log_file)).split()
-        api_server_command.append(tac_file)
-
-
         try:
             if os.path.exists( indexer_log_file ):
                 logfile = open( indexer_log_file, "a" )
@@ -1717,7 +1376,7 @@ def run_server( testset=False, foreground=False ):
 
             elif daemon_pid > 0:
 
-                # parent!
+                # parent (intermediate child)
                 sys.exit(0)
 
             else:
@@ -1727,60 +1386,69 @@ def run_server( testset=False, foreground=False ):
 
         elif child_pid > 0:
 
-            # parent
-            # wait for child
+            # grand-parent
+            # wait for intermediate child
             pid, status = os.waitpid( child_pid, 0 )
             sys.exit(status)
-
-    else:
-
-        # foreground
-        api_server_command = ('twistd --pidfile=%s -noy' % pid_file).split()
-        api_server_command.append(tac_file)
+   
+    # make sure client is initialized 
+    get_blockstack_client_session()
 
     # start API server
-    blockstackd = subprocess.Popen( api_server_command, shell=False)
+    rpc_start(blockstack_opts['rpc_port'])
+    running = True
 
-    set_indexing( False )
+    # put supervisor pid file
+    put_pidfile( pid_file, os.getpid() )
+    atexit.register( blockstack_exit )
 
-    if start_block != current_block:
-        # bring us up to speed
-        set_indexing( True )
-
-        db = get_state_engine()
-        virtualchain.sync_virtualchain( bt_opts, current_block, db )
-
+    if index:
+        # clear any stale indexing state
         set_indexing( False )
+        log.debug("Begin Indexing")
 
-    # fork the indexer
-    if foreground:
-        indexer = subprocess.Popen( indexer_command, shell=False )
+        while running:
+
+            try:
+               index_blockchain()
+            except Exception, e:
+               log.exception(e)
+               log.error("FATAL: caught exception while indexing")
+               sys.exit(1)
+            
+            # wait for the next block
+            deadline = time.time() + REINDEX_FREQUENCY
+            while time.time() < deadline:
+                try:
+                    time.sleep(1.0)
+                except:
+                    # interrupt
+                    running = False
+                    break
+    
     else:
-        indexer = subprocess.Popen( indexer_command, shell=False, stdout=logfile, stderr=logfile )
+        log.info("Not going to index, but will idle for testing")
+        while running:
+            try:
+                time.sleep(1.0)
+            except:
+                # interrupt 
+                running = False
+                break
 
-    indexer_pid = indexer.pid
+    # stop API server 
+    rpc_stop()
 
-    # wait for the API server to die (we kill it with `blockstackd stop`)
-    blockstackd.wait()
-
-    # stop our indexer subprocess
-    indexer_pid = None
-
-    os.kill( indexer.pid, signal.SIGINT )
-    indexer.wait()
-
+    # close logfile
     if logfile is not None:
         logfile.flush()
         logfile.close()
 
-    # stop building new state if we're in the middle of it
-    db = get_state_engine()
-    virtualchain.stop_sync_virtualchain( db )
-
-    return blockstackd.returncode
+    return 0
 
 
-def setup( working_dir=None, testset=False, return_parser=False ):
+
+def setup( working_dir=None, return_parser=False ):
    """
    Do one-time initialization.
    Call this to set up global state and set signal handlers.
@@ -1792,13 +1460,6 @@ def setup( working_dir=None, testset=False, return_parser=False ):
    Otherwise return None.
    """
 
-   global blockstack_opts
-   global blockchain_client
-   global blockchain_broadcaster
-   global bitcoin_opts
-   global utxo_opts
-   global dht_opts
-
    # set up our implementation
    if working_dir is not None:
        if not os.path.exists( working_dir ):
@@ -1806,33 +1467,14 @@ def setup( working_dir=None, testset=False, return_parser=False ):
 
        blockstack_state_engine.working_dir = working_dir
 
-   virtualchain.setup_virtualchain( blockstack_state_engine, testset=testset )
-
-   testset_path = get_testset_filename( working_dir )
-   if testset:
-       # flag testset so our subprocesses see it
-       if not os.path.exists( testset_path ):
-           with open( testset_path, "w+" ) as f:
-              pass
-
-   else:
-       # flag not set
-       if os.path.exists( testset_path ):
-           os.unlink( testset_path )
+   virtualchain.setup_virtualchain( blockstack_state_engine )
 
    # acquire configuration, and store it globally
-   blockstack_opts, bitcoin_opts, utxo_opts, dht_opts = configure( interactive=True, testset=testset )
+   opts = configure( interactive=True )
+   blockstack_opts = opts['blockstack']
+   bitcoin_opts = opts['bitcoind']
 
-   # do we need to enable testset?
-   if blockstack_opts['testset']:
-       virtualchain.setup_virtualchain( blockstack_state_engine, testset=True )
-       testset = True
-
-   # if we're using the mock UTXO provider, then switch to the mock bitcoind node as well
-   if utxo_opts['utxo_provider'] == 'mock_utxo':
-       import tests.mock_bitcoind
-       virtualchain.setup_virtualchain( blockstack_state_engine, testset=testset, bitcoind_connection_factory=tests.mock_bitcoind.connect_mock_bitcoind )
-       virtualchain.connect_bitcoind = tests.mock_bitcoind.connect_mock_bitcoind
+   log.debug("config:\n%s" % json.dumps(opts, sort_keys=True, indent=4))
 
    # merge in command-line bitcoind options
    config_file = virtualchain.get_config_filename()
@@ -1852,7 +1494,7 @@ def setup( working_dir=None, testset=False, return_parser=False ):
 
    # store options
    set_bitcoin_opts( bitcoin_opts )
-   set_utxo_opts( utxo_opts )
+   set_blockstack_opts( blockstack_opts )
 
    if return_parser:
       return argparser
@@ -1860,16 +1502,16 @@ def setup( working_dir=None, testset=False, return_parser=False ):
       return None
 
 
-def reconfigure( testset=False ):
+def reconfigure():
    """
    Reconfigure blockstackd.
    """
-   configure( force=True, testset=testset )
+   configure( force=True )
    print "Blockstack successfully reconfigured."
    sys.exit(0)
 
 
-def clean( testset=False, confirm=True ):
+def clean( confirm=True ):
     """
     Remove blockstack's db, lastblock, and snapshot files.
     Prompt for confirmation
@@ -1879,7 +1521,7 @@ def clean( testset=False, confirm=True ):
     exit_status = 0
 
     if confirm:
-        warning = "WARNING: THIS WILL DELETE YOUR BLOCKSTORE DATABASE!\n"
+        warning = "WARNING: THIS WILL DELETE YOUR BLOCKSTACK DATABASE!\n"
         warning+= "Database: '%s'\n" % blockstack_state_engine.working_dir
         warning+= "Are you sure you want to proceed?\n"
         warning+= "Type 'YES' if so: "
@@ -1912,7 +1554,7 @@ def clean( testset=False, confirm=True ):
     sys.exit(exit_status)
 
 
-def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db, testset=False ):
+def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db ):
     """
     Given a record from the blockstack database,
     convert it into a virtualchain operation to
@@ -1928,12 +1570,12 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
         return None
 
     if opcode_name == "NAME_PREORDER":
-        name_rec_script = build_preorder( None, None, None, str(name_rec['consensus_hash']), name_hash=str(name_rec['preorder_name_hash']), testset=testset )
+        name_rec_script = build_preorder( None, None, None, str(name_rec['consensus_hash']), name_hash=str(name_rec['preorder_name_hash']) )
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         ret_op = parse_preorder( name_rec_payload )
 
     elif opcode_name == "NAME_REGISTRATION":
-        name_rec_script = build_registration( str(name_rec['name']), testset=testset )
+        name_rec_script = build_registration( str(name_rec['name']) )
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         ret_op = parse_registration( name_rec_payload )
 
@@ -1965,7 +1607,7 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
         if name_rec['value_hash'] is not None:
             data_hash = str(name_rec['value_hash'])
 
-        name_rec_script = build_update( str(name_rec['name']), str(name_rec['consensus_hash']), data_hash=data_hash, testset=testset )
+        name_rec_script = build_update( str(name_rec['name']), str(name_rec['consensus_hash']), data_hash=data_hash )
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         ret_op = parse_update(name_rec_payload)
 
@@ -1986,37 +1628,50 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
         # restore history
         untrusted_name_rec = untrusted_db.get_name( str(name_rec['name']) )
         name_rec['history'] = untrusted_name_rec['history']
+        prev_block_number = None
+        prev_history_index = None
 
         # get previous owner
         if history_index > 0:
             name_rec_prev = BlockstackDB.restore_from_history( name_rec, block_number )[history_index - 1]
+            prev_block_number = block_number 
+            prev_history_index = history_index-1
+
         else:
             name_rec_prev = BlockstackDB.restore_from_history( name_rec, block_number - 1 )[history_index - 1]
+            prev_block_number = block_number-1
+            prev_history_index = history_index-1
+
+        if 'transfer_send_block_id' not in name_rec:
+            log.error("FATAL: Obsolete or invalid database.  Missing 'transfer_send_block_id' field for NAME_TRANSFER at (%s, %s)" % (block_number, history_index))
+            sys.exit(1)
 
         sender = name_rec_prev['sender']
         address = name_rec_prev['address']
 
+        send_block_id = name_rec['transfer_send_block_id']
+        
         # reconstruct recipient and sender
         name_rec['recipient'] = recipient
         name_rec['recipient_address'] = recipient_address
 
         name_rec['sender'] = sender
         name_rec['address'] = address
-        name_rec['consensus_hash'] = untrusted_db.get_consensus_at( block_number - 1 )
+        name_rec['consensus_hash'] = untrusted_db.get_consensus_at( send_block_id )
 
-        name_rec_script = build_transfer( str(name_rec['name']), name_rec['keep_data'], str(name_rec['consensus_hash']), testset=testset )
+        name_rec_script = build_transfer( str(name_rec['name']), name_rec['keep_data'], str(name_rec['consensus_hash']) )
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         ret_op = parse_transfer(name_rec_payload, name_rec['recipient'] )
 
         del name_rec['history']
 
     elif opcode_name == "NAME_REVOKE":
-        name_rec_script = build_revoke( str(name_rec['name']), testset=testset )
+        name_rec_script = build_revoke( str(name_rec['name']) )
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         ret_op = parse_revoke( name_rec_payload )
 
     elif opcode_name == "NAME_IMPORT":
-        name_rec_script = build_name_import( str(name_rec['name']), testset=testset )
+        name_rec_script = build_name_import( str(name_rec['name']) )
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
 
         # reconstruct recipient and importer
@@ -2028,20 +1683,20 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
         ret_op = parse_name_import( name_rec_payload, str(name_rec['recipient']), str(name_rec['value_hash']) )
 
     elif opcode_name == "NAMESPACE_PREORDER":
-        name_rec_script = build_namespace_preorder( None, None, None, str(name_rec['consensus_hash']), namespace_id_hash=str(name_rec['namespace_id_hash']), testset=testset )
+        name_rec_script = build_namespace_preorder( None, None, None, str(name_rec['consensus_hash']), namespace_id_hash=str(name_rec['namespace_id_hash']) )
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         ret_op = parse_namespace_preorder(name_rec_payload)
 
     elif opcode_name == "NAMESPACE_REVEAL":
         name_rec_script = build_namespace_reveal( str(name_rec['namespace_id']), name_rec['version'], str(name_rec['recipient_address']), \
                                                   name_rec['lifetime'], name_rec['coeff'], name_rec['base'], name_rec['buckets'],
-                                                  name_rec['nonalpha_discount'], name_rec['no_vowel_discount'], testset=testset )
+                                                  name_rec['nonalpha_discount'], name_rec['no_vowel_discount'] )
 
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         ret_op = parse_namespace_reveal( name_rec_payload, str(name_rec['sender']), str(name_rec['recipient_address']) )
 
     elif opcode_name == "NAMESPACE_READY":
-        name_rec_script = build_namespace_ready( str(name_rec['namespace_id']), testset=testset )
+        name_rec_script = build_namespace_ready( str(name_rec['namespace_id']) )
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         ret_op = parse_namespace_ready( name_rec_payload )
 
@@ -2051,6 +1706,41 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db,
     merged_ret_op = copy.deepcopy( name_rec )
     merged_ret_op.update( ret_op )
     return merged_ret_op
+
+
+def find_last_transfer_consensus_hash( name_rec, block_id, vtxindex ):
+    """
+    Given a name record, find the last non-NAME_TRANSFER consensus hash.
+    Return None if not found.
+    """
+
+    history_keys = name_rec['history'].keys()
+    history_keys.sort()
+    history_keys.reverse()
+
+    for hk in history_keys:
+        if hk > block_id:
+            continue
+        
+        history_states = BlockstackDB.restore_from_history( name_rec, hk )
+
+        for history_state in reversed(history_states):
+            if hk == block_id and history_state['vtxindex'] > vtxindex:
+                # from the future
+                continue
+
+            if history_state['op'][0] == NAME_TRANSFER:
+                # skip NAME_TRANSFERS
+                continue
+
+            if history_state['op'][0] in [NAME_IMPORT, NAME_REGISTRATION]:
+                # out of history
+                return None
+
+            if history_state.has_key('consensus_hash') and history_state['consensus_hash'] is not None:
+                return history_state['consensus_hash']
+
+    return None
 
 
 def nameop_restore_consensus_fields( name_rec, block_id ):
@@ -2080,6 +1770,13 @@ def nameop_restore_consensus_fields( name_rec, block_id ):
 
         db = get_state_engine()
 
+        if 'transfer_send_block_id' not in name_rec:
+            log.error("FATAL: Obsolete or invalid database.  Missing 'transfer_send_block_id' field for NAME_TRANSFER at (%s, %s)" % (prev_block_number, prev_history_index))
+            sys.exit(1)
+
+        full_rec = db.get_name( name_rec['name'], include_expired=True )
+        full_history = full_rec['history']
+
         # reconstruct the recipient information
         ret_op['recipient'] = str(name_rec['sender'])
         ret_op['recipient_address'] = str(name_rec['address'])
@@ -2091,8 +1788,19 @@ def nameop_restore_consensus_fields( name_rec, block_id ):
         else:
             keep_data = False
 
+        old_history = name_rec.get('history', None)
+        name_rec['history'] = full_history
+        consensus_hash = find_last_transfer_consensus_hash( name_rec, block_id, name_rec['vtxindex'] )
+        name_rec['history'] = old_history
+
         ret_op['keep_data'] = keep_data
-        ret_op['consensus_hash'] = db.get_consensus_at( block_id - 1 )
+        if consensus_hash is not None:
+            print "restore consensus hash (%s,%s): %s" % (block_id, name_rec['vtxindex'], consensus_hash)
+            ret_op['consensus_hash'] = consensus_hash
+        else:
+            ret_op['consensus_hash'] = db.get_consensus_at( name_rec['transfer_send_block_id'] )
+            print "Use consensus hash from %s: %s" % (name_rec['transfer_send_block_id'], ret_op['consensus_hash'])
+
         ret_op['name_hash'] = hash256_trunc128( str(name_rec['name']) )
 
     elif opcode_name == "NAME_UPDATE":
@@ -2100,11 +1808,19 @@ def nameop_restore_consensus_fields( name_rec, block_id ):
         # reconstruct name_hash
         ret_op['name_hash'] = hash256_trunc128( str(name_rec['name']) + str(name_rec['consensus_hash']) )
 
+    elif opcode_name == "NAME_REVOKE":
+
+        ret_op['revoked'] = True
+
     ret_op = virtualchain.virtualchain_set_opfields( ret_op, virtualchain_opcode=getattr( config, opcode_name ), virtualchain_txid=str(name_rec['txid']), virtualchain_txindex=int(name_rec['vtxindex']) )
     ret_op['opcode'] = opcode_name
 
     merged_op = copy.deepcopy( name_rec )
     merged_op.update( ret_op )
+
+    if 'name_hash' in merged_op.keys():
+        nh = merged_op['name_hash']
+        merged_op['name_hash128'] = nh
 
     return merged_op
 
@@ -2121,6 +1837,7 @@ def block_to_virtualchain_ops( block_id, db ):
 
     # all sequences of operations at this block, in tx order
     nameops = db.get_all_nameops_at( block_id )
+
     virtualchain_ops = []
 
     # process nameops in order by vtxindex
@@ -2167,10 +1884,13 @@ def block_to_virtualchain_ops( block_id, db ):
 
         for field in nameops[i].keys():
 
-            # remove untrusted fields, except for 'opcode' (which will be fed into the consensus hash
-            # indirectly, once the fields are successfully processed and thus proven consistent with
-            # the fields.)
-            if field not in consensus_fields and field not in ['opcode']:
+            # remove untrusted fields, except for:
+            # * 'opcode' (which will be fed into the consensus hash
+            #             indirectly, once the fields are successfully processed and thus proven consistent with
+            #             the fields),
+            # * 'transfer_send_block_id' (which will be used to find the NAME_TRANSFER consensus hash,
+            #             thus indirectly feeding this information into the consensus hash as well).
+            if field not in consensus_fields and field not in ['opcode', 'transfer_send_block_id']:
                 log.warning("OP '%s': Removing untrusted field '%s'" % (opcode_name, field))
                 del nameops[i][field]
 
@@ -2192,7 +1912,7 @@ def block_to_virtualchain_ops( block_id, db ):
     return virtualchain_ops
 
 
-def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, resume_dir=None, start_block=None, testset=False ):
+def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, resume_dir=None, start_block=None ):
     """
     Given a target block ID and a path to an (untrusted) db, reconstruct it in a temporary directory by
     replaying all the nameops it contains.
@@ -2209,8 +1929,7 @@ def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, 
         working_dir = resume_dir
 
     blockstack_state_engine.working_dir = working_dir
-
-    virtualchain.setup_virtualchain( blockstack_state_engine, testset=testset )
+    virtualchain.setup_virtualchain( blockstack_state_engine )
 
     if resume_dir is None:
         # not resuming
@@ -2234,6 +1953,9 @@ def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, 
 
     working_db = BlockstackDB( working_db_path )
 
+    log.debug( "Working DB: %s" % working_db_path )
+    log.debug( "Untrusted DB: %s" % untrusted_db_path )
+
     # map block ID to consensus hashes
     consensus_hashes = {}
 
@@ -2251,7 +1973,7 @@ def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, 
     return consensus_hashes[ target_block_id ]
 
 
-def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_path, working_db_path=None, start_block=None, testset=False ):
+def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_path, working_db_path=None, start_block=None ):
     """
     Verify that a database is consistent with a
     known-good consensus hash.
@@ -2263,7 +1985,7 @@ def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_pa
     database.
     """
 
-    final_consensus_hash = rebuild_database( consensus_block_id, untrusted_db_path, working_db_path=working_db_path, start_block=start_block, testset=testset )
+    final_consensus_hash = rebuild_database( consensus_block_id, untrusted_db_path, working_db_path=working_db_path, start_block=start_block )
 
     # did we reach the consensus hash we expected?
     if final_consensus_hash == trusted_consensus_hash:
@@ -2272,18 +1994,38 @@ def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_pa
     else:
         log.error("Unverifiable database state stored in '%s'" % blockstack_state_engine.working_dir )
         return False
+    
 
-
-def check_testset_enabled():
+def restore( working_dir, block_number ):
     """
-    Check sys.argv to see if testset is enabled.
-    Must be done before we initialize the virtual chain.
+    Restore the database from a backup in the backups/ directory.
+    If block_number is None, then use the latest backup.
+    Raise an exception if no such backup exists
     """
-    for arg in sys.argv:
-        if arg == "--testset":
-            return True
 
-    return False
+    if block_number is None:
+        all_blocks = BlockstackDB.get_backup_blocks( virtualchain_hooks )
+        if len(all_blocks) == 0:
+            log.error("No backups available")
+            return False
+
+        block_number = max(all_blocks)
+
+    found = True
+    backup_paths = BlockstackDB.get_backup_paths( block_number, virtualchain_hooks )
+    for p in backup_paths:
+        if not os.path.exists(p):
+            log.error("Missing backup file: '%s'" % p)
+            found = False
+
+    if not found:
+        return False 
+
+    rc = BlockstackDB.backup_restore( block_number, virtualchain_hooks )
+    if not rc:
+        log.error("Failed to restore backup")
+
+    return rc
 
 
 def check_alternate_working_dir():
@@ -2316,9 +2058,9 @@ def run_blockstackd():
    run blockstackd
    """
 
-   testset = check_testset_enabled()
    working_dir = check_alternate_working_dir()
-   argparser = setup( testset=testset, working_dir=working_dir, return_parser=True )
+   blockstack_state_engine.working_dir = working_dir
+   argparser = setup( working_dir=working_dir, return_parser=True )
 
    # get RPC server options
    subparsers = argparser.add_subparsers(
@@ -2331,28 +2073,22 @@ def run_blockstackd():
       '--foreground', action='store_true',
       help='start the blockstackd server in foreground')
    parser.add_argument(
-      '--testset', action='store_true',
-      help='run with the set of name operations used for testing, instead of the main set')
-   parser.add_argument(
       '--working-dir', action='store',
       help='use an alternative working directory')
+   parser.add_argument(
+      '--no-index', action='store_true',
+      help='do not index the blockchain, but only run an RPC endpoint')
 
    parser = subparsers.add_parser(
       'stop',
       help='stop the blockstackd server')
    parser.add_argument(
-      '--testset', action='store_true',
-      help='required if the daemon is using the testing set of name operations')
-   parser.add_argument(
       '--working-dir', action='store',
       help='use an alternative working directory')
 
    parser = subparsers.add_parser(
-      'reconfigure',
+      'configure',
       help='reconfigure the blockstackd server')
-   parser.add_argument(
-      '--testset', action='store_true',
-      help='required if the daemon is using the testing set of name operations')
    parser.add_argument(
       '--working-dir', action='store',
       help='use an alternative working directory')
@@ -2364,21 +2100,15 @@ def run_blockstackd():
       '--force', action='store_true',
       help='Do not confirm the request to delete.')
    parser.add_argument(
-      '--testset', action='store_true',
-      help='required if the daemon is using the testing set of name operations')
-   parser.add_argument(
       '--working-dir', action='store',
       help='use an alternative working directory')
 
    parser = subparsers.add_parser(
-      'indexer',
-      help='run blockstack indexer worker')
+      'restore',
+      help="Restore the database from a backup")
    parser.add_argument(
-      '--testset', action='store_true',
-      help='required if the daemon is using the testing set of name operations')
-   parser.add_argument(
-      '--working-dir', action='store',
-      help='use an alternative working directory')
+      'block_number', nargs='?',
+      help="The block number to restore from (if not given, the last backup will be used)")
 
    parser = subparsers.add_parser(
       'rebuilddb',
@@ -2431,13 +2161,8 @@ def run_blockstackd():
 
    args, _ = argparser.parse_known_args()
 
-   log.debug("bitcoin options: (%s, %s, %s)" % (bitcoin_opts['bitcoind_server'],
-                                                bitcoin_opts['bitcoind_port'],
-                                                bitcoin_opts['bitcoind_user']))
-
    if args.action == 'version':
-      print "Blockstack version: %s.%s" % (VERSION, BLOCKSTORE_VERSION)
-      print "Testset: %s" % testset
+      print "Blockstack version: %s" % VERSION
       sys.exit(0)
 
    if args.action == 'start':
@@ -2447,27 +2172,28 @@ def run_blockstackd():
           sys.exit(1)
 
       if args.foreground:
+         log.info('Initializing blockstackd server in foreground (working dir = \'%s\')...' % (working_dir))
+      else:
+         log.info('Starting blockstackd server (working_dir = \'%s\') ...' % (working_dir))
 
-         log.info('Initializing blockstackd server in foreground (testset = %s, working dir = \'%s\')...' % (testset, working_dir))
-         exit_status = run_server( foreground=True, testset=testset )
+      if args.no_index:
+         log.info("Not indexing the blockchain; only running an RPC endpoint")
+
+      exit_status = run_server( foreground=args.foreground, index=(not args.no_index) )
+      if args.foreground:
          log.info("Service endpoint exited with status code %s" % exit_status )
 
-      else:
-
-         log.info('Starting blockstackd server (testset = %s) ...' % testset)
-         run_server( testset=testset )
-
    elif args.action == 'stop':
-      stop_server()
+      stop_server(kill=True)
 
-   elif args.action == 'reconfigure':
-      reconfigure( testset=testset )
+   elif args.action == 'configure':
+      reconfigure()
+
+   elif args.action == 'restore':
+      restore( working_dir, args.block_number )
 
    elif args.action == 'clean':
-      clean( confirm=(not args.force), testset=args.testset )
-
-   elif args.action == 'indexer':
-      run_indexer( testset=args.testset )
+      clean( confirm=(not args.force) )
 
    elif args.action == 'rebuilddb':
 
@@ -2478,17 +2204,6 @@ def run_blockstackd():
       final_consensus_hash = rebuild_database( int(args.end_block_id), args.db_path, start_block=int(args.start_block_id), resume_dir=resume_dir )
       print "Rebuilt database in '%s'" % blockstack_state_engine.working_dir
       print "The final consensus hash is '%s'" % final_consensus_hash
-
-   elif args.action == 'repair':
-
-      resume_dir = None
-      if hasattr(args, 'resume_dir') and args.resume_dir is not None:
-          resume_dir = args.resume_dir
-
-      restart_block_id = int(args.restart_block_id)
-
-      # roll the db back in time
-      # TODO
 
    elif args.action == 'verifydb':
       rc = verify_database( args.consensus_hash, int(args.block_id), args.db_path )
@@ -2504,7 +2219,7 @@ def run_blockstackd():
    elif args.action == 'importdb':
       old_working_dir = blockstack_state_engine.working_dir
       blockstack_state_engine.working_dir = None
-      virtualchain.setup_virtualchain( blockstack_state_engine, testset=testset )
+      virtualchain.setup_virtualchain( blockstack_state_engine )
 
       db_path = virtualchain.get_db_filename()
       old_snapshots_path = os.path.join( old_working_dir, os.path.basename( virtualchain.get_snapshots_filename() ) )

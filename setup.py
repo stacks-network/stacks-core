@@ -23,9 +23,11 @@
 
 from setuptools import setup, find_packages
 
+exec(open("blockstack/version.py").read())
+
 setup(
     name='blockstack-server',
-    version='0.0.10.6',
+    version=__version__,
     url='https://github.com/blockstack/blockack-server',
     license='GPLv3',
     author='Blockstack.org',
@@ -33,15 +35,20 @@ setup(
     description='Name registrations on the Bitcoin blockchain with external storage',
     keywords='blockchain bitcoin btc cryptocurrency name key value store data',
     packages=find_packages(),
-    scripts=['bin/blockstackd', 'bin/blockstack-server'],
+    scripts=['bin/blockstack-server'],
     download_url='https://github.com/blockstack/blockstore/archive/master.zip',
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'virtualchain==0.0.6',
-        'kademlia==0.5',
-        'keychain==0.1.4',
-        'blockstack-client==0.0.12.5'
+        'virtualchain>=0.0.13.0',
+        'keychain>=0.1.4',
+        'blockstack-client>=0.0.13.0',
+        'defusedxml>=0.4.1',
+        'pycrypto>=2.6.1'
+    ],
+    dependency_links=[
+        'git://github.com/blockstack/blockstack-virtualchain.git@release-candidate#egg=virtualchain-0.0.9.0',
+	'git://github.com/blockstack/blockstack-cli@release-candidate#egg=blockstack-client-0.0.13.0'
     ],
     classifiers=[
         'Intended Audience :: Developers',

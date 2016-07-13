@@ -21,16 +21,15 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-__version__ = '0.1.0'
+from .b40 import *
+from .config import *
+from .scripts import *
+from .hashing import *
 
-from b40 import *
-from config import *
-from scripts import *
-from hashing import *
-
-from nameset import *
-from operations import *
+from .nameset import *
+from .operations import *
 
 import operations
 import nameset
+import storage
 import config

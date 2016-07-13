@@ -36,19 +36,21 @@ from collections import defaultdict
 from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAX_NAMES_PER_SENDER, \
     NAME_PREORDER, NAMESPACE_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER, TRANSFER_KEEP_DATA, \
     TRANSFER_REMOVE_DATA, NAME_REVOKE, NAME_IMPORT, NAME_PREORDER_EXPIRE, \
-    NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTORE_VERSION, \
+    NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTACK_VERSION, \
     NAMESPACE_1_CHAR_COST, NAMESPACE_23_CHAR_COST, NAMESPACE_4567_CHAR_COST, NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
-    TESTSET_NAMESPACE_1_CHAR_COST, TESTSET_NAMESPACE_23_CHAR_COST, TESTSET_NAMESPACE_4567_CHAR_COST, TESTSET_NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
-    NAME_IMPORT_KEYRING_SIZE, GENESIS_SNAPSHOT, GENESIS_SNAPSHOT_TESTSET, default_blockstack_opts, NAMESPACE_READY
+    NAME_IMPORT_KEYRING_SIZE, GENESIS_SNAPSHOT, default_blockstack_opts, NAMESPACE_READY, \
+    FIRST_BLOCK_MAINNET, NAME_OPCODES
 
-from ..operations import build_namespace_reveal
+from ..operations import SERIALIZE_FIELDS
 from ..hashing import *
 from ..b40 import is_b40
 
 import virtualchain
+log = virtualchain.get_logger("blockstack-log")
 
-if not globals().has_key('log'):
-    log = virtualchain.session.log
+# NOTE: ignored; here for compatibility with future versions
+DISPOSITION_RO = "readonly"
+DISPOSITION_RW = "readwrite"
 
 
 class BlockstackDB( virtualchain.StateEngine ):
@@ -68,22 +70,23 @@ class BlockstackDB( virtualchain.StateEngine ):
       """
       Construct a blockstack state engine, optionally from locally-cached
       blockstack database state.
+
+      Within the context of blockstack-server:
+      * do NOT instantiate directly.  Use the virtualchain_hooks helper method (get_db_state())
       """
 
       import virtualchain_hooks
       blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename() )
-      initial_snapshots = None
+      initial_snapshots = GENESIS_SNAPSHOT
+      first_block = FIRST_BLOCK_MAINNET
 
-      if blockstack_opts['testset']:
-          initial_snapshots = GENESIS_SNAPSHOT_TESTSET
+      super( BlockstackDB, self ).__init__( virtualchain_hooks.get_magic_bytes(), OPCODES, BlockstackDB.make_opfields(), impl=virtualchain_hooks, initial_snapshots=initial_snapshots, state=self )
 
-      else:
-          initial_snapshots = GENESIS_SNAPSHOT
-
-
-      super( BlockstackDB, self ).__init__( virtualchain_hooks.get_magic_bytes(), OPCODES, impl=virtualchain_hooks, initial_snapshots=initial_snapshots, state=self )
-
+      self.firstblock = first_block
       self.announce_ids = blockstack_opts['announcers'].split(",")
+
+      self.set_backup_frequency( blockstack_opts['backup_frequency'] )
+      self.set_backup_max_age( blockstack_opts['backup_max_age'] )
 
       self.db_filename = db_filename
 
@@ -229,6 +232,20 @@ class BlockstackDB( virtualchain.StateEngine ):
          self.namespaces[namespace_id]['history'] = BlockstackDB.sanitize_history( namespace['history'] )
 
       self.prescanned = False
+
+
+   @classmethod 
+   def make_opfields( cls ):
+       """
+       Calculate the virtulachain-required opfields dict.
+       """
+       # construct fields 
+       opfields = {}
+       for opname in SERIALIZE_FIELDS.keys():
+           opcode = NAME_OPCODES[opname]
+           opfields[opcode] = SERIALIZE_FIELDS[opname]
+
+       return opfields
 
 
    def save_db(self, filename):
@@ -786,6 +803,88 @@ class BlockstackDB( virtualchain.StateEngine ):
 
       return self.namespace_reveals.get( namespace_id, None )
 
+   
+   def get_names_with_value_hash( self, value_hash ):
+      """ 
+      Find the list of names that have the given value hash.
+      Omit expired or revoked names.
+      """
+      ret = []
+      for name in self.name_records.keys():
+
+          rec = self.name_records[name]
+
+          # revoked?
+          if rec.has_key('revoked') and rec['revoked']:
+              continue 
+
+          # expired?
+          if self.is_name_expired( rec['name'], self.lastblock ):
+              continue
+
+          if rec.has_key('value_hash') and rec['value_hash'] == value_hash:
+              ret.append(rec['name'])
+
+      if len(ret) == 0:
+          return None
+
+      else:
+          return ret
+
+   
+   @classmethod 
+   def flatten_history( cls, hist ):
+       """
+       Given a name's history, flatten it into a list of deltas.
+       They will be in *increasing* order.
+       """
+       ret = []
+       block_ids = sorted(hist.keys())
+       for block_id in block_ids:
+           vtxinfos = hist[block_id]
+           for vtxinfo in vtxinfos:
+               info = copy.deepcopy(vtxinfo)
+               ret.append(info)
+
+       return ret
+
+
+   def get_name_value_hash_txid( self, name, value_hash ):
+      """
+      Given the name and value hash, find the txid that put it.
+      Omit if expired or revoked (return None)
+      """
+      rec = self.get_name( name )
+      if rec is None:
+          return None 
+
+      if rec.has_key('revoked') and rec['revoked']:
+          return None 
+
+      if self.is_name_expired(rec['name'], self.lastblock ):
+          return None 
+
+      # current?
+      if rec['value_hash'] == value_hash:
+          return rec['txid']
+
+      # search history, backwards
+      hist = rec['history']
+      flat_hist = BlockstackDB.flatten_history( hist )
+
+      for i in xrange(len(flat_hist)-1, 0, -1):
+           delta = flat_hist[i]
+           if delta.has_key('op') and delta['op'] == NAME_PREORDER:
+                # this name was re-registered. skip
+                return None 
+
+           if delta.has_key('value_hash') and delta['value_hash'] == value_hash:
+                # this is the txid that affected it 
+                return delta['txid']
+
+      # not found
+      return None
+
 
    def find_expiring_at( self, block_id ):
       """
@@ -894,6 +993,19 @@ class BlockstackDB( virtualchain.StateEngine ):
           return False
 
       return self.name_records[name]['revoked']
+
+
+   def lookup_block_id_from_consensus_hash( self, consensus_hash ):
+      """
+      Given a consensus hash, find the matching block ID
+      Return None if not found
+      """
+      for i in xrange(self.lastblock, self.firstblock, -1):
+          ch = self.get_consensus_at(i)
+          if ch == consensus_hash:
+              return i
+
+      return None
 
 
    @classmethod
@@ -1124,7 +1236,9 @@ class BlockstackDB( virtualchain.StateEngine ):
               log.debug("Expire incomplete namespace '%s'" % namespace_id)
               del self.namespace_reveals[ namespace_id ]
               del self.namespace_id_to_hash[ namespace_id ]
-              del self.import_addresses[ namespace_id ]
+
+              if namespace_id in self.import_addresses.keys():
+                  del self.import_addresses[ namespace_id ]
 
               expired[namespace_id] = []
 
@@ -1280,12 +1394,14 @@ class BlockstackDB( virtualchain.StateEngine ):
                  "op_fee": name_rec['op_fee'],
                  "importer": name_rec['importer'],
                  "importer_address": name_rec['importer_address'],
-                 "history_snapshot": True
+                 "history_snapshot": True,
+                 "first_registered": name_rec['first_registered'],
+                 "last_renewed": name_rec['last_renewed']
               }]
 
-              if 'consensus_hash' in name_rec.keys():
-                  prior_history[ preorder['block_number'] ][0]['consensus_hash'] = name_rec['consensus_hash']
-
+              for optional_field in ['consensus_hash', 'transfer_send_block_id']:
+                  if optional_field in name_rec.keys():
+                      prior_history[ preorder['block_number'] ][0][optional_field] = name_rec[optional_field]
 
           name_record = {
             'name': name,
@@ -1372,7 +1488,7 @@ class BlockstackDB( virtualchain.StateEngine ):
           self.block_name_expires[ expires ].append( name )
 
       # save diff
-      self.save_name_diff( name, current_block_number, ['last_renewed', 'txid', 'vtxindex', 'op', 'opcode', 'consensus_hash'] )
+      self.save_name_diff( name, current_block_number, ['last_renewed', 'txid', 'vtxindex', 'op', 'opcode', 'consensus_hash', 'transfer_send_block_id'] )
 
       # apply diff
       self.name_records[name]['last_renewed'] = current_block_number
@@ -1405,7 +1521,7 @@ class BlockstackDB( virtualchain.StateEngine ):
          del self.name_consensus_hash_name[ name_consensus_hash ]
 
       # save diff
-      self.save_name_diff( name, current_block_number, ['value_hash', 'txid', 'vtxindex', 'opcode', 'op', 'consensus_hash'] )
+      self.save_name_diff( name, current_block_number, ['value_hash', 'txid', 'vtxindex', 'opcode', 'op', 'consensus_hash', 'transfer_send_block_id'] )
 
       # apply diff
       self.name_records[name]['value_hash'] = nameop['update_hash']
@@ -1437,6 +1553,11 @@ class BlockstackDB( virtualchain.StateEngine ):
       txid = nameop['txid']
       opcode = nameop['opcode']
 
+      transfer_send_block_id = self.lookup_block_id_from_consensus_hash( nameop['consensus_hash'] )
+      if transfer_send_block_id is None:
+          log.error("FATAL: no block for consensus hash '%s'" % nameop['consensus_hash'])
+          sys.exit(1)
+
       op = TRANSFER_KEEP_DATA
       if not keep_data:
           op = TRANSFER_REMOVE_DATA
@@ -1444,7 +1565,7 @@ class BlockstackDB( virtualchain.StateEngine ):
       log.debug("Name '%s': %s >%s %s" % (name, sender, op, recipient))
 
       # save diff
-      changed = ['sender', 'address', 'txid', 'vtxindex', 'opcode', 'op', 'sender_pubkey', 'consensus_hash']
+      changed = ['sender', 'address', 'txid', 'vtxindex', 'opcode', 'op', 'sender_pubkey', 'consensus_hash', 'transfer_send_block_id']
       if not keep_data:
           changed.append( 'value_hash' )
 
@@ -1458,6 +1579,7 @@ class BlockstackDB( virtualchain.StateEngine ):
       self.name_records[name]['vtxindex'] = nameop['vtxindex']
       self.name_records[name]['opcode'] = opcode
       self.name_records[name]['op'] = "%s%s" % (NAME_TRANSFER, op)
+      self.name_records[name]['transfer_send_block_id'] = transfer_send_block_id    # not directly covered by consensus hash, but indirectly
 
       if not keep_data:
          self.name_records[name]['value_hash'] = None
@@ -1494,7 +1616,7 @@ class BlockstackDB( virtualchain.StateEngine ):
       op = NAME_REVOKE
 
       # save diff
-      self.save_name_diff( name, current_block_number, ['revoked', 'txid', 'vtxindex', 'opcode', 'op', 'value_hash', 'consensus_hash'] )
+      self.save_name_diff( name, current_block_number, ['revoked', 'txid', 'vtxindex', 'opcode', 'op', 'value_hash', 'consensus_hash', 'transfer_send_block_id'] )
 
       # apply diff
       self.name_records[name]['revoked'] = True
@@ -2428,8 +2550,8 @@ class BlockstackDB( virtualchain.StateEngine ):
          log.debug("Namespace '%s' is not preordered by '%s'" % (namespace_id, sender))
 
       # must be a version we support
-      if int(nameop['version']) != BLOCKSTORE_VERSION:
-         log.debug("Namespace '%s' requires version %s, but this blockstack is version %s" % (namespace_id, nameop['version'], BLOCKSTORE_VERSION))
+      if int(nameop['version']) != BLOCKSTACK_VERSION:
+         log.debug("Namespace '%s' requires version %s, but this blockstack is version %s" % (namespace_id, nameop['version'], BLOCKSTACK_VERSION))
          return False
 
       # check fee...
@@ -2551,29 +2673,15 @@ def price_namespace( namespace_id ):
    Calculate the cost of a namespace.
    """
 
-   testset = default_blockstack_opts( virtualchain.get_config_filename() )['testset']
-
    if len(namespace_id) == 1:
-       if testset:
-           return TESTSET_NAMESPACE_1_CHAR_COST
-       else:
-           return NAMESPACE_1_CHAR_COST
+       return NAMESPACE_1_CHAR_COST
 
    elif len(namespace_id) in [2, 3]:
-       if testset:
-           return TESTSET_NAMESPACE_23_CHAR_COST
-       else:
-           return NAMESPACE_23_CHAR_COST
+       return NAMESPACE_23_CHAR_COST
 
    elif len(namespace_id) in [4, 5, 6, 7]:
-       if testset:
-           return TESTSET_NAMESPACE_4567_CHAR_COST
-       else:
-           return NAMESPACE_4567_CHAR_COST
+       return NAMESPACE_4567_CHAR_COST
 
    else:
-       if testset:
-           return TESTSET_NAMESPACE_8UP_CHAR_COST
-       else:
-           return NAMESPACE_8UP_CHAR_COST
+       return NAMESPACE_8UP_CHAR_COST
 

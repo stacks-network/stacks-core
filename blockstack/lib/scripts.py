@@ -27,10 +27,7 @@ from pybitcoin import BitcoinPrivateKey, BitcoinPublicKey, script_to_hex, make_p
 from pybitcoin.transactions.outputs import calculate_change_amount
 
 import virtualchain
-from virtualchain import getrawtransaction 
-
-if not globals().has_key('log'):
-    log = virtualchain.session.log
+log = virtualchain.get_logger("blockstack-server")
 
 import bitcoin
 import json
@@ -47,10 +44,7 @@ except:
     from b40 import *
 
 def add_magic_bytes(hex_script, testset=False):
-    if not testset:
-        magic_bytes = MAGIC_BYTES_MAINSET
-    else:
-        magic_bytes = MAGIC_BYTES_TESTSET
+    magic_bytes = MAGIC_BYTES_MAINSET
     return hexlify(magic_bytes) + hex_script
 
 
@@ -59,6 +53,8 @@ def is_name_valid( fqn ):
     Is a fully-qualified name acceptable?
     Return True if so
     Return False if not
+
+    TODO: DRY up; use client
     """
 
     if fqn.count( "." ) != 1:
@@ -79,6 +75,21 @@ def is_name_valid( fqn ):
     if len(name_hex) > LENGTHS['blockchain_id_name'] * 2:
        # too long
        return False 
+
+    return True
+
+
+def is_namespace_valid( namespace_id ):
+    """
+    Is a namespace ID valid?
+
+    TODO: DRY up; use client
+    """
+    if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
+        return False
+
+    if len(namespace_id) == 0 or len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
+        return False
 
     return True
 
@@ -293,7 +304,7 @@ def tx_output_is_burn( output ):
     Is an output's script an OP_RETURN script to our burn address?
     """
     addr = pybitcoin.script_hex_to_address( output['script_hex'] )
-    return (addr == BLOCKSTORE_BURN_ADDRESS)
+    return (addr == BLOCKSTACK_BURN_ADDRESS)
 
 
 def tx_make_subsidization_output( payer_utxo_inputs, payer_address, op_fee, dust_fee ):
@@ -331,7 +342,7 @@ def tx_analyze_inputs( inputs, bitcoind_opts ):
         ret_inp = {}
         ret_inp.update( inp )
         
-        input_tx_hex = getrawtransaction( bitcoind_opts, ret_inp["transaction_hash"] )
+        input_tx_hex = virtualchain.getrawtransaction( bitcoind_opts, ret_inp["transaction_hash"] )
         if input_tx_hex is None:
             raise Exception("No such transaction '%s'" % ret_inp["transaction_hash"])
         
