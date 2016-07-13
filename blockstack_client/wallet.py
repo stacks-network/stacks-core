@@ -272,12 +272,14 @@ def decrypt_wallet( data, password, config_path=CONFIG_PATH ):
     Return {'error': ...} on failure
     """
     hex_password = hexlify(password)
-    HDWallet = None
+    wallet = None
 
     try:
         hex_privkey = aes_decrypt(data['encrypted_master_private_key'], hex_password)
         wallet = HDWallet(hex_privkey, config_path=config_path)
     except Exception, e:
+        if os.environ.get("BLOCKSTACK_DEBUG", None) is not None:
+            log.exception(e)
         return {'error': 'Incorrect password'}
     
     child = wallet.get_child_keypairs(count=3, include_privkey=True)
