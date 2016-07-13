@@ -496,6 +496,7 @@ def default_blockstack_opts( config_file=None ):
    analytics_key = None
    zonefile_storage_drivers = ""
    profile_storage_drivers = ""
+   server_version = ""
 
    if parser.has_section('blockstack'):
 
@@ -561,6 +562,10 @@ def default_blockstack_opts( config_file=None ):
       if parser.has_option('blockstack', 'analytics_key'):
          analytics_key = parser.get('blockstack', 'analytics_key')
 
+      if parser.has_option('blockstack', 'server_version'):
+         server_version = parser.get('blockstack', 'server_version')
+
+
    if os.path.exists( announce_path ):
        # load announcement list
        with open( announce_path, "r" ) as f:
@@ -595,7 +600,8 @@ def default_blockstack_opts( config_file=None ):
        'zonefile_storage_drivers': zonefile_storage_drivers,
        'profile_storage_drivers': profile_storage_drivers,
        'zonefiles': zonefile_dir,
-       'analytics_key': analytics_key
+       'analytics_key': analytics_key,
+       'server_version': server_version
    }
 
    # strip Nones
