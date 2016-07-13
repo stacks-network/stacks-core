@@ -44,21 +44,25 @@ $ blockstack
 usage: blockstack [-h]
                   ...
 
-Blockstack cli version 0.0.12.4
-
+Blockstack cli version 0.0.13.3
 positional arguments:
-    balance             display the wallet balance
-    config              configure --server=x --port=y --advanced=on/off
-    price               <name> | get the cost of a name
-    deposit             display the address with which to receive bitcoins
-    import              display the address with which to receive names
-    info                check server status and get details about the server
-    lookup              <name> | get the data record for a particular name
-    names               display the names owned by local addresses
-    register            <name> | register a new name
-    transfer            <name> <address> | transfer a name you own
-    update              <name> <data> | update a name record with new data
-    whois               <name> | get the registration record of a name
+    balance             Get the account balance
+    configure           Interactively configure the client
+    deposit             Display the address with which to receive bitcoins
+    import              Display the address with which to receive names
+    info                Get details about pending name commands
+    lookup              Get the zone file and profile for a particular name
+    migrate             Migrate a profile to the latest profile format
+    names               Display the names owned by local addresses
+    ping                Check server status and get server details
+    price               Get the price of a name
+    register            Register a name
+    renew               Renew a name
+    revoke              Revoke a name
+    set_advanced_mode   Enable advanced commands
+    transfer            Transfer a name to a new address
+    update              Set the zone file for a name
+    whois               Look up the blockchain info for a name
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -75,30 +79,79 @@ $ blockstack info
 ```bash
 $ blockstack info
 {
-    "advanced_mode": "off",
-    "cli_version": "0.0.12.4",
-    "consensus_hash": "4520fbed8459cc9fe6ef1161d683bf0b",
-    "last_block_processed": 399610,
-    "last_block_seen": 399616,
+    "advanced_mode": false,
+    "cli_version": "0.0.13.3",
+    "consensus_hash": "106d4648661d49e16d103b071e26617e",
+    "last_block_processed": 420518,
+    "last_block_seen": 420596,
     "server_alive": true,
-    "server_host": "server.blockstack.org",
+    "server_host": "40.76.8.249",
     "server_port": "6264",
-    "server_version": "0.0.10.3"
+    "server_version": "0.0.13.0"
 }
 ```
 
 ### Config
 
 ```bash
-$ blockstack config <options>
+$ blockstack configure
 ```
 
 ##### Examples
 
 ```bash
-$ blockstack config --host=server.blockstack.org --port=6264 --advanced=off
+$ blockstack  configure
+---------------------------------------------------------
+Your client does not have enough information to connect
+to a Blockstack server.  Please supply the following
+parameters, or press [ENTER] to select the default value.
+---------------------------------------------------------
+blockchain_headers (default: '/home/jude/.blockstack/blockchain-headers.dat'): 
+blockchain_writer (default: 'blockcypher'): 
+api_endpoint_port (default: '6270'): 
+poll_interval (default: '300'): 
+metadata (default: '/home/jude/.blockstack/metadata'): 
+server (default: 'node.blockstack.org'): 
+advanced_mode (default: 'False'): 
+blockchain_reader (default: 'blockcypher'): 
+email (default: ''): 
+rpc_token (default: '2dbf700c6c0d546be23ad7ae4e5e1bbb6cdaa10a3ae4deca8e598bf9ec58fc6a'): 
+storage_drivers_required_write (default: 'disk,blockstack_server'): 
+queue_path (default: '/home/jude/.blockstack/queues.db'): 
+storage_drivers (default: 'disk,blockstack_resolver,blockstack_server,http,dht'): 
+path (default: '/home/jude/.blockstack/client.ini'): 
+client_version (default: '0.0.13.4'): 
+rpc_detach (default: 'True'): 
+port (default: '6264'): 
+dir (default: '/home/jude/.blockstack/client.ini'): 
+anonymous_statistics (default: 'True'): 
+--------------------------------------------------------
+Blockstack does not have enough information to connect
+to bitcoind.  Please supply the following parameters, or
+press [ENTER] to select the default value.
+--------------------------------------------------------
+mock (default: 'False'): 
+passwd (default: 'blockstacksystem'): 
+server (default: 'bitcoin.blockstack.com'): 
+user (default: 'blockstack'): 
+timeout (default: '300.0'): 
+port (default: '8332'): 
+use_https (default: 'False'): 
+-------------------------------
+Blockchain reader configuration
+----------------------------------------
+Please enter your Blockcypher API token.
+----------------------------------------
+api_token (default: ''): 
+-------------------------------
+Blockchain writer configuration
+----------------------------------------
+Please enter your Blockcypher API token.
+----------------------------------------
+api_token (default: ''): 
+Saving configuration to /home/jude/.blockstack/client.ini
 {
-  "message": "Updated settings for host port advanced"
+    "path": "/home/jude/.blockstack/client.ini"
 }
 ```
 
@@ -113,9 +166,11 @@ $ blockstack price <name>
 ```bash
 $ blockstack price $(whoami).id
 {
-    "name_price": 0.001,
-    "total_estimated_cost": 0.00116,
-    "transaction_fee": 0.00016
+    "name_price": 25000,
+    "preorder_tx_fee": 13255,
+    "register_tx_fee": 12309,
+    "total_estimated_cost": 71480,
+    "update_tx_fee": 20916
 }
 ```
 
@@ -130,21 +185,21 @@ $ blockstack whois <name>
 ```bash
 $ blockstack whois fredwilson.id
 {
+    "approx_expiration_date": "2016 Sep 11 09:02:31 UTC",
     "block_preordered_at": 374084,
     "block_renewed_at": 374084,
+    "expire_block": 426679,
+    "has_zonefile": true,
+    "last_transaction_id": "2986ec31ec957692d7f5bc58a3b02d2ac2d1a60039e9163365fc954ff51aeb5a",
     "owner_address": "1F2nHEDLRJ39XxAvSxwQhJsaVzvS5RHDRM",
-    "owner_public_key": "0411d88aa37a0eea476a5b63ca4b1cd392ded830865824c27dacef6bde9f9bc53fa13a0926533ef4d20397207e212c2086cbe13db5470fd29616abd35326d33090",
     "owner_script": "76a91499e7f97f5d2c77b4f32b4ed9ae0f0385c45aa5c788ac",
-    "preorder_transaction_id": "2986ec31ec957692d7f5bc58a3b02d2ac2d1a60039e9163365fc954ff51aeb5a",
-    "registered": true
+    "zonefile_hash": "1a587366368aaf8477d5ddcea2557dcbcc67073e"
 }
 ```
 
 ```bash
 $ blockstack whois $(whoami)_$(date +"%m_%d").id
-{
-  "registered": false
-}
+Not found.
 ```
 
 ### Lookup
@@ -158,7 +213,7 @@ $ blockstack lookup <name>
 ```bash
 $ blockstack lookup fredwilson.id
 {
-    "data_record": {
+    "profile": {
         "avatar": {
             "url": "https://s3.amazonaws.com/kd4/fredwilson1"
         },
@@ -170,9 +225,7 @@ $ blockstack lookup fredwilson.id
 
 ```bash
 $ blockstack lookup $(whoami)_$(date +"%m_%d").id
-{
-    "error": "muneeb_02_22.id is not registered"
-}
+Not found.
 ```
 
 ### Register
@@ -194,9 +247,7 @@ Registering muneeb_02_22.id will cost 0.0002225 BTC. Continue? (y/n): y
 
 ```bash
 $ blockstack register fredwilson.id
-{
-    "error": "fredwilson.id is already registered"
-}
+fredwilson.id is already registered.
 ```
 
 ### Update
@@ -208,7 +259,7 @@ $ blockstack update <name> <data>
 ##### Examples
 
 ```bash
-$ blockstack update $(whoami)_$(date +"%m_%d").id '{"cname": [{ "name": "@", "alias": "https://zk9.s3.amazonaws.com" }]}'
+$ blockstack update muneeb.id '{"$origin": "muneeb.id", "$ttl": "3600", "uri": [{"name": "@", "priority": "10", "weight": "1", "target": "https://muneeb.ali/muneeb.id"}]}'
 {
   "message": "Added to update queue. Takes ~1 hour. You can check status at anytime.",
   "success": true
@@ -217,9 +268,16 @@ $ blockstack update $(whoami)_$(date +"%m_%d").id '{"cname": [{ "name": "@", "al
 
 ```bash
 $ blockstack update fredwilson.id '{}'
-{
-    "error": "fredwilson.id not owned by 1UGQbEV6JXEk1onBzDoNGikrCjeXenA75"
-}
+Invalid $origin; must use your name
+
+$ blockstack update fredwilson.id '{"$origin": "fredwilson.id"}'
+Missing $ttl; please supply a positive integer
+
+$ blockstack update fredwilson.id '{"$origin": "fredwilson.id", "$ttl": "3600"}'
+Zonefile is missing or has invalid URI and/or TXT records
+
+$ blockstack update fredwilson.id '{"$origin": "fredwilson.id", "$ttl": "3600", "uri": [{"name": "@", "priority": "10", "weight": "1", "target": "https://blockstack.s3.amazonaws.com/fredwilson.id"}]}'
+fredwilson.id is not in your possession.
 ```
 
 ### Transfer
@@ -240,9 +298,7 @@ $ blockstack transfer $(whoami)_$(date +"%m_%d").id 1Jbcrh9Lkwm73jXyxramFukViEtk
 
 ```bash
 $ blockstack transfer fredwilson.id 1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt
-{
-    "error": "fredwilson.id not owned by 1UGQbEV6JXEk1onBzDoNGikrCjeXenA75"
-}
+fredwilson.id is not in your possession.
 ```
 
 ### Balance
@@ -259,10 +315,10 @@ $ blockstack balance
     "addresses": [
         {
             "address": "16yE3e928JakaXbympwSywyrJPM9cuL4wZ",
-            "balance": 0.008405000000000001
+            "balance": 840500
         }
     ],
-    "total_balance": 0.008405000000000001
+    "total_balance": 840500.0
 }
 ```
 
@@ -277,9 +333,18 @@ $ blockstack names
 ```bash
 $ blockstack names
 {
-    "names_owned": [],
     "addresses": [
-      { "address": "1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt", "names_owned": [] }
+        {
+            "address": "16CtpS8LhmW3bGtVC69UGZ3wSwvi95BE8E",
+            "names_owned": [
+                "testregistration001.id",
+                "testregistration002.id"
+            ]
+        }
+    ],
+    "names_owned": [
+        "testregistration001.id",
+        "testregistration002.id"
     ]
 }
 ```
@@ -295,8 +360,8 @@ $ blockstack deposit
 ```bash
 $ blockstack deposit
 {
-    "message": "Send bitcoins to the address specified.",
     "address": "1EHgqHVpA1tjn6RhaVj8bx6y5NGvBwoMNS",
+    "message": "Send bitcoins to the address specified.",
 }
 ```
 
@@ -311,8 +376,8 @@ $ blockstack import
 ```bash
 $ blockstack import
 {
-    "message": "Send the name you want to receive to the address specified.",
     "address": "1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt"
+    "message": "Send the name you want to receive to the address specified.",
 }
 ```
 
