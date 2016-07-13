@@ -556,7 +556,7 @@ def cli_lookup( args, config_path=CONFIG_PATH ):
     if blockchain_record.has_key('revoked') and blockchain_record['revoked']:
         return {'error': 'Name is revoked.  Use get_name_blockchain_record for details.'}
     try:
-        user_profile, user_zonefile = get_name_profile(str(args.name))
+        user_profile, user_zonefile = get_name_profile(str(args.name), name_record=blockchain_record)
         if 'error' in user_zonefile:
             return user_zonefile
 
