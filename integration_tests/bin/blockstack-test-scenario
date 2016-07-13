@@ -44,6 +44,7 @@ mock = True
 save_file = @MOCK_SAVE_FILE@
 
 [blockstack]
+server_version = 0.0.13.0
 rpc_port = %s
 backup_frequency = 3
 backup_max_age = 30
@@ -59,6 +60,7 @@ atlas = False
 
 DEFAULT_CLIENT_INI_TEMPLATE = """
 [blockstack-client]
+client_version = 0.0.13.0
 server = localhost
 port = %s
 metadata = @CLIENT_METADATA@
