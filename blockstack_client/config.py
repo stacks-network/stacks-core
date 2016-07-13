@@ -532,6 +532,11 @@ def configure( config_file=CONFIG_PATH, force=False, interactive=True ):
            blockstack_opts['dir'] = None
 
    blockstack_opts, missing_blockstack_opts, num_blockstack_opts_prompted = find_missing( blockstack_message, blockstack_params, blockstack_opts, blockstack_opts_defaults, prompt_missing=interactive )
+   blockstack_opts['path'] = config_file
+   if config_file is not None:
+       blockstack_opts['dir'] = os.path.dirname(config_file)
+   else:
+       blockstack_opts['dir'] = None
    
    # get bitcoind options
    bitcoind_message  = "Blockstack does not have enough information to connect\n"
