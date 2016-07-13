@@ -813,6 +813,7 @@ def read_config_file(path=CONFIG_PATH):
         parser.set('blockstack-client', 'blockchain_reader', DEFAULT_BLOCKCHAIN_READER)
         parser.set('blockstack-client', 'blockchain_writer', DEFAULT_BLOCKCHAIN_WRITER)
         parser.set('blockstack-client', 'anonymous_statistics', "True")
+        parser.set('blockstack-client', 'client_version', VERSION)
 
         rpc_token = os.urandom(32)
         parser.set('blockstack-client', 'rpc_token', hexlify(rpc_token))
@@ -907,6 +908,7 @@ def get_config(path=CONFIG_PATH):
     blockstack_opts['path'] = path
     blockstack_opts['dir'] = os.path.dirname(path)
     blockstack_opts['uuid'] = opts['uuid']
+    blockstack_opts['client_version'] = blockstack_opts.get('client_version', '')
     if not blockstack_opts.has_key('anonymous_statistics'):
         # not disabled 
         blockstack_opts['anonymous_statistics'] = True
