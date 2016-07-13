@@ -29,7 +29,8 @@ setup(
         'blockstack-utxo>=0.0.13.0',
         'defusedxml>=0.4.1',
         'keylib>=0.0.5',
-        'mixpanel>=4.3.1'
+        'mixpanel>=4.3.1',
+        'pycrypto>=2.6.1'
     ],
     classifiers=[
         'Intended Audience :: Developers',
