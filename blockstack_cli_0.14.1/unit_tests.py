@@ -35,6 +35,7 @@ from blockstack_client.config import BLOCKSTACKD_SERVER, BLOCKSTACKD_PORT, CONFI
 # start session
 if not os.path.exists( CONFIG_DIR ):
     os.makedirs( CONFIG_DIR )
+
 client.session(server_host=BLOCKSTACKD_SERVER, server_port=BLOCKSTACKD_PORT)
 
 test_names = ["muneeb.id", "fredwilson.id"]
