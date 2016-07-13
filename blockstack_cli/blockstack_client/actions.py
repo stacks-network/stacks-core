@@ -783,7 +783,7 @@ def cli_update( args, config_path=CONFIG_PATH, password=None ):
         return {'error': 'Invalid zonefile\n%s' % traceback.format_exc()}
 
     # sanity checks...
-    if user_data['$origin'] != fqu:
+    if not user_data.has_key('$origin') or user_data['$origin'] != fqu:
         return {'error': 'Invalid $origin; must use your name'}
 
     if not user_data.has_key('$ttl'):
