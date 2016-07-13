@@ -35,27 +35,6 @@ $ pip install blockstack --upgrade
 
 If the installation command above fails, see the [troubleshooting section](#troubleshooting-installation).
 
-### Development Version
-
-The client is under heavy development and you may want to install the
-development version, which will contain certain bug fixes for issues you may
-be experiencing. Additionally, if you're helping with testing you should use
-the development version.
-
-On Debian/Ubuntu, first install the required packages:
-
-```bash
-$ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev git
-```
-
-Now, install the next release candidate:
-
-```bash
-$ sudo pip install git+https://github.com/blockstack/blockstack-client.git@release-candidate --upgrade
-```
-
-If the installation commands fail, see the [troubleshooting section](#troubleshooting-installation).
-
 ## Command Line Usage 
 
 ### Listing All Commands
