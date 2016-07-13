@@ -221,7 +221,7 @@ def profile_update( name, user_zonefile, new_profile, owner_address, proxy=None,
         if required_storage_drivers is None:
             required_storage_drivers = config.get("storage_drivers", "").split(",")
         else:
-            required_storage_drivers = self.required_storage_drivers.split(",")
+            required_storage_drivers = required_storage_drivers.split(",")
     else:
         required_storage_drivers = required_drivers
 
