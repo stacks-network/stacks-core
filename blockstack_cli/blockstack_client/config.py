@@ -875,6 +875,9 @@ def read_config_file(path=CONFIG_PATH):
                 # literal
                 ret[sec][opt] = parser.get(sec, opt)
 
+    if not ret['blockstack-client'].has_key('advanced_mode'):
+        ret['blockstack-client']['advanced_mode'] = False
+
     ret['path'] = path
     ret['dir'] = os.path.dirname(path)
     return ret
