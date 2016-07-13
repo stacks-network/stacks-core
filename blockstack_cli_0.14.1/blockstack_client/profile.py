@@ -347,9 +347,15 @@ def get_name_profile(name, zonefile_storage_drivers=None,
 
     # is this really a legacy profile?
     if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
-        # convert it 
+        # convert it
+        log.debug("Converting legacy profile to modern profile")
         user_profile = blockstack_profiles.get_person_from_legacy_format( user_zonefile )
-       
+     
+    elif not user_db.is_user_zonefile( user_zonefile ):
+        # not a legacy profile, but a custom profile
+        log.debug("Using custom legacy profile")
+        user_profile = copy.deepcopy(user_zonefile)
+
     else:
         # get user's data public key
         user_address = None
@@ -415,6 +421,7 @@ def store_name_zonefile( name, user_zonefile, txid ):
     """
 
     assert not blockstack_profiles.is_profile_in_legacy_format(user_zonefile), "User zonefile is a legacy profile"
+    assert user_db.is_user_zonefile(user_zonefile), "Not a user zonefile (maybe a custom legacy profile?)"
 
     # serialize and send off
     user_zonefile_txt = blockstack_zones.make_zone_file( user_zonefile, origin=name, ttl=USER_ZONEFILE_TTL )
@@ -502,7 +509,7 @@ def get_and_migrate_profile( name, zonefile_storage_drivers=None, profile_storag
         name_record = user_zonefile['name_record']
         del user_zonefile['name_record']
 
-    if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
+    if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ) or not user_db.is_user_zonefile( user_zonefile ):
 
         log.debug("Migrating legacy profile to modern zonefile for name '%s'" % name)
         
@@ -510,7 +517,14 @@ def get_and_migrate_profile( name, zonefile_storage_drivers=None, profile_storag
         if data_pubkey is None:
             log.warn("No data keypair set; will fall back to owner private key for data signing")
 
-        user_profile = blockstack_profiles.get_person_from_legacy_format( user_zonefile )
+        user_profile = {}
+        if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
+            # traditional profile
+            user_profile = blockstack_profiles.get_person_from_legacy_format( user_zonefile )
+        else:
+            # custom profile 
+            user_profile = copy.deepcopy( user_zonefile )
+
         user_zonefile = user_db.make_empty_user_zonefile( name, data_pubkey )
 
         created_new_zonefile = True
