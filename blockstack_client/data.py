@@ -216,7 +216,7 @@ def get_immutable(name, data_hash, data_id=None, proxy=None):
     if 'error' in user_zonefile:
         return user_zonefile 
 
-    if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
+    if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ) or not user_db.is_user_zonefile( user_zonefile ):
         # zonefile is really a legacy profile 
         return {'error': 'Profile is in a legacy format that does not support immutable data.'}
 
@@ -383,7 +383,7 @@ def get_mutable(name, data_id, proxy=None, ver_min=None, ver_max=None, ver_check
     name_record = user_zonefile['name_record']
     del user_zonefile['name_record']
 
-    if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
+    if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ) or not user_db.is_user_zonefile( user_zonefile ):
         # profile has not been converted to the new zonefile format yet.
         return {'error': 'Profile is in a legacy format that does not support mutable data.'}
 
@@ -679,7 +679,7 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
     name_record = user_zonefile['name_record']
     del user_zonefile['name_record']
 
-    if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
+    if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ) or not user_db.is_user_zonefile( user_zonefile ):
         # zonefile is a legacy profile.  There is no immutable data 
         log.info("Profile is in legacy format.  No immutable data.")
         return {'status': True}
@@ -773,7 +773,7 @@ def delete_mutable(name, data_id, proxy=None, wallet_keys=None):
     name_record = user_zonefile['name_record']
     del user_zonefile['name_record']
 
-    if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
+    if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ) or not user_db.is_user_zonefile( user_zonefile ):
         # zonefile is a legacy profile.  There is no immutable data 
         log.info("Profile is in legacy format.  No immutable data.")
         return {'status': True}
@@ -820,7 +820,7 @@ def list_immutable_data( name, proxy=None ):
     if 'error' in user_zonefile:
         return user_zonefile 
 
-    if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
+    if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ) or not user_db.is_user_zonefile( user_zonefile ):
         # zonefile is really a legacy profile
         return {"data": []}
 
@@ -842,7 +842,7 @@ def list_mutable_data( name, proxy=None, wallet_keys=None ):
         # user_profile will contain an error message
         return user_profile 
 
-    if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
+    if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ) or not user_db.is_user_zonefile( user_zonefile ):
         # zonefile is really a legacy profile
         return {"data": []}
 
