@@ -257,7 +257,7 @@ def local_rpc_action( command, config_dir=blockstack_config.CONFIG_DIR ):
     if rc is None:
         rc = 0
 
-    return (rc & 255)
+    return os.WEXITSTATUS(rc)
 
 
 def local_rpc_dispatch( port, method_name, *args, **kw ):
@@ -358,7 +358,8 @@ rpc_srv = None
 
 def local_rpc_start( portnum, config_dir=blockstack_config.CONFIG_DIR, foreground=False, password=None ):
     """
-    Start up an API endpoint 
+    Start up an API endpoint
+    Return True on success
     Return False on error
     """
     from blockstack_client.wallet import load_wallet, initialize_wallet
