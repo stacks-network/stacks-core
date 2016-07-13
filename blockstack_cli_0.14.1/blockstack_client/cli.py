@@ -220,7 +220,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
         exit_with_error("Invalid configuration file: %s != %s" % (conf_version, VERSION), \
                 "Your configuration file (%s) is out of date.  Please move it and try again in order to automatically generate a new config file." % config_path)
 
-    advanced_mode = conf['advanced_mode']
+    advanced_mode = conf.get('advanced_mode', False)
 
     parser = argparse.ArgumentParser(
             description='Blockstack cli version {}'.format(config.VERSION))
