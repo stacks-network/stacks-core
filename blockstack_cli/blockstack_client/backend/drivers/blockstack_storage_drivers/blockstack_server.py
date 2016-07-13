@@ -102,7 +102,6 @@ def get_data( data_id, zonefile=False ):
                 return data['zonefiles'][data_id]
             except:
                 log.error("Failed to parse zonefile")
-                print data
                 return None
 
     else:
