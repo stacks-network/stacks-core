@@ -274,7 +274,7 @@ def start_rpc_endpoint(config_dir=CONFIG_DIR, password=None, wallet_path=None):
 
     rc = local_rpc_ensure_running( config_dir, password=password )
     if not rc:
-        return {'error': 'Failed to start RPC endpoint (in %s)' % config_dir}
+        return {'error': 'Failed to start RPC endpoint (in working directory %s).\nPlease check your password, and verify that the working directory exists and is writeable.' % config_dir}
 
     return {'status': True}
 
