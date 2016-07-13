@@ -274,9 +274,9 @@ def start_rpc_endpoint(config_dir=CONFIG_DIR, password=None, wallet_path=None):
 
     rc = local_rpc_ensure_running( config_dir, password=password )
     if not rc:
-        raise Exception("Failed to start RPC endpoint (from %s)" % config_dir)
+        return {'error': 'Failed to start RPC endpoint (in %s)' % config_dir}
 
-    return True
+    return {'status': True}
 
 
 def cli_configure( args, config_path=CONFIG_PATH ):
@@ -327,7 +327,9 @@ def cli_price( args, config_path=CONFIG_PATH, proxy=None, password=None):
     if error:
         return {'error': error}
 
-    start_rpc_endpoint(config_dir, password=password)
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
 
     wallet_keys = get_wallet_keys( config_path, password )
     if 'error' in wallet_keys:
@@ -452,7 +454,10 @@ def get_server_info( args, config_path=config.CONFIG_PATH, get_local_info=False 
 
         if get_local_info:
             # get state of pending names
-            start_rpc_endpoint(config_dir)
+            res = start_rpc_endpoint(config_dir)
+            if 'error' in res:
+                return res 
+
             rpc = local_rpc_connect(config_dir=config_dir)
 
             if rpc is not None:
@@ -657,7 +662,9 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
         proxy = get_default_proxy(config_path)
 
     config_dir = os.path.dirname(config_path)
-    start_rpc_endpoint(config_dir, password=password)
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
 
     result = {}
     fqu = str(args.name)
@@ -743,7 +750,10 @@ def cli_update( args, config_path=CONFIG_PATH, password=None ):
     """
 
     config_dir = os.path.dirname(config_path)
-    start_rpc_endpoint(config_dir, password=password)
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
+
     fqu = str(args.name)
 
     error = check_valid_name(fqu)
@@ -832,7 +842,9 @@ def cli_transfer( args, config_path=CONFIG_PATH, password=None ):
     """
 
     config_dir = os.path.dirname(config_path)
-    start_rpc_endpoint(config_dir, password=password)
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
 
     wallet_keys = get_wallet_keys( config_path, password )
     if 'error' in wallet_keys:
@@ -886,7 +898,10 @@ def cli_renew( args, config_path=CONFIG_PATH, interactive=True, password=None, p
         proxy = get_default_proxy(config_path)
 
     config_dir = os.path.dirname(config_path)
-    start_rpc_endpoint(config_dir, password=password)
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
+
 
     result = {}
     fqu = str(args.name)
@@ -989,7 +1004,9 @@ def cli_revoke( args, config_path=CONFIG_PATH, interactive=True, password=None, 
         proxy = get_default_proxy(config_path)
 
     config_dir = os.path.dirname(config_path)
-    start_rpc_endpoint(config_dir, password=password)
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
 
     result = {}
     fqu = str(args.name)
@@ -1062,7 +1079,9 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None, inter
     """
 
     config_dir = os.path.dirname(config_path)
-    start_rpc_endpoint(config_dir, password=password)
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
 
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
@@ -1186,7 +1205,9 @@ def cli_advanced_import_wallet( args, config_path=CONFIG_PATH, password=None, fo
             # update RPC daemon if we're running
             if local_rpc_status(config_dir=config_dir):
                 local_rpc_stop(config_dir=config_dir)
-                start_rpc_endpoint(config_dir, password=password)
+                res = start_rpc_endpoint(config_dir, password=password)
+                if 'error' in res:
+                    return res
 
             return {'status': True}
 
@@ -1204,7 +1225,9 @@ def cli_advanced_list_accounts( args, proxy=None, config_path=CONFIG_PATH, passw
 
     result = {}
     config_dir = os.path.dirname(config_path)
-    start_rpc_endpoint(config_dir, password=password)
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error 'in res:
+        return res
 
     wallet_keys = get_wallet_keys( config_path, password )
     if 'error' in wallet_keys:
@@ -1231,7 +1254,9 @@ def cli_advanced_get_account( args, proxy=None, config_path=CONFIG_PATH, passwor
 
     result = {}
     config_dir = os.path.dirname(config_path)
-    start_rpc_endpoint(config_dir, password=password)
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
 
     if not is_valid_name(args.name) or len(args.service) == 0 or len(args.identifier) == 0:
         return {'error': 'Invalid name or identifier'}
@@ -1263,7 +1288,10 @@ def cli_advanced_put_account( args, proxy=None, config_path=CONFIG_PATH, passwor
 
     result = {}
     config_dir = os.path.dirname(config_path)
-    start_rpc_endpoint(config_dir, password=password)
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
+
 
     wallet_keys = get_wallet_keys( config_path, password )
     if 'error' in wallet_keys:
@@ -1311,7 +1339,9 @@ def cli_advanced_delete_account( args, proxy=None, config_path=CONFIG_PATH, pass
 
     result = {}
     config_dir = os.path.dirname(config_path)
-    start_rpc_endpoint(config_dir, password=password)
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
 
     if not is_valid_name(args.name) or len(args.service) == 0 or len(args.identifier) == 0:
         return {'error': 'Invalid name or identifier'}
@@ -1338,7 +1368,9 @@ def cli_advanced_wallet( args, config_path=CONFIG_PATH, password=None ):
     
     result = {}
     config_dir = os.path.dirname(config_path)
-    start_rpc_endpoint(config_dir, password=password)
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
 
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
     if not os.path.exists(wallet_path):
@@ -1541,7 +1573,10 @@ def cli_advanced_put_immutable( args, config_path=CONFIG_PATH ):
     arg: data (str) "The JSON-formatted data to store"
     """
     config_dir = os.path.dirname(config_path)
-    start_rpc_endpoint(config_dir)
+    res = start_rpc_endpoint(config_dir)
+    if 'error' in res:
+        return res
+
     conf = config.get_config( config_path=config_path )
     result = put_immutable(str(args.name),
                            str(args.data_id),
@@ -1616,7 +1651,10 @@ def cli_advanced_delete_immutable( args, config_path=CONFIG_PATH ):
     """
     
     config_dir = os.path.dirname(config_path)
-    start_rpc_endpoint(config_dir)
+    res = start_rpc_endpoint(config_dir)
+    if 'error' in res:
+        return res
+
     result = delete_immutable(str(args.name), str(args.hash))
 
     return result
@@ -1756,7 +1794,10 @@ def cli_advanced_set_zonefile_hash( args, config_path=CONFIG_PATH, password=None
     arg: zonefile_hash (str) "The RIPEMD160(SHA256(zonefile)) hash"
     """
     config_dir = os.path.dirname(config_path)
-    start_rpc_endpoint(config_dir, password=password)
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
+
     fqu = str(args.name)
 
     error = check_valid_name(fqu)
