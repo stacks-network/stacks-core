@@ -24,6 +24,12 @@
 import sys
 import os
 
+if sys.version_info.major != 2:
+    raise Exception("Python 3 is not supported")
+
+if sys.version_info.minor < 7:
+    raise Exception("Python 2.7 or greater is required")
+
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
