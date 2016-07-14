@@ -23,6 +23,13 @@
 
 import os
 import sys
+
+if sys.version_info.major != 2:
+    raise Exception("Python 3 is not supported")
+
+if sys.version_info.minor < 7:
+    raise Exception("Python 2.7 or greater is required")
+
 import traceback
 
 # Hack around absolute paths
