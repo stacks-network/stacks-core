@@ -61,7 +61,7 @@ def estimate_preorder_tx_fee( name, name_cost, payment_addr, utxo_client, config
     try:
         unsigned_tx = preorder_tx( name, payment_addr, fake_owner_address, name_cost, fake_consensus_hash, utxo_client )
     except ValueError:
-        log.error("Insufficient funds:  Not enough inputs to make a preorder transaction")
+        log.debug("Insufficient funds:  Not enough inputs to make a preorder transaction")
         return None 
 
     signed_tx = sign_tx( unsigned_tx, fake_privkey )
@@ -87,7 +87,7 @@ def estimate_register_tx_fee( name, payment_addr, utxo_client, config_path=CONFI
     try:
         unsigned_tx = register_tx( name, payment_addr, fake_owner_address, utxo_client )
     except ValueError:
-        log.error("Insufficient funds:  Not enough inputs to make a register transaction")
+        log.debug("Insufficient funds:  Not enough inputs to make a register transaction")
         return None
 
     signed_tx = sign_tx( unsigned_tx, fake_privkey )
@@ -116,7 +116,7 @@ def estimate_renewal_tx_fee( name, payment_privkey, owner_address, utxo_client, 
         unsigned_tx = register_tx( name, address, address, utxo_client, renewal_fee=1234567890 )
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_registration, 21 * 10**14, payment_privkey, utxo_client )
     except ValueError:
-        log.error("Insufficient funds:  Not enough inputs to make a renewal transaction.")
+        log.debug("Insufficient funds:  Not enough inputs to make a renewal transaction.")
         return None
         
     signed_tx = sign_tx( subsidized_tx, fake_privkey )
@@ -144,7 +144,7 @@ def estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, c
         unsigned_tx = update_tx( name, fake_zonefile_hash, fake_consensus_hash, owner_address, utxo_client, subsidize=True )
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_update, 21 * 10**14, payment_privkey, utxo_client )
     except ValueError:
-        log.error("Insufficient funds:  Not enough inputs to make an update transaction.")
+        log.debug("Insufficient funds:  Not enough inputs to make an update transaction.")
         return None 
 
     signed_subsidized_tx = sign_tx( subsidized_tx, fake_privkey )
@@ -173,7 +173,7 @@ def estimate_transfer_tx_fee( name, payment_privkey, owner_address, utxo_client,
         unsigned_tx = transfer_tx( name, fake_recipient_address, True, fake_consensus_hash, owner_address, utxo_client, subsidize=True )
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_transfer, 21 * 10**14, payment_privkey, utxo_client )
     except ValueError:
-        log.error("Insufficient funds:  Not enough inputs to make a transfer transaction.")
+        log.debug("Insufficient funds:  Not enough inputs to make a transfer transaction.")
         return None
 
     signed_subsidized_tx = sign_tx( subsidized_tx, fake_privkey )
@@ -200,7 +200,7 @@ def estimate_revoke_tx_fee( name, payment_privkey, owner_address, utxo_client, c
         unsigned_tx = revoke_tx( name, owner_address, utxo_client, subsidize=True )
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_revoke, 21 * 10**14, payment_privkey, utxo_client )
     except ValueError:
-        log.error("Insufficient funds:  Not enough inputs to make a revoke transaction.")
+        log.debug("Insufficient funds:  Not enough inputs to make a revoke transaction.")
         return None 
 
     signed_subsidized_tx = sign_tx( subsidized_tx, fake_privkey )
@@ -229,7 +229,7 @@ def estimate_name_import_tx_fee( fqu, payment_addr, utxo_client, config_path=CON
         unsigned_tx = name_import_tx( fqu, fake_recipient_address, fake_zonefile_hash, payment_addr, utxo_client )
         signed_tx = sign_tx( unsigned_tx, fake_privkey )
     except ValueError:
-        log.error("Insufficient funds:  Not enough inputs to make an import transaction")
+        log.debug("Insufficient funds:  Not enough inputs to make an import transaction")
         return None
 
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
@@ -256,7 +256,7 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utx
         unsigned_tx = namespace_preorder_tx( namespace_id, fake_reveal_address, cost, fake_consensus_hash, payment_address, utxo_client )
         signed_tx = sign_tx( unsigned_tx, fake_privkey )
     except ValueError:
-        log.error("Insufficient funds:  Not enough inputs to make a namespace-preorder transaction.")
+        log.debug("Insufficient funds:  Not enough inputs to make a namespace-preorder transaction.")
         return None 
 
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
@@ -281,7 +281,7 @@ def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client
         unsigned_tx = namespace_reveal_tx( namespace_id, fake_reveal_address, 1, 2, 3, [4,5,6,7,8,9,10,11,12,13,14,15,0,1,2,3], 4, 5, payment_address, utxo_client )
         signed_tx = sign_tx( unsigned_tx, fake_privkey )
     except ValueError:
-        log.error("Insufficient funds:  Not enough inputs to make a namespace-reveal transaction.")
+        log.debug("Insufficient funds:  Not enough inputs to make a namespace-reveal transaction.")
         return None
 
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
@@ -305,7 +305,7 @@ def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, con
         unsigned_tx = namespace_ready_tx( namespace_id, reveal_addr, utxo_client )
         signed_tx = sign_tx( unsigned_tx, fake_privkey ) 
     except ValueError:
-        log.error("Insufficient funds:  Not enough inputs to make a namespace-ready transaction.")
+        log.debug("Insufficient funds:  Not enough inputs to make a namespace-ready transaction.")
         return None 
 
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
@@ -330,7 +330,7 @@ def estimate_announce_tx_fee( sender_address, utxo_client, config_path=CONFIG_PA
         unsigned_tx = announce_tx( fake_announce_hash, sender_address, utxo_client )
         signed_tx = sign_tx( unsigned_tx, fake_privkey )
     except ValueError:
-        log.error("Insufficient funds:  Not enough inputs to make an announce transaction.")
+        log.debug("Insufficient funds:  Not enough inputs to make an announce transaction.")
         return None 
 
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
