@@ -100,14 +100,16 @@ from blockstack_client import \
 from rpc import local_rpc_connect, local_rpc_ensure_running, local_rpc_status, local_rpc_stop
 import rpc as local_rpc
 import config
-from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR, configure, FIRST_BLOCK_TIME_UTC, get_utxo_provider_client, set_advanced_mode
+from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR, configure, FIRST_BLOCK_TIME_UTC, get_utxo_provider_client, set_advanced_mode, \
+        APPROX_PREORDER_TX_LEN, APPROX_REGISTER_TX_LEN, APPROX_UPDATE_TX_LEN, APPROX_TRANSFER_TX_LEN, APPROX_REVOKE_TX_LEN, APPROX_RENEWAL_TX_LEN
+
 from .storage import is_valid_name, is_valid_hash, is_b40
 
 from pybitcoin import is_b58check_address
 
 from binascii import hexlify
 
-from .backend.blockchain import get_balance, is_address_usable, can_receive_name, get_tx_confirmations
+from .backend.blockchain import get_balance, is_address_usable, can_receive_name, get_tx_confirmations, get_tx_fee
 from .backend.nameops import estimate_preorder_tx_fee, estimate_register_tx_fee, estimate_update_tx_fee, estimate_transfer_tx_fee, \
                             do_update, estimate_renewal_tx_fee
 
@@ -180,9 +182,16 @@ def operation_sanity_check(fqu, payment_privkey, config_path=CONFIG_PATH, transf
 
     # get tx fee 
     if transfer_address is not None:
-        tx_fee = estimate_transfer_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path ) 
+        tx_fee = estimate_transfer_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path )
+        if tx_fee is None:
+            # do our best 
+            tx_fee = get_tx_fee( "00" * APPROX_TRANSFER_TX_LEN, config_path=config_path )
+
     else:
         tx_fee = estimate_update_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path )
+        if tx_fee is None:
+            # do our best
+            tx_fee = get_tx_fee( "00" * APPROX_UPDATE_TX_LEN, config_path=config_path )
 
     if tx_fee is None:
         return {'error': 'Failed to get fee estimate'}
@@ -229,31 +238,31 @@ def get_total_registration_fees(name, payment_privkey, owner_address, proxy=None
 
     preorder_tx_fee = estimate_preorder_tx_fee( name, data['satoshis'], payment_address, utxo_client, config_path=config_path )
     if preorder_tx_fee is None:
-        preorder_tx_fee = "ERROR: Could not calculate preorder fee:  Insufficient funds in %s" % payment_address
+        # do our best
+        preorder_tx_fee = get_tx_fee( "00" * APPROX_PREORDER_TX_LEN, config_path=config_path )
         insufficient_funds = True
     else:
         preorder_tx_fee = int(preorder_tx_fee)
 
     register_tx_fee = estimate_register_tx_fee( name, payment_address, utxo_client, config_path=config_path )
     if register_tx_fee is None:
-        register_tx_fee = "ERROR: Could not calculate register fee:  Insufficient funds in %s" % payment_address
+        register_tx_fee = get_tx_fee( "00" * APPROX_REGISTER_TX_LEN, config_path=config_path )
         insufficient_funds = True
     else:
         register_tx_fee = int(register_tx_fee)
 
     update_tx_fee = estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=config_path )
     if update_tx_fee is None:
-        update_tx_fee = "ERROR: Could not calculate update fee:  Insufficient funds in %s" % payment_address
+        update_tx_fee = get_tx_fee( "00" * APPROX_UPDATE_TX_LEN, config_path=config_path )
         insufficient_funds = True
     else:
         update_tx_fee = int(update_tx_fee)
 
-    reply['preorder_tx_fee'] = preorder_tx_fee
-    reply['register_tx_fee'] = register_tx_fee
-    reply['update_tx_fee'] = update_tx_fee
-
-    if not insufficient_funds:
-        reply['total_estimated_cost'] = int(reply['name_price']) + reply['preorder_tx_fee'] + reply['register_tx_fee'] + reply['update_tx_fee']
+    reply['preorder_tx_fee'] = int(preorder_tx_fee)
+    reply['register_tx_fee'] = int(register_tx_fee)
+    reply['update_tx_fee'] = int(update_tx_fee)
+    reply['total_estimated_cost'] = int(reply['name_price']) + reply['preorder_tx_fee'] + reply['register_tx_fee'] + reply['update_tx_fee']
+    reply['warning'] = "Insufficient funds; fees are rough estimates"
 
     return reply
 
