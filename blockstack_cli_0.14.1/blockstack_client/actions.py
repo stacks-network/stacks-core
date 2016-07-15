@@ -217,7 +217,7 @@ def operation_sanity_check(fqu, payment_privkey, config_path=CONFIG_PATH, transf
     return {'status': True}
 
 
-def get_total_registration_fees(name, payment_privkey, owner_address, proxy=None, config_path=CONFIG_PATH):
+def get_total_registration_fees(name, payment_privkey, owner_address, proxy=None, config_path=CONFIG_PATH, payment_address=None):
 
     try:
         data = get_name_cost(name, proxy=proxy)
@@ -251,7 +251,7 @@ def get_total_registration_fees(name, payment_privkey, owner_address, proxy=None
     else:
         register_tx_fee = int(register_tx_fee)
 
-    update_tx_fee = estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=config_path )
+    update_tx_fee = estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=config_path, payment_address=payment_address )
     if update_tx_fee is None:
         update_tx_fee = get_tx_fee( "00" * APPROX_UPDATE_TX_LEN, config_path=config_path )
         insufficient_funds = True
@@ -262,7 +262,15 @@ def get_total_registration_fees(name, payment_privkey, owner_address, proxy=None
     reply['register_tx_fee'] = int(register_tx_fee)
     reply['update_tx_fee'] = int(update_tx_fee)
     reply['total_estimated_cost'] = int(reply['name_price']) + reply['preorder_tx_fee'] + reply['register_tx_fee'] + reply['update_tx_fee']
-    reply['warning'] = "Insufficient funds; fees are rough estimates"
+
+    if insufficient_funds and payment_privkey is not None:
+        reply['warnings'] = ["Insufficient funds; fees are rough estimates."]
+
+    if payment_privkey is None:
+        if not reply.has_key('warnings'):
+            reply['warnings'] = []
+
+        reply['warnings'].append("Wallet is locked; fees are rough estimates.")
 
     return reply
 
@@ -333,21 +341,26 @@ def cli_price( args, config_path=CONFIG_PATH, proxy=None, password=None):
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
 
+    payment_privkey = None
+    payment_address = None
+    owner_address = None
+
     if error:
         return {'error': error}
 
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
+    payment_address, owner_address, data_pubkey = get_addresses_from_file(config_dir=config_dir, wallet_path=wallet_path)
 
-    wallet_keys = get_wallet_keys( config_path, password )
-    if 'error' in wallet_keys:
-        return wallet_keys
+    if local_rpc_status(config_dir=config_dir):
+        try:
+            wallet_keys = get_wallet_keys( config_path, password )
+            if 'error' in wallet_keys:
+                return wallet_keys
 
-    owner_privkey = wallet_keys['owner_privkey']
-    payment_privkey = wallet_keys['payment_privkey']
-
-    owner_address = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().address()
+            payment_privkey = wallet_keys['payment_privkey']
+        
+        except OSError, IOError:
+            # backend is not running; estimate with addresses
+            pass
 
     # must be available 
     try:
@@ -358,9 +371,7 @@ def cli_price( args, config_path=CONFIG_PATH, proxy=None, password=None):
     if 'owner_address' in blockchain_record:
         return {'error': 'Name already registered.'}
 
-    
-    payment_address, owner_address, data_pubkey = get_addresses_from_file(config_dir=config_dir, wallet_path=wallet_path)
-    fees = get_total_registration_fees( fqu, payment_privkey, owner_address, proxy=proxy, config_path=config_path )
+    fees = get_total_registration_fees( fqu, payment_privkey, owner_address, proxy=proxy, config_path=config_path, payment_address=payment_address )
     analytics_event( "Name price", {} )
     return fees
 
