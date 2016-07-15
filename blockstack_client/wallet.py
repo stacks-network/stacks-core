@@ -531,9 +531,12 @@ def walletUnlocked(config_dir=CONFIG_DIR):
 
         try:
             wallet_data = local_proxy.backend_get_wallet(conf['rpc_token'])
+        except IOError, OSError:
+            return False
+
         except Exception, e:
             log.exception(e)
-            return {'error': 'Failed to get wallet'}
+            return False
 
         if 'error' in wallet_data:
             return False
