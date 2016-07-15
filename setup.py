@@ -16,7 +16,7 @@ setup(
     keywords='blockchain bitcoin btc cryptocurrency name key value store data',
     packages=find_packages(),
     scripts=['bin/blockstack'],
-    download_url='https://github.com/blockstack/blockstack-client/archive/master.zip',
+    download_url='https://github.com/blockstack/blockstack-cli/archive/master.zip',
     zip_safe=False,
     include_package_data=True,
     install_requires=[
