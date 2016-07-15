@@ -295,14 +295,19 @@ QUEUE_LENGTH_TO_MONITOR = 50
 MINIMUM_BALANCE = 0.002
 DEFAULT_POLL_INTERVAL = 300
 
-# approximate transaction sizes, for when the user has no balance
-# over-estimations, to be safe
+# approximate transaction sizes, for when the user has no balance.
+# over-estimations, to avoid stalled registrations.
 APPROX_PREORDER_TX_LEN = 620
 APPROX_REGISTER_TX_LEN = 620
 APPROX_UPDATE_TX_LEN = 1240
 APPROX_TRANSFER_TX_LEN = 1240
 APPROX_RENEWAL_TX_LEN = 1240
 APPROX_REVOKE_TX_LEN = 1240
+
+# for estimating tx lengths, when we can't generate a transaction.
+APPROX_TX_OVERHEAD_LEN = 12
+APPROX_TX_IN_P2PKH_LEN = 180
+APPROX_TX_OUT_P2PKH_LEN = 40
 
 DEFAULT_BLOCKCHAIN_READER = "blockcypher"
 DEFAULT_BLOCKCHAIN_WRITER = "blockcypher"
