@@ -20,7 +20,7 @@ from .queue import in_queue, queue_append, queue_findone
 
 from .blockchain import get_tx_confirmations
 from .blockchain import is_address_usable
-from .blockchain import can_receive_name, get_balance, get_tx_fee
+from .blockchain import can_receive_name, get_balance, get_tx_fee, get_utxos
 
 from crypto.utils import get_address_from_privkey, get_pubkey_from_privkey
 
@@ -28,7 +28,7 @@ from ..utils import pretty_print as pprint
 from ..utils import pretty_dump
 
 from ..config import PREORDER_CONFIRMATIONS, DEFAULT_QUEUE_PATH, CONFIG_PATH, get_utxo_provider_client, get_tx_broadcaster
-from ..config import get_logger
+from ..config import get_logger, APPROX_TX_IN_P2PKH_LEN, APPROX_TX_OUT_P2PKH_LEN, APPROX_TX_OVERHEAD_LEN
 
 from ..proxy import get_default_proxy
 from ..proxy import getinfo as blockstack_getinfo
@@ -130,7 +130,7 @@ def estimate_renewal_tx_fee( name, payment_privkey, owner_address, utxo_client, 
     return tx_fee
 
 
-def estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=CONFIG_PATH ):
+def estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=CONFIG_PATH, payment_address=None ):
     """
     Estimate the transaction fee of an update
     Return the number of satoshis on success
@@ -140,14 +140,36 @@ def estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, c
     fake_consensus_hash = 'd4049672223f42aac2855d2fbf2f38f0'
     fake_zonefile_hash = '20b512149140494c0f7d565023973226908f6940'
 
+    signed_subsidized_tx = None
+
     try:
         unsigned_tx = update_tx( name, fake_zonefile_hash, fake_consensus_hash, owner_address, utxo_client, subsidize=True )
-        subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_update, 21 * 10**14, payment_privkey, utxo_client )
+        if payment_privkey is not None:
+            # actually try to subsidize this tx
+            subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_update, 21 * 10**14, payment_privkey, utxo_client )
+            signed_subsidized_tx = sign_tx( subsidized_tx, fake_privkey )
+
+            # there will be at least one more output here (the registration output), so append that too 
+            signed_subsidized_tx += "00" * (APPROX_TX_OVERHEAD_LEN + APPROX_TX_IN_P2PKH_LEN + APPROX_TX_OUT_P2PKH_LEN)
+
+        else:
+            # do a rough size estimation 
+            if payment_address is not None:
+                log.debug("Payment private key not given; estimating the subsidization fee from UTXOs")
+                payment_utxos = get_utxos( payment_address, config_path=config_path, utxo_client=utxo_client ) 
+                if payment_utxos is None:
+                    raise ValueError()
+                
+                # assuming they're p2pkh outputs...
+                subsidy_byte_count = APPROX_TX_OVERHEAD_LEN + ((len(payment_utxos) + 3) * APPROX_TX_IN_P2PKH_LEN) + APPROX_TX_OUT_P2PKH_LEN
+                signed_subsidized_tx = unsigned_tx + "00" * (71 + subsidy_byte_count)    # ~71 bytes for signature
+
+            else:
+                raise Exception("Need either payment_privkey or payment_address")
+
     except ValueError:
         log.debug("Insufficient funds:  Not enough inputs to make an update transaction.")
         return None 
-
-    signed_subsidized_tx = sign_tx( subsidized_tx, fake_privkey )
 
     tx_fee = get_tx_fee( signed_subsidized_tx, config_path=config_path )
     if tx_fee is None:
