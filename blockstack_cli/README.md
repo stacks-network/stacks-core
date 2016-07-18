@@ -15,6 +15,15 @@ Installing the command line interface and client library:
 
 ### Debian + Ubuntu
 
+Via APT:
+```
+$ curl https://raw.githubusercontent.com/blockstack/packaging/master/repo-key.pub | sudo apt-key add -
+$ sudo sh -c "echo \"deb http://packages.blockstack.com/repositories/ubuntu xenial main\" > /etc/apt/sources.list.d/blockstack.list"
+$ sudo apt-get update
+$ sudo apt-get install blockstack
+```
+
+Via pip:
 ```
 $ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev libffi-dev
 $ sudo pip install blockstack --upgrade
