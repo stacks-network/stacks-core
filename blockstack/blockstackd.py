@@ -1052,31 +1052,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             log.debug("Invalid previous profile hash")
             return {'error': 'Invalid previous profile hash'}
 
-        """
-        # which public key?
-        data_pubkey = blockstack_client.user.user_zonefile_data_pubkey( zonefile_dict )
-        if data_pubkey is None:
-            if old_profile_txt is not None and len(old_profile_txt) > 0:
-                # fall back to owner pubkey from old profile
-                log.debug("Fall back to profile public key for '%s'")
-                try:
-                    profile_jwt = json.loads(old_profile_txt)
-                    if type(profile_jwt) == list:
-                        profile_jwt = profile_jwt[0]
-
-                    assert type(profile_jwt) == dict, "profile is not a dict"
-                    assert 'parentPublicKey' in profile_jwt.keys()
-
-                    data_pubkey = profile_jwt['parentPublicKey']
-
-                except Exception, e:
-                    log.exception(e)
-                    log.debug("Could not determine user data public key")
-                    return {'error': 'Could not determine user data public key'}
-        """
-
         # finally, verify the signature over the previous profile hash and this new profile
-        # rc = blockstack_client.storage.verify_raw_data( "%s%s" % (prev_profile_hash, profile_txt), data_pubkey, sigb64 )
         rc = blockstack_client.storage.verify_raw_data( "%s%s" % (prev_profile_hash, profile_txt), user_data_pubkey, sigb64 )
         if not rc:
             log.debug("Invalid signature")
