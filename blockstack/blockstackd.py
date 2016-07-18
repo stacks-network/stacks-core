@@ -320,9 +320,26 @@ class BlockstackdRPC(SimpleXMLRPCServer):
                     self.register_function( method )
 
 
+    def analytics(self, event_type, event_payload):
+        """
+        Report analytics information for this server
+        (uses this server's client handle)
+        """
+        ak = None
+        conf = get_blockstack_opts()
+        if conf.has_key('analytics_key'):
+            ak = conf['analytics_key']
+
+        if ak is None:
+            return
+
+        blockstack_client.client.analytics_event( event_type, event_payload, analytics_key=ak, action_tag="Perform server action" )
+
+
     def rpc_ping(self):
         reply = {}
         reply['status'] = "alive"
+        self.analytics("ping", {})
         return reply
 
 
@@ -361,6 +378,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             if namespace_record['lifetime'] != NAMESPACE_LIFE_INFINITE:
                 name_record['expire_block'] = namespace_record['lifetime'] + name_record['last_renewed']
 
+            self.analytics("get_name_blockchain_record", {})
             return name_record
 
 
@@ -390,6 +408,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
                 return {"error": "Not found."}
 
         else:
+            self.analytics("get_name_history", {})
             return name_history
 
 
@@ -464,6 +483,8 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         reply['blocks'] = db.get_current_block()
         reply['blockstack_version'] = "%s" % VERSION
         reply['last_block'] = reply['blocks']
+        
+        self.analytics("getinfo", {})
         return reply
 
 
@@ -566,6 +587,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return {"error": "Indexing blockchain"}
 
         db = get_state_engine()
+        self.analytics("get_all_names", {})
         return db.get_all_names( offset=offset, count=count )
 
 
@@ -590,6 +612,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return {"error": "Indexing blockchain"}
 
         db = get_state_engine()
+        self.analytics("get_all_names_in_namespace", {'namespace_id': namespace_id})
         return db.get_names_in_namespace( namespace_id, offset=offset, count=count )
 
 
@@ -604,6 +627,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return {'error': 'Indexing blockchain'}
 
         db = get_state_engine()
+        self.analytics("get_consensus_at", {'block_id': block_id})
         return db.get_consensus_at( block_id )
 
 
@@ -767,6 +791,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             else:
                 ret[zonefile_hash] = serialize_zonefile( zonefile )
 
+        self.analytics("get_zonefiles", {'count': len(zonefile_hashes)})
         return {'status': True, 'zonefiles': ret}
 
 
@@ -808,6 +833,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             else:
                 ret[name] = serialize_zonefile( zonefile )
 
+        self.analytics("get_zonefiles", {'count': len(names)})
         return {'status': True, 'zonefiles': ret}
 
 
@@ -877,6 +903,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             saved.append(1)
 
         log.debug("Saved %s zonefile(s)\n", sum(saved))
+        self.analytics("put_zonefiles", {'count': len(zonefile_datas)})
         return {'status': True, 'saved': saved}
 
 
