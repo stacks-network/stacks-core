@@ -31,6 +31,7 @@ if sys.version_info.minor < 7:
     raise Exception("Python 2.7 or greater is required")
 
 import traceback
+import json
 
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -67,7 +68,7 @@ if __name__ == '__main__':
 
             sys.exit(1)
         else:
-            pretty_print(result)
+            print json.dumps(result, indent=4, sort_keys=True)
             sys.exit(0)
 
     except Exception as e:
