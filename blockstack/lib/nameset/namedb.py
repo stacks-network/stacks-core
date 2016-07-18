@@ -462,7 +462,8 @@ class BlockstackDB( virtualchain.StateEngine ):
 
    def get_name_history( self, name, start_block, end_block ):
       """
-      Get the sequence of states of a name over a given point in time.
+      Get the dict of states of a name over a given point in time
+      (keyed by block ID)
 
       TODO: this is not particularly efficient
       """
@@ -471,13 +472,13 @@ class BlockstackDB( virtualchain.StateEngine ):
       if name_rec is None:
           return None
 
-      name_snapshots = []
+      name_snapshots = {}
 
       update_points = sorted( name_rec['history'].keys() )
       for update_point in update_points:
           if update_point >= start_block and update_point < end_block:
              historical_recs = self.get_name_at( name, update_point )
-             name_snapshots += historical_recs
+             name_snapshots[str(update_point)] = historical_recs
 
       return name_snapshots
 
