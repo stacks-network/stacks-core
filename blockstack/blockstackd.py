@@ -985,11 +985,13 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         db = get_db_state()
         name_rec = db.get_name(name)
         if name_rec is None:
+            log.debug("No name for '%s'" % name)
             return {'error': 'No such name'}
 
         # find zonefile 
         zonefile_dict = self.get_zonefile_by_name( conf, name, zonefile_storage_drivers )
         if zonefile_dict is None:
+            log.debug("No zonefile for '%s'" % name)
             return {'error': 'No zonefile'}
 
         # first, try to verify with zonefile public key (if one is given)
@@ -999,6 +1001,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
                 user_profile = blockstack_client.parse_signed_data( profile_txt, user_data_pubkey )
             except Exception, e:
                 log.exception(e)
+                log.debug("Failed to authenticate profile")
                 return {'error': 'Failed to authenticate profile'}
         
         else:
@@ -1006,16 +1009,19 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             db = get_state_engine()
             name_rec = db.get_name( name )
             if name_rec is None:
+                log.debug("No such name")
                 return {'error': 'No such name'}
 
             owner_addr = name_rec.get('address', None)
             if owner_addr is None:
+                log.debug("No owner address")
                 return {'error': 'No owner address'}
 
             try:
                 user_profile = blockstack_client.parse_signed_data( profile_txt, None, public_key_hash=owner_addr )
             except Exception, e:
                 log.exception(e)
+                log.debug("Failed to authenticate profile")
                 return {'error': 'Failed to authenticate profile'}
 
         # authentic!
@@ -1033,6 +1039,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
         old_profile_hash = pybitcoin.hex_hash160(old_profile_txt)
         if old_profile_hash != prev_profile_hash:
+            log.debug("Invalid previous profile hash")
             return {'error': 'Invalid previous profile hash'}
 
         # which public key?
@@ -1049,11 +1056,13 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
                 data_pubkey = profile_jwt['parentPublicKey']
             except:
+                log.debug("Could not determine user data public key")
                 return {'error': 'Could not determine user data public key'}
 
         # finally, verify the signature over the previous profile hash and this new profile
         rc = blockstack_client.storage.verify_raw_data( "%s%s" % (prev_profile_hash, profile_txt), data_pubkey, sigb64 )
         if not rc:
+            log.debug("Invalid signature")
             return {'error': 'Invalid signature'}
 
         # success!  store it
@@ -1075,9 +1084,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             successes += 1
 
         if successes == 0:
+            log.debug("Failed to store profile for '%s'" % name)
             return {'error': 'Failed to replicate profile'}
         else:
-            log.debug("Stored profile from '%s'" % name)
+            log.debug("Stored profile for '%s'" % name)
             return {'status': True, 'num_replicas': successes, 'num_failures': len(blockstack_client.get_storage_handlers()) - successes}
 
     
