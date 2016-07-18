@@ -623,11 +623,28 @@ def cli_whois( args, config_path=CONFIG_PATH ):
         if record.has_key('revoked') and record['revoked']:
             return {'error': 'Name is revoked.  Use get_name_blockchain_record for details.'}
 
+        history = record.get('history', {})
+        try:
+            assert type(history) == dict
+
+            for k in history.keys():
+                # must be ints 
+                i = int(k)
+
+        except:
+            return {'error': 'Invalid record data returned'}
+
+        update_heights = [int(k) for k in history.keys()]
+        update_heights.sort()
+
         result['block_preordered_at'] = record['preorder_block_number']
         result['block_renewed_at'] = record['last_renewed']
         result['last_transaction_id'] = record['txid']
         result['owner_address'] = record['address']
         result['owner_script'] = record['sender']
+
+        if len(update_heights) > 0:
+            result['last_transaction_height'] = update_heights[-1]
 
         if not record.has_key('value_hash') or record['value_hash'] in [None, "null", ""]:
             result['has_zonefile'] = False
