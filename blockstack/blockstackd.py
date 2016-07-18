@@ -1028,6 +1028,9 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             log.debug("Failed to load profile for '%s'" % name)
             return {'error': 'Failed to load profile'}
 
+        if old_profile_txt is None:
+            old_profile_txt = ""
+
         old_profile_hash = pybitcoin.hex_hash160(old_profile_txt)
         if old_profile_hash != prev_profile_hash:
             return {'error': 'Invalid previous profile hash'}
