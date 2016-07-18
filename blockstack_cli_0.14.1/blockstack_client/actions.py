@@ -1718,6 +1718,33 @@ def cli_advanced_get_name_blockchain_record( args, config_path=CONFIG_PATH ):
     return result
 
 
+def cli_advanced_get_name_blockchain_history( args, config_path=CONFIG_PATH ):
+    """
+    command: get_name_blockchain_history
+    help: Get a sequence of historic blockchain records for a name
+    arg: name (str) "The name to query"
+    opt: start_block (int) "The start block height"
+    opt: end_block (int) "The end block height"
+    """
+    start_block = args.start_block
+    if start_block is None:
+        start_block = FIRST_BLOCK_MAINNET
+    else:
+        start_block = int(args.start_block)
+
+    end_block = args.end_block
+    if end_block is None:
+        # I would love to have to update this number in the future,
+        # if it proves too small.  That would be a great problem
+        # to have :-)
+        end_block = 100000000
+    else:
+        end_block = int(args.end_block)
+
+    result = get_name_blockchain_history( str(args.name), start_block, end_block )
+    return result
+
+
 def cli_advanced_get_namespace_blockchain_record( args, config_path=CONFIG_PATH ):
     """
     command: get_namespace_blockchain_record
