@@ -1019,10 +1019,19 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
             try:
                 user_profile = blockstack_client.parse_signed_data( profile_txt, None, public_key_hash=owner_addr )
+
+                # seems to have worked
+                profile_jwt = json.loads(profile_txt)
+                if type(profile_jwt) == list:
+                    profile_jwt = profile_jwt[0]
+
+                user_data_pubkey = profile_jwt['parentPublicKey']
+
             except Exception, e:
                 log.exception(e)
                 log.debug("Failed to authenticate profile")
                 return {'error': 'Failed to authenticate profile'}
+
 
         # authentic!
         # next, verify that the previous profile actually does have this hash 
@@ -1035,6 +1044,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return {'error': 'Failed to load profile'}
 
         if old_profile_txt is None:
+            # no profile yet (or error)
             old_profile_txt = ""
 
         old_profile_hash = pybitcoin.hex_hash160(old_profile_txt)
@@ -1042,25 +1052,32 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             log.debug("Invalid previous profile hash")
             return {'error': 'Invalid previous profile hash'}
 
+        """
         # which public key?
-        data_pubkey = blockstack_client.user.user_zonefile_data_pubkey( zonefile )
+        data_pubkey = blockstack_client.user.user_zonefile_data_pubkey( zonefile_dict )
         if data_pubkey is None:
-            # fall back to owner pubkey from profile
-            try:
-                profile_jwt = json.loads(old_profile_txt)
-                if type(profile_jwt) == list:
-                    profile_jwt = profile_jwt[0]
+            if old_profile_txt is not None and len(old_profile_txt) > 0:
+                # fall back to owner pubkey from old profile
+                log.debug("Fall back to profile public key for '%s'")
+                try:
+                    profile_jwt = json.loads(old_profile_txt)
+                    if type(profile_jwt) == list:
+                        profile_jwt = profile_jwt[0]
 
-                assert type(profile_jwt) == dict
-                assert 'parentPublicKey' in profile_jwt.keys()
+                    assert type(profile_jwt) == dict, "profile is not a dict"
+                    assert 'parentPublicKey' in profile_jwt.keys()
 
-                data_pubkey = profile_jwt['parentPublicKey']
-            except:
-                log.debug("Could not determine user data public key")
-                return {'error': 'Could not determine user data public key'}
+                    data_pubkey = profile_jwt['parentPublicKey']
+
+                except Exception, e:
+                    log.exception(e)
+                    log.debug("Could not determine user data public key")
+                    return {'error': 'Could not determine user data public key'}
+        """
 
         # finally, verify the signature over the previous profile hash and this new profile
-        rc = blockstack_client.storage.verify_raw_data( "%s%s" % (prev_profile_hash, profile_txt), data_pubkey, sigb64 )
+        # rc = blockstack_client.storage.verify_raw_data( "%s%s" % (prev_profile_hash, profile_txt), data_pubkey, sigb64 )
+        rc = blockstack_client.storage.verify_raw_data( "%s%s" % (prev_profile_hash, profile_txt), user_data_pubkey, sigb64 )
         if not rc:
             log.debug("Invalid signature")
             return {'error': 'Invalid signature'}
