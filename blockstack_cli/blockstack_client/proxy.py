@@ -350,6 +350,17 @@ def get_consensus_range(block_id_start, block_id_end, proxy=None):
     return resp
 
 
+def get_name_blockchain_history(name, start_block, end_block, proxy=None):
+    """
+    Get the name's historical blockchain records
+    """
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    resp = proxy.get_name_blockchain_history(name, start_block, end_block)
+    return resp
+
+
 def get_nameops_at(block_id, proxy=None):
     """
     Get the set of records as they were at a particular block.
