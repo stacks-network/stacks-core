@@ -42,7 +42,7 @@ setup(
     install_requires=[
         'virtualchain>=0.0.13.0',
         'keychain>=0.1.4',
-        'blockstack-client>=0.0.13.0',
+        'blockstack-client>=0.0.13.7',
         'defusedxml>=0.4.1',
         'pycrypto>=2.6.1'
     ],
