@@ -178,11 +178,14 @@ def get_analytics_key( uuid, proxy=None ):
     return key['analytics_key']
 
 
-def analytics_event( event_type, event_payload, config_path=CONFIG_PATH, proxy=None ):
+def analytics_event( event_type, event_payload, config_path=CONFIG_PATH, proxy=None, analytics_key=None, action_tag="Perform action" ):
     """
     Log an analytics event
     Return True if logged
     Return False if not
+
+    The client uses 'Perform action' as its action tag, so we can distinguish
+    client events from server events.  The server uses separate action tags.
     """
     global ANALYTICS_KEY
 
@@ -201,16 +204,24 @@ def analytics_event( event_type, event_payload, config_path=CONFIG_PATH, proxy=N
         return False
    
     u = conf['uuid']
-    if ANALYTICS_KEY is None:
-        ANALYTICS_KEY = get_analytics_key( u )
+    ak = analytics_key
+    if ak is None:
+        ak = ANALYTICS_KEY
+
+    if ak is None:
         if ANALYTICS_KEY is None:
-            return False
+            # fetch from server
+            ANALYTICS_KEY = get_analytics_key( u, proxy=proxy )
+            if ANALYTICS_KEY is None:
+                return False
+
+        ak = ANALYTICS_KEY
 
     # log the event
     log.debug("Track event '%s': %s" % (event_type, event_payload))
     mp = mixpanel.Mixpanel(ANALYTICS_KEY)
     mp.track( u, event_type, event_payload )
-    mp.track( u, "Perform action", {} )
+    mp.track( u, action_tag, {} )
     return True
 
 
