@@ -39,7 +39,7 @@ from ..config import NAMESPACE_DEFAULT, MIN_OP_LENGTHS, OPCODES, MAX_NAMES_PER_S
     NAMESPACE_PREORDER_EXPIRE, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_REVEAL, BLOCKSTACK_VERSION, \
     NAMESPACE_1_CHAR_COST, NAMESPACE_23_CHAR_COST, NAMESPACE_4567_CHAR_COST, NAMESPACE_8UP_CHAR_COST, NAME_COST_UNIT, \
     NAME_IMPORT_KEYRING_SIZE, GENESIS_SNAPSHOT, default_blockstack_opts, NAMESPACE_READY, \
-    FIRST_BLOCK_MAINNET, NAME_OPCODES
+    FIRST_BLOCK_MAINNET, NAME_OPCODES, NAMESPACE_LIFETIME_MULTIPLER
 
 from ..operations import SERIALIZE_FIELDS
 from ..hashing import *
@@ -395,7 +395,7 @@ class BlockstackDB( virtualchain.StateEngine ):
               return False
 
       else:
-          if max( ns['ready_block'], namerec['last_renewed'] ) + ns['lifetime'] < block_number:
+          if max( ns['ready_block'], namerec['last_renewed'] ) + (ns['lifetime'] * NAMESPACE_LIFETIME_MULTIPLER) < block_number:
               # expired
               return True
           else:
