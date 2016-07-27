@@ -755,6 +755,8 @@ def snv_all_names( state_engine ):
             if api_call.result.has_key('transaction_hash'):
                 all_names[name][block_id]['txid'] = api_call.result['transaction_hash']
 
+    for block_id, name_list in snv_fail_at.items():
+        log.debug("Expect SNV fail on %s at %s" % (",".join(name_list), block_id))
 
     log.debug("SNV verify %s names" % len(all_names.keys()))
 
