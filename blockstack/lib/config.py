@@ -23,6 +23,7 @@
 
 import os
 import sys
+import copy
 from ConfigParser import SafeConfigParser
 import pybitcoin
 import blockstack_utxo
@@ -494,9 +495,9 @@ def default_blockstack_opts( config_file=None ):
    serve_profiles = False
    zonefile_dir = None
    analytics_key = None
-   zonefile_storage_drivers = ""
+   zonefile_storage_drivers = "disk"
    profile_storage_drivers = ""
-   server_version = ""
+   server_version = None
 
    if parser.has_section('blockstack'):
 
@@ -702,7 +703,18 @@ def configure( config_file=None, force=False, interactive=True ):
    # if we prompted, then save
    if num_bitcoind_prompted > 0 or num_blockstack_opts_prompted > 0:
        print >> sys.stderr, "Saving configuration to %s" % config_file
-       blockstack_client.config.write_config_file( ret, config_file )
+   
+       # always set version when writing
+       config_opts = copy.deepcopy(ret)
+       if not config_opts['blockstack'].has_key('server_version'):
+           config_opts['blockstack']['server_version'] = VERSION
+
+       # if the config file doesn't exist, then set the version 
+       # in ret as well, since it's what's written
+       if not os.path.exists(config_file):
+           ret['blockstack']['server_version'] = VERSION
+
+       blockstack_client.config.write_config_file( config_opts, config_file )
 
    # prefix our bitcoind options, so they work with virtualchain
    ret['bitcoind'] = blockstack_client.config.opt_restore("bitcoind_", ret['bitcoind'])

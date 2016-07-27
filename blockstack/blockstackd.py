@@ -1532,8 +1532,8 @@ def setup( working_dir=None, return_parser=False ):
    bitcoin_opts = opts['bitcoind']
 
    # config file version check
-   config_server_version = blockstack_opts.get('server_version', "")
-   if not semver_match( config_server_version, VERSION ):
+   config_server_version = blockstack_opts.get('server_version', None)
+   if config_server_version is None or not semver_match( config_server_version, VERSION ):
        print >> sys.stderr, "Obsolete config file (%s).\nPlease move it out of the way, so Blockstack Server can generate a fresh one." % virtualchain.get_config_filename()
        return None
 
