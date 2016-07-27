@@ -24,6 +24,7 @@
 import testlib
 import pybitcoin
 import json
+import blockstack as blockstack_server
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -82,7 +83,8 @@ def scenario( wallets, **kw ):
         if i == 10:
             break
 
-        testlib.next_block( **kw )
+        for j in xrange(0, 2 * blockstack_server.NAMESPACE_LIFETIME_MULTIPLER - 1):
+            testlib.next_block( **kw )
 
 
 def check( state_engine ):

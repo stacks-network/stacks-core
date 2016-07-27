@@ -24,6 +24,7 @@
 import testlib
 import pybitcoin
 import json
+import blockstack as blockstack_server
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -54,6 +55,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # preorder, register, update, expire (multiple times)
+    # take into account the new namespace lifetime multipler
     for i in xrange(2, 11):
         resp = testlib.blockstack_name_preorder( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr )
         if 'error' in resp:
@@ -72,6 +74,10 @@ def scenario( wallets, **kw ):
             print json.dumps( resp, indent=4 )
 
         testlib.next_block( **kw )
+
+        # wait for expiration 
+        for j in xrange(0, blockstack_server.NAMESPACE_LIFETIME_MULTIPLIER - 2):
+            testlib.next_block( **kw)
 
         if i == 10:
             break

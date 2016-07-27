@@ -24,6 +24,7 @@
 import testlib
 import pybitcoin
 import json
+import blockstack as blockstack_server
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -40,8 +41,8 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
 
-    # NOTE: names expire in 13 blocks
-    testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 13, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
+    # NOTE: names expire in 5 * NAMESPACE_LIFETIME_MULTIPLER blocks
+    testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 5, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
     testlib.next_block( **kw )
 
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
@@ -53,9 +54,10 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
-    for i in xrange(0, 15):
+    for i in xrange(0, 5 * blockstack_server.NAMESPACE_LIFETIME_MULTIPLIER):
         testlib.next_block( **kw )
 
+    testlib.next_block( **kw )
 
 def check( state_engine ):
 
