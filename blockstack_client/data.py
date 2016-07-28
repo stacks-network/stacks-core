@@ -286,11 +286,15 @@ def list_update_history( name, current_block=None, proxy=None ):
     name_history = proxy.get_name_blockchain_history( name, 0, current_block )
     all_update_hashes = []
 
-    for state in name_history:
-        if state.has_key('value_hash') and state['value_hash'] is not None:
-            if len(all_update_hashes) == 0 or all_update_hashes[-1] != state['value_hash']:
-                # changed
-                all_update_hashes.append( state['value_hash'] )
+    block_id_strs = name_history.keys()
+    block_id_strs.sort()
+    for block_id_str in block_id_strs:
+        history_data_list = name_history[block_id_str]
+        for history_data in history_data_list:
+            if history_data.has_key('value_hash') and history_data['value_hash'] is not None:
+                if len(all_update_hashes) == 0 or all_update_hashes[-1] != history_data['value_hash']:
+                    # changed
+                    all_update_hashes.append( history_data['value_hash'] )
 
     return all_update_hashes
 
