@@ -33,6 +33,7 @@ import snv
 import spv 
 import rpc
 import storage
+import backend
 
 from proxy import BlockstackRPCClient, get_default_proxy, set_default_proxy, json_traceback
 from proxy import getinfo, ping, get_name_cost, get_namespace_cost, get_all_names, get_names_in_namespace, \
@@ -41,6 +42,7 @@ from proxy import getinfo, ping, get_name_cost, get_namespace_cost, get_all_name
         
 from keys import make_wallet_keys, get_owner_keypair, get_data_keypair, get_payment_keypair
 
+from cli import get_cli_basic_methods, get_cli_advanced_methods
 from client import session, get_default_proxy, set_default_proxy, register_storage, load_storage
 
 from snv import snv_lookup, lookup_snv
@@ -67,7 +69,7 @@ from storage import get_storage_handlers, hash_zonefile
 from storage import BlockstackURLHandle, BlockstackHandler, get_data_hash, get_blockchain_compat_hash, get_zonefile_data_hash
 from storage import parse_mutable_data as parse_signed_data
 
-from config import USER_ZONEFILE_TTL
+from config import USER_ZONEFILE_TTL, DEFAULT_API_PORT
 
 from wallet import get_payment_addresses_and_balances, get_owner_addresses_and_names, dump_wallet, load_wallet, get_wallet
 
@@ -75,3 +77,4 @@ from user import is_user_zonefile, user_zonefile_data_pubkey
 
 from operations import *
 from backend.nameops import *
+
