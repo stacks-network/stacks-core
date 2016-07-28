@@ -12,7 +12,7 @@ The first step is to activate "advanced mode" in the CLI.  The command to do so 
 
 ## Step 2:  Add an OpenBazaar Account
 
-The second step is to create an OpenBazaar account for your profile, if you haven't done so already via [Onename](https://onename.com).  The command to do so is:
+The second step is to create an OpenBazaar account for your profile (the [Onename](https://onename.com) app also enabled to link your OpenBazaar GUID). The command to do so is:
 
 ```
     $ blockstack put_account "<BLOCKSTACK ID>" "openbazaar" "<YOUR OB GUID>" "<URL TO YOUR STORE>"
@@ -45,7 +45,7 @@ Common problems you might encounter.
 
 ## Profile is in legacy format
 
-If you registered your blockstack ID before spring 2016, there's a chance that your profile is still in a legacy format.  It will get migrated to the new format automatically if you update your profile on [Onename.com](https://onename.com).  However, you have to do this manually with the CLI.
+If you registered your blockstack ID before spring 2016, there's a chance that your profile is still in a legacy format.  It will get migrated to the new format automatically if you update your profile on the [Onename](https://onename.com) app.  However, you have to do this manually with the CLI.
 
 To do so, the command is:
 ```
