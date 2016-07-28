@@ -97,7 +97,7 @@ from blockstack_client import \
     put_immutable, \
     put_mutable
 
-from rpc import local_rpc_connect, local_rpc_ensure_running, local_rpc_status, local_rpc_stop
+from rpc import local_rpc_connect, local_rpc_status, local_rpc_stop, start_rpc_endpoint
 import rpc as local_rpc
 import config
 from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR, configure, FIRST_BLOCK_TIME_UTC, get_utxo_provider_client, set_advanced_mode, \
@@ -275,23 +275,18 @@ def get_total_registration_fees(name, payment_privkey, owner_address, proxy=None
     return reply
 
 
-def start_rpc_endpoint(config_dir=CONFIG_DIR, password=None, wallet_path=None):
+def wallet_ensure_exists( config_dir=CONFIG_DIR, password=None, wallet_path=None ):
     """
-    Decorator that will ensure that the RPC endpoint
-    is running before the wrapped function is called.
-    Raise on error
+    Ensure that the wallet exists and is initialized
+    Return {'status': True} on success
+    Return {'error': ...} on error
     """
-
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
 
     if not wallet_exists(config_dir=config_dir):
-        res = initialize_wallet(wallet_path=wallet_path)
+        res = initialize_wallet(wallet_path=wallet_path, password=password)
         if 'error' in res:
             return res
-
-    rc = local_rpc_ensure_running( config_dir, password=password )
-    if not rc:
-        return {'error': 'Failed to start RPC endpoint (in working directory %s).\nPlease check your password, and verify that the working directory exists and is writeable.' % config_dir}
 
     return {'status': True}
 
@@ -474,6 +469,10 @@ def get_server_info( args, config_path=config.CONFIG_PATH, get_local_info=False 
 
         if get_local_info:
             # get state of pending names
+            res = wallet_ensure_exists(config_dir)
+            if 'error' in res:
+                return res
+
             res = start_rpc_endpoint(config_dir)
             if 'error' in res:
                 return res 
@@ -537,7 +536,7 @@ def get_server_info( args, config_path=config.CONFIG_PATH, get_local_info=False 
 
 def cli_info( args, config_path=CONFIG_PATH ):
     """
-    command: info
+    command: info norpc
     help: Get details about pending name commands
     """
     return get_server_info( args, config_path=config_path, get_local_info=True )
@@ -690,7 +689,7 @@ def get_wallet_keys( config_path, password ):
 
 def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None ):
     """
-    command: register
+    command: register norpc
     help: Register a name 
     arg: name (str) "The name to register"
     """
@@ -699,6 +698,10 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
         proxy = get_default_proxy(config_path)
 
     config_dir = os.path.dirname(config_path)
+    res = wallet_ensure_exists(config_dir)
+    if 'error' in res:
+        return res
+
     res = start_rpc_endpoint(config_dir, password=password)
     if 'error' in res:
         return res
@@ -780,13 +783,17 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
 
 def cli_update( args, config_path=CONFIG_PATH, password=None ):
     """
-    command: update
+    command: update norpc
     help: Set the zone file for a name
     arg: name (str) "The name to update"
     arg: data (str) "A bare zonefile, or a JSON-serialized zonefile."
     """
 
     config_dir = os.path.dirname(config_path)
+    res = wallet_ensure_exists(config_dir)
+    if 'error' in res:
+        return res
+
     res = start_rpc_endpoint(config_dir, password=password)
     if 'error' in res:
         return res
@@ -872,13 +879,17 @@ def cli_update( args, config_path=CONFIG_PATH, password=None ):
 
 def cli_transfer( args, config_path=CONFIG_PATH, password=None ):
     """
-    command: transfer
+    command: transfer norpc
     help: Transfer a name to a new address
     arg: name (str) "The name to transfer"
     arg: address (str) "The address to receive the name"
     """
 
     config_dir = os.path.dirname(config_path)
+    res = wallet_ensure_exists(config_dir)
+    if 'error' in res:
+        return res
+
     res = start_rpc_endpoint(config_dir, password=password)
     if 'error' in res:
         return res
@@ -926,7 +937,7 @@ def cli_transfer( args, config_path=CONFIG_PATH, password=None ):
 
 def cli_renew( args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None ):
     """
-    command: renew
+    command: renew norpc
     help: Renew a name 
     arg: name (str) "The name to renew"
     """
@@ -935,6 +946,10 @@ def cli_renew( args, config_path=CONFIG_PATH, interactive=True, password=None, p
         proxy = get_default_proxy(config_path)
 
     config_dir = os.path.dirname(config_path)
+    res = wallet_ensure_exists(config_dir)
+    if 'error' in res:
+        return res
+
     res = start_rpc_endpoint(config_dir, password=password)
     if 'error' in res:
         return res
@@ -1032,7 +1047,7 @@ def cli_renew( args, config_path=CONFIG_PATH, interactive=True, password=None, p
 
 def cli_revoke( args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None ):
     """
-    command: revoke
+    command: revoke norpc
     help: Revoke a name 
     arg: name (str) "The name to revoke"
     """
@@ -1041,6 +1056,10 @@ def cli_revoke( args, config_path=CONFIG_PATH, interactive=True, password=None, 
         proxy = get_default_proxy(config_path)
 
     config_dir = os.path.dirname(config_path)
+    res = wallet_ensure_exists(config_dir)
+    if 'error' in res:
+        return res
+
     res = start_rpc_endpoint(config_dir, password=password)
     if 'error' in res:
         return res
@@ -1109,13 +1128,17 @@ def cli_revoke( args, config_path=CONFIG_PATH, interactive=True, password=None, 
 
 def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None, interactive=True, force=False ):
     """
-    command: migrate
+    command: migrate norpc
     help: Migrate a profile to the latest profile format
     arg: name (str) "The name to migrate"
     opt: txid (str) "The transaction ID of a previously-sent but failed migration"
     """
 
     config_dir = os.path.dirname(config_path)
+    res = wallet_ensure_exists(config_dir)
+    if 'error' in res:
+        return res
+
     res = start_rpc_endpoint(config_dir, password=password)
     if 'error' in res:
         return res
@@ -1142,26 +1165,19 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None, inter
 
     user_zonefile = get_name_zonefile( fqu, proxy=proxy, wallet_keys=wallet_keys )
     if user_zonefile is not None and 'error' not in user_zonefile:
-        
+
         # got a zonefile...
-        if is_zonefile_current(fqu, user_zonefile):
+        legacy = blockstack_profiles.is_profile_in_legacy_format( user_zonefile )
+        if not legacy and is_zonefile_current(fqu, user_zonefile):
             msg ="Zonefile data is same as current zonefile; update not needed."
             return {'error': msg}
 
-        if not blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
+        if not legacy and interactive:
             # maybe this is intentional (like fixing a corrupt zonefile)
             # ask if so
-            if interactive:
-                pass
-
-            else:
-                if not force:
-                    msg = "Not a legacy profile; cannot migrate."
-                    return {'error': msg}
-                else:
-                    # do it anyway
-                    pass
-                    
+            if not force:
+                msg = "Not a legacy profile; cannot migrate."
+                return {'error': msg}
 
     rpc = local_rpc_connect(config_dir=config_dir)
 
@@ -1242,6 +1258,7 @@ def cli_advanced_import_wallet( args, config_path=CONFIG_PATH, password=None, fo
             # update RPC daemon if we're running
             if local_rpc_status(config_dir=config_dir):
                 local_rpc_stop(config_dir=config_dir)
+
                 res = start_rpc_endpoint(config_dir, password=password)
                 if 'error' in res:
                     return res
@@ -1262,6 +1279,10 @@ def cli_advanced_list_accounts( args, proxy=None, config_path=CONFIG_PATH, passw
 
     result = {}
     config_dir = os.path.dirname(config_path)
+    res = wallet_ensure_exists(config_dir, password=password)
+    if 'error' in res:
+        return res
+
     res = start_rpc_endpoint(config_dir, password=password)
     if 'error 'in res:
         return res
@@ -1291,6 +1312,10 @@ def cli_advanced_get_account( args, proxy=None, config_path=CONFIG_PATH, passwor
 
     result = {}
     config_dir = os.path.dirname(config_path)
+    res = wallet_ensure_exists(config_dir, password=password)
+    if 'error' in res:
+        return res
+
     res = start_rpc_endpoint(config_dir, password=password)
     if 'error' in res:
         return res
@@ -1325,6 +1350,10 @@ def cli_advanced_put_account( args, proxy=None, config_path=CONFIG_PATH, passwor
 
     result = {}
     config_dir = os.path.dirname(config_path)
+    res = wallet_ensure_exists(config_dir, password=password)
+    if 'error' in res:
+        return res
+
     res = start_rpc_endpoint(config_dir, password=password)
     if 'error' in res:
         return res
@@ -1376,6 +1405,10 @@ def cli_advanced_delete_account( args, proxy=None, config_path=CONFIG_PATH, pass
 
     result = {}
     config_dir = os.path.dirname(config_path)
+    res = wallet_ensure_exists(config_dir, password=password)
+    if 'error' in res:
+        return res
+
     res = start_rpc_endpoint(config_dir, password=password)
     if 'error' in res:
         return res
@@ -1399,12 +1432,16 @@ def cli_advanced_delete_account( args, proxy=None, config_path=CONFIG_PATH, pass
 
 def cli_advanced_wallet( args, config_path=CONFIG_PATH, password=None ):
     """
-    command: wallet
+    command: wallet norpc
     help: Query wallet information
     """
     
     result = {}
     config_dir = os.path.dirname(config_path)
+    res = wallet_ensure_exists(config_dir, password=password)
+    if 'error' in res:
+        return res
+
     res = start_rpc_endpoint(config_dir, password=password)
     if 'error' in res:
         return res
@@ -1454,7 +1491,7 @@ def cli_advanced_consensus( args, config_path=CONFIG_PATH ):
 
 def cli_advanced_rpcctl( args, config_path=CONFIG_PATH ):
     """
-    command: rpcctl
+    command: rpcctl norpc
     help: Control the background blockstack API endpoint
     arg: command (str) "'start', 'stop', 'restart', or 'status'"
     """
@@ -1472,7 +1509,7 @@ def cli_advanced_rpcctl( args, config_path=CONFIG_PATH ):
 
 def cli_advanced_rpc( args, config_path=CONFIG_PATH ):
     """
-    command: rpc
+    command: rpc norpc
     help: Issue an RPC request to a locally-running API endpoint
     arg: method (str) "The method to call"
     opt: args (str) "A JSON list of positional arguments."
@@ -1483,13 +1520,23 @@ def cli_advanced_rpc( args, config_path=CONFIG_PATH ):
     rpc_kw = {}
 
     if args.args is not None:
-        rpc_args = json.loads(args.args)
+        try:
+            rpc_args = json.loads(args.args)
+        except:
+            print >> sys.stderr, "Not JSON: '%s'" % args.args
+            return {'error': 'Invalid arguments'}
 
     if args.kwargs is not None:
-        rpc_kw = json.loads(args.kwargs)
+        try:
+            rpc_kw = json.loads(args.kwargs)
+        except:
+            print >> sys.stderr, "Not JSON: '%s'" % args.kwargs
+            return {'error': 'Invalid arguments'}
 
     conf = config.get_config( path=config_path )
     portnum = conf['api_endpoint_port']
+    rpc_kw['config_dir'] = os.path.dirname(config_path)
+
     result = local_rpc.local_rpc_dispatch( portnum, str(args.method), *rpc_args, **rpc_kw ) 
     return result
 
@@ -1536,7 +1583,7 @@ def cli_advanced_namespace_reveal( args, config_path=CONFIG_PATH ):
     help: Reveal a namespace and set its pricing parameters
     arg: namespace_id (str) "The namespace ID"
     arg: addr (str) "The address of the keypair that will import names (given in the namespace preorder)"
-    arg: lifetime (int) "The lifetime (in blocks) for eahc name.  Negative means 'never expires'."
+    arg: lifetime (int) "The lifetime (in blocks) for each name.  Negative means 'never expires'."
     arg: coeff (int) "The multiplicative coefficient in the price function."
     arg: base (int) "The exponential base in the price function."
     arg: bucket_exponents (str) "A 16-field CSV of name-length exponents in the price function."
@@ -1610,6 +1657,10 @@ def cli_advanced_put_immutable( args, config_path=CONFIG_PATH ):
     arg: data (str) "The JSON-formatted data to store"
     """
     config_dir = os.path.dirname(config_path)
+    res = wallet_ensure_exists(config_dir, password=password)
+    if 'error' in res:
+        return res
+
     res = start_rpc_endpoint(config_dir)
     if 'error' in res:
         return res
@@ -1688,6 +1739,10 @@ def cli_advanced_delete_immutable( args, config_path=CONFIG_PATH ):
     """
     
     config_dir = os.path.dirname(config_path)
+    res = wallet_ensure_exists(config_dir, password=password)
+    if 'error' in res:
+        return res
+
     res = start_rpc_endpoint(config_dir)
     if 'error' in res:
         return res
@@ -1852,12 +1907,16 @@ def cli_advanced_get_nameops_at( args, config_path=CONFIG_PATH ):
 
 def cli_advanced_set_zonefile_hash( args, config_path=CONFIG_PATH, password=None ):
     """
-    command: set_zonefile_hash
+    command: set_zonefile_hash norpc
     help: Directly set the hash associated with the name in the blockchain.
     arg: name (str) "The name to update"
     arg: zonefile_hash (str) "The RIPEMD160(SHA256(zonefile)) hash"
     """
     config_dir = os.path.dirname(config_path)
+    res = wallet_ensure_exists(config_dir, password=password)
+    if 'error' in res:
+        return res
+
     res = start_rpc_endpoint(config_dir, password=password)
     if 'error' in res:
         return res
