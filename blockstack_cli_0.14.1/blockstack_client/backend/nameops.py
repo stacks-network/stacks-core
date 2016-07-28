@@ -159,6 +159,10 @@ def estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, c
                 payment_utxos = get_utxos( payment_address, config_path=config_path, utxo_client=utxo_client ) 
                 if payment_utxos is None:
                     raise ValueError()
+
+                if 'error' in payment_utxos:
+                    log.error("Failed to query UTXOs for %s: %s" % payment_address, payment_utxos['error'])
+                    raise Exception("Failed to query UTXO provider: %s" % payment_utxos['error'])
                 
                 # assuming they're p2pkh outputs...
                 subsidy_byte_count = APPROX_TX_OVERHEAD_LEN + ((len(payment_utxos) + 3) * APPROX_TX_IN_P2PKH_LEN) + APPROX_TX_OUT_P2PKH_LEN
@@ -170,6 +174,9 @@ def estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, c
     except ValueError:
         log.debug("Insufficient funds:  Not enough inputs to make an update transaction.")
         return None 
+
+    except Exception:
+        return None
 
     tx_fee = get_tx_fee( signed_subsidized_tx, config_path=config_path )
     if tx_fee is None:
