@@ -48,7 +48,7 @@ sys.path.insert(0, parent_dir)
 from .proxy import *
 from .keys import get_owner_keypair, get_payment_keypair, get_data_or_owner_privkey
 from blockstack_client import storage
-from blockstack_client import user as user_d
+from blockstack_client import user as user_db
 
 from storage import hash_zonefile
 import pybitcoin
