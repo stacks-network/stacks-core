@@ -953,3 +953,29 @@ def update_config(section, option, value, config_path=CONFIG_PATH):
 
         with open(config_path, 'wb') as configfile:
             parser.write(configfile)
+
+
+def semver_match( v1, v2):
+    """
+    Verify that two semantic version strings match:
+    the major, minor, and patch versions must be equal.
+    """
+    v1_parts = v1.split(".")
+    v2_parts = v2.split(".")
+    if len(v1_parts) < 4 or len(v2_parts) < 4:
+        # one isn't a semantic version 
+        return False
+
+    v1_major, v1_minor, v1_patch, v1_features = v1_parts[0], v1_parts[1], v1_parts[2], v1_parts[3:]
+    v2_major, v2_minor, v2_patch, v2_features = v2_parts[0], v2_parts[1], v2_parts[2], v2_parts[3:]
+    if v1_major != v2_major:
+        return False
+
+    if v1_minor != v2_minor:
+        return False
+
+    if v1_patch != v2_patch:
+        return False
+
+    return True
+
