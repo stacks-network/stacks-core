@@ -25,13 +25,16 @@ import config
 import argparse
 import re
 
+log = config.get_logger("blockstack-client")
+
 def parse_methods( method_list ):
     """
     Given a list of methods, parse their docstring metadata for linking information.
     The __doc__ string for each method must be properly formatted:
 
-    command: <command name>
+    command: <command name> [norpc]
         This is the name of the CLI command
+        If norpc is present, the command cannot be accessed by RPC.
 
     help: <help string>
         This is the help string for the command 
@@ -49,6 +52,7 @@ def parse_methods( method_list ):
         'args': [{'name': name, 'type': type, 'help': help}]
         'opts': [{'name': name, 'type': type, 'help': help}]
         'method': method
+        'pragmas': ['pragma', 'pragma', ...]
     }
 
     Raise an exception if we fail to parse any method.
@@ -78,9 +82,14 @@ def parse_methods( method_list ):
 
         # parse command and help
         try:
-            command = re.findall( "^command:[ \t]+([^ \t]+)$", command_line )[0]
+            command_parts = re.findall( "^command:[ \t]+([^ \t]+)[ ]*(.*)[ ]*$", command_line )[0]
+            command = command_parts[0]
+            command_pragmas = command_parts[1].split(" \t")
+
             command_help = re.findall( "^help:[ \t]+(.+)$", help_line )[0]
-        except:
+
+        except Exception, e:
+            log.exception(e)
             raise ValueError("Method %s: invalid command and/or help string" % (method.__name__))
 
         args = []
@@ -118,7 +127,8 @@ def parse_methods( method_list ):
             'command': command,
             'help': command_help,
             'args': args,
-            'opts': opts
+            'opts': opts,
+            'pragmas': command_pragmas
         })
 
     return ret
