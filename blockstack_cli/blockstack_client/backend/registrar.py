@@ -100,6 +100,12 @@ def set_plugin_state(config_path=None):
     """
     global __plugin_state
     assert config_path is not None
+
+    # if we're already running, then bail
+    if RegistrarWorker.is_lockfile_valid( config_path ):
+        log.debug("RegistrarWorker already initialized")
+        return None
+
     log.info("Initialize Registrar State from %s" % (config_path))
     __plugin_state = RegistrarState(config_path)
     __plugin_state.start()
@@ -460,7 +466,8 @@ class RegistrarWorker(threading.Thread):
         self.running = False
 
 
-    def is_lockfile_stale( self, path ):
+    @classmethod
+    def is_lockfile_stale( cls, path ):
         """
         Is the given lockfile stale?
         """
@@ -476,7 +483,8 @@ class RegistrarWorker(threading.Thread):
         return pid != os.getpid()
 
 
-    def lockfile_write( self, fd ):
+    @classmethod
+    def lockfile_write( cls, fd ):
         """
         Put a lockfile
         Return True on success
@@ -496,6 +504,34 @@ class RegistrarWorker(threading.Thread):
         return True
 
 
+    @classmethod
+    def get_lockfile_path( cls, config_path ):
+        """
+        Get the path to the lockfile
+        """
+        return os.path.join( os.path.dirname(config_path), "registrar.lock" )
+
+
+    @classmethod 
+    def is_lockfile_valid( cls, config_path ):
+        """
+        Does the lockfile exist and does it correspond
+        to a running registrar?
+        """
+        lockfile_path = cls.get_lockfile_path( config_path )
+        if os.path.exists(lockfile_path):
+            # is it stale?
+            if cls.is_lockfile_stale( lockfile_path ):
+                return False
+
+            else:
+                # not stale
+                return True
+
+        else:
+            return False
+
+
     def run(self):
         """
         Watch the various queues:
@@ -508,16 +544,15 @@ class RegistrarWorker(threading.Thread):
         log.info("Registrar worker entered")
 
         # set up a lockfile
-        self.lockfile_path = os.path.join( os.path.dirname(self.config_path), "registrar.lock" )
-        if os.path.exists(self.lockfile_path):
-            # is it stale?
-            if self.is_lockfile_stale( self.lockfile_path ):
+        self.lockfile_path = RegistrarWorker.get_lockfile_path( self.config_path )
+        if not RegistrarWorker.is_lockfile_valid( self.config_path ):
+            if os.path.exists(self.lockfile_path):
                 log.debug("Removing stale lockfile")
                 os.unlink(self.lockfile_path)
 
-            else:
-                log.debug("Extra worker exiting (lockfile exists)")
-                return
+        else:
+            log.debug("Extra worker thread exiting (lockfile exists and is valid)")
+            return
 
         try:
             fd, path = tempfile.mkstemp(prefix=".registrar.lock.", dir=os.path.dirname(self.config_path))
@@ -529,7 +564,7 @@ class RegistrarWorker(threading.Thread):
                 pass
 
             # success!  write the lockfile
-            rc = self.lockfile_write( fd )
+            rc = RegistrarWorker.lockfile_write( fd )
             os.close( fd )
 
             if not rc:
@@ -558,7 +593,7 @@ class RegistrarWorker(threading.Thread):
 
                 # wait until the owner address is set 
                 while wallet_data['owner_address'] is None and self.running:
-                    log.debug("Owner address not set...")
+                    log.debug("Owner address not set... (%s)" % wallet_data.get("error", ""))
                     wallet_data = get_wallet( self.rpc_token, config_path=self.config_path, proxy=proxy )
                     time.sleep(1.0)
                 
