@@ -44,7 +44,6 @@ import httplib
 # prevent the usual XML attacks
 xmlrpc.monkey_patch()
 
-import user as user_db
 import storage
 
 import pybitcoin
@@ -123,7 +122,12 @@ class BlockstackRPCClient(object):
                 res = func(*args, **kw)
                 if res is not None:
                     # lol jsonrpc within xmlrpc
-                    res = json.loads(res)
+                    try:
+                        res = json.loads(res)
+                    except (ValueError, TypeError):
+                        print res
+                        res = {'error': 'Server replied invalid JSON'}
+
                 return res
             return inner
 
@@ -477,8 +481,6 @@ def is_zonefile_current(fqu, zonefile_json, proxy=None):
     Return True if hash(@zonefile_json) published on blockchain
     """
 
-    from .storage import hash_zonefile
-
     if proxy is None:
         proxy = get_default_proxy()
 
@@ -487,7 +489,7 @@ def is_zonefile_current(fqu, zonefile_json, proxy=None):
         log.debug("Failed to read blockchain record for %s" % fqu)
         return False
 
-    zonefile_hash = hash_zonefile(zonefile_json)
+    zonefile_hash = storage.hash_zonefile(zonefile_json)
 
     if 'value_hash' in blockchain_record and blockchain_record['value_hash'] == zonefile_hash:
         # if hash of profile is in correct
