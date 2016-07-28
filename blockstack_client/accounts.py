@@ -105,14 +105,24 @@ def get_account( name, service, identifier, proxy=None, wallet_keys=None ):
     return {'account': ret}
 
 
-def put_account( name, service, identifier, content_url, proxy=None, wallet_keys=None, txid=None, required_drivers=None, **extra_fields ):
+def put_account( name, service, identifier, content_url, create=True, replace=False, proxy=None, wallet_keys=None, txid=None, required_drivers=None, **extra_fields ):
     """
     Put an account's information into a profile.
+
+    If @create is True and @replace is False, then this method appends a new account with @service and @identifier (even if one already exists)
+    If @create is True and @replace is True, then this method creates an account and replaces one that has the same @service and @identifier.
+        If there are no accounts to replace, then a new account is created.
+    If @create is False and @replace is True, then this method replaces an existing account with the same @service and @identifier.
+        If there are no such accounts, then this method fails.
+
     NOTE: the account must already be in the latest form.
 
     Return a dict with {'status': True} on success (optionally also with 'transaction_hash' set if we updated the zonefile)
     Return a dict with {'error': ...} set on failure.
     """
+
+    if create is False and replace is False:
+        return {'error': 'Invalid create/replace arguments'}
 
     if proxy is None:
         proxy = get_default_proxy()
@@ -133,16 +143,30 @@ def put_account( name, service, identifier, content_url, proxy=None, wallet_keys
     if not user_profile.has_key("account"):
         user_profile['account'] = []
 
-    new_profile = {}
-    new_profile.update( extra_fields )
-    new_profile.update( {
+    new_account = {}
+    new_account.update( extra_fields )
+    new_account.update( {
         "service": service,
         "identifier": identifier,
         "contentUrl": content_url
     })
 
-    user_profile['account'].append(new_profile)
-
+    replaced = False
+    if replace:
+        # replace one instance of this account
+        for i in xrange(0, len(user_profile['account'])):
+            acc = user_profile['account'][i]
+            if acc['identifier'] == identifier and acc['service'] == service:
+                user_profile['account'][i] = new_account
+                replaced = True
+                break
+            
+    if not replaced:
+        if create:
+            user_profile['account'].append( new_account )
+        else:
+            return {'error': 'No such existing account'}
+        
     return profile_update( name, user_zonefile, user_profile, name_record['address'], proxy=proxy, wallet_keys=wallet_keys, required_drivers=required_drivers )
 
 
