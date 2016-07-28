@@ -58,10 +58,9 @@ sys.path.insert(0, parent_dir)
 
 from blockstack_client import config
 from blockstack_client.client import session
-from blockstack_client.config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, VERSION
+from blockstack_client.config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, VERSION, semver_match
 from blockstack_client.method_parser import parse_methods, build_method_subparsers
 
-import blockstack_client.actions as builtin_methods
 
 from blockstack_profiles import resolve_zone_file_to_profile
 from blockstack_profiles import is_profile_in_legacy_format
@@ -107,7 +106,8 @@ def get_cli_basic_methods():
     """
     Get the basic built-in CLI methods
     """
-    all_methods = get_methods("cli_", builtin_methods )
+    import blockstack_client.actions as builtin_methods
+    all_methods = get_methods("cli_", builtin_methods)
     ret = []
     for m in all_methods:
         # filter advanced methods 
@@ -121,6 +121,7 @@ def get_cli_advanced_methods():
     """
     Get the advanced usage built-in CLI methods
     """
+    import blockstack_client.actions as builtin_methods
     return get_methods("cli_advanced_", builtin_methods )
 
 
@@ -157,31 +158,6 @@ def prompt_args( arginfolist, prompt_func ):
             return None
 
     return arglist
-
-
-def semver_match( v1, v2):
-    """
-    Verify that two semantic version strings match:
-    the major, minor, and patch versions must be equal.
-    """
-    v1_parts = v1.split(".")
-    v2_parts = v2.split(".")
-    if len(v1_parts) < 4 or len(v2_parts) < 4:
-        # one isn't a semantic version 
-        return False
-
-    v1_major, v1_minor, v1_patch, v1_features = v1_parts[0], v1_parts[1], v1_parts[2], v1_parts[3:]
-    v2_major, v2_minor, v2_patch, v2_features = v2_parts[0], v2_parts[1], v2_parts[2], v2_parts[3:]
-    if v1_major != v2_major:
-        return False
-
-    if v1_minor != v2_minor:
-        return False
-
-    if v1_patch != v2_patch:
-        return False
-
-    return True
 
 
 def run_cli(argv=None, config_path=CONFIG_PATH):
