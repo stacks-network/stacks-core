@@ -167,7 +167,8 @@ def is_tx_rejected(tx_hash, tx_sent_at_height, config_path=CONFIG_PATH):
 def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=6):
     """ 
     Given an address get unspent outputs (UTXOs)
-    Return array of UTXOs, empty array if none available
+    Return array of UTXOs on success
+    Return {'error': ...} on failure
     """
 
     if utxo_client is None:
@@ -180,6 +181,7 @@ def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmati
     except Exception as e:
         log.exception(e)
         log.debug("Error in getting UTXOs from UTXO provider: %s" % e)
+        return {'error': 'Caught exception querying UTXOs; trace follows:\n%s' % traceback.format_exc()}
 
     # filter minimum confirmations 
     ret = []
@@ -199,6 +201,7 @@ def get_balance(address, config_path=CONFIG_PATH, utxo_client=None, min_confirma
 
     data = get_utxos(address, config_path=config_path, utxo_client=utxo_client, min_confirmations=min_confirmations)
     if 'error' in data:
+        log.error("Failed to get UTXOs for %s: %s" % (address, data['error']))
         return None 
 
     satoshi_amount = 0
@@ -217,6 +220,10 @@ def is_address_usable(address, config_path=CONFIG_PATH, utxo_client=None, min_co
     """
     try:
         unspents = get_utxos(address, config_path=config_path, utxo_client=None, min_confirmations=min_confirmations)
+        if 'error' in unspents:
+            log.error("Failed to get UTXOs for %s: %s" % (address, unspents['error']))
+            return False
+
     except Exception as e:
         log.exception(e)
         return False
