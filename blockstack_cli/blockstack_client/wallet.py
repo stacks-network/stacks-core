@@ -68,7 +68,7 @@ import config
 from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR, CONFIG_FILENAME, WALLET_FILENAME, MINIMUM_BALANCE
 
 from .proxy import get_names_owned_by_address, get_default_proxy, get_name_cost
-from .rpc import local_rpc_connect
+from .rpc import local_rpc_connect, start_rpc_endpoint
 
 log = config.get_logger()
 
@@ -370,7 +370,7 @@ def initialize_wallet( password="", interactive=True, hex_privkey=None, config_d
 
     config_path = os.path.join(config_dir, CONFIG_FILENAME)
         
-    if not interactive and len(password) == 0:
+    if not interactive and (password is None or len(password) == 0):
         raise Exception("Non-interactive wallet initialization requires a password of length %s or greater" % WALLET_PASSWORD_LENGTH)
 
     result = {}
@@ -727,14 +727,12 @@ def dump_wallet(config_path=CONFIG_PATH, password=None):
     Return {'status': True, 'wallet': wallet} on success
     Return {'error': ...} on error
     """
-    from .actions import start_rpc_endpoint
-
     config_dir = os.path.dirname(config_path)
     start_rpc_endpoint(config_dir)
 
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
     if not os.path.exists(wallet_path):
-        res = initialize_wallet(wallet_path=wallet_path)
+        res = initialize_wallet(wallet_path=wallet_path, password=password)
         if 'error' in res:
             return res
 
