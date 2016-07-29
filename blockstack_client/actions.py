@@ -97,6 +97,8 @@ from blockstack_client import \
     put_immutable, \
     put_mutable
 
+from blockstack_client.profile import profile_update
+
 from rpc import local_rpc_connect, local_rpc_status, local_rpc_stop, start_rpc_endpoint
 import rpc as local_rpc
 import config
@@ -112,6 +114,8 @@ from binascii import hexlify
 from .backend.blockchain import get_balance, is_address_usable, can_receive_name, get_tx_confirmations, get_tx_fee
 from .backend.nameops import estimate_preorder_tx_fee, estimate_register_tx_fee, estimate_update_tx_fee, estimate_transfer_tx_fee, \
                             do_update, estimate_renewal_tx_fee
+
+from .backend.queue import queuedb_remove
 
 from .wallet import *
 from .utils import pretty_dump, print_result
@@ -1168,16 +1172,15 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None, inter
 
         # got a zonefile...
         legacy = blockstack_profiles.is_profile_in_legacy_format( user_zonefile )
-        if not legacy and is_zonefile_current(fqu, user_zonefile):
+        if not legacy and not force and is_zonefile_current(fqu, user_zonefile):
             msg ="Zonefile data is same as current zonefile; update not needed."
             return {'error': msg}
 
-        if not legacy and interactive:
+        if not legacy and not force and interactive:
             # maybe this is intentional (like fixing a corrupt zonefile)
             # ask if so
-            if not force:
-                msg = "Not a legacy profile; cannot migrate."
-                return {'error': msg}
+            msg = "Not a legacy profile; cannot migrate."
+            return {'error': msg}
 
     rpc = local_rpc_connect(config_dir=config_dir)
 
@@ -1248,7 +1251,22 @@ def cli_advanced_import_wallet( args, config_path=CONFIG_PATH, password=None, fo
                     password = res['password']
                     break
 
-        data = make_wallet( password, payment_privkey=args.payment_privkey, owner_privkey=args.owner_privkey, data_privkey=args.data_privkey, config_path=config_path ) 
+        data_privkey = args.data_privkey
+        if len(data_privkey) == 0:
+            # generate one, since it's an optional argument
+            data_privkey = pybitcoin.BitcoinPrivateKey().to_wif()
+
+        # make absolutely certain that these are valid keys 
+        try:
+            assert len(args.payment_privkey) > 0
+            assert len(args.owner_privkey) > 0
+            pybitcoin.BitcoinPrivateKey(args.payment_privkey)
+            pybitcoin.BitcoinPrivateKey(args.owner_privkey)
+            pybitcoin.BitcoinPrivateKey(data_privkey)
+        except:
+            return {'error': 'Invalid payment or owner private key'}
+
+        data = make_wallet( password, payment_privkey=args.payment_privkey, owner_privkey=args.owner_privkey, data_privkey=data_privkey, config_path=config_path ) 
         if 'error' in data:
             return data
 
@@ -1963,3 +1981,91 @@ def cli_advanced_set_zonefile_hash( args, config_path=CONFIG_PATH, password=None
     analytics_event( "Set zonefile hash", {} )
     return result
 
+
+def cli_advanced_unqueue( args, config_path=CONFIG_PATH, password=None ):
+    """
+    command: unqueue norpc
+    help: Remove a stuck transaction from the queue.
+    arg: name (str) "The affected name"
+    arg: queue_id (str) "The type of queue ('preorder', 'register', 'update', etc.)."
+    arg: txid (str) "The transaction ID"
+    """
+    conf = config.get_config(config_path)
+    queue_path = conf['queue_path']
+
+    try:
+        res = queuedb_remove( str(args.queue_id), str(args.name), str(args.txid), path=queue_path)
+    except:
+        return {'error': 'Failed to remove from queue\n%s' % traceback.format_exc()}
+
+    return {'status': True}
+
+
+def cli_advanced_set_profile( args, config_path=CONFIG_PATH, password=None, proxy=None ):
+    """
+    command: set_profile norpc
+    help: Directly set a profile's JSON.
+    arg: name (str) "The name to set the profile for"
+    arg: data (str) "The JSON to set as the profile"
+    """
+
+    conf = config.get_config(config_path)
+    name = str(args.name)
+    profile_json_str = str(args.data)
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    profile = None
+    try:
+        profile = json.loads(profile_json_str)
+    except:
+        return {'error': 'Invalid profile JSON'}
+
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
+
+    required_storage_drivers = conf.get('storage_drivers_required_write', config.BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE)
+    required_storage_drivers = required_storage_drivers.split()
+
+    owner_address = pybitcoin.BitcoinPrivateKey(wallet_keys['owner_privkey']).public_key().address()
+    user_zonefile = get_name_zonefile( name, proxy=proxy, wallet_keys=wallet_keys )
+    if 'error' in user_zonefile:
+        return user_zonefile
+
+    if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
+        return {'error': "Profile in legacy format.  Please migrate it with the 'migrate' command first."}
+
+    res = profile_update( name, user_zonefile, profile, owner_address, proxy=proxy, wallet_keys=wallet_keys, required_drivers=required_storage_drivers )
+    if 'error' in res:
+        return res
+    else:
+        return {'status': True}
+
+
+def cli_advanced_convert_legacy_profile( args, config_path=CONFIG_PATH ):
+    """
+    command: convert_legacy_profile norpc
+    help: Convert a legacy profile into a modern profile.
+    arg: path (str) "Path on disk to the JSON file that contains the legacy profile data from Onename"
+    """
+
+    profile_json_str = None
+    profile = None
+
+    try:
+        with open(args.path, "r") as f:
+            profile_json_str = f.read()
+
+        profile = json.loads(profile_json_str)
+    except:
+        return {'error': 'Failed to load profile JSON'}
+
+    # should have 'profile' key
+    if not profile.has_key('profile'):
+        return {'error': 'JSON has no "profile" key'}
+
+    profile = profile['profile']
+    profile = blockstack_profiles.get_person_from_legacy_format( profile )
+    return profile
