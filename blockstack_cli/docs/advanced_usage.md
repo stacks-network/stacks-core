@@ -69,7 +69,7 @@ In addition to querying Blockstack IDs, the CLI has advanced commands for queryi
 
 ## Namespace Creation
 
-**WARNING:** We do not recommend that you try to do this by yourself.  Creating a namespace is **EXTREMELY EXPENSIVE**.  If you are interested in creating your own namespace, please contact the Blockstack developers on the [Blockstack Slack](https://chat.blockstack.org).
+**WARNING:** We do not recommend that you try to do this by yourself.  Creating a namespace is **EXTREMELY EXPENSIVE**.  If you are interested in creating your own namespace, please contact the Blockstack developers on the [Blockstack Slack](http://chat.blockstack.org).
 
 These methods allow you to create a namespace.  There are three steps:  preordering, revealing, and readying.  Preordering a namespace is like preordering a name--you announce the hash of the namespace ID and the address that will control it.  Revealing a namespace not only reveals the namespace ID, but also sets the pricing and lifetime rules for names in the namespace.  After revealing the namespace, the namespace controller can pre-populate the namespace by importing Blockstack IDs.  Once the namespace has been pre-populated, the controller sends a final transaction that readies the namespace for general use.
 
