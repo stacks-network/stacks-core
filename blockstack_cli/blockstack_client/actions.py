@@ -297,7 +297,7 @@ def wallet_ensure_exists( config_dir=CONFIG_DIR, password=None, wallet_path=None
 
 def cli_configure( args, config_path=CONFIG_PATH ):
     """
-    command: configure
+    command: configure norpc
     help: Interactively configure the client
     """
 
@@ -309,7 +309,7 @@ def cli_configure( args, config_path=CONFIG_PATH ):
 
 def cli_balance( args, config_path=CONFIG_PATH ):
     """
-    command: balance
+    command: balance norpc
     help: Get the account balance
     """
 
@@ -377,7 +377,7 @@ def cli_price( args, config_path=CONFIG_PATH, proxy=None, password=None):
 
 def cli_deposit( args, config_path=CONFIG_PATH ):
     """
-    command: deposit
+    command: deposit norpc
     help: Display the address with which to receive bitcoins
     """
 
@@ -396,7 +396,7 @@ def cli_deposit( args, config_path=CONFIG_PATH ):
 
 def cli_import( args, config_path=CONFIG_PATH ):
     """
-    command: import
+    command: import norpc
     help: Display the address with which to receive names
     """
 
@@ -417,7 +417,7 @@ def cli_import( args, config_path=CONFIG_PATH ):
 
 def cli_names( args, config_path=CONFIG_DIR ):
     """
-    command: names
+    command: names norpc
     help: Display the names owned by local addresses
     """
     result = {}
@@ -1204,7 +1204,7 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None, inter
 
 def cli_set_advanced_mode( args, config_path=CONFIG_PATH ):
     """
-    command: set_advanced_mode
+    command: set_advanced_mode norpc
     help: Enable advanced commands
     arg: status (str) "On or Off."
     """
@@ -1223,7 +1223,7 @@ def cli_set_advanced_mode( args, config_path=CONFIG_PATH ):
 
 def cli_advanced_import_wallet( args, config_path=CONFIG_PATH, password=None, force=False ):
     """
-    command: import_wallet
+    command: import_wallet norpc
     help: Set the payment, owner, and (optionally) data private keys for the wallet.
     arg: payment_privkey (str) "Payment private key"
     arg: owner_privkey (str) "Name owner private key"
@@ -1357,7 +1357,7 @@ def cli_advanced_get_account( args, proxy=None, config_path=CONFIG_PATH, passwor
 
 def cli_advanced_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None, required_drivers=None ):
     """
-    command: put_account
+    command: put_account norpc
     help: Set a particular account's details.  If the account already exists, it will be overwritten.
     arg: name (str) "The name to query."
     arg: service (str) "The service this account is for."
@@ -1414,7 +1414,7 @@ def cli_advanced_put_account( args, proxy=None, config_path=CONFIG_PATH, passwor
 
 def cli_advanced_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None ):
     """
-    command: delete_account
+    command: delete_account norpc
     help: Delete a particular account.
     arg: name (str) "The name to query."
     arg: service (str) "The service the account is for."
@@ -1561,7 +1561,7 @@ def cli_advanced_rpc( args, config_path=CONFIG_PATH ):
 
 def cli_advanced_name_import( args, config_path=CONFIG_PATH ):
     """
-    command: name_import
+    command: name_import norpc
     help: Import a name to a revealed but not-yet-readied namespace
     arg: name (str) "The name to import"
     arg: address (str) "The address of the name recipient"
@@ -1577,7 +1577,7 @@ def cli_advanced_name_import( args, config_path=CONFIG_PATH ):
 
 def cli_advanced_namespace_preorder( args, config_path=CONFIG_PATH ):
     """
-    command: namespace_preorder
+    command: namespace_preorder norpc
     help: Preorder a namespace
     arg: namespace_id (str) "The namesapce ID"
     arg: privatekey (str) "The private key to send and pay for the preorder"
@@ -1597,7 +1597,7 @@ def cli_advanced_namespace_preorder( args, config_path=CONFIG_PATH ):
 
 def cli_advanced_namespace_reveal( args, config_path=CONFIG_PATH ):
     """
-    command: namespace_reveal
+    command: namespace_reveal norpc
     help: Reveal a namespace and set its pricing parameters
     arg: namespace_id (str) "The namespace ID"
     arg: addr (str) "The address of the keypair that will import names (given in the namespace preorder)"
@@ -1639,7 +1639,7 @@ def cli_advanced_namespace_reveal( args, config_path=CONFIG_PATH ):
 
 def cli_advanced_namespace_ready( args, config_path=CONFIG_PATH ):
     """
-    command: namespace_ready
+    command: namespace_ready norpc
     help: Mark a namespace as ready
     arg: namespace_id (str) "The namespace ID"
     arg: privatekey (str) "The private key of the keypair that imports names"
@@ -1653,7 +1653,7 @@ def cli_advanced_namespace_ready( args, config_path=CONFIG_PATH ):
 
 def cli_advanced_put_mutable( args, config_path=CONFIG_PATH ):
     """
-    command: put_mutable
+    command: put_mutable norpc
     help: Put mutable data into a profile
     arg: name (str) "The name to receive the data"
     arg: data_id (str) "The name of the data"
@@ -1668,7 +1668,7 @@ def cli_advanced_put_mutable( args, config_path=CONFIG_PATH ):
 
 def cli_advanced_put_immutable( args, config_path=CONFIG_PATH ):
     """
-    command: put_immutable
+    command: put_immutable norpc
     help: Put immutable data into a zonefile
     arg: name (str) "The name to receive the data"
     arg: data_id (str) "The name of the data"
@@ -1750,7 +1750,7 @@ def cli_advanced_list_immutable_data_history( args, config_path=CONFIG_PATH ):
 
 def cli_advanced_delete_immutable( args, config_path=CONFIG_PATH ):
     """
-    command: delete_immutable
+    command: delete_immutable norpc
     help: Delete an immutable datum from a zonefile.
     arg: name (str) "The name that owns the data"
     arg: hash (str) "The SHA256 of the data to remove"
@@ -1772,7 +1772,7 @@ def cli_advanced_delete_immutable( args, config_path=CONFIG_PATH ):
 
 def cli_advanced_delete_mutable( args, config_path=CONFIG_PATH ):
     """
-    command: delete_mutable
+    command: delete_mutable norpc
     help: Delete a mutable datum from a profile.
     arg: name (str) "The name that owns the data"
     arg: data_id (str) "The ID of the data to remove"
@@ -1874,7 +1874,7 @@ def cli_advanced_get_namespace_cost( args, config_path=CONFIG_PATH ):
 
 def cli_advanced_get_all_names( args, config_path=CONFIG_PATH ):
     """
-    command: get_all_names
+    command: get_all_names norpc
     help: Get all names in existence, optionally paginating through them
     opt: offset (int) "The offset into the sorted list of names"
     opt: count (int) "The number of names to return"
@@ -1894,7 +1894,7 @@ def cli_advanced_get_all_names( args, config_path=CONFIG_PATH ):
 
 def cli_advanced_get_names_in_namespace( args, config_path=CONFIG_PATH ):
     """
-    command: get_names_in_namespace
+    command: get_names_in_namespace norpc
     help: Get the names in a given namespace, optionally patinating through them
     arg: namespace_id (str) "The ID of the namespace to query"
     opt: offset (int) "The offset into the sorted list of names"
