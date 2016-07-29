@@ -398,6 +398,8 @@ class RegistrarWorker(threading.Thread):
         # use the data keypair
         if name_data.has_key('profile') and name_data['profile'] is not None:
             _, data_privkey = get_data_keypair( zonefile_data, wallet_keys=wallet_data, config_path=config_path )
+            assert data_privkey is not None, "No data private key"
+
             log.info("Replicate profile data for %s to %s" % (name_data['fqu'], ",".join(storage_drivers)))
             rc = put_mutable_data( name_data['fqu'], name_data['profile'], data_privkey, required=storage_drivers )
             if not rc:
