@@ -80,7 +80,7 @@ class HDWallet(object):
         hex_privkey and get child addresses and private keys
     """
 
-    def __init__(self, hex_privkey=None, config_path=CONFIG_PATH):
+    def __init__(self, hex_privkey=None):
 
         """
             If @hex_privkey is given, use that to derive keychain
@@ -95,7 +95,6 @@ class HDWallet(object):
 
         self.master_address = self.get_master_address()
         self.child_addresses = None
-        self.config_path = config_path
 
 
     def get_master_privkey(self):
@@ -161,38 +160,6 @@ class HDWallet(object):
         return keypairs
 
 
-    def get_next_keypair(self, count=1, config_path=None):
-        """ Get next payment address that is ready to use
-
-            Returns (payment_address, hex_privkey)
-        """
-
-        if config_path is None:
-            config_path = self.config_path
-
-        addresses = self.get_child_keypairs(count=count)
-        index = 0
-
-        for payment_address in addresses:
-
-            # find an address that can be used for payment
-            if not is_address_usable(payment_address, config_path=config_path):
-                log.debug("Pending tx on address: %s" % payment_address)
-
-            balance = get_balance( payment_address, config_path=config_path )
-            if balance < MINIMUM_BALANCE: 
-                log.debug("Underfunded address: %s" % payment_address)
-
-            else:
-                return payment_address, self.get_child_privkey(index)
-
-            index += 1
-
-        log.debug("No valid address available.")
-
-        return None, None
-
-
     def get_privkey_from_address(self, target_address, count=1):
         """ Given a child address, return priv key of that address
         """
@@ -219,7 +186,7 @@ def make_wallet( password, hex_privkey=None, payment_privkey=None, owner_privkey
 
     hex_password = hexlify(password)
 
-    wallet = HDWallet(hex_privkey, config_path=config_path)
+    wallet = HDWallet(hex_privkey)
     if hex_privkey is None:
         hex_privkey = wallet.get_master_privkey()
         
@@ -276,7 +243,7 @@ def decrypt_wallet( data, password, config_path=CONFIG_PATH ):
 
     try:
         hex_privkey = aes_decrypt(data['encrypted_master_private_key'], hex_password)
-        wallet = HDWallet(hex_privkey, config_path=config_path)
+        wallet = HDWallet(hex_privkey)
     except Exception, e:
         if os.environ.get("BLOCKSTACK_DEBUG", None) is not None:
             log.exception(e)
