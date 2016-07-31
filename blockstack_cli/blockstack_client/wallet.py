@@ -20,6 +20,7 @@
     along with Blockstack-client.  If not, see <http://www.gnu.org/licenses/>.
 """
 
+import time
 import argparse
 import sys
 import json
@@ -65,13 +66,16 @@ from .backend.blockchain import get_balance, is_address_usable, get_tx_fee
 from .utils import satoshis_to_btc, btc_to_satoshis, exit_with_error, print_result
 
 import config
-from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR, CONFIG_FILENAME, WALLET_FILENAME, MINIMUM_BALANCE
+from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR, CONFIG_FILENAME, WALLET_FILENAME, MINIMUM_BALANCE, \
+        WALLET_DECRYPT_MAX_TRIES, WALLET_DECRYPT_BACKOFF_RESET
 
 from .proxy import get_names_owned_by_address, get_default_proxy, get_name_cost
 from .rpc import local_rpc_connect, start_rpc_endpoint
 
 log = config.get_logger()
 
+DECRYPT_ATTEMPTS = 0
+LAST_DECRYPT_ATTEMPT = 0
 
 class HDWallet(object):
 
@@ -232,14 +236,90 @@ def make_wallet( password, hex_privkey=None, payment_privkey=None, owner_privkey
     return data
 
 
-def decrypt_wallet( data, password, config_path=CONFIG_PATH ):
+def log_failed_decrypt(max_tries=WALLET_DECRYPT_MAX_TRIES):
     """
-    Decrypt a wallet's encrypted fields
+    Record that we tried (and failed)
+    to decrypt a wallet.  Determine
+    how long we should wait before 
+    allowing another attempt.
+
+    If we tried many times, then use
+    exponential backoff to limit brute-forces
+
+    Return the interval of time to sleep
+    """
+    global DECRYPT_ATTEMPTS
+    global LAST_DECRYPT_ATTEMPT
+    global NEXT_DECRYPT_ATTEMPT
+
+    if LAST_DECRYPT_ATTEMPT + WALLET_DECRYPT_BACKOFF_RESET < time.time():
+        # haven't tried in a while
+        DECRYPT_ATTEMPTS = 0
+        NEXT_DECRYPT_ATTEMPT = 0
+        return 
+
+    DECRYPT_ATTEMPTS += 1
+    LAST_DECRYPT_ATTEMPT = time.time()
+    
+    if DECRYPT_ATTEMPTS > max_tries:
+
+        interval = 2**(DECRYPT_ATTEMPTS - max_tries + 1)
+        NEXT_DECRYPT_ATTEMPT = time.time() + interval
+   
+    return
+
+
+def can_attempt_decrypt( max_tries=WALLET_DECRYPT_MAX_TRIES ):
+    """
+    Can we attempt a decryption?
+    Has enough time passed since the last guess?
+    """
+    global DECRYPT_ATTEMPTS
+    global LAST_DECRYPT_ATTEMPT
+    global NEXT_DECRYPT_ATTEMPT
+
+    if LAST_DECRYPT_ATTEMPT + WALLET_DECRYPT_BACKOFF_RESET < time.time():
+        # haven't tried in a while
+        DECRYPT_ATTEMPTS = 0
+        NEXT_DECRYPT_ATTEMPT = 0
+        return True
+
+    if NEXT_DECRYPT_ATTEMPT < time.time():
+        return True
+
+    else:
+        return False
+
+
+def time_until_next_decrypt_attempt():
+    """
+    When can we try to decrypt next?
+    """
+    global NEXT_DECRYPT_ATTEMPT
+    if NEXT_DECRYPT_ATTEMPT == 0:
+        return 0
+
+    if NEXT_DECRYPT_ATTEMPT < time.time():
+        return 0
+
+    return NEXT_DECRYPT_ATTEMPT - time.time()
+
+
+def decrypt_wallet( data, password, config_path=CONFIG_PATH, max_tries=WALLET_DECRYPT_MAX_TRIES ):
+    """
+    Decrypt a wallet's encrypted fields.
+
+    After WALLET_DECRYPT_MAX_TRIES failed attempts, start doing exponential backoff
+    to prevent brute-force attacks.
+
     Return a dict with the decrypted fields on success
     Return {'error': ...} on failure
     """
     hex_password = hexlify(password)
     wallet = None
+
+    if not can_attempt_decrypt( max_tries=max_tries ):
+        return {'error': 'Cannot decrypt at this time.  Try again in %s seconds' % time_until_next_decrypt_attempt()}
 
     try:
         hex_privkey = aes_decrypt(data['encrypted_master_private_key'], hex_password)
@@ -247,7 +327,13 @@ def decrypt_wallet( data, password, config_path=CONFIG_PATH ):
     except Exception, e:
         if os.environ.get("BLOCKSTACK_DEBUG", None) is not None:
             log.exception(e)
-        return {'error': 'Incorrect password'}
+
+        ret = {'error': 'Incorrect password'}
+        log_failed_decrypt( max_tries=max_tries )
+        if not can_attempt_decrypt( max_tries=max_tries ):
+            ret['error'] = 'Incorrect password.  Try again in %s seconds' % time_until_next_decrypt_attempt()
+
+        return ret
     
     child = wallet.get_child_keypairs(count=3, include_privkey=True)
     payment_keypair = child[0]
@@ -327,7 +413,7 @@ def make_wallet_password( password=None ):
 
 def initialize_wallet( password="", interactive=True, hex_privkey=None, config_dir=CONFIG_DIR, wallet_path=None ):
     """
-    Initialize the wallet,
+    Initialize a wallet,
     interatively if need be.
     Return a dict with the wallet password and master private key.
     Return {'error': ...} on error
@@ -336,12 +422,14 @@ def initialize_wallet( password="", interactive=True, hex_privkey=None, config_d
         wallet_path = os.path.join(config_dir, WALLET_FILENAME)
 
     config_path = os.path.join(config_dir, CONFIG_FILENAME)
-        
+    
     if not interactive and (password is None or len(password) == 0):
         raise Exception("Non-interactive wallet initialization requires a password of length %s or greater" % WALLET_PASSWORD_LENGTH)
 
     result = {}
-    print "Initializing new wallet ..."
+
+    if interactive:
+        print "Initializing new wallet ..."
 
     try:
         if interactive:
@@ -362,13 +450,13 @@ def initialize_wallet( password="", interactive=True, hex_privkey=None, config_d
         wallet = make_wallet( password, hex_privkey=hex_privkey, config_path=config_path )
         write_wallet( wallet, path=wallet_path ) 
 
-        print "Wallet created. Make sure to backup the following:"
-
         result['wallet_password'] = password
         result['master_private_key'] = hex_privkey
-        print_result(result)
 
         if interactive:
+            print "Wallet created. Make sure to backup the following:"
+            print_result(result)
+
             input_prompt = "Have you backed up the above private key? (y/n): "
             user_input = raw_input(input_prompt)
             user_input = user_input.lower()
@@ -396,7 +484,7 @@ def wallet_exists(config_dir=CONFIG_DIR, wallet_path=None):
 
 def load_wallet( password=None, config_dir=CONFIG_DIR, wallet_path=None, include_private=False ):
     """
-    Get the wallet from disk, and unlock it.
+    Get a wallet from disk, and unlock it.
     Return {'status': True, 'wallet': ...} on success
     Return {'error': ...} on error
     """
@@ -688,7 +776,7 @@ def get_total_balance(config_path=CONFIG_PATH, wallet_path=WALLET_PATH):
     return total_balance, payment_addresses
 
 
-def dump_wallet(config_path=CONFIG_PATH, password=None):
+def dump_wallet(config_path=CONFIG_PATH, wallet_path=None, password=None):
     """
     Load the wallet private keys.
     Return {'status': True, 'wallet': wallet} on success
@@ -697,11 +785,12 @@ def dump_wallet(config_path=CONFIG_PATH, password=None):
     config_dir = os.path.dirname(config_path)
     start_rpc_endpoint(config_dir)
 
-    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-    if not os.path.exists(wallet_path):
-        res = initialize_wallet(wallet_path=wallet_path, password=password)
-        if 'error' in res:
-            return res
+    if wallet_path is None:
+        wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+        if not os.path.exists(wallet_path):
+            res = initialize_wallet(wallet_path=wallet_path, password=password)
+            if 'error' in res:
+                return res
 
     if not walletUnlocked(config_dir=config_dir):
         res = unlock_wallet(config_dir=config_dir, password=password)
