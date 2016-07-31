@@ -54,6 +54,8 @@ DEFAULT_API_PORT = 6270     # RPC endpoint port
 BLOCKSTACKD_SERVER = DEFAULT_BLOCKSTACKD_SERVER
 BLOCKSTACKD_PORT = DEFAULT_BLOCKSTACKD_PORT
 WALLET_PASSWORD_LENGTH = 8
+WALLET_DECRYPT_MAX_TRIES = 5
+WALLET_DECRYPT_BACKOFF_RESET = 3600
 
 BLOCKSTACK_METADATA_DIR = os.path.expanduser("~/.blockstack/metadata")
 BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = "disk,blockstack_resolver,blockstack_server,http,dht"
@@ -279,6 +281,8 @@ else:
 WALLET_PATH = os.path.join(CONFIG_DIR, "wallet.json")
 SPV_HEADERS_PATH = os.path.join(CONFIG_DIR, "blockchain-headers.dat")
 DEFAULT_QUEUE_PATH = os.path.join(CONFIG_DIR, "queues.db")
+
+APP_WALLET_DIRNAME = "app_wallets"
 
 BLOCKCHAIN_ID_MAGIC = 'id'
 
@@ -906,7 +910,7 @@ def get_config(path=CONFIG_PATH):
     """
     Read our config file.
     Flatten the resulting config:
-    * make all bitcoin-specific fields start with 'bitcoind_'
+    * make all bitcoin-specific fields start with 'bitcoind_' (makes this config compatible with virtualchain)
     * keep only the blockstack-client and bitcoin fields
 
     Return our flattened configuration (as a dict) on success.
@@ -936,6 +940,28 @@ def get_config(path=CONFIG_PATH):
         blockstack_opts['anonymous_statistics'] = True
 
     return blockstack_opts
+
+
+def get_app_config(app_name, path=CONFIG_PATH):
+    """
+    Get app-specific configuration
+    Return a dict on success (empty if there are no fields)
+    Return None if the app isn't defined in the config path
+    Raise if the file doesn't exist
+    """
+
+    parser = SafeConfigParser()
+    parser.read( config_path )
+
+    config_dir = os.path.dirname(config_path)
+    if not parser.has_section(app_name):
+        return None
+
+    ret = {}
+    for field_name in parser.options(app_name):
+        ret[field_name] = parser.get(app_name, field_name)
+
+    return ret
 
 
 def update_config(section, option, value, config_path=CONFIG_PATH):
