@@ -135,7 +135,7 @@ def get_storage_handlers():
    return storage_handlers
 
 
-def make_mutable_data_urls( data_id ):
+def make_mutable_data_urls( data_id, use_only=[] ):
    """
    Given a data ID for mutable data, get a list of URLs to it
    by asking the storage handlers.
@@ -147,6 +147,10 @@ def make_mutable_data_urls( data_id ):
    for handler in storage_handlers:
 
       if not hasattr(handler, "make_mutable_url"):
+         continue
+
+      if len(use_only) > 0 and handler.__name__ not in use_only:
+         # not requested
          continue
 
       new_url = None
@@ -552,7 +556,7 @@ def put_immutable_data( data_json, txid, data_hash=None, data_text=None, require
        return data_hash
 
 
-def put_mutable_data( fq_data_id, data_json, privatekey, required=[] ):
+def put_mutable_data( fq_data_id, data_json, privatekey, required=[], use_only=[] ):
    """
    Given the unserialized data, store it into our mutable data stores.
    Do so in a best-effort way.  This method only fails if all storage providers fail.
@@ -589,6 +593,10 @@ def put_mutable_data( fq_data_id, data_json, privatekey, required=[] ):
               return None
           else:
               continue
+
+      if len(use_only) > 0 and handler.__name__ not in use_only:
+          log.debug("Skipping storage driver '%s'" % handler.__name__)
+          continue
 
       rc = False
 
@@ -652,7 +660,7 @@ def delete_immutable_data( data_hash, txid, privkey ):
    return True
 
 
-def delete_mutable_data( fq_data_id, privatekey ):
+def delete_mutable_data( fq_data_id, privatekey, only_use=[] ):
    """
    Given the data ID and private key of a user,
    go and delete the associated mutable data.
@@ -669,6 +677,10 @@ def delete_mutable_data( fq_data_id, privatekey ):
    for handler in storage_handlers:
 
       if not hasattr( handler, "delete_mutable_handler" ):
+         continue
+
+      if len(only_use) > 0 and handler.__name__ in only_use:
+         log.debug("Skip storage driver %s" % handler.__name__)
          continue
 
       try:
@@ -783,24 +795,61 @@ def blockstack_immutable_data_url( blockchain_id, data_id, data_hash ):
         return "blockstack://%s.%s" % (urllib.quote(data_id), urllib.quote(blockchain_id))
 
 
+def blockstack_app_data_url( blockchain_id, service_id, account_id, data_id, version ):
+    """
+    Make a blockstack:// URL for application data
+    """
+    if version is not None:
+        if type(version) not in [int, long]:
+            raise ValueError("Version must be an int or a long")
+
+        # don't allow periods in the service ID
+        service_id = service_id.replace(".", "\\x2e")
+
+        # don't allow '@' in either the service or account IDs
+        service_id = service_id.replace("@", "\\x40")
+        account_id = account_id.replace("@", "\\x40")
+
+        return "blockstack://%s.%s@%s/%s#%s" % (urllib.quote(account_id), urllib.quote(service_id), urllib.quote(blockchain_id), urllib.quote(data_id), str(version))
+    else:
+        return "blockstack://%s.%s@%s/%s" % (urllib.quote(account_id), urllib.quote(service_id), urllib.quote(blockchain_id), urllib.quote(data_id))
+
+
 def blockstack_mutable_data_url_parse( url ):
     """
     Parse a blockstack:// URL for mutable data
-    Return (blockchain ID, data ID, data version)
+    Return (blockchain ID, data ID, data version, account ID, service ID) on success
     * The version may be None if not given (in which case, the latest value is requested).
     * The data ID may be None, in which case, a listing of mutable data is requested.
+    * account ID and service ID will be None for mutable data in the profile, but will be defined for app-specific mutable data
 
     Raise on bad data
     """
 
     url = str(url)
     mutable_url_data_regex = r"blockstack://(%s+)[/]+(%s+)(#[0-9]+)?" % (B40_CLASS, URLENCODED_CLASS)
+    app_url_data_regex = r"blockstack://(%s+)\.(%s+)@(%s+)[/]+(%s+)(#[0-9]+)?" % (URLENCODED_CLASS, URLENCODED_CLASS, B40_CLASS, URLENCODED_CLASS)
     mutable_url_listing_regex = r"blockstack://(%s+)[/]+#mutable" % (B40_CLASS)
 
     blockchain_id = None
     data_id = None
     version = None
 
+    # app?
+    m = re.match( app_url_data_regex, url )
+    if m:
+        account_id, service_id, blockchain_id, data_id, version = m.groups()
+        if not is_valid_name( blockchain_id ):
+            raise ValueError("Invalid blockchain ID '%s'" % blockchain_id)
+        
+        # version?
+        if version is not None:
+            version = version.strip("#")
+            version = int(version)
+
+        return urllib.unquote(blockchain_id), urllib.unquote(data_id), version, urllib.unquote(account_id), urllib.unquote(service_id)
+
+    # mutable?
     m = re.match( mutable_url_data_regex, url )
     if m:
 
@@ -813,7 +862,7 @@ def blockstack_mutable_data_url_parse( url ):
             version = version.strip("#")
             version = int(version)
 
-        return urllib.unquote(blockchain_id), urllib.unquote(data_id), version
+        return urllib.unquote(blockchain_id), urllib.unquote(data_id), version, None, None
 
     else:
         # maybe a listing?
@@ -822,7 +871,7 @@ def blockstack_mutable_data_url_parse( url ):
             raise ValueError("Invalid URL: %s" % url)
 
         blockchain_id = m.groups()[0]
-        return urllib.unquote(blockchain_id), None, None
+        return urllib.unquote(blockchain_id), None, None, None, None
 
 
 def blockstack_immutable_data_url_parse( url ):
@@ -846,12 +895,14 @@ def blockstack_immutable_data_url_parse( url ):
         blockchain_id = "%s.%s" % (blockchain_name, namespace_id)
 
         if not is_valid_name( blockchain_id ):
-            raise ValueError( "Invalid blockchain ID '%s'" % blockchain_id)
+            log.debug("Invalid blockstack ID '%s" % blockchain_id)
+            raise ValueError( "Invalid blockstack ID")
 
         if data_hash is not None:
             data_hash = data_hash.lower().strip("#/")
             if not is_valid_hash( data_hash ):
-                raise ValueError("Invalid data hash: %s" % data_hash)
+                log.debug("Invalid data hash '%s'" % data_hash)
+                raise ValueError("Invalid data hash")
     
         return urllib.unquote(blockchain_id), urllib.unquote(data_id), data_hash
 
@@ -859,7 +910,8 @@ def blockstack_immutable_data_url_parse( url ):
         # maybe a listing?
         m = re.match( immutable_listing_regex, url )
         if not m:
-            raise ValueError("Invalid URL: %s" % url)
+            log.debug("Invalid URL '%s'" % url)
+            raise ValueError("Invalid URL")
 
         blockchain_id = m.groups()[0]
         return urllib.unquote(blockchain_id), None, None 
@@ -870,6 +922,7 @@ def blockstack_data_url_parse( url ):
     Parse a blockstack:// URL
     Return {
         'type': immutable|mutable
+        'app': True|False
         'blockchain_id': blockchain ID
         'data_id': data_id
         'fields': { fields }
@@ -883,7 +936,10 @@ def blockstack_data_url_parse( url ):
     blockchain_id = None
     data_id = None
     url_type = None
+    account_id = None
+    service_id = None
     fields = {}
+    app = False
     try:
         blockchain_id, data_id, data_hash = blockstack_immutable_data_url_parse( url )
         url_type = 'immutable'
@@ -891,17 +947,31 @@ def blockstack_data_url_parse( url ):
             'data_hash': data_hash
         } )
     except Exception, e1:
+        log.exception(e1)
         try:
-            blockchain_id, data_id, version = blockstack_mutable_data_url_parse( url )
+            blockchain_id, data_id, version, account_id, service_id = blockstack_mutable_data_url_parse( url )
             url_type = 'mutable'
             fields.update( {
                 'version': version
             } )
+
+            if account_id is not None and service_id is not None:
+                app = True
+
+            if account_id is not None:
+                fields['account_id'] = account_id
+
+            if service_id is not None:
+                fields['service_id'] = service_id
+
         except Exception, e2:
+            log.exception(e2)
+            log.debug("Unparseable URL '%s'" % url)
             return None
 
     ret = {
         'type': url_type,
+        'app': app,
         'blockchain_id': blockchain_id,
         'data_id': data_id,
         'fields': fields
