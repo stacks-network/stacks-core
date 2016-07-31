@@ -121,6 +121,7 @@ from .wallet import *
 from .utils import pretty_dump, print_result
 from .proxy import *
 from .client import analytics_event
+from .app import app_register, app_unregister, app_get_wallet
 
 log = config.get_logger()
 
@@ -2069,3 +2070,163 @@ def cli_advanced_convert_legacy_profile( args, config_path=CONFIG_PATH ):
     profile = profile['profile']
     profile = blockstack_profiles.get_person_from_legacy_format( profile )
     return profile
+
+
+def cli_advanced_app_register( args, config_path=CONFIG_PATH, password=None, proxy=None ):
+    """
+    command: app_register norpc
+    help: Register a new application with your profile.
+    arg: name (str) "The name to link the app to"
+    arg: app_name (str) "The name of the application"
+    arg: app_account_id (str) "The name of the application account"
+    arg: app_url (str) "The URL to the application"
+    opt: storage_drivers (str) "A CSV of storage drivers to host this app's data"
+    opt: app_fields (str) "A CSV of application-specific key/value pairs"
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path=config_path)
+
+    config_dir = os.path.dirname(config_path)
+    res = wallet_ensure_exists(config_dir)
+    if 'error' in res:
+        return res
+
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
+
+    fqu = str(args.name)
+    error = check_valid_name(fqu)
+    if error:
+        return {'error': error}
+
+    app_name = str(args.app_name)
+    app_account_id = str(args.app_account_id)
+    app_url = str(args.app_url)
+    app_storage_drivers = args.app_storage_drivers
+    app_fields = args.app_fields
+
+    if len(app_name) == 0:
+        return {'error': 'Invalid app name'}
+
+    if len(app_account_id) == 0:
+        return {'error': 'Invalid app account ID'}
+
+    if len(app_url) == 0:
+        return {'error': 'Invalid app URL'}
+
+    if app_storage_drivers:
+        app_storage_drivers = str(app_storage_drivers)
+        app_storage_drivers = app_storage_drivers.split(",")
+    else:
+        app_storage_drivers = None
+
+    if app_fields:
+        app_fields = str(app_fields)
+        try:
+            tmp = ",".split(app_fields)
+            app_fields = {}
+            for kv in tmp:
+                p = kv.strip().split("=")
+                assert len(p) > 1, "Invalid key/value list"
+                k = p[0]
+                v = "=".join(p[1:])
+                app_fields[k] = v
+        except AssertionError:
+            return {'error': "Invalid key/value list"}
+        except Exception, e:
+            log.exception(e)
+            return {'error': 'Invalid key/value list'}
+
+    else:
+        app_fields = {}
+
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
+    
+    res = app_register( fqu, app_name, app_account_id, app_url, app_storage_drivers=app_storage_drivers, app_account_fields=app_fields, wallet_keys=wallet_keys, interactive=True, config_path=config_path )
+    return res
+
+
+def cli_advanced_app_unregister( name, app_name, app_account_id, config_path=CONFIG_PATH ):
+    """
+    command: app_unregister norpc
+    help: Unregister an application from a profile
+    arg: name (str) "The name that owns the app account"
+    arg: app_name (str) "The name of the application"
+    arg: app_account_id (str) "The name of the application account"
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path=config_path)
+
+    config_dir = os.path.dirname(config_path)
+    res = wallet_ensure_exists(config_dir)
+    if 'error' in res:
+        return res
+
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
+
+    fqu = str(args.name)
+    error = check_valid_name(fqu)
+    if error:
+        return {'error': error}
+
+    app_name = str(args.app_name)
+    app_account_id = str(args.app_account_id)
+
+    if len(app_name) == 0:
+        return {'error': 'Invalid app name'}
+
+    if len(app_account_id) == 0:
+        return {'error': 'Invalid app account ID'}
+
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
+
+    res = app_unregister( fqu, app_name, app_account_id, interactive=True, wallet_keys=wallet_keys, proxy=proxy, config_path=config_path )
+    return res
+
+
+def cli_advanced_app_get_wallet( name, app_name, app_account_id, config_path=CONFIG_PATH ):
+    """
+    command: app_get_wallet
+    help: Get an application account wallet
+    arg: name (str) "The name that owns the app account"
+    arg: app_name (str) "The name of the application"
+    arg: app_account_id (str) "The name of the application account"
+    opt: password (str) "The app wallet password"
+    """
+
+    fqu = str(args.name)
+    error = check_valid_name(fqu)
+    if error:
+        return {'error': error}
+
+    app_name = str(args.app_name)
+    app_account_id = str(args.app_account_id)
+    password = args.password
+
+    if len(app_name) == 0:
+        return {'error': 'Invalid app name'}
+
+    if len(app_account_id) == 0:
+        return {'error': 'Invalid app account ID'}
+
+    if password:
+        password = str(password)
+    else:
+        password = None
+
+    interactive = False
+    if password is None:
+        interactive = True
+    
+    res = app_get_wallet( fqu, app_name, app_account_id, interactive=interactive, password=password, config_path=config_path )
+    return res
+
