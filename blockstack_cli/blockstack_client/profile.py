@@ -256,6 +256,9 @@ def get_name_zonefile( name, storage_drivers=None, create_if_absent=False, proxy
 
     if 'include_name_record' is true, then zonefile will contain
     an extra key called 'name_record' that includes the blockchain name record.
+
+    @wallet_keys does not need to be given, unles you're creating a new zonefile (with create_if_absent).
+    Even then, only the *public* data key needs to be set.
     """
 
     if proxy is None:
@@ -467,6 +470,8 @@ def get_and_migrate_profile( name, zonefile_storage_drivers=None, profile_storag
     Only pass 'create_if_absent=True' for names we own
 
     If @include_name_record is set, then the resulting zonefile will have a key called 'name_record' that includes the name record.
+
+    @wallet_keys, if given, only needs the data public key set.
 
     Return (user_profile, user_zonefile, migrated:bool) on success
     Return ({'error': ...}, None, False) on error
