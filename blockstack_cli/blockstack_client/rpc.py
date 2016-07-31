@@ -795,7 +795,8 @@ def local_rpc_ensure_running( config_dir=blockstack_config.CONFIG_DIR, password=
 
 def start_rpc_endpoint(config_dir=blockstack_config.CONFIG_DIR, password=None):
     """
-    Ensure that the RPC endpoint is running before the wrapped function is called.
+    Ensure that the RPC endpoint is running.
+    Used in interactive mode due to its better error messages.
     Raise on error
     """
 
