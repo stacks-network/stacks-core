@@ -56,8 +56,13 @@ if __name__ == '__main__':
     # make sure we have sane defaults, and we have registered this installation
     res = configure(interactive=False, force=False)
     if res.has_key('uuid') and first_time:
-        analytics_user_register( res['uuid'] )
-        
+        # prompt for email 
+        print "Would you like to receive an email when there is a new release of this software available?"
+        email_addr = raw_input("Email address (leave blank to opt out): ")
+
+        # will only process real email addresses when we email announcements out
+        analytics_user_register( res['uuid'], email_addr )
+       
     try:
         result = run_cli()
         if 'error' in result:
