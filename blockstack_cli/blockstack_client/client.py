@@ -225,7 +225,7 @@ def analytics_event( event_type, event_payload, config_path=CONFIG_PATH, proxy=N
     return True
 
 
-def analytics_user_register( u, config_path=CONFIG_PATH, proxy=None ):
+def analytics_user_register( u, email, config_path=CONFIG_PATH, proxy=None ):
     """
     Register a user with the analytics service
     """
