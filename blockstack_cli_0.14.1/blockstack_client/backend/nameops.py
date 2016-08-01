@@ -535,11 +535,16 @@ def do_update( fqu, zonefile_hash, owner_privkey, payment_privkey, utxo_client, 
         return {'error': 'Insufficient funds'}
 
     resp = {}
-    try:
-        resp = sign_and_broadcast_tx( subsidized_tx, owner_privkey, config_path=config_path, tx_broadcaster=tx_broadcaster )
-    except Exception, e:
-        log.exception(e)
-        return {'error': 'Failed to sign and broadcast transaction'}
+    
+    if os.environ.get("BLOCKSTACK_DRY_RUN", None) is not None:
+        try:
+            resp = sign_and_broadcast_tx( subsidized_tx, owner_privkey, config_path=config_path, tx_broadcaster=tx_broadcaster )
+        except Exception, e:
+            log.exception(e)
+            return {'error': 'Failed to sign and broadcast transaction'}
+    
+    else:
+        resp['dry_run'] = True
 
     return resp
 
