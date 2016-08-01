@@ -48,7 +48,7 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
 
-    testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 1, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
+    testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 2, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
     testlib.next_block( **kw )
 
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
@@ -72,15 +72,18 @@ def scenario( wallets, **kw ):
 
         testlib.next_block( **kw )
 
+        if i == 3:
+            break
+
         resp = testlib.blockstack_name_update( "foo.test", ("%02x" % i) * 20, wallets[(i+1)%11].privkey )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
         
         if i == 3:
             testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
-            break
 
         testlib.next_block( **kw )
+
 
 def check( state_engine ):
 

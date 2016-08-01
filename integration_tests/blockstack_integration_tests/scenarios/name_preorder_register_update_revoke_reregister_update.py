@@ -24,6 +24,7 @@
 import testlib
 import pybitcoin
 import json
+import blockstack as blockstack_server
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -83,7 +84,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # wait for it to expire...
-    for i in xrange(0, 8):
+    for i in xrange(0, 8 * blockstack_server.NAMESPACE_LIFETIME_MULTIPLIER):
         testlib.next_block( **kw )
 
     # verify that operations continue to fail

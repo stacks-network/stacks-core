@@ -101,6 +101,7 @@ def scenario( wallets, **kw ):
 
         if i == 3:
             testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
+            break
 
         consensus_hash = testlib.get_consensus_at( testlib.get_current_block(**kw), **kw)
         testlib.next_block( **kw )
@@ -108,13 +109,6 @@ def scenario( wallets, **kw ):
 
         if i == 3:
             break
-
-        testlib.next_block( **kw )
-
-        # NOTE: won't expire
-        consensus_hash = testlib.get_consensus_at( testlib.get_current_block(**kw), **kw)
-        testlib.next_block( **kw )
-        testlib.next_block( **kw )
 
 
 def check( state_engine ):

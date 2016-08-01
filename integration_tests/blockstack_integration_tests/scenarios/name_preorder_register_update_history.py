@@ -150,12 +150,23 @@ def check( state_engine ):
         print json.dumps(name_history, indent=4 )
         return False 
 
-    for i in xrange(0, 10):
-        snapshot = name_history[i+1]
-        expected_value_hash = ("%02x" % (2*i + 1)) * 20
+    block_ids = [int(b) for b in name_history.keys()]
+    block_ids.sort()
+
+    # NOTE: first value hash doesn't exist
+    for i in xrange(1, 10):
+        block_id = block_ids[i]
+        snapshots = name_history[str(block_id)]
+
+        if len(snapshots) != 1:
+            print "multiple snapshots at %s" % block_id
+            return False
+
+        snapshot = snapshots[0]
+        expected_value_hash = ("%02x" % (2*(i - 1) + 1)) * 20
 
         if snapshot['value_hash'] != expected_value_hash:
-            print "Invalid value hash '%s'" % expected_value_hash
+            print "Invalid value hash '%s' (expected %s) at %s" % (snapshot['value_hash'], expected_value_hash, block_id)
             print json.dumps( name_history, indent=4 )
             return False 
 

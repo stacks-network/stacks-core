@@ -34,6 +34,7 @@ import copy
 import json
 import gnupg
 import blockstack_zones
+import time
 
 import blockstack.blockstackd as blockstackd
 
@@ -409,7 +410,11 @@ def blockstack_client_set_wallet( password, payment_privkey, owner_privkey, data
 
     print "\nrestarting RPC daemon\n"
     blockstack_client.rpc.local_rpc_stop(config_dir=config_dir)
-    blockstack_client.actions.start_rpc_endpoint(config_dir, password=password)
+    blockstack_client.rpc.local_rpc_ensure_running(config_dir=config_dir, password=password)
+
+    print "\nrestarted RPC daemon; waiting 5 seconds for it to boot\n"
+
+    time.sleep(5)
     return wallet
 
 

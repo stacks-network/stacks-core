@@ -83,7 +83,7 @@ def scenario( wallets, **kw ):
         if i == 10:
             break
 
-        for j in xrange(0, 2 * blockstack_server.NAMESPACE_LIFETIME_MULTIPLER - 1):
+        for j in xrange(0, 2 * blockstack_server.NAMESPACE_LIFETIME_MULTIPLIER - 1):
             testlib.next_block( **kw )
 
 
