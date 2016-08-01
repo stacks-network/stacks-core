@@ -23,7 +23,8 @@
 
 from utilitybelt import is_hex, is_valid_int
 from binascii import hexlify, unhexlify
-from pybitcoin import BitcoinPrivateKey, BitcoinPublicKey, script_to_hex, make_pay_to_address_script, analyze_private_key
+from virtualchain import BitcoinPrivateKey, BitcoinPublicKey
+from pybitcoin import script_to_hex, make_pay_to_address_script, analyze_private_key
 from pybitcoin.transactions.outputs import calculate_change_amount
 
 import virtualchain
@@ -254,10 +255,10 @@ def tx_serialize_and_sign_multi( inputs, outputs, private_keys ):
     
     private_key_objs = []
     for pk in private_keys:
-        if isinstance( pk, pybitcoin.BitcoinPrivateKey ):
+        if isinstance( pk, BitcoinPrivateKey ):
             private_key_objs.append( pk )
         else:
-            private_key_objs.append( pybitcoin.BitcoinPrivateKey( pk ) )
+            private_key_objs.append( BitcoinPrivateKey( pk ) )
             
     # make the transaction 
     unsigned_tx = pybitcoin.serialize_transaction( inputs, outputs )
@@ -383,7 +384,7 @@ def tx_make_subsidizable( blockstack_tx, fee_cb, max_fee, subsidy_key, utxo_clie
         return None
     
     else:
-        log.debug("%s will subsidize %s satoshi" % (pybitcoin.BitcoinPrivateKey( subsidy_key ).public_key().address(), dust_fee + op_fee ))
+        log.debug("%s will subsidize %s satoshi" % (BitcoinPrivateKey( subsidy_key ).public_key().address(), dust_fee + op_fee ))
     
     subsidy_output = tx_make_subsidization_output( payer_utxo_inputs, payer_address, op_fee, dust_fee )
     
