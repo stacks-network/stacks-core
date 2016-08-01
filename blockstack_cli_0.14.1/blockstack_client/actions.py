@@ -1683,7 +1683,7 @@ def cli_advanced_put_immutable( args, config_path=CONFIG_PATH ):
     if 'error' in res:
         return res
 
-    conf = config.get_config( config_path=config_path )
+    conf = config.get_config( config_path )
     result = put_immutable(str(args.name),
                            str(args.data_id),
                            str(args.data),
@@ -1699,7 +1699,7 @@ def cli_advanced_get_mutable( args, config_path=CONFIG_PATH ):
     arg: name (str) "The name that has the data"
     arg: data_id (str) "The name of the data"
     """
-    conf = config.get_config( config_path=config_path )
+    conf = config.get_config( config_path )
     result = get_mutable(str(args.name), str(args.data_id),
                          conf=conf)
 
