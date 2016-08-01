@@ -1659,9 +1659,19 @@ def cli_advanced_put_mutable( args, config_path=CONFIG_PATH ):
     arg: data_id (str) "The name of the data"
     arg: data (str) "The JSON-formatted data to store"
     """
-    result = put_mutable(str(args.name),
+    fqu = str(args.name)
+    error = check_valid_name(fqu)
+    if error:
+        return {'error': error}
+
+    try:
+        data = json.loads(args.data)
+    except:
+        return {'error': "Invalid JSON"}
+
+    result = put_mutable(fqu,
                          str(args.data_id),
-                         str(args.data))
+                         data)
 
     return result
 
@@ -1683,10 +1693,20 @@ def cli_advanced_put_immutable( args, config_path=CONFIG_PATH ):
     if 'error' in res:
         return res
 
+    fqu = str(args.name)
+    error = check_valid_name(fqu)
+    if error:
+        return {'error': error}
+
+    try:
+        data = json.loads(args.data)
+    except:
+        return {'error': "Invalid JSON"}
+
     conf = config.get_config( config_path )
-    result = put_immutable(str(args.name),
+    result = put_immutable(fqu,
                            str(args.data_id),
-                           str(args.data),
+                           data,
                            conf=conf)
 
     return result
