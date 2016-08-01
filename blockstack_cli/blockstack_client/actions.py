@@ -1677,7 +1677,7 @@ def cli_advanced_put_mutable( args, config_path=CONFIG_PATH ):
     return result
 
 
-def cli_advanced_put_immutable( args, config_path=CONFIG_PATH ):
+def cli_advanced_put_immutable( args, config_path=CONFIG_PATH, password=None ):
     """
     command: put_immutable norpc
     help: Put immutable data into a zonefile
@@ -1685,6 +1685,7 @@ def cli_advanced_put_immutable( args, config_path=CONFIG_PATH ):
     arg: data_id (str) "The name of the data"
     arg: data (str) "The JSON-formatted data to store"
     """
+
     config_dir = os.path.dirname(config_path)
     res = wallet_ensure_exists(config_dir, password=password)
     if 'error' in res:
@@ -1707,8 +1708,7 @@ def cli_advanced_put_immutable( args, config_path=CONFIG_PATH ):
     conf = config.get_config( config_path )
     result = put_immutable(fqu,
                            str(args.data_id),
-                           data,
-                           conf=conf)
+                           data)
 
     return result
 
