@@ -26,6 +26,8 @@ import pybitcoin
 import blockstack_client 
 import json
 
+log = blockstack_client.get_logger("name_preorer_register_multi_snv")
+
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
     testlib.Wallet( "5KHqsiU9qa77frZb6hQy9ocV7Sus9RWJcQGYYBJJBb2Efj1o77e", 100000000000 ),
@@ -80,7 +82,7 @@ def scenario( wallets, **kw ):
     bar_preorder = testlib.blockstack_name_preorder( "bar.test", wallets[4].privkey, wallets[5].addr )
     testlib.next_block( **kw )
     
-    snv_serial_number_bar = "%s-%s" % (testlib.get_current_block(), 0 )
+    snv_serial_number_bar = "%s-%s" % (testlib.get_current_block(), 1 )
     snv_txid_bar = bar_preorder['transaction_hash']
 
     testlib.blockstack_name_register( "bar.test", wallets[4].privkey, wallets[5].addr )
@@ -95,7 +97,7 @@ def scenario( wallets, **kw ):
     baz_preorder = testlib.blockstack_name_preorder( "baz.test", wallets[6].privkey, wallets[7].addr )
     testlib.next_block( **kw )
     
-    snv_serial_number_baz = "%s-%s" % (testlib.get_current_block(), 0 )
+    snv_serial_number_baz = "%s-%s" % (testlib.get_current_block(), 1 )
     snv_txid_baz = baz_preorder['transaction_hash']
 
     testlib.blockstack_name_register( "baz.test", wallets[6].privkey, wallets[7].addr )
@@ -171,30 +173,35 @@ def check( state_engine ):
     test_proxy = testlib.TestAPIProxy()
     blockstack_client.set_default_proxy( test_proxy )
 
+    log.debug("use last consensus %s to verify foo.test at %s" % (last_consensus, snv_block_id_foo))
     snv_rec = blockstack_client.snv_lookup( "foo.test", snv_block_id_foo, last_consensus, proxy=test_proxy ) 
     if 'error' in snv_rec:
         print json.dumps(snv_rec, indent=4 )
         return False
 
     # can use bar.test's serial number to verify foo.test
+    log.debug("use bar.test's serial number %s to verify foo.test at %s" % (snv_serial_number_bar, snv_block_id_foo))
     snv_rec_bar = blockstack_client.snv_lookup( "foo.test", snv_block_id_foo, snv_serial_number_bar, proxy=test_proxy )
     if 'error' in snv_rec_bar:
         print json.dumps(snv_rec_bar, indent=4 )
         return False 
 
     # can use baz.test's serial number to verify foo.test 
+    log.debug("use baz.test's serial number %s to verify foo.test at %s" % (snv_serial_number_baz, snv_block_id_foo))
     snv_rec_baz = blockstack_client.snv_lookup( "foo.test", snv_block_id_foo, snv_serial_number_baz, proxy=test_proxy )
     if 'error' in snv_rec_baz:
         print json.dumps( snv_rec_baz, indent=4 )
         return False 
 
-    # can use bar.test's preorder txid to verify foo.test 
+    # can use bar.test's preorder txid to verify foo.test
+    log.debug("use bar.test's preorder txid %s to verify foo.test at %s" % (snv_txid_bar, snv_block_id_foo))
     snv_rec_bar_tx = blockstack_client.snv_lookup( "foo.test", snv_block_id_foo, snv_txid_bar, proxy=test_proxy )
     if 'error' in snv_rec_bar_tx:
         print json.dumps( snv_rec_bar_tx, indent=4 )
         return False 
 
     # can use baz.test's preorder txid to verify foo.test 
+    log.debug("use baz.test's preorder txid %s to verify foo.test at %s" % (snv_txid_baz, snv_block_id_foo))
     snv_rec_baz_tx = blockstack_client.snv_lookup( "foo.test", snv_block_id_foo, snv_txid_baz, proxy=test_proxy )
     if 'error' in snv_rec_baz_tx:
         print json.dumps( snv_rec_baz_tx, indent=4 )
