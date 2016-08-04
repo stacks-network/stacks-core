@@ -81,6 +81,10 @@ MAGIC_BYTES = 'id'
 
 # borrowed from Blockstack
 FIRST_BLOCK_MAINNET = 373601
+
+if os.environ.get("BLOCKSTACK_TEST", None) is not None and os.environ.get("BLOCKSTACK_TEST_FIRST_BLOCK", None) is not None:
+    FIRST_BLOCK_MAINNET = int(os.environ.get("BLOCKSTACK_TEST_FIRST_BLOCK"))
+
 FIRST_BLOCK_TIME_UTC = 1441737751 
 
 # borrowed from Blockstack
@@ -254,7 +258,7 @@ NAME_SCHEME = MAGIC_BYTES + NAME_REGISTRATION
  
 # burn address for fees (the address of public key 0x0000000000000000000000000000000000000000)
 BLOCKSTACK_BURN_PUBKEY_HASH = "0000000000000000000000000000000000000000"
-BLOCKSTACK_BURN_ADDRESS = "1111111111111111111114oLvT2"
+BLOCKSTACK_BURN_ADDRESS = virtualchain.hex_hash160_to_address( BLOCKSTACK_BURN_PUBKEY_HASH )   # "1111111111111111111114oLvT2"
 
 # borrowed from Blockstack
 # never changes, so safe to duplicate to avoid gratuitous imports
@@ -320,8 +324,7 @@ SUPPORTED_UTXO_PROMPT_MESSAGES = {
     "blockcypher": "Please enter your Blockcypher API token.",
     "blockchain_info": "Please enter your blockchain.info API token.",
     "bitcoind_utxo": "Please enter your fully-indexed bitcoind node information.",
-    "blockstack_utxo": "Please enter your Blockstack server info.",
-    "mock_utxo": "Mock UTXO provider.  Do not use in production."
+    "blockstack_utxo": "Please enter your Blockstack server info."
 }
 
 def get_logger( debug=DEBUG ):
