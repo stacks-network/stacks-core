@@ -103,7 +103,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
-    last_consensus = testlib.get_consensus_at( testlib.get_current_block() )
+    last_consensus = testlib.get_consensus_at( testlib.get_current_block(**kw) )
 
 
 def check( state_engine ):
@@ -153,6 +153,7 @@ def check( state_engine ):
     # NOTE: cannot use serial numbers here, since a NAME_IMPORT does not contain a consensus hash.
     test_proxy = testlib.TestAPIProxy()
     blockstack_client.set_default_proxy( test_proxy )
+    bitcoind = testlib.get_bitcoind()
 
     snv_rec = blockstack_client.snv_lookup( "foo.test", snv_block_id_foo, last_consensus, proxy=test_proxy ) 
     if 'error' in snv_rec:
