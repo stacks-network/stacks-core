@@ -100,7 +100,7 @@ def get_public_key_hex_from_tx( inputs, address ):
             pubkey = None 
             
             try:
-                pubkey = pybitcoin.BitcoinPublicKey( str(pubkey_hex) ) 
+                pubkey = virtualchain.BitcoinPublicKey( str(pubkey_hex) ) 
             except Exception, e: 
                 traceback.print_exc()
                 log.warning("Invalid public key '%s'" % pubkey_hex)
@@ -425,7 +425,7 @@ def db_parse( block_id, txid, vtxindex, opcode, data, senders, inputs, outputs, 
       # these operations have a designated recipient that is *not* the sender
       try:
          recipient = get_registration_recipient_from_outputs( outputs )
-         recipient_address = pybitcoin.script_hex_to_address( recipient )
+         recipient_address = virtualchain.script_hex_to_address( recipient )
       except Exception, e:
          log.exception(e)
          raise Exception("No registration address for (%s, %s)" % (opcode, hexlify(data)))
@@ -435,7 +435,7 @@ def db_parse( block_id, txid, vtxindex, opcode, data, senders, inputs, outputs, 
       # these operations have a designated recipient that is *not* the sender
       try:
          recipient = get_transfer_recipient_from_outputs( outputs )
-         recipient_address = pybitcoin.script_hex_to_address( recipient )
+         recipient_address = virtualchain.script_hex_to_address( recipient )
       except Exception, e:
          log.exception(e)
          raise Exception("No recipient for (%s, %s)" % (opcode, hexlify(data)))
