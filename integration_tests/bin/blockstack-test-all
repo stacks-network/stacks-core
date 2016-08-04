@@ -11,7 +11,7 @@ fi
 
 RUN_SCENARIO="blockstack-test-scenario"
 SCENARIOS_PYTHON="blockstack_integration_tests.scenarios"
-SCENARIOS="$(python -c "import blockstack_integration_tests; import blockstack_integration_tests.scenarios; print blockstack_integration_tests.scenarios.__path__[0]")"
+SCENARIOS="$(BLOCKSTACK_TESTNET=1 python -c "import blockstack_integration_tests; import blockstack_integration_tests.scenarios; print blockstack_integration_tests.scenarios.__path__[0]")"
 if [ $? -ne 0 ]; then 
    echo >&2 "Failed to load blockstack integration test scenarios"
    exit 1
