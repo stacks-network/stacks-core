@@ -316,7 +316,6 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
     # set up test environment
     testlib.set_utxo_opts( utxo_opts )
-    testlib.set_utxo_client( utxo_provider )
     testlib.set_bitcoind( bitcoind )
     testlib.set_state_engine( db )
 
