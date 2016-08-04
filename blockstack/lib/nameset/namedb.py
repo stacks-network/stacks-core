@@ -210,7 +210,7 @@ class BlockstackDB( virtualchain.StateEngine ):
                  continue
 
              pubkey_hex = name_record['sender_pubkey']
-             pubkey_addr = pybitcoin.BitcoinPublicKey( str(pubkey_hex) ).address()
+             pubkey_addr = virtualchain.BitcoinPublicKey( str(pubkey_hex) ).address()
 
              if pubkey_addr != namespace_reveal['recipient_address']:
                  continue
@@ -312,7 +312,7 @@ class BlockstackDB( virtualchain.StateEngine ):
       Generate all possible NAME_IMPORT addresses from the NAMESPACE_REVEAL public key
       """
 
-      pubkey_addr = pybitcoin.BitcoinPublicKey( str(pubkey_hex) ).address()
+      pubkey_addr = virtualchain.BitcoinPublicKey( str(pubkey_hex) ).address()
 
       # do we have a cached one on disk?
       cached_keychain = os.path.join( virtualchain.get_working_dir(), "%s.keychain" % pubkey_addr)
@@ -340,6 +340,12 @@ class BlockstackDB( virtualchain.StateEngine ):
       for i in xrange(0, NAME_IMPORT_KEYRING_SIZE):
           public_child = public_keychain.child(i)
           public_child_address = public_child.address()
+
+          # if we're on testnet, then re-encode as a testnet address 
+          if virtualchain.version_byte == 111:
+              old_child_address = public_child_address
+              public_child_address = virtualchain.hex_hash160_to_address( pybitcoin.address_to_hex_hash160( public_child_address ) )
+              log.debug("Re-encode '%s' to '%s'" % (old_child_address, public_child_address))
 
           child_addrs.append( public_child_address )
 
@@ -2422,7 +2428,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
       # sender p2pkh script must use a public key derived from the namespace revealer's public key
       sender_pubkey_hex = str(nameop['sender_pubkey'])
-      sender_pubkey = pybitcoin.BitcoinPublicKey( str(sender_pubkey_hex) )
+      sender_pubkey = virtualchain.BitcoinPublicKey( str(sender_pubkey_hex) )
       sender_address = sender_pubkey.address()
 
       import_addresses = self.import_addresses.get(namespace_id, None)
