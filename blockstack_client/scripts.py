@@ -117,7 +117,7 @@ def blockstack_script_to_hex(script):
 # generate a pay-to-pubkeyhash script from a public key.
 def get_script_pubkey( public_key ):
    
-   hash160 = pybitcoin.BitcoinPublicKey(public_key).hash160()
+   hash160 = virtualchain.BitcoinPublicKey(public_key).hash160()
    script_pubkey = pybitcoin.script_to_hex( 'OP_DUP OP_HASH160 %s OP_EQUALVERIFY OP_CHECKSIG' % hash160)
    return script_pubkey
 
@@ -140,7 +140,7 @@ def hash_name(name, script_pubkey, register_addr=None):
    
    if register_addr is not None:
        name_and_pubkey += str(register_addr)
-       
+   
    return pybitcoin.hex_hash160(name_and_pubkey)
 
 
@@ -307,7 +307,7 @@ def tx_make_subsidizable( blockstack_tx, fee_cb, max_fee, subsidy_key, utxo_clie
     """
    
     # get subsidizer key info
-    private_key_obj, payer_address, payer_utxo_inputs = pybitcoin.analyze_private_key(subsidy_key, utxo_client)
+    private_key_obj, payer_address, payer_utxo_inputs = virtualchain.analyze_private_key(subsidy_key, utxo_client)
     
     tx_inputs, tx_outputs, locktime, version = tx_deserialize( blockstack_tx )
 
@@ -322,7 +322,7 @@ def tx_make_subsidizable( blockstack_tx, fee_cb, max_fee, subsidy_key, utxo_clie
         return None
     
     else:
-        log.debug("%s will subsidize %s satoshi" % (pybitcoin.BitcoinPrivateKey( subsidy_key ).public_key().address(), dust_fee + op_fee ))
+        log.debug("%s will subsidize %s satoshi" % (virtualchain.BitcoinPrivateKey( subsidy_key ).public_key().address(), dust_fee + op_fee ))
     
     subsidy_output = tx_make_subsidization_output( payer_utxo_inputs, payer_address, op_fee, dust_fee + tx_fee )
     
