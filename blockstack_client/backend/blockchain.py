@@ -39,20 +39,8 @@ def get_bitcoind_client(config_path=CONFIG_PATH):
     Connect to bitcoind
     """
     bitcoind_opts = virtualchain.get_bitcoind_config(config_file=config_path)
-    if bitcoind_opts['bitcoind_mock']:
-        # testing 
-        log.debug("Connect to mock bitcoind (%s)" % config_path)
-       
-        # mock bitcoind requires mock utxo options as well
-        utxo_opts = blockstack_utxo.default_mock_utxo_opts(config_path)
-        bitcoind_opts.update(utxo_opts)
-
-        from blockstack_integration_tests import connect_mock_bitcoind
-        client = connect_mock_bitcoind( bitcoind_opts, reset=True )
-    else:
-        # production
-        log.debug("Connect to production bitcoind (%s)" % config_path)
-        client = virtualchain.connect_bitcoind( bitcoind_opts )
+    log.debug("Connect to bitcoind at %s:%s (%s)" % (bitcoind_opts['bitcoind_server'], bitcoind_opts['bitcoind_port'], config_path))
+    client = virtualchain.connect_bitcoind( bitcoind_opts )
 
     return client
 
@@ -123,8 +111,13 @@ def get_tx_fee( tx_hex, config_path=CONFIG_PATH ):
         # try to confirm in 2-3 blocks
         fee = bitcoind_client.estimatefee(2)
         if fee < 0:
-            log.error("Failed to estimate tx fee")
-            return None 
+            # if we're testing, then use our own fee
+            if os.environ.get("BLOCKSTACK_TEST", None) is not None:
+                fee = 5500.0 / 10**8
+
+            else:
+                log.error("Failed to estimate tx fee")
+                return None
 
         fee = float(fee) 
 
