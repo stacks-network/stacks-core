@@ -21,7 +21,7 @@ setup(
     include_package_data=True,
     install_requires=[
         'virtualchain>=0.0.13.0',
-        'protocoin>=0.1',
+        'protocoin>=0.2',
         'blockstack-profiles>=0.4.4',
         'pybitcoin>=0.9.9',
         'blockstack-zones>=0.1.6',
