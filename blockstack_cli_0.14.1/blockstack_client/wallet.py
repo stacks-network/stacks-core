@@ -31,6 +31,8 @@ import errno
 import pybitcoin
 import subprocess
 import shutil
+import virtualchain
+
 from keylib import ECPrivateKey
 from socket import error as socket_error
 from time import sleep
@@ -204,7 +206,7 @@ def make_wallet( password, hex_privkey=None, payment_privkey=None, owner_privkey
         data['payment_addresses'] = [child[0][0]]
     else:
         try:
-            data['payment_addresses'] = [pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().address()]
+            data['payment_addresses'] = [virtualchain.BitcoinPrivateKey(payment_privkey).public_key().address()]
         except:
             return {'error': 'Invalid payment private key'}
 
@@ -214,7 +216,7 @@ def make_wallet( password, hex_privkey=None, payment_privkey=None, owner_privkey
         data['owner_addresses'] = [child[1][0]]
     else:
         try:
-            data['owner_addresses'] = [pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().address()]
+            data['owner_addresses'] = [virtualchain.BitcoinPrivateKey(owner_privkey).public_key().address()]
         except:
             return {'error': 'Invalid payment private key'}
 
@@ -361,8 +363,8 @@ def decrypt_wallet( data, password, config_path=CONFIG_PATH, max_tries=WALLET_DE
             ret[keyname] = child_keypair[1]
 
     ret['hex_privkey'] = hex_privkey
-    ret['payment_addresses'] = [pybitcoin.BitcoinPrivateKey(ret['payment_privkey']).public_key().address()]
-    ret['owner_addresses'] = [pybitcoin.BitcoinPrivateKey(ret['owner_privkey']).public_key().address()]
+    ret['payment_addresses'] = [virtualchain.BitcoinPrivateKey(ret['payment_privkey']).public_key().address()]
+    ret['owner_addresses'] = [virtualchain.BitcoinPrivateKey(ret['owner_privkey']).public_key().address()]
     ret['data_pubkeys'] = [ECPrivateKey(ret['data_privkey']).public_key().to_hex()]
     ret['data_pubkey'] = ret['data_pubkeys'][0]
 
