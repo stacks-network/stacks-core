@@ -32,8 +32,9 @@ wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
     testlib.Wallet( "5KHqsiU9qa77frZb6hQy9ocV7Sus9RWJcQGYYBJJBb2Efj1o77e", 100000000000 ),
     testlib.Wallet( "5Kg5kJbQHvk1B64rJniEmgbD83FpZpbw2RjdAZEzTefs9ihN3Bz", 100000000000 ),
-    testlib.Wallet( "5JuVsoS9NauksSkqEjbUZxWwgGDQbMwPsEfoRBSpLpgDX1RtLX7", 5500 ),
-    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 5500 )
+    testlib.Wallet( "5JuVsoS9NauksSkqEjbUZxWwgGDQbMwPsEfoRBSpLpgDX1RtLX7", 100000000000 ),
+    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 100000000000 ),
+    testlib.Wallet( "5K6TSyEeEAeDynw8R2imSwebp9An2Vjnd4q5o8GmKWJLbQ2i9Rp", 100000000000 )
 ]
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
@@ -81,6 +82,11 @@ def scenario( wallets, **kw ):
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
     time.sleep(10)
 
+    # get the current expiration
+    proxy = testlib.make_proxy()
+    res = blockstack_client.get_name_blockchain_record( "foo.test", proxy=proxy )
+    old_expire_block = res['expire_block']
+
     # send an update, changing the zonefile
     data_pubkey = wallet['data_pubkey']
     zonefile = blockstack_client.user.make_empty_user_zonefile( "foo.test", data_pubkey )
@@ -117,7 +123,7 @@ def scenario( wallets, **kw ):
     time.sleep(10)
 
     # regenerate the wallet, with the new owner address
-    wallet = testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[2].privkey, wallets[4].privkey, wallets[4].privkey )
+    wallet = testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[5].privkey, wallets[4].privkey, wallets[4].privkey )
 
     # renew it, using the same payment key 
     resp = testlib.blockstack_rpc_renew( "foo.test", "0123456789abcdef" )
@@ -128,12 +134,10 @@ def scenario( wallets, **kw ):
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge the renewal"
     time.sleep(10)
 
-    proxy = testlib.make_proxy()
     res = blockstack_client.get_name_blockchain_record( "foo.test", proxy=proxy )
     if 'error' in res:
         print >> sys.stderr, json.dumps(res, indent=4, sort_keys=True)
         return False
-
 
     new_expire_block = res['expire_block']
     if old_expire_block >= new_expire_block + 12:
