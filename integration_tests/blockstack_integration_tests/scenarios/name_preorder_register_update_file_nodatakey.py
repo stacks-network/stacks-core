@@ -98,9 +98,9 @@ def scenario( wallets, **kw ):
 
     test_proxy = testlib.TestAPIProxy()
     blockstack_client.set_default_proxy( test_proxy )
-    wallet_keys['foo.test'] = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey )
-    wallet_keys['bar.test'] = blockstack_client.make_wallet_keys( owner_privkey=wallets[6].privkey )
-    wallet_keys['baz.test'] = blockstack_client.make_wallet_keys( owner_privkey=wallets[9].privkey )
+    wallet_keys['foo.test'] = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, payment_privkey=wallets[10].privkey )
+    wallet_keys['bar.test'] = blockstack_client.make_wallet_keys( owner_privkey=wallets[6].privkey, payment_privkey=wallets[11].privkey )
+    wallet_keys['baz.test'] = blockstack_client.make_wallet_keys( owner_privkey=wallets[9].privkey, payment_privkey=wallets[12].privkey )
 
     # migrate profiles 
     for name in ['foo.test', 'bar.test', 'baz.test']:

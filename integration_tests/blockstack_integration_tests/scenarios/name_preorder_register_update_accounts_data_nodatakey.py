@@ -73,7 +73,7 @@ def scenario( wallets, **kw ):
 
     test_proxy = testlib.TestAPIProxy()
     blockstack_client.set_default_proxy( test_proxy )
-    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey )
+    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, payment_privkey=wallets[5].privkey )
 
     # migrate profiles 
     res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
@@ -85,8 +85,8 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
-    data_pk = wallets[-1].privkey
-    data_pub = wallets[-1].pubkey_hex
+    data_pk = wallets[4].privkey
+    data_pub = wallets[4].pubkey_hex
 
     res = blockstack_client.create_app_account("foo.test", "serviceFoo", "serviceFooID", "foo://bar.com", ["disk"], data_pub, proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in res:
