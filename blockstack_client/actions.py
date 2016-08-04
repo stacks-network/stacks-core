@@ -50,6 +50,7 @@ import traceback
 import os
 import re
 import pybitcoin
+import virtualchain
 import subprocess
 from socket import error as socket_error
 from time import sleep
@@ -234,7 +235,7 @@ def get_total_registration_fees(name, payment_privkey, owner_address, proxy=None
         return {'error': 'Could not determine price of name: %s' % data['error']}
 
     insufficient_funds = False
-    payment_address = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().address()
+    payment_address = virtualchain.BitcoinPrivateKey(payment_privkey).public_key().address()
     utxo_client = get_utxo_provider_client( config_path=config_path )
     
     # fee stimation: cost of name + cost of preorder transaction + cost of registration transaction + cost of update transaction
@@ -727,10 +728,10 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
     owner_privkey = wallet_keys['owner_privkey']
     payment_privkey = wallet_keys['payment_privkey']
     data_privkey = wallet_keys['data_privkey']
-    owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
-    owner_address = pybitcoin.BitcoinPublicKey(owner_pubkey).address()
-    payment_address = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().address()
-    data_address = pybitcoin.BitcoinPrivateKey(data_privkey).public_key().address()
+    owner_pubkey = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
+    owner_address = virtualchain.BitcoinPublicKey(owner_pubkey).address()
+    payment_address = virtualchain.BitcoinPrivateKey(payment_privkey).public_key().address()
+    data_address = virtualchain.BitcoinPrivateKey(data_privkey).public_key().address()
 
     fees = get_total_registration_fees(fqu, payment_privkey, owner_address, proxy=proxy, config_path=config_path)
     if 'error' in fees:
@@ -753,7 +754,7 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
 
     balance = get_balance( payment_address )
     if balance < fees['total_estimated_cost']:
-        msg = "Address %s doesn't have enough balance (need %s)." % (payment_address, fees['total_estimated_cost'])
+        msg = "Address %s doesn't have enough balance (need %s, have %s)." % (payment_address, fees['total_estimated_cost'], balance)
         return {'error': msg}
 
     if not can_receive_name(owner_address, proxy=proxy):
@@ -975,9 +976,9 @@ def cli_renew( args, config_path=CONFIG_PATH, interactive=True, password=None, p
 
     owner_privkey = wallet_keys['owner_privkey']
     payment_privkey = wallet_keys['payment_privkey']
-    owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
-    owner_address = pybitcoin.BitcoinPublicKey(owner_pubkey).address()
-    payment_address = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().address()
+    owner_pubkey = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
+    owner_address = virtualchain.BitcoinPublicKey(owner_pubkey).address()
+    payment_address = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().address()
 
     if not is_name_owner(fqu, owner_address, proxy=proxy):
         return {'error': '%s is not in your possession.' % fqu}
@@ -995,7 +996,7 @@ def cli_renew( args, config_path=CONFIG_PATH, interactive=True, password=None, p
     utxo_client = get_utxo_provider_client( config_path=config_path )
     
     # fee stimation: cost of name + cost of renewal transaction
-    payment_pubkey_hex = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().to_hex()
+    payment_pubkey_hex = virtualchain.BitcoinPrivateKey(payment_privkey).public_key().to_hex()
 
     name_price = renewal_fee['satoshis']
     renewal_tx_fee = estimate_renewal_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path )
@@ -1084,9 +1085,9 @@ def cli_revoke( args, config_path=CONFIG_PATH, interactive=True, password=None, 
 
     owner_privkey = wallet_keys['owner_privkey']
     payment_privkey = wallet_keys['payment_privkey']
-    owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
-    owner_address = pybitcoin.BitcoinPublicKey(owner_pubkey).address()
-    payment_address = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().address()
+    owner_pubkey = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
+    owner_address = virtualchain.BitcoinPublicKey(owner_pubkey).address()
+    payment_address = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().address()
 
     res = operation_sanity_check(fqu, payment_privkey, config_path=config_path)
     if 'error' in res:
@@ -1162,7 +1163,7 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None, inter
 
     owner_privkey = wallet_keys['owner_privkey']
     payment_privkey = wallet_keys['payment_privkey']
-    owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
+    owner_pubkey = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
 
     res = operation_sanity_check(fqu, payment_privkey, config_path=config_path)
     if 'error' in res:
@@ -1255,15 +1256,15 @@ def cli_advanced_import_wallet( args, config_path=CONFIG_PATH, password=None, fo
         data_privkey = args.data_privkey
         if len(data_privkey) == 0:
             # generate one, since it's an optional argument
-            data_privkey = pybitcoin.BitcoinPrivateKey().to_wif()
+            data_privkey = virtualchain.BitcoinPrivateKey().to_wif()
 
         # make absolutely certain that these are valid keys 
         try:
             assert len(args.payment_privkey) > 0
             assert len(args.owner_privkey) > 0
-            pybitcoin.BitcoinPrivateKey(args.payment_privkey)
-            pybitcoin.BitcoinPrivateKey(args.owner_privkey)
-            pybitcoin.BitcoinPrivateKey(data_privkey)
+            virtualchain.BitcoinPrivateKey(args.payment_privkey)
+            virtualchain.BitcoinPrivateKey(args.owner_privkey)
+            virtualchain.BitcoinPrivateKey(data_privkey)
         except:
             return {'error': 'Invalid payment or owner private key'}
 
@@ -1976,7 +1977,7 @@ def cli_advanced_set_zonefile_hash( args, config_path=CONFIG_PATH, password=None
 
     owner_privkey = wallet_keys['owner_privkey']
     payment_privkey = wallet_keys['payment_privkey']
-    owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
+    owner_pubkey = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
 
     res = operation_sanity_check(fqu, payment_privkey, config_path=config_path)
     if 'error' in res:
@@ -2050,7 +2051,7 @@ def cli_advanced_set_profile( args, config_path=CONFIG_PATH, password=None, prox
     required_storage_drivers = conf.get('storage_drivers_required_write', config.BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE)
     required_storage_drivers = required_storage_drivers.split()
 
-    owner_address = pybitcoin.BitcoinPrivateKey(wallet_keys['owner_privkey']).public_key().address()
+    owner_address = virtualchain.BitcoinPrivateKey(wallet_keys['owner_privkey']).public_key().address()
     user_zonefile = get_name_zonefile( name, proxy=proxy, wallet_keys=wallet_keys )
     if 'error' in user_zonefile:
         return user_zonefile
