@@ -100,19 +100,13 @@ def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
 
       new_bitcoind = None
       try:
-         if bitcoin_opts.has_key('bitcoind_mock') and bitcoin_opts['bitcoind_mock']:
-            # make a mock connection
-            log.debug("Use mock bitcoind")
-            import blockstack_integration_tests.mock_bitcoind
-            new_bitcoind = blockstack_integration_tests.mock_bitcoind.connect_mock_bitcoind( bitcoin_opts, reset=reset )
 
-         else:
-            try:
-                new_bitcoind = virtualchain.connect_bitcoind( bitcoin_opts )
-            except KeyError, ke:
-                log.exception(ke)
-                log.error("Invalid configuration: %s" % bitcoin_opts)
-                return None
+         try:
+             new_bitcoind = virtualchain.connect_bitcoind( bitcoin_opts )
+         except KeyError, ke:
+             log.exception(ke)
+             log.error("Invalid configuration: %s" % bitcoin_opts)
+             return None
 
          if new:
              return new_bitcoind
