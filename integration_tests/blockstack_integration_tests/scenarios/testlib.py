@@ -51,14 +51,23 @@ log = virtualchain.get_logger("testlib")
 
 class Wallet(object):
     def __init__(self, pk_wif, value_str ):
-        pk = pybitcoin.BitcoinPrivateKey( pk_wif )
+
+        pk = virtualchain.BitcoinPrivateKey( pk_wif )
 
         self._pk = pk
-        self.privkey = pk_wif
+
+        if pk_wif.startswith("c"):
+            # already a private key 
+            self.privkey = pk_wif
+        else:
+            self.privkey = pk.to_wif()
+
         self.pubkey_hex = pk.public_key().to_hex()                          # coordinate (uncompressed) EC public key
         self.ec_pubkey_hex = keylib.ECPrivateKey(pk_wif).public_key().to_hex()  # parameterized (compressed) EC public key
         self.addr = pk.public_key().address()
         self.value = int(value_str)
+
+        log.debug("Wallet %s (%s)" % (self.privkey, self.addr))
 
 
 class APICallRecord(object):
@@ -82,7 +91,7 @@ class TestAPIProxy(object):
         self.config_path = client_path
         self.conf = {
             "start_block": blockstack.FIRST_BLOCK_MAINNET,
-            "initial_utxos": utxo_opts,
+            # "initial_utxos": utxo_opts,
             "storage_drivers": client_config['storage_drivers'],
             "metadata": client_config['metadata'],
             "path": client_path
@@ -143,6 +152,9 @@ snv_fail = []
 # names we expect will fail SNV, at a particular block 
 snv_fail_at = {}
 
+# default payment wallet 
+default_payment_wallet = None
+
 class CLIArgs(object):
     pass
 
@@ -191,8 +203,6 @@ def make_proxy():
     """
     Create a blockstack client API proxy
     """
-    global utxo_opts
-
     client_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
     assert client_path is not None
 
@@ -216,6 +226,8 @@ def blockstack_name_preorder( name, privatekey, register_addr, subsidy_key=None,
     blockstack_client.set_default_proxy( test_proxy )
 
     name_cost_info = test_proxy.get_name_cost( name )
+    assert 'satoshis' in name_cost_info, "error getting cost of %s: %s" % (name, name_cost_info)
+
     resp = blockstack_client.do_preorder( name, privatekey, register_addr, name_cost_info['satoshis'], test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
 
     api_call_history.append( APICallRecord( "preorder", name, resp ) )
@@ -237,7 +249,11 @@ def blockstack_name_update( name, data_hash, privatekey, user_public_key=None, s
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
 
-    resp = blockstack_client.do_update( name, data_hash, privatekey, privatekey, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
+    payment_key = get_default_payment_wallet().privkey
+    if subsidy_key is not None:
+        payment_key = subsidy_key
+
+    resp = blockstack_client.do_update( name, data_hash, privatekey, payment_key, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
     api_call_history.append( APICallRecord( "update", name, resp ) )
     return resp
 
@@ -247,7 +263,11 @@ def blockstack_name_transfer( name, address, keepdata, privatekey, user_public_k
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
 
-    resp = blockstack_client.do_transfer( name, address, keepdata, privatekey, privatekey, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks)
+    payment_key = get_default_payment_wallet().privkey
+    if subsidy_key is not None:
+        payment_key = subsidy_key 
+
+    resp = blockstack_client.do_transfer( name, address, keepdata, privatekey, payment_key, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks)
     api_call_history.append( APICallRecord( "transfer", name, resp ) )
     return resp
 
@@ -259,11 +279,15 @@ def blockstack_name_renew( name, privatekey, register_addr=None, subsidy_key=Non
 
     name_cost_info = test_proxy.get_name_cost( name )
     if register_addr is None:
-        register_addr = pybitcoin.BitcoinPrivateKey(privatekey).public_key().address()
+        register_addr = virtualchain.BitcoinPrivateKey(privatekey).public_key().address()
     else:
-        assert register_addr == pybitcoin.BitcoinPrivateKey(privatekey).public_key().address()
+        assert register_addr == virtualchain.BitcoinPrivateKey(privatekey).public_key().address()
 
-    resp = blockstack_client.do_renewal( name, privatekey, privatekey, name_cost_info['satoshis'], test_proxy, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
+    payment_key = get_default_payment_wallet().privkey
+    if subsidy_key is not None:
+        payment_key = subsidy_key 
+
+    resp = blockstack_client.do_renewal( name, privatekey, payment_key, name_cost_info['satoshis'], test_proxy, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
 
     api_call_history.append( APICallRecord( "renew", name, resp ) )
     return resp
@@ -274,7 +298,11 @@ def blockstack_name_revoke( name, privatekey, tx_only=False, subsidy_key=None, u
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
 
-    resp = blockstack_client.do_revoke( name, privatekey, privatekey, test_proxy, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
+    payment_key = get_default_payment_wallet().privkey
+    if subsidy_key is not None:
+        payment_key = subsidy_key
+
+    resp = blockstack_client.do_revoke( name, privatekey, payment_key, test_proxy, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
     api_call_history.append( APICallRecord( "revoke", name, resp ) )
     return resp
 
@@ -330,47 +358,6 @@ def blockstack_announce( message, privatekey, user_public_key=None, subsidy_key=
     api_call_history.append( APICallRecord( "announce", message, resp ) )
     return resp
 
-
-'''
-def blockstack_client_initialize_wallet( password, master_privkey_wif, transfer_amount ):
-    """
-    Set up the client wallet
-    """
-    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
-    assert config_path is not None
-
-    pk_hex = pybitcoin.BitcoinPrivateKey( master_privkey_wif ).to_hex()
-
-    config_dir = os.path.dirname(config_path)
-    wallet_path = os.path.join( config_dir, blockstack_client.config.WALLET_PATH )
-
-    blockstack_client.wallet.initialize_wallet( password=password, hex_privkey=pk_hex, interactive=False, wallet_path=wallet_path )
-    
-    # fund the payment address
-    payment_addr_info = blockstack_client.get_payment_addresses( wallet_path=wallet_path )
-    payment_addr = str(payment_addr_info[0]['address'])
-    master_pkey = pybitcoin.BitcoinPrivateKey( master_privkey_wif )
-    master_addr = master_pkey.public_key().address()
-
-    inputs = get_unspents( master_addr )
-    change = calculate_change_amount( inputs, transfer_amount, 8000 )
-
-    outputs = [
-        {
-            "script_hex": pybitcoin.make_pay_to_address_script(payment_addr),
-            "value": transfer_amount
-        },
-        {
-            "script_hex": pybitcoin.make_pay_to_address_script(master_addr),
-            "value": change
-        }
-    ]
-
-    tx_data = blockstack.tx_serialize_and_sign( inputs, outputs, master_pkey )
-    broadcast_transaction( tx_data )
-    
-    return True
-'''
 
 def blockstack_client_initialize_wallet( password, payment_privkey, owner_privkey, data_privkey ):
     """
@@ -600,16 +587,6 @@ def getrawtransaction( txid, verbose, **kw ):
     return bitcoind.getrawtransaction( txid, verbose )
 
 
-def get_all_transactions( **kw ):
-    """
-    Get all bitcoind transactions.
-    Requires:
-    * bitcoind: the mock bitcoind
-    """
-    global bitcoind
-    return bitcoind.getrawtransactions( 1 )
-
-
 def next_block( **kw ):
     """
     Advance the mock blockchain by one block.
@@ -625,7 +602,7 @@ def next_block( **kw ):
         snapshots_dir = tempfile.mkdtemp( prefix='blockstack-test-databases-' )
 
     # flush all transactions
-    bitcoind.flush_transactions() 
+    kw['next_block_upcall']()
     kw['sync_virtualchain_upcall']()
 
     # snapshot the database
@@ -821,16 +798,16 @@ def get_unspents( addr ):
     """
     Get the list of unspent outputs for an address.
     """
-    global utxo_client
-    return pybitcoin.get_unspents( addr, utxo_client )
+    utxo_provider = get_utxo_client()
+    return pybitcoin.get_unspents( addr, utxo_provider )
 
 
 def broadcast_transaction( tx_hex ):
     """
     Send out a raw transaction to the mock framework.
     """
-    global utxo_client
-    return pybitcoin.broadcast_transaction( tx_hex, utxo_client )
+    utxo_provider = get_utxo_client()
+    return pybitcoin.broadcast_transaction( tx_hex, utxo_provider )
 
 
 def decoderawtransaction( tx_hex ):
@@ -841,10 +818,6 @@ def decoderawtransaction( tx_hex ):
     return bitcoind.decoderawtransaction( tx_hex )
 
 # setters for the test enviroment
-def set_utxo_client( c ):
-    global utxo_client
-    utxo_client = c
-
 def set_utxo_opts( opts ):
     global utxo_opts 
     utxo_opts = opts
@@ -857,10 +830,14 @@ def set_state_engine( s ):
     global state_engine
     state_engine = s
 
+def set_default_payment_wallet( w ):
+    global default_payment_wallet
+    default_payment_wallet = w
+
 # getters for the test environment
 def get_utxo_client():
-    global utxo_client
-    return utxo_client
+    utxo_provider = pybitcoin.BitcoindClient("blockstack", "blockstacksystem", port=18332, version_byte=virtualchain.version_byte )
+    return utxo_provider
 
 def get_bitcoind():
     global bitcoind
@@ -869,6 +846,10 @@ def get_bitcoind():
 def get_state_engine():
     global state_engine
     return state_engine
+
+def get_default_payment_wallet():
+    global default_payment_wallet
+    return default_payment_wallet
 
 def gpg_key_dir( **kw ):
     return os.path.join( kw['working_dir'], "keys" )
