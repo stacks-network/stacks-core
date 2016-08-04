@@ -37,6 +37,7 @@ import copy
 import blockstack_profiles
 import blockstack_zones 
 import urllib
+import virtualchain
 from keylib import ECPrivateKey
 
 # Hack around absolute paths
@@ -368,7 +369,7 @@ def get_name_profile(name, zonefile_storage_drivers=None,
             user_data_pubkey = user_db.user_zonefile_data_pubkey( user_zonefile )
             if user_data_pubkey is not None:
                 user_data_pubkey = str(user_data_pubkey)
-                user_address = pybitcoin.BitcoinPublicKey(user_data_pubkey).address()
+                user_address = virtualchain.BitcoinPublicKey(user_data_pubkey).address()
 
         except ValueError:
             # user decided to put multiple keys under the same name into the zonefile.
