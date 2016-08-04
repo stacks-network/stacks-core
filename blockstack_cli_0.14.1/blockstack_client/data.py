@@ -36,6 +36,7 @@ import time
 import copy
 import blockstack_profiles
 import urllib
+import virtualchain
 
 import user as user_db
 import storage
@@ -462,12 +463,12 @@ def app_data_sanity_check( name, user_profile, service_id, account_id, data_id, 
 
     # must be valid pubkey 
     try:
-        pybitcoin.BitcoinPublicKey(str(account['data_pubkey']))
+        virtualchain.BitcoinPublicKey(str(account['data_pubkey']))
     except Exception, e:
         return {'error': 'Invalid public key'}
 
     if data_privkey is not None:
-        data_pk = pybitcoin.BitcoinPrivateKey(data_privkey).public_key().to_hex()
+        data_pk = virtualchain.BitcoinPrivateKey(data_privkey).public_key().to_hex()
         if str(data_pk) != account['data_pubkey']:
             log.error("Unexpected public key (%s != %s)" % (data_pk, account['data_pubkey']))
             return {'error': 'Account has invalid public key'}
