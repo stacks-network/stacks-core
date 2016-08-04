@@ -22,7 +22,7 @@
 """
 
 import pybitcoin
-from pybitcoin import embed_data_in_blockchain, BlockchainInfoClient, hex_hash160, \
+from pybitcoin import embed_data_in_blockchain, hex_hash160, \
         make_op_return_tx, serialize_transaction, broadcast_transaction, make_op_return_outputs, \
         get_unspents
 
