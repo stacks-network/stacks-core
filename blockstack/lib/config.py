@@ -245,7 +245,7 @@ NUM_CONFIRMATIONS = 6                         # number of blocks to wait for bef
 
 # burn address for fees (the address of public key 0x0000000000000000000000000000000000000000)
 BLOCKSTACK_BURN_PUBKEY_HASH = "0000000000000000000000000000000000000000"
-BLOCKSTACK_BURN_ADDRESS = "1111111111111111111114oLvT2"
+BLOCKSTACK_BURN_ADDRESS = virtualchain.hex_hash160_to_address( BLOCKSTACK_BURN_PUBKEY_HASH )   # "1111111111111111111114oLvT2"
 
 # default namespace record (i.e. for names with no namespace ID)
 NAMESPACE_DEFAULT = {
