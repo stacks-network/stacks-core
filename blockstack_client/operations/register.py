@@ -23,9 +23,9 @@
 
 import pybitcoin
 from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
-    analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, b58check_encode, b58check_decode, BlockchainInfoClient, hex_hash160, \
-    BitcoinPrivateKey, get_unspents, script_hex_to_address
+    serialize_sign_and_broadcast, make_op_return_script, \
+    make_pay_to_address_script, hex_hash160, \
+    get_unspents
 
 from pybitcoin.transactions.outputs import calculate_change_amount
 from utilitybelt import is_hex
@@ -241,25 +241,25 @@ def get_fees( inputs, outputs ):
         return (None, None) 
    
     # 1: reveal address 
-    if script_hex_to_address( outputs[1]["script_hex"] ) is None:
+    if virtualchain.script_hex_to_address( outputs[1]["script_hex"] ) is None:
         log.debug("output[1] is not a p2pkh script")
         return (None, None)
     
     # 2: change address 
-    if script_hex_to_address( outputs[2]["script_hex"] ) is None:
+    if virtualchain.script_hex_to_address( outputs[2]["script_hex"] ) is None:
         log.debug("output[2] is not a p2pkh script")
         return (None, None)
     
     # 3: burn address, if given 
     if len(outputs) == 4:
         
-        addr_hash = script_hex_to_address( outputs[3]["script_hex"] )
+        addr_hash = virtualchain.script_hex_to_address( outputs[3]["script_hex"] )
         if addr_hash is None:
             log.debug("output[3] is not a p2pkh script")
             return (None, None) 
         
         if addr_hash != BLOCKSTACK_BURN_ADDRESS:
-            log.debug("output[3] is not the burn address (got %s)" % addr_hash)
+            log.debug("output[3] is not the burn address %s (got %s)" % (BLOCKSTACK_BURN_ADDRESS, addr_hash))
             return (None, None)
     
         dust_fee = (len(inputs) + 3) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE

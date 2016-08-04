@@ -23,8 +23,8 @@
 
 import pybitcoin
 from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
-    analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, get_unspents, \
-    make_pay_to_address_script, b58check_encode, b58check_decode, BlockchainInfoClient, hex_hash160
+    serialize_sign_and_broadcast, make_op_return_script, get_unspents, \
+    make_pay_to_address_script, hex_hash160
 
 from pybitcoin.transactions.outputs import calculate_change_amount
 
