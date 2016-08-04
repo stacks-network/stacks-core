@@ -23,9 +23,9 @@
 
 import pybitcoin
 from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
-    analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, b58check_encode, b58check_decode, BlockchainInfoClient, \
-    hex_hash160, bin_hash160, BitcoinPrivateKey, BitcoinPublicKey, script_hex_to_address, get_unspents, \
+    serialize_sign_and_broadcast, make_op_return_script, \
+    make_pay_to_address_script, \
+    hex_hash160, bin_hash160, get_unspents, \
     make_op_return_outputs
 
 
@@ -177,18 +177,18 @@ def get_fees( inputs, outputs ):
         return (None, None) 
     
     # 1: change address 
-    if script_hex_to_address( outputs[1]["script_hex"] ) is None:
+    if virtualchain.script_hex_to_address( outputs[1]["script_hex"] ) is None:
         log.error("outputs[1] has no decipherable change address")
         return (None, None)
     
     # 2: burn address 
-    addr_hash = script_hex_to_address( outputs[2]["script_hex"] )
+    addr_hash = virtualchain.script_hex_to_address( outputs[2]["script_hex"] )
     if addr_hash is None:
         log.error("outputs[2] has no decipherable burn address")
         return (None, None) 
     
     if addr_hash != BLOCKSTACK_BURN_ADDRESS:
-        log.error("outputs[2] is not the burn address")
+        log.error("outputs[2] is not the burn address (%s)" % BLOCKSTACK_BURN_ADDRESS)
         return (None, None)
     
     dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE

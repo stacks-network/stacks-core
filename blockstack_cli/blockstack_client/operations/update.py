@@ -22,8 +22,8 @@
 """
 
 import pybitcoin
-from pybitcoin import embed_data_in_blockchain, make_op_return_tx, BlockchainInfoClient, BitcoinPrivateKey, \
-    BitcoinPublicKey, get_unspents, script_hex_to_address, hex_hash160, broadcast_transaction, serialize_transaction, \
+from pybitcoin import embed_data_in_blockchain, make_op_return_tx, BlockchainInfoClient, \
+    get_unspents, hex_hash160, broadcast_transaction, serialize_transaction, \
     make_op_return_outputs, make_op_return_script, make_pay_to_address_script
 
 from pybitcoin.transactions.outputs import calculate_change_amount
@@ -192,7 +192,7 @@ def get_fees( inputs, outputs ):
         return (None, None) 
     
     # 1: change address 
-    if script_hex_to_address( outputs[1]["script_hex"] ) is None:
+    if virtualchain.script_hex_to_address( outputs[1]["script_hex"] ) is None:
         return (None, None)
     
     dust_fee = (len(inputs) + 1) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
