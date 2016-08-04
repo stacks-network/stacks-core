@@ -38,7 +38,7 @@ def hash_name(name, script_pubkey, register_addr=None):
    
    if register_addr is not None:
        name_and_pubkey += str(register_addr)
-       
+
    return hex_hash160(name_and_pubkey)
 
 
