@@ -36,6 +36,8 @@ import time
 import copy
 import blockstack_profiles
 import urllib
+import virtualchain
+
 from keylib import ECPrivateKey, ECPublicKey
 from keylib.hashing import bin_hash160
 from keylib.address_formatting import bin_hash160_to_address
@@ -62,20 +64,20 @@ def make_wallet_keys( data_privkey=None, owner_privkey=None, payment_privkey=Non
 
     ret = {}
     if data_privkey is not None:
-        pk_data = pybitcoin.BitcoinPrivateKey( data_privkey ).to_hex()
+        pk_data = virtualchain.BitcoinPrivateKey( data_privkey ).to_hex()
         ret['data_privkey'] = pk_data 
 
     if owner_privkey is not None:
-        pk_owner = pybitcoin.BitcoinPrivateKey( owner_privkey ).to_hex()
+        pk_owner = virtualchain.BitcoinPrivateKey( owner_privkey ).to_hex()
         ret['owner_privkey'] = pk_owner
 
-    if payment_privkey is None:
-        # fall back to owner key
-        payment_privkey = owner_privkey
-
     if payment_privkey is not None:
-        pk_payment = pybitcoin.BitcoinPrivateKey( payment_privkey ).to_hex()
+        pk_payment = virtualchain.BitcoinPrivateKey( payment_privkey ).to_hex()
         ret['payment_privkey'] = pk_payment
+    else:
+        # fall back to owner key
+        pk_owner = virtualchain.BitcoinPrivateKey( owner_privkey ).to_hex()
+        ret['payment_privkey'] = pk_owner
 
     return ret
 
@@ -183,7 +185,7 @@ def get_owner_keypair( wallet_keys=None, config_path=CONFIG_PATH ):
         assert wallet is not None 
 
     owner_privkey = wallet['owner_privkey']
-    public_key = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
+    public_key = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
     return public_key, owner_privkey
 
 
@@ -203,7 +205,7 @@ def get_payment_keypair( wallet_keys=None, config_path=CONFIG_PATH ):
         assert wallet is not None
 
     payment_privkey = wallet['payment_privkey']
-    public_key = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().to_hex()
+    public_key = virtualchain.BitcoinPrivateKey(payment_privkey).public_key().to_hex()
     return public_key, payment_privkey
 
 
@@ -213,9 +215,12 @@ def get_pubkey_addresses( pubkey ):
     for a public key.  Useful for verifying
     signatures by key address.
 
+    If we're running in testnet mode, then use
+    the testnet version byte.
+
     Return (compressed address, uncompressed address)
     """
-    public_key_object = ECPublicKey(pubkey)
+    public_key_object = ECPublicKey(pubkey, version_byte=virtualchain.version_byte)
     compressed_address = None
     uncompressed_address = None
 
@@ -224,13 +229,15 @@ def get_pubkey_addresses( pubkey ):
         uncompressed_address = bin_hash160_to_address(
             bin_hash160(
                 decompress(public_key_object.to_bin())
-            )
+            ),
+            version_byte=virtualchain.version_byte
         )
     elif public_key_object._type == PubkeyType.uncompressed:
         compressed_address = bin_hash160_to_address(
             bin_hash160(
                 compress(public_key_object.to_bin())
-            )
+            ),
+            version_byte=virtualchain.version_byte
         )
         uncompressed_address = public_key_object.address()
     else:
