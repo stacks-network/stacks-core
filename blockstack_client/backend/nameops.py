@@ -45,6 +45,8 @@ from ..storage import get_blockchain_compat_hash, hash_zonefile, put_announcemen
 
 from ..operations import fees_update, fees_transfer, fees_revoke, fees_registration
 
+import virtualchain
+
 log = get_logger("blockstack-client")
 
 
@@ -109,14 +111,18 @@ def estimate_renewal_tx_fee( name, payment_privkey, owner_address, utxo_client, 
     """
     
     fake_privkey = '5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX'   # fake private key
-    payment_pubkey_hex = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().to_hex()
-    address = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().address()
+    payment_pubkey_hex = virtualchain.BitcoinPrivateKey(payment_privkey).public_key().to_hex()
+    address = virtualchain.BitcoinPrivateKey(payment_privkey).public_key().address()
 
     try:
         unsigned_tx = register_tx( name, address, address, utxo_client, renewal_fee=1234567890 )
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_registration, 21 * 10**14, payment_privkey, utxo_client )
+        assert subsidized_tx is not None
     except ValueError:
-        log.debug("Insufficient funds:  Not enough inputs to make a renewal transaction.")
+        log.error("Insufficient funds:  Not enough inputs to make a renewal transaction.")
+        return None
+    except AssertionError:
+        log.error("Unable to create transaction")
         return None
         
     signed_tx = sign_tx( subsidized_tx, fake_privkey )
@@ -147,6 +153,8 @@ def estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, c
         if payment_privkey is not None:
             # actually try to subsidize this tx
             subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_update, 21 * 10**14, payment_privkey, utxo_client )
+            assert subsidized_tx is not None
+
             signed_subsidized_tx = sign_tx( subsidized_tx, fake_privkey )
 
             # there will be at least one more output here (the registration output), so append that too 
@@ -172,9 +180,11 @@ def estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, c
                 raise Exception("Need either payment_privkey or payment_address")
 
     except ValueError:
-        log.debug("Insufficient funds:  Not enough inputs to make an update transaction.")
+        log.error("Insufficient funds:  Not enough inputs to make an update transaction.")
         return None 
-
+    except AssertionError:
+        log.error("Unable to create transaction")
+        return None
     except Exception:
         return None
 
@@ -201,8 +211,12 @@ def estimate_transfer_tx_fee( name, payment_privkey, owner_address, utxo_client,
     try:
         unsigned_tx = transfer_tx( name, fake_recipient_address, True, fake_consensus_hash, owner_address, utxo_client, subsidize=True )
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_transfer, 21 * 10**14, payment_privkey, utxo_client )
+        assert subsidized_tx is not None
     except ValueError:
-        log.debug("Insufficient funds:  Not enough inputs to make a transfer transaction.")
+        log.error("Insufficient funds:  Not enough inputs to make a transfer transaction.")
+        return None
+    except AssertionError:
+        log.error("Unable to make transaction")
         return None
 
     signed_subsidized_tx = sign_tx( subsidized_tx, fake_privkey )
@@ -229,8 +243,11 @@ def estimate_revoke_tx_fee( name, payment_privkey, owner_address, utxo_client, c
         unsigned_tx = revoke_tx( name, owner_address, utxo_client, subsidize=True )
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_revoke, 21 * 10**14, payment_privkey, utxo_client )
     except ValueError:
-        log.debug("Insufficient funds:  Not enough inputs to make a revoke transaction.")
-        return None 
+        log.error("Insufficient funds:  Not enough inputs to make a revoke transaction.")
+        return None
+    except AssertionError:
+        log.error("Unable to make transaction")
+        return None
 
     signed_subsidized_tx = sign_tx( subsidized_tx, fake_privkey )
 
@@ -284,7 +301,7 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utx
     try:
         unsigned_tx = namespace_preorder_tx( namespace_id, fake_reveal_address, cost, fake_consensus_hash, payment_address, utxo_client )
         signed_tx = sign_tx( unsigned_tx, fake_privkey )
-    except ValueError:
+    except ValueError, ve:
         log.debug("Insufficient funds:  Not enough inputs to make a namespace-preorder transaction.")
         return None 
 
@@ -387,8 +404,8 @@ def do_preorder( fqu, payment_privkey, owner_address, cost, utxo_client, tx_broa
         log.debug("Address %s owns too many names already." % owner_address)
         return {'error': 'Address owns too many names'}
 
-    payment_pubkey_hex = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().to_hex()
-    payment_address = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().address()
+    payment_pubkey_hex = virtualchain.BitcoinPrivateKey( payment_privkey ).public_key().to_hex()
+    payment_address = virtualchain.BitcoinPrivateKey( payment_privkey ).public_key().address()
 
     if not is_address_usable(payment_address, config_path=config_path):
         log.debug("Payment address not ready: %s" % payment_address)
@@ -432,8 +449,8 @@ def do_register( fqu, payment_privkey, owner_address, utxo_client, tx_broadcaste
     
     fqu = str(fqu)
     resp = {}
-    payment_pubkey_hex = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().to_hex()
-    payment_address = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().address()
+    payment_pubkey_hex = virtualchain.BitcoinPrivateKey( payment_privkey ).public_key().to_hex()
+    payment_address = virtualchain.BitcoinPrivateKey( payment_privkey ).public_key().address()
 
     if safety_checks:
         # name must not be registered yet (unless we're renewing)
@@ -490,9 +507,9 @@ def do_update( fqu, zonefile_hash, owner_privkey, payment_privkey, utxo_client, 
         proxy = get_default_proxy
     
     fqu = str(fqu)
-    owner_public_key = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
-    owner_address = pybitcoin.BitcoinPublicKey(owner_public_key).address()
-    payment_address = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().address()
+    owner_public_key = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
+    owner_address = virtualchain.BitcoinPublicKey(owner_public_key).address()
+    payment_address = virtualchain.BitcoinPrivateKey( payment_privkey ).public_key().address()
 
     # get consensus hash
     if consensus_hash is None:
@@ -531,20 +548,19 @@ def do_update( fqu, zonefile_hash, owner_privkey, payment_privkey, utxo_client, 
     try:
         unsigned_tx = update_tx( fqu, zonefile_hash, consensus_hash, owner_address, utxo_client, subsidize=True, tx_fee=tx_fee )
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_update, 21 * (10**6) * (10**8), payment_privkey, utxo_client, tx_fee=tx_fee )
+        assert subsidized_tx is not None
     except ValueError:
         return {'error': 'Insufficient funds'}
+    except AssertionError:
+        return {'error': 'Unable to create transaction'}
 
     resp = {}
-    
-    if os.environ.get("BLOCKSTACK_DRY_RUN", None) is not None:
-        try:
-            resp = sign_and_broadcast_tx( subsidized_tx, owner_privkey, config_path=config_path, tx_broadcaster=tx_broadcaster )
-        except Exception, e:
-            log.exception(e)
-            return {'error': 'Failed to sign and broadcast transaction'}
-    
-    else:
-        resp['dry_run'] = True
+
+    try:
+        resp = sign_and_broadcast_tx( subsidized_tx, owner_privkey, config_path=config_path, tx_broadcaster=tx_broadcaster )
+    except Exception, e:
+        log.exception(e)
+        return {'error': 'Failed to sign and broadcast transaction'}
 
     return resp
 
@@ -560,9 +576,9 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey, payment_privke
         proxy = get_default_proxy()
 
     fqu = str(fqu)
-    owner_pubkey_hex = pybitcoin.BitcoinPrivateKey( owner_privkey ).public_key().to_hex()
-    owner_address = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().address()
-    payment_address = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().address()
+    owner_pubkey_hex = virtualchain.BitcoinPrivateKey( owner_privkey ).public_key().to_hex()
+    owner_address = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().address()
+    payment_address = virtualchain.BitcoinPrivateKey(payment_privkey).public_key().address()
 
     # get consensus hash
     if consensus_hash is None:
@@ -602,8 +618,11 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey, payment_privke
     try:
         unsigned_tx = transfer_tx( fqu, transfer_address, keep_data, consensus_hash, owner_address, utxo_client, subsidize=True, tx_fee=tx_fee )
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_transfer, 21 * (10**6) * (10**8), payment_privkey, utxo_client, tx_fee=tx_fee )
+        assert subsidized_tx is not None
     except ValueError:
         return {'error': 'Insufficient funds'}
+    except AssertionError:
+        return {'error': 'Unable to create transaction'}
 
     log.debug("Transferring (%s, %s)" % (fqu, transfer_address))
     log.debug("<owner, payment> (%s, %s) tx_fee = %s" % (owner_address, payment_address, tx_fee))
@@ -629,10 +648,10 @@ def do_renewal( fqu, owner_privkey, payment_privkey, renewal_fee, utxo_client, t
     
     fqu = str(fqu)
     resp = {}
-    payment_pubkey_hex = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().to_hex()
-    payment_address = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().address()
-    owner_pubkey_hex = pybitcoin.BitcoinPrivateKey( owner_privkey ).public_key().to_hex()
-    owner_address = pybitcoin.BitcoinPrivateKey( owner_privkey ).public_key().address()
+    payment_pubkey_hex = virtualchain.BitcoinPrivateKey( payment_privkey ).public_key().to_hex()
+    payment_address = virtualchain.BitcoinPrivateKey( payment_privkey ).public_key().address()
+    owner_pubkey_hex = virtualchain.BitcoinPrivateKey( owner_privkey ).public_key().to_hex()
+    owner_address = virtualchain.BitcoinPrivateKey( owner_privkey ).public_key().address()
 
     if safety_checks:
         if not is_name_registered(fqu, proxy=proxy):
@@ -663,8 +682,11 @@ def do_renewal( fqu, owner_privkey, payment_privkey, renewal_fee, utxo_client, t
     try:
         unsigned_tx = register_tx( fqu, owner_address, owner_address, utxo_client, renewal_fee=renewal_fee, tx_fee=tx_fee )
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_registration, 21 ** (10**6) * (10**8), payment_privkey, utxo_client, tx_fee=tx_fee )
+        assert subsidized_tx is not None
     except ValueError:
         return {'error': 'Insufficient funds'}
+    except AssertionError:
+        return {'error': 'Unable to create transaction'}
 
     try:
         resp = sign_and_broadcast_tx( subsidized_tx, owner_privkey, config_path=config_path, tx_broadcaster=tx_broadcaster )
@@ -685,14 +707,14 @@ def do_revoke( fqu, owner_privkey, payment_privkey, utxo_client, tx_broadcaster,
         proxy = get_default_proxy()
 
     fqu = str(fqu)
-    owner_pubkey_hex = pybitcoin.BitcoinPrivateKey( owner_privkey ).public_key().to_hex()
-    owner_address = pybitcoin.BitcoinPublicKey(owner_pubkey_hex).address()
+    owner_pubkey_hex = virtualchain.BitcoinPrivateKey( owner_privkey ).public_key().to_hex()
+    owner_address = virtualchain.BitcoinPublicKey(owner_pubkey_hex).address()
     tx_fee = estimate_revoke_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path )
     if tx_fee is None:
         return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
 
-    owner_address = pybitcoin.BitcoinPublicKey( owner_pubkey_hex ).address()
-    payment_address = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().address()
+    owner_address = virtualchain.BitcoinPublicKey( owner_pubkey_hex ).address()
+    payment_address = virtualchain.BitcoinPrivateKey( payment_privkey ).public_key().address()
 
     if safety_checks:
         # name must exist
@@ -709,8 +731,11 @@ def do_revoke( fqu, owner_privkey, payment_privkey, utxo_client, tx_broadcaster,
     try:
         unsigned_tx = revoke_tx( fqu, owner_address, utxo_client, subsidize=True, tx_fee=tx_fee )
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_revoke, 21 ** (10**6) * (10**8), payment_privkey, utxo_client, tx_fee=tx_fee )
+        assert subsidized_tx is not None
     except ValueError:
         return {'error': 'Insufficient funds'}
+    except AssertionError:
+        return {'error': 'Unable to create transaction'}
 
     log.debug("Revoking %s" % fqu)
     log.debug("<owner, payment> (%s, %s) tx_fee = %s" % (owner_address, payment_address, tx_fee))
@@ -735,8 +760,8 @@ def do_name_import( fqu, importer_privkey, recipient_address, zonefile_hash, utx
         proxy = get_default_proxy()
 
     fqu = str(fqu)
-    payment_pubkey_hex = pybitcoin.BitcoinPrivateKey( importer_privkey ).public_key().to_hex()
-    payment_address = pybitcoin.BitcoinPrivateKey( importer_privkey ).public_key().address()
+    payment_pubkey_hex = virtualchain.BitcoinPrivateKey( importer_privkey ).public_key().to_hex()
+    payment_address = virtualchain.BitcoinPrivateKey( importer_privkey ).public_key().address()
     tx_fee = estimate_name_import_tx_fee( fqu, payment_address, utxo_client, config_path=config_path )
     if tx_fee is None:
         return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
@@ -768,8 +793,8 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey, reveal_address, 
         proxy = get_default_proxy()
 
     fqu = str(namespace_id)
-    payment_pubkey_hex = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().to_hex()
-    payment_address = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().address()
+    payment_pubkey_hex = virtualchain.BitcoinPrivateKey( payment_privkey ).public_key().to_hex()
+    payment_address = virtualchain.BitcoinPrivateKey( payment_privkey ).public_key().address()
 
     if consensus_hash is None:
         blockstack_info = blockstack_getinfo( proxy=proxy )
@@ -826,8 +851,8 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
         proxy = get_default_proxy()
 
     fqu = str(namespace_id)
-    payment_pubkey_hex = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().to_hex()
-    payment_address = pybitcoin.BitcoinPrivateKey( payment_privkey ).public_key().address()
+    payment_pubkey_hex = virtualchain.BitcoinPrivateKey( payment_privkey ).public_key().to_hex()
+    payment_address = virtualchain.BitcoinPrivateKey( payment_privkey ).public_key().address()
     
     if safety_checks:
         # namespace must not exist
@@ -874,8 +899,8 @@ def do_namespace_ready( namespace_id, reveal_privkey, utxo_client, tx_broadcaste
         proxy = get_default_proxy()
 
     fqu = str(namespace_id)
-    reveal_pubkey_hex = pybitcoin.BitcoinPrivateKey( reveal_privkey ).public_key().to_hex()
-    reveal_address = pybitcoin.BitcoinPrivateKey( reveal_privkey ).public_key().address()
+    reveal_pubkey_hex = virtualchain.BitcoinPrivateKey( reveal_privkey ).public_key().to_hex()
+    reveal_address = virtualchain.BitcoinPrivateKey( reveal_privkey ).public_key().address()
 
     if safety_checks:
         # namespace must exist, but not be ready
@@ -922,8 +947,8 @@ def do_announce( message_text, sender_privkey, utxo_client, tx_broadcaster, conf
 
     message_text = str(message_text)
     message_hash = get_blockchain_compat_hash( message_text )
-    sender_pubkey_hex = pybitcoin.BitcoinPrivateKey( sender_privkey ).public_key().to_hex()
-    sender_address = pybitcoin.BitcoinPrivateKey( sender_privkey ).public_key().address()
+    sender_pubkey_hex = virtualchain.BitcoinPrivateKey( sender_privkey ).public_key().to_hex()
+    sender_address = virtualchain.BitcoinPrivateKey( sender_privkey ).public_key().address()
 
     tx_fee = estimate_announce_tx_fee( sender_address, utxo_client, config_path=config_path )
     if tx_fee is None:
@@ -971,7 +996,7 @@ def async_preorder(fqu, payment_privkey, owner_address, cost, proxy=None, config
     utxo_client = get_utxo_provider_client( config_path=config_path )
     tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 
-    payment_address = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().address()
+    payment_address = virtualchain.BitcoinPrivateKey(payment_privkey).public_key().address()
     
     # stale preorder will get removed from preorder_queue
     if in_queue("register", fqu, path=queue_path):
@@ -1024,7 +1049,7 @@ def async_register(fqu, payment_privkey, owner_address, auto_preorder=True, prox
     utxo_client = get_utxo_provider_client(config_path=config_path)
     tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 
-    payment_address = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().address()
+    payment_address = virtualchain.BitcoinPrivateKey(payment_privkey).public_key().address()
 
     # check register_queue first
     # stale preorder will get removed from preorder_queue
@@ -1103,7 +1128,7 @@ def async_update(fqu, zonefile, profile, owner_private_key, payment_privkey, con
 
     utxo_client = get_utxo_provider_client(config_path=config_path)
     tx_broadcaster = get_tx_broadcaster(config_path=config_path)
-    owner_address = pybitcoin.BitcoinPrivateKey(owner_private_key).public_key().address()
+    owner_address = virtualchain.BitcoinPrivateKey(owner_private_key).public_key().address()
 
     if in_queue("update", fqu, path=queue_path):
         log.debug("Already in update queue: %s" % fqu)
@@ -1156,7 +1181,7 @@ def async_transfer(fqu, transfer_address, owner_privkey, payment_privkey, config
 
     utxo_client = get_utxo_provider_client(config_path=config_path)
     tx_broadcaster = get_tx_broadcaster(config_path=config_path)
-    owner_address = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().address()
+    owner_address = virtualchain.BitcoinPrivateKey(owner_privkey).public_key().address()
 
     if in_queue("transfer", fqu, path=queue_path):
         log.debug("Already in transfer queue: %s" % fqu)
