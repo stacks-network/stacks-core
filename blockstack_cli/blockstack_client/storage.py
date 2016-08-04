@@ -31,6 +31,7 @@ current_dir =  os.path.abspath(os.path.dirname(__file__))
 sys.path.insert(0, current_dir)
 
 import pybitcoin
+import keylib
 import bitcoin as pybitcointools
 import types
 import re
@@ -216,11 +217,13 @@ def parse_mutable_data( mutable_data_json_txt, public_key, public_key_hash=None 
 
    # try pubkey address 
    if public_key_hash is not None:
-       mutable_data_json = blockstack_profiles.get_profile_from_tokens( mutable_data_jwt, public_key_hash )
+       # NOTE: these should always have version byte 0
+       public_key_hash_0 = keylib.address_formatting.bin_hash160_to_address( keylib.address_formatting.address_to_bin_hash160( str(public_key_hash) ), version_byte=0 )
+       mutable_data_json = blockstack_profiles.get_profile_from_tokens( mutable_data_jwt, public_key_hash_0 )
        if len(mutable_data_json) > 0:
            return mutable_data_json
        else:
-           log.warn("Failed to verify with public key hash '%s'" % public_key_hash)
+           log.warn("Failed to verify with public key hash '%s' ('%s')" % (public_key_hash, public_key_hash_0))
 
    return None
 
