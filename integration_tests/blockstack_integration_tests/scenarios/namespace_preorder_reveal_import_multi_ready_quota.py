@@ -56,15 +56,21 @@ def scenario( wallets, **kw ):
         if 'error' in resp:
             print json.dumps(resp, indent=4 )
 
+        if i % 2 == 1:
+            testlib.next_block( **kw )
+
     testlib.next_block( **kw )
 
-    print "\nImport 27 names for %s" % wallets[4].addr
+    print "\nImport 26 names for %s" % wallets[4].addr
 
     # try to exceed quota (currently 25): order 26, and try to update one of them (and try to transfer one too).
-    for i in xrange(0, 27):
+    for i in xrange(0, 26):
         resp = testlib.blockstack_name_import( "bar%s.test" % i, wallets[4].addr, "33" * 20, wallets[1].privkey )
         if 'error' in resp:
             print json.dumps(resp, indent=4 )
+        
+        if i % 2 == 1:
+            testlib.next_block( **kw )
 
     testlib.next_block( **kw )
     
