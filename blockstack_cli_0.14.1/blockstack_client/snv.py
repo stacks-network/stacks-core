@@ -23,6 +23,7 @@
 import argparse
 import sys
 import json
+import simplejson
 import traceback
 import types
 import socket
@@ -194,7 +195,7 @@ def txid_to_block_data(txid, bitcoind_proxy, proxy=None):
     block_id = SPVClient.block_header_index(proxy.spv_headers_path, (untrusted_block_header_hex + "00").decode('hex'))
     if block_id < 0:
         # bad header
-        log.error("Block header '%s' is not in the SPV headers" % untrusted_block_header_hex)
+        log.error("Block header '%s' is not in the SPV headers (%s)" % (untrusted_block_header_hex, proxy.spv_headers_path))
         return (None, None, None)
 
     # block header is trusted.  Is the transaction data consistent with it?
@@ -336,9 +337,8 @@ def parse_tx_op_return(tx):
             break
 
     if op_return is None:
-        pp = pprint.PrettyPrinter()
-        pp.pprint(tx)
         log.error("transaction has no OP_RETURN output")
+        log.debug("transaction has no OP_RETURN output:\n%s" % simplejson.dumps(tx))
         return (None, None)
 
     # [0] is OP_RETURN, [1] is the length; [2:4] are 'id', [4] is opcode
