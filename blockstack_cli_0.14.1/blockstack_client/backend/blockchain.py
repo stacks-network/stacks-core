@@ -14,6 +14,7 @@ import virtualchain
 import pybitcoin
 import blockstack_utxo
 import json
+import traceback
 
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
