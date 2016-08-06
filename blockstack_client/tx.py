@@ -26,6 +26,8 @@ from .operations import *
 from .config import CONFIG_PATH, get_utxo_provider_client, get_tx_broadcaster, get_logger
 from pybitcoin import serialize_transaction, sign_all_unsigned_inputs, broadcast_transaction
 
+from .scripts import tx_sign_all_unsigned_inputs 
+
 log = get_logger("blockstack-client")
 
 def preorder_tx( *args, **kw ):
@@ -118,11 +120,11 @@ def announce_tx( *args, **kw ):
     return pybitcoin.serialize_transaction( inputs, outputs )
 
 
-def sign_tx( tx_hex, private_key_hex ):
+def sign_tx( tx_hex, private_key_info ):
     """
     Sign a transaction
     """
-    return sign_all_unsigned_inputs( private_key_hex, tx_hex )
+    return tx_sign_all_unsigned_inputs( private_key_info, tx_hex )
 
 
 def broadcast_tx( tx_hex, config_path=CONFIG_PATH, tx_broadcaster=None ):
@@ -142,11 +144,11 @@ def broadcast_tx( tx_hex, config_path=CONFIG_PATH, tx_broadcaster=None ):
     return resp
 
 
-def sign_and_broadcast_tx( tx_hex, private_key_hex, config_path=CONFIG_PATH, tx_broadcaster=None ):
+def sign_and_broadcast_tx( tx_hex, private_key_info, config_path=CONFIG_PATH, tx_broadcaster=None ):
     """
     Sign and send a transaction
     """
-    signed_tx = sign_tx( tx_hex, private_key_hex )
+    signed_tx = sign_tx( tx_hex, private_key_info )
     resp = broadcast_tx( signed_tx, config_path=config_path, tx_broadcaster=tx_broadcaster )
     return resp
 
