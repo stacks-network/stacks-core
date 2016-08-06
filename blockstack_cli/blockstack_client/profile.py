@@ -47,7 +47,7 @@ parent_dir = os.path.abspath(current_dir + "/../")
 sys.path.insert(0, parent_dir)
 
 from .proxy import *
-from .keys import get_owner_keypair, get_payment_keypair, get_data_or_owner_privkey
+from .keys import get_data_or_owner_privkey
 from blockstack_client import storage
 from blockstack_client import user as user_db
 
