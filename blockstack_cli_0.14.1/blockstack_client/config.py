@@ -199,7 +199,7 @@ OPFIELDS = {
          'preorder_name_hash',  # hash(name,sender,register_addr)
          'consensus_hash',      # consensus hash at time of send
          'sender',              # scriptPubKey hex that identifies the principal that issued the preorder
-         'sender_pubkey',       # if sender is a pubkeyhash script, then this is the public key
+         'sender_pubkey',       # if sender is a pubkeyhash script, then this is the public key.  Otherwise, this is empty.
          'address',             # address from the sender's scriptPubKey
          'block_number',        # block number at which this name was preordered for the first time
 
