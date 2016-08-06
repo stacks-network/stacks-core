@@ -96,11 +96,11 @@ def make_outputs( data, inputs, sender_addr, fee, tx_fee ):
          "value": 0},
         
         # change address (can be subsidy key)
-        {"script_hex": make_pay_to_address_script(sender_addr),
+        {"script_hex": virtualchain.make_payment_script(sender_addr),
          "value": calculate_change_amount(inputs, bill, dust_fee)},
         
         # burn address
-        {"script_hex": make_pay_to_address_script(BLOCKSTACK_BURN_ADDRESS),
+        {"script_hex": virtualchain.make_payment_script(BLOCKSTACK_BURN_ADDRESS),
          "value": op_fee}
     ]
 
@@ -126,7 +126,7 @@ def make_transaction(name, payment_addr, register_addr, fee, consensus_hash, blo
     
     # tx only
     inputs = get_unspents( payment_addr, blockchain_client )
-    script_pubkey = get_script_pubkey_from_addr( payment_addr )
+    script_pubkey = virtualchain.make_payment_script( payment_addr )
 
     nulldata = build( name, script_pubkey, register_addr, consensus_hash)
     outputs = make_outputs(nulldata, inputs, payment_addr, fee, tx_fee)

@@ -108,11 +108,11 @@ def make_outputs( data, inputs, change_addr, fee, tx_fee, pay_fee=True ):
          "value": 0},
         
         # change address
-        {"script_hex": make_pay_to_address_script(change_addr),
+        {"script_hex": virtualchain.make_payment_script( change_addr ),
          "value": calculate_change_amount(inputs, bill, dust_fee)},
         
         # burn address
-        {"script_hex": make_pay_to_address_script(BLOCKSTACK_BURN_ADDRESS),
+        {"script_hex": virtualchain.make_payment_script(BLOCKSTACK_BURN_ADDRESS),
          "value": op_fee}
     ]
     
@@ -123,7 +123,7 @@ def make_transaction( namespace_id, register_addr, fee, consensus_hash, payment_
    
    Arguments:
    namespace_id         human-readable (i.e. base-40) name of the namespace
-   register_addr        the addr of the key that will reveal the namespace (mixed into the preorder to prevent name preimage attack races)
+   register_addr        the addr of the key that will reveal the namespace (mixed into the preorder to prevent name preimage attack races).  Must be a p2pkh address
    private_key          the Bitcoin address that created this namespace, and can populate it.
    """
 
@@ -136,8 +136,9 @@ def make_transaction( namespace_id, register_addr, fee, consensus_hash, payment_
 
    assert is_namespace_valid(namespace_id)
    assert len(consensus_hash) == LENGTHS['consensus_hash'] * 2
+   assert pybitcoin.b58check_version_byte( payment_addr ) == virtualchain.version_byte, "Only p2pkh reveal addresses are supported"
 
-   script_pubkey = get_script_pubkey_from_addr( payment_addr )
+   script_pubkey = virtualchain.make_payment_script( payment_addr )
    nulldata = build( namespace_id, script_pubkey, register_addr, consensus_hash )
    
    # get inputs and from address
