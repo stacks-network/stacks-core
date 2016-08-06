@@ -112,7 +112,7 @@ class BlockstackDB( virtualchain.StateEngine ):
                                               # each NAME_IMPORT must come from one of these derived public key addresses.
 
       self.address_names = defaultdict(list)  # secondary index: map each address to the list of names registered to it.
-                                              # valid only for names where there is exactly one address (i.e. the sender is a p2pkh script)
+                                              # valid only for names where there is exactly one address
 
       # default namespace (empty string)
       self.namespaces[""] = NAMESPACE_DEFAULT
@@ -492,7 +492,6 @@ class BlockstackDB( virtualchain.StateEngine ):
    def get_names_owned_by_address( self, address ):
       """
       Get the set of names owned by a particular address.
-      Only valid if the name was sent by a p2pkh script.
       """
 
       if self.address_names.has_key( address ):
@@ -2090,7 +2089,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
       recipient = nameop.get('recipient', None)
       if recipient is None:
-          log.debug("No recipient p2pkh given")
+          log.debug("No recipient script given")
           return False
 
       name_fee = None
