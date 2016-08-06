@@ -31,7 +31,7 @@ FIELDS = [
     'vtxindex',             # the index in the block where the tx occurs
     'block_number',         # block number at which this transaction occurred
     'sender',               # scriptPubKey hex from the principal that issued this preorder (identifies the preorderer)
-    'sender_pubkey',        # if sender is a p2pkh script, this is the public key
+    'sender_pubkey',        # if sender is a p2pkh script, this is the public key.
     'address'               # address from the scriptPubKey
 ]
 
