@@ -418,6 +418,7 @@ def db_parse( block_id, txid, vtxindex, opcode, data, senders, inputs, outputs, 
    
    if sender_pubkey_hex is None:
       log.warning("No public key found for (%s, %s)" % (opcode, hexlify(data)))
+      sender_pubkey_hex = ""
    
    op_fee = get_burn_fee_from_outputs( outputs )
    
