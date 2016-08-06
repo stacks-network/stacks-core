@@ -29,6 +29,7 @@ import virtualchain
 from pybitcoin.transactions.outputs import calculate_change_amount
 from .config import MAGIC_BYTES, NAME_OPCODES, LENGTHS
 from .b40 import *
+from .keys import *
 
 log = virtualchain.get_logger("blockstack-client")
 
@@ -112,23 +113,6 @@ def blockstack_script_to_hex(script):
         raise ValueError('Invalid script: must have an even number of chars (got %s).' % hex_script)
      
     return hex_script
-
-
-# generate a pay-to-pubkeyhash script from a public key.
-def get_script_pubkey( public_key ):
-   
-   hash160 = virtualchain.BitcoinPublicKey(public_key).hash160()
-   script_pubkey = pybitcoin.script_to_hex( 'OP_DUP OP_HASH160 %s OP_EQUALVERIFY OP_CHECKSIG' % hash160)
-   return script_pubkey
-
-
-def get_script_pubkey_from_addr( address ):
-   """
-   Make a p2pkh script from an address
-   """
-   hash160 = pybitcoin.b58check_decode(address).encode('hex')
-   script_pubkey = pybitcoin.script_to_hex( 'OP_DUP OP_HASH160 %s OP_EQUALVERIFY OP_CHECKSIG' % hash160)
-   return script_pubkey
 
 
 def hash_name(name, script_pubkey, register_addr=None):
@@ -290,12 +274,114 @@ def tx_make_subsidization_output( payer_utxo_inputs, payer_address, op_fee, dust
     """
 
     return {
-        "script_hex": pybitcoin.make_pay_to_address_script( payer_address ),
+        "script_hex": virtualchain.make_payment_script( payer_address ),
         "value": calculate_change_amount( payer_utxo_inputs, op_fee, int(round(dust_fee)) )
     }
- 
 
-def tx_make_subsidizable( blockstack_tx, fee_cb, max_fee, subsidy_key, utxo_client, tx_fee=0 ):
+
+def tx_sign_multisig( blockstack_tx, idx, redeem_script, private_keys, hashcode=bitcoin.SIGHASH_ALL ):
+    """
+    Sign a p2sh multisig input.
+    Return the signed transaction
+    """
+
+    # sign in the right order
+    privs = dict( [(virtualchain.BitcoinPrivateKey(str(pk_str)).public_key().to_hex(), str(pk_str)) for pk_str in private_keys] )
+    m, public_keys = virtualchain.parse_multisig_redeemscript( redeem_script )
+   
+    used_keys = []
+    sigs = []
+
+    for ki in xrange(0, len(public_keys)):
+        if not privs.has_key(public_keys[ki]):
+            continue
+
+        if len(used_keys) == m:
+            break
+
+        assert public_keys[ki] not in used_keys, "Tried to reuse key %s" % public_keys[ki]
+
+        pk_str = privs[public_keys[ki]]
+        used_keys.append( public_keys[ki] )
+
+        pk_hex = virtualchain.BitcoinPrivateKey(str(pk_str)).to_hex()
+        sig = bitcoin.multisign( blockstack_tx, idx, redeem_script, pk_hex, hashcode=hashcode )
+        sigs.append( sig )
+
+    assert len(used_keys) == m, "Missing private keys"
+
+    return bitcoin.apply_multisignatures( blockstack_tx, idx, redeem_script, sigs )
+
+
+def tx_sign_input( blockstack_tx, idx, private_key_info, hashcode=bitcoin.SIGHASH_ALL ):
+    """
+    Sign a particular input in the given transaction.
+    @private_key_info can either be a private key, or it can be a dict with 'redeem_script' and 'private_keys' defined
+    """
+    if type(private_key_info) in [str,unicode]:
+        # single private key
+        return bitcoin.sign( blockstack_tx, idx, virtualchain.BitcoinPrivateKey(str(private_key_info)).to_hex(), hashcode=hashcode )
+
+    else:
+        assert type(private_key_info) in [dict]
+        assert "redeem_script" in private_key_info
+        assert "private_keys" in private_key_info
+
+        redeem_script = private_key_info['redeem_script']
+        private_keys = private_key_info['private_keys']
+        
+        assert type(redeem_script) in [str, unicode]
+
+        # multisig
+        return tx_sign_multisig( blockstack_tx, idx, redeem_script, private_keys, hashcode=bitcoin.SIGHASH_ALL )
+
+
+def tx_sign_all_unsigned_inputs( private_key_info, unsigned_tx_hex ):
+    """
+    Sign all unsigned inputs in the given transaction.
+
+    @private_key_info: either a hex private key, or a dict with 'private_keys' and 'redeem_script'
+    defined as keys.
+    @unsigned_hex_tx: hex transaction with unsigned inputs
+
+    Returns: signed hex transaction
+    """
+    inputs, outputs, locktime, version = pybitcoin.deserialize_transaction( unsigned_tx_hex )
+    tx_hex = unsigned_tx_hex
+    for index in xrange(0, len(inputs)):
+        if len(inputs[index]['script_sig']) == 0:
+
+            # tx with index i signed with privkey
+            tx_hex = tx_sign_input( str(unsigned_tx_hex), index, private_key_info )
+            unsigned_tx_hex = tx_hex
+
+    return tx_hex
+
+
+def tx_get_address_and_utxos( private_key_info, utxo_client ):
+    """
+    Get information about a private key (or a set of private keys used for multisig).
+    Return (payer_address, payer_utxos) on success.
+    """
+    if type(private_key_info) in [str, unicode]:
+        _, payer_address, payer_utxos = virtualchain.analyze_private_key( str(private_key_info), utxo_client )
+        return (payer_address, payer_utxos )
+
+    elif type(private_key_info) in [dict]:
+        assert 'redeem_script' in private_key_info.keys()
+        assert 'private_keys' in private_key_info.keys()
+
+        redeem_script = private_key_info['redeem_script']
+        addr = virtualchain.make_multisig_address( redeem_script )
+        unspents = pybitcoin.get_unspents( addr, utxo_client )
+
+        return (addr, unspents)
+
+    else:
+        raise ValueError("Invalid private key info")
+
+
+def tx_make_subsidizable( blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo_client, tx_fee=0 ):
     """
     Given an unsigned serialized transaction from Blockstack, make it into a subsidized transaction 
     for the client to go sign off on.
@@ -307,7 +393,8 @@ def tx_make_subsidizable( blockstack_tx, fee_cb, max_fee, subsidy_key, utxo_clie
     """
    
     # get subsidizer key info
-    private_key_obj, payer_address, payer_utxo_inputs = virtualchain.analyze_private_key(subsidy_key, utxo_client)
+    # private_key_obj, payer_address, payer_utxo_inputs = virtualchain.analyze_private_key(subsidy_key, utxo_client)
+    payer_address, payer_utxo_inputs = tx_get_address_and_utxos( subsidy_key_info, utxo_client )
     
     tx_inputs, tx_outputs, locktime, version = tx_deserialize( blockstack_tx )
 
@@ -322,7 +409,7 @@ def tx_make_subsidizable( blockstack_tx, fee_cb, max_fee, subsidy_key, utxo_clie
         return None
     
     else:
-        log.debug("%s will subsidize %s satoshi" % (virtualchain.BitcoinPrivateKey( subsidy_key ).public_key().address(), dust_fee + op_fee ))
+        log.debug("%s will subsidize %s satoshi" % (get_privkey_info_address(subsidy_key_info), dust_fee + op_fee ))
     
     subsidy_output = tx_make_subsidization_output( payer_utxo_inputs, payer_address, op_fee, dust_fee + tx_fee )
     
@@ -332,7 +419,8 @@ def tx_make_subsidizable( blockstack_tx, fee_cb, max_fee, subsidy_key, utxo_clie
     # sign each of our inputs with our key, but use SIGHASH_ANYONECANPAY so the client can sign its inputs
     for i in xrange( 0, len(payer_utxo_inputs)):
         idx = i + len(tx_inputs)
-        subsidized_tx = bitcoin.sign( subsidized_tx, idx, private_key_obj.to_hex(), hashcode=bitcoin.SIGHASH_ANYONECANPAY )
+        # subsidized_tx = bitcoin.sign( subsidized_tx, idx, private_key_obj.to_hex(), hashcode=bitcoin.SIGHASH_ANYONECANPAY )
+        subsidized_tx = tx_sign_input( subsidized_tx, idx, subsidy_key_info, hashcode=bitcoin.SIGHASH_ANYONECANPAY )
     
     return subsidized_tx
     
