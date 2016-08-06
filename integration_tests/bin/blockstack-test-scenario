@@ -483,6 +483,58 @@ def bitcoin_regtest_reset():
     return True
 
 
+def fill_wallet( bitcoind, wallet, value ):
+    """
+    Fill a test wallet on a regtest bitcoind.
+    Convert the wallet's keys to testnet format, if needed.
+
+    Return True on success
+    Raise on error
+    """
+    if type(wallet.privkey) in [str, unicode]:
+        # single private key
+        testnet_wif = wallet.privkey
+        if not testnet_wif.startswith("c"):
+            testnet_wif = virtualchain.BitcoinPrivateKey(wallet.privkey).to_wif()
+
+        bitcoind.importprivkey(testnet_wif, "")
+
+        addr = virtualchain.BitcoinPublicKey(wallet.pubkey_hex).address()
+        log.debug("Fill %s with %s" % (addr, value ))
+        bitcoind.sendtoaddress( addr, value )
+
+    else:
+        # multisig address
+        testnet_wifs = []
+        testnet_pubks = []
+        for pk in wallet.privkey['private_keys']:
+            if not pk.startswith("c"):
+                pk = virtualchain.BitcoinPrivateKey(pk).to_wif()
+
+            testnet_wifs.append(pk)
+            testnet_pubks.append( virtualchain.BitcoinPrivateKey(pk).public_key().to_hex() )
+
+        multisig_info = virtualchain.make_multisig_info( wallet.m, testnet_wifs )
+        bitcoind.addmultisigaddress( wallet.m, testnet_pubks )
+        bitcoind.importaddress( multisig_info['address'] )
+
+        log.debug("Fill %s with %s" % (multisig_info['address'], value ))
+        bitcoind.sendtoaddress( multisig_info['address'], value )
+
+    return True
+
+
+def get_wallet_addr( wallet ):
+    """
+    Get a wallet's address
+    """
+    if type(wallet.privkey) in [str, unicode]:
+        return virtualchain.BitcoinPublicKey(wallet.pubkey_hex).address()
+
+    else:
+        return wallet.addr
+
+
 def bitcoin_regtest_fill_wallets( wallets, default_payment_wallet=None ):
     """
     Given a set of wallets, make sure they each have 50 btc.
@@ -493,28 +545,12 @@ def bitcoin_regtest_fill_wallets( wallets, default_payment_wallet=None ):
     bitcoind = virtualchain.connect_bitcoind( opts )
 
     for wallet in wallets:
-        # fill each one 
-        testnet_wif = wallet.privkey
-        if not testnet_wif.startswith("c"):
-            testnet_wif = virtualchain.BitcoinPrivateKey(wallet.privkey).to_wif()
-
-        bitcoind.importprivkey(testnet_wif, "")
-
-        addr = virtualchain.BitcoinPublicKey(wallet.pubkey_hex).address()
-        log.debug("Fill %s with %s" % (addr, 50))
-        bitcoind.sendtoaddress( addr, 50.0 )
-
+        # fill each wallet
+        fill_wallet( bitcoind, wallet, 50 )
+        
     if default_payment_wallet is not None:
         # fill optional default payment address
-        testnet_wif = default_payment_wallet.privkey
-        if not testnet_wif.startswith("c"):
-            testnet_wif = virtualchain.BitcoinPrivateKey(default_payment_wallet.privkey).to_wif()
-        
-        bitcoind.importprivkey(testnet_wif, "")
-
-        addr = virtualchain.BitcoinPublicKey(default_payment_wallet.pubkey_hex).address()
-        log.debug("Fill default wallet %s with %s" % (addr, 250))
-        bitcoind.sendtoaddress( addr, 250.0 )
+        fill_wallet( bitcoind, default_payment_wallet, 250 )
         
     bitcoind.generate(6)
 
@@ -524,7 +560,7 @@ def bitcoin_regtest_fill_wallets( wallets, default_payment_wallet=None ):
         all_wallets += [default_payment_wallet]
 
     for wallet in all_wallets:
-        addr = virtualchain.BitcoinPublicKey(wallet.pubkey_hex).address()
+        addr = get_wallet_addr( wallet )
         unspents = bitcoind.listunspent( 0, 200000, [addr] )
 
         SATOSHIS_PER_COIN = 10**8
@@ -671,7 +707,8 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # set up default payment wallet 
-    default_payment_wallet = testlib.Wallet( "5JAjxs1icBcedFahfkuq3hAwLfTqkHEJ95VuuQnUmdiTXc98kz6", 0 )
+    # default_payment_wallet = testlib.Wallet( "5JAjxs1icBcedFahfkuq3hAwLfTqkHEJ95VuuQnUmdiTXc98kz6", 0 )
+    default_payment_wallet = testlib.MultisigWallet( 2, '5JYAj69z2GuFAZHrkhRuBKoCmKh6GcPXgcw9pbH8e8J2pu2RU9z', '5Kfg4xkZ1gGN5ozgDZ37Mn3EH9pXSuWZnQt1pzax4cLax8PetNs', '5JXB7rNxZa8yQtpuKtwy1nWUUTgdDEYTDmaEqQvKKC8HCWs64bL' ) 
 
     # load wallets 
     bitcoin_regtest_fill_wallets( scenario.wallets, default_payment_wallet=default_payment_wallet )
