@@ -625,12 +625,13 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
 
     # update zonefile, if we haven't already
     if txid is None:
-        _, payment_privkey = get_payment_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
-        _, owner_privkey = get_owner_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
+        payment_privkey_info = get_payment_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
+        owner_privkey_info = get_owner_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
+
         utxo_client = get_utxo_provider_client( config_path=proxy.conf['path'] )
         broadcaster_client = get_tx_broadcaster( config_path=proxy.conf['path'] )
 
-        update_result = do_update( name, zonefile_hash, owner_privkey, payment_privkey, utxo_client, broadcaster_client, config_path=proxy.conf['path'], proxy=proxy )
+        update_result = do_update( name, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, broadcaster_client, config_path=proxy.conf['path'], proxy=proxy )
         if 'error' in update_result:
             # failed to replicate user zonefile hash 
             # the caller should simply try again, with the 'transaction_hash' given in the result.
@@ -908,12 +909,13 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
     
     if txid is None:
         # actually send the transaction
-        _, payment_privkey = get_payment_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
-        _, owner_privkey = get_owner_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
+        payment_privkey_info = get_payment_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
+        owner_privkey_info = get_owner_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
+
         utxo_client = get_utxo_provider_client( config_path=proxy.conf['path'] )
         broadcaster_client = get_tx_broadcaster( config_path=proxy.conf['path'] )
 
-        update_result = do_update( name, zonefile_hash, owner_privkey, payment_privkey, utxo_client, broadcaster_client, config_path=proxy.conf['path'], proxy=proxy )
+        update_result = do_update( name, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, broadcaster_client, config_path=proxy.conf['path'], proxy=proxy )
         if 'error' in update_result:
             # failed to remove from zonefile 
             return update_result 
@@ -1280,12 +1282,13 @@ def set_data_pubkey( name, data_pubkey, proxy=None, wallet_keys=None, txid=None 
 
     # update zonefile, if we haven't already
     if txid is None:
-        _, payment_privkey = get_payment_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
-        _, owner_privkey = get_owner_keypair(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
+        payment_privkey_info = get_payment_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
+        owner_privkey_info = get_owner_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
+
         utxo_client = get_utxo_provider_client( config_path=proxy.conf['path'] )
         broadcaster_client = get_tx_broadcaster( config_path=proxy.conf['path'] )
 
-        update_result = do_update( name, zonefile_hash, owner_privkey, payment_privkey, utxo_client, broadcaster_client, config_path=proxy.conf['path'], proxy=proxy )
+        update_result = do_update( name, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, broadcaster_client, config_path=proxy.conf['path'], proxy=proxy )
         if 'error' in update_result:
             # failed to replicate user zonefile hash 
             # the caller should simply try again, with the 'transaction_hash' given in the result.
