@@ -23,7 +23,7 @@
 
 import pybitcoin
 from pybitcoin import embed_data_in_blockchain, hex_hash160, \
-        make_op_return_tx, serialize_transaction, broadcast_transaction, make_op_return_outputs, \
+        make_op_return_tx, serialize_transaction, broadcast_transaction, make_op_return_script, \
         get_unspents
 
 from utilitybelt import is_hex
@@ -64,6 +64,21 @@ def build( namespace_id):
    return packaged_script
 
 
+def make_outputs( nulldata, inputs, change_addr, fee=0, format='bin' ):
+   """
+   Make namespace-ready outputs
+   """
+   return [
+        { "script_hex": make_op_return_script(nulldata, format=format),
+          "value": 0
+        },
+        # change output
+        { "script_hex": virtualchain.make_payment_script(change_addr),
+          "value": calculate_change_amount(inputs, 0, fee)
+        }
+    ]
+
+
 def make_transaction( namespace_id, payment_addr, blockchain_client, tx_fee=0 ):
    """
    Make the namespace ready transaction
@@ -81,7 +96,7 @@ def make_transaction( namespace_id, payment_addr, blockchain_client, tx_fee=0 ):
    inputs = get_unspents( payment_addr, blockchain_client )
    
    # OP_RETURN outputs 
-   outputs = make_op_return_outputs( nulldata, inputs, payment_addr, fee=(DEFAULT_OP_RETURN_FEE + tx_fee), format='hex' )
+   outputs = make_outputs( nulldata, inputs, payment_addr, fee=(DEFAULT_OP_RETURN_FEE + tx_fee), format='hex' )
   
    return (inputs, outputs)
 

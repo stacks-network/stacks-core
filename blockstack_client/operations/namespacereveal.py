@@ -193,11 +193,11 @@ def make_outputs( data, inputs, reveal_addr, change_addr, tx_fee):
          "value": 0},
     
         # register address
-        {"script_hex": make_pay_to_address_script(reveal_addr),
+        {"script_hex": virtualchain.make_payment_script(reveal_addr),
          "value": DEFAULT_DUST_FEE},
         
         # change address
-        {"script_hex": make_pay_to_address_script(change_addr),
+        {"script_hex": virtualchain.make_payment_script(change_addr),
          "value": calculate_change_amount(inputs, total_to_send, DEFAULT_DUST_FEE * (len(inputs) + 3)) + tx_fee},
     ]
     
@@ -227,6 +227,8 @@ def make_transaction( namespace_id, reveal_addr, lifetime, coeff, base_cost, buc
    no_vowel_discount = int(no_vowel_discount)
    payment_addr = str(payment_addr)
    tx_fee = int(tx_fee)
+
+   assert pybitcoin.b58check_version_byte( payment_addr ) == virtualchain.version_byte, "Only p2pkh reveal addresses are supported"
 
    bexp = []
    for be in bucket_exponents:

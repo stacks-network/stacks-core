@@ -150,11 +150,11 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
          "value": 0},
     
         # register address
-        {"script_hex": make_pay_to_address_script(register_addr),
+        {"script_hex": virtualchain.make_payment_script(register_addr),
          "value": dust_value},
         
         # change address (can be the subsidy address)
-        {"script_hex": make_pay_to_address_script(change_addr),
+        {"script_hex": virtualchain.make_payment_script(change_addr),
          "value": calculate_change_amount(change_inputs, bill, dust_fee)},
     ]
     
@@ -162,7 +162,7 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
         outputs.append(
             
             # burn address (when renewing)
-            {"script_hex": make_pay_to_address_script(BLOCKSTACK_BURN_ADDRESS),
+            {"script_hex": virtualchain.make_payment_script(BLOCKSTACK_BURN_ADDRESS),
              "value": op_fee}
         )
 
