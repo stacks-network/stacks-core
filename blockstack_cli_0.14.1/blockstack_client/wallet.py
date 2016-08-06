@@ -67,6 +67,8 @@ from .backend.crypto.utils import aes_encrypt, aes_decrypt
 from .backend.blockchain import get_balance, is_address_usable, get_tx_fee
 from .utils import satoshis_to_btc, btc_to_satoshis, exit_with_error, print_result
 
+from .keys import *
+
 import config
 from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR, CONFIG_FILENAME, WALLET_FILENAME, MINIMUM_BALANCE, \
         WALLET_DECRYPT_MAX_TRIES, WALLET_DECRYPT_BACKOFF_RESET
@@ -185,9 +187,15 @@ class HDWallet(object):
         return None
 
 
-def make_wallet( password, hex_privkey=None, payment_privkey=None, owner_privkey=None, data_privkey=None, config_path=CONFIG_PATH ):
+def make_wallet( password, hex_privkey=None, payment_privkey_info=None, owner_privkey_info=None, data_privkey_info=None, config_path=CONFIG_PATH ):
     """
-    Make a wallet structure
+    Make a wallet structure.
+    By default, the owner and payment keys will be key bundles set up to require 2-of-3 signatures.
+    @payment_privkey_info, @owner_privkey_info, and @data_privkey_info can either be individual private keys, or 
+    dicts with {'redeem_script': ..., 'private_keys': ...} defined.
+
+    Return the new wallet on success.
+    Return {'error': ...} on failure
     """
 
     hex_password = hexlify(password)
@@ -202,39 +210,33 @@ def make_wallet( password, hex_privkey=None, payment_privkey=None, owner_privkey
     encrypted_key = aes_encrypt(hex_privkey, hex_password)
     data['encrypted_master_private_key'] = encrypted_key
 
-    if payment_privkey is None:
-        data['payment_addresses'] = [child[0][0]]
-    else:
-        try:
-            data['payment_addresses'] = [virtualchain.BitcoinPrivateKey(payment_privkey).public_key().address()]
-        except:
-            return {'error': 'Invalid payment private key'}
+    # default to 2-of-3 multisig key info if data isn't given
+    if payment_privkey_info is None:
+        payment_privkey_info = virtualchain.make_multisig_wallet( 2, 3 )
 
-        data['encrypted_payment_privkey'] = aes_encrypt(payment_privkey, hex_password)
+    if owner_privkey_info is None:
+        owner_privkey_info = virtualchain.make_multisig_wallet( 2, 3 )
 
-    if owner_privkey is None:
-        data['owner_addresses'] = [child[1][0]]
-    else:
-        try:
-            data['owner_addresses'] = [virtualchain.BitcoinPrivateKey(owner_privkey).public_key().address()]
-        except:
-            return {'error': 'Invalid payment private key'}
+    if data_privkey_info is None:
+        # TODO: for now, this must be a single private key 
+        data_privkey_info = child[2][1]
 
-        data['encrypted_owner_privkey'] = aes_encrypt(owner_privkey, hex_password)
+    elif not is_singlesig(data_privkey_info):
+        return {'error': 'Data private key info must be a single private key'}
 
-    data_keypair = child[2]
-    if data_privkey is None:
-        data['data_pubkeys'] = [ECPrivateKey(data_keypair[1]).public_key().to_hex()]
-    else:
-        try:
-            data['data_pubkeys'] = [ECPrivateKey(data_privkey).public_key().to_hex()]
-        except:
-            return {'error': 'Invalid data private key'}
+    enc_payment_info = encrypt_private_key_info( payment_privkey_info, password )
+    enc_owner_info = encrypt_private_key_info( owner_privkey_info, password )
+    enc_data_info = encrypt_private_key_info( data_privkey_info, password )
 
-        data['encrypted_data_privkey'] = aes_encrypt(data_privkey, hex_password)
+    data['encrypted_payment_privkey'] = enc_payment_info
+    data['payment_addresses'] = [enc_payment_info['address']]
 
+    data['encrypted_owner_privkey'] = enc_owner_info
+    data['owner_addresses'] = [enc_owner_info['address']]
+
+    data['encrypted_data_privkey'] = enc_data_info
+    data['data_pubkeys'] = [virtualchain.BitcoinPrivateKey(data_privkey_info).public_key().to_hex()]
     data['data_pubkey'] = data['data_pubkeys'][0]
-
     return data
 
 
@@ -336,7 +338,14 @@ def decrypt_wallet( data, password, config_path=CONFIG_PATH, max_tries=WALLET_DE
             ret['error'] = 'Incorrect password.  Try again in %s seconds' % time_until_next_decrypt_attempt()
 
         return ret
-    
+   
+    # legacy compat: use the master private key to generate child keys.
+    # If the specific key they are purposed for is not defined in the wallet,
+    # then they are used in its place.
+    # This is because originally, the master private key was used to derive
+    # the owner, payment, and data private keys; not all wallets define
+    # these keys separately (and have instead relied on us being able to
+    # generate them from the master private key).
     child = wallet.get_child_keypairs(count=3, include_privkey=True)
     payment_keypair = child[0]
     owner_keypair = child[1]
@@ -344,27 +353,34 @@ def decrypt_wallet( data, password, config_path=CONFIG_PATH, max_tries=WALLET_DE
     data_pubkey = ECPrivateKey( data_keypair[1] ).public_key().to_hex()
 
     ret = {}
-    keynames = ['payment_privkey', 'owner_privkey', 'data_privkey']
+    keynames = ['payment', 'owner', 'data']
     for i in xrange(0, len(keynames)):
 
         keyname = keynames[i]
+        keyname_privkey = "%s_privkey" % keyname
+        keyname_address = "%s_addresses" % keyname
+
         child_keypair = child[i]
-        encrypted_keyname = "encrypted_%s" % keyname
+        encrypted_keyname = "encrypted_%s_privkey" % keyname
 
         if data.has_key(encrypted_keyname):
-            try:
-                privkey = aes_decrypt(data[encrypted_keyname], hex_password)
-            except Exception, e:
-                log.exception(e)
-                return {'error': 'Incorrect password'}
+            # This key was explicitly defined in the wallet.
+            # It is not guaranteed to be a child key of the
+            # master private key.
+            field = decrypt_private_key_info( data[encrypted_keyname], password )
+            if 'error' in field:
+                return field
 
-            ret[keyname] = privkey
+            ret[keyname_privkey] = field['private_key_info']
+            ret[keyname_addresses] = [field['address']]
+
         else:
-            ret[keyname] = child_keypair[1]
+            # Legacy: this key is not defined in the wallet.
+            # Derive it from the master key.
+            ret[keyname_privkey] = data_keypair[1]
+            ret[keyname_addresses] = [virtualchain.BitcoinPrivateKey(ret[keyname_privkey]).public_key().address()]
 
     ret['hex_privkey'] = hex_privkey
-    ret['payment_addresses'] = [virtualchain.BitcoinPrivateKey(ret['payment_privkey']).public_key().address()]
-    ret['owner_addresses'] = [virtualchain.BitcoinPrivateKey(ret['owner_privkey']).public_key().address()]
     ret['data_pubkeys'] = [ECPrivateKey(ret['data_privkey']).public_key().to_hex()]
     ret['data_pubkey'] = ret['data_pubkeys'][0]
 
@@ -511,23 +527,19 @@ def load_wallet( password=None, config_dir=CONFIG_DIR, wallet_path=None, include
         return {'status': True, 'wallet': wallet}
     
 
-def unlock_wallet(display_enabled=False, password=None, config_dir=CONFIG_DIR, wallet_path=None ):
+def unlock_wallet( password=None, config_dir=CONFIG_DIR, wallet_path=None ):
     """
     Unlock the wallet.
     Save the wallet to the RPC daemon on success.
-    exit on error (e.g. incorrect password)
-    Return {'status': True} on success
+
+    Return {'status': True, 'addresses': ...} on success
     return {'error': ...} on error
     """
     config_path = os.path.join( config_dir, CONFIG_FILENAME )
     if wallet_path is None:
         wallet_path = os.path.join( config_dir, WALLET_FILENAME )
 
-    if walletUnlocked(config_dir):
-        if display_enabled:
-            payment_address, owner_address, data_pubkey = get_addresses_from_file(wallet_path=wallet_path)
-            display_wallet_info(payment_address, owner_address, data_pubkey, config_path=config_path)
-
+    if is_wallet_unlocked(config_dir):
         return {'status': True}
 
     else:
@@ -541,8 +553,6 @@ def unlock_wallet(display_enabled=False, password=None, config_dir=CONFIG_DIR, w
                 data = json.loads(data)
 
             wallet = decrypt_wallet( data, password, config_path=config_path )
-            if display_enabled:
-                display_wallet_info( wallet['payment_addresses'][0], wallet['owner_addresses'][0], wallet['data_pubkeys'][0], config_path=config_path )
 
             # may need to migrate data_pubkey into wallet.json
             _, _, onfile_data_pubkey = get_addresses_from_file(wallet_path=wallet_path)
@@ -569,13 +579,19 @@ def unlock_wallet(display_enabled=False, password=None, config_dir=CONFIG_DIR, w
             if 'error' in res:
                 return res
 
-            return {'status': True}
+            addresses = {
+                "payment_address": wallet['payment_addresses'][0],
+                "owner_address": wallet['owner_addresses'][0],
+                "data_pubkey": wallet['data_pubkeys'][0]
+            }
+
+            return {'status': True, "addresses": addresses}
 
         except KeyboardInterrupt:
             return {'error': 'Interrupted'}
 
 
-def walletUnlocked(config_dir=CONFIG_DIR):
+def is_wallet_unlocked(config_dir=CONFIG_DIR):
     """
     Determine whether or not the wallet is unlocked.
     Do so by asking the local RPC backend daemon
@@ -687,6 +703,11 @@ def get_names_owned(address, proxy=None):
 def save_keys_to_memory(payment_keypair, owner_keypair, data_keypair, config_dir=CONFIG_DIR):
     """
     Save keys to the running RPC backend
+    Each keypair must be a list or tuple with 2 items: the address, and the private key information.
+    (Note that the private key information can be a multisig info dict).
+
+    Return {'status': True} on success
+    Return {'error': ...} on error
     """
     proxy = local_rpc_connect(config_dir=config_dir)
 
@@ -794,7 +815,7 @@ def dump_wallet(config_path=CONFIG_PATH, wallet_path=None, password=None):
             if 'error' in res:
                 return res
 
-    if not walletUnlocked(config_dir=config_dir):
+    if not is_wallet_unlocked(config_dir=config_dir):
         res = unlock_wallet(config_dir=config_dir, password=password)
         if 'error' in res:
             return res
