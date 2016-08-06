@@ -40,6 +40,7 @@ import blockstack.blockstackd as blockstackd
 
 import blockstack_client
 from blockstack_client.actions import *
+from blockstack_client.keys import *
 import blockstack
 import pybitcoin
 import keylib
@@ -68,6 +69,19 @@ class Wallet(object):
         self.value = int(value_str)
 
         log.debug("Wallet %s (%s)" % (self.privkey, self.addr))
+
+
+class MultisigWallet(object):
+    def __init__(self, m, *pks ):
+
+        self.privkey = virtualchain.make_multisig_info( m, pks )
+        self.m = m
+        self.n = len(pks)
+
+        self.addr = self.privkey['address']
+        self.value = 0
+
+        log.debug("Multisig wallet %s" % (self.addr))
 
 
 class APICallRecord(object):
@@ -218,7 +232,7 @@ def make_proxy():
     return proxy
 
 
-def blockstack_name_preorder( name, privatekey, register_addr, subsidy_key=None, consensus_hash=None, safety_checks=False ):
+def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, subsidy_key=None, consensus_hash=None, safety_checks=False ):
 
     global api_call_history 
 
@@ -228,18 +242,30 @@ def blockstack_name_preorder( name, privatekey, register_addr, subsidy_key=None,
     name_cost_info = test_proxy.get_name_cost( name )
     assert 'satoshis' in name_cost_info, "error getting cost of %s: %s" % (name, name_cost_info)
 
-    resp = blockstack_client.do_preorder( name, privatekey, register_addr, name_cost_info['satoshis'], test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
+    register_addr = virtualchain.address_reencode(register_addr)
+
+    register_privkey_params = (1,1)
+    if wallet is not None:
+        register_privkey_params = get_privkey_info_params( wallet.privkey )
+
+    resp = blockstack_client.do_preorder( name, privatekey, register_addr, name_cost_info['satoshis'], test_proxy, test_proxy, owner_privkey_params=register_privkey_params, consensus_hash=consensus_hash, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
 
     api_call_history.append( APICallRecord( "preorder", name, resp ) )
     return resp
 
 
-def blockstack_name_register( name, privatekey, register_addr, renewal_fee=None, subsidy_key=None, user_public_key=None, safety_checks=False ):
+def blockstack_name_register( name, privatekey, register_addr, wallet=None, renewal_fee=None, subsidy_key=None, user_public_key=None, safety_checks=False ):
     
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
 
-    resp = blockstack_client.do_register( name, privatekey, register_addr, test_proxy, test_proxy, renewal_fee=renewal_fee, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
+    register_addr = virtualchain.address_reencode(register_addr)
+
+    register_privkey_params = (1,1)
+    if wallet is not None:
+        register_privkey_params = get_privkey_info_params( wallet.privkey )
+
+    resp = blockstack_client.do_register( name, privatekey, register_addr, test_proxy, test_proxy, owner_privkey_params=register_privkey_params, renewal_fee=renewal_fee, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
     api_call_history.append( APICallRecord( "register", name, resp ) )
     return resp
 
@@ -279,9 +305,9 @@ def blockstack_name_renew( name, privatekey, register_addr=None, subsidy_key=Non
 
     name_cost_info = test_proxy.get_name_cost( name )
     if register_addr is None:
-        register_addr = virtualchain.BitcoinPrivateKey(privatekey).public_key().address()
+        register_addr = get_privkey_info_address(privatekey)
     else:
-        assert register_addr == virtualchain.BitcoinPrivateKey(privatekey).public_key().address()
+        assert register_addr == get_privkey_info_address(privatekey)
 
     payment_key = get_default_payment_wallet().privkey
     if subsidy_key is not None:
@@ -322,6 +348,7 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, cons
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
 
+    register_addr = virtualchain.address_reencode(register_addr)
 
     namespace_cost = test_proxy.get_namespace_cost( namespace_id )
     resp = blockstack_client.do_namespace_preorder( namespace_id, namespace_cost['satoshis'], privatekey, register_addr, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
@@ -333,6 +360,8 @@ def blockstack_namespace_reveal( namespace_id, register_addr, lifetime, coeff, b
     
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
+
+    register_addr = virtualchain.address_reencode(register_addr)
 
     resp = blockstack_client.do_namespace_reveal( namespace_id, register_addr, lifetime, coeff, base, bucket_exponents, nonalpha_discount, no_vowel_discount, privatekey, test_proxy, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy)
     api_call_history.append( APICallRecord( "namespace_reveal", namespace_id, resp ) )
