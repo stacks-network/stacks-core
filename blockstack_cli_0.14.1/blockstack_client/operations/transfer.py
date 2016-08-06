@@ -111,10 +111,10 @@ def make_outputs( data, inputs, new_name_owner_address, change_address, tx_fee=0
         {"script_hex": make_op_return_script(str(data), format='hex'),
          "value": 0},
         # new name owner output
-        {"script_hex": make_pay_to_address_script(new_name_owner_address),
+        {"script_hex": virtualchain.make_payment_script(new_name_owner_address),
          "value": dust_value},
         # change output
-        {"script_hex": make_pay_to_address_script(change_address),
+        {"script_hex": virtualchain.make_payment_script(change_address),
          "value": calculate_change_amount(inputs, op_fee, dust_fee)}
     ]
 
