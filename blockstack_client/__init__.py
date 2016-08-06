@@ -41,7 +41,7 @@ from proxy import getinfo, ping, get_name_cost, get_namespace_cost, get_all_name
         get_names_owned_by_address, get_consensus_at, get_consensus_range, get_nameops_at, \
         get_nameops_hash_at, get_name_blockchain_record, get_namespace_blockchain_record
         
-from keys import make_wallet_keys, get_owner_keypair, get_data_keypair, get_payment_keypair
+from keys import make_wallet_keys, get_owner_privkey_info, get_data_privkey_info, get_payment_privkey_info
 
 from cli import get_cli_basic_methods, get_cli_advanced_methods
 from client import session, get_default_proxy, set_default_proxy, register_storage, load_storage
