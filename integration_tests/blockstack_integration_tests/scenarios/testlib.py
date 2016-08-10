@@ -248,6 +248,8 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, subs
     if wallet is not None:
         register_privkey_params = get_privkey_info_params( wallet.privkey )
 
+    log.debug("Preorder '%s' for %s satoshis" % (name, name_cost_info['satoshis']))
+
     resp = blockstack_client.do_preorder( name, privatekey, register_addr, name_cost_info['satoshis'], test_proxy, test_proxy, owner_privkey_params=register_privkey_params, consensus_hash=consensus_hash, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
 
     api_call_history.append( APICallRecord( "preorder", name, resp ) )
@@ -313,6 +315,7 @@ def blockstack_name_renew( name, privatekey, register_addr=None, subsidy_key=Non
     if subsidy_key is not None:
         payment_key = subsidy_key 
 
+    log.debug("Renew %s for %s satoshis" % (name, name_cost_info['satoshis']))
     resp = blockstack_client.do_renewal( name, privatekey, payment_key, name_cost_info['satoshis'], test_proxy, test_proxy, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
 
     api_call_history.append( APICallRecord( "renew", name, resp ) )
@@ -397,7 +400,7 @@ def blockstack_client_initialize_wallet( password, payment_privkey, owner_privke
 
     wallet_path = os.path.join( os.path.dirname(config_path), blockstack_client.config.WALLET_FILENAME )
 
-    wallet = blockstack_client.wallet.make_wallet( password, payment_privkey=payment_privkey, owner_privkey=owner_privkey, data_privkey=data_privkey )
+    wallet = blockstack_client.wallet.make_wallet( password, payment_privkey_info=payment_privkey, owner_privkey_info=owner_privkey, data_privkey_info=data_privkey )
     blockstack_client.wallet.write_wallet( wallet, path=wallet_path )
     return wallet
 
@@ -818,6 +821,9 @@ def snv_all_names( state_engine ):
                     print "QUIRK: NAME_IMPORT: fee isn't a float"
                     return False 
 
+                elif type(snv_rec['op_fee']) not in [int,long]:
+                    print "QUIRK: %s: fee isn't an int" % snv_rec['opcode']
+
                 log.debug("SNV verified %s with (%s,%s) back to (%s,%s)" % (name, trusted_block_id, trusted_consensus_hash, block_id, consensus_hash ))
 
     return True
@@ -948,23 +954,27 @@ def migrate_profile( name, proxy=None, wallet_keys=None ):
     if not legacy:
         return {'status': True}
     
-    _, payment_privkey = blockstack_client.get_payment_keypair( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
-    _, owner_privkey = blockstack_client.get_owner_keypair( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
-    _, data_privkey = blockstack_client.get_data_keypair( user_zonefile, wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
+    payment_privkey_info = blockstack_client.get_payment_privkey_info( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
+    owner_privkey_info = blockstack_client.get_owner_privkey_info( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
+    data_privkey_info = blockstack_client.get_data_privkey_info( user_zonefile, wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
 
-    if data_privkey is None:
+    if data_privkey_info is None:
         log.warn("No data private key set; falling back to owner private key")
-        data_privkey = owner_privkey 
+        data_privkey_info = owner_privkey_info
+
+    if not blockstack_client.keys.is_singlesig(data_privkey_info):
+        log.error("We only support single-signature private key info for data at this time.")
+        return {'error': 'Invalid data key'}
 
     user_zonefile_hash = blockstack_client.hash_zonefile( user_zonefile )
     
     # replicate the profile
-    rc = storage.put_mutable_data( name, user_profile, data_privkey )
+    rc = storage.put_mutable_data( name, user_profile, data_privkey_info )
     if not rc:
         return {'error': 'Failed to move legacy profile to profile zonefile'}
 
     # do the update 
-    res = blockstack_client.do_update( name, user_zonefile_hash, owner_privkey, payment_privkey, proxy, proxy, config_path=proxy.config_path, proxy=proxy )
+    res = blockstack_client.do_update( name, user_zonefile_hash, owner_privkey_info, payment_privkey_info, proxy, proxy, config_path=proxy.config_path, proxy=proxy )
     api_call_history.append( APICallRecord( "update", name, res ) )
 
     if 'error' in res:
