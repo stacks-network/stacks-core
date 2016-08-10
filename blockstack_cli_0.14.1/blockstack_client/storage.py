@@ -46,6 +46,7 @@ from collections import defaultdict
 import blockstack_profiles 
 
 from config import MAX_NAME_LENGTH, get_logger, CONFIG_PATH
+import keys
 
 log = get_logger()
 
@@ -573,6 +574,11 @@ def put_mutable_data( fq_data_id, data_json, privatekey, required=[], use_only=[
 
    global storage_handlers 
 
+   # sanity check: only support single-sig private keys 
+   if not keys.is_singlesig(privatekey):
+       log.error("Only single-signature data private keys are supported")
+       return False
+
    fq_data_id = str(fq_data_id)
    assert is_fq_data_id( fq_data_id ) or is_valid_name(fq_data_id), "Data ID must be fully qualified or must be a valid blockchain ID (got %s)" % fq_data_id
    assert privatekey is not None
@@ -643,6 +649,11 @@ def delete_immutable_data( data_hash, txid, privkey ):
 
    global storage_handlers
 
+   # sanity check
+   if not keys.is_singlesig(privkey):
+       log.error("Only single-signature data private keys are supported")
+       return False
+
    data_hash = str(data_hash)
    txid = str(txid)
    sigb64 = sign_raw_data( data_hash + txid, privkey )
@@ -670,6 +681,11 @@ def delete_mutable_data( fq_data_id, privatekey, only_use=[] ):
    """
 
    global storage_handlers
+
+   # sanity check
+   if not keys.is_singlesig(privatekey):
+       log.error("Only single-signature data private keys are supported")
+       return False
 
    fq_data_id = str(fq_data_id)
    assert is_fq_data_id( fq_data_id ) or is_valid_name(fq_data_id), "Data ID must be fully qualified or must be a valid blockchain ID (got %s)" % fq_data_id
