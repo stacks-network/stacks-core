@@ -190,13 +190,13 @@ def operation_sanity_check(fqu, payment_privkey_info, owner_privkey_info, config
 
     # get tx fee 
     if transfer_address is not None:
-        tx_fee = estimate_transfer_tx_fee( fqu, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=get_privkey_info_params(owner_privkey), config_path=config_path )
+        tx_fee = estimate_transfer_tx_fee( fqu, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=get_privkey_info_params(owner_privkey_info), config_path=config_path )
         if tx_fee is None:
             # do our best 
             tx_fee = get_tx_fee( "00" * APPROX_TRANSFER_TX_LEN, config_path=config_path )
 
     else:
-        tx_fee = estimate_update_tx_fee( fqu, payment_privkey_info, owner_address, utxo_clint, owner_privkey_params=get_privkey_info_params(owner_privkey), config_path=config_path )
+        tx_fee = estimate_update_tx_fee( fqu, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=get_privkey_info_params(owner_privkey_info), config_path=config_path )
         if tx_fee is None:
             # do our best
             tx_fee = get_tx_fee( "00" * APPROX_UPDATE_TX_LEN, config_path=config_path )
@@ -896,7 +896,7 @@ def cli_update( args, config_path=CONFIG_PATH, password=None ):
     if 'error' in wallet_keys:
         return wallet_keys
 
-    payment_privkey = wallet_keys['payment_privkey']
+    payment_privkey_info = wallet_keys['payment_privkey']
     owner_privkey_info = wallet_keys['owner_privkey']
 
     res = operation_sanity_check(fqu, payment_privkey_info, owner_privkey_info, config_path=config_path)
