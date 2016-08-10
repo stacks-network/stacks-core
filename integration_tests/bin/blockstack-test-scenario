@@ -21,6 +21,7 @@ import importlib
 import traceback
 import socket
 import simplejson
+import threading
 
 blockstack = None
 blockstackd = None
@@ -47,9 +48,11 @@ DEFAULT_SERVER_INI_TEMPLATE = """
 passwd = blockstacksystem
 server = localhost
 port = 18332
+p2p_port = 18444
 use_https = False
 user = blockstack
 regtest = True
+spv_path = @CLIENT_BLOCKCHAIN_HEADERS@
 
 [blockstack]
 server_version = 0.0.14.0
@@ -74,7 +77,6 @@ port = %s
 metadata = @CLIENT_METADATA@
 storage_drivers = @CLIENT_STORAGE_DRIVERS@
 storage_drivers_required_write = disk,blockstack-server
-blockchain_headers = @CLIENT_BLOCKCHAIN_HEADERS@
 advanced_mode = true
 api_endpoint_port = %s
 rpc_token = a653b93e696a998f85f8fd2b241ff4dfcb5dd978fe1da26c413a4c2abf90321b
@@ -84,6 +86,7 @@ rpc_detach = True
 blockchain_reader = bitcoind_utxo
 blockchain_writer = bitcoind_utxo
 anonymous_statistics = False
+blockchain_headers = @CLIENT_BLOCKCHAIN_HEADERS@
 
 [blockchain-reader]
 utxo_provider = bitcoind_utxo
@@ -109,6 +112,32 @@ use_https = False
 user = blockstack
 regtest = True
 """ % (TEST_RPC_PORT, TEST_CLIENT_RPC_PORT)
+
+
+class Pinger(threading.Thread):
+    """
+    For some reason, bitcoind -regtest
+    won't reply blocks on its p2p interface
+    unless we continuously ping it (maybe its
+    bufferring up block data?).  This is
+    a stop-gap solution until we know more.
+    """
+    def __init__(self):
+        threading.Thread.__init__(self)
+        self.running = False
+
+    def run(self):
+        self.running = True
+        bitcoind = bitcoin_regtest_connect( bitcoin_regtest_opts() )
+        while self.running:
+            try:
+                bitcoind.ping()
+                time.sleep(0.25)
+            except socket.error:
+                bitcoind = bitcoin_regtest_connect( bitcoin_regtest_opts() )
+
+    def ask_join(self):
+        self.running = False
 
 
 def load_scenario( scenario_name ):
@@ -178,7 +207,7 @@ def generate_config_file( scenario, path, template, extra_fields):
     else:
         raise Exception("No config template")
 
-    spv_headers_path = os.path.join(os.path.dirname(path), "spv_headers.dat")
+    spv_headers_path = os.path.join( os.environ.get("VIRTUALCHAIN_WORKING_DIR", None), "spv_headers.dat")
 
     config_txt = config_txt.replace( "@CLIENT_BLOCKCHAIN_HEADERS@", spv_headers_path )
     config_txt = config_txt.replace( "@CLIENT_METADATA@", client_metadata ) 
@@ -237,6 +266,7 @@ def sync_virtualchain_upcall( db ):
     bitcoind = bitcoin_regtest_connect( bitcoin_regtest_opts() )
     height = bitcoind.getblockcount()
 
+    log.debug("sync virtualchain up to %s" % (height))
     virtualchain.sync_virtualchain( bitcoin_regtest_opts(), height, db )
 
 
@@ -251,26 +281,12 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     * run the check method
     """
 
-    spv_headers_path = os.path.join(os.path.dirname(client_config_file), "spv_headers.dat")
+    spv_headers_path = os.path.join(os.environ.get("VIRTUALCHAIN_WORKING_DIR", None), "spv_headers.dat")
     atexit_cleanup( spv_headers_path, None, False )
     atexit.register( atexit_cleanup, spv_headers_path, client_config_file, True )
 
-    # set up worker env
-    worker_env = {}
-    worker_env['BLOCKSTACK_TEST'] = "1"
-
-    # tell our subprocesses that we're testing
-    worker_env.update( os.environ )
-
-    if os.environ.get("PYTHONPATH", None) is not None:
-        worker_env["PYTHONPATH"] = os.environ["PYTHONPATH"]
-
-    print ""
-    print "virtualchain worker environment"
-    print json.dumps( worker_env, indent=4, sort_keys=True )
-
     # virtualchain defaults...
-    virtualchain.setup_virtualchain( impl=blockstack_state_engine, bitcoind_connection_factory=bitcoin_regtest_connect, index_worker_env=worker_env )
+    virtualchain.setup_virtualchain( impl=blockstack_state_engine, bitcoind_connection_factory=bitcoin_regtest_connect )
 
     # set up blockstack
     server_opts = blockstack.lib.config.configure(config_file=config_file, interactive=False)
@@ -330,6 +346,10 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     # start taking RPC requests
     network_start()
 
+    # start pinging bitcoind so it pushes out p2p messages
+    pinger = Pinger()
+    pinger.start()
+
     # sync initial utxos 
     testlib.next_block( **test_env )
 
@@ -342,8 +362,15 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         traceback.print_exc()
         log.error("Failed to run scenario '%s'" % scenario.__name__)
         network_stop()
+
+        pinger.ask_join()
+        pinger.join()
         return False
 
+    pinger.ask_join()
+    pinger.join()
+
+    """
     # sync SPV header chain 
     log.info("Sync SPV headers")
     res = blockstack_client.SPVClient.sync_header_chain( spv_headers_path, "localhost:18444", testlib.get_current_block( **test_env ) ) 
@@ -352,6 +379,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         return False 
 
     log.info("SPV headers sync'ed")
+    """
 
     # run the checks on the database
     try:
@@ -410,10 +438,12 @@ def bitcoin_regtest_opts():
     return {
         "bitcoind_server": "localhost",
         "bitcoind_port": 18332,
+        "bitcoind_p2p_port": 18444,
         "bitcoind_user": "blockstack",
         "bitcoind_passwd": "blockstacksystem",
         "bitcoind_use_https": False,
-        "bitcoind_timeout": 60
+        "bitcoind_timeout": 60,
+        "bitcoind_spv_path": os.path.join(os.environ.get("VIRTUALCHAIN_WORKING_DIR", None), "spv_headers.dat")
     }
 
 
@@ -444,7 +474,7 @@ def bitcoin_regtest_reset():
 
     os.makedirs(bitcoin_dir)
     with open(bitcoin_conf, "w") as f:
-        f.write("rpcuser=%s\nrpcpassword=%s\nregtest=1\ntxindex=1\nlisten=1\nserver=1\ndatadir=%s" % (opts['bitcoind_user'], opts['bitcoind_passwd'], bitcoin_dir))
+        f.write("rpcuser=%s\nrpcpassword=%s\nregtest=1\ntxindex=1\nlisten=1\nserver=1\ndatadir=%s\ndebug=1" % (opts['bitcoind_user'], opts['bitcoind_passwd'], bitcoin_dir))
         f.flush()
         os.fsync(f.fileno())
 
@@ -555,11 +585,11 @@ def bitcoin_regtest_fill_wallets( wallets, default_payment_wallet=None ):
     bitcoind.generate(6)
 
     print >> sys.stderr, ""
-    all_wallets = wallets
-    if default_payment_wallet is not None:
-        all_wallets += [default_payment_wallet]
 
-    for wallet in all_wallets:
+    for wallet in wallets + [default_payment_wallet]:
+        if wallet is None:
+            continue
+
         addr = get_wallet_addr( wallet )
         unspents = bitcoind.listunspent( 0, 200000, [addr] )
 
@@ -580,6 +610,7 @@ def bitcoin_regtest_next_block():
     opts = bitcoin_regtest_opts()
     bitcoind = virtualchain.connect_bitcoind( opts )
     bitcoind.generate(1)
+    log.debug("next block (now at %s)" % bitcoind.getblockcount())
 
 
 def bitcoin_regtest_connect( opts, reset=False ):
