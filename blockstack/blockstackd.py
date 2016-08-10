@@ -1321,6 +1321,22 @@ def is_bootstrapped():
         return False
 
 
+def blockstack_tx_filter( tx ):
+    """
+    Virtualchain tx filter function:
+    * only take txs whose OP_RETURN payload starts with 'id'
+    """
+    if not 'nulldata' in tx:
+        return False
+
+    payload = binascii.unhexlify( tx['nulldata'] )
+    if payload.startswith("id"):
+        return True
+
+    else:
+        return False
+
+
 def index_blockchain( expected_snapshots=GENESIS_SNAPSHOT ):
     """
     Index the blockchain:
@@ -1339,7 +1355,7 @@ def index_blockchain( expected_snapshots=GENESIS_SNAPSHOT ):
     log.debug("Begin indexing (up to %s)" % current_block)
     set_indexing( True )
     db = get_state_engine()
-    virtualchain.sync_virtualchain( bt_opts, current_block, db, expected_snapshots=expected_snapshots )
+    virtualchain.sync_virtualchain( bt_opts, current_block, db, expected_snapshots=expected_snapshots, tx_filter=blockstack_tx_filter )
     set_indexing( False )
     log.debug("End indexing (up to %s)" % current_block)
 
