@@ -38,7 +38,7 @@ import blockstack_profiles
 import urllib
 
 from proxy import *
-from spv import SPVClient
+from virtualchain import SPVClient
 import storage
 
 import pybitcoin
@@ -108,7 +108,7 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
 
         rc = register_storage(storage_impl, conf)
         if not rc:
-            log.error("Failed to initialize storage driver '%s'" % (storage_driver))
+            log.error("Failed to initialize storage driver '%s' (%s)" % (storage_driver, rc))
             sys.exit(1)
 
     # initialize SPV
