@@ -43,7 +43,7 @@ from keys import *
 from proxy import *
 from profile import *
 
-from spv import SPVClient
+from virtualchain import SPVClient
 
 import pybitcoin
 import bitcoin
