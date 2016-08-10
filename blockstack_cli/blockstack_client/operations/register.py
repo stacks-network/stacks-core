@@ -255,7 +255,7 @@ def get_fees( inputs, outputs ):
         
         addr_hash = virtualchain.script_hex_to_address( outputs[3]["script_hex"] )
         if addr_hash is None:
-            log.debug("output[3] is not a p2pkh script")
+            log.debug("output[3] is not a valid script")
             return (None, None) 
         
         if addr_hash != BLOCKSTACK_BURN_ADDRESS:
