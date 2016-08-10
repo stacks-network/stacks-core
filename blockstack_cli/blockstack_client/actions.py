@@ -236,8 +236,14 @@ def get_total_registration_fees(name, payment_privkey_info, owner_privkey_info, 
         return {'error': 'Could not determine price of name: %s' % data['error']}
 
     insufficient_funds = False
-    payment_address = get_privkey_info_address(payment_privkey_info)
-    owner_address = get_privkey_info_address(owner_privkey_info)
+    owner_address = None
+    payment_address = None
+
+    if payment_privkey_info is not None:
+        payment_address = get_privkey_info_address(payment_privkey_info)
+
+    if owner_privkey_info is not None:
+        owner_address = get_privkey_info_address(owner_privkey_info)
 
     utxo_client = get_utxo_provider_client( config_path=config_path )
     
@@ -364,8 +370,11 @@ def cli_price( args, config_path=CONFIG_PATH, proxy=None, password=None):
             payment_privkey_info = wallet_keys['payment_privkey']
             owner_privkey_info = wallet_keys['owner_privkey_info']
         
-        except OSError, IOError:
+        except (OSError, IOError), e:
             # backend is not running; estimate with addresses
+            if os.environ.get("BLOCKSTACK_DEBUG") == "1":
+                log.exception(e)
+
             pass
 
     # must be available 
@@ -377,7 +386,7 @@ def cli_price( args, config_path=CONFIG_PATH, proxy=None, password=None):
     if 'owner_address' in blockchain_record:
         return {'error': 'Name already registered.'}
 
-    fees = get_total_registration_fees( fqu, payment_privkey, owner_privkey_info, proxy=proxy, config_path=config_path, payment_address=payment_address )
+    fees = get_total_registration_fees( fqu, payment_privkey_info, owner_privkey_info, proxy=proxy, config_path=config_path, payment_address=payment_address )
     analytics_event( "Name price", {} )
     return fees
 
