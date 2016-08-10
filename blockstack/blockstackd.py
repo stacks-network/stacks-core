@@ -324,10 +324,13 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if conf.has_key('analytics_key'):
             ak = conf['analytics_key']
 
-        if ak is None:
+        if ak is None or len(ak) == 0:
             return
 
-        blockstack_client.client.analytics_event( event_type, event_payload, analytics_key=ak, action_tag="Perform server action" )
+        try:
+            blockstack_client.client.analytics_event( event_type, event_payload, analytics_key=ak, action_tag="Perform server action" )
+        except:
+            log.error("Failed to log analytics event")
 
 
     def rpc_ping(self):
