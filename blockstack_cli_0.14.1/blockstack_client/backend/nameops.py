@@ -62,7 +62,7 @@ def make_fake_privkey_info( privkey_params ):
         (m, n) means "use multiple signatures and a redeem script"
     """
     if privkey_params is None or privkey_params[0] < 1 or privkey_params[1] < 1:
-        raise Exception("Invalid private key parameters")
+        raise Exception("Invalid private key parameters %s" % privkey_params)
 
     if privkey_params == (1, 1):
         # fake private key
@@ -436,9 +436,6 @@ def estimate_announce_tx_fee( sender_address, utxo_client, sender_privkey_params
     """
     fake_privkey = make_fake_privkey_info( sender_privkey_params )
     fake_announce_hash = '20b512149140494c0f7d565023973226908f6940'
-
-    if sender_privkey_info is not None:
-        fake_privkey = sender_privkey_info
 
     try:
         unsigned_tx = announce_tx( fake_announce_hash, sender_address, utxo_client )
@@ -1066,7 +1063,7 @@ def do_announce( message_text, sender_privkey_info, utxo_client, tx_broadcaster,
 
     sender_address = get_privkey_info_address( sender_privkey_info )
     sender_privkey_params = get_privkey_info_params( sender_privkey_info )
-    if owner_privkey_params == (None, None):
+    if sender_privkey_params == (None, None):
         return {'error': 'Invalid owner private key'}
 
     tx_fee = estimate_announce_tx_fee( sender_address, utxo_client, config_path=config_path )
@@ -1076,7 +1073,7 @@ def do_announce( message_text, sender_privkey_info, utxo_client, tx_broadcaster,
     log.debug("Announce (%s, %s) tx_fee = %s" % (message_hash, sender_address, tx_fee))
 
     try:
-        unsigned_tx = announce_tx( message_hash, sender_address, utxo_client, sender_privkey_params=sender_privkey_params, tx_fee=tx_fee )
+        unsigned_tx = announce_tx( message_hash, sender_address, utxo_client, tx_fee=tx_fee )
     except ValueError:
         return {'error': 'Insufficient funds'}
 
