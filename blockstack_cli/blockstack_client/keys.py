@@ -37,6 +37,7 @@ import copy
 import blockstack_profiles
 import urllib
 import virtualchain
+from binascii import hexlify, unhexlify
 
 from keylib import ECPrivateKey, ECPublicKey
 from keylib.hashing import bin_hash160
@@ -124,7 +125,7 @@ def encrypt_multisig_info( multisig_info, password ):
             enc_info['encrypted_private_keys'].append( aes_encrypt( pk, hex_password ) )
 
     if 'redeem_script' in multisig_info.keys():
-        enc_info['encrypted_redeem_script'] = aes_encrypt( enc_info['redeem_script'], hex_password )
+        enc_info['encrypted_redeem_script'] = aes_encrypt( multisig_info['redeem_script'], hex_password )
 
     for (k, v) in multisig_info.items():
         if k not in ['private_keys', 'redeem_script']:
@@ -150,8 +151,11 @@ def decrypt_multisig_info( enc_multisig_info, password ):
             pk = None
             try:
                 pk = aes_decrypt( enc_pk, hex_password )
-            except:
-                return {'error': 'Invalid password'}
+            except Exception, e:
+                if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+                    log.exception(e)
+
+                return {'error': 'Invalid password; failed to decrypt private key in multisig wallet'}
                 
             multisig_info['private_keys'].append( pk )
 
@@ -160,7 +164,10 @@ def decrypt_multisig_info( enc_multisig_info, password ):
         try:
             redeem_script = aes_decrypt( enc_multisig_info['encrypted_redeem_script'], hex_password )
         except:
-            return {'error': 'Invalid password'}
+            if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+                log.exception(e)
+
+            return {'error': 'Invalid password; failed to decrypt redeem script in multisig wallet'}
 
         multisig_info['redeem_script'] = redeem_script
 
@@ -181,8 +188,8 @@ def encrypt_private_key_info( privkey_info, password ):
     ret = {}
     hex_password = hexlify(password)
 
-    if is_multisig(_privkey_info ):
-        ret['address'] = privkey_info['address']
+    if is_multisig( privkey_info ):
+        ret['address'] = virtualchain.make_multisig_address( privkey_info['redeem_script'] )
         ret['private_key_info'] = encrypt_multisig_info( privkey_info, hex_password )
 
         return {'status': True, 'encrypted_private_key_info': ret}
@@ -208,6 +215,9 @@ def decrypt_private_key_info( privkey_info, password ):
 
     if is_encrypted_multisig( privkey_info ):
         ret = decrypt_multisig_info( privkey_info, password )
+
+        if 'error' in ret:
+            return {'error': 'Failed to decrypt multisig wallet: %s' % ret['error']}
 
         # sanity check
         if 'redeem_script' not in ret:
@@ -341,7 +351,8 @@ def get_data_or_owner_privkey( user_zonefile, owner_address, wallet_keys=None, c
             return {'error': 'No usable private signing key found'}
 
         # sanity check: must match profile address
-        compressed_addr, uncompressed_addr = get_pubkey_addresses( owner_pubkey_info )
+        owner_pubkey = virtualchain.BitcoinPrivateKey(owner_privkey_info).public_key().to_hex()
+        compressed_addr, uncompressed_addr = get_pubkey_addresses( owner_pubkey )
         if owner_address not in [compressed_addr, uncompressed_addr]:
             raise Exception("%s not in [%s,%s]" % (owner_address, compressed_addr, uncompressed_addr))
             return {'error': 'No usable public key'}
@@ -407,6 +418,9 @@ def get_privkey_info_address( privkey_info ):
     * if it's a single private key, then calculate the address.
     * if it's a multisig info dict, then get the p2sh address
     """
+    if privkey_info is None:
+        return None
+
     if is_singlesig(privkey_info):
         return virtualchain.BitcoinPrivateKey(privkey_info).public_key().address()
 
@@ -429,6 +443,11 @@ def get_privkey_info_params( privkey_info ):
     Return (m, n) on success
     Return (None, None) on failure
     """
+
+    if privkey_info is None:
+        # guess (2,3)
+        log.warning("No private key info given; assuming 2-of-3 multisig")
+        return (2,3)
 
     if is_singlesig( privkey_info ):
         return (1, 1)
