@@ -24,6 +24,7 @@ import time
 import argparse
 import sys
 import json
+import simplejson
 import traceback
 import os
 import re
@@ -225,8 +226,23 @@ def make_wallet( password, hex_privkey=None, payment_privkey_info=None, owner_pr
         return {'error': 'Data private key info must be a single private key'}
 
     enc_payment_info = encrypt_private_key_info( payment_privkey_info, password )
+    if 'error' in enc_payment_info:
+        return {'error': enc_payment_info['error']}
+
     enc_owner_info = encrypt_private_key_info( owner_privkey_info, password )
+    if 'error' in enc_owner_info:
+        return {'error': enc_owner_info['error']}
+
     enc_data_info = encrypt_private_key_info( data_privkey_info, password )
+    if 'error' in enc_data_info:
+        return {'error': enc_data_info['error']}
+
+    enc_payment_info = enc_payment_info['encrypted_private_key_info']['private_key_info']
+    enc_owner_info = enc_owner_info['encrypted_private_key_info']['private_key_info']
+    enc_data_info = enc_data_info['encrypted_private_key_info']['private_key_info']
+
+    assert 'address' in enc_payment_info, "Missing address in payment '%s'" % simplejson.dumps(enc_payment_info)
+    assert 'address' in enc_owner_info, "Missing address in owner '%s'" % simplejson.dumps(enc_owner_info)
 
     data['encrypted_payment_privkey'] = enc_payment_info
     data['payment_addresses'] = [enc_payment_info['address']]
@@ -329,12 +345,13 @@ def decrypt_wallet( data, password, config_path=CONFIG_PATH, max_tries=WALLET_DE
         hex_privkey = aes_decrypt(data['encrypted_master_private_key'], hex_password)
         wallet = HDWallet(hex_privkey)
     except Exception, e:
-        if os.environ.get("BLOCKSTACK_DEBUG", None) is not None:
+        if os.environ.get("BLOCKSTACK_DEBUG", None) == "1":
             log.exception(e)
 
         ret = {'error': 'Incorrect password'}
         log_failed_decrypt( max_tries=max_tries )
         if not can_attempt_decrypt( max_tries=max_tries ):
+            log.debug("Incorrect password; using exponential backoff")
             ret['error'] = 'Incorrect password.  Try again in %s seconds' % time_until_next_decrypt_attempt()
 
         return ret
@@ -358,7 +375,7 @@ def decrypt_wallet( data, password, config_path=CONFIG_PATH, max_tries=WALLET_DE
 
         keyname = keynames[i]
         keyname_privkey = "%s_privkey" % keyname
-        keyname_address = "%s_addresses" % keyname
+        keyname_addresses = "%s_addresses" % keyname
 
         child_keypair = child[i]
         encrypted_keyname = "encrypted_%s_privkey" % keyname
@@ -369,6 +386,7 @@ def decrypt_wallet( data, password, config_path=CONFIG_PATH, max_tries=WALLET_DE
             # master private key.
             field = decrypt_private_key_info( data[encrypted_keyname], password )
             if 'error' in field:
+                log.debug("Failed to decrypt '%s': %s" % (encrypted_keyname, field['error']))
                 return field
 
             ret[keyname_privkey] = field['private_key_info']
@@ -429,10 +447,11 @@ def make_wallet_password( password=None ):
             return {'status': True, 'password': p1}
 
 
-def initialize_wallet( password="", interactive=True, hex_privkey=None, config_dir=CONFIG_DIR, wallet_path=None ):
+def initialize_wallet( password="", interactive=True, hex_privkey=None, config_dir=CONFIG_DIR, wallet_path=None, owner_privkey_info=None, payment_privkey_info=None, data_privkey_info=None ):
     """
     Initialize a wallet,
     interatively if need be.
+    Save it to @wallet_path
     Return a dict with the wallet password and master private key.
     Return {'error': ...} on error
     """
@@ -465,7 +484,7 @@ def initialize_wallet( password="", interactive=True, hex_privkey=None, config_d
             temp_wallet = HDWallet(config_path=config_path)
             hex_privkey = temp_wallet.get_master_privkey()
 
-        wallet = make_wallet( password, hex_privkey=hex_privkey, config_path=config_path )
+        wallet = make_wallet( password, hex_privkey=hex_privkey, config_path=config_path, owner_privkey_info=owner_privkey_info, payment_privkey_info=payment_privkey_info, data_privkey_info=data_privkey_info )
         write_wallet( wallet, path=wallet_path ) 
 
         result['wallet_password'] = password
@@ -514,10 +533,9 @@ def load_wallet( password=None, config_dir=CONFIG_DIR, wallet_path=None, include
     if password is None:
         password = getpass("Enter wallet password: ")
 
-    file = open(wallet_path, 'r')
-    data = file.read()
-    data = json.loads(data)
-    file.close()
+    with open(wallet_path, 'r') as f:
+        data = f.read()
+        data = json.loads(data)
 
     wallet = decrypt_wallet( data, password, config_path=config_path )
     if 'error' in wallet:
