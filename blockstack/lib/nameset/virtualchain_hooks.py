@@ -30,6 +30,7 @@ import time
 import pybitcoin 
 import traceback
 import json
+import simplejson
 import threading
 import copy
 
@@ -70,6 +71,9 @@ def get_burn_fee_from_outputs( outputs ):
             
             # recipient's script_pubkey and address
             ret = int(output['value']*(10**8))
+            if os.environ.get("BLOCKSTACK_TEST") == "1" and ret > 1000 * (10**8):
+                raise Exception("Absurdly high burn output\n%s" % simplejson.dumps(outputs, indent=4, sort_keys=True))
+
             break
     
     return ret 
@@ -457,10 +461,15 @@ def db_parse( block_id, txid, vtxindex, opcode, data, senders, inputs, outputs, 
       
       # store the above ancillary data with the opcode, so our namedb can look it up later 
       if fee is not None:
-         op['fee'] = fee 
+         op['fee'] = int(fee)
          
       if op_fee is not None:
-         op['op_fee'] = op_fee 
+         # QUIRK: if this is a NAME_IMPORT, this has to be a float.
+         # otherwise, it's an int.
+         if opcode == NAME_IMPORT:
+             op['op_fee'] = float(op_fee)
+         else:
+             op['op_fee'] = int(op_fee)
       
       op['sender'] = sender 
       op['address'] = address 
