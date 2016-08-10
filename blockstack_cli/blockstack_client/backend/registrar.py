@@ -172,7 +172,7 @@ class RegistrarWorker(threading.Thread):
                     # send the registration
                     owner_address = get_privkey_info_address( owner_privkey_info )
                     owner_privkey_params = get_privkey_info_params( owner_privkey_info )
-                    res = async_register( name_data['fqu'], payment_privkey_info, owner_privkey_info, owner_privkey_params, proxy=proxy, config_path=config_path, queue_path=queue_path )
+                    res = async_register( name_data['fqu'], payment_privkey_info, owner_address, owner_privkey_params=owner_privkey_params, proxy=proxy, config_path=config_path, queue_path=queue_path )
                     return res
                 else:
                     # already queued 
@@ -596,7 +596,7 @@ class RegistrarWorker(threading.Thread):
                 wallet_data = get_wallet( self.rpc_token, config_path=self.config_path, proxy=proxy )
 
                 # wait until the owner address is set 
-                while wallet_data['owner_address'] is None and self.running:
+                while ('error' in wallet_data or wallet_data['owner_address'] is None) and self.running:
                     log.debug("Owner address not set... (%s)" % wallet_data.get("error", ""))
                     wallet_data = get_wallet( self.rpc_token, config_path=self.config_path, proxy=proxy )
                     time.sleep(1.0)
@@ -789,14 +789,27 @@ def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=None, p
     state.payment_address = payment_keypair[0]
     state.owner_address = owner_keypair[0]
 
-    state.encrypted_payment_privkey_info = encrypt_private_key_info(payment_keypair[1], rpc_token )
-    state.encrypted_owner_privkey_info = encrypt_private_key_info(owner_keypair[1], rpc_token)
-    state.encrypted_data_privkey_info = encrypt_private_key_info(data_keypair[1], rpc_token)
+    enc_payment_info = encrypt_private_key_info(payment_keypair[1], rpc_token )
+    enc_owner_info = encrypt_private_key_info(owner_keypair[1], rpc_token )
+    enc_data_info = encrypt_private_key_info(data_keypair[1], rpc_token )
+
+    if 'error' in enc_payment_info:
+        return {'error': 'Failed to encrypt payment key: %s' % enc_payment_info['error']}
+
+    if 'error' in enc_owner_info:
+        return {'error': 'Failed to encrypt owner key: %s' % enc_owner_info['error']}
+
+    if 'error' in enc_data_info:
+        return {'error': 'Failed to encrypt data key: %s' % enc_data_info['error']}
+
+    state.encrypted_payment_privkey_info = enc_payment_info['encrypted_private_key_info']['private_key_info']
+    state.encrypted_owner_privkey_info = enc_owner_info['encrypted_private_key_info']['private_key_info']
+    state.encrypted_data_privkey_info = enc_data_info['encrypted_private_key_info']['private_key_info']
 
     data = {}
     data['success'] = True
 
-    log.debug("Wallet set (%s, %s)" % (state.payment_address, state.owner_address))
+    log.debug("Wallet set (%s, %s, %s)" % (state.payment_address, state.owner_address, data_keypair[0]))
     return data
 
 
@@ -820,7 +833,11 @@ def get_wallet_payment_privkey_info(config_path=None, proxy=None):
         return None
 
     privkey_info = decrypt_private_key_info( state.encrypted_payment_privkey_info, rpc_token )
-    return privkey_info
+    if 'error' in privkey_info:
+        log.error("Failed to decrypt payment key: %s" % privkey_info['error'])
+        return None
+
+    return privkey_info['private_key_info']
 
 
 def get_wallet_owner_privkey_info(config_path=None, proxy=None):
@@ -834,7 +851,11 @@ def get_wallet_owner_privkey_info(config_path=None, proxy=None):
         return None
 
     privkey_info = decrypt_private_key_info(state.encrypted_owner_privkey_info, rpc_token)
-    return privkey_info
+    if 'error' in privkey_info:
+        log.error("Failed to decrypt owner key: %s" % privkey_info['error'])
+        return None
+
+    return privkey_info['private_key_info']
 
 
 def get_wallet_data_privkey_info(config_path=None, proxy=None):
@@ -848,7 +869,11 @@ def get_wallet_data_privkey_info(config_path=None, proxy=None):
         return None 
 
     privkey_info = decrypt_private_key_info(state.encrypted_data_privkey_info, rpc_token)
-    return privkey_info
+    if 'error' in privkey_info:
+        log.error("Failed to decrypt data key: %s" % privkey_info['error'])
+        return None
+
+    return privkey_info['private_key_info']
 
 
 def get_wallet(rpc_token=None, config_path=None, proxy=None):
@@ -867,13 +892,21 @@ def get_wallet(rpc_token=None, config_path=None, proxy=None):
         data['error'] = "Incorrect RPC token"
         return data
 
+    data_privkey_info = get_wallet_data_privkey_info()
+    if data_privkey_info is None:
+        data['error'] = "Unable to decrypt data private key"
+        return data
+
     data['payment_address'] = state.payment_address
     data['owner_address'] = state.owner_address
-    data['data_pubkey'] = ECPrivateKey( get_wallet_data_privkey() ).public_key().to_hex()
+    data['data_pubkey'] = ECPrivateKey( data_privkey_info ).public_key().to_hex()
 
     data['payment_privkey'] = get_wallet_payment_privkey_info()
     data['owner_privkey'] = get_wallet_owner_privkey_info()
     data['data_privkey'] = get_wallet_data_privkey_info()
+
+    if data['payment_privkey'] is None or data['owner_privkey'] is None or data['data_privkey'] is None:
+        data['error'] = "Failed to load private keys (wrong password?)"
 
     return data
 
@@ -1190,7 +1223,7 @@ def revoke( fqu, config_path=None, proxy=None ):
     resp = None
 
     payment_privkey_info = get_wallet_payment_privkey_info()
-    owner_privkey_info = get_wallet_owner_privkey()
+    owner_privkey_info = get_wallet_owner_privkey_info()
 
     resp = async_revoke(fqu, owner_privkey_info, payment_privkey_info,
                         proxy=proxy,
@@ -1220,6 +1253,7 @@ RPC_PREFIX = "backend"
 RPC_METHODS = [
     ping,
     state,
+    get_wallet,
     set_wallet,
     get_start_block,
     preorder,
