@@ -532,12 +532,12 @@ def do_register( fqu, payment_privkey_info, owner_address, utxo_client, tx_broad
     # sanity check
     if owner_privkey_params == (1,1) and pybitcoin.b58check_version_byte( owner_address ) != virtualchain.version_byte:
         # invalid address, given parameters
-        log.debug("Owner address %s does not correspond to a single private key")
+        log.debug("Owner address %s does not correspond to a single private key", owner_address)
         return {'error': 'Owner address does not correspond to a single private key'}
 
     elif (owner_privkey_params[0] > 1 or owner_privkey_params[1] > 1) and pybitcoin.b58check_version_byte( owner_address ) != virtualchain.multisig_version_byte:
         # invalid address
-        log.debug("Owner address %s does not correspond to multisig private keys")
+        log.debug("Owner address %s does not correspond to multisig private keys", owner_address)
         return {'error': 'Owner address does not correspond to multisig private keys'}
 
     if safety_checks:
@@ -1101,7 +1101,7 @@ def async_preorder(fqu, payment_privkey_info, owner_address, cost, owner_privkey
 
         @fqu: fully qualified name e.g., muneeb.id
         @payment_privkey_info: private key that will pay
-        @owner_privkey_info: will own the name
+        @owner_address: will own the name
 
         Returns True/False and stores tx_hash in queue
     """
@@ -1113,7 +1113,6 @@ def async_preorder(fqu, payment_privkey_info, owner_address, cost, owner_privkey
     tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 
     payment_address = get_privkey_info_address( payment_privkey_info )
-    owner_address = geT_privkey_info_address( owner_privkey_info )
     
     # stale preorder will get removed from preorder_queue
     if in_queue("register", fqu, path=queue_path):
@@ -1166,7 +1165,6 @@ def async_register(fqu, payment_privkey_info, owner_address, owner_privkey_param
     tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 
     payment_address = get_privkey_info_address( payment_privkey_info )
-    owner_address = get_privkey_info_address( owner_privkey_info )
 
     # check register_queue first
     # stale preorder will get removed from preorder_queue
