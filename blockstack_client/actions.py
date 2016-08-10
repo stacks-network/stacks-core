@@ -49,6 +49,7 @@ import json
 import traceback
 import os
 import re
+import errno
 import pybitcoin
 import virtualchain
 import subprocess
@@ -679,6 +680,36 @@ def cli_whois( args, config_path=CONFIG_PATH ):
     return result
 
 
+def get_wallet_with_backoff( config_path ):
+    """
+    Get the wallet, but keep trying
+    in the case of a ECONNREFUSED
+    (i.e. the API daemon could still be initializing)
+
+    Return the wallet keys on success (as a dict)
+    return {'error': ...} on error
+    """
+
+    wallet_keys = None
+    for i in xrange(0, 3):
+        try:
+            wallet_keys = get_wallet( config_path=config_path )
+            return wallet_keys
+        except (IOError, OSError), se:
+            if se.errno == errno.ECONNREFUSED:
+                # still spinning up
+                time.sleep(i+1)
+                continue
+            else:
+                raise
+
+    if i == 3:
+        log.error("Failed to get_wallet")
+        wallet_keys = {'error': 'Failed to connect to API daemon'}
+
+    return wallet_keys
+
+
 def get_wallet_keys( config_path, password ):
     """
     Load up the wallet keys
@@ -700,11 +731,7 @@ def get_wallet_keys( config_path, password ):
             log.debug("unlock_wallet: %s" % res['error'])
             return res
 
-    wallet_keys = get_wallet( config_path=config_path )
-    if 'error' in wallet_keys:
-        return wallet_keys
-
-    return wallet_keys
+    return get_wallet_with_backoff( config_path )
 
 
 def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None ):
@@ -1479,13 +1506,9 @@ def cli_advanced_wallet( args, config_path=CONFIG_PATH, password=None ):
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
     if not os.path.exists(wallet_path):
         result = initialize_wallet(wallet_path=wallet_path)
-    else:
-        result = unlock_wallet(config_dir=config_dir, password=password)
-        if 'error' in result:
-            return result
 
-        addresses = result['addresses']
-        display_wallet_info( addresses['payment_address'], addresses['owner_address'], addresses['data_pubkeky'], config_path=config_path ) 
+    else:
+        result = get_wallet_with_backoff( config_path )
 
     return result
 
