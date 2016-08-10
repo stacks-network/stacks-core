@@ -53,11 +53,7 @@ xmlrpc.monkey_patch()
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
 
-try:
-    import blockstack_client
-except:
-    # storage API won't work
-    blockstack_client = None
+import blockstack_client
 
 from ConfigParser import SafeConfigParser
 
@@ -1325,7 +1321,7 @@ def is_bootstrapped():
         return False
 
 
-def index_blockchain():
+def index_blockchain( expected_snapshots=GENESIS_SNAPSHOT ):
     """
     Index the blockchain:
     * find the range of blocks
@@ -1343,7 +1339,7 @@ def index_blockchain():
     log.debug("Begin indexing (up to %s)" % current_block)
     set_indexing( True )
     db = get_state_engine()
-    virtualchain.sync_virtualchain( bt_opts, current_block, db )
+    virtualchain.sync_virtualchain( bt_opts, current_block, db, expected_snapshots=expected_snapshots )
     set_indexing( False )
     log.debug("End indexing (up to %s)" % current_block)
 
@@ -1366,7 +1362,7 @@ def blockstack_exit_handler( sig, frame ):
     sys.exit(0)
 
 
-def run_server( foreground=False, index=True ):
+def run_server( foreground=False, index=True, expected_snapshots=GENESIS_SNAPSHOT ):
     """
     Run the blockstackd RPC server, optionally in the foreground.
     """
@@ -1440,7 +1436,7 @@ def run_server( foreground=False, index=True ):
         while running:
 
             try:
-               index_blockchain()
+               index_blockchain(expected_snapshots=expected_snapshots)
             except Exception, e:
                log.exception(e)
                log.error("FATAL: caught exception while indexing")
@@ -1477,31 +1473,6 @@ def run_server( foreground=False, index=True ):
     return 0
 
 
-def semver_match( v1, v2):
-    """
-    Verify that two semantic version strings match:
-    the major, minor, and patch versions must be equal.
-    """
-    v1_parts = v1.split(".")
-    v2_parts = v2.split(".")
-    if len(v1_parts) < 4 or len(v2_parts) < 4:
-        # one isn't a semantic version 
-        return False
-
-    v1_major, v1_minor, v1_patch, v1_features = v1_parts[0], v1_parts[1], v1_parts[2], v1_parts[3:]
-    v2_major, v2_minor, v2_patch, v2_features = v2_parts[0], v2_parts[1], v2_parts[2], v2_parts[3:]
-    if v1_major != v2_major:
-        return False
-
-    if v1_minor != v2_minor:
-        return False
-
-    if v1_patch != v2_patch:
-        return False
-
-    return True
-
-
 def setup( working_dir=None, return_parser=False ):
    """
    Do one-time initialization.
@@ -1530,8 +1501,8 @@ def setup( working_dir=None, return_parser=False ):
 
    # config file version check
    config_server_version = blockstack_opts.get('server_version', None)
-   if config_server_version is None or not semver_match( config_server_version, VERSION ):
-       print >> sys.stderr, "Obsolete config file (%s).\nPlease move it out of the way, so Blockstack Server can generate a fresh one." % virtualchain.get_config_filename()
+   if config_server_version is None or not blockstack_client.config.semver_match( str(config_server_version), str(VERSION) ):
+       print >> sys.stderr, "Obsolete config file (%s): '%s' != '%s'\nPlease move it out of the way, so Blockstack Server can generate a fresh one." % (virtualchain.get_config_filename(), config_server_version, VERSION)
        return None
 
    log.debug("config:\n%s" % json.dumps(opts, sort_keys=True, indent=4))
@@ -2141,6 +2112,9 @@ def run_blockstackd():
    parser.add_argument(
       '--no-index', action='store_true',
       help='do not index the blockchain, but only run an RPC endpoint')
+   parser.add_argument(
+      '--expected-snapshots', action='store',
+      help='path to a .snapshots file with the expected consensus hashes')
 
    parser = subparsers.add_parser(
       'stop',
@@ -2230,6 +2204,26 @@ def run_blockstackd():
 
    if args.action == 'start':
 
+      # use snapshots?
+      expected_snapshots = {}
+      if args.expected_snapshots is not None:
+          snapshots_path = args.expected_snapshots
+          try:
+              with open(snapshots_path, "r") as f:
+                  snapshots_json = f.read()
+
+              snapshots_data = json.loads(snapshots_json)
+              assert 'snapshots' in snapshots_data.keys(), "Not a valid snapshots file"
+
+              # extract snapshots: map int to consensus hash
+              for (block_id_str, consensus_hash) in snapshots_data['snapshots'].items():
+                  expected_snapshots[ int(block_id_str) ] = str(consensus_hash)
+
+          except Exception, e:
+              log.exception(e)
+              log.error("Failed to read expected snapshots from '%s'" % snapshots_path)
+              sys.exit(1)
+
       if os.path.exists( get_pidfile_path() ):
           log.error("Blockstackd appears to be running already.  If not, please run '%s stop'" % (sys.argv[0]))
           sys.exit(1)
@@ -2242,7 +2236,7 @@ def run_blockstackd():
       if args.no_index:
          log.info("Not indexing the blockchain; only running an RPC endpoint")
 
-      exit_status = run_server( foreground=args.foreground, index=(not args.no_index) )
+      exit_status = run_server( foreground=args.foreground, index=(not args.no_index), expected_snapshots=expected_snapshots )
       if args.foreground:
          log.info("Service endpoint exited with status code %s" % exit_status )
 
