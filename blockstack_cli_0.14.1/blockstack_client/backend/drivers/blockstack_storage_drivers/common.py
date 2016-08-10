@@ -27,7 +27,7 @@
 import logging
 import os
 
-if os.environ.get("BLOCKSTACK_TEST", None) is not None:
+if os.environ.get("BLOCKSTACK_DEBUG", None) is not None:
     DEBUG = True
 else:
     DEBUG = False
