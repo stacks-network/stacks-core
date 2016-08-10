@@ -237,18 +237,18 @@ def make_wallet( password, hex_privkey=None, payment_privkey_info=None, owner_pr
     if 'error' in enc_data_info:
         return {'error': enc_data_info['error']}
 
+    payment_addr = enc_payment_info['encrypted_private_key_info']['address']
+    owner_addr = enc_owner_info['encrypted_private_key_info']['address']
+
     enc_payment_info = enc_payment_info['encrypted_private_key_info']['private_key_info']
     enc_owner_info = enc_owner_info['encrypted_private_key_info']['private_key_info']
     enc_data_info = enc_data_info['encrypted_private_key_info']['private_key_info']
 
-    assert 'address' in enc_payment_info, "Missing address in payment '%s'" % simplejson.dumps(enc_payment_info)
-    assert 'address' in enc_owner_info, "Missing address in owner '%s'" % simplejson.dumps(enc_owner_info)
-
     data['encrypted_payment_privkey'] = enc_payment_info
-    data['payment_addresses'] = [enc_payment_info['address']]
+    data['payment_addresses'] = [payment_addr]
 
     data['encrypted_owner_privkey'] = enc_owner_info
-    data['owner_addresses'] = [enc_owner_info['address']]
+    data['owner_addresses'] = [owner_addr]
 
     data['encrypted_data_privkey'] = enc_data_info
     data['data_pubkeys'] = [virtualchain.BitcoinPrivateKey(data_privkey_info).public_key().to_hex()]
@@ -589,10 +589,16 @@ def unlock_wallet( password=None, config_dir=CONFIG_DIR, wallet_path=None ):
                 shutil.move( wallet_path + ".tmp", wallet_path )
 
             # save!
-            res = save_keys_to_memory( [wallet['payment_addresses'][0], wallet['payment_privkey']],
-                                       [wallet['owner_addresses'][0], wallet['owner_privkey']],
-                                       [wallet['data_pubkeys'][0], wallet['data_privkey']],
-                                       config_dir=config_dir )
+            try:
+                res = save_keys_to_memory( [wallet['payment_addresses'][0], wallet['payment_privkey']],
+                                           [wallet['owner_addresses'][0], wallet['owner_privkey']],
+                                           [wallet['data_pubkeys'][0], wallet['data_privkey']],
+                                           config_dir=config_dir )
+
+            except KeyError, ke:
+                if os.environ.get("BLOCKSACK_DEBUG", None) == "1":
+                    log.error("data: %s\n" % simplejson.dumps(wallet, indent=4, sort_keys=True))
+                raise
 
             if 'error' in res:
                 return res
