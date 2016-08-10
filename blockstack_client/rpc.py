@@ -190,6 +190,11 @@ def local_rpc_factory( method_info, config_path ):
     return argwrapper
 
 
+# ping method
+def ping():
+    return True
+
+
 class BlockstackAPIEndpointHandler(SimpleXMLRPCRequestHandler):
     """
     Hander to capture tracebacks
@@ -246,6 +251,9 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
         Optionally skip the external API (with @server)
         """
       
+        # pinger 
+        self.register_function( ping, name="ping", server=server )
+
         # register the command-line methods (will all start with cli_)
         # methods will be named after their *action*
         for command_name, method_info in list_rpc_cli_method_info().items():
@@ -791,6 +799,22 @@ def local_rpc_ensure_running( config_dir=blockstack_config.CONFIG_DIR, password=
             return False
 
         else:
+
+            # ping it
+            for i in xrange(0, 3):
+                try:
+                    local_proxy = local_rpc_connect(config_dir=config_dir)
+                    local_proxy.ping()
+                    break
+
+                except (IOError, OSError), ie:
+                    if ie.errno == errno.ECONNREFUSED:
+                        log.debug("API server not responding; trying again in %s seconds" % (i+1))
+                        time.sleep(i+1)
+                        continue
+                    else:
+                        raise
+
             return True
 
     else:
