@@ -77,7 +77,7 @@ def make_outputs( data, inputs, change_address, tx_fee ):
          "value": 0},
         
         # change output
-        {"script_hex": virtualchain.make_payment_script(chainge_address),
+        {"script_hex": virtualchain.make_payment_script(change_address),
          "value": calculate_change_amount(inputs, op_fee, dust_fee)}
     ]
 
