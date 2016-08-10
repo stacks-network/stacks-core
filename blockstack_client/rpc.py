@@ -738,24 +738,29 @@ def local_rpc_status( config_dir=blockstack_config.CONFIG_DIR ):
     # see if it's running 
     pidpath = local_rpc_pidfile_path( config_dir=config_dir )
     if not os.path.exists(pidpath):
+        log.debug("No PID file %s" % pidpath)
         return False
 
     pid = local_rpc_read_pidfile( pidpath )
     if pid is None:
+        log.debug("Invalid PID file %s" % pidpath)
         return False
 
     try:
         os.kill( pid, 0 )
     except OSError, oe:
         if oe.errno == errno.ESRCH:
+            log.debug("Not running: %s (%s)" % (pid, pidpath))
             return False
 
         elif oe.errno == errno.EPERM:
+            log.debug("Not our RPC daemon: %s (%s)" % (pid, pidpath))
             return False
 
         else:
             raise
     
+    log.debug("RPC running (%s)" % pidpath)
     return True
 
 
