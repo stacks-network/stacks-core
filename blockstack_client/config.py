@@ -991,12 +991,12 @@ def semver_match( v1, v2):
     """
     v1_parts = v1.split(".")
     v2_parts = v2.split(".")
-    if len(v1_parts) < 4 or len(v2_parts) < 4:
+    if len(v1_parts) < 3 or len(v2_parts) < 3:
         # one isn't a semantic version 
         return False
 
-    v1_major, v1_minor, v1_patch, v1_features = v1_parts[0], v1_parts[1], v1_parts[2], v1_parts[3:]
-    v2_major, v2_minor, v2_patch, v2_features = v2_parts[0], v2_parts[1], v2_parts[2], v2_parts[3:]
+    v1_major, v1_minor, v1_patch = v1_parts[0], v1_parts[1], v1_parts[2]
+    v2_major, v2_minor, v2_patch = v2_parts[0], v2_parts[1], v2_parts[2]
     if v1_major != v2_major:
         return False
 
