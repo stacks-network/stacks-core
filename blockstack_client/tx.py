@@ -21,6 +21,8 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
+import os
+import sys
 import pybitcoin
 from .operations import *
 from .config import CONFIG_PATH, get_utxo_provider_client, get_tx_broadcaster, get_logger
@@ -134,9 +136,23 @@ def broadcast_tx( tx_hex, config_path=CONFIG_PATH, tx_broadcaster=None ):
     if tx_broadcaster is None:
         tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 
-    resp = broadcast_transaction( tx_hex, tx_broadcaster )
-    if 'tx_hash' not in resp:
+    if os.environ.get("BLOCKSTACK_TEST") == "1":
+        log.debug("Send %s" % tx_hex)
+
+    resp = {}
+    try:
+        resp = broadcast_transaction( tx_hex, tx_broadcaster )
+        if 'tx_hash' not in resp or 'error' in resp:
+            log.error("Failed to send %s" % tx_hex)
+            resp['error'] = 'Failed to broadcast transaction: %s' % tx_hex
+    except Exception, e:
+        log.exception(e)
         resp['error'] = 'Failed to broadcast transaction: %s' % tx_hex
+
+        if os.environ.get("BLOCKSTACK_TEST") == "1":
+            # should NEVER happen in test mode
+            log.error("FATAL: failed to send transaction:\n%s" % simplejson.dumps(resp, indent=4, sort_keys=True))
+            sys.exit(1)
 
     # for compatibility
     resp['transaction_hash'] = resp['tx_hash']
