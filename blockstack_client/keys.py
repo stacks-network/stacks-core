@@ -151,6 +151,7 @@ def decrypt_multisig_info( enc_multisig_info, password ):
             pk = None
             try:
                 pk = aes_decrypt( enc_pk, hex_password )
+                virtualchain.BitcoinPrivateKey(pk)
             except Exception, e:
                 if os.environ.get("BLOCKSTACK_TEST", None) == "1":
                     log.exception(e)
@@ -231,6 +232,7 @@ def decrypt_private_key_info( privkey_info, password ):
     elif type(privkey_info) in [str, unicode]:
         try:
             pk = aes_decrypt( privkey_info, hex_password )
+            virtualchain.BitcoinPrivateKey(pk)
         except:
             return {'error': 'Invalid password'}
 
