@@ -44,7 +44,8 @@ setup(
         'keychain>=0.1.4',
         'blockstack-client>=0.14.0',
         'defusedxml>=0.4.1',
-        'pycrypto>=2.6.1'
+        'pycrypto>=2.6.1',
+        'simplejson>=3.8.2'
     ],
     dependency_links=[
         'git://github.com/blockstack/blockstack-virtualchain.git@release-candidate#egg=virtualchain-0.0.9.0',
