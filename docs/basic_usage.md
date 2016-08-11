@@ -299,7 +299,11 @@ If you lose your Blockstack wallet or the device(s) that host it, you have the o
 
 ### Updating a Name's Zonefile
 
-If you want to change the name's zonefile for any reason, you can do so with `blockstack update`.  You must specify the new zonefile to do so.  For example:
+**OpenBazaar Users**:  If you are trying to add your OpenBazaar GUID to your Blockstack ID, please follow [these instructions](https://github.com/blockstack/blockstack-cli/blob/master/docs/openbazaar.md) instead.
+
+**CAUTION**: You almost never want to update your name's zonefile, since it's slow, tedious, and costs money.  It is meant primarily for recovering from zonefile loss, for changing where people find your profile, and for changing your data public key.  If you want to store data in your profile, please see the [data storage](https://github.com/blockstack/blockstack-cli/blob/master/docs/advanced_usage.md#data-storage) and [accounts](https://github.com/blockstack/blockstack-cli/blob/master/docs/advanced_usage.md#accounts) commands in the [advanced usage](https://github.com/blockstack/blockstack-cli/blob/master/docs/advanced_usage.md) section (but read the [warnings](https://github.com/blockstack/blockstack-cli/blob/master/docs/advanced_usage.md#a-word-of-warning) first).
+
+If you want to change the name's zonefile, you can do so with `blockstack update`.  You must specify the new zonefile to do so.  For example:
 
 ```
     $ blockstack update judecn.id '$ORIGIN judecn.id
@@ -317,3 +321,4 @@ The zonefile can be any valid DNS zonefile, but must follow these extra rules:
 * There must be at least one `URI` resource record.
 * If you want to set a new data keypair, you must do so via a `TXT` record named `pubkey`, and the text field must start with `pubkey:data:` (as per the example).  It must be an ECDSA public key.
 
+**WARNING**:  Each of the URLs must refer to the **signed JSON Web Token** (JWT) that encodes your profile data.  The JWT can be signed either with the private key that owns your name, or with a private key that matches the `pubkey:data:` TXT record.  If you do not do this, your profile **will not be readable** to the Blockstack CLI tool or to any public profile resolvers.
