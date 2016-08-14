@@ -127,6 +127,59 @@ def fetch_proofs(profile, username, profile_ver=2, refresh=False):
 
     return proofs
 
+def is_profile_in_legacy_format(profile):
+    """
+    Is a given profile JSON object in legacy format?
+    """
+    if isinstance(profile, dict):
+        pass
+    elif isinstance(profile, (str, unicode)):
+        try:
+            profile = json.loads(profile)
+        except ValueError:
+            return False
+    else:
+        return False
+
+    if "@type" in profile:
+        return False
+
+    if "@context" in profile:
+        return False
+
+    is_in_legacy_format = False
+
+    if "avatar" in profile:
+        is_in_legacy_format = True
+    elif "cover" in profile:
+        is_in_legacy_format = True
+    elif "bio" in profile:
+        is_in_legacy_format = True
+    elif "twitter" in profile:
+        is_in_legacy_format = True
+    elif "facebook" in profile:
+        is_in_legacy_format = True
+
+    return is_in_legacy_format
+
+
+def resolve_zone_file_to_profile(zone_file, address_or_public_key):
+    if is_profile_in_legacy_format(zone_file):
+        return zone_file
+
+    try:
+        token_file_url = get_token_file_url_from_zone_file(zone_file)
+
+        r = requests.get(token_file_url)
+
+        profile_token_records = json.loads(r.text)
+
+        profile = get_profile_from_tokens(profile_token_records, address_or_public_key)
+    except Exception as e:
+        return None, str(e)
+
+    return profile, None
+
 
 def format_profile(profile, username, address, refresh=False):
     """ Process profile data and
