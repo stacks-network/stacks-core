@@ -12,6 +12,7 @@ import json
 import collections
 import pylibmc
 import logging
+import xmlrpclib
 
 from flask import Flask, make_response, jsonify, abort, request
 from time import time
@@ -19,7 +20,9 @@ from basicrpc import Proxy
 
 from blockstack_proofs import profile_to_proofs, profile_v3_to_proofs
 from blockstack_profiles import resolve_zone_file_to_profile
-from blockstack_profiles import is_profile_in_legacy_format
+from blockstack_profiles import get_token_file_url_from_zone_file
+from blockstack_profiles import get_profile_from_tokens
+#from blockstack_profiles import is_profile_in_legacy_format
 
 from .crossdomain import crossdomain
 
@@ -95,44 +98,85 @@ def fetch_from_dht(profile_hash):
     return dht_resp['value']
 
 
-def format_profile(profile, username, address):
+def fetch_proofs(profile, username, profile_ver=2, refresh=False):
+    """ Get proofs for a profile and:
+        a) check cached entries
+        b) check which version of profile we're using
+    """
+
+    if MEMCACHED_ENABLED and not refresh:
+        log.debug("Memcache get proofs: %s" % username)
+        proofs_cache_reply = mc.get("proofs_" + str(username))
+    else:
+        proofs_cache_reply = None
+
+    if proofs_cache_reply is None:
+
+        if profile_ver == 3:
+            proofs = profile_v3_to_proofs(profile, username)
+        else:
+            proofs = profile_to_proofs(profile, username)
+
+        if MEMCACHED_ENABLED or refresh:
+            log.debug("Memcache set proofs: %s" % username)
+            mc.set("proofs_" + str(username), json.dumps(proofs),
+                   int(time() + MEMCACHED_TIMEOUT))
+    else:
+
+        proofs = json.loads(proofs_cache_reply)
+
+    return proofs
+
+
+def format_profile(profile, username, address, refresh=False):
     """ Process profile data and
         1) Insert verifications
         2) Check if profile data is valid JSON
     """
 
     data = {}
-
-    # save the original profile, in case it's a zone file
     zone_file = profile
 
     if 'error' in profile:
         data['profile'] = {}
         data['error'] = profile['error']
         data['verifications'] = []
+        data['zone_file'] = zone_file
 
         return data
 
     try:
-        profile = resolve_zone_file_to_profile(profile, address)
+        profile, error = resolve_zone_file_to_profile(profile, address)
     except:
         if 'message' in profile:
             data['profile'] = json.loads(profile)
             data['verifications'] = []
+            data['zone_file'] = zone_file
             return data
 
     if profile is None:
         data['profile'] = {}
-        data['error'] = "Malformed profile data."
+
+        if error is not None:
+            data['error'] = error
+        else:
+            data['error'] = "Malformed profile data."
         data['verifications'] = []
+
     else:
-        if not is_profile_in_legacy_format(profile):
-            data['zone_file'] = zone_file
+
+        profile_in_legacy_format = is_profile_in_legacy_format(profile)
+
+        if not profile_in_legacy_format:
             data['profile'] = profile
-            data['verifications'] = profile_v3_to_proofs(data['profile'], username)
+            data['verifications'] = fetch_proofs(data['profile'], username,
+                                                 profile_ver=3, refresh=refresh)
         else:
             data['profile'] = json.loads(profile)
-            data['verifications'] = profile_to_proofs(data['profile'], username)
+            data['verifications'] = fetch_proofs(data['profile'], username,
+                                                 refresh=refresh)
+
+    data['zone_file'] = zone_file
 
     return data
 
@@ -149,13 +193,13 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
     username = username.lower()
 
     if MEMCACHED_ENABLED and not refresh:
-        log.debug("Memcache get: %s" % username)
-        cache_reply = mc.get("profile_" + str(username))
+        log.debug("Memcache get DHT: %s" % username)
+        dht_cache_reply = mc.get("dht_" + str(username))
     else:
         log.debug("Memcache disabled: %s" % username)
-        cache_reply = None
+        dht_cache_reply = None
 
-    if cache_reply is None:
+    if dht_cache_reply is None:
 
         try:
             bs_client = Proxy(BLOCKSTACKD_IP, BLOCKSTACKD_PORT)
@@ -164,24 +208,27 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
         except:
             abort(500, "Connection to blockstack-server %s:%s timed out" % (BLOCKSTACKD_IP, BLOCKSTACKD_PORT))
 
-        if bs_resp is None:
+        if bs_resp is None or 'error' in bs_resp:
             abort(404)
 
         if 'value_hash' in bs_resp:
             profile_hash = bs_resp['value_hash']
-            profile = fetch_from_dht(profile_hash)
+            dht_response = fetch_from_dht(profile_hash)
 
-            data = format_profile(profile, username, bs_resp['address'])
-            data['owner_address'] = bs_resp['address']
+            dht_data = {}
+            dht_data['dht_response'] = dht_response
+            dht_data['owner_address'] = bs_resp['address']
 
             if MEMCACHED_ENABLED or refresh:
-                log.debug("Memcache set: %s" % username)
-                mc.set("profile_" + str(username), json.dumps(data),
-                        int(time() + MEMCACHED_TIMEOUT))
+                log.debug("Memcache set DHT: %s" % username)
+                mc.set("dht_" + str(username), json.dumps(dht_data),
+                       int(time() + MEMCACHED_TIMEOUT))
         else:
-            data = {"error": "Not found"}
+            dht_data = {"error": "Not found"}
     else:
-        data = json.loads(cache_reply)
+        dht_data = json.loads(dht_cache_reply)
+
+    data = format_profile(dht_data['dht_response'], username, dht_data['owner_address'])
 
     return data
 
