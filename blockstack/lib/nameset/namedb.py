@@ -430,7 +430,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
    def get_name_at( self, name, block_number ):
       """
-      Generate and return the sequence of of states a name record was in
+      Generate and return the sequence of states a name record was in
       at a particular block number.
       """
 
@@ -516,7 +516,7 @@ class BlockstackDB( virtualchain.StateEngine ):
       Given a block number, get the set of sequences name operations
       created or altered at that block number.
 
-      Return the list of names, in the order their transactions occurred.
+      Return the list of name ops, in the order their transactions occurred.
       """
 
       ret = []
@@ -596,8 +596,8 @@ class BlockstackDB( virtualchain.StateEngine ):
          names = sorted(self.name_records.keys())[offset:min(offset+count, len(self.name_records.keys()))]
          names.sort()
 
-      #return dict( zip( names, [self.name_records[name] for name in names] ) )
       return names
+
 
    def get_names_in_namespace( self, namespace_id, offset=None, count=None ):
       """
@@ -635,10 +635,7 @@ class BlockstackDB( virtualchain.StateEngine ):
       data = {}
       data['results'] = namespace_names
 
-      # old format that returned data on individual records as well
-      #return dict( zip( namespace_names, [self.name_records[name] for name in namespace_names] ) )
       return data
-
 
 
    def get_namespace( self, namespace_id ):
@@ -853,6 +850,22 @@ class BlockstackDB( virtualchain.StateEngine ):
                ret.append(info)
 
        return ret
+
+
+   def get_value_hashes_at( self, block_id ):
+      """
+      Get the blockchain-ordered sequence of value hashes
+      added at the given block height.  The order will be
+      in tx-order
+      """
+      nameops = self.get_all_nameops_at( block_id )
+      ret = []
+      for nameop in nameops:
+          if nameop.has_key('op') and op in [NAME_UPDATE, NAME_IMPORT]:
+              assert nameop.has_key('value_hash')
+              ret.append( nameop['value_hash'] )
+
+      return ret
 
 
    def get_name_value_hash_txid( self, name, value_hash ):
