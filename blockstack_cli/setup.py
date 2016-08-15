@@ -30,7 +30,8 @@ setup(
         'defusedxml>=0.4.1',
         'keylib>=0.0.5',
         'mixpanel>=4.3.1',
-        'pycrypto>=2.6.1'
+        'pycrypto>=2.6.1',
+        'simplejson>=3.8.2'
     ],
     classifiers=[
         'Intended Audience :: Developers',
