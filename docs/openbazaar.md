@@ -18,7 +18,7 @@ The second step is to create an OpenBazaar account for your profile (the [Onenam
     $ blockstack put_account "<BLOCKSTACK ID>" "openbazaar" "<YOUR OB GUID>" "<URL TO YOUR STORE>"
 ```
 
-Here's an example, using the name `testregistration001.id` and the GUID `0123456789abcdef`:
+The URL can be any valid URL; it won't be used by OpenBazaar.  Here's an example, using the name `testregistration001.id` and the GUID `0123456789abcdef`:
 
 ```
     $ blockstack put_account "testregistration001.id" "openbazaar" "0123456789abcdef" "https://bazaarbay.org/@testregistration001"
