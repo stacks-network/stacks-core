@@ -26,9 +26,15 @@ import sys
 import copy
 from ConfigParser import SafeConfigParser
 import pybitcoin
-import blockstack_utxo
-from blockstack_utxo import *
-from ..version import __version__
+
+try:
+    from ..version import __version__
+except:
+    if os.environ.get("BLOCKSTACK_TEST") != "1":
+        print "Try setting BLOCKSTACK_TEST=1"
+        raise
+    else:
+        __version__ = "0.14.0"
 
 import blockstack_client
 from blockstack_client.config import LENGTHS, DEFAULT_OP_RETURN_FEE, DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_VALUE, DEFAULT_FEE_PER_KB 
