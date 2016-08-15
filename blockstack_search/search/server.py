@@ -4,8 +4,8 @@
     Search
     ~~~~~
 
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-2016 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
 
 This file is part of Search.
 
@@ -228,7 +228,7 @@ def search_proofs_index(query):
 
 @app.route('/')
 def index():
-    return 'Welcome to this search server for blockchain IDs. \
+    return 'Welcome to this blockstack-search node. \
             See <a href="https://github.com/blockstack/search">this repo</a> for details.'
 
 
