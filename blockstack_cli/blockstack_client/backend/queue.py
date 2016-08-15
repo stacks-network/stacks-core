@@ -432,9 +432,7 @@ def cleanup_update_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
         
         # clear stale update
         if is_update_expired(entry, config_path=config_path):
-            log.debug("Removing tx with > max confirmations: (%s, confirmations %s)"
-                      % (fqu, confirmations))
-
+            log.debug("Removing stale update: %s" % entry['fqu'])
             to_remove.append(entry)
             continue
 
