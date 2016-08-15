@@ -100,61 +100,6 @@ def get_zonefile_from_storage( zonefile_hash, drivers=None ):
     return user_zonefile
 
 
-def get_zonefile_from_peers( zonefile_hash, peers ):
-    """
-    Get a zonefile from a peer Blockstack node.
-    Ask each peer (as a list of (host, port) tuples)
-    for the zonefile via RPC
-    Return a zonefile that matches the given hash on success.
-    Return None if no zonefile could be obtained.
-    Calculate the on-disk path to storing a zonefile's information, given the zonefile hash
-    """
- 
-    for (host, port) in peers:
-
-        rpc = blockstack_client.BlockstackRPCClient( host, port )
-        zonefile_data = rpc.get_zonefiles( [zonefile_hash] )
-
-        if type(zonefile_data) != dict:
-            # next peer
-            log.debug("Peer %s:%s did not reutrn valid data" % (host, port))
-            zonefile_data = None
-            continue
-
-        if 'error' in zonefile_data:
-            # next peer 
-            log.debug("Peer %s:%s: %s" % (host, port, zonefile_data['error']) )
-            zonefile_data = None
-            continue
-
-        if not zonefile_data['zonefiles'].has_key(zonefile_hash):
-            # nope
-            log.debug("Peer %s:%s did not return %s" % zonefile_hash)
-            zonefile_data = None
-            continue
-
-        # extract zonefile
-        zonefile_data = zonefile_data['zonefiles'][zonefile_hash]
-
-        if type(zonefile_data) != dict:
-            # not a dict 
-            log.debug("Peer %s:%s did not return a zonefile for %s" % (host, port, zonefile_hash))
-            zonefile_data = None
-            continue
-
-        # verify zonefile
-        h = hash_zonefile( zonefile_data )
-        if h != zonefile_hash:
-            log.error("Zonefile hash mismatch: expected %s, got %s" % (zonefile_hash, h))
-            zonefile_data = None
-            continue
-
-        # success!
-        break
-
-    return zonefile_data
-
-
 def cached_zonefile_dir( zonefile_dir, zonefile_hash ):
     """
     Calculate the on-disk path to storing a zonefile's information, given the zonefile hash
@@ -167,6 +112,30 @@ def cached_zonefile_dir( zonefile_dir, zonefile_hash ):
 
     zonefile_dir_path = os.path.join(zonefile_dir, "/".join(zonefile_dir_parts))
     return zonefile_dir_path
+
+
+def is_zonefile_cached( zonefile_hash, zonefile_dir=None, validate=False):
+    """
+    Do we have the cached zonefile?
+    if @validate is true, then check that the data in zonefile_dir_path/zonefile.txt matches zonefile_hash
+    Return True if so
+    Return False if not
+    """
+    if zonefile_dir is None:
+        zonefile_dir = get_zonefile_dir()
+    
+    zonefile_path_dir = cached_zonefile_dir( zonefile_dir, zonefile_hash )
+    zonefile_path = os.path.join(zonefile_path_dir, "zonefile.txt")
+
+    if not os.path.exists(zonefile_path):
+        return False
+
+    if validate:
+        zf = get_cached_zonefile( zonefile_hash, zonefile_dir=zonefile_dir )
+        if zf is None:
+            return False
+
+    return True
 
 
 def store_cached_zonefile( zonefile_dict, zonefile_dir=None ):
@@ -238,13 +207,20 @@ def get_zonefile_txid( zonefile_dict ):
     return txid
 
 
-def store_zonefile_to_storage( zonefile_dict, required=[] ):
+def store_zonefile_to_storage( zonefile_dict, required=[], cache=False, zonefile_dir=None ):
     """
     Upload a zonefile to our storage providers.
     Return True if at least one provider got it.
     Return False otherwise.
     """
+
     zonefile_hash = hash_zonefile( zonefile_dict )
+    
+    if cache:
+        rc = store_cached_zonefile( zonefile_dict, zonefile_dir=zonefile_dir )
+        if not rc:
+            log.debug("Failed to cache zonefile %s" % zonefile_hash)
+
     name = zonefile_dict['$origin']
     zonefile_text = blockstack_zones.make_zone_file( zonefile_dict )
    
@@ -302,22 +278,4 @@ def remove_zonefile_from_storage( zonefile_dict, wallet_keys=None ):
         return False
 
     return True
-
-
-def clean_cached_zonefile_dir( zonefile_dir=None ):
-    """
-    Clean out stale entries in the zonefile directory.
-    """
-    if zonefile_dir is None:
-        zonefile_dir = get_zonefile_dir()
-
-    db = get_db_state()
-    hashes = os.listdir( zonefile_dir )
-    for h in hashes:
-        if h in ['.', '..']:
-            continue 
-
-        remove_zonefile( h, zonefile_dir=zonefile_dir )
-
-    return
 
