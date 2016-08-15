@@ -64,6 +64,7 @@ from lib import get_db_state, invalidate_db_state
 from lib.config import REINDEX_FREQUENCY, DEFAULT_DUST_FEE 
 from lib import *
 from lib.storage import *
+from .atlas import *
 
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
@@ -748,7 +749,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
     def rpc_get_zonefiles( self, zonefile_hashes ):
         """
-        Get a users zonefiles from the local cache,
+        Get zonefiles from the local cache,
         or (on miss), from upstream storage.
         Only return at most 100 zonefiles.
         Return {'status': True, 'zonefiles': {zonefile_hash: zonefile}} on success
@@ -784,7 +785,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             else:
                 ret[zonefile_hash] = serialize_zonefile( zonefile )
 
-        self.analytics("get_zonefiles", {'count': len(zonefile_hashes)})
+        # self.analytics("get_zonefiles", {'count': len(zonefile_hashes)})
         return {'status': True, 'zonefiles': ret}
 
 
@@ -849,6 +850,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if len(zonefile_datas) > 100:
             return {'error': 'Too many zonefiles'}
 
+        zonefile_dir = conf.get("zonefiles", None)
         saved = []
         db = get_state_engine()
         zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
@@ -881,13 +883,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
                 continue
 
             # it's a valid zonefile.  cache and store it.
-            rc = store_cached_zonefile( zonefile )
-            if not rc:
-                log.debug("Failed to store zonefile %s" % zonefile_hash)
-                saved.append(0)
-                continue
-
-            rc = store_zonefile_to_storage( zonefile, required=zonefile_storage_drivers )
+            rc = store_zonefile_to_storage( zonefile, required=zonefile_storage_drivers, cache=True, zonefile_dir=zonefile_dir )
             if not rc:
                 log.debug("Failed to replicate zonefile %s to external storage" % zonefile_hash)
                 saved.append(0)
@@ -1075,6 +1071,46 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         else:
             log.debug("Stored profile for '%s'" % name)
             return {'status': True, 'num_replicas': successes, 'num_failures': len(blockstack_client.get_storage_handlers()) - successes}
+
+
+    def rpc_get_atlas_peers( self ):
+        """
+        Get the list of peer atlas nodes.
+        Return at most 100 peers
+        Return {'status': True, 'peers': ...} on success
+        Return {'error': ...} on failure
+        """
+        conf = get_blockstack_opts()
+        if not conf['atlas']:
+            return {'error': 'Not an atlas node'}
+
+        peer_list = atlast_get_rarest_live_peers()
+        if len(peer_list) > 100:
+            peer_list = random.shuffle(peer_list)[:100]
+
+        return {'status': True, 'peers': peer_list}
+
+    
+    def rpc_get_zonefile_inventory( self, start_block, end_block ):
+        """
+        Get an inventory bit vector for the zonefiles in the 
+        given block range (the range must be at most 100 blocks)
+        Return {'status': True, 'inv': ...} on success, where 'inv' is a b64-encoded bit vector string
+        Return {'error': ...} on error.
+        """
+        conf = get_blockstack_opts()
+        if not conf['atlas']:
+            return {'error': 'Not an atlas node'}
+
+        if end_block - start_block > 100:
+            return {'error': 'Invalid range'}
+
+        if start_block < FIRST_BLOCK_MAINNET:
+            return {'error': 'Invalid start range'}
+
+        zonefile_dir = conf.get("zonefiles", None)
+        zonefile_inv = atlas_make_zonefile_inventory( start_block, end_block, zonefile_dir=zonefile_dir )
+        return {'status': True, 'inv': base64.b64encode(zonefile_inv) }
 
     
     def rpc_get_unspents(self, address):
