@@ -4,8 +4,8 @@
     Search
     ~~~~~
 
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-2016 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
 
 This file is part of Search.
 
@@ -39,8 +39,9 @@ twitter_cache = search_cache.twitter_cache
 username_cache = search_cache.username_cache
 proofs_cache = search_cache.proofs_cache
 
-# these are used by payment_search
-twitter_payment = search_db.twitter_payment
-facebook_payment = search_db.facebook_payment
-github_payment = search_db.github_payment
-domain_payment = search_db.domain_payment
+# these are used by attribute_search
+twitter_index = search_db.twitter_index
+facebook_index = search_db.facebook_index
+github_index = search_db.github_index
+domain_index = search_db.domain_index
+payment_index = search_db.payment_index

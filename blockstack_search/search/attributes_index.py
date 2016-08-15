@@ -4,8 +4,8 @@
     Search
     ~~~~~
 
-    copyright: (c) 2014 by Halfmoon Labs, Inc.
-    copyright: (c) 2015 by Blockstack.org
+    copyright: (c) 2014-2016 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
 
 This file is part of Search.
 
@@ -35,8 +35,9 @@ from pybitcoin import is_b58check_address
 
 from .db import search_db
 from .db import namespace
-from .db import twitter_payment, facebook_payment
-from .db import github_payment, domain_payment
+from .db import twitter_index, facebook_index
+from .db import github_index, domain_index
+from .db import btc_address_index
 from .db import proofs_cache
 
 from .config import SUPPORTED_PROOFS
@@ -44,18 +45,18 @@ from .config import SUPPORTED_PROOFS
 
 def flush_collection():
 
-    search_db.drop_collection('twitter_payment')
-    search_db.drop_collection('facebook_payment')
-    search_db.drop_collection('github_payment')
-    search_db.drop_collection('domain_payment')
+    search_db.drop_collection('twitter_index')
+    search_db.drop_collection('facebook_index')
+    search_db.drop_collection('github_index')
+    search_db.drop_collection('domain_index')
 
 
 def optimize_db():
 
-    twitter_payment.ensure_index('twitter_handle')
-    facebook_payment.ensure_index('facebook_username')
-    github_payment.ensure_index('github_username')
-    domain_payment.ensure_index('domain_url')
+    twitter_index.ensure_index('twitter_handle')
+    facebook_index.ensure_index('facebook_username')
+    github_index.ensure_index('github_username')
+    domain_index.ensure_index('domain_url')
     proofs_cache.ensure_index('username')
 
 
@@ -104,19 +105,13 @@ def get_proofs(username, profile):
     return proofs
 
 
-def create_twitter_proofs_index():
+def create_twitter_index():
 
     counter = 0
 
     for entry in namespace.find(no_cursor_timeout=True):
 
         profile = json.loads(entry['profile'])
-
-        btc_address = get_btc_address(profile)
-
-        # if no valid btc address, ignore
-        if btc_address is None:
-            continue
 
         if 'twitter' in profile:
 
@@ -139,7 +134,7 @@ def create_twitter_proofs_index():
                         new_entry['twitter_handle'] = proof['identifier'].lower()
                         new_entry['profile'] = profile
 
-                        check_entry = twitter_payment.find_one({"username": entry['username']})
+                        check_entry = twitter_index.find_one({"username": entry['username']})
 
                         if check_entry is not None:
                             print "already in index"
@@ -151,19 +146,13 @@ def create_twitter_proofs_index():
                             print counter
 
 
-def create_facebook_proofs_index():
+def create_facebook__index():
 
     counter = 0
 
     for entry in namespace.find(no_cursor_timeout=True):
 
         profile = json.loads(entry['profile'])
-
-        btc_address = get_btc_address(profile)
-
-        # if no valid btc address, ignore
-        if btc_address is None:
-            continue
 
         if 'facebook' in profile:
 
@@ -362,7 +351,7 @@ def search_proofs(query):
     elif query_type == 'domain':
 
         check_entry = domain_payment.find({"domain_url": query_keyword})
-        return format_results(check_entry)       
+        return format_results(check_entry)
 
 if __name__ == "__main__":
 
