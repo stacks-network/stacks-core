@@ -901,7 +901,7 @@ def read_config_file(path=CONFIG_PATH):
                 # literal
                 ret[sec][opt] = parser.get(sec, opt)
 
-    if not ret['blockstack-client'].has_key('advanced_mode'):
+    if ret.has_key('blockstack-client') and not ret['blockstack-client'].has_key('advanced_mode'):
         ret['blockstack-client']['advanced_mode'] = False
 
     ret['path'] = path
@@ -995,15 +995,12 @@ def semver_match( v1, v2):
         # one isn't a semantic version 
         return False
 
-    v1_major, v1_minor, v1_patch = v1_parts[0], v1_parts[1], v1_parts[2]
-    v2_major, v2_minor, v2_patch = v2_parts[0], v2_parts[1], v2_parts[2]
+    v1_major, v1_minor, v1_patch = v1_parts[0].strip(), v1_parts[1].strip(), v1_parts[2].strip()
+    v2_major, v2_minor, v2_patch = v2_parts[0].strip(), v2_parts[1].strip(), v2_parts[2].strip()
     if v1_major != v2_major:
         return False
 
     if v1_minor != v2_minor:
-        return False
-
-    if v1_patch != v2_patch:
         return False
 
     return True
