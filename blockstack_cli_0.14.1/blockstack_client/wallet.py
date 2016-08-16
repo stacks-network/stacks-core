@@ -481,7 +481,7 @@ def initialize_wallet( password="", interactive=True, hex_privkey=None, config_d
                     break
 
         if hex_privkey is None:
-            temp_wallet = HDWallet(config_path=config_path)
+            temp_wallet = HDWallet()
             hex_privkey = temp_wallet.get_master_privkey()
 
         wallet = make_wallet( password, hex_privkey=hex_privkey, config_path=config_path, owner_privkey_info=owner_privkey_info, payment_privkey_info=payment_privkey_info, data_privkey_info=data_privkey_info )
@@ -577,7 +577,7 @@ def unlock_wallet( password=None, config_dir=CONFIG_DIR, wallet_path=None ):
             if onfile_data_pubkey is None:
 
                 # make a data keypair 
-                w = HDWallet(wallet['hex_privkey'], config_path=config_path)
+                w = HDWallet(wallet['hex_privkey'])
                 child = wallet.get_child_keypairs(count=3, include_privkey=True)
                 data_keypair = child[2]
 
