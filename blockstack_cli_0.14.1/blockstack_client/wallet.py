@@ -460,7 +460,7 @@ def unlock_wallet(display_enabled=False, password=None, config_dir=CONFIG_DIR, w
 
                 # make a data keypair 
                 w = HDWallet(wallet['hex_privkey'])
-                child = wallet.get_child_keypairs(count=3, include_privkey=True)
+                child = w.get_child_keypairs(count=3, include_privkey=True)
                 data_keypair = child[2]
 
                 wallet['data_privkey'] = data_keypair[1]
