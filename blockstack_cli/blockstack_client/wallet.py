@@ -451,6 +451,10 @@ def unlock_wallet(display_enabled=False, password=None, config_dir=CONFIG_DIR, w
                 data = json.loads(data)
 
             wallet = decrypt_wallet( data, password, config_path=config_path )
+            if 'error' in wallet.keys():
+                log.error("Incorrect password")
+                return {'error': 'Incorrect password'}
+
             if display_enabled:
                 display_wallet_info( wallet['payment_addresses'][0], wallet['owner_addresses'][0], wallet['data_pubkeys'][0], config_path=config_path )
 
