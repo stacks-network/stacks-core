@@ -18,6 +18,7 @@ from ..config import DEFAULT_QUEUE_PATH, QUEUE_LENGTH_TO_MONITOR, PREORDER_MAX_C
 from ..proxy import get_default_proxy
 
 from ..storage import hash_zonefile
+from ..profile import get_name_zonefile
 from ..proxy import is_name_registered, is_name_owner, has_zonefile_hash
 from .blockchain import get_block_height, get_tx_confirmations, is_tx_rejected, is_tx_accepted
 
@@ -421,20 +422,44 @@ def cleanup_register_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
 def cleanup_update_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
     """
     Clear out the update queue.
-    Remove rows that refer to registered names, or to stale updates.
+    Remove rows that refer to updates whose zonefiles have already been
+    replicated.
     Return True on success
     Raise on error.
+
+    TODO: add integration test to ensure our failsafe works
     """
+    
     rows = queuedb_findall("update", path=path)
     to_remove = []
     for rowdata in rows:
         entry = extract_entry(rowdata)
-        
-        # clear stale update
-        if is_update_expired(entry, config_path=config_path):
-            log.debug("Removing stale update: %s" % entry['fqu'])
-            to_remove.append(entry)
+     
+        if not is_update_expired(entry, config_path=config_path):
+            # not expired yet
             continue
+
+        # don't dequeue until we're sure the zonefile has replicated
+        zf = get_name_zonefile( entry['fqu'] )
+        if zf is None or 'error' in zf:
+            if 'error' in zf:
+                log.debug("Failed to query zonefile for %s: %s" % (entry['fqu'], zf['error']))
+                continue
+            else:
+                log.debug("Failed to query zonefile for %s: no data" % (entry['fqu']))
+                continue
+
+        if not entry.has_key('zonefile'):
+            log.debug("Database entry for %s is missing a zonefile.  Please contact the developers." % entry['fqu'])
+            continue
+
+        if zf != entry['zonefile']:
+            log.debug("Remote zonefile does not match the new zonefile for %s" % entry['fqu'])
+            continue
+
+        # looks like it's been stored
+        log.debug("Removing stale replicated update: %s" % entry['fqu'])
+        to_remove.append(entry)
 
     queue_removeall( to_remove, path=path )
     return True
@@ -443,7 +468,7 @@ def cleanup_update_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
 def cleanup_transfer_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
     """
     Clear out the transfer queue.
-    Remove rows that refer to registered names, or to stale transfers.
+    Remove rows that refer to transfers whose transactions have already expired.
     Return True on success
     Raise on error.
     """
