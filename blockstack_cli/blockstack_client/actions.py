@@ -1464,11 +1464,8 @@ def cli_advanced_wallet( args, config_path=CONFIG_PATH, password=None ):
     if 'error' in res:
         return res
 
-    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-    if not os.path.exists(wallet_path):
-        result = initialize_wallet(wallet_path=wallet_path)
-    else:
-        result = unlock_wallet(display_enabled=True, config_dir=config_dir, password=password)
+    wallet_keys = get_wallet_keys( config_path, password )
+    display_wallet_info(wallet_keys.get('payment_address'), wallet_keys.get('owner_address'), wallet_keys.get('data_pubkey'), config_path=CONFIG_PATH )
 
     return result
 
