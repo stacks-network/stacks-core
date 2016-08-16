@@ -39,7 +39,7 @@ def get_bitcoind_client(config_path=CONFIG_PATH):
     Connect to bitcoind
     """
     bitcoind_opts = virtualchain.get_bitcoind_config(config_file=config_path)
-    if bitcoind_opts['bitcoind_mock']:
+    if bitcoind_opts.has_key('bitcoind_mock') and bitcoind_opts['bitcoind_mock']:
         # testing 
         log.debug("Connect to mock bitcoind (%s)" % config_path)
        
