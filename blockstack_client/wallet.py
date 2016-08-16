@@ -467,8 +467,31 @@ def unlock_wallet(display_enabled=False, password=None, config_dir=CONFIG_DIR, w
                 wallet['data_pubkeys'] = [ECPrivateKey(data_keypair[1]).public_key().to_hex()]
                 wallet['data_pubkey'] = wallet['data_pubkeys'][0]
 
-                write_wallet( wallet, path=wallet_path + ".tmp" )
+                # set addresses 
+                wallet['payment_addresses'] = [pybitcoin.BitcoinPrivateKey(wallet['payment_privkey']).public_key().address()]
+                wallet['owner_addresses'] = [pybitcoin.BitcoinPrivateKey(wallet['owner_privkey']).public_key().address()]
+
+                # save!
+                encrypted_wallet = make_wallet( password, hex_privkey=wallet['hex_privkey'],
+                                                          payment_privkey=wallet['payment_privkey'], 
+                                                          owner_privkey=wallet['owner_privkey'],
+                                                          data_privkey=wallet['data_privkey'],
+                                                          config_path=config_path )
+
+                write_wallet( encrypted_wallet, path=wallet_path + ".tmp" )
+                legacy_path = wallet_path + ".legacy"
+                if os.path.exists(wallet_path):
+                    if not os.path.exists( legacy_path ):
+                        shutil.move( wallet_path, legacy_path )
+                    else:
+                        i = 1
+                        while os.path.exists(legacy_path):
+                            legacy_path = wallet_path + ".legacy.%s" % i
+
+                        shutil.move( wallet_path, legacy_path )
+
                 shutil.move( wallet_path + ".tmp", wallet_path )
+                log.debug("Migrated wallet %s (legacy wallet backed up to %s)" % (wallet_path, legacy_path))
 
             # save!
             res = save_keys_to_memory( [wallet['payment_addresses'][0], wallet['payment_privkey']],
@@ -556,7 +579,10 @@ def display_wallet_info(payment_address, owner_address, data_public_key, config_
     if data_public_key is not None:
         print "Data public key:\t%s" % data_public_key
 
-    balance = get_balance( payment_address, config_path=config_path )
+    balance = None
+    if payment_address is not None:
+        balance = get_balance( payment_address, config_path=config_path )
+
     if balance is None:
         print "Failed to look up balance"
 
@@ -567,8 +593,11 @@ def display_wallet_info(payment_address, owner_address, data_public_key, config_
         print "%s: %s" % (payment_address, balance)
         print '-' * 60
 
-    names_owned = get_names_owned(owner_address)
-    if 'error' in names_owned:
+    names_owned = None
+    if owner_address is not None:
+        names_owned = get_names_owned(owner_address)
+        
+    if names_owned is None or 'error' in names_owned:
         print "Failed to look up names owned"
 
     else:
@@ -612,6 +641,7 @@ def save_keys_to_memory(payment_keypair, owner_keypair, data_keypair, config_dir
 def get_addresses_from_file(config_dir=CONFIG_DIR, wallet_path=None):
     """
     Load up the set of addresses from the wallet
+    Not all fields may be set in older wallets.
     """
     if wallet_path is None:
         wallet_path = os.path.join(config_dir, WALLET_FILENAME)
@@ -622,8 +652,14 @@ def get_addresses_from_file(config_dir=CONFIG_DIR, wallet_path=None):
     file.close()
     
     data_pubkey = None
-    payment_address = data['payment_addresses'][0]
-    owner_address = data['owner_addresses'][0]
+    payment_address = None
+    owner_address = None
+
+    # extract addresses 
+    if data.has_key('payment_addresses'):
+        payment_address = data['payment_addresses'][0]
+    if data.has_key('owner_addresses'):
+        owner_address = data['owner_addresses'][0]
     if data.has_key('data_pubkeys'):
         data_pubkey = data['data_pubkeys'][0]
 
@@ -643,8 +679,12 @@ def get_payment_addresses_and_balances(config_path=CONFIG_PATH, wallet_path=None
     # currently only using one
     payment_address, owner_address, data_pubkey = get_addresses_from_file(wallet_path=wallet_path)
 
-    payment_addresses.append({'address': payment_address,
-                              'balance': get_balance(payment_address, config_path=config_path)})
+    if payment_address is not None:
+        payment_addresses.append({'address': payment_address,
+                                  'balance': get_balance(payment_address, config_path=config_path)})
+
+    else:
+        payment_addresses.append({'error': 'Legacy wallet; payment address is not visible'})
 
     return payment_addresses
 
@@ -658,8 +698,11 @@ def get_owner_addresses_and_names(wallet_path=WALLET_PATH):
     # currently only using one
     payment_address, owner_address, data_pubkey = get_addresses_from_file(wallet_path=wallet_path)
 
-    owner_addresses.append({'address': owner_address,
-                            'names_owned': get_names_owned(owner_address)})
+    if owner_address is not None:
+        owner_addresses.append({'address': owner_address,
+                                'names_owned': get_names_owned(owner_address)})
+    else:
+        owner_addresses.append({'error': 'Legacy wallet; owner address is not visible'})
 
     return owner_addresses
 
@@ -670,9 +713,14 @@ def get_all_names_owned(wallet_path=WALLET_PATH):
     names_owned = []
 
     for entry in owner_addresses:
-        additional_names = get_names_owned(entry['address'])
-        for name in additional_names:
-            names_owned.append(name)
+        if 'address' in entry.keys():
+            additional_names = get_names_owned(entry['address'])
+            for name in additional_names:
+                names_owned.append(name)
+
+        elif 'error' in entry.keys():
+            # failed to get owner address
+            return [entry]
 
     return names_owned
 
@@ -683,7 +731,8 @@ def get_total_balance(config_path=CONFIG_PATH, wallet_path=WALLET_PATH):
     total_balance = 0.0
 
     for entry in payment_addresses:
-        total_balance += entry['balance']
+        if 'balance' in entry.keys():
+            total_balance += entry['balance']
 
     return total_balance, payment_addresses
 
