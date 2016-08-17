@@ -87,6 +87,11 @@ if os.environ.get("BLOCKSTACK_TEST", None) is not None and os.environ.get("BLOCK
 
 FIRST_BLOCK_TIME_UTC = 1441737751 
 
+TX_MIN_CONFIRMATIONS = 6
+if os.environ.get("BLOCKSTACK_TEST", None) is not None:
+    # test environment
+    TX_MIN_CONFIRMATIONS = 0
+
 # borrowed from Blockstack
 # Opcodes
 ANNOUNCE = '#'
@@ -294,7 +299,6 @@ USER_ZONEFILE_TTL = 3600    # cache lifetime for a user's zonefile
 
 SLEEP_INTERVAL = 20  # in seconds
 TX_EXPIRED_INTERVAL = 10  # if a tx is not picked up by x blocks
-
 PREORDER_CONFIRMATIONS = 6
 PREORDER_MAX_CONFIRMATIONS = 130  # no. of blocks after which preorder should be removed
 TX_CONFIRMATIONS_NEEDED = 10
