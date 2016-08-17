@@ -184,7 +184,7 @@ def make_transaction(name, payment_addr, register_addr, blockchain_client, tx_fe
     change_inputs = None
     subsidized_renewal = False
     
-    change_inputs = get_unspents( payment_addr, blockchain_client )
+    change_inputs = tx_get_unspents( payment_addr, blockchain_client )
     if renewal_fee is not None:
         assert payment_addr == register_addr, "%s != %s" % (payment_addr, register_addr)
         subsidized_renewal = True

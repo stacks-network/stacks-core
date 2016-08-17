@@ -125,7 +125,7 @@ def make_transaction(name, payment_addr, register_addr, fee, consensus_hash, blo
     script_pubkey = None    # to be mixed into preorder hash
     
     # tx only
-    inputs = get_unspents( payment_addr, blockchain_client )
+    inputs = tx_get_unspents( payment_addr, blockchain_client )
     script_pubkey = get_script_pubkey_from_addr( payment_addr )
 
     nulldata = build( name, script_pubkey, register_addr, consensus_hash)

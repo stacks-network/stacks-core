@@ -35,7 +35,7 @@ import json
 
 from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
-from ..scripts import blockstack_script_to_hex, add_magic_bytes, hash_name, is_namespace_valid
+from ..scripts import *
    
 import virtualchain
 log = virtualchain.get_logger("blockstack-log")
@@ -239,7 +239,7 @@ def make_transaction( namespace_id, reveal_addr, lifetime, coeff, base_cost, buc
    nulldata = build( namespace_id, BLOCKSTACK_VERSION, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount )
    
    # get inputs and from public key
-   inputs = get_unspents( payment_addr, blockchain_client )
+   inputs = tx_get_unspents( payment_addr, blockchain_client )
     
    # build custom outputs here
    outputs = make_outputs(nulldata, inputs, reveal_addr, payment_addr, tx_fee)
