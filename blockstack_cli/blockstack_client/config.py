@@ -43,6 +43,11 @@ if os.environ.get("BLOCKSTACK_TEST") is not None and os.environ.get("BLOCKSTACK_
 if os.environ.get("BLOCKSTACK_DEBUG") is not None:
     DEBUG = True
 
+TX_MIN_CONFIRMATIONS = 6
+if os.environ.get("BLOCKSTACK_TEST", None) is not None:
+    # test environment
+    TX_MIN_CONFIRMATIONS = 0
+
 VERSION = __version__
 
 DEFAULT_BLOCKSTACKD_PORT = 6264     # blockstackd port
