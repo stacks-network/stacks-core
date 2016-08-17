@@ -80,5 +80,7 @@ from backend.nameops import *
 
 from app import app_register, app_unregister, app_get_wallet, app_wallet_path
 
+from scripts import UTXOException 
+
 # legacy compatibility
 from virtualchain import SPVClient
