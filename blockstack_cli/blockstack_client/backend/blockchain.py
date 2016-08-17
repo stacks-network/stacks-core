@@ -178,6 +178,10 @@ def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmati
 
     try:
         data = pybitcoin.get_unspents(address, utxo_client)
+
+        for d in data:
+            assert d.has_key('value')
+
     except Exception as e:
         log.exception(e)
         log.debug("Error in getting UTXOs from UTXO provider: %s" % e)
