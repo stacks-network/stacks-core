@@ -350,7 +350,9 @@ def tx_get_unspents(address, utxo_client, min_confirmations=TX_MIN_CONFIRMATIONS
     data = pybitcoin.get_unspents(address, utxo_client)
 
     try:
+        assert type(data) == list, "No UTXO list returned"
         for d in data:
+            assert type(d) == dict, "Invalid UTXO information returned"
             assert d.has_key('value'), "Missing value in UTXOs from %s" % address
     except AssertionError, ae:
         log.debug(ae)
