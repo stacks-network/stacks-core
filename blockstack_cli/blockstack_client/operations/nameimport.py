@@ -24,7 +24,7 @@
 import pybitcoin
 from pybitcoin import embed_data_in_blockchain, \
     serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, serialize_transaction, get_unspents
+    make_pay_to_address_script, serialize_transaction
 
  
 from pybitcoin.transactions.outputs import calculate_change_amount
@@ -113,7 +113,7 @@ def make_transaction(name, recipient_address, update_hash, payment_addr, blockch
     
     # convert update_hash from a hex string so it looks like an address
     update_hash_b58 = pybitcoin.b58check_encode( unhexlify(update_hash), version_byte=virtualchain.version_byte )
-    inputs = get_unspents( payment_addr, blockchain_client )
+    inputs = tx_get_unspents( payment_addr, blockchain_client )
     outputs = make_outputs(nulldata, inputs, recipient_address, payment_addr, update_hash_b58, tx_fee)
 
     return (inputs, outputs)

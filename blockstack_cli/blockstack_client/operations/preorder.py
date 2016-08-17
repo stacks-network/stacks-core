@@ -25,7 +25,7 @@ import pybitcoin
 from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
     serialize_sign_and_broadcast, make_op_return_script, \
     make_pay_to_address_script, \
-    hex_hash160, bin_hash160, get_unspents, \
+    hex_hash160, bin_hash160, \
     make_op_return_outputs
 
 
@@ -125,7 +125,7 @@ def make_transaction(name, payment_addr, register_addr, fee, consensus_hash, blo
     script_pubkey = None    # to be mixed into preorder hash
     
     # tx only
-    inputs = get_unspents( payment_addr, blockchain_client )
+    inputs = tx_get_unspents( payment_addr, blockchain_client )
     script_pubkey = virtualchain.make_payment_script( payment_addr )
 
     nulldata = build( name, script_pubkey, register_addr, consensus_hash)
