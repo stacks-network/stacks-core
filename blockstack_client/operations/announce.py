@@ -98,7 +98,7 @@ def make_transaction(message_hash, payment_addr, blockchain_client, tx_fee=0):
     inputs = None
     private_key_obj = None
     
-    inputs = get_unspents( payment_addr, blockchain_client )
+    inputs = tx_get_unspents( payment_addr, blockchain_client )
     nulldata = build(message_hash)
     outputs = make_outputs( nulldata, inputs, payment_addr, tx_fee )
    

@@ -113,7 +113,7 @@ def make_transaction(name, recipient_address, update_hash, payment_addr, blockch
     
     # convert update_hash from a hex string so it looks like an address
     update_hash_b58 = b58check_encode( unhexlify(update_hash) )
-    inputs = get_unspents( payment_addr, blockchain_client )
+    inputs = tx_get_unspents( payment_addr, blockchain_client )
     outputs = make_outputs(nulldata, inputs, recipient_address, payment_addr, update_hash_b58, tx_fee)
 
     return (inputs, outputs)

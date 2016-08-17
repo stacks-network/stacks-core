@@ -78,7 +78,7 @@ def make_transaction( namespace_id, payment_addr, blockchain_client, tx_fee=0 ):
    nulldata = build( namespace_id )
    
    # get inputs and from public key
-   inputs = get_unspents( payment_addr, blockchain_client )
+   inputs = tx_get_unspents( payment_addr, blockchain_client )
    
    # OP_RETURN outputs 
    outputs = make_op_return_outputs( nulldata, inputs, payment_addr, fee=(DEFAULT_OP_RETURN_FEE + tx_fee), format='hex' )
