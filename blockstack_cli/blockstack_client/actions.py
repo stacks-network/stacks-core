@@ -125,6 +125,7 @@ from .utils import pretty_dump, print_result
 from .proxy import *
 from .client import analytics_event
 from .app import app_register, app_unregister, app_get_wallet
+from .scripts import UTXOException
 
 log = config.get_logger()
 
