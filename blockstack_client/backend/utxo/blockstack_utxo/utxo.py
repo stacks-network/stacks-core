@@ -273,10 +273,10 @@ def default_blockstack_utxo_opts( config_file=None ):
        provider_sec = provider_secs[0]
 
        if parser.has_option(provider_sec, "server"):
-           server = parser.get('blockstack_utxo', 'server')
+           server = parser.get(provider_sec, 'server')
 
        if parser.has_option(provider_sec, "port"):
-           port = int(parser.get("blockstack_utxo", "port"))
+           port = int(parser.get(provider_sec, "port"))
 
    blockstack_utxo_opts = {
        "server": server,
