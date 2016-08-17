@@ -485,7 +485,6 @@ class BlockstackdRPC(SimpleXMLRPCServer):
     def rpc_get_names_owned_by_address(self, address):
         """
         Get the list of names owned by an address.
-        Valid only for names with p2pkh sender scripts.
         """
         if type(address) not in [str, unicode]:
             return {'error': 'invalid address'}
@@ -651,6 +650,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
     def rpc_get_mutable_data( self, blockchain_id, data_name ):
         """
         Get a mutable data record written by a given user.
+        TODO: disable by default, unless we're set up to serve data.
         """
         if type(blockchain_id) not in [str, unicode]:
             return {'error': 'Invalid blockchain ID'}
@@ -668,7 +668,8 @@ class BlockstackdRPC(SimpleXMLRPCServer):
     def rpc_get_immutable_data( self, blockchain_id, data_hash ):
         """
         Get immutable data record written by a given user.
-        """
+        TODO: disable by default, unless we're set up to serve data.
+        """ 
         if type(blockchain_id) not in [str, unicode]:
             return {'error': 'Invalid blockchain ID'}
 
@@ -889,8 +890,16 @@ class BlockstackdRPC(SimpleXMLRPCServer):
                 saved.append(0)
                 continue
 
-            saved.append(1)
+            # update atlas
+            was_missing = atlasdb_set_zonefile_present( zonefile_hash, True )
+            if was_missing:
+                # we didn't have this zonefile.
+                # there's a good chance we're not alone (i.e. this request came from a client).
+                # see if we can replicate it to them in the background.
+                atlas_zonefile_push_enqueue( zonefile_hash, str(zonefile_data) )
 
+            saved.append(1)
+        
         log.debug("Saved %s zonefile(s)\n", sum(saved))
         self.analytics("put_zonefiles", {'count': len(zonefile_datas)})
         return {'status': True, 'saved': saved}
@@ -1073,9 +1082,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return {'status': True, 'num_replicas': successes, 'num_failures': len(blockstack_client.get_storage_handlers()) - successes}
 
 
-    def rpc_get_atlas_peers( self ):
+    def rpc_get_atlas_peers( self, remote_peer_hostport ):
         """
         Get the list of peer atlas nodes.
+        Give its own atlas peer hostport.
         Return at most 100 peers
         Return {'status': True, 'peers': ...} on success
         Return {'error': ...} on failure
@@ -1087,6 +1097,13 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         peer_list = atlast_get_rarest_live_peers()
         if len(peer_list) > 100:
             peer_list = random.shuffle(peer_list)[:100]
+
+        if remote_peer_hostport is not None and len(remote_peer_hostport) > 0:
+            remote_host, remote_port = url_to_host_port( remote_peer_hostport )
+            if remote_host is not None and remote_port is not None:
+                # try talking to this peer
+                remote_peer_hostport = "%s:%s" % (remote_host, remote_port)
+                atlas_peer_enqueue( remote_peer_hostport )
 
         return {'status': True, 'peers': peer_list}
 
