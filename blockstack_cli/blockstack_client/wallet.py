@@ -245,7 +245,7 @@ def decrypt_wallet( data, password, config_path=CONFIG_PATH ):
         hex_privkey = aes_decrypt(data['encrypted_master_private_key'], hex_password)
         wallet = HDWallet(hex_privkey)
     except Exception, e:
-        if os.environ.get("BLOCKSTACK_DEBUG", None) is not None:
+        if os.environ.get("BLOCKSTACK_DEBUG", None) == "1":
             log.exception(e)
         return {'error': 'Incorrect password'}
     
