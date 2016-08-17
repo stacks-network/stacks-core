@@ -252,27 +252,40 @@ def get_total_registration_fees(name, payment_privkey_info, owner_privkey_info, 
     reply = {}
     reply['name_price'] = data['satoshis']
 
-    preorder_tx_fee = estimate_preorder_tx_fee( name, data['satoshis'], payment_address, utxo_client, owner_privkey_params=get_privkey_info_params(owner_privkey_info), config_path=config_path )
-    if preorder_tx_fee is None:
-        # do our best
-        preorder_tx_fee = get_tx_fee( "00" * APPROX_PREORDER_TX_LEN, config_path=config_path )
-        insufficient_funds = True
-    else:
-        preorder_tx_fee = int(preorder_tx_fee)
+    preorder_tx_fee = None
+    register_tx_fee = None
+    update_tx_feee = None
 
-    register_tx_fee = estimate_register_tx_fee( name, payment_address, utxo_client, owner_privkey_params=get_privkey_info_params(owner_privkey_info), config_path=config_path )
-    if register_tx_fee is None:
-        register_tx_fee = get_tx_fee( "00" * APPROX_REGISTER_TX_LEN, config_path=config_path )
-        insufficient_funds = True
-    else:
-        register_tx_fee = int(register_tx_fee)
+    try:
+        preorder_tx_fee = estimate_preorder_tx_fee( name, data['satoshis'], payment_address, utxo_client, owner_privkey_params=get_privkey_info_params(owner_privkey_info), config_path=config_path )
+        if preorder_tx_fee is None:
+            # do our best
+            preorder_tx_fee = get_tx_fee( "00" * APPROX_PREORDER_TX_LEN, config_path=config_path )
+            insufficient_funds = True
+        else:
+            preorder_tx_fee = int(preorder_tx_fee)
 
-    update_tx_fee = estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=get_privkey_info_params(owner_privkey_info), config_path=config_path, payment_address=payment_address )
-    if update_tx_fee is None:
-        update_tx_fee = get_tx_fee( "00" * APPROX_UPDATE_TX_LEN, config_path=config_path )
-        insufficient_funds = True
-    else:
-        update_tx_fee = int(update_tx_fee)
+        register_tx_fee = estimate_register_tx_fee( name, payment_address, utxo_client, owner_privkey_params=get_privkey_info_params(owner_privkey_info), config_path=config_path )
+        if register_tx_fee is None:
+            register_tx_fee = get_tx_fee( "00" * APPROX_REGISTER_TX_LEN, config_path=config_path )
+            insufficient_funds = True
+        else:
+            register_tx_fee = int(register_tx_fee)
+
+        update_tx_fee = estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=get_privkey_info_params(owner_privkey_info), config_path=config_path, payment_address=payment_address )
+        if update_tx_fee is None:
+            update_tx_fee = get_tx_fee( "00" * APPROX_UPDATE_TX_LEN, config_path=config_path )
+            insufficient_funds = True
+        else:
+            update_tx_fee = int(update_tx_fee)
+
+    except UTXOException, ue:
+        log.error("Failed to query UTXO provider.")
+        if os.environ.get("BLOCKSTACK_DEBUG", None) == "1":
+            log.exception(ue)
+
+        return {'error': 'Failed to query UTXO provider.  Please try again.'}
+
 
     reply['preorder_tx_fee'] = int(preorder_tx_fee)
     reply['register_tx_fee'] = int(register_tx_fee)
@@ -369,7 +382,7 @@ def cli_price( args, config_path=CONFIG_PATH, proxy=None, password=None):
                 return wallet_keys
 
             payment_privkey_info = wallet_keys['payment_privkey']
-            owner_privkey_info = wallet_keys['owner_privkey_info']
+            owner_privkey_info = wallet_keys['owner_privkey']
         
         except (OSError, IOError), e:
             # backend is not running; estimate with addresses
