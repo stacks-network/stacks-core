@@ -141,7 +141,7 @@ def make_transaction( namespace_id, register_addr, fee, consensus_hash, payment_
    nulldata = build( namespace_id, script_pubkey, register_addr, consensus_hash )
    
    # get inputs and from address
-   inputs = get_unspents( payment_addr, blockchain_client )
+   inputs = tx_get_unspents( payment_addr, blockchain_client )
     
    # build custom outputs here
    outputs = make_outputs(nulldata, inputs, payment_addr, fee, tx_fee )

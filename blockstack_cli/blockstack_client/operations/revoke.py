@@ -106,7 +106,7 @@ def make_transaction(name, payment_addr, blockchain_client, tx_fee=0, subsidize=
     if subsidize:
         pay_fee = False
 
-    inputs = get_unspents( payment_addr, blockchain_client )
+    inputs = tx_get_unspents( payment_addr, blockchain_client )
 
     nulldata = build(name)
     outputs = make_outputs( nulldata, inputs, payment_addr, tx_fee, pay_fee=pay_fee )
