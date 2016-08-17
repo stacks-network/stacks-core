@@ -40,7 +40,7 @@ DEBUG = False
 if os.environ.get("BLOCKSTACK_TEST") is not None and os.environ.get("BLOCKSTACK_TEST_NODEBUG") is None:
     DEBUG = True
 
-if os.environ.get("BLOCKSTACK_DEBUG") is not None:
+if os.environ.get("BLOCKSTACK_DEBUG") == "1":
     DEBUG = True
 
 TX_MIN_CONFIRMATIONS = 6
