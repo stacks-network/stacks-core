@@ -28,7 +28,7 @@ import simplejson
 import virtualchain
 
 from pybitcoin.transactions.outputs import calculate_change_amount
-from .config import MAGIC_BYTES, NAME_OPCODES, LENGTHS
+from .config import MAGIC_BYTES, NAME_OPCODES, LENGTHS, TX_MIN_CONFIRMATIONS
 from .b40 import *
 from .keys import *
 
@@ -37,6 +37,9 @@ from decimal import *
 from virtualchain import tx_serialize, tx_deserialize, tx_script_to_asm, tx_output_parse_scriptPubKey
 
 log = virtualchain.get_logger("blockstack-client")
+
+class UTXOException(Exception):
+    pass
 
 def add_magic_bytes(hex_script):
     return hexlify(MAGIC_BYTES) + hex_script
@@ -379,4 +382,28 @@ def tx_make_subsidizable( blockstack_tx, fee_cb, max_fee, subsidy_key_info, utxo
     
     return subsidized_tx
     
+
+def tx_get_unspents(address, utxo_client, min_confirmations=TX_MIN_CONFIRMATIONS):
+    """ 
+    Given an address get unspent outputs (UTXOs)
+    Return array of UTXOs on success
+    Raise UTXOException on error
+    """
+
+    data = pybitcoin.get_unspents(address, utxo_client)
+
+    try:
+        for d in data:
+            assert d.has_key('value'), "Missing value in UTXOs from %s" % address
+    except AssertionError, ae:
+        log.debug(ae)
+        raise UTXOException()
+
+    # filter minimum confirmations 
+    ret = []
+    for d in data:
+        if not d.has_key('confirmations') or d['confirmations'] >= min_confirmations:
+            ret.append(d)
+
+    return ret
 
