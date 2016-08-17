@@ -24,7 +24,7 @@
 import pybitcoin
 from pybitcoin import embed_data_in_blockchain, make_op_return_tx, make_op_return_outputs, \
         make_op_return_script, broadcast_transaction, serialize_transaction, \
-        get_unspents, make_pay_to_address_script
+        make_pay_to_address_script
 
 from pybitcoin.transactions.outputs import calculate_change_amount
 from utilitybelt import is_hex
@@ -106,7 +106,7 @@ def make_transaction(name, payment_addr, blockchain_client, tx_fee=0, subsidize=
     if subsidize:
         pay_fee = False
 
-    inputs = get_unspents( payment_addr, blockchain_client )
+    inputs = tx_get_unspents( payment_addr, blockchain_client )
 
     nulldata = build(name)
     outputs = make_outputs( nulldata, inputs, payment_addr, tx_fee, pay_fee=pay_fee )

@@ -23,7 +23,7 @@
 
 import pybitcoin
 from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
-    serialize_sign_and_broadcast, make_op_return_script, get_unspents, \
+    serialize_sign_and_broadcast, make_op_return_script, \
     make_pay_to_address_script, hex_hash160
 
 from pybitcoin.transactions.outputs import calculate_change_amount
@@ -35,7 +35,7 @@ import json
 
 from ..b40 import b40_to_hex, bin_to_b40, is_b40
 from ..config import *
-from ..scripts import blockstack_script_to_hex, add_magic_bytes, hash_name, is_namespace_valid
+from ..scripts import *
    
 import virtualchain
 log = virtualchain.get_logger("blockstack-log")
@@ -241,7 +241,7 @@ def make_transaction( namespace_id, reveal_addr, lifetime, coeff, base_cost, buc
    nulldata = build( namespace_id, BLOCKSTACK_VERSION, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount )
    
    # get inputs and from public key
-   inputs = get_unspents( payment_addr, blockchain_client )
+   inputs = tx_get_unspents( payment_addr, blockchain_client )
     
    # build custom outputs here
    outputs = make_outputs(nulldata, inputs, reveal_addr, payment_addr, tx_fee)

@@ -24,8 +24,7 @@
 import pybitcoin
 from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
     serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, hex_hash160, \
-    get_unspents
+    make_pay_to_address_script, hex_hash160
 
 from pybitcoin.transactions.outputs import calculate_change_amount
 from utilitybelt import is_hex
@@ -184,7 +183,7 @@ def make_transaction(name, payment_addr, register_addr, blockchain_client, tx_fe
     change_inputs = None
     subsidized_renewal = False
     
-    change_inputs = get_unspents( payment_addr, blockchain_client )
+    change_inputs = tx_get_unspents( payment_addr, blockchain_client )
     if renewal_fee is not None:
         assert payment_addr == register_addr, "%s != %s" % (payment_addr, register_addr)
         subsidized_renewal = True
