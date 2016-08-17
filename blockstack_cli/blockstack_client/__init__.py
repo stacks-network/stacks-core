@@ -78,3 +78,4 @@ from user import is_user_zonefile, user_zonefile_data_pubkey
 from operations import *
 from backend.nameops import *
 
+from scripts import UTXOException
