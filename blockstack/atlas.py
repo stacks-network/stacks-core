@@ -36,24 +36,6 @@ import traceback
 import copy
 import binascii
 
-from pybloom_live import ScalableBloomFilter
-
-if os.environ.get("BLOCKSTACK_TEST", None) == "1" and os.environ.get("BLOCKSTACK_ATLAS_UNIT_TEST", None) is None:
-    # use test client
-    from blockstack_integration_tests import AtlasRPCTestClient as BlockstackRPCClient
-    from blockstack_integration_tests import time_now, time_sleep
-
-else:
-    # production
-    from blockstack_client import BlockstackRPCClient
-    
-    def time_now():
-        return time.time()
-
-    def time_sleep(hostport, value):
-        return time.sleep(value)
-
-
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
 
@@ -61,26 +43,24 @@ from lib.config import *
 from lib.storage import *
 from lib import get_db_state
 
+from pybloom_live import ScalableBloomFilter
+
 PEER_LIFETIME_INTERVAL = 3600  # 1 hour
-PEER_PING_INTERVAL = 300       # 5 minutes
-PEER_ZONEFILE_INVENTORY_TTL = 600   # 10 minutes
+PEER_PING_INTERVAL = 60        # 1 minute
 
 MIN_PEER_HEALTH = 0.5  # minimum peer health before we forget about it
 
 NUM_NEIGHBORS = 80     # number of neighbors a peer can report
-MAX_PEERS = 10000      # max number of peers a node can remember
 
-if os.environ.get("BLOCKSTACK_ATLAS_MAX_PEERS") is not None:
-    MAX_PEERS = int(os.environ.get("BLOCKSTACK_ATLAS_MAX_PEERS"))
+ZONEFILE_INV = ""      # this atlas peer's current zonefile inventory
+
+MAX_QUEUED_ZONEFILES = 1000     # maximum number of queued zonefiles
 
 if os.environ.get("BLOCKSTACK_ATLAS_PEER_LIFETIME") is not None:
     PEER_LIFETIME_INTERVAL = int(os.environ.get("BLOCKSTACK_ATLAS_PEER_LIFETIME"))
 
 if os.environ.get("BLOCKSTACK_ATLAS_PEER_PING_INTERVAL") is not None:
     PEER_PING_INTERVAL = int(os.environ.get("BLOCKSTACK_ATLAS_PEER_PING_INTERVAL"))
-
-if os.environ.get("BLOCKSTACK_ATLAS_ZONEFILE_INVENTORY_TTL") is not None:
-    PEER_ZONEFILE_INVENTORY_TTL = int(os.environ.get("BLOCKSTACK_ATLAS_ZONEFILE_INVENTORY_TTL"))
 
 if os.environ.get("BLOCKSTACK_ATLAS_MIN_PEER_HEALTH") is not None:
     MIN_PEER_HEALTH = float(os.environ.get("BLOCKSTACK_ATLAS_MIN_PEER_HEALTH"))
@@ -89,7 +69,31 @@ if os.environ.get("BLOCKSTACK_ATLAS_NUM_NEIGHBORS") is not None:
     NUM_NEIGHBORS = int(os.environ.get("BLOCKSTACK_ATLAS_NUM_NEIGHBORS"))
 
 if os.environ.get("BLOCKSTACK_ATLAS_MAX_NEIGHBORS") is not None:
-    MAX_PEERS = int(os.environ.get("BLOCKSTACK_ATLAS_MAX_NEIGHBORS"))
+    NUM_NEIGHBORS = int(os.environ.get("BLOCKSTACK_ATLAS_MAX_NEIGHBORS"))
+
+if os.environ.get("BLOCKSTACK_TEST", None) == "1" and os.environ.get("BLOCKSTACK_ATLAS_UNIT_TEST", None) is None:
+    # use test client
+    from blockstack_integration_tests import AtlasRPCTestClient as BlockstackRPCClient
+    from blockstack_integration_tests import time_now, time_sleep, atlas_max_neighbors, atlas_peer_lifetime_interval, atlas_peer_ping_interval
+
+else:
+    # production
+    from blockstack_client import BlockstackRPCClient
+    
+    def time_now():
+        return time.time()
+
+    def time_sleep(hostport, procname, value):
+        return time.sleep(value)
+    
+    def atlas_max_neighbors():
+        return NUM_NEIGHBORS
+
+    def atlas_peer_lifetime_interval():
+        return PEER_LIFETIME_INTERVAL
+
+    def atlas_peer_ping_interval():
+        return PEER_PING_INTERVAL
 
 
 ATLASDB_SQL = """
@@ -105,8 +109,12 @@ PEER_TABLE = {}        # map peer host:port (NOT url) to peer information
                        # for example, if 'zonefile_inv' is 10110001, then the 0th, 2nd, 3rd, and 7th NAME_UPDATEs' zonefiles have been stored by us
                        # (note that we allow for the possibility of duplicate zonefiles, but this is a rare occurance and we keep track of it in the DB to avoid duplicate transfers)
 
-PEER_TABLE_LOCK = threading.Lock()
+PEER_QUEUE = []        # list of peers (host:port) to begin talking to, discovered via the Atlas RPC interface
+ZONEFILE_QUEUE = []    # list of {zonefile_hash: zonefile} dicts to push out to other Atlas nodes (i.e. received from clients)
 
+PEER_TABLE_LOCK = threading.Lock()
+PEER_QUEUE_LOCK = threading.Lock()
+ZONEFILE_QUEUE_LOCK = threading.Lock()
 
 def atlas_peer_table_lock():
     """
@@ -125,6 +133,115 @@ def atlas_peer_table_unlock():
     global PEER_TABLE_LOCK
     PEER_TABLE_LOCK.release()
     return
+
+
+def atlas_peer_queue_lock():
+    """
+    Lock the global peer queue
+    return the queue
+    """
+    global PEER_QUEUE_LOCK, PEER_QUEUE
+    PEER_QUEUE_LOCK.acquire()
+    return PEER_QUEUE
+
+
+def atlas_peer_queue_unlock():
+    """
+    Unlock the global peer queue
+    """
+    global PEER_QUEUE_LOCK
+    PEER_QUEUE_LOCK.release()
+
+
+def atlas_zonefile_queue_lock():
+    """
+    Lock the global zonefile queue
+    return the queue
+    """
+    global ZONEFILE_QUEUE_LOCK
+    ZONEFILE_QUEUE_LOCK.acquire()
+    return ZONEFILE_QUEUE
+
+
+def atlas_zonefile_queue_unlock():
+    """
+    Unlock the global zonefile queue
+    """
+    global ZONEFILE_QUEUE_LOCK
+    ZONEFILE_QUEUE_LOCK.release()
+
+
+def atlas_inventory_flip_zonefile_bits( inv_vec, bit_indexes, operation ):
+    """
+    Given a list of bit indexes (bit_indexes), set or clear the
+    appropriate bits in the inventory vector (inv_vec).
+    If the bit index is beyond the length of inv_vec, 
+    then expand inv_vec to accomodate it.
+
+    If operation is True, then set the bits.
+    If operation is False, then clear the bits
+
+    Return the new inv_vec
+    """
+    inv_list = list(inv_vec)
+
+    max_byte_index = max(bit_indexes) / 8 + 1
+    if len(inv_list) <= max_byte_index:
+        inv_list += ['\0'] * (max_byte_index - len(inv_list))
+
+    for bit_index in bit_indexes:
+        byte_index = bit_index / 8
+        bit_index = 7 - (bit_index % 8)
+        
+        zfbits = ord(inv_list[byte_index])
+
+        if operation:
+            zfbits = zfbits | (1 << bit_index)
+        else:
+            zfbits = zfbits & ~(1 << bit_index)
+
+        inv_list[byte_index] = chr(zfbits)
+
+    return "".join(inv_list)
+
+
+def atlas_inventory_set_zonefile_bits( inv_vec, bit_indexes ):
+    """
+    Set bits in a zonefile inventory vector.
+    """
+    return atlas_inventory_flip_zonefile_bits( inv_vec, bit_indexes, True )
+
+
+def atlas_inventory_clear_zonefile_bits( inv_vec, bit_indexes ):
+    """
+    Clear bits in a zonefile inventory vector
+    """
+    return atlas_inventory_flip_zonefile_bits( inv_vec, bit_indexes, False )
+
+
+def atlas_inventory_test_zonefile_bits( inv_vec, bit_indexes ):
+    """
+    Given a list of bit indexes (bit_indexes), determine whether or not 
+    they are set.
+
+    Return True if all are set
+    Return False if not
+    """
+    inv_list = list(inv_vec)
+
+    max_byte_index = max(bit_indexes) / 8 + 1
+    if len(inv_list) <= max_byte_index:
+        inv_list += ['\0'] * (max_byte_index - len(inv_list))
+
+    ret = True
+    for bit_index in bit_indexes:
+        byte_index = bit_index / 8
+        bit_index = 7 - (bit_index % 8)
+        
+        zfbits = ord(inv_list[byte_index])
+        ret = (ret and ((zfbits & (1 << bit_index)) != 0))
+
+    return ret
 
 
 def atlasdb_row_factory( cursor, row ):
@@ -192,7 +309,10 @@ def atlasdb_add_zonefile_info( zonefile_hash, present, block_height, con=None, p
     """
     Add a zonefile to the database.
     Mark it as present or absent.
+    Keep our in-RAM inventory vector up-to-date
     """
+    global ZONEFILE_INV
+
     if path is None:
         path = atlasdb_path()
 
@@ -208,6 +328,10 @@ def atlasdb_add_zonefile_info( zonefile_hash, present, block_height, con=None, p
     cur = con.cursor()
     atlasdb_query_execute( cur, sql, args )
     con.commit()
+
+    # keep in-RAM zonefile inv coherent
+    zfbits = atlasdb_get_zonefile_bits( zonefile_hash, con=con, path=path )
+    ZONEFILE_INV = atlas_inventory_set_zonefile_bits( ZONEFILE_INV, zfbits )
 
     if close:
         con.close()
@@ -254,42 +378,14 @@ def atlasdb_get_zonefile( zonefile_hash, con=None, path=None ):
     return ret
 
 
-def atlasdb_get_zonefile_info( block_height, con=None, path=None ):
-    """
-    Get all the zonefile hashes at a block height
-    """
-    if path is None:
-        path = atlasdb_path()
-
-    close = False
-    if con is None:
-        close = True
-        con = atlasdb_open( path )
-        assert con is not None
-
-    sql = "SELECT * FROM zonefiles WHERE block_height = ?;"
-    args = (block_height,)
-
-    cur = con.cursor()
-    res = atlasdb_query_execute( cur, sql, args )
-    con.commit()
-
-    ret = []
-    for row in res:
-        tmp = {}
-        tmp.update(row)
-        ret.append(tmp)
-
-    if close:
-        con.close()
-
-    return ret
-
-
 def atlasdb_set_zonefile_present( zonefile_hash, present, con=None, path=None ):
     """
-    Mark a zonefile as present (i.e. we stored it)
+    Mark a zonefile as present (i.e. we stored it).
+    Keep our in-RAM zonefile inventory coherent.
+    Return the previous state.
     """
+    global ZONEFILE_INV
+
     if path is None:
         path = atlasdb_path()
 
@@ -311,16 +407,24 @@ def atlasdb_set_zonefile_present( zonefile_hash, present, con=None, path=None ):
     res = atlasdb_query_execute( cur, sql, args )
     con.commit()
 
+    zfbits = atlasdb_get_zonefile_bits( zonefile_hash, con=con, path=path )
+    
+    # did we know about this?
+    was_present = atlas_inventory_test_zonefile_bits( ZONEFILE_INV, zfbits )
+
+    # keep our inventory vector coherent.
+    ZONEFILE_INV = atlas_inventory_flip_zonefile_bits( ZONEFILE_INV, zfbits, present )
+
     if close:
         con.close()
 
-    return res
+    return was_present
 
 
 def atlasdb_get_zonefile_bits( zonefile_hash, con=None, path=None ):
     """
     What bit(s) in a zonefile inventory does a zonefile hash correspond to?
-    Return their indexes in the bit field
+    Return their indexes in the bit field.
     """
     if path is None:
         path = atlasdb_path()
@@ -376,6 +480,8 @@ def atlasdb_init( path, db, peer_seeds, peer_blacklist, validate=False, zonefile
 
     @db should be an instance of BlockstackDB
     @initial_peers should be a list of URLs
+
+    Return the newly-initialized peer table
     """
     
     global ATLASDB_SQL
@@ -385,6 +491,8 @@ def atlasdb_init( path, db, peer_seeds, peer_blacklist, validate=False, zonefile
         log.debug("Atlas DB exists at %s" % path)
 
     else:
+
+        log.debug("Initializing Atlas DB at %s" % path)
 
         lines = [l + ";" for l in ATLASDB_SQL.split(";")]
         con = sqlite3.connect( path, isolation_level=None )
@@ -399,19 +507,19 @@ def atlasdb_init( path, db, peer_seeds, peer_blacklist, validate=False, zonefile
         atlasdb_queue_zonefiles( con, db, FIRST_BLOCK_MAINNET, validate=validate, zonefile_dir=zonefile_dir )
         con.close()
 
-    PEER_TABLE = {}
+    peer_table = {}
 
     # add initial peer info
     for peer_url in peer_seeds + peer_blacklist:
         host, port = url_to_host_port( peer_url )
         peer_hostport = "%s:%s" % (host, port)
 
-        atlas_init_peer_info( PEER_TABLE, peer_hostport )
+        atlas_init_peer_info( peer_table, peer_hostport )
 
         if peer_url in peer_blacklist:
-            PEER_TABLE[peer_hostport]['blacklisted'] = True
+            peer_table[peer_hostport]['blacklisted'] = True
 
-    return True
+    return peer_table
 
 
 def atlasdb_zonefile_info_list( start, end, con=None, path=None ):
@@ -450,7 +558,10 @@ def atlasdb_zonefile_info_list( start, end, con=None, path=None ):
 def atlasdb_zonefile_find_missing( offset, count, con=None, path=None ):
     """
     Find out which zonefiles we're still missing.
-    Return a list of zonefile rows, where present == 0
+    Return a list of zonefile rows, where present == 0.
+
+    This is slow.  Use the in-RAM zonefile inventory vector whenever possible.
+    (see atlas_inventory_find_missing)
     """
     if path is None:
         path = atlasdb_path()
@@ -480,13 +591,16 @@ def atlasdb_zonefile_find_missing( offset, count, con=None, path=None ):
     return ret
 
 
-def atlas_make_zonefile_inventory( start, end, con=None, path=None, zonefile_dir=None, validate=False ):
+def atlas_make_zonefile_inventory( start, end, con=None, path=None ):
     """
     Get a summary description of the list of zonefiles we have
     for the given block range (a "zonefile inventory")
 
     Zonefile present/absent bits are ordered left-to-right,
     where the leftmost bit is the earliest zonefile in the blockchain.
+
+    This is slow.  Use the in-RAM zonefile inventory vector whenever possible
+    (see atlas_get_inventory).
     """
     
     listing = atlasdb_zonefile_info_list( start, end, con=con, path=path )
@@ -522,6 +636,39 @@ def atlas_make_zonefile_inventory( start, end, con=None, path=None, zonefile_dir
         inv += chr(next_byte)
 
     return inv
+
+
+def atlas_inventory_find_missing( offset, count, zonefile_inv=None ):
+    """
+    Find the missing zonefile bits.
+    Use the global zonefile inventory vector by default,
+    or optionally the given zonefile_inv.
+    """
+    if zonefile_inv is None:
+        zonefile_inv = atlas_get_zonefile_inventory()
+
+    bits = []
+    for i in xrange(offset, offset+count):
+        byte_offset = i / 8
+        bit_offset = 7 - (i % 8)
+        if byte_offset >= len(zonefile_inv):
+            # beyond the length of this inv
+            bits.append(i)
+        else:
+            is_set = ord(zonefile_inv[byte_index]) & (1 << bit_index)
+            if is_set == 0:
+                # not set 
+                bits.append(i)
+
+    return bits
+
+
+def atlas_get_zonefile_inventory():
+    """
+    Get the in-RAM zonefile inventory vector.
+    """
+    global ZONEFILE_INV
+    return ZONEFILE_INV
 
 
 def atlas_init_peer_info( peer_table, peer_hostport ):
@@ -695,7 +842,7 @@ def atlas_peer_update_health( peer_hostport, received_response, peer_table=None 
     # update timestamps; remove old data
     new_times = []
     for (t, r) in peer_table[peer_hostport]['time']:
-        if t + PEER_LIFETIME_INTERVAL < now:
+        if t + atlas_peer_lifetime_interval() < now:
             continue
         
         new_times.append((t, r))
@@ -713,7 +860,9 @@ def atlas_peer_add_neighbor( peer_hostport, peer_neighbor_hostport, peer_table=N
     """
     Record that peer_hostport knows about peer_neighbor_hostport (if we haven't done so already).
     Add the peers to the peer table if they're not there now.
-    Use the global peer table if the given peer table is None
+    Use the global peer table if the given peer table is None.
+
+    This method is idempotent for fixed peer_table values
     """
     
     locked = False
@@ -787,6 +936,7 @@ def atlas_peer_get_zonefile_inventory_range( peer_hostport, startblock, lastbloc
         atlas_peer_update_health( peer_hostport, False, peer_table=peer_table )
         return None
 
+    atlas_peer_update_health( peer_hostport, True, peer_table=peer_table )
     return zf_inv['inv']
 
 
@@ -894,7 +1044,7 @@ def atlas_peer_has_fresh_zonefile_inventory( peer_hostport, peer_table=None ):
 
     fresh = False
     now = time_now()
-    if peer_table[peer_hostport].has_key('zonefile_inventory_last_refresh') and peer_table[peer_hostport]['zonefile_inventory_last_fresh'] + PEER_ZONEFILE_INVENTORY_TTL >= now:
+    if peer_table[peer_hostport].has_key('zonefile_inventory_last_refresh') and peer_table[peer_hostport]['zonefile_inventory_last_fresh'] + atlas_peer_ping_interval() >= now:
         fresh = True
 
     if locked:
@@ -922,23 +1072,8 @@ def atlas_peer_set_zonefile_status( peer_hostport, zonefile_hash, present, zonef
 
     if peer_table.has_key(peer_hostport):
         peer_inv = peer_table[peer_hostport]['zonefile_inv']
-        peer_inv_list = [ord(pi) for pi in list(peer_inv)]
-
-        # expand up to maximum bit index
-        max_index = max(zonefile_bits) / 8 + 1
-        if len(peer_inv_list) < max_index:
-            peer_inv_list += [0] * (max_index - len(peer_inv_list))
-
-        for inv_offset in zonefile_bits:
-            byte_offset = inv_offset / 8
-            bit_offset = 7 - (inv_offset % 8)
-            if present:
-                peer_inv_list[byte_offset] = peer_inv_list[byte_offset] | (1 << bit_offset)
-            else:
-                peer_inv_list[byte_offset] = peer_inv_list[byte_offset] & ~(1 << bit_offset)
-
-        # convert back to byte buffer
-        peer_table[peer_hostport]['zonefile_inv'] = "".join( [chr(pi) for pi in peer_inv_list] )
+        peer_inv = atlas_inventory_flip_zonefile_bits( peer_inv, zonefile_bits, present )
+        peer_table[peer_hostport]['zonefile_inv'] = peer_inv
                 
     if locked:
         atlas_peer_table_unlock()
@@ -1033,7 +1168,41 @@ def atlas_find_missing_zonefile_availability( peer_table=None, con=None, path=No
     return ret
 
 
-def atlas_peer_get_neighbors( peer_hostport, timeout=10, peer_table=None ):
+def atlas_peer_has_zonefile( peer_hostport, zonefile_hash, zonefile_bits=None, con=None, path=None, peer_table=None ):
+    """
+    Does the given peer have the given zonefile defined?
+    Check its inventory vector
+
+    Return True if present
+    Return False if not present
+    Return None if we don't know about the zonefile ourselves
+    """
+
+    bits = None
+    if zonefile_bits is None:
+        bits = atlasdb_get_zonefile_bits( zonefile_hash, con=con, path=path )
+        if len(bits) == 0:
+            return None
+
+    else:
+        bits = zonefile_bits
+
+    locked = False
+    if peer_table is None:
+        locked = True
+        peer_table = atlas_peer_table_lock()
+
+    zonefile_inv = peer_table[peer_hostport]['zonefile_inv']
+    
+    if locked:
+        atlas_peer_table_unlock()
+        peer_table = None
+
+    res = atlas_inventory_test_zonefile_bits( zonefile_inv, bits )
+    return res
+
+
+def atlas_peer_get_neighbors( my_hostport, peer_hostport, timeout=10, peer_table=None ):
     """
     Ask the peer server at the given URL for its
     K-rarest peers.
@@ -1054,7 +1223,7 @@ def atlas_peer_get_neighbors( peer_hostport, timeout=10, peer_table=None ):
     rpc = BlockstackRPCClient( host, port, timeout=timeout )
     
     try:
-        peer_list = rpc.get_atlas_peers()
+        peer_list = rpc.get_atlas_peers( my_hostport )
 
         assert type(peer_list) in [dict], "Not a peer list response"
 
@@ -1066,8 +1235,9 @@ def atlas_peer_get_neighbors( peer_hostport, timeout=10, peer_table=None ):
                 assert type(peer) in [str, unicode], "Invalid peer list"
 
             # sane limits
-            if len(peer_list['peers']) > MAX_PEERS:
-                peer_list['peers'] = peer_list['peers'][:MAX_PEERS]
+            max_neighbors = atlas_max_neighbors()
+            if len(peer_list['peers']) > max_neighbors:
+                peer_list['peers'] = peer_list['peers'][:max_neighbors]
 
         else:
             assert type(peer_list['error']) in [str, unicode], "Invalid error message"
@@ -1154,7 +1324,11 @@ def atlas_get_zonefiles( peer_hostport, zonefile_hashes, timeout=60, peer_table=
 def atlas_rank_peers_by_health( peer_list=None, peer_table=None ):
     """
     Get a ranking of peers to contact for a zonefile.
-    Peers are ranked by health (i.e. availability ratio)
+    Peers are ranked by health (i.e. availability ratio).
+    Only return peers we've talked to (i.e. peers that have
+    known availability scores).
+
+    This is used to select peers to serve a particular zonefile.
     """
 
     locked = False
@@ -1168,7 +1342,8 @@ def atlas_rank_peers_by_health( peer_list=None, peer_table=None ):
     peer_health_ranking = []    # (health score, peer hostport)
     for peer_hostport in peer_list:
         health_score = atlas_peer_get_health( peer_hostport, peer_table=peer_table)
-        peer_health_ranking.append( (health_score, peer_hostport) )
+        if health_score > 0:
+            peer_health_ranking.append( (health_score, peer_hostport) )
     
     if locked:
         atlas_peer_table_unlock()
@@ -1178,6 +1353,75 @@ def atlas_rank_peers_by_health( peer_list=None, peer_table=None ):
     peer_health_ranking.reverse()
 
     return [peer_hp for _, peer_hp in peer_health_ranking]
+
+
+def atlas_rank_peers_by_availability( lastblock=None, peer_list=None, peer_table=None, min_health=MIN_PEER_HEALTH, local_inv=None, con=None, path=None ):
+    """
+    Get a ranking of peers to contact for a zonefile.
+    Peers are ranked by the number of zonefiles they have
+    which we don't have.  Peers with a lower-than-minimal
+    health score are ignored.
+
+    This is used to select neighbors.
+    """
+
+    locked = False
+    if peer_table is None:
+        locked = True    
+        peer_table = atlas_peer_table_lock()
+
+    if peer_list is None:
+        peer_list = peer_table.keys()[:]
+
+    if local_inv is None:
+        # what's my inventory?
+        assert lastblock is not None, "Need lastblock or local_inv"
+        local_inv = atlas_make_zonefile_availability( FIRST_BLOCK_MAINNET, lastblock, con=con, path=path )
+
+    peer_availability_ranking = []    # (health score, peer hostport)
+    for peer_hostport in peer_list:
+        health_score = atlas_peer_get_health( peer_hostport, local_inv, peer_table=peer_table)
+        if health_score < min_health:
+            continue
+
+        availability_score = atlas_peer_get_availability( local_inv, peer_table[peer_hostport]['zonefile_inv'] )
+        peer_availability_ranking.append( (availability_score, peer_hostport) )
+    
+    if locked:
+        atlas_peer_table_unlock()
+
+    # sort on availability
+    peer_availability_ranking.sort()
+    peer_availability_ranking.reverse()
+
+    return [peer_hp for _, peer_hp in peer_availability_ranking]
+
+
+def atlas_peer_get_availability( local_inv, peer_inv ):
+    """
+    Calculate the number of zonefiles the given peer has that we don't have,
+    given the local and peer availability inventory vectors
+    """
+    count = 0
+    minlen = min( len(local_inv), len(peer_inv) )
+    for i in xrange(0, minlen):
+        local = ord(local_inv[i])
+        remote = ord(peer_inv[i])
+        for j in xrange(0, 8):
+            if ((1 << j) & remote) != 0 and ((1 << j) & local) == 0:
+                # this peer has this zonefile, but we don't
+                count += 1
+
+    if len(peer_inv) > len(local_inv):
+        # this peer has more zonefiles
+        for i in xrange(len(local_inv), len(peer_inv)):
+            remote = ord(peer_inv[i])
+            for j in xrange(0, 8):
+                if ((1 << j) & remote) != 0:
+                    # this peer has this zonefile, but we don't
+                    count += 1
+        
+    return count
 
 
 def atlas_peer_get_last_response_time( peer_hostport, peer_table=None ):
@@ -1204,6 +1448,146 @@ def atlas_peer_get_last_response_time( peer_hostport, peer_table=None ):
     return last_time
 
 
+def atlas_peer_enqueue( peer_hostport, peer_table=None, peer_queue=None ):
+    """
+    Begin talking to a new peer, if we aren't already.
+    Return the new peer queue.
+    """
+
+    peer_lock = False
+    table_lock = False
+
+    if peer_queue is None:
+        peer_lock = True
+        peer_queue = atlas_peer_queue_lock()
+
+    if peer_table is None:
+        table_lock = True
+        peer_table = altas_peer_table_lock()
+
+    present = (peer_hostport in peer_table.keys())
+
+    if table_lock:
+        atlas_peer_table_unlock()
+
+    if not present:
+        if len(peer_queue) < atlas_max_neighbors():
+            peer_queue.append( peer_hostport )
+
+    if peer_lock:
+        atlas_peer_queue_unlock()
+
+    return peer_queue
+
+
+def atlas_peer_dequeue_all( peer_queue=None ):
+    """
+    Get all queued peers
+    """
+    peer_lock = False
+
+    if peer_queue is None:
+        peer_lock = True
+        peer_queue = atlas_peer_queue_lock()
+
+    peers = []
+    while len(peer_queue) > 0:
+        peers.append( peer_queue.pop(0) )
+
+    if peer_lock:
+        atlas_peer_queue_unlock()
+
+    return peers
+
+
+def atlas_zonefile_find_push_peers( zonefile_hash, peer_table=None, zonefile_bits=None, con=None, path=None ):
+    """
+    Find the set of peers that do *not* have this zonefile.
+    """
+
+    if zonefile_bits is None:
+        zonefile_bits = atlasdb_get_zonefile_bits( zonefile_hash, path=path, con=con )
+        if len(zonefile_bits) == 0:
+            # we don't even know about it
+            return []
+
+    table_locked = False
+    if peer_table is None:
+        table_locked = True
+        peer_table = atlas_peer_table_lock()
+
+    push_peers = []
+    for peer_hostport in peer_table.keys():
+        zonefile_inv = peer_table[peer_hostport]['zonefile_inv']
+        res = atlas_inventory_test_zonefile_bits( zonefile_inv, zonefile_bits )
+        if res:
+            push_peers.append( peer_hostport )
+
+    if table_locked:
+        atlas_peer_table_unlock()
+        peer_table = None
+
+    return push_peers
+
+
+def atlas_zonefile_push_enqueue( zonefile_hash, zonefile_data, peer_table=None, zonefile_queue=None, con=None, path=None ):
+    """
+    Enqueue the given zonefile into our "push" queue.
+    Only enqueue if we know of one peer that doesn't
+    have it in its inventory vector.
+
+    Return True if we enqueued it
+    Return False if not
+    """
+    table_locked = False
+    zonefile_queue_locked = False
+    res = False
+
+    bits = atlasdb_get_zonefile_bits( zonefile_hash, path=path, con=con )
+    if len(bits) == 0:
+        return
+
+    if peer_table is None:
+        table_locked = True
+        peer_table = atlas_peer_table_lock()
+
+    push_peers = atlas_zonefile_find_push_peers( zonefile_hash, peer_table=peer_table, zonefile_bits=bits )
+    if len(push_peers) > 0:
+
+        # someone needs this
+        if zonefile_queue is None:
+            zonefile_queue_locked = True
+            zonefile_queue = atlas_zonefile_queue_lock()
+
+        if len(zonefile_queue) < MAX_QUEUED_ZONEFILES: 
+            zonefile_queue.append( {zonefile_hash: zonefile_data} )
+            res = True
+        
+        if zonefile_queue_locked:
+            atlas_zonefile_queue_unlock()
+
+    return res
+
+
+def atlas_zonefile_push_dequeue( zonefile_queue=None ):
+    """
+    Dequeue a zonefile to replicate
+    """
+    zonefile_queue_locked = False
+    if zonefile_queue is None:
+        zonefile_queue = atlas_zonefile_queue_lock()
+        zonefile_queue_locked = True
+
+    ret = None
+    if len(zonefile_queue) > 0:
+        ret = zonefile_queue.pop(0)
+
+    if zonefile_queue_locked:
+        atlas_zonefile_queue_unlock()
+
+    return ret
+
+
 class AtlasPeerCrawler( threading.Thread ):
     """
     Thread that continuously crawls peers.
@@ -1223,21 +1607,30 @@ class AtlasPeerCrawler( threading.Thread ):
         self.peer_crawl_list = []
 
 
-    def step( self, peer_table=None ):
+    def step( self, lastblock, peer_table=None, peer_queue=None ):
         """
         Execute one round of the peer discovery algorithm:
         select a peer at random, get its neighbors,
         and remember to begin crawling them.
         """
+
+        peer_queue = atlas_peer_dequeue_all( peer_queue=peer_queue )
+        random.shuffle( peer_queue )
+
+        # add new peers, if there's space
+        for peer in peer_queue:
+            if peer not in self.peer_crawl_list and len(self.peer_crawl_list) < 2 * NUM_NEIGHBORS:
+                self.peer_crawl_list.append( peer )
+
         # talk to peers at random
-        peer_hostport = self.peer_crawl_list[ random.randint(0, len(peer_query_list)+1) ]
+        peer_hostport = self.peer_crawl_list[ random.randint(0, len(self.peer_crawl_list)+1) ]
         if peer_hostport == my_hostport:
             return
   
         log.debug("Crawl peer %s" % peer_hostport)
 
         # ask this peer for its K-rarest neighbors
-        peers = atlas_peer_get_neighbors(peer_hostport, timeout=10 )
+        peers = atlas_peer_get_neighbors(self.my_hostport, peer_hostport, timeout=10 )
 
         if peers is None:
             log.debug("No peers from %s" % peer_hostport)
@@ -1249,12 +1642,22 @@ class AtlasPeerCrawler( threading.Thread ):
             locked = True
             peer_table = atlas_peer_table_lock()
 
+        # remove peers that have mostly the same data as us
+        max_neighbors = atlas_max_neighbors()
+        if len(peer_table.keys()) > max_neighbors:
+
+            peers = atlas_rank_peers_by_availability( lastblock=lastblock, peer_table=peer_table)[:max_neighbors]
+            atlas_remove_peers( peers, peer_table )
+
         # add new peers and update popularity
         for newpeer in peers:
 
             newhost, newport = url_to_host_port( newpeer )
             new_hostport = "%s:%s" % (host, port)
-            if new_hostport in peer_query_list:
+            
+            atlas_peer_add_neighbor( peer_hostport, new_hostport, peer_table=peer_table )
+
+            if new_hostport in peer_crawl_list:
                 continue
 
             # did we know about this peer?
@@ -1262,7 +1665,11 @@ class AtlasPeerCrawler( threading.Thread ):
                 log.debug("New peer %s" % new_hostport)
                 self.peer_crawl_list.append( new_hostport )
 
-            atlas_peer_add_neighbor( peer_hostport, new_hostport, peer_table=peer_table )
+            # prune if we get too big
+            if len(self.peer_crawl_list) > 2*max_neighbors:
+                # remove one at random
+                self.peer_crawl_list.pop( random.randint(0, len(self.peer_crawl_list)+1) )
+
 
         if locked:
             atlas_peer_table_unlock()
@@ -1289,7 +1696,10 @@ class AtlasHealthChecker( threading.Thread ):
     """
     Thread that continuously monitors the health
     of our neighbor set.  It will remove unhealthy
-    peers if we have too many neighbors (over MAX_PEERS)
+    peers if we have too many neighbors (over NUM_NEIGHBORS).
+
+    Unhealthy is defined as "we can't reach them, or
+    they don't have zonefiles that we need"
     """
     def __init__(self, my_host, my_port, path=None):
         threading.Thread.__init__(self)
@@ -1300,140 +1710,68 @@ class AtlasHealthChecker( threading.Thread ):
             path = atlasdb_path()
 
 
-    def step( self, peer_table=None ):
-        """
-        Run one step of the algorithm:
-        * ping peers we haven't heard from in a while (in more than PEER_PING_INTERVAL seconds) 
-        * if we have too many peers, then find the unhealthy ones
-        and remove them from the peer set
-        """
-
-        to_ping = []
-        locked = False
-        
-        if peer_table is None:
-            locked = True
-            peer_table = atlas_peer_table_lock()
-        
-        now = time_now()
-        for peer_hostport in peer_table.keys():
-            last_time = atlas_peer_get_last_response_time( peer_hostport, peer_table=peer_table )
-            if last_time + PEER_PING_INTERVAL < now:
-                # haven't heard from it in a while
-                to_ping.append( peer_hostport )
-
-        if locked:
-            atlas_peer_table_unlock()
-            peer_table = None
-
-        # update responsiveness
-        for peer_hostport in to_ping:
-            res = atlas_peer_ping( peer_hostport, timeout=3 )
-            atlas_peer_update_health( peer_hostport, res, peer_table=peer_table )
-
-        if locked:
-            peer_table = atlas_peer_table_lock()
-        
-        # remove peers that are dead to us
-        if len(peer_table.keys()) > MAX_PEERS:
-
-            # TODO: consider removing peers that don't know about zonefiles we don't have
-            peers = atlas_rank_peers_by_health(peer_table=peer_table)[MAX_PEERS:]
-            atlas_remove_peers( peers, peer_table )
-
-        if locked:
-            atlas_peer_table_unlock()
-
-        return len(to_ping)
-
-
-    def run(self):
-        while self.running:
-            num_pinged = self.step()
-            if num_pinged == 0:
-                time_sleep(self.hostport, 1.0)
-
-
-    def ask_join(self):
-        self.running = False
-
-
-class AtlasZonefileFinder( threading.Thread ):
-    """
-    Thread that continuously tries to find out
-    the distribution of zonefiles in the peer set.
-    Continuously selects the top-K healthiest peers
-    and refreshes their zonefile inventories
-    """
-   
-    INV_REFRESH_RANGE = 5000        # periodically refresh the last 5000 blocks of inventory
-
-    def __init__(self, my_host, my_port, path=None):
-        threading.Thread.__init__(self)
-        self.running = False
-        self.path = path
-        self.hostport = "%s:%s" % (my_host, my_port)
-        if self.path is None:
-            self.path = atlasdb_path()
-      
-
-    def step(self, peers, lastblock, con=None, path=None, peer_table=None):
+    def step(self, con=None, path=None, peer_table=None):
         """
         Run one step of this algorithm.
-        Loop through the set of neighbors,
-        and make sure their zonefile inventories
-        are still fresh.
+        Ping the given neighbor for its zonefile inventory,
+        and update our local copy (starting from startblock).
 
-        Return the number of peers refreshed
+        Return True on success
+        Return False on error
         """
         if path is None:
             path = self.path
 
-        refresh_count = 0
-        for peer_hostport in peers:
+        lock = False
+        if peer_table is None:
+            lock = True
+            peer_table = peer_table_lock()
+        
+        # find someone to ping
+        num_peers = len(peer_table.keys())
+        peers = peer_table.keys()[:]
 
-            if not atlas_peer_has_fresh_zonefile_inventory( peer_hostport, peer_table=peer_table ):
-                log.debug("Refresh zonefile inventory for %s" % peer_hostport)
-                res = atlas_peer_refresh_zonefile_inventory( peer_hostport, lastblock - self.INV_REFRESH_RANGE, con=con, path=path, peer_table=peer_table )
-                if res is None:
-                    log.warning("Failed to refresh zonefile inventory for %s" % peer_hostport)
+        random.shuffle( peers )
 
-                else:
-                    refresh_count += 1
-
-            # preemption point 
-            if not self.running:
+        # who are we going to ping?
+        # someone we haven't pinged in a while, chosen at random
+        peer_hostport = None
+        for peer in peers:
+            if not atlas_peer_has_fresh_zonefile_inventory( peer, peer_table=peer_table ):
+                # haven't talked to this peer in a while
+                peer_hostport = peer
                 break
 
-        return refresh_count
+        if lock:
+            peer_table_unlock()
+            peer_table = None
+
+        if peer_hostport:
+            # have someone to ping
+            # TODO: startblock should be the smallest block number of the current zonefile set
+            log.debug("Refresh zonefile inventory for %s" % peer_hostport)
+            res = atlas_peer_refresh_zonefile_inventory( peer_hostport, FIRST_BLOCK_MAINNET, con=con, path=path, peer_table=peer_table )
+            if res is None:
+                log.warning("Failed to refresh zonefile inventory for %s" % peer_hostport)
+
+        else:
+            time_sleep(self.hostport, self.__class.__name__, 1.0)
+
+        return 
 
 
-    def run(self):
+    def run(self, peer_table=None):
         """
-        Constantly try to synchronize the zonefile
-        inventories.
+        Loop forever, pinging someone every pass.
         """
-        self.running = True
         while self.running:
+            # TODO: first block should be the smallest block in the *current zonefile set*
+            # that we don't have a zonefile for, or lastblock - 5000 (whichever is smaller)
+            self.step( peer_table=peer_table )
 
-            db = get_db_state()
-            lastblock = db.lastblock
 
-            con = atlasdb_open( self.path )
-            peers = atlas_rank_peers_by_health()
-
-            # only worry about K neighbors
-            if len(peers) > NUM_NEIGHBORS:
-                peers = peers[:NUM_NEIGHBORS]
-
-            # but, try them in a random order
-            random.shuffle(peers)
-
-            num_refreshed = self.step( peers, lastblock, con=con )
-            if num_refreshed == 0:
-                # wait for a while
-                time_sleep(self.hostport, 1.0)
-
+    def ask_join(self):
+        self.running = False
 
 
 class AtlasZonefileCrawler( threading.Thread ):
@@ -1491,7 +1829,7 @@ class AtlasZonefileCrawler( threading.Thread ):
         # ask in rarest-first order
         zonefile_ranking = [ (missing_zfinfo[zfhash]['popularity'], zfhash) for zfhash in missing_zfinfo.keys() ]
         zonefile_ranking.sort()
-        zonefile_hashes = [zfhash for (_, zfhash) in zonefile_ranking]
+        zonefile_hashes = list(set([zfhash for (_, zfhash) in zonefile_ranking]))
 
         zonefile_origins = {}   # map peer hostport to list of zonefile hashes
 
@@ -1506,7 +1844,7 @@ class AtlasZonefileCrawler( threading.Thread ):
             zfhash = zonefile_hashes[0]
             peers = missing_zfinfo[zfhash]['peers']
 
-            # rank peers by popularity
+            # try this zonefile's hosts in order by perceived availability
             peers = atlas_rank_peers_by_health( peer_list=peers )
             for peer_hostport in peers:
 
@@ -1545,12 +1883,11 @@ class AtlasZonefileCrawler( threading.Thread ):
                             peer_zonefile_hashes.remove(fetched_zfhash)
                             num_fetched += 1
 
-
-                # if the node didn't actually have these zonefiles, then 
-                # update their inventories so we don't ask for them again.
                 if locked:
                     peer_table = atlas_peer_table_lock()
 
+                # if the node didn't actually have these zonefiles, then 
+                # update their inventories so we don't ask for them again.
                 for zfhash in peer_zonefile_hashes:
                     atlas_peer_set_zonefile_status( peer_hostport, zfhash, False, zonefile_bits=missing_zfinfo[zfhash]['indexes'], peer_table=peer_table )
 
@@ -1574,322 +1911,67 @@ class AtlasZonefileCrawler( threading.Thread ):
             con.close()
             
             if num_fetched == 0:
-                time_sleep(self.hostport, 1.0)
+                time_sleep(self.hostport, self.__class__.__name__, 1.0)
 
 
-if __name__ == "__main__":
-    import blockstack
-
-    # basic unit tests
-    class MockDB(object):
-
-        zfstate = {}
-        last_block = FIRST_BLOCK_MAINNET
-        num_zonefiles = 0
-
-        def mock_add_zonefile_hashes(self, count):
-            """
-            Add zonefiles at block heights
-            """
-            if not self.zfstate.has_key(self.lastblock):
-                self.zfstate[self.lastblock] = []
-
-            for i in xrange(0, count):
-                id_idx = len(self.zfstate.keys()) + i
-                new_zf = blockstack_client.user.make_empty_user_zonefile( "testregistration%03s.id" % (id_idx),  
-                        "04bd3075d85f2e23d67998ba242e9751036393406bfb17d9b4c0c3652a6d7ff77f601a54bca9e4338336f083a4b6365eef328b55646f22b04979acd5219627b954",
-                        ["http://node.blockstack.org:6264/RPC2#testregistration%03s.id" % (id_idx),
-                         "file:///home/test/.blockstack/storage-disk/mutable/testregistration%03s.id" % (id_idx)] )
-
-                new_zf_hash = blockstack_client.storage.hash_zonefile( new_zf )
-
-                self.zfstate[self.lastblock].append( {
-                    "zonefile_hash": new_zf_hash,
-                    "zonefile": new_zf,
-                    "inv_index": self.num_zonefiles
-                })
-
-                self.num_zonefiles += 1
-
-            self.lastblock += 1
+class AtlasZonefilePusher(object):
+    """
+    Continuously drain the queue of zonefiles
+    we can push, by sending them off to 
+    known peers who need them.
+    """
+    def __init__(self, host, port ):
+        self.host = host
+        self.port = port
+        self.hostport = "%s:%s" % (host, port)
 
 
-        def mock_dup_zonefile_hashes(self, height):
-            """
-            Duplicate block state from a previous height
-            at the current height
-            """
-            assert height != self.lastblock
-            self.zfstate[self.lastblock] = []
-
-            for zfinfo in self.zfstate[height]:
-                new_info = {}
-                new_info.update( zfinfo )
-
-                new_info['inv_index'] = self.num_zonefiles
-                self.num_zonefiles += 1
-
-                self.zfstate[self.lastblock].append( new_info )
-
-            self.lastblock += 1
-
-
-        def __init__(self):
-            self.lastblock = FIRST_BLOCK_MAINNET
-            num_per_block = 5
-            for i in xrange(0, 5):
-                self.mock_add_zonefile_hashes(num_per_block + i - 4)
-
-            for i in xrange(0, 5):
-                self.mock_dup_zonefile_hashes(self.lastblock - 5)
-
-
-        def get_value_hashes_at( self, lastblock ):
-            return [zf["zonefile_hash"] for zf in self.zfstate.get(lastblock, []) ]
-
-
-    def test_atlasdb_add_zonefile_info( db, path ):
+    def step( self, peer_table=None, zonefile_queue=None ):
         """
-        Test adding more zonefile hashes
+        Run one step of this algorithm.
+        Push the zonefile to all the peers that need it.
+        Return the number of peers we sent to
         """
-        log.debug("test atlasdb_add_zonefile_info()")
-        db.mock_add_zonefile_hashes(5)
-        new_zonefile_hashes = db.get_value_hashes_at( db.lastblock )
-        for zfh in new_zonefile_hashes:
-            atlasdb_add_test_info( zfh, False, db.lastblock, path=path )
+        zfinfo = atlas_zonefile_push_dequeue( zonefile_queue=zonefile_queue )
 
+        zfbits = atlasdb_get_zonefile_bits( zonefile_hash, con=con, path=path )
+        if len(zfbits) == 0:
+            # nope 
+            return 0
 
-    def test_atlasdb_get_zonefile_info( db, block_height, path ):
-        """
-        Test getting zonefile hashes
-        """
-        log.debug("test atlasdb_get_zonefile_info(%s)" % block_height)
-        zonefile_hashes = db.get_value_hashes_at( block_height )
-        zfinfo = atlasdb_get_zonefile_info( block_height, path=path )
+        zfhash = zfinfo.keys()[0]
+        zfdata = zfinfo[zfhash]
 
-        # order and quantity preserved
-        actual_zonefile_hashes = [zf['zonefile_hash'] for zf in zfinfo]
-        assert zonefile_hashes == actual_zonefile_hashes, "Expected at %s: %s, actual: %s" % (block_height, zonefile_hashes, actual_zonefile_hashes)
+        # see if we can send this somewhere
+        table_locked = False
+        if peer_table is None:
+            peer_table = atlas_peer_table_lock()
+            table_locked = True
 
+        peers = atlas_zonefile_find_push_peers( zfhash, peer_table=peer_table, zonefile_bits=zfbits )
 
-    def test_atlasdb_set_zonefile_present( db, block_height, path ):
-        """
-        Test setting zonefiles as present or absent
-        """
-        log.debug("test atlasdb_set_zonefile_present(%s)" % block_height)
-        zonefile_hashes = db.get_value_hashes_at( block_height )
-        for zfh in zonefile_hashes:
-            atlasdb_set_zonefile_present( zfh, True, path=path )
-            zfinfo = atlasdb_get_zonefile( zfh, path=path )
-            assert zfinfo['present'], "Not present: %s" % zfh
+        if table_locked:
+            atlas_peer_table_unlock()
+            peer_table = None
 
-        for zfh in zonefile_hashes:
-            atlasdb_set_zonefile_present( zfh, False, path=path )
-            zfinfo = atlasdb_get_zonefile( zfh, path=path )
-            assert not zfinfo['present'], "Still present: %s" % zfh
+        if len(peers) == 0:
+            # everyone has it
+            return 0
 
+        # push it off
+        ret = 0
+        for peer in peers:
+            atlas_zonefile_push( peer, zfhash, zfdata, timeout=10 )
+            ret += 1
 
-    def test_atlasdb_get_zonefile_bits( db, block_height, path ):
-        """
-        Test getting a zonefile's inventory bits
-        """
-        log.debug("test atlasdb_get_zonefile_bits(%s)" % block_height)
-        zonefile_hashes = db.get_value_hashes_at( block_height )
-        for zfh in zonefile_hashes:
-            bits = atlasdb_get_zonefile_bits( zfh, path=path )
-            
-            # must match what we put in
-            expected_bits = []
-            idx = 0
-            for height in sorted(db.zfstate.keys()):
-                for zfinfo in db.zfstate[height]:
-                    if zfinfo['zonefile_hash'] == zfh:
-                        expected_bits.append(idx)
-
-                    idx += 1
-
-            assert expected_bits == bits, "Bits mismatch on %s: %s != %s" % (block_height, bits, expected_bits)
-
-
-    def test_atlasdb_zonefile_info_list( db, zonefile_hash, path ):
-        """
-        Test listing all zonefile information, from start block to end
-        """
-        log.debug("test atlasdb_zonefile_info_list(%s)" % zonefile_hash)
-        zflisting = atlasdb_zonefile_info_list( FIRST_BLOCK_MAINNET, db.lastblock, path=path )
-        idx = 0
-        while idx < len(zflisting):
-
-            zfl = zflisting[idx]
-
-            # must match what we put in
-            bh = zfl['block_height']
-            for zfs in db.zfstate[bh]:
-                assert zfs['zonefile_hash'] == zflisting[idx]['zonefile_hash'], "zonefile mismatch at index %s: %s != %s" % (idx, zfs['zonefile_hash'], zflisting[idx]['zonefile_hash'])
-                assert zfs['inv_index'] == idx, "zonefile inv idx mismatch: %s != %s" % (idx, zfl[idx]['inv_index'])
-                idx += 1
-
-
-    def test_atlas_make_zonefile_inventory( db, path, zonefile_dir ):
-        """
-        Test making a zonefile inventory vector
-        """
-        log.debug("test atlas_make_zonefile_inventory()")
-
-        # mark a subset of zonefiles as "present"
-        for height in xrange(FIRST_BLOCK_MAINNET, db.lastblock):
-            zonefile_hashes = db.get_value_hashes_at( height )
-            if len(zonefile_hashes) > 0 and height % 2 == 0:
-                i = random.randint(0, len(zonefile_hashes)-1)
-                zfh = zonefile_hashes[i]
-                atlasdb_set_zonefile_present( zfh, True, path=path )
-                log.debug("   %s is now present" % (zfh))
-
-        inv_vec = atlas_make_zonefile_inventory( FIRST_BLOCK_MAINNET, db.lastblock, path=path, zonefile_dir=zonefile_dir )
-        
-        # convert to array of bools
-        inv_bool = []
-        for i in xrange(0, len(inv_vec)):
-
-            for j in xrange(7, -1, -1):
-                if (ord(inv_vec[i]) & (1 << j)) != 0:
-                    inv_bool.append( True )
-                else:
-                    inv_bool.append( False )
-
-        # verify that it matches the db
-        zflisting = atlasdb_zonefile_info_list( FIRST_BLOCK_MAINNET, db.lastblock, path=path )
-        assert len(inv_bool) >= len(zflisting), "Less inv than zonefiles"
-
-        for i in xrange(0, len(zflisting)):
-            assert zflisting[i]['present'] == inv_bool[i], "Present mismatch at %s: %s" % (i, zflisting[i]['zonefile_hash'])
+        return ret
 
     
+    def run(self):
+        self.running = True
+        while self.running:
+            num_pushed = self.step()
+            if num_pushed == 0:
+                time_sleep(self.hostport, self.__class__.__name__, 1.0)
         
-
-    db = MockDB()
-    testdir = "/tmp/atlas_unit_tests"
-    test_db_path = "/tmp/atlas_unit_tests/atlas.db"
-    test_peer_seeds = ['node.blockstack.org:6264']
-    zonefile_dir = "/tmp/atlas_unit_tests/zonefiles/"
-
-    if os.path.exists(testdir):
-        shutil.rmtree(testdir)
-
-    os.makedirs( os.path.dirname(test_db_path) )
-    os.makedirs( zonefile_dir )
-
-    virtualchain.setup_virtualchain( impl=blockstack.lib.virtualchain_hooks )
-
-    atlasdb_init( test_db_path, db, test_peer_seeds, [], zonefile_dir=zonefile_dir )
-
-    """
-    Zonefile methods
-    """
-    if os.environ.get("BLOCKSTACK_ATLAS_UNIT_TEST_DB_SKIP", None) is None:
-        test_atlasdb_add_zonefile_info( db, test_db_path )
-
-        for height in xrange(FIRST_BLOCK_MAINNET, db.lastblock-1):
-            test_atlasdb_get_zonefile_info( db, height, test_db_path )
-            test_atlasdb_set_zonefile_present( db, height, test_db_path )
-            test_atlasdb_get_zonefile_bits( db, height, test_db_path )
-
-        for height, zfl in db.zfstate.items():
-            for zfs in zfl:
-                test_atlasdb_zonefile_info_list( db, zfs['zonefile_hash'], test_db_path )
-
-        test_atlas_make_zonefile_inventory( db, test_db_path, zonefile_dir )
-
-    """
-    Peer methods
-    """
-    peers = ['host1:12345', 'host2:12345', 'host3:12345']
-    zonefile_hashes = ["68fbe96e69c0531e9bb741c15e8c1b323f9857b5",
-                        "3cee7bb465b00c2495caf5de8724ac3de9b449e2",
-                        "e7f84f57c073f9c08bda6a7f07277278ad5aa33c",
-                        "28898fdfee4c5f72c09adf97daeb0caeadb12bee",
-                        "d4712e9953bbe47450322197e706163af16d09b6",
-                        "28898fdfee4c5f72c09adf97daeb0caeadb12bee",    # dup
-                        "aba487f174e2a11cc43b621b64433daf72f69d38" ]
-
-    peer_table = {}
-    for i in xrange(0, len(peers)):
-        atlas_init_peer_info( peer_table, peers[i] )
-
-    # first one is healthy
-    # middle one is meh
-    # last one is unhealthy
-    for i in xrange( 0, 6 ):
-        # available 6/6 time
-        atlas_peer_update_health( peers[0], True, peer_table=peer_table )
-
-    for i in xrange( 0, 6 ):
-        # available 3/6 time
-        atlas_peer_update_health( peers[1], i >= 3, peer_table=peer_table )
-
-    for i in xrange( 0, 6 ):
-        # available 1/6 time
-        atlas_peer_update_health( peers[2], i >= 5, peer_table=peer_table )
-
-    healths = []
-    for i in xrange(0, len(peers)):
-        healths.append( atlas_peer_get_health(peers[i], peer_table=peer_table) )
-    
-    assert healths[0] >= 0.99, "health of %s is %s" % (peers[0], healths[0])
-    assert healths[1] >= 0.5 and healths[1] <= 0.51, "health of %s is %s" % (peers[1], healths[2])
-    assert healths[2] >= 1.0/6.0 and healths[2] <= 0.17, "health of %s is %s" % (peers[2], healths[2])
-
-    assert atlas_peer_is_live( peers[0], peer_table, min_health=0.5 )
-    assert atlas_peer_is_live( peers[1], peer_table, min_health=0.49 ), "peer %s is dead (health is %s)" % (peers[1], healths[1])
-    assert not atlas_peer_is_live( peers[2], peer_table, min_health=0.5 ), "peer %s is alive (health is %s)" % (peers[2], healths[2])
-
-    # peer 0 is popular--known by everyone
-    atlas_peer_add_neighbor( peers[1], peers[0], peer_table=peer_table )
-    atlas_peer_add_neighbor( peers[2], peers[0], peer_table=peer_table )
-
-    live_peers = atlas_get_rarest_live_peers( peer_table=peer_table, min_health=0.49 )
-    assert live_peers == [peers[1], peers[0]], "rarest live peers = %s" % live_peers
-
-    peers_by_health = atlas_rank_peers_by_health( peer_table=peer_table )
-    assert peers_by_health == [peers[0], peers[1], peers[2]]
-
-    # peer 1 knows every zonefile
-    # peer 2 knows nothing
-    peer2_zonefile_info = []
-    peer0_expected_inv_value = 0
-    for i in xrange(0, len(zonefile_hashes)):
-        bits = []
-        for j in xrange(0, len(zonefile_hashes)):
-            if zonefile_hashes[j] == zonefile_hashes[i]:
-                bits.append(j)
-
-        atlas_peer_set_zonefile_status( peers[0], zonefile_hashes[i], True, zonefile_bits=bits, peer_table=peer_table )
-        peer2_zonefile_info.append({
-            "inv_index": i,
-            "zonefile_hash": zonefile_hashes[i],
-            "present": False,
-            "block_height": FIRST_BLOCK_MAINNET + i
-        })
-
-        peer0_expected_inv_value = peer0_expected_inv_value | (1 << (len(zonefile_hashes) - i))
-
-    peer0_expected_inv = "%x" % peer0_expected_inv_value
-    peer0_zonefile_inv = binascii.hexlify( peer_table[peers[0]]['zonefile_inv'] )
-    assert peer0_expected_inv == peer0_zonefile_inv, "Inv mismatch: %s != %s" % (peer0_expected_inv, peer0_zonefile_inv)
-
-    # peer 2 should discover that peer 1 has the zonefiles
-    res = atlas_find_missing_zonefile_availability( peer_table=peer_table, missing_zonefile_info=peer2_zonefile_info )
-    for i in xrange(0, len(zonefile_hashes)):
-        zfhash = zonefile_hashes[i]
-        zfinfo = res[zfhash]
-        assert peers[0] in zfinfo['peers'], "Missing %s for %s\n%s" % (peers[0], zfhash, simplejson.dumps(res, indent=4, sort_keys=True))
-        assert zfinfo['popularity'] == 1, "%s popularity is %s\n%s" % (zfhash, zfinfo['popularity'], simplejson.dumps(res, indent=4, sort_keys=True))
-
-        bits = []
-        for j in xrange(0, len(zonefile_hashes)):
-            if zonefile_hashes[j] == zonefile_hashes[i]:
-                bits.append(j)
-
-        assert zfinfo['indexes'] == bits, "bits for %s: %s\n%s" % (zfhash, bits, simplejson.dumps(peer2_zonefile_info, indent=4, sort_keys=True))
-
 
