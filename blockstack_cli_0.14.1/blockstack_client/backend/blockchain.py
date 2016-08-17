@@ -19,7 +19,7 @@ import json
 current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
 
-from ..config import TX_EXPIRED_INTERVAL, TX_CONFIRMATIONS_NEEDED
+from ..config import TX_EXPIRED_INTERVAL, TX_CONFIRMATIONS_NEEDED, TX_MIN_CONFIRMATIONS
 from ..config import MAXIMUM_NAMES_PER_ADDRESS
 from ..config import BLOCKSTACKD_SERVER, BLOCKSTACKD_PORT
 
@@ -31,6 +31,8 @@ from ..utils import pretty_print as pprint
 
 from ..proxy import get_default_proxy
 from ..proxy import get_names_owned_by_address as blockstack_get_names_owned_by_address
+
+from ..scripts import tx_get_unspents
 
 log = get_logger() 
 
@@ -164,7 +166,7 @@ def is_tx_rejected(tx_hash, tx_sent_at_height, config_path=CONFIG_PATH):
     return False
 
 
-def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=6):
+def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=TX_MIN_CONFIRMATIONS):
     """ 
     Given an address get unspent outputs (UTXOs)
     Return array of UTXOs on success
@@ -173,27 +175,16 @@ def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmati
 
     if utxo_client is None:
         utxo_client = get_utxo_provider_client(config_path=config_path)
-
+   
     data = []
-
     try:
-        data = pybitcoin.get_unspents(address, utxo_client)
-
-        for d in data:
-            assert d.has_key('value')
-
-    except Exception as e:
+        data = tx_get_unspents( address, utxo_client )
+    except Exception, e:
         log.exception(e)
-        log.debug("Error in getting UTXOs from UTXO provider: %s" % e)
-        return {'error': 'Caught exception querying UTXOs; trace follows:\n%s' % traceback.format_exc()}
-
-    # filter minimum confirmations 
-    ret = []
-    for d in data:
-        if not d.has_key('confirmations') or d['confirmations'] >= min_confirmations:
-            ret.append(d)
-
-    return ret
+        log.debug("Failed to get UTXOs for %s" % address)
+        data = {'error': 'Failed to get UTXOs for %s' % address}
+    
+    return data
 
 
 def get_balance(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=6):
