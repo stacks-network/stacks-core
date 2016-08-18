@@ -370,17 +370,6 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     pinger.ask_join()
     pinger.join()
 
-    """
-    # sync SPV header chain 
-    log.info("Sync SPV headers")
-    res = blockstack_client.SPVClient.sync_header_chain( spv_headers_path, "localhost:18444", testlib.get_current_block( **test_env ) ) 
-    if not res:
-        log.error("Failed to sync header chain")
-        return False 
-
-    log.info("SPV headers sync'ed")
-    """
-
     # run the checks on the database
     try:
         rc = scenario.check( db )
