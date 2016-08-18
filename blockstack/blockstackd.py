@@ -244,7 +244,6 @@ def rpc_traceback():
     }
 
 
-
 def get_name_cost( name ):
     """
     Get the cost of a name, given the fully-qualified name.
@@ -1108,10 +1107,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return {'status': True, 'peers': peer_list}
 
     
-    def rpc_get_zonefile_inventory( self, start_block, end_block ):
+    def rpc_get_zonefile_inventory( self, offset, length ):
         """
         Get an inventory bit vector for the zonefiles in the 
-        given block range (the range must be at most 100 blocks)
+        given bit range (i.e. offset and length are in bits)
         Return {'status': True, 'inv': ...} on success, where 'inv' is a b64-encoded bit vector string
         Return {'error': ...} on error.
         """
@@ -1126,7 +1125,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return {'error': 'Invalid start range'}
 
         zonefile_dir = conf.get("zonefiles", None)
-        zonefile_inv = atlas_make_zonefile_inventory( start_block, end_block, zonefile_dir=zonefile_dir )
+        zonefile_inv = atlas_make_zonefile_inventory( offset, length, zonefile_dir=zonefile_dir )
         return {'status': True, 'inv': base64.b64encode(zonefile_inv) }
 
     
