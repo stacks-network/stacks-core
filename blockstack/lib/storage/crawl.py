@@ -50,8 +50,10 @@ def get_cached_zonefile( zonefile_hash, zonefile_dir=None ):
     if zonefile_dir is None:
         zonefile_dir = get_zonefile_dir()
 
-    zonefile_path = os.path.join( zonefile_dir, zonefile_hash )
+    zonefile_path_dir = cached_zonefile_dir( zonefile_dir, zonefile_hash )
+    zonefile_path = os.path.join( zonefile_path_dir, "zonefile.txt" )
     if not os.path.exists( zonefile_path ):
+        log.debug("No zonefile at %s" % zonefile_path )
         return None 
 
     with open(zonefile_path, "r") as f:
@@ -223,12 +225,17 @@ def store_zonefile_to_storage( zonefile_dict, required=[], cache=False, zonefile
 
     name = zonefile_dict['$origin']
     zonefile_text = blockstack_zones.make_zone_file( zonefile_dict )
-   
-    # find the tx that paid for this zonefile
-    txid = get_zonefile_txid( zonefile_dict )
-    if txid is None:
-        log.error("No txid for zonefile hash '%s' (for '%s')" % (zonefile_hash, name))
-        return False
+ 
+    txid = None
+
+    # this can be turned off in testing in a network simulator 
+    if os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION") != "1":
+
+        # find the tx that paid for this zonefile
+        txid = get_zonefile_txid( zonefile_dict )
+        if txid is None:
+            log.error("No txid for zonefile hash '%s' (for '%s')" % (zonefile_hash, name))
+            return False
    
     rc = blockstack_client.storage.put_immutable_data( None, txid, data_hash=zonefile_hash, data_text=zonefile_text, required=required )
     if not rc:
