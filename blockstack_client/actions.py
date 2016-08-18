@@ -1481,10 +1481,22 @@ def cli_advanced_wallet( args, config_path=CONFIG_PATH, password=None ):
     wallet_keys = get_wallet_keys( config_path, password )
     display_wallet_info(wallet_keys.get('payment_address'), wallet_keys.get('owner_address'), wallet_keys.get('data_pubkey'), config_path=CONFIG_PATH )
 
+    payment_privkey = wallet_keys.get('payment_privkey')
+    if payment_privkey is not None:
+        payment_privkey = pybitcoin.BitcoinPrivateKey(payment_privkey).to_wif()
+
+    owner_privkey = wallet_keys.get('owner_privkey')
+    if owner_privkey is not None:
+        owner_privkey = pybitcoin.BitcoinPrivateKey(owner_privkey).to_wif()
+
+    data_privkey = wallet_keys.get('data_privkey')
+    if data_privkey is not None:
+        data_privkey = pybitcoin.BitcoinPrivateKey(data_privkey).to_wif()
+
     print "Private keys:\n"
-    print "Payment private key: %s" % wallet_keys.get('payment_privkey')
-    print "Owner private key:   %s" % wallet_keys.get('owner_privkey')
-    print "Data private key:    %s" % wallet_keys.get('data_privkey')
+    print "Payment private key: %s" % payment_privkey
+    print "Owner private key:   %s" % owner_privkey
+    print "Data private key:    %s" % data_privkey
     print ""
     return result
 
