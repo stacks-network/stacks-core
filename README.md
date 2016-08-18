@@ -6,7 +6,7 @@
 
 Blockstack is a new decentralized web, where users own their data and apps run on user devices without the need for servers. 
 
-Blockstack Core handles the main functionality of the system. It is responsible for processing blockchain transactions, creating virtuclchain state, and building the peer network amongst other things. Blockstack Core provides RPC and RESTful interfaces for Blockstack clients.
+Blockstack Core handles the main functionality of the system. It is responsible for processing blockchain transactions, creating virtualchain state, and building the peer network amongst other things. Blockstack Core provides RPC and RESTful interfaces for Blockstack clients.
 
 Learn more by visiting [the Blockstack Website](https://blockstack.org) and checking out the in-depth articles and documentation:
 
