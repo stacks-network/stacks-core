@@ -28,14 +28,21 @@ import base64
 import blockstack_zones
 import json
 import shutil
+import atexit
+import errno
 
 import blockstack
 import blockstack_client
 import virtualchain
 
+from SimpleXMLRPCServer import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
+
 from blockstack_client.config import FIRST_BLOCK_MAINNET
+from blockstack_client import BlockstackRPCClient
 
 from blockstack.atlas import *
+
+RPC_SERVER_PORT = 16264
 
 # current simulator time
 TIME = 0
@@ -47,83 +54,71 @@ def get_network_state():
     global NETWORK_STATE
     return NETWORK_STATE
 
+def set_network_state( n ):
+    global NETWORK_STATE
+    NETWORK_STATE = n
+
+
 def time_now():
-    global TIME
-    return TIME
+    """
+    Get the current time
+    """
+    rpc = AtlasRPCTestClient( "none", 0 )
+    return rpc.time_now()
+
 
 def time_sleep(hostport, procname, value):
-    network = get_network_state()
-    now = time_now()
-    node = network.get_node( hostport )
-    node.set_sleep_deadline( procname, now + value )
+    """
+    Have this host sleep for a bit
+    """
+    rpc = AtlasRPCTestClient( "none", 0, src=hostport )
+    rpc.add_sleep_deadline( hostport, procname, value )
+
 
 def atlas_max_neighbors():
-    network = get_network_state()
-    return network.max_neighbors
+    """
+    How many neighbors can a peer have?
+    """
+    rpc = AtlasRPCTestClient( "none", 0 )
+    return rpc.max_neighbors()
+
 
 def atlas_peer_lifetime_interval():
-    network = get_network_state()
-    return network.peer_lifetime_interval
+    """
+    How long is a peer's request history viable?
+    """
+    rpc = AtlasRPCTestClient( "none", 0 )
+    return rpc.peer_lifetime_interval()
+
 
 def atlas_peer_ping_interval():
-    network = get_network_state()
-    return network.peer_ping_interval
+    """
+    How long is a peer's last-contact information fresh?
+    """
+    rpc = AtlasRPCTestClient( "none", 0 )
+    return rpc.peer_ping_interval()
 
 
 class AtlasRPCTestClient(object):
-    def __init__(self, host, port, timeout=60):
-        self.host = host
-        self.port = port
-        self.hostport = "%s:%s" % (host, port)
+    def __init__(self, host, port, timeout=60, src=None):
+        self.rpc = BlockstackRPCClient( "127.0.0.1", RPC_SERVER_PORT, timeout=timeout )
+        self.src_hostport = src
+        self.dest_hostport = "%s:%s" % (host, port)
         self.timeout = timeout
-
-    
-    def possibly_drop(self):
-        """
-        Possibly drop a connection.
-        Raise socket.error if so
-        """
-        network = get_network_state()
-        if network.is_dropped( self.hostport ):
-            # dropped
-            se = socket.error
-            se.errno = errno.ETIMEDOUT
-            raise se
-
-
-    def ping(self):
-        """
-        Network ping, with simulated loss
-        """
-        self.possibly_drop()
-        return {'alive': True}
-
-
-    def get_zonefile_inventory( self, start, end ):
-        """
-        Get zonefile inventory from the given dest hostport, with simulated loss
-        """
-        self.possibly_drop()
-        network = get_network_state()
-        atlasdb_path = network.get_atlasdb_path( self.hostport )
-        inv = atlas_make_zonefile_inventory( start, end, path=atlasdb_path )
-        return {'status': True, 'inv': base64.b64encode(inv)}
 
 
     def get_atlas_peers( self, src_hostport ):
         """
-        Get the list of peers in this peer's neighbor set, with simulated loss.
-        Give the receiver the src hostport
+        Get atlas peers from the destination
         """
-        self.possibly_drop()
-        network = get_network_state()
-        peer_table = network.get_peer_table( self.hostport )
-        neighbors = atlas_get_rarest_live_peers( peer_table=peer_table )
-        
-        node = network.get_node( src_hostport )
-        atlas_peer_enqueue( src_hostport, peer_table=node.peer_table, peer_queue=node.peer_queue )
+        return self.rpc.get_atlas_peers( src_hostport, self.dest_hostport )
 
-        return {'status': True, 'peers': neighbors}
+
+    def get_zonefile_inventory( self, bit_offset, bit_len ):
+        """
+        Get zonefile inventory from the given dest hostport, with simulated loss
+        """
+        return self.rpc.get_zonefile_inventory( self.src_hostport, self.dest_hostport, bit_offset, bit_len )
 
 
     def get_zonefiles( self, zonefile_hashes ):
@@ -131,54 +126,69 @@ class AtlasRPCTestClient(object):
         Get the list of zonefiles, given the zonefile hashes (with simulated loss)
         Returns [{'zonefile hash': zonefile data}]
         """
-        self.possibly_drop()
-        network = get_network_state()
-        db = node.get_node_db( self.hostport )
-
-        ret = []
-        for zfh in zonefile_hashes:
-            if db.get_zonefile( zfh ) is None:
-                continue
-
-            ret.append({zfh: blockstack_zones.make_zone_file(db.get_zonefile(zfh))})
-
-        return {'status': True, 'zonefiles': ret}
+        return self.rpc.get_zonefiles( self.src_hostport, self.dest_hostport, zonefile_hashes )
 
     
     def put_zonefiles( self, zonefile_info ):
         """
         Upload a list of zonefiles, and enqueue them in the pusher
         """
-        self.possibly_drop()
-        network = get_network_state()
-        node = network.get_node( zonefile_info )
-        atlasdb_path = network.get_atlasdb_path( self.hostport )
-        db = node.get_node_db( self.hostport )
-        for zfdata in zonefile_info:
-            zf = blockstack_zones.parse_zone_file( str(zfdata) )
-            zfhash = blockstack_client.get_zonefile_data_hash( str(zfdata) )
+        return self.rpc.put_zonefiles( self.src_hostport, self.dest_hostport, zonefile_info )
 
-            # put to the db
-            db.add_zonefile( zf )
 
-            # update atlas
-            was_missing = atlasdb_set_zonefile_present( zonefile_hash, True, path=atlasdb_path )
-            if was_missing:
-                # we didn't have this zonefile.
-                # there's a good chance we're not alone (i.e. this request came from a client).
-                # see if we can replicate it to them in the background.
-                atlas_zonefile_push_enqueue( zonefile_hash, str(zonefile_data), peer_table=node.peer_table, zonefile_queue=node.zonefile_queue, path=atlasdb_path )
+    def add_sleep_deadline( self, hostport, procname, value ):
+        """
+        make the node sleep
+        """
+        return self.rpc.add_sleep_deadline( hostport, procname, value )
 
+
+    def max_neighbors( self ):
+        """
+        get max neighbors
+        """
+        return self.rpc.max_neighbors()
+
+
+    def peer_lifetime_interval( self ):
+        """
+        peer lifetime interval
+        """
+        return self.rpc.peer_lifetime_interval()
+
+
+    def peer_ping_interval( self ):
+        """
+        peer ping interval
+        """
+        return self.rpc.peer_ping_interval()
+
+
+    def time_now( self ):
+        """
+        time now
+        """
+        return self.rpc.time_now()
 
 
 class MockDB(object):
     """
     Mock BlockstackDB
     """
-    zfstate = {}
-    last_block = FIRST_BLOCK_MAINNET
-    num_zonefiles = 0
 
+    def __init__(self, zonefile_dir):
+        self.lastblock = FIRST_BLOCK_MAINNET
+        num_per_block = 5
+        self.zfstate = {}
+        self.num_zonefiles = 0
+        self.zonefile_dir = zonefile_dir
+        """
+        for i in xrange(0, 5):
+            self.mock_add_zonefile_hashes(num_per_block + i - 4)
+
+        for i in xrange(0, 5):
+            self.mock_dup_zonefile_hashes(self.lastblock - 5)
+        """
 
     def add_zonefile( self, zf ):
         """
@@ -191,7 +201,7 @@ class MockDB(object):
                     self.zfstate[height]['zonefile'] = zf
 
 
-    def mock_add_zonefile_hashes(self, count):
+    def mock_add_zonefile_hashes(self, count, present=True):
         """
         Add zonefiles at block heights
         """
@@ -200,18 +210,26 @@ class MockDB(object):
 
         for i in xrange(0, count):
             id_idx = len(self.zfstate.keys()) + i
-            new_zf = blockstack_client.user.make_empty_user_zonefile( "testregistration%03s.id" % (id_idx),  
+            new_zf = blockstack_client.user.make_empty_user_zonefile( "testregistration%03d.id" % (id_idx),  
                     "04bd3075d85f2e23d67998ba242e9751036393406bfb17d9b4c0c3652a6d7ff77f601a54bca9e4338336f083a4b6365eef328b55646f22b04979acd5219627b954",
-                    ["http://node.blockstack.org:6264/RPC2#testregistration%03s.id" % (id_idx),
-                     "file:///home/test/.blockstack/storage-disk/mutable/testregistration%03s.id" % (id_idx)] )
+                    ["http://node.blockstack.org:6264/RPC2#testregistration%03d.id" % (id_idx),
+                     "file:///home/test/.blockstack/storage-disk/mutable/testregistration%03d.id" % (id_idx)] )
 
             new_zf_hash = blockstack_client.storage.hash_zonefile( new_zf )
+
+            if not present:
+                # have hash, but not zonefile
+                new_zf = None
 
             self.zfstate[self.lastblock].append( {
                 "zonefile_hash": new_zf_hash,
                 "zonefile": new_zf,
                 "inv_index": self.num_zonefiles
             })
+
+            if new_zf is not None:
+                log.debug("store zonefile %s" % new_zf['$origin'])
+                blockstack.lib.storage.store_cached_zonefile( new_zf, zonefile_dir=self.zonefile_dir )
 
             self.num_zonefiles += 1
 
@@ -238,8 +256,8 @@ class MockDB(object):
         self.lastblock += 1
 
 
-    def get_value_hashes_at( self, lastblock ):
-        return [zf["zonefile_hash"] for zf in self.zfstate.get(lastblock, []) ]
+    def get_value_hashes_at( self, height ):
+        return [zf["zonefile_hash"] for zf in self.zfstate.get(height, []) ]
 
 
     def get_zonefile( self, zonefile_hash ):
@@ -251,21 +269,11 @@ class MockDB(object):
         return None
 
 
-    def __init__(self):
-        self.lastblock = FIRST_BLOCK_MAINNET
-        num_per_block = 5
-        for i in xrange(0, 5):
-            self.mock_add_zonefile_hashes(num_per_block + i - 4)
-
-        for i in xrange(0, 5):
-            self.mock_dup_zonefile_hashes(self.lastblock - 5)
-
-
 class AtlasNode(object):
     """
     Simulated atlas node
     """
-    def __init__(self, host, port, peer_seeds, peer_blacklist, db_path, zonefile_dir):
+    def __init__(self, host, port, peer_seeds, peer_blacklist, zonefile_inv, db_path, zonefile_dir):
         """
         Initialize this atlas node's state
         """
@@ -274,6 +282,7 @@ class AtlasNode(object):
 
         self.host = host
         self.port = port
+        self.db_path = db_path
         self.hostport = "%s:%s" % (host, port)
         self.online = True
 
@@ -282,25 +291,56 @@ class AtlasNode(object):
         self.zonefile_crawler = AtlasZonefileCrawler( host, port, zonefile_storage_drivers=["disk"], path=db_path, zonefile_dir=zonefile_dir )
         self.zonefile_pusher = AtlasZonefilePusher( host, port )
 
-        self.sleep_deadlines = {
-            "AtlasPeerCrawler": 0,
-            "AtlasHealthChecker": 0,
-            "AtlasZonefileCrawler": 0,
-            "AtlasZonefilePusher": 0
-        }
-        
-        self.wait_deadlines = {
-            "AtlasPeerCrawler": 0,
-            "AtlasHealthChecker": 0,
-            "AtlasZonefileChecker": 0,
-            "AtlasZonefilePusher": 0
-        }
+        subprocs = [
+            "AtlasPeerCrawler",
+            "AtlasHealthChecker",
+            "AtlasZonefileCrawler",
+            "AtlasZonefilePusher"
+        ]
 
-        self.db = MockDB()
+        self.sleep_deadlines = dict( [(subp, 0) for subp in subprocs] )
+        self.wait_deadlines = dict( [(subp, 0) for subp in subprocs] )
+
+        self.db = MockDB(zonefile_dir)
+        
+        for i in xrange(0, len(zonefile_inv)):
+            for j in xrange(0, 8):
+                bit_index = (1 << (7 - j))
+                if (ord(zonefile_inv[i]) & bit_index) == 0:
+                    self.db.mock_add_zonefile_hashes( 1, present=False )
+                else:
+                    self.db.mock_add_zonefile_hashes( 1, present=True )
+
         self.peer_table = atlasdb_init( self.db_path, self.db, peer_seeds, peer_blacklist, zonefile_dir=zonefile_dir )
         self.peer_queue = []
         self.zonefile_queue = []
-        
+        self.network = None
+
+
+    def set_network( self, n ):
+        self.network = n
+
+
+    def state_to_string( self ):
+        """
+        Get a string representation of the node state
+        """
+        procs_sleep = sorted(self.sleep_deadlines.keys())
+
+        sleep_strs = []
+        for p in procs_sleep:
+            status = "R"
+
+            if self.is_waiting(p, self.network.time ):
+                status = "W"
+
+            elif self.is_asleep(p, self.network.time ):
+                status = "S"
+
+            sleep_strs.append( "%s:%s" % (p, status) )
+
+        return " ".join(sleep_strs)
+
 
     def updown( self, status ):
         """
@@ -320,6 +360,7 @@ class AtlasNode(object):
         """
         Waiting for a blocking operation
         """
+
         self.wait_deadlines[procname] = deadline
 
 
@@ -327,17 +368,42 @@ class AtlasNode(object):
         """
         Is this node process sleeping at the current simulated time?
         """
-        return self.sleep_deadlines[procname] >= simtime or self.wait_deadlines[procname] >= simtime
+        return self.sleep_deadlines[procname] > simtime or self.wait_deadlines[procname] > simtime
 
 
     def is_waiting(self, procname, simtime ):
         """
         Is this node process waiting?
         """
-        return self.wait_deadlines[procname] >= simtime
+        return self.wait_deadlines[procname] > simtime
 
 
-class AtlasNetwork(object):
+
+def rpc_traceback():
+    exception_data = traceback.format_exc().splitlines()
+    return {
+        "error": exception_data[-1],
+        "traceback": exception_data
+    }
+
+
+class AtlasNetworkRPCHandler(SimpleXMLRPCRequestHandler):
+    """
+    Hander to capture tracebacks
+    """
+    def _dispatch(self, method, params):
+        try: 
+            res = self.server.funcs["rpc_" + str(method)](*params)
+
+            # lol jsonrpc within xmlrpc
+            ret = json.dumps(res)
+            return ret
+        except Exception, e:
+            print >> sys.stderr, "\n\n%s\n\n" % traceback.format_exc()
+            return rpc_traceback()
+
+
+class AtlasNetwork( SimpleXMLRPCServer ):
     def __init__(self, nodes, **network_params):
         """
         @nodes is a list of AtlasNodes
@@ -350,24 +416,35 @@ class AtlasNetwork(object):
         * peer_ping_interval (int): maximum ttl of a peer's state before we ask again (default is 60)
         * peer_lifetime_interval (int): maximum ttl of a peer's liveness data
         """
+        SimpleXMLRPCServer.__init__(self, ('127.0.0.1', RPC_SERVER_PORT), AtlasNetworkRPCHandler, allow_none=True )
         self.time = 0
-        self.node_hosts = dict( [(n.hostport, n) for n in self.nodes] )
+        self.node_hosts = dict( [(n.hostport, n) for n in nodes] )
+        for _, node in self.node_hosts.items():
+            node.set_network(self)
 
         self.drop_probability = network_params.get( "drop_probability", lambda hostport_dst: 0 )
         self.peer_delay = network_params.get( "peer_delay", lambda hostport: 0 )
         self.inv_delay = network_params.get( "inv_delay", lambda hostport: 0 )
         self.zonefile_delay = network_params.get("zonefile_delay", lambda hostport, num_zfs: 0 )
-        self.max_neighbors = network_params.get("max_neighbors", 80)
-        self.peer_ping_interval = network_params.get("peer_ping_interval", 60)
-        self.peer_lifetime_interval = network_params.get("peer_lifetime_interval", 3600)
+        self.max_neighbors = network_params.get("max_neighbors", 3)
+        self.peer_ping_interval = network_params.get("peer_ping_interval", 3)
+        self.peer_lifetime_interval = network_params.get("peer_lifetime_interval", 10)
+
+        # register methods 
+        for attr in dir(self):
+            if attr.startswith("rpc_"):
+                method = getattr(self, attr)
+                if callable(method) or hasattr(method, '__call__'):
+                    self.register_function( method )
+
 
     def step(self):
         """
         Run one step of the simulation
         """
-        self.time += 1
-        for n in self.nodes:
+        for node_hostport, n in self.node_hosts.items():
 
+            print "\n\nStep %s" % node_hostport
             if not n.is_asleep( "AtlasPeerCrawler", self.time ):
                 # ready for next neighbor crawl
                 if not n.is_waiting( "AtlasPeerCrawler", self.time ):
@@ -377,9 +454,9 @@ class AtlasNetwork(object):
 
             if not n.is_waiting( "AtlasPeerCrawler", self.time ):
                 # no longer waiting
-                n.peer_crawler.step( n.lastblock, peer_table=n.peer_table, peer_queue=n.peer_queue )
-
-
+                inv = atlas_make_zonefile_inventory( 0, atlasdb_zonefile_inv_length(path=n.db_path), path=n.db_path )
+                n.peer_crawler.step( local_inv=inv, peer_table=n.peer_table, peer_queue=n.peer_queue, path=n.db_path )
+            
             if not n.is_asleep( "AtlasHealthChecker", self.time ):
                 # ready for next health check
                 if not n.is_waiting( "AtlasHealthChecker", self.time ):
@@ -389,21 +466,21 @@ class AtlasNetwork(object):
 
             if not n.is_waiting( "AtlasHealthChecker", self.time ):
                 # no longer waiting
-                n.health_checker.step( FIRST_BLOCK_MAINNET, peer_table=n.peer_table, path=n.path )
+                n.health_checker.step( peer_table=n.peer_table, path=n.db_path )
 
-
+            
             if not n.is_asleep( "AtlasZonefileCrawler", self.time ):
                 # ready for next zonefile crawl
                 if not n.is_waiting( "AtlasZonefileCrawler", self.time ):
                     # crawl "initiated", but will wait for it to complete
-                    delay = self.peer_deay( n.hostport )
+                    delay = self.peer_delay( n.hostport )
                     n.set_wait_deadline( "AtlasZonefileCrawler", self.time + delay )
 
-            if not n.is_waiting( "AtlasZonefileCralwer", self.time ):
+            if not n.is_waiting( "AtlasZonefileCrawler", self.time ):
                 # no longer waiting
-                n.zonefile_crawler.step( peer_table=n.peer_table, path=n.path )
+                n.zonefile_crawler.step( peer_table=n.peer_table, path=n.db_path )
   
-
+            """
             if not n.is_asleep( "AtlasZonefilePusher", self.time ):
                 # ready for next zonefile push 
                 if not n.is_waiting( "AtlasZonefilePusher", self.time ):
@@ -414,6 +491,9 @@ class AtlasNetwork(object):
             if not n.is_waiting( "AtlasZonefilePusher", self.time ):
                 # no longer waiting 
                 n.zonefile_pusher.step( peer_table=n.peer_table, zonefile_queue=n.zonefile_queue )
+            """
+
+        self.time += 1
 
    
     def get_node_db( self, hostport ):
@@ -470,16 +550,311 @@ class AtlasNetwork(object):
         self.node_hosts[node.hostport] = node
 
 
-def load_flat_simulation( num_nodes, num_seed_nodes ):
+    def get_nodes( self ):
+        """
+        Get all nodes
+        """
+        return self.node_hosts
+
+    
+    def possibly_drop(self, hostport):
+        """
+        Possibly drop the connection
+        """
+        prob = self.drop_probability( hostport )
+        if random.random() < prob:
+            se = socket.error()
+            se.errno = errno.ECONNREFUSED
+            raise se
+
+
+    def rpc_get_zonefile_inventory( self, src_hostport, dest_hostport, bit_offset, bit_len ):
+        """
+        Get zonefile inventory from the given dest hostport, with simulated loss
+        """
+        self.possibly_drop( dest_hostport )
+        atlasdb_path = self.get_atlasdb_path( dest_hostport )
+        inv = atlas_make_zonefile_inventory( bit_offset, bit_len, path=atlasdb_path )
+        return {'status': True, 'inv': base64.b64encode(inv)}
+
+
+    def rpc_get_atlas_peers( self, src_hostport, dest_hostport ):
+        """
+        Get the list of peers in this peer's neighbor set, with simulated loss.
+        Give the receiver the src hostport
+        """
+        self.possibly_drop( dest_hostport )
+        peer_table = self.get_peer_table( dest_hostport )
+        neighbors = atlas_get_rarest_live_peers( peer_table=peer_table )
+       
+        # dest remembers src
+        node = self.get_node( dest_hostport )
+        atlas_peer_enqueue( src_hostport, peer_table=peer_table, peer_queue=node.peer_queue, max_neighbors=self.max_neighbors )
+
+        return {'status': True, 'peers': neighbors}
+
+
+    def rpc_get_zonefiles( self, src_hostport, dest_hostport, zonefile_hashes ):
+        """
+        Get the list of zonefiles, given the zonefile hashes (with simulated loss)
+        Returns [{'zonefile hash': zonefile data}]
+        """
+        self.possibly_drop( dest_hostport )
+        db = self.get_node_db( dest_hostport )
+
+        ret = []
+        for zfh in zonefile_hashes:
+            if db.get_zonefile( zfh ) is None:
+                # maybe stored
+                zf = get_cached_zonefile( zfh, zonefile_dir=db.zonefile_dir )
+                if zf is None:
+                    log.debug("Node %s does not have zonefile %s in %s" % (dest_hostport, zfh, db.zonefile_dir))
+                    continue
+
+                else:
+                    ret.append( {zfh: blockstack_zones.make_zone_file(zf)} )
+
+            else:
+                ret.append({zfh: blockstack_zones.make_zone_file(db.get_zonefile(zfh))})
+
+        return {'status': True, 'zonefiles': ret}
+
+    
+    def rpc_put_zonefiles( self, dest_hostport, zonefile_info ):
+        """
+        Upload a list of zonefiles, and enqueue them in the pusher
+        """
+        self.possibly_drop( dest_hostport )
+        node = self.get_node( zonefile_info )
+        atlasdb_path = self.get_atlasdb_path( dest_hostport )
+        db = node.get_node_db( dest_hostport )
+        for zfdata in zonefile_info:
+            zf = blockstack_zones.parse_zone_file( str(zfdata) )
+            zfhash = blockstack_client.get_zonefile_data_hash( str(zfdata) )
+
+            # put to the db
+            db.add_zonefile( zf )
+
+            # update atlas
+            was_missing = atlasdb_set_zonefile_present( zonefile_hash, True, path=atlasdb_path )
+            if was_missing:
+                # we didn't have this zonefile.
+                # there's a good chance we're not alone (i.e. this request came from a client).
+                # see if we can replicate it to them in the background.
+                atlas_zonefile_push_enqueue( zonefile_hash, str(zonefile_data), peer_table=node.peer_table, zonefile_queue=node.zonefile_queue, path=atlasdb_path )
+
+
+    def rpc_add_sleep_deadline( self, hostport, procname, value ):
+        """
+        make the given host sleep
+        """
+        deadline = self.time + value
+        node = self.get_node( hostport )
+        node.set_sleep_deadline( procname, value )
+
+
+    def rpc_max_neighbors( self ):
+        """
+        how many neighbors can a peer have?
+        """
+        return self.max_neighbors
+
+
+    def rpc_peer_lifetime_interval( self ):
+        """
+        what's a peer's lifetime interval?
+        """
+        return self.peer_lifetime_interval
+
+
+    def rpc_peer_ping_interval( self ):
+        """
+        what's a peer's ping interval?
+        """
+        return self.peer_ping_interval
+
+    
+    def rpc_time_now( self ):
+        """
+        what's the time now?
+        """
+        return self.time
+
+
+class AtlasNetworkServer( threading.Thread, object ):
+    """
+    RPC server thread
+    """
+    def __init__(self, atlas_network ):
+        super(AtlasNetworkServer, self).__init__()
+        self.network = atlas_network
+
+    def run(self):
+        """
+        Serve until asked to stop
+        """
+        self.network.serve_forever()
+
+    def stop_server(self):
+        """
+        Stop serving.  Also stops the thread.
+        """
+        self.network.shutdown()
+
+
+def inv_to_string( inv ):
+    """
+    Inventory to string (bitwise big-endian)
+    """
+    ret = ""
+    for i in xrange(0, len(inv)):
+        for j in xrange(0, 8):
+            bit_index = 1 << (7 - j)
+            val = (ord(inv[i]) & bit_index)
+            if val != 0:
+                ret += "1"
+            else:
+                ret += "0"
+
+    return ret
+
+
+def print_network_state( network ):
+    """
+    Print out the state of the network
+    """
+    node_hostports = sorted(network.get_nodes().keys())
+    for node_hostport in node_hostports:
+        node = network.get_node( node_hostport )
+        peer_table = network.get_peer_table( node_hostport )
+        node_inv = atlas_make_zonefile_inventory( 0, atlasdb_zonefile_inv_length(path=node.db_path), path=network.get_atlasdb_path( node_hostport ))
+        node_inv_str = inv_to_string( node_inv )
+        neighbors = sorted(network.get_peer_table( node_hostport ).keys())
+
+        neighbor_popularity = []
+        for n in neighbors:
+            pop = atlas_peer_get_popularity( n, peer_table=peer_table )
+            h = atlas_peer_get_health( n, peer_table=peer_table )
+            inv = inv_to_string( peer_table[n]['zonefile_inv'] )
+            neighbor_popularity.append( (pop, "%s (h=%.3f,p=%s,inv=%s)" % (n, h, pop, inv)))
+
+        neighbor_popularity.sort()
+        neighbor_strings = [ s for (_, s) in neighbor_popularity ]
+
+        print "-" * 80
+        print "%s: %s   State: %s\nneighbors: %s" % (node_hostport, node_inv_str, network.get_node(node_hostport).state_to_string(), ", ".join(neighbor_strings))
+        print ""
+
+    # measure peer knowledge distribution
+    peer_count = {}
+    for node_hostport in node_hostports:
+        peer_count[node_hostport] = 0
+
+    for node_hostport in node_hostports:
+        peer_table = network.get_peer_table( node_hostport )
+        for ph in peer_table.keys():
+            peer_count[ph] += 1
+
+    print "Neighbor knowledge"
+    for node_hostport in node_hostports:
+        print "%020s: %s" % (node_hostport, "#" * peer_count[node_hostport])
+
+    print ""
+
+
+def load_flat_simulation( num_nodes, num_seed_nodes, num_zonefiles, test_root_dir ):
     """
     Make a random simulated network,
     with the given number of nodes and a given number
     of seed nodes that everyone knows about.
     """
+
+    shutil.rmtree(test_root_dir)
+    os.makedirs(test_root_dir)
+
+    seed_node_hostports = []
+    for i in xrange(0, num_seed_nodes):
+        seed_node_hostports.append( "seed_%03d:%s" % (i, RPC_SERVER_PORT))
+
+    seed_inv = 0
+    for i in xrange(0, num_zonefiles):
+        bit_index = 7 - (i % 8)
+        byte_index = i / 8
+        seed_inv = seed_inv | (1 << (byte_index * 8 + bit_index))
+
+    seed_inv = binascii.unhexlify( "%x" % seed_inv )
+    peer_inv = '\0' * len(seed_inv)
+
+    print "seed_inv = %s" % binascii.hexlify(seed_inv)
+    print "peer_inv = %s" % binascii.hexlify(peer_inv)
+
+    seed_nodes = []
+    for i in xrange(0, num_seed_nodes):
+        atlasdb_path = os.path.join(test_root_dir, "atlas_seed_%03d.db" % i)
+        zonefile_dir = os.path.join(test_root_dir, "zonefile_seed_%03d.db" % i)
+
+        os.makedirs(zonefile_dir)
+        
+        node = AtlasNode( "seed_%03d" % i, RPC_SERVER_PORT, [], [], seed_inv, atlasdb_path, zonefile_dir )
+        seed_nodes.append( node )
+
+    peer_nodes = []
+    last_neighbor = seed_node_hostports[-1]
+    for i in xrange(0, num_nodes):
+        atlasdb_path = os.path.join(test_root_dir, "atlas_peer_%03d.db" % i)
+        zonefile_dir = os.path.join(test_root_dir, "zonefile_peer_%03d.db" % i)
+
+        os.makedirs(zonefile_dir)
+
+        # one seed node
+        node = AtlasNode("peer_%03d" % i, RPC_SERVER_PORT, [last_neighbor], [], peer_inv, atlasdb_path, zonefile_dir )
+        peer_nodes.append( node )
+
+        last_neighbor = "peer_%03d" % i
+
+    network = AtlasNetwork( seed_nodes + peer_nodes )
+
+    return network
+
+
+def network_shutdown( network ):
+    network.stop_server()
+
+
+def run_simulation( network ):
+    """
+    Run an atlas network
+    Run until converged
+    """
+    set_network_state( network )
+    network_server = AtlasNetworkServer( network )
+
+    atexit.register( network_shutdown, network_server )
+
+    network_server.start()
+    while True:
+        print "time: %s" % network.time
+        
+        network.step()
+        print_network_state( network )
+
+        time.sleep(1.0)
+
+
+if __name__ == "__main__":
+    zonefile_dir = "/tmp/atlas-zonefiles-flat"
+    if os.path.exists(zonefile_dir):
+        shutil.rmtree(zonefile_dir)
+
+    os.makedirs(zonefile_dir)
+    blockstack_client.session( config_path=sys.argv[1] )
+
+    virtualchain.setup_virtualchain( impl=blockstack.lib.virtualchain_hooks )
     
+    network = load_flat_simulation( 10, 1, 1, zonefile_dir )
+    run_simulation( network )
 
-
-
+'''
 # unit tests
 if __name__ == "__main__":
     
@@ -546,11 +921,11 @@ if __name__ == "__main__":
             assert expected_bits == bits, "Bits mismatch on %s: %s != %s" % (block_height, bits, expected_bits)
 
 
-    def test_atlasdb_zonefile_info_list( db, zonefile_hash, path ):
+    def test_atlasdb_zonefile_info_list_by_hash( db, zonefile_hash, path ):
         """
         Test listing all zonefile information, from start block to end
         """
-        log.debug("test atlasdb_zonefile_info_list(%s)" % zonefile_hash)
+        log.debug("test atlasdb_zonefile_info_list_by_hash(%s)" % zonefile_hash)
         zflisting = atlasdb_zonefile_info_list( FIRST_BLOCK_MAINNET, db.lastblock, path=path )
         idx = 0
         while idx < len(zflisting):
@@ -580,7 +955,7 @@ if __name__ == "__main__":
                 atlasdb_set_zonefile_present( zfh, True, path=path )
                 log.debug("   %s is now present" % (zfh))
 
-        inv_vec = atlas_make_zonefile_inventory( FIRST_BLOCK_MAINNET, db.lastblock, path=path )
+        inv_vec = atlas_make_zonefile_inventory( 0, atlasdb_zonefile_inv_length(path=path), path=path )
 
         # convert to array of bools
         inv_bool = []
@@ -604,6 +979,12 @@ if __name__ == "__main__":
         
 
     db = MockDB()
+    for i in xrange(0, 5):
+        db.mock_add_zonefile_hashes(i + 1)
+
+    for i in xrange(0, 5):
+        db.mock_dup_zonefile_hashes(db.lastblock - 5)
+
     testdir = "/tmp/atlas_unit_tests"
     test_db_path = "/tmp/atlas_unit_tests/atlas.db"
     test_peer_seeds = ['node.blockstack.org:6264']
@@ -632,7 +1013,7 @@ if __name__ == "__main__":
 
         for height, zfl in db.zfstate.items():
             for zfs in zfl:
-                test_atlasdb_zonefile_info_list( db, zfs['zonefile_hash'], test_db_path )
+                test_atlasdb_zonefile_info_list_by_hash( db, zfs['zonefile_hash'], test_db_path )
 
         test_atlas_make_zonefile_inventory( db, test_db_path)
 
@@ -728,4 +1109,4 @@ if __name__ == "__main__":
 
         assert zfinfo['indexes'] == bits, "bits for %s: %s\n%s" % (zfhash, bits, simplejson.dumps(peer2_zonefile_info, indent=4, sort_keys=True))
 
-
+'''
