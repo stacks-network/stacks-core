@@ -1481,6 +1481,11 @@ def cli_advanced_wallet( args, config_path=CONFIG_PATH, password=None ):
     wallet_keys = get_wallet_keys( config_path, password )
     display_wallet_info(wallet_keys.get('payment_address'), wallet_keys.get('owner_address'), wallet_keys.get('data_pubkey'), config_path=CONFIG_PATH )
 
+    print "Private keys:\n"
+    print "Payment private key: %s" % wallet_keys.get('payment_privkey')
+    print "Owner private key:   %s" % wallet_keys.get('owner_privkey')
+    print "Data private key:    %s" % wallet_keys.get('data_privkey')
+    print ""
     return result
 
 
