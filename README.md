@@ -1,10 +1,12 @@
-# Blockstack Server
+# Blockstack Core
 
 [![PyPI](https://img.shields.io/pypi/v/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
 [![PyPI](https://img.shields.io/pypi/dm/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
 [![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 
-Blockstack is a new decentralized web, where users own their data and apps run on user devices without the need for servers.
+Blockstack is a new decentralized web, where users own their data and apps run on user devices without the need for servers. 
+
+Blockstack Core handles the main functionality of the system. It is responsible for processing blockchain transactions, creating virtuclchain state, and building the peer network amongst other things. Blockstack Core exposing RPC and RESTful interfaces for Blockstack clients.
 
 Learn more by visiting [the Blockstack Website](https://blockstack.org) and checking out the in-depth articles and documentation:
 
