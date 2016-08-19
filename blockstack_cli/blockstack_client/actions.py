@@ -247,26 +247,8 @@ def get_total_registration_fees(name, payment_privkey, owner_address, proxy=None
 
     try:
         preorder_tx_fee = estimate_preorder_tx_fee( name, data['satoshis'], payment_address, utxo_client, config_path=config_path )
-        if preorder_tx_fee is None:
-            # do our best
-            preorder_tx_fee = get_tx_fee( "00" * APPROX_PREORDER_TX_LEN, config_path=config_path )
-            insufficient_funds = True
-        else:
-            preorder_tx_fee = int(preorder_tx_fee)
-
         register_tx_fee = estimate_register_tx_fee( name, payment_address, utxo_client, config_path=config_path )
-        if register_tx_fee is None:
-            register_tx_fee = get_tx_fee( "00" * APPROX_REGISTER_TX_LEN, config_path=config_path )
-            insufficient_funds = True
-        else:
-            register_tx_fee = int(register_tx_fee)
-
         update_tx_fee = estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=config_path, payment_address=payment_address )
-        if update_tx_fee is None:
-            update_tx_fee = get_tx_fee( "00" * APPROX_UPDATE_TX_LEN, config_path=config_path )
-            insufficient_funds = True
-        else:
-            update_tx_fee = int(update_tx_fee)
 
     except UTXOException, ue:
         log.error("Failed to query UTXO provider.")
@@ -275,6 +257,24 @@ def get_total_registration_fees(name, payment_privkey, owner_address, proxy=None
 
         return {'error': 'Failed to query UTXO provider.  Please try again.'}
 
+    if preorder_tx_fee is None:
+        # do our best
+        preorder_tx_fee = get_tx_fee( "00" * APPROX_PREORDER_TX_LEN, config_path=config_path )
+        insufficient_funds = True
+    else:
+        preorder_tx_fee = int(preorder_tx_fee)
+
+    if register_tx_fee is None:
+        register_tx_fee = get_tx_fee( "00" * APPROX_REGISTER_TX_LEN, config_path=config_path )
+        insufficient_funds = True
+    else:
+        register_tx_fee = int(register_tx_fee)
+
+    if update_tx_fee is None:
+        update_tx_fee = get_tx_fee( "00" * APPROX_UPDATE_TX_LEN, config_path=config_path )
+        insufficient_funds = True
+    else:
+        update_tx_fee = int(update_tx_fee)
 
     reply['preorder_tx_fee'] = int(preorder_tx_fee)
     reply['register_tx_fee'] = int(register_tx_fee)
