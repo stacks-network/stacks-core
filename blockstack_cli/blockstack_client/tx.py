@@ -132,8 +132,15 @@ def broadcast_tx( tx_hex, config_path=CONFIG_PATH, tx_broadcaster=None ):
     if tx_broadcaster is None:
         tx_broadcaster = get_tx_broadcaster( config_path=config_path )
 
-    resp = broadcast_transaction( tx_hex, tx_broadcaster )
+    try:
+        resp = broadcast_transaction( tx_hex, tx_broadcaster )
+    except Exception, e:
+        log.exception(e)
+        log.error("Failed to broadcast transaction with %s" % tx_broadcaster)
+        return {'error': 'Failed to broadcast transaction: %s' % tx_hex}
+
     if 'tx_hash' not in resp:
+        log.error("Failed to broadcast transaction (response: %s)" % resp)
         resp['error'] = 'Failed to broadcast transaction: %s' % tx_hex
 
     # for compatibility
