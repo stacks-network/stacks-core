@@ -1523,6 +1523,9 @@ def cli_advanced_wallet( args, config_path=CONFIG_PATH, password=None ):
     else:
         result = get_wallet_with_backoff( config_path )
 
+        # re-encode private keys to WIF
+        # TODO
+        
     return result
 
 
