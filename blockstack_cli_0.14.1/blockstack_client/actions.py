@@ -880,15 +880,18 @@ def cli_update( args, config_path=CONFIG_PATH, password=None ):
     try:
         resp = rpc.backend_update(fqu, user_data, None, None)
     except Exception, e:
+        log.exception(e)
         return {'error': 'Error talking to server, try again.'}
 
     if 'success' in resp and resp['success']:
         result = resp
     else:
         if 'error' in resp:
+            log.debug("Backend failed to queue update: %s" % resp['error'])
             return resp
 
         if 'message' in resp:
+            log.debug("Backend update error: %s" % resp['message'])
             return {'error': resp['message']}
 
     analytics_event( "Update name", {} )
