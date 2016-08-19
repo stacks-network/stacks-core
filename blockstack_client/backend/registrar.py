@@ -966,6 +966,7 @@ def update( fqu, zonefile, profile, zonefile_hash, config_path=None, proxy=None 
         data['transaction_hash'] = resp['transaction_hash']
         data['zonefile_hash'] = resp['zonefile_hash']
     else:
+        log.error("async_update failed with: '%s'" % resp['error'])
         data['success'] = False
         data['message'] = "Couldn't broadcast transaction. You can try again."
         data['error'] = resp['error']
@@ -1092,6 +1093,7 @@ def migrate( fqu, config_path=None, proxy=None ):
         data['zonefile'] = user_zonefile
         data['profile'] = user_profile
     else:
+        log.error("async_update failed with: '%s'" % resp['error'])
         data['success'] = False
         data['message'] = "Couldn't broadcast transaction. You can try again."
         data['error'] = resp['error']

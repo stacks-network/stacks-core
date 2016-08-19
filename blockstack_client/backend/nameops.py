@@ -538,10 +538,20 @@ def do_update( fqu, zonefile_hash, owner_privkey, payment_privkey, utxo_client, 
 
     try:
         unsigned_tx = update_tx( fqu, zonefile_hash, consensus_hash, owner_address, utxo_client, subsidize=True, tx_fee=tx_fee )
+    except Exception, e:
+        log.exception(e)
+        log.error("Failed to construct update transaction")
+        return {'error': 'Failed to construct update transaction'}
+
+    try:
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_update, 21 * (10**6) * (10**8), payment_privkey, utxo_client, tx_fee=tx_fee )
     except ValueError:
         log.error("Failed to generate and subsidize update transaction (likely insufficient funds)")
         return {'error': 'Insufficient funds'}
+    except Exception, e:
+        log.exception(e)
+        log.error("Failed to subsidize update transaction")
+        return {'error': 'Failed to subsidize update transaction'}
 
     resp = {}
     try:
@@ -1144,8 +1154,8 @@ def async_update(fqu, zonefile, profile, owner_private_key, payment_privkey, con
         return resp
 
     else:
-        log.debug("Error updating: %s" % fqu)
-        log.debug(resp)
+        log.error("Error updating: %s" % fqu)
+        log.error("Full response: %s" % json.dumps(resp))
         return {'error': 'Failed to broadcast update transaction'}
 
 
