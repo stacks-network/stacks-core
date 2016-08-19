@@ -158,6 +158,7 @@ def estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, c
                 log.debug("Payment private key not given; estimating the subsidization fee from UTXOs")
                 payment_utxos = get_utxos( payment_address, config_path=config_path, utxo_client=utxo_client ) 
                 if payment_utxos is None:
+                    log.error("No UTXOs returned")
                     raise ValueError()
 
                 if 'error' in payment_utxos:
@@ -169,13 +170,15 @@ def estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, c
                 signed_subsidized_tx = unsigned_tx + "00" * (71 + subsidy_byte_count)    # ~71 bytes for signature
 
             else:
+                log.error("BUG: Missing both private key and payment address")
                 raise Exception("Need either payment_privkey or payment_address")
 
     except ValueError:
         log.debug("Insufficient funds:  Not enough inputs to make an update transaction.")
         return None 
 
-    except Exception:
+    except Exception, e:
+        log.exception(e)
         return None
 
     tx_fee = get_tx_fee( signed_subsidized_tx, config_path=config_path )
@@ -403,6 +406,7 @@ def do_preorder( fqu, payment_privkey, owner_address, cost, utxo_client, tx_broa
 
     tx_fee = estimate_preorder_tx_fee( fqu, cost, payment_address, utxo_client, config_path=config_path )
     if tx_fee is None:
+        log.error("Failed to estimate preorder TX fee")
         return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
 
     log.debug("Preordering (%s, %s, %s), tx_fee = %s" % (fqu, payment_address, owner_address, tx_fee))
@@ -410,6 +414,7 @@ def do_preorder( fqu, payment_privkey, owner_address, cost, utxo_client, tx_broa
     try:
         unsigned_tx = preorder_tx( fqu, payment_address, owner_address, cost, consensus_hash, utxo_client, tx_fee=tx_fee )
     except ValueError:
+        log.error("Failed to create preorder TX")
         return {'error': 'Insufficient funds'}
 
     try:
@@ -455,11 +460,12 @@ def do_register( fqu, payment_privkey, owner_address, utxo_client, tx_broadcaste
 
     # check address usability
     if not is_address_usable(payment_address, config_path=config_path, utxo_client=utxo_client):
-        log.debug("Payment address not ready: %s" % payment_address)
+        log.error("Payment address not ready: %s" % payment_address)
         return {'error': 'Payment address has unconfirmed transactions'}
 
     tx_fee = estimate_register_tx_fee( fqu, payment_address, utxo_client, config_path=config_path )
     if tx_fee is None:
+        log.error("Failed to estimate register TX fee")
         return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
 
     log.debug("Registering (%s, %s, %s), tx_fee = %s" % (fqu, payment_address, owner_address, tx_fee))
@@ -468,6 +474,7 @@ def do_register( fqu, payment_privkey, owner_address, utxo_client, tx_broadcaste
     try:
         unsigned_tx = register_tx( fqu, payment_address, owner_address, utxo_client, renewal_fee=renewal_fee, tx_fee=tx_fee )
     except ValueError:
+        log.error("Failed to create register TX")
         return {'error': 'Insufficient funds'}
 
     try:
@@ -518,11 +525,12 @@ def do_update( fqu, zonefile_hash, owner_privkey, payment_privkey, utxo_client, 
 
     # check address usability
     if not is_address_usable(payment_address, config_path=config_path):
-        log.debug("Payment address not ready: %s" % payment_address)
+        log.error("Payment address not ready: %s" % payment_address)
         return {'error': 'Payment address has unconfirmed transactions'}
 
     tx_fee = estimate_update_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path ) 
     if tx_fee is None:
+        log.error("Failed to estimate update TX fee")
         return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
 
     log.debug("Updating (%s, %s)" % (fqu, zonefile_hash))
@@ -532,6 +540,7 @@ def do_update( fqu, zonefile_hash, owner_privkey, payment_privkey, utxo_client, 
         unsigned_tx = update_tx( fqu, zonefile_hash, consensus_hash, owner_address, utxo_client, subsidize=True, tx_fee=tx_fee )
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_update, 21 * (10**6) * (10**8), payment_privkey, utxo_client, tx_fee=tx_fee )
     except ValueError:
+        log.error("Failed to generate and subsidize update transaction (likely insufficient funds)")
         return {'error': 'Insufficient funds'}
 
     resp = {}
@@ -587,17 +596,19 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey, payment_privke
     
     # payment address must be usable
     if not is_address_usable(payment_address, config_path=config_path):
-        log.debug("Payment address not ready: %s" % payment_address)
+        log.error("Payment address not ready: %s" % payment_address)
         return {'error': 'Payment address has unconfirmed transactions'}
 
     tx_fee = estimate_transfer_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path )
     if tx_fee is None:
+        log.error("Failed to estimate transfer TX fee")
         return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
 
     try:
         unsigned_tx = transfer_tx( fqu, transfer_address, keep_data, consensus_hash, owner_address, utxo_client, subsidize=True, tx_fee=tx_fee )
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_transfer, 21 * (10**6) * (10**8), payment_privkey, utxo_client, tx_fee=tx_fee )
     except ValueError:
+        log.error("Failed to create and subsidize transfer TX")
         return {'error': 'Insufficient funds'}
 
     log.debug("Transferring (%s, %s)" % (fqu, transfer_address))
@@ -650,6 +661,7 @@ def do_renewal( fqu, owner_privkey, payment_privkey, renewal_fee, utxo_client, t
 
     tx_fee = estimate_renewal_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path ) 
     if tx_fee is None:
+        log.error("Failed to estimate renewal TX fee")
         return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
 
     log.debug("Renewing (%s, %s, %s), tx_fee = %s, renewal_fee = %s" % (fqu, payment_address, owner_address, tx_fee, renewal_fee))
@@ -659,6 +671,7 @@ def do_renewal( fqu, owner_privkey, payment_privkey, renewal_fee, utxo_client, t
         unsigned_tx = register_tx( fqu, owner_address, owner_address, utxo_client, renewal_fee=renewal_fee, tx_fee=tx_fee )
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_registration, 21 ** (10**6) * (10**8), payment_privkey, utxo_client, tx_fee=tx_fee )
     except ValueError:
+        log.error("Failed to create and subsidize renewal TX")
         return {'error': 'Insufficient funds'}
 
     try:
@@ -684,6 +697,7 @@ def do_revoke( fqu, owner_privkey, payment_privkey, utxo_client, tx_broadcaster,
     owner_address = pybitcoin.BitcoinPublicKey(owner_pubkey_hex).address()
     tx_fee = estimate_revoke_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path )
     if tx_fee is None:
+        log.error("Failed to estimate revoke TX fee")
         return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
 
     owner_address = pybitcoin.BitcoinPublicKey( owner_pubkey_hex ).address()
@@ -705,6 +719,7 @@ def do_revoke( fqu, owner_privkey, payment_privkey, utxo_client, tx_broadcaster,
         unsigned_tx = revoke_tx( fqu, owner_address, utxo_client, subsidize=True, tx_fee=tx_fee )
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_revoke, 21 ** (10**6) * (10**8), payment_privkey, utxo_client, tx_fee=tx_fee )
     except ValueError:
+        log.error("Failed to create and subsidize revoke TX")
         return {'error': 'Insufficient funds'}
 
     log.debug("Revoking %s" % fqu)
@@ -734,12 +749,14 @@ def do_name_import( fqu, importer_privkey, recipient_address, zonefile_hash, utx
     payment_address = pybitcoin.BitcoinPrivateKey( importer_privkey ).public_key().address()
     tx_fee = estimate_name_import_tx_fee( fqu, payment_address, utxo_client, config_path=config_path )
     if tx_fee is None:
+        log.error("Failed to estimate name import TX fee")
         return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
 
     try:
         unsigned_tx = name_import_tx( fqu, recipient_address, zonefile_hash, payment_address, utxo_client, tx_fee=tx_fee )
         signed_tx = sign_tx( unsigned_tx, importer_privkey )
     except ValueError:
+        log.error("Failed to create and sign name import TX")
         return {'error': 'Insufficient funds'}
 
     log.debug("Import (%s, %s, %s)" % (fqu, recipient_address, zonefile_hash))
