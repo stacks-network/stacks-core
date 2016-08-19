@@ -153,7 +153,7 @@ def is_user_zonefile( d ):
                 return False 
 
     if not hasattr(d['uri'], '__iter__') or not callable(d['uri'].__iter__):
-        lo.error("uri is not a list-like object")
+        log.error("uri is not a list-like object")
         return False
 
     for uri in d['uri']:
