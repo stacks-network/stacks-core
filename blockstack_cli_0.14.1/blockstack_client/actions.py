@@ -246,9 +246,9 @@ def get_total_registration_fees(name, payment_privkey, owner_address, proxy=None
     update_tx_fee = None
 
     try:
-        preorder_tx_fee = estimate_preorder_tx_fee( name, data['satoshis'], payment_address, utxo_client, config_path=config_path )
-        register_tx_fee = estimate_register_tx_fee( name, payment_address, utxo_client, config_path=config_path )
-        update_tx_fee = estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=config_path, payment_address=payment_address )
+        preorder_tx_fee = estimate_preorder_tx_fee( name, data['satoshis'], payment_address, utxo_client, config_path=config_path, include_dust=True )
+        register_tx_fee = estimate_register_tx_fee( name, payment_address, utxo_client, config_path=config_path, include_dust=True )
+        update_tx_fee = estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=config_path, payment_address=payment_address, include_dust=True )
 
     except UTXOException, ue:
         log.error("Failed to query UTXO provider.")
