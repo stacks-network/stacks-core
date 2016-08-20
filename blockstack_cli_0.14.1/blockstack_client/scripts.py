@@ -330,7 +330,10 @@ def tx_make_subsidizable( blockstack_tx, fee_cb, max_fee, subsidy_key, utxo_clie
         return None
     
     else:
-        log.debug("%s will subsidize %s (ops+dust) + %s (txfee) satoshi" % (pybitcoin.BitcoinPrivateKey( subsidy_key ).public_key().address(), dust_fee + op_fee, tx_fee))
+        if tx_fee > 0:
+            log.debug("%s will subsidize %s (ops+dust) + %s (txfee) satoshi" % (pybitcoin.BitcoinPrivateKey( subsidy_key ).public_key().address(), dust_fee + op_fee, tx_fee))
+        else:
+            log.debug("%s will subsidize %s (ops+dust) satoshi" % (pybitcoin.BitcoinPrivateKey( subsidy_key ).public_key().address(), dust_fee + op_fee))
     
     subsidy_output = tx_make_subsidization_output( payer_utxo_inputs, payer_address, op_fee, dust_fee + tx_fee )
     
