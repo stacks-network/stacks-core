@@ -292,10 +292,15 @@ def tx_make_subsidization_output( payer_utxo_inputs, payer_address, op_fee, dust
     Raise ValueError it here aren't enough inputs to subsidize
     """
 
-    return {
-        "script_hex": pybitcoin.make_pay_to_address_script( payer_address ),
-        "value": calculate_change_amount( payer_utxo_inputs, op_fee, int(round(dust_fee)) )
-    }
+    try:
+        return {
+            "script_hex": pybitcoin.make_pay_to_address_script( payer_address ),
+            "value": calculate_change_amount( payer_utxo_inputs, op_fee, int(round(dust_fee)) )
+        }
+    except ValueError, ve:
+        log.exception(ve)
+        log.error("Failed to calculate change amount for UTXOs (%s given)" % len(payer_utxo_inputs))
+        raise
  
 
 def tx_make_subsidizable( blockstack_tx, fee_cb, max_fee, subsidy_key, utxo_client, tx_fee=0 ):
@@ -325,7 +330,7 @@ def tx_make_subsidizable( blockstack_tx, fee_cb, max_fee, subsidy_key, utxo_clie
         return None
     
     else:
-        log.debug("%s will subsidize %s satoshi" % (pybitcoin.BitcoinPrivateKey( subsidy_key ).public_key().address(), dust_fee + op_fee ))
+        log.debug("%s will subsidize %s (ops+dust) + %s (txfee) satoshi" % (pybitcoin.BitcoinPrivateKey( subsidy_key ).public_key().address(), dust_fee + op_fee, tx_fee))
     
     subsidy_output = tx_make_subsidization_output( payer_utxo_inputs, payer_address, op_fee, dust_fee + tx_fee )
     
@@ -355,7 +360,7 @@ def tx_get_unspents(address, utxo_client, min_confirmations=TX_MIN_CONFIRMATIONS
             assert type(d) == dict, "Invalid UTXO information returned"
             assert d.has_key('value'), "Missing value in UTXOs from %s" % address
     except AssertionError, ae:
-        log.debug(ae)
+        log.exception(ae)
         raise UTXOException()
 
     # filter minimum confirmations 
