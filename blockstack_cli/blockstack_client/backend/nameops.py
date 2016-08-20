@@ -40,17 +40,30 @@ from ..proxy import is_name_registered, is_name_owner
 from ..tx import sign_and_broadcast_tx, preorder_tx, register_tx, update_tx, transfer_tx, revoke_tx, \
         namespace_preorder_tx, namespace_reveal_tx, namespace_ready_tx, announce_tx, name_import_tx, sign_tx
 
-from ..scripts import tx_make_subsidizable
+from ..scripts import tx_make_subsidizable, tx_deserialize
 from ..storage import get_blockchain_compat_hash, hash_zonefile, put_announcement
 
-from ..operations import fees_update, fees_transfer, fees_revoke, fees_registration
+from ..operations import fees_update, fees_preorder, fees_transfer, fees_revoke, fees_registration, \
+        fees_namespace_preorder, fees_namespace_reveal, fees_namespace_ready, fees_announce
 
 log = get_logger("blockstack-client")
 
 
-def estimate_preorder_tx_fee( name, name_cost, payment_addr, utxo_client, config_path=CONFIG_PATH ):
+def estimate_dust_fee( tx, fee_estimator ):
     """
-    Estimate the transaction fee of a preorder
+    Estimate the dust fee of an operation.
+    fee_estimator is a callable, and is one of the operation's get_fees() methods.
+    Return the number of satoshis on success
+    Return None on error
+    """
+    inputs, outputs, locktime, version = tx_deserialize( tx )
+    op_fee, dust_fee = fee_estimator( inputs, outputs )
+    return dust_fee
+    
+
+def estimate_preorder_tx_fee( name, name_cost, payment_addr, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
+    """
+    Estimate the transaction fee of a preorder, as well as (optionally) the dust fee
     Return the number of satoshis on success
     Return None on error
     """
@@ -72,10 +85,16 @@ def estimate_preorder_tx_fee( name, name_cost, payment_addr, utxo_client, config
 
     log.debug("preorder tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
 
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_preorder )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
+
     return tx_fee
 
 
-def estimate_register_tx_fee( name, payment_addr, utxo_client, config_path=CONFIG_PATH ):
+def estimate_register_tx_fee( name, payment_addr, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a register
     Return the number of satoshis on success
@@ -96,12 +115,18 @@ def estimate_register_tx_fee( name, payment_addr, utxo_client, config_path=CONFI
         log.error("Failed to get tx fee")
         return None
 
-    log.debug("register tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
+    log.debug("register tx %s bytes, %s satoshis txfee" % (len(signed_tx), int(tx_fee)))
+
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_registration )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
 
     return tx_fee
 
 
-def estimate_renewal_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=CONFIG_PATH ):
+def estimate_renewal_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a renewal
     Return the number of satoshis on success
@@ -125,12 +150,18 @@ def estimate_renewal_tx_fee( name, payment_privkey, owner_address, utxo_client, 
         log.error("Failed to get tx fee")
         return None
 
-    log.debug("renewal tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
+    log.debug("renewal tx %s bytes, %s satoshis txfee" % (len(signed_tx), int(tx_fee)))
+
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_registration )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
 
     return tx_fee
 
 
-def estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=CONFIG_PATH, payment_address=None ):
+def estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=CONFIG_PATH, payment_address=None, include_dust=False ):
     """
     Estimate the transaction fee of an update
     Return the number of satoshis on success
@@ -186,12 +217,18 @@ def estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, c
         log.error("Failed to get tx fee")
         return None
     
-    log.debug("update tx %s bytes, %s satoshis" % (len(signed_subsidized_tx), int(tx_fee)))
+    log.debug("update tx %s bytes, %s satoshis txfee" % (len(signed_subsidized_tx), int(tx_fee)))
+
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_subsidized_tx, fees_update )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
 
     return tx_fee
 
 
-def estimate_transfer_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=CONFIG_PATH ):
+def estimate_transfer_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a transfer
     Return the number of satoshis on success
@@ -215,12 +252,18 @@ def estimate_transfer_tx_fee( name, payment_privkey, owner_address, utxo_client,
         log.error("Failed to get tx fee")
         return None
     
-    log.debug("transfer tx %s bytes, %s satoshis" % (len(signed_subsidized_tx), int(tx_fee)))
+    log.debug("transfer tx %s bytes, %s satoshis txfee" % (len(signed_subsidized_tx), int(tx_fee)))
+
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_transfer )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
 
     return tx_fee
 
 
-def estimate_revoke_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=CONFIG_PATH ):
+def estimate_revoke_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a revoke
     Return the number of satoshis on success
@@ -242,12 +285,18 @@ def estimate_revoke_tx_fee( name, payment_privkey, owner_address, utxo_client, c
         log.error("Failed to get tx fee")
         return None
 
-    log.debug("revoke tx %s bytes, %s satoshis" % (len(signed_subsidized_tx), int(tx_fee)))
+    log.debug("revoke tx %s bytes, %s satoshis txfee" % (len(signed_subsidized_tx), int(tx_fee)))
+
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_revoke )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
 
     return tx_fee
 
 
-def estimate_name_import_tx_fee( fqu, payment_addr, utxo_client, config_path=CONFIG_PATH ):
+def estimate_name_import_tx_fee( fqu, payment_addr, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a name import
     Return the number of satoshis on success
@@ -269,12 +318,12 @@ def estimate_name_import_tx_fee( fqu, payment_addr, utxo_client, config_path=CON
         log.error("Failed to get tx fee")
         return None
 
-    log.debug("name import tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
+    log.debug("name import tx %s bytes, %s satoshis txfee" % (len(signed_tx), int(tx_fee)))
 
     return tx_fee
 
 
-def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utxo_client, config_path=CONFIG_PATH ):
+def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a namespace preorder
     Return the number of satoshis on success
@@ -296,11 +345,18 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utx
         log.error("Failed to get tx fee")
         return None
     
-    log.debug("namespace preorder tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
+    log.debug("namespace preorder tx %s bytes, %s satoshis txfee" % (len(signed_tx), int(tx_fee)))
+    
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_namespace_preorder )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
+
     return tx_fee
 
 
-def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client, config_path=CONFIG_PATH ):
+def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a namespace reveal
     Return the number of satoshis on success
@@ -321,11 +377,18 @@ def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client
         log.error("Failed to get tx fee")
         return None
 
-    log.debug("namespace reveal tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
+    log.debug("namespace reveal tx %s bytes, %s satoshis txfee" % (len(signed_tx), int(tx_fee)))
+    
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_namespace_reveal )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
+
     return tx_fee
 
 
-def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, config_path=CONFIG_PATH ):
+def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a namespace ready
     Return the number of satoshis on success
@@ -345,11 +408,18 @@ def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, con
         log.error("Failed to get tx fee")
         return None
 
-    log.debug("namespace ready tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
+    log.debug("namespace ready tx %s bytes, %s satoshis txfee" % (len(signed_tx), int(tx_fee)))
+    
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_namespace_ready )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
+
     return tx_fee
 
 
-def estimate_announce_tx_fee( sender_address, utxo_client, config_path=CONFIG_PATH ):
+def estimate_announce_tx_fee( sender_address, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of an announcement tx
     Return the number of satoshis on success
@@ -370,7 +440,14 @@ def estimate_announce_tx_fee( sender_address, utxo_client, config_path=CONFIG_PA
         log.error("Failed to get tx fee")
         return None
 
-    log.debug("announce tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
+    log.debug("announce tx %s bytes, %s satoshis txfee" % (len(signed_tx), int(tx_fee)))
+    
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_announce )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
+
     return tx_fee
 
 
