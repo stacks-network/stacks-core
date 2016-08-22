@@ -99,6 +99,22 @@ def atlas_peer_ping_interval():
     return rpc.peer_ping_interval()
 
 
+def atlas_peer_max_age():
+    """
+    What's the maximum allowed peer age in the peer db?
+    """
+    rpc = AtlasRPCTestClient( "none", 0 )
+    return rpc.peer_max_age()
+
+
+def atlas_peer_clean_interval():
+    """
+    What's the interval between peer cleanups?
+    """
+    rpc = AtlasRPCTestClient( "none", 0 )
+    return rpc.peer_clean_interval()
+
+
 class AtlasRPCTestClient(object):
     def __init__(self, host, port, timeout=60, src=None):
         self.rpc = BlockstackRPCClient( "127.0.0.1", RPC_SERVER_PORT, timeout=timeout )
@@ -136,6 +152,13 @@ class AtlasRPCTestClient(object):
         return self.rpc.put_zonefiles( self.src_hostport, self.dest_hostport, zonefile_info )
 
 
+    def ping( self ):
+        """
+        Ping!
+        """
+        return self.rpc.ping( self.dest_hostport )
+
+
     def add_sleep_deadline( self, hostport, procname, value ):
         """
         make the node sleep
@@ -162,6 +185,20 @@ class AtlasRPCTestClient(object):
         peer ping interval
         """
         return self.rpc.peer_ping_interval()
+
+
+    def peer_max_age( self ):
+        """
+        peer max age
+        """
+        return self.rpc.peer_max_age()
+
+
+    def peer_clean_interval( self ):
+        """
+        peer clean interval
+        """
+        return self.rpc.peer_clean_interval()
 
 
     def time_now( self ):
@@ -429,6 +466,8 @@ class AtlasNetwork( SimpleXMLRPCServer ):
         self.max_neighbors = network_params.get("max_neighbors", 3)
         self.peer_ping_interval = network_params.get("peer_ping_interval", 3)
         self.peer_lifetime_interval = network_params.get("peer_lifetime_interval", 10)
+        self.peer_max_age = network_params.get("peer_max_age", 10)
+        self.peer_clean_interval = network_params.get("peer_clean_interval", 3)
 
         # register methods 
         for attr in dir(self):
@@ -442,7 +481,10 @@ class AtlasNetwork( SimpleXMLRPCServer ):
         """
         Run one step of the simulation
         """
-        for node_hostport, n in self.node_hosts.items():
+        node_order = self.node_hosts.keys()
+        random.shuffle( node_order )
+        for node_hostport in node_order:
+            n = self.node_hosts[node_hostport]
 
             print "\n\nStep %s" % node_hostport
             if not n.is_asleep( "AtlasPeerCrawler", self.time ):
@@ -585,7 +627,10 @@ class AtlasNetwork( SimpleXMLRPCServer ):
         """
         self.possibly_drop( dest_hostport )
         peer_table = self.get_peer_table( dest_hostport )
-        neighbors = atlas_get_rarest_live_peers( peer_table=peer_table )
+
+        neighbors = atlas_get_live_neighbors( src_hostport, peer_table=peer_table )
+        if len(neighbors) > self.max_neighbors:
+            neighbors = neighbors[:self.max_neighbors]
        
         # dest remembers src
         node = self.get_node( dest_hostport )
@@ -644,6 +689,13 @@ class AtlasNetwork( SimpleXMLRPCServer ):
                 atlas_zonefile_push_enqueue( zonefile_hash, str(zonefile_data), peer_table=node.peer_table, zonefile_queue=node.zonefile_queue, path=atlasdb_path )
 
 
+    def rpc_ping( self, dest_hostport ):
+        """
+        Ping!
+        """
+        return {'alive': True}
+
+
     def rpc_add_sleep_deadline( self, hostport, procname, value ):
         """
         make the given host sleep
@@ -681,6 +733,20 @@ class AtlasNetwork( SimpleXMLRPCServer ):
         return self.time
 
 
+    def rpc_peer_max_age( self ):
+        """
+        what's the maximum peer age?
+        """
+        return self.peer_max_age
+
+    
+    def rpc_peer_clean_interval( self ):
+        """
+        what's the peer clean interval?
+        """
+        return self.peer_clean_interval
+
+
 class AtlasNetworkServer( threading.Thread, object ):
     """
     RPC server thread
@@ -702,23 +768,6 @@ class AtlasNetworkServer( threading.Thread, object ):
         self.network.shutdown()
 
 
-def inv_to_string( inv ):
-    """
-    Inventory to string (bitwise big-endian)
-    """
-    ret = ""
-    for i in xrange(0, len(inv)):
-        for j in xrange(0, 8):
-            bit_index = 1 << (7 - j)
-            val = (ord(inv[i]) & bit_index)
-            if val != 0:
-                ret += "1"
-            else:
-                ret += "0"
-
-    return ret
-
-
 def print_network_state( network ):
     """
     Print out the state of the network
@@ -728,24 +777,20 @@ def print_network_state( network ):
         node = network.get_node( node_hostport )
         peer_table = network.get_peer_table( node_hostport )
         node_inv = atlas_make_zonefile_inventory( 0, atlasdb_zonefile_inv_length(path=node.db_path), path=network.get_atlasdb_path( node_hostport ))
-        node_inv_str = inv_to_string( node_inv )
+        node_inv_str = atlas_inventory_to_string( node_inv )
         neighbors = sorted(network.get_peer_table( node_hostport ).keys())
 
-        neighbor_popularity = []
+        neighbor_info = []
         for n in neighbors:
-            pop = atlas_peer_get_popularity( n, peer_table=peer_table )
             h = atlas_peer_get_health( n, peer_table=peer_table )
-            inv = inv_to_string( peer_table[n]['zonefile_inv'] )
-            neighbor_popularity.append( (pop, "%s (h=%.3f,p=%s,inv=%s)" % (n, h, pop, inv)))
-
-        neighbor_popularity.sort()
-        neighbor_strings = [ s for (_, s) in neighbor_popularity ]
+            inv = atlas_inventory_to_string( peer_table[n]['zonefile_inv'] )
+            neighbor_info.append( "%s (h=%.3f,inv=%s)" % (n, h, inv))
 
         print "-" * 80
-        print "%s: %s   State: %s\nneighbors: %s" % (node_hostport, node_inv_str, network.get_node(node_hostport).state_to_string(), ", ".join(neighbor_strings))
+        print "%s: %s   State: %s\nneighbors: %s" % (node_hostport, node_inv_str, network.get_node(node_hostport).state_to_string(), ", ".join(neighbor_info))
         print ""
 
-    # measure peer knowledge distribution
+    # measure peer knowledge and zonefile distribution
     peer_count = {}
     for node_hostport in node_hostports:
         peer_count[node_hostport] = 0
@@ -757,16 +802,20 @@ def print_network_state( network ):
 
     print "Neighbor knowledge"
     for node_hostport in node_hostports:
-        print "%020s: %s" % (node_hostport, "#" * peer_count[node_hostport])
+        node_inv = atlas_make_zonefile_inventory( 0, atlasdb_zonefile_inv_length(path=node.db_path), path=network.get_atlasdb_path( node_hostport ))
+        node_inv_str = atlas_inventory_to_string( node_inv )
+        print "%020s (%s): %s" % (node_hostport, node_inv_str, "#" * peer_count[node_hostport])
 
     print ""
 
 
-def load_flat_simulation( num_nodes, num_seed_nodes, num_zonefiles, test_root_dir ):
+def load_flat_simulation( num_nodes, num_seed_nodes, num_zonefiles, test_root_dir, **network_params ):
     """
     Make a random simulated network,
     with the given number of nodes and a given number
     of seed nodes that everyone knows about.
+
+    Return (network, inventory vector that the seed nodes have)
     """
 
     shutil.rmtree(test_root_dir)
@@ -807,21 +856,117 @@ def load_flat_simulation( num_nodes, num_seed_nodes, num_zonefiles, test_root_di
         os.makedirs(zonefile_dir)
 
         # one seed node
-        node = AtlasNode("peer_%03d" % i, RPC_SERVER_PORT, [last_neighbor], [], peer_inv, atlasdb_path, zonefile_dir )
+        # node = AtlasNode("peer_%03d" % i, RPC_SERVER_PORT, [last_neighbor], [], peer_inv, atlasdb_path, zonefile_dir )
+        # node = AtlasNode("peer_%03d" % i, RPC_SERVER_PORT, seed_node_hostports, [], peer_inv, atlasdb_path, zonefile_dir )
+        # node = AtlasNode("peer_%03d" % i, RPC_SERVER_PORT, ["peer_000:%s" % RPC_SERVER_PORT], [], peer_inv, atlasdb_path, zonefile_dir )
+        if i == 5:
+            node = AtlasNode("peer_%03d" % i, RPC_SERVER_PORT, ["seed_000:%s" % RPC_SERVER_PORT, "peer_000:%s" % RPC_SERVER_PORT], [], peer_inv, atlasdb_path, zonefile_dir )
+
+        else:
+            node = AtlasNode("peer_%03d" % i, RPC_SERVER_PORT, ["peer_000:%s" % RPC_SERVER_PORT], [], peer_inv, atlasdb_path, zonefile_dir )
+
         peer_nodes.append( node )
 
         last_neighbor = "peer_%03d" % i
 
-    network = AtlasNetwork( seed_nodes + peer_nodes )
+    network = AtlasNetwork( seed_nodes + peer_nodes, **network_params )
 
-    return network
+    return network, seed_inv
+
+
+def network_is_converged( network, inv ):
+    """
+    Have all nodes obtained the zonefiles in the given inventory?
+    """
+    nodes = network.get_nodes()
+    for node_hostport in nodes.keys():
+        node = nodes[node_hostport]
+        peer_table = network.get_peer_table( node_hostport )
+        peer_inv = atlas_make_zonefile_inventory( 0, atlasdb_zonefile_inv_length(path=node.db_path), path=node.db_path )
+        if atlas_inventory_count_missing( peer_inv, inv ) != 0:
+            return False
+
+    return True
+
+
+def network_is_connected( network ):
+    """
+    Is there a path from each peer to each other peer?
+    """
+    nodes = network.get_nodes()
+    frontier = []
+    src = nodes.keys()[0]
+    known = [src]
+    frontier += network.get_peer_table(src).keys()
+    if src in frontier:
+        frontier.remove(src)
+
+    while len(frontier) > 0:
+        src = frontier.pop(0)
+        if src in known:
+            continue
+
+        known.append(src)
+
+        f = network.get_peer_table(src).keys()
+        for s in known:
+            if s in f:
+                f.remove(s)
+
+        frontier += f
+
+    if len(frontier) == len(nodes.keys()):
+        return True
+
+    else:
+        return False
 
 
 def network_shutdown( network ):
     network.stop_server()
 
 
-def run_simulation( network ):
+def drop_random_50( dest_hostport ):
+    r = random.random()
+    if r < 0.5:
+        # 50% drop
+        return True
+
+    else:
+        return False
+
+
+def drop_random_30( dest_hostport ):
+    r = random.random()
+    if r < 0.3:
+        # 30% drop
+        return True
+
+    else:
+        return False
+
+
+def drop_random_70( dest_hostport ):
+    r = random.random()
+    if r < 0.7:
+        # 70% drop
+        return True
+
+    else:
+        return False
+
+
+def drop_seed_90( dest_hostport ):
+    if dest_hostport.startswith("seed_"):
+        r = r.random()
+        if r < 0.9:
+            # 90% drop if seed
+            return True
+
+    return False
+
+
+def run_simulation( network, seed_inv ):
     """
     Run an atlas network
     Run until converged
@@ -833,10 +978,18 @@ def run_simulation( network ):
 
     network_server.start()
     while True:
-        print "time: %s" % network.time
         
         network.step()
+        
+        print "time: %s" % network.time
+
         print_network_state( network )
+
+        if not network_is_connected(network):
+            log.warning("Network is not connected!")
+
+        if network_is_converged( network, seed_inv ):
+            break
 
         time.sleep(1.0)
 
@@ -851,8 +1004,8 @@ if __name__ == "__main__":
 
     virtualchain.setup_virtualchain( impl=blockstack.lib.virtualchain_hooks )
     
-    network = load_flat_simulation( 10, 1, 1, zonefile_dir )
-    run_simulation( network )
+    network, seed_inv = load_flat_simulation( 10, 1, 1, zonefile_dir, drop_probability=drop_seed_90 )
+    run_simulation( network, seed_inv )
 
 '''
 # unit tests
