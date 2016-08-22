@@ -20,7 +20,7 @@ import traceback
 current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
 
-from ..config import TX_EXPIRED_INTERVAL, TX_CONFIRMATIONS_NEEDED
+from ..config import TX_EXPIRED_INTERVAL, TX_CONFIRMATIONS_NEEDED, TX_MIN_CONFIRMATIONS
 from ..config import MAXIMUM_NAMES_PER_ADDRESS
 from ..config import BLOCKSTACKD_SERVER, BLOCKSTACKD_PORT
 
@@ -160,7 +160,7 @@ def is_tx_rejected(tx_hash, tx_sent_at_height, config_path=CONFIG_PATH):
     return False
 
 
-def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=6):
+def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=TX_MIN_CONFIRMATIONS):
     """ 
     Given an address get unspent outputs (UTXOs)
     Return array of UTXOs on success
@@ -181,7 +181,7 @@ def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmati
     return data
 
 
-def get_balance(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=6):
+def get_balance(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=TX_MIN_CONFIRMATIONS):
     """
     Check if BTC key being used has enough balance on unspents
     Returns value in satoshis on success
