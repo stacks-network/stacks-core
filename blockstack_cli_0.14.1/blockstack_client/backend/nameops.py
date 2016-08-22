@@ -44,13 +44,26 @@ from ..tx import sign_and_broadcast_tx, preorder_tx, register_tx, update_tx, tra
 from ..scripts import tx_make_subsidizable
 from ..storage import get_blockchain_compat_hash, hash_zonefile, put_announcement
 
-from ..operations import fees_update, fees_transfer, fees_revoke, fees_registration
+from ..operations import fees_update, fees_transfer, fees_revoke, fees_registration, fees_preorder, \
+        fees_namespace_preorder, fees_namespace_reveal, fees_namespace_ready, fees_announce
 
 from ..keys import get_privkey_info_address, get_privkey_info_params
 
 import virtualchain
 
 log = get_logger("blockstack-client")
+
+
+def estimate_dust_fee( tx, fee_estimator ):
+    """
+    Estimate the dust fee of an operation.
+    fee_estimator is a callable, and is one of the operation's get_fees() methods.
+    Return the number of satoshis on success
+    Return None on error
+    """
+    inputs, outputs, locktime, version = tx_deserialize( tx )
+    op_fee, dust_fee = fee_estimator( inputs, outputs )
+    return dust_fee
 
 
 def make_fake_privkey_info( privkey_params ):
@@ -73,7 +86,7 @@ def make_fake_privkey_info( privkey_params ):
         return virtualchain.make_multisig_wallet( m, n )
     
 
-def estimate_preorder_tx_fee( name, name_cost, payment_addr, utxo_client, owner_privkey_params=(1, 1), config_path=CONFIG_PATH ):
+def estimate_preorder_tx_fee( name, name_cost, payment_addr, utxo_client, owner_privkey_params=(1, 1), config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a preorder
     Return the number of satoshis on success
@@ -101,10 +114,16 @@ def estimate_preorder_tx_fee( name, name_cost, payment_addr, utxo_client, owner_
 
     log.debug("preorder tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
 
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_preorder )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
+
     return tx_fee
 
 
-def estimate_register_tx_fee( name, payment_addr, utxo_client, owner_privkey_params=(1, 1), config_path=CONFIG_PATH ):
+def estimate_register_tx_fee( name, payment_addr, utxo_client, owner_privkey_params=(1, 1), config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a register
     Return the number of satoshis on success
@@ -130,10 +149,16 @@ def estimate_register_tx_fee( name, payment_addr, utxo_client, owner_privkey_par
 
     log.debug("register tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
 
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_registration )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
+
     return tx_fee
 
 
-def estimate_renewal_tx_fee( name, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=(1, 1), config_path=CONFIG_PATH ):
+def estimate_renewal_tx_fee( name, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=(1, 1), config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a renewal
     Return the number of satoshis on success
@@ -168,10 +193,16 @@ def estimate_renewal_tx_fee( name, payment_privkey_info, owner_address, utxo_cli
 
     log.debug("renewal tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
 
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_registration )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
+
     return tx_fee
 
 
-def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=(1, 1), config_path=CONFIG_PATH, payment_address=None ):
+def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=(1, 1), config_path=CONFIG_PATH, payment_address=None, include_dust=False ):
     """
     Estimate the transaction fee of an update
     Return the number of satoshis on success
@@ -203,6 +234,7 @@ def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
                 log.debug("Payment private key not given; estimating the subsidization fee from UTXOs")
                 payment_utxos = get_utxos( payment_address, config_path=config_path, utxo_client=utxo_client ) 
                 if payment_utxos is None:
+                    log.error("No UTXOs returned")
                     raise ValueError()
 
                 if 'error' in payment_utxos:
@@ -214,6 +246,7 @@ def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
                 signed_subsidized_tx = unsigned_tx + "00" * (71 + subsidy_byte_count)    # ~71 bytes for signature
 
             else:
+                log.error("BUG: missing both payment private key and address")
                 raise Exception("Need either payment_privkey or payment_address")
 
     except ValueError, ve:
@@ -241,10 +274,16 @@ def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
     
     log.debug("update tx %s bytes, %s satoshis" % (len(signed_subsidized_tx), int(tx_fee)))
 
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_update )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
+
     return tx_fee
 
 
-def estimate_transfer_tx_fee( name, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=(1, 1), config_path=CONFIG_PATH ):
+def estimate_transfer_tx_fee( name, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=(1, 1), config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a transfer
     Return the number of satoshis on success
@@ -278,10 +317,16 @@ def estimate_transfer_tx_fee( name, payment_privkey_info, owner_address, utxo_cl
     
     log.debug("transfer tx %s bytes, %s satoshis" % (len(signed_subsidized_tx), int(tx_fee)))
 
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_transfer )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
+
     return tx_fee
 
 
-def estimate_revoke_tx_fee( name, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=(1, 1), config_path=CONFIG_PATH ):
+def estimate_revoke_tx_fee( name, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=(1, 1), config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a revoke
     Return the number of satoshis on success
@@ -311,10 +356,16 @@ def estimate_revoke_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
 
     log.debug("revoke tx %s bytes, %s satoshis" % (len(signed_subsidized_tx), int(tx_fee)))
 
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_revoke )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
+
     return tx_fee
 
 
-def estimate_name_import_tx_fee( fqu, payment_addr, utxo_client, config_path=CONFIG_PATH ):
+def estimate_name_import_tx_fee( fqu, payment_addr, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a name import
     Return the number of satoshis on success
@@ -341,10 +392,16 @@ def estimate_name_import_tx_fee( fqu, payment_addr, utxo_client, config_path=CON
 
     log.debug("name import tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
 
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_name_import )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
+
     return tx_fee
 
 
-def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utxo_client, config_path=CONFIG_PATH ):
+def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a namespace preorder
     Return the number of satoshis on success
@@ -370,10 +427,17 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utx
         return None
     
     log.debug("namespace preorder tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
+
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_namespace_preorder )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
+
     return tx_fee
 
 
-def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client, config_path=CONFIG_PATH ):
+def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a namespace reveal
     Return the number of satoshis on success
@@ -398,10 +462,17 @@ def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client
         return None
 
     log.debug("namespace reveal tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
+
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_namespace_reveal )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
+
     return tx_fee
 
 
-def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, config_path=CONFIG_PATH ):
+def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a namespace ready
     Return the number of satoshis on success
@@ -425,10 +496,17 @@ def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, con
         return None
 
     log.debug("namespace ready tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
+
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_namespace_ready )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
+
     return tx_fee
 
 
-def estimate_announce_tx_fee( sender_address, utxo_client, sender_privkey_params=(1, 1), config_path=CONFIG_PATH ):
+def estimate_announce_tx_fee( sender_address, utxo_client, sender_privkey_params=(1, 1), config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of an announcement tx
     Return the number of satoshis on success
@@ -453,6 +531,13 @@ def estimate_announce_tx_fee( sender_address, utxo_client, sender_privkey_params
         return None
 
     log.debug("announce tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
+
+    if include_dust:
+        dust_fee = estimate_dust_fee( signed_tx, fees_announce )
+        assert dust_fee is not None
+        log.debug("Additional dust fee: %s" % dust_fee)
+        tx_fee += dust_fee
+
     return tx_fee
 
 
@@ -637,11 +722,23 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
 
     try:
         unsigned_tx = update_tx( fqu, zonefile_hash, consensus_hash, owner_address, utxo_client, subsidize=True, tx_fee=tx_fee )
+    except ValueError, ve:
+        log.exception(ve)
+        log.error("Failed to generate update TX")
+        return {'error': 'Insufficient funds'}
+    except Exception, e:
+        log.exception(e)
+        return {'error': 'Failed to generate update transaction'}
+
+    try:
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_update, 21 * (10**6) * (10**8), payment_privkey_info, utxo_client, tx_fee=tx_fee )
         assert subsidized_tx is not None
-    except ValueError:
+    except ValueError, ve:
+        log.exception(ve)
+        log.error("Failed to subsidize update TX")
         return {'error': 'Insufficient funds'}
     except AssertionError:
+        log.error("Failed to create subsidized tx")
         return {'error': 'Unable to create transaction'}
 
     resp = {}
@@ -705,6 +802,7 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
 
     tx_fee = estimate_transfer_tx_fee( fqu, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=owner_privkey_params, config_path=config_path )
     if tx_fee is None:
+        log.error("Failed to estimate tx fee")
         return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
 
     try:
@@ -712,8 +810,10 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_transfer, 21 * (10**6) * (10**8), payment_privkey_info, utxo_client, tx_fee=tx_fee )
         assert subsidized_tx is not None
     except ValueError:
+        log.error("Failed to generate transfer tx")
         return {'error': 'Insufficient funds'}
     except AssertionError:
+        log.error("Failed to subsidize transfer tx")
         return {'error': 'Unable to create transaction'}
 
     log.debug("Transferring (%s, %s)" % (fqu, transfer_address))
@@ -767,6 +867,7 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
 
     tx_fee = estimate_renewal_tx_fee( fqu, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=owner_privkey_params, config_path=config_path ) 
     if tx_fee is None:
+        log.error("Failed to estimate renewal tx fee")
         return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
 
     log.debug("Renewing (%s, %s, %s), tx_fee = %s, renewal_fee = %s" % (fqu, payment_address, owner_address, tx_fee, renewal_fee))
@@ -777,14 +878,19 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_registration, 21 ** (10**6) * (10**8), payment_privkey_info, utxo_client, tx_fee=tx_fee )
         assert subsidized_tx is not None
     except ValueError:
+        log.error("Failed to generate renewal tx")
         return {'error': 'Insufficient funds'}
     except AssertionError:
+        log.error("Failed to subsidize renewal tx")
         return {'error': 'Unable to create transaction'}
 
     try:
         resp = sign_and_broadcast_tx( subsidized_tx, owner_privkey_info, config_path=config_path, tx_broadcaster=tx_broadcaster )
     except Exception, e:
-        log.exception(e)
+        if os.environ.get("BLOCKSTACK_DEBUG") == "1":
+            log.exception(e)
+
+        log.error("Failed to sign and broadcast tx")
         return {'error': 'Failed to sign and broadcast transaction'}
 
     return resp
@@ -804,10 +910,12 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
     payment_address = get_privkey_info_address(payment_privkey_info)
     owner_privkey_params = get_privkey_info_params(owner_privkey_info)
     if owner_privkey_params == (None, None):
+        log.error("Invalid owner private key")
         return {'error': 'Invalid owner private key'}
 
     tx_fee = estimate_revoke_tx_fee( fqu, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=owner_privkey_params, config_path=config_path )
     if tx_fee is None:
+        log.error("Failed to estimate revoke tx fee")
         return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
 
     if safety_checks:
@@ -827,8 +935,10 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_revoke, 21 ** (10**6) * (10**8), payment_privkey_info, utxo_client, tx_fee=tx_fee )
         assert subsidized_tx is not None
     except ValueError:
+        log.error("Failed to generate revoke tx")
         return {'error': 'Insufficient funds'}
     except AssertionError:
+        log.error("Failed to subsidize revoke tx")
         return {'error': 'Unable to create transaction'}
 
     log.debug("Revoking %s" % fqu)
@@ -838,7 +948,10 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
     try:
         resp = sign_and_broadcast_tx( subsidized_tx, owner_privkey_info, config_path=config_path, tx_broadcaster=tx_broadcaster )
     except Exception, e:
-        log.exception(e)
+        if os.environ.get("BLOCKSTACK_DEBUG") == "1":
+            log.exception(e)
+
+        log.error("Failed to sign and broadcast tx")
         return {'error': 'Failed to sign and broadcast revoke transaction'}
 
     return resp
@@ -858,16 +971,20 @@ def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash
 
     try:
         payment_address = virtualchain.BitcoinPrivateKey( importer_privkey_info ).public_key().address()
-    except:
+    except Exception, e:
+        log.exception(e)
         return {'error': 'Import can only use a single private key with a P2PKH script'}
 
     tx_fee = estimate_name_import_tx_fee( fqu, payment_address, utxo_client, config_path=config_path )
     if tx_fee is None:
+        log.error("Failed to estimate name import tx fee")
         return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
 
     try:
         unsigned_tx = name_import_tx( fqu, recipient_address, zonefile_hash, payment_address, utxo_client, tx_fee=tx_fee )
-    except ValueError:
+    except ValueError, ve:
+        log.exception(ve)
+        log.error("Failed to generate name import tx")
         return {'error': 'Insufficient funds'}
 
     log.debug("Import (%s, %s, %s)" % (fqu, recipient_address, zonefile_hash))
@@ -875,7 +992,10 @@ def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash
     try:
         resp = sign_and_broadcast_tx( unsigned_tx, importer_privkey_info, config_path=config_path, tx_broadcaster=tx_broadcaster )
     except Exception, e:
-        log.exception(e)
+        if os.environ.get("BLOCKSTACK_DEBUG") == "1":
+            log.exception(e)
+
+        log.error("Failed to sign and broadcast tx")
         return {'error': 'Failed to sign and broadcast import transaction'}
 
     return resp
@@ -895,12 +1015,14 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_addr
 
     try:
         payment_address = virtualchain.BitcoinPrivateKey( payment_privkey_info ).public_key().address()
-    except:
+    except Exception, e:
+        log.error("Invalid private key info")
         return {'error': 'Namespace preorder can only use a single private key with a P2PKH script'}
 
     if consensus_hash is None:
         blockstack_info = blockstack_getinfo( proxy=proxy )
         if 'error' in blockstack_info:
+            log.error("Blockstack server error: %s" % blockstack_info['error'])
             return {'error': 'Failed to get consensus hash'}
 
         consensus_hash = blockstack_info['consensus']
@@ -923,13 +1045,18 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_addr
 
     tx_fee = estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utxo_client, config_path=config_path )
     if tx_fee is None:
+        log.error("Failed to estimate namespace preorder tx fee")
         return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
 
     log.debug("Preordering namespace (%s, %s, %s), tx_fee = %s" % (namespace_id, payment_address, reveal_address, tx_fee))
 
     try:
         unsigned_tx = namespace_preorder_tx( namespace_id, reveal_address, cost, consensus_hash, payment_address, utxo_client, tx_fee=tx_fee )
-    except ValueError:
+    except ValueError, ve:
+        if os.environ.get("BLOCKSTACK_DEBUG") == "1":
+            log.exception(ve)
+
+        log.error("Failed to create namespace preorder tx")
         return {'error': 'Insufficient funds'}
 
     resp = {}
@@ -937,7 +1064,10 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_addr
     try:
         resp = sign_and_broadcast_tx( unsigned_tx, payment_privkey_info, tx_broadcaster=tx_broadcaster)
     except Exception, e:
-        log.exception(e)
+        if os.environ.get("BLOCKSTACK_DEBUG") == "1":
+            log.exception(e)
+
+        log.error("Failed to sign and broadcast tx")
         return {'error': 'Failed to sign and broadcast namespace preorder transaction'}
 
     return resp
@@ -958,6 +1088,7 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
     try:
         payment_address = virtualchain.BitcoinPrivateKey( payment_privkey_info ).public_key().address()
     except:
+        log.error("Invalid private key info")
         return {'error': 'Namespace reveal can only use a single private key with a P2PKH script'}
     
     if safety_checks:
@@ -969,11 +1100,13 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
                 return {'error': 'Failed to read blockchain record for namespace'}
 
         else:
-            # exists 
+            # exists
+            log.error("Namespace already exists")
             return {'error': 'Namespace already exists'}
 
     tx_fee = estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client, config_path=config_path )
     if tx_fee is None:
+        log.error("Failed to estimate namespace reveal tx fee")
         return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
 
     log.debug("Revealing namespace (%s, %s, %s), tx_fee = %s" % (namespace_id, payment_address, reveal_address, tx_fee))
@@ -991,7 +1124,10 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
     try:
         resp = sign_and_broadcast_tx( unsigned_tx, payment_privkey_info, tx_broadcaster=tx_broadcaster )
     except Exception, e:
-        log.exception(e)
+        if os.environ.get("BLOCKSTACK_DEBUG") == "1":
+            log.exception(e)
+
+        log.error("Failed to sign and broadcast tx")
         return {'error': 'Failed to sign and broadcast namespace reveal transaction'}
 
     return resp
@@ -1013,6 +1149,7 @@ def do_namespace_ready( namespace_id, reveal_privkey_info, utxo_client, tx_broad
     try:
         reveal_address = virtualchain.BitcoinPrivateKey( reveal_privkey_info ).public_key().address()
     except:
+        log.error("Invalid private key info")
         return {'error': 'Namespace ready can only use a single private key with a P2PKH script'}
 
     if safety_checks:
@@ -1024,17 +1161,23 @@ def do_namespace_ready( namespace_id, reveal_privkey_info, utxo_client, tx_broad
 
         if blockchain_record['ready']:
             # exists 
-            return {'error': 'Namespace already exists'}
+            log.error("Namespace already made ready")
+            return {'error': 'Namespace already made ready'}
 
     tx_fee = estimate_namespace_ready_tx_fee( namespace_id, reveal_address, utxo_client, config_path=config_path )
     if tx_fee is None:
+        log.error("Failed to estimate namespace-ready tx fee")
         return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
 
     log.debug("Readying namespace (%s, %s), tx_fee = %s" % (namespace_id, reveal_address, tx_fee) )
 
     try:
         unsigned_tx = namespace_ready_tx( namespace_id, reveal_address, utxo_client, tx_fee=tx_fee )
-    except ValueError:
+    except ValueError, ve:
+        if os.environ.get("BLOCKSTACK_DEBUG") == "1":
+            log.exception(ve)
+
+        log.error("Failed to create namespace-ready tx")
         return {'error': 'Insufficient funds'}
 
     resp = {}
@@ -1042,7 +1185,10 @@ def do_namespace_ready( namespace_id, reveal_privkey_info, utxo_client, tx_broad
     try:
         resp = sign_and_broadcast_tx( unsigned_tx, reveal_privkey_info, tx_broadcaster=tx_broadcaster )
     except Exception, e:
-        log.exception(e)
+        if os.environ.get("BLOCKSTACK_DEBUG") == "1":
+            log.exception(e)
+
+        log.error("Failed to sign and broadcast tx")
         return {'error': 'Failed to sign and broadcast namespace ready transaction'}
 
     return resp
@@ -1064,17 +1210,23 @@ def do_announce( message_text, sender_privkey_info, utxo_client, tx_broadcaster,
     sender_address = get_privkey_info_address( sender_privkey_info )
     sender_privkey_params = get_privkey_info_params( sender_privkey_info )
     if sender_privkey_params == (None, None):
+        log.error("Invalid owner private key info")
         return {'error': 'Invalid owner private key'}
 
     tx_fee = estimate_announce_tx_fee( sender_address, utxo_client, config_path=config_path )
     if tx_fee is None:
+        log.error("Failed to estimate announce tx fee")
         return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
 
     log.debug("Announce (%s, %s) tx_fee = %s" % (message_hash, sender_address, tx_fee))
 
     try:
         unsigned_tx = announce_tx( message_hash, sender_address, utxo_client, tx_fee=tx_fee )
-    except ValueError:
+    except ValueError, ve:
+        if os.environ.get("BLOCKSTACK_DEBUG") == "1":
+            log.exception(ve)
+
+        log.error("Failed to create announce tx")
         return {'error': 'Insufficient funds'}
 
     resp = {}
@@ -1083,11 +1235,13 @@ def do_announce( message_text, sender_privkey_info, utxo_client, tx_broadcaster,
         resp = sign_and_broadcast_tx( unsigned_tx, sender_privkey_info, tx_broadcaster=tx_broadcaster )
     except Exception, e:
         log.exception(e)
+        log.error("Failed to sign and broadcast transaction")
         return {'error': 'Failed to sign and broadcast announce transaction'}
     
     # stash the announcement text 
     res = put_announcement( message_text, resp['transaction_hash'] )
     if 'error' in res:
+        log.error("Failed to store announcement text: %s" % res['error'])
         return {'error': 'Failed to store message text', 'transaction_hash': resp['transaction_hash'], 'message_hash': message_hash}
 
     else:
