@@ -35,6 +35,8 @@ import shutil
 import traceback
 import copy
 import binascii
+import StringIO
+import hashlib
 
 import blockstack_zones
 import virtualchain
@@ -44,11 +46,13 @@ from lib.config import *
 from lib.storage import *
 from lib import get_db_state
 
-from pybloom_live import ScalableBloomFilter
+from pybloom_live import BloomFilter, ScalableBloomFilter
 
 PEER_LIFETIME_INTERVAL = 3600  # 1 hour
 PEER_PING_INTERVAL = 60        # 1 minute
-
+PEER_MAX_AGE = 2678400         # 1 month
+PEER_CLEAN_INTERVAL = 3600     # 1 hour
+PEER_MAX_DB = 65536            # maximum number of peers in the peer db
 MIN_PEER_HEALTH = 0.5  # minimum peer health before we forget about it
 
 NUM_NEIGHBORS = 80     # number of neighbors a peer can report
@@ -75,7 +79,7 @@ if os.environ.get("BLOCKSTACK_ATLAS_MAX_NEIGHBORS") is not None:
 if os.environ.get("BLOCKSTACK_TEST", None) == "1" and os.environ.get("BLOCKSTACK_ATLAS_UNIT_TEST", None) is None:
     # use test client
     from blockstack_integration_tests import AtlasRPCTestClient as BlockstackRPCClient
-    from blockstack_integration_tests import time_now, time_sleep, atlas_max_neighbors, atlas_peer_lifetime_interval, atlas_peer_ping_interval
+    from blockstack_integration_tests import time_now, time_sleep, atlas_max_neighbors, atlas_peer_lifetime_interval, atlas_peer_ping_interval, atlas_peer_max_age, atlas_peer_clean_interval
 
 else:
     # production
@@ -96,16 +100,27 @@ else:
     def atlas_peer_ping_interval():
         return PEER_PING_INTERVAL
 
+    def atlas_peer_max_age():
+        return PEER_MAX_AGE
+
+    def atlas_peer_clean_interval():
+        return PEER_CLEAN_INTERVAL
+
 
 ATLASDB_SQL = """
 CREATE TABLE zonefiles( inv_index INTEGER PRIMARY KEY AUTOINCREMENT,
                         zonefile_hash STRING NOT NULL,
                         present INTEGER NOT NULL,
                         block_height INTEGER NOT NULL );
+
+CREATE TABLE peers( peer_index INTEGER PRIMARY_KEY,
+                    peer_slot INTEGER NOT NULL,
+                    peer_hostport STRING UNIQUE NOT NULL,
+                    discovery_time INTEGER NOT NULL );
 """
 
 PEER_TABLE = {}        # map peer host:port (NOT url) to peer information
-                       # each element is {'time': [(responded, timestamp)...], 'popularity': ..., 'popularity_bloom': ..., 'zonefile_inv': ...}
+                       # each element is {'time': [(responded, timestamp)...], 'zonefile_inv': ...}
                        # 'zonefile_inv' is a *bitwise big-endian* bit string where bit i is set if the zonefile in the ith NAME_UPDATE transaction has been stored by us (i.e. "is present")
                        # for example, if 'zonefile_inv' is 10110001, then the 0th, 2nd, 3rd, and 7th NAME_UPDATEs' zonefiles have been stored by us
                        # (note that we allow for the possibility of duplicate zonefiles, but this is a rare occurance and we keep track of it in the DB to avoid duplicate transfers)
@@ -170,6 +185,23 @@ def atlas_zonefile_queue_unlock():
     """
     global ZONEFILE_QUEUE_LOCK
     ZONEFILE_QUEUE_LOCK.release()
+
+
+def atlas_inventory_to_string( inv ):
+    """
+    Inventory to string (bitwise big-endian)
+    """
+    ret = ""
+    for i in xrange(0, len(inv)):
+        for j in xrange(0, 8):
+            bit_index = 1 << (7 - j)
+            val = (ord(inv[i]) & bit_index)
+            if val != 0:
+                ret += "1"
+            else:
+                ret += "0"
+
+    return ret
 
 
 def atlas_inventory_flip_zonefile_bits( inv_vec, bit_indexes, operation ):
@@ -471,6 +503,299 @@ def atlasdb_queue_zonefiles( con, db, start_block, zonefile_dir=None, validate=T
     return True
 
 
+def atlasdb_add_peer( peer_hostport, discovery_time=None, peer_table=None, con=None, path=None ):
+    """
+    Add a peer to the peer table.
+    If the peer conflicts with another peer, ping it first, and only insert
+    the new peer if the old peer is dead.
+
+    Keep the in-RAM peer table cache-coherent as well.
+
+    Return True if this peer was added to the table (or preserved)
+    Return False if not
+    """
+    
+    # bound the number of peers we add to PEER_MAX_DB
+    sk = random.randint(0, 2**32)
+    peer_host, peer_port = url_to_host_port( peer_hostport )
+    peer_slot = int( hashlib.sha256("%s%s" % (sk, peer_host)).hexdigest(), 16 ) % PEER_MAX_DB
+
+    locked = False
+    if peer_table is None:
+        locked = True
+        peer_table = atlas_peer_table_lock()
+
+    # if the peer is already present, then abort
+    if peer_hostport in peer_table.keys():
+        log.debug("%s already in the peer table" % peer_hostport)
+
+        if locked:
+            atlas_peer_table_unlock()
+            peer_table = None
+
+        return True
+
+    # connect to the db if we have to
+    if path is None:
+        path = atlasdb_path()
+
+    close = False
+    if con is None:
+        close = True
+        con = atlasdb_open( path )
+        assert con is not None
+
+    if discovery_time is None:
+        discovery_time = int(time.time())
+   
+    # not in the table yet.  See if we can evict someone
+    sql = "SELECT peer_hostport FROM peers WHERE peer_slot = ?;"
+    args = (peer_slot,)
+
+    cur = con.cursor()
+    res = atlasdb_query_execute( cur, sql, args )
+    con.commit()
+
+    old_hostports = []
+    for row in res:
+        old_hostport = res['peer_hostport']
+        old_hostports.append( old_hostport )
+
+    for old_hostport in old_hostports:
+        # is this other peer still alive?
+        res = atlas_peer_ping( old_hostport )
+        if res:
+            log.debug("Peer %s is still alive; will not replace" % (old_hostport))
+            
+            if close:
+                con.close()
+
+            if locked:
+                atlas_peer_table_unlock()
+
+            return False
+
+    # peer is dead.  Can insert or update
+    sql = "INSERT OR REPLACE INTO peers (peer_hostport, peer_slot, discovery_time) VALUES (?,?,?);"
+    args = (peer_hostport, peer_slot, discovery_time)
+
+    cur = con.cursor()
+    res = atlasdb_query_execute( cur, sql, args )
+    con.commit()
+
+    if close:
+        con.close()
+
+    # add to peer table as well
+    atlas_init_peer_info( peer_table, peer_hostport, False )
+    
+    if locked:
+        atlas_peer_table_unlock()
+
+    return True
+
+
+def atlasdb_remove_peer( peer_hostport, con=None, path=None, peer_table=None ):
+    """
+    Remove a peer from the peer db and (if given) peer table.
+    """
+    
+    locked = False
+    if peer_table is None:
+        locked = True
+        peer_table = atlas_peer_table_lock()
+
+    if peer_hostport not in peer_table:
+        # nothing to do 
+        if locked:
+            atlas_peer_table_unlock()
+            locked = False
+
+        return True
+
+    # connect to the db if we have to
+    if path is None:
+        path = atlasdb_path()
+
+    close = False
+    if con is None:
+        close = True
+        con = atlasdb_open( path )
+        assert con is not None
+
+    sql = "DELETE FROM peers WHERE peer_hostport = ?;"
+    args = (peer_hostport,)
+
+    cur = con.cursor()
+    res = atlasdb_query_execute( cur, sql, args )
+    con.commit()
+
+    if close:
+        con.close()
+
+    # remove from the peer table as well
+    if peer_table.has_key(peer_hostport):
+        if peer_table[peer_hostport].get("blacklisted", False):
+            log.debug("Forget peer '%s'" % dead_peers)
+            del peer_table[peer_hostport]
+
+    if locked:
+        atlas_peer_table_unlock()
+        peer_table = None
+
+    return True
+
+
+def atlasdb_num_peers( con=None, path=None ):
+    """
+    How many peers are there in the db?
+    """
+    if path is None:
+        path = atlasdb_path()
+
+    close = False
+    if con is None:
+        close = True
+        con = atlasdb_open( path )
+        assert con is not None
+
+    sql = "SELECT MAX(peer_index) FROM peers;"
+    args = ()
+
+    cur = con.cursor()
+    res = atlasdb_query_execute( cur, sql, args )
+    con.commit()
+
+    ret = []
+    for row in res:
+        tmp = {}
+        tmp.update(row)
+        ret.append(tmp)
+
+    assert len(ret) == 1
+
+    if close:
+        con.close()
+
+    return ret[0]['MAX(peer_index)']
+
+
+def atlasdb_get_random_peer( con=None, path=None ):
+    """
+    Select a peer from the db at random
+    Return None if the table is empty
+    """
+    if path is None:
+        path = atlasdb_path()
+
+    close = False
+    if con is None:
+        close = True
+        con = atlasdb_open( path )
+        assert con is not None
+
+    ret = {}
+
+    num_peers = atlasdb_num_peers( con=con )
+    if num_peers is None or num_peers == 0:
+        # no peers
+        ret['peer_hostport'] = None
+
+    else:
+        r = random.randint(1, num_peers)
+
+        sql = "SELECT * FROM peers WHERE peer_index = ?;"
+        args = (r,)
+
+        cur = con.cursor()
+        res = atlasdb_query_execute( cur, sql, args )
+        con.commit()
+
+        ret = {'peer_hostport': None}
+        for row in res:
+            ret.update( row )
+            break
+
+    if close:
+        con.close()
+
+    return ret['peer_hostport']
+
+
+def atlasdb_get_old_peers( now, con=None, path=None ):
+    """
+    Get peers older than now - LIFETIME
+    """
+    if path is None:
+        path = atlasdb_path()
+
+    close = False
+    if con is None:
+        close = True
+        con = atlasdb_open( path )
+        assert con is not None
+
+    if now is None:
+        now = time.time()
+
+    expire = now - atlas_peer_max_age()
+    sql = "SELECT * FROM peers WHERE discovery_time < ?";
+    args = (expire,)
+
+    cur = con.cursor()
+    res = atlasdb_query_execute( cur, sql, args )
+    con.commit()
+
+    rows = []
+    for row in res:
+        tmp = {}
+        tmp.update(row)
+        rows.append(tmp)
+
+    if close:
+        con.close()
+
+    return tmp
+
+
+def atlasdb_delete_peer( peer_hostport, con=None, path=None, peer_table=None ):
+    """
+    Delete a peer, both from the DB and the peer table
+    """
+    if path is None:
+        path = atlasdb_path()
+
+    close = False
+    if con is None:
+        close = True
+        con = atlasdb_open( path )
+        assert con is not None
+
+    if now is None:
+        now = time.time()
+
+    expire = now - atlas_peer_max_age()
+    sql = "DELETE FROM peers WHERE peer_hostport = ?;";
+    args = (peer_hostport,)
+
+    cur = con.cursor()
+    res = atlasdb_query_execute( cur, sql, args )
+    con.commit()
+
+    locked = False
+    if peer_table is None:
+        locked = True
+        peer_table = atlas_peer_table_lock()
+
+    atlas_remove_peers( [peer_hostport], peer_table )
+
+    if locked:
+        atlas_peer_table_unlock()
+        peer_table = None
+
+    return 
+
+
 def atlasdb_init( path, db, peer_seeds, peer_blacklist, validate=False, zonefile_dir=None ):
     """
     Set up the atlas node:
@@ -486,12 +811,14 @@ def atlasdb_init( path, db, peer_seeds, peer_blacklist, validate=False, zonefile
     """
     
     global ATLASDB_SQL
-    global PEER_TABLE
+
+    peer_table = {}
 
     if os.path.exists( path ):
         log.debug("Atlas DB exists at %s" % path)
 
         # TODO: sync up to lastblock 
+        # TODO: load peers into peer_table
 
     else:
 
@@ -508,16 +835,21 @@ def atlasdb_init( path, db, peer_seeds, peer_blacklist, validate=False, zonefile
         # populate from db
         log.debug("Queuing all zonefiles")
         atlasdb_queue_zonefiles( con, db, FIRST_BLOCK_MAINNET, validate=validate, zonefile_dir=zonefile_dir )
-        con.close()
 
-    peer_table = {}
+        log.debug("Adding seed peers")
+        for peer in peer_seeds:
+            atlasdb_add_peer( peer, con=con, peer_table=peer_table )
+
+        con.close()
 
     # add initial peer info
     for peer_url in peer_seeds + peer_blacklist:
         host, port = url_to_host_port( peer_url )
         peer_hostport = "%s:%s" % (host, port)
 
-        atlas_init_peer_info( peer_table, peer_hostport, (peer_url in peer_blacklist) )
+        if peer_hostport not in peer_table.keys():
+            atlasdb_add_peer( peer_hostport, path=path, peer_table=peer_table )
+            peer_table[peer_hostport]['blacklisted'] = (peer_url in peer_blacklist)
 
     return peer_table
 
@@ -735,8 +1067,6 @@ def atlas_init_peer_info( peer_table, peer_hostport, blacklist=False ):
     Initialize peer info table entry
     """
     peer_table[peer_hostport] = {
-        "popularity": 1,
-        "popularity_bloom": ScalableBloomFilter(),
         "time": [],
         "zonefile_inv": "",
         "blacklist": blacklist
@@ -774,6 +1104,42 @@ def url_to_host_port( url, port=RPC_SERVER_PORT ):
     return parts[0], port
 
 
+def atlas_peer_ping( peer_hostport, timeout=3, peer_table=None ):
+    """
+    Ping a host
+    Return True if alive
+    Return False if not
+    """
+    host, port = url_to_host_port( peer_hostport )
+    rpc = BlockstackRPCClient( host, port, timeout=timeout )
+
+    locked = False
+    if peer_table is None:
+        locked = True
+
+    log.debug("Ping %s" % peer_hostport)
+    ret = False
+    try:
+        rpc.ping()
+        ret = True
+    except Exception, e:
+        log.exception(e)
+        pass
+
+    # update health
+    if locked:
+        peer_table = atlas_peer_table_lock()
+
+    if peer_table.has_key(peer_hostport):
+        atlas_peer_update_health( peer_hostport, ret, peer_table=peer_table )
+
+    if locked:
+        atlas_peer_table_unlock()
+        peer_table = None
+
+    return ret
+
+
 def atlas_peer_is_live( peer_hostport, peer_table, min_health=MIN_PEER_HEALTH ):
     """
     Have we heard from this node recently?
@@ -785,29 +1151,58 @@ def atlas_peer_is_live( peer_hostport, peer_table, min_health=MIN_PEER_HEALTH ):
     return health_score > min_health and atlas_peer_get_request_count( peer_hostport, peer_table=peer_table ) > 0
 
 
-def atlas_get_rarest_live_peers( peer_table=None, min_health=MIN_PEER_HEALTH ):
+def atlas_inventory_count_missing( inv1, inv2 ):
     """
-    Get the list of peers we've heard from recently.
-    Use the global peer health table if no health info is given.
-    Rank peers by rarest-first.
+    Find out how many bits are set in inv2 
+    that are not set in inv1.
+    """
+    count = 0
+    common = min(len(inv1), len(inv2))
+    for i in xrange(0, common):
+        for j in xrange(0, 8):
+            if ((1 << (7 - j)) & ord(inv2[i])) != 0 and ((1 << (7 - j)) & ord(inv1[i])) == 0:
+                count += 1
+
+    if len(inv1) < len(inv2):
+        for i in xrange(len(inv1), len(inv2)):
+            for j in xrange(0, 8):
+                if ((1 << (7 - j)) & ord(inv2[i])) != 0:
+                    count += 1
+
+    return count
+
+
+def atlas_get_live_neighbors( remote_peer_hostport, peer_table=None, min_health=MIN_PEER_HEALTH, min_request_count=1 ):
+    """
+    Get a random set of live neighbors
+    (i.e. neighbors we've contacted before)
     """
 
     locked = False
     if peer_table is None:
         locked = True
         peer_table = atlas_peer_table_lock()
-        
-    rarity_rank = []    # (popularity, peer_hostport)
-    for peer_hostport in peer_table.keys():
-        if atlas_peer_is_live( peer_hostport, peer_table, min_health=min_health ):
-            # have recently seen
-            rarity_rank.append( (peer_table[peer_hostport]['popularity'], peer_hostport) )
 
-    rarity_rank.sort()  # sorts to least-popular first
+    alive_peers = []
+    for peer_hostport in peer_table.keys():
+        if peer_hostport == remote_peer_hostport:
+            continue
+
+        num_reqs = atlas_peer_get_request_count( peer_hostport, peer_table=peer_table )
+        if num_reqs < min_request_count:
+            continue
+
+        health = atlas_peer_get_health( peer_hostport, peer_table=peer_table )
+        if health < min_health:
+            continue
+
+        alive_peers.append( peer_hostport )
+
     if locked:
         atlas_peer_table_unlock()
 
-    return [peer_hostport for _, peer_hostport in rarity_rank]
+    random.shuffle(alive_peers)
+    return alive_peers
 
 
 def atlas_remove_peers( dead_peers, peer_table ):
@@ -816,8 +1211,6 @@ def atlas_remove_peers( dead_peers, peer_table ):
     as well as from the db.
     Only preserve unconditionally if we've blacklisted them
     explicitly.
-
-    Return the new health info.
     """
 
     for peer_hostport in dead_peers:
@@ -829,6 +1222,23 @@ def atlas_remove_peers( dead_peers, peer_table ):
             del peer_table[peer_hostport]
 
     return peer_table
+
+
+def atlas_revalidate_peers( con=None, path=None, now=None, peer_table=None ):
+    """
+    Revalidate peers that are older than the maximum peer age.
+    Ping them, and if they don't respond, remove them.
+    """
+    if now is None:
+        now = time_now()
+
+    old_peer_infos = atlasdb_get_old_peers( now, con=con, path=path )
+    for old_peer_info in old_peer_infos:
+        res = atlas_peer_ping( old_peer_info['peer_hostport'] )
+        if not res:
+            atlasdb_delete_peer( old_peer_info['peer_hostport'], con=con, path=path, peer_table=peer_table )
+
+    return True
 
 
 def atlas_peer_get_health( peer_hostport, peer_table=None ):
@@ -869,6 +1279,12 @@ def atlas_peer_get_request_count( peer_hostport, peer_table=None ):
         locked = True
         peer_table = atlas_peer_table_lock()
 
+    if peer_hostport not in peer_table.keys():
+        if locked:
+            atlas_peer_table_unlock()
+
+        return 0
+
     count = 0
     for (t, r) in peer_table[peer_hostport]['time']:
         if r:
@@ -880,21 +1296,21 @@ def atlas_peer_get_request_count( peer_hostport, peer_table=None ):
     return count
 
 
-def atlas_peer_get_popularity( peer_hostport, peer_table=None ):
+def atlas_peer_get_zonefile_inventory( peer_hostport, peer_table=None ):
     """
-    Get the popularity of a peer--how many of our neighbors know about it?
+    What's the zonefile inventory vector for this peer?
     """
     locked = False
     if peer_table is None:
         locked = True
         peer_table = atlas_peer_table_lock()
 
-    pop = peer_table[peer_hostport]['popularity']
+    inv = peer_table[peer_hostport]['zonefile_inv']
 
     if locked:
         atlas_peer_table_unlock()
 
-    return pop
+    return inv
 
 
 def atlas_peer_update_health( peer_hostport, received_response, peer_table=None ):
@@ -944,38 +1360,6 @@ def atlas_peer_update_health( peer_hostport, received_response, peer_table=None 
         atlas_peer_table_unlock()
 
     return True
-
-
-def atlas_peer_add_neighbor( peer_hostport, peer_neighbor_hostport, peer_table=None ):
-    """
-    Record that peer_hostport knows about peer_neighbor_hostport (if we haven't done so already).
-    Add the peers to the peer table if they're not there now.
-    Use the global peer table if the given peer table is None.
-
-    This method is idempotent for fixed peer_table values
-    """
-    
-    locked = False
-    if peer_table is None:
-        locked = True    
-        peer_table = atlas_peer_table_lock()
-
-    if peer_hostport not in peer_table.keys():
-        atlas_init_peer_info( peer_table, peer_hostport )
-
-    if peer_neighbor_hostport not in peer_table.keys():
-        atlas_init_peer_info( peer_table, peer_neighbor_hostport )
-
-    if peer_neighbor_hostport not in peer_table[peer_hostport]['popularity_bloom']:
-        # we didn't know that peer_hostport knew about peer_neighbor_hostport
-        log.debug("%s knows about %s" % (peer_hostport, peer_neighbor_hostport))
-        peer_table[peer_neighbor_hostport]['popularity'] += 1
-        peer_table[peer_hostport]['popularity_bloom'].add( peer_neighbor_hostport )
-
-    if locked:
-        atlas_peer_table_unlock()
-
-    return
 
 
 def atlas_peer_get_zonefile_inventory_range( my_hostport, peer_hostport, bit_offset, bit_count, timeout=10, peer_table=None ):
@@ -1078,7 +1462,7 @@ def atlas_peer_sync_zonefile_inventory( my_hostport, peer_hostport, maxlen, time
         next_inv = atlas_peer_get_zonefile_inventory_range( my_hostport, peer_hostport, offset, interval, timeout=timeout, peer_table=peer_table )
         if next_inv is None:
             # partial failure
-            log.debug("Failed to sync inventory for %s from %s to %s" % (peer_hostport, height, maxheight))
+            log.debug("Failed to sync inventory for %s from %s to %s" % (peer_hostport, offset, offset+interval))
             break
 
         peer_inv += next_inv
@@ -1143,6 +1527,8 @@ def atlas_peer_refresh_zonefile_inventory( my_hostport, peer_hostport, byte_offs
 
         if locked:
             atlas_peer_table_unlock()
+
+        log.debug("%s: inventory of %s is now %s" % (my_hostport, peer_hostport, atlas_inventory_to_string(inv))) 
 
     if inv is None:
         return False
@@ -1318,10 +1704,9 @@ def atlas_peer_has_zonefile( peer_hostport, zonefile_hash, zonefile_bits=None, c
     return res
 
 
-def atlas_peer_get_neighbors( my_hostport, peer_hostport, timeout=10, peer_table=None ):
+def atlas_peer_get_neighbors( my_hostport, peer_hostport, timeout=10, peer_table=None, con=None, path=None ):
     """
-    Ask the peer server at the given URL for its
-    K-rarest peers.
+    Ask the peer server at the given URL for its neighbors.
 
     Update the health info in peer_table
     (if not given, the global peer table will be used instead)
@@ -1352,8 +1737,7 @@ def atlas_peer_get_neighbors( my_hostport, peer_hostport, timeout=10, peer_table
 
             # sane limits
             max_neighbors = atlas_max_neighbors()
-            if len(peer_list['peers']) > max_neighbors:
-                peer_list['peers'] = peer_list['peers'][:max_neighbors]
+            assert len(peer_list['peers']) <= max_neighbors, "Invalid response with too many peers"
 
         else:
             assert type(peer_list['error']) in [str, unicode], "Invalid error message"
@@ -1441,15 +1825,13 @@ def atlas_get_zonefiles( my_hostport, peer_hostport, zonefile_hashes, timeout=60
     return zf_data['zonefiles']
 
 
-def atlas_rank_peers_by_health( peer_list=None, peer_table=None ):
+def atlas_rank_peers_by_health( peer_list=None, peer_table=None, with_zero_requests=False, with_rank=False ):
     """
     Get a ranking of peers to contact for a zonefile.
-    Peers are ranked by health (i.e. availability ratio).
+    Peers are ranked by health (i.e. response ratio).
 
-    Only return peers we've talked to (i.e. peers that have
-    known availability scores).
-
-    This is used to select peers to serve a particular zonefile.
+    Optionally include peers we haven't talked to yet (@with_zero_requests)
+    Optionally return [(health, peer)] list instead of just [peer] list (@with_rank)
     """
 
     locked = False
@@ -1462,6 +1844,10 @@ def atlas_rank_peers_by_health( peer_list=None, peer_table=None ):
 
     peer_health_ranking = []    # (health score, peer hostport)
     for peer_hostport in peer_list:
+        reqcount = atlas_peer_get_request_count( peer_hostport, peer_table=peer_table )
+        if reqcount == 0 and not with_zero_requests:
+            continue
+
         health_score = atlas_peer_get_health( peer_hostport, peer_table=peer_table)
         peer_health_ranking.append( (health_score, peer_hostport) )
     
@@ -1472,10 +1858,14 @@ def atlas_rank_peers_by_health( peer_list=None, peer_table=None ):
     peer_health_ranking.sort()
     peer_health_ranking.reverse()
 
-    return [peer_hp for _, peer_hp in peer_health_ranking]
+    if not with_rank:
+        return [peer_hp for _, peer_hp in peer_health_ranking]
+    else:
+        # include the score.
+        return peer_health_ranking
 
 
-def atlas_rank_peers_by_availability( peer_list=None, peer_table=None, local_inv=None, con=None, path=None ):
+def atlas_rank_peers_by_data_availability( peer_list=None, peer_table=None, local_inv=None, con=None, path=None ):
     """
     Get a ranking of peers to contact for a zonefile.
     Peers are ranked by the number of zonefiles they have
@@ -1570,6 +1960,9 @@ def atlas_peer_get_last_response_time( peer_hostport, peer_table=None ):
 def atlas_peer_enqueue( peer_hostport, peer_table=None, peer_queue=None, max_neighbors=None ):
     """
     Begin talking to a new peer, if we aren't already.
+    Don't accept this peer if there are already too many peers in the incoming queue
+    (where "too many" means "more than the maximum neighbor set size")
+
     Return the new peer queue.
     """
 
@@ -1715,125 +2108,264 @@ class AtlasPeerCrawler( threading.Thread ):
     Thread that continuously crawls peers.
 
     Try to obtain knowledge of as many peers as we can.
-    (but we will only report the rarest NUM_NEIGHBORS peers to anyone who asks).
-    We'll prune the set of known peers in another thread.
-
-    The peer-selection algorithm works as follows:
-    * search for neighbors via random walk: ask peers about their peers, and randomly expand them.
-    * remember node popularity--how often we see that a peer knows about another peer, so we can report rare peers to other requesters
+    (but we will only report max NUM_NEIGHBORS peers to anyone who asks).
+    We'll prune the set of known peers in another thread, based on data availability.
     """
     def __init__(self, my_hostname, my_portnum):
         threading.Thread.__init__(self)
         self.running = False
+        self.last_clean_time = 0
         self.my_hostport = "%s:%s" % (my_hostname, my_portnum)
-        self.peer_crawl_list = []
+        self.current_peer = None
+        self.current_peer_neighbors = []
+        self.new_peers = []
+        self.max_neighbors = None
+
+
+    def get_neighbors( self, peer_hostport, con=None, path=None, peer_table=None ):
+        """
+        Get neighbors of this peer
+        """
+        neighbors = None
+        if peer_hostport == self.my_hostport:
+            neighbors = atlas_get_live_neighbors( None, peer_table=peer_table ) 
+        else:
+            neighbors = atlas_peer_get_neighbors( self.my_hostport, peer_hostport, timeout=10, peer_table=peer_table, path=path, con=con )
+
+        return neighbors
+
+
+    def add_new_peers( self, count, new_peers, current_peers, con=None, path=None, peer_table=None ):
+        """
+        Ping up to @count new peers from new_peers 
+        that aren't already known to us.  If they
+        respond, then add them to the peer set.
+
+        Return the list of peers added
+        """
+
+        # only handle a few peers for now
+        cnt = 0
+        i = 0
+        added = []
+        while i < len(new_peers) and cnt < min(count, len(new_peers)):
+            peer = new_peers[i]
+            i += 1
+
+            if peer == self.my_hostport:
+                continue
+
+            if peer in current_peers:
+                continue 
+
+            cnt += 1
+
+            # test the peer before adding
+            res = False
+            if peer != self.my_hostport:
+                res = atlas_peer_ping(peer, timeout=2)
+
+            if res:
+                atlasdb_add_peer( peer, con=con, path=path, peer_table=peer_table )
+
+            added.append(peer)
+
+        return added
+
+
+    def remove_unhealthy_peers( self, count, con=None, path=None, peer_table=None, min_request_count=10, min_health=MIN_PEER_HEALTH ):
+        """
+        Remove up to @count unhealthy peers
+        Return the list of peers we removed
+        """
+        
+        removed = []
+        rank_peer_list = atlas_rank_peers_by_health( peer_table, with_rank=True )
+        for rank, peer in rank_peer_list:
+            reqcount = atlas_peer_get_request_count( peer, peer_hostport )
+            if reqcount >= min_request_count and rank < min_health:
+                removed.append( peer )
+                if len(removed) >= count:
+                    break
+
+        for peer in removed:
+            log.debug("Remove unhealthy peer %s" % (peer))
+            atlasdb_remove_peer( peer, con=con, path=path, peer_table=peer_table )
+
+        return removed
 
 
     def step( self, local_inv=None, peer_table=None, peer_queue=None, con=None, path=None ):
         """
         Execute one round of the peer discovery algorithm:
-        select a peer at random, get its neighbors,
-        and remember to begin crawling them.
         """
 
+        if self.max_neighbors is None:
+            self.max_neighbors = atlas_max_neighbors()
+
+        # get current peers
         locked = False
         if peer_table is None:
             locked = True
 
-        # sync crawl list with peer table
         if locked:
             peer_table = atlas_peer_table_lock()
-    
-        for ph in peer_table.keys():
-            if ph == self.my_hostport:
-                continue 
 
-            if ph not in self.peer_crawl_list:
-                self.peer_crawl_list.append(ph)
+        current_peers = peer_table.keys()[:]
 
         if locked:
             atlas_peer_table_unlock()
             peer_table = None
-            
 
-        # add queued peers to crawl list and peer table
+        # add newly-discovered peers, but only after we ping them
+        # to make sure they're actually alive.
         peer_queue = atlas_peer_dequeue_all( peer_queue=peer_queue )
-        random.shuffle( peer_queue )
 
+        new_peers = list(set(self.new_peers + peer_queue))
+        random.shuffle( new_peers )
+
+        # don't talk to myself
+        if self.my_hostport in new_peers:
+            new_peers.remove(self.my_hostport)
+
+        # only handle a few peers for now
+        added = self.add_new_peers( 10, new_peers, current_peers, con=con, path=path, peer_table=peer_table )
+        for peer in added:
+            if peer in new_peers:
+                new_peers.remove(peer)
+
+        # DDoS prevention: don't let this get too big
+        if len(new_peers) > self.max_neighbors * 2:
+            new_peers = new_peers[:(self.max_neighbors * 2)]
+
+        self.new_peers = new_peers
+
+
+        # use metropolis-hastings to walk the peer graph
+        # first, find a random peer with non-zero degree
+        if self.current_peer is None and len(current_peers) > 0:
+
+            self.current_peer = current_peers[ random.randint(0,len(current_peers)-1) ]
+
+            log.debug("%s: crawl %s" % (self.my_hostport, self.current_peer))
+
+            peer_neighbors = self.get_neighbors( self.current_peer, peer_table=peer_table, path=path, con=con )
+
+            if peer_neighbors is None or len(peer_neighbors) == 0:
+                log.debug("%s: no peers from %s" % (self.my_hostport, self.current_peer))
+
+                # try again later
+                self.current_peer = None
+
+            else:
+                # success!
+                self.current_peer_neighbors = peer_neighbors
+                self.current_peer_degree = len(peer_neighbors)
+
+                # don't talk to myself
+                if self.my_hostport in self.current_peer_neighbors:
+                    self.current_peer_neighbors.remove(self.my_hostport)
+
+                log.debug("%s: neighbors of %s are (%s): %s" % (self.my_hostport, self.current_peer, self.current_peer_degree, ",".join(self.current_peer_neighbors)))
+
+                # remember to contact these peers later
+                self.new_peers = list(set( self.new_peers + peer_neighbors ))
+
+
+        # do we have a "walk point" in the graph?
+        if self.current_peer is not None:
+
+            # try to get neighbors if we don't have them 
+            if self.current_peer_neighbors is None:
+                self.current_peer_neighbors = self.get_neighbors( self.current_peer, peer_table=peer_table, path=path, con=con )
+
+                if self.current_peer_neighbors is None or len(self.current_peer_neighbors) == 0:
+                    # didn't get neighbors
+                    log.debug("%s: no peers from %s" % (self.my_hostport, self.current_peer))
+                    self.current_peer = None
+
+                else:
+                    self.current_peer_degree = len(self.current_peer_neighbors)
+
+            if self.current_peer_neighbors is not None:
+                # have neighbors.
+                # select a neighbor of the current neighbor peer at random
+                neighbor = None
+                if len(self.current_peer_neighbors) > 0:
+                    neighbor = self.current_peer_neighbors[ random.randint(0, len(self.current_peer_neighbors)-1) ]
+                else:
+                    neighbor = self.my_hostport 
+
+                # find that neighbor's degree in the peer graph (i.e. by getting its neighbors and counting them)
+                neighbor_neighbors = self.get_neighbors( self.current_peer, peer_table=peer_table, path=path, con=con )
+
+                if neighbor_neighbors is None or len(neighbor_neighbors) == 0:
+                    # didn't get neighbors
+                    log.debug("%s: no peers from %s's neighbor %s" % (self.my_hostport, self.current_peer, neighbor))
+
+                    if neighbor in self.current_peer_neighbors:
+                        self.current_peer_neighbors.remove( neighbor )
+
+                    if len(self.current_peer_neighbors) == 0:
+                        # out of neighbors to try for this peer
+                        # reset the process
+                        self.current_peer = None
+                    
+                else:
+                    # got neighbors of this neighbor
+                    # can get neighbor degree
+                    neighbor_degree = len(neighbor_neighbors)
+
+                    # do we stay here, or do we switch to the new neighbor?
+                    p = random.random()
+                    if p <= float(self.current_peer_degree) / float(neighbor_degree):
+                        # crawl this neighbor
+                        self.current_peer = neighbor
+                        self.current_peer_degree = neighbor_degree
+                        self.current_peer_neighbors = neighbor_neighbors
+
+                        # don't talk to myself
+                        if self.my_hostport in self.current_peer_neighbors:
+                            self.current_peer_neighbors.remove(self.my_hostport)
+                      
+                    else:
+                        # refresh neighbors of the current peer
+                        self.current_peer_neighbors = self.get_neighbors( self.current_peer, peer_table=peer_table, path=path, con=con )
+                        if self.current_peer_neighbors is None or len(self.current_peer_neighbors) == 0:
+                            # didn't get neighbors
+                            log.debug("%s: no peers from %s" % (self.my_hostport, self.current_peer))
+                            self.current_peer_neighbors = None
+
+                        else:
+                            self.current_peer_degree = len(self.current_peer_neighbors)
+
+                    # successful walk
+                    log.debug("%s: transition to %s" % (self.my_hostport, self.current_peer))
+
+                    # hit these peers up later 
+                    self.new_peers = list(set(self.new_peers + neighbor_neighbors))
+
+
+        # remove peers that are too old
+        if self.last_clean_time + atlas_peer_clean_interval() < time_now():
+            # remove stale peers
+            log.debug("%s: revalidate old peers" % self.my_hostport)
+            atlas_revalidate_peers( con=con, path=path )
+
+
+        # remove a few peers that are unresponsive, and have been talked to a lot
         if locked:
             peer_table = atlas_peer_table_lock()
 
-        for peer in peer_queue:
-            if peer == self.my_hostport:
-                continue
-
-            if peer not in self.peer_crawl_list:
-                self.peer_crawl_list.append( peer )
-
+        removed = self.remove_unhealthy_peers( 10, con=con, path=path, peer_table=peer_table )
 
         if locked:
             atlas_peer_table_unlock()
-            peer_table = None
 
-        if len(self.peer_crawl_list) == 0:
-            log.debug("%s: No one to crawl" % (self.my_hostport))
-            return 
-
-
-        # talk to a peer at random and get its K-rarest neighbors
-        peer_hostport = self.peer_crawl_list[ random.randint(0, len(self.peer_crawl_list)-1) ]
-        if peer_hostport == self.my_hostport:
-            return
-  
-        log.debug("%s: Crawl peer %s" % (self.my_hostport, peer_hostport))
-
-        peers = atlas_peer_get_neighbors(self.my_hostport, peer_hostport, timeout=10, peer_table=peer_table )
-        if peers is None:
-            log.debug("%s: No peers from %s" % (self.my_hostport, peer_hostport))
-            return
-
-        # got a response.  add this peer 
-        log.debug("Neighbors of %s are (%s): %s" % (peer_hostport, len(peers), ",".join(peers)))
-
-        # Update peer table
-        if locked:
-            peer_table = atlas_peer_table_lock()
-
-        if peer_hostport not in peer_table.keys():
-            atlas_init_peer_info( peer_table, peer_hostport )
-
-        # add new peers and update popularity
-        for newpeer in peers:
-            newhost, newport = url_to_host_port( newpeer )
-            new_hostport = "%s:%s" % (newhost, newport)
-            
-            if new_hostport == self.my_hostport:
-                continue
-
-            atlas_peer_add_neighbor( peer_hostport, new_hostport, peer_table=peer_table )
-
-            # did we know about this peer?
-            if not peer_table.has_key(new_hostport):
-                log.debug("%s: New peer %s" % (self.my_hostport, new_hostport))
-
-                if new_hostport not in self.peer_crawl_list:
-                    self.peer_crawl_list.append( new_hostport )
-
-        # remove peers that we have contacted, and have mostly the same data as us
-        max_neighbors = atlas_max_neighbors()
-        if len(peer_table.keys()) > max_neighbors:
-            log.debug("Exceeded neighbor count %s" % max_neighbors)
-            old_peers = atlas_rank_peers_by_availability(peer_table=peer_table, con=con, path=path, local_inv=local_inv)
-
-            if len(old_peers) > max_neighbors:
-                atlas_remove_peers( old_peers[max_neighbors:], peer_table )
-                for old_peer in old_peers:
-                    if old_peer in self.peer_crawl_list:
-                        self.peer_crawl_list.remove(old_peer)
-
-        if locked:
-            atlas_peer_table_unlock()
-            peer_table = None
+        # if they're also in the new set, remove them there too
+        for peer in removed:
+            if peer in self.new_peers:
+                self.new_peers.remove(peer)
 
 
     def run(self):
@@ -1850,21 +2382,23 @@ class AtlasHealthChecker( threading.Thread ):
     """
     Thread that continuously tries to refresh zonefile
     inventory information from our neighbor set.
+    Also finds unhealthy or old peers and removes them
+    from the peer table and peer db.
     """
     def __init__(self, my_host, my_port, path=None):
         threading.Thread.__init__(self)
         self.running = False
         self.path = path
         self.hostport = "%s:%s" % (my_host, my_port)
+        self.last_clean_time = 0
         if path is None:
             path = atlasdb_path()
 
 
-    def step(self, con=None, path=None, peer_table=None):
+    def step(self, con=None, path=None, peer_table=None, local_inv=None):
         """
-        Run one step of this algorithm.
-        Ping the given neighbor for its zonefile inventory,
-        and update our local copy (starting from startblock).
+        Find peers with stale zonefile inventory data,
+        and refresh them.
 
         Return True on success
         Return False on error
@@ -1876,37 +2410,31 @@ class AtlasHealthChecker( threading.Thread ):
         if peer_table is None:
             lock = True
             peer_table = peer_table_lock()
-        
-        # find someone to ping
-        num_peers = len(peer_table.keys())
-        peers = peer_table.keys()[:]
+       
+        peer_hostports = []
+        stale_peers = []
 
-        random.shuffle( peers )
+        num_peers = len(peer_table.keys())
+        peer_hostports = peer_table.keys()[:]
 
         # who are we going to ping?
         # someone we haven't pinged in a while, chosen at random
-        peer_hostport = None
-        for peer in peers:
+        for peer in peer_hostports:
             if not atlas_peer_has_fresh_zonefile_inventory( peer, peer_table=peer_table ):
                 # haven't talked to this peer in a while
-                peer_hostport = peer
-                break
+                stale_peers.append(peer)
 
         if lock:
             peer_table_unlock()
             peer_table = None
 
-        if peer_hostport:
-            # have someone to ping
+        for peer_hostport in stale_peers:
+            # refresh everyone
             log.debug("%s: Refresh zonefile inventory for %s" % (self.hostport, peer_hostport))
             res = atlas_peer_refresh_zonefile_inventory( self.hostport, peer_hostport, 0, con=con, path=path, peer_table=peer_table )
             if res is None:
                 log.warning("Failed to refresh zonefile inventory for %s" % peer_hostport)
-
-        else:
-            log.debug("%s: Everyone's zonefile is fresh", self.hostport)
-            time_sleep(self.hostport, self.__class__.__name__, 1.0)
-
+        
         return 
 
 
@@ -2003,7 +2531,7 @@ class AtlasZonefileCrawler( threading.Thread ):
                 continue
 
             # try this zonefile's hosts in order by perceived availability
-            peers = atlas_rank_peers_by_health( peer_list=peers )
+            peers = atlas_rank_peers_by_health( peer_list=peers, with_zero_requests=True )
             log.debug("%s: zonefile %s available from %s" % (self.hostport, zfhash, ",".join(peers)))
 
             for peer_hostport in peers:
