@@ -61,7 +61,7 @@ BLOCKSTACK_METADATA_DIR = os.path.expanduser("~/.blockstack/metadata")
 BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = "disk,blockstack_resolver,blockstack_server,http,dht"
 
 # storage drivers that must successfully acknowledge each write
-BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE = "disk,blockstack_server"
+BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE = "disk,blockstack_server,dht"
 
 DEFAULT_TIMEOUT = 30  # in secs
 
