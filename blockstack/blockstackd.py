@@ -279,7 +279,13 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
     def _dispatch(self, method, params):
         try: 
             log.debug("%s(%s)" % ("rpc_" + str(method), params))
-            res = self.server.funcs["rpc_" + str(method)](*params)
+
+            con_info = {
+                "client_host": self.client_address[0],
+                "client_port": self.client_address[1]
+            }
+
+            res = self.server.funcs["rpc_" + str(method)](*params, **con_info)
 
             # lol jsonrpc within xmlrpc
             ret = json.dumps(res)
@@ -329,14 +335,14 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             log.error("Failed to log analytics event")
 
 
-    def rpc_ping(self):
+    def rpc_ping(self, **con_info):
         reply = {}
         reply['status'] = "alive"
         self.analytics("ping", {})
         return reply
 
 
-    def rpc_get_name_blockchain_record(self, name):
+    def rpc_get_name_blockchain_record(self, name, **con_info):
         """
         Lookup the blockchain-derived whois info for a name.
         """
@@ -375,7 +381,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return name_record
 
 
-    def rpc_get_name_blockchain_history( self, name, start_block, end_block ):
+    def rpc_get_name_blockchain_history( self, name, start_block, end_block, **con_info ):
         """
         Get the sequence of name operations processed for a given name.
         """
@@ -405,7 +411,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return name_history
 
 
-    def rpc_get_nameops_at( self, block_id ):
+    def rpc_get_nameops_at( self, block_id, **con_info ):
         """
         Get the sequence of names and namespaces altered at the given block.
         Returns the list of name operations to be fed into virtualchain.
@@ -425,7 +431,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return ret
 
 
-    def rpc_get_nameops_hash_at( self, block_id ):
+    def rpc_get_nameops_hash_at( self, block_id, **con_info ):
         """
         Get the hash over the sequence of names and namespaces altered at the given block.
         Used by SNV clients.
@@ -456,7 +462,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return ops_hash
 
 
-    def rpc_getinfo(self):
+    def rpc_getinfo(self, **con_info):
         """
         Get the number of blocks the
         """
@@ -481,7 +487,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return reply
 
 
-    def rpc_get_names_owned_by_address(self, address):
+    def rpc_get_names_owned_by_address(self, address, **con_info):
         """
         Get the list of names owned by an address.
         """
@@ -495,7 +501,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return names
 
 
-    def rpc_get_name_cost( self, name ):
+    def rpc_get_name_cost( self, name, **con_info ):
         """
         Return the cost of a given name, including fees
         Return value is in satoshis
@@ -518,7 +524,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return {"satoshis": int(math.ceil(ret))}
 
 
-    def rpc_get_namespace_cost( self, namespace_id ):
+    def rpc_get_namespace_cost( self, namespace_id, **con_info ):
         """
         Return the cost of a given namespace, including fees.
         Return value is in satoshis
@@ -534,7 +540,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return {"satoshis": int(math.ceil(ret))}
 
 
-    def rpc_get_namespace_blockchain_record( self, namespace_id ):
+    def rpc_get_namespace_blockchain_record( self, namespace_id, **con_info ):
         """
         Return the namespace with the given namespace_id
         """
@@ -564,7 +570,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return ns
 
 
-    def rpc_get_all_names( self, offset, count ):
+    def rpc_get_all_names( self, offset, count, **con_info ):
         """
         Return all names
         """
@@ -583,7 +589,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return db.get_all_names( offset=offset, count=count )
 
 
-    def rpc_get_names_in_namespace( self, namespace_id, offset, count ):
+    def rpc_get_names_in_namespace( self, namespace_id, offset, count, **con_info ):
         """
         Return all names in a namespace
         """
@@ -608,7 +614,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return db.get_names_in_namespace( namespace_id, offset=offset, count=count )
 
 
-    def rpc_get_consensus_at( self, block_id ):
+    def rpc_get_consensus_at( self, block_id, **con_info ):
         """
         Return the consensus hash at a block number
         """
@@ -623,7 +629,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return db.get_consensus_at( block_id )
 
 
-    def rpc_get_consensus_hashes( self, block_id_list ):
+    def rpc_get_consensus_hashes( self, block_id_list, **con_info ):
         """
         Return the consensus hashes at multiple block numbers
         Return a dict mapping each block ID to its consensus hash
@@ -646,7 +652,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return ret
 
 
-    def rpc_get_mutable_data( self, blockchain_id, data_name ):
+    def rpc_get_mutable_data( self, blockchain_id, data_name, **con_info ):
         """
         Get a mutable data record written by a given user.
         TODO: disable by default, unless we're set up to serve data.
@@ -664,7 +670,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return client.get_mutable( str(blockchain_id), str(data_name) )
 
 
-    def rpc_get_immutable_data( self, blockchain_id, data_hash ):
+    def rpc_get_immutable_data( self, blockchain_id, data_hash, **con_info ):
         """
         Get immutable data record written by a given user.
         TODO: disable by default, unless we're set up to serve data.
@@ -682,7 +688,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return client.get_immutable( str(blockchain_id), str(data_hash) )
 
 
-    def rpc_get_block_from_consensus( self, consensus_hash ):
+    def rpc_get_block_from_consensus( self, consensus_hash, **con_info ):
         """
         Given the consensus hash, find the block number (or None)
         """
@@ -747,7 +753,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return zonefile
 
 
-    def rpc_get_zonefiles( self, zonefile_hashes ):
+    def rpc_get_zonefiles( self, zonefile_hashes, **con_info ):
         """
         Get zonefiles from the local cache,
         or (on miss), from upstream storage.
@@ -789,7 +795,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return {'status': True, 'zonefiles': ret}
 
 
-    def rpc_get_zonefiles_by_names( self, names ):
+    def rpc_get_zonefiles_by_names( self, names, **con_info ):
         """
         Get a users' zonefiles from the local cache,
         or (on miss), from upstream storage.
@@ -831,7 +837,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return {'status': True, 'zonefiles': ret}
 
 
-    def rpc_put_zonefiles( self, zonefile_datas ):
+    def rpc_put_zonefiles( self, zonefile_datas, **con_info ):
         """
         Replicate one or more zonefiles, given as serialized strings.
         Returns {'status': True, 'saved': [0|1]'} on success ('saved' is a vector of success/failure)
@@ -904,7 +910,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return {'status': True, 'saved': saved}
 
 
-    def rpc_get_profile(self, name):
+    def rpc_get_profile(self, name, **con_info):
         """
         Get a profile for a particular name
         """
@@ -951,7 +957,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return {'status': True, 'profile': profile}
 
 
-    def rpc_put_profile(self, name, profile_txt, prev_profile_hash, sigb64 ):
+    def rpc_put_profile(self, name, profile_txt, prev_profile_hash, sigb64, **con_info ):
         """
         Store a profile for a particular name
         @profile_txt must be a serialized JWT signed by the key in the user's zonefile.
@@ -1081,7 +1087,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return {'status': True, 'num_replicas': successes, 'num_failures': len(blockstack_client.get_storage_handlers()) - successes}
 
 
-    def rpc_get_atlas_peers( self, remote_peer_hostport ):
+    def rpc_get_atlas_peers( self, **con_info ):
         """
         Get the list of peer atlas nodes.
         Give its own atlas peer hostport.
@@ -1093,21 +1099,20 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if not conf['atlas']:
             return {'error': 'Not an atlas node'}
 
-        peer_list = atlast_get_rarest_live_peers()
-        if len(peer_list) > 100:
-            peer_list = random.shuffle(peer_list)[:100]
+        # identify the client...
+        client_host = con_info['client_host']
+        client_port = con_info['client_port']
 
-        if remote_peer_hostport is not None and len(remote_peer_hostport) > 0:
-            remote_host, remote_port = url_to_host_port( remote_peer_hostport )
-            if remote_host is not None and remote_port is not None:
-                # try talking to this peer
-                remote_peer_hostport = "%s:%s" % (remote_host, remote_port)
-                atlas_peer_enqueue( remote_peer_hostport )
+        # get peers
+        peer_list = atlas_get_live_neighbors( "%s:%s" % (client_host, client_port) )
+        if len(peer_list) > atlas_max_neighbors():
+            peer_list = random.shuffle(peer_list)[:atlas_max_neighbors()]
 
+        atlas_peer_enqueue( "%s:%s" % (client_host, client_port))
         return {'status': True, 'peers': peer_list}
 
     
-    def rpc_get_zonefile_inventory( self, offset, length ):
+    def rpc_get_zonefile_inventory( self, offset, length, **con_info ):
         """
         Get an inventory bit vector for the zonefiles in the 
         given bit range (i.e. offset and length are in bits)
@@ -1129,7 +1134,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return {'status': True, 'inv': base64.b64encode(zonefile_inv) }
 
     
-    def rpc_get_unspents(self, address):
+    def rpc_get_unspents(self, address, **con_info):
         """
         Proxy to UTXO provider to get an address's
         unspent outputs.
@@ -1151,7 +1156,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return unspents
 
 
-    def rpc_broadcast_transaction(self, txdata ):
+    def rpc_broadcast_transaction(self, txdata, **con_info ):
         """
         Proxy to UTXO provider to send a transaction
         ONLY USE FOR TESTING
@@ -1171,7 +1176,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         return pybitcoin.broadcast_transaction( txdata, utxo_client )
 
 
-    def rpc_get_analytics_key(self, client_uuid ):
+    def rpc_get_analytics_key(self, client_uuid, **con_info ):
         """
         Get the analytics key
         """
