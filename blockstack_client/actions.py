@@ -125,6 +125,7 @@ from .utils import pretty_dump, print_result
 from .proxy import *
 from .client import analytics_event
 from .app import app_register, app_unregister, app_get_wallet
+from .scripts import UTXOException
 
 log = config.get_logger()
 
@@ -254,10 +255,10 @@ def get_total_registration_fees(name, payment_privkey_info, owner_privkey_info, 
 
     preorder_tx_fee = None
     register_tx_fee = None
-    update_tx_feee = None
+    update_tx_fee = None
 
     try:
-        preorder_tx_fee = estimate_preorder_tx_fee( name, data['satoshis'], payment_address, utxo_client, owner_privkey_params=get_privkey_info_params(owner_privkey_info), config_path=config_path )
+        preorder_tx_fee = estimate_preorder_tx_fee( name, data['satoshis'], payment_address, utxo_client, owner_privkey_params=get_privkey_info_params(owner_privkey_info), config_path=config_path, include_dust=True )
         if preorder_tx_fee is None:
             # do our best
             preorder_tx_fee = get_tx_fee( "00" * APPROX_PREORDER_TX_LEN, config_path=config_path )
@@ -265,14 +266,15 @@ def get_total_registration_fees(name, payment_privkey_info, owner_privkey_info, 
         else:
             preorder_tx_fee = int(preorder_tx_fee)
 
-        register_tx_fee = estimate_register_tx_fee( name, payment_address, utxo_client, owner_privkey_params=get_privkey_info_params(owner_privkey_info), config_path=config_path )
+        register_tx_fee = estimate_register_tx_fee( name, payment_address, utxo_client, owner_privkey_params=get_privkey_info_params(owner_privkey_info), config_path=config_path, include_dust=True )
         if register_tx_fee is None:
             register_tx_fee = get_tx_fee( "00" * APPROX_REGISTER_TX_LEN, config_path=config_path )
             insufficient_funds = True
         else:
             register_tx_fee = int(register_tx_fee)
 
-        update_tx_fee = estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=get_privkey_info_params(owner_privkey_info), config_path=config_path, payment_address=payment_address )
+        update_tx_fee = estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_client, \
+                                                owner_privkey_params=get_privkey_info_params(owner_privkey_info), config_path=config_path, payment_address=payment_address, include_dust=True)
         if update_tx_fee is None:
             update_tx_fee = get_tx_fee( "00" * APPROX_UPDATE_TX_LEN, config_path=config_path )
             insufficient_funds = True
@@ -285,7 +287,6 @@ def get_total_registration_fees(name, payment_privkey_info, owner_privkey_info, 
             log.exception(ue)
 
         return {'error': 'Failed to query UTXO provider.  Please try again.'}
-
 
     reply['preorder_tx_fee'] = int(preorder_tx_fee)
     reply['register_tx_fee'] = int(register_tx_fee)
@@ -921,15 +922,18 @@ def cli_update( args, config_path=CONFIG_PATH, password=None ):
     try:
         resp = rpc.backend_update(fqu, user_data, None, None)
     except Exception, e:
+        log.exception(e)
         return {'error': 'Error talking to server, try again.'}
 
     if 'success' in resp and resp['success']:
         result = resp
     else:
         if 'error' in resp:
+            log.error("Backend failed to queue update: %s" % resp['error'])
             return resp
 
         if 'message' in resp:
+            log.error("Backend reports error: %s" % resp['message'])
             return {'error': resp['message']}
 
     analytics_event( "Update name", {} )
@@ -1522,9 +1526,17 @@ def cli_advanced_wallet( args, config_path=CONFIG_PATH, password=None ):
 
     else:
         result = get_wallet_with_backoff( config_path )
+        
+        payment_privkey = result.get("payment_privkey", None)
+        owner_privkey = result.get("owner_privkey", None)
+        data_privkey = result.get("data_privkey", None)
 
-        # re-encode private keys to WIF
-        # TODO
+        display_wallet_info(wallet_keys.get('payment_address'), wallet_keys.get('owner_address'), wallet_keys.get('data_pubkey'), config_path=CONFIG_PATH )
+
+        print "-" * 60
+        print "Payment private key info: %s" % privkey_to_string( payment_privkey )
+        print "Owner private key info:   %s" % privkey_to_string( owner_privkey )
+        print "Data private key info:    %s" % privkey_to_string( data_privkey )
         
     return result
 
