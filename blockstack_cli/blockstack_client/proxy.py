@@ -42,6 +42,7 @@ from defusedxml import xmlrpc
 import httplib
 
 # prevent the usual XML attacks
+xmlrpc.MAX_DATA = 10 * 1024 * 1024      # 10MB
 xmlrpc.monkey_patch()
 
 import storage
@@ -107,7 +108,7 @@ class BlockstackRPCClient(object):
     """
     RPC client for the blockstack server
     """
-    def __init__(self, server, port, max_rpc_len=MAX_RPC_LEN, timeout=config.DEFAULT_TIMEOUT ):
+    def __init__(self, server, port, max_rpc_len=MAX_RPC_LEN, timeout=config.DEFAULT_TIMEOUT, **kw ):
         self.srv = TimeoutServerProxy( "http://%s:%s" % (server, port), timeout=timeout, allow_none=True )
         self.server = server
         self.port = port
