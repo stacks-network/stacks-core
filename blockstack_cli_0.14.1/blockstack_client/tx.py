@@ -145,6 +145,8 @@ def broadcast_tx( tx_hex, config_path=CONFIG_PATH, tx_broadcaster=None ):
         if 'tx_hash' not in resp or 'error' in resp:
             log.error("Failed to send %s" % tx_hex)
             resp['error'] = 'Failed to broadcast transaction: %s' % tx_hex
+            return resp
+
     except Exception, e:
         log.exception(e)
         resp['error'] = 'Failed to broadcast transaction: %s' % tx_hex
@@ -165,6 +167,15 @@ def sign_and_broadcast_tx( tx_hex, private_key_info, config_path=CONFIG_PATH, tx
     Sign and send a transaction
     """
     signed_tx = sign_tx( tx_hex, private_key_info )
-    resp = broadcast_tx( signed_tx, config_path=config_path, tx_broadcaster=tx_broadcaster )
+    try:
+        resp = broadcast_tx( signed_tx, config_path=config_path, tx_broadcaster=tx_broadcaster )
+    except Exception, e:
+        log.exception(e)
+        log.error("Failed to broadcast transaction %s" % signed_tx)
+        return {'error': 'Failed to broadcast transaction (caught exception)'}
+
+    if 'error' in resp:
+        log.error("Failed to broadcast transaction: %s" % resp['error'])
+
     return resp
 
