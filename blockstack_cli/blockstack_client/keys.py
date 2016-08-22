@@ -109,6 +109,35 @@ def is_singlesig( privkey_info ):
         return False
 
 
+def singlesig_privkey_to_string( privkey_info ):
+    """
+    Convert private key to string
+    """
+    return virtualchain.BitcoinPrivateKey(privkey_info).to_wif()
+
+
+def multisig_privkey_to_string( privkey_info ):
+    """
+    Convert multisig keys to string
+    """
+    return ",".join( [virtualchain.BitcoinPrivateKey(pk).to_wif() for pk in privkey_info['private_keys']] )
+
+
+def privkey_to_string( privkey_info ):
+    """
+    Convert private key to string
+    Return None on invalid
+    """
+    if is_singlesig( privkey_info ):
+        return singlesig_privkey_to_string( privkey_info )
+
+    elif is_multisig( privkey_info ):
+        return multisig_privkey_to_string( privkey_info )
+
+    else:
+        return None
+
+
 def encrypt_multisig_info( multisig_info, password ):
     """
     Given a multisig info dict,
