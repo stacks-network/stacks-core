@@ -182,17 +182,21 @@ def get_fees( inputs, outputs ):
     Return (None, None) on invalid output listing
     """
     if len(outputs) != 2:
+        log.debug("Got %s outputs, not 2" % len(outputs))
         return (None, None)
     
     # 0: op_return
     if not tx_output_is_op_return( outputs[0] ):
+        log.debug("Not an OP_RETURN output: %s" % outputs[0])
         return (None, None) 
     
     if outputs[0]["value"] != 0:
-        return (None, None) 
+        log.debug("Outputs[0] has non-zero value")
+        return (None, None)
     
     # 1: change address 
     if script_hex_to_address( outputs[1]["script_hex"] ) is None:
+        log.debug("No change address in outputs[1]")
         return (None, None)
     
     dust_fee = (len(inputs) + 1) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
