@@ -895,13 +895,14 @@ class BlockstackdRPC(SimpleXMLRPCServer):
                 saved.append(0)
                 continue
 
-            # update atlas
-            was_missing = atlasdb_set_zonefile_present( zonefile_hash, True )
-            if was_missing:
-                # we didn't have this zonefile.
-                # there's a good chance we're not alone (i.e. this request came from a client).
-                # see if we can replicate it to them in the background.
-                atlas_zonefile_push_enqueue( zonefile_hash, str(zonefile_data) )
+            # update atlas, if enabled
+            if conf.get('atlas', False):
+                was_missing = atlasdb_set_zonefile_present( zonefile_hash, True )
+                if was_missing:
+                    # we didn't have this zonefile.
+                    # there's a good chance we're not alone (i.e. this request came from a client).
+                    # see if we can replicate it to them in the background.
+                    atlas_zonefile_push_enqueue( zonefile_hash, str(zonefile_data) )
 
             saved.append(1)
         
@@ -1096,7 +1097,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         Return {'error': ...} on failure
         """
         conf = get_blockstack_opts()
-        if not conf['atlas']:
+        if not conf.get('atlas', False):
             return {'error': 'Not an atlas node'}
 
         # identify the client...
