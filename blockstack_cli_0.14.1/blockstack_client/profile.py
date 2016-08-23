@@ -60,7 +60,7 @@ from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SER
     BLOCKSTACKD_PORT, BLOCKSTACK_METADATA_DIR, BLOCKSTACK_DEFAULT_STORAGE_DRIVERS, \
     FIRST_BLOCK_MAINNET, NAME_OPCODES, OPFIELDS, CONFIG_DIR, SPV_HEADERS_PATH, BLOCKCHAIN_ID_MAGIC, \
     NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER, NAMESPACE_PREORDER, NAME_IMPORT, \
-    USER_ZONEFILE_TTL, CONFIG_PATH
+    USER_ZONEFILE_TTL, CONFIG_PATH, get_config
 
 log = get_logger()
 
@@ -256,6 +256,8 @@ def get_name_zonefile( name, storage_drivers=None, create_if_absent=False, proxy
 
     if 'include_name_record' is true, then zonefile will contain
     an extra key called 'name_record' that includes the blockchain name record.
+
+    `wallet_keys` is only needed if `create_if_absent` is True
     """
 
     if proxy is None:
@@ -411,13 +413,13 @@ def get_name_profile(name, zonefile_storage_drivers=None,
     return (user_profile, user_zonefile)
 
 
-def store_name_zonefile( name, user_zonefile, txid ):
+def store_name_zonefile( name, user_zonefile, txid, storage_drivers=[] ):
     """
     Store JSON user zonefile data to the immutable storage providers, synchronously.
     This is only necessary if we've added/changed/removed immutable data.
 
-    Return (True, hash(user)) on success
-    Return (False, None) on failure
+    Return (True, hash(user data)) on success
+    Return (False, hash) on failure
     """
 
     assert not blockstack_profiles.is_profile_in_legacy_format(user_zonefile), "User zonefile is a legacy profile"
@@ -426,7 +428,7 @@ def store_name_zonefile( name, user_zonefile, txid ):
     # serialize and send off
     user_zonefile_txt = blockstack_zones.make_zone_file( user_zonefile, origin=name, ttl=USER_ZONEFILE_TTL )
     data_hash = storage.get_zonefile_data_hash( user_zonefile_txt )
-    result = storage.put_immutable_data(None, txid, data_hash=data_hash, data_text=user_zonefile_txt )
+    result = storage.put_immutable_data(None, txid, data_hash=data_hash, data_text=user_zonefile_txt, required=storage_drivers )
 
     rc = None
     if result is None:
@@ -627,4 +629,43 @@ def zonefile_publish(fqu, zonefile_json, server_list, wallet_keys=None):
 
     else:
         return {'error': 'Failed to publish zonefile to all backend providers'}
+
+
+def zonefile_replicate( fqu, zonefile_json, tx_hash, server_list, config_path=CONFIG_PATH, storage_drivers=None ):
+    """
+    Replicate a zonefile both to a list of blockstack servers,
+    as well as to the user's storage drivers.
+
+    Return {'status': True, 'servers': successful server list} on success
+    Return {'error': ...}
+    """
+
+    conf = get_config(config_path)
+
+    # find required storage drivers
+    required_storage_drivers = None
+    if storage_drivers is not None:
+        required_storage_drivers = storage_drivers
+
+    else:
+        required_storage_drivers = conf.get('storage_drivers_required_write', None)
+        if required_storage_drivers is None:
+            required_storage_drivers = conf.get("storage_drivers", "").split(",")
+        else:
+            required_storage_drivers = required_storage_drivers.split(",")
+
+    assert len(required_storage_drivers) > 0, "No zonefile storage drivers specified"
+
+    # replicate to our own storage providers
+    rc = store_name_zonefile( fqu, zonefile_json, tx_hash, storage_drivers=required_storage_drivers )
+    if not rc:
+        log.info("Failed to replicate zonefile for %s to %s" % (fqu))
+        return {'error': 'Failed to store user zonefile'}
+
+    # replicate to blockstack servers
+    res = zonefile_publish( fqu, zonefile_json, server_list ) 
+    if 'error' in res:
+        return res
+
+    return {'status': True, 'servers': res['servers']}
 
