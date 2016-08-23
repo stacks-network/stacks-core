@@ -41,7 +41,7 @@ from ..proxy import is_name_registered, is_name_owner
 from ..tx import sign_and_broadcast_tx, preorder_tx, register_tx, update_tx, transfer_tx, revoke_tx, \
         namespace_preorder_tx, namespace_reveal_tx, namespace_ready_tx, announce_tx, name_import_tx, sign_tx
 
-from ..scripts import tx_make_subsidizable
+from ..scripts import tx_make_subsidizable, tx_deserialize
 from ..storage import get_blockchain_compat_hash, hash_zonefile, put_announcement
 
 from ..operations import fees_update, fees_transfer, fees_revoke, fees_registration, fees_preorder, \
@@ -275,7 +275,7 @@ def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
     log.debug("update tx %s bytes, %s satoshis" % (len(signed_subsidized_tx), int(tx_fee)))
 
     if include_dust:
-        dust_fee = estimate_dust_fee( signed_tx, fees_update )
+        dust_fee = estimate_dust_fee( unsigned_tx, fees_update )
         assert dust_fee is not None
         log.debug("Additional dust fee: %s" % dust_fee)
         tx_fee += dust_fee
@@ -318,7 +318,7 @@ def estimate_transfer_tx_fee( name, payment_privkey_info, owner_address, utxo_cl
     log.debug("transfer tx %s bytes, %s satoshis" % (len(signed_subsidized_tx), int(tx_fee)))
 
     if include_dust:
-        dust_fee = estimate_dust_fee( signed_tx, fees_transfer )
+        dust_fee = estimate_dust_fee( unsigned_tx, fees_transfer )
         assert dust_fee is not None
         log.debug("Additional dust fee: %s" % dust_fee)
         tx_fee += dust_fee
@@ -357,7 +357,7 @@ def estimate_revoke_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
     log.debug("revoke tx %s bytes, %s satoshis" % (len(signed_subsidized_tx), int(tx_fee)))
 
     if include_dust:
-        dust_fee = estimate_dust_fee( signed_tx, fees_revoke )
+        dust_fee = estimate_dust_fee( unsigned_tx, fees_revoke )
         assert dust_fee is not None
         log.debug("Additional dust fee: %s" % dust_fee)
         tx_fee += dust_fee
@@ -392,12 +392,6 @@ def estimate_name_import_tx_fee( fqu, payment_addr, utxo_client, config_path=CON
 
     log.debug("name import tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
 
-    if include_dust:
-        dust_fee = estimate_dust_fee( signed_tx, fees_name_import )
-        assert dust_fee is not None
-        log.debug("Additional dust fee: %s" % dust_fee)
-        tx_fee += dust_fee
-
     return tx_fee
 
 
@@ -428,12 +422,6 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utx
     
     log.debug("namespace preorder tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
 
-    if include_dust:
-        dust_fee = estimate_dust_fee( signed_tx, fees_namespace_preorder )
-        assert dust_fee is not None
-        log.debug("Additional dust fee: %s" % dust_fee)
-        tx_fee += dust_fee
-
     return tx_fee
 
 
@@ -463,12 +451,6 @@ def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client
 
     log.debug("namespace reveal tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
 
-    if include_dust:
-        dust_fee = estimate_dust_fee( signed_tx, fees_namespace_reveal )
-        assert dust_fee is not None
-        log.debug("Additional dust fee: %s" % dust_fee)
-        tx_fee += dust_fee
-
     return tx_fee
 
 
@@ -496,12 +478,6 @@ def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, con
         return None
 
     log.debug("namespace ready tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
-
-    if include_dust:
-        dust_fee = estimate_dust_fee( signed_tx, fees_namespace_ready )
-        assert dust_fee is not None
-        log.debug("Additional dust fee: %s" % dust_fee)
-        tx_fee += dust_fee
 
     return tx_fee
 
