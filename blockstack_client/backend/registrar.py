@@ -50,7 +50,7 @@ from .blockchain import get_block_height
 
 from ..keys import get_data_keypair
 from ..proxy import is_name_registered, is_zonefile_current, is_name_owner, get_default_proxy, get_name_blockchain_record, get_name_cost
-from ..profile import zonefile_publish, store_name_zonefile, get_and_migrate_profile
+from ..profile import zonefile_publish, store_name_zonefile, get_and_migrate_profile, zonefile_replicate
 from ..user import make_empty_user_zonefile 
 from ..storage import put_mutable_data, put_immutable_data, hash_zonefile
 
@@ -381,18 +381,13 @@ class RegistrarWorker(threading.Thread):
             log.error("Zonefile %s has not been replicated yet" % zonefile_hash)
             return {'error': 'Zonefile hash not yet replicated'}
 
-        res = zonefile_publish( name_data['fqu'], name_data['zonefile'], servers, wallet_keys=wallet_data ) 
+        # replicate to our own storage providers, as well as the blockstack servers
+        res = zonefile_replicate( name_data['fqu'], name_data['zonefile'], name_data['tx_hash'], servers, storage_drivers=storage_drivers )
         if 'error' in res:
-            return res
+            log.info("Failed to replicate zonefile for %s: %s" % (name_data['fqu'], res['error']))
+            return {'error': 'Failed to replicate user zonefile'}
 
         log.info("Replicated zonefile for %s to %s server(s)" % (name_data['fqu'], len(res['servers'])))
-
-        # replicate to our own storage providers as well 
-        serialized_zonefile = blockstack_zones.make_zone_file( zonefile_data )
-        rc = put_immutable_data( None, name_data['tx_hash'], data_hash=zonefile_hash, data_text=serialized_zonefile, required=storage_drivers )
-        if not rc:
-            log.info("Failed to replicate zonefile for %s" % (name_data['fqu']))
-            return {'error': 'Failed to store user zonefile'}
 
         # replicate profile to storage, if given
         # use the data keypair
