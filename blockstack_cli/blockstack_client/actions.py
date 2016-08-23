@@ -2257,9 +2257,9 @@ def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, proxy=None ):
  
     # can proceed to replicate
     res = zonefile_replicate( name, user_data, txid, [(conf['server'], conf['port'])], config_path=config_path )
-     if 'error' in res:
+    if 'error' in res:
         log.error("Failed to replicate zonefile: %s" % res['error'])
-         return res
+        return res
  
     return {'status': True}
 
