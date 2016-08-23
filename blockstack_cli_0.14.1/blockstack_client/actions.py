@@ -99,7 +99,7 @@ from blockstack_client import \
     put_immutable, \
     put_mutable
 
-from blockstack_client.profile import profile_update
+from blockstack_client.profile import profile_update, zonefile_replicate
 
 from rpc import local_rpc_connect, local_rpc_status, local_rpc_stop, start_rpc_endpoint
 import rpc as local_rpc
@@ -117,7 +117,7 @@ from .backend.blockchain import get_balance, is_address_usable, can_receive_name
 from .backend.nameops import estimate_preorder_tx_fee, estimate_register_tx_fee, estimate_update_tx_fee, estimate_transfer_tx_fee, \
                             do_update, estimate_renewal_tx_fee
 
-from .backend.queue import queuedb_remove
+from .backend.queue import queuedb_remove, queuedb_find
 
 from .wallet import *
 from .keys import *
