@@ -531,6 +531,41 @@ def blockstack_rpc_names():
     resp = cli_names( args, config_path=test_proxy.config_path )
     return resp
 
+ 
+def blockstack_rpc_set_zonefile_hash( name, zonefile_hash ):
+    """
+    Set the zonefile hash directly
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
+    args = CLIArgs()
+    args.name = name
+    args.zonefile_hash = zonefile_hash
+
+    resp = cli_advanced_set_zonefile_hash( args, config_path=test_proxy.config_path )
+    return resp
+
+
+def blockstack_rpc_sync_zonefile( name, zonefile_string=None, txid=None ):
+    """
+    Forcibly synchronize the zonefile
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
+    args = CLIArgs()
+    args.name = name
+
+    if zonefile_string is not None:
+        args.zonefile = zonefile_string
+
+    if txid is not None:
+        args.txid = txid
+
+    resp = cli_advanced_sync_zonefile( args, config_path=test_proxy.config_path, proxy=test_proxy )
+    return resp
+
 
 def blockstack_get_zonefile( zonefile_hash ):
     """
