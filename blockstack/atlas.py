@@ -755,7 +755,7 @@ def atlasdb_get_old_peers( now, con=None, path=None ):
     if close:
         con.close()
 
-    return tmp
+    return rows
 
 
 def atlasdb_delete_peer( peer_hostport, con=None, path=None, peer_table=None ):
@@ -1499,7 +1499,8 @@ def atlas_peer_refresh_zonefile_inventory( my_hostport, peer_hostport, byte_offs
 
     if local_inv is None:
         # get local zonefile inv 
-        local_inv = atlas_get_zonefile_inventory()
+        inv_len = atlasdb_zonefile_inv_length( con=con, path=path )
+        local_inv = atlas_make_zonefile_inventory( 0, inv_len, con=con, path=path )
 
     maxlen = len(local_inv)
 
@@ -1537,18 +1538,29 @@ def atlas_peer_refresh_zonefile_inventory( my_hostport, peer_hostport, byte_offs
         return True
 
 
-def atlas_peer_has_fresh_zonefile_inventory( peer_hostport, peer_table=None ):
+def atlas_peer_has_fresh_zonefile_inventory( peer_hostport, local_inv=None, peer_table=None, con=None, path=None ):
     """
     Does the given atlas node have a fresh zonefile inventory?
     """
+
+    if local_inv is None:
+        # get local zonefile inv 
+        inv_len = atlasdb_zonefile_inv_length( con=con, path=path )
+        local_inv = atlas_make_zonefile_inventory( 0, inv_len, con=con, path=path )
+
     locked = False
     if peer_table is None:
         locked = True
         peer_table = atlas_peer_table_lock()
 
+    expected_length = len(local_inv)
+
     fresh = False
     now = time_now()
-    if peer_table[peer_hostport].has_key('zonefile_inventory_last_refresh') and peer_table[peer_hostport]['zonefile_inventory_last_refresh'] + atlas_peer_ping_interval() > now:
+    if len(peer_table[peer_hostport]['zonefile_inv']) >= expected_length and \
+        peer_table[peer_hostport].has_key('zonefile_inventory_last_refresh') and \
+        peer_table[peer_hostport]['zonefile_inventory_last_refresh'] + atlas_peer_ping_interval() > now:
+
         fresh = True
 
     if locked:
@@ -2109,15 +2121,47 @@ class AtlasPeerCrawler( threading.Thread ):
 
     Try to obtain knowledge of as many peers as we can.
     (but we will only report max NUM_NEIGHBORS peers to anyone who asks).
-    We'll prune the set of known peers in another thread, based on data availability.
+    The goals are (1) find an random, unbiased set of peers
+    as our neighbors, and (2) add new peers to our neighbor set
+    while imposing a high cost on an eclipse attack.
+
+    Our peer discovery mechanism is carried out through a special
+    type of random walk, starting from a (randomly-chosen) seed peer.
+    At each peer, we ask for the neighbors, add the new neighbors
+    to the peer db (if we can ping them first), and evict old neighbors
+    if they collide with new neighbors (but only if the old neighbor
+    is dead--i.e. it doesn't respond to a ping when we try to evict it).
+    The collision is randomized--we hash the node's address with a 
+    nonce, modulate by PEER_MAX_DB, and see if another row in the db
+    has the same modulus.
+
+    The random walk tries to account for bias towards selecting
+    peers with high degree in the graph.  To do so, we execute
+    a variation of Metropolis-Hastings to transition from the "current"
+    peer to a "neighbor" peer, but with the following key differences:
+
+    * If the neighbor peer's neighbors are all unresponsive, we pick a
+    new peer from the peer DB.  There is no backtracing.
+    * The transition probability isn't min(1, degree(neighbor)/degree(peer))
+    like it is in MH.  Instead, we use Lee, Xu, and Eun's random walk algorithm
+    MHRWDA (delayed acceptance Metropolis-Hastings random walk) (ACM SIGMETRICS 2012).
+
+    The difference between this work and MHRWDA is that if we encounter
+    a timeout or an unresponsive peer, we consider the walk to have "failed"
+    and we restart from a randomly-chosen peer in our peer DB.
     """
+
     def __init__(self, my_hostname, my_portnum):
         threading.Thread.__init__(self)
         self.running = False
         self.last_clean_time = 0
         self.my_hostport = "%s:%s" % (my_hostname, my_portnum)
+        
         self.current_peer = None
         self.current_peer_neighbors = []
+
+        self.prev_peer = None
+
         self.new_peers = []
         self.max_neighbors = None
 
@@ -2179,6 +2223,10 @@ class AtlasPeerCrawler( threading.Thread ):
         Return the list of peers we removed
         """
         
+        locked = False
+        if peer_table is None:
+            peer_table = atlas_peer_table_lock()
+
         removed = []
         rank_peer_list = atlas_rank_peers_by_health( peer_table, with_rank=True )
         for rank, peer in rank_peer_list:
@@ -2192,17 +2240,88 @@ class AtlasPeerCrawler( threading.Thread ):
             log.debug("Remove unhealthy peer %s" % (peer))
             atlasdb_remove_peer( peer, con=con, path=path, peer_table=peer_table )
 
+        if locked:
+            atlas_peer_table_unlock()
+            peer_table = None
         return removed
 
 
-    def step( self, local_inv=None, peer_table=None, peer_queue=None, con=None, path=None ):
+    def walk_graph( self, prev_peer, current_peer, current_peer_neighbors, con=None, path=None, peer_table=None ):
         """
-        Execute one round of the peer discovery algorithm:
+        Take one step from current_peer to a neighbor in current_peer_neighbors,
+        based on Metropolis-Hastings Random Walk with Delayed Acceptance (MHRWDA).
+
+        The basic idea is to reduce the probability (versus MH alone) that we transition to the previous node.
+        We do so using the Metropolis-Hastings Random Walk with Delated Acceptance (MHRWDA) algorithm
+        described in Lee, Xu, and Eun in SIGMETRICS 2012.
+
+        Return the next peer.
         """
 
-        if self.max_neighbors is None:
-            self.max_neighbors = atlas_max_neighbors()
+        # the "next" current peer
+        ret_current_peer = None
+        ret_current_peer_neighbors = None
 
+        error_ret = (None, None)
+        
+        current_peer_degree = len(current_peer_neighbors)
+
+        next_peer = current_peer_neighbors[ random.randint(0, len(current_peer_neighbors)-1) ]
+        next_peer_neighbors = self.get_neighbors( next_peer, con=con, path=path, peer_table=peer_table )
+        if next_peer_neighbors is None or len(next_peer_neighbors) == 0:
+            # walk failed, or nowhere to go
+            # restart the walk
+            return error_ret
+
+        next_peer_degree = len(next_peer_neighbors)
+
+        p = random.random()
+        if p <= min(1.0, float(current_peer_degree) / float(next_peer_degree)):
+            if prev_peer == current_peer and current_peer_degree > 1:
+                # find a different peer
+                search = current_peer_neighbors[:]
+                if current_peer in search:
+                    search.remove(current_peer)
+
+                alt_peer = search[ random.randint(0, len(search)-1) ]
+                alt_peer_neighbors = self.get_neighbors( alt_peer, con=con, path=path, peer_table=peer_table )
+                if alt_peer_neighbors is None or len(alt_peer_neighbors) == 0:
+                    # walk failed, or nowhere to go
+                    # restart the walk
+                    return error_ret
+
+                alt_peer_degree = len(alt_peer_neighbors)
+
+                q = random.random()
+                if q <= min( 1.0, min( 1.0, (float(current_peer_degree) / float(alt_peer_degree))**2 ), max( 1.0, (float(alt_peer_degree) / float(current_peer_degree))**2 ) ):
+                    # go to the alt peer instead
+                    ret_current_peer = alt_peer
+                    ret_current_peer_neighbors = alt_peer_neighbors
+
+                else:
+                    # go to next peer
+                    ret_current_peer = next_peer
+                    ret_current_peer_neighbors = next_peer_neighbors
+
+            else:
+                # go to next peer
+                ret_current_peer = next_peer
+                ret_current_peer_neighbors = next_peer_neighbors
+        else:
+            # stay here
+            ret_current_peer = current_peer
+            ret_current_peer_neighbors = self.get_neighbors( current_peer, con=con, path=path, peer_table=peer_table )
+            if ret_current_peer_neighbors is None or len(ret_current_peer_neighbors) == 0:
+                # nowhere to go 
+                return error_ret
+
+        return (ret_current_peer, ret_current_peer_neighbors)
+       
+
+    def get_current_peers( self, peer_table=None ):
+        """
+        Get the current set of peers
+        """
         # get current peers
         locked = False
         if peer_table is None:
@@ -2217,6 +2336,17 @@ class AtlasPeerCrawler( threading.Thread ):
             atlas_peer_table_unlock()
             peer_table = None
 
+        return current_peers
+
+
+    def update_new_peers( self, num_new_peers, current_peers, peer_queue=None, peer_table=None, con=None, path=None ):
+        """
+        Add at most $num_new_peers new peers from the pending peer queue to the peer DB.
+        Ping them first (to see if they're alive), and drop hosts from the pending
+        queue if it gets too long.
+        Update our new peer queue, and update the peer table.
+        """
+
         # add newly-discovered peers, but only after we ping them
         # to make sure they're actually alive.
         peer_queue = atlas_peer_dequeue_all( peer_queue=peer_queue )
@@ -2229,7 +2359,7 @@ class AtlasPeerCrawler( threading.Thread ):
             new_peers.remove(self.my_hostport)
 
         # only handle a few peers for now
-        added = self.add_new_peers( 10, new_peers, current_peers, con=con, path=path, peer_table=peer_table )
+        added = self.add_new_peers( num_new_peers, new_peers, current_peers, con=con, path=path, peer_table=peer_table )
         for peer in added:
             if peer in new_peers:
                 new_peers.remove(peer)
@@ -2239,133 +2369,118 @@ class AtlasPeerCrawler( threading.Thread ):
             new_peers = new_peers[:(self.max_neighbors * 2)]
 
         self.new_peers = new_peers
+        return True
 
 
-        # use metropolis-hastings to walk the peer graph
-        # first, find a random peer with non-zero degree
-        if self.current_peer is None and len(current_peers) > 0:
-
-            self.current_peer = current_peers[ random.randint(0,len(current_peers)-1) ]
-
-            log.debug("%s: crawl %s" % (self.my_hostport, self.current_peer))
-
-            peer_neighbors = self.get_neighbors( self.current_peer, peer_table=peer_table, path=path, con=con )
-
-            if peer_neighbors is None or len(peer_neighbors) == 0:
-                log.debug("%s: no peers from %s" % (self.my_hostport, self.current_peer))
-
-                # try again later
-                self.current_peer = None
-
-            else:
-                # success!
-                self.current_peer_neighbors = peer_neighbors
-                self.current_peer_degree = len(peer_neighbors)
-
-                # don't talk to myself
-                if self.my_hostport in self.current_peer_neighbors:
-                    self.current_peer_neighbors.remove(self.my_hostport)
-
-                log.debug("%s: neighbors of %s are (%s): %s" % (self.my_hostport, self.current_peer, self.current_peer_degree, ",".join(self.current_peer_neighbors)))
-
-                # remember to contact these peers later
-                self.new_peers = list(set( self.new_peers + peer_neighbors ))
-
-
-        # do we have a "walk point" in the graph?
-        if self.current_peer is not None:
-
-            # try to get neighbors if we don't have them 
-            if self.current_peer_neighbors is None:
-                self.current_peer_neighbors = self.get_neighbors( self.current_peer, peer_table=peer_table, path=path, con=con )
-
-                if self.current_peer_neighbors is None or len(self.current_peer_neighbors) == 0:
-                    # didn't get neighbors
-                    log.debug("%s: no peers from %s" % (self.my_hostport, self.current_peer))
-                    self.current_peer = None
-
-                else:
-                    self.current_peer_degree = len(self.current_peer_neighbors)
-
-            if self.current_peer_neighbors is not None:
-                # have neighbors.
-                # select a neighbor of the current neighbor peer at random
-                neighbor = None
-                if len(self.current_peer_neighbors) > 0:
-                    neighbor = self.current_peer_neighbors[ random.randint(0, len(self.current_peer_neighbors)-1) ]
-                else:
-                    neighbor = self.my_hostport 
-
-                # find that neighbor's degree in the peer graph (i.e. by getting its neighbors and counting them)
-                neighbor_neighbors = self.get_neighbors( self.current_peer, peer_table=peer_table, path=path, con=con )
-
-                if neighbor_neighbors is None or len(neighbor_neighbors) == 0:
-                    # didn't get neighbors
-                    log.debug("%s: no peers from %s's neighbor %s" % (self.my_hostport, self.current_peer, neighbor))
-
-                    if neighbor in self.current_peer_neighbors:
-                        self.current_peer_neighbors.remove( neighbor )
-
-                    if len(self.current_peer_neighbors) == 0:
-                        # out of neighbors to try for this peer
-                        # reset the process
-                        self.current_peer = None
-                    
-                else:
-                    # got neighbors of this neighbor
-                    # can get neighbor degree
-                    neighbor_degree = len(neighbor_neighbors)
-
-                    # do we stay here, or do we switch to the new neighbor?
-                    p = random.random()
-                    if p <= float(self.current_peer_degree) / float(neighbor_degree):
-                        # crawl this neighbor
-                        self.current_peer = neighbor
-                        self.current_peer_degree = neighbor_degree
-                        self.current_peer_neighbors = neighbor_neighbors
-
-                        # don't talk to myself
-                        if self.my_hostport in self.current_peer_neighbors:
-                            self.current_peer_neighbors.remove(self.my_hostport)
-                      
-                    else:
-                        # refresh neighbors of the current peer
-                        self.current_peer_neighbors = self.get_neighbors( self.current_peer, peer_table=peer_table, path=path, con=con )
-                        if self.current_peer_neighbors is None or len(self.current_peer_neighbors) == 0:
-                            # didn't get neighbors
-                            log.debug("%s: no peers from %s" % (self.my_hostport, self.current_peer))
-                            self.current_peer_neighbors = None
-
-                        else:
-                            self.current_peer_degree = len(self.current_peer_neighbors)
-
-                    # successful walk
-                    log.debug("%s: transition to %s" % (self.my_hostport, self.current_peer))
-
-                    # hit these peers up later 
-                    self.new_peers = list(set(self.new_peers + neighbor_neighbors))
-
-
+    def update_existing_peers( self, num_to_remove, peer_table=None, con=None, path=None ):
+        """
+        Update the set of existing peers:
+        * revalidate the existing but old peers
+        * remove at most $num_to_remove unhealthy peers
+        """
+        
         # remove peers that are too old
         if self.last_clean_time + atlas_peer_clean_interval() < time_now():
             # remove stale peers
             log.debug("%s: revalidate old peers" % self.my_hostport)
             atlas_revalidate_peers( con=con, path=path )
 
-
         # remove a few peers that are unresponsive, and have been talked to a lot
-        if locked:
+        locked = False
+        if peer_table is None:
+            locked = True
             peer_table = atlas_peer_table_lock()
 
-        removed = self.remove_unhealthy_peers( 10, con=con, path=path, peer_table=peer_table )
+        removed = self.remove_unhealthy_peers( num_to_remove, con=con, path=path, peer_table=peer_table )
 
         if locked:
             atlas_peer_table_unlock()
+            peer_table = None
 
         # if they're also in the new set, remove them there too
         for peer in removed:
             if peer in self.new_peers:
                 self.new_peers.remove(peer)
+
+        return True
+
+
+    def random_walk_reset( self ):
+        """
+        Reset the random walk
+        """
+        self.current_peer = None
+        self.prev_peer = None
+        self.current_peer_neighbors = []
+
+
+    def step( self, local_inv=None, peer_table=None, peer_queue=None, con=None, path=None ):
+        """
+        Execute one round of the peer discovery algorithm:
+        * Add at most 10 new peers from the pending peer queue
+        (but ping them first, and drop hosts if the pending queue
+        gets to be too long).
+        * Execute one step of the MHRWDA algorithm.  Add any new
+        peers from the neighbor sets discovered.
+        * Remove at most 10 old, unresponsive peers from the peer DB.
+        """
+
+        if self.max_neighbors is None:
+            self.max_neighbors = atlas_max_neighbors()
+
+        current_peers = self.get_current_peers( peer_table=peer_table )
+
+        # add some new peers 
+        self.update_new_peers( 10, current_peers, peer_queue=peer_queue, peer_table=peer_table, con=con, path=path )
+
+        # use MHRWDA to walk the peer graph.
+        # first, begin the walk if we haven't already 
+        if self.current_peer is None and len(current_peers) > 0:
+            
+            self.current_peer = current_peers[ random.randint(0,len(current_peers)-1) ]
+            
+            log.debug("%s: crawl %s" % (self.my_hostport, self.current_peer))
+            peer_neighbors = self.get_neighbors( self.current_peer, peer_table=peer_table, path=path, con=con )
+
+            if peer_neighbors is None or len(peer_neighbors) == 0:
+                log.debug("%s: no peers from %s" % (self.my_hostport, self.current_peer))
+
+                # try again later
+                self.random_walk_reset()
+
+            else:
+                # success!
+                self.current_peer_neighbors = peer_neighbors
+
+                # don't talk to myself
+                if self.my_hostport in self.current_peer_neighbors:
+                    self.current_peer_neighbors.remove(self.my_hostport)
+
+                log.debug("%s: neighbors of %s are (%s): %s" % (self.my_hostport, self.current_peer, len(self.current_peer_neighbors), ",".join(self.current_peer_neighbors)))
+
+                # remember to contact these peers later
+                self.new_peers = list(set( self.new_peers + peer_neighbors ))
+
+        # can we walk now?
+        if self.current_peer is not None:
+            
+            next_peer, next_peer_neighbors = self.walk_graph( self.prev_peer, self.current_peer, self.current_peer_neighbors, con=con, path=path, peer_table=peer_table )
+            if next_peer is not None and next_peer_neighbors is not None:
+                # success!
+                self.prev_peer = self.current_peer
+                self.current_peer = next_peer
+                self.current_peer_neighbors = self.current_peer_neighbors
+                
+                # crawl new peers
+                self.new_peers = list(set(self.new_peers + self.current_peer_neighbors))
+
+            else:
+                log.error("%s: failed to walk from %s" % (self.my_hostport, self.current_peer))
+                self.random_walk_reset()
+
+
+        # update the existing peer info
+        self.update_existing_peers( 10, con=con, path=path, peer_table=peer_table )
 
 
     def run(self):
@@ -2420,7 +2535,7 @@ class AtlasHealthChecker( threading.Thread ):
         # who are we going to ping?
         # someone we haven't pinged in a while, chosen at random
         for peer in peer_hostports:
-            if not atlas_peer_has_fresh_zonefile_inventory( peer, peer_table=peer_table ):
+            if not atlas_peer_has_fresh_zonefile_inventory( peer, local_inv=local_inv, peer_table=peer_table, con=con, path=path ):
                 # haven't talked to this peer in a while
                 stale_peers.append(peer)
 
@@ -2431,7 +2546,7 @@ class AtlasHealthChecker( threading.Thread ):
         for peer_hostport in stale_peers:
             # refresh everyone
             log.debug("%s: Refresh zonefile inventory for %s" % (self.hostport, peer_hostport))
-            res = atlas_peer_refresh_zonefile_inventory( self.hostport, peer_hostport, 0, con=con, path=path, peer_table=peer_table )
+            res = atlas_peer_refresh_zonefile_inventory( self.hostport, peer_hostport, 0, con=con, path=path, peer_table=peer_table, local_inv=local_inv )
             if res is None:
                 log.warning("Failed to refresh zonefile inventory for %s" % peer_hostport)
         
@@ -2443,7 +2558,8 @@ class AtlasHealthChecker( threading.Thread ):
         Loop forever, pinging someone every pass.
         """
         while self.running:
-            self.step( peer_table=peer_table )
+            local_inv = atlas_get_local_inventory()
+            self.step( peer_table=peer_table, local_inv=local_inv )
 
 
     def ask_join(self):
@@ -2659,11 +2775,13 @@ class AtlasZonefilePusher(object):
 
         if len(peers) == 0:
             # everyone has it
+            log.debug("%s: All peers have zonefile %s" % (self.hostport, zfhash))
             return 0
 
         # push it off
         ret = 0
         for peer in peers:
+            log.debug("%s: Push to %s" % (self.hostport, peer))
             atlas_zonefile_push( peer, zfhash, zfdata, timeout=10 )
             ret += 1
 
