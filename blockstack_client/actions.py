@@ -115,13 +115,14 @@ from .backend.blockchain import get_balance, is_address_usable, can_receive_name
 from .backend.nameops import estimate_preorder_tx_fee, estimate_register_tx_fee, estimate_update_tx_fee, estimate_transfer_tx_fee, \
                             do_update, estimate_renewal_tx_fee
 
-from .backend.queue import queuedb_remove
+from .backend.queue import queuedb_remove, queuedb_find
 
 from .wallet import *
 from .utils import pretty_dump, print_result
 from .proxy import *
 from .client import analytics_event
 from .scripts import UTXOException
+from .profile import zonefile_replicate
 
 log = config.get_logger()
 
@@ -187,13 +188,13 @@ def operation_sanity_check(fqu, payment_privkey, config_path=CONFIG_PATH, transf
 
     # get tx fee 
     if transfer_address is not None:
-        tx_fee = estimate_transfer_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path )
+        tx_fee = estimate_transfer_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path, include_dust=True )
         if tx_fee is None:
             # do our best 
             tx_fee = get_tx_fee( "00" * APPROX_TRANSFER_TX_LEN, config_path=config_path )
 
     else:
-        tx_fee = estimate_update_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path )
+        tx_fee = estimate_update_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path, include_dust=True )
         if tx_fee is None:
             # do our best
             tx_fee = get_tx_fee( "00" * APPROX_UPDATE_TX_LEN, config_path=config_path )
@@ -307,6 +308,61 @@ def wallet_ensure_exists( config_dir=CONFIG_DIR, password=None, wallet_path=None
             return res
 
     return {'status': True}
+
+
+def load_zonefile( fqu, zonefile_data, check_current=True ):
+    """
+    Load a zonefile from a string, which can be 
+    either JSON or text.  Verify that it is
+    well-formed and current.
+
+    Return {'status': True, 'zonefile': the zonefile data (as a dict)} on success.
+    Return {'error': ...} on error
+    """
+    
+    user_data = str(zonefile_data)
+    try:
+        user_data = json.loads(user_data)
+    except:
+        try:
+            user_data = blockstack_zones.parse_zone_file(user_data)
+
+            # force dict, not defaultdict
+            tmp = {}
+            tmp.update(user_data)
+            user_data = tmp
+        except:
+            return {'error': 'Zonefile data is invalid.'}
+
+    # is this a zonefile?
+    try:
+        user_zonefile = blockstack_zones.make_zone_file(user_data)
+    except Exception, e:
+        log.exception(e)
+        log.error("Invalid zonefile")
+        return {'error': 'Invalid zonefile\n%s' % traceback.format_exc()}
+
+    # sanity checks...
+    if not user_data.has_key('$origin') or user_data['$origin'] != fqu:
+        return {'error': 'Invalid $origin; must use your name'}
+
+    if not user_data.has_key('$ttl'):
+        return {'error': 'Missing $ttl; please supply a positive integer'}
+
+    if not is_user_zonefile(user_data):
+        return {'error': 'Zonefile is missing or has invalid URI and/or TXT records'}
+
+    try:
+        ttl = int(user_data['$ttl'])
+        assert ttl >= 0
+    except Exception, e:
+        return {'error': 'Invalid $ttl; must be a positive integer'}
+
+    if check_current and is_zonefile_current(fqu, user_data):
+        msg ="Zonefile data is same as current zonefile; update not needed."
+        return {'error': msg}
+
+    return {'status': True, 'zonefile': user_data}
 
 
 def cli_configure( args, config_path=CONFIG_PATH ):
@@ -822,48 +878,14 @@ def cli_update( args, config_path=CONFIG_PATH, password=None ):
     if error:
         return {'error': error}
 
-    user_data = str(args.data)
-    try:
-        user_data = json.loads(user_data)
-    except:
-        try:
-            user_data = blockstack_zones.parse_zone_file(user_data)
+    # load zonefile
+    user_data_res = load_zonefile( fqu, args.data )
+    if 'error' in user_data_res:
+        log.error("Failed to parse zonefile: %s" % user_data_res['error'])
+        return {'error': user_data_res['error']}
 
-            # force dict, not defaultdict
-            tmp = {}
-            tmp.update(user_data)
-            user_data = tmp
-        except:
-            return {'error': 'Zonefile data is invalid.'}
-
-    # is this a zonefile?
-    try:
-        user_zonefile = blockstack_zones.make_zone_file(user_data)
-    except Exception, e:
-        log.exception(e)
-        log.error("Invalid zonefile")
-        return {'error': 'Invalid zonefile\n%s' % traceback.format_exc()}
-
-    # sanity checks...
-    if not user_data.has_key('$origin') or user_data['$origin'] != fqu:
-        return {'error': 'Invalid $origin; must use your name'}
-
-    if not user_data.has_key('$ttl'):
-        return {'error': 'Missing $ttl; please supply a positive integer'}
-
-    if not is_user_zonefile(user_data):
-        return {'error': 'Zonefile is missing or has invalid URI and/or TXT records'}
-
-    try:
-        ttl = int(user_data['$ttl'])
-        assert ttl >= 0
-    except Exception, e:
-        return {'error': 'Invalid $ttl; must be a positive integer'}
-
-    if is_zonefile_current(fqu, user_data):
-        msg ="Zonefile data is same as current zonefile; update not needed."
-        return {'error': msg}
-
+    user_data = user_data_res['zonefile']
+    
     # load wallet
     wallet_keys = get_wallet_keys( config_path, password )
     if 'error' in wallet_keys:
@@ -2093,6 +2115,120 @@ def cli_advanced_set_profile( args, config_path=CONFIG_PATH, password=None, prox
         return res
     else:
         return {'status': True}
+
+
+def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, password=None, proxy=None ):
+    """
+    command: sync_zonefile
+    help: Synchronize a zonefile to all storage drivers.
+    arg: name (str) "The name that owns the zonefile"
+    opt: txid (str) "The transaction ID that contained the NAME_UPDATE"
+    opt: zonefile (str) "The zonefile (as JSON or text); if not given, the zonefile will be loaded from local storage."
+    """
+
+    conf = config.get_config(config_path)
+
+    assert 'server' in conf.keys()
+    assert 'port' in conf.keys()
+    assert 'queue_path' in conf.keys()
+
+    queue_path = conf['queue_path']
+    name = str(args.name)
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    txid = None
+    if hasattr(args, "txid"):
+        txid = getattr(args, "txid")
+
+    user_data = None
+    zonefile_hash = None
+
+    if hasattr(args, "zonefile") and getattr(args, "zonefile") is not None:
+        user_data_res = load_zonefile( name, args.zonefile )
+        if 'error' in user_data_res:
+            log.error("Failed to load zonefile: %s" % (user_data_res['error']))
+            return {'error': "Failed to load zonefile from the CLI"}
+
+    if txid is None or user_data is None:
+    
+        # load zonefile and txid from queue?
+        queued_data = queuedb_find( "update", name, path=queue_path )
+        if len(queued_data) > 0:
+
+            # find the current one
+            for queued_zfdata in queued_data:
+                update_data = queued_zfdata.get('data', None)
+                if update_data is None:
+                    continue
+                
+                try:
+                    update_data = json.loads(update_data)
+                except:
+                    log.error("Invalid JSON data in queue")
+                    return {'error': 'Invalid JSON data in queue'}
+
+                zfdata = update_data.get('zonefile', None)
+                if zfdata is None:
+                    continue
+
+                user_data_res = load_zonefile( name, json.dumps(zfdata), check_current=False )
+                if 'error' in user_data_res:
+                    # try again 
+                    log.warning("Failed to load zonefile: %s (zonefile = %s)" % (user_data_res['error'], zfdata))
+                
+                else:
+                    user_data = zfdata
+                    txid = queued_zfdata.get('tx_hash',None)
+                    break
+
+
+        if user_data is None:
+            # not in queue.  Maybe it's available from one of the storage drivers?
+            user_data = get_name_zonefile( name )
+            if user_data is None:
+                user_data = {'error': 'No data loaded'}
+
+            if 'error' in user_data:
+                log.error("Failed to get zonefile: %s" % user_data['error'])
+                return user_data
+
+        # have user data
+        zonefile_hash = storage.hash_zonefile( user_data )
+
+        if txid is None:
+            # not in queue.  Fetch from blockstack server
+            name_rec = proxy.get_name_blockchain_record( name )
+            if 'error' in name_rec:
+                log.error("Failed to get name record for %s: %s" % (name, name_rec['error']))
+                return {'error': "Failed to get name record to look up tx hash."}
+
+            # find the tx hash that corresponds to this zonefile
+            if name_rec['op'] == NAME_UPDATE:
+                if name_rec['value_hash'] == zonefile_hash:
+                    txid = name_rec['txid']
+                
+            else:
+                name_history = name_rec['history']
+                for history_key in reversed(sorted(name_rec['history'])):
+                    if name_history[history_key].has_key('op') and name_history[history_key]['op'] == NAME_UPDATE:
+                        if name_history[history_key].has_key('value_hash') and name_history[history_key]['value_hash'] == zonefile_hash:
+                            if name_history[history_key].has_key('txid'):
+                                txid = name_history[history_key]['txid']
+                                break
+        
+        if txid is None:
+            log.error("Unable to lookup txid for update %s, %s" % (name, zonefile_hash))
+            return {'error': "Unable to lookup txid that wrote zonefile"}
+
+    # can proceed to replicate
+    res = zonefile_replicate( name, user_data, txid, [(conf['server'], conf['port'])], config_path=config_path )
+    if 'error' in res:
+        log.error("Failed to replicate zonefile: %s" % res['error'])
+        return res
+
+    return {'status': True}
 
 
 def cli_advanced_convert_legacy_profile( args, config_path=CONFIG_PATH ):
