@@ -331,47 +331,6 @@ def blockstack_announce( message, privatekey, user_public_key=None, subsidy_key=
     return resp
 
 
-'''
-def blockstack_client_initialize_wallet( password, master_privkey_wif, transfer_amount ):
-    """
-    Set up the client wallet
-    """
-    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
-    assert config_path is not None
-
-    pk_hex = pybitcoin.BitcoinPrivateKey( master_privkey_wif ).to_hex()
-
-    config_dir = os.path.dirname(config_path)
-    wallet_path = os.path.join( config_dir, blockstack_client.config.WALLET_PATH )
-
-    blockstack_client.wallet.initialize_wallet( password=password, hex_privkey=pk_hex, interactive=False, wallet_path=wallet_path )
-    
-    # fund the payment address
-    payment_addr_info = blockstack_client.get_payment_addresses( wallet_path=wallet_path )
-    payment_addr = str(payment_addr_info[0]['address'])
-    master_pkey = pybitcoin.BitcoinPrivateKey( master_privkey_wif )
-    master_addr = master_pkey.public_key().address()
-
-    inputs = get_unspents( master_addr )
-    change = calculate_change_amount( inputs, transfer_amount, 8000 )
-
-    outputs = [
-        {
-            "script_hex": pybitcoin.make_pay_to_address_script(payment_addr),
-            "value": transfer_amount
-        },
-        {
-            "script_hex": pybitcoin.make_pay_to_address_script(master_addr),
-            "value": change
-        }
-    ]
-
-    tx_data = blockstack.tx_serialize_and_sign( inputs, outputs, master_pkey )
-    broadcast_transaction( tx_data )
-    
-    return True
-'''
-
 def blockstack_client_initialize_wallet( password, payment_privkey, owner_privkey, data_privkey ):
     """
     Get the wallet from the running RPC daemon
@@ -512,6 +471,41 @@ def blockstack_rpc_names():
 
     args = CLIArgs()
     resp = cli_names( args, config_path=test_proxy.config_path )
+    return resp
+
+
+def blockstack_rpc_set_zonefile_hash( name, zonefile_hash ):
+    """
+    Set the zonefile hash directly
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
+    args = CLIArgs()
+    args.name = name
+    args.zonefile_hash = zonefile_hash
+
+    resp = cli_advanced_set_zonefile_hash( args, config_path=test_proxy.config_path )
+    return resp
+
+
+def blockstack_rpc_sync_zonefile( name, zonefile_string=None, txid=None ):
+    """
+    Forcibly synchronize the zonefile
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
+    args = CLIArgs()
+    args.name = name
+
+    if zonefile_string is not None:
+        args.zonefile = zonefile_string
+
+    if txid is not None:
+        args.txid = txid
+
+    resp = cli_advanced_sync_zonefile( args, config_path=test_proxy.config_path, proxy=test_proxy )
     return resp
 
 
