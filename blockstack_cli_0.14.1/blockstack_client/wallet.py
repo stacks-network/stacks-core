@@ -580,7 +580,7 @@ def unlock_wallet( password=None, config_dir=CONFIG_DIR, wallet_path=None ):
             _, _, onfile_data_pubkey = get_addresses_from_file(wallet_path=wallet_path)
             if onfile_data_pubkey is None:
 
-                # make a data keypair 
+                # make a data keypair (always the third child (index 2) of the HDWallet) 
                 w = HDWallet(wallet['hex_privkey'])
                 child = w.get_child_keypairs(count=3, include_privkey=True)
                 data_keypair = child[2]
