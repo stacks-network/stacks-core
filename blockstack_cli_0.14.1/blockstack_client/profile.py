@@ -415,7 +415,7 @@ def get_name_profile(name, zonefile_storage_drivers=None,
     return (user_profile, user_zonefile)
 
 
-def store_name_zonefile( name, user_zonefile, txid ):
+def store_name_zonefile( name, user_zonefile, txid, storage_drivers=[] ):
     """
     Store JSON user zonefile data to the immutable storage providers, synchronously.
     This is only necessary if we've added/changed/removed immutable data.
@@ -430,7 +430,7 @@ def store_name_zonefile( name, user_zonefile, txid ):
     # serialize and send off
     user_zonefile_txt = blockstack_zones.make_zone_file( user_zonefile, origin=name, ttl=USER_ZONEFILE_TTL )
     data_hash = storage.get_zonefile_data_hash( user_zonefile_txt )
-    result = storage.put_immutable_data(None, txid, data_hash=data_hash, data_text=user_zonefile_txt )
+    result = storage.put_immutable_data(None, txid, data_hash=data_hash, data_text=user_zonefile_txt, required=storage_drivers )
 
     rc = None
     if result is None:
@@ -633,4 +633,44 @@ def zonefile_publish(fqu, zonefile_json, server_list, wallet_keys=None):
 
     else:
         return {'error': 'Failed to publish zonefile to all backend providers'}
+
+
+def zonefile_replicate( fqu, zonefile_json, tx_hash, server_list, config_path=CONFIG_PATH, storage_drivers=None ):
+    """
+    Replicate a zonefile both to a list of blockstack servers,
+    as well as to the user's storage drivers.
+
+    Return {'status': True, 'servers': successful server list} on success
+    Return {'error': ...}
+    """
+
+    conf = get_config(config_path)
+
+    # find required storage drivers
+    required_storage_drivers = None
+    if storage_drivers is not None:
+        required_storage_drivers = storage_drivers
+
+    else:
+        required_storage_drivers = conf.get('storage_drivers_required_write', None)
+        if required_storage_drivers is None:
+            required_storage_drivers = conf.get("storage_drivers", "").split(",")
+        else:
+            required_storage_drivers = required_storage_drivers.split(",")
+
+    assert len(required_storage_drivers) > 0, "No zonefile storage drivers specified"
+
+    # replicate to our own storage providers
+    rc = store_name_zonefile( fqu, zonefile_json, tx_hash, storage_drivers=required_storage_drivers )
+    if not rc:
+        log.info("Failed to replicate zonefile for %s to %s" % (fqu))
+        return {'error': 'Failed to store user zonefile'}
+
+    # replicate to blockstack servers
+    res = zonefile_publish( fqu, zonefile_json, server_list ) 
+    if 'error' in res:
+        return res
+
+    return {'status': True, 'servers': res['servers']}
+
 
