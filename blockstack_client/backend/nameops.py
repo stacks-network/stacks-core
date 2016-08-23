@@ -153,7 +153,7 @@ def estimate_renewal_tx_fee( name, payment_privkey, owner_address, utxo_client, 
     log.debug("renewal tx %s bytes, %s satoshis txfee" % (len(signed_tx), int(tx_fee)))
 
     if include_dust:
-        dust_fee = estimate_dust_fee( signed_tx, fees_registration )
+        dust_fee = estimate_dust_fee( unsigned_tx, fees_registration )
         assert dust_fee is not None
         log.debug("Additional dust fee: %s" % dust_fee)
         tx_fee += dust_fee
@@ -220,7 +220,7 @@ def estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, c
     log.debug("update tx %s bytes, %s satoshis txfee" % (len(signed_subsidized_tx), int(tx_fee)))
 
     if include_dust:
-        dust_fee = estimate_dust_fee( signed_subsidized_tx, fees_update )
+        dust_fee = estimate_dust_fee( unsigned_tx, fees_update )
         assert dust_fee is not None
         log.debug("Additional dust fee: %s" % dust_fee)
         tx_fee += dust_fee
@@ -255,7 +255,7 @@ def estimate_transfer_tx_fee( name, payment_privkey, owner_address, utxo_client,
     log.debug("transfer tx %s bytes, %s satoshis txfee" % (len(signed_subsidized_tx), int(tx_fee)))
 
     if include_dust:
-        dust_fee = estimate_dust_fee( signed_tx, fees_transfer )
+        dust_fee = estimate_dust_fee( unsigned_tx, fees_transfer )
         assert dust_fee is not None
         log.debug("Additional dust fee: %s" % dust_fee)
         tx_fee += dust_fee
@@ -301,6 +301,8 @@ def estimate_name_import_tx_fee( fqu, payment_addr, utxo_client, config_path=CON
     Estimate the transaction fee of a name import
     Return the number of satoshis on success
     Return None on error
+
+    TODO: no dust fee estimation available for imports
     """
     fake_privkey = '5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX'   # fake private key
     fake_zonefile_hash = '20b512149140494c0f7d565023973226908f6940'
@@ -319,7 +321,6 @@ def estimate_name_import_tx_fee( fqu, payment_addr, utxo_client, config_path=CON
         return None
 
     log.debug("name import tx %s bytes, %s satoshis txfee" % (len(signed_tx), int(tx_fee)))
-
     return tx_fee
 
 
@@ -328,6 +329,8 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utx
     Estimate the transaction fee of a namespace preorder
     Return the number of satoshis on success
     Return None on error
+
+    TODO: no dust fee estimation available for namespace preorder
     """
     fake_privkey = '5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX'   # fake private key
     fake_reveal_address = '1LL4X7wNUBCWoDhfVLA2cHE7xk1ZJMT98Q'
@@ -347,12 +350,6 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utx
     
     log.debug("namespace preorder tx %s bytes, %s satoshis txfee" % (len(signed_tx), int(tx_fee)))
     
-    if include_dust:
-        dust_fee = estimate_dust_fee( signed_tx, fees_namespace_preorder )
-        assert dust_fee is not None
-        log.debug("Additional dust fee: %s" % dust_fee)
-        tx_fee += dust_fee
-
     return tx_fee
 
 
@@ -361,6 +358,8 @@ def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client
     Estimate the transaction fee of a namespace reveal
     Return the number of satoshis on success
     Return None on error
+
+    TODO: no dust estimation available for namespace reveal
     """
     fake_privkey = '5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX'   # fake private key
     fake_reveal_address = '1LL4X7wNUBCWoDhfVLA2cHE7xk1ZJMT98Q'
@@ -393,6 +392,8 @@ def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, con
     Estimate the transaction fee of a namespace ready
     Return the number of satoshis on success
     Return None on error
+
+    TODO: no dust estimation available for namespace ready
     """
     fake_privkey = '5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX'   # fake private key
 
