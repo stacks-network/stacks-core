@@ -41,7 +41,7 @@ from ..proxy import is_name_registered, is_name_owner
 from ..tx import sign_and_broadcast_tx, preorder_tx, register_tx, update_tx, transfer_tx, revoke_tx, \
         namespace_preorder_tx, namespace_reveal_tx, namespace_ready_tx, announce_tx, name_import_tx, sign_tx
 
-from ..scripts import tx_make_subsidizable, tx_deserialize
+from ..scripts import tx_make_subsidizable
 from ..storage import get_blockchain_compat_hash, hash_zonefile, put_announcement
 
 from ..operations import fees_update, fees_transfer, fees_revoke, fees_registration, fees_preorder, \
@@ -61,8 +61,11 @@ def estimate_dust_fee( tx, fee_estimator ):
     Return the number of satoshis on success
     Return None on error
     """
-    inputs, outputs, locktime, version = tx_deserialize( tx )
-    op_fee, dust_fee = fee_estimator( inputs, outputs )
+    tx = virtualchain.tx_deserialize( tx )
+    tx_inputs = tx['vin']
+    tx_outputs = tx['vout']
+    dust_fee, op_fee = fee_estimator( tx_inputs, tx_outputs )
+    log.debug("dust_fee is %s" % dust_fee)
     return dust_fee
 
 
