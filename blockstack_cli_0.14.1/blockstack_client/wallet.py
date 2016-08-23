@@ -550,6 +550,10 @@ def unlock_wallet( password=None, config_dir=CONFIG_DIR, wallet_path=None ):
     Unlock the wallet.
     Save the wallet to the RPC daemon on success.
 
+    If this wallet is in legacy format, then it will
+    be migrated to the latest format and the legacy
+    copy backed up.
+
     Return {'status': True, 'addresses': ...} on success
     return {'error': ...} on error
     """
@@ -585,8 +589,33 @@ def unlock_wallet( password=None, config_dir=CONFIG_DIR, wallet_path=None ):
                 wallet['data_pubkeys'] = [ECPrivateKey(data_keypair[1]).public_key().to_hex()]
                 wallet['data_pubkey'] = wallet['data_pubkeys'][0]
 
-                write_wallet( wallet, path=wallet_path + ".tmp" )
+                # set addresses 
+                wallet['payment_addresses'] = [get_privkey_info_address( wallet['payment_privkey'] )]
+                wallet['owner_addresses'] = [get_privkey_info_address( wallet['owner_privkey'] )]
+
+                # save!
+                encrypted_wallet = make_wallet( password, hex_privkey=wallet['hex_privkey'],
+                                                          payment_privkey=wallet['payment_privkey'], 
+                                                          owner_privkey=wallet['owner_privkey'],
+                                                          data_privkey=wallet['data_privkey'],
+                                                          config_path=config_path )
+
+                write_wallet( encrypted_wallet, path=wallet_path + ".tmp" )
+                legacy_path = wallet_path + ".legacy"
+                if os.path.exists(wallet_path):
+                    if not os.path.exists( legacy_path ):
+                        shutil.move( wallet_path, legacy_path )
+                    else:
+                        i = 1
+                        while os.path.exists(legacy_path):
+                            legacy_path = wallet_path + ".legacy.%s" % i
+                            i += 1
+
+                        shutil.move( wallet_path, legacy_path )
+
                 shutil.move( wallet_path + ".tmp", wallet_path )
+                log.debug("Migrated wallet %s (legacy wallet backed up to %s)" % (wallet_path, legacy_path))
+
 
             # save!
             try:
