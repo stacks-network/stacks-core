@@ -491,6 +491,7 @@ def unlock_wallet(display_enabled=False, password=None, config_dir=CONFIG_DIR, w
                         i = 1
                         while os.path.exists(legacy_path):
                             legacy_path = wallet_path + ".legacy.%s" % i
+                            i += 1
 
                         shutil.move( wallet_path, legacy_path )
 
