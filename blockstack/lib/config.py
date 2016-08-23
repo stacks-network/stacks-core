@@ -510,6 +510,7 @@ def default_blockstack_opts( config_file=None ):
    zonefile_storage_drivers = "disk"
    profile_storage_drivers = ""
    server_version = None
+   atlas_enabled = True
 
    if parser.has_section('blockstack'):
 
@@ -578,6 +579,12 @@ def default_blockstack_opts( config_file=None ):
       if parser.has_option('blockstack', 'server_version'):
          server_version = parser.get('blockstack', 'server_version')
 
+      if parser.has_option('blockstack', 'atlas'):
+         atlas_enabled = parser.get('blockstack', 'atlas')
+         if atlas_enabled.lower() in ['true', '1', 'enabled', 'enabled', 'on']:
+            atlas_enabled = True
+         else:
+            atlas_enabled = False
 
    if os.path.exists( announce_path ):
        # load announcement list
@@ -614,7 +621,8 @@ def default_blockstack_opts( config_file=None ):
        'profile_storage_drivers': profile_storage_drivers,
        'zonefiles': zonefile_dir,
        'analytics_key': analytics_key,
-       'server_version': server_version
+       'server_version': server_version,
+       'atlas': atlas_enabled
    }
 
    # strip Nones
