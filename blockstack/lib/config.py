@@ -24,6 +24,7 @@
 import os
 import sys
 import copy
+import socket
 from ConfigParser import SafeConfigParser
 import pybitcoin
 
@@ -37,14 +38,9 @@ except:
         __version__ = "0.14.0"
 
 import blockstack_client
-from blockstack_client.config import LENGTHS, DEFAULT_OP_RETURN_FEE, DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_VALUE, DEFAULT_FEE_PER_KB 
+from blockstack_client.config import LENGTHS, DEFAULT_OP_RETURN_FEE, DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_VALUE, DEFAULT_FEE_PER_KB, url_to_host_port
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
-
-try:
-    import blockstack_client
-except:
-    blockstack_client = None
 
 DEBUG = True
 VERSION = __version__
@@ -511,6 +507,10 @@ def default_blockstack_opts( config_file=None ):
    profile_storage_drivers = ""
    server_version = None
    atlas_enabled = True
+   atlas_seed_peers = "node.blockstack.org:%s" % RPC_SERVER_PORT
+   atlasdb_path = os.path.join( os.path.dirname(config_file), "atlas.db" )
+   atlas_blacklist = ""
+   atlas_hostname = socket.gethostname()
 
    if parser.has_section('blockstack'):
 
@@ -559,7 +559,7 @@ def default_blockstack_opts( config_file=None ):
       if parser.has_option('blockstack', 'announcers'):
          # must be a CSV of blockchain IDs
          announcer_list_str = parser.get('blockstack', 'announcers')
-         announcer_list = announcer_list_str.split(",")
+         announcer_list = filter( lambda x: len(x) > 0, announcer_list_str.split(",") )
 
          import scripts
 
@@ -585,6 +585,31 @@ def default_blockstack_opts( config_file=None ):
             atlas_enabled = True
          else:
             atlas_enabled = False
+
+      if parser.has_option('blockstack', 'atlas_seeds'):
+         atlas_seed_peers = parser.get('blockstack', 'atlas_seeds')
+         
+         # must be a CSV of host:port
+         hostports = filter( lambda x: len(x) > 0, atlas_seed_peers.split(",") )
+         for hp in hostports:
+             host, port = url_to_host_port( hp )
+             assert host is not None and port is not None
+
+      if parser.has_option('blockstack', 'atlasdb_path'):
+         atlasdb_path = parser.get('blockstack', 'atlasdb_path')
+
+      if parser.has_option('blockstack', 'atlas_blacklist'):
+         atlas_blacklist = parser.get('blockstack', 'atlas_blacklist')
+
+         # must be a CSV of host:port
+         hostports = filter( lambda x: len(x) > 0, atlas_blacklist.split(",") )
+         for hp in hostports:
+             host, port = url_to_host_port( hp )
+             assert host is not None and port is not None
+
+      if parser.has_option('blockstack', 'atlas_hostname'):
+         atlas_hostname = parser.get('blockstack', 'atlas_hostname')
+        
 
    if os.path.exists( announce_path ):
        # load announcement list
@@ -622,7 +647,11 @@ def default_blockstack_opts( config_file=None ):
        'zonefiles': zonefile_dir,
        'analytics_key': analytics_key,
        'server_version': server_version,
-       'atlas': atlas_enabled
+       'atlas': atlas_enabled,
+       'atlas_seeds': atlas_seed_peers,
+       'atlasdb_path': atlasdb_path,
+       'atlas_blacklist': atlas_blacklist,
+       'atlas_hostname': atlas_hostname
    }
 
    # strip Nones
