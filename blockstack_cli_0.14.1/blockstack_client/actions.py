@@ -533,8 +533,6 @@ def get_server_info( args, config_path=config.CONFIG_PATH, get_local_info=False 
     resp = getinfo()
     result = {}
 
-    result['server_host'] = conf['server']
-    result['server_port'] = str(conf['port'])
     result['cli_version'] = config.VERSION
     result['advanced_mode'] = conf['advanced_mode']
 
@@ -545,17 +543,47 @@ def get_server_info( args, config_path=config.CONFIG_PATH, get_local_info=False 
     else:
         result['server_alive'] = True
 
-        if 'blockstack_version' in resp:
-            result['server_version'] = resp['blockstack_version']
+        if 'server_host' in resp:
+            result['server_host'] = resp['server_host']
+        else:
+            result['server_host'] = conf['server']
+
+        if 'server_port' in resp:
+            result['server_port'] = resp['server_port']
+        else:
+            result['server_port'] = int(conf['port'])
+
+        if 'server_version' in resp:
+            result['server_version'] = resp['server_version']
         elif 'blockstack_version' in resp:
             result['server_version'] = resp['blockstack_version']
+        elif 'blockstore_version' in resp:
+            result['server_version'] = resp['blockstore_version']
+        else:
+            raise Exception("Missing server version")
+
+        if 'last_block_processed' in resp:
+            result['last_block_processed'] = resp['last_block_processed']
+        elif 'last_block' in resp:
+            result['last_block_processed'] = resp['last_block']
+        elif 'blocks' in resp:
+            result['last_block_processed'] = resp['blocks']
+        else:
+            raise Exception("Missing height of block last processed")
+
+        if 'last_block_seen' in resp:
+            result['last_block_seen'] = resp['last_block_seen']
+        elif 'blockchain_blocks' in resp:
+            result['last_block_seen'] = resp['blockchain_blocks']
+        elif 'bitcoind_blocks' in resp:
+            result['last_block_seen'] = resp['bitcoind_blocks']
+        else:
+            raise Exception("Missing height of last block seen")
 
         try:
-            result['last_block_processed'] = resp['last_block']
+            result['consensus_hash'] = resp['consensus']
         except:
-            result['last_block_processed'] = resp['blocks']
-        result['last_block_seen'] = resp['bitcoind_blocks']
-        result['consensus_hash'] = resp['consensus']
+            raise Exception("Missing consensus hash")
 
         if get_local_info:
             # get state of pending names
@@ -1552,7 +1580,7 @@ def cli_advanced_wallet( args, config_path=CONFIG_PATH, password=None ):
         owner_privkey = result.get("owner_privkey", None)
         data_privkey = result.get("data_privkey", None)
 
-        display_wallet_info(wallet_keys.get('payment_address'), wallet_keys.get('owner_address'), wallet_keys.get('data_pubkey'), config_path=CONFIG_PATH )
+        display_wallet_info(result.get('payment_address'), result.get('owner_address'), result.get('data_pubkey'), config_path=CONFIG_PATH )
 
         print "-" * 60
         print "Payment private key info: %s" % privkey_to_string( payment_privkey )
@@ -2261,7 +2289,7 @@ def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, proxy=None ):
         log.error("Failed to replicate zonefile: %s" % res['error'])
         return res
  
-    return {'status': True}
+    return {'status': True, 'value_hash': zonefile_hash}
 
 
 def cli_advanced_convert_legacy_profile( args, config_path=CONFIG_PATH ):
