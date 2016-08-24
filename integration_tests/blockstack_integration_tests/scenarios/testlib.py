@@ -105,10 +105,10 @@ class TestAPIProxy(object):
         self.config_path = client_path
         self.conf = {
             "start_block": blockstack.FIRST_BLOCK_MAINNET,
-            # "initial_utxos": utxo_opts,
             "storage_drivers": client_config['storage_drivers'],
             "metadata": client_config['metadata'],
-            "path": client_path
+            "path": client_path,
+            "queue_path": client_config['queue_path']
         }
         self.spv_headers_path = utxo_opts['spv_headers_path']
 
@@ -166,6 +166,9 @@ snv_fail = []
 # names we expect will fail SNV, at a particular block 
 snv_fail_at = {}
 
+# zonefiles that should be stored, since we pushed them 
+atlas_zonefiles_present = []
+
 # default payment wallet 
 default_payment_wallet = None
 
@@ -201,6 +204,15 @@ def expect_snv_fail_at( name, block_id ):
         snv_fail_at[block_id] = [name]
     else:
         snv_fail_at[block_id].append(name)
+
+
+def expect_atlas_zonefile( zonefile_hash ):
+    """
+    Expect that this zonefile is replicated and
+    in the Atlas system
+    """
+    global atlas_zonefiles_present
+    atlas_zonefiles_present.append( zonefile_hash )
 
 
 def get_unspents( *args, **kw ):
@@ -427,13 +439,9 @@ def blockstack_client_set_wallet( password, payment_privkey, owner_privkey, data
 
     wallet = blockstack_client_initialize_wallet( password, payment_privkey, owner_privkey, data_privkey )
 
-    print "\nrestarting RPC daemon\n"
+    print "\n(re)starting RPC daemon\n"
     blockstack_client.rpc.local_rpc_stop(config_dir=config_dir)
     blockstack_client.rpc.local_rpc_ensure_running(config_dir=config_dir, password=password)
-
-    print "\nrestarted RPC daemon; waiting 5 seconds for it to boot\n"
-
-    time.sleep(5)
     return wallet
 
 
@@ -466,6 +474,8 @@ def blockstack_rpc_update( name, zonefile_json, password ):
     """
     Update a name's value hash to point to the new zonefile
     """
+    global atlas_zonefiles_present
+
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
 
@@ -474,6 +484,10 @@ def blockstack_rpc_update( name, zonefile_json, password ):
     args.data = zonefile_json 
 
     resp = cli_update( args, config_path=test_proxy.config_path, password=password )
+
+    if 'value_hash' in resp:
+        atlas_zonefiles_present.append( resp['value_hash'] )
+
     return resp
 
 
@@ -551,6 +565,8 @@ def blockstack_rpc_sync_zonefile( name, zonefile_string=None, txid=None ):
     """
     Forcibly synchronize the zonefile
     """
+    global atlas_zonefiles_present
+
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
 
@@ -564,6 +580,9 @@ def blockstack_rpc_sync_zonefile( name, zonefile_string=None, txid=None ):
         args.txid = txid
 
     resp = cli_advanced_sync_zonefile( args, config_path=test_proxy.config_path, proxy=test_proxy )
+    if 'value_hash' in resp:
+        altas_zonefiles_present.append( resp['values_hash'] )
+
     return resp
 
 
@@ -863,6 +882,58 @@ def snv_all_names( state_engine ):
 
     return True
 
+
+def check_atlas_zonefiles( state_engine, atlasdb_path ):
+    """
+    Verify that all zonefile hashes have been added
+    to the atlas peer, for each NAME_UPDATE and NAME_IMPORT
+    """
+
+    global api_call_history
+    global snv_fail 
+    global snv_fail_at
+    global atlas_zonefiles_present
+
+    atlas_zonefiles_present = list(set(atlas_zonefiles_present))
+
+    for api_call in api_call_history:
+        if api_call.method not in ["update", "name_import"]:
+            continue
+     
+        name = api_call.name
+        block_id = api_call.block_id
+        value_hash = api_call.result['value_hash']
+ 
+        if name in snv_fail:
+            continue
+
+        if name in snv_fail_at.get(block_id, []):
+            continue
+
+        log.debug("Verify Atlas zonefile hash %s for %s in '%s' at %s" % (value_hash, name, api_call.method, block_id))
+
+        zfinfo = blockstack.atlasdb_get_zonefile( value_hash, path=atlasdb_path )
+        if zfinfo is None or len(zfinfo) == 0:
+            log.error("Zonefile %s is not present in the Atlas DB at %s" % (value_hash, atlasdb_path))
+            return False
+
+        if value_hash in atlas_zonefiles_present and not zfinfo['present']:
+            log.error("Zonefile %s should be present, but isn't" % (value_hash))
+            return False
+       
+    for value_hash in atlas_zonefiles_present:
+
+        zfinfo = blockstack.atlasdb_get_zonefile( value_hash, path=atlasdb_path )
+        if zfinfo is None or len(zfinfo) == 0:
+            log.error("Expected zonefile hash %s" % value_hash)
+            return False
+
+        if not zfinfo['present']:
+            log.error("Expected zonefile %s to be present" % value_hash)
+            return False
+
+    return True 
+        
 
 def get_unspents( addr ):
     """
