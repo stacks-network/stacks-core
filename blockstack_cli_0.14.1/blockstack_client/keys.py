@@ -276,7 +276,12 @@ def make_wallet_keys( data_privkey=None, owner_privkey=None, payment_privkey=Non
     For testing.  DO NOT USE
     """
     
-    ret = {}
+    ret = {
+        'owner_privkey': None,
+        'data_privkey': None,
+        'payment_privkey': None
+    }
+
     if data_privkey is not None:
         if not is_singlesig(data_privkey):
             raise ValueError("Invalid data key info")
