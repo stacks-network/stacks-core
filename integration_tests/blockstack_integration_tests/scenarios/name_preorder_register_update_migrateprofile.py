@@ -26,6 +26,7 @@ import pybitcoin
 import json
 import blockstack_client
 import blockstack_profiles
+import time
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -152,12 +153,22 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] )
+
     # see that put_immutable works
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_immutable", {"hello": "world"}, proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True )
 
-    testlib.next_block( **kw )
+    testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
+
+    # wait for confirmation
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "waiting for confirmation"
+    time.sleep(10)
+
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], wallet_keys_2['data_privkey'] )
 
     # see that put_mutable works
     put_result = blockstack_client.put_mutable( "bar.test", "hello_world_mutable", {"hello": "world"}, proxy=test_proxy, wallet_keys=wallet_keys_2 )

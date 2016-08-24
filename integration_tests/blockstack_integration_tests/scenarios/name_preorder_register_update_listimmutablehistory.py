@@ -25,6 +25,7 @@ import testlib
 import pybitcoin
 import json
 import blockstack_client
+import time
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -146,29 +147,44 @@ def scenario( wallets, **kw ):
     data_history_2.append("data not defined")
     data_history_3.append("data not defined")
 
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
+
+    testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
 
     data_history_1.append(put_result['immutable_data_hash'])
     data_history_2.append("data not defined")
     data_history_3.append("data not defined")
 
-    testlib.next_block( **kw )
+    # wait for confirmation
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "waiting for confirmation"
+    time.sleep(10)
 
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_2", datasets[1], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
 
+    testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
+
     data_history_1.append(data_history_1[-1])
     data_history_2.append(put_result['immutable_data_hash'])
     data_history_3.append("data not defined")
 
-    testlib.next_block( **kw )
+    # wait for confirmation
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "waiting for confirmation"
+    time.sleep(10)
 
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_3", datasets[2], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
+
+    testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
 
     data_history_1.append(data_history_1[-1])
     data_history_2.append(data_history_2[-1])
@@ -181,13 +197,19 @@ def scenario( wallets, **kw ):
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True )
 
+    testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
+
     data_history_1.append(data_history_1[-1])
     data_history_2.append(data_history_2[-1])
     data_history_3.append( put_result['immutable_data_hash'] )
 
     del datasets[0]['newdata']
 
-    testlib.next_block( **kw )
+    # wait for confirmation
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "waiting for confirmation"
+    time.sleep(10)
 
 
 def check( state_engine ):

@@ -81,23 +81,35 @@ def scenario( wallets, **kw ):
 
     # put immutable (with owner key)
     log.debug("put immutable 1 with owner key")
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1_immutable", datasets[0], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
         error = True
         return
 
-    testlib.next_block( **kw )
+    testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
+
+    # wait for confirmation
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
     
     # put immutable (with owner key)
     log.debug("put immutable 2 with owner key")
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_2_immutable", datasets[1], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
         error = True
         return
 
-    testlib.next_block( **kw )
+    testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
+
+    # wait for confirmation
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "waiting for confirmation"
+    time.sleep(10)
 
     # put mutable (with owner key)
     log.debug("put mutable 1 with owner key")
@@ -124,20 +136,33 @@ def scenario( wallets, **kw ):
         error = True
         return 
 
+    testlib.expect_atlas_zonefile(res['zonefile_hash'])
+
     wallet_keys['data_privkey'] = wallets[4].privkey
     wallet_keys['data_pubkey'] = wallets[4].pubkey_hex
 
-    testlib.next_block( **kw )
+    # wait for confirmation
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "waiting for confirmation"
+    time.sleep(10)
 
     # put immutable (with new key)
     log.debug("put immutable with new key")
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_3_immutable", datasets[2], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
         error = True
         return
 
-    testlib.next_block( **kw )
+    testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
+
+    # wait for confirmation
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "waiting for confirmation"
+    time.sleep(10)
 
     # put mutable (with new key)
     log.debug("put mutable with new key")
@@ -157,7 +182,13 @@ def scenario( wallets, **kw ):
         error = True
         return 
 
-    testlib.next_block( **kw )
+    testlib.expect_atlas_zonefile(result['zonefile_hash'])
+
+    # wait for confirmation
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "waiting for confirmation"
+    time.sleep(10)
 
     # delete mutable (new key)
     log.debug("delete mutable with new key")
