@@ -26,6 +26,7 @@ import logging
 import copy
 import traceback
 import uuid
+import urllib2
 
 import virtualchain
 from blockstack_utxo import *
@@ -337,6 +338,37 @@ def get_logger( debug=DEBUG ):
     return logger
 
 log = get_logger()
+
+
+def url_to_host_port( url, port=DEFAULT_BLOCKSTACKD_PORT ):
+    """
+    Given a URL, turn it into (host, port).
+    Return (None, None) on invalid URL
+    """
+    if not url.startswith("http://") or not url.startswith("https://"):
+        url = "http://" + url
+
+    urlinfo = urllib2.urlparse.urlparse(url)
+    hostport = urlinfo.netloc
+
+    parts = hostport.split("@")
+    if len(parts) > 2:
+        return (None, None)
+
+    if len(parts) == 2:
+        hostport = parts[1]
+
+    parts = hostport.split(":")
+    if len(parts) > 2:
+        return (None, None)
+
+    if len(parts) == 2:
+        try:
+            port = int(parts[1])
+        except:
+            return (None, None)
+
+    return parts[0], port
 
 
 def interactive_prompt( message, parameters, default_opts ):
