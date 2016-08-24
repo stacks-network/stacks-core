@@ -861,7 +861,7 @@ class BlockstackDB( virtualchain.StateEngine ):
       nameops = self.get_all_nameops_at( block_id )
       ret = []
       for nameop in nameops:
-          if nameop.has_key('op') and op in [NAME_UPDATE, NAME_IMPORT]:
+          if nameop.has_key('op') and nameop['op'] in [NAME_UPDATE, NAME_IMPORT]:
               assert nameop.has_key('value_hash')
               ret.append( nameop['value_hash'] )
 
