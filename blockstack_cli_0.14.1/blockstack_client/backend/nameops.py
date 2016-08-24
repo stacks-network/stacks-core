@@ -651,7 +651,7 @@ def do_register( fqu, payment_privkey_info, owner_address, utxo_client, tx_broad
 def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, consensus_hash=None, safety_checks=True ):
     """
     Put a new zonefile hash for a name
-    Return {'status': True, 'transaction_hash': ...} on success
+    Return {'status': True, 'transaction_hash': ..., 'value_hash': ...} on success
     Return {'error': ...} on failure
     """
 
@@ -728,7 +728,12 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
         log.exception(e)
         return {'error': 'Failed to sign and broadcast transaction'}
 
-    return resp
+    if 'error' in resp:
+        return resp
+
+    else:
+        resp['value_hash'] = zonefile_hash
+        return resp
 
 
 def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_privkey_info, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, consensus_hash=None, safety_checks=True ):
@@ -939,7 +944,7 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
 def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash, utxo_client, tx_broadcaster, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
     """
     Import a name
-    Return {'status': True, 'transaction_hash': ...} on success
+    Return {'status': True, 'transaction_hash': ..., 'value_hash': ...} on success
     Return {'error': ...} on failure
     """
     if proxy is None:
@@ -977,7 +982,12 @@ def do_name_import( fqu, importer_privkey_info, recipient_address, zonefile_hash
         log.error("Failed to sign and broadcast tx")
         return {'error': 'Failed to sign and broadcast import transaction'}
 
-    return resp
+    if 'error' in resp:
+        return resp
+
+    else:
+        resp['value_hash'] = zonefile_hash
+        return resp
 
 
 def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_address, utxo_client, tx_broadcaster, consensus_hash=None, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
