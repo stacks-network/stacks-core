@@ -25,7 +25,7 @@ from .blockchain import get_block_height, get_tx_confirmations, is_tx_rejected, 
 QUEUE_SQL = """
 CREATE TABLE entries( fqu STRING NOT NULL,
                       queue_id STRING NOT NULL,
-                      tx_hash STRING NOT NULL,
+                      tx_hash TEXT NOT NULL,
                       data NOT NULL,
                       PRIMARY KEY(fqu,queue_id) );
 """
