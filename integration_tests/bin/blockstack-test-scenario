@@ -66,7 +66,10 @@ zonefiles = @ZONEFILES@
 analytics_key = abcdef0123456789
 zonefile_storage_drivers = disk
 profile_storage_drivers = disk
-atlas = False
+atlas = True
+atlas_seeds = 
+atlas_blacklist =
+atlas_hostname = localhost
 """ % TEST_RPC_PORT
 
 DEFAULT_CLIENT_INI_TEMPLATE = """
@@ -257,7 +260,7 @@ def atexit_cleanup( spv_headers_path, client_config_path, stop_bitcoind ):
         assert rc == 0, "Failed to stop bitcoind"
 
 
-def sync_virtualchain_upcall( db ):
+def sync_virtualchain_upcall( db, blockstack_opts ):
     """
     Upcall from the test scenario
     to synchronize virtualchain.
@@ -266,8 +269,20 @@ def sync_virtualchain_upcall( db ):
     bitcoind = bitcoin_regtest_connect( bitcoin_regtest_opts() )
     height = bitcoind.getblockcount()
 
+    old_lastblock = db.lastblock
+
     log.debug("sync virtualchain up to %s" % (height))
     virtualchain.sync_virtualchain( bitcoin_regtest_opts(), height, db )
+
+    log.debug("sync atlas node up to %s" % (height))
+    
+    # synchronize atlas db
+    if blockstack_opts.get('atlas', False):
+        if old_lastblock < db.lastblock:
+            log.debug("Synchronize Atlas DB from %s to %s" % (old_lastblock+1, db.lastblock+1))
+            zonefile_dir = blockstack_opts.get('zonefiles', get_zonefile_dir())
+            blockstackd.atlasdb_sync_zonefiles( db, old_lastblock+1, zonefile_dir=zonefile_dir )
+
 
 
 def run_scenario( scenario, config_file, client_config_file, interactive=False, blocktime=10 ):
@@ -322,7 +337,26 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     blockstackd.set_blockstack_opts( blockstack_opts )
     blockstackd.set_bitcoin_opts( bitcoin_opts )
 
+    print ""
+    print "atlas node initialization"
+    print ""
+        
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
+
+    atlas_seed_peers = filter( lambda x: len(x) > 0, blockstack_opts['atlas_seeds'].split(","))
+    atlas_blacklist = filter( lambda x: len(x) > 0, blockstack_opts['atlas_blacklist'].split(","))
+    zonefile_dir = blockstack_opts.get('zonefiles', None)
+    zonefile_storage_drivers = filter( lambda x: len(x) > 0, blockstack_opts['zonefile_storage_drivers'].split(","))
+    my_hostname = blockstack_opts['atlas_hostname']
+
+    assert zonefile_dir is not None
+
+    blockstackd.atlasdb_init( blockstack_opts['atlasdb_path'], db, atlas_seed_peers, atlas_blacklist, validate=True, zonefile_dir=zonefile_dir )
+
+    print ""
+    print "bitcoind connection"
+    print ""
+
     bitcoind = bitcoin_regtest_connect( bitcoin_regtest_opts() )
 
     utxo_provider = pybitcoin.BitcoindClient("blockstack", "blockstacksystem", port=18332, version_byte=virtualchain.version_byte )
@@ -336,7 +370,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     testlib.set_state_engine( db )
 
     test_env = {
-        "sync_virtualchain_upcall": lambda: sync_virtualchain_upcall(db),
+        "sync_virtualchain_upcall": lambda: sync_virtualchain_upcall(db, blockstack_opts),
         "next_block_upcall": bitcoin_regtest_next_block,
         "working_dir": working_dir,
         "bitcoind": bitcoind,
@@ -415,6 +449,15 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         return rc
 
     log.info("SNV check passes!")
+
+    # verify atlas zonefiles
+    rc = testlib.check_atlas_zonefiles( db, blockstack_opts['atlasdb_path'] )
+    if not rc:
+        network_stop()
+        return rc
+
+    log.info("Atlas zonefile checks pass!")
+
     network_stop()
     TEST_RESULT = True
     return True
@@ -689,6 +732,7 @@ if __name__ == "__main__":
     else:
         working_dir = "/tmp/blockstack-run-scenario.%s" % sys.argv[1]
         if os.path.exists(working_dir):
+            log.debug("Remove %s" % working_dir)
             shutil.rmtree(working_dir)
    
     if not os.path.exists(working_dir):
