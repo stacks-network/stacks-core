@@ -577,11 +577,15 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
     for retries in the case where the NAME_UPDATE went through but the
     storage providers did not receive data.
     
-    Return {'status': True, 'transaction_hash': txid, 'immutable_data_hash': data_hash, ...} on success
+    On success, the new zonefile will be returned.  THE CALLER SHOULD PUSH THIS NEW ZONEFILE
+    TO BLOCKSTACK SERVERS ONCE THE TRANSACTION CONFIRMS.  By default, it will be enqueued
+    for replication.
+
+    Return {'status': True, 'transaction_hash': txid, 'immutable_data_hash': data_hash, 'zonefile': {...} } on success
     Return {'error': ...} on error
     """
 
-    from backend.nameops import do_update
+    from backend.nameops import do_update, async_update
 
     if type(data_json) not in [dict]:
         raise ValueError("Immutable data must be a dict")
@@ -628,10 +632,12 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
         payment_privkey_info = get_payment_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
         owner_privkey_info = get_owner_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
 
-        utxo_client = get_utxo_provider_client( config_path=proxy.conf['path'] )
-        broadcaster_client = get_tx_broadcaster( config_path=proxy.conf['path'] )
+        # utxo_client = get_utxo_provider_client( config_path=proxy.conf['path'] )
+        # broadcaster_client = get_tx_broadcaster( config_path=proxy.conf['path'] )
 
-        update_result = do_update( name, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, broadcaster_client, config_path=proxy.conf['path'], proxy=proxy )
+        update_result = async_update( name, user_zonefile, None, owner_privkey_info, payment_privkey_info, config_path=proxy.conf['path'], proxy=proxy, queue_path=proxy.conf['queue_path'] )
+        # update_result = do_update( name, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, broadcaster_client, config_path=proxy.conf['path'], proxy=proxy )
+
         if 'error' in update_result:
             # failed to replicate user zonefile hash 
             # the caller should simply try again, with the 'transaction_hash' given in the result.
@@ -656,8 +662,12 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
         result['error'] = 'Failed to store zonefile'
         return result
 
+    # enqueue zonefile replication to blockstack servers
+    
+
     # success!
     result['status'] = True
+    result['zonefile'] = user_zonefile
     return result
 
 
@@ -859,11 +869,11 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
     delete_immutable
 
     Remove an immutable datum from a name's profile, given by @data_key.
-    Return a dict with {'status': True} on success
+    Return a dict with {'status': True, 'zonefile_hash': ..., 'zonefile': ...} on success
     Return a dict with {'error': ...} on failure
     """
 
-    from backend.nameops import do_update
+    from backend.nameops import do_update, async_update
 
     if proxy is None:
         proxy = get_default_proxy()
@@ -912,10 +922,11 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
         payment_privkey_info = get_payment_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
         owner_privkey_info = get_owner_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
 
-        utxo_client = get_utxo_provider_client( config_path=proxy.conf['path'] )
-        broadcaster_client = get_tx_broadcaster( config_path=proxy.conf['path'] )
+        # utxo_client = get_utxo_provider_client( config_path=proxy.conf['path'] )
+        # broadcaster_client = get_tx_broadcaster( config_path=proxy.conf['path'] )
 
-        update_result = do_update( name, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, broadcaster_client, config_path=proxy.conf['path'], proxy=proxy )
+        # update_result = do_update( name, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, broadcaster_client, config_path=proxy.conf['path'], proxy=proxy )
+        update_result = async_update( name, user_zonefile, None, owner_privkey_info, payment_privkey_info, config_path=proxy.conf['path'], proxy=proxy, queue_path=proxy.conf['queue_path'] )
         if 'error' in update_result:
             # failed to remove from zonefile 
             return update_result 
@@ -924,6 +935,7 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
 
     result = {
         'zonefile_hash': zonefile_hash,
+        'zonefile': user_zonefile,
         'transaction_hash': txid
     }
     
@@ -1257,11 +1269,11 @@ def set_data_pubkey( name, data_pubkey, proxy=None, wallet_keys=None, txid=None 
     no one will be able to use your current zonefile contents (with your new 
     key) to verify their authenticity.
 
-    Return {'status': True, 'transaction_hash': ...} on success
+    Return {'status': True, 'transaction_hash': ..., 'zonefile_hash': ...} on success
     Return {'error': ...} on error
     """
 
-    from backend.nameops import do_update
+    from backend.nameops import do_update, async_update
 
     legacy = False
     if proxy is None:
@@ -1285,10 +1297,11 @@ def set_data_pubkey( name, data_pubkey, proxy=None, wallet_keys=None, txid=None 
         payment_privkey_info = get_payment_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
         owner_privkey_info = get_owner_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
 
-        utxo_client = get_utxo_provider_client( config_path=proxy.conf['path'] )
-        broadcaster_client = get_tx_broadcaster( config_path=proxy.conf['path'] )
+        # utxo_client = get_utxo_provider_client( config_path=proxy.conf['path'] )
+        # broadcaster_client = get_tx_broadcaster( config_path=proxy.conf['path'] )
 
-        update_result = do_update( name, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, broadcaster_client, config_path=proxy.conf['path'], proxy=proxy )
+        # update_result = do_update( name, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, broadcaster_client, config_path=proxy.conf['path'], proxy=proxy )
+        update_result = async_update( name, user_zonefile, None, owner_privkey_info, payment_privkey_info, config_path=proxy.conf['path'], proxy=proxy, queue_path=proxy.conf['queue_path'] )
         if 'error' in update_result:
             # failed to replicate user zonefile hash 
             # the caller should simply try again, with the 'transaction_hash' given in the result.
@@ -1298,7 +1311,8 @@ def set_data_pubkey( name, data_pubkey, proxy=None, wallet_keys=None, txid=None 
 
     result = {
         'transaction_hash': txid,
-        'zonefile_hash': zonefile_hash
+        'zonefile_hash': zonefile_hash,
+        'zonefile': user_zonefile
     }
 
     # replicate zonefile
