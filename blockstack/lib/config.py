@@ -62,14 +62,13 @@ BLOCKS_PER_YEAR = int(round(MINUTES_PER_YEAR/AVERAGE_MINUTES_PER_BLOCK))
 BLOCKS_PER_DAY = int(round(float(MINUTES_PER_HOUR * HOURS_PER_DAY)/AVERAGE_MINUTES_PER_BLOCK))
 EXPIRATION_PERIOD = BLOCKS_PER_YEAR*1
 NAME_PREORDER_EXPIRE = BLOCKS_PER_DAY
-# EXPIRATION_PERIOD = 10
 AVERAGE_BLOCKS_PER_HOUR = MINUTES_PER_HOUR/AVERAGE_MINUTES_PER_BLOCK
 
 NAMESPACE_LIFETIME_MULTIPLIER = 2
 
 """ blockstack configs
 """
-MAX_NAMES_PER_SENDER = 25                # a sender can own exactly one name
+MAX_NAMES_PER_SENDER = 25                # a single sender script can own up to this many names
 
 """ RPC server configs
 """
@@ -92,6 +91,8 @@ DEFAULT_BITCOIND_PASSWD = 'opennamesystem'
 """ block indexing configs
 """
 REINDEX_FREQUENCY = 300 # seconds
+if os.environ.get("BLOCKSTACK_TEST") == "1":
+    REINDEX_FREQUENCY = 1
 
 FIRST_BLOCK_MAINNET = 373601
 
@@ -501,7 +502,7 @@ def default_blockstack_opts( config_file=None ):
    blockchain_proxy = False
    serve_zonefiles = True
    serve_profiles = False
-   zonefile_dir = None
+   zonefile_dir = os.path.join( os.path.dirname(config_file), "zonefiles")
    analytics_key = None
    zonefile_storage_drivers = "disk"
    profile_storage_drivers = ""
@@ -684,6 +685,8 @@ def configure( config_file=None, force=False, interactive=True ):
    if not os.path.exists( config_file ):
        # definitely ask for everything
        force = True
+
+   log.debug("Load config from '%s'" % config_file)
 
    # get blockstack opts
    blockstack_opts = {}
