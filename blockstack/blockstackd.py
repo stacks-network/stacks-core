@@ -274,16 +274,44 @@ def get_name_cost( name ):
 
 class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
     """
-    Hander to capture tracebacks
+    Dispatcher to properly instrument calls and do
+    proper deserialization.
     """
     def _dispatch(self, method, params):
         try: 
-            log.debug("%s(%s)" % ("rpc_" + str(method), params))
-
             con_info = {
                 "client_host": self.client_address[0],
-                "client_port": self.client_address[1]
+                "client_port": RPC_SERVER_PORT
             }
+
+            # if this is running as part of the atlas network simulator,
+            # then for methods whose first argument is 'atlas_network', then
+            # the second argument is always the simulated client host/port
+            # (for atlas-specific methods)
+            if os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION", None) == "1" and len(params) > 0 and params[0] == 'atlas_network':
+                log.debug("Reformatting '%s(%s)' as atlas network simulator call" % (method, params))
+
+                client_hostport = params[1]
+                params = params[3:]
+                con_info = {}
+
+                if client_hostport is not None:
+                    client_host, client_port = url_to_host_port( client_hostport )
+                    con_info = {
+                        "client_host": client_host,
+                        "client_port": client_port
+                    }
+
+                else:
+                    con_info = {
+                        "client_host": "",
+                        "client_port": 0
+                    }
+
+                log.debug("%s(%s) (from atlas simulator)" % ("rpc_" + str(method), params))
+
+            else:
+                log.debug("%s(%s)" % ("rpc_" + str(method), params))
 
             res = self.server.funcs["rpc_" + str(method)](*params, **con_info)
 
@@ -472,16 +500,20 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if bitcoind is None:
             return {'error': 'Internal server error: failed to connect to bitcoind'}
 
+        conf = get_blockstack_opts()
         info = bitcoind.getinfo()
         reply = {}
-        reply['bitcoind_blocks'] = info['blocks']       # legacy
-        reply['blockchain_blocks'] = info['blocks']
+        reply['last_block_seen'] = info['blocks']
         
         db = get_state_engine()
         reply['consensus'] = db.get_current_consensus()
-        reply['blocks'] = db.get_current_block()
-        reply['blockstack_version'] = "%s" % VERSION
-        reply['last_block'] = reply['blocks']
+        reply['server_version'] = "%s" % VERSION
+        reply['last_block_processed'] = db.get_current_block()
+        reply['server_alive'] = True
+
+        if conf.get('atlas', False):
+            # return zonefile inv length 
+            reply['zonefile_count'] = atlas_get_num_zonefiles()
         
         self.analytics("getinfo", {})
         return reply
@@ -897,10 +929,11 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
             # update atlas, if enabled
             if conf.get('atlas', False):
+                sender_hostport = "%s:%s" % (con_info['client_host'], con_info['client_port'])
                 was_missing = atlasdb_set_zonefile_present( zonefile_hash, True )
-                if was_missing:
-                    # we didn't have this zonefile.
-                    # there's a good chance we're not alone (i.e. this request came from a client).
+                if was_missing and atlas_get_peer( sender_hostport ) is None:
+                    # we didn't have this zonefile, and we got it from an unknown origin.
+                    # there's a good chance we got it from a client.
                     # see if we can replicate it to them in the background.
                     atlas_zonefile_push_enqueue( zonefile_hash, str(zonefile_data) )
 
@@ -1117,6 +1150,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         """
         Get an inventory bit vector for the zonefiles in the 
         given bit range (i.e. offset and length are in bits)
+        Returns at most 64k of inventory (or 524288 bits)
         Return {'status': True, 'inv': ...} on success, where 'inv' is a b64-encoded bit vector string
         Return {'error': ...} on error.
         """
@@ -1124,16 +1158,26 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if not conf['atlas']:
             return {'error': 'Not an atlas node'}
 
-        if end_block - start_block > 100:
-            return {'error': 'Invalid range'}
-
-        if start_block < FIRST_BLOCK_MAINNET:
-            return {'error': 'Invalid start range'}
+        if length > 524288:
+            return {'error': 'Request length too large'}
 
         zonefile_dir = conf.get("zonefiles", None)
-        zonefile_inv = atlas_make_zonefile_inventory( offset, length, zonefile_dir=zonefile_dir )
+        zonefile_inv = atlas_get_zonefile_inventory( offset=offset, length=length )
         return {'status': True, 'inv': base64.b64encode(zonefile_inv) }
 
+
+    def rpc_get_all_neighbor_info( self, **con_info ):
+        """
+        For network simulator purposes only!
+        This method returns all of our peer info.
+
+        DISABLED BY DEFAULT
+        """
+        if os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION") != "1":
+            return {'error': 'No such method'}
+
+        return atlas_get_all_neighbors()
+        
     
     def rpc_get_unspents(self, address, **con_info):
         """
@@ -1409,17 +1453,30 @@ def index_blockchain( expected_snapshots=GENESIS_SNAPSHOT ):
         log.error("Failed to find block range")
         return
 
+    db = get_state_engine()
+    old_lastblock = db.lastblock
+
     # bring us up to speed
     log.debug("Begin indexing (up to %s)" % current_block)
     set_indexing( True )
     db = get_state_engine()
     virtualchain.sync_virtualchain( bt_opts, current_block, db, expected_snapshots=expected_snapshots, tx_filter=blockstack_tx_filter )
     set_indexing( False )
-    log.debug("End indexing (up to %s)" % current_block)
 
     # invalidate in-RAM copy, and reload eagerly
     invalidate_db_state()
     get_state_engine()
+    db = get_db_state()
+
+    # synchronize atlas db
+    blockstack_opts = get_blockstack_opts()
+    if blockstack_opts.get('atlas', False):
+        if old_lastblock < db.lastblock:
+            log.debug("Synchronize Atlas DB from %s to %s" % (old_lastblock+1, db.lastblock+1))
+            zonefile_dir = blockstack_opts.get('zonefiles', get_zonefile_dir())
+            atlasdb_sync_zonefiles( db, old_lastblock+1, zonefile_dir=zonefile_dir )
+
+    log.debug("End indexing (up to %s)" % current_block)
 
 
 def blockstack_exit():
@@ -1436,7 +1493,7 @@ def blockstack_exit_handler( sig, frame ):
     sys.exit(0)
 
 
-def run_server( foreground=False, index=True, expected_snapshots=GENESIS_SNAPSHOT ):
+def run_server( foreground=False, index=True, expected_snapshots=GENESIS_SNAPSHOT, port=None ):
     """
     Run the blockstackd RPC server, optionally in the foreground.
     """
@@ -1446,6 +1503,9 @@ def run_server( foreground=False, index=True, expected_snapshots=GENESIS_SNAPSHO
     indexer_log_file = get_logfile_path() + ".indexer"
     pid_file = get_pidfile_path()
     working_dir = virtualchain.get_working_dir()
+
+    if port is None:
+        port = blockstack_opts['rpc_port']
 
     logfile = None
     if not foreground:
@@ -1494,8 +1554,24 @@ def run_server( foreground=False, index=True, expected_snapshots=GENESIS_SNAPSHO
     # make sure client is initialized 
     get_blockstack_client_session()
 
+    # get db state
+    db = get_state_engine()
+
+    # start atlas node 
+    atlas_state = None
+    if blockstack_opts['atlas']:
+         
+        atlas_seed_peers = filter( lambda x: len(x) > 0, blockstack_opts['atlas_seeds'].split(","))
+        atlas_blacklist = filter( lambda x: len(x) > 0, blockstack_opts['atlas_blacklist'].split(","))
+        zonefile_dir = blockstack_opts.get('zonefiles', None)
+        zonefile_storage_drivers = filter( lambda x: len(x) > 0, blockstack_opts['zonefile_storage_drivers'].split(","))
+        my_hostname = blockstack_opts['atlas_hostname']
+
+        atlasdb_init( blockstack_opts['atlasdb_path'], db, atlas_seed_peers, atlas_blacklist, validate=True, zonefile_dir=zonefile_dir )
+        atlas_state = atlas_node_start( my_hostname, port, atlasdb_path=blockstack_opts['atlasdb_path'], zonefile_storage_drivers=zonefile_storage_drivers, zonefile_dir=zonefile_dir )
+    
     # start API server
-    rpc_start(blockstack_opts['rpc_port'])
+    rpc_start(port)
     running = True
 
     # put supervisor pid file
@@ -1538,6 +1614,11 @@ def run_server( foreground=False, index=True, expected_snapshots=GENESIS_SNAPSHO
 
     # stop API server 
     rpc_stop()
+
+    # stop the atlas node, if it's running 
+    if atlas_state is not None:
+        atlas_node_stop( atlas_state )
+        atlas_state = None
 
     # close logfile
     if logfile is not None:
@@ -2155,6 +2236,9 @@ def check_alternate_working_dir():
                 print >> sys.stderr, "--working-dir requires an argument"
                 return None
 
+    if path is None and os.environ.get("VIRTUALCHAIN_WORKING_DIR") is not None:
+        path = os.environ["VIRTUALCHAIN_WORKING_DIR"]
+
     return path
 
 
@@ -2164,6 +2248,8 @@ def run_blockstackd():
    """
 
    working_dir = check_alternate_working_dir()
+   log.debug("Working directory is %s" % working_dir)
+
    blockstack_state_engine.working_dir = working_dir
    argparser = setup( working_dir=working_dir, return_parser=True )
    if argparser is None:
@@ -2189,6 +2275,9 @@ def run_blockstackd():
    parser.add_argument(
       '--expected-snapshots', action='store',
       help='path to a .snapshots file with the expected consensus hashes')
+   parser.add_argument(
+      '--port', action='store',
+      help='port to bind on')
 
    parser = subparsers.add_parser(
       'stop',
@@ -2266,6 +2355,17 @@ def run_blockstackd():
       '--working-dir', action='store',
       help='use an alternative working directory')
 
+   # only meant for testing 
+   parser = subparsers.add_parser(
+      "atlas-testnet",
+      help="Run an atlas peer on the atlas test network")
+   parser.add_argument(
+      "seeds",
+      help="A CSV of initial peers, as 'host:port' strings")
+   parser.add_argument(
+      "name_updates",
+      help="A CSV of zonefile hashes and their block heights, as 'zonefile_hash:blockheight' strings")
+
    parser = subparsers.add_parser(
       'version',
       help='Print version and exit')
@@ -2310,7 +2410,10 @@ def run_blockstackd():
       if args.no_index:
          log.info("Not indexing the blockchain; only running an RPC endpoint")
 
-      exit_status = run_server( foreground=args.foreground, index=(not args.no_index), expected_snapshots=expected_snapshots )
+      if args.port is not None:
+         log.info("Binding on port %s" % int(args.port))
+
+      exit_status = run_server( foreground=args.foreground, index=(not args.no_index), expected_snapshots=expected_snapshots, port=int(args.port) )
       if args.foreground:
          log.info("Service endpoint exited with status code %s" % exit_status )
 
