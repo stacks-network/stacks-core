@@ -289,7 +289,7 @@ def get_total_registration_fees(name, payment_privkey, owner_address, proxy=None
         if not reply.has_key('warnings'):
             reply['warnings'] = []
 
-        reply['warnings'].append("Wallet is locked; fees are rough estimates.")
+        reply['warnings'].append("Wallet not accessed; fees are rough estimates.")
 
     return reply
 
