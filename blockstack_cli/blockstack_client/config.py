@@ -1020,7 +1020,7 @@ def update_config(section, option, value, config_path=CONFIG_PATH):
             parser.write(configfile)
 
 
-def semver_match( v1, v2):
+def semver_match( v1, v2 ):
     """
     Verify that two semantic version strings match:
     the major, minor, and patch versions must be equal.
@@ -1037,6 +1037,28 @@ def semver_match( v1, v2):
         return False
 
     if v1_minor != v2_minor:
+        return False
+
+    return True
+
+
+def semver_newer( v1, v2 ):
+    """
+    Verify (as semantic versions) if v1 < v2
+    Patch versions can be different
+    """
+    v1_parts = v1.split(".")
+    v2_parts = v2.split(".")
+    if len(v1_parts) < 3 or len(v2_parts) < 3:
+        # one isn't a semantic version 
+        return False
+
+    v1_major, v1_minor, v1_patch = int(v1_parts[0].strip()), int(v1_parts[1].strip()), int(v1_parts[2].strip())
+    v2_major, v2_minor, v2_patch = int(v2_parts[0].strip()), int(v2_parts[1].strip()), int(v2_parts[2].strip())
+    if v1_major > v2_major:
+        return False
+
+    if v1_major == v2_major and v1_minor >= v2_minor:
         return False
 
     return True
