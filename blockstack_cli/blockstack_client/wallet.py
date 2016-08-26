@@ -345,7 +345,7 @@ def initialize_wallet( password="", interactive=True, hex_privkey=None, config_d
 
     try:
         if interactive:
-            while len(password) < WALLET_PASSWORD_LENGTH:
+            while password is None or len(password) < WALLET_PASSWORD_LENGTH:
                 res = make_wallet_password(password)
                 if 'error' in res:
                     print res['error']
@@ -647,19 +647,28 @@ def get_addresses_from_file(config_dir=CONFIG_DIR, wallet_path=None):
     """
     Load up the set of addresses from the wallet
     Not all fields may be set in older wallets.
-    """
-    if wallet_path is None:
-        wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+    """ 
 
-    file = open(wallet_path, 'r')
-    data = file.read()
-    data = json.loads(data)
-    file.close()
-    
     data_pubkey = None
     payment_address = None
     owner_address = None
 
+    if wallet_path is None:
+        wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+
+    if not os.path.exists(wallet_path):
+        log.error("No such wallet: '%s'" % wallet_path)
+        return payment_address, owner_address, data_pubkey
+
+    with open(wallet_path, 'r') as f:
+        data = f.read()
+
+    try:
+        data = json.loads(data)
+    except:
+        log.error("Failed to parse wallet data from '%s'" % wallet_path)
+        return payment_address, owner_address, data_pubkey
+   
     # extract addresses 
     if data.has_key('payment_addresses'):
         payment_address = data['payment_addresses'][0]
