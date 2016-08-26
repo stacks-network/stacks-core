@@ -995,6 +995,9 @@ def get_default_payment_wallet():
 def gpg_key_dir( **kw ):
     return os.path.join( kw['working_dir'], "keys" )
 
+def working_dir( **kw ):
+    return kw['working_dir']
+
 def make_gpg_test_keys(num_keys, **kw ):
     """
     Set up a test gpg keyring directory.
