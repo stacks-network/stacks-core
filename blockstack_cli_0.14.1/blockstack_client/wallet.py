@@ -470,7 +470,7 @@ def initialize_wallet( password="", interactive=True, hex_privkey=None, config_d
 
     try:
         if interactive:
-            while len(password) < WALLET_PASSWORD_LENGTH:
+            while password is None or len(password) < WALLET_PASSWORD_LENGTH:
                 res = make_wallet_password(password)
                 if 'error' in res:
                     print res['error']
@@ -780,10 +780,18 @@ def get_addresses_from_file(config_dir=CONFIG_DIR, wallet_path=None):
     if wallet_path is None:
         wallet_path = os.path.join(config_dir, WALLET_FILENAME)
 
-    file = open(wallet_path, 'r')
-    data = file.read()
-    data = json.loads(data)
-    file.close()
+    if not os.path.exists(wallet_path):
+        log.error("No such file or directory: %s" % wallet_path)
+        return None, None, None
+
+    with open(wallet_path, 'r') as f:
+        data = f.read()
+
+    try:
+        data = json.loads(data)
+    except:
+        log.error("Invalid wallet data: not JSON (in %s)" % wallet_path) 
+        return None, None, None 
     
     data_pubkey = None
     payment_address = data['payment_addresses'][0]
