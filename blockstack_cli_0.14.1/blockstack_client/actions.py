@@ -335,6 +335,7 @@ def load_zonefile( fqu, zonefile_data, check_current=True ):
     try:
         user_data = json.loads(user_data)
     except:
+        log.debug("Zonefile is not a serialized JSON string; try parsing as text")
         try:
             user_data = blockstack_zones.parse_zone_file(user_data)
 
