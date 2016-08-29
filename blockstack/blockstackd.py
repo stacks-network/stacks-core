@@ -1161,7 +1161,6 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         if length > 524288:
             return {'error': 'Request length too large'}
 
-        zonefile_dir = conf.get("zonefiles", None)
         zonefile_inv = atlas_get_zonefile_inventory( offset=offset, length=length )
         return {'status': True, 'inv': base64.b64encode(zonefile_inv) }
 
@@ -1259,7 +1258,8 @@ class BlockstackdRPCServer( threading.Thread, object ):
         """
         Stop serving.  Also stops the thread.
         """
-        self.rpc_server.shutdown()
+        if self.rpc_server is not None:
+            self.rpc_server.shutdown()
      
 
 def rpc_start( port ):
@@ -1567,7 +1567,9 @@ def run_server( foreground=False, index=True, expected_snapshots=GENESIS_SNAPSHO
         zonefile_storage_drivers = filter( lambda x: len(x) > 0, blockstack_opts['zonefile_storage_drivers'].split(","))
         my_hostname = blockstack_opts['atlas_hostname']
 
-        atlasdb_init( blockstack_opts['atlasdb_path'], db, atlas_seed_peers, atlas_blacklist, validate=True, zonefile_dir=zonefile_dir )
+        initial_peer_table = atlasdb_init( blockstack_opts['atlasdb_path'], db, atlas_seed_peers, atlas_blacklist, validate=True, zonefile_dir=zonefile_dir )
+        atlas_peer_table_init( initial_peer_table )
+
         atlas_state = atlas_node_start( my_hostname, port, atlasdb_path=blockstack_opts['atlasdb_path'], zonefile_storage_drivers=zonefile_storage_drivers, zonefile_dir=zonefile_dir )
     
     # start API server
