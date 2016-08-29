@@ -92,7 +92,7 @@ def scenario( wallets, **kw ):
     synchronized = False
     for i in xrange(0, 10):
         atlas_network.atlas_print_network_state( network_des )
-        if atlas_network.atlas_network_is_synchronized( network_des, testlib.last_block( **kw ) - 1 ):
+        if atlas_network.atlas_network_is_synchronized( network_des, testlib.last_block( **kw ) - 1, 1 ):
             print "Synchronized!"
             synchronized = True
             break
