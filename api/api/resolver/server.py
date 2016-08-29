@@ -351,7 +351,8 @@ def get_users(usernames):
         except:
             pass
 
-    return jsonify(reply), 200
+    print reply
+    return reply
 
 
 @app.route('/v2/namespace', strict_slashes=False)
@@ -408,24 +409,3 @@ def get_user_count():
 
     return jsonify(reply)
 
-
-@app.route('/')
-def index():
-    """ Default HTML display if someone visits the resolver
-    """
-
-    reply = '<hmtl><body>Welcome to this Blockstack resolver, see \
-            <a href="http://github.com/blockstack/blockstack-resolver"> \
-            this Github repo</a> for details.</body></html>'
-
-    return reply
-
-
-@app.errorhandler(500)
-def internal_error(error):
-    return make_response(jsonify({'error': error.description}), 500)
-
-
-@app.errorhandler(404)
-def not_found(error):
-    return make_response(jsonify({'error': 'Not found'}), 404)

@@ -43,7 +43,7 @@ from .parameters import parameters_required
 from .dkim import dns_resolver, parse_pubkey_from_data, DKIM_RECORD_PREFIX
 from .utils import zone_file_is_too_big
 from .s3 import s3_upload_file
-from ..resolver.server import get_users
+from .resolver.server import get_users
 
 from .settings import (
     RESOLVER_URL, SEARCH_URL,
@@ -68,14 +68,7 @@ bs_client.session(server_host=BLOCKSTORED_IP, server_port=BLOCKSTORED_PORT)
 @crossdomain(origin='*')
 def api_user(usernames):
 
-    BASE_URL = RESOLVER_URL + '/v2/users/'
-
-    try:
-        resp = requests.get(BASE_URL + usernames, timeout=10, verify=False)
-    except (RequestsConnectionError, RequestsTimeout) as e:
-        raise ResolverConnectionError()
-
-    data = resp.json()
+    data = get_users(usernames)
 
     usernames = usernames.split(',')
 
