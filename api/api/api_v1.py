@@ -40,11 +40,8 @@ from .errors import (
 )
 
 from .parameters import parameters_required
-from .auth import auth_required, get_authenticated_user
-from .models import Blockchainid, Email
 from .dkim import dns_resolver, parse_pubkey_from_data, DKIM_RECORD_PREFIX
 from .utils import zone_file_is_too_big
-from .db import db_client
 from .s3 import s3_upload_file
 
 from .settings import (
@@ -53,10 +50,8 @@ from .settings import (
     BLOCKSTORED_IP, BLOCKSTORED_PORT,
     BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER,
     BITCOIND_PASSWD, BITCOIND_USE_HTTPS,
-    EMAILS_TOKEN, EMAIL_REGREX,
     DEFAULT_NAMESPACE, PAYMENT_PRIVKEY,
-    SECRET_KEY, USE_DEFAULT_PAYMENT,
-    SLACK_API_TOKEN
+    SECRET_KEY, USE_DEFAULT_PAYMENT
 )
 
 bitcoind = BitcoindClient(BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER,
@@ -69,7 +64,6 @@ bs_client.session(server_host=BLOCKSTORED_IP, server_port=BLOCKSTORED_PORT)
 
 
 @app.route('/v1/users/<usernames>', methods=['GET'])
-# @auth_required(exception_paths=['/v1/users/fredwilson'])
 @crossdomain(origin='*')
 def api_user(usernames):
 
@@ -113,7 +107,6 @@ def api_user(usernames):
 
 
 @app.route('/v1/users', methods=['POST'])
-@auth_required()
 @parameters_required(['username', 'recipient_address'])
 @crossdomain(origin='*')
 def register_user():
@@ -173,7 +166,6 @@ def register_user():
 
 
 @app.route('/v1/users/<username>/update', methods=['POST'])
-@auth_required()
 @parameters_required(['profile', 'owner_pubkey'])
 @crossdomain(origin='*')
 def update_user(username):
@@ -245,7 +237,6 @@ def update_user(username):
 
 
 @app.route('/v1/users/<username>/transfer', methods=['POST'])
-@auth_required()
 @parameters_required(['transfer_address', 'owner_pubkey'])
 @crossdomain(origin='*')
 def transfer_user(username):
@@ -320,7 +311,6 @@ def transfer_user(username):
 
 
 @app.route('/v1/search', methods=['GET'])
-#@auth_required(exception_queries=['fredwilson', 'wenger'])
 @parameters_required(parameters=['query'])
 @crossdomain(origin='*')
 def search_people():
@@ -342,7 +332,6 @@ def search_people():
 
 
 @app.route('/v1/transactions', methods=['POST'])
-#@auth_required()
 @parameters_required(['signed_hex'])
 @crossdomain(origin='*')
 def broadcast_tx():
@@ -367,8 +356,6 @@ def broadcast_tx():
 
 
 @app.route('/v1/addresses/<address>/unspents', methods=['GET'])
-#@auth_required(exception_paths=[
-#    '/v1/addresses/19bXfGsGEXewR6TyAV3b89cSHBtFFewXt6/unspents'])
 @crossdomain(origin='*')
 def get_address_unspents(address):
 
@@ -381,8 +368,6 @@ def get_address_unspents(address):
 
 
 @app.route('/v1/addresses/<addresses>/names', methods=['GET'])
-#@auth_required(exception_paths=[
-#    '/v1/addresses/1QJQxDas5JhdiXhEbNS14iNjr8auFT96GP/names'])
 @crossdomain(origin='*')
 def get_address_names(addresses):
 
@@ -424,7 +409,6 @@ def get_address_names(addresses):
 
 
 @app.route('/v1/users', methods=['GET'])
-#@auth_required()
 @crossdomain(origin='*')
 def get_all_users():
 
@@ -453,7 +437,6 @@ def get_user_stats():
 
 
 @app.route('/v1/domains/<domain>/dkim', methods=['GET'])
-@auth_required(exception_paths=['/v1/domains/onename.com/dkim'])
 @crossdomain(origin='*')
 def get_dkim_pubkey(domain):
 
@@ -466,33 +449,6 @@ def get_dkim_pubkey(domain):
 
     resp = public_key_data
 
-    return jsonify(resp), 200
-
-
-@app.route('/v1/emails', methods=['GET'])
-@crossdomain(origin='*')
-def get_emails_info():
-
-    resp = {}
-    resp["message"] = "This endpoint is for emails re blockstore critical updates. Use the given token for submitting new emails"
-
-    resp["token"] = EMAILS_TOKEN
-
-    return jsonify(resp), 200
-
-
-@app.route('/v1/slack/blockstack', methods=['GET'])
-@crossdomain(origin='*')
-def get_slack_users():
-    try:
-        resp = requests.get('https://slack.com/api/users.list?token=' + SLACK_API_TOKEN)
-    except (RequestsConnectionError, RequestsTimeout) as e:
-        raise ResolverConnectionError()
-    resp_data = json.loads(resp.text)
-    user_count = len(resp_data.get("members", 0))
-    resp = {
-        "user_count": user_count
-    }
     return jsonify(resp), 200
 
 
@@ -517,44 +473,3 @@ def upload_data():
 
     return jsonify(resp), 200
 
-
-@app.route('/v1/emails', methods=['POST'])
-@parameters_required(['email', 'token'])
-@crossdomain(origin='*')
-def submit_emails():
-
-    resp = {}
-
-    data = json.loads(request.data)
-
-    token = data['token']
-    email = data['email']
-    email_list = "default"
-
-    try:
-        email_list = data['list']
-    except:
-        pass
-
-    if token != EMAILS_TOKEN:
-        raise EmailTokenError
-
-    if not re.match(EMAIL_REGREX, email):
-        raise InvalidEmailError
-
-    check_entry = db_client['email'].find_one({'address': email})
-
-    if check_entry is not None:
-        resp['message'] = "Email already exists"
-        resp['status'] = 'success'
-        return jsonify(resp), 200
-
-    new_entry = Email(address=email, email_list=email_list)
-
-    try:
-        new_entry.save()
-        resp['status'] = 'success'
-    except Exception as e:
-        raise DatabaseSaveError()
-
-    return jsonify(resp), 200
