@@ -671,14 +671,15 @@ def atlas_network_start( network_des, **network_params ):
     return network_des
 
 
-def atlas_network_is_synchronized( network_des, lastblock ):
+def atlas_network_is_synchronized( network_des, lastblock, num_zonefiles ):
     """
     Is the network synchronized?
-    Do all peers have 100% replication?
+    Have all the peers caught up to this block,
+    and do they all have the same zonefiles?
     """
     peers = network_des['peers']
     for peer in peers:
-        res = atlas_peer_is_synchronized( peer, lastblock )
+        res = atlas_peer_is_synchronized( peer, lastblock, num_zonefiles )
         if res is None:
             raise Exception("Peer %s (%s) failed to respond" % (peer['port'], peer['proc'].pid))
 
@@ -749,7 +750,7 @@ def atlas_peer_rpc( peer_info ):
     return rpc
 
 
-def atlas_peer_is_synchronized( peer_info, lastblock ):
+def atlas_peer_is_synchronized( peer_info, lastblock, num_zonefiles ):
     """
     Is this peer synchronized?
     Return True if the peer caught up
@@ -760,21 +761,38 @@ def atlas_peer_is_synchronized( peer_info, lastblock ):
     # see how far we've gotten 
     rpc = atlas_peer_rpc( peer_info )
     info = None
+    peer_inv = None
 
     try:
         info = rpc.getinfo()
     except Exception, e:
         log.exception(e)
         log.error("Peer localhost:%s is down" % (peer_info['port']))
-        return None
+        return False
 
-    if info['last_block_processed'] >= lastblock:
-        log.debug("Peer localhost:%s has caught up" % (peer_info['port']))
-        return True
-    
-    else:
+    if info['last_block_processed'] < lastblock:
         log.debug("Peer localhost:%s is at %s (but we're at %s)" % (peer_info['port'], info['last_block_processed'], lastblock))
         return False
+
+    try:
+        peer_inv_info = rpc.get_zonefile_inventory( 0, num_zonefiles )
+        peer_inv = atlas_inventory_to_string( base64.b64decode(peer_inv_info['inv']) )
+    except Exception, e:
+        log.exception(e)
+        log.error("Peer localhost:%s is down" % (peer_info['port']))
+        return False
+
+    log.debug("inv for localhost:%s is %s.  Require %s zonefiles" % (peer_info['port'], peer_inv, num_zonefiles))
+    zonefile_count = 0
+
+    for i in xrange(0, min(len(peer_inv), num_zonefiles)):
+        if peer_inv[i] == '1':
+            zonefile_count += 1
+
+    if zonefile_count < num_zonefiles:
+        return False
+
+    return True
 
 
 def atlas_peer_join( peer_info ):
