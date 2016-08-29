@@ -44,10 +44,6 @@ except:
     from config import *
     from b40 import *
 
-def add_magic_bytes(hex_script, testset=False):
-    magic_bytes = MAGIC_BYTES_MAINSET
-    return hexlify(magic_bytes) + hex_script
-
 
 def is_name_valid( fqn ):
     """
@@ -93,40 +89,4 @@ def is_namespace_valid( namespace_id ):
         return False
 
     return True
-
-
-def blockstack_script_to_hex(script):
-    """ Parse the readable version of a script, return the hex version.
-    """
-    hex_script = ''
-    parts = script.split(' ')
-    for part in parts:
-       
-        if part in NAME_OPCODES.keys():
-            try:
-                hex_script += '%0.2x' % ord(NAME_OPCODES[part])
-            except:
-                raise Exception('Invalid opcode: %s' % part)
-        
-        elif part.startswith("0x"):
-            # literal hex string
-            hex_script += part[2:]
-            
-        elif is_valid_int(part):
-            hex_part = '%0.2x' % int(part)
-            if len(hex_part) % 2 != 0:
-               hex_part = '0' + hex_part
-               
-            hex_script += hex_part
-         
-        elif is_hex(part) and len(part) % 2 == 0:
-            hex_script += part
-            
-        else:
-            raise ValueError('Invalid script (at %s), contains invalid characters: %s' % (part, script))
-         
-    if len(hex_script) % 2 != 0:
-        raise ValueError('Invalid script: must have an even number of chars (got %s).' % hex_script)
-     
-    return hex_script
 
