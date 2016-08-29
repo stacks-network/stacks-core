@@ -88,7 +88,8 @@ if os.environ.get("BLOCKSTACK_ATLAS_NUM_NEIGHBORS") is not None:
 if os.environ.get("BLOCKSTACK_ATLAS_MAX_NEIGHBORS") is not None:
     NUM_NEIGHBORS = int(os.environ.get("BLOCKSTACK_ATLAS_MAX_NEIGHBORS"))
 
-if os.environ.get("BLOCKSTACK_TEST", None) == "1" and os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION", None) == "1":
+if os.environ.get("BLOCKSTACK_TEST", None) == "1" and os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION", None) == "1" and os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION_PEER", None) == "1":
+    # subordinate atlas peer in the simulator.
     # use test client
     from blockstack_integration_tests import AtlasRPCTestClient as BlockstackRPCClient
     from blockstack_integration_tests import time_now, time_sleep, atlas_max_neighbors, \
@@ -143,7 +144,7 @@ CREATE TABLE zonefiles( inv_index INTEGER PRIMARY KEY AUTOINCREMENT,
                         present INTEGER NOT NULL,
                         block_height INTEGER NOT NULL );
 
-CREATE TABLE peers( peer_index INTEGER PRIMARY_KEY,
+CREATE TABLE peers( peer_index INTEGER PRIMARY KEY AUTOINCREMENT,
                     peer_slot INTEGER NOT NULL,
                     peer_hostport STRING UNIQUE NOT NULL,
                     discovery_time INTEGER NOT NULL );
@@ -757,20 +758,7 @@ def atlasdb_remove_peer( peer_hostport, con=None, path=None, peer_table=None ):
     """
     Remove a peer from the peer db and (if given) peer table.
     """
-    
-    locked = False
-    if peer_table is None:
-        locked = True
-        peer_table = atlas_peer_table_lock()
-
-    if peer_hostport not in peer_table:
-        # nothing to do 
-        if locked:
-            atlas_peer_table_unlock()
-            peer_table = None
-
-        return True
-
+  
     # connect to the db if we have to
     if path is None:
         path = atlasdb_path()
@@ -780,6 +768,8 @@ def atlasdb_remove_peer( peer_hostport, con=None, path=None, peer_table=None ):
         close = True
         con = atlasdb_open( path )
         assert con is not None
+
+    log.debug("Delete peer '%s'" % peer_hostport)
 
     sql = "DELETE FROM peers WHERE peer_hostport = ?;"
     args = (peer_hostport,)
@@ -791,10 +781,14 @@ def atlasdb_remove_peer( peer_hostport, con=None, path=None, peer_table=None ):
     if close:
         con.close()
 
-    # remove from the peer table as well, unless blacklisted or whitelisted
+    # remove from the peer table as well
+    locked = False
+    if peer_table is None:
+        locked = True
+        peer_table = atlas_peer_table_lock()
+
     if peer_table.has_key(peer_hostport):
         if not atlas_peer_is_whitelisted( peer_hostport, peer_table=peer_table ) and not atlas_peer_is_blacklisted( peer_hostport, peer_table=peer_table ):
-            log.debug("Forget peer '%s'" % dead_peers)
             del peer_table[peer_hostport]
 
     if locked:
@@ -934,9 +928,9 @@ def atlasdb_get_old_peers( now, con=None, path=None ):
     return rows
 
 
-def atlasdb_delete_peer( peer_hostport, con=None, path=None, peer_table=None ):
+def atlasdb_renew_peer( peer_hostport, now, con=None, path=None ):
     """
-    Delete a peer, both from the DB and the peer table
+    Renew a peer's discovery time
     """
     if path is None:
         path = atlasdb_path()
@@ -951,28 +945,17 @@ def atlasdb_delete_peer( peer_hostport, con=None, path=None, peer_table=None ):
         now = time.time()
 
     expire = now - atlas_peer_max_age()
-    sql = "DELETE FROM peers WHERE peer_hostport = ?;";
-    args = (peer_hostport,)
+    sql = "UPDATE peers SET discovery_time = ? WHERE peer_hostport = ?;"
+    args = (now, peer_hostport)
 
     cur = con.cursor()
     res = atlasdb_query_execute( cur, sql, args )
     con.commit()
 
-    locked = False
-    if peer_table is None:
-        locked = True
-        peer_table = atlas_peer_table_lock()
-
-    atlas_remove_peers( [peer_hostport], peer_table )
-
-    if locked:
-        atlas_peer_table_unlock()
-        peer_table = None
-
-    if closed:
+    if close:
         con.close()
 
-    return 
+    return True
 
 
 def atlasdb_load_peer_table( peer_hostport, con=None, path=None ):
@@ -1094,6 +1077,15 @@ def atlasdb_init( path, db, peer_seeds, peer_blacklist, validate=False, zonefile
         peer_table[peer_hostport]['blacklisted'] = True
 
     return peer_table
+
+
+def atlas_peer_table_init( initial_peer_table ):
+    """
+    Set the initial peer table
+    (usually the value returned by atlasdb_init)
+    """
+    global PEER_TABLE
+    PEER_TABLE = initial_peer_table
 
 
 def atlasdb_zonefile_inv_list( bit_offset, bit_length, con=None, path=None ):
@@ -1431,32 +1423,18 @@ def atlas_get_all_neighbors( peer_table=None ):
         locked = True
         peer_table = atlas_peer_table_lock()
 
-    ret.update(peer_table)
+    ret = copy.deepcopy(peer_table)
 
     if locked:
         atlas_peer_table_unlock()
         peer_table = None
 
+    # make zonefile inventories printable
+    for peer_hostport in ret.keys():
+        if ret[peer_hostport].has_key('zonefile_inv'):
+            ret[peer_hostport]['zonefile_inv'] = atlas_inventory_to_string( ret[peer_hostport]['zonefile_inv'] )
+
     return ret
-
-
-def atlas_remove_peers( dead_peers, peer_table ):
-    """
-    Remove all peer information for the given dead peers from the given health info,
-    as well as from the db.
-    Only preserve unconditionally if we've blacklisted or whitelisted them them
-    explicitly.
-    """
-
-    for peer_hostport in dead_peers:
-        if peer_table.has_key(peer_hostport):
-            if atlas_peer_is_whitelisted( peer_hostport, peer_table=peer_table ) or atlas_peer_is_blacklisted( peer_hostport, peer_table=peer_table ):
-                continue
-
-            log.debug("Forget peer '%s'" % dead_peers)
-            del peer_table[peer_hostport]
-
-    return peer_table
 
 
 def atlas_revalidate_peers( con=None, path=None, now=None, peer_table=None ):
@@ -1464,6 +1442,8 @@ def atlas_revalidate_peers( con=None, path=None, now=None, peer_table=None ):
     Revalidate peers that are older than the maximum peer age.
     Ping them, and if they don't respond, remove them.
     """
+    global MIN_PEER_HEALTH
+
     if now is None:
         now = time_now()
 
@@ -1471,7 +1451,13 @@ def atlas_revalidate_peers( con=None, path=None, now=None, peer_table=None ):
     for old_peer_info in old_peer_infos:
         res = atlas_peer_ping( old_peer_info['peer_hostport'] )
         if not res:
-            atlasdb_delete_peer( old_peer_info['peer_hostport'], con=con, path=path, peer_table=peer_table )
+            log.debug("Failed to revalidate %s" % (old_peer_info['peer_hostport']))
+            if atlas_peer_get_health( old_peer_info['peer_hostport'], peer_table=peer_table ) < MIN_PEER_HEALTH:
+                atlasdb_remove_peer( old_peer_info['peer_hostport'], con=con, path=path, peer_table=peer_table )
+        
+        else:
+            # renew 
+            atlasdb_renew_peer( old_peer_info['peer_hostport'], now, con=con, path=path )
 
     return True
 
@@ -1561,13 +1547,13 @@ def atlas_peer_set_zonefile_inventory( peer_hostport, peer_inv, peer_table=None 
         locked = True
         peer_table = atlas_peer_table_lock()
 
-    peer_table[peer_hostport]['zonefile_inv'] = inv
+    peer_table[peer_hostport]['zonefile_inv'] = peer_inv
 
     if locked:
         atlas_peer_table_unlock()
         peer_table = None
 
-    return inv
+    return peer_inv
 
 
 def atlas_peer_is_blacklisted( peer_hostport, peer_table=None ):
@@ -1603,7 +1589,7 @@ def atlas_peer_is_whitelisted( peer_hostport, peer_table=None ):
         atlas_peer_table_unlock()
         peer_table = None
 
-    return inv
+    return ret
 
 
 def atlas_peer_update_health( peer_hostport, received_response, peer_table=None ):
@@ -2131,31 +2117,28 @@ def atlas_get_zonefiles( my_hostport, peer_hostport, zonefile_hashes, timeout=No
 
     host, port = url_to_host_port( peer_hostport )
     rpc = BlockstackRPCClient( host, port, timeout=timeout, src=my_hostport )
+    zf_payload = {}
 
     try:
-        zf_data = rpc.get_zonefiles( zonefile_hashes )
-        assert type(zf_data) == dict, "Invalid zonefile listing"
-        if 'error' not in zf_data.keys():
-            assert 'status' in zf_data.keys(), "Invalid zonefile reply"
-            assert zf_data['status'], "Invalid zonefile reply"
+        zf_payload = rpc.get_zonefiles( zonefile_hashes )
+        assert type(zf_payload) == dict, "Invalid zonefile listing"
+        if 'error' not in zf_payload.keys():
+            assert 'status' in zf_payload.keys(), "Invalid zonefile reply"
+            assert zf_payload['status'], "Invalid zonefile reply"
 
-            assert 'zonefiles' in zf_data.keys(), "No zonefiles"
-            zonefiles = zf_data['zonefiles']
+            assert 'zonefiles' in zf_payload.keys(), "No zonefiles"
+            zonefiles = zf_payload['zonefiles']
 
-            assert type(zonefiles) == list, "Invalid zonefiles"
-            for zfdata in zonefiles:
-                assert type(zfdata) == dict, "Invalid zonefile"
-                assert len(zfdata.keys()) == 1, "Invalid zonefile dict"
-                
-                zf_hash = zfdata.keys()[0]
+            assert type(zonefiles) == dict, "Invalid zonefiles: type %s" % type(zonefiles)
+            for zf_hash, zf_data in zonefiles.items():
                 assert type(zf_hash) in [str, unicode], "Invalid zonefile hash"
                 assert len(zf_hash) == 2 * LENGTHS['update_hash'], "Invalid zonefile hash length"
 
-                assert type(zfdata[zf_hash]) in [str, unicode], "Invalid zonefile data"
-                assert verify_zonefile( zfdata[zf_hash], zf_hash ), "Zonefile does not match or is not current" 
+                assert type(zf_data) in [str, unicode], "Invalid zonefile data"
+                assert verify_zonefile( zf_data, zf_hash ), "Zonefile does not match or is not current" 
 
         else:
-            assert type(zf_data['error']) in [str, unicode], "Invalid error message"
+            assert type(zf_payload['error']) in [str, unicode], "Invalid error message"
 
     except Exception, e:
         if os.environ.get("BLOCKSTACK_DEBUG") == "1":
@@ -2167,13 +2150,13 @@ def atlas_get_zonefiles( my_hostport, peer_hostport, zonefile_hashes, timeout=No
         atlas_peer_update_health( peer_hostport, False, peer_table=peer_table )
         return None 
 
-    if 'error' in zf_data.keys():
-        log.error("Failed to fetch zonefile data from %s: %s" % (peer_hostport, zf_data['error']))
+    if 'error' in zf_payload.keys():
+        log.error("Failed to fetch zonefile data from %s: %s" % (peer_hostport, zf_payload['error']))
         atlas_peer_update_health( peer_hostport, False, peer_table=peer_table )
         return None 
 
     atlas_peer_update_health( peer_hostport, True, peer_table=peer_table )
-    return zf_data['zonefiles']
+    return zf_payload['zonefiles']
 
 
 def atlas_rank_peers_by_health( peer_list=None, peer_table=None, with_zero_requests=False, with_rank=False ):
@@ -2268,36 +2251,45 @@ def atlas_peer_enqueue( peer_hostport, peer_table=None, peer_queue=None, max_nei
     Don't accept this peer if there are already too many peers in the incoming queue
     (where "too many" means "more than the maximum neighbor set size")
 
-    Return the new peer queue.
+    Return True if added
+    Return False if not added
     """
 
     peer_lock = False
     table_lock = False
 
-    if peer_queue is None:
-        peer_lock = True
-        peer_queue = atlas_peer_queue_lock()
-
     if peer_table is None:
         table_lock = True
-        peer_table = altas_peer_table_lock()
+        peer_table = atlas_peer_table_lock()
 
     present = (peer_hostport in peer_table.keys())
 
     if table_lock:
         atlas_peer_table_unlock()
+        peer_table = None
 
+    if present:
+        # nothing to do 
+        return False
+
+    if peer_queue is None:
+        peer_lock = True
+        peer_queue = atlas_peer_queue_lock()
+
+    res = False
     if not present:
         if max_neighbors is None:
             max_neighbors = atlas_max_neighbors()
 
         if len(peer_queue) < atlas_max_new_peers(max_neighbors):
             peer_queue.append( peer_hostport )
+            res = True
 
     if peer_lock:
         atlas_peer_queue_unlock()
+        peer_queue = None
 
-    return peer_queue
+    return res
 
 
 def atlas_peer_dequeue_all( peer_queue=None ):
@@ -2316,6 +2308,7 @@ def atlas_peer_dequeue_all( peer_queue=None ):
 
     if peer_lock:
         atlas_peer_queue_unlock()
+        peer_queue = None
 
     return peers
 
@@ -2585,7 +2578,10 @@ class AtlasPeerCrawler( threading.Thread ):
                     log.debug("%s is too old to be an atlas node (version %s)" % (peer, res['version']))
                     continue
 
+                # TODO: check consensus hash as well
+
             if res:
+                log.debug("Add newly-discovered peer %s" % peer)
                 atlasdb_add_peer( peer, con=con, path=path, peer_table=peer_table )
 
             added.append(peer)
@@ -2813,7 +2809,8 @@ class AtlasPeerCrawler( threading.Thread ):
         * Remove at most 10 old, unresponsive peers from the peer DB.
         """
 
-        log.debug("%s: %s step" % (self.my_hostport, self.__class__.__name__))
+        if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+            log.debug("%s: %s step" % (self.my_hostport, self.__class__.__name__))
 
         if self.max_neighbors is None:
             self.max_neighbors = atlas_max_neighbors()
@@ -2879,10 +2876,13 @@ class AtlasPeerCrawler( threading.Thread ):
     def run(self):
         self.running = True
         while self.running:
+            t1 = time_now()
             num_added, num_removed = self.step( path=self.atlasdb_path )
-            if num_added == 0 and num_removed == 0:
+            t2 = time_now()
+
+            if t2 - t1 < 1.0:
                 # take a break
-                # time_sleep(self.hostport, self.__class__.__name__, 1.0)
+                time_sleep( self.my_hostport, self.__class__.__name__, 1.0 - (t2 - t1) )
                 pass
 
 
@@ -2916,28 +2916,31 @@ class AtlasHealthChecker( threading.Thread ):
         Return True on success
         Return False on error
         """
-        log.debug("%s: %s step" % (self.hostport, self.__class__.__name__))
+        if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+            log.debug("%s: %s step" % (self.hostport, self.__class__.__name__))
 
         if path is None:
             path = self.path
+
+        peer_hostports = []
+        stale_peers = []
 
         lock = False
         if peer_table is None:
             lock = True
             peer_table = atlas_peer_table_lock()
-       
-        peer_hostports = []
-        stale_peers = []
 
         num_peers = len(peer_table.keys())
         peer_hostports = peer_table.keys()[:]
 
         # who are we going to ping?
         # someone we haven't pinged in a while, chosen at random
+        log.debug("Refresh zonefile inventories for at most %s peers" % num_peers)
         for peer in peer_hostports:
             if not atlas_peer_has_fresh_zonefile_inventory( peer, local_inv=local_inv, peer_table=peer_table, con=con, path=path ):
                 # haven't talked to this peer in a while
                 stale_peers.append(peer)
+                log.debug("Peer %s has a stale zonefile inventory" % peer)
 
         if lock:
             atlas_peer_table_unlock()
@@ -2960,7 +2963,13 @@ class AtlasHealthChecker( threading.Thread ):
         self.running = True
         while self.running:
             local_inv = atlas_get_zonefile_inventory()
+            t1 = time_now()
             self.step( peer_table=peer_table, local_inv=local_inv, path=self.atlasdb_path )
+            t2 = time_now()
+
+            # don't go too fast 
+            if t2 - t1 < 1.0:
+                time_sleep( self.hostport, self.__class__.__name__, 1.0 - (t2 - t1) )
 
 
     def ask_join(self):
@@ -2998,7 +3007,8 @@ class AtlasZonefileCrawler( threading.Thread ):
         Return the number of zonefiles fetched
         """
 
-        log.debug("%s: %s step" % (self.hostport, self.__class__.__name__))
+        if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+            log.debug("%s: %s step" % (self.hostport, self.__class__.__name__))
 
         if path is None:
             path = self.path
@@ -3053,7 +3063,7 @@ class AtlasZonefileCrawler( threading.Thread ):
 
             # try this zonefile's hosts in order by perceived availability
             peers = atlas_rank_peers_by_health( peer_list=peers, with_zero_requests=True )
-            log.debug("%s: zonefile %s available from %s" % (self.hostport, zfhash, ",".join(peers)))
+            log.debug("%s: zonefile %s available from %s peers (%s...)" % (self.hostport, zfhash, len(peers), ",".join(peers)[:min(5, len(peers))]))
 
             for peer_hostport in peers:
 
@@ -3075,12 +3085,9 @@ class AtlasZonefileCrawler( threading.Thread ):
                 if zonefiles is not None:
 
                     # got zonefiles!
-                    for zfdata in zonefiles:
+                    for fetched_zfhash, zonefile_txt in zonefiles.items():
                         
-                        fetched_zfhash = zfdata.keys()[0]
-                        zonefile_txt = zfdata[fetched_zfhash]
                         zonefile = blockstack_zones.parse_zone_file( zonefile_txt )
-
                         if fetched_zfhash not in peer_zonefile_hashes:
                             # unsolicited
                             log.warn("%s: Unsolicited zonefile %s" % (self.hostport, fetched_zfhash))
@@ -3098,7 +3105,6 @@ class AtlasZonefileCrawler( threading.Thread ):
                             atlasdb_set_zonefile_present( fetched_zfhash, True, con=con, path=path )
 
                             # don't ask for it again
-                            zonefile_hashes.remove(fetched_zfhash)
                             peer_zonefile_hashes.remove(fetched_zfhash)
                             num_fetched += 1
                 
@@ -3117,7 +3123,8 @@ class AtlasZonefileCrawler( threading.Thread ):
                 if locked:
                     atlas_peer_table_unlock()
                     peer_table = None
-
+           
+            # done with this zonefile
             zonefile_hashes.pop(0)
 
         if close:
@@ -3131,12 +3138,15 @@ class AtlasZonefileCrawler( threading.Thread ):
         self.running = True
         while self.running:
             con = atlasdb_open( self.path )
-            num_fetched = self.step( con=con, path=self.path )
+
+            t1 = time.time()
+            self.step( con=con, path=self.path )
+            t2 = time.time()
+
             con.close()
             
-            if num_fetched == 0:
-                # time_sleep(self.hostport, self.__class__.__name__, 1.0)
-                pass
+            if t2 - t1 < 1.0:
+                time_sleep( self.hostport, self.__class__.__name__, 1.0 - (t2 - t1) )
 
 
     def ask_join(self):
@@ -3168,8 +3178,9 @@ class AtlasZonefilePusher(threading.Thread):
         Push the zonefile to all the peers that need it.
         Return the number of peers we sent to
         """
-        
-        log.debug("%s: %s step" % (self.hostport, self.__class__.__name__))
+       
+        if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+            log.debug("%s: %s step" % (self.hostport, self.__class__.__name__))
 
         if self.push_timeout is None:
             self.push_timeout = atlas_push_zonefiles_timeout()
@@ -3216,9 +3227,11 @@ class AtlasZonefilePusher(threading.Thread):
     def run(self):
         self.running = True
         while self.running:
+            t1 = time_now()
             num_pushed = self.step( path=self.path )
-            if num_pushed == 0:
-                # time_sleep(self.hostport, self.__class__.__name__, 1.0)
+            t2 = time_now()
+            if t2 - t1 < 1.0:
+                time_sleep(self.hostport, self.__class__.__name__, 1.0 - (t2 - t1))
                 pass
        
 
