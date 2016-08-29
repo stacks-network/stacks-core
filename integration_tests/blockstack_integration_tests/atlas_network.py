@@ -67,17 +67,23 @@ def time_now():
     """
     Get the current time
     """
+    return time.time()
+    """
     rpc = AtlasRPCTestClient( "none", 0 )
     return rpc.time_now()
+    """
 
 
 def time_sleep(hostport, procname, value):
     """
     Have this host sleep for a bit
     """
+    time.sleep(value)
+    """
     rpc = AtlasRPCTestClient( "none", 0, src=hostport )
     rpc.add_sleep_deadline( hostport, procname, value )
     time.sleep(value)
+    """
 
 
 def atlas_max_neighbors():
@@ -390,6 +396,7 @@ class AtlasNetwork( SimpleXMLRPCServer ):
         """
         Get zonefile inventory from the given dest hostport, with simulated loss
         """
+        log.debug("atlas network: get_zonefile_inventory(%s,%s)" % (src_hostport, dest_hostport))
         self.possibly_drop( dest_hostport )
         time.sleep( self.inv_delay( dest_hostport ) )
         
@@ -402,6 +409,7 @@ class AtlasNetwork( SimpleXMLRPCServer ):
         """
         Get the list of peers in this peer's neighbor set, with simulated loss.
         """
+        log.debug("atlas network: get_atlas_peers(%s,%s)" % (src_hostport, dest_hostport))
         self.possibly_drop( dest_hostport )
 
         dest_host, dest_port = url_to_host_port( dest_hostport )
@@ -414,6 +422,7 @@ class AtlasNetwork( SimpleXMLRPCServer ):
         Get the list of zonefiles, given the zonefile hashes (with simulated loss)
         Returns [{'zonefile hash': zonefile data}]
         """
+        log.debug("atlas network: get_zonefiles(%s,%s)" % (src_hostport, dest_hostport))
         self.possibly_drop( dest_hostport )
 
         dest_host, dest_port = url_to_host_port( dest_hostport )
@@ -425,6 +434,7 @@ class AtlasNetwork( SimpleXMLRPCServer ):
         """
         Upload a list of zonefiles, and enqueue them in the pusher
         """
+        log.debug("atlas network: put_zonefiles(%s,%s)" % (src_hostport, dest_hostport))
         self.possibly_drop( dest_hostport )
 
         dest_host, dest_port = url_to_host_port( dest_hostport )
@@ -436,6 +446,7 @@ class AtlasNetwork( SimpleXMLRPCServer ):
         """
         Ping!
         """
+        log.debug("atlas network: ping(%s,%s)" % (src_hostport, dest_hostport))
         self.possibly_drop( dest_hostport )
 
         dest_host, dest_port = url_to_host_port( dest_hostport )
@@ -447,6 +458,7 @@ class AtlasNetwork( SimpleXMLRPCServer ):
         """
         get info
         """
+        log.debug("atlas network: getinfo(%s,%s)" % (src_hostport, dest_hostport))
         self.possibly_drop( dest_port )
 
         dest_host, dest_port = url_to_host_port( dest_hostport )
@@ -680,7 +692,7 @@ def atlas_network_stop( network_des ):
     """
     Stop an atlas network, given a network state description
     """
-    srv = network_des['netserv']
+    srv = network_des['netsrv']
     peers = network_des['peers']
 
     srv.stop_server()
@@ -711,6 +723,7 @@ def atlas_peer_start( host, port, srv, working_dir ):
 
     env['VIRTUALCHAIN_WORKING_DIR'] = working_dir
     env['BLOCKSTACK_ATLAS_NETWORK_SIMULATION'] = "1"
+    env['BLOCKSTACK_ATLAS_NETWORK_SIMULATION_PEER'] = "1"
     env['BLOCKSTACK_SERVER_CONFIG'] = os.path.join(working_dir, 'blockstack-server.ini')
     env['BLOCKSTACK_CLIENT_CONFIG'] = os.path.join(working_dir, 'client/client.ini')
 
@@ -756,10 +769,12 @@ def atlas_peer_is_synchronized( peer_info, lastblock ):
         return None
 
     if info['last_block_processed'] >= lastblock:
-        log.error("Peer localhost:%s has caught up" % (peer_info['port']))
+        log.debug("Peer localhost:%s has caught up" % (peer_info['port']))
         return True
-
-    return False
+    
+    else:
+        log.debug("Peer localhost:%s is at %s (but we're at %s)" % (peer_info['port'], info['last_block_processed'], lastblock))
+        return False
 
 
 def atlas_peer_join( peer_info ):
@@ -767,7 +782,7 @@ def atlas_peer_join( peer_info ):
     Stop an atlas peer
     """
     proc = peer_info['proc']
-    proc.kill( signal.SIGTERM )
+    proc.send_signal( signal.SIGTERM )
 
     time.sleep(0.5)
 
@@ -777,7 +792,7 @@ def atlas_peer_join( peer_info ):
         time.sleep(5.0)
         if proc.returncode is None:
             try:
-                proc.kill( signal.SIGKILL )
+                proc.send_signal( signal.SIGKILL )
             except:
                 pass
     
@@ -791,31 +806,46 @@ def atlas_print_network_state( network_des ):
     peer_tables = {}
 
     for i in xrange(0, len(peer_infos)):
-        rpc = atlas_peer_rpc( peer_infos[i] )
+
+        info = None
+        neighbor_set = None
+
+        if peer_infos[i]['port'] == RPC_SERVER_PORT:
+            # don't talk to ourselves
+            info = {'zonefile_count': atlas_get_num_zonefiles()}
+            neighbor_set = atlas_get_all_neighbors()
+
+        else:
+            rpc = atlas_peer_rpc( peer_infos[i] )
+            info = rpc.getinfo()
+            neighbor_set = rpc.get_all_neighbor_info()
         
-        info = rpc.getinfo()
         inv_len = info['zonefile_count']
         peer_inv = atlas_peer_download_zonefile_inventory( "none:0", "localhost:%s" % peer_infos[i]['port'], inv_len )
         peer_inv_str = atlas_inventory_to_string( peer_inv )
 
-        neighbor_set = rpc.get_all_neighbor_info()
+        if 'error' in neighbor_set:
+            log.error("Failed to get all neighbors: %s" % neighbor_set['error'])
+            raise ValueError("Failed to get all neighbor info")
 
         neighbor_info = []
         for n in neighbor_set.keys():
             h = atlas_peer_get_health( n, peer_table=neighbor_set )
-            inv = atlas_inventory_to_string( neighbor_set[n]['zonefile_inv'] )
+            inv = neighbor_set[n]['zonefile_inv']
             neighbor_info.append( "%s (h=%.3f,inv=%s)" % (n, h, inv))
 
-        node_hostport = "localhost:%s" % (peer_infos[i]['port'])
-        peer_tables[node_hostport] = neighbor_set
+        node_hostport = str("localhost:%s" % (peer_infos[i]['port']))
+
+        peer_tables[node_hostport] = {}
+        peer_tables[node_hostport]['neighbor_set'] = neighbor_set
 
         # save for later!
         peer_tables[node_hostport]['inv_str'] = peer_inv_str
         peer_tables[node_hostport]['neighbor_info'] = neighbor_info
 
     for node_hostport in sorted(peer_tables.keys()):
-        neighbor_info = peer_tables[node_hostport]['neighbor_info']
-        node_inv_str = peer_tables[node_hostport]['inv_str']
+        neighbor_info = peer_tables[str(node_hostport)]['neighbor_info']
+        node_inv_str = peer_tables[str(node_hostport)]['inv_str']
 
         print "-" * 80
         print "%s: %s\nneighbors: %s" % (node_hostport, node_inv_str, ", ".join(neighbor_info))
@@ -824,17 +854,18 @@ def atlas_print_network_state( network_des ):
     # measure peer knowledge and zonefile distribution
     peer_count = {}
     for node_hostport in peer_tables.keys():
-        peer_count[node_hostport] = 0
-
-    for node_hostport in peer_tables.keys():
-        peer_table = peer_tables[node_hostport]
+        peer_table = peer_tables[str(node_hostport)]['neighbor_set']
         for ph in peer_table.keys():
+            ph = str(ph)
+            if not peer_count.has_key(ph):
+                peer_count[ph] = 0
+
             peer_count[ph] += 1
 
     print "Neighbor knowledge"
     for node_hostport in sorted(peer_tables.keys()):
-        node_inv_str = peer_tables[node_hostport]['inv_str']
-        print "%020s (%s): %s" % (node_hostport, node_inv_str, "#" * peer_count[node_hostport])
+        node_inv_str = peer_tables[str(node_hostport)]['inv_str']
+        print "%020s (%s): %s" % (node_hostport, node_inv_str, "#" * peer_count.get(str(node_hostport), 0))
 
     print ""
 
