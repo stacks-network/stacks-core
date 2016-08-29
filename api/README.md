@@ -1,8 +1,10 @@
-Onename API
+Blockstack Core API
 =========
 
-[![Circle CI](https://circleci.com/gh/onenameio/onename-api.svg?style=svg&circle-token=cc4b95cfad6789ce429f0bb55d2ba49f91376a0c)](https://circleci.com/gh/onenameio/onename-api)
+This is the Blockstack REST API (under development) 
 
-Online at https://api.onename.com/
+The goal here is to consolidate various Blockstack services, like resolver
+and search, into a single server and provide a RESTful API access in addition
+to the RPC interface of Blockstack Core.
 
-[Full docs](/api/api_v1.md)
+We'll update this README when the Core API gets more defined.
