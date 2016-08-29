@@ -998,6 +998,10 @@ def gpg_key_dir( **kw ):
 def working_dir( **kw ):
     return kw['working_dir']
 
+def last_block( **kw ):
+    global state_engine
+    return state_engine.lastblock
+
 def make_gpg_test_keys(num_keys, **kw ):
     """
     Set up a test gpg keyring directory.
