@@ -244,7 +244,10 @@ if os.getenv("BLOCKSTACK_TEST") is not None:
 else:
     NAME_IMPORT_KEYRING_SIZE = 300                  # number of keys to derive from the import key
 
+
 NUM_CONFIRMATIONS = 6                         # number of blocks to wait for before accepting names
+if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+    NUM_CONFIRMATIONS = 0
 
 # burn address for fees (the address of public key 0x0000000000000000000000000000000000000000)
 BLOCKSTACK_BURN_PUBKEY_HASH = "0000000000000000000000000000000000000000"
