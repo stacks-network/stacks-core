@@ -53,7 +53,6 @@ except:
 # Secret settings
 secrets_list = [
     'MAILGUN_API_KEY', 'SECRET_KEY',
-    'API_DB_URI', 'API_DB_NAME',
     'BLOCKCYPHER_TOKEN',
     'EMAILS_TOKEN', 'SLACK_API_TOKEN',
     'AWS_SECRET_ACCESS_KEY'
@@ -74,9 +73,3 @@ else:
     #API_DB_NAME = 'onename-api-test'
     #API_DB_URI = 'mongodb://%s:%s/%s' % ('localhost', str(27017), API_DB_NAME)
 
-
-# Needed for mongoengine
-MONGODB_SETTINGS = {
-    'db': API_DB_NAME,
-    'host': API_DB_URI
-}
