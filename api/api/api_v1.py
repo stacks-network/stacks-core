@@ -70,6 +70,8 @@ def api_user(usernames):
 
     data = get_users(usernames)
 
+    print data
+
     usernames = usernames.split(',')
 
     if len(usernames) is 1:

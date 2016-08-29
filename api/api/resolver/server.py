@@ -23,6 +23,7 @@ from blockstack_profiles import resolve_zone_file_to_profile
 from blockstack_profiles import get_token_file_url_from_zone_file
 from blockstack_profiles import get_profile_from_tokens
 #from blockstack_profiles import is_profile_in_legacy_format
+from blockstack_zones import parse_zone_file
 
 from .crossdomain import crossdomain
 
@@ -127,6 +128,7 @@ def fetch_proofs(profile, username, profile_ver=2, refresh=False):
 
     return proofs
 
+
 def is_profile_in_legacy_format(profile):
     """
     Is a given profile JSON object in legacy format?
@@ -163,7 +165,47 @@ def is_profile_in_legacy_format(profile):
     return is_in_legacy_format
 
 
+def parse_uri_from_zone_file(zone_file):
+
+    zone_file = dict(parse_zone_file(zone_file))
+
+    if isinstance(zone_file["uri"], list) and len(zone_file["uri"]) > 0:
+
+        if "target" in zone_file["uri"][2]:
+            first_uri_record = zone_file["uri"][2]
+            token_file_url = first_uri_record["target"]
+
+    return token_file_url
+
+
+def resolve_zone_file_from_rpc(zone_file, owner_address):
+
+    rpc_uri = parse_uri_from_zone_file(zone_file)
+
+    uri, fqu = rpc_uri.rsplit('#')
+
+    try:
+        s = xmlrpclib.ServerProxy(uri, allow_none=True)
+        data = s.get_profile(fqu)
+    except Exception as e:
+        print e
+
+    data = json.loads(data)
+    profile = json.loads(data['profile'])
+    pubkey = profile[0]['parentPublicKey']
+
+    try:
+        profile = get_profile_from_tokens(profile, pubkey)
+    except Exception as e:
+        print e
+
+    return profile
+
+
 def resolve_zone_file_to_profile(zone_file, address_or_public_key):
+
+    profile = None
+
     if is_profile_in_legacy_format(zone_file):
         return zone_file
 
@@ -176,7 +218,8 @@ def resolve_zone_file_to_profile(zone_file, address_or_public_key):
 
         profile = get_profile_from_tokens(profile_token_records, address_or_public_key)
     except Exception as e:
-        return None, str(e)
+        profile = resolve_zone_file_from_rpc(zone_file, address_or_public_key)
+        #return None, str(e)
 
     return profile, None
 
@@ -194,6 +237,7 @@ def format_profile(profile, username, address, refresh=False):
         data['profile'] = {}
         data['error'] = profile['error']
         data['verifications'] = []
+        data['owner_address'] = address
         data['zone_file'] = zone_file
 
         return data
@@ -204,6 +248,7 @@ def format_profile(profile, username, address, refresh=False):
         if 'message' in profile:
             data['profile'] = json.loads(profile)
             data['verifications'] = []
+            data['owner_address'] = address
             data['zone_file'] = zone_file
             return data
 
@@ -230,6 +275,7 @@ def format_profile(profile, username, address, refresh=False):
                                                  refresh=refresh)
 
     data['zone_file'] = zone_file
+    data['owner_address'] = address
 
     return data
 
@@ -255,9 +301,10 @@ def get_profile(username, refresh=False, namespace=DEFAULT_NAMESPACE):
     if dht_cache_reply is None:
 
         try:
-            bs_client = Proxy(BLOCKSTACKD_IP, BLOCKSTACKD_PORT)
+            bs_client = Proxy(BLOCKSTACKD_IP, BLOCKSTACKD_PORT, timeout=10)
             bs_resp = bs_client.get_name_blockchain_record(username + "." + namespace)
             bs_resp = bs_resp[0]
+
         except:
             abort(500, "Connection to blockstack-server %s:%s timed out" % (BLOCKSTACKD_IP, BLOCKSTACKD_PORT))
 
@@ -317,7 +364,7 @@ def get_users(usernames):
 
     if usernames is None:
         reply['error'] = "No usernames given"
-        return jsonify(reply)
+        return reply
 
     if ',' not in usernames:
 
@@ -331,13 +378,13 @@ def get_users(usernames):
         else:
             reply[username] = info
 
-        return jsonify(reply), 200
+        return reply
 
     try:
         usernames = usernames.rsplit(',')
     except:
         reply['error'] = "Invalid input format"
-        return jsonify(reply)
+        return reply
 
     for username in usernames:
 
@@ -351,7 +398,6 @@ def get_users(usernames):
         except:
             pass
 
-    print reply
     return reply
 
 
