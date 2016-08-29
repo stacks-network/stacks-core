@@ -301,8 +301,8 @@ def get_all_users():
     return data
 
 
-@app.route('/v2/users/<usernames>', methods=['GET'], strict_slashes=False)
-@crossdomain(origin='*')
+#@app.route('/v2/users/<usernames>', methods=['GET'], strict_slashes=False)
+#@crossdomain(origin='*')
 def get_users(usernames):
     """ Fetch data from username in .id namespace
     """

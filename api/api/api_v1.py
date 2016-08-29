@@ -43,6 +43,7 @@ from .parameters import parameters_required
 from .dkim import dns_resolver, parse_pubkey_from_data, DKIM_RECORD_PREFIX
 from .utils import zone_file_is_too_big
 from .s3 import s3_upload_file
+from ..resolver.server import get_users
 
 from .settings import (
     RESOLVER_URL, SEARCH_URL,
