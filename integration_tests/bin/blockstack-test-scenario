@@ -227,18 +227,23 @@ def generate_config_file( scenario, path, template, extra_fields):
     return 0
 
 
-def network_start():
+def network_start( blockstack_opts, db ):
     """
     Start RPC services
     """
+    blockstackd.atlas_start( blockstack_opts, db, TEST_RPC_PORT )
     blockstackd.rpc_start(TEST_RPC_PORT)
-
+    
 
 def network_stop():
     """
     Stop RPC services
     """
     blockstackd.rpc_stop()
+
+
+def atlas_stop():
+    blockstackd.atlas_stop()
 
 
 def atexit_cleanup( spv_headers_path, client_config_path, stop_bitcoind ):
@@ -380,7 +385,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     }
 
     # start taking RPC requests
-    network_start()
+    network_start( blockstack_opts, db )
 
     # start pinging bitcoind so it pushes out p2p messages
     pinger = Pinger()
@@ -405,6 +410,9 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
     pinger.ask_join()
     pinger.join()
+
+    # stop atlas support 
+    atlas_stop()
 
     # run the checks on the database
     try:
