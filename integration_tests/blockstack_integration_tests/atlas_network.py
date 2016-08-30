@@ -51,16 +51,16 @@ ATLAS_TESTNET_PORT = 16265
 # current simulator time
 TIME = 0
 
-# network state
-NETWORK_STATE = None
-
-def get_network_state():
-    global NETWORK_STATE
-    return NETWORK_STATE
-
-def set_network_state( n ):
-    global NETWORK_STATE
-    NETWORK_STATE = n
+PEER_LIFETIME_INTERVAL = None
+PEER_MAX_NEIGHBORS = None
+PEER_PING_INTERVAL = None  
+PEER_MAX_AGE = None
+PEER_CLEAN_INTERVAL = None
+PEER_PING_TIMEOUT = None
+PEER_INV_TIMEOUT = None
+PEER_NEIGHBORS_TIMEOUT = None
+PEER_ZONEFILES_TIMEOUT = None
+PEER_PUSH_ZONEFILES_TIMEOUT = None
 
 
 def time_now():
@@ -68,10 +68,6 @@ def time_now():
     Get the current time
     """
     return time.time()
-    """
-    rpc = AtlasRPCTestClient( "none", 0 )
-    return rpc.time_now()
-    """
 
 
 def time_sleep(hostport, procname, value):
@@ -79,91 +75,140 @@ def time_sleep(hostport, procname, value):
     Have this host sleep for a bit
     """
     time.sleep(value)
-    """
-    rpc = AtlasRPCTestClient( "none", 0, src=hostport )
-    rpc.add_sleep_deadline( hostport, procname, value )
-    time.sleep(value)
-    """
 
 
 def atlas_max_neighbors():
     """
     How many neighbors can a peer have?
     """
+    global PEER_MAX_NEIGHBORS
+    if os.environ.get("BLOCKSTACK_ATLAS_NUM_NEIGHBORS", None) is not None:
+        PEER_MAX_NEIGHBORS = int(os.environ['BLOCKSTACK_ATLAS_NUM_NEIGHBORS'])
+        return PEER_MAX_NEIGHBORS
+
+    if PEER_MAX_NEIGHBORS is not None:
+        return PEER_MAX_NEIGHBORS
+
     rpc = AtlasRPCTestClient( "none", 0 )
-    return rpc.max_neighbors()
+    PEER_MAX_NEIGHBORS = rpc.max_neighbors()
+    return PEER_MAX_NEIGHBORS
 
 
 def atlas_peer_lifetime_interval():
     """
     How long is a peer's request history viable?
     """
+    global PEER_LIFETIME_INTERVAL
+    if PEER_LIFETIME_INTERVAL is not None:
+        return PEER_LIFETIME_INTERVAL
+
     rpc = AtlasRPCTestClient( "none", 0 )
-    return rpc.peer_lifetime_interval()
+    PEER_LIFETIME_INTERVAL = rpc.peer_lifetime_interval()
+    return PEER_LIFETIME_INTERVAL
 
 
 def atlas_peer_ping_interval():
     """
     How long is a peer's last-contact information fresh?
     """
+    global PEER_PING_INTERVAL
+    if PEER_PING_INTERVAL is not None:
+        return PEER_PING_INTERVAL
+
     rpc = AtlasRPCTestClient( "none", 0 )
-    return rpc.peer_ping_interval()
+    PEER_PING_INTERVAL = rpc.peer_ping_interval()
+    return PEER_PING_INTERVAL
 
 
 def atlas_peer_max_age():
     """
     What's the maximum allowed peer age in the peer db?
     """
+    global PEER_MAX_AGE
+    if PEER_MAX_AGE is not None:
+        return PEER_MAX_AGE
+
     rpc = AtlasRPCTestClient( "none", 0 )
-    return rpc.peer_max_age()
+    PEER_MAX_AGE = rpc.peer_max_age()
+    return PEER_MAX_AGE
 
 
 def atlas_peer_clean_interval():
     """
     What's the interval between peer cleanups?
     """
+    global PEER_CLEAN_INTERVAL
+    if PEER_CLEAN_INTERVAL is not None:
+        return PEER_CLEAN_INTERVAL
+
     rpc = AtlasRPCTestClient( "none", 0 )
-    return rpc.peer_clean_interval()
+    PEER_CLEAN_INTERVAL = rpc.peer_clean_interval()
+    return PEER_CLEAN_INTERVAL
 
 
 def atlas_ping_timeout():
     """
     What's the ping timeout?
     """
+    global PEER_PING_TIMEOUT
+    if PEER_PING_TIMEOUT is not None:
+        return PEER_PING_TIMEOUT
+
     rpc = AtlasRPCTestClient( "none", 0 )
-    return rpc.ping_timeout()
+    PEER_PING_TIMEOUT = rpc.ping_timeout()
+    return PEER_PING_TIMEOUT
 
 
 def atlas_inv_timeout():
     """
     What's the inv timeout?
     """
+    global PEER_INV_TIMEOUT
+    if PEER_INV_TIMEOUT is not None:
+        return PEER_INV_TIMEOUT
+
     rpc = AtlasRPCTestClient( "none", 0 )
-    return rpc.inv_timeout()
+    PEER_INV_TIMEOUT = rpc.inv_timeout()
+    return PEER_INV_TIMEOUT
 
 
 def atlas_neighbors_timeout():
     """
     what's the neighbors timeout?
     """
+    global PEER_NEIGHBORS_TIMEOUT
+    if PEER_NEIGHBORS_TIMEOUT is not None:
+        return PEER_NEIGHBORS_TIMEOUT
+
     rpc = AtlasRPCTestClient( "none", 0 ) 
-    return rpc.neighbors_timeout()
+    PEER_NEIGHBORS_TIMEOUT = rpc.neighbors_timeout()
+    return PEER_NEIGHBORS_TIMEOUT
 
 
 def atlas_zonefiles_timeout():
     """
     what's the zonefiles timeout?
     """
+    global PEER_ZONEFILES_TIMEOUT 
+    if PEER_ZONEFILES_TIMEOUT is not None:
+        return PEER_ZONEFILES_TIMEOUT
+
     rpc = AtlasRPCTestClient( "none", 0 ) 
-    return rpc.zonefiles_timeout()
+    PEER_ZONEFILES_TIMEOUT = rpc.zonefiles_timeout()
+    return PEER_ZONEFILES_TIMEOUT
 
 
 def atlas_push_zonefiles_timeout():
     """
     what's the push-zonefile timeout?
     """
+    global PEER_PUSH_ZONEFILES_TIMEOUT
+    if PEER_PUSH_ZONEFILES_TIMEOUT is not None:
+        return PEER_PUSH_ZONEFILES_TIMEOUT
+
     rpc = AtlasRPCTestClient( "none", 0 ) 
-    return rpc.push_zonefiles_timeout()
+    PEER_PUSH_ZONEFILES_TIMEOUT = rpc.push_zonefiles_timeout()
+    return PEER_PUSH_ZONEFILES_TIMEOUT
 
 
 class AtlasRPCTestClient(object):
@@ -459,11 +504,15 @@ class AtlasNetwork( SimpleXMLRPCServer ):
         get info
         """
         log.debug("atlas network: getinfo(%s,%s)" % (src_hostport, dest_hostport))
-        self.possibly_drop( dest_port )
+        self.possibly_drop( dest_hostport )
 
         dest_host, dest_port = url_to_host_port( dest_hostport )
         rpc = BlockstackRPCClient( dest_host, dest_port )
-        return rpc.getinfo( 'atlas_network', src_hostport, dest_hostport )
+        try:
+            return rpc.getinfo( 'atlas_network', src_hostport, dest_hostport )
+        except Exception, e:
+            log.exception(e)
+            return {'error': 'exception caught'}
 
 
     def rpc_add_sleep_deadline( self, hostport, procname, value ):
@@ -807,7 +856,7 @@ def atlas_peer_join( peer_info ):
     rc = proc.returncode
     if rc is None:
         # still running
-        time.sleep(5.0)
+        time.sleep(1.0)
         if proc.returncode is None:
             try:
                 proc.send_signal( signal.SIGKILL )
@@ -834,6 +883,7 @@ def atlas_print_network_state( network_des ):
             neighbor_set = atlas_get_all_neighbors()
 
         else:
+            log.debug("query localhost:%s" % peer_infos[i]['port'])
             rpc = atlas_peer_rpc( peer_infos[i] )
             info = rpc.getinfo()
             neighbor_set = rpc.get_all_neighbor_info()
