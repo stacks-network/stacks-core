@@ -76,6 +76,7 @@ bitcoin_opts = None
 utxo_client = None
 tx_broadcaster = None
 rpc_server = None
+atlas_state = None
 
 def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
    """
@@ -1140,9 +1141,12 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         # get peers
         peer_list = atlas_get_live_neighbors( "%s:%s" % (client_host, client_port) )
         if len(peer_list) > atlas_max_neighbors():
-            peer_list = random.shuffle(peer_list)[:atlas_max_neighbors()]
+            random.shuffle(peer_list)
+            peer_list = peer_list[:atlas_max_neighbors()]
 
         atlas_peer_enqueue( "%s:%s" % (client_host, client_port))
+
+        log.debug("\n\nLive peers: %s\n\n" % peer_list)
         return {'status': True, 'peers': peer_list}
 
     
@@ -1287,6 +1291,39 @@ def rpc_stop():
         rpc_server.stop_server()
         rpc_server.join()
         log.debug("RPC joined")
+
+
+def atlas_start( blockstack_opts, db, port ):
+    """
+    Start up atlas functionality
+    """
+    # start atlas node 
+    global atlas_state
+    if blockstack_opts['atlas']:
+         
+        atlas_seed_peers = filter( lambda x: len(x) > 0, blockstack_opts['atlas_seeds'].split(","))
+        atlas_blacklist = filter( lambda x: len(x) > 0, blockstack_opts['atlas_blacklist'].split(","))
+        zonefile_dir = blockstack_opts.get('zonefiles', None)
+        zonefile_storage_drivers = filter( lambda x: len(x) > 0, blockstack_opts['zonefile_storage_drivers'].split(","))
+        my_hostname = blockstack_opts['atlas_hostname']
+
+        initial_peer_table = atlasdb_init( blockstack_opts['atlasdb_path'], db, atlas_seed_peers, atlas_blacklist, validate=True, zonefile_dir=zonefile_dir )
+        atlas_peer_table_init( initial_peer_table )
+
+        atlas_state = atlas_node_start( my_hostname, port, atlasdb_path=blockstack_opts['atlasdb_path'], zonefile_storage_drivers=zonefile_storage_drivers, zonefile_dir=zonefile_dir )
+    
+    else:
+        atlas_state = None
+
+
+def atlas_stop():
+    """
+    Stop atlas functionality
+    """
+    global atlas_state
+    if atlas_state is not None:
+        atlas_node_stop( atlas_state )
+        atlas_state = None
 
 
 def stop_server( clean=False, kill=False ):
@@ -1484,6 +1521,7 @@ def blockstack_exit():
     Shut down the server on exit(3)
     """
     stop_server(kill=True)
+    stop_atlas()
 
 
 def blockstack_exit_handler( sig, frame ):
@@ -1557,20 +1595,8 @@ def run_server( foreground=False, index=True, expected_snapshots=GENESIS_SNAPSHO
     # get db state
     db = get_state_engine()
 
-    # start atlas node 
-    atlas_state = None
-    if blockstack_opts['atlas']:
-         
-        atlas_seed_peers = filter( lambda x: len(x) > 0, blockstack_opts['atlas_seeds'].split(","))
-        atlas_blacklist = filter( lambda x: len(x) > 0, blockstack_opts['atlas_blacklist'].split(","))
-        zonefile_dir = blockstack_opts.get('zonefiles', None)
-        zonefile_storage_drivers = filter( lambda x: len(x) > 0, blockstack_opts['zonefile_storage_drivers'].split(","))
-        my_hostname = blockstack_opts['atlas_hostname']
-
-        initial_peer_table = atlasdb_init( blockstack_opts['atlasdb_path'], db, atlas_seed_peers, atlas_blacklist, validate=True, zonefile_dir=zonefile_dir )
-        atlas_peer_table_init( initial_peer_table )
-
-        atlas_state = atlas_node_start( my_hostname, port, atlasdb_path=blockstack_opts['atlasdb_path'], zonefile_storage_drivers=zonefile_storage_drivers, zonefile_dir=zonefile_dir )
+    # start atlas node
+    atlas_start( blockstack_opts, db, port )
     
     # start API server
     rpc_start(port)
@@ -1616,6 +1642,9 @@ def run_server( foreground=False, index=True, expected_snapshots=GENESIS_SNAPSHO
 
     # stop API server 
     rpc_stop()
+
+    # stop atlas node 
+    atlas_stop()
 
     # stop the atlas node, if it's running 
     if atlas_state is not None:
