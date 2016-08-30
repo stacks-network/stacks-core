@@ -181,6 +181,21 @@ def atlas_peer_table_lock():
     return PEER_TABLE
 
 
+def atlas_peer_table_is_locked():
+    """
+    Is the peer table locked?
+    """
+    global PEER_TABLE_LOCK_HOLDER
+    return (PEER_TABLE_LOCK_HOLDER is not None)
+
+
+def atlas_peer_table_is_locked_by_me():
+    """
+    Is the peer table locked by the calling thread?
+    """
+    global PEER_TABLE_LOCK_HOLDER
+    return (PEER_TABLE_LOCK_HOLDER == threading.current_thread())
+
 def atlas_peer_table_unlock():
     """
     Unlock the global health info table.
@@ -713,6 +728,11 @@ def atlasdb_add_peer( peer_hostport, discovery_time=None, peer_table=None, con=N
     # not in the table yet.  See if we can evict someone
     if ping_on_evict:
 
+        # don't hold the lock across network I/O
+        if locked:
+            atlas_peer_table_unlock()
+            peer_table = None
+
         sql = "SELECT peer_hostport FROM peers WHERE peer_slot = ?;"
         args = (peer_slot,)
 
@@ -734,10 +754,11 @@ def atlasdb_add_peer( peer_hostport, discovery_time=None, peer_table=None, con=N
                 if close:
                     con.close()
 
-                if locked:
-                    atlas_peer_table_unlock()
-
                 return False
+
+        # re-acquire
+        if locked:
+            peer_table = atlas_peer_table_lock()
 
     log.debug("Add peer '%s' discovered at %s (slot %s)" % (peer_hostport, discovery_time, peer_slot))
 
@@ -1296,6 +1317,8 @@ def atlas_peer_ping( peer_hostport, timeout=None, peer_table=None ):
     if timeout is None:
         timeout = atlas_ping_timeout()
 
+    assert not atlas_peer_table_is_locked_by_me()
+
     host, port = url_to_host_port( peer_hostport )
     rpc = BlockstackRPCClient( host, port, timeout=timeout )
 
@@ -1337,8 +1360,9 @@ def atlas_peer_getinfo( peer_hostport, timeout=None, peer_table=None ):
     host, port = url_to_host_port( peer_hostport )
     rpc = BlockstackRPCClient( host, port, timeout=timeout )
 
+    assert not atlas_peer_table_is_locked_by_me()
 
-    log.debug("Getinfo %s" % peer_hostport)
+    log.debug("getinfo %s" % peer_hostport)
     res = None
     try:
         res = rpc.getinfo()
@@ -1711,6 +1735,8 @@ def atlas_peer_get_zonefile_inventory_range( my_hostport, peer_hostport, bit_off
     zf_inv = {}
     zf_inv_list = None
     
+    assert not atlas_peer_table_is_locked_by_me()
+
     try:
         zf_inv = rpc.get_zonefile_inventory( bit_offset, bit_count )
         
@@ -2145,6 +2171,8 @@ def atlas_peer_get_neighbors( my_hostport, peer_hostport, timeout=None, peer_tab
 
     rpc = BlockstackRPCClient( host, port, timeout=timeout, src=my_hostport )
     
+    assert not atlas_peer_table_is_locked_by_me()
+
     try:
         peer_list = rpc.get_atlas_peers()
 
@@ -2206,6 +2234,8 @@ def atlas_get_zonefiles( my_hostport, peer_hostport, zonefile_hashes, timeout=No
     host, port = url_to_host_port( peer_hostport )
     rpc = BlockstackRPCClient( host, port, timeout=timeout, src=my_hostport )
     zf_payload = {}
+
+    assert not atlas_peer_table_is_locked_by_me()
 
     try:
         zf_payload = rpc.get_zonefiles( zonefile_hashes )
@@ -2510,6 +2540,8 @@ def atlas_zonefile_push( my_hostport, peer_hostport, zonefile_dict, timeout=None
     rpc = BlockstackRPCClient( host, port, timeout=timeout, src=my_hostport )
 
     status = False
+
+    assert not atlas_peer_table_is_locked_by_me()
 
     try:
         push_info = rpc.put_zonefiles( [zonefile_data] )
