@@ -231,8 +231,9 @@ def network_start( blockstack_opts, db ):
     """
     Start RPC services
     """
-    blockstackd.atlas_start( blockstack_opts, db, TEST_RPC_PORT )
+    atlas_state = blockstackd.atlas_start( blockstack_opts, db, TEST_RPC_PORT )
     blockstackd.rpc_start(TEST_RPC_PORT)
+    return atlas_state
     
 
 def network_stop():
@@ -242,8 +243,18 @@ def network_stop():
     blockstackd.rpc_stop()
 
 
-def atlas_stop():
-    blockstackd.atlas_stop()
+def atlas_stop( atlas_state ):
+    blockstackd.atlas_stop( atlas_state )
+
+
+def bitcoin_stop():
+    """
+    Stop bitcoin
+    """
+    global BITCOIN_DIR
+    bitcoin_conf = os.path.join(BITCOIN_DIR, "bitcoin.conf")
+    rc = os.system("bitcoin-cli -regtest -conf=%s stop" % bitcoin_conf)
+    assert rc == 0, "Failed to stop bitcoind"
 
 
 def atexit_cleanup( spv_headers_path, client_config_path, stop_bitcoind ):
@@ -263,8 +274,7 @@ def atexit_cleanup( spv_headers_path, client_config_path, stop_bitcoind ):
 
     if stop_bitcoind:
         bitcoin_conf = os.path.join(BITCOIN_DIR, "bitcoin.conf")
-        rc = os.system("bitcoin-cli -regtest -conf=%s stop" % bitcoin_conf)
-        assert rc == 0, "Failed to stop bitcoind"
+        os.system("bitcoin-cli -regtest -conf=%s stop" % bitcoin_conf)
 
 
 def sync_virtualchain_upcall( db, blockstack_opts ):
@@ -306,6 +316,8 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     spv_headers_path = os.path.join(os.environ.get("VIRTUALCHAIN_WORKING_DIR", None), "spv_headers.dat")
     atexit_cleanup( spv_headers_path, None, False )
     atexit.register( atexit_cleanup, spv_headers_path, client_config_file, True )
+
+    client_config_dir = os.path.dirname(client_config_file)
 
     # virtualchain defaults...
     virtualchain.setup_virtualchain( impl=blockstack_state_engine, bitcoind_connection_factory=bitcoin_regtest_connect )
@@ -385,7 +397,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     }
 
     # start taking RPC requests
-    network_start( blockstack_opts, db )
+    atlas_state = network_start( blockstack_opts, db )
 
     # start pinging bitcoind so it pushes out p2p messages
     pinger = Pinger()
@@ -403,6 +415,9 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         traceback.print_exc()
         log.error("Failed to run scenario '%s'" % scenario.__name__)
         network_stop()
+        atlas_stop( atlas_state )
+        bitcoin_stop()
+        blockstack_client.rpc.local_rpc_stop(client_config_dir)
 
         pinger.ask_join()
         pinger.join()
@@ -412,7 +427,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     pinger.join()
 
     # stop atlas support 
-    atlas_stop()
+    atlas_stop( atlas_state )
 
     # run the checks on the database
     try:
@@ -426,6 +441,8 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     
     if not rc:
         network_stop()
+        bitcoin_stop()
+        blockstack_client.rpc.local_rpc_stop(client_config_dir)
         return rc
 
     # do any more interactive tests
@@ -448,6 +465,8 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     rc = testlib.check_history( db )
     if not rc:
         network_stop()
+        bitcoin_stop()
+        blockstack_client.rpc.local_rpc_stop(client_config_dir)
         return rc
 
     log.info("History check passes!")
@@ -456,6 +475,8 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     rc = testlib.snv_all_names( db )
     if not rc:
         network_stop()
+        bitcoin_stop()
+        blockstack_client.rpc.local_rpc_stop(client_config_dir)
         return rc
 
     log.info("SNV check passes!")
@@ -464,11 +485,15 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     rc = testlib.check_atlas_zonefiles( db, blockstack_opts['atlasdb_path'] )
     if not rc:
         network_stop()
+        bitcoin_stop()
+        blockstack_client.rpc.local_rpc_stop(client_config_dir)
         return rc
 
     log.info("Atlas zonefile checks pass!")
 
     network_stop()
+    bitcoin_stop()
+    blockstack_client.rpc.local_rpc_stop(client_config_dir)
     TEST_RESULT = True
     return True
 
@@ -820,6 +845,6 @@ if __name__ == "__main__":
     else:
         print >> sys.stderr, "FAILURE %s" % scenario.__name__
         print >> sys.stderr, "Test output in %s" % working_dir
-        sys.exit(1)
+        os.abort()
 
     
