@@ -106,7 +106,7 @@ def queuedb_query_execute( cur, query, values ):
         log.exception(e)
         log.error("FATAL: failed to execute query (%s, %s)" % (query, values))
         log.error("\n".join(traceback.format_stack()))
-        sys.exit(1)
+        os.abort()
 
 
 def queuedb_find( queue_id, fqu, limit=None, path=DEFAULT_QUEUE_PATH ):
