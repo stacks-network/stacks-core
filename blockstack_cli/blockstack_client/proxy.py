@@ -108,16 +108,22 @@ class BlockstackRPCClient(object):
     """
     RPC client for the blockstack server
     """
-    def __init__(self, server, port, max_rpc_len=MAX_RPC_LEN, timeout=config.DEFAULT_TIMEOUT, **kw ):
+    def __init__(self, server, port, max_rpc_len=MAX_RPC_LEN, timeout=config.DEFAULT_TIMEOUT, debug_timeline=False, **kw ):
         self.srv = TimeoutServerProxy( "http://%s:%s" % (server, port), timeout=timeout, allow_none=True )
         self.server = server
         self.port = port
+        self.debug_timeline = debug_timeline
 
     def __getattr__(self, key):
         try:
             return object.__getattr__(self, key)
-        except AttributeError:
-            log.debug("RPC http://%s:%s %s" % (self.server, self.port, key))
+        except AttributeError, ae:
+
+            # random ID to match in logs
+            if self.debug_timeline:
+                r = random.randint(0, 2**16)
+                log.debug("RPC(%s) begin http://%s:%s %s" % (r, self.server, self.port, key))
+
             def inner(*args, **kw):
                 func = getattr(self.srv, key)
                 res = func(*args, **kw)
@@ -126,10 +132,17 @@ class BlockstackRPCClient(object):
                     try:
                         res = json.loads(res)
                     except (ValueError, TypeError):
-                        print res
+                        if os.environ.get("BLOCKSTACK_TEST") == "1":
+                            log.debug("Server replied invalid JSON: %s" % res)
+
+                        log.error("Server replied invalid JSON")
                         res = {'error': 'Server replied invalid JSON'}
 
+                if self.debug_timeline:
+                    log.debug("RPC(%s) end http://%s:%s %s" % (r, self.server, self.port, key))
+
                 return res
+
             return inner
 
 
@@ -147,7 +160,7 @@ def get_default_proxy(config_path=CONFIG_PATH):
             if config_path.startswith("/home"):
                 print config_path
                 traceback.print_stack()
-                sys.exit(0)
+                os.abort()
 
         # load     
         conf = config.get_config(config_path)
