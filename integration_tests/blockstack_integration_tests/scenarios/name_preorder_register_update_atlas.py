@@ -73,6 +73,8 @@ def scenario( wallets, **kw ):
     network_des = atlas_network.atlas_network_build( [17000], {17000: [16264]}, {}, os.path.join( testlib.working_dir(**kw), "atlas_network" ))
     atlas_network.atlas_network_start( network_des )
 
+    time.sleep(5.0)
+    
     # make an empty zonefile
     data_pubkey = virtualchain.BitcoinPrivateKey(wallet_keys['data_privkey']).public_key().to_hex()
     empty_zonefile = blockstack_client.user.make_empty_user_zonefile( "foo.test", data_pubkey, urls=["file:///tmp/foo.test"] )
