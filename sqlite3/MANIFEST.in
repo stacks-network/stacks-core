@@ -1,3 +1,0 @@
-include blockstack/dht/server.tac
-include blockstack/blockstack.tac
-include blockstack/blockstack-testset.tac
