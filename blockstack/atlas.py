@@ -37,6 +37,8 @@ import copy
 import binascii
 import StringIO
 import hashlib
+import errno
+import socket
 
 import blockstack_zones
 import virtualchain
@@ -68,7 +70,7 @@ PEER_PUSH_ZONEFILES_TIMEOUT = 10
 
 NUM_NEIGHBORS = 80     # number of neighbors a peer can report
 
-ZONEFILE_INV = ""      # this atlas peer's current zonefile inventory
+ZONEFILE_INV = None      # this atlas peer's current zonefile inventory
 NUM_ZONEFILES = 0      # cache-coherent count of the number of zonefiles present
 
 MAX_QUEUED_ZONEFILES = 1000     # maximum number of queued zonefiles
@@ -174,7 +176,7 @@ def atlas_peer_table_lock():
 
     if PEER_TABLE_LOCK_HOLDER is not None:
         assert PEER_TABLE_LOCK_HOLDER != threading.current_thread(), "DEADLOCK"
-        log.warning("\n\nPossible contention: lock from %s (but held by %s)\n\n" % (threading.current_thread(), PEER_TABLE_LOCK_HOLDER))
+        # log.warning("\n\nPossible contention: lock from %s (but held by %s)\n\n" % (threading.current_thread(), PEER_TABLE_LOCK_HOLDER))
 
     PEER_TABLE_LOCK.acquire()
     PEER_TABLE_LOCK_HOLDER = threading.current_thread()
@@ -195,6 +197,7 @@ def atlas_peer_table_is_locked_by_me():
     """
     global PEER_TABLE_LOCK_HOLDER
     return (PEER_TABLE_LOCK_HOLDER == threading.current_thread())
+
 
 def atlas_peer_table_unlock():
     """
@@ -434,7 +437,14 @@ def atlasdb_add_zonefile_info( zonefile_hash, present, block_height, con=None, p
 
     # keep in-RAM zonefile inv coherent
     zfbits = atlasdb_get_zonefile_bits( zonefile_hash, con=con, path=path )
-    ZONEFILE_INV = atlas_inventory_set_zonefile_bits( ZONEFILE_INV, zfbits )
+
+    inv_vec = None
+    if ZONEFILE_INV is None:
+        inv_vec = ""
+    else:
+        inv_vec = ZONEFILE_INV[:]
+
+    ZONEFILE_INV = atlas_inventory_flip_zonefile_bits( inv_vec, zfbits, present )
 
     # keep in-RAM zonefile count coherent
     NUM_ZONEFILES = atlasdb_zonefile_inv_length( con=con, path=path )
@@ -547,11 +557,17 @@ def atlasdb_set_zonefile_present( zonefile_hash, present, con=None, path=None ):
 
     zfbits = atlasdb_get_zonefile_bits( zonefile_hash, con=con, path=path )
     
+    inv_vec = None
+    if ZONEFILE_INV is None:
+        inv_vec = ""
+    else:
+        inv_vec = ZONEFILE_INV[:]
+
     # did we know about this?
-    was_present = atlas_inventory_test_zonefile_bits( ZONEFILE_INV, zfbits )
+    was_present = atlas_inventory_test_zonefile_bits( inv_vec, zfbits )
 
     # keep our inventory vector coherent.
-    ZONEFILE_INV = atlas_inventory_flip_zonefile_bits( ZONEFILE_INV, zfbits, present )
+    ZONEFILE_INV = atlas_inventory_flip_zonefile_bits( inv_vec, zfbits, present )
 
     if close:
         con.close()
@@ -1088,6 +1104,7 @@ def atlasdb_init( path, db, peer_seeds, peer_blacklist, validate=False, zonefile
         for peer in peer_seeds:
             atlasdb_add_peer( peer, con=con, peer_table=peer_table )
 
+        atlasdb_cache_zonefile_info( con=con )
         con.close()
 
     # whitelist and blacklist
@@ -1196,7 +1213,11 @@ def atlasdb_zonefile_inv_length( con=None, path=None ):
     if close:
         con.close()
 
-    return ret[0]['MAX(inv_index)'] + 1
+    if ret[0]['MAX(inv_index)'] is None:
+        return 0
+
+    else:
+        return ret[0]['MAX(inv_index)'] + 1
 
 
 def atlasdb_zonefile_find_missing( bit_offset, bit_count, con=None, path=None ):
@@ -1277,12 +1298,24 @@ def atlas_get_zonefile_inventory( offset=None, length=None ):
     """
     global ZONEFILE_INV
 
+    try:
+        assert ZONEFILE_INV is not None
+    except AssertionError:
+        log.error("FATAL: zonefile inventory not loaded")
+        os.abort()
+
     if offset is None:
         offset = 0
 
     if length is None:
         length = len(ZONEFILE_INV) - offset
 
+    if offset >= len(ZONEFILE_INV):
+        return ""
+
+    if offset + length > len(ZONEFILE_INV):
+        length = len(ZONEFILE_INV) - offset
+        
     ret = ZONEFILE_INV[offset:offset+length]
     return ret
 
@@ -1307,6 +1340,33 @@ def atlas_init_peer_info( peer_table, peer_hostport, blacklisted=False, whitelis
     }
 
 
+def atlas_log_socket_error( method_invocation, peer_hostport, se ):
+    """
+    Log a socket exception tastefully
+    """
+    if isinstance( se, socket.timeout ):
+        log.debug("%s %s: timed out (socket.timeout)" % (method_invocation, peer_hostport))
+
+    elif isinstance( se, socket.gaierror ):
+        log.debug("%s %s: failed to query address or info (socket.gaierror)" % (method_invocation, peer_hostport ))
+
+    elif isinstance( se, socket.herror ):
+        log.debug("%s %s: failed to query host info (socket.herror)" % (method_invocation, peer_hostport ))
+
+    elif isinstance( se, socket.error ):
+        if se.errno == errno.ECONNREFUSED:
+            log.debug("%s %s: is unreachable (socket.error ECONNREFUSED)" % (method_invocation, peer_hostport))
+        elif se.errno == errno.ETIMEDOUT:
+            log.debug("%s %s: timed out (socket.error ETIMEDOUT)" % (method_invocation, peer_hostport))
+        else:
+            log.debug("%s %s: socket error" % (method_invocation, peer_hostport))
+            log.exception(se)
+
+    else:
+        log.debug("%s %s: general exception" % (method_invocation, peer_hostport))
+        log.exception(se)
+
+
 def atlas_peer_ping( peer_hostport, timeout=None, peer_table=None ):
     """
     Ping a host
@@ -1324,9 +1384,14 @@ def atlas_peer_ping( peer_hostport, timeout=None, peer_table=None ):
 
     log.debug("Ping %s" % peer_hostport)
     ret = False
+
     try:
         rpc.ping()
         ret = True
+    except (socket.timeout, socket.gaierror, socket.herror, socket.error), se:
+        atlas_log_socket_error( "ping(%s)" % peer_hostport, peer_hostport, se )
+        pass
+
     except Exception, e:
         log.exception(e)
         pass
@@ -1364,6 +1429,7 @@ def atlas_peer_getinfo( peer_hostport, timeout=None, peer_table=None ):
 
     log.debug("getinfo %s" % peer_hostport)
     res = None
+
     try:
         res = rpc.getinfo()
         assert type(res) in [dict], 'Did not receive a dict'
@@ -1378,6 +1444,9 @@ def atlas_peer_getinfo( peer_hostport, timeout=None, peer_table=None ):
             log.error("Failed to getinfo on %s: %s" % (peer_hostport, res['error']))
             res = None
                 
+    except (socket.timeout, socket.gaierror, socket.herror, socket.error), se:
+        atlas_log_socket_error( "getinfo(%s)" % peer_hostport, peer_hostport, se )
+
     except AssertionError, ae:
         log.exception(ae)
         log.error("Invalid server reply for getinfo from %s" % peer_hostport)
@@ -1737,6 +1806,9 @@ def atlas_peer_get_zonefile_inventory_range( my_hostport, peer_hostport, bit_off
     
     assert not atlas_peer_table_is_locked_by_me()
 
+    zf_inv = None
+
+    log.debug("Get zonefile inventory range %s-%s from %s" % (bit_offset, bit_count, peer_hostport))
     try:
         zf_inv = rpc.get_zonefile_inventory( bit_offset, bit_count )
         
@@ -1755,29 +1827,33 @@ def atlas_peer_get_zonefile_inventory_range( my_hostport, peer_hostport, bit_off
 
             # make sure it corresponds to this range
             assert len(zf_inv['inv']) <= (bit_count / 8) + (bit_count % 8), "Zonefile inventory in is too long" 
-            
-            # success!
-            atlas_peer_update_health( peer_hostport, True, peer_table=peer_table )
 
         else:
             assert type(zf_inv['error']) in [str, unicode], "Invalid error message"
 
+    except (socket.timeout, socket.gaierror, socket.herror, socket.error), se:
+        atlas_log_socket_error( "get_zonefile_inventory(%s, %s, %s)" % (peer_hostport, bit_offset, bit_count), peer_hostport, se )
+        log.error("Failed to ask %s for zonefile inventory over %s-%s (socket-related error)" % (peer_hostport, bit_offset, bit_count))
+        
     except Exception, e:
         if os.environ.get("BLOCKSTACK_DEBUG") == "1":
             log.exception(e)
 
         log.error("Failed to ask %s for zonefile inventory over %s-%s" % (peer_hostport, bit_offset, bit_count))
-        atlas_peer_update_health( peer_hostport, False, peer_table=peer_table )
-        return None
+
+    atlas_peer_update_health( peer_hostport, (zf_inv is not None and zf_inv.has_key('status') and zf_inv['status']), peer_table=peer_table )
+
+    if zf_inv is None:
+        log.error("No inventory given for %s-%s from %s" % (bit_offset, bit_count, peer_hostport))
+        return None 
 
     if 'error' in zf_inv:
         log.error("Failed to get inventory for %s-%s from %s: %s" % (bit_offset, bit_count, peer_hostport, zf_inv['error']))
-
-        atlas_peer_update_health( peer_hostport, False, peer_table=peer_table )
         return None
 
-    atlas_peer_update_health( peer_hostport, True, peer_table=peer_table )
-    return zf_inv['inv']
+    else:
+        log.debug("Zonefile inventory for %s (%s-%s) is '%s'" % (peer_hostport, bit_offset, bit_count, atlas_inventory_to_string(zf_inv['inv'])))
+        return zf_inv['inv']
 
 
 def atlas_peer_download_zonefile_inventory( my_hostport, peer_hostport, maxlen, bit_offset=0, timeout=None, peer_table={} ):
@@ -1796,7 +1872,9 @@ def atlas_peer_download_zonefile_inventory( my_hostport, peer_hostport, maxlen, 
     interval = 524288       # number of bits in 64KB
     peer_inv = ""
 
-    if bit_offset >= maxlen:
+    log.debug("Download zonefile inventory %s-%s from %s" % (bit_offset, maxlen, peer_hostport))
+
+    if bit_offset > maxlen:
         # synced already
         return peer_inv
 
@@ -1866,8 +1944,10 @@ def atlas_peer_sync_zonefile_inventory( my_hostport, peer_hostport, maxlen, time
             atlas_peer_table_unlock()
             peer_table = None
 
+        log.debug("%s no longer a peer" % peer_hostport)
         return None 
 
+    log.debug("Set zonefile inventory %s: %s" % (peer_hostport, atlas_inventory_to_string(peer_inv)))
     atlas_peer_set_zonefile_inventory( peer_hostport, peer_inv, peer_table=peer_table ) # NOTE: may have trailing 0's for padding
 
     if locked:
@@ -1943,7 +2023,7 @@ def atlas_peer_refresh_zonefile_inventory( my_hostport, peer_hostport, byte_offs
             atlas_peer_table_unlock()
             peer_table = None
 
-        log.debug("%s: inventory of %s is now %s" % (my_hostport, peer_hostport, atlas_inventory_to_string(inv))) 
+        log.debug("%s: inventory of %s is now '%s'" % (my_hostport, peer_hostport, atlas_inventory_to_string(inv))) 
 
     if inv is None:
         return False
@@ -2170,7 +2250,11 @@ def atlas_peer_get_neighbors( my_hostport, peer_hostport, timeout=None, peer_tab
         raise ValueError("Invalid host/port %s" % peer_hostport)
 
     rpc = BlockstackRPCClient( host, port, timeout=timeout, src=my_hostport )
-    
+    peer_list = None
+
+    # sane limits
+    max_neighbors = atlas_max_neighbors()
+
     assert not atlas_peer_table_is_locked_by_me()
 
     try:
@@ -2185,30 +2269,33 @@ def atlas_peer_get_neighbors( my_hostport, peer_hostport, timeout=None, peer_tab
             for peer in peer_list['peers']:
                 assert type(peer) in [str, unicode], "Invalid peer list"
 
-            # sane limits
-            max_neighbors = atlas_max_neighbors()
             assert len(peer_list['peers']) <= max_neighbors, "Invalid response with too many peers (%s, expected <= %s)" % (len(peer_list['peers']), max_neighbors)
 
         else:
             assert type(peer_list['error']) in [str, unicode], "Invalid error message"
 
+    except (socket.timeout, socket.gaierror, socket.herror, socket.error), se:
+        atlas_log_socket_error( "get_atlas_peers(%s)" % peer_hostport, peer_hostport, se)
+        log.error("Socket error in response from '%s'" % peer_hostport)
+
     except AssertionError, ae:
         if os.environ.get("BLOCKSTACK_DEBUG") == "1":
             log.exception(ae)
         log.error("Invalid peer list response from '%s'" % peer_hostport)
-        atlas_peer_update_health( peer_hostport, False, peer_table=peer_table )
-        return None
 
     except Exception, e:
         if os.environ.get("BLOCKSTACK_DEBUG") == "1":
             log.exception(e)
         log.error("Failed to talk to '%s'" % peer_hostport)
+   
+    if peer_list is None:
+        log.error("Failed to query remote peer %s" % peer_hostport)
         atlas_peer_update_health( peer_hostport, False, peer_table=peer_table )
-        return None
+        return None 
 
     if 'error' in peer_list:
         log.debug("Remote peer error: %s" % peer_list['error'])
-        log.error("Remote peer error")
+        log.error("Remote peer error on %s" % peer_hostport)
         atlas_peer_update_health( peer_hostport, False, peer_table=peer_table )
         return None
 
@@ -2233,7 +2320,7 @@ def atlas_get_zonefiles( my_hostport, peer_hostport, zonefile_hashes, timeout=No
 
     host, port = url_to_host_port( peer_hostport )
     rpc = BlockstackRPCClient( host, port, timeout=timeout, src=my_hostport )
-    zf_payload = {}
+    zf_payload = None
 
     assert not atlas_peer_table_is_locked_by_me()
 
@@ -2258,13 +2345,17 @@ def atlas_get_zonefiles( my_hostport, peer_hostport, zonefile_hashes, timeout=No
         else:
             assert type(zf_payload['error']) in [str, unicode], "Invalid error message"
 
+    except (socket.timeout, socket.gaierror, socket.herror, socket.error), se:
+        atlas_log_socket_error( "get_zonefiles(%s)" % peer_hostport, peer_hostport, se)
+
     except Exception, e:
         if os.environ.get("BLOCKSTACK_DEBUG") == "1":
             log.exception(e)
 
         log.error("Invalid zonefile data from %s" % peer_hostport)
 
-        # unpopular
+    if zf_payload is None:
+        log.error("Failed to fetch zonefile data from %s" % peer_hostport)
         atlas_peer_update_health( peer_hostport, False, peer_table=peer_table )
         return None 
 
@@ -2557,6 +2648,9 @@ def atlas_zonefile_push( my_hostport, peer_hostport, zonefile_dict, timeout=None
                 # woo!
                 saved = True
             
+    except (socket.timeout, socket.gaierror, socket.herror, socket.error), se:
+        atlas_log_socket_error( "put_zonefiles(%s)" % peer_hostport, peer_hostport, se)
+    
     except AssertionError, ae:
         log.exception(ae)
         log.error("Invalid server response from %s" % peer_hostport )
@@ -3014,7 +3108,6 @@ class AtlasPeerCrawler( threading.Thread ):
             if t2 - t1 < 1.0:
                 # take a break
                 time_sleep( self.my_hostport, self.__class__.__name__, 1.0 - (t2 - t1) )
-                pass
 
 
     def ask_join(self):
@@ -3157,7 +3250,6 @@ class AtlasZonefileCrawler( threading.Thread ):
             locked = True
             peer_table = atlas_peer_table_lock()
 
-        log.debug("%s: find missing zonefile info" % self.hostport)
         missing_zfinfo = atlas_find_missing_zonefile_availability( peer_table=peer_table, con=con, path=path )
         peer_hostports = peer_table.keys()[:]
 
