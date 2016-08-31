@@ -1570,6 +1570,12 @@ def atlas_revalidate_peers( con=None, path=None, now=None, peer_table=None ):
         res = atlas_peer_ping( old_peer_info['peer_hostport'] )
         if not res:
             log.debug("Failed to revalidate %s" % (old_peer_info['peer_hostport']))
+            if atlas_peer_is_whitelisted( old_peer_info['peer_hostport'], peer_table=peer_table ):
+                continue
+
+            if atlas_peer_is_blacklisted( old_peer_info['peer_hostport'], peer_table=peer_table ):
+                continue
+
             if atlas_peer_get_health( old_peer_info['peer_hostport'], peer_table=peer_table ) < MIN_PEER_HEALTH:
                 atlasdb_remove_peer( old_peer_info['peer_hostport'], con=con, path=path, peer_table=peer_table )
         
