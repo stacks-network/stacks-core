@@ -1605,15 +1605,11 @@ def cli_advanced_consensus( args, config_path=CONFIG_PATH ):
         if 'error' in resp:
             return resp
 
-        elif 'last_block' in resp or 'blocks' in resp:
+        if 'last_block_processed' in resp and 'consensus_hash' in resp:
+            return {'consensus': resp['consensns_hash'], 'block_height': resp['last_block_processed']}
 
-            if 'last_block' in resp:
-                args.block_height = getinfo()['last_block']
-            elif 'blocks' in resp:
-                args.block_height = getinfo()['blocks']
-            else:
-                result['error'] = "Server is indexing. Try again"
-                return result
+        else:
+            return {'error': 'Server is indexing.  Try again shortly.'}
 
     resp = get_consensus_at(int(args.block_height))
 
