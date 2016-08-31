@@ -365,16 +365,18 @@ class AtlasNetworkRPCHandler(SimpleXMLRPCRequestHandler):
                 # trim
                 params = params[1:]
 
-            log.debug("%s(%s)" % (method, params))
+            log.debug("Atlas Network RPC begin %s(%s)" % (method, params))
 
             res = self.server.funcs["rpc_" + str(method)](*params)
 
             # lol jsonrpc within xmlrpc
             ret = json.dumps(res)
+
+            log.debug("Atlas Network RPC end %s(%s)" % (method, params))
             return ret
         except Exception, e:
-            print >> sys.stderr, "\n\n%s\n\n" % traceback.format_exc()
-            return rpc_traceback()
+            print >> sys.stderr, "\n%s(%s)\n%s\n" % (method, params, traceback.format_exc())
+            return json.dumps(rpc_traceback())
 
 
 class AtlasNetwork( SimpleXMLRPCServer ):
@@ -392,7 +394,7 @@ class AtlasNetwork( SimpleXMLRPCServer ):
     def __init__(self, port, **network_params):
         """
          @network_params includes:
-        * drop_probability (callable(hostport)): probability that a message gets dropped
+        * drop_probability (callable(hostport, hostport)): probability that a message gets dropped en route to the given peer
         * peer_delay (callable(hostport)): function that returns the amount of iterations to sleep on getting a peer's neighbors
         * inv_delay (callable(hostport)): function that returns the amount of iterations to sleep on getting a peer's inventory
         * zonefile_delay (callable(hostport, num_zfs)): function that returns the amount of iterations to sleep on getting a peer's zonefiles (given the number of zonefiles)
@@ -403,7 +405,7 @@ class AtlasNetwork( SimpleXMLRPCServer ):
         SimpleXMLRPCServer.__init__(self, ('localhost', port), AtlasNetworkRPCHandler, allow_none=True )
         self.port = port
 
-        self.drop_probability = network_params.get( "drop_probability", lambda hostport_dst: 0 )
+        self.drop_probability = network_params.get( "drop_probability", lambda hostport_src, hostport_dst: 0 )
         self.peer_delay = network_params.get( "peer_delay", lambda hostport: 0 )
         self.inv_delay = network_params.get( "inv_delay", lambda hostport: 0 )
         self.zonefile_delay = network_params.get("zonefile_delay", lambda hostport, num_zfs: 0 )
@@ -426,12 +428,17 @@ class AtlasNetwork( SimpleXMLRPCServer ):
                     self.register_function( method )
 
  
-    def possibly_drop(self, hostport):
+    def possibly_drop(self, src_hostport, dest_hostport):
         """
         Possibly drop the connection
         """
-        prob = self.drop_probability( hostport )
-        if random.random() < prob:
+        if src_hostport is None:
+            # test control-plane
+            return 0.0
+
+        prob = self.drop_probability( src_hostport, dest_hostport )
+        if random.random() <= prob:
+            log.debug("Drop connection (%s-%s)" % (src_hostport, dest_hostport))
             se = socket.error("Connection Refused")
             se.errno = errno.ECONNREFUSED
             raise se
@@ -442,7 +449,7 @@ class AtlasNetwork( SimpleXMLRPCServer ):
         Get zonefile inventory from the given dest hostport, with simulated loss
         """
         log.debug("atlas network: get_zonefile_inventory(%s,%s)" % (src_hostport, dest_hostport))
-        self.possibly_drop( dest_hostport )
+        self.possibly_drop( src_hostport, dest_hostport )
         time.sleep( self.inv_delay( dest_hostport ) )
         
         dest_host, dest_port = url_to_host_port( dest_hostport )
@@ -455,7 +462,7 @@ class AtlasNetwork( SimpleXMLRPCServer ):
         Get the list of peers in this peer's neighbor set, with simulated loss.
         """
         log.debug("atlas network: get_atlas_peers(%s,%s)" % (src_hostport, dest_hostport))
-        self.possibly_drop( dest_hostport )
+        self.possibly_drop( src_hostport, dest_hostport )
 
         dest_host, dest_port = url_to_host_port( dest_hostport )
         rpc = BlockstackRPCClient( dest_host, dest_port, src=src_hostport )
@@ -468,7 +475,7 @@ class AtlasNetwork( SimpleXMLRPCServer ):
         Returns [{'zonefile hash': zonefile data}]
         """
         log.debug("atlas network: get_zonefiles(%s,%s)" % (src_hostport, dest_hostport))
-        self.possibly_drop( dest_hostport )
+        self.possibly_drop( src_hostport, dest_hostport )
 
         dest_host, dest_port = url_to_host_port( dest_hostport )
         rpc = BlockstackRPCClient( dest_host, dest_port, src=src_hostport )
@@ -480,7 +487,7 @@ class AtlasNetwork( SimpleXMLRPCServer ):
         Upload a list of zonefiles, and enqueue them in the pusher
         """
         log.debug("atlas network: put_zonefiles(%s,%s)" % (src_hostport, dest_hostport))
-        self.possibly_drop( dest_hostport )
+        self.possibly_drop( src_hostport, dest_hostport )
 
         dest_host, dest_port = url_to_host_port( dest_hostport )
         rpc = BlockstackRPCClient( dest_host, dest_port, src=src_hostport )
@@ -492,7 +499,7 @@ class AtlasNetwork( SimpleXMLRPCServer ):
         Ping!
         """
         log.debug("atlas network: ping(%s,%s)" % (src_hostport, dest_hostport))
-        self.possibly_drop( dest_hostport )
+        self.possibly_drop( src_hostport, dest_hostport )
 
         dest_host, dest_port = url_to_host_port( dest_hostport )
         rpc = BlockstackRPCClient( dest_host, dest_port )
@@ -504,7 +511,7 @@ class AtlasNetwork( SimpleXMLRPCServer ):
         get info
         """
         log.debug("atlas network: getinfo(%s,%s)" % (src_hostport, dest_hostport))
-        self.possibly_drop( dest_hostport )
+        self.possibly_drop( src_hostport, dest_hostport )
 
         dest_host, dest_port = url_to_host_port( dest_hostport )
         rpc = BlockstackRPCClient( dest_host, dest_port )
@@ -733,6 +740,7 @@ def atlas_network_is_synchronized( network_des, lastblock, num_zonefiles ):
             raise Exception("Peer %s (%s) failed to respond" % (peer['port'], peer['proc'].pid))
 
         if not res:
+            log.debug("localhost:%s is not synchronized" % peer['port'])
             return False
 
     return True
@@ -862,34 +870,44 @@ def atlas_peer_join( peer_info ):
                 proc.send_signal( signal.SIGKILL )
             except:
                 pass
-    
+ 
+
+def atlas_local_peer_info():
+    return {
+        "proc": None,
+        "port": RPC_SERVER_PORT
+    }
+
 
 def atlas_print_network_state( network_des ):
     """
     Print out the state of the network
     """
 
-    peer_infos = network_des['peers']
+    peer_infos = network_des['peers'] + [atlas_local_peer_info()]
     peer_tables = {}
 
     for i in xrange(0, len(peer_infos)):
 
         info = None
         neighbor_set = None
+        inv_len = None
+        peer_inv = None
 
         if peer_infos[i]['port'] == RPC_SERVER_PORT:
             # don't talk to ourselves
-            info = {'zonefile_count': atlas_get_num_zonefiles()}
+            inv_len = atlas_get_num_zonefiles()
             neighbor_set = atlas_get_all_neighbors()
+            peer_inv = atlas_get_zonefile_inventory(0, inv_len)
 
         else:
             log.debug("query localhost:%s" % peer_infos[i]['port'])
             rpc = atlas_peer_rpc( peer_infos[i] )
             info = rpc.getinfo()
             neighbor_set = rpc.get_all_neighbor_info()
+            inv_len = info['zonefile_count']
+            peer_inv = atlas_peer_download_zonefile_inventory( None, "localhost:%s" % peer_infos[i]['port'], inv_len )
         
-        inv_len = info['zonefile_count']
-        peer_inv = atlas_peer_download_zonefile_inventory( "none:0", "localhost:%s" % peer_infos[i]['port'], inv_len )
         peer_inv_str = atlas_inventory_to_string( peer_inv )
 
         if 'error' in neighbor_set:
@@ -1238,7 +1256,7 @@ class AtlasStaticNetwork( SimpleXMLRPCServer ):
         for _, node in self.node_hosts.items():
             node.set_network(self)
 
-        self.drop_probability = network_params.get( "drop_probability", lambda hostport_dst: 0 )
+        self.drop_probability = network_params.get( "drop_probability", lambda hostport_src, hostport_dst: 0 )
         self.peer_delay = network_params.get( "peer_delay", lambda hostport: 0 )
         self.inv_delay = network_params.get( "inv_delay", lambda hostport: 0 )
         self.zonefile_delay = network_params.get("zonefile_delay", lambda hostport, num_zfs: 0 )
