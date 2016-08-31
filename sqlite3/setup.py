@@ -22,16 +22,13 @@
 """
 
 from setuptools import setup, find_packages
-import sys
-import os
 
-# set __version__
-exec(open('blockstack/version.py').read())
+exec(open("blockstack/version.py").read())
 
 setup(
-    name='blockstack',
+    name='blockstack-server',
     version=__version__,
-    url='https://github.com/blockstack/blockstack',
+    url='https://github.com/blockstack/blockack-server',
     license='GPLv3',
     author='Blockstack.org',
     author_email='support@blockstack.org',
@@ -39,41 +36,26 @@ setup(
     keywords='blockchain bitcoin btc cryptocurrency name key value store data',
     packages=find_packages(),
     scripts=['bin/blockstack-server'],
-    download_url='https://github.com/blockstack/blockstack/archive/master.zip',
+    download_url='https://github.com/blockstack/blockstore/archive/master.zip',
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'base58>=0.2.2',
-        'bitcoin>=1.1.39',
-        'basicrpc>=0.0.2',
-        'bitmerchant>=0.1.8',
-        'blockstack-client>=0.0.13',
-        'boto>=2.38.0',
-        'cachetools>=1.1.5',
-        'commontools>=0.1.0',
-        'ecdsa>=0.13',
-        'kademlia>=0.5',
-        'keychain>=0.1.3',
-        'pybitcoin>=0.9.8',
-        'python-bitcoinrpc>=0.1',
-        'requests>=2.9.1',
-        'rpcudp>=1.0',
-        'six>=1.10.0',
-        'Twisted>=15.4.0',
-        'txJSON-RPC>=0.3.1',
-        'u-msgpack-python>=2.1',
-        'utilitybelt>=0.2.6',
-        'virtualchain>=0.0.9',
-        'zope.interface>=4.1.3',
+        'virtualchain>=0.14.0',
+        'keychain>=0.1.4',
+        'blockstack-client>=0.14.0',
         'defusedxml>=0.4.1',
-        'blockstack_profiles>=0.3.0',
-        'zone_file>=0.1.5'
+        'pycrypto>=2.6.1',
+        'simplejson>=3.8.2'
+    ],
+    dependency_links=[
+        'git://github.com/blockstack/blockstack-virtualchain.git@release-candidate#egg=virtualchain-0.0.9.0',
+	'git://github.com/blockstack/blockstack-cli@release-candidate#egg=blockstack-client-0.0.13.0'
     ],
     classifiers=[
         'Intended Audience :: Developers',
         'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
         'Operating System :: OS Independent',
-        'Programming Language :: Python',
+        'Programming Language :: Python :: 2 :: Only',
         'Topic :: Internet',
         'Topic :: Security :: Cryptography',
         'Topic :: Software Development :: Libraries :: Python Modules',
