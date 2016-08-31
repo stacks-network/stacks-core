@@ -69,7 +69,8 @@ def scenario( wallets, **kw ):
     wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey, payment_privkey=wallets[5].privkey )
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] )
 
-    # start up an Atlas test network with 8 nodes: the main one doing the test, and 7 subordinate ones that treat it as a seed peer.
+    # start up an Atlas test network with 9 nodes: the main one doing the test, and 8 subordinate ones that treat it as a seed peer.
+    # the network will ensure each node can reach each other node.
     atlas_nodes = [17000, 17001, 17002, 17003, 17004, 17005, 17006, 17007]
     atlas_topology = {}
     for node_port in atlas_nodes:
@@ -78,6 +79,8 @@ def scenario( wallets, **kw ):
     network_des = atlas_network.atlas_network_build( atlas_nodes, atlas_topology, {}, os.path.join( testlib.working_dir(**kw), "atlas_network" ))
     atlas_network.atlas_network_start( network_des )
 
+    time.sleep(5.0)
+    
     # make an empty zonefile
     data_pubkey = virtualchain.BitcoinPrivateKey(wallet_keys['data_privkey']).public_key().to_hex()
     empty_zonefile = blockstack_client.user.make_empty_user_zonefile( "foo.test", data_pubkey, urls=["file:///tmp/foo.test"] )
