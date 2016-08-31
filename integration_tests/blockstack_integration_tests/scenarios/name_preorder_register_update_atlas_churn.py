@@ -80,6 +80,8 @@ def scenario( wallets, **kw ):
     for i in xrange(9, len(atlas_nodes)):
         atlas_topology[atlas_nodes[i]] = [17008]
 
+    atlas_topology[atlas_nodes[-1]].append( 16264 )
+
     time_start = int(time.time())
     
     # put the seed after the first four
