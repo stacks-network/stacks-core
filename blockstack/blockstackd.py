@@ -76,7 +76,6 @@ bitcoin_opts = None
 utxo_client = None
 tx_broadcaster = None
 rpc_server = None
-atlas_state = None
 
 def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
    """
@@ -309,22 +308,24 @@ class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
                         "client_port": 0
                     }
 
-                log.debug("%s(%s) (from atlas simulator)" % ("rpc_" + str(method), params))
+                log.debug("Inbound RPC begin %s(%s) (from atlas simulator)" % ("rpc_" + str(method), params))
 
             else:
-                log.debug("%s(%s)" % ("rpc_" + str(method), params))
+                log.debug("Inbound RPC begin %s(%s)" % ("rpc_" + str(method), params))
 
             res = self.server.funcs["rpc_" + str(method)](*params, **con_info)
 
             # lol jsonrpc within xmlrpc
             ret = json.dumps(res)
+
+            log.debug("Inbound RPC end %s(%s)" % ("rpc_" + str(method), params))
             return ret
         except Exception, e:
-            print >> sys.stderr, "\n\n%s\n\n" % traceback.format_exc()
-            return rpc_traceback()
+            print >> sys.stderr, "\n\n%s(%s)\n%s\n\n" % ("rpc_" + str(method), params, traceback.format_exc())
+            return json.dumps( rpc_traceback() )
 
 
-class BlockstackdRPC(SimpleXMLRPCServer):
+class BlockstackdRPC( SimpleXMLRPCServer):
     """
     Blockstackd RPC server, used for querying
     the name database and the blockchain peer.
@@ -1166,6 +1167,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return {'error': 'Request length too large'}
 
         zonefile_inv = atlas_get_zonefile_inventory( offset=offset, length=length )
+
+        if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+            log.debug("Zonefile inventory is '%s'" % (atlas_inventory_to_string(zonefile_inv)))
+
         return {'status': True, 'inv': base64.b64encode(zonefile_inv) }
 
 
@@ -1298,7 +1303,7 @@ def atlas_start( blockstack_opts, db, port ):
     Start up atlas functionality
     """
     # start atlas node 
-    global atlas_state
+    atlas_state = None
     if blockstack_opts['atlas']:
          
         atlas_seed_peers = filter( lambda x: len(x) > 0, blockstack_opts['atlas_seeds'].split(","))
@@ -1311,16 +1316,14 @@ def atlas_start( blockstack_opts, db, port ):
         atlas_peer_table_init( initial_peer_table )
 
         atlas_state = atlas_node_start( my_hostname, port, atlasdb_path=blockstack_opts['atlasdb_path'], zonefile_storage_drivers=zonefile_storage_drivers, zonefile_dir=zonefile_dir )
-    
-    else:
-        atlas_state = None
+
+    return atlas_state
 
 
-def atlas_stop():
+def atlas_stop( atlas_state ):
     """
     Stop atlas functionality
     """
-    global atlas_state
     if atlas_state is not None:
         atlas_node_stop( atlas_state )
         atlas_state = None
@@ -1554,7 +1557,7 @@ def run_server( foreground=False, index=True, expected_snapshots=GENESIS_SNAPSHO
                 logfile = open( indexer_log_file, "a+" )
         except OSError, oe:
             log.error("Failed to open '%s': %s" % (indexer_log_file, oe.strerror))
-            sys.exit(1)
+            os.abort()
 
         # become a daemon
         child_pid = os.fork()
@@ -1596,7 +1599,7 @@ def run_server( foreground=False, index=True, expected_snapshots=GENESIS_SNAPSHO
     db = get_state_engine()
 
     # start atlas node
-    atlas_start( blockstack_opts, db, port )
+    atlas_state = atlas_start( blockstack_opts, db, port )
     
     # start API server
     rpc_start(port)
@@ -1618,7 +1621,7 @@ def run_server( foreground=False, index=True, expected_snapshots=GENESIS_SNAPSHO
             except Exception, e:
                log.exception(e)
                log.error("FATAL: caught exception while indexing")
-               sys.exit(1)
+               os.abort()
             
             # wait for the next block
             deadline = time.time() + REINDEX_FREQUENCY
@@ -1644,7 +1647,7 @@ def run_server( foreground=False, index=True, expected_snapshots=GENESIS_SNAPSHO
     rpc_stop()
 
     # stop atlas node 
-    atlas_stop()
+    atlas_stop( atlas_state )
 
     # stop the atlas node, if it's running 
     if atlas_state is not None:
@@ -1861,7 +1864,7 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db 
 
         if 'transfer_send_block_id' not in name_rec:
             log.error("FATAL: Obsolete or invalid database.  Missing 'transfer_send_block_id' field for NAME_TRANSFER at (%s, %s)" % (block_number, history_index))
-            sys.exit(1)
+            os.abort()
 
         sender = name_rec_prev['sender']
         address = name_rec_prev['address']
@@ -1989,7 +1992,7 @@ def nameop_restore_consensus_fields( name_rec, block_id ):
 
         if 'transfer_send_block_id' not in name_rec:
             log.error("FATAL: Obsolete or invalid database.  Missing 'transfer_send_block_id' field for NAME_TRANSFER at (%s, %s)" % (prev_block_number, prev_history_index))
-            sys.exit(1)
+            os.abort()
 
         full_rec = db.get_name( name_rec['name'], include_expired=True )
         full_history = full_rec['history']
