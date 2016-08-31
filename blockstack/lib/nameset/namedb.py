@@ -1575,7 +1575,7 @@ class BlockstackDB( virtualchain.StateEngine ):
       transfer_send_block_id = self.lookup_block_id_from_consensus_hash( nameop['consensus_hash'] )
       if transfer_send_block_id is None:
           log.error("FATAL: no block for consensus hash '%s'" % nameop['consensus_hash'])
-          sys.exit(1)
+          os.abort()
 
       op = TRANSFER_KEEP_DATA
       if not keep_data:
