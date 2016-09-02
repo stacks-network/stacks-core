@@ -82,7 +82,7 @@ from blockstack_client import \
     get_name_cost, \
     get_name_profile, \
     get_name_zonefile, \
-    get_nameops_at, \
+    get_records_at, \
     get_names_in_namespace, \
     get_names_owned_by_address, \
     get_namespace_blockchain_record, \
@@ -2047,13 +2047,13 @@ def cli_advanced_get_names_in_namespace( args, config_path=CONFIG_PATH ):
     return result
 
 
-def cli_advanced_get_nameops_at( args, config_path=CONFIG_PATH ):
+def cli_advanced_get_records_at( args, config_path=CONFIG_PATH ):
     """
-    command: get_nameops_at
+    command: get_records_at
     help: Get the list of name operations that occurred at a given block number
     arg: block_id (int) "The block height to query"
     """
-    result = get_nameops_at(int(args.block_id))
+    result = get_records_at(int(args.block_id))
     return result
 
 
