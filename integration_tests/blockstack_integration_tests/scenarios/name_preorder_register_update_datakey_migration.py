@@ -25,6 +25,7 @@ import testlib
 import pybitcoin
 import json
 import blockstack_client
+import time
 
 log = blockstack_client.get_logger("blockstack-integration-tests")
 
@@ -93,6 +94,8 @@ def scenario( wallets, **kw ):
     # wait for confirmation
     for i in xrange(0, 12):
         testlib.next_block( **kw )
+    print "waiting for confirmation"
+    time.sleep(10)
     
     # put immutable (with owner key)
     log.debug("put immutable 2 with owner key")
