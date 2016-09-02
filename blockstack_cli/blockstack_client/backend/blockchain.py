@@ -177,8 +177,15 @@ def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmati
         log.exception(e)
         log.debug("Failed to get UTXOs for %s" % address)
         data = {'error': 'Failed to get UTXOs for %s' % address}
-    
-    return data
+   
+    # filter unconfirmed
+    ret = []
+    for utxo in data:
+        if 'confirmations' in utxo:
+            if int(utxo['confirmations']) >= min_confirmations:
+                ret.append(utxo)
+
+    return ret
 
 
 def get_balance(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=TX_MIN_CONFIRMATIONS):
@@ -197,13 +204,18 @@ def get_balance(address, config_path=CONFIG_PATH, utxo_client=None, min_confirma
 
     for utxo in data:
 
+        if 'confirmations' in utxo:
+            if int(utxo['confirmations']) < min_confirmations:
+                # doesn't count
+                continue
+
         if 'value' in utxo:
             satoshi_amount += utxo['value']
 
     return satoshi_amount
 
 
-def is_address_usable(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=6):
+def is_address_usable(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=TX_MIN_CONFIRMATIONS):
     """
     Check if an address is usable (i.e. it has no unconfirmed transactions)
     """
@@ -220,7 +232,7 @@ def is_address_usable(address, config_path=CONFIG_PATH, utxo_client=None, min_co
     for unspent in unspents:
 
         if 'confirmations' in unspent:
-            if int(unspent['confirmations']) == 0:
+            if int(unspent['confirmations']) < min_confirmations:
                 return False
 
     return True
