@@ -191,6 +191,12 @@ def scenario( wallets, **kw ):
     data_history_3.append(put_result['immutable_data_hash'])
     testlib.next_block( **kw )
 
+    # wait for confirmation
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "waiting for confirmation"
+    time.sleep(10)
+
     # overwrite
     datasets[0]['newdata'] = "asdf"
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_3", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
