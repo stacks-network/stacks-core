@@ -379,25 +379,25 @@ def get_name_blockchain_history(name, start_block, end_block, proxy=None):
     return resp
 
 
-def get_nameops_at(block_id, proxy=None):
+def get_records_at(block_id, proxy=None):
     """
     Get the set of records as they were at a particular block.
     """
     if proxy is None:
         proxy = get_default_proxy()
 
-    resp = proxy.get_nameops_at(block_id)
+    resp = proxy.get_records_at(block_id)
     return resp
 
 
-def get_nameops_hash_at(block_id, proxy=None):
+def get_records_hash_at(block_id, proxy=None):
     """
     Get the hash of a set of records as they were at a particular block.
     """
     if proxy is None:
         proxy = get_default_proxy()
 
-    resp = proxy.get_nameops_hash_at(block_id)
+    resp = proxy.get_records_hash_at(block_id)
     if type(resp) == list:
         if len(resp) == 0:
             resp = {'error': 'No data returned'}
