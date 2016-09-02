@@ -66,14 +66,3 @@ from .namespaceready import build as build_namespace_ready
 from .nameimport import build as build_name_import
 from .announce import build as build_announce
 
-from .preorder import parse as parse_preorder
-from .register import parse as parse_registration
-from .update import parse as parse_update
-from .transfer import parse as parse_transfer
-from .revoke import parse as parse_revoke
-from .namespacepreorder import parse as parse_namespace_preorder
-from .namespacereveal import parse as parse_namespace_reveal
-from .namespaceready import parse as parse_namespace_ready
-from .nameimport import parse as parse_name_import
-from .announce import parse as parse_announce
-
