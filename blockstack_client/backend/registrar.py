@@ -379,8 +379,11 @@ class RegistrarWorker(threading.Thread):
         if 'error' in name_rec:
             return name_rec
 
+        if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+            log.debug("Replicate zonefile %s (blockchain: %s):\n%s" % (zonefile_hash, name_rec['value_hash'], json.dumps(zonefile_data, indent=4, sort_keys=True)))
+
         if str(name_rec['value_hash']) != zonefile_hash:
-            log.error("Zonefile %s has not been replicated yet" % zonefile_hash)
+            log.error("Zonefile %s has not been confirmed yet (still on %s)" % (zonefile_hash, name_rec['value_hash']))
             return {'error': 'Zonefile hash not yet replicated'}
 
         res = zonefile_replicate( name_data['fqu'], zonefile_data, name_data['tx_hash'], servers, config_path=config_path, storage_drivers=storage_drivers )
