@@ -282,8 +282,17 @@ def list_update_history( name, current_block=None, proxy=None ):
         proxy = get_default_proxy()
 
     if current_block is None:
-        info = proxy.getinfo()
-        current_block = info['last_block']+1
+        try:
+            info = proxy.getinfo()
+            if info.has_key('last_block_processed'):
+                current_block = int(info['last_block_processed']) + 1
+            elif info.has_key('last_block'):
+                current_block = int(info['last_block']) + 1
+            else:
+                raise Exception("Invalid getinfo reply")
+        except Exception, e:
+            log.error("Invalid getinfo reply")
+            return None
 
     name_history = proxy.get_name_blockchain_history( name, 0, current_block )
     all_update_hashes = []
@@ -661,9 +670,6 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
     if not rc:
         result['error'] = 'Failed to store zonefile'
         return result
-
-    # enqueue zonefile replication to blockstack servers
-    
 
     # success!
     result['status'] = True
