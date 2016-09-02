@@ -70,13 +70,17 @@ def app_register( name, app_name, app_account_id, app_url, app_storage_drivers=N
         return {'error': 'Wallet already exists (%s)' % wallet_path}
 
     if password is None:
+        assert interactive
         password = ""
         while len(password) < config.WALLET_PASSWORD_LENGTH:
-            try:
-                password = raw_input("Enter password for application wallet '%s.%s@%s'" % (app_account_id, app_name, name))
-            except KeyboardInterrupt:
-                return {'error': 'Interrupted by user'}
-
+            res = wallet.make_wallet_password( prompt="Creating new application wallet", password=password )
+            if 'error' in res:
+                print res['error']
+                continue
+            else:
+                password = res['password']
+                break
+            
     pk_hex = keylib.ECPrivateKey().to_hex()
     res = wallet.initialize_wallet(password=password, interactive=interactive, hex_privkey=pk_hex, config_dir=config_dir, wallet_path=wallet_path )
     if 'error' in res:
@@ -167,7 +171,7 @@ def app_get_wallet( name, app_name, app_account_id, interactive=False, password=
         log.error("No such wallet '%s'" % wallet_path)
         return {'error': 'No such wallet'}
 
-    if interactive:
+    if interactive and password is not None:
         password = raw_input("Enter password for '%s.%s@%s': " % (app_account_id, app_name, name))
 
     return wallet.load_wallet( password=password, config_dir=config_dir, wallet_path=wallet_path, include_private=True )
