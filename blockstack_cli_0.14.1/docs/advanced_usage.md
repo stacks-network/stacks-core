@@ -39,7 +39,7 @@ Beyond `lookup` and `whois`, there are a few other more advanced queries you can
 ### Querying the Blockchain
 * `get_name_blockchain_record`:  Get the raw database record for a Blockstack ID.  It will contain a *compressed* history of all name operations that have affected it.  This is meant primarily for debugging purposes; to get an easier-to-parse listing of the information this command returns, use `get_name_blockchain_history`.
 * `get_name_blockchain_history`:  Get the set of all prior states a Blockstack ID has been in, keyed by the block heights at which the state-change was processed.
-* `get_nameops_at`:  Get the list of name operations processed at a particular block height.
+* `get_records_at`:  Get the list of name operation records processed at a particular block height.
 * `list_update_history`:  Get the list of all zonefile hashes that a Blockstack ID has ever had.
 
 ### Zonefiles
