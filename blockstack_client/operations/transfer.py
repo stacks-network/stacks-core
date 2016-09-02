@@ -49,8 +49,8 @@ def transfer_sanity_check( name, consensus_hash ):
        raise Exception("Name '%s' has non-base-38 characters" % name)
     
     # without the scheme, name must be 37 bytes 
-    if name is not None and (len(name) > LENGTHS['blockchain_id_name']):
-       raise Exception("Name '%s' is too long; expected %s bytes" % (name, LENGTHS['blockchain_id_name']))
+    if name is not None and len(name) > LENGTH_MAX_NAME:
+       raise Exception("Name '%s' is too long; expected %s bytes" % (name, LENGTH_MAX_NAME))
     
     return True
 
@@ -127,7 +127,7 @@ def make_transaction(name, destination_address, keepdata, consensus_hash, paymen
     payment_addr = str(payment_addr)
     tx_fee = int(tx_fee)
 
-    assert len(consensus_hash) == LENGTHS['consensus_hash'] * 2
+    assert len(consensus_hash) == LENGTH_CONSENSUS_HASH * 2 
     assert is_name_valid(name)
 
     # sanity check
@@ -142,48 +142,6 @@ def make_transaction(name, destination_address, keepdata, consensus_hash, paymen
 
     return (inputs, outputs)
   
-
-
-def parse(bin_payload, recipient):
-    """
-    # NOTE: first three bytes were stripped
-    """
-    
-    if len(bin_payload) != 1 + LENGTHS['name_hash'] + LENGTHS['consensus_hash']:
-        log.error("Invalid transfer payload length %s" % len(bin_payload))
-        return None 
-
-    disposition_char = bin_payload[0:1]
-    name_hash = bin_payload[1:1+LENGTHS['name_hash']]
-    consensus_hash = bin_payload[1+LENGTHS['name_hash']:]
-   
-    if disposition_char not in [TRANSFER_REMOVE_DATA, TRANSFER_KEEP_DATA]:
-        log.error("Invalid disposition character")
-        return None 
-
-    # keep data by default 
-    disposition = True 
-    
-    if disposition_char == TRANSFER_REMOVE_DATA:
-       disposition = False 
-   
-    try:
-       rc = transfer_sanity_check( None, consensus_hash )
-       if not rc:
-           raise Exception("Invalid transfer data")
-
-    except Exception, e:
-       log.error("Invalid transfer data")
-       return None
-
-    return {
-        'opcode': 'NAME_TRANSFER',
-        'name_hash': hexlify( name_hash ),
-        'consensus_hash': hexlify( consensus_hash ),
-        'recipient': recipient,
-        'keep_data': disposition
-    }
-
 
 def get_fees( inputs, outputs ):
     """

@@ -41,7 +41,7 @@ log = virtualchain.get_logger("blockstack-client")
 def build(name):
     """
     Takes in the name, including the namespace ID (but not the id: scheme)
-    Returns a hex string representing up to LENGTHS['blockchain_id_name'] bytes.
+    Returns a hex string representing up to the maximum name length bytes.
     
     Record format:
     
@@ -112,25 +112,6 @@ def make_transaction(name, payment_addr, blockchain_client, tx_fee=0, subsidize=
     outputs = make_outputs( nulldata, inputs, payment_addr, tx_fee, pay_fee=pay_fee )
    
     return (inputs, outputs)
-
-
-
-def parse(bin_payload):    
-    """
-    Interpret a block's nulldata back into a name.  The first three bytes (2 magic + 1 opcode)
-    will not be present in bin_payload.
-    
-    The name will be directly represented by the bytes given.
-    """
-    
-    fqn = bin_payload
-    if not is_name_valid( fqn ):
-        return None 
-
-    return {
-       'opcode': 'NAME_REVOKE',
-       'name': fqn
-    }
 
 
 def get_fees( inputs, outputs ):

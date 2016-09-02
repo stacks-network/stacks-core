@@ -62,9 +62,9 @@ def build(name, script_pubkey, register_addr, consensus_hash, name_hash=None):
         if not is_b40( name ) or "+" in name or name.count(".") > 1:
            raise Exception("Name '%s' has non-base-38 characters" % name)
         
-        # name itself cannot exceed LENGTHS['blockchain_id_name']
-        if len(NAME_SCHEME) + len(name) > LENGTHS['blockchain_id_name']:
-           raise Exception("Name '%s' is too long; exceeds %s bytes" % (name, LENGTHS['blockchain_id_name'] - len(NAME_SCHEME)))
+        # name itself cannot exceed maximum name length
+        if len(NAME_SCHEME) + len(name) > LENGTH_MAX_NAME:
+           raise Exception("Name '%s' is too long; exceeds %s bytes" % (name, LENGTH_MAX_NAME - len(NAME_SCHEME)))
     
         name_hash = hash_name(name, script_pubkey, register_addr=register_addr)
 
@@ -118,7 +118,7 @@ def make_transaction(name, payment_addr, register_addr, fee, consensus_hash, blo
     tx_fee = int(tx_fee)
 
     assert is_name_valid(name)
-    assert len(consensus_hash) == LENGTHS['consensus_hash'] * 2
+    assert len(consensus_hash) == LENGTH_CONSENSUS_HASH * 2
 
     inputs = None
     private_key_obj = None
@@ -132,25 +132,6 @@ def make_transaction(name, payment_addr, register_addr, fee, consensus_hash, blo
     outputs = make_outputs(nulldata, inputs, payment_addr, fee, tx_fee)
     
     return (inputs, outputs)
-
-
-def parse(bin_payload):
-    """
-    Parse a name preorder.
-    NOTE: bin_payload *excludes* the leading 3 bytes (magic + op) returned by build.
-    """
-    
-    if len(bin_payload) != LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']:
-        return None 
-
-    name_hash = hexlify( bin_payload[0:LENGTHS['preorder_name_hash']] )
-    consensus_hash = hexlify( bin_payload[LENGTHS['preorder_name_hash']:] )
-    
-    return {
-        'opcode': 'NAME_PREORDER',
-        'preorder_name_hash': name_hash,
-        'consensus_hash': consensus_hash
-    }
 
     
 def get_fees( inputs, outputs ):

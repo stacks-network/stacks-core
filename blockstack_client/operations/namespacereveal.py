@@ -90,8 +90,8 @@ def namespacereveal_sanity_check( namespace_id, version, lifetime, coeff, base, 
    if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
       raise Exception("Namespace ID '%s' has non-base-38 characters" % namespace_id)
    
-   if len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
-      raise Exception("Invalid namespace ID length for '%s' (expected length between 1 and %s)" % (namespace_id, LENGTHS['blockchain_id_namespace_id']))
+   if len(namespace_id) > LENGTH_MAX_NAMESPACE_ID:
+      raise Exception("Invalid namespace ID length for '%s' (expected length between 1 and %s)" % (namespace_id, LENGTH_MAX_NAMESPACE_ID))
    
    if lifetime < 0 or lifetime > (2**32 - 1):
       lifetime = NAMESPACE_LIFE_INFINITE 
@@ -247,87 +247,6 @@ def make_transaction( namespace_id, reveal_addr, lifetime, coeff, base_cost, buc
    outputs = make_outputs(nulldata, inputs, reveal_addr, payment_addr, tx_fee)
    
    return (inputs, outputs)
-
-
-def parse( bin_payload, sender, recipient_address ):
-   """
-   NOTE: the first three bytes will be missing
-   """
-   
-   off = 0
-   life = None 
-   coeff = None 
-   base = None 
-   bucket_hex = None
-   buckets = []
-   discount_hex = None
-   nonalpha_discount = None 
-   no_vowel_discount = None
-   version = None
-   namespace_id = None 
-   namespace_id_hash = None
-   
-   life = int( hexlify(bin_payload[off:off+LENGTHS['blockchain_id_namespace_life']]), 16 )
-   
-   off += LENGTHS['blockchain_id_namespace_life']
-   
-   coeff = int( hexlify(bin_payload[off:off+LENGTHS['blockchain_id_namespace_coeff']]), 16 )
-   
-   off += LENGTHS['blockchain_id_namespace_coeff']
-   
-   base = int( hexlify(bin_payload[off:off+LENGTHS['blockchain_id_namespace_base']]), 16 )
-   
-   off += LENGTHS['blockchain_id_namespace_base']
-   
-   bucket_hex = hexlify(bin_payload[off:off+LENGTHS['blockchain_id_namespace_buckets']])
-   
-   off += LENGTHS['blockchain_id_namespace_buckets']
-   
-   discount_hex = hexlify(bin_payload[off:off+LENGTHS['blockchain_id_namespace_discounts']])
-   
-   off += LENGTHS['blockchain_id_namespace_discounts']
-   
-   version = int( hexlify(bin_payload[off:off+LENGTHS['blockchain_id_namespace_version']]), 16)
-   
-   off += LENGTHS['blockchain_id_namespace_version']
-   
-   namespace_id = bin_payload[off:]
-   namespace_id_hash = None
-   try:
-       namespace_id_hash = hash_name( namespace_id, sender, register_addr=recipient_address )
-   except Exception, e:
-       log.exception(e)
-       log.error("Invalid namespace ID and/or sender")
-       return None
-   
-   # extract buckets 
-   buckets = [int(x, 16) for x in list(bucket_hex)]
-   
-   # extract discounts
-   nonalpha_discount = int( list(discount_hex)[0], 16 )
-   no_vowel_discount = int( list(discount_hex)[1], 16 )
-  
-   try:
-       rc = namespacereveal_sanity_check( namespace_id, version, life, coeff, base, buckets, nonalpha_discount, no_vowel_discount )
-       if not rc:
-           raise Exception("Invalid namespace parameters")
-
-   except Exception, e:
-       log.error("Invalid namespace parameters")
-       return None 
-
-   return {
-      'opcode': 'NAMESPACE_REVEAL',
-      'lifetime': life,
-      'coeff': coeff,
-      'base': base,
-      'buckets': buckets,
-      'version': version,
-      'nonalpha_discount': nonalpha_discount,
-      'no_vowel_discount': no_vowel_discount,
-      'namespace_id': namespace_id,
-      'namespace_id_hash': namespace_id_hash
-   }
 
 
 def get_fees( inputs, outputs ):

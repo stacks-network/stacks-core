@@ -53,8 +53,8 @@ def build( namespace_id):
    if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
       raise Exception("Namespace ID '%s' has non-base-38 characters" % namespace_id)
    
-   if len(namespace_id) == 0 or len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
-      raise Exception("Invalid namespace ID '%s (expected length between 1 and %s)" % (namespace_id, LENGTHS['blockchain_id_namespace_id']))
+   if len(namespace_id) == 0 or len(namespace_id) > LENGTH_MAX_NAMESPACE_ID:
+      raise Exception("Invalid namespace ID '%s (expected length between 1 and %s)" % (namespace_id, LENGTH_MAX_NAMESPACE_ID))
    
    readable_script = "NAMESPACE_READY 0x%s" % (hexlify("." + namespace_id))
    hex_script = blockstack_script_to_hex(readable_script)
@@ -98,35 +98,6 @@ def make_transaction( namespace_id, payment_addr, blockchain_client, tx_fee=0 ):
    outputs = make_outputs( nulldata, inputs, payment_addr, fee=(DEFAULT_OP_RETURN_FEE + tx_fee), format='hex' )
   
    return (inputs, outputs)
-
-
-
-def parse( bin_payload ):
-   """
-   NOTE: the first three bytes will be missing
-   NOTE: the first byte in bin_payload is a '.'
-   """
-   
-   if bin_payload[0] != '.':
-       log.error("Missing namespace delimiter .")
-       return None 
-
-   namespace_id = bin_payload[ 1: ]
-   
-   # sanity check
-   if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
-       log.error("Invalid namespace ID '%s'" % namespace_id)
-       return None
-
-   if len(namespace_id) <= 0 or len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
-       log.error("Invalid namespace of length %s" % len(namespace_id))
-       return None 
-
-   return {
-      'opcode': 'NAMESPACE_READY',
-      'namespace_id': namespace_id
-   }
-
 
 
 def get_fees( inputs, outputs ):
