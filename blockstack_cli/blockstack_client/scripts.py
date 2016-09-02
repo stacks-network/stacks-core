@@ -28,7 +28,7 @@ import simplejson
 import virtualchain
 
 from pybitcoin.transactions.outputs import calculate_change_amount
-from .config import MAGIC_BYTES, NAME_OPCODES, LENGTHS, TX_MIN_CONFIRMATIONS
+from .config import MAGIC_BYTES, NAME_OPCODES, LENGTH_MAX_NAME, LENGTH_MAX_NAMESPACE_ID, TX_MIN_CONFIRMATIONS
 from .b40 import *
 from .keys import *
 
@@ -62,12 +62,11 @@ def is_name_valid( fqn ):
 
     if not is_b40( name ) or "+" in name or "." in name:
         return False 
-
-    if not is_b40( namespace_id ) or "+" in namespace_id or "." in namespace_id:
-        return False
     
-    name_hex = hexlify(name)
-    if len(name_hex) > LENGTHS['blockchain_id_name'] * 2:
+    if not is_namespace_valid( namespace_id ):
+        return False
+
+    if len(fqn) >= LENGTH_MAX_NAME:
        # too long
        return False 
 
@@ -81,7 +80,7 @@ def is_namespace_valid( namespace_id ):
     if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
         return False
 
-    if len(namespace_id) == 0 or len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
+    if len(namespace_id) == 0 or len(namespace_id) > LENGTH_MAX_NAMESPACE_ID:
         return False
 
     return True
