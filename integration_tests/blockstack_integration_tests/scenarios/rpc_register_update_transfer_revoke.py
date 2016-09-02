@@ -95,7 +95,7 @@ def scenario( wallets, **kw ):
         print >> sys.stderr, "update error: %s" % resp['error']
         return False
 
-    zonefile_hash = resp['zonefile_hash']
+    zonefile_hash = resp['value_hash']
     
     # wait for it to go through 
     for i in xrange(0, 12):
@@ -127,12 +127,12 @@ def scenario( wallets, **kw ):
         print >> sys.stderr, "Revoke request failed:\n%s" % json.dumps(resp, indent=4, sort_keys=True)
         return False
 
-    print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge the revoke"
-    time.sleep(10)
-
     # wait for it to go through 
     for i in xrange(0, 12):
         testlib.next_block( **kw )
+
+    print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge the revoke"
+    time.sleep(10)
 
 
 def check( state_engine ):
@@ -182,8 +182,7 @@ def check( state_engine ):
         print "rpc names: %s" % names_owned['error']
         return False
 
-    # we updated the wallet; we should own one name
-    if len(names_owned['names_owned']) != 1:
+    if len(names_owned['names_owned']) != 0:
         print "owned: %s" % names_owned['names_owned']
         return False
 
