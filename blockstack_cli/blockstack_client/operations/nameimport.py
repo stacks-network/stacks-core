@@ -107,7 +107,7 @@ def make_transaction(name, recipient_address, update_hash, payment_addr, blockch
     tx_fee = int(tx_fee)
 
     assert is_name_valid(name)
-    assert len(update_hash) == LENGTHS['update_hash'] * 2
+    assert len(update_hash) == LENGTH_VALUE_HASH * 2
 
     nulldata = build(name)
     
@@ -117,24 +117,6 @@ def make_transaction(name, recipient_address, update_hash, payment_addr, blockch
     outputs = make_outputs(nulldata, inputs, recipient_address, payment_addr, update_hash_b58, tx_fee)
 
     return (inputs, outputs)
-
-
-def parse(bin_payload, recipient, update_hash ):
-    """
-    # NOTE: first three bytes were stripped
-    """
-    
-    fqn = bin_payload
-    if not is_name_valid( fqn ):
-        return None 
-
-    return {
-        'opcode': 'NAME_IMPORT',
-        'name': fqn,
-        'recipient': recipient,
-        'update_hash': update_hash
-    }
-
 
 
 def get_fees( inputs, outputs ):

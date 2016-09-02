@@ -105,27 +105,6 @@ def make_transaction(message_hash, payment_addr, blockchain_client, tx_fee=0):
     return (inputs, outputs)
 
 
-def parse(bin_payload):    
-    """
-    Interpret a block's nulldata back into a SHA256.  The first three bytes (2 magic + 1 opcode)
-    will not be present in bin_payload.
-    """
-    
-    message_hash = hexlify(bin_payload)
-    if not is_hex( message_hash ):
-        log.error("Not a message hash")
-        return None 
-
-    if len(message_hash) != 40:
-        log.error("Not a 160-bit hash")
-        return None 
-
-    return {
-       'opcode': 'ANNOUNCE',
-       'message_hash': message_hash
-    }
-
-
 def get_fees( inputs, outputs ):
     """
     Given a transaction's outputs, look up its fees:
