@@ -145,7 +145,6 @@ def check( state_engine ):
         print "wrong namespace"
         return False 
 
-    # not preordered
     names = ['foo.test']
     wallet_keys_list = [wallet_keys]
     test_proxy = testlib.TestAPIProxy()
@@ -157,6 +156,7 @@ def check( state_engine ):
         wallet_data_pubkey = 3 * (i+1) + 1
         wallet_keys = wallet_keys_list[i]
 
+        # not preordered
         preorder = state_engine.get_name_preorder( name, pybitcoin.make_pay_to_address_script(wallets[wallet_payer].addr), wallets[wallet_owner].addr )
         if preorder is not None:
             print "still have preorder"
@@ -174,14 +174,14 @@ def check( state_engine ):
             return False 
 
         # serviceFoo exists
-        accounts = blockstack_client.list_accounts( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
+        accounts = blockstack_client.list_accounts( name, proxy=test_proxy, wallet_keys=wallet_keys )
         if len(accounts) != 1:
             print "wrong number of accounts"
             print json.dumps(accounts, indent=4, sort_keys=True)
             return False 
 
         account = accounts['accounts'][0]
-        on_file_accounts = blockstack_client.get_account( "foo.test", "serviceFoo", "serviceFooID", proxy=test_proxy, wallet_keys=wallet_keys )
+        on_file_accounts = blockstack_client.get_account( name, "serviceFoo", "serviceFooID", proxy=test_proxy, wallet_keys=wallet_keys )
         if 'error' in on_file_accounts:
             print json.dumps(on_file_account, sort_keys=True, indent=4)
             return False 
