@@ -151,7 +151,9 @@ def encrypt_multisig_info( multisig_info, password ):
     if 'private_keys' in multisig_info.keys():
         enc_info['encrypted_private_keys'] = []
         for pk in multisig_info['private_keys']:
-            enc_info['encrypted_private_keys'].append( aes_encrypt( pk, hex_password ) )
+            pk_ciphertext = aes_encrypt( pk, hex_password ) 
+            enc_info['encrypted_private_keys'].append( pk_ciphertext )
+
 
     if 'redeem_script' in multisig_info.keys():
         enc_info['encrypted_redeem_script'] = aes_encrypt( multisig_info['redeem_script'], hex_password )
@@ -220,7 +222,7 @@ def encrypt_private_key_info( privkey_info, password ):
 
     if is_multisig( privkey_info ):
         ret['address'] = virtualchain.make_multisig_address( privkey_info['redeem_script'] )
-        ret['private_key_info'] = encrypt_multisig_info( privkey_info, hex_password )
+        ret['private_key_info'] = encrypt_multisig_info( privkey_info, password )
 
         return {'status': True, 'encrypted_private_key_info': ret}
 
@@ -324,6 +326,8 @@ def get_data_privkey( user_zonefile, wallet_keys=None, config_path=CONFIG_PATH )
     Use the private key that corresponds to the data public key in their zonefile.
     (If the have a designated data public key, use the data private key.  If they don't,
     use the owner private key).
+
+    Return None if not set
     """
     from .wallet import get_wallet
     from .user import user_zonefile_data_pubkey
@@ -340,7 +344,10 @@ def get_data_privkey( user_zonefile, wallet_keys=None, config_path=CONFIG_PATH )
 
     wallet = None
     if wallet_keys is not None:
-        assert wallet_keys.has_key('data_privkey') and wallet_keys['data_privkey'] is not None, "No data private key set"
+        if not wallet_keys.has_key('data_privkey') or wallet_keys['data_privkey'] is None:
+            log.error("No data private key set")
+            return None 
+
         wallet = wallet_keys
 
     else:
