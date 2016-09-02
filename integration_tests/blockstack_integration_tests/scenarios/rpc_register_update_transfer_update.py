@@ -95,7 +95,7 @@ def scenario( wallets, **kw ):
         print >> sys.stderr, "update error: %s" % resp['error']
         return False
 
-    zonefile_hash = resp['zonefile_hash']
+    zonefile_hash = resp['value_hash']
     
     # wait for it to go through 
     for i in xrange(0, 12):
@@ -133,7 +133,7 @@ def scenario( wallets, **kw ):
         print >> sys.stderr, "update error: %s" % resp['error']
         return False
 
-    zonefile_hash = resp['zonefile_hash']
+    zonefile_hash = resp['value_hash']
     
     # wait for it to go through 
     for i in xrange(0, 12):
@@ -206,13 +206,12 @@ def check( state_engine ):
                 print "missing %s" % new_data_pubkey
                 return False
 
-    # doesn't show up in listing
     names_owned = testlib.blockstack_rpc_names()
     if 'error' in names_owned:
         print "rpc names: %s" % names_owned['error']
         return False
 
-    # we updated the wallet; we should own one name
+    # we still own the name
     if len(names_owned['names_owned']) != 1:
         print "owned: %s" % names_owned['names_owned']
         return False
