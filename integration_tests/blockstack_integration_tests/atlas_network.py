@@ -32,6 +32,7 @@ import atexit
 import errno
 import subprocess
 import signal
+import SocketServer
 
 import blockstack
 import blockstack_client
@@ -1228,7 +1229,7 @@ class AtlasNode(object):
         atlasdb_add_zonefile_info( zfhash, (zf is not None), self.db.lastblock, path=self.db_path)
 
 
-class AtlasStaticNetwork( SimpleXMLRPCServer ):
+class AtlasStaticNetwork( SocketServer.ThreadingMixin, SimpleXMLRPCServer ):
     
     """
     Static network test: don't actually run a network,
