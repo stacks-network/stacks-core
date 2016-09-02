@@ -94,7 +94,7 @@ def check( state_engine ):
     # not preordered
     preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
     if preorder is not None:
-        print json.dumps(name_rec, indent=4)
+        print json.dumps(name_rec, indent=4, sort_keys=True)
         return False
     
     # registered to new owner
@@ -104,18 +104,18 @@ def check( state_engine ):
         return False 
 
     if name_rec['address'] != wallets[0].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[0].addr):
-        print json.dumps(name_rec, indent=4 )
+        print json.dumps(name_rec, indent=4, sort_keys=True )
         return False
 
     # check blocks 
     if name_rec['first_registered'] != last_first_block:
         print "wrong first_registered; expected %s" % last_first_block
-        print json.dumps(name_rec, indent=4 )
+        print json.dumps(name_rec, indent=4, sort_keys=True )
         return False 
 
     if name_rec['block_number'] != first_preorder:
         print "wrong block_number; expected %s" % last_first_preorder
-        print json.dumps(name_rec, indent=4)
+        print json.dumps(name_rec, indent=4, sort_keys=True)
         return False
 
     return True
