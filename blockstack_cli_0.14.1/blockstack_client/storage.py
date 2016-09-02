@@ -45,7 +45,7 @@ from collections import defaultdict
 
 import blockstack_profiles 
 
-from config import MAX_NAME_LENGTH, get_logger, CONFIG_PATH
+from config import LENGTH_MAX_NAME, get_logger, CONFIG_PATH
 import keys
 
 log = get_logger()
@@ -222,6 +222,7 @@ def parse_mutable_data( mutable_data_json_txt, public_key, public_key_hash=None 
        public_key_hash_0 = keylib.address_formatting.bin_hash160_to_address( keylib.address_formatting.address_to_bin_hash160( str(public_key_hash) ), version_byte=0 )
        mutable_data_json = blockstack_profiles.get_profile_from_tokens( mutable_data_jwt, public_key_hash_0 )
        if len(mutable_data_json) > 0:
+           log.debug("Verified with %s" % public_key_hash)
            return mutable_data_json
        else:
            log.warn("Failed to verify with public key hash '%s' ('%s')" % (public_key_hash, public_key_hash_0))
@@ -782,7 +783,7 @@ def is_valid_name( name ):
     if not is_b40(name) or name.count(".") != 1:
         return False 
 
-    if len(name) > MAX_NAME_LENGTH:
+    if len(name) > LENGTH_MAX_NAME:
         return False
 
     return True
