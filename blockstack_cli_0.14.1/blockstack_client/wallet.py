@@ -420,7 +420,7 @@ def write_wallet( data, path=None, config_dir=CONFIG_DIR ):
     return True
 
 
-def make_wallet_password( password=None ):
+def make_wallet_password( prompt=None, password=None ):
     """
     Make a wallet password:
     prompt for a wallet, and ensure it's the right length.
@@ -435,6 +435,9 @@ def make_wallet_password( password=None ):
         return {'status': True, 'password': password}
 
     else:
+        if prompt:
+            print prompt
+
         p1 = getpass("Enter new password: ")
         p2 = getpass("Confirm new password: ")
         if p1 != p2:
