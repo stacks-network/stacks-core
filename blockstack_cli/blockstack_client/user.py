@@ -25,6 +25,7 @@ import traceback
 import json
 import socket
 import base64
+import os
 
 from binascii import hexlify, unhexlify
 from utilitybelt import is_hex, hex_to_charset, charset_to_hex
@@ -209,10 +210,7 @@ def user_zonefile_set_data_pubkey( user_zonefile, pubkey_hex, key_prefix='pubkey
     for i in xrange(0, len(user_zonefile['txt'])):
         if user_zonefile['txt'][i]['txt'].startswith(key_prefix):
             # overwrite
-            user_zonefile['txt'][i]['txt'] = {
-                "name": "pubkey",
-                "txt": "%s%s" % (key_prefix, str(data_pubkey))
-            }
+            user_zonefile['txt'][i]['txt'] = "%s%s" % (key_prefix, str(pubkey_hex))
             return True
 
     # not present.  add.
@@ -416,9 +414,18 @@ def get_immutable_data_hash( user_zonefile, data_id ):
        h = None
        try:
            d_id = txtrec['name']
+           if d_id != data_id:
+               continue
+
            h = get_immutable_hash_from_txt( txtrec['txt'] )
-           assert storage.is_valid_hash(h)
-       except:
+           if h is None:
+               log.error("Missing or invalid data hash for '%s'" % d_id)
+
+           assert storage.is_valid_hash(h), "Invalid data hash for '%s' (got '%s' from %s)" % (d_id, h, txtrec['txt'])
+       except AssertionError, ae:
+           if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+               log.exception(ae)
+
            continue 
 
        if d_id == data_id:
