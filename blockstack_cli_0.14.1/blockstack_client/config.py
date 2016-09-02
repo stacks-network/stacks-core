@@ -37,6 +37,14 @@ from ConfigParser import SafeConfigParser
 
 from version import __version__
 
+def get_logger( debug=DEBUG ):
+    logger = virtualchain.get_logger("blockstack-client")
+    logger.setLevel(logging.DEBUG if debug else logging.INFO)
+    return logger
+
+log = get_logger("blockstack-client")
+
+
 DEBUG = False
 if os.environ.get("BLOCKSTACK_TEST") is not None and os.environ.get("BLOCKSTACK_TEST_NODEBUG") is None:
     DEBUG = True
@@ -85,13 +93,15 @@ FIRST_BLOCK_MAINNET = 373601
 
 if os.environ.get("BLOCKSTACK_TEST", None) is not None and os.environ.get("BLOCKSTACK_TEST_FIRST_BLOCK", None) is not None:
     FIRST_BLOCK_MAINNET = int(os.environ.get("BLOCKSTACK_TEST_FIRST_BLOCK"))
+    log.warn("FIRST_BLOCK_MAINNET = %s" % FIRST_BLOCK_MAINNET)
 
 FIRST_BLOCK_TIME_UTC = 1441737751 
 
 TX_MIN_CONFIRMATIONS = 6
-if os.environ.get("BLOCKSTACK_TEST", None) is not None:
+if os.environ.get("BLOCKSTACK_TEST", None) == "1":
     # test environment
     TX_MIN_CONFIRMATIONS = 0
+    log.warn("TX_MIN_CONFIRMATIONS = %s" % TX_MIN_CONFIRMATIONS)
 
 # borrowed from Blockstack
 # Opcodes
@@ -111,7 +121,7 @@ NAMESPACE_READY = '!'
 TRANSFER_KEEP_DATA = '>'
 TRANSFER_REMOVE_DATA = '~'
 
-# borrowed from Blockstack
+# borrowed from Blockstack Core
 # these never change, so it's fine to duplicate them here
 NAME_OPCODES = {
     "NAME_PREORDER": NAME_PREORDER,
@@ -127,7 +137,7 @@ NAME_OPCODES = {
     "ANNOUNCE": ANNOUNCE
 }
 
-# borrowed from Blockstack
+# borrowed from Blockstack Core; needed by SNV
 # these never change, so it's fine to duplicate them here
 NAMEREC_FIELDS = [
     'name',                 # the name itself
@@ -151,7 +161,7 @@ NAMEREC_FIELDS = [
     'importer_address',     # (OPTIONAL) if this name was imported, this is the importer's address
 ]
 
-# borrowed from Blockstack
+# borrowed from Blockstack Core; needed by SNV
 # these never change, so it's fine to duplicate them here
 NAMESPACE_FIELDS = [
     'namespace_id',         # human-readable namespace ID
@@ -178,7 +188,7 @@ NAMESPACE_FIELDS = [
     'no_vowel_discount',    # multiplicative coefficient that drops a name's price if it has no vowels
 ]
 
-# borrowed from Blockstack
+# borrowed from Blockstack Core; needed by SNV
 # these never change, so it's fine to duplicate them here
 OPFIELDS = {
     NAME_IMPORT: NAMEREC_FIELDS + [
@@ -230,33 +240,12 @@ OPFIELDS = {
     ]
 }
 
-# borrowed from Blockstack
-# never changes so safe to duplicate to avoid gratuitous imports
-# op-return formats
-# Byte-lengths of fields
-LENGTHS = {
-    'magic_bytes': 2,
-    'opcode': 1,
-    'preorder_name_hash': 20,
-    'consensus_hash': 16,
-    'namelen': 1,
-    'name_min': 1,
-    'name_max': 34,
-    'name_hash': 16,
-    'update_hash': 20,
-    'data_hash': 20,
-    'blockchain_id_name': 37,
-    'blockchain_id_namespace_life': 4,
-    'blockchain_id_namespace_coeff': 1,
-    'blockchain_id_namespace_base': 1,
-    'blockchain_id_namespace_buckets': 8,
-    'blockchain_id_namespace_discounts': 1,
-    'blockchain_id_namespace_version': 2,
-    'blockchain_id_namespace_id': 19,
-    'announce': 20,
-    'max_op_length': 40
-}
 
+# a few contants borrowed from Blockstack Core
+LENGTH_VALUE_HASH = 20
+LENGTH_CONSENSUS_HASH = 16
+LENGTH_MAX_NAME = 37            # maximum name length
+LENGTH_MAX_NAMESPACE_ID = 19    # maximum namespace length
 
 # namespace version
 BLOCKSTACK_VERSION = 1
@@ -266,13 +255,11 @@ NAME_SCHEME = MAGIC_BYTES + NAME_REGISTRATION
 BLOCKSTACK_BURN_PUBKEY_HASH = "0000000000000000000000000000000000000000"
 BLOCKSTACK_BURN_ADDRESS = virtualchain.hex_hash160_to_address( BLOCKSTACK_BURN_PUBKEY_HASH )   # "1111111111111111111114oLvT2"
 
-# borrowed from Blockstack
+# borrowed from Blockstack Core
 # never changes, so safe to duplicate to avoid gratuitous imports
 MAXIMUM_NAMES_PER_ADDRESS = 25
 
 MAX_RPC_LEN = 1024 * 1024 * 1024
-
-MAX_NAME_LENGTH = 37        # taken from blockstack-server
 
 CONFIG_FILENAME = "client.ini"
 WALLET_FILENAME = "wallet.json"
@@ -283,6 +270,7 @@ if os.environ.get("BLOCKSTACK_TEST", None) == "1":
     assert CONFIG_PATH is not None, "BLOCKSTACK_CLIENT_CONFIG not set"
 
     CONFIG_DIR = os.path.dirname(CONFIG_PATH)
+    log.warn("CONFIG_PATH = %s" % CONFIG_PATH)
 
 else:
     CONFIG_DIR = os.path.expanduser("~/.blockstack")
@@ -331,14 +319,6 @@ SUPPORTED_UTXO_PROMPT_MESSAGES = {
     "bitcoind_utxo": "Please enter your fully-indexed bitcoind node information.",
     "blockstack_utxo": "Please enter your Blockstack server info."
 }
-
-def get_logger( debug=DEBUG ):
-    logger = virtualchain.get_logger("blockstack-client")
-    logger.setLevel(logging.DEBUG if debug else logging.INFO)
-    return logger
-
-log = get_logger()
-
 
 def url_to_host_port( url, port=DEFAULT_BLOCKSTACKD_PORT ):
     """
