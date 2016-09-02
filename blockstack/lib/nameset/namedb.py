@@ -115,9 +115,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         self.disposition = disposition
 
-        # are we resuming part-way through committing transactions?
         lastblock = self.get_lastblock( impl=blockstack_impl )
-
         super( BlockstackDB, self ).__init__( MAGIC_BYTES,
                                               OPCODES,
                                               BlockstackDB.make_opfields(),
