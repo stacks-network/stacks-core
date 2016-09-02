@@ -581,7 +581,7 @@ def blockstack_rpc_sync_zonefile( name, zonefile_string=None, txid=None ):
 
     resp = cli_advanced_sync_zonefile( args, config_path=test_proxy.config_path, proxy=test_proxy )
     if 'value_hash' in resp:
-        altas_zonefiles_present.append( resp['values_hash'] )
+        atlas_zonefiles_present.append( resp['value_hash'] )
 
     return resp
 
@@ -756,6 +756,7 @@ def check_history( state_engine ):
     block_ids = sorted( all_consensus_hashes.keys() )
     db_path = state_engine.get_db_path()
 
+    old_working_dir = os.environ['VIRTUALCHAIN_WORKING_DIR']
     for block_id in block_ids:
     
         state_engine.lastblock = block_ids[0]
@@ -773,8 +774,10 @@ def check_history( state_engine ):
         valid = blockstack_verify_database( expected_consensus_hash, block_id, untrusted_db_path, working_db_path=working_db_path, start_block=block_ids[0] )
         if not valid:
             print "Invalid at block %s" % block_id 
+            os.environ["VIRTUALCHAIN_WORKING_DIR"] = old_working_dir
             return False
 
+    os.environ["VIRTUALCHAIN_WORKING_DIR"] = old_working_dir
     return True
 
 
@@ -876,7 +879,7 @@ def snv_all_names( state_engine ):
                     return False 
 
                 elif type(snv_rec['op_fee']) not in [int,long]:
-                    print "QUIRK: %s: fee isn't an int" % snv_rec['opcode']
+                    print "QUIRK: %s: fee isn't an int (but a %s: %s)" % (snv_rec['opcode'], type(snv_rec['op_fee']), snv_rec['op_fee'])
 
                 log.debug("SNV verified %s with (%s,%s) back to (%s,%s)" % (name, trusted_block_id, trusted_consensus_hash, block_id, consensus_hash ))
 
