@@ -38,7 +38,7 @@ except:
         __version__ = "0.14.0"
 
 import blockstack_client
-from blockstack_client.config import LENGTHS, DEFAULT_OP_RETURN_FEE, DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_VALUE, DEFAULT_FEE_PER_KB, url_to_host_port
+from blockstack_client.config import DEFAULT_OP_RETURN_FEE, DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_VALUE, DEFAULT_FEE_PER_KB, url_to_host_port
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
 
@@ -80,14 +80,6 @@ else:
 RPC_MAX_ZONEFILE_LEN = 4096     # 4KB
 RPC_MAX_PROFILE_LEN = 1024000   # 1MB
 
-
-""" Bitcoin configs
-"""
-DEFAULT_BITCOIND_SERVER = 'btcd.onename.com'
-DEFAULT_BITCOIND_PORT = 8332
-DEFAULT_BITCOIND_USERNAME = 'openname'
-DEFAULT_BITCOIND_PASSWD = 'opennamesystem'
-
 """ block indexing configs
 """
 REINDEX_FREQUENCY = 300 # seconds
@@ -110,7 +102,7 @@ GENESIS_SNAPSHOT = {
 """ magic bytes configs
 """
 
-MAGIC_BYTES_MAINSET = 'id'
+MAGIC_BYTES = 'id'
 
 """ name operation data configs
 """
@@ -124,28 +116,11 @@ NAME_RENEWAL = NAME_REGISTRATION
 NAME_REVOKE = '~'
 NAME_IMPORT = ';'
 
-NAME_OPCODES = [
-    NAME_PREORDER,
-    NAME_REGISTRATION,
-    NAME_UPDATE,
-    NAME_TRANSFER,
-    NAME_RENEWAL,
-    NAME_REVOKE,
-    NAME_IMPORT
-]
-
-NAME_SCHEME = MAGIC_BYTES_MAINSET + NAME_REGISTRATION
+NAME_SCHEME = MAGIC_BYTES + NAME_REGISTRATION
 
 NAMESPACE_PREORDER = '*'
 NAMESPACE_REVEAL = '&'
 NAMESPACE_READY = '!'
-
-NAMESPACE_OPCODES = [
-    NAMESPACE_PREORDER,
-    NAMESPACE_REVEAL,
-    NAMESPACE_READY
-]
-
 ANNOUNCE = '#'
 
 # extra bytes affecting a transfer
@@ -196,15 +171,42 @@ NAME_OPCODES = {
     "ANNOUNCE": ANNOUNCE
 }
 
-NAMESPACE_LIFE_INFINITE = 0xffffffff
+
+# op-return formats
+LENGTHS = {
+    'magic_bytes': 2,
+    'opcode': 1,
+    'preorder_name_hash': 20,
+    'consensus_hash': 16,
+    'namelen': 1,
+    'name_min': 1,
+    'name_max': 34,
+    'fqn_min': 3,
+    'fqn_max': 37,
+    'name_hash': 16,
+    'name_consensus_hash': 16,
+    'value_hash': 20,
+    'blockchain_id_name': 37,
+    'blockchain_id_namespace_life': 4,
+    'blockchain_id_namespace_coeff': 1,
+    'blockchain_id_namespace_base': 1,
+    'blockchain_id_namespace_buckets': 8,
+    'blockchain_id_namespace_discounts': 1,
+    'blockchain_id_namespace_version': 2,
+    'blockchain_id_namespace_id': 19,
+    'announce': 20,
+    'max_op_length': 80
+}
 
 MIN_OP_LENGTHS = {
     'preorder': LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'],
-    'registration': LENGTHS['name_min'],
-    'update': LENGTHS['name_hash'] + LENGTHS['update_hash'],
+    'preorder_multi': 1 + LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'],
+    'registration': LENGTHS['fqn_min'],
+    'registration_multi': 2*LENGTHS['fqn_min'] + 2*LENGTHS['value_hash'],
+    'update': LENGTHS['name_consensus_hash'] + LENGTHS['value_hash'],
     'transfer': LENGTHS['name_hash'] + LENGTHS['consensus_hash'],
-    'revoke': LENGTHS['name_min'],
-    'name_import': LENGTHS['name_min'],
+    'revoke': LENGTHS['fqn_min'],
+    'name_import': LENGTHS['fqn_min'],
     'namespace_preorder': LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'],
     'namespace_reveal': LENGTHS['blockchain_id_namespace_life'] + LENGTHS['blockchain_id_namespace_coeff'] + \
                         LENGTHS['blockchain_id_namespace_base'] + LENGTHS['blockchain_id_namespace_buckets'] + \
@@ -213,6 +215,81 @@ MIN_OP_LENGTHS = {
     'namespace_ready': 1 + LENGTHS['name_min'],
     'announce': LENGTHS['announce']
 }
+
+# graph of allowed operation sequences
+OPCODE_SEQUENCE_GRAPH = {
+    "NAME_PREORDER":      [ "NAME_REGISTRATION" ],
+    "NAME_REGISTRATION":  [ "NAME_UPDATE", "NAME_TRANSFER", "NAME_RENEWAL", "NAME_REVOKE" ],
+    "NAME_UPDATE":        [ "NAME_UPDATE", "NAME_TRANSFER", "NAME_RENEWAL", "NAME_REVOKE" ],
+    "NAME_TRANSFER":      [ "NAME_UPDATE", "NAME_TRANSFER", "NAME_RENEWAL", "NAME_REVOKE" ],
+    "NAME_RENEWAL":       [ "NAME_UPDATE", "NAME_TRANSFER", "NAME_RENEWAL", "NAME_REVOKE" ],
+    "NAME_REVOKE":        [ "NAME_REGISTRATION" ],      # i.e. following a re-preorder 
+    "NAME_IMPORT":        [ "NAME_IMPORT", "NAME_UPDATE", "NAME_TRANSFER", "NAME_RENEWAL", "NAME_REVOKE" ],   # i.e. only after the namespace is ready'ed
+    "NAMESPACE_PREORDER": [ "NAMESPACE_REVEAL" ],
+    "NAMESPACE_REVEAL":   [ "NAMESPACE_READY" ],
+    "NAMESPACE_READY":    [],
+}
+
+# set of operations that preorder names
+OPCODE_NAME_STATE_PREORDER = [
+    "NAME_PREORDER",
+]
+
+# set of operations that preorder namespaces 
+OPCODE_NAMESPACE_STATE_PREORDER = [
+    "NAMESPACE_PREORDER"
+]
+
+OPCODE_PREORDER_OPS = OPCODE_NAME_STATE_PREORDER + OPCODE_NAMESPACE_STATE_PREORDER
+
+# set of operations that create names
+OPCODE_NAME_STATE_CREATIONS = [
+    "NAME_REGISTRATION",
+    "NAME_IMPORT"
+]
+
+# set of operations that import names 
+OPCODE_NAME_STATE_IMPORTS = [
+    "NAME_IMPORT"
+]
+
+# set of operations that create namespaces
+OPCODE_NAMESPACE_STATE_CREATIONS = [
+    "NAMESPACE_REVEAL"
+]
+
+OPCODE_CREATION_OPS = OPCODE_NAME_STATE_CREATIONS + OPCODE_NAMESPACE_STATE_CREATIONS
+
+# set of operations that affect existing names 
+OPCODE_NAME_STATE_TRANSITIONS = [
+    "NAME_IMPORT",
+    "NAME_UPDATE",
+    "NAME_TRANSFER",
+    "NAME_RENEWAL",
+    "NAME_REVOKE"
+]
+
+# set of operations that affect existing namespaces 
+OPCODE_NAMESPACE_STATE_TRANSITIONS = [
+    "NAMESPACE_READY"
+]
+
+OPCODE_TRANSITION_OPS = OPCODE_NAME_STATE_TRANSITIONS + OPCODE_NAMESPACE_STATE_TRANSITIONS 
+
+# set of operations that have fees 
+OPCODE_HAVE_FEES = [
+    "NAMESPACE_PREORDER",
+    "NAME_PREORDER",
+    "NAME_RENEWAL"
+]
+
+# set of ops that have no state to record 
+OPCODE_STATELESS_OPS = [
+    "ANNOUNCE"
+]
+
+
+NAMESPACE_LIFE_INFINITE = 0xffffffff
 
 OP_RETURN_MAX_SIZE = 40
 
@@ -248,6 +325,7 @@ else:
 NUM_CONFIRMATIONS = 6                         # number of blocks to wait for before accepting names
 if os.environ.get("BLOCKSTACK_TEST", None) == "1":
     NUM_CONFIRMATIONS = 0
+    log.warning("NUM_CONFIRMATIONS = %s" % NUM_CONFIRMATIONS)
 
 # burn address for fees (the address of public key 0x0000000000000000000000000000000000000000)
 BLOCKSTACK_BURN_PUBKEY_HASH = "0000000000000000000000000000000000000000"
@@ -287,6 +365,40 @@ ANNOUNCEMENTS = []
 
 blockstack_client_session = None
 blockstack_client_session_opts = None
+
+def op_get_opcode_name( op_string ):
+    """
+    Get the name of an opcode, given the operation's 'op' byte sequence.
+    """
+    global OPCODE_NAMES
+
+    # special case...
+    if op_string == "%s:" % NAME_REGISTRATION:
+        return "NAME_RENEWAL"
+
+    op = op_string[0]
+    if op not in OPCODE_NAMES.keys():
+        raise Exception("No such operation '%s'" % op)
+
+    return OPCODE_NAMES[op]
+
+
+def get_default_virtualchain_impl():
+   """
+   Get the set of virtualchain hooks--to serve as
+   the virtualchain's implementation.  Uses the
+   one set in the virtualchain runtime config, but
+   falls back to Blockstack's by default (i.e. if
+   blockstack is getting imported as part of a 
+   library).
+   """
+   import nameset.virtualchain_hooks as virtualchain_hooks
+   blockstack_impl = virtualchain.get_implementation()
+   if blockstack_impl is None:
+       blockstack_impl = virtualchain_hooks 
+
+   return blockstack_impl
+
 
 def get_announce_filename( working_dir=None ):
    """
