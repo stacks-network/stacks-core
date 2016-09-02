@@ -61,23 +61,22 @@ def scenario( wallets, **kw ):
             testlib.next_block( **kw )
 
         # wait for the poller to pick them up
-        print >> sys.stderr, "Waiting 3 seconds for the backend to submit the registers"
-        time.sleep(3)
-
+        print >> sys.stderr, "Waiting 10 seconds for the backend to submit the registers on foo_%s.test" % i
+        time.sleep(10)
 
         # wait for the registers to get confirmed 
-        for i in xrange(0, 12):
+        for i in xrange(0, 15):
             testlib.next_block( **kw )
 
-        print >> sys.stderr, "Waiting 3 seconds for the backend to acknowledge registrations"
-        time.sleep(3)
+        print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registrations on foo_%s.test" % i
+        time.sleep(10)
 
         # wait for update to get confirmed 
-        for i in xrange(0, 12):
+        for i in xrange(0, 15):
             testlib.next_block( **kw )
 
-        print >> sys.stderr, "Waiting 3 seconds for the backend to acknowledge update"
-        time.sleep(3)
+        print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update on foo_%s.test" % i
+        time.sleep(10)
 
 
 
