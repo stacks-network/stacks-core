@@ -313,7 +313,9 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     * run the check method
     """
 
-    spv_headers_path = os.path.join(os.environ.get("VIRTUALCHAIN_WORKING_DIR", None), "spv_headers.dat")
+    virtualchain_working_dir = os.environ["VIRTUALCHAIN_WORKING_DIR"]
+
+    spv_headers_path = os.path.join( virtualchain_working_dir, "spv_headers.dat")
     atexit_cleanup( spv_headers_path, None, False )
     atexit.register( atexit_cleanup, spv_headers_path, client_config_file, True )
 
@@ -462,6 +464,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     log.info("Scenario checks passed; verifying history")
 
     # run database integrity check at each block 
+    db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RO)
     rc = testlib.check_history( db )
     if not rc:
         network_stop()
@@ -472,6 +475,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     log.info("History check passes!")
 
     # run snv at each name 
+    db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RO)
     rc = testlib.snv_all_names( db )
     if not rc:
         network_stop()
@@ -482,6 +486,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     log.info("SNV check passes!")
 
     # verify atlas zonefiles
+    db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RO)
     rc = testlib.check_atlas_zonefiles( db, blockstack_opts['atlasdb_path'] )
     if not rc:
         network_stop()
