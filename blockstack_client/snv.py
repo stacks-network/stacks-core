@@ -668,7 +668,7 @@ def get_name_update_consensus_info(name, blockchain_record, bitcoind_proxy, prox
         return update_info
 
 
-def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, consensus_hash, proxy=None):
+def snv_get_records_at(current_block_id, current_consensus_hash, block_id, consensus_hash, proxy=None):
     """
     Simple name verification (snv) lookup:
     Use a known-good "current" consensus hash and block ID to
@@ -698,10 +698,10 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
         nameops_hash = None
 
         if not prev_nameops_hashes.has_key(next_block_id):
-            nameops_resp = get_nameops_hash_at(next_block_id, proxy=proxy)
+            nameops_resp = get_records_hash_at(next_block_id, proxy=proxy)
 
             if 'error' in nameops_resp:
-                log.error("get_nameops_hash_at: %s" % nameops_resp['error'])
+                log.error("get_records_hash_at: %s" % nameops_resp['error'])
                 return {'error': 'Failed to get nameops: %s' % nameops_resp['error']}
 
             nameops_hash = str(nameops_resp)
@@ -710,26 +710,8 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
         else:
             nameops_hash = prev_nameops_hashes[ next_block_id ]
 
-        # print "prev_nameops_hashes[%s] = %s" % (next_block_id, nameops_hash)
-        """
-        ch_block_ids = []
-        while next_block_id - (2**(i+1) - 1) >= FIRST_BLOCK_MAINNET:
+        log.debug("nameops hash at %s: %s" % (next_block_id, nameops_hash))
 
-            i += 1
-            ch_block_ids.append(next_block_id - (2**i - 1))
-
-            if not prev_consensus_hashes.has_key(next_block_id - (2**i - 1)):
-                ch = str(get_consensus_at(next_block_id - (2**i - 1), proxy=proxy))
-
-                if ch != "None":
-                    prev_consensus_hashes[ next_block_id - (2**i - 1) ] = ch
-                    # print "prev_consensus_hashes[%s] = %s" % (next_block_id - (2**i - 1), ch)
-
-                else:
-                    # skip this one
-                    ch_block_ids.pop()
-                    break
-        """
         # find out which consensus hashes we'll need
         to_fetch = []
         ch_block_ids = []
@@ -777,7 +759,7 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
         ch = virtualchain.StateEngine.make_snapshot_from_ops_hash(nameops_hash, prev_consensus_hashes_list)
         expected_ch = prev_consensus_hashes[ next_block_id ]
         if ch != expected_ch:
-            log.error("Consensus hash mismatch at %s: expected %s, got %s" % (next_block_id, expected_ch, ch))
+            log.error("Consensus hash mismatch at %s: expected %s, got %s (from %s, %s)" % (next_block_id, expected_ch, ch, nameops_hash, prev_consensus_hashes))
             return {'error': 'Consensus hash mismatch'}
 
         # advance!
@@ -798,7 +780,7 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
         next_block_id = current_candidate
 
     # get the final nameops
-    historic_nameops = get_nameops_at(block_id, proxy=proxy)
+    historic_nameops = get_records_at(block_id, proxy=proxy)
     if type(historic_nameops) == dict and 'error' in historic_nameops:
         return {'error': 'BUG: no nameops found'}
 
@@ -837,7 +819,7 @@ def snv_name_verify(name, current_block_id, current_consensus_hash, block_id, co
     if proxy is None:
         proxy = get_default_proxy()
 
-    historic_nameops = snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, consensus_hash, proxy=proxy)
+    historic_nameops = snv_get_records_at(current_block_id, current_consensus_hash, block_id, consensus_hash, proxy=proxy)
     if 'error' in historic_nameops:
         return historic_nameops
 
@@ -865,7 +847,7 @@ def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_co
 
     Basically, use the trust root to derive a "current" block ID and consensus hash, and
     use the untrusted (name, block_id) pair to derive an earlier untrusted block ID and
-    consensus hash.  Then, use the snv_get_nameops_at() method to verify that the name
+    consensus hash.  Then, use the snv_get_records_at() method to verify that the name
     existed at the given block ID.
 
     The Blockstack node is not trusted.  This algorithm prevents a malicious Blockstack node
