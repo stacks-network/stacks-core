@@ -128,7 +128,8 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
-    # add immutable app keys 
+    # add immutable app keys
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
     res = blockstack_gpg.gpg_app_create_key( "foo.test", "secure_messaging", "foo_test_immutable_secmsg_key", immutable=True,
                                               proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw) )
 
@@ -140,7 +141,14 @@ def scenario( wallets, **kw ):
     else:
         key_names['foo.test'].append( res )
 
-    testlib.next_block( **kw )
+    # wait for it to go through
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "wait for confirmation"
+    time.sleep(10)
+    
+    # set new wallet keys
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], wallet_keys_2['data_privkey'] ) 
     res = blockstack_gpg.gpg_app_create_key( "bar.test", "secure_messaging", "bar_test_immutable_secmsg_key", immutable=True,
                                                 proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw) )
 
@@ -152,9 +160,14 @@ def scenario( wallets, **kw ):
     else:
         key_names['bar.test'].append( res )
 
-    testlib.next_block( **kw )
+    # wait for it to go through
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "wait for confirmation"
+    time.sleep(10)
 
     # add mutable app keys 
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
     res = blockstack_gpg.gpg_app_create_key( "foo.test", "less-secure_messaging", "foo_test_mutable_secmsg_key",
                                                 proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw) )
 
@@ -167,6 +180,8 @@ def scenario( wallets, **kw ):
         key_names['foo.test'].append( res )
 
     testlib.next_block( **kw )
+    
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], wallet_keys_2['data_privkey'] ) 
     res = blockstack_gpg.gpg_app_create_key( "bar.test", "less-secure_messaging", "bar_test_mutable_secmsg_key",
                                                 proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw) )
 
@@ -181,6 +196,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # add profile keys that we'll delete
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
     res = blockstack_gpg.gpg_profile_create_key( "foo.test", "foo_test_deleted_account_key", immutable=True,
                                                 proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw),
                                                 gpghome=testlib.gpg_key_dir(**kw), use_key_server=False)
@@ -195,10 +211,22 @@ def scenario( wallets, **kw ):
         key_names['foo.test'].append( res )
         foo_profile_delete_key_id = res['key_id']
 
-    testlib.next_block( **kw )
+    # wait for it to go through
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "wait for confirmation"
+    time.sleep(10)
+
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], wallet_keys_2['data_privkey'] ) 
     res = blockstack_gpg.gpg_profile_create_key( "bar.test", "bar_test_deleted_account_key", immutable=True,
                                                 proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw),
                                                 gpghome=testlib.gpg_key_dir(**kw), use_key_server=False)
+
+    # wait for it to go through
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "wait for confirmation"
+    time.sleep(10)
 
     bar_profile_delete_key_id = None
     if 'error' in res:
@@ -210,9 +238,8 @@ def scenario( wallets, **kw ):
         key_names['bar.test'].append( res )
         bar_profile_delete_key_id = res['key_id']
 
-    testlib.next_block( **kw )
-
     # add immutable app keys, which we can delete
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
     res = blockstack_gpg.gpg_app_create_key( "foo.test", "immutable_delete", "foo_test_deleted_immutable_secmsg_key", immutable=True,
                                                 proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw) )
 
@@ -226,7 +253,13 @@ def scenario( wallets, **kw ):
         key_names['foo.test'].append( res )
         foo_immutable_delete_key_id = res['key_id']
 
-    testlib.next_block( **kw )
+    # wait for it to go through
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "wait for confirmation"
+    time.sleep(10)
+
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], wallet_keys_2['data_privkey'] ) 
     res = blockstack_gpg.gpg_app_create_key( "bar.test", "immutable_delete", "bar_test_deleted_immutable_secmsg_key", immutable=True,
                                                 proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw) )
     
@@ -240,9 +273,14 @@ def scenario( wallets, **kw ):
         key_names['bar.test'].append( res )
         bar_immutable_delete_key_id = res['key_id']
 
-    testlib.next_block( **kw )
+    # wait for it to go through
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "wait for confirmation"
+    time.sleep(10)
 
     # add mutable app keys which we can delete
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
     res = blockstack_gpg.gpg_app_create_key( "foo.test", "mutable_delete", "foo_test_deleted_mutable_secmsg_key",
                                                 proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw) )
 
@@ -257,6 +295,8 @@ def scenario( wallets, **kw ):
         foo_mutable_delete_key_id = res['key_id']
 
     testlib.next_block( **kw )
+    
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], wallet_keys_2['data_privkey'] ) 
     res = blockstack_gpg.gpg_app_create_key( "bar.test", "mutable_delete", "bar_test_deleted_mutable_secmsg_key",
                                                 proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw) )
 
@@ -273,6 +313,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # delete profile keys
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
     res = blockstack_gpg.gpg_profile_delete_key( "foo.test", foo_profile_delete_key_id, proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in res:
         res['test'] = 'Failed to create deletable account foo.test profile key'
@@ -281,6 +322,7 @@ def scenario( wallets, **kw ):
         return
 
     testlib.next_block( **kw )
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], wallet_keys_2['data_privkey'] ) 
     res = blockstack_gpg.gpg_profile_delete_key( "bar.test", bar_profile_delete_key_id, proxy=test_proxy, wallet_keys=wallet_keys_2 )
     if 'error' in res:
         res['test'] = 'Failed to create deletable account bar.test profile key'
@@ -289,6 +331,7 @@ def scenario( wallets, **kw ):
         return 
 
     # delete immutable app keys 
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
     res = blockstack_gpg.gpg_app_delete_key( "foo.test", "immutable_delete", "foo_test_deleted_immutable_secmsg_key", 
                                             immutable=True, proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw))
 
@@ -298,7 +341,13 @@ def scenario( wallets, **kw ):
         error = True
         return 
 
-    testlib.next_block( **kw )
+    # wait for it to go through
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "wait for confirmation"
+    time.sleep(10)
+
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], wallet_keys_2['data_privkey'] ) 
     res = blockstack_gpg.gpg_app_delete_key( "bar.test", "immutable_delete", "bar_test_deleted_immutable_secmsg_key",
                                             immutable=True, proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw))
 
@@ -308,9 +357,14 @@ def scenario( wallets, **kw ):
         error = True
         return 
 
-    testlib.next_block( **kw )
+    # wait for it to go through
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "wait for confirmation"
+    time.sleep(10)
 
     # delete mutable app keys
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
     res = blockstack_gpg.gpg_app_delete_key( "foo.test", "mutable_delete", "foo_test_deleted_mutable_secmsg_key",
                                             proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw))
 
@@ -321,6 +375,7 @@ def scenario( wallets, **kw ):
         return 
 
     testlib.next_block( **kw )
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], wallet_keys_2['data_privkey'] ) 
     res = blockstack_gpg.gpg_app_delete_key( "bar.test", "mutable_delete", "bar_test_deleted_mutable_secmsg_key",
                                             proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw))
 
