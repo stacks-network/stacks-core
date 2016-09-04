@@ -189,9 +189,6 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     namespace = state_engine.get_namespace( namespace_id )
 
     # cannot exceed quota
-    # recipient_names = state_engine.get_names_owned_by_sender( recipient )
-    # log.debug("Recipient '%s' owns %s names" % (recipient,len(recipient_names)))
-    # if len(recipient_names) >= MAX_NAMES_PER_SENDER:
     num_names = get_num_names_owned( state_engine, checked_ops, recipient )
     if num_names >= MAX_NAMES_PER_SENDER:
         log.debug("Recipient '%s' has exceeded quota" % recipient)
@@ -242,7 +239,6 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         
             # push back preorder block number to the original preorder
             name_block_number = old_name_rec['block_number']
-            # first_registered = old_name_rec['first_registered']
             transfer_send_block_id = old_name_rec['transfer_send_block_id']
 
             # re-registering
@@ -348,7 +344,7 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
 
     recipient = nameop.get('recipient', None)
     if recipient is None:
-        log.debug("No recipient p2pkh given")
+        log.debug("No recipient given")
         return False
 
     # on renewal, the sender and recipient must be the same 
@@ -366,7 +362,6 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
     preorder_block_number = None 
     name_block_number = None
     opcode = nameop['opcode']
-    # first_registered = nameop['first_registered']
 
     # name must be well-formed
     if not is_b40( name ) or "+" in name or name.count(".") > 1:
@@ -389,9 +384,6 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
     namespace = state_engine.get_namespace( namespace_id )
 
     # cannot exceed quota
-    # if len( state_engine.owner_names.get( recipient, [] ) ) >= MAX_NAMES_PER_SENDER:
-    # recipient_names = state_engine.get_names_owned_by_sender( recipient )
-    # if len(recipient_names) >= MAX_NAMES_PER_SENDER:
     num_names = get_num_names_owned( state_engine, checked_ops, recipient )
     if num_names >= MAX_NAMES_PER_SENDER:
         log.debug("Recipient '%s' has exceeded quota" % recipient)
