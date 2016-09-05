@@ -1245,6 +1245,18 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return {'analytics_key': conf['analytics_key']}
 
 
+    def rpc_db_refresh(self, **con_info):
+        """
+        ONLY FOR TESTING
+        """
+        if os.environ.get("BLOCKSTACK_TEST", None) != "1":
+            return {'error': 'No such method'}
+
+        invalidate_db_state()
+        get_state_engine()
+        return {'status': True}
+        
+
 class BlockstackdRPCServer( threading.Thread, object ):
     """
     RPC server thread
