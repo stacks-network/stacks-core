@@ -267,7 +267,15 @@ def op_snv_consensus_extra_quirks( extras, namerec, block_id, commit, db ):
     Given the set of arguments to snv_consensus_extras, apply any
     op-specific quirks that are needed to preserve backwards compatibility
     """
-    if namerec.has_key('name') and db.get_name_init_opcode( namerec['name'] ) == 'NAME_IMPORT':
+
+    last_creation_opcode = None
+    if namerec.has_key('name'):
+        last_creation_opcode = db.get_name_last_creation_opcode( namerec['name'], block_number=block_id )
+
+    log.debug("apply SNV QURIKS on %s at %s (created with %s)" % (namerec.get('name', "UNKNOWN"), block_id, last_creation_opcode))
+
+    if namerec.has_key('name') and last_creation_opcode == 'NAME_IMPORT':
+        log.debug("apply SNV QUIRK on %s: %s --> %s"  % (namerec.get('name', "UNKNOWN"), namerec['op_fee'], float(namerec['op_fee'])))
         extras['op_fee'] = float(namerec['op_fee'])
 
 
@@ -276,7 +284,14 @@ def op_make_restore_diff_quirks( diff, op_name, cur_rec, prev_block_number, hist
     Given the set of arguments to restore_diff, apply any op-specific quirks
     that are needed to preserve backwards compatibility
     """
-    if cur_rec.has_key('name') and untrusted_db.get_name_init_opcode( cur_rec['name'] ) == 'NAME_IMPORT':
+    last_creation_opcode = None
+    if cur_rec.has_key('name'):
+        last_creation_opcode = untrusted_db.get_name_last_creation_opcode( cur_rec['name'], block_number=prev_block_number, history_index=history_index )
+
+    log.debug("apply RESTORE DIFF QUIRKS on %s at %s.%s (created with %s)" % (cur_rec.get('name', "UNKNOWN"), prev_block_number, history_index, last_creation_opcode))
+
+    if cur_rec.has_key('name') and last_creation_opcode == 'NAME_IMPORT':
+        log.debug("apply RESTORE DIFF QUIRK on %s: %s --> %s"  % (cur_rec.get('name', "UNKNOWN"), cur_rec['op_fee'], float(cur_rec['op_fee'])))
         diff['op_fee'] = float(cur_rec['op_fee'])
 
 
@@ -448,9 +463,6 @@ def op_snv_consensus_extra( op_name, prev_name_rec, prev_block_id, db ):
         raise Exception("No such operation '%s'" % op_name)
 
     method = SNV_CONSENSUS_EXTRA_METHODS[op_name]
-    if method is None:
-        return {}
-
     extras = method( prev_name_rec, prev_block_id, None, db )
     op_snv_consensus_extra_quirks( extras, prev_name_rec, prev_block_id, False, db )
     return extras 
