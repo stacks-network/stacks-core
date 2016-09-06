@@ -229,7 +229,8 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         state_create_put_preorder( nameop, preorder )
 
         if old_name_rec is None:
-            # Case 1(a): registered for the first time ever    
+            # Case 1(a): registered for the first time ever 
+            log.debug("Registering name '%s'" % name)
             name_block_number = preorder['block_number']
             state_create_put_prior_history( nameop, None )
         
@@ -293,7 +294,7 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     if name_fee < price_name( name_without_namespace, namespace ):
         log.debug("Name '%s' costs %s, but paid %s" % (name, price_name( name_without_namespace, namespace ), name_fee ))
         return False
-   
+  
     nameop['opcode'] = opcode
     nameop['op_fee'] = name_fee
     nameop['preorder_hash'] = preorder_hash
@@ -591,12 +592,11 @@ def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
     find the dict of consensus-affecting fields from the operation that are not
     already present in the name record.
     """
-    
+  
     ret_op = {}
     
     # reconstruct the recipient information
     ret_op['recipient'] = str(name_rec['sender'])
     ret_op['recipient_address'] = str(name_rec['address'])
-
     return ret_op
 
