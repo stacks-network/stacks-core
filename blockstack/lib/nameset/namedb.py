@@ -681,6 +681,9 @@ class BlockstackDB( virtualchain.StateEngine ):
     def get_name_history( self, name, start_block, end_block ):
         """
         Get the history of states of a name over a given point in time.
+        Returns {
+            "block height": [ {...}, {...} ]
+        }
         Return None if te name isn't current
         """
         name_rec = self.get_name( name )
@@ -979,38 +982,42 @@ class BlockstackDB( virtualchain.StateEngine ):
         return self.announce_ids
 
 
-    def get_name_init_opcode( self, name, block_number=None, include_expired=False ):
+    def get_name_last_creation_opcode( self, name, block_number=None, history_index=None, include_expired=False ):
         """
-        Get the first opcode for this name.  I.e. an import, a preorder, etc.
-        If block_number is not None, then first restore the name to the way
-        it was at the block number.
+        Get the last state-creating opcode for this name as of the given block number.  I.e. an import, a preorder.
         """
 
         if block_number is None:
-            block_number = self.lastblock 
+            block_number = self.lastblock
 
-        name_rec = self.get_name( name, lastblock=block_number, include_expired=include_expired )
-        if name_rec is None:
+        hist_set = self.get_name_history( name, FIRST_BLOCK_MAINNET, block_number+1 )
+        if hist_set is None:
+            # not known 
             return None
 
-        name_hist = name_rec['history']
-        blocks = sorted([int(b) for b in name_hist.keys()])
-        opcode = None
+        # ordered sequence of block heights
+        # (NOTE: hist_set is keyed by string representation of height)
+        block_heights = [int(b) for b in hist_set.keys()]
+        block_heights.sort()
 
-        try:
-            assert len(blocks) != 0, "FATAL: no history for name %s" % name
-           
-            first_hist = name_hist[blocks[0]][0]
-            assert first_hist.has_key('op'), "FATAL: no op recorded for name %s" % name
+        # go backwards in time
+        for block_height in reversed(block_heights):
 
-            opcode = op_get_opcode_name( first_hist['op'] )
-        except Exception, e:
-            log.exception(e)
-            log.error("FATAL: no history info")
-            os.abort()
+            for i in xrange( len(hist_set[str(block_height)])-1, -1, -1 ):
+            
+                old_name = hist_set[str(block_height)][i]
 
-        return opcode 
-        
+                if history_index is not None and block_height == block_number and i > history_index:
+                    # skip later history
+                    log.debug("  skip %s.%s" % (block_height, i) )
+                    continue
+
+                if old_name['op'] in [NAME_PREORDER, NAME_IMPORT]:
+                    log.debug("Name '%s' last created by %s" % (name, op_get_opcode_name(old_name['op'])))
+                    return op_get_opcode_name(old_name['op'])
+
+        return None 
+
 
     def is_name_expired( self, name, block_number ):
         """
@@ -1211,10 +1218,12 @@ class BlockstackDB( virtualchain.StateEngine ):
                     overwrites.append(k)
 
         try:
-            assert len(overwrites) == 0, "Derived consensus fields overwrites transaction data: %s" % ",".join(["%s -> %s" % (new_nameop[o], consensus_extra[o]) for o in overwrites])
+            assert len(overwrites) == 0, "Derived consensus fields overwrites transaction data: %s" % ",".join(["%s: %s -> %s" % (o, new_nameop[o], consensus_extra[o]) for o in overwrites])
         except Exception, e:
             log.exception(e)
             log.error("FATAL: BUG: tried to overwrite consensus data %s".join(overwrites))
+            log.debug("new_nameop:\n%s\n" % json.dumps(new_nameop, indent=4, sort_keys=True))
+            log.debug("blockchain_name_data:\n%s\n" % json.dumps(blockchain_name_data, indent=4, sort_keys=True))
             os.abort()
        
         consensus_extra = op_commit_consensus_sanitize( consensus_extra )
