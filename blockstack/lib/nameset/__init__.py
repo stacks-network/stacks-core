@@ -385,6 +385,7 @@ def prior_history_create( op_data, old_rec, block_number, state_engine, extra_ba
     state_engine.add_all_snv_consensus_values( op_get_opcode_name(hist['op']), hist, block_number ) 
     hist['history_snapshot'] = True
 
+    del hist['history']
     prior_history = {
         block_number: [hist]
     }
