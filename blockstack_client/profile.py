@@ -195,7 +195,7 @@ def load_data_pubkey_for_new_zonefile( wallet_keys={}, config_path=CONFIG_PATH )
     Otherwise, fall back to the owner public key
     """
     data_pubkey = None
-    if 'data_privkey' in wallet_keys:
+    if 'data_privkey' in wallet_keys and wallet_keys['data_privkey'] is not None:
         data_pubkey = ECPrivateKey(wallet_keys['data_privkey']).public_key().to_hex()
     elif 'data_pubkey' in wallet_keys:
         data_pubkey = wallet_keys['data_pubkey']
