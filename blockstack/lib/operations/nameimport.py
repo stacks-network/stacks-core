@@ -125,7 +125,8 @@ def get_import_update_hash_from_outputs( outputs, recipient ):
 
 def get_prev_imported( state_engine, checked_ops, name ):
     """
-    See if a name has been imported previously.
+    See if a name has been imported previously--either in 
+    this block, or in the last operation on this name.
     Check the DB *and* current ops.
     Make sure the returned record has the name history
     """
@@ -139,6 +140,13 @@ def get_prev_imported( state_engine, checked_ops, name ):
  
     name_rec = state_engine.get_name( name )
     return name_rec
+
+
+def is_earlier_than( nameop1, block_id, vtxindex ):
+    """
+    Does nameop1 come before bock_id and vtxindex?
+    """
+    return nameop1['block_number'] < block_id or (nameop1['block_number'] == block_id and nameop1['vtxindex'] < vtxindex)
 
 
 @state_create( "name", "name_records", "check_noop_collision", always_set=["consensus_hash"] )
@@ -166,6 +174,8 @@ def check( state_engine, nameop, block_id, checked_ops ):
     recipient_address = str(nameop['recipient_address'])
 
     preorder_hash = hash_name( nameop['name'], sender, recipient_address )
+    log.debug("preorder_hash = %s (%s, %s, %s)" % (preorder_hash, nameop['name'], sender, recipient_address))
+
     preorder_block_number = block_id
     name_block_number = block_id 
     name_first_registered = block_id
@@ -217,7 +227,8 @@ def check( state_engine, nameop, block_id, checked_ops ):
     # we can overwrite, but emit a warning
     # search *current* block as well as last block
     prev_name_rec = get_prev_imported( state_engine, checked_ops, name )
-    if prev_name_rec is not None and (prev_name_rec['block_number'] < block_id or (prev_name_rec['block_number'] == block_id and prev_name_rec['vtxindex'] < nameop['vtxindex'])):
+    if prev_name_rec is not None and is_earlier_than( prev_name_rec, block_id, nameop['vtxindex'] ):
+
         log.warning("Overwriting already-imported name '%s'" % name)
 
         # propagate preorder block number and hash...
@@ -225,6 +236,8 @@ def check( state_engine, nameop, block_id, checked_ops ):
         name_block_number = prev_name_rec['block_number']
         name_first_registered = prev_name_rec['first_registered']
         name_last_renewed = prev_name_rec['last_renewed']
+
+        log.debug("use previous preorder_hash = %s" % prev_name_rec['preorder_hash'])
         preorder_hash = prev_name_rec['preorder_hash']
         transfer_send_block_id = prev_name_rec.get('transfer_send_block_id',None)
 
@@ -409,8 +422,14 @@ def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
     ret_op['recipient'] = str(name_rec['sender'])
     ret_op['recipient_address'] = str(name_rec['address'])
 
-    # reconstruct preorder hash 
-    ret_op['preorder_hash'] = hash_name( str(name_rec['name']), name_rec['sender'], ret_op['recipient_address'] )
+    # the preorder hash used is the *first* preorder hash calculated in a series of NAME_IMPORTs
+    if name_rec.has_key('preorder_hash'):
+        ret_op['preorder_hash'] = name_rec['preorder_hash']
+
+    else:
+        ret_op['preorder_hash'] = hash_name( str(name_rec['name']), name_rec['importer'], ret_op['recipient_address'] )
+
+    log.debug("restore preorder hash: %s --> %s (%s, %s, %s)" % (name_rec.get('preorder_hash', "None"), ret_op['preorder_hash'], name_rec['name'], name_rec['importer'], ret_op['recipient_address']))
     return ret_op
 
 
