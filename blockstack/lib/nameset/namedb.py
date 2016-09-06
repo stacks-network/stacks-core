@@ -200,28 +200,44 @@ class BlockstackDB( virtualchain.StateEngine ):
 
          pubkey_hex = None
          pubkey_addr = None
+         found = False
 
          # find a revealed name whose sender's address matches the namespace recipient's
          for name, name_record in self.name_records.items():
-             if not name.endswith( namespace_id ):
+             if not name.endswith( "." + namespace_id ):
                  continue
 
              if not name_record.has_key('sender_pubkey'):
                  continue
 
-             pubkey_hex = name_record['sender_pubkey']
-             pubkey_addr = virtualchain.BitcoinPublicKey( str(pubkey_hex) ).address()
+             all_pubkeys = []
+             for h in name_record['history'].keys():
+                 for hr in name_record['history'][h]:
+                     if hr.has_key('sender_pubkey') and hr['sender_pubkey'] not in all_pubkeys:
+                         all_pubkeys.append(hr['sender_pubkey'])
 
-             if pubkey_addr != namespace_reveal['recipient_address']:
-                 continue
+             all_pubkeys.append( name_record['sender_pubkey'] )
 
-             break
+             for pkh in all_pubkeys:
+                pubkey_hex = str(pkh)
+                pubkey_addr = virtualchain.BitcoinPublicKey( pubkey_hex ).address()
 
-         if pubkey_hex is not None:
+                if pubkey_addr == namespace_reveal['recipient_address']:
+                    found = True
+                    break
+             
+             if found:
+                 break
+
+         if found: # pubkey_hex is not None:
             log.debug("Deriving %s children of %s ('%s') for '%s'" % (NAME_IMPORT_KEYRING_SIZE, pubkey_addr, pubkey_hex, namespace_id))
 
             # generate all possible addresses from this public key
             self.import_addresses[ namespace_id ] = BlockstackDB.build_import_keychain( pubkey_hex )
+
+         else:
+            log.warning("No public key found for namespace %s" % namespace_id)
+
 
          # convert history to int
          self.namespace_reveals[namespace_id]['history'] = BlockstackDB.sanitize_history( namespace_reveal['history'] )
@@ -324,10 +340,10 @@ class BlockstackDB( virtualchain.StateEngine ):
               with open(cached_keychain, "r") as f:
                   lines = f.readlines()
 
-              child_attrs = [l.strip() for l in lines]
+              child_addrs = [l.strip() for l in lines]
 
               log.debug("Loaded cached import keychain for '%s' (%s)" % (pubkey_hex, pubkey_addr))
-              return child_attrs
+              return child_addrs
 
           except Exception, e:
               log.exception(e)
