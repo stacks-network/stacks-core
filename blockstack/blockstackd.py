@@ -1786,7 +1786,7 @@ def clean( confirm=True ):
     sys.exit(exit_status)
 
 
-def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db ):
+def rec_to_virtualchain_op( name_rec, block_number, history_index, working_db, untrusted_db ):
     """
     Given a record from the blockstack database,
     convert it into a virtualchain operation to
@@ -1889,9 +1889,16 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db 
 
         name_rec['sender'] = sender
         name_rec['address'] = address
-        name_rec['consensus_hash'] = untrusted_db.get_consensus_at( send_block_id )
+        # name_rec['consensus_hash'] = untrusted_db.get_consensus_at( send_block_id )
+        name_rec['consensus_hash'] = working_db.get_consensus_at( send_block_id )
 
         name_rec_script = build_transfer( str(name_rec['name']), name_rec['keep_data'], str(name_rec['consensus_hash']) )
+
+        if name_rec['consensus_hash'] is None:
+            log.error("No consensus at %s" % send_block_id)
+            log.error("last block is %s" % working_db.lastblock)
+            os.abort()
+
         name_rec_payload = binascii.unhexlify( name_rec_script )[3:]
         ret_op = parse_transfer(name_rec_payload, name_rec['recipient'] )
 
@@ -2057,7 +2064,7 @@ def nameop_restore_consensus_fields( name_rec, block_id ):
     return merged_op
 
 
-def block_to_virtualchain_ops( block_id, db ):
+def block_to_virtualchain_ops( block_id, working_db, untrusted_db ):
     """
     convert a block's name ops to virtualchain ops.
     This is needed in order to recreate the virtualchain
@@ -2068,7 +2075,7 @@ def block_to_virtualchain_ops( block_id, db ):
     """
 
     # all sequences of operations at this block, in tx order
-    nameops = db.get_all_nameops_at( block_id )
+    nameops = untrusted_db.get_all_nameops_at( block_id )
 
     virtualchain_ops = []
 
@@ -2112,7 +2119,7 @@ def block_to_virtualchain_ops( block_id, db ):
                 nameops[i][k] = str(nameops[i][k])
 
         # remove virtualchain-specific fields--they won't be trusted
-        nameops[i] = db.sanitize_op( nameops[i] )
+        nameops[i] = untrusted_db.sanitize_op( nameops[i] )
 
         for field in nameops[i].keys():
 
@@ -2133,7 +2140,7 @@ def block_to_virtualchain_ops( block_id, db ):
                 if nameops[i]['name'] in history_index:
                     h = history_index[ nameops[i]['name'] ][i]
 
-            virtualchain_op = rec_to_virtualchain_op( nameops[i], block_id, h, db )
+            virtualchain_op = rec_to_virtualchain_op( nameops[i], block_id, h, working_db, untrusted_db )
         except:
             print json.dumps( nameops[i], indent=4 )
             raise
@@ -2193,13 +2200,17 @@ def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, 
 
     for block_id in xrange( start_block, target_block_id+1 ):
 
-        virtualchain_ops = block_to_virtualchain_ops( block_id, untrusted_db )
+        virtualchain_ops = block_to_virtualchain_ops( block_id, working_db, untrusted_db )
 
         # feed ops to virtualchain to reconstruct the db at this block
         consensus_hash = working_db.process_block( block_id, virtualchain_ops )
         log.debug("VERIFY CONSENSUS(%s): %s" % (block_id, consensus_hash))
 
         consensus_hashes[block_id] = consensus_hash
+
+        # reload
+        working_db_path = virtualchain.get_db_filename()
+        working_db = BlockstackDB( working_db_path )
 
     # final consensus hash
     return consensus_hashes[ target_block_id ]
@@ -2224,7 +2235,7 @@ def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_pa
         return True
 
     else:
-        log.error("Unverifiable database state stored in '%s'" % blockstack_state_engine.working_dir )
+        log.error("Unverifiable database state stored in '%s': %s != %s" % (blockstack_state_engine.working_dir, final_consensus_hash, trusted_consensus_hash) )
         return False
     
 
