@@ -702,8 +702,8 @@ def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
    # remove expired names before saving
    if db is not None:
       
-      # see if anything actually changed
-      if len(pending_ops.get('virtualchain_ordered', [])) > 0:
+      # see if anything actually changed (but always save when testing)
+      if len(pending_ops.get('virtualchain_ordered', [])) > 0 or os.environ.get("BLOCKSTACK_TEST", None) == "1":
           # state has changed 
           log.debug("Save database %s" % filename)
           return db.save_db( filename )
