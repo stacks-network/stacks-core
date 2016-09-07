@@ -114,12 +114,6 @@ def scenario( wallets, **kw ):
     else:
         key_names['foo.test'].append( res )
 
-    # wait for it to go through
-    for i in xrange(0, 12):
-        testlib.next_block( **kw )
-    print "wait for confirmation"
-    time.sleep(10)
-
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], None ) 
     res = blockstack_gpg.gpg_profile_create_key( "bar.test", "bar_test_account_key", immutable=False,
                                                 proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw),
@@ -133,12 +127,6 @@ def scenario( wallets, **kw ):
 
     else:
         key_names['bar.test'].append( res )
-
-    # wait for it to go through
-    for i in xrange(0, 12):
-        testlib.next_block( **kw )
-    print "wait for confirmation"
-    time.sleep(10)
 
     testlib.next_block( **kw )
 
@@ -270,6 +258,13 @@ def scenario( wallets, **kw ):
     else:
         key_names['foo.test'].append( res )
         foo_immutable_delete_key_id = res['key_id']
+
+    # wait for it to go through
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "wait for confirmation"
+    time.sleep(10)
+
 
     testlib.next_block( **kw )
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], None ) 
