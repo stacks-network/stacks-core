@@ -339,7 +339,7 @@ def db_check( block_id, new_ops, op, op_data, txid, vtxindex, checked_ops, db_st
             log.error("FATAL: invalid operation")
             os.abort()
 
-        # log.debug("CHECK %s at (%s, %s)" % (opcode, block_id, vtxindex))
+        log.debug("CHECK %s at (%s, %s)" % (opcode, block_id, vtxindex))
         rc = op_check( db_state, op_data, block_id, checked_ops )
         if rc:
 
