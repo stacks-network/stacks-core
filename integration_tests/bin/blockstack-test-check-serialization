@@ -1,0 +1,258 @@
+#!/usr/bin/env python
+
+import os
+import sys
+import simplejson
+
+def parse_serialize_payload( line ):
+    """
+    Given a SERIALIZE payload, parse the payload.
+
+    Return a dict that maps each field name to its value,
+    where the dict will have a special '__order__' key that
+    maps to the order in which the fields occur.
+    """
+    cur = 0
+    ret = {}
+    order = []
+
+    opcode = line[cur]
+    cur += 1
+
+    # should be a separator
+    assert line[cur] == ':', "Missing separator for opcode"
+    cur += 1
+
+    # will be formatted as a CSV of '$key=$len:$value'
+    while cur < len(line):
+        # find next '='
+
+        try:
+            i_key = line[cur:].index('=')
+            key = line[cur:cur+i_key]
+        except:
+            print >> sys.stderr, "cur=%s, line_buf=%s" % (cur, line[cur:])
+            raise
+
+        try:
+            i_len = line[cur+i_key+1:].index(':')
+            len_str = line[cur+i_key+1: cur+i_key+1+i_len]
+        except:
+            print >> sys.stderr, "cur=%s, i_key=%s, key=%s, line_buf=%s" % (cur, i_key, key, line[cur+i_key+1:])
+            raise
+
+        try:
+            value_len = int(len_str)
+            value = line[cur+i_key+1+i_len+1: cur+i_key+1+i_len+1+value_len]
+        except:
+            print >> sys.stderr, "cur=%s, i_key=%s, key=%s, i_len=%s, len_str=%s, line_buf=%s" % (cur, i_key, key, i_len, len_str, line[cur+i_key+1:])
+            raise
+
+        order.append(key)
+        ret[key] = value
+
+        # advance
+        cur += i_key+1 + i_len+1 + value_len+1
+
+    ret['__order__'] = order
+    return ret
+
+
+def extract_serialize_payload( line ):
+    """
+    Given a line that contains SERIALIZE token, extract the netstring payload
+    """
+    assert " SERIALIZE: " in line, "Missing 'SERIALIZE:' token"
+    i = line.index(" SERIALIZE: ")
+
+    payload = line[i + len(" SERIALIZE: "):]
+    return payload
+
+
+def find_serialization_outputs( test_output_path ):
+    """
+    Find the SERIALIZE outputs from the given test log output.
+    Parse them and return the parsed list.
+    Add '__block_height__' to each item (the height at which the serialization was found)
+    """
+    ret = []
+    curr_height = 0
+    with open(test_output_path, "r") as f:
+        while True:
+            line = f.readline()
+            if len(line) == 0:
+                break
+
+            # if we find this line, then we're out of tests
+            if "Scenario checks passed; verifying history" in line:
+                break
+
+            # block height?
+            if "Snapshotting block " in line:
+                i = line.index("Snapshotting block ")
+
+                try:
+                    curr_height = int(line[i + len("Snapshotting block "):])
+                except:
+                    # only other possible string
+                    assert "consensus hash of " in line[i + len("Snapshotting block "):]
+                    pass
+
+            line = line.strip()
+            if " SERIALIZE: " not in line:
+                continue
+
+            payload_bin = extract_serialize_payload( line )
+            payload = parse_serialize_payload( payload_bin )
+
+            payload['__block_height__'] = curr_height
+            ret.append( payload )
+
+    return ret
+
+
+def serialization_eq( height, serialization_1, serialization_2, ignore=['txid','consensus_hash','name_consensus_hash','name_hash', 'vtxindex'] ):
+    """
+    Given two parsed serialization payloads, verify that they represent the same data
+    (ignoring fields given in @ignore)
+
+    Return (True, None) on success
+    Return (False, {'error': ...}) on failure
+    """
+    if len(serialization_1['__order__']) != len(serialization_2['__order__']):
+        return False, {'error': "Order length mismatch (%s != %s)" % (len(serialization_1['__order__']), len(serialization_2['__order__']))}
+
+    mismatches_1 = []
+    mismatches_2 = []
+
+    for i in xrange(0, len(serialization_1['__order__'])):
+        key_1 = serialization_1['__order__'][i]
+        key_2 = serialization_2['__order__'][i]
+
+        if key_1 in ignore or key_2 in ignore:
+            continue
+
+        if serialization_1[key_1] != serialization_2[key_2]:
+            mismatches_1.append( key_1 )
+            mismatches_2.append( key_2 )
+
+    if len(mismatches_1) > 0:
+        errstr = ""
+        for i in xrange(0, len(mismatches_1)):
+            errstr += "Key mismatch at %s: %s (%s) != %s (%s)\n" % (height, mismatches_1[i], serialization_1[mismatches_1[i]], mismatches_2[i], serialization_2[mismatches_2[i]])
+
+        errstr += "First serialization:\n%s\n" % simplejson.dumps(serialization_1, indent=4, sort_keys=True)
+        errstr += "Second serialization:\n%s\n" % simplejson.dumps(serialization_2, indent=4, sort_keys=True)
+
+        return False, {'error': errstr}
+
+    return True, None
+
+
+def group_by_block_height( serializations ):
+    """
+    Given a list of parsed serializations, group them by __block_height__
+    """
+    ret = {}
+    for s in serializations:
+        height = s['__block_height__']
+        if not ret.has_key(height):
+            ret[height] = []
+
+        ret[height].append(s)
+
+    return ret
+
+
+def compare_serializations( test_output_1, test_output_2 ):
+    """
+    Given the paths to two different test outputs, verify
+    that their sequence of SERIALIZEs match (up to txid).
+    """
+    serializations_1 = find_serialization_outputs( test_output_1 )
+    serializations_2 = find_serialization_outputs( test_output_2 )
+
+    if len(serializations_1) != len(serializations_2):
+        print >> sys.stderr, "   Mismatched number of serializations (%s != %s)" % (len(serializations_1), len(serializations_2))
+        return False
+
+    # group by block height (since bitcoind can re-order transactions)
+    block_serializations_1 = group_by_block_height( serializations_1 )
+    block_serializations_2 = group_by_block_height( serializations_2 )
+
+    for height in sorted(block_serializations_1.keys()):
+        if not block_serializations_2.has_key(height):
+            print >> sys.stderr, "   Missing block height %s in second log" % height
+            return False
+
+    for height in sorted(block_serializations_2.keys()):
+        if not block_serializations_1.has_key(height):
+            print >> sys.stderr, "   Missing block height %s in first log" % height
+            return False
+
+    for height in sorted(block_serializations_1.keys()):
+        sh1 = block_serializations_1[height]
+        sh2 = block_serializations_2[height]
+
+        if len(sh1) != len(sh2):
+            print >> sys.stderr, "   Mismatched number of serializations at block %s (%s != %s)" % (height, len(sh1), len(sh2))
+            return False
+
+        matched = False
+        err = None
+        for s1 in sh1:
+            # has to match one serialization in the second listing
+            # order doesn't matter, since bitcoind reorders them anyway
+            for s2 in sh2:
+                res, err = serialization_eq( height, s1, s2 )
+                if res:
+                    matched = True
+                    sh2.remove(s2)
+                    break
+
+        if not matched:
+            print >> sys.stderr, "   Mismatched serializations in block %s" % height
+            print >> sys.stderr, err['error']
+            return False
+
+    return True
+  
+
+def is_test_successful( test_output ):
+    """
+    Is this a successful test?
+    """
+    with open(test_output, "r") as f:
+        while True:
+            line = f.readline()
+            if len(line) == 0:
+                break
+
+            line = line.strip()
+            if line.startswith("SUCCESS "):
+                return True
+
+    return False
+
+
+if __name__ == "__main__":
+    try:
+        test_output_1 = sys.argv[1]
+        test_output_2 = sys.argv[2]
+    except:
+        print >> sys.stderr, "Usage: %s TEST_OUTPUT_1 TEST_OUTPUT_2" % sys.argv[0]
+        sys.exit(1)
+
+    if not is_test_successful( test_output_1 ):
+        print >> sys.stderr, "   %s is a failed test" % test_output_1
+        sys.exit(1)
+
+    if not is_test_successful( test_output_2 ):
+        print >> sys.stderr, "   %s is a failed test" % test_output_2
+        sys.exit(1)
+
+    res = compare_serializations( test_output_1, test_output_2 )
+    if res:
+        sys.exit(0)
+    else:
+        sys.exit(1)
