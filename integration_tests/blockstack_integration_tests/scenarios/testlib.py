@@ -640,6 +640,7 @@ def blockstack_export_db( path, **kw ):
         state_engine.export_db( path )
     except IOError, ie:
         if ie.errno == errno.ENOENT:
+            log.error("no such file or directory: %s" % path)
             pass
         else:
             raise
@@ -682,15 +683,17 @@ def next_block( **kw ):
     the blockstack db with the virtual chain
     """
 
-    global snapshots_dir, bitcoind
+    global snapshots_dir, state_engine
     
     if snapshots_dir is None:
         snapshots_dir = tempfile.mkdtemp( prefix='blockstack-test-databases-' )
 
-    # flush all transactions
+    del state_engine
+
+    # flush all transactions, and re-set state engine
     kw['next_block_upcall']()
     kw['sync_virtualchain_upcall']()
-
+    
     # snapshot the database
     blockstack_export_db( os.path.join( snapshots_dir, "blockstack.db.%s" % get_current_block( **kw )), **kw )
     log_consensus( **kw )
@@ -708,9 +711,7 @@ def get_consensus_at( block_id, **kw ):
 
 def get_current_block( **kw ):
     """
-    Get the current block id.
-    Required keyword arguments:
-    * state_engine:  a reference to the virtualchain state engine.
+    Get the current block height.
     """
     global state_engine
     return state_engine.get_current_block()
@@ -844,7 +845,12 @@ def snv_all_names( state_engine ):
             for i in xrange( block_id + 1, max(all_consensus_hashes.keys()) + 1 ):
 
                 trusted_block_id = i
-                trusted_consensus_hash = all_consensus_hashes[i]
+
+                try:
+                    trusted_consensus_hash = all_consensus_hashes[i]
+                except KeyError:
+                    print json.dumps(all_consensus_hashes, indent=4, sort_keys=True)
+                    os.abort()
 
                 snv_rec = blockstack_client.snv_lookup( name, block_id, trusted_consensus_hash, proxy=test_proxy )
                 if 'error' in snv_rec:
@@ -1069,7 +1075,7 @@ def migrate_profile( name, proxy=None, wallet_keys=None ):
 
     if not legacy:
         return {'status': True}
-    
+
     payment_privkey_info = blockstack_client.get_payment_privkey_info( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
     owner_privkey_info = blockstack_client.get_owner_privkey_info( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
     data_privkey_info = blockstack_client.get_data_privkey_info( user_zonefile, wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
