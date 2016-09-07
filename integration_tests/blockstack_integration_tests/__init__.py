@@ -1,4 +1,9 @@
 #!/usr/bin/env python
 
 import scenarios
-from atlas_network import *
+
+try:
+    from atlas_network import *
+except ImportError:
+    # older version of blockstack core
+    pass
