@@ -231,7 +231,15 @@ def network_start( blockstack_opts, db ):
     """
     Start RPC services
     """
-    atlas_state = blockstackd.atlas_start( blockstack_opts, db, TEST_RPC_PORT )
+    atlas_state = None
+    try:
+        atlas_state = blockstackd.atlas_start( blockstack_opts, db, TEST_RPC_PORT )
+    except:
+        if not hasattr(blockstackd, "atlas_start"):
+            log.error("Atlas support disabled")
+        else:
+            raise
+
     blockstackd.rpc_start(TEST_RPC_PORT)
     return atlas_state
     
@@ -244,7 +252,14 @@ def network_stop():
 
 
 def atlas_stop( atlas_state ):
-    blockstackd.atlas_stop( atlas_state )
+    try:
+        blockstackd.atlas_stop( atlas_state )
+    except:
+        if not hasattr(blockstackd, "atlas_stop"):
+            log.error("Atlas support disabled")
+        else:
+            raise
+
 
 
 def bitcoin_stop():
@@ -277,7 +292,7 @@ def atexit_cleanup( spv_headers_path, client_config_path, stop_bitcoind ):
         os.system("bitcoin-cli -regtest -conf=%s stop" % bitcoin_conf)
 
 
-def sync_virtualchain_upcall( db, blockstack_opts ):
+def sync_virtualchain_upcall( blockstack_opts ):
     """
     Upcall from the test scenario
     to synchronize virtualchain.
@@ -286,20 +301,31 @@ def sync_virtualchain_upcall( db, blockstack_opts ):
     bitcoind = bitcoin_regtest_connect( bitcoin_regtest_opts() )
     height = bitcoind.getblockcount()
 
+    db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
+    testlib.set_state_engine(db)
+
+    rpcclient = testlib.TestAPIProxy()
+    rpcclient.db_refresh()
+
     old_lastblock = db.lastblock
 
     log.debug("sync virtualchain up to %s" % (height))
     virtualchain.sync_virtualchain( bitcoin_regtest_opts(), height, db )
 
+    db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
+    testlib.set_state_engine(db)
+
+    rpcclient = testlib.TestAPIProxy()
+    rpcclient.db_refresh()
+
     log.debug("sync atlas node up to %s" % (height))
     
     # synchronize atlas db
-    if blockstack_opts.get('atlas', False):
+    if blockstack_opts.get('atlas', False) and hasattr(blockstackd, "atlasdb_sync_zonefiles"):
         if old_lastblock < db.lastblock:
             log.debug("Synchronize Atlas DB from %s to %s" % (old_lastblock+1, db.lastblock+1))
             zonefile_dir = blockstack_opts.get('zonefiles', get_zonefile_dir())
             blockstackd.atlasdb_sync_zonefiles( db, old_lastblock+1, zonefile_dir=zonefile_dir )
-
 
 
 def run_scenario( scenario, config_file, client_config_file, interactive=False, blocktime=10 ):
@@ -364,15 +390,16 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
 
-    atlas_seed_peers = filter( lambda x: len(x) > 0, blockstack_opts['atlas_seeds'].split(","))
-    atlas_blacklist = filter( lambda x: len(x) > 0, blockstack_opts['atlas_blacklist'].split(","))
-    zonefile_dir = blockstack_opts.get('zonefiles', None)
-    zonefile_storage_drivers = filter( lambda x: len(x) > 0, blockstack_opts['zonefile_storage_drivers'].split(","))
-    my_hostname = blockstack_opts['atlas_hostname']
+    if hasattr(blockstackd, "atlasdb_init"):
+        atlas_seed_peers = filter( lambda x: len(x) > 0, blockstack_opts['atlas_seeds'].split(","))
+        atlas_blacklist = filter( lambda x: len(x) > 0, blockstack_opts['atlas_blacklist'].split(","))
+        zonefile_dir = blockstack_opts.get('zonefiles', None)
+        zonefile_storage_drivers = filter( lambda x: len(x) > 0, blockstack_opts['zonefile_storage_drivers'].split(","))
+        my_hostname = blockstack_opts['atlas_hostname']
 
-    assert zonefile_dir is not None
+        assert zonefile_dir is not None
 
-    blockstackd.atlasdb_init( blockstack_opts['atlasdb_path'], db, atlas_seed_peers, atlas_blacklist, validate=True, zonefile_dir=zonefile_dir )
+        blockstackd.atlasdb_init( blockstack_opts['atlasdb_path'], db, atlas_seed_peers, atlas_blacklist, validate=True, zonefile_dir=zonefile_dir )
 
     print ""
     print "bitcoind connection"
@@ -391,10 +418,11 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     testlib.set_state_engine( db )
 
     test_env = {
-        "sync_virtualchain_upcall": lambda: sync_virtualchain_upcall(db, blockstack_opts),
+        "sync_virtualchain_upcall": lambda: sync_virtualchain_upcall(blockstack_opts),
         "next_block_upcall": bitcoin_regtest_next_block,
         "working_dir": working_dir,
         "bitcoind": bitcoind,
+        "bitcoin_opts": bitcoin_opts,
         "spv_headers_path": spv_headers_path
     }
 
@@ -430,6 +458,9 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
     # stop atlas support 
     atlas_stop( atlas_state )
+
+    db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
+    testlib.set_state_engine(db)
 
     # run the checks on the database
     try:
@@ -474,6 +505,10 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
     log.info("History check passes!")
 
+    
+    rpcclient = testlib.TestAPIProxy()
+    rpcclient.db_refresh()
+
     # run snv at each name 
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RO)
     rc = testlib.snv_all_names( db )
@@ -487,14 +522,16 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
     # verify atlas zonefiles
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RO)
-    rc = testlib.check_atlas_zonefiles( db, blockstack_opts['atlasdb_path'] )
-    if not rc:
-        network_stop()
-        bitcoin_stop()
-        blockstack_client.rpc.local_rpc_stop(client_config_dir)
-        return rc
+    
+    if atlas_state is not None:
+        rc = testlib.check_atlas_zonefiles( db, blockstack_opts['atlasdb_path'] )
+        if not rc:
+            network_stop()
+            bitcoin_stop()
+            blockstack_client.rpc.local_rpc_stop(client_config_dir)
+            return rc
 
-    log.info("Atlas zonefile checks pass!")
+        log.info("Atlas zonefile checks pass!")
 
     network_stop()
     bitcoin_stop()
