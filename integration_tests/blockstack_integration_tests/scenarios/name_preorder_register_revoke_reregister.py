@@ -35,8 +35,11 @@ wallets = [
 ]
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
+fail_blocks = []
 
 def scenario( wallets, **kw ):
+
+    global fail_blocks
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
@@ -87,6 +90,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    fail_blocks.append( testlib.get_current_block( **kw ) )
 
     # should fail
     resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey, safety_checks=False )
@@ -94,6 +98,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    fail_blocks.append( testlib.get_current_block( **kw ) )
 
     # should fail
     resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, safety_checks=False )
@@ -101,6 +106,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    fail_blocks.append( testlib.get_current_block( **kw ) )
 
     # re-preorder...
     resp = testlib.blockstack_name_preorder( "foo.test", wallets[3].privkey, wallets[4].addr )
@@ -159,5 +165,17 @@ def check( state_engine ):
     # no longer revoked 
     if name_rec['revoked']:
         return False 
+
+    # at each of the fail blocks, confirm that the name has not changed from the initial revocation
+    for fb in fail_blocks:
+        historic_name_rec = state_engine.get_name_at( "foo.test", fb, include_expired=True )
+        if historic_name_rec is None or len(historic_name_rec) == 0:
+            print "no name at %s" % fb
+            return False
+
+        historic_name_rec = historic_name_rec[0]
+        if historic_name_rec['opcode'] != 'NAME_REVOKE':
+            print "accepted opcode %s at %s" % (historic_name_rec['opcode'], fb)
+            return False
 
     return True
