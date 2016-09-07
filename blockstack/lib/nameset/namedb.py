@@ -444,13 +444,13 @@ class BlockstackDB( virtualchain.StateEngine ):
              return self.name_records[name]
 
 
-   def get_name_at( self, name, block_number ):
+   def get_name_at( self, name, block_number, include_expired=False ):
       """
       Generate and return the sequence of states a name record was in
       at a particular block number.
       """
 
-      name_rec = self.get_name( name )
+      name_rec = self.get_name( name, include_expired=include_expired )
 
       # trivial reject
       if name_rec is None:
