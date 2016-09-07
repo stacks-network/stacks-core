@@ -272,6 +272,15 @@ def op_snv_consensus_extra_quirks( extras, namerec, block_id, commit, db ):
     if namerec.has_key('name'):
         last_creation_opcode = db.get_name_last_creation_opcode( namerec['name'], block_number=block_id )
 
+    if last_creation_opcode is None:
+        if namerec['op'] == NAME_IMPORT:
+            # this is the first-ever import
+            last_creation_opcode = 'NAME_IMPORT'
+
+        elif namerec['op'] == NAME_PREORDER:
+            # this is the first-ever preorder
+            last_creation_opcode = 'NAME_PREORDER'
+
     log.debug("apply SNV QURIKS on %s at %s (created with %s)" % (namerec.get('name', "UNKNOWN"), block_id, last_creation_opcode))
 
     if namerec.has_key('name') and last_creation_opcode == 'NAME_IMPORT':
@@ -287,6 +296,15 @@ def op_make_restore_diff_quirks( diff, op_name, cur_rec, prev_block_number, hist
     last_creation_opcode = None
     if cur_rec.has_key('name'):
         last_creation_opcode = untrusted_db.get_name_last_creation_opcode( cur_rec['name'], block_number=prev_block_number, history_index=history_index )
+
+    if last_creation_opcode is None:
+        if cur_rec['op'] == NAME_IMPORT:
+            # this is the first-ever import
+            last_creation_opcode = 'NAME_IMPORT'
+
+        elif cur_rec['op'] == NAME_PREORDER:
+            # this is the first-ever preorder
+            last_creation_opcode = 'NAME_PREORDER'
 
     log.debug("apply RESTORE DIFF QUIRKS on %s at %s.%s (created with %s)" % (cur_rec.get('name', "UNKNOWN"), prev_block_number, history_index, last_creation_opcode))
 
@@ -369,7 +387,7 @@ def op_check( state_engine, nameop, block_id, checked_ops ):
     return rc
 
 
-def op_make_restore_diff( op_name, cur_rec, prev_block_number, history_index, untrusted_db ):
+def op_make_restore_diff( op_name, cur_rec, prev_block_number, history_index, working_db, untrusted_db ):
     """
     Given a current name record, an operation name, and a (block number, block history index) coordinate,
     calculate a diff that, when applied to the given name record, will restore it to the name
@@ -382,7 +400,7 @@ def op_make_restore_diff( op_name, cur_rec, prev_block_number, history_index, un
         raise Exception("No such operation '%s'" % op_name)
 
     method = RESTORE_METHODS[op_name]
-    delta = method( cur_rec, prev_block_number, history_index, untrusted_db  )
+    delta = method( cur_rec, prev_block_number, history_index, working_db, untrusted_db )
     op_make_restore_diff_quirks( delta, op_name, cur_rec, prev_block_number, history_index, untrusted_db )
     return delta 
 

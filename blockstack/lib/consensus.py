@@ -58,7 +58,7 @@ from .storage import *
 from .nameset import *
 from .operations import *
 
-def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db ):
+def rec_to_virtualchain_op( name_rec, block_number, history_index, working_db, untrusted_db ):
     """
     Given a record from the blockstack database,
     convert it into the virtualchain operation that
@@ -83,7 +83,7 @@ def rec_to_virtualchain_op( name_rec, block_number, history_index, untrusted_db 
         # don't care--wasn't sent at this time
         return None
 
-    ret_op = op_make_restore_diff( opcode_name, name_rec, block_number, history_index, untrusted_db ) 
+    ret_op = op_make_restore_diff( opcode_name, name_rec, block_number, history_index, working_db, untrusted_db ) 
     if ret_op is None:
         raise Exception("Failed to restore %s at (%s, %s)" % (opcode_name, block_number, history_index))
 
@@ -132,7 +132,7 @@ def rec_restore_snv_consensus_fields( name_rec, block_id ):
     return merged_op
 
 
-def block_to_virtualchain_ops( block_id, db ):
+def block_to_virtualchain_ops( block_id, working_db, untrusted_db ):
     """
     convert a block's name ops to virtualchain ops.
     This is needed in order to recreate the virtualchain
@@ -143,7 +143,7 @@ def block_to_virtualchain_ops( block_id, db ):
     """
 
     # all records altered at this block, in tx order, as they were
-    prior_recs = db.get_all_records_at( block_id )
+    prior_recs = untrusted_db.get_all_records_at( block_id )
     log.debug("Records at %s: %s" % (block_id, len(prior_recs)))
     virtualchain_ops = []
 
@@ -189,7 +189,7 @@ def block_to_virtualchain_ops( block_id, db ):
                 prior_recs[i][k] = str(prior_recs[i][k])
 
         # remove virtualchain-specific fields--they won't be trusted
-        prior_recs[i] = db.sanitize_op( prior_recs[i] )
+        prior_recs[i] = untrusted_db.sanitize_op( prior_recs[i] )
 
         for field in prior_recs[i].keys():
 
@@ -206,7 +206,7 @@ def block_to_virtualchain_ops( block_id, db ):
                     h = history_index[ prior_recs[i]['name'] ][i]
 
             log.debug("Recover %s" % op_get_opcode_name( prior_recs[i]['op'] ))
-            virtualchain_op = rec_to_virtualchain_op( prior_recs[i], block_id, h, db )
+            virtualchain_op = rec_to_virtualchain_op( prior_recs[i], block_id, h, working_db, untrusted_db )
         except:
             print json.dumps( prior_recs[i], indent=4, sort_keys=True )
             raise
@@ -265,7 +265,7 @@ def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, 
     for block_id in xrange( start_block, target_block_id+1 ):
 
         untrusted_db.lastblock = block_id
-        virtualchain_ops = block_to_virtualchain_ops( block_id, untrusted_db )
+        virtualchain_ops = block_to_virtualchain_ops( block_id, working_db, untrusted_db )
 
         # feed ops to virtualchain to reconstruct the db at this block
         consensus_hash = working_db.process_block( block_id, virtualchain_ops )

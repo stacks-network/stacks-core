@@ -32,11 +32,19 @@ from blockstack_client.operations import *
 # consensus hash fields (ORDER MATTERS!)
 FIELDS = NAMEREC_FIELDS[:]
 
+"""
 # fields that this operation changes
 MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS[:] + [
     'revoked',
     'value_hash',
     'sender_pubkey'
+]
+"""
+
+# fields that this operation changes
+MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS[:] + [
+    'revoked',
+    'value_hash'
 ]
 
 # fields to back up when applying this operation 
@@ -156,11 +164,13 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
     }
 
     ret.update( parsed_payload )
-    
+   
+    """
     if sender_pubkey_hex is not None:
         ret['sender_pubkey'] = sender_pubkey_hex
     else:
         ret['sender_pubkey'] = None
+    """
 
     return ret
 
@@ -183,7 +193,7 @@ def parse(bin_payload):
     }
 
 
-def restore_delta( name_rec, block_number, history_index, untrusted_db ):
+def restore_delta( name_rec, block_number, history_index, working_db, untrusted_db ):
     """
     Find the fields in a name record that were changed by an instance of this operation, at the 
     given (block_number, history_index) point in time in the past.  The history_index is the

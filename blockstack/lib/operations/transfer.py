@@ -363,7 +363,7 @@ def parse(bin_payload, recipient):
     }
 
 
-def restore_delta( name_rec, block_number, history_index, untrusted_db ):
+def restore_delta( name_rec, block_number, history_index, working_db, untrusted_db ):
     """
     Find the fields in a name record that were changed by an instance of this operation, at the 
     given (block_number, history_index) point in time in the past.  The history_index is the
@@ -411,8 +411,13 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db ):
 
     sender = name_rec_prev['sender']
     address = name_rec_prev['address']
-    consensus_hash = untrusted_db.get_consensus_at( transfer_send_block_id )
-    
+    consensus_hash = working_db.get_consensus_at( transfer_send_block_id )
+   
+    if consensus_hash is None:
+        log.error("FATAL: no consensus hash at %s (last block is %s)" % (transfer_send_block_id, working_db.lastblock) )
+        log.error("consensus hashes:\n%s" % (json.dumps(working_db.consensus_hashes, indent=4, sort_keys=True)))
+        os.abort()
+
     name_rec_script = build_transfer( str(name_rec['name']), keep_data, consensus_hash )
 
     name_rec_payload = unhexlify( name_rec_script )[3:]

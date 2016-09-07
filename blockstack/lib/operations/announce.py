@@ -169,7 +169,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
     return True
 
 
-def restore_delta( name_rec, block_number, history_index, untrusted_db ):
+def restore_delta( name_rec, block_number, history_index, working_db, untrusted_db ):
     """
     Find the fields in a name record that were changed by an instance of this operation, at the 
     given (block_number, history_index) point in time in the past.  The history_index is the

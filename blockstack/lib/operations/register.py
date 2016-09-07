@@ -55,6 +55,7 @@ REGISTER_MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
     'consensus_hash'
 ]
 
+"""
 # fields renewal changes
 RENEWAL_MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
     'last_renewed',
@@ -62,7 +63,14 @@ RENEWAL_MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
     'sender',
     'address'
 ]
+"""
 
+# fields renewal changes
+RENEWAL_MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
+    'last_renewed',
+    'sender',
+    'address'
+]
 
 # fields to back up when applying this operation 
 REGISTER_BACKUP_FIELDS = NAMEREC_NAME_BACKUP_FIELDS[:] + REGISTER_MUTATE_FIELDS[:] 
@@ -443,7 +451,8 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
     # propagate new sender information
     del nameop['recipient']
     del nameop['recipient_address']
-
+    del nameop['sender_pubkey']
+    
     # renewal!
     return True
 
@@ -516,6 +525,7 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
 
     ret.update( parsed_payload )
 
+    # NOTE: will get deleted if this is a renew
     if sender_pubkey_hex is not None:
         ret['sender_pubkey'] = sender_pubkey_hex
     else:
@@ -544,7 +554,7 @@ def parse(bin_payload):
     }
  
  
-def restore_delta( name_rec, block_number, history_index, untrusted_db ):
+def restore_delta( name_rec, block_number, history_index, working_db, untrusted_db ):
     """
     Find the fields in a name record that were changed by an instance of this operation, at the 
     given (block_number, history_index) point in time in the past.  The history_index is the
@@ -564,7 +574,7 @@ def restore_delta( name_rec, block_number, history_index, untrusted_db ):
     ret_op['recipient'] = str(name_rec['sender'])
     ret_op['recipient_address'] = str(name_rec['address'])
 
-    # restore history to find prevoius sender, address, and public key
+    # restore history to find previous sender, address, and public key
     name_rec_prev = BlockstackDB.get_previous_name_version( name_rec, block_number, history_index, untrusted_db )
 
     sender = name_rec_prev['sender']
