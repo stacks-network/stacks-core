@@ -79,28 +79,28 @@ def scenario( wallets, **kw ):
 
     # wait for the poller to pick it up
     print >> sys.stderr, "Waiting for the backend to submit the register"
-    time.sleep(3)
+    time.sleep(10)
 
     # wait for the register to get confirmed 
     for i in xrange(0, 12):
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting for the backend to acknowledge registration"
-    time.sleep(3)
+    time.sleep(10)
 
     # wait for initial update to get confirmed 
     for i in xrange(0, 12):
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting for the backend to acknowledge update"
-    time.sleep(3)
+    time.sleep(10)
 
     # wait for zonefile/profile replication
     for i in xrange(0, 12):
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting for the backend to replicate zonefile and profile"
-    time.sleep(3)
+    time.sleep(10)
 
     test_proxy = testlib.TestAPIProxy()
     blockstack_client.set_default_proxy( test_proxy )
