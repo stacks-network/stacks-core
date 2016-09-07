@@ -611,13 +611,13 @@ class BlockstackDB( virtualchain.StateEngine ):
         return name_rec
 
 
-    def get_name_at( self, name, block_number ):
+    def get_name_at( self, name, block_number, include_expired=False ):
         """
         Generate and return the sequence of of states a name record was in
         at a particular block number.
         """
 
-        name_rec = self.get_name( name )
+        name_rec = self.get_name( name, include_expired=include_expired )
 
         # trivial reject
         if name_rec is None:
@@ -1260,6 +1260,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         cur = self.db.cursor()
         op_seq = None
+        op_seq_type_str = None
         opcode = nameop.get('opcode', None)
         history_id = None
 
@@ -1273,24 +1274,27 @@ class BlockstackDB( virtualchain.StateEngine ):
         if opcode in OPCODE_PREORDER_OPS:
             # preorder
             op_seq = self.commit_state_preorder( nameop, current_block_number )
+            op_seq_type_str = "state_preorder"
             
         elif opcode in OPCODE_CREATION_OPS:
             # creation
             history_id_key = state_create_get_history_id_key( nameop )
             history_id = nameop[history_id_key]
             op_seq = self.commit_state_create( nameop, current_block_number )
+            op_seq_type_str = "state_create"
            
         elif opcode in OPCODE_TRANSITION_OPS:
             # transition 
             history_id_key = state_transition_get_history_id_key( nameop )
             history_id = nameop[history_id_key]
             op_seq = self.commit_state_transition( nameop, current_block_number )
+            op_seq_type_str = "state_transition"
         
         else:
             raise Exception("Unknown operation '%s'" % opcode)
 
         if op_seq is None:
-            log.error("FATAL: no op-sequence generated")
+            log.error("FATAL: no op-sequence generated (for %s)" % op_seq_type_str)
             os.abort()
 
         if type(op_seq) != list:
@@ -1575,7 +1579,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         new_record = None 
         if history_id_key == "name":
-            new_record = namedb_get_name( cur, history_id, current_block_number, include_history=False )
+            new_record = namedb_get_name( cur, history_id, current_block_number, include_history=False, include_expired=True )
         elif history_id_key == "namespace_id":
             new_record = namedb_get_namespace( cur, history_id, current_block_number, include_history=False )
 
