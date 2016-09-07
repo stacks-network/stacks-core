@@ -16,8 +16,8 @@ setup(
     keywords='blockchain bitcoin btc cryptocurrency name key value store data',
     packages=find_packages(),
     scripts=[
-        'bin/cat-mock-bitcoind',
         'bin/blockstack-test-scenario',
+        'bin/blockstack-test-check-serialization',
         'bin/blockstack-test-all'
     ],
     download_url='https://github.com/blockstack/blockstack-integration-tests/archive/master.zip',
