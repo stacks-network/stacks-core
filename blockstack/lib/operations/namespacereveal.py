@@ -197,21 +197,19 @@ def check( state_engine, nameop, block_id, checked_ops ):
         
     else:
         # revealed for the 2nd or later time
-        log.debug("Re-revealing namespace '%s'" % name )
+        log.debug("Re-revealing namespace '%s'" % namespace_id )
         
         # push back preorder block number to the original preorder
         namespace_block_number = old_namespace['block_number']
 
         # re-revealing
-        prior_hist = prior_history_create( nameop, old_namespace, preorder_block_number, state_engine, extra_backup_fields=['consensus_hash','preorder_hash']) 
+        prior_hist = prior_history_create( nameop, old_namespace, preorder_block_number, state_engine, extra_backup_fields=['consensus_hash','preorder_hash'])
         state_create_put_prior_history( nameop, prior_hist )
 
     # record preorder
     nameop['block_number'] = namespace_block_number  # namespace_preorder['block_number']
     nameop['reveal_block'] = block_id
     state_create_put_preorder( nameop, namespace_preorder )
-    
-    # state_create_put_prior_history( nameop, None )
 
     # NOTE: not fed into the consensus hash, but necessary for database constraints:
     nameop['ready_block'] = 0
