@@ -584,7 +584,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
 
         cur = self.db.cursor()
-        return namedb_get_namespace( cur, namespace_id, block_number )
+        return namedb_get_namespace( cur, namespace_id, block_number, include_expired=include_expired )
 
     
     @autofill( "opcode" )
@@ -653,11 +653,9 @@ class BlockstackDB( virtualchain.StateEngine ):
         at a particular block number.
         """
 
-        namespace_rec = self.get_namespace( namespace_id )
+        cur = self.db.cursor()
+        namespace_rec = namedb_get_namespace( cur, namespace_id, None, include_expired=True )
         if namespace_rec is None:
-            return None
-
-        if block_number < namespace_rec['block_number']:
             return None
 
         historical_recs = namedb_restore_from_history( namespace_rec, block_number )
