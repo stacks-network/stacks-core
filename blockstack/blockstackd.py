@@ -381,7 +381,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
 
             # when does this name expire (if it expires)?
             if namespace_record['lifetime'] != NAMESPACE_LIFE_INFINITE:
-                name_record['expire_block'] = namespace_record['lifetime'] + name_record['last_renewed']
+                name_record['expire_block'] = max( namespace_record['ready_block'], name_record['last_renewed'] ) + namespace_record['lifetime']
 
             self.analytics("get_name_blockchain_record", {})
             return name_record
