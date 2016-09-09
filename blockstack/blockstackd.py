@@ -2040,6 +2040,8 @@ def run_blockstackd():
 
       if args.port is not None:
          log.info("Binding on port %s" % int(args.port))
+      else:
+         args.port = RPC_SERVER_PORT
 
       exit_status = run_server( foreground=args.foreground, index=(not args.no_index), expected_snapshots=expected_snapshots, port=int(args.port) )
       if args.foreground:
