@@ -55,16 +55,6 @@ REGISTER_MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
     'consensus_hash'
 ]
 
-"""
-# fields renewal changes
-RENEWAL_MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
-    'last_renewed',
-    'sender_pubkey',
-    'sender',
-    'address'
-]
-"""
-
 # fields renewal changes
 RENEWAL_MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
     'last_renewed',

@@ -32,15 +32,6 @@ from blockstack_client.operations import *
 # consensus hash fields (ORDER MATTERS!)
 FIELDS = NAMEREC_FIELDS[:]
 
-"""
-# fields that this operation changes
-MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS[:] + [
-    'revoked',
-    'value_hash',
-    'sender_pubkey'
-]
-"""
-
 # fields that this operation changes
 MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS[:] + [
     'revoked',
