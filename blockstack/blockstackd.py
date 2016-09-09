@@ -252,6 +252,7 @@ def get_name_cost( name ):
     Return None if the namespace has not been declared
     """
     db = get_state_engine()
+    lastblock = db.lastblock
 
     namespace_id = get_namespace_from_name( name )
     if namespace_id is None or len(namespace_id) == 0:
@@ -269,8 +270,26 @@ def get_name_cost( name ):
         log.debug("No namespace '%s'" % namespace_id)
         return None
 
-    name_fee = price_name( get_name_from_fq_name( name ), namespace )
+    name_fee = price_name( get_name_from_fq_name( name ), namespace, lastblock )
     return name_fee
+
+
+def get_namespace_cost( namespace_id ):
+    """
+    Get the cost of a namespace.
+    Return None if the namespace has already been declared
+    """
+    db = get_state_engine()
+    lastblock = db.lastblock
+
+    namespace = db.get_namespace( namespace_id )
+    if namespace is not None:
+        log.debug("namespace '%s' already exists" % namespace_id)
+        return None
+
+    namespace_fee = price_namespace( namespace_id, lastblock )
+    return namespace_fee
+
 
 
 class BlockstackdRPCHandler(SimpleXMLRPCRequestHandler):
@@ -585,7 +604,10 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not is_namespace_valid(namespace_id):
             return {'error': 'invalid namespace ID'}
 
-        ret = price_namespace(namespace_id)
+        ret = get_namespace_cost( namespace_id )
+        if ret is None:
+            return {'error': 'Namespace already exists'}
+
         return {"satoshis": int(math.ceil(ret))}
 
 
@@ -1838,8 +1860,12 @@ def check_alternate_working_dir():
                 print >> sys.stderr, "--working-dir requires an argument"
                 return None
 
+    # load from environment if not given
     if path is None and os.environ.get("VIRTUALCHAIN_WORKING_DIR") is not None:
         path = os.environ["VIRTUALCHAIN_WORKING_DIR"]
+
+    elif path is not None:
+        os.environ['VIRTUALCHAIN_WORKING_DIR'] = path 
 
     return path
 
@@ -2042,7 +2068,10 @@ def run_blockstackd():
       print "The final consensus hash is '%s'" % final_consensus_hash
 
    elif args.action == 'verifydb':
-      rc = verify_database( args.consensus_hash, int(args.block_id), args.db_path )
+      db_path = virtualchain.get_db_filename()
+      working_db_path = os.path.join( working_dir, os.path.basename( db_path ) )
+
+      rc = verify_database( args.consensus_hash, int(args.block_id), args.db_path, working_db_path=working_db_path )
       if rc:
           # success!
           print "Database is consistent with %s" % args.consensus_hash
