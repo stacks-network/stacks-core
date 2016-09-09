@@ -571,6 +571,21 @@ class BlockstackDB( virtualchain.StateEngine ):
         cur = self.db.cursor()
         return namedb_get_namespace_ready( cur, namespace_id )
 
+
+    @autofill( "opcode" )
+    def get_namespace_op_state( self, namespace_id, block_number, include_expired=False ):
+        """
+        Given a namespace ID and block number, get the current namespace op (revealed or ready) for it
+        if the namespace existed after that block.  Optionally return the namespace
+        record even if it's a NAMESPACE_REVEAL and it expired.
+
+        Return the dict with the parameters on success.
+        Return None if the namespace has not yet been revealed.
+        """
+
+        cur = self.db.cursor()
+        return namedb_get_namespace( cur, namespace_id, block_number )
+
     
     @autofill( "opcode" )
     def get_namespace_by_preorder( self, preorder_hash ):
@@ -1551,7 +1566,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             cur_record = namedb_get_name( cur, history_id, current_block_number, include_history=False, include_expired=True )
 
         elif history_id_key == "namespace_id":
-            cur_record = namedb_get_namespace( cur, history_id, current_block_number, include_history=False )
+            cur_record = namedb_get_namespace( cur, history_id, current_block_number, include_history=False, include_expired=True )
 
         else:
             raise Exception("Unknown history ID key '%s'" % history_id_key)
@@ -1581,7 +1596,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         if history_id_key == "name":
             new_record = namedb_get_name( cur, history_id, current_block_number, include_history=False, include_expired=True )
         elif history_id_key == "namespace_id":
-            new_record = namedb_get_namespace( cur, history_id, current_block_number, include_history=False )
+            new_record = namedb_get_namespace( cur, history_id, current_block_number, include_history=False, include_expired=True )
 
         return new_record
 
