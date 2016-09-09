@@ -306,7 +306,7 @@ def op_make_restore_diff_quirks( diff, op_name, cur_rec, prev_block_number, hist
             # this is the first-ever preorder
             last_creation_opcode = 'NAME_PREORDER'
 
-    log.debug("apply RESTORE DIFF QUIRKS on %s at %s.%s (created with %s)" % (cur_rec.get('name', "UNKNOWN"), prev_block_number, history_index, last_creation_opcode))
+    log.debug("apply RESTORE DIFF QUIRKS on %s at %s[%s] (created with %s)" % (cur_rec.get('name', "UNKNOWN"), prev_block_number, history_index, last_creation_opcode))
 
     if cur_rec.has_key('name') and last_creation_opcode == 'NAME_IMPORT':
         log.debug("apply RESTORE DIFF QUIRK on %s: %s --> %s"  % (cur_rec.get('name', "UNKNOWN"), cur_rec['op_fee'], float(cur_rec['op_fee'])))
