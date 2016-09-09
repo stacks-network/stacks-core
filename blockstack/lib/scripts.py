@@ -118,7 +118,7 @@ def get_name_from_fq_name( name ):
    return name.split(".")[0]
 
 
-def price_name( name, namespace ):
+def price_name( name, namespace, block_height ):
    """
    Calculate the price of a name (without its namespace ID), given the
    namespace parameters.
@@ -152,25 +152,28 @@ def price_name( name, namespace ):
    if price < NAME_COST_UNIT:
        price = NAME_COST_UNIT
 
-   return price
+   price_multiplier = get_epoch_price_multiplier( block_height )
+   return price * price_multiplier
 
 
-def price_namespace( namespace_id ):
+def price_namespace( namespace_id, block_height ):
    """
    Calculate the cost of a namespace.
    """
 
+   price_multiplier = get_epoch_price_multiplier( block_height )
+
    if len(namespace_id) == 1:
-       return NAMESPACE_1_CHAR_COST
+       return NAMESPACE_1_CHAR_COST * price_multiplier
 
    elif len(namespace_id) in [2, 3]:
-       return NAMESPACE_23_CHAR_COST
+       return NAMESPACE_23_CHAR_COST * price_multiplier
 
    elif len(namespace_id) in [4, 5, 6, 7]:
-       return NAMESPACE_4567_CHAR_COST
+       return NAMESPACE_4567_CHAR_COST * price_multiplier
 
    else:
-       return NAMESPACE_8UP_CHAR_COST
+       return NAMESPACE_8UP_CHAR_COST * price_multiplier
 
 
 def find_by_opcode( checked_ops, opcode ):
