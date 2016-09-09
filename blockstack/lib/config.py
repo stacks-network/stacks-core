@@ -64,8 +64,6 @@ EXPIRATION_PERIOD = BLOCKS_PER_YEAR*1
 NAME_PREORDER_EXPIRE = BLOCKS_PER_DAY
 AVERAGE_BLOCKS_PER_HOUR = MINUTES_PER_HOUR/AVERAGE_MINUTES_PER_BLOCK
 
-NAMESPACE_LIFETIME_MULTIPLIER = 2
-
 """ blockstack configs
 """
 MAX_NAMES_PER_SENDER = 25                # a single sender script can own up to this many names
@@ -98,6 +96,71 @@ GENESIS_SNAPSHOT = {
     str(FIRST_BLOCK_MAINNET-2): "17ac43c1d8549c3181b200f1bf97eb7d",
     str(FIRST_BLOCK_MAINNET-1): "17ac43c1d8549c3181b200f1bf97eb7d",
 }
+
+"""
+Epoch constants govern externally-adjusted behaviors over different time intervals.
+Specifically:
+    * NAMESPACE_LIFETIME_MULTIPLIER:    constant to multiply name lifetimes by
+    * PRICE_MULTIPLIER:                 constant to multiply name and namespace prices by
+"""
+EPOCH_FIELDS = [
+    "NAMESPACE_LIFETIME_MULTIPLIER",
+    "PRICE_MULTIPLIER"
+]
+
+# when epochs end (-1 means "never")
+EPOCH_NOW = -1
+EPOCH_1_END_BLOCK = 430000
+EPOCH_2_END_BLOCK = EPOCH_NOW
+
+NUM_EPOCHS = 2
+for i in xrange(1, NUM_EPOCHS+1):
+    # epoch lengths can be altered by the test framework, for ease of tests
+    if os.environ.get("BLOCKSTACK_EPOCH_%s_END_BLOCK" % i, None) is not None and os.environ.get("BLOCKSTACK_TEST", None) == "1":
+        eval("BLOCKSTACK_EPOCH_%s_END_BLOCK = int(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_END_BLOCK" % i)))
+        log.warn("EPOCH_%s_END_BLOCK = %s" % (i, eval("BLOCKSTACK_EPOCH_%s_END_BLOCK" % i)))
+
+del i
+
+# epoch definitions
+# each epoch begins at the block after 'end_block'.
+# the first epoch begins at FIRST_BLOCK_MAINNET
+EPOCHS = [
+    {
+        # epoch 1
+        "end_block": EPOCH_1_END_BLOCK,
+        "NAMESPACE_LIFETIME_MULTIPLIER": 1,
+        "PRICE_MULTIPLIER": 1.0             # meant for when 1 BTC was ~$250 USD
+    },
+    {
+        # epoch 2
+        "end_block": EPOCH_2_END_BLOCK,
+        "NAMESPACE_LIFETIME_MULTIPLIER": 2,
+        "PRICE_MULTIPLIER": 0.417           # price of bitcoin when epoch 2 began: ~$600 USD
+    }
+]
+
+
+# epoch self-consistency check 
+for epoch_field in EPOCH_FIELDS:
+    for i in xrange(0, len(EPOCHS)):
+        if not EPOCHS[i].has_key(epoch_field):
+            raise Exception("Missing field '%s' at epoch %s" % (epoch_field, i))
+
+if EPOCHS[len(EPOCHS)-1]['end_block'] != EPOCH_NOW:
+    raise Exception("Last epoch ends at %s" % EPOCHS[len(EPOCHS)-1]['end_block'])
+
+for i in xrange(0, len(EPOCHS)-1):
+    if EPOCHS[i]['end_block'] < 0:
+        raise Exception("Invalid end block for epoch %s" % (i+1))
+
+    if EPOCHS[i]['end_block'] >= EPOCHS[i+1]['end_block'] and EPOCHS[i+1]['end_block'] > 0:
+        raise Exception("Invalid epoch block range at epoch %s" % (i+1))
+
+
+del epoch_field
+del i 
+
 
 """ magic bytes configs
 """
@@ -312,11 +375,18 @@ NAMESPACE_8UP_CHAR_COST = 0.4 * SATOSHIS_PER_BTC      # ~$96
 NAMESPACE_PREORDER_EXPIRE = BLOCKS_PER_DAY      # namespace preorders expire after 1 day, if not revealed
 NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_YEAR       # namespace reveals expire after 1 year, if not readied.
 
-if os.getenv("BLOCKSTACK_TEST") is not None:
+if os.environ.get("BLOCKSTACK_TEST", None) is not None:
     # testing 
+    log.warning("(%s): in test environment" % os.getpid())
+
     NAME_IMPORT_KEYRING_SIZE = 5                  # number of keys to derive from the import key
-    NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_DAY      # small enough so we can actually test this...
-    print >> sys.stderr, "WARN (%s): in test environment" % os.getpid()
+
+    if os.environ.get("BLOCKSTACK_NAMESPACE_REVEAL_EXPIRE", None) is not None:
+        NAMESPACE_REVEAL_EXPIRE = int(os.environ.get("BLOCKSTACK_NAMESPACE_REVEAL_EXPIRE"))
+        log.warning("NAMESPACE_REVEAL_EXPIRE = %s" % NAMESPACE_REVEAL_EXPIRE)
+
+    else:
+        NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_DAY      # small enough so we can actually test this...
 
 else:
     NAME_IMPORT_KEYRING_SIZE = 300                  # number of keys to derive from the import key
@@ -352,6 +422,36 @@ NAMESPACE_DEFAULT = {
    'block_number': 0
 }
 
+
+
+def get_epoch_config( block_height ):
+    """
+    Get the epoch constants for the given block height
+    """
+    global EPOCHS
+    for epoch in EPOCHS:
+        if block_height <= epoch['end_block'] and epoch['end_block'] != EPOCH_NOW:
+            # in this epoch 
+            return epoch
+
+    # out of epochs
+    return EPOCHS[-1]
+
+
+def get_epoch_namespace_lifetime_multiplier( block_height ):
+    """
+    what's the namespace lifetime multipler for this epoch?
+    """
+    epoch_config = get_epoch_config( block_height )
+    return epoch_config['NAMESPACE_LIFETIME_MULTIPLIER']
+
+
+def get_epoch_price_multiplier( block_height ):
+    """
+    what's the price multiplier for this epoch?
+    """
+    epoch_config = get_epoch_config( block_height )
+    return epoch_config['PRICE_MULTIPLIER']
 
 
 """
