@@ -179,16 +179,39 @@ def check( state_engine, nameop, block_id, checked_ops ):
     namespace_fee = namespace_preorder['op_fee']
 
     # must have paid enough
-    if namespace_fee < price_namespace( namespace_id ):
+    if namespace_fee < price_namespace( namespace_id, block_id ):
        # not enough money
-       log.debug("Namespace '%s' costs %s, but sender paid %s" % (namespace_id, price_namespace(namespace_id), namespace_fee ))
+       log.debug("Namespace '%s' costs %s, but sender paid %s" % (namespace_id, price_namespace(namespace_id, block_id), namespace_fee ))
        return False
 
+    # is this the first time this namespace has been revealed?
+    old_namespace = state_engine.get_namespace_op_state( namespace_id, block_id, include_expired=True )
+    namespace_block_number = None
+    preorder_block_number = namespace_preorder['block_number']
+    
+    if old_namespace is None:
+        # revealed for the first time
+        log.debug("Revealing for the first time: '%s'" % namespace_id)
+        namespace_block_number = namespace_preorder['block_number']
+        state_create_put_prior_history( nameop, None )
+        
+    else:
+        # revealed for the 2nd or later time
+        log.debug("Re-revealing namespace '%s'" % name )
+        
+        # push back preorder block number to the original preorder
+        namespace_block_number = old_namespace['block_number']
+
+        # re-revealing
+        prior_hist = prior_history_create( nameop, old_namespace, preorder_block_number, state_engine, extra_backup_fields=['consensus_hash','preorder_hash']) 
+        state_create_put_prior_history( nameop, prior_hist )
+
     # record preorder
-    nameop['block_number'] = namespace_preorder['block_number']
+    nameop['block_number'] = namespace_block_number  # namespace_preorder['block_number']
     nameop['reveal_block'] = block_id
     state_create_put_preorder( nameop, namespace_preorder )
-    state_create_put_prior_history( nameop, None )
+    
+    # state_create_put_prior_history( nameop, None )
 
     # NOTE: not fed into the consensus hash, but necessary for database constraints:
     nameop['ready_block'] = 0
@@ -292,6 +315,8 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
 
     if sender_pubkey_hex is not None:
         ret['sender_pubkey'] = sender_pubkey_hex
+    else:
+        ret['sender_pubkey'] = None
 
     return ret
 
@@ -414,6 +439,8 @@ def restore_delta( name_rec, block_number, history_index, working_db, untrusted_
     name_rec_payload = unhexlify( name_rec_script )[3:]
     ret_op = parse( name_rec_payload, str(name_rec['sender']), str(name_rec['recipient_address']) )
 
+    ret_op['op'] = NAMESPACE_REVEAL
+
     return ret_op
 
 
@@ -422,4 +449,5 @@ def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
     Calculate any derived missing data that goes into the check() operation,
     given the block number, the name record at the block number, and the db.
     """
+    
     return {}
