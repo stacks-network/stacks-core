@@ -299,8 +299,8 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     name_without_namespace = get_name_from_fq_name( name )
 
     # fee must be high enough
-    if name_fee < price_name( name_without_namespace, namespace ):
-        log.debug("Name '%s' costs %s, but paid %s" % (name, price_name( name_without_namespace, namespace ), name_fee ))
+    if name_fee < price_name( name_without_namespace, namespace, block_id ):
+        log.debug("Name '%s' costs %s, but paid %s" % (name, price_name( name_without_namespace, namespace, block_id ), name_fee ))
         return False
   
     nameop['opcode'] = opcode
@@ -431,8 +431,8 @@ def check_renewal( state_engine, nameop, block_id, checked_ops ):
     name_without_namespace = get_name_from_fq_name( name )
 
     # fee must be high enough
-    if name_fee < price_name( name_without_namespace, namespace ):
-        log.debug("Name '%s' costs %s, but paid %s" % (name, price_name( name_without_namespace, namespace ), name_fee ))
+    if name_fee < price_name( name_without_namespace, namespace, block_id ):
+        log.debug("Name '%s' costs %s, but paid %s" % (name, price_name( name_without_namespace, namespace, block_id ), name_fee ))
         return False
 
     nameop['op'] = "%s:" % (NAME_REGISTRATION,)
