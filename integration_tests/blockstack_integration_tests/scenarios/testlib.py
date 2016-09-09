@@ -366,6 +366,10 @@ def blockstack_namespace_preorder( namespace_id, register_addr, privatekey, cons
     register_addr = virtualchain.address_reencode(register_addr)
 
     namespace_cost = test_proxy.get_namespace_cost( namespace_id )
+    if 'error' in namespace_cost:
+        log.error("Failed to get namespace cost for '%s': %s" % (namespace_id, namespace_cost['error']))
+        return {'error': 'Failed to get namespace costs'}
+
     resp = blockstack_client.do_namespace_preorder( namespace_id, namespace_cost['satoshis'], privatekey, register_addr, test_proxy, test_proxy, consensus_hash=consensus_hash, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
     api_call_history.append( APICallRecord( "namespace_preorder", namespace_id, resp ) )
     return resp
