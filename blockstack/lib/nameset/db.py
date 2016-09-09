@@ -1285,15 +1285,25 @@ def namedb_flatten_history( hist ):
     return ret
 
 
-def namedb_get_namespace( cur, namespace_id, current_block, include_history=True ):
+def namedb_get_namespace( cur, namespace_id, current_block, include_expired=False, include_history=True ):
     """
-    Get an unexpired namespace (revealed or ready) and optionally its history.
+    Get a namespace (revealed or ready) and optionally its history.
+    Only return an expired namespace if asked.
     """
 
+    include_expired_query = ""
+    include_expired_args = ()
+
+    if not include_expired:
+        include_expired_query = " AND ? < namespaces.reveal_block + ?"
+        include_expired_args = (current_block, NAMESPACE_REVEAL_EXPIRE)
+
     select_query = "SELECT * FROM namespaces WHERE namespace_id = ? AND " + \
-                   "((op = ? AND namespaces.reveal_block <= ? AND ? < namespaces.reveal_block + ?) OR " + \
-                   " (op = ?))"
-    namespace_rows = namedb_query_execute( cur, select_query, (namespace_id, NAMESPACE_REVEAL, current_block, current_block, NAMESPACE_REVEAL_EXPIRE, NAMESPACE_READY))
+                   "((op = ?) OR (op = ? AND namespaces.reveal_block <= ? %s))" % include_expired_query
+
+    args = (namespace_id, NAMESPACE_READY, NAMESPACE_REVEAL, current_block) + include_expired_args
+
+    namespace_rows = namedb_query_execute( cur, select_query, args )
 
     namespace_row = namespace_rows.fetchone()
     if namespace_row is None:
@@ -1369,11 +1379,13 @@ def namedb_select_where_unexpired_names( current_block ):
     Generate part of a WHERE clause that selects from name records joined with namespaces
     (or projections of them) that are not expired.
     """
+    namespace_lifetime_multiplier = get_epoch_namespace_lifetime_multiplier( current_block )
+
     query_fragment = "name_records.first_registered <= ? AND " + \
                      "((namespaces.op = ? AND (namespaces.ready_block + (namespaces.lifetime * ?) > ? OR name_records.last_renewed + (namespaces.lifetime * ?) >= ?)) OR " + \
                      "(namespaces.op = ? AND namespaces.reveal_block <= ? AND ? < namespaces.reveal_block + ?))"
 
-    query_args = (current_block, NAMESPACE_READY, NAMESPACE_LIFETIME_MULTIPLIER, current_block, NAMESPACE_LIFETIME_MULTIPLIER, current_block, NAMESPACE_REVEAL, current_block, current_block, NAMESPACE_REVEAL_EXPIRE)
+    query_args = (current_block, NAMESPACE_READY, namespace_lifetime_multiplier, current_block, namespace_lifetime_multiplier, current_block, NAMESPACE_REVEAL, current_block, current_block, NAMESPACE_REVEAL_EXPIRE)
 
     return (query_fragment, query_args)
 
@@ -1519,7 +1531,7 @@ def namedb_restore_from_history( name_rec, block_id ):
         try:
             diff_list = list( reversed( name_rec['history'][ block_history[i] ] ) )
         except:
-            print json.dumps( name_rec['history'][block_history[i]] )
+            print json.dumps( name_rec['history'][block_history[i]], indent=4, sort_keys=True )
             raise
 
         for diff in diff_list:
@@ -1595,10 +1607,17 @@ def namedb_rec_restore( db, rows, history_id_key, block_id, include_history=Fals
         rec_history = get_history( rec[history_id_key] )
         rec['history'] = rec_history
 
+        if rec['op'] in [NAMESPACE_PREORDER, NAMESPACE_REVEAL, NAMESPACE_READY]:
+            print "restore to %s:\n%s" % (block_id, json.dumps(rec, indent=4, sort_keys=True))
+
         restored_recs = namedb_restore_from_history( rec, block_id )
         if include_history:
             for r in restored_recs:
                 r['history'] = rec_history
+        
+
+        if rec['op'] in [NAMESPACE_PREORDER, NAMESPACE_REVEAL, NAMESPACE_READY]:
+            print "restored to %s:\n%s" % (block_id, json.dumps(restored_recs, indent=4, sort_keys=True))
 
         ret += restored_recs
 
@@ -1638,7 +1657,7 @@ def namedb_get_all_records_at( db, block_id, include_history=False ):
     log.debug("%s name-change states at %s" % (len(restored_recs), block_id ))
 
 
-    # all outstanding preorders created at this block
+    # all outstanding name/namespace preorders created at this block
     cur = db.cursor()
     preorder_rows_query = "SELECT * FROM preorders WHERE block_number = ?;"
     preorder_rows = namedb_query_execute( cur, preorder_rows_query, (block_id,))
