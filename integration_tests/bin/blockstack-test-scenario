@@ -145,6 +145,32 @@ class Pinger(threading.Thread):
         self.running = False
 
 
+def parse_test_pragma( line ):
+    """
+    Parse a test pragma line from a scenario
+    """
+    ret = {}
+    lineparts = line.split(" ")
+    assert len(lineparts) >= 2
+
+    if lineparts[0] != 'TEST':
+        raise Exception("Not a test pragma: '%s'" % line)
+
+    if lineparts[1] == 'ENV':
+        assert len(lineparts) > 3
+
+        # environment variable
+        ret['type'] = 'ENV'
+        ret['name'] = lineparts[2]
+        ret['value'] = ' '.join(lineparts[3:])
+
+    else:
+        # unknown
+        raise Exception("Unknown test pragma '%s'" % lineparts[0])
+
+    return ret
+
+
 def load_scenario( scenario_name ):
     """
     Load up a scenario, and validate it.
@@ -159,9 +185,45 @@ def load_scenario( scenario_name ):
     engine as an argument and checks it for correctness.
     """
 
+    log.debug("Load scenario %s" % sys.argv[1])
+
     # strip .py from scenario name 
     if scenario_name.endswith(".py"):
         scenario_name = scenario_name[:-3]
+
+    # open /dev/null 
+    nullfd = open("/dev/null", "w")
+
+    # identify the file's path
+    print "begin subprocess"
+    p = subprocess.Popen( "python -c 'import %s; print %s.__file__'" % (scenario_name, scenario_name), shell=True, stdout=subprocess.PIPE, stderr=nullfd.fileno() )
+    path, _ = p.communicate()
+
+    nullfd.close()
+
+    print "end subprocess"
+    
+    if p.returncode is not None and p.returncode != 0:
+        raise Exception("Failed to load %s, exit code %s" % (scenario_name, p.returncode))
+
+    path = path.strip()
+    if path.endswith(".pyc"):
+        path = path[:-4] + ".py"
+
+    # load any test pragmas (like environment variables) and set them now
+    with open(path, "r") as f:
+        scenario_data = f.readlines()
+        
+    for line in scenario_data:
+        line = line.strip()
+        try:
+            test_pragma = parse_test_pragma( line )
+        except:
+            continue
+
+        if test_pragma['type'] == 'ENV':
+            os.environ[ test_pragma['name'] ] = test_pragma['value']
+            log.debug("export %s='%s'" % (test_pragma['name'], os.environ[test_pragma['name']]))
 
     try:
         scenario = importlib.import_module( scenario_name )
@@ -829,6 +891,12 @@ if __name__ == "__main__":
     os.environ["BLOCKSTACK_SERVER_CONFIG"] = config_file
     os.environ['VIRTUALCHAIN_WORKING_DIR'] = working_dir
 
+    # load up the scenario (so it can set its own extra envars) 
+    scenario = load_scenario( sys.argv[1] )
+    if scenario is None:
+        print "Failed to load '%s'" % sys.argv[1]
+        sys.exit(1)
+
     # *now* we can import blockstack 
     import blockstack
     import blockstack.blockstackd as blockstackd
@@ -841,14 +909,7 @@ if __name__ == "__main__":
     # set up bitcoind 
     bitcoin_regtest_reset()
 
-    # load up the scenario 
-    scenario = load_scenario( sys.argv[1] )
-    if scenario is None:
-        print "Failed to load '%s'" % sys.argv[1]
-        sys.exit(1)
-
     # set up default payment wallet 
-    # default_payment_wallet = testlib.Wallet( "5JAjxs1icBcedFahfkuq3hAwLfTqkHEJ95VuuQnUmdiTXc98kz6", 0 )
     default_payment_wallet = testlib.MultisigWallet( 2, '5JYAj69z2GuFAZHrkhRuBKoCmKh6GcPXgcw9pbH8e8J2pu2RU9z', '5Kfg4xkZ1gGN5ozgDZ37Mn3EH9pXSuWZnQt1pzax4cLax8PetNs', '5JXB7rNxZa8yQtpuKtwy1nWUUTgdDEYTDmaEqQvKKC8HCWs64bL' ) 
 
     # load wallets 
