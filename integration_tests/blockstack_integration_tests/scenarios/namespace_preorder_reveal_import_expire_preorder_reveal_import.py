@@ -21,6 +21,12 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """ 
 
+# test framework pragmas
+"""
+TEST ENV BLOCKSTACK_NAMESPACE_REVEAL_EXPIRE 3
+"""
+
+import os
 import testlib 
 import json
 import pybitcoin
@@ -37,18 +43,20 @@ wallets = [
 ]
 
 reveal_block = None
+first_registered_block = None
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 namespace_block_number = None
 
 def scenario( wallets, **kw ): 
 
-    global reveal_block, namespace_block_number
+    global reveal_block, namespace_block_number, first_registered_block
 
     resp = testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     if 'error' in resp:
         print json.dumps(resp, indent=4)
 
     testlib.next_block( **kw )
+    namespace_block_number = testlib.get_current_block(**kw)
 
     # reveal it  
     testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
@@ -59,9 +67,10 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_import( "bar.test", wallets[3].addr, "22" * 20, wallets[1].privkey )
     testlib.blockstack_name_import( "baz.test", wallets[4].addr, "33" * 20, wallets[1].privkey )
     testlib.next_block( **kw )
+    first_registered_block = testlib.get_current_block(**kw)
 
-    # expire it (1 day later)
-    for i in xrange(0, 145): 
+    # expire it (3 blocks later)
+    for i in xrange(0, 3): 
         testlib.next_block( **kw )
 
     # try to ready it (should fail)
@@ -81,7 +90,7 @@ def scenario( wallets, **kw ):
     # try to re-reveal it 
     testlib.blockstack_namespace_reveal( "test", wallets[3].addr, 52595, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[2].privkey )
     testlib.next_block( **kw )
-    reveal_block = testlib.get_current_block(**kw) + 1
+    reveal_block = testlib.get_current_block(**kw) 
 
     # import some names
     testlib.blockstack_name_import( "foo.test", wallets[2].addr, "11" * 20, wallets[1].privkey )
@@ -89,7 +98,6 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_import( "baz.test", wallets[4].addr, "33" * 20, wallets[1].privkey )
     testlib.next_block( **kw )
 
-    namespace_block_number = testlib.get_current_block(**kw)
 
 
 def check( state_engine ):
@@ -125,12 +133,12 @@ def check( state_engine ):
             print "name '%s' does not exist" % name
             return False 
 
-        if name_rec['first_registered'] != reveal_block:
-            print "name '%s' first_registered at %s; expected %s" % (name, name_rec['first_registered'], reveal_block )
+        if name_rec['first_registered'] != first_registered_block:
+            print "name '%s' first_registered at %s; expected %s" % (name, name_rec['first_registered'], first_registered_block )
             return False 
 
-        if name_rec['last_renewed'] != reveal_block:
-            print "name '%s' last_renewed at %s; expected %s" % (name, name_rec['last_renewed'], reveal_block )
+        if name_rec['last_renewed'] != first_registered_block:
+            print "name '%s' last_renewed at %s; expected %s" % (name, name_rec['last_renewed'], first_registered_block )
             return False
 
         if name_rec['namespace_block_number'] != namespace_block_number:
