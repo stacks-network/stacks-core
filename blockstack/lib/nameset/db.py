@@ -621,7 +621,11 @@ def namedb_namespace_update( cur, opcode, input_opdata, only_if={}, constraints_
 
     mutate_fields = op_get_mutate_fields( opcode ) 
     
-    assert 'namespace_id' not in mutate_fields, "BUG: 'name' listed as a mutate field for '%s'" % (opcode)
+    if opcode not in OPCODE_CREATION_OPS:
+        assert 'namespace_id' not in mutate_fields, "BUG: 'namespace_id' listed as a mutate field for '%s'" % (opcode)
+
+    else:
+        namedb_namespace_fields_check( opdata )
 
     # reduce opdata down to the given fields....
     must_equal = namedb_update_must_equal( opdata, mutate_fields )
@@ -1289,19 +1293,30 @@ def namedb_get_namespace( cur, namespace_id, current_block, include_expired=Fals
     """
     Get a namespace (revealed or ready) and optionally its history.
     Only return an expired namespace if asked.
+    If current_block is None, any namespace is returned.
     """
 
     include_expired_query = ""
     include_expired_args = ()
 
+    min_age_query = " AND namespaces.reveal_block <= ?"
+    min_age_args = (current_block,)
+
     if not include_expired:
+        assert current_block is not None
         include_expired_query = " AND ? < namespaces.reveal_block + ?"
         include_expired_args = (current_block, NAMESPACE_REVEAL_EXPIRE)
 
-    select_query = "SELECT * FROM namespaces WHERE namespace_id = ? AND " + \
-                   "((op = ?) OR (op = ? AND namespaces.reveal_block <= ? %s))" % include_expired_query
+    if current_block is None:
+        min_age_query = ""
+        min_age_args = ()
 
-    args = (namespace_id, NAMESPACE_READY, NAMESPACE_REVEAL, current_block) + include_expired_args
+    select_query = "SELECT * FROM namespaces WHERE namespace_id = ? AND " + \
+                   "((op = ?) OR (op = ? %s %s))" % (min_age_query, include_expired_query)
+
+    args = (namespace_id, NAMESPACE_READY, NAMESPACE_REVEAL) + min_age_args + include_expired_args
+
+    log.debug(namedb_format_query(select_query, args))
 
     namespace_rows = namedb_query_execute( cur, select_query, args )
 
@@ -1534,7 +1549,8 @@ def namedb_restore_from_history( name_rec, block_id ):
             print json.dumps( name_rec['history'][block_history[i]], indent=4, sort_keys=True )
             raise
 
-        for diff in diff_list:
+        for di in xrange(0, len(diff_list)):
+            diff = diff_list[di]
 
             if diff.has_key('history_snapshot'):
                 # wholly new state
@@ -1607,18 +1623,11 @@ def namedb_rec_restore( db, rows, history_id_key, block_id, include_history=Fals
         rec_history = get_history( rec[history_id_key] )
         rec['history'] = rec_history
 
-        if rec['op'] in [NAMESPACE_PREORDER, NAMESPACE_REVEAL, NAMESPACE_READY]:
-            print "restore to %s:\n%s" % (block_id, json.dumps(rec, indent=4, sort_keys=True))
-
         restored_recs = namedb_restore_from_history( rec, block_id )
         if include_history:
             for r in restored_recs:
                 r['history'] = rec_history
         
-
-        if rec['op'] in [NAMESPACE_PREORDER, NAMESPACE_REVEAL, NAMESPACE_READY]:
-            print "restored to %s:\n%s" % (block_id, json.dumps(restored_recs, indent=4, sort_keys=True))
-
         ret += restored_recs
 
     return ret
