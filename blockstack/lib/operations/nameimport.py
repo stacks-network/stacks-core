@@ -263,7 +263,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
     nameop['address'] = recipient_address
     nameop['importer'] = sender
     nameop['importer_address'] = sender_address
-    nameop['op_fee'] = price_name( name_without_namespace, namespace )
+    nameop['op_fee'] = price_name( name_without_namespace, namespace, block_id )
     nameop['namespace_block_number'] = namespace['block_number']
     nameop['consensus_hash'] = None 
     nameop['preorder_hash'] = preorder_hash
