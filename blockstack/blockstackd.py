@@ -271,6 +271,7 @@ def get_name_cost( name ):
         return None
 
     name_fee = price_name( get_name_from_fq_name( name ), namespace, lastblock )
+    log.debug("Cost of '%s' at %s is %s" % (name, lastblock, int(name_fee)))
     return name_fee
 
 
@@ -430,7 +431,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
             # when does this name expire (if it expires)?
             if namespace_record['lifetime'] != NAMESPACE_LIFE_INFINITE:
-                name_record['expire_block'] = max( namespace_record['ready_block'], name_record['last_renewed'] ) + namespace_record['lifetime']
+                namespace_lifetime_multiplier = get_epoch_namespace_lifetime_multiplier( db.lastblock )
+                name_record['expire_block'] = max( namespace_record['ready_block'], name_record['last_renewed'] ) + namespace_record['lifetime'] * namespace_lifetime_multiplier
 
             self.analytics("get_name_blockchain_record", {})
             return name_record
