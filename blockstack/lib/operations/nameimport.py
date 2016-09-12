@@ -52,7 +52,8 @@ MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS[:] + [
     'revoked',
     'block_number',
     'namespace_block_number',
-    'transfer_send_block_id'
+    'transfer_send_block_id',
+    'op_fee'
 ]
  
 # fields to preserve when applying this operation 
@@ -247,7 +248,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
     prior_hist = None
     if prev_name_rec is not None:
         # set preorder and prior history...
-        prior_hist = prior_history_create( nameop, prev_name_rec, block_id, state_engine, extra_backup_fields=['consensus_hash','namespace_block_number','transfer_send_block_id'] )
+        prior_hist = prior_history_create( nameop, prev_name_rec, block_id, state_engine, extra_backup_fields=['consensus_hash','namespace_block_number','transfer_send_block_id','op_fee'] )
     
     # can never have been preordered
     state_create_put_preorder( nameop, None )
