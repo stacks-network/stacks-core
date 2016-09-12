@@ -11,6 +11,7 @@ os.environ['BLOCKSTACK_ATLAS_NETWORK_SIMULATION'] = '1'
 
 TEST_FIRST_BLOCK_HEIGHT = 250   # how many blocks we have to generate to start regtest
 os.environ['BLOCKSTACK_TEST_FIRST_BLOCK'] = str(TEST_FIRST_BLOCK_HEIGHT + 6)
+os.environ['BLOCKSTACK_EPOCH_1_END_BLOCK'] = str(TEST_FIRST_BLOCK_HEIGHT + 6)
 
 import sys 
 import subprocess
@@ -191,24 +192,20 @@ def load_scenario( scenario_name ):
     if scenario_name.endswith(".py"):
         scenario_name = scenario_name[:-3]
 
-    # open /dev/null 
-    nullfd = open("/dev/null", "w")
-
     # identify the file's path
-    print "begin subprocess"
-    p = subprocess.Popen( "python -c 'import %s; print %s.__file__'" % (scenario_name, scenario_name), shell=True, stdout=subprocess.PIPE, stderr=nullfd.fileno() )
-    path, _ = p.communicate()
-
-    nullfd.close()
-
-    print "end subprocess"
+    log.debug("Identifying scenario path")
+    p = subprocess.Popen( "python -c 'import %s; print %s.__file__'" % (scenario_name, scenario_name), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE )
+    path, err = p.communicate()
     
     if p.returncode is not None and p.returncode != 0:
+        print >> sys.stderr, err
         raise Exception("Failed to load %s, exit code %s" % (scenario_name, p.returncode))
 
     path = path.strip()
     if path.endswith(".pyc"):
         path = path[:-4] + ".py"
+
+    log.debug("Path of %s is %s" % (scenario_name, path))
 
     # load any test pragmas (like environment variables) and set them now
     with open(path, "r") as f:
