@@ -27,6 +27,7 @@ import copy
 import socket
 from ConfigParser import SafeConfigParser
 import pybitcoin
+import json
 
 try:
     from ..version import __version__
@@ -110,15 +111,15 @@ EPOCH_FIELDS = [
 
 # when epochs end (-1 means "never")
 EPOCH_NOW = -1
-EPOCH_1_END_BLOCK = 430000
+EPOCH_1_END_BLOCK = 436000
 EPOCH_2_END_BLOCK = EPOCH_NOW
 
 NUM_EPOCHS = 2
 for i in xrange(1, NUM_EPOCHS+1):
     # epoch lengths can be altered by the test framework, for ease of tests
     if os.environ.get("BLOCKSTACK_EPOCH_%s_END_BLOCK" % i, None) is not None and os.environ.get("BLOCKSTACK_TEST", None) == "1":
-        eval("BLOCKSTACK_EPOCH_%s_END_BLOCK = int(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_END_BLOCK" % i)))
-        log.warn("EPOCH_%s_END_BLOCK = %s" % (i, eval("BLOCKSTACK_EPOCH_%s_END_BLOCK" % i)))
+        exec("EPOCH_%s_END_BLOCK = int(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_END_BLOCK" % i)))
+        log.warn("EPOCH_%s_END_BLOCK = %s" % (i, eval("EPOCH_%s_END_BLOCK" % i)))
 
 del i
 
@@ -429,13 +430,17 @@ def get_epoch_config( block_height ):
     Get the epoch constants for the given block height
     """
     global EPOCHS
-    for epoch in EPOCHS:
-        if block_height <= epoch['end_block'] and epoch['end_block'] != EPOCH_NOW:
-            # in this epoch 
-            return epoch
 
-    # out of epochs
-    return EPOCHS[-1]
+    if block_height <= EPOCHS[0]['end_block']:
+        return EPOCHS[0]
+
+    for i in xrange(1, len(EPOCHS)):
+        if EPOCHS[i-1]['end_block'] < block_height and (block_height <= EPOCHS[i]['end_block'] or EPOCHS[i]['end_block'] == EPOCH_NOW):
+            return EPOCHS[i]
+
+    # should never happen
+    log.error("FATAL: No epoch for %s" % block_height)
+    os.abort()
 
 
 def get_epoch_namespace_lifetime_multiplier( block_height ):
