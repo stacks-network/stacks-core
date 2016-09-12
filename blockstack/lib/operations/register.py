@@ -52,14 +52,16 @@ REGISTER_MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
     'importer_address',
     'preorder_hash',
     'preorder_block_number',
-    'consensus_hash'
+    'consensus_hash',
+    'op_fee'
 ]
 
 # fields renewal changes
 RENEWAL_MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
     'last_renewed',
     'sender',
-    'address'
+    'address',
+    'op_fee'
 ]
 
 # fields to back up when applying this operation 
@@ -163,6 +165,7 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     name_block_number = None
     consensus_hash = None
     transfer_send_block_id = None
+    fee_block_id = None         # block ID at which the fee was paid
     opcode = nameop['opcode']
     first_registered = nameop['first_registered']
 
@@ -197,7 +200,7 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     old_name_rec = state_engine.get_name( name, include_expired=True )
 
     if preorder is not None:
-        # Case 1(a-b): registering or re-registering
+        # Case 1(a-b): registering or re-registering from a preorder
 
         # can't be registered already 
         if state_engine.is_name_registered( name ):
@@ -222,6 +225,7 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         name_fee = preorder['op_fee']
         preorder_hash = preorder['preorder_hash']
         preorder_block_number = preorder['block_number']
+        fee_block_id = preorder_block_number
 
         # pass along the preorder
         state_create_put_preorder( nameop, preorder )
@@ -241,7 +245,7 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
             transfer_send_block_id = old_name_rec['transfer_send_block_id']
 
             # re-registering
-            prior_hist = prior_history_create( nameop, old_name_rec, preorder_block_number, state_engine, extra_backup_fields=['consensus_hash','preorder_hash','transfer_send_block_id']) 
+            prior_hist = prior_history_create( nameop, old_name_rec, preorder_block_number, state_engine, extra_backup_fields=['consensus_hash','preorder_hash','transfer_send_block_id','op_fee']) 
             state_create_put_prior_history( nameop, prior_hist )
 
 
@@ -260,7 +264,7 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
 
         # fee borne by the renewal
         if not 'op_fee' in nameop:
-            log.debug("Name '%s' renewal did not pay the fee" % (name))
+            log.debug("Renew: Name '%s' renewal did not pay the fee" % (name))
             return False
         
         log.debug("Renewing name '%s'" % name )
@@ -273,10 +277,11 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         name_fee = nameop['op_fee']
         preorder_hash = prev_name_rec['preorder_hash']
         transfer_send_block_id = prev_name_rec['transfer_send_block_id']
+        fee_block_id = block_id
         opcode = "NAME_RENEWAL"     # will cause this operation to be re-checked under check_renewal()
 
         # pass along prior history 
-        prior_hist = prior_history_create( nameop, old_name_rec, block_id, state_engine, extra_backup_fields=['consensus_hash','preorder_hash','transfer_send_block_id'])
+        prior_hist = prior_history_create( nameop, old_name_rec, block_id, state_engine, extra_backup_fields=['consensus_hash','preorder_hash','transfer_send_block_id','op_fee'])
         state_create_put_prior_history( nameop, prior_hist )
         state_create_put_preorder( nameop, None ) 
 
@@ -288,8 +293,9 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     # check name fee
     name_without_namespace = get_name_from_fq_name( name )
 
-    # fee must be high enough
-    if name_fee < price_name( name_without_namespace, namespace, block_id ):
+    # fee must be high enough (either the preorder paid the right fee at the preorder block height,
+    # or the renewal paid the right fee at the renewal height)
+    if name_fee < price_name( name_without_namespace, namespace, fee_block_id ):
         log.debug("Name '%s' costs %s, but paid %s" % (name, price_name( name_without_namespace, namespace, block_id ), name_fee ))
         return False
   
@@ -564,7 +570,7 @@ def restore_delta( name_rec, block_number, history_index, working_db, untrusted_
     ret_op['recipient'] = str(name_rec['sender'])
     ret_op['recipient_address'] = str(name_rec['address'])
 
-    # restore history to find previous sender, address, and public key
+    # restore history to find previous sender, address, public key
     name_rec_prev = BlockstackDB.get_previous_name_version( name_rec, block_number, history_index, untrusted_db )
 
     sender = name_rec_prev['sender']
