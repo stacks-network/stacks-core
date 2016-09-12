@@ -634,6 +634,20 @@ def blockstack_get_profile( name ):
     return profile_result['profile']
 
 
+def blockstack_rpc_whois( name ):
+    """
+    Get the WHOIS information for a name
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
+    args = CLIArgs()
+    args.name = name
+
+    resp = cli_whois( args, config_path=test_proxy.config_path )
+    return resp
+
+
 def blockstack_verify_database( consensus_hash, consensus_block_id, db_path, working_db_path=None, start_block=None ):
     return blockstackd.verify_database( consensus_hash, consensus_block_id, db_path, working_db_path=working_db_path, start_block=start_block )
 
