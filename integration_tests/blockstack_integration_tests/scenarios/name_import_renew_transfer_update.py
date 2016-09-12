@@ -44,6 +44,7 @@ wallets = [
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
 debug = True
+NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK + 1 )
 
 def scenario( wallets, **kw ):
 
@@ -73,7 +74,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # wait for a bit...
-    for i in xrange(0, 6 * blockstack.NAMESPACE_LIFETIME_MULTIPLIER - 4):
+    for i in xrange(0, 6 * NAMESPACE_LIFETIME_MULTIPLIER - 4):
         testlib.next_block( **kw )
 
     resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey )
@@ -131,7 +132,7 @@ def check( state_engine ):
         return False 
 
     # renewed (6 * lifetime_multipler - 4 + 2 blocks later, starting from renewal time)
-    if name_rec['last_renewed'] - (6 * blockstack.NAMESPACE_LIFETIME_MULTIPLIER - 4 + 2) != name_rec['first_registered']:
+    if name_rec['last_renewed'] - (6 * NAMESPACE_LIFETIME_MULTIPLIER - 4 + 2) != name_rec['first_registered']:
         print name_rec['last_renewed']
         print name_rec['first_registered']
         return False

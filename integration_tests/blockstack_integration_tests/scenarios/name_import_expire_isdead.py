@@ -47,6 +47,7 @@ debug = True
 import_block = None
 
 fail_blocks = []
+NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK + 1 )
 
 def scenario( wallets, **kw ):
 
@@ -81,7 +82,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # wait for expiration (with multipler)...
-    for i in xrange(0, 2 * blockstack.config.NAMESPACE_LIFETIME_MULTIPLIER + 1):
+    for i in xrange(0, 2 * NAMESPACE_LIFETIME_MULTIPLIER + 1):
         testlib.next_block( **kw )
 
     # verify that operations fail

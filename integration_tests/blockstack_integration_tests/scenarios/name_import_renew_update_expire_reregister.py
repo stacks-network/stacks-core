@@ -45,6 +45,7 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
 debug = True
 update_block = None
+NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK + 1 )
 
 def scenario( wallets, **kw ):
 
@@ -95,7 +96,7 @@ def scenario( wallets, **kw ):
     update_block = testlib.get_current_block( **kw )
 
     # expire
-    for i in xrange(0, 6 * blockstack.NAMESPACE_LIFETIME_MULTIPLIER):
+    for i in xrange(0, 6 * NAMESPACE_LIFETIME_MULTIPLIER):
         testlib.next_block( **kw )
 
     # re-register

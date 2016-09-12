@@ -39,6 +39,9 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 snv_block_id = None
 last_consensus = None
 
+# do the 2nd epoch
+NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK + 1 )
+
 def scenario( wallets, **kw ):
 
     global snv_block_id, last_consensus
@@ -61,7 +64,7 @@ def scenario( wallets, **kw ):
 
     snv_block_id = testlib.get_current_block()
     
-    for i in xrange(0, 5 * blockstack_server.NAMESPACE_LIFETIME_MULTIPLIER):
+    for i in xrange(0, 5 * NAMESPACE_LIFETIME_MULTIPLIER):
         testlib.next_block( **kw )
     
     # this one expires the name

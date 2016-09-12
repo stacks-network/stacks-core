@@ -46,6 +46,8 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 update_hashes = []
 update_blocks = []
 
+NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK + 1 )
+
 def scenario( wallets, **kw ):
 
     global update_hashes, update_blocks
@@ -84,7 +86,7 @@ def scenario( wallets, **kw ):
         update_hashes.append( ("%02x" % i) * 20 )
         
         # wait for expiration 
-        for j in xrange(0, blockstack_server.NAMESPACE_LIFETIME_MULTIPLIER - 2):
+        for j in xrange(0, NAMESPACE_LIFETIME_MULTIPLIER - 2):
             testlib.next_block( **kw)
 
         if i == 10:

@@ -48,6 +48,8 @@ debug = True
 register_block = None
 revoke_blocok = None
 
+NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK + 1 )
+
 def scenario( wallets, **kw ):
 
     global register_block, revoke_block
@@ -97,7 +99,7 @@ def scenario( wallets, **kw ):
     revoke_block = testlib.get_current_block( **kw )
 
     # wait for it to expire
-    for i in xrange(0, 6 * blockstack.NAMESPACE_LIFETIME_MULTIPLIER):
+    for i in xrange(0, 6 * NAMESPACE_LIFETIME_MULTIPLIER):
         testlib.next_block( **kw )
 
     # re-register

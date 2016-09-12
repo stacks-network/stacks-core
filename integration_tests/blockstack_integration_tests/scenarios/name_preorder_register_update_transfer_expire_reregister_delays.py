@@ -49,6 +49,8 @@ update_blocks = []
 transfer_recipients = []
 update_hashes = []
 
+NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK + 1 )
+
 def scenario( wallets, **kw ):
     
     global update_blocks, transfer_blocks, update_hashes, transfer_recipients
@@ -116,7 +118,7 @@ def scenario( wallets, **kw ):
             break
 
         # eat up the rest of the lifetime
-        for j in xrange(0, 10 * blockstack_server.NAMESPACE_LIFETIME_MULTIPLIER - 10):
+        for j in xrange(0, 10 * NAMESPACE_LIFETIME_MULTIPLIER - 10):
             testlib.next_block( **kw )
 
         consensus_hash = testlib.get_consensus_at( testlib.get_current_block(**kw), **kw)

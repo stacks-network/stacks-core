@@ -49,6 +49,7 @@ update_blocks = []
 transfer_recipients = []
 update_hashes = []
 
+NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK + 1 )
 
 def scenario( wallets, **kw ):
 
@@ -98,7 +99,7 @@ def scenario( wallets, **kw ):
         if i == 10:
             break
 
-        for j in xrange(0, 2 * blockstack_server.NAMESPACE_LIFETIME_MULTIPLIER - 1):
+        for j in xrange(0, 2 * NAMESPACE_LIFETIME_MULTIPLIER - 1):
             testlib.next_block( **kw )
 
 

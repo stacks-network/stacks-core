@@ -35,6 +35,8 @@ wallets = [
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
+NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK - 1 )
+
 def scenario( wallets, **kw ):
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
@@ -53,7 +55,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # pre-0.0.14 uses lifetime field literally; this should no longer work. 
-    for i in xrange(0, 5):
+    for i in xrange(0, 5 * NAMESPACE_LIFETIME_MULTIPLIER ):
         testlib.next_block( **kw )
 
     testlib.next_block( **kw )

@@ -43,6 +43,8 @@ wallets = [
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
+# NOTE: original namespace lifetime multiplier is 1
+
 def scenario( wallets, **kw ):
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )

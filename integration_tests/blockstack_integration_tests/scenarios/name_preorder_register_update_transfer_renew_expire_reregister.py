@@ -51,6 +51,8 @@ update_hashes = []
 
 renew_blocks = []
 
+NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK + 1 )
+
 def scenario( wallets, **kw ):
     
     global update_blocks, transfer_blocks, update_hashes, transfer_recipients, renew_blocks
@@ -105,7 +107,7 @@ def scenario( wallets, **kw ):
         renew_blocks.append( testlib.get_current_block( **kw ) )
 
         # wait for name to expire
-        for j in xrange(0, 2 * blockstack_server.NAMESPACE_LIFETIME_MULTIPLIER - 1 ):
+        for j in xrange(0, 2 * NAMESPACE_LIFETIME_MULTIPLIER - 1 ):
             testlib.next_block( **kw )
 
         if i == 10:

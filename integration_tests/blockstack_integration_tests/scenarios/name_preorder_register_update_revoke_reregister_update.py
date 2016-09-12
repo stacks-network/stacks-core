@@ -36,6 +36,8 @@ wallets = [
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
+NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK + 1 )
+
 def scenario( wallets, **kw ):
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
@@ -84,7 +86,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # wait for it to expire...
-    for i in xrange(0, 8 * blockstack_server.NAMESPACE_LIFETIME_MULTIPLIER):
+    for i in xrange(0, 8 * NAMESPACE_LIFETIME_MULTIPLIER):
         testlib.next_block( **kw )
 
     # verify that operations continue to fail
