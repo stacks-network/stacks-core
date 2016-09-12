@@ -859,13 +859,13 @@ class BlockstackDB( virtualchain.StateEngine ):
 
 
     @autofill( "opcode" )
-    def get_name_preorder( self, name, sender_script_pubkey, register_addr ):
+    def get_name_preorder( self, name, sender_script_pubkey, register_addr, include_failed=False ):
         """
         Get the current preorder for a name, given the name, the sender's script pubkey, and
         the registration address used to calculate the preorder hash.
 
         Return the preorder record on success.
-        Return None if not found, or the preorder is already registered.
+        Return None if not found, or the preorder is already registered and not expired (even if revoked).
 
         NOTE: possibly returns an expired preorder (by design, so as to prevent someone
         from re-sending the same preorder with the same preorder hash).
@@ -873,9 +873,10 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         # name registered and not expired?
         name_rec = self.get_name( name )
-        if name_rec is not None:
+        if name_rec is not None and not include_failed:
             return None
 
+        # isn't currently registered, or we don't care
         preorder_hash = hash_name(name, sender_script_pubkey, register_addr=register_addr)
         preorder = namedb_get_name_preorder( self.db, preorder_hash, self.lastblock )
         return preorder 
