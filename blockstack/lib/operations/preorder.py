@@ -80,12 +80,6 @@ def check( state_engine, nameop, block_id, checked_ops ):
 
     # must be unique in this block
     # NOTE: now checked externally in the @state_preorder decorator
-    """
-    for pending_preorders in checked_nameops[ NAME_PREORDER ]:
-        if pending_preorders['preorder_name_hash'] == preorder_name_hash:
-            log.debug("Name hash '%s' is already preordered" % preorder_name_hash)
-            return False
-    """
 
     # must be unique across all pending preorders
     if not state_engine.is_new_preorder( preorder_name_hash ):
