@@ -482,7 +482,8 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         "working_dir": working_dir,
         "bitcoind": bitcoind,
         "bitcoin_opts": bitcoin_opts,
-        "spv_headers_path": spv_headers_path
+        "spv_headers_path": spv_headers_path,
+        "blockstack_opts": blockstack_opts
     }
 
     # start taking RPC requests
@@ -527,8 +528,10 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     except Exception, e:
         log.exception(e)
         traceback.print_exc()
+        blockstack_client.rpc.local_rpc_stop(client_config_dir)
         log.error("Failed to run tests '%s'" % scenario.__name__)
         network_stop()
+        bitcoin_stop()
         return False 
     
     if not rc:
