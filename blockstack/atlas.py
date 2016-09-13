@@ -144,6 +144,7 @@ ATLASDB_SQL = """
 CREATE TABLE zonefiles( inv_index INTEGER PRIMARY KEY AUTOINCREMENT,
                         zonefile_hash TEXT NOT NULL,
                         present INTEGER NOT NULL,
+                        tried_storage INTEGER NOT NULL,
                         block_height INTEGER NOT NULL );
 
 CREATE TABLE peers( peer_index INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -350,13 +351,13 @@ def atlasdb_row_factory( cursor, row ):
     """
     d = {}
     for idx, col in enumerate( cursor.description ):
-        if col[0] == 'present':
+        if col[0] in ["present", "tried_storage"]:
             if row[idx] == 0:
                 d[col[0]] = False
             elif row[idx] == 1:
                 d[col[0]] = True
             else:
-                raise Exception("Invalid value for 'present': %s" % row[idx])
+                raise Exception("Invalid value for '%s': %s" % (col[0], row[idx]))
 
         else:
             d[col[0]] = row[idx]
@@ -393,7 +394,7 @@ def atlasdb_query_execute( cur, query, values ):
         log.exception(e)
         log.error("FATAL: failed to execute query (%s, %s)" % (query, values))
         log.error("\n" + "\n".join(traceback.format_stack()))
-        sys.exit(1)
+        os.abort()
 
 
 def atlasdb_open( path ):
@@ -428,8 +429,8 @@ def atlasdb_add_zonefile_info( zonefile_hash, present, block_height, con=None, p
         con = atlasdb_open( path )
         assert con is not None
 
-    sql = "INSERT INTO zonefiles (zonefile_hash, present, block_height) VALUES (?,?,?);"
-    args = (zonefile_hash, present, block_height)
+    sql = "INSERT INTO zonefiles (zonefile_hash, present, tried_storage, block_height) VALUES (?,?,?,?);"
+    args = (zonefile_hash, present, 0, block_height)
 
     cur = con.cursor()
     atlasdb_query_execute( cur, sql, args )
@@ -512,13 +513,15 @@ def atlasdb_get_zonefile( zonefile_hash, con=None, path=None ):
         'zonefile_hash': zonefile_hash,
         'indexes': [],
         'block_heights': [],
-        'present': False
+        'present': False,
+        'tried_storage': False
     }
 
     for zfinfo in res:
         ret['indexes'].append( zfinfo['inv_index'] )
         ret['block_heights'].append( zfinfo['block_height'] )
         ret['present'] = ret['present'] or zfinfo['present']
+        ret['tried_storage'] = ret['tried_storage'] or zfinfo['tried_storage']
 
     if close:
         con.close()
@@ -573,6 +576,39 @@ def atlasdb_set_zonefile_present( zonefile_hash, present, con=None, path=None ):
         con.close()
 
     return was_present
+
+
+def atlasdb_set_zonefile_tried_storage( zonefile_hash, tried_storage, con=None, path=None ):
+    """
+    Make a note that we tried to get the zonefile from storage
+    """
+    global ZONEFILE_INV
+
+    if path is None:
+        path = atlasdb_path()
+
+    close = False
+    if con is None:
+        close = True
+        con = atlasdb_open( path )
+        assert con is not None
+
+    if tried_storage:
+        tried_storage = 1
+    else:
+        tried_storage = 0
+
+    sql = "UPDATE zonefiles SET tried_storage = ? WHERE zonefile_hash = ?;"
+    args = (tried_storage, zonefile_hash)
+
+    cur = con.cursor()
+    res = atlasdb_query_execute( cur, sql, args )
+
+    con.commit()
+    if close:
+        con.close()
+
+    return True
 
 
 def atlasdb_cache_zonefile_info( con=None, path=None ):
@@ -2123,7 +2159,8 @@ def atlas_find_missing_zonefile_availability( peer_table=None, con=None, path=No
         'zonefile hash': {
             'indexes': [...],
             'popularity': ...,
-            'peers': [...]
+            'peers': [...],
+            'tried_storage': True|False
         }
     }
     """
@@ -2186,6 +2223,7 @@ def atlas_find_missing_zonefile_availability( peer_table=None, con=None, path=No
         ret[zfinfo['zonefile_hash']]['indexes'].append( zfinfo['inv_index']-1 )
         ret[zfinfo['zonefile_hash']]['popularity'] += popularity
         ret[zfinfo['zonefile_hash']]['peers'] += peers
+        ret[zfinfo['zonefile_hash']]['tried_storage'] = (zfinfo['tried_storage'] != 0)
 
     if locked:
         atlas_peer_table_unlock()
@@ -2373,6 +2411,20 @@ def atlas_get_zonefiles( my_hostport, peer_hostport, zonefile_hashes, timeout=No
     atlas_peer_update_health( peer_hostport, True, peer_table=peer_table )
     return zf_payload['zonefiles']
 
+
+def atlas_get_zonefile_from_storage( zonefile_hash, storage_drivers ):
+    """
+    Go get a zonefile from storage drivers
+    """
+    try:
+        res = get_zonefile_from_storage( zonefile_hash, drivers=storage_drivers)
+        return {'status': True, 'zonefile': res}
+    except Exception, e:
+        if os.environ.get("BLOCKSTACK_DEBUG", None) == "1":
+            log.exception(e)
+
+        return {'error': 'Failed to get zonefile from storage'}
+    
 
 def atlas_rank_peers_by_health( peer_list=None, peer_table=None, with_zero_requests=False, with_rank=False ):
     """
@@ -3222,7 +3274,28 @@ class AtlasZonefileCrawler( threading.Thread ):
         if self.path is None:
             self.path = atlasdb_path()
 
-    
+
+    def store_zonefile( self, fetched_zfhash, zonefile, peer_hostport, con, path ):
+        """
+        Store the fetched zonefile to storage and cache it locally.
+        Update internal state to mark it present
+        Return True on success
+        Return False on error
+        """
+        rc = store_zonefile_to_storage( zonefile, required=self.zonefile_storage_drivers, cache=True, zonefile_dir=self.zonefile_dir )
+        if not rc:
+            log.error("%s: Failed to store zonefile %s" % (self.hostport, fetched_zfhash))
+
+        else:
+            # stored! remember it
+            log.debug("%s: got %s from %s" % (self.hostport, fetched_zfhash, peer_hostport))
+
+            # update internal state
+            atlasdb_set_zonefile_present( fetched_zfhash, True, con=con, path=path )
+
+        return rc
+
+
     def step(self, con=None, path=None, peer_table=None):
         """
         Run one step of this algorithm:
@@ -3285,6 +3358,28 @@ class AtlasZonefileCrawler( threading.Thread ):
             zfhash = zonefile_hashes[0]
             peers = missing_zfinfo[zfhash]['peers']
 
+            # is this zonefile available via storage?
+            if not missing_zfinfo[zfhash]['tried_storage']:
+                log.debug("Try loading %s from storage" % zfhash)
+
+                zonefile_info = atlas_get_zonefile_from_storage( zfhash, self.zonefile_storage_drivers )
+
+                # tried loading from storage
+                atlasdb_set_zonefile_tried_storage( zfhash, True, con=con, path=path )
+
+                if 'error' in zonefile_info:
+                    log.error("%s: Failed to get zonefile '%s' from storage" % (self.hostport, zfhash))
+
+                else:
+                    # got it! remember it
+                    log.debug("%s: got %s from storage" % (self.hostport, zfhash))
+                    rc = self.store_zonefile( zfhash, zonefile_info['zonefile'], "storage", con, path )
+                    if rc:
+                        # don't ask for it again
+                        zonefile_hashes.pop(0)
+                        num_fetched += 1
+                        continue
+
             if len(peers) == 0:
                 log.debug("%s: zonefile %s is unavailable" % (self.hostport, zfhash))
                 zonefile_hashes.pop(0)
@@ -3322,17 +3417,8 @@ class AtlasZonefileCrawler( threading.Thread ):
                             log.warn("%s: Unsolicited zonefile %s" % (self.hostport, fetched_zfhash))
                             continue
 
-                        rc = store_zonefile_to_storage( zonefile, required=self.zonefile_storage_drivers, cache=True, zonefile_dir=self.zonefile_dir )
-                        if not rc:
-                            log.error("%s: Failed to store zonefile %s" % (self.hostport, fetched_zfhash))
-
-                        else:
-                            # stored! remember it
-                            log.debug("%s: got %s from %s" % (self.hostport, fetched_zfhash, peer_hostport))
-
-                            # update internal state
-                            atlasdb_set_zonefile_present( fetched_zfhash, True, con=con, path=path )
-
+                        rc = self.store_zonefile( fetched_zfhash, zonefile, peer_hostport, con, path )
+                        if rc:
                             # don't ask for it again
                             peer_zonefile_hashes.remove(fetched_zfhash)
                             num_fetched += 1
