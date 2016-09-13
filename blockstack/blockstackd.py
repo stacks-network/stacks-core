@@ -772,7 +772,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return db.get_block_from_consensus( consensus_hash )
 
 
-    def get_zonefile( self, config, zonefile_hash, zonefile_storage_drivers ):
+    def get_zonefile( self, config, zonefile_hash, zonefile_storage_drivers, name=None ):
         """
         Get a zonefile by hash, caching it along the way.
         Return the zonefile (as a dict) on success
@@ -788,7 +788,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         try:
             # check storage providers
-            zonefile = get_zonefile_from_storage( zonefile_hash, drivers=zonefile_storage_drivers )
+            zonefile = get_zonefile_from_storage( zonefile_hash, name=name, drivers=zonefile_storage_drivers )
         except blockstack_zones.InvalidLineException:
             # legacy profile
             return None
@@ -819,7 +819,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return None
 
         # find zonefile 
-        zonefile = self.get_zonefile( conf, zonefile_hash, zonefile_storage_drivers )
+        zonefile = self.get_zonefile( conf, zonefile_hash, zonefile_storage_drivers, name=name )
         if zonefile is None:
             return None
 
