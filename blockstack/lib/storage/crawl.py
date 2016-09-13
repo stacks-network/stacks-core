@@ -44,7 +44,7 @@ log = virtualchain.get_logger("blockstack-server")
 
 def get_cached_zonefile( zonefile_hash, zonefile_dir=None ):
     """
-    Get a cached zonefile from local disk
+    Get a cached zonefile dict from local disk 
     Return None if not found
     """
     if zonefile_dir is None:
@@ -74,7 +74,7 @@ def get_cached_zonefile( zonefile_hash, zonefile_dir=None ):
         return None
 
 
-def get_zonefile_from_storage( zonefile_hash, drivers=None ):
+def get_zonefile_from_storage( zonefile_hash, name=None, drivers=None ):
     """
     Get a zonefile from our storage drivers.
     Return the zonefile dict on success.
@@ -84,7 +84,7 @@ def get_zonefile_from_storage( zonefile_hash, drivers=None ):
     if not is_current_zonefile_hash( zonefile_hash ):
         raise Exception("Unknown zonefile hash")
 
-    zonefile_txt = blockstack_client.storage.get_immutable_data( zonefile_hash, hash_func=blockstack_client.get_blockchain_compat_hash, deserialize=False, drivers=drivers )
+    zonefile_txt = blockstack_client.storage.get_immutable_data( zonefile_hash, hash_func=blockstack_client.get_blockchain_compat_hash, fqu=name, deserialize=False, drivers=drivers )
     if zonefile_txt is None:
         raise Exception("Failed to get data")
 
