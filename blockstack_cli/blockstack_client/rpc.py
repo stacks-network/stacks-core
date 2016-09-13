@@ -651,7 +651,20 @@ def local_rpc_start( portnum, config_dir=blockstack_config.CONFIG_DIR, foregroun
     log.debug("Finished loading RPC methods")
 
     # make server
-    rpc_srv = make_local_rpc_server( portnum, config_path=config_path ) 
+    try:
+        rpc_srv = make_local_rpc_server( portnum, config_path=config_path ) 
+    except socket.error, se:
+        if os.environ.get("BLOCKSTACK_DEBUG", None) == "1":
+            log.exception(se)
+
+        if not foreground:
+            log.error("Failed to open socket (socket errno %s); aborting..." % se.errno)
+            os.abort()
+        else:
+            log.error("Failed to open socket (socket errno %s)" % se.errno)
+            return False
+
+
     backend.set_wallet( [wallet['payment_addresses'][0], wallet['payment_privkey']],
                         [wallet['owner_addresses'][0], wallet['owner_privkey']],
                         [wallet['data_pubkeys'][0], wallet['data_privkey']],
@@ -660,6 +673,7 @@ def local_rpc_start( portnum, config_dir=blockstack_config.CONFIG_DIR, foregroun
     running = True
     local_rpc_write_pidfile( rpc_pidpath )
     local_rpc_server_run( rpc_srv )
+
     local_rpc_unlink_pidfile( rpc_pidpath )
     local_rpc_server_stop( rpc_srv )
      
