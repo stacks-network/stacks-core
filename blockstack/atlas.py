@@ -647,7 +647,9 @@ def atlasdb_get_zonefile_bits( zonefile_hash, con=None, path=None ):
     con.commit()
 
     # NOTE: zero-indexed
-    ret = [r['inv_index'] - 1 for r in res]
+    ret = []
+    for r in res:
+        ret.append( r['inv_index'] - 1 )
 
     if close:
         con.close()
