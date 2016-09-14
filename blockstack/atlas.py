@@ -1099,13 +1099,13 @@ def atlasdb_init( path, db, peer_seeds, peer_blacklist, validate=False, zonefile
     if os.path.exists( path ):
         log.debug("Atlas DB exists at %s" % path)
         
-        atlasdb_last_block = atlasdb_get_lastblock( path=path )
+        con = atlasdb_open( path )
+        atlasdb_last_block = atlasdb_get_lastblock( con=con, path=path )
         if atlasdb_last_block is None:
             atlasdb_last_block = 0
 
         log.debug("Synchronize zonefiles from %s to %s" % (atlasdb_last_block, db.lastblock) )
 
-        con = sqlite3.connect( path, isolation_level=None )
         atlasdb_zonefile_block_reset( con, db, atlasdb_last_block, path=path )
         atlasdb_queue_zonefiles( con, db, atlasdb_last_block, validate=validate, zonefile_dir=zonefile_dir )
 
