@@ -2422,10 +2422,11 @@ def atlas_get_zonefile_from_storage( zonefile_hash, storage_drivers ):
         res = get_zonefile_from_storage( zonefile_hash, drivers=storage_drivers)
         return {'status': True, 'zonefile': res}
     except Exception, e:
-        if os.environ.get("BLOCKSTACK_DEBUG", None) == "1":
+        if os.environ.get("BLOCKSTACK_TEST", None) == "1":
             log.exception(e)
 
-        return {'error': 'Failed to get zonefile from storage'}
+        # if this fails, but zonefile data was retrieved, it's probably because they were legacy zonefiles
+        return {'error': 'Failed to get zonefile %s from storage' % zonefile_hash}
     
 
 def atlas_rank_peers_by_health( peer_list=None, peer_table=None, with_zero_requests=False, with_rank=False ):
