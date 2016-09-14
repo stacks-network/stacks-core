@@ -109,7 +109,7 @@ def cached_zonefile_dir( zonefile_dir, zonefile_hash ):
 
     # split into directories, so we don't try to cram millions of files into one directory
     zonefile_dir_parts = []
-    for i in xrange(0, len(zonefile_hash), 8):
+    for i in xrange(0, len(zonefile_hash), 2):
         zonefile_dir_parts.append( zonefile_hash[i:i+8] )
 
     zonefile_dir_path = os.path.join(zonefile_dir, "/".join(zonefile_dir_parts))
