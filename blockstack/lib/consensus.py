@@ -117,6 +117,9 @@ def rec_restore_snv_consensus_fields( name_rec, block_id ):
     db = get_db_state()
 
     ret_op = op_snv_consensus_extra( opcode_name, name_rec, block_id, db )
+
+    db.close()
+
     if ret_op is None:
         raise Exception("Failed to derive extra consensus fields for '%s'" % opcode_name)
     

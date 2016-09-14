@@ -181,6 +181,8 @@ class BlockstackDB( virtualchain.StateEngine ):
             log.error("FATAL: Borrowing-release violation")
             os.abort()
 
+        blockstack_db.close()
+
         del blockstack_db
         del db_inst
 
@@ -212,6 +214,17 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         return self.db_filename
 
+    
+    def close( self ):
+        """
+        Close the db and release memory
+        """
+        if self.db is not None:
+            self.db.commit()
+            self.db.close()
+            self.db = None
+
+        return
     
     def export_db( self, path ):
         """

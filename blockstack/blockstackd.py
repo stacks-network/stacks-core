@@ -257,6 +257,7 @@ def get_name_cost( name ):
     namespace_id = get_namespace_from_name( name )
     if namespace_id is None or len(namespace_id) == 0:
         log.debug("No namespace '%s'" % namespace_id)
+        db.close()
         return None
 
     namespace = db.get_namespace( namespace_id )
@@ -268,10 +269,13 @@ def get_name_cost( name ):
     if namespace is None:
         # no such namespace
         log.debug("No namespace '%s'" % namespace_id)
+        db.close()
         return None
 
     name_fee = price_name( get_name_from_fq_name( name ), namespace, lastblock )
     log.debug("Cost of '%s' at %s is %s" % (name, lastblock, int(name_fee)))
+
+    db.close()
     return name_fee
 
 
@@ -284,6 +288,8 @@ def get_namespace_cost( namespace_id ):
     lastblock = db.lastblock
 
     namespace = db.get_namespace( namespace_id )
+    db.close()
+
     if namespace is not None:
         log.debug("namespace '%s' already exists" % namespace_id)
         return None
@@ -414,6 +420,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         try:
             name = str(name)
         except Exception as e:
+            db.close()
             return {"error": str(e)}
 
         name_record = db.get_name(str(name))
@@ -422,6 +429,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         namespace_record = db.get_namespace(namespace_id)
 
         if name_record is None:
+            db.close()
+
             if is_indexing():
                 return {"error": "Indexing blockchain"}
             else:
@@ -434,6 +443,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 namespace_lifetime_multiplier = get_epoch_namespace_lifetime_multiplier( db.lastblock )
                 name_record['expire_block'] = max( namespace_record['ready_block'], name_record['last_renewed'] ) + namespace_record['lifetime'] * namespace_lifetime_multiplier
 
+            db.close()
             self.analytics("get_name_blockchain_record", {})
             return name_record
 
@@ -456,6 +466,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         db = get_state_engine()
         name_history = db.get_name_history( name, start_block, end_block )
+        db.close()
 
         if name_history is None:
             if is_indexing():
@@ -482,7 +493,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         for rec in prior_records:
             restored_rec = rec_restore_snv_consensus_fields( rec, block_id )
             ret.append( restored_rec )
-
+        
+        db.close()
         return ret
 
 
@@ -518,6 +530,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         ops_hash = virtualchain.StateEngine.make_ops_snapshot( serialized_ops )
         log.debug("Serialized hash at (%s): %s" % (block_id, ops_hash))
 
+        db.close()
         return ops_hash
 
 
@@ -549,6 +562,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         reply['last_block_processed'] = db.get_current_block()
         reply['server_alive'] = True
 
+        db.close()
+
         if conf.get('atlas', False):
             # return zonefile inv length 
             reply['zonefile_count'] = atlas_get_num_zonefiles()
@@ -566,6 +581,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         db = get_state_engine()
         names = db.get_names_owned_by_address( address )
+        db.close()
+
         if names is None:
             names = []
         return names
@@ -629,6 +646,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if ns is None:
             # maybe revealed?
             ns = db.get_namespace_reveal( namespace_id )
+            db.close()
+
             if ns is None:
                 if is_indexing():
                     return {"error": "Indexing blockchain"}
@@ -639,6 +658,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return ns
 
         else:
+            db.close()
             ns['ready'] = True
             return ns
 
@@ -659,6 +679,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         db = get_state_engine()
         self.analytics("get_all_names", {})
+        db.close()
         return db.get_all_names( offset=offset, count=count )
 
 
@@ -682,9 +703,12 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if is_indexing():
             return {"error": "Indexing blockchain"}
 
-        db = get_state_engine()
         self.analytics("get_all_names_in_namespace", {'namespace_id': namespace_id})
-        return db.get_names_in_namespace( namespace_id, offset=offset, count=count )
+
+        db = get_state_engine()
+        res = db.get_names_in_namespace( namespace_id, offset=offset, count=count )
+        db.close()
+        return res
 
 
     def rpc_get_consensus_at( self, block_id, **con_info ):
@@ -699,6 +723,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         db = get_state_engine()
         self.analytics("get_consensus_at", {'block_id': block_id})
+        db.close()
         return db.get_consensus_at( block_id )
 
 
@@ -722,6 +747,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         for block_id in block_id_list:
             ret[block_id] = db.get_consensus_at(block_id)
 
+        db.close()
         return ret
 
 
@@ -769,7 +795,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return {'error': 'Not a valid consensus hash'}
 
         db = get_state_engine()
-        return db.get_block_from_consensus( consensus_hash )
+        res = db.get_block_from_consensus( consensus_hash )
+        db.close()
+        return res
 
 
     def get_zonefile( self, config, zonefile_hash, zonefile_storage_drivers, name=None ):
@@ -811,6 +839,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         """
         db = get_state_engine()
         name_rec = db.get_name( name )
+        db.close()
+
         if name_rec is None:
             return None
 
@@ -980,7 +1010,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                     atlas_zonefile_push_enqueue( zonefile_hash, str(zonefile_data) )
 
             saved.append(1)
-        
+       
+        db.close()
+
         log.debug("Saved %s zonefile(s)\n", sum(saved))
         self.analytics("put_zonefiles", {'count': len(zonefile_datas)})
         return {'status': True, 'saved': saved}
@@ -1006,6 +1038,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         # find the name record 
         db = get_state_engine()
         name_rec = db.get_name(name)
+        db.close()
+
         if name_rec is None:
             return {'error': 'No such name'}
 
@@ -1063,6 +1097,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         # find name record 
         db = get_db_state()
         name_rec = db.get_name(name)
+        db.close()
+
         if name_rec is None:
             log.debug("No name for '%s'" % name)
             return {'error': 'No such name'}
@@ -1085,12 +1121,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         
         else:
             log.warn("Falling back to verifying with owner address")
-            db = get_state_engine()
-            name_rec = db.get_name( name )
-            if name_rec is None:
-                log.debug("No such name")
-                return {'error': 'No such name'}
-
             owner_addr = name_rec.get('address', None)
             if owner_addr is None:
                 log.debug("No owner address")
@@ -1534,6 +1564,7 @@ def index_blockchain( expected_snapshots=GENESIS_SNAPSHOT ):
 
     if start_block is None and current_block is None:
         log.error("Failed to find block range")
+        db.close()
         return
 
     # bring the db up to the chain tip
@@ -1541,7 +1572,9 @@ def index_blockchain( expected_snapshots=GENESIS_SNAPSHOT ):
     set_indexing( True )
     virtualchain_hooks.sync_blockchain( bt_opts, current_block, expected_snapshots=expected_snapshots, tx_filter=blockstack_tx_filter )
     set_indexing( False )
-    
+   
+    db.close()
+
     # synchronize atlas db
     blockstack_opts = get_blockstack_opts()
     if blockstack_opts.get('atlas', False):
@@ -1550,6 +1583,8 @@ def index_blockchain( expected_snapshots=GENESIS_SNAPSHOT ):
             log.debug("Synchronize Atlas DB from %s to %s" % (old_lastblock+1, db.lastblock+1))
             zonefile_dir = blockstack_opts.get('zonefiles', get_zonefile_dir())
             atlasdb_sync_zonefiles( db, old_lastblock+1, zonefile_dir=zonefile_dir )
+
+        db.close()
 
     log.debug("End indexing (up to %s)" % current_block)
 
@@ -1639,7 +1674,9 @@ def run_server( foreground=False, index=True, expected_snapshots=GENESIS_SNAPSHO
 
     # start atlas node
     atlas_state = atlas_start( blockstack_opts, db, port )
-    
+   
+    db.close()
+
     # start API server
     rpc_start(port)
     running = True

@@ -233,6 +233,7 @@ def get_zonefile_data_txid( zonefile_data, name=None ):
     if name is not None:
         name_rec = db.get_name( name )
         if name_rec is None:
+            db.close()
             log.debug("Invalid name '%s'" % name)
             return None 
 
@@ -241,6 +242,7 @@ def get_zonefile_data_txid( zonefile_data, name=None ):
         names = db.get_names_with_value_hash( zonefile_hash )
 
     if len(names) == 0:
+        db.close()
         log.debug("Not a valid zonefile hash: %s" % zonefile_hash)
         return None
 
@@ -249,6 +251,8 @@ def get_zonefile_data_txid( zonefile_data, name=None ):
         txid = db.get_name_value_hash_txid( name, zonefile_hash )
         if txid is not None:
             break
+
+    db.close()
 
     if txid is None:
         log.debug("No txid for zonefile hash '%s' (for '%s')" % (zonefile_hash, name))
