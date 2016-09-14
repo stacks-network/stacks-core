@@ -45,7 +45,6 @@ from db import *
 
 log = virtualchain.get_logger("blockstack-server")
 
-# NOTE: ignored; here for compatibility with future versions
 DISPOSITION_RO = "readonly"
 DISPOSITION_RW = "readwrite"
 
@@ -115,6 +114,8 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         self.disposition = disposition
 
+        read_only = (disposition == DISPOSITION_RO)
+
         lastblock = self.get_lastblock( impl=blockstack_impl )
         super( BlockstackDB, self ).__init__( MAGIC_BYTES,
                                               OPCODES,
@@ -122,7 +123,8 @@ class BlockstackDB( virtualchain.StateEngine ):
                                               impl=blockstack_impl,
                                               initial_snapshots=initial_snapshots,
                                               state=self,
-                                              expected_snapshots=expected_snapshots )
+                                              expected_snapshots=expected_snapshots,
+                                              read_only=read_only )
 
         # announcers to track
         blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(impl=blockstack_impl) )
