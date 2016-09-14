@@ -49,9 +49,6 @@ log = virtualchain.get_logger("blockstack-server")
 
 from lib.config import *
 from lib.storage import *
-from lib import get_db_state
-
-from pybloom_live import BloomFilter, ScalableBloomFilter
 
 MIN_ATLAS_VERSION = "0.14.0"
 
@@ -2419,7 +2416,7 @@ def atlas_get_zonefile_from_storage( zonefile_hash, storage_drivers ):
     Go get a zonefile from storage drivers
     """
     try:
-        res = get_zonefile_from_storage( zonefile_hash, drivers=storage_drivers)
+        res = get_zonefile_from_storage( zonefile_hash, drivers=storage_drivers )
         return {'status': True, 'zonefile': res}
     except Exception, e:
         if os.environ.get("BLOCKSTACK_TEST", None) == "1":
