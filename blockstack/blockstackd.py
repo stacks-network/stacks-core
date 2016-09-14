@@ -913,6 +913,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
     def rpc_put_zonefiles( self, zonefile_datas, **con_info ):
         """
         Replicate one or more zonefiles, given as serialized strings.
+        Note that the system *only* takes well-formed zonefiles.
         Returns {'status': True, 'saved': [0|1]'} on success ('saved' is a vector of success/failure)
         Returns {'error': ...} on error
         Takes at most 10 zonefiles
