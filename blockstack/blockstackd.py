@@ -1626,6 +1626,10 @@ def run_server( foreground=False, index=True, expected_snapshots=GENESIS_SNAPSHO
             pid, status = os.waitpid( child_pid, 0 )
             sys.exit(status)
    
+    # put supervisor pid file
+    put_pidfile( pid_file, os.getpid() )
+    atexit.register( blockstack_exit )
+
     # make sure client is initialized 
     get_blockstack_client_session()
 
@@ -1638,10 +1642,6 @@ def run_server( foreground=False, index=True, expected_snapshots=GENESIS_SNAPSHO
     # start API server
     rpc_start(port)
     running = True
-
-    # put supervisor pid file
-    put_pidfile( pid_file, os.getpid() )
-    atexit.register( blockstack_exit )
 
     if index:
         # clear any stale indexing state
