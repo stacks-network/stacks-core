@@ -65,6 +65,11 @@ PEER_NEIGHBORS_TIMEOUT = 10 # number of seconds for a neighbors query to take
 PEER_ZONEFILES_TIMEOUT = 30 # number of seconds for a zonefile query to take
 PEER_PUSH_ZONEFILES_TIMEOUT = 10
 
+PEER_CRAWL_NEIGHBOR_WORK_INTERVAL = 300     # minimum amount of time (seconds) that must pass between two neighbor crawls
+PEER_HEALTH_NEIGHBOR_WORK_INTERVAL = 1      # minimum amount of time (seconds) that must pass between randomly pinging someone
+PEER_CRAWL_ZONEFILE_WORK_INTERVAL = 300     # minimum amount of time (seconds) that must pass between two zonefile crawls
+PEER_PUSH_ZONEFILE_WORK_INTERVAL = 300      # minimum amount of time (seconds) that must pass between two zonefile pushes
+
 NUM_NEIGHBORS = 80     # number of neighbors a peer can report
 
 ZONEFILE_INV = None      # this atlas peer's current zonefile inventory
@@ -86,6 +91,12 @@ if os.environ.get("BLOCKSTACK_ATLAS_NUM_NEIGHBORS") is not None:
 
 if os.environ.get("BLOCKSTACK_ATLAS_MAX_NEIGHBORS") is not None:
     NUM_NEIGHBORS = int(os.environ.get("BLOCKSTACK_ATLAS_MAX_NEIGHBORS"))
+
+if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+    PEER_CRAWL_NEIGHBOR_WORK_INTERVAL = 1
+    PEER_HEALTH_NEIGHBOR_WORK_INTERVAL = 1
+    PEER_CRAWL_ZONEFILE_WORK_INTERVAL = 1
+    PEER_PUSH_ZONEFILE_WORK_INTERVAL = 1
 
 if os.environ.get("BLOCKSTACK_TEST", None) == "1" and os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION", None) == "1" and os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION_PEER", None) == "1":
     # subordinate atlas peer in the simulator.
@@ -2411,13 +2422,13 @@ def atlas_get_zonefiles( my_hostport, peer_hostport, zonefile_hashes, timeout=No
     return zf_payload['zonefiles']
 
 
-def atlas_get_zonefile_from_storage( zonefile_hash, storage_drivers ):
+def atlas_get_zonefile_data_from_storage( zonefile_hash, storage_drivers ):
     """
     Go get a zonefile from storage drivers
     """
     try:
-        res = get_zonefile_from_storage( zonefile_hash, drivers=storage_drivers )
-        return {'status': True, 'zonefile': res}
+        res = get_zonefile_data_from_storage( zonefile_hash, drivers=storage_drivers )
+        return {'status': True, 'zonefile_data': res}
     except Exception, e:
         if os.environ.get("BLOCKSTACK_TEST", None) == "1":
             log.exception(e)
@@ -2805,6 +2816,7 @@ class AtlasPeerCrawler( threading.Thread ):
             log.debug("%s: neighbors of %s are (%s): %s" % (self.my_hostport, peer_hostport, len(neighbors), ",".join(neighbors)))
         else:
             log.error("%s: failed to ask %s for neighbors" % (self.my_hostport, peer_hostport))
+
         return neighbors
 
 
@@ -3163,9 +3175,9 @@ class AtlasPeerCrawler( threading.Thread ):
             num_added, num_removed = self.step( path=self.atlasdb_path )
             t2 = time_now()
 
-            if t2 - t1 < 1.0:
+            if num_added == 0 and num_removed == 0 and t2 - t1 < PEER_CRAWL_NEIGHBOR_WORK_INTERVAL:
                 # take a break
-                time_sleep( self.my_hostport, self.__class__.__name__, 1.0 - (t2 - t1) )
+                time_sleep( self.my_hostport, self.__class__.__name__, PEER_CRAWL_NEIGHBOR_WORK_INTERVAL - (t2 - t1) )
 
 
     def ask_join(self):
@@ -3250,8 +3262,8 @@ class AtlasHealthChecker( threading.Thread ):
             t2 = time_now()
 
             # don't go too fast 
-            if t2 - t1 < 1.0:
-                time_sleep( self.hostport, self.__class__.__name__, 1.0 - (t2 - t1) )
+            if t2 - t1 < PEER_HEALTH_NEIGHBOR_WORK_INTERVAL:
+                time_sleep( self.hostport, self.__class__.__name__, PEER_HEALTH_NEIGHBOR_WORK_INTERVAL - (t2 - t1) )
 
 
     def ask_join(self):
@@ -3275,14 +3287,14 @@ class AtlasZonefileCrawler( threading.Thread ):
             self.path = atlasdb_path()
 
 
-    def store_zonefile( self, fetched_zfhash, zonefile, peer_hostport, con, path ):
+    def store_zonefile_data( self, fetched_zfhash, zonefile_data, peer_hostport, con, path ):
         """
-        Store the fetched zonefile to storage and cache it locally.
+        Store the fetched zonefile (as a serialized string) to storage and cache it locally.
         Update internal state to mark it present
         Return True on success
         Return False on error
         """
-        rc = store_zonefile_to_storage( zonefile, required=self.zonefile_storage_drivers, cache=True, zonefile_dir=self.zonefile_dir )
+        rc = store_zonefile_data_to_storage( zonefile_data, required=self.zonefile_storage_drivers, cache=True, zonefile_dir=self.zonefile_dir )
         if not rc:
             log.error("%s: Failed to store zonefile %s" % (self.hostport, fetched_zfhash))
 
@@ -3362,7 +3374,7 @@ class AtlasZonefileCrawler( threading.Thread ):
             if not missing_zfinfo[zfhash]['tried_storage']:
                 log.debug("Try loading %s from storage" % zfhash)
 
-                zonefile_info = atlas_get_zonefile_from_storage( zfhash, self.zonefile_storage_drivers )
+                zonefile_info = atlas_get_zonefile_data_from_storage( zfhash, self.zonefile_storage_drivers )
 
                 # tried loading from storage
                 atlasdb_set_zonefile_tried_storage( zfhash, True, con=con, path=path )
@@ -3373,7 +3385,7 @@ class AtlasZonefileCrawler( threading.Thread ):
                 else:
                     # got it! remember it
                     log.debug("%s: got %s from storage" % (self.hostport, zfhash))
-                    rc = self.store_zonefile( zfhash, zonefile_info['zonefile'], "storage", con, path )
+                    rc = self.store_zonefile_data( zfhash, zonefile_info['zonefile_data'], "storage", con, path )
                     if rc:
                         # don't ask for it again
                         zonefile_hashes.pop(0)
@@ -3410,14 +3422,20 @@ class AtlasZonefileCrawler( threading.Thread ):
 
                     # got zonefiles!
                     for fetched_zfhash, zonefile_txt in zonefiles.items():
-                        
-                        zonefile = blockstack_zones.parse_zone_file( zonefile_txt )
+                       
+                        zonefile = None
+                        try:
+                            zonefile = blockstack_zones.parse_zone_file( zonefile_txt )
+                        except:
+                            log.error("Unparseable zonefile: %s" % fetched_zfhash)
+                            continue
+
                         if fetched_zfhash not in peer_zonefile_hashes:
                             # unsolicited
                             log.warn("%s: Unsolicited zonefile %s" % (self.hostport, fetched_zfhash))
                             continue
 
-                        rc = self.store_zonefile( fetched_zfhash, zonefile, peer_hostport, con, path )
+                        rc = self.store_zonefile_data( fetched_zfhash, zonefile_txt, peer_hostport, con, path )
                         if rc:
                             # don't ask for it again
                             peer_zonefile_hashes.remove(fetched_zfhash)
@@ -3455,13 +3473,13 @@ class AtlasZonefileCrawler( threading.Thread ):
             con = atlasdb_open( self.path )
 
             t1 = time.time()
-            self.step( con=con, path=self.path )
+            num_fetched = self.step( con=con, path=self.path )
             t2 = time.time()
 
             con.close()
             
-            if t2 - t1 < 1.0:
-                time_sleep( self.hostport, self.__class__.__name__, 1.0 - (t2 - t1) )
+            if num_fetched == 0 and t2 - t1 < PEER_CRAWL_ZONEFILE_WORK_INTERVAL:
+                time_sleep( self.hostport, self.__class__.__name__, PEER_CRAWL_ZONEFILE_WORK_INTERVAL - (t2 - t1) )
 
 
     def ask_join(self):
@@ -3553,8 +3571,8 @@ class AtlasZonefilePusher(threading.Thread):
             t1 = time_now()
             num_pushed = self.step( path=self.path )
             t2 = time_now()
-            if t2 - t1 < 1.0:
-                time_sleep(self.hostport, self.__class__.__name__, 1.0 - (t2 - t1))
+            if num_pushed == 0 and t2 - t1 < PEER_PUSH_ZONEFILE_WORK_INTERVAL:
+                time_sleep(self.hostport, self.__class__.__name__, PEER_PUSH_ZONEFILE_WORK_INTERVAL - (t2 - t1))
                 pass
        
 
