@@ -3393,7 +3393,9 @@ class AtlasZonefileCrawler( threading.Thread ):
                         continue
 
             if len(peers) == 0:
-                log.debug("%s: zonefile %s is unavailable" % (self.hostport, zfhash))
+                if not missing_zfinfo[zfhash]['tried_storage']:
+                    log.debug("%s: zonefile %s is unavailable" % (self.hostport, zfhash))
+
                 zonefile_hashes.pop(0)
                 continue
 
