@@ -389,6 +389,9 @@ if os.environ.get("BLOCKSTACK_TEST", None) is not None:
     else:
         NAMESPACE_REVEAL_EXPIRE = BLOCKS_PER_DAY      # small enough so we can actually test this...
 
+    # make this low enough that we can actually test it with regtest
+    NAMESPACE_1_CHAR_COST = 41 * SATOSHIS_PER_BTC
+
 else:
     NAME_IMPORT_KEYRING_SIZE = 300                  # number of keys to derive from the import key
 
