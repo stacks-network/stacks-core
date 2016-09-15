@@ -2057,24 +2057,24 @@ def atlas_peer_refresh_zonefile_inventory( my_hostport, peer_hostport, byte_offs
 
     inv = atlas_peer_sync_zonefile_inventory( my_hostport, peer_hostport, maxlen, timeout=timeout, peer_table=peer_table )
 
-    if inv is not None:
-        # success!  Update refresh time
-        if locked:
-            peer_table = atlas_peer_table_lock()
+    if locked:
+        peer_table = atlas_peer_table_lock()
 
-        if peer_hostport not in peer_table.keys():
-            if locked:
-                atlas_peer_table_unlock()
-                peer_table = None
-            
-            return False
-
-        peer_table[peer_hostport]['zonefile_inventory_last_refresh'] = time_now()
-
+    if peer_hostport not in peer_table.keys():
         if locked:
             atlas_peer_table_unlock()
             peer_table = None
+            
+        return False
 
+    # Update refresh time (even if we fail)
+    peer_table[peer_hostport]['zonefile_inventory_last_refresh'] = time_now()
+
+    if locked:
+        atlas_peer_table_unlock()
+        peer_table = None
+
+    if inv is not None:
         log.debug("%s: inventory of %s is now '%s'" % (my_hostport, peer_hostport, atlas_inventory_to_string(inv))) 
 
     if inv is None:
@@ -3229,7 +3229,6 @@ class AtlasHealthChecker( threading.Thread ):
 
         # who are we going to ping?
         # someone we haven't pinged in a while, chosen at random
-        log.debug("Refresh zonefile inventories for at most %s peers" % num_peers)
         for peer in peer_hostports:
             if not atlas_peer_has_fresh_zonefile_inventory( peer, local_inv=local_inv, peer_table=peer_table, con=con, path=path ):
                 # haven't talked to this peer in a while
@@ -3239,6 +3238,9 @@ class AtlasHealthChecker( threading.Thread ):
         if lock:
             atlas_peer_table_unlock()
             peer_table = None
+
+        if len(stale_peers) > 0:
+            log.debug("Refresh zonefile inventories for %s peers" % len(stale_peers))
 
         for peer_hostport in stale_peers:
             # refresh everyone
