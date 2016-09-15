@@ -261,25 +261,6 @@ def get_zonefile_data_txid( zonefile_data, name=None ):
     return txid
 
 
-def get_zonefile_txid( zonefile_dict ):
-    """
-    Look up the transaction ID of the transaction
-    that wrote this zonefile.
-    Return the txid on success
-    Return None on error
-    """
-   
-    try:
-        zonefile_data = blockstack_zones.make_zone_file( zonefile_dict )
-    except Exception, e:
-        log.exception(e)
-        log.error("Invalid zonefile dict")
-        return False
-
-    name = zonefile_dict.get('$origin')
-    return get_zonefile_data_txid( zonefile_data, name=name )
-
-
 def store_zonefile_data_to_storage( zonefile_text, required=[], cache=False, zonefile_dir=None, name=None ):
     """
     Upload a zonefile to our storage providers.
