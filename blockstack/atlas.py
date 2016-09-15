@@ -2111,6 +2111,14 @@ def atlas_peer_has_fresh_zonefile_inventory( peer_hostport, local_inv=None, peer
     fresh = False
     now = time_now()
     peer_inv = atlas_peer_get_zonefile_inventory( peer_hostport, peer_table=peer_table )
+
+    # NOTE: zero-length or None peer inventory means the peer is simply dead, but we've pinged it
+    if (peer_inv is None or len(peer_inv) == 0) and \
+        peer_table[peer_hostport].has_key('zonefile_inventory_last_refresh') and \
+        peer_table[peer_hostport]['zonefile_inventory_last_refresh'] + atlas_peer_ping_interval() > now:
+
+        fresh = True
+
     if len(peer_inv) >= expected_length and \
         peer_table[peer_hostport].has_key('zonefile_inventory_last_refresh') and \
         peer_table[peer_hostport]['zonefile_inventory_last_refresh'] + atlas_peer_ping_interval() > now:
@@ -2189,6 +2197,8 @@ def atlas_find_missing_zonefile_availability( peer_table=None, con=None, path=No
 
             missing += zfinfo
             bit_offset += len(zfinfo)
+
+        log.debug("Missing %s zonefiles" % len(zfinfo))
 
     else:
         missing = missing_zonefile_info
