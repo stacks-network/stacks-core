@@ -39,6 +39,7 @@ import StringIO
 import hashlib
 import errno
 import socket
+import gc
 
 import blockstack_zones
 import virtualchain
@@ -2223,7 +2224,8 @@ def atlas_find_missing_zonefile_availability( peer_table=None, con=None, path=No
             ret[zfinfo['zonefile_hash']] = {
                 'indexes': [],
                 'popularity': 0,
-                'peers': []
+                'peers': [],
+                'tried_storage': False
             }
 
         for peer_hostport in peer_table.keys():
@@ -3415,7 +3417,7 @@ class AtlasZonefileCrawler( threading.Thread ):
 
 
 
-    def step(self, con=None, path=None, peer_table=None):
+    def step(self, path=None, peer_table=None):
         """
         Run one step of this algorithm:
         * find the set of missing zonefiles
@@ -3456,7 +3458,7 @@ class AtlasZonefileCrawler( threading.Thread ):
 
         zonefile_origins = self.find_zonefile_origins( missing_zfinfo, peer_hostports )
         
-        log.debug("%s: missing %s zonefiles" % (self.hostport, len(zonefile_hashes)))
+        log.debug("%s: missing %s unique zonefiles" % (self.hostport, len(zonefile_hashes)))
 
         while len(zonefile_hashes) > 0:
 
@@ -3465,7 +3467,12 @@ class AtlasZonefileCrawler( threading.Thread ):
 
             # is this zonefile available via storage?
             if not missing_zfinfo[zfhash]['tried_storage']:
+                
+                # this can be somewhat memory-intensive, so
+                # invoke the gc immediately afterwards
                 rc = self.try_crawl_storage( zfhash, path )
+                gc.collect(2)
+
                 if rc:
                     # don't ask for it again
                     zonefile_hashes.pop(0)
