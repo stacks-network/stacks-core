@@ -272,7 +272,7 @@ if __name__ == "__main__":
     current_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     sys.path.insert(0, current_dir)
 
-    from storage import *
+    from blockstack_client.storage import *
 
     test_data = [
       ["my_first_datum",        "hello world",                              1, "unused", None],
@@ -280,6 +280,11 @@ if __name__ == "__main__":
       ["user_profile",          '{"name":{"formatted":"judecn"},"v":"2"}',  3, "unused", None],
       ["empty_string",          "",                                         4, "unused", None],
     ]
+
+    if len(sys.argv) > 1:
+        for prof in sys.argv[1:]:
+            res = get_mutable_handler( prof )
+            print json.dumps(res)
 
     def hash_data(d):
         return pybitcoin.hash.hex_hash160(d)
