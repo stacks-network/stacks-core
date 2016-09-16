@@ -585,6 +585,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         if names is None:
             names = []
+
         return names
 
 
@@ -679,8 +680,10 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         db = get_state_engine()
         self.analytics("get_all_names", {})
+        all_names = db.get_all_names( offset=offset, count=count )
         db.close()
-        return db.get_all_names( offset=offset, count=count )
+
+        return all_names
 
 
     def rpc_get_names_in_namespace( self, namespace_id, offset, count, **con_info ):
