@@ -10,4 +10,3 @@
 
 import blockstack_utxo
 from utxo import *
-from version import __version__
