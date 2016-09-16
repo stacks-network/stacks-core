@@ -620,6 +620,33 @@ def atlasdb_set_zonefile_tried_storage( zonefile_hash, tried_storage, con=None, 
     return True
 
 
+def atlasdb_reset_zonefile_tried_storage( con=None, path=None ):
+    """
+    For zonefiles that we don't have, re-attempt to fetch them from storage.
+    """
+
+    if path is None:
+        path = atlasdb_path()
+
+    close = False
+    if con is None:
+        close = True
+        con = atlasdb_open( path )
+        assert con is not None
+
+    sql = "UPDATE zonefiles SET tried_storage = ? WHERE present = ?;"
+    args = (0, 0)
+
+    cur = con.cursor()
+    res = atlasdb_query_execute( cur, sql, args )
+
+    con.commit()
+    if close:
+        con.close()
+
+    return True
+
+
 def atlasdb_cache_zonefile_info( con=None, path=None ):
     """
     Load up and cache our zonefile inventory
@@ -1122,6 +1149,9 @@ def atlasdb_init( path, db, peer_seeds, peer_blacklist, validate=False, zonefile
         for peer in peer_seeds:
             # forcibly add seed peers
             atlasdb_add_peer( peer, con=con, peer_table=peer_table, ping_on_evict=False )
+
+        # re-try fetching zonefiles from storage if we don't have them yet
+        atlasdb_reset_zonefile_tried_storage( con=con, path=path )
 
         # load up peer table from the db
         log.debug("Loading peer table")
