@@ -25,12 +25,13 @@ setup(
         'blockstack-profiles>=0.4.4',
         'pybitcoin>=0.9.9',
         'blockstack-zones>=0.1.6.1',
-        'blockstack-storage-drivers>=0.14.0',
         'defusedxml>=0.4.1',
         'keylib>=0.0.5',
         'mixpanel>=4.3.1',
         'pycrypto>=2.6.1',
-        'simplejson>=3.8.2'
+        'simplejson>=3.8.2',
+        'basicrpc>=0.0.2',      # DHT storage driver
+        'boto>=2.38.0'          # S3 storage driver
     ],
     classifiers=[
         'Intended Audience :: Developers',
