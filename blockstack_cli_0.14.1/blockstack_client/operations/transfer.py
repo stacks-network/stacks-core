@@ -119,12 +119,12 @@ def make_outputs( data, inputs, new_name_owner_address, change_address, tx_fee=0
     ]
 
 
-def make_transaction(name, destination_address, keepdata, consensus_hash, payment_addr, blockchain_client, tx_fee=0, subsidize=False):
+def make_transaction(name, destination_address, keepdata, consensus_hash, old_owner_addr, blockchain_client, tx_fee=0, subsidize=False):
    
     name = str(name)
     destination_address = str(destination_address)
     consensus_hash = str(consensus_hash)
-    payment_addr = str(payment_addr)
+    old_owner_addr = str(old_owner_addr)
     tx_fee = int(tx_fee)
 
     assert len(consensus_hash) == LENGTH_CONSENSUS_HASH * 2 
@@ -135,10 +135,10 @@ def make_transaction(name, destination_address, keepdata, consensus_hash, paymen
     if subsidize:
         pay_fee = False
     
-    inputs = tx_get_unspents( payment_addr, blockchain_client )
+    inputs = tx_get_unspents( old_owner_addr, blockchain_client )
     
     nulldata = build(name, keepdata, consensus_hash)
-    outputs = make_outputs(nulldata, inputs, destination_address, payment_addr, tx_fee, pay_fee=pay_fee)
+    outputs = make_outputs(nulldata, inputs, destination_address, old_owner_addr, tx_fee, pay_fee=pay_fee)
 
     return (inputs, outputs)
   
