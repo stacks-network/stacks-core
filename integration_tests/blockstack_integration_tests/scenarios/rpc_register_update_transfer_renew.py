@@ -54,7 +54,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
-    resp = testlib.blockstack_rpc_register( "foo.test", "0123456789abcdef" )
+    resp = testlib.blockstack_cli_register( "foo.test", "0123456789abcdef" )
     if 'error' in resp:
         print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
         return False
@@ -93,7 +93,7 @@ def scenario( wallets, **kw ):
     blockstack_client.user.put_immutable_data_zonefile( zonefile, "testdata", blockstack_client.get_data_hash("testdata"), data_url="file:///testdata")
     zonefile_json = json.dumps(zonefile)
 
-    resp = testlib.blockstack_rpc_update( "foo.test", zonefile_json, "0123456789abcdef" )
+    resp = testlib.blockstack_cli_update( "foo.test", zonefile_json, "0123456789abcdef" )
     
     if 'error' in resp:
         print >> sys.stderr, "update error: %s" % resp['error']
@@ -109,7 +109,7 @@ def scenario( wallets, **kw ):
     time.sleep(10)
 
     # transfer to a new address 
-    resp = testlib.blockstack_rpc_transfer( "foo.test", wallets[4].addr, "0123456789abcdef" )
+    resp = testlib.blockstack_cli_transfer( "foo.test", wallets[4].addr, "0123456789abcdef" )
 
     if 'error' in resp:
         print >> sys.stderr, "transfer error: %s" % resp['error']
@@ -126,7 +126,7 @@ def scenario( wallets, **kw ):
     wallet = testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[5].privkey, wallets[4].privkey, wallets[4].privkey )
 
     # renew it, using the same payment key 
-    resp = testlib.blockstack_rpc_renew( "foo.test", "0123456789abcdef" )
+    resp = testlib.blockstack_cli_renew( "foo.test", "0123456789abcdef" )
     if 'error' in resp:
         print >> sys.stderr, "Renewal request failed:\n%s" % json.dumps(resp, indent=4, sort_keys=True)
         return False
@@ -193,7 +193,7 @@ def check( state_engine ):
         print "wrong zonefile: %s != %s" % (blockstack_client.hash_zonefile(zonefile), zonefile_hash)
         return False
 
-    names_owned = testlib.blockstack_rpc_names()
+    names_owned = testlib.blockstack_cli_names()
     if 'error' in names_owned:
         print "rpc names: %s" % names_owned['error']
         return False

@@ -54,7 +54,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
-    resp = testlib.blockstack_rpc_register( "foo.test", "0123456789abcdef" )
+    resp = testlib.blockstack_cli_register( "foo.test", "0123456789abcdef" )
     if 'error' in resp:
         print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
         return False
@@ -98,7 +98,7 @@ def scenario( wallets, **kw ):
     queuedb_path = conf['queue_path']
 
     # update the zonefile hash, but not the zonefile.
-    resp = testlib.blockstack_rpc_set_zonefile_hash( "foo.test", zonefile_hash )
+    resp = testlib.blockstack_cli_set_zonefile_hash( "foo.test", zonefile_hash )
     if 'error' in resp:
         print >> sys.stderr, "\nFailed to set zonefile hash: %s\n" % resp
         return False
@@ -122,7 +122,7 @@ def scenario( wallets, **kw ):
                                                 config_path=test_proxy.config_path, zonefile=zonefile, zonefile_hash=zonefile_hash, path=queuedb_path )
 
     # verify that we can sync the zonefile, using the in-queue zonefile
-    resp = testlib.blockstack_rpc_sync_zonefile( "foo.test" )
+    resp = testlib.blockstack_cli_sync_zonefile( "foo.test" )
     if 'error' in resp:
         print >> sys.stderr, "\nfailed to sync zonefile: %s\n" % resp
         return False
@@ -147,7 +147,7 @@ def scenario( wallets, **kw ):
         return False
 
     # update the zonefile hash, but not the zonefile.
-    resp = testlib.blockstack_rpc_set_zonefile_hash( "foo.test", zonefile_hash )
+    resp = testlib.blockstack_cli_set_zonefile_hash( "foo.test", zonefile_hash )
     if 'error' in resp:
         print >> sys.stderr, "\nFailed to set zonefile hash: %s\n" % resp
         return False
@@ -156,7 +156,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
     # verify that we can sync the zonefile, using the on-disk zonefile
-    resp = testlib.blockstack_rpc_sync_zonefile( "foo.test" )
+    resp = testlib.blockstack_cli_sync_zonefile( "foo.test" )
     
     if 'error' in resp:
         print >> sys.stderr, "update error: %s" % resp['error']

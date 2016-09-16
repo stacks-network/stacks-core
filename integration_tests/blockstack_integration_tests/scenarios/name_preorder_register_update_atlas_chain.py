@@ -111,7 +111,7 @@ def scenario( wallets, **kw ):
     value_hash = blockstack_client.hash_zonefile( empty_zonefile )
 
     # propagate the zonefile
-    res = testlib.blockstack_rpc_update( "foo.test", empty_zonefile_str, "0123456789abcdef" )
+    res = testlib.blockstack_cli_update( "foo.test", empty_zonefile_str, "0123456789abcdef" )
 
     for i in xrange(0, 12):
         testlib.next_block( **kw )

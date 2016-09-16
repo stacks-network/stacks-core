@@ -51,7 +51,7 @@ def scenario( wallets, **kw ):
 
     wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, None )
     for i in xrange(0, 3):
-        resp = testlib.blockstack_rpc_register( "foo_%s.test" % i, "0123456789abcdef" )
+        resp = testlib.blockstack_cli_register( "foo_%s.test" % i, "0123456789abcdef" )
         if 'error' in resp:
             print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
             return False

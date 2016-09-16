@@ -95,7 +95,7 @@ def scenario( wallets, **kw ):
     res = blockstack_client.profile.store_name_zonefile( "foo.test", empty_zonefile, "00" * 32, storage_drivers=['disk'] )
 
     # propagate the zonefile hash
-    res = testlib.blockstack_rpc_set_zonefile_hash( "foo.test", value_hash ) 
+    res = testlib.blockstack_cli_set_zonefile_hash( "foo.test", value_hash ) 
 
     for i in xrange(0, 12):
         testlib.next_block( **kw )
