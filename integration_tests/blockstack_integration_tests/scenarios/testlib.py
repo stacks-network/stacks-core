@@ -461,7 +461,7 @@ def blockstack_client_queue_state():
     return queue_info
 
 
-def blockstack_rpc_register( name, password ):
+def blockstack_cli_register( name, password ):
     """
     Register a name, using the backend RPC endpoint
     """
@@ -474,7 +474,7 @@ def blockstack_rpc_register( name, password ):
     return resp
 
 
-def blockstack_rpc_update( name, zonefile_json, password ):
+def blockstack_cli_update( name, zonefile_json, password ):
     """
     Update a name's value hash to point to the new zonefile
     """
@@ -495,7 +495,7 @@ def blockstack_rpc_update( name, zonefile_json, password ):
     return resp
 
 
-def blockstack_rpc_transfer( name, new_owner_address, password ):
+def blockstack_cli_transfer( name, new_owner_address, password ):
     """
     transfer a name to a new address
     """
@@ -510,7 +510,7 @@ def blockstack_rpc_transfer( name, new_owner_address, password ):
     return resp
 
 
-def blockstack_rpc_renew( name, password ):
+def blockstack_cli_renew( name, password ):
     """
     Renew a name, using the backend RPC endpoint
     """
@@ -524,7 +524,7 @@ def blockstack_rpc_renew( name, password ):
     return resp
 
 
-def blockstack_rpc_revoke( name, password ):
+def blockstack_cli_revoke( name, password ):
     """
     Revoke a name, using the backend RPC endpoint
     """
@@ -538,7 +538,7 @@ def blockstack_rpc_revoke( name, password ):
     return resp
 
 
-def blockstack_rpc_names():
+def blockstack_cli_names():
     """
     Get the list of nams owned by the local wallet
     """
@@ -550,7 +550,7 @@ def blockstack_rpc_names():
     return resp
 
  
-def blockstack_rpc_set_zonefile_hash( name, zonefile_hash ):
+def blockstack_cli_set_zonefile_hash( name, zonefile_hash ):
     """
     Set the zonefile hash directly
     """
@@ -565,7 +565,7 @@ def blockstack_rpc_set_zonefile_hash( name, zonefile_hash ):
     return resp
 
 
-def blockstack_rpc_sync_zonefile( name, zonefile_string=None, txid=None ):
+def blockstack_cli_sync_zonefile( name, zonefile_string=None, txid=None ):
     """
     Forcibly synchronize the zonefile
     """
@@ -576,18 +576,625 @@ def blockstack_rpc_sync_zonefile( name, zonefile_string=None, txid=None ):
 
     args = CLIArgs()
     args.name = name
-
-    if zonefile_string is not None:
-        args.zonefile = zonefile_string
-
-    if txid is not None:
-        args.txid = txid
+    args.zonefile = zonefile_string
+    args.txid = txid
 
     resp = cli_advanced_sync_zonefile( args, config_path=test_proxy.config_path, proxy=test_proxy )
     if 'value_hash' in resp:
         atlas_zonefiles_present.append( resp['value_hash'] )
 
     return resp
+
+
+def blockstack_cli_balance():
+    """
+    Get the balance
+    """
+    args = CLIArgs()
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
+    return cli_balance( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_price( name, password ):
+    """
+    Get the price of a name
+    """
+    args = CLIArgs()
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
+    args.name = name
+    return cli_price( args, config_path=test_proxy.config_path, proxy=test_proxy, password=password )
+
+
+def blockstack_cli_deposit():
+    """
+    Get the deposit information
+    """
+    args = CLIArgs()
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
+    return cli_deposit( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_import():
+    """
+    Get name import information
+    """
+    args = CLIArgs()
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
+    return cli_import( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_info():
+    """
+    Get name and server information
+    """
+    args = CLIArgs()
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
+    return cli_info( args, config_path=test_proxy.config_path )
+    
+
+def blockstack_cli_whois( name ):
+    """
+    Get the WHOIS information for a name
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
+    args = CLIArgs()
+    args.name = name
+
+    resp = cli_whois( args, config_path=test_proxy.config_path )
+    return resp
+
+
+def blockstack_cli_ping():
+    """
+    Ping the running server
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
+    return cli_ping( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_lookup( name ):
+    """
+    Look up a name's zonefile/profile
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+
+    return cli_lookup( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_migrate( name, password, force=False ):
+    """
+    Migrate from legacy zonefile to new zonefile
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+   
+    args.name = name
+
+    return cli_migrate( args, config_path=test_proxy.config_path, proxy=test_proxy, password=password, interactive=False, force=force )
+    
+
+def blockstack_cli_advanced_import_wallet( password, payment_privkey, owner_privkey, data_privkey=None, force=False ):
+    """
+    Import a wallet
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.payment_privkey = payment_privkey
+    args.owner_privkey = owner_privkey
+    args.data_privkey = data_privkey
+
+    return cli_advanced_import_wallet( args, config_path=test_proxy.config_path, password=password, force=force )
+
+
+def blockstack_cli_advanced_list_accounts( name, password ):
+    """
+    list a name's accounts
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+
+    return cli_advanced_list_accounts( args, config_path=test_proxy.config_path, password=password, proxy=test_proxy )
+
+
+def blockstack_cli_advanced_get_account( name, service, identifier, password ):
+    """
+    get an account by name/service/serviceID
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.service = service
+    args.identifier = identifier
+
+    return cli_advanced_get_account( args, config_path=test_proxy.config_path, proxy=test_proxy, password=password )
+
+
+def blockstack_cli_advanced_put_account( name, service, identifier, content_url, password, extra_data=None, required_drivers=None ):
+    """
+    put an account
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.service = service
+    args.identifier = identifier
+    args.content_url = content_url
+    args.extra_data = extra_data
+
+    return cli_advanced_put_account( args, config_path=test_proxy.config_path, proxy=test_proxy, password=password )
+
+
+def blockstack_cli_advanced_delete_account( name, service, identifier, password ):
+    """
+    delete an account
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.service = service
+    args.identifier = identifier
+
+    return cli_advanced_delete_account( args, config_path=test_proxy.config_path, proxy=test_proxy, password=password )
+
+
+def blockstack_cli_advanced_wallet( password ):
+    """
+    get the wallet
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    return cli_advanced_wallet( args, config_path=test_proxy.config_path, password=password )
+    
+
+def blockstack_cli_advanced_consensus( height=None ):
+    """
+    get consensus
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+    
+    args.block_height = height
+
+    return cli_advanced_consensus( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_advanced_rpcctl( command ):
+    """
+    control-command to the RPC daemon
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.command = command
+    return cli_advanced_rpcctl( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_rpc( method, rpc_args=None, rpc_kw=None ):
+    """
+    send an RPC command to the RPC daemon
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.method = method
+    args.args = rpc_args
+    args.kwargs = rpc_kw
+
+    return cli_advanced_rpc( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_name_import( name, address, value_hash, owner_privkey ):
+    """
+    do a name import in the CLI
+    """
+    raise Exception("BROKEN IN THE CLIENT")
+
+
+def blockstack_cli_namespace_preorder( namespace_id, owner_privkey, reveal_address ):
+    """
+    do a namespace preorder in the CLI
+    """
+    raise Exception("BROKEN IN THE CLIENT")
+
+
+def blockstack_cli_namespace_reveal( namespace_id, reveal_addr, lifetime, coeff, base, buckets, nonalpha_discount, no_vowel_discount, reveal_privkey ):
+    """
+    do a namespace reveal in the CLI
+    """
+    raise Exception("BROKEN IN THE CLIENT")
+
+
+def blockstack_cli_advanced_put_mutable( name, data_id, data_json_str ):
+    """
+    put mutable data
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.data_id = data_id
+    args.data = data_json_str
+
+    return cli_advanced_put_mutable( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_advanced_put_immutable( name, data_id, data_json_str ):
+    """
+    put immutable data
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.data_id = data_id
+    args.data = data_json_str
+
+    return cli_advanced_put_immutable( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_advanced_get_mutable( name, data_id ):
+    """
+    get mutable data
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.data_id = data_id
+
+    return cli_advanced_get_mutable( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_advanced_get_immutable( name, data_id_or_hash ):
+    """
+    get immutable data
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.data_id_or_hash = data_id_or_hash
+
+    return cli_advanced_get_immutable( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_advanced_list_update_history( name, config_path=CONFIG_PATH ):
+    """
+    list value hash history
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+    
+    args.name = name
+    return cli_advanced_list_update_history( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_advanced_list_zonefile_history( name, config_path=CONFIG_PATH ):
+    """
+    list zonefile history
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    return cli_advanced_list_zonefile_history( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_advanced_list_immutable_data_history( name, data_id, config_path=CONFIG_PATH ):
+    """
+    list immutable data history
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.data_id = data_id
+    return cli_advanced_list_immutable_data_history( args, config_path=test_proxy.config_path )
+    
+
+def blockstack_cli_advanced_delete_immutable( name, hash_str, config_path=CONFIG_PATH ):
+    """
+    delete immutable
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( teist_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.hash = hash_str
+    return cli_advanced_delete_immutable( args, config_path=test_proxy.config_path )
+    
+
+def blockstack_cli_advanced_delete_mutable( name, data_id, config_path=CONFIG_PATH ):
+    """
+    delete mutable
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.data_id = data_id
+    return cli_advanced_delete_mutable( args, config_path=test_proxy.config_path )
+    pass
+
+def blockstack_cli_advanced_get_name_blockchain_record( name, config_path=CONFIG_PATH ):
+    """
+    get name blockchain record
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    return cli_advanced_get_name_blockchain_record( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_advanced_get_name_blockchain_history( name, start_block=None, end_block=None, config_path=CONFIG_PATH ):
+    """
+    get name blockchain history
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.start_block = start_block
+    args.end_block = end_block
+
+    return cli_advanced_get_name_blockchain_history(  args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_advanced_get_namespace_blockchain_record( namespace_id, config_path=CONFIG_PATH ):
+    """
+    get namespace blockchain record
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.namespace_id = namespace_id
+    return cli_advanced_get_namespace_blockchain_record( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_advanced_lookup_snv( name, block_id, trust_anchor, config_path=CONFIG_PATH ):
+    """
+    SNV lookup
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.block_id = block_id
+    args.trust_anchor = trust_anchor
+
+    return cli_advanced_lookup_snv( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_advanced_get_name_zonefile( name, config_path=CONFIG_PATH ):
+    """
+    get name zonefile
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    return cli_advanced_get_name_zonefile( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_advanced_get_names_owned_by_address( address, config_path=CONFIG_PATH ):
+    """
+    get names owned by address
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.address = address
+    return cli_advanced_get_names_owned_by_address( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_advanced_get_namespace_cost( namespace_id, config_path=CONFIG_PATH ):
+    """
+    get namespace cost
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.namespace_id = namespace_id
+    return cli_advanced_get_namespace_cost( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_advanced_get_all_names( offset=None, count=None, config_path=CONFIG_PATH ):
+    """
+    get all names
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.offset = offset
+    args.count = count
+
+    return cli_advanced_get_all_names( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_advanced_get_names_in_namespace( namespace_id, offset=None, count=None, config_path=CONFIG_PATH ):
+    """
+    get names in a particular namespace
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.namespace_id = namespace_id
+    args.offset = offset
+    args.count = count
+
+    return cli_advanced_get_names_in_namespace( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_advanced_get_records_at( block_id, config_path=CONFIG_PATH ):
+    """
+    get name records at a block height
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.block_id = block_id
+
+    return cli_advanced_get_records_at( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_advanced_set_zonefile_hash( name, zonefile_hash, config_path=CONFIG_PATH, password=None ):
+    """
+    set the zonefile hash directly
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.zonefile_hash = zonefile_hash
+    
+    return cli_advanced_set_zonefile_hash( args, config_path=test_proxy.config_path, password=password )
+
+
+def blockstack_cli_advanced_unqueue( name, queue_id, txid, config_path=CONFIG_PATH, password=None ):
+    """
+    unqueue from the registrar queue
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.queue_id = queue_id
+    args.txid = txid
+
+    return cli_advanced_unqueue( args, config_path=test_proxy.config_path, password=password )
+
+
+def blockstack_cli_advanced_set_profile( name, data_json_str, config_path=CONFIG_PATH, password=None, proxy=None ):
+    """
+    set the profile directly
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.data = data_json_str
+
+    return cli_advanced_set_profile( args, config_path=test_proxy.config_path, password=password, proxy=proxy )
+
+
+def blockstack_cli_advanced_convert_legacy_profile( path, config_path=CONFIG_PATH ):
+    """
+    convert a legacy profile
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.path = path
+
+    return cli_advanced_convert_legacy_profile( args, config_path=test_proxy.config_path )
+
+
+def blockstack_cli_advanced_app_register( name, app_name, app_account_id, app_url, storage_drivers=None, app_fields=None, app_password=None, config_path=CONFIG_PATH, password=None, proxy=None, interactive=False ):
+    """
+    register an application with your profile
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.app_name = app_name
+    args.app_account_id = app_account_id
+    args.app_url = app_url
+    args.storage_drivers = storage_drivers
+    args.app_fields = app_fields
+    args.password = app_password
+
+    return cli_advanced_app_register( args, config_path=test_proxy.config_path, interactive=interactive, password=password, proxy=proxy )
+
+
+def blockstack_cli_advanced_app_unregister( name, app_name, app_account_id, config_path=CONFIG_PATH, interactive=False ):
+    """
+    unregister an application from your profile
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.app_name = app_name
+    args.app_account_id = app_account_id
+
+    return cli_advanced_app_unregister( args, config_path=test_proxy.config_path, interactive=interactive )
+
+
+def blockstack_cli_advanced_app_get_wallet( name, app_name, app_account_id, app_password=None, config_path=CONFIG_PATH, interactive=False ):
+    """
+    get an app-specific wallet
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.app_name = app_name
+    args.app_account_id = app_account_id
+
+    return cli_advanced_app_get_wallet( args, config_path=test_proxy.config_path, interactive=interactive )
 
 
 def blockstack_get_zonefile( zonefile_hash ):
@@ -632,20 +1239,6 @@ def blockstack_get_profile( name ):
         return None 
 
     return profile_result['profile']
-
-
-def blockstack_rpc_whois( name ):
-    """
-    Get the WHOIS information for a name
-    """
-    test_proxy = make_proxy()
-    blockstack_client.set_default_proxy( test_proxy )
-
-    args = CLIArgs()
-    args.name = name
-
-    resp = cli_whois( args, config_path=test_proxy.config_path )
-    return resp
 
 
 def blockstack_verify_database( consensus_hash, consensus_block_id, db_path, working_db_path=None, start_block=None ):
