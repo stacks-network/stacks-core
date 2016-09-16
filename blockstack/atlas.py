@@ -70,6 +70,7 @@ PEER_CRAWL_NEIGHBOR_WORK_INTERVAL = 300     # minimum amount of time (seconds) t
 PEER_HEALTH_NEIGHBOR_WORK_INTERVAL = 1      # minimum amount of time (seconds) that must pass between randomly pinging someone
 PEER_CRAWL_ZONEFILE_WORK_INTERVAL = 300     # minimum amount of time (seconds) that must pass between two zonefile crawls
 PEER_PUSH_ZONEFILE_WORK_INTERVAL = 300      # minimum amount of time (seconds) that must pass between two zonefile pushes
+PEER_CRAWL_ZONEFILE_STORAGE_RETRY_INTERVAL = 3600 * 12      # retry storage for missing zonefiles every 12 hours
 
 NUM_NEIGHBORS = 80     # number of neighbors a peer can report
 
@@ -3327,6 +3328,7 @@ class AtlasZonefileCrawler( threading.Thread ):
         self.path = path 
         self.zonefile_storage_drivers = zonefile_storage_drivers
         self.zonefile_dir = zonefile_dir
+        self.last_storage_reset = time_now()
         if self.path is None:
             self.path = atlasdb_path()
 
@@ -3338,7 +3340,7 @@ class AtlasZonefileCrawler( threading.Thread ):
         Return True on success
         Return False on error
         """
-        rc = store_zonefile_data_to_storage( zonefile_data, required=self.zonefile_storage_drivers, cache=True, zonefile_dir=self.zonefile_dir )
+        rc = store_zonefile_data_to_storage( zonefile_data, required=self.zonefile_storage_drivers, cache=True, zonefile_dir=self.zonefile_dir, tx_required=False )
         if not rc:
             log.error("%s: Failed to store zonefile %s" % (self.hostport, fetched_zfhash))
 
@@ -3582,6 +3584,12 @@ class AtlasZonefileCrawler( threading.Thread ):
 
             if num_fetched == 0 and t2 - t1 < PEER_CRAWL_ZONEFILE_WORK_INTERVAL:
                 time_sleep( self.hostport, self.__class__.__name__, PEER_CRAWL_ZONEFILE_WORK_INTERVAL - (t2 - t1) )
+
+            # re-try storage periodically for missing zonefiles
+            if self.last_storage_reset + PEER_CRAWL_ZONEFILE_STORAGE_RETRY_INTERVAL < time_now():
+                log.debug("%s: Re-trying storage on missing zonefiles" % self.hostport)
+                atlasdb_reset_zonefile_tried_storage()
+                self.last_storage_reset = time_now()
 
 
     def ask_join(self):
