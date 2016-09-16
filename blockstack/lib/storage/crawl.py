@@ -92,17 +92,27 @@ def get_zonefile_data_from_storage( zonefile_hash, name=None, drivers=None ):
     Return the zonefile dict on success.
     Raise on error
     """
-    
-    if not is_current_zonefile_hash( zonefile_hash ):
-        raise Exception("Unknown zonefile hash")
+    names = [None]
+    if name is None:
+        db = get_db_state()
+        names_with_hash = db.get_names_with_value_hash( zonefile_hash )
+        if names_with_hash is not None:
+            names = names_with_hash + names
+        
+    for name in names:
+        zonefile_txt = blockstack_client.storage.get_immutable_data( zonefile_hash, hash_func=blockstack_client.get_blockchain_compat_hash, fqu=name, zonefile=True, deserialize=False, drivers=drivers )
+        if zonefile_txt is None:
+            continue
 
-    zonefile_txt = blockstack_client.storage.get_immutable_data( zonefile_hash, hash_func=blockstack_client.get_blockchain_compat_hash, fqu=name, zonefile=True, deserialize=False, drivers=drivers )
+        # verify
+        if blockstack_client.storage.get_zonefile_data_hash( zonefile_txt ) != zonefile_hash:
+            log.warn("Corrupted zonefile for '%s'" % name)
+            continue
+
+        break
+
     if zonefile_txt is None:
-        raise Exception("Failed to get data")
-
-    # verify
-    if blockstack_client.storage.get_zonefile_data_hash( zonefile_txt ) != zonefile_hash:
-        raise Exception("Corrupt zonefile: %s" % zonefile_hash)
+        raise Exception("Failed to get valid data")
    
     return zonefile_txt
 
@@ -238,12 +248,15 @@ def get_zonefile_data_txid( zonefile_data, name=None ):
             return None 
 
         names = [name]
+
     else:
         names = db.get_names_with_value_hash( zonefile_hash )
+        if names is None:
+            names = []
 
     if len(names) == 0:
         db.close()
-        log.debug("Not a valid zonefile hash: %s" % zonefile_hash)
+        log.debug("Not a current zonefile hash: %s" % zonefile_hash)
         return None
 
     for name in names:
@@ -261,7 +274,7 @@ def get_zonefile_data_txid( zonefile_data, name=None ):
     return txid
 
 
-def store_zonefile_data_to_storage( zonefile_text, required=[], cache=False, zonefile_dir=None, name=None ):
+def store_zonefile_data_to_storage( zonefile_text, required=[], cache=False, zonefile_dir=None, name=None, tx_required=True ):
     """
     Upload a zonefile to our storage providers.
     Return True if at least one provider got it.
@@ -282,7 +295,7 @@ def store_zonefile_data_to_storage( zonefile_text, required=[], cache=False, zon
 
         # find the tx that paid for this zonefile
         txid = get_zonefile_data_txid( zonefile_text, name=name )
-        if txid is None:
+        if tx_required and txid is None:
             log.error("No txid for zonefile hash '%s' (for '%s')" % (zonefile_hash, name))
             return False
    
