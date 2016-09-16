@@ -776,6 +776,12 @@ class BlockstackDB( virtualchain.StateEngine ):
         Returns the list of names.
         """
 
+        if offset is not None and offset < 0:
+            offset = None
+
+        if count is not None and count < 0:
+            count = None 
+
         cur = self.db.cursor()
         names = namedb_get_all_names( cur, self.lastblock, offset=offset, count=count )
         return names
@@ -786,6 +792,12 @@ class BlockstackDB( virtualchain.StateEngine ):
         Get the set of all registered names in a particular namespace.
         Returns the list of names.
         """
+
+        if offset is not None and offset < 0:
+            offset = None 
+
+        if count is not None and count < 0:
+            count = None 
 
         cur = self.db.cursor()
         names = namedb_get_names_in_namespace( cur, namespace_id, self.lastblock, offset=offset, count=count )
