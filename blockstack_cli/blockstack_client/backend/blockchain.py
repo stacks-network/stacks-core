@@ -12,7 +12,6 @@ import os
 import sys
 import virtualchain
 import pybitcoin
-import blockstack_utxo
 import json
 import traceback
 
