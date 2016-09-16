@@ -1358,7 +1358,7 @@ def cli_advanced_import_wallet( args, config_path=CONFIG_PATH, password=None, fo
                     break
 
         data_privkey = args.data_privkey
-        if len(data_privkey) == 0:
+        if data_privkey is None or len(data_privkey) == 0:
             # generate one, since it's an optional argument
             data_privkey = virtualchain.BitcoinPrivateKey().to_wif()
 
@@ -2013,8 +2013,8 @@ def cli_advanced_get_all_names( args, config_path=CONFIG_PATH ):
     opt: offset (int) "The offset into the sorted list of names"
     opt: count (int) "The number of names to return"
     """
-    offset = None
-    count = None
+    offset = -1
+    count = -1
 
     if args.offset is not None:
         offset = int(args.offset)
@@ -2034,8 +2034,8 @@ def cli_advanced_get_names_in_namespace( args, config_path=CONFIG_PATH ):
     opt: offset (int) "The offset into the sorted list of names"
     opt: count (int) "The number of names to return"
     """
-    offset = None
-    count = None
+    offset = -1
+    count = -1
 
     if args.offset is not None:
         offset = int(args.offset)
@@ -2316,7 +2316,7 @@ def cli_advanced_convert_legacy_profile( args, config_path=CONFIG_PATH ):
     return profile
 
 
-def cli_advanced_app_register( args, config_path=CONFIG_PATH, password=None, proxy=None ):
+def cli_advanced_app_register( args, config_path=CONFIG_PATH, password=None, proxy=None, interactive=True ):
     """
     command: app_register norpc
     help: Register a new application with your profile.
@@ -2325,6 +2325,7 @@ def cli_advanced_app_register( args, config_path=CONFIG_PATH, password=None, pro
     arg: app_account_id (str) "The name of the application account"
     arg: app_url (str) "The URL to the application"
     opt: storage_drivers (str) "A CSV of storage drivers to host this app's data"
+    opt: app_password (str) "The application-specific wallet password"
     opt: app_fields (str) "A CSV of application-specific key/value pairs"
     """
 
@@ -2350,6 +2351,7 @@ def cli_advanced_app_register( args, config_path=CONFIG_PATH, password=None, pro
     app_url = str(args.app_url)
     app_storage_drivers = args.app_storage_drivers
     app_fields = args.app_fields
+    app_password = args.app_password
 
     if len(app_name) == 0:
         return {'error': 'Invalid app name'}
@@ -2359,6 +2361,9 @@ def cli_advanced_app_register( args, config_path=CONFIG_PATH, password=None, pro
 
     if len(app_url) == 0:
         return {'error': 'Invalid app URL'}
+
+    if app_password is None:
+        interactive = True
 
     if app_storage_drivers:
         app_storage_drivers = str(app_storage_drivers)
@@ -2390,11 +2395,11 @@ def cli_advanced_app_register( args, config_path=CONFIG_PATH, password=None, pro
     if 'error' in wallet_keys:
         return wallet_keys
     
-    res = app_register( fqu, app_name, app_account_id, app_url, app_storage_drivers=app_storage_drivers, app_account_fields=app_fields, wallet_keys=wallet_keys, interactive=True, config_path=config_path )
+    res = app_register( fqu, app_name, app_account_id, app_url, app_storage_drivers=app_storage_drivers, app_account_fields=app_fields, wallet_keys=wallet_keys, password=app_password, interactive=interactive, config_path=config_path )
     return res
 
 
-def cli_advanced_app_unregister( name, app_name, app_account_id, config_path=CONFIG_PATH ):
+def cli_advanced_app_unregister( args, config_path=CONFIG_PATH, password=None, interactive=True ):
     """
     command: app_unregister norpc
     help: Unregister an application from a profile
@@ -2402,6 +2407,10 @@ def cli_advanced_app_unregister( name, app_name, app_account_id, config_path=CON
     arg: app_name (str) "The name of the application"
     arg: app_account_id (str) "The name of the application account"
     """
+
+    name = args.name
+    app_name = args.app_name
+    app_account_id = args.app_account_id
 
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
@@ -2433,18 +2442,18 @@ def cli_advanced_app_unregister( name, app_name, app_account_id, config_path=CON
     if 'error' in wallet_keys:
         return wallet_keys
 
-    res = app_unregister( fqu, app_name, app_account_id, interactive=True, wallet_keys=wallet_keys, proxy=proxy, config_path=config_path )
+    res = app_unregister( fqu, app_name, app_account_id, interactive=interactive, wallet_keys=wallet_keys, proxy=proxy, config_path=config_path )
     return res
 
 
-def cli_advanced_app_get_wallet( name, app_name, app_account_id, config_path=CONFIG_PATH ):
+def cli_advanced_app_get_wallet( args, config_path=CONFIG_PATH, interactive=True ):
     """
     command: app_get_wallet
     help: Get an application account wallet
     arg: name (str) "The name that owns the app account"
     arg: app_name (str) "The name of the application"
     arg: app_account_id (str) "The name of the application account"
-    opt: password (str) "The app wallet password"
+    opt: app_password (str) "The app wallet password"
     """
 
     fqu = str(args.name)
@@ -2454,7 +2463,7 @@ def cli_advanced_app_get_wallet( name, app_name, app_account_id, config_path=CON
 
     app_name = str(args.app_name)
     app_account_id = str(args.app_account_id)
-    password = args.password
+    password = args.app_password
 
     if len(app_name) == 0:
         return {'error': 'Invalid app name'}
@@ -2466,9 +2475,6 @@ def cli_advanced_app_get_wallet( name, app_name, app_account_id, config_path=CON
         password = str(password)
     else:
         password = None
-
-    interactive = False
-    if password is None:
         interactive = True
     
     res = app_get_wallet( fqu, app_name, app_account_id, interactive=interactive, password=password, config_path=config_path )
