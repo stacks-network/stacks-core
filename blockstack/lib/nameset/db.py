@@ -1714,7 +1714,7 @@ def namedb_get_all_names( cur, current_block, offset=None, count=None ):
 
     unexpired_query, unexpired_args = namedb_select_where_unexpired_names( current_block )
 
-    query = "SELECT * FROM name_records JOIN namespaces ON name_records.namespace_id = namespaces.namespace_id WHERE " + unexpired_query + ";"
+    query = "SELECT name FROM name_records JOIN namespaces ON name_records.namespace_id = namespaces.namespace_id WHERE " + unexpired_query + ";"
     args = unexpired_args
 
     if count is not None:
@@ -1730,7 +1730,7 @@ def namedb_get_all_names( cur, current_block, offset=None, count=None ):
     for name_row in name_rows:
         rec = {}
         rec.update( name_row )
-        ret.append( rec )
+        ret.append( rec['name'] )
 
     return ret 
 
@@ -1743,7 +1743,7 @@ def namedb_get_names_in_namespace( cur, namespace_id, current_block, offset=None
 
     unexpired_query, unexpired_args = namedb_select_where_unexpired_names( current_block )
 
-    query = "SELECT * FROM name_records JOIN namespaces ON name_records.namespace_id = namespaces.namespace_id WHERE namespace_id = ? AND " + unexpired_query + " ORDER BY name;"
+    query = "SELECT name FROM name_records JOIN namespaces ON name_records.namespace_id = namespaces.namespace_id WHERE name_records.namespace_id = ? AND " + unexpired_query + " ORDER BY name;"
     args = (namespace_id,) + unexpired_args
 
     if count is not None:
@@ -1759,7 +1759,7 @@ def namedb_get_names_in_namespace( cur, namespace_id, current_block, offset=None
     for name_row in name_rows:
         rec = {}
         rec.update( name_row )
-        ret.append( rec )
+        ret.append( rec['name'] )
 
     return ret
 
