@@ -75,7 +75,7 @@ def get_zonefile( fqu, zonefile_hash ):
     
     zone_file_str = str(res['zone_file'])
     if pybitcoin.hex_hash160( zone_file_str ) != zonefile_hash:
-        log.debug("Hash mismatch: expected %s, got %s" % (pybitcoin.hex_hash160(zone_file_str), zonefile_hash))
+        log.debug("Hash mismatch: expected %s, got %s" % (zonefile_hash, pybitcoin.hex_hash160(zone_file_str)))
         return None
 
     return zone_file_str
