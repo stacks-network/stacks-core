@@ -29,7 +29,7 @@ import uuid
 import urllib2
 
 import virtualchain
-from blockstack_utxo import *
+from .backend.utxo import *
 
 from binascii import hexlify
 
