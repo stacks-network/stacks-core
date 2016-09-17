@@ -31,12 +31,33 @@ from .utils import pretty_dump
 from .config import PREORDER_CONFIRMATIONS
 from .config import BLOCKSTACKD_IP, BLOCKSTACKD_PORT
 
+from blockstack_client.backend import do_preorder, do_register
+from blockstack_client.backend import do_update, do_transfer
+from blockstack_client.config import get_utxo_provider_client
+from blockstack_client.config import get_tx_broadcaster
+from blockstack_client.proxy import get_name_cost
+
 log = config_log(__name__)
 
+utxo_client = get_utxo_provider_client()
+tx_broadcaster = get_tx_broadcaster()
 
 """
     There are 4 main nameops (preorder, register, update, transfer)
 """
+
+
+def get_owner_privkey(fqu):
+
+    data = get_blockchain_record(fqu)
+
+    owner_address = data['address']
+    owner_privkey = wallet.get_privkey_from_address(owner_address)
+
+    if owner_privkey is None:
+        log.debug("Registrar doesn't own (%s, %s)" % (fqu, owner_address))
+
+    return owner_privkey
 
 
 def preorder(fqu, payment_address, owner_address, payment_privkey=None):
@@ -49,12 +70,6 @@ def preorder(fqu, payment_address, owner_address, payment_privkey=None):
 
         Returns True/False and stores tx_hash in queue
     """
-
-    # hack to ensure local, until we update client
-    from blockstack_client import client as bs_client
-    # start session using blockstack_client
-    bs_client.session(server_host=BLOCKSTACKD_IP, server_port=BLOCKSTACKD_PORT,
-                      set_global=True)
 
     # stale preorder will get removed from preorder_queue
     if alreadyinQueue(register_queue, fqu):
@@ -86,14 +101,19 @@ def preorder(fqu, payment_address, owner_address, payment_privkey=None):
 
     resp = {}
 
+    cost_info = get_name_cost(fqu)
+    cost = cost_info['satoshis']
+
     try:
-        resp = bs_client.preorder(fqu, payment_privkey, owner_address)
+        # do_preorder( fqu, payment_privkey, owner_address, cost, utxo_client, tx_broadcaster)
+        resp = do_preorder(fqu, payment_privkey, owner_address, cost, utxo_client, tx_broadcaster)
+
     except Exception as e:
         log.debug(e)
 
-    if 'tx_hash' in resp:
+    if 'transaction_hash' in resp:
         add_to_queue(preorder_queue, fqu, payment_address=payment_address,
-                     tx_hash=resp['tx_hash'],
+                     tx_hash=resp['transaction_hash'],
                      owner_address=owner_address)
     else:
         log.debug("Error preordering: %s" % fqu)
@@ -119,12 +139,7 @@ def register(fqu, payment_address=None, owner_address=None,
         Returns True/False and stores tx_hash in queue
     """
 
-    # hack to ensure local, until we update client
-    from blockstack_client import client as bs_client
-    # start session using blockstack_client
-    bs_client.session(server_host=BLOCKSTACKD_IP, server_port=BLOCKSTACKD_PORT,
-                      set_global=True)
-
+    
     # check register_queue first
     # stale preorder will get removed from preorder_queue
     if alreadyinQueue(register_queue, fqu):
@@ -180,13 +195,14 @@ def register(fqu, payment_address=None, owner_address=None,
     resp = {}
 
     try:
-        resp = bs_client.register(fqu, payment_privkey, owner_address)
+        # do_register( fqu, payment_privkey, owner_address, utxo_client, tx_broadcaster,
+        resp = do_register(fqu, payment_privkey, owner_address, utxo_client, tx_broadcaster)
     except Exception as e:
         log.debug(e)
 
-    if 'tx_hash' in resp:
+    if 'transaction_hash' in resp:
         add_to_queue(register_queue, fqu, payment_address=payment_address,
-                     tx_hash=resp['tx_hash'],
+                     tx_hash=resp['transaction_hash'],
                      owner_address=owner_address)
     else:
         log.debug("Error registering: %s" % fqu)
@@ -209,12 +225,6 @@ def update(fqu, profile):
         Returns True/False and stores tx_hash in queue
     """
 
-    # hack to ensure local, until we update client
-    from blockstack_client import client as bs_client
-    # start session using blockstack_client
-    bs_client.session(server_host=BLOCKSTACKD_IP, server_port=BLOCKSTACKD_PORT,
-                      set_global=True)
-
     if alreadyinQueue(update_queue, fqu):
         log.debug("Already in update queue: %s" % fqu)
         return False
@@ -230,7 +240,7 @@ def update(fqu, profile):
     owner_privkey = wallet.get_privkey_from_address(owner_address)
 
     if owner_privkey is None:
-        log.debug("Registrar doens't own this name.")
+        log.debug("Registrar doesn't own this name.")
         return False
 
     if dontuseAddress(owner_address):
@@ -246,14 +256,15 @@ def update(fqu, profile):
     resp = {}
 
     try:
-        resp = bs_client.update(fqu, profile_hash, owner_privkey)
+        # do_update( fqu, zonefile_hash, owner_privkey, payment_privkey, utxo_client, tx_broadcaster
+        resp = do_update(fqu, profile_hash, owner_privkey, payment_privkey, utxo_client, tx_broadcaster)
     except Exception as e:
         log.debug(e)
 
-    if 'tx_hash' in resp:
+    if 'transaction_hash' in resp:
         add_to_queue(update_queue, fqu, profile=profile,
                      profile_hash=profile_hash, owner_address=owner_address,
-                     tx_hash=resp['tx_hash'])
+                     tx_hash=resp['transaction_hash'])
     else:
         log.debug("Error updating: %s" % fqu)
         log.debug(resp)
@@ -274,12 +285,6 @@ def transfer(fqu, transfer_address):
 
         Returns True/False and stores tx_hash in queue
     """
-
-    # hack to ensure local, until we update client
-    from blockstack_client import client as bs_client
-    # start session using blockstack_client
-    bs_client.session(server_host=BLOCKSTACKD_IP, server_port=BLOCKSTACKD_PORT,
-                      set_global=True)
 
     if alreadyinQueue(transfer_queue, fqu):
         log.debug("Already in transfer queue: %s" % fqu)
@@ -310,16 +315,16 @@ def transfer(fqu, transfer_address):
     resp = {}
 
     try:
-        # format for transfer RPC call is (name, address, keepdata, privatekey)
-        resp = bs_client.transfer(fqu, transfer_address, True, owner_privkey)
+        #do_transfer( fqu, transfer_address, keep_data, owner_privkey, payment_privkey, utxo_client, tx_broadcaster,
+        resp = do_transfer(fqu, transfer_address, True, owner_privkey, owner_privkey, utxo_client, tx_broadcaster)
     except Exception as e:
         log.debug(e)
 
-    if 'tx_hash' in resp:
+    if 'transaction_hash' in resp:
         add_to_queue(transfer_queue, fqu,
                      owner_address=owner_address,
                      transfer_address=transfer_address,
-                     tx_hash=resp['tx_hash'])
+                     tx_hash=resp['transaction_hash'])
     else:
         log.debug("Error transferring: %s" % fqu)
         log.debug(pretty_dump(resp))
