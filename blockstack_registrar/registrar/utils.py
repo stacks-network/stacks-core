@@ -18,6 +18,7 @@ from pybitcoin import is_b58check_address
 
 from .config import email_regrex, DEBUG
 from .config import whitelist_email_regrex
+from .config import API_WHITE_LISTED_KEYS
 
 try:
     from .config_local import custom_white_list
@@ -87,8 +88,12 @@ def pretty_print(data):
 
 def cleanup_email(email):
 
-    address = email.split('@')[0]
-    domain = email.split('@')[1]
+    try:
+        address = email.split('@')[0]
+        domain = email.split('@')[1]
+    except:
+        print email
+        return email
 
     # drop everything after a +
     address = address.split('+')[0]
@@ -121,6 +126,17 @@ def whiteListedUser(email, profile):
 
     # if no custom white-listing mechanism is defined
     return True
+
+
+def whiteListedAPIKey(api_key):
+    """
+        Check if given API key is white listed or not
+    """
+
+    if api_key in API_WHITE_LISTED_KEYS:
+        return True
+    else:
+        return False
 
 
 def validRegistrationEmail(email, email_list):

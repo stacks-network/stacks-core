@@ -24,6 +24,8 @@ from .utils import pretty_dump as pprint
 
 log = config_log(__name__)
 
+from blockstack_client.proxy import get_name_blockchain_record
+
 # direct client, using Proxy
 #bs_client = Proxy(BLOCKSTACKD_IP, BLOCKSTACKD_PORT)
 dht_client = Proxy(DHT_MIRROR_IP, DHT_MIRROR_PORT)
@@ -42,16 +44,11 @@ def get_dht_client():
 
 def get_blockchain_record(fqu):
 
-    # hack to ensure local, until we update client
-    from blockstack_client import client as bs_client
-    # start session using blockstack_client
-    bs_client.session(server_host=BLOCKSTACKD_IP, server_port=BLOCKSTACKD_PORT,
-                      set_global=True)
-
     data = {}
 
     try:
-        resp = bs_client.get_name_blockchain_record(fqu)
+        resp = get_name_blockchain_record(fqu)
+
     except Exception as e:
         data['error'] = e
         return data
@@ -139,7 +136,7 @@ def dontUseServer(blockstackd_server):
     """
 
     from registrar.config import CONSENSUS_SERVERS
-    from basicrpc import Proxy
+    from blockstack_client.proxy import BlockstackRPCClient as Proxy
 
     servers_to_check = CONSENSUS_SERVERS
     servers_to_check.append(blockstackd_server)
