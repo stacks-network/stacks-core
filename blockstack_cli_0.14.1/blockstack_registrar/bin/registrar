@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
     Registrar
@@ -64,6 +65,7 @@ def run_cli(command, argv=None):
     elif command == "transfer":
         api_data.process_new_users(nameop='transfer')
         webapp_data.process_new_users(nameop='transfer')
+        webapp_data.transfer_users()
 
     elif command == "clean":
 
@@ -164,6 +166,7 @@ def run_cli(command, argv=None):
             exit(0)
 
         webapp_data.reprocess_user(username)
+        webapp_data.update_users(reprocess_username=username)
     else:
         usage()
 
