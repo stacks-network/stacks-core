@@ -1,0 +1,13 @@
+#!/bin/sh
+# restart registrar ever x time interval
+# currently set to 30 mins
+
+SLEEP_INTERVAL=1800
+
+while [ true ]
+do
+    pkill -9 python
+    rm -f debug.log
+    ./registrar loop > ~/.registrar/debug.log 2>&1 &
+    sleep $SLEEP_INTERVAL
+done
