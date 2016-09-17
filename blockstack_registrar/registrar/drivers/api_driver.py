@@ -19,6 +19,7 @@ from ..config import IGNORE_NAMES_STARTING_WITH
 from ..utils import pretty_print as pprint
 from ..utils import get_hash, config_log
 from ..utils import validAddress, ignoreRegistration
+from ..utils import whiteListedAPIKey
 
 from ..server import RegistrarServer
 from ..states import registrationComplete
@@ -76,8 +77,8 @@ class APIDriver(object):
 
             fqu = entry['username'] + "." + DEFAULT_NAMESPACE
             transfer_address = entry['transfer_address']
-            profile = json.loads(entry['profile'])
-            profile_hash = get_hash(profile)
+            data_value = entry['profile']
+            profile_hash = get_hash(data_value)
 
             if not validAddress(transfer_address):
                 log.debug("Invalid transfer address for: %s. Skipping." % fqu)
@@ -85,14 +86,14 @@ class APIDriver(object):
 
             log.debug("Processing: %s" % fqu)
 
-            if registrationComplete(fqu, profile, transfer_address):
+            if registrationComplete(fqu, data_value, transfer_address):
                 log.debug("Registration complete %s. Removing." % fqu)
                 self.registrations.remove({"username": entry['username']})
 
                 refresh_resolver(entry['username'])
             else:
                 try:
-                    self.registrar_server.process_nameop(fqu, profile,
+                    self.registrar_server.process_nameop(fqu, data_value,
                                                          transfer_address,
                                                          nameop=nameop)
                 except Exception as e:
