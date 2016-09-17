@@ -97,6 +97,7 @@ class WebappDriver(object):
         self.users = webapp_db.user
         self.registrations = webapp_db.user_registration
         self.updates = webapp_db.profile_update
+        self.exports = webapp_db.name_export
         self.registrar_server = RegistrarServer()
         self.email_list = []
 
@@ -105,7 +106,14 @@ class WebappDriver(object):
             for pending registrations
         """
 
+        counter = 0
+
         for new_user in self.registrations.find(no_cursor_timeout=True):
+
+            counter += 1
+            print counter
+
+            #continue
 
             user = get_db_user_from_id(new_user, self.users)
 
@@ -149,7 +157,9 @@ class WebappDriver(object):
 
             log.debug("Processing: %s" % fqu)
 
-            if registrationComplete(fqu, profile, transfer_address):
+            #continue
+
+            if registrationComplete(fqu, data_value, transfer_address):
                 log.debug("Registration complete %s. Removing." % fqu)
                 self.registrations.remove({"user_id": new_user['user_id']})
                 refresh_resolver(user['username'])
@@ -176,6 +186,7 @@ class WebappDriver(object):
         # for spam protection
         if check_banned_email(user['email']):
             log.debug("SPAM: Need to delete %s, %s" % (user['email'], user['username']))
+            self.remove_registration_entry(user['username'])
             return False
 
         # test for minimum name length
@@ -241,8 +252,9 @@ class WebappDriver(object):
                 else:
                     log.debug("Processing: %s, %s" % (fqu, user['email']))
                     try:
-                        self.registrar_server.subsidized_nameop(fqu, data_value,
-                                                                hex_privkey=hex_privkey,
+                        self.registrar_server.process_subsidized_nameop(fqu,
+                                                                owner_privkey=hex_privkey,
+                                                                profile=data_value,
                                                                 nameop='update')
                     except Exception as e:
                         log.debug(e)
@@ -250,7 +262,62 @@ class WebappDriver(object):
 
                 log.debug("Not registered: %s" % fqu)
 
-    def remove_entry(self, username):
+    def transfer_users(self, spam_protection=False, reprocess_username=None):
+        """
+            Process new transfer from the webapp
+        """
+
+        counter = 0
+        self.registrar_server.reset_flag()
+
+        for new_user in self.exports.find(no_cursor_timeout=True):
+
+            user = get_db_user_from_id(new_user, self.users)
+
+            if user is None:
+                continue
+
+            # add spam protection here
+
+            # mode for reprocessing a single user, ignore others
+            if reprocess_username is not None:
+                if user['username'] != reprocess_username:
+                    continue
+
+            fqu = user['username'] + "." + DEFAULT_NAMESPACE
+
+            transfer_address = new_user['recipient_address']
+
+            try:
+                encrypted_privkey = new_user['encrypted_private_key']
+                hex_privkey = bip38_decrypt(str(encrypted_privkey), WALLET_SECRET)
+            except:
+                log.debug("no private key")
+                #self.exports.remove({"user_id": new_user['user_id']})
+            else:
+                log.debug("To export: %s to %s" % (fqu, transfer_address))
+
+            if nameRegistered(fqu):
+
+                if ownerName(fqu, transfer_address):
+                    log.debug("Name transferred, removing: %s" % fqu)
+                    self.exports.remove({"user_id": new_user['user_id']})
+
+                    refresh_resolver(user['username'])
+                else:
+                    log.debug("Processing: %s, %s" % (fqu, user['email']))
+                    #try:
+                    self.registrar_server.process_subsidized_nameop(fqu,
+                                                                owner_privkey=hex_privkey,
+                                                                transfer_address=transfer_address,
+                                                                nameop='transfer', profile="")
+                    #except Exception as e:
+                    #    log.debug(e)
+            else:
+
+                log.debug("Not registered: %s" % fqu)
+
+    def remove_registration_entry(self, username):
 
         check_user = self.users.find_one({"username": username})
 
@@ -264,15 +331,37 @@ class WebappDriver(object):
             log.debug("Removing: %s" % username)
             self.registrations.remove({"user_id": user_id})
 
+    def remove_user(self, username):
+
+        check_user = self.users.find_one({"username": username})
+
+        if check_user is None or '_id' not in check_user:
+            log.debug("No such user")
+        else:
+            log.debug("Removing: %s" % username)
+            #self.users.remove({"user_id": check_user['_id']})
+
     def reprocess_user(self, username, nameop=None):
 
         user = self.users.find_one({"username": username})
+
+        if not self.validUser(user, None):
+            log.debug("Need to remove: %s" % user['username'])
+            return
+
+        if whiteListedUser(user['email'], user['profile']):
+            log.debug("White-listed: %s" % user['email'])
+        else:
+            log.debug("Not registering: %s" % user['email'])
+            #return
+
         fqu = user['username'] + "." + DEFAULT_NAMESPACE
         transfer_address = nmc_to_btc_address(user['namecoin_address'])
 
         data_value = convert_profile_format(user)
 
         log.debug("Reprocessing user: %s" % fqu)
+
         self.registrar_server.process_nameop(fqu, data_value,
                                              transfer_address,
                                              nameop=nameop)
