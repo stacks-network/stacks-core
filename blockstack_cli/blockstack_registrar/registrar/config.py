@@ -67,6 +67,8 @@ MEMCACHED_TIMEOUT = 15 * 60
 # defined in config_local
 CONSENSUS_SERVERS = []
 
+API_WHITE_LISTED_KEYS = []
+
 TX_FEE = 0.0002  # around 7 cents
 TARGET_BALANCE_PER_ADDRESS = 0.009
 MINIMUM_BALANCE = 0.002
@@ -108,10 +110,10 @@ else:
 CACHE_FILE_FULLPATH = os.path.join(LOCAL_DIR, CACHE_FILE)
 
 # default settings for bitcoind, can override in config_local
-BITCOIND_SERVER = 'btcd.onename.com'
+BITCOIND_SERVER = 'bitcoin.blockstack.com'
 BITCOIND_PORT = 8332
-BITCOIND_USER = 'openname'
-BITCOIND_PASSWD = 'opennamesystem'
+BITCOIND_USER = 'blockstack'
+BITCOIND_PASSWD = 'blockstacksystem'
 BITCOIND_WALLET_PASSPHRASE = ''
 BITCOIND_USE_HTTPS = True
 

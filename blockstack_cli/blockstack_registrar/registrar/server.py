@@ -10,6 +10,7 @@
 import sys
 
 from .nameops import preorder, register, update, transfer
+from .nameops import get_owner_privkey
 from .subsidized_nameops import subsidized_update, subsidized_transfer
 
 from .states import nameRegistered
@@ -130,7 +131,7 @@ class RegistrarServer(object):
         """
 
         if not nameRegistered(fqu):
-            #log.debug("Not registered: %s" % fqu)
+            log.debug("Not registered: %s" % fqu)
 
             if alreadyinQueue(preorder_queue, fqu):
                 if nameop is None or nameop == 'register':
@@ -139,6 +140,7 @@ class RegistrarServer(object):
             else:
                 if nameop is None or nameop == 'preorder':
                     # loadbalancing happens in get_next_addresses()
+
                     payment_address, owner_address = self.get_next_addresses()
 
                     if payment_address is None:
@@ -162,7 +164,16 @@ class RegistrarServer(object):
             if nameop is None or nameop == 'update':
                 if fqu not in DHT_IGNORE:
                     log.debug("Updating profile on blockchain: %s" % fqu)
-                    return update(fqu, profile)
+
+                    payment_address, other_address = self.get_next_addresses()
+
+                    if payment_address is None:
+                        return False
+
+                    owner_privkey = get_owner_privkey(fqu)
+
+                    return subsidized_update(fqu, profile,
+                                             owner_privkey, payment_address)
                 else:
                     log.debug("In DHT IGNORE list: %s" % fqu)
 
@@ -180,7 +191,16 @@ class RegistrarServer(object):
 
             if nameop is None or nameop == 'transfer':
                 log.debug("Transferring name: %s" % fqu)
-                return transfer(fqu, transfer_address)
+
+                payment_address, other_address = self.get_next_addresses()
+
+                if payment_address is None:
+                    return False
+
+                owner_privkey = get_owner_privkey(fqu)
+
+                return subsidized_transfer(fqu, transfer_address,
+                                           owner_privkey, payment_address)
 
         #log.debug("Nameop didn't meet any conditions")
         return False  # no blockchain tx was sent
@@ -214,7 +234,7 @@ class RegistrarServer(object):
 
             return False  # because not a blockchain operation
 
-        elif not ownerName(fqu, transfer_address):
+        if not ownerName(fqu, transfer_address):
             #log.debug("Not transferred: %s" % fqu)
 
             if nameop == 'transfer':
