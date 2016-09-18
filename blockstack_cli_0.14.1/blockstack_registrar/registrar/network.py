@@ -27,7 +27,6 @@ log = config_log(__name__)
 from blockstack_client.proxy import get_name_blockchain_record
 
 # direct client, using Proxy
-#bs_client = Proxy(BLOCKSTACKD_IP, BLOCKSTACKD_PORT)
 dht_client = Proxy(DHT_MIRROR_IP, DHT_MIRROR_PORT)
 
 

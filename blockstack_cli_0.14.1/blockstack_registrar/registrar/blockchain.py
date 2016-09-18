@@ -30,6 +30,8 @@ from .utils import config_log
 
 from blockcypher import get_address_details
 
+from blockstack_client.proxy import get_names_owned_by_address
+
 import ssl
 
 # hack for recent bitcoind cert failure, remove this
@@ -221,13 +223,7 @@ def recipientNotReady(address):
         Check if address can own more names or not
     """
 
-    # hack to ensure local, until we update client
-    from blockstack_client import client as bs_client
-    # start session using blockstack_client
-    bs_client.session(server_host=BLOCKSTACKD_IP, server_port=BLOCKSTACKD_PORT,
-                      set_global=True)
-
-    resp = bs_client.get_names_owned_by_address(address)
+    resp = get_names_owned_by_address(address)
     names_owned = resp
 
     if len(names_owned) > MAXIMUM_NAMES_PER_ADDRESS:
