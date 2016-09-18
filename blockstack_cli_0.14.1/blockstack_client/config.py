@@ -43,6 +43,9 @@ if os.environ.get("BLOCKSTACK_TEST") is not None and os.environ.get("BLOCKSTACK_
 if os.environ.get("BLOCKSTACK_DEBUG") == "1":
     DEBUG = True
 
+if os.environ.get("DISABLE_CLIENT_DEBUG") == "1":
+    DEBUG = False
+
 TX_MIN_CONFIRMATIONS = 6
 if os.environ.get("BLOCKSTACK_TEST", None) is not None:
     # test environment
