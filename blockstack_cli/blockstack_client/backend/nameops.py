@@ -572,7 +572,7 @@ def do_update( fqu, zonefile_hash, owner_privkey, payment_privkey, utxo_client, 
     """
 
     if proxy is None:
-        proxy = get_default_proxy
+        proxy = get_default_proxy()
     
     fqu = str(fqu)
     owner_public_key = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
