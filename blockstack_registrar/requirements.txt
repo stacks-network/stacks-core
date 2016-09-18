@@ -10,7 +10,6 @@ ecdsa==0.13
 keychain==0.1.4
 protocoin==0.1
 pybitcoin==0.9.8
-pybitcointools==1.1.15
 pycrypto==2.6.1
 pymongo==2.7.2
 python-bitcoinrpc==0.1
