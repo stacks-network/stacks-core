@@ -14,6 +14,7 @@ from time import sleep
 import json
 import xmlrpclib
 import socket
+import pybitcoin
 
 from ConfigParser import SafeConfigParser
 
@@ -42,15 +43,41 @@ from .network import write_dht_profile
 from .config import SLEEP_INTERVAL
 
 import logging
-logging.disable(logging.CRITICAL)
 
+DEBUG = True
 FILE_NAME = 'rpc_daemon.py'
 CONFIG_DIR_INIT = "~/.blockstack"
 CONFIG_DIR = os.path.expanduser(CONFIG_DIR_INIT)
 CONFIG_PATH = os.path.join(CONFIG_DIR, "client.ini")
 
 server = None
+log = None
 
+def get_logger():
+    """
+    Get a singleton logger
+    """
+
+    if DEBUG:
+        logging.disable(logging.NOTSET)
+
+    log = logging.getLogger()
+    log.setLevel(logging.DEBUG if DEBUG else logging.INFO)
+    console = logging.StreamHandler()
+    console.setLevel(logging.DEBUG if DEBUG else logging.INFO)
+    log_format = ('[%(levelname)s] [%(module)s:%(lineno)d] (' + str(os.getpid()) + ') %(message)s' if DEBUG else '%(message)s')
+    formatter = logging.Formatter( log_format )
+    console.setFormatter(formatter)
+    log.propagate = False
+
+    if len(log.handlers) > 0:
+        for i in xrange(0, len(log.handlers)):
+            log.handlers.pop(0)
+    
+    log.addHandler(console)
+    return log
+
+log = get_logger()
 
 def get_rpc_token(path=CONFIG_PATH):
 
@@ -78,6 +105,7 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
 
     encrypted_payment_privkey = None
     encrypted_owner_privkey = None
+    encrypted_data_privkey = None
 
     server_started_at = None
 
@@ -104,7 +132,8 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
         while not self.finished:
             try:
                 server.handle_request()
-            except:
+            except Exception, e:
+                log.exception(e)
                 print "Exiting server."
 
     def ping(self):
@@ -121,7 +150,7 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
         data = get_queue_state()
         return json.dumps(data)
 
-    def set_wallet(self, payment_keypair, owner_keypair):
+    def set_wallet(self, payment_keypair, owner_keypair, data_keypair):
         """ Keeps payment privkey in memory (instead of disk)
             for the time that server is alive
         """
@@ -136,6 +165,8 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
         self.encrypted_owner_privkey = aes_encrypt(owner_keypair[1],
                                                    rpc_token)
 
+        self.encrypted_data_privkey = aes_encrypt(data_keypair[1],
+                                                   rpc_token)
         data = {}
         data['success'] = True
         return data
@@ -167,6 +198,17 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
 
         return str(privkey)
 
+    def get_data_privkey(self):
+
+        rpc_token = get_rpc_token()
+
+        if self.encrypted_data_privkey is None:
+            return None 
+
+        privkey = aes_decrypt(self.encrypted_data_privkey, rpc_token)
+
+        return str(privkey)
+
     def get_wallet(self, rpc_token=None):
         """ Keeps payment privkey in memory (instead of disk)
             for the time that server is alive
@@ -181,9 +223,11 @@ class RegistrarRPCServer(SimpleXMLRPCServer):
 
         data['payment_address'] = self.payment_address
         data['owner_address'] = self.owner_address
+        data['data_pubkey'] = pybitcoin.BitcoinPrivateKey( self.get_data_privkey() ).public_key().to_hex()
 
         data['payment_privkey'] = self.get_payment_privkey()
         data['owner_privkey'] = self.get_owner_privkey()
+        data['data_privkey'] = self.get_data_privkey()
 
         return json.dumps(data)
 
@@ -378,7 +422,8 @@ def start_monitor():
                 rpc_token = get_rpc_token()
                 proxy = xmlrpclib.ServerProxy(RPC_DAEMON)
                 wallet_data = json.loads(proxy.get_wallet(rpc_token))
-                sleep(SLEEP_INTERVAL)
+                sleep(1.0)
+                #sleep(SLEEP_INTERVAL)
 
         except:
             # if rpc daemon went offline, break monitoring loop as well
