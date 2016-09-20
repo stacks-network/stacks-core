@@ -114,12 +114,19 @@ EPOCH_NOW = -1
 EPOCH_1_END_BLOCK = 436000
 EPOCH_2_END_BLOCK = EPOCH_NOW
 
+EPOCH_1_PRICE_MULTIPLIER = 1.0
+EPOCH_2_PRICE_MULTIPLIER = 0.417
+
 NUM_EPOCHS = 2
 for i in xrange(1, NUM_EPOCHS+1):
     # epoch lengths can be altered by the test framework, for ease of tests
     if os.environ.get("BLOCKSTACK_EPOCH_%s_END_BLOCK" % i, None) is not None and os.environ.get("BLOCKSTACK_TEST", None) == "1":
         exec("EPOCH_%s_END_BLOCK = int(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_END_BLOCK" % i)))
         log.warn("EPOCH_%s_END_BLOCK = %s" % (i, eval("EPOCH_%s_END_BLOCK" % i)))
+
+    if os.environ.get("BLOCKSTACK_EPOCH_%s_PRICE_MULTIPLIER" % i, None) is not None and os.environ.get("BLOCKSTACK_TEST", None) == "1":
+        exec("EPOCH_%s_PRICE_MULTIPLIER = float(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_PRICE_MULTIPLIER" % i)))
+        log.warn("EPOCH_%s_PRICE_MULTIPLIER = %s" % (i, eval("EPOCH_%s_PRICE_MULTIPLIER" % i)))
 
 del i
 
@@ -131,13 +138,13 @@ EPOCHS = [
         # epoch 1
         "end_block": EPOCH_1_END_BLOCK,
         "NAMESPACE_LIFETIME_MULTIPLIER": 1,
-        "PRICE_MULTIPLIER": 1.0             # meant for when 1 BTC was ~$250 USD
+        "PRICE_MULTIPLIER": EPOCH_1_PRICE_MULTIPLIER             # meant for when 1 BTC was ~$250 USD
     },
     {
         # epoch 2
         "end_block": EPOCH_2_END_BLOCK,
         "NAMESPACE_LIFETIME_MULTIPLIER": 2,
-        "PRICE_MULTIPLIER": 0.417           # price of bitcoin when epoch 2 began: ~$600 USD
+        "PRICE_MULTIPLIER": EPOCH_2_PRICE_MULTIPLIER           # price of bitcoin when epoch 2 began: ~$600 USD
     }
 ]
 
