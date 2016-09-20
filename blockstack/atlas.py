@@ -70,7 +70,7 @@ PEER_CRAWL_NEIGHBOR_WORK_INTERVAL = 300     # minimum amount of time (seconds) t
 PEER_HEALTH_NEIGHBOR_WORK_INTERVAL = 1      # minimum amount of time (seconds) that must pass between randomly pinging someone
 PEER_CRAWL_ZONEFILE_WORK_INTERVAL = 300     # minimum amount of time (seconds) that must pass between two zonefile crawls
 PEER_PUSH_ZONEFILE_WORK_INTERVAL = 300      # minimum amount of time (seconds) that must pass between two zonefile pushes
-PEER_CRAWL_ZONEFILE_STORAGE_RETRY_INTERVAL = 3600 * 12      # retry storage for missing zonefiles every 12 hours
+PEER_CRAWL_ZONEFILE_STORAGE_RETRY_INTERVAL = 3600 * 2      # retry storage for missing zonefiles every 2 hours
 
 NUM_NEIGHBORS = 80     # number of neighbors a peer can report
 
