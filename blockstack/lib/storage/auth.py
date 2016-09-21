@@ -38,6 +38,8 @@ def is_current_zonefile_hash( value_hash, db ):
     Is this, in fact, a valid value hash?
     """
     names = db.get_names_with_value_hash( value_hash )
+    db.close()
+
     if names is None:
         return False 
 

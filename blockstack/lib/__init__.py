@@ -28,6 +28,7 @@ from .hashing import *
 
 from .nameset import *
 from .operations import *
+from .consensus import *
 
 import operations
 import nameset
