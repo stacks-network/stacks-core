@@ -192,6 +192,9 @@ def get_state_engine():
    """
    Get a handle to the blockstack virtual chain state engine.
    """
+   while is_indexing():
+       time.sleep(1.0)
+
    return get_db_state()
      
 
@@ -717,10 +720,10 @@ class BlockstackdRPC(SimpleXMLRPCServer):
             return cached_zonefile
 
         log.debug("Zonefile %s is not cached" % zonefile_hash)
-
+        db = get_state_engine()
         try:
             # check storage providers
-            zonefile = get_zonefile_from_storage( zonefile_hash, drivers=zonefile_storage_drivers )
+            zonefile = get_zonefile_from_storage( zonefile_hash, db, drivers=zonefile_storage_drivers )
         except blockstack_zones.InvalidLineException:
             # legacy profile
             return None
@@ -899,7 +902,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
                 saved.append(0)
                 continue
 
-            rc = store_zonefile_to_storage( zonefile, required=zonefile_storage_drivers )
+            rc = store_zonefile_to_storage( zonefile, db, required=zonefile_storage_drivers )
             if not rc:
                 log.debug("Failed to replicate zonefile %s to external storage" % zonefile_hash)
                 saved.append(0)
@@ -987,7 +990,7 @@ class BlockstackdRPC(SimpleXMLRPCServer):
         zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
 
         # find name record 
-        db = get_db_state()
+        db = get_state_engine()
         name_rec = db.get_name(name)
         if name_rec is None:
             log.debug("No name for '%s'" % name)
