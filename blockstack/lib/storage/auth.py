@@ -29,16 +29,14 @@ import blockstack_zones
 import blockstack_client
 
 import virtualchain
-from ..nameset import get_db_state
 from blockstack_client import hash_zonefile, get_zonefile_data_hash
 
 log = virtualchain.get_logger("blockstack-server")
 
-def is_current_zonefile_hash( value_hash ):
+def is_current_zonefile_hash( value_hash, db ):
     """
     Is this, in fact, a valid value hash?
     """
-    db = get_db_state()
     names = db.get_names_with_value_hash( value_hash )
     if names is None:
         return False 
@@ -69,19 +67,3 @@ def verify_zonefile( zonefile_str, value_hash ):
 
     return True
 
-
-def is_valid_zonefile( zonefile_str, value_hash ):
-    """
-    Is the given zonefile valid:
-    * does it hash to the given value_hash?
-    * is the value_hash current?
-
-    zonefile_str should be the serialized zonefile
-    """
-    if not verify_zonefile( zonefile_str, value_hash ):
-        return False
-
-    if not is_current_zonefile_hash( value_hash ):
-        return False 
-
-    return True
