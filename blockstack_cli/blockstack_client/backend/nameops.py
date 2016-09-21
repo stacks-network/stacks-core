@@ -1021,7 +1021,7 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_addr
         blockchain_record = blockstack_get_namespace_blockchain_record( namespace_id, proxy=proxy )
         if blockchain_record is None or 'error' in blockchain_record:
             if blockchain_record is None:
-                log.debug("FAiled to read blockchain record for %s" % namespace_id)
+                log.debug("Failed to read blockchain record for %s" % namespace_id)
                 return {'error': 'Failed to read blockchain record for namespace'}
 
             if blockchain_record['error'] != 'No such namespace':
