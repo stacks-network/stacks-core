@@ -331,6 +331,7 @@ def get_db_state(disposition=DISPOSITION_RO):
 
    reload_lock.acquire()
 
+   ret = None
    mtime = None
    db_filename = virtualchain.get_db_filename()
 
@@ -345,6 +346,9 @@ def get_db_state(disposition=DISPOSITION_RO):
        if disposition == DISPOSITION_RO:
            # cache
            blockstack_db = new_db
+           ret = blockstack_db
+       else:
+           ret = new_db
 
        last_check_time = time.time()
        if mtime is not None:
