@@ -356,10 +356,11 @@ def get_db_state(disposition=DISPOSITION_RO):
 
    else:
        log.debug("cache consistency: Using cached blockstack state")
+       ret = blockstack_db
 
    reload_lock.release()
 
-   return blockstack_db
+   return ret
 
 
 def invalidate_db_state():
