@@ -188,14 +188,11 @@ def get_logfile_path():
    return os.path.join( working_dir, logfile_filename )
 
 
-def get_state_engine():
+def get_state_engine(disposition=DISPOSITION_RO):
    """
    Get a handle to the blockstack virtual chain state engine.
    """
-   while is_indexing():
-       time.sleep(1.0)
-
-   return get_db_state()
+   return get_db_state(disposition=disposition)
      
 
 def get_lastblock():
@@ -1353,7 +1350,7 @@ def index_blockchain():
     # bring us up to speed
     log.debug("Begin indexing (up to %s)" % current_block)
     set_indexing( True )
-    db = get_state_engine()
+    db = get_state_engine(DISPOSITION_RW)
     virtualchain.sync_virtualchain( bt_opts, current_block, db )
     set_indexing( False )
     log.debug("End indexing (up to %s)" % current_block)
