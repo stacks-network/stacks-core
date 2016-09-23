@@ -66,7 +66,7 @@ class BlockstackDB( virtualchain.StateEngine ):
    to upgrade to an actual database.
    """
 
-   def __init__(self, db_filename ):
+   def __init__(self, db_filename, disposition=DISPOSITION_RO):
       """
       Construct a blockstack state engine, optionally from locally-cached
       blockstack database state.
@@ -80,7 +80,11 @@ class BlockstackDB( virtualchain.StateEngine ):
       initial_snapshots = GENESIS_SNAPSHOT
       first_block = FIRST_BLOCK_MAINNET
 
-      super( BlockstackDB, self ).__init__( virtualchain_hooks.get_magic_bytes(), OPCODES, BlockstackDB.make_opfields(), impl=virtualchain_hooks, initial_snapshots=initial_snapshots, state=self )
+      read_only = True
+      if disposition != DISPOSITION_RO:
+          read_only = False
+
+      super( BlockstackDB, self ).__init__( virtualchain_hooks.get_magic_bytes(), OPCODES, BlockstackDB.make_opfields(), impl=virtualchain_hooks, initial_snapshots=initial_snapshots, state=self, read_only=read_only )
 
       self.firstblock = first_block
       self.announce_ids = blockstack_opts['announcers'].split(",")
