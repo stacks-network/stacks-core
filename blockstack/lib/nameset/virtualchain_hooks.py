@@ -33,7 +33,7 @@ import json
 import threading
 import copy
 
-from .namedb import BlockstackDB
+from .namedb import BlockstackDB, DISPOSITION_RO, DISPOSITION_RW
 
 from ..config import *
 from ..operations import parse_preorder, parse_registration, parse_update, parse_transfer, parse_revoke, \
@@ -312,7 +312,7 @@ def need_db_reload():
    return False
 
 
-def get_db_state(disposition=None):
+def get_db_state(disposition=DISPOSITION_RO):
    """
    (required by virtualchain state engine)
    
@@ -338,9 +338,13 @@ def get_db_state(disposition=None):
        sb = os.stat(db_filename)
        mtime = sb.st_mtime 
 
-   if need_db_reload():
+   if need_db_reload() or disposition == DISPOSITION_RW:
        log.info("(Re)Loading blockstack state from '%s'" % db_filename )
-       blockstack_db = BlockstackDB( db_filename )
+
+       new_db = BlockstackDB( db_filename, disposition=disposition )
+       if disposition == DISPOSITION_RO:
+           # cache
+           blockstack_db = new_db
 
        last_check_time = time.time()
        if mtime is not None:
