@@ -175,6 +175,7 @@ ZONEFILE_QUEUE = []    # list of {zonefile_hash: zonefile} dicts to push out to 
 PEER_TABLE_LOCK = threading.Lock()
 PEER_QUEUE_LOCK = threading.Lock()
 PEER_TABLE_LOCK_HOLDER = None
+PEER_TABLE_LOCK_TRACEBACK = None
 ZONEFILE_QUEUE_LOCK = threading.Lock()
 DB_LOCK = threading.Lock()
 
@@ -183,14 +184,15 @@ def atlas_peer_table_lock():
     Lock the global health info table.
     Return the table.
     """
-    global PEER_TABLE_LOCK, PEER_TABLE, PEER_TABLE_LOCK_HOLDER
+    global PEER_TABLE_LOCK, PEER_TABLE, PEER_TABLE_LOCK_HOLDER, PEER_TABLE_LOCK_TRACEBACK
 
     if PEER_TABLE_LOCK_HOLDER is not None:
         assert PEER_TABLE_LOCK_HOLDER != threading.current_thread(), "DEADLOCK"
-        # log.warning("\n\nPossible contention: lock from %s (but held by %s)\n\n" % (threading.current_thread(), PEER_TABLE_LOCK_HOLDER))
+        # log.warning("\n\nPossible contention: lock from %s (but held by %s at)\n%s\n\n" % (threading.current_thread(), PEER_TABLE_LOCK_HOLDER, PEER_TABLE_LOCK_TRACEBACK))
 
     PEER_TABLE_LOCK.acquire()
     PEER_TABLE_LOCK_HOLDER = threading.current_thread()
+    PEER_TABLE_LOCK_TRACEBACK = traceback.format_stack()
     return PEER_TABLE
 
 
@@ -214,8 +216,9 @@ def atlas_peer_table_unlock():
     """
     Unlock the global health info table.
     """
-    global PEER_TABLE_LOCK, PEER_TABLE_LOCK_HOLDER
+    global PEER_TABLE_LOCK, PEER_TABLE_LOCK_HOLDER, PEER_TABLE_LOCK_TRACEBACK
     PEER_TABLE_LOCK_HOLDER = None
+    PEER_TABLE_LOCK_TRACEBACK = None
     PEER_TABLE_LOCK.release()
     return
 
@@ -2825,6 +2828,10 @@ class AtlasPeerCrawler( threading.Thread ):
         threading.Thread.__init__(self)
         self.running = False
         self.last_clean_time = 0
+
+        if my_hostname in ['127.0.0.1', '::1']:
+            my_hostname = 'localhost'
+
         self.my_hostport = "%s:%s" % (my_hostname, my_portnum)
         
         self.current_peer = None
@@ -2841,13 +2848,28 @@ class AtlasPeerCrawler( threading.Thread ):
         self.ping_timeout =  None
 
 
+    def canonical_peer( self, peer ):
+        """
+        Get the canonical peer name
+        """
+        their_host, their_port = url_to_host_port( peer_hostport )
+
+        if their_host in ['127.0.0.1', '::1']:
+            their_host = 'localhost'
+
+        return "%s:%s" % (their_host, their_port)
+
+
     def get_neighbors( self, peer_hostport, con=None, path=None, peer_table=None ):
         """
         Get neighbors of this peer
+        NOTE: don't lock peer table in production
         """
 
         if self.neighbors_timeout is None:
             self.neighbors_timeout = atlas_neighbors_timeout()
+ 
+        peer_hostport = self.canonical_peer( peer_hostport )
 
         neighbors = None
         if peer_hostport == self.my_hostport:
@@ -2874,14 +2896,14 @@ class AtlasPeerCrawler( threading.Thread ):
 
         if self.ping_timeout is None:
             self.ping_timeout = atlas_ping_timeout()
-
+ 
         # only handle a few peers for now
         cnt = 0
         i = 0
         added = []
         present = []
         while i < len(new_peers) and cnt < min(count, len(new_peers)):
-            peer = new_peers[i]
+            peer = self.canonical_peer( new_peers[i] )
             i += 1
 
             if peer == self.my_hostport:
@@ -2895,23 +2917,21 @@ class AtlasPeerCrawler( threading.Thread ):
             cnt += 1
 
             # test the peer before adding
-            res = False
-            if peer != self.my_hostport:
-                res = atlas_peer_getinfo( peer, timeout=self.ping_timeout )
-                if res is None:
-                    # didn't respond
-                    continue
+            res = atlas_peer_getinfo( peer, timeout=self.ping_timeout, peer_table=peer_table )
+            if res is None:
+                # didn't respond
+                continue
 
-                if not res.has_key('server_version'):
-                    # too old
-                    continue
+            if not res.has_key('server_version'):
+                # too old
+                continue
 
-                if semver_newer( res['server_version'], MIN_ATLAS_VERSION ):
-                    # too old to be an atlas node
-                    log.debug("%s is too old to be an atlas node (version %s)" % (peer, res['version']))
-                    continue
+            if semver_newer( res['server_version'], MIN_ATLAS_VERSION ):
+                # too old to be an atlas node
+                log.debug("%s is too old to be an atlas node (version %s)" % (peer, res['version']))
+                continue
 
-                # TODO: check consensus hash as well
+            # TODO: check consensus hash as well
 
             if res:
 
@@ -2929,11 +2949,6 @@ class AtlasPeerCrawler( threading.Thread ):
         Return the list of peers we removed
         """
         
-        locked = False
-        if peer_table is None:
-            locked = True
-            peer_table = atlas_peer_table_lock()
-
         removed = []
         rank_peer_list = atlas_rank_peers_by_health( peer_table=peer_table, with_rank=True )
         for rank, peer in rank_peer_list:
@@ -2946,10 +2961,6 @@ class AtlasPeerCrawler( threading.Thread ):
         for peer in removed:
             log.debug("Remove unhealthy peer %s" % (peer))
             atlasdb_remove_peer( peer, con=con, path=path, peer_table=peer_table )
-
-        if locked:
-            atlas_peer_table_unlock()
-            peer_table = None
 
         return removed
 
@@ -2971,7 +2982,7 @@ class AtlasPeerCrawler( threading.Thread ):
         ret_current_peer_neighbors = None
 
         error_ret = (None, None)
-        
+         
         current_peer_degree = len(current_peer_neighbors)
         if current_peer_degree == 0:
             # nowhere to go 
@@ -3069,10 +3080,17 @@ class AtlasPeerCrawler( threading.Thread ):
         new_peers = list(set(self.new_peers + peer_queue))
         random.shuffle( new_peers )
 
+        # canonicalize
+        tmp = []
+        for peer in new_peers:
+            tmp.append( self.canonical_peer(peer) )
+
+        new_peers = tmp
+
         # don't talk to myself
         if self.my_hostport in new_peers:
             new_peers.remove(self.my_hostport)
-
+ 
         # only handle a few peers for now
         log.debug("Add at most %s new peers out of %s options" % (num_new_peers, len(new_peers)))
         added, present = self.add_new_peers( num_new_peers, new_peers, current_peers, con=con, path=path, peer_table=peer_table )
@@ -3105,19 +3123,9 @@ class AtlasPeerCrawler( threading.Thread ):
         if self.last_clean_time + atlas_peer_clean_interval() < time_now():
             # remove stale peers
             log.debug("%s: revalidate old peers" % self.my_hostport)
-            atlas_revalidate_peers( con=con, path=path )
-
-        # remove a few peers that are unresponsive, and have been talked to a lot
-        locked = False
-        if peer_table is None:
-            locked = True
-            peer_table = atlas_peer_table_lock()
+            atlas_revalidate_peers( con=con, path=path, peer_table=peer_table )
 
         removed = self.remove_unhealthy_peers( num_to_remove, con=con, path=path, peer_table=peer_table )
-
-        if locked:
-            atlas_peer_table_unlock()
-            peer_table = None
 
         # if they're also in the new set, remove them there too
         for peer in removed:
@@ -3176,7 +3184,7 @@ class AtlasPeerCrawler( threading.Thread ):
 
             else:
                 # success!
-                self.current_peer_neighbors = peer_neighbors
+                self.current_peer_neighbors = [self.canonical_peer(p) for p in peer_neighbors]
 
                 # don't talk to myself
                 if self.my_hostport in self.current_peer_neighbors:
@@ -3244,6 +3252,7 @@ class AtlasHealthChecker( threading.Thread ):
             path = atlasdb_path()
         
         self.atlasdb_path = path
+
 
     def step(self, con=None, path=None, peer_table=None, local_inv=None):
         """
