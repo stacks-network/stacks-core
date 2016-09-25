@@ -50,6 +50,8 @@ def get_bitcoind_client(config_path=CONFIG_PATH):
 def get_block_height(config_path=CONFIG_PATH):
     """
     Return block height (currently uses bitcoind)
+    Return the height on success
+    Return None on error
     """
 
     resp = None
@@ -61,7 +63,7 @@ def get_block_height(config_path=CONFIG_PATH):
         data = bitcoind_client.getinfo()
 
         if 'blocks' in data:
-            resp = data['blocks']
+            resp = int(data['blocks'])
 
     except Exception as e:
         log.debug("ERROR: block height")
