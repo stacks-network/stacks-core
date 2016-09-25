@@ -887,12 +887,13 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
 
         ret = {}
+        db = get_state_engine()
         for zonefile_hash in zonefile_hashes:
             if type(zonefile_hash) not in [str, unicode]:
                 return {'error': 'Not a zonefile hash'}
 
         for zonefile_hash in zonefile_hashes:
-            if not is_current_zonefile_hash( zonefile_hash ):
+            if not is_current_zonefile_hash( zonefile_hash, db ):
                 continue
 
             zonefile = self.get_zonefile( conf, zonefile_hash, zonefile_storage_drivers )
