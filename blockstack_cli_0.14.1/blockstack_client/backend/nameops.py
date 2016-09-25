@@ -22,6 +22,7 @@ from .queue import in_queue, queue_append, queue_findone
 from .blockchain import get_tx_confirmations
 from .blockchain import is_address_usable
 from .blockchain import can_receive_name, get_balance, get_tx_fee, get_utxos
+from .blockchain import get_block_height
 
 from crypto.utils import get_address_from_privkey, get_pubkey_from_privkey
 
@@ -161,7 +162,7 @@ def estimate_register_tx_fee( name, payment_addr, utxo_client, owner_privkey_par
     return tx_fee
 
 
-def estimate_renewal_tx_fee( name, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=(1, 1), config_path=CONFIG_PATH, include_dust=False ):
+def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=(1, 1), config_path=CONFIG_PATH, include_dust=False ):
     """
     Estimate the transaction fee of a renewal
     Return the number of satoshis on success
@@ -172,7 +173,7 @@ def estimate_renewal_tx_fee( name, payment_privkey_info, owner_address, utxo_cli
     address = get_privkey_info_address( payment_privkey_info )
 
     try:
-        unsigned_tx = register_tx( name, address, address, utxo_client, renewal_fee=1234567890 )
+        unsigned_tx = register_tx( name, address, address, utxo_client, renewal_fee=renewal_fee )
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_registration, 21 * 10**14, payment_privkey_info, utxo_client )
         assert subsidized_tx is not None
     except ValueError, ve:
@@ -520,6 +521,42 @@ def estimate_announce_tx_fee( sender_address, utxo_client, sender_privkey_params
     return tx_fee
 
 
+def get_consensus_hash( proxy, config_path=CONFIG_PATH ):
+    """
+    Get the current consensus hash from the server.
+    Also verify that the server has processed sufficiently
+    many blocks (compared to what bitcoind tells us).
+    Return {'status': True, 'consensus_hash': ...} on success
+    Return {'error': ...} on failure
+    """
+
+    blockstack_info = blockstack_getinfo( proxy=proxy )
+    if 'error' in blockstack_info:
+        return {'error': 'Blockstack server did not return consensus hash: %s' % blockstack_info['error']}
+
+    # up-to-date?
+    last_block_processed = None
+    last_block_seen = None
+    try:
+        last_block_processed = int(blockstack_info['last_block_processed'])
+        last_block_seen = int(blockstack_info['last_block_seen'])
+        consensus_hash = blockstack_info['consensus']
+    except:
+        return {'error': 'Invalid consensus hash from server'}
+
+    # valid?
+    height = get_block_height( config_path=config_path )
+    if height is None:
+        return {'error': 'Failed to get blockchain height'}
+
+    if height > last_block_processed + 20 or (last_block_seen is not None and last_block_seen > last_block_processed + 20):
+        # server is lagging
+        log.error("Server is lagging behind: bitcoind height is %s, server is %s" % (height, last_block_processed))
+        return {'error': 'Server is lagging behind'}
+
+    return {'status': True, 'consensus_hash': consensus_hash}
+
+
 def do_preorder( fqu, payment_privkey_info, owner_address, cost, utxo_client, tx_broadcaster, owner_privkey_params=(1,1), config_path=CONFIG_PATH, proxy=None, consensus_hash=None, safety_checks=True ):
     """
     Preorder a name
@@ -554,11 +591,13 @@ def do_preorder( fqu, payment_privkey_info, owner_address, cost, utxo_client, tx
         return {'error': 'Payment address is not ready'}
 
     if consensus_hash is None:
-        blockstack_info = blockstack_getinfo( proxy=proxy )
-        if 'error' in blockstack_info:
-            return {'error': 'Failed to get consensus hash'}
+        consensus_hash_res = get_consensus_hash( proxy, config_path=config_path )
+        if 'error' in consensus_hash_res:
+            return {'error': 'Failed to get consensus hash: %s' % consensus_hash_res['error']}
 
-        consensus_hash = blockstack_info['consensus']
+        consensus_hash = consensus_hash_res['consensus_hash']
+    else:
+        log.warn("Using user-supplied consensus hash %s" % consensus_hash)
 
     tx_fee = estimate_preorder_tx_fee( fqu, cost, payment_address, utxo_client, owner_privkey_params=owner_privkey_params, config_path=config_path )
     if tx_fee is None:
@@ -667,12 +706,12 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
 
     # get consensus hash
     if consensus_hash is None:
-        blockstack_info = blockstack_getinfo(proxy=proxy)
-        if 'error' in blockstack_info:
-            log.debug("Failed to look up consensus hash: %s" % blockstack_info['error'])
-            return {'error': 'Failed to look up consensus hash'}
+        consensus_hash_res = get_consensus_hash( proxy, config_path=config_path )
+        if 'error' in consensus_hash_res:
+            return {'error': 'Failed to get consensus hash: %s' % consensus_hash_res['error']}
 
-        consensus_hash = blockstack_info['consensus']
+        consensus_hash = consensus_hash_res['consensus_hash']
+
     else:
         log.warn("Using caller-supplied consensus hash '%s'" % consensus_hash)
 
@@ -755,12 +794,14 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
 
     # get consensus hash
     if consensus_hash is None:
-        blockstack_info = blockstack_getinfo(proxy=proxy)
-        if 'error' in blockstack_info:
-            log.debug("Failed to look up consensus hash: %s" % blockstack_info['error'])
-            return {'error': 'Failed to look up consensus hash'}
+        consensus_hash_res = get_consensus_hash( proxy, config_path=config_path )
+        if 'error' in consensus_hash_res:
+            return {'error': 'Failed to get consensus hash: %s' % consensus_hash_res['error']}
 
-        consensus_hash = blockstack_info['consensus']
+        consensus_hash = consensus_hash_res['consensus_hash']
+
+    else:
+        log.warn("Using caller-supplied consensus hash '%s'" % consensus_hash)
 
     if safety_checks:
         # name must exist
@@ -849,7 +890,7 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
         log.debug("Payment address not ready: %s" % payment_address)
         return {'error': 'Payment address has unconfirmed transactions'}
 
-    tx_fee = estimate_renewal_tx_fee( fqu, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=owner_privkey_params, config_path=config_path ) 
+    tx_fee = estimate_renewal_tx_fee( fqu, renewal_fee, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=owner_privkey_params, config_path=config_path ) 
     if tx_fee is None:
         log.error("Failed to estimate renewal tx fee")
         return {'error': 'Failed to get fee estimate.  Please check your network settings and verify that you have sufficient funds.'}
@@ -1008,13 +1049,16 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_addr
         log.error("Invalid private key info")
         return {'error': 'Namespace preorder can only use a single private key with a P2PKH script'}
 
+    # get consensus hash
     if consensus_hash is None:
-        blockstack_info = blockstack_getinfo( proxy=proxy )
-        if 'error' in blockstack_info:
-            log.error("Blockstack server error: %s" % blockstack_info['error'])
-            return {'error': 'Failed to get consensus hash'}
+        consensus_hash_res = get_consensus_hash( proxy, config_path=config_path )
+        if 'error' in consensus_hash_res:
+            return {'error': 'Failed to get consensus hash: %s' % consensus_hash_res['error']}
 
-        consensus_hash = blockstack_info['consensus']
+        consensus_hash = consensus_hash_res['consensus_hash']
+
+    else:
+        log.warn("Using caller-supplied consensus hash '%s'" % consensus_hash)
 
     if safety_checks:
         # namespace must not exist
