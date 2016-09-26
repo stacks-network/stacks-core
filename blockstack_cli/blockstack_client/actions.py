@@ -227,7 +227,10 @@ def operation_sanity_check(fqu, payment_privkey_info, owner_privkey_info, config
 
 
 def get_total_registration_fees(name, payment_privkey_info, owner_privkey_info, proxy=None, config_path=CONFIG_PATH, payment_address=None):
-
+    """
+    Get all fees associated with registrations.
+    Returned values are in satoshis.
+    """
     try:
         data = get_name_cost(name, proxy=proxy)
     except Exception, e:
@@ -459,6 +462,15 @@ def cli_price( args, config_path=CONFIG_PATH, proxy=None, password=None):
 
     fees = get_total_registration_fees( fqu, payment_privkey_info, owner_privkey_info, proxy=proxy, config_path=config_path, payment_address=payment_address )
     analytics_event( "Name price", {} )
+
+    if 'error' in fees:
+        return fees
+
+    # convert to BTC
+    btc_keys = ['preorder_tx_fee', 'register_tx_fee', 'update_tx_fee', 'total_estimated_cost', 'name_price']
+    for k in btc_keys:
+        fees[k] = "%s satoshi (%s BTC)" % (fees[k], fees[k] * 10e-8)
+
     return fees
 
 
@@ -826,7 +838,7 @@ def get_wallet_keys( config_path, password ):
         log.debug("unlocking wallet (%s)" % config_dir)
         res = unlock_wallet(config_dir=config_dir, password=password)
         if 'error' in res:
-            log.debug("unlock_wallet: %s" % res['error'])
+            log.error("unlock_wallet: %s" % res['error'])
             return res
 
     return get_wallet_with_backoff( config_path )
