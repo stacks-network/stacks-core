@@ -578,6 +578,8 @@ def unlock_wallet( password=None, config_dir=CONFIG_DIR, wallet_path=None ):
                 data = json.loads(data)
 
             wallet = decrypt_wallet( data, password, config_path=config_path )
+            if 'error' in wallet:
+                return wallet
 
             # may need to migrate data_pubkey into wallet.json
             _, _, onfile_data_pubkey = get_addresses_from_file(wallet_path=wallet_path)
