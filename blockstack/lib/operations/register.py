@@ -531,7 +531,6 @@ def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
 
 
 def parse(bin_payload):
-    
     """
     Interpret a block's nulldata back into a name.  The first three bytes (2 magic + 1 opcode)
     will not be present in bin_payload.
