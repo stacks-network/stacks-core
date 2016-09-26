@@ -37,39 +37,6 @@ from ..scripts import *
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
 
-def get_registration_recipient_from_outputs( outputs ):
-    """
-    There are three or four outputs:  the OP_RETURN, the registration 
-    address, the change address (i.e. from the name preorderer), and 
-    (for renwals) the burn address for the renewal fee.
-    
-    Given the outputs from a name register operation,
-    find the registration address's script hex.
-    
-    By construction, it will be the first non-OP_RETURN 
-    output (i.e. the second output).
-    """
-    
-    ret = None
-    for output in outputs:
-       
-        output_script = output['scriptPubKey']
-        output_asm = output_script.get('asm')
-        output_hex = output_script.get('hex')
-        output_addresses = output_script.get('addresses')
-        
-        if output_asm[0:9] != 'OP_RETURN' and output_hex is not None:
-            
-            # recipient's script_pubkey and address
-            # ret = (output_hex, output_addresses[0])
-            ret = output_hex
-            break
-            
-    if ret is None:
-       raise Exception("No registration address found")
-    
-    return ret 
-
 
 def build(name):
     """
@@ -105,7 +72,7 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
     """
     
     dust_fee = None
-    dust_value = None
+    dust_value = DEFAULT_DUST_FEE
     op_fee = None
     bill = None 
     
@@ -115,14 +82,12 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
         if renewal_fee is not None:
             # renewing
             dust_fee = (len(change_inputs) + 3) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE + tx_fee
-            dust_value = DEFAULT_DUST_FEE
             op_fee = max(renewal_fee, DEFAULT_DUST_FEE)
             bill = op_fee
             
         else:
             # registering
             dust_fee = (len(change_inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE + tx_fee
-            dust_value = DEFAULT_DUST_FEE
             op_fee = 0
             bill = DEFAULT_DUST_FEE * 2
             
@@ -132,14 +97,12 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
         if renewal_fee is not None:
             # renewing
             dust_fee = 0
-            dust_value = DEFAULT_DUST_FEE
             op_fee = max(renewal_fee, DEFAULT_DUST_FEE)
             bill = 0
             
         else:
             # registering
             dust_fee = 0
-            dust_value = DEFAULT_DUST_FEE
             op_fee = 0
             bill = 0
   
