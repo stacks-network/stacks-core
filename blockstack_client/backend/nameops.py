@@ -1,10 +1,23 @@
 # -*- coding: utf-8 -*-
 """
-    Registrar
+    Blockstack-client
     ~~~~~
-    :copyright: (c) 2014-2016 by Halfmoon Labs, Inc.
-    :copyright: (c) 2016 blockstack.org
-    :license: MIT, see LICENSE for more details.
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
+
+    This file is part of Blockstack-client.
+
+    Blockstack-client is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Blockstack-client is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
 import os
@@ -92,7 +105,8 @@ def make_fake_privkey_info( privkey_params ):
 
 def estimate_preorder_tx_fee( name, name_cost, payment_addr, utxo_client, owner_privkey_params=(1, 1), config_path=CONFIG_PATH, include_dust=False ):
     """
-    Estimate the transaction fee of a preorder
+    Estimate the transaction fee of a preorder.
+    Optionally include the dust fees as well.
     Return the number of satoshis on success
     Return None on error
     """
@@ -129,7 +143,8 @@ def estimate_preorder_tx_fee( name, name_cost, payment_addr, utxo_client, owner_
 
 def estimate_register_tx_fee( name, payment_addr, utxo_client, owner_privkey_params=(1, 1), config_path=CONFIG_PATH, include_dust=False ):
     """
-    Estimate the transaction fee of a register
+    Estimate the transaction fee of a register.
+    Optionally include the dust fees as well.
     Return the number of satoshis on success
     Return None on error
     """
@@ -164,7 +179,8 @@ def estimate_register_tx_fee( name, payment_addr, utxo_client, owner_privkey_par
 
 def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=(1, 1), config_path=CONFIG_PATH, include_dust=False ):
     """
-    Estimate the transaction fee of a renewal
+    Estimate the transaction fee of a renewal.
+    Optionally include the dust fees as well.
     Return the number of satoshis on success
     Return None on error
     """
@@ -208,7 +224,8 @@ def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_addr
 
 def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=(1, 1), config_path=CONFIG_PATH, payment_address=None, include_dust=False ):
     """
-    Estimate the transaction fee of an update
+    Estimate the transaction fee of an update.
+    Optionally include the dust fees as well.
     Return the number of satoshis on success
     Return None on error
     """
@@ -289,7 +306,8 @@ def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
 
 def estimate_transfer_tx_fee( name, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=(1, 1), config_path=CONFIG_PATH, include_dust=False ):
     """
-    Estimate the transaction fee of a transfer
+    Estimate the transaction fee of a transfer.
+    Optionally include the dust fees as well.
     Return the number of satoshis on success
     Return None on error
     """
@@ -332,7 +350,8 @@ def estimate_transfer_tx_fee( name, payment_privkey_info, owner_address, utxo_cl
 
 def estimate_revoke_tx_fee( name, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=(1, 1), config_path=CONFIG_PATH, include_dust=False ):
     """
-    Estimate the transaction fee of a revoke
+    Estimate the transaction fee of a revoke.
+    Optionally include the dust fees as well.
     Return the number of satoshis on success
     Return None on error
     """
@@ -371,7 +390,7 @@ def estimate_revoke_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
 
 def estimate_name_import_tx_fee( fqu, payment_addr, utxo_client, config_path=CONFIG_PATH, include_dust=False ):
     """
-    Estimate the transaction fee of a name import
+    Estimate the transaction fee of a name import.
     Return the number of satoshis on success
     Return None on error
     """
@@ -619,9 +638,9 @@ def do_preorder( fqu, payment_privkey_info, owner_address, cost, utxo_client, tx
     return resp
 
 
-def do_register( fqu, payment_privkey_info, owner_address, utxo_client, tx_broadcaster, owner_privkey_params=(1,1), renewal_fee=None, config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
+def do_register( fqu, payment_privkey_info, owner_address, utxo_client, tx_broadcaster, owner_privkey_params=(1,1), config_path=CONFIG_PATH, proxy=None, safety_checks=True ):
     """
-    Register/renew a name
+    Register a name
     Return {'status': True, 'transaction_hash': ...} on success
     Return {'error': ...} on failure
     """
@@ -644,22 +663,10 @@ def do_register( fqu, payment_privkey_info, owner_address, utxo_client, tx_broad
         return {'error': 'Owner address does not correspond to multisig private keys'}
 
     if safety_checks:
-        # name must not be registered yet (unless we're renewing)
-        if renewal_fee is None:
-            if is_name_registered(fqu, proxy=proxy):
-                log.debug("Already registered %s" % fqu)
-                return {'error': 'Already registered'}
-
-        else:
-            # check ownership
-            blockchain_record = blockstack_get_name_blockchain_record( fqu, proxy=proxy )
-            if blockchain_record is None or 'error' in blockchain_record:
-                log.debug("Failed to read blockchain record for %s" % fqu)
-                return {'error': 'Failed to read blockchain record for name'}
-
-            if owner_address != blockchain_record['address']:
-                log.debug("Given privkey/address doesn't own this name.")
-                return {'error': 'Not name owner'}
+        # name must not be registered yet
+        if is_name_registered(fqu, proxy=proxy):
+            log.debug("Already registered %s" % fqu)
+            return {'error': 'Already registered'}
 
     # check address usability
     if not is_address_usable(payment_address, config_path=config_path, utxo_client=utxo_client):
@@ -674,7 +681,7 @@ def do_register( fqu, payment_privkey_info, owner_address, utxo_client, tx_broad
 
     # now send it
     try:
-        unsigned_tx = register_tx( fqu, payment_address, owner_address, utxo_client, renewal_fee=renewal_fee, tx_fee=tx_fee )
+        unsigned_tx = register_tx( fqu, payment_address, owner_address, utxo_client, tx_fee=tx_fee )
     except ValueError:
         return {'error': 'Insufficient funds'}
 
