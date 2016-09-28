@@ -218,6 +218,7 @@ def get_immutable(name, data_hash, data_id=None, proxy=None):
     if 'error' in user_zonefile:
         return user_zonefile 
 
+    user_zonefile = user_zonefile['zonefile']
     if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ) or not user_db.is_user_zonefile( user_zonefile ):
         # zonefile is really a legacy profile 
         return {'error': 'Profile is in a legacy format that does not support immutable data.'}
@@ -322,7 +323,7 @@ def list_zonefile_history( name, current_block=None, proxy=None ):
     zonefile_hashes = list_update_history( name, current_block=current_block, proxy=proxy )
     zonefiles = []
     for zh in zonefile_hashes:
-        zonefile = load_name_zonefile( name, zh )
+        zonefile = load_name_zonefile( name, zh, raw_zonefile=True )
         if zonefile is None:
             zonefile = {'error': 'Failed to load zonefile %s' % zh}
 
@@ -346,6 +347,26 @@ def list_immutable_data_history( name, data_id, current_block=None, proxy=None )
     zonefiles = list_zonefile_history( name, current_block=current_block, proxy=proxy )
     hashes = []
     for zf in zonefiles:
+        if zf is None:
+            # not found
+            hashes.append("missing zonefile")
+            continue
+
+        # try to parse 
+        try:
+            zf = blockstack_zones.parse_zone_file( zf )
+
+            # force dict
+            tmp = {}
+            tmp.update(zf)
+            zf = tmp
+
+        except:
+            # not a standard zonefile
+            log.debug("Skip non-standard zonefile")
+            hashes.append("non-standard zonefile")
+            continue
+
         if 'error' in zf and len(zf.keys()) == 1:
             # invalid
             hashes.append("missing zonefile")
@@ -390,7 +411,7 @@ def get_mutable(name, data_id, proxy=None, ver_min=None, ver_max=None, ver_check
         conf = proxy.conf
 
     fq_data_id = storage.make_fq_data_id( name, data_id )
-    user_profile, user_zonefile = get_name_profile( name, proxy=proxy, wallet_keys=wallet_keys, include_name_record=True )
+    user_profile, user_zonefile = get_name_profile( name, proxy=proxy, include_name_record=True )
     if user_profile is None:
         return user_zonefile    # will be an error message
    
@@ -570,7 +591,7 @@ def get_app_data( name, service_id, account_id, data_id, version=None, proxy=Non
     return {'status': True, 'data': app_data, 'version': ver}
 
 
-def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None, utxo_client=None, wallet_keys=None ):
+def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None, wallet_keys=None ):
     """
     put_immutable
 
@@ -609,8 +630,11 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
         return user_profile
    
     if legacy:
-        log.debug("User profile is legacy")
-        return {'error': "User profile is in legacy format, which does not support this operation.  You must first migrate it with the 'migrate' command."}
+        log.debug("User zonefile is in legacy or non-standard")
+        return {'error': "User zonefile is in legacy or non-standard format, and does not support this operation.  You must first migrate it with the 'migrate' command."}
+
+    user_zonefile = user_zonefile['zonefile']
+    user_profile = user_profile['profile']
 
     data_text = storage.serialize_immutable_data( data_json )
     data_hash = storage.get_data_hash( data_text )
@@ -641,12 +665,8 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
         payment_privkey_info = get_payment_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
         owner_privkey_info = get_owner_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
 
-        # utxo_client = get_utxo_provider_client( config_path=proxy.conf['path'] )
-        # broadcaster_client = get_tx_broadcaster( config_path=proxy.conf['path'] )
-
-        update_result = async_update( name, user_zonefile, None, owner_privkey_info, payment_privkey_info, config_path=proxy.conf['path'], proxy=proxy, queue_path=proxy.conf['queue_path'] )
-        # update_result = do_update( name, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, broadcaster_client, config_path=proxy.conf['path'], proxy=proxy )
-
+        user_zonefile_txt = blockstack_zones.make_zone_file( user_zonefile )
+        update_result = async_update( name, user_zonefile_txt, None, owner_privkey_info, payment_privkey_info, config_path=proxy.conf['path'], proxy=proxy, queue_path=proxy.conf['queue_path'] )
         if 'error' in update_result:
             # failed to replicate user zonefile hash 
             # the caller should simply try again, with the 'transaction_hash' given in the result.
@@ -734,11 +754,14 @@ def put_mutable(name, data_id, data_json, proxy=None, create_only=False, update_
         return user_profile 
 
     if created_new_zonefile:
-        log.debug("User profile is legacy")
+        log.debug("User profile is in non-standard or legacy format")
         return {'error': "User profile is in legacy format, which does not support this operation.  You must first migrate it with the 'migrate' command."}
 
     name_record = user_zonefile['name_record']
     del user_zonefile['name_record']
+    
+    user_profile = user_profile['profile']
+    user_zonefile = user_zonefile['zonefile']
 
     exists = user_db.has_mutable_data( user_profile, data_id )
     if not exists and update_only:
@@ -894,11 +917,12 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
 
     name_record = user_zonefile['name_record']
     del user_zonefile['name_record']
+    user_zonefile = user_zonefile['zonefile']
 
     if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ) or not user_db.is_user_zonefile( user_zonefile ):
         # zonefile is a legacy profile.  There is no immutable data 
         log.info("Profile is in legacy format.  No immutable data.")
-        return {'status': True}
+        return {'error': 'Non-standard or legacy zonefile'}
 
     if data_key is None:
         if data_id is not None:
@@ -928,11 +952,8 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
         payment_privkey_info = get_payment_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
         owner_privkey_info = get_owner_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
 
-        # utxo_client = get_utxo_provider_client( config_path=proxy.conf['path'] )
-        # broadcaster_client = get_tx_broadcaster( config_path=proxy.conf['path'] )
-
-        # update_result = do_update( name, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, broadcaster_client, config_path=proxy.conf['path'], proxy=proxy )
-        update_result = async_update( name, user_zonefile, None, owner_privkey_info, payment_privkey_info, config_path=proxy.conf['path'], proxy=proxy, queue_path=proxy.conf['queue_path'] )
+        user_zonefile_txt = blockstack_zones.make_zone_file( user_zonefile )
+        update_result = async_update( name, user_zonefile_txt, None, owner_privkey_info, payment_privkey_info, config_path=proxy.conf['path'], proxy=proxy, queue_path=proxy.conf['queue_path'] )
         if 'error' in update_result:
             # failed to remove from zonefile 
             return update_result 
@@ -985,7 +1006,7 @@ def delete_mutable(name, data_id, proxy=None, wallet_keys=None):
  
     fq_data_id = storage.make_fq_data_id( name, data_id )
     legacy = False
-    user_profile, user_zonefile = get_name_profile( name, proxy=proxy, wallet_keys=wallet_keys, include_name_record=True )
+    user_profile, user_zonefile = get_name_profile( name, proxy=proxy, include_name_record=True )
     if user_profile is None:
         return user_zonefile    # will be an error message 
 
@@ -993,9 +1014,9 @@ def delete_mutable(name, data_id, proxy=None, wallet_keys=None):
     del user_zonefile['name_record']
 
     if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ) or not user_db.is_user_zonefile( user_zonefile ):
-        # zonefile is a legacy profile.  There is no mutable data 
-        log.info("Profile is in legacy format.  No mutable data.")
-        return {'status': True}
+        # zonefile is a legacy profile.  There is no mutable data
+        log.info("Non-standard or legacy zonefile")
+        return {'error': 'Non-standard or legacy zonefile'}
 
     # already deleted?
     if not user_db.has_mutable_data( user_profile, data_id ):
@@ -1076,6 +1097,7 @@ def list_immutable_data( name, proxy=None ):
     if 'error' in user_zonefile:
         return user_zonefile 
 
+    user_zonefile = user_zonefile['zonefile']
     if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ) or not user_db.is_user_zonefile( user_zonefile ):
         # zonefile is really a legacy profile
         return {"data": []}
@@ -1093,7 +1115,7 @@ def list_mutable_data( name, proxy=None, wallet_keys=None ):
     if proxy is None:
         proxy = get_default_proxy()
 
-    user_profile, user_zonefile = get_name_profile( name, proxy=proxy, wallet_keys=wallet_keys )
+    user_profile, user_zonefile = get_name_profile( name, proxy=proxy )
     if user_zonefile is None:
         # user_profile will contain an error message
         return user_profile 
@@ -1291,10 +1313,12 @@ def set_data_pubkey( name, data_pubkey, proxy=None, wallet_keys=None, txid=None 
         return user_profile
    
     if legacy:
-        log.debug("User profile is legacy")
-        return {'error': "User profile is in legacy format, which does not support this operation.  You must first migrate it with the 'migrate' command."}
+        log.debug("User zonefile is non-standard or legacy")
+        return {'error': "User zonefile is in legacy or non-standard format, and does not support this operation.  You must first migrate it with the 'migrate' command."}
 
-    
+    user_zonefile = user_zonefile['zonefile']
+    user_profile = user_profile['profile']
+
     user_db.user_zonefile_set_data_pubkey( user_zonefile, data_pubkey )
     zonefile_hash = hash_zonefile( user_zonefile )
 
@@ -1303,11 +1327,8 @@ def set_data_pubkey( name, data_pubkey, proxy=None, wallet_keys=None, txid=None 
         payment_privkey_info = get_payment_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
         owner_privkey_info = get_owner_privkey_info(wallet_keys=wallet_keys, config_path=proxy.conf['path'])
 
-        # utxo_client = get_utxo_provider_client( config_path=proxy.conf['path'] )
-        # broadcaster_client = get_tx_broadcaster( config_path=proxy.conf['path'] )
-
-        # update_result = do_update( name, zonefile_hash, owner_privkey_info, payment_privkey_info, utxo_client, broadcaster_client, config_path=proxy.conf['path'], proxy=proxy )
-        update_result = async_update( name, user_zonefile, None, owner_privkey_info, payment_privkey_info, config_path=proxy.conf['path'], proxy=proxy, queue_path=proxy.conf['queue_path'] )
+        user_zonefile_txt = blockstack_zones.make_zone_file( user_zonefile )
+        update_result = async_update( name, user_zonefile_txt, None, owner_privkey_info, payment_privkey_info, config_path=proxy.conf['path'], proxy=proxy, queue_path=proxy.conf['queue_path'] )
         if 'error' in update_result:
             # failed to replicate user zonefile hash 
             # the caller should simply try again, with the 'transaction_hash' given in the result.
