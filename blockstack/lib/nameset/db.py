@@ -74,7 +74,7 @@ BLOCKSTACK_DB_SCRIPT += """
 -- NOTE: this table only grows.
 -- The only time rows can be taken out is when a name or
 -- namespace successfully matches it.
-CREATE TABLE preorders( preorder_hash TEXT PRIMARY KEY UNIQUE NOT NULL,
+CREATE TABLE preorders( preorder_hash TEXT NOT NULL,
                         consensus_hash TEXT NOT NULL,
                         sender TEXT NOT NULL,
                         sender_pubkey TEXT,
@@ -83,7 +83,10 @@ CREATE TABLE preorders( preorder_hash TEXT PRIMARY KEY UNIQUE NOT NULL,
                         op TEXT NOT NULL,
                         op_fee INT NOT NULL,
                         txid TEXT NOT NULL,
-                        vtxindex INT);
+                        vtxindex INT,
+
+                        -- primary key includes the block number and txid, so an expired preorder can be overwritten
+                        PRIMARY KEY(preorder_hash,block_number,txid));
 """
 
 BLOCKSTACK_DB_SCRIPT += """
@@ -180,6 +183,9 @@ def namedb_create( path ):
         con.execute(line)
 
     con.row_factory = namedb_row_factory
+
+    # add user-defined functions
+    con.create_function("namespace_lifetime_multiplier", 2, namedb_get_namespace_lifetime_multiplier)
     return con
 
 
@@ -189,6 +195,9 @@ def namedb_open( path ):
     """
     con = sqlite3.connect( path, isolation_level=None )
     con.row_factory = namedb_row_factory
+
+    # add user-defined functions
+    con.create_function("namespace_lifetime_multiplier", 2, namedb_get_namespace_lifetime_multiplier)
     return con
 
 
@@ -211,6 +220,24 @@ def namedb_row_factory( cursor, row ):
             d[col[0]] = row[idx]
 
     return d
+
+
+def namedb_get_namespace_lifetime_multiplier( block_height, namespace_id ):
+    """
+    User-defined sqlite3 function that gets the namespace
+    lifetime multiplier at a particular block height.
+    """
+    try:
+        namespace_lifetime_multiplier = get_epoch_namespace_lifetime_multiplier( block_height, namespace_id )
+        return namespace_lifetime_multiplier
+    except Exception, e:
+        try:
+            with open("/tmp/blockstack_db_exception.txt", "w") as f:
+                f.write(traceback.format_exc())
+        except:
+            raise
+
+        raise
 
 
 def namedb_assert_fields_match( cur, record, table_name, record_matches_columns=True, columns_match_record=True ):
@@ -1394,13 +1421,25 @@ def namedb_select_where_unexpired_names( current_block ):
     Generate part of a WHERE clause that selects from name records joined with namespaces
     (or projections of them) that are not expired.
     """
-    namespace_lifetime_multiplier = get_epoch_namespace_lifetime_multiplier( current_block )
+    query_fragment = "(" \
+                        "name_records.first_registered <= ? AND " + \
+                        "(" + \
+                            "(" + \
+                                "(" + \
+                                    "namespaces.op = ? AND " + \
+                                    "(" + \
+                                        "namespaces.ready_block + (namespaces.lifetime * namespace_lifetime_multiplier(?, namespaces.namespace_id)) > ? OR " + \
+                                        "name_records.last_renewed + (namespaces.lifetime * namespace_lifetime_multiplier(?, namespaces.namespace_id)) >= ?" + \
+                                    ")" + \
+                                ") OR " + \
+                                "(" + \
+                                    "namespaces.op = ? AND namespaces.reveal_block <= ? AND ? < namespaces.reveal_block + ?" + \
+                                ")" + \
+                            ")" + \
+                        ")" + \
+                    ")"
 
-    query_fragment = "name_records.first_registered <= ? AND " + \
-                     "((namespaces.op = ? AND (namespaces.ready_block + (namespaces.lifetime * ?) > ? OR name_records.last_renewed + (namespaces.lifetime * ?) >= ?)) OR " + \
-                     "(namespaces.op = ? AND namespaces.reveal_block <= ? AND ? < namespaces.reveal_block + ?))"
-
-    query_args = (current_block, NAMESPACE_READY, namespace_lifetime_multiplier, current_block, namespace_lifetime_multiplier, current_block, NAMESPACE_REVEAL, current_block, current_block, NAMESPACE_REVEAL_EXPIRE)
+    query_args = (current_block, NAMESPACE_READY, current_block, current_block, current_block, current_block, NAMESPACE_REVEAL, current_block, current_block, NAMESPACE_REVEAL_EXPIRE)
 
     return (query_fragment, query_args)
 
@@ -1422,6 +1461,8 @@ def namedb_get_name( cur, name, current_block, include_expired=False, include_hi
     else:
         select_query = "SELECT * FROM name_records WHERE name = ?;"
         args = (name,)
+
+    # log.debug(namedb_format_query(select_query, args))
 
     name_rows = namedb_query_execute( cur, select_query, args )
     name_row = name_rows.fetchone()
