@@ -37,6 +37,7 @@ import copy
 import blockstack_profiles
 import blockstack_zones 
 import urllib
+import base64
 import virtualchain
 from keylib import ECPrivateKey
 
@@ -66,11 +67,13 @@ from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SER
 log = get_logger()
 
 
-def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None):
+def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, raw_zonefile=False):
     """
     Fetch and load a user zonefile from the storage implementation with the given hex string hash,
     The user zonefile hash should have been loaded from the blockchain, and thereby be the
     authentic hash.
+
+    If raw_zonefile is True, then return the raw zonefile data.  Don't parse it.
 
     Return the user zonefile (as a dict) on success
     Return None on error
@@ -80,6 +83,9 @@ def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None):
     if zonefile_txt is None:
         log.error("Failed to load user zonefile '%s'" % expected_zonefile_hash)
         return None
+
+    if raw_zonefile:
+        return zonefile_txt
 
     user_zonefile = None
     try:
@@ -102,13 +108,15 @@ def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None):
                 return None
 
         except Exception, e:
-            log.exception(e)
-            log.error("Failed to parse zonefile")
+            if os.environ.get("BLOCKSTACK_DEBUG", None) == "1":
+                log.exception(e)
+
+            log.error("Failed to parse non-standard zonefile %s" % expected_zonefile_hash)
             return None
         
     except Exception, e:
         log.exception(e)
-        log.error("Failed to parse zonefile")
+        log.error("Failed to parse zonefile %s" % expected_zonefile_hash)
         return None 
 
     return user_zonefile
@@ -246,17 +254,20 @@ def profile_update( name, user_zonefile, new_profile, owner_address, proxy=None,
     return ret
 
 
-def get_name_zonefile( name, storage_drivers=None, create_if_absent=False, proxy=None, wallet_keys=None, name_record=None, include_name_record=False ):
+def get_name_zonefile( name, storage_drivers=None, create_if_absent=False, proxy=None, wallet_keys=None, name_record=None, include_name_record=False, raw_zonefile=False ):
     """
     Given the name of the user, go fetch its zonefile.
     Verifies that the hash on the blockchain matches the zonefile.
 
-    Returns the zonefile (as JSON) on success (a dict), or 
-    a dict with "error" defined and a message.
+    Returns {'status': True, 'zonefile': zonefile dict} on success.
+    Returns a dict with "error" defined and a message on failure to load.
     Return None if there is no zonefile (i.e. the hash is null)
 
     if 'include_name_record' is true, then zonefile will contain
     an extra key called 'name_record' that includes the blockchain name record.
+
+    If 'raw_zonefile' is true, no attempt to parse the zonefile will be made.
+    The raw zonefile will be returned in 'zonefile'.
 
     @wallet_keys does not need to be given, unles you're creating a new zonefile (with create_if_absent).
     Even then, only the *public* data key needs to be set.
@@ -301,21 +312,30 @@ def get_name_zonefile( name, storage_drivers=None, create_if_absent=False, proxy
             return user_resp
 
     user_zonefile_hash = value_hash
-    user_zonefile = load_name_zonefile(name, user_zonefile_hash, storage_drivers=storage_drivers)
-    if user_zonefile is None:
-        return {"error": "Failed to load user zonefile"}
+    user_zonefile_data = None
+
+    if not raw_zonefile:
+        user_zonefile_data = load_name_zonefile(name, user_zonefile_hash, storage_drivers=storage_drivers)
+        if user_zonefile_data is None:
+            return {"error": "Failed to load user zonefile"}
+
+    else:
+        user_zonefile_data = load_name_zonefile(name, user_zonefile_hash, storage_drivers=storage_drivers, raw_zonefile=True )
+
+    ret = {
+        "zonefile": user_zonefile_data
+    }
 
     if include_name_record:
-        user_zonefile['name_record'] = name_record
+        ret['name_record'] = name_record
 
-    return user_zonefile
+    return ret
     
 
 def get_name_profile(name, zonefile_storage_drivers=None,
                            profile_storage_drivers=None,
                            create_if_absent=False,
                            proxy=None,
-                           wallet_keys=None,
                            user_zonefile=None,
                            name_record=None,
                            include_name_record=False,
@@ -339,7 +359,7 @@ def get_name_profile(name, zonefile_storage_drivers=None,
         proxy = get_default_proxy()
  
     if user_zonefile is None:
-        user_zonefile = get_name_zonefile( name, create_if_absent=create_if_absent, proxy=proxy, wallet_keys=wallet_keys, name_record=name_record, include_name_record=True, storage_drivers=zonefile_storage_drivers )
+        user_zonefile = get_name_zonefile( name, create_if_absent=create_if_absent, proxy=proxy, name_record=name_record, include_name_record=True, storage_drivers=zonefile_storage_drivers )
         if user_zonefile is None:
             return (None, {'error': 'No user zonefile'})
 
@@ -348,6 +368,8 @@ def get_name_profile(name, zonefile_storage_drivers=None,
 
         name_record = user_zonefile['name_record']
         del user_zonefile['name_record']
+
+        user_zonefile = user_zonefile['zonefile']
 
     # is this really a legacy profile?
     if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
@@ -415,20 +437,14 @@ def get_name_profile(name, zonefile_storage_drivers=None,
     return (user_profile, user_zonefile)
 
 
-def store_name_zonefile( name, user_zonefile, txid, storage_drivers=[] ):
+def store_name_zonefile_data( name, user_zonefile_txt, txid, storage_drivers=[] ):
     """
-    Store JSON user zonefile data to the immutable storage providers, synchronously.
+    Store a serialized zonefile to immutable storage providers, synchronously.
     This is only necessary if we've added/changed/removed immutable data.
 
-    Return (True, hash(user)) on success
-    Return (False, None) on failure
+    Return (True, hash(user zonefile)) on success
+    Return (False, None) on failure.
     """
-
-    assert not blockstack_profiles.is_profile_in_legacy_format(user_zonefile), "User zonefile is a legacy profile"
-    assert user_db.is_user_zonefile(user_zonefile), "Not a user zonefile (maybe a custom legacy profile?)"
-
-    # serialize and send off
-    user_zonefile_txt = blockstack_zones.make_zone_file( user_zonefile, origin=name, ttl=USER_ZONEFILE_TTL )
     data_hash = storage.get_zonefile_data_hash( user_zonefile_txt )
     result = storage.put_immutable_data(None, txid, data_hash=data_hash, data_text=user_zonefile_txt, required=storage_drivers )
 
@@ -439,6 +455,23 @@ def store_name_zonefile( name, user_zonefile, txid, storage_drivers=[] ):
         rc = True
 
     return (rc, data_hash)
+
+
+def store_name_zonefile( name, user_zonefile, txid, storage_drivers=[] ):
+    """
+    Store JSON user zonefile data to the immutable storage providers, synchronously.
+    This is only necessary if we've added/changed/removed immutable data.
+
+    Return (True, hash(user zonefile)) on success
+    Return (False, None) on failure
+    """
+
+    assert not blockstack_profiles.is_profile_in_legacy_format(user_zonefile), "User zonefile is a legacy profile"
+    assert user_db.is_user_zonefile(user_zonefile), "Not a user zonefile (maybe a custom legacy profile?)"
+
+    # serialize and send off
+    user_zonefile_txt = blockstack_zones.make_zone_file( user_zonefile, origin=name, ttl=USER_ZONEFILE_TTL )
+    return store_name_zonefile_data( name, user_zonefile_txt, txid, storage_drivers=storage_drivers )
 
 
 def remove_name_zonefile(user, txid):
@@ -474,7 +507,7 @@ def get_and_migrate_profile( name, zonefile_storage_drivers=None, profile_storag
 
     @wallet_keys, if given, only needs the data public key set.
 
-    Return (user_profile, user_zonefile, migrated:bool) on success
+    Return ({'profile': user_profile}, {'zonefile': user_zonefile}, migrated:bool) on success
     Return ({'error': ...}, None, False) on error
     """
 
@@ -514,6 +547,7 @@ def get_and_migrate_profile( name, zonefile_storage_drivers=None, profile_storag
     else:
         name_record = user_zonefile['name_record']
         del user_zonefile['name_record']
+        user_zonefile = user_zonefile['zonefile']
 
     if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ) or not user_db.is_user_zonefile( user_zonefile ):
 
@@ -539,7 +573,7 @@ def get_and_migrate_profile( name, zonefile_storage_drivers=None, profile_storag
     else:
         if not created_new_profile:
             user_profile, error_msg = get_name_profile( name, zonefile_storage_drivers=zonefile_storage_drivers, profile_storage_drivers=profile_storage_drivers,
-                                                        proxy=proxy, wallet_keys=wallet_keys, user_zonefile=user_zonefile, name_record=name_record )
+                                                        proxy=proxy, user_zonefile=user_zonefile, name_record=name_record )
             if user_profile is None:
                 return (error_msg, None, False)
 
@@ -551,35 +585,22 @@ def get_and_migrate_profile( name, zonefile_storage_drivers=None, profile_storag
         else:
             raise Exception("Should be unreachable")
 
+    ret_user_profile = {
+        "profile": user_profile
+    }
+
+    ret_user_zonefile = {
+        "zonefile": user_zonefile
+    }
 
     if include_name_record:
         # put it back
-        user_zonefile['name_record'] = name_record 
+        ret_user_zonefile['name_record'] = name_record 
 
-    return (user_profile, user_zonefile, created_new_zonefile)
-
-
-def is_zonefile_replicated(fqu, zonefile_json, zonefile_storage_drivers=None, proxy=None, wallet_keys=None):
-    """
-    Return True if the given zonefile (as JSON) has been replicated.
-    Return False if not
-    """
-
-    if proxy is None:
-        proxy = get_default_proxy()
-
-    online_zonefile_json = get_name_zonefile(fqu, storage_drivers=zonefile_storage_drivers, proxy=proxy, wallet_keys=wallet_keys)
-
-    if online_zonefile_json is None or 'error' in online_zonefile_json:
-        return False
-    else:
-        if hash_zonefile(zonefile_json) != hash_zonefile(online_zonefile_json):
-            return True
-        else:
-            return False
+    return (ret_user_profile, ret_user_zonefile, created_new_zonefile)
 
 
-def zonefile_publish(fqu, zonefile_json, server_list, wallet_keys=None):
+def zonefile_data_publish(fqu, zonefile_txt, server_list, wallet_keys=None):
     """
     Replicate a zonefile to as many blockstack servers as possible.
     @server_list is a list of (host, port) tuple
@@ -587,7 +608,6 @@ def zonefile_publish(fqu, zonefile_json, server_list, wallet_keys=None):
         'servers' will be a list of (host, port) tuples
     Return {'error': ...} if we failed on all accounts.
     """
-    zonefile_txt = blockstack_zones.make_zone_file( zonefile_json )
     successful_servers = []
     for server_host, server_port in server_list:
         try:
@@ -595,7 +615,7 @@ def zonefile_publish(fqu, zonefile_json, server_list, wallet_keys=None):
             log.debug("Replicate zonefile to %s:%s" % (server_host, server_port))
 
             srv = BlockstackRPCClient( server_host, server_port )
-            res = srv.put_zonefiles( [zonefile_txt] )
+            res = srv.put_zonefiles( [base64.b64encode(zonefile_txt)] )
             if 'error' in res:
                 log.error("Failed to publish zonefile to %s:%s: %s" % (server_host, server_port, res['error']))
                 continue
@@ -635,9 +655,9 @@ def zonefile_publish(fqu, zonefile_json, server_list, wallet_keys=None):
         return {'error': 'Failed to publish zonefile to all backend providers'}
 
 
-def zonefile_replicate( fqu, zonefile_json, tx_hash, server_list, config_path=CONFIG_PATH, storage_drivers=None ):
+def zonefile_data_replicate( fqu, zonefile_data, tx_hash, server_list, config_path=CONFIG_PATH, storage_drivers=None ):
     """
-    Replicate a zonefile both to a list of blockstack servers,
+    Replicate zonefile data both to a list of blockstack servers,
     as well as to the user's storage drivers.
 
     Return {'status': True, 'servers': successful server list} on success
@@ -661,13 +681,13 @@ def zonefile_replicate( fqu, zonefile_json, tx_hash, server_list, config_path=CO
     assert len(required_storage_drivers) > 0, "No zonefile storage drivers specified"
 
     # replicate to our own storage providers
-    rc = store_name_zonefile( fqu, zonefile_json, tx_hash, storage_drivers=required_storage_drivers )
+    rc = store_name_zonefile_data( fqu, zonefile_data, tx_hash, storage_drivers=required_storage_drivers )
     if not rc:
         log.info("Failed to replicate zonefile for %s to %s" % (fqu))
         return {'error': 'Failed to store user zonefile'}
 
     # replicate to blockstack servers
-    res = zonefile_publish( fqu, zonefile_json, server_list ) 
+    res = zonefile_data_publish( fqu, zonefile_data, server_list ) 
     if 'error' in res:
         return res
 
