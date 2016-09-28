@@ -85,7 +85,7 @@ def list_accounts( name, proxy=None, wallet_keys=None ):
     if proxy is None:
         proxy = get_default_proxy()
 
-    user_profile, user_zonefile = get_name_profile( name, proxy=proxy, wallet_keys=wallet_keys )
+    user_profile, user_zonefile = get_name_profile( name, proxy=proxy )
     if user_profile is None:
         # user_zonefile will contain an error message
         return user_zonefile
@@ -153,6 +153,9 @@ def put_account( name, service, identifier, content_url, create=True, replace=Fa
     name_record = user_zonefile['name_record']
     del user_zonefile['name_record']
 
+    user_zonefile = user_zonefile['zonefile']
+    user_profile = user_profile['profile']
+
     # user_profile will be in the new zonefile format 
     if not user_profile.has_key("account"):
         user_profile['account'] = []
@@ -206,6 +209,9 @@ def delete_account( name, service, identifier, proxy=None, wallet_keys=None ):
 
     name_record = user_zonefile['name_record']
     del user_zonefile['name_record']
+    
+    user_zonefile = user_zonefile['zonefile']
+    user_profile = user_profile['profile']
 
     # user_profile will be in the new zonefile format
     removed = []
