@@ -54,7 +54,7 @@ from data import blockstack_url_fetch as fetch_data
 from data import data_get, data_put, data_delete, data_list
 from data import set_data_pubkey
 from storage import get_announcement, put_announcement
-from profile import get_name_profile, get_name_zonefile, zonefile_publish, get_and_migrate_profile
+from profile import get_name_profile, get_name_zonefile, get_and_migrate_profile
 from accounts import list_accounts, get_account, put_account, delete_account, create_app_account
 
 from config import get_logger, get_config, CONFIG_PATH, CONFIG_FILENAME, get_utxo_provider_client, get_tx_broadcaster, default_bitcoind_opts
