@@ -42,7 +42,7 @@ from crypto.utils import get_address_from_privkey, get_pubkey_from_privkey
 from ..utils import pretty_print as pprint
 from ..utils import pretty_dump
 
-from ..config import PREORDER_CONFIRMATIONS, DEFAULT_QUEUE_PATH, CONFIG_PATH, get_utxo_provider_client, get_tx_broadcaster
+from ..config import PREORDER_CONFIRMATIONS, DEFAULT_QUEUE_PATH, CONFIG_PATH, get_utxo_provider_client, get_tx_broadcaster, RPC_MAX_ZONEFILE_LEN, RPC_MAX_PROFILE_LEN
 from ..config import get_logger, APPROX_TX_IN_P2PKH_LEN, APPROX_TX_OUT_P2PKH_LEN, APPROX_TX_OVERHEAD_LEN
 
 from ..proxy import get_default_proxy
@@ -56,7 +56,7 @@ from ..tx import sign_and_broadcast_tx, preorder_tx, register_tx, update_tx, tra
         namespace_preorder_tx, namespace_reveal_tx, namespace_ready_tx, announce_tx, name_import_tx, sign_tx
 
 from ..scripts import tx_make_subsidizable
-from ..storage import get_blockchain_compat_hash, hash_zonefile, put_announcement
+from ..storage import get_blockchain_compat_hash, hash_zonefile, put_announcement, get_zonefile_data_hash
 
 from ..operations import fees_update, fees_transfer, fees_revoke, fees_registration, fees_preorder, \
         fees_namespace_preorder, fees_namespace_reveal, fees_namespace_ready, fees_announce
@@ -1405,25 +1405,28 @@ def async_register(fqu, payment_privkey_info, owner_address, owner_privkey_param
         return {'error': 'Failed to send registration'}
 
 
-def async_update(fqu, zonefile, profile, owner_privkey_info, payment_privkey_info, config_path=CONFIG_PATH,
+def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privkey_info, config_path=CONFIG_PATH,
                  zonefile_hash=None, proxy=None, queue_path=DEFAULT_QUEUE_PATH):
     """
         Update a previously registered fqu, using a different payment address
 
         @fqu: fully qualified name e.g., muneeb.id
-        @zonefile: new zonefile json, hash(zonefile) goes to blockchain
+        @zonefile_data: new zonefile text, hash(zonefile) goes to blockchain
         @owner_privkey_info: privkey of owner address, to sign update
         @payment_privkey_info: the privkey which is paying for the cost
 
         Returns True/False and stores tx_hash in queue
     """
 
-    if zonefile_hash is None and zonefile is None:
+    if zonefile_hash is None and zonefile_data is None:
         raise Exception("No zonefile or zonefile hash given")
 
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
+    if zonefile_data is not None and len(zonefile_data) > RPC_MAX_ZONEFILE_LEN:
+        return {'error': 'Zonefile is too big (%s bytes)' % len(zonefile_data)}
+    
     utxo_client = get_utxo_provider_client(config_path=config_path)
     tx_broadcaster = get_tx_broadcaster(config_path=config_path)
 
@@ -1434,7 +1437,7 @@ def async_update(fqu, zonefile, profile, owner_privkey_info, payment_privkey_inf
         return {'error': 'Already in update queue'}
 
     if zonefile_hash is None:
-        zonefile_hash = hash_zonefile( zonefile )
+        zonefile_hash = get_zonefile_data_hash( zonefile_data )
 
     resp = {}
     try:
@@ -1445,7 +1448,7 @@ def async_update(fqu, zonefile, profile, owner_privkey_info, payment_privkey_inf
 
     if 'transaction_hash' in resp:
         queue_append("update", fqu, resp['transaction_hash'],
-                     zonefile=zonefile,
+                     zonefile_data=zonefile_data,
                      profile=profile,
                      zonefile_hash=zonefile_hash,
                      owner_address=owner_address,
