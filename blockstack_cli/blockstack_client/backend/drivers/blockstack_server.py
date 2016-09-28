@@ -30,6 +30,7 @@ import logging
 import xmlrpclib
 import json
 import re
+import base64
 from ConfigParser import SafeConfigParser
 
 import blockstack_zones
@@ -149,7 +150,7 @@ def put_data( data_id, data_txt, zonefile=False, fqu=None ):
             return False
  
         log.debug("Replicate zonefile for %s" % data_id)
-        res_json = ses.put_zonefiles( [data_txt] )
+        res_json = ses.put_zonefiles( [base64.b64encode(data_txt)] )
         try:
             res = json.loads(res_json)
         except:
