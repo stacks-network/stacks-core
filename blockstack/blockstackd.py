@@ -430,9 +430,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         name_record = db.get_name(str(name))
 
-        namespace_id = get_namespace_from_name(name)
-        namespace_record = db.get_namespace(namespace_id)
-
         if name_record is None:
             db.close()
 
@@ -443,9 +440,12 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         else:
 
+            namespace_id = get_namespace_from_name(name)
+            namespace_record = db.get_namespace(namespace_id)
+
             # when does this name expire (if it expires)?
             if namespace_record['lifetime'] != NAMESPACE_LIFE_INFINITE:
-                namespace_lifetime_multiplier = get_epoch_namespace_lifetime_multiplier( db.lastblock )
+                namespace_lifetime_multiplier = get_epoch_namespace_lifetime_multiplier( db.lastblock, namespace_id )
                 name_record['expire_block'] = max( namespace_record['ready_block'], name_record['last_renewed'] ) + namespace_record['lifetime'] * namespace_lifetime_multiplier
 
             db.close()
@@ -955,7 +955,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         Note that the system *only* takes well-formed zonefiles.
         Returns {'status': True, 'saved': [0|1]'} on success ('saved' is a vector of success/failure)
         Returns {'error': ...} on error
-        Takes at most 10 zonefiles
+        Takes at most 100 zonefiles
         """
 
         conf = get_blockstack_opts()
@@ -981,28 +981,38 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 saved.append(0)
                 continue
 
+            # decode
+            try:
+                zonefile_data = base64.b64decode( zonefile_data )
+            except:
+                log.debug("Invalid base64 zonefile")
+                saved.append(0)
+                continue
+            
             if len(zonefile_data) > RPC_MAX_ZONEFILE_LEN:
                 log.debug("Zonefile too long")
                 saved.append(0)
                 continue
 
-            try: 
-                zonefile = blockstack_zones.parse_zone_file( str(zonefile_data) )
-                zonefile_hash = blockstack_client.get_zonefile_data_hash( str(zonefile_data) )
-            except Exception, e:
-                log.exception(e)
-                log.debug("Invalid zonefile")
-                saved.append(0)
-                continue
+            zonefile_hash = blockstack_client.get_zonefile_data_hash( str(zonefile_data) )
 
-            name_rec = db.get_name( zonefile['$origin'] )
-            if str(name_rec['value_hash']) != zonefile_hash:
+            # does it correspond to a valid zonefile?
+            names_with_hash = db.get_names_with_value_hash( zonefile_hash )
+            if names_with_hash is None or len(names_with_hash) == 0:
                 log.debug("Unknown zonefile hash %s" % zonefile_hash)
                 saved.append(0)
                 continue
 
+            # maybe a proper zonefile?  if so, get the name out
+            name = None
+            try: 
+                zonefile = blockstack_zones.parse_zone_file( str(zonefile_data) )
+                name = zonefile['$origin']
+            except Exception, e:
+                log.debug("Not a well-formed zonefile: %s" % zonefile_hash)
+
             # it's a valid zonefile.  cache and store it.
-            rc = store_zonefile_to_storage( zonefile, required=zonefile_storage_drivers, cache=True, zonefile_dir=zonefile_dir )
+            rc = store_zonefile_data_to_storage( str(zonefile_data), required=zonefile_storage_drivers, cache=True, zonefile_dir=zonefile_dir, name=name, tx_required=False )
             if not rc:
                 log.debug("Failed to replicate zonefile %s to external storage" % zonefile_hash)
                 saved.append(0)
