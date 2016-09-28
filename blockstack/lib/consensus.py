@@ -220,12 +220,16 @@ def block_to_virtualchain_ops( block_id, working_db, untrusted_db ):
     return virtualchain_ops
 
 
-def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, resume_dir=None, start_block=None ):
+def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, resume_dir=None, start_block=None, expected_snapshots={} ):
     """
     Given a target block ID and a path to an (untrusted) db, reconstruct it in a temporary directory by
     replaying all the nameops it contains.
 
+    Optionally check that the snapshots in @expected_snapshots match up as we verify.
+    @expected_snapshots maps str(block_id) to str(consensus hash)
+
     Return the consensus hash calculated at the target block.
+    Return None on verification failure (i.e. we got a different consensus hash than one for the same block in expected_snapshots)
     """
 
     # reconfigure the virtualchain to use a temporary directory,
@@ -275,12 +279,17 @@ def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, 
         log.debug("VERIFY CONSENSUS(%s): %s" % (block_id, consensus_hash))
 
         consensus_hashes[block_id] = consensus_hash
+        if str(block_id) in expected_snapshots:
+            if expected_snapshots[str(block_id)] != consensus_hash:
+                log.error("DATABASE IS NOT CONSISTENT AT %s: %s != %s" % (block_id, expected_snashots[str(block_id)], consensus_hash))
+                return None
+
 
     # final consensus hash
     return consensus_hashes[ target_block_id ]
 
 
-def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_path, working_db_path=None, start_block=None ):
+def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_path, working_db_path=None, start_block=None, expected_snapshots={} ):
     """
     Verify that a database is consistent with a
     known-good consensus hash.
@@ -292,10 +301,10 @@ def verify_database( trusted_consensus_hash, consensus_block_id, untrusted_db_pa
     database.
     """
 
-    final_consensus_hash = rebuild_database( consensus_block_id, untrusted_db_path, working_db_path=working_db_path, start_block=start_block )
+    final_consensus_hash = rebuild_database( consensus_block_id, untrusted_db_path, working_db_path=working_db_path, start_block=start_block, expected_snapshots=expected_snapshots )
 
     # did we reach the consensus hash we expected?
-    if final_consensus_hash == trusted_consensus_hash:
+    if final_consensus_hash is not None and final_consensus_hash == trusted_consensus_hash:
         return True
 
     else:
