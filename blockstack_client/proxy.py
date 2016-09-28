@@ -498,12 +498,22 @@ def is_zonefile_current(fqu, zonefile_json, proxy=None):
     if proxy is None:
         proxy = get_default_proxy()
 
+    zonefile_hash = storage.hash_zonefile(zonefile_json)
+    return is_zonefile_hash_current( fqu, zonefile_hash, proxy=proxy )
+
+
+def is_zonefile_hash_current(fqu, zonefile_hash, proxy=None):
+    """ 
+    Return True if hash(@zonefile_json) published on blockchain
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
     blockchain_record = get_name_blockchain_record( fqu, proxy=proxy )
     if 'error' in blockchain_record:
         log.debug("Failed to read blockchain record for %s" % fqu)
         return False
-
-    zonefile_hash = storage.hash_zonefile(zonefile_json)
 
     if 'value_hash' in blockchain_record and blockchain_record['value_hash'] == zonefile_hash:
         # if hash of profile is in correct
