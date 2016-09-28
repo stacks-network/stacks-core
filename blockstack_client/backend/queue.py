@@ -25,6 +25,7 @@ import traceback
 import os
 import sys
 import json
+import base64
 
 from ..config import DEFAULT_QUEUE_PATH, QUEUE_LENGTH_TO_MONITOR, PREORDER_MAX_CONFIRMATIONS, CONFIG_PATH
 from ..proxy import get_default_proxy
@@ -241,7 +242,7 @@ def in_queue( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
 def queue_append(queue_id, fqu, tx_hash, payment_address=None,
                  owner_address=None, transfer_address=None,
                  config_path=CONFIG_PATH,
-                 zonefile=None, profile=None, zonefile_hash=None, path=DEFAULT_QUEUE_PATH):
+                 zonefile_data=None, profile=None, zonefile_hash=None, path=DEFAULT_QUEUE_PATH):
 
     """
     Append a processing name operation to the named queue for the given name.
@@ -257,7 +258,7 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
     # optional, depending on queue
     new_entry['owner_address'] = owner_address
     new_entry['transfer_address'] = transfer_address
-    new_entry['zonefile'] = zonefile
+    new_entry['zonefile_b64'] = base64.b64encode(zonefile_data)
     new_entry['profile'] = profile
     if zonefile_hash is None and zonefile is not None:
         zonefile_hash = hash_zonefile(zonefile)
@@ -277,6 +278,11 @@ def extract_entry( rowdata ):
     entry['tx_hash'] = rowdata['tx_hash']
     entry['fqu'] = rowdata['fqu']
     entry['type'] = rowdata['queue_id']
+
+    if entry.has_key('zonefile_b64'):
+        entry['zonefile'] = base64.b64decode(entry['zonefile_b64'])
+        del entry['zonefile_b64']
+
     return entry
 
 
@@ -452,7 +458,7 @@ def cleanup_update_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
             continue
 
         # don't dequeue until we're sure the zonefile has replicated
-        zf = get_name_zonefile( entry['fqu'] )
+        zf = get_name_zonefile( entry['fqu'], raw_zonefile=True )
         if zf is None or 'error' in zf:
             if 'error' in zf:
                 log.debug("Failed to query zonefile for %s: %s" % (entry['fqu'], zf['error']))
@@ -460,6 +466,8 @@ def cleanup_update_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
             else:
                 log.debug("Failed to query zonefile for %s: no data" % (entry['fqu']))
                 continue
+
+        zf = zf['zonefile']
 
         if not entry.has_key('zonefile'):
             log.debug("Database entry for %s is missing a zonefile.  Please contact the developers." % entry['fqu'])
