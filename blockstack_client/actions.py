@@ -60,6 +60,9 @@ import time
 import blockstack_zones
 import blockstack_profiles
 import requests
+import base64
+from decimal import Decimal
+
 requests.packages.urllib3.disable_warnings()
 
 import logging
@@ -99,7 +102,7 @@ from blockstack_client import \
     put_immutable, \
     put_mutable
 
-from blockstack_client.profile import profile_update, zonefile_replicate
+from blockstack_client.profile import profile_update, zonefile_data_replicate
 
 from rpc import local_rpc_connect, local_rpc_status, local_rpc_stop, start_rpc_endpoint
 import rpc as local_rpc
@@ -469,7 +472,11 @@ def cli_price( args, config_path=CONFIG_PATH, proxy=None, password=None):
     # convert to BTC
     btc_keys = ['preorder_tx_fee', 'register_tx_fee', 'update_tx_fee', 'total_estimated_cost', 'name_price']
     for k in btc_keys:
-        fees[k] = "%s satoshi (%s BTC)" % (fees[k], fees[k] * 10e-8)
+        v = {
+            "satoshis": "%s" % fees[k],
+            "btc": "%s" % float(Decimal(fees[k] * 10e-8))
+        }
+        fees[k] = v
 
     return fees
 
@@ -844,6 +851,34 @@ def get_wallet_keys( config_path, password ):
     return get_wallet_with_backoff( config_path )
 
 
+def prompt_invalid_zonefile():
+    """
+    Prompt the user whether or not to replicate
+    an invalid zonefile
+    """
+    warning_str = ""
+    warning_str += "WARNING!  This data does not look like a zone file."
+    warning_str += "If you proceed to use this data, no one will be able"
+    warning_str += "to look up your profile."
+    warning_str += ""
+    warning_str += "Proceed? (Y/n): "
+    proceed = raw_input(warning_str)
+    return proceed.lower() in ['y']
+
+
+def is_valid_path( path ):
+    """
+    Is the given string a valid path?
+    """
+    if type(path) not in [str]:
+        return False
+
+    if '\x00' in path:
+        return False
+
+    return True
+
+
 def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None ):
     """
     command: register norpc
@@ -936,12 +971,12 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
     return result
 
 
-def cli_update( args, config_path=CONFIG_PATH, password=None ):
+def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, allow_invalid_zonefile=False ):
     """
     command: update norpc
     help: Set the zone file for a name
     arg: name (str) "The name to update"
-    arg: data (str) "A bare zonefile, or a JSON-serialized zonefile."
+    arg: data (str) "A zone file string, or a path to a file with the data."
     """
 
     config_dir = os.path.dirname(config_path)
@@ -954,18 +989,43 @@ def cli_update( args, config_path=CONFIG_PATH, password=None ):
         return res
 
     fqu = str(args.name)
+    zonefile_data = str(args.data)
 
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
 
+    # is this a path?
+    if is_valid_path(zonefile_data) and os.path.exists(zonefile_data):
+        try:
+            with open(zonefile_data) as f:
+                zonefile_data = f.read()
+        except:
+            return {'error': 'Failed to read "%s"' % zonefile_data}
+    
     # load zonefile
-    user_data_res = load_zonefile( fqu, args.data )
+    user_data_txt = None
+    user_data_hash = None
+    user_data_res = load_zonefile( fqu, zonefile_data )
     if 'error' in user_data_res:
-        log.error("Failed to parse zonefile: %s" % user_data_res['error'])
-        return {'error': user_data_res['error']}
- 
-    user_data = user_data_res['zonefile']
+        # not a well-formed zonefile (but maybe that's okay! ask the user)
+        if interactive:
+            proceed = prompt_invalid_zonefile()
+            if not proceed:
+                return {'error': "Zone file not updated (reason: %s)" % user_data_res['error']}
+
+        else:
+            if allow_invalid_zonefile:
+                log.warning("Using non-zonefile data")
+            else:
+                return {'error': 'Zone file not updated (invalid)'}
+
+        user_data_txt = zonefile_data
+        user_data_hash = storage.get_zonefile_data_hash(zonefile_data) 
+
+    else:
+        user_data_txt = zonefile_data
+        user_data_hash = storage.hash_zonefile( user_data_res['zonefile'] )
 
     # load wallet
     wallet_keys = get_wallet_keys( config_path, password )
@@ -982,7 +1042,7 @@ def cli_update( args, config_path=CONFIG_PATH, password=None ):
     rpc = local_rpc_connect(config_dir=config_dir)
 
     try:
-        resp = rpc.backend_update(fqu, user_data, None, None)
+        resp = rpc.backend_update(fqu, base64.b64encode(user_data_txt), None, user_data_hash)
     except Exception, e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -1262,10 +1322,6 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None, inter
     if 'error' in res:
         return res
 
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
@@ -1285,20 +1341,57 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None, inter
     if 'error' in res:
         return res
 
-    user_zonefile = get_name_zonefile( fqu, proxy=proxy, wallet_keys=wallet_keys )
+    user_zonefile = get_name_zonefile( fqu, proxy=proxy, wallet_keys=wallet_keys, raw_zonefile=True, include_name_record=True )
     if user_zonefile is not None and 'error' not in user_zonefile:
 
-        # got a zonefile...
-        legacy = blockstack_profiles.is_profile_in_legacy_format( user_zonefile )
-        if not legacy and not force and is_zonefile_current(fqu, user_zonefile):
-            msg ="Zonefile data is same as current zonefile; update not needed."
-            return {'error': msg}
+        name_rec = user_zonefile['name_record']
+        user_zonefile_txt = user_zonefile['zonefile']
+        user_zonefile_hash = storage.get_zonefile_data_hash( user_zonefile_txt )
+        user_zonefile = None
+        legacy = False
+        nonstandard = False
 
-        if not legacy and not force and interactive:
-            # maybe this is intentional (like fixing a corrupt zonefile)
-            # ask if so
-            msg = "Not a legacy profile; cannot migrate."
-            return {'error': msg}
+        # try to parse
+        try:
+            user_zonefile = blockstack_zones.parse_zone_file( user_zonefile_txt )
+            legacy = blockstack_profiles.is_profile_in_legacy_format( user_zonefile )
+        except:
+            log.warning("Non-standard zonefile %s" % user_zonefile_hash)
+            nonstandard = True
+
+        current = ('value_hash' in name_rec and name_rec['value_hash'] == user_zonefile_hash)
+
+        if nonstandard and not legacy:
+            # maybe we're trying to reset the profile?
+            if interactive and not force:
+                msg = ""
+                msg += "WARNING!  Non-standard zonefile detected."
+                msg += "If you proceed, your zonefile will be reset"
+                msg += "and you will have to re-build your profile."
+                msg += ""
+                msg += "Proceed? (Y/n): "
+                proceed_str = raw_input(msg)
+                proceed = (proceed_str.lower() in ['y'])
+                if not proceed:
+                    return {'error': 'Non-standard zonefile'}
+
+            elif not force:
+                return {'error': 'Non-standard zonefile'}
+
+        # is current and either standard or legacy?
+        elif not legacy and not force:
+            if current:
+                msg = "Zonefile data is same as current zonefile; update not needed."
+                return {'error': msg}
+
+            else:
+                # maybe this is intentional (like fixing a corrupt zonefile)
+                msg = "Not a legacy profile; cannot migrate."
+                return {'error': msg}
+
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
 
     rpc = local_rpc_connect(config_dir=config_dir)
 
@@ -1777,7 +1870,7 @@ def cli_advanced_namespace_ready( args, config_path=CONFIG_PATH ):
     return result
 
 
-def cli_advanced_put_mutable( args, config_path=CONFIG_PATH ):
+def cli_advanced_put_mutable( args, config_path=CONFIG_PATH, password=None, proxy=None ):
     """
     command: put_mutable norpc
     help: Put mutable data into a profile
@@ -1795,14 +1888,24 @@ def cli_advanced_put_mutable( args, config_path=CONFIG_PATH ):
     except:
         return {'error': "Invalid JSON"}
 
-    result = put_mutable(fqu,
-                         str(args.data_id),
-                         data)
+    config_dir = os.path.dirname(config_path)
+    res = start_rpc_endpoint(config_dir)
+    if 'error' in res:
+        return res
+ 
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    result = put_mutable(fqu, str(args.data_id), data, wallet_keys=wallet_keys, proxy=proxy )
 
     return result
 
 
-def cli_advanced_put_immutable( args, config_path=CONFIG_PATH, password=None ):
+def cli_advanced_put_immutable( args, config_path=CONFIG_PATH, password=None, proxy=None ):
     """
     command: put_immutable norpc
     help: Put immutable data into a zonefile
@@ -1829,16 +1932,26 @@ def cli_advanced_put_immutable( args, config_path=CONFIG_PATH, password=None ):
         data = json.loads(args.data)
     except:
         return {'error': "Invalid JSON"}
+ 
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
 
-    conf = config.get_config( config_path )
-    result = put_immutable(fqu,
-                           str(args.data_id),
-                           data)
+    owner_privkey_info = wallet_keys['owner_privkey']
+    payment_privkey_info = wallet_keys['payment_privkey']
 
+    res = operation_sanity_check(fqu, payment_privkey_info, owner_privkey_info, config_path=config_path)
+    if 'error' in res:
+        return res
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    result = put_immutable( fqu, str(args.data_id), data, wallet_keys=wallet_keys, proxy=proxy ) 
     return result
 
 
-def cli_advanced_get_mutable( args, config_path=CONFIG_PATH ):
+def cli_advanced_get_mutable( args, config_path=CONFIG_PATH, proxy=None ):
     """
     command: get_mutable
     help: Get mutable data from a profile
@@ -1846,20 +1959,24 @@ def cli_advanced_get_mutable( args, config_path=CONFIG_PATH ):
     arg: data_id (str) "The name of the data"
     """
     conf = config.get_config( config_path )
-    result = get_mutable(str(args.name), str(args.data_id),
-                         conf=conf)
+    if proxy is None:
+        proxy = get_default_proxy()
 
+    result = get_mutable(str(args.name), str(args.data_id), proxy=proxy, conf=conf)
     return result 
 
 
-def cli_advanced_get_immutable( args, config_path=CONFIG_PATH ):
+def cli_advanced_get_immutable( args, config_path=CONFIG_PATH, proxy=None ):
     """
     command: get_immutable
     help: Get immutable data from a zonefile
     arg: name (str) "The name that has the data"
     arg: data_id_or_hash (str) "Either the name or the SHA256 of the data to obtain"
     """
-    result = get_immutable(str(args.name), str(args.data_id_or_hash))
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    result = get_immutable(str(args.name), str(args.data_id_or_hash), proxy=proxy)
     return result
 
 
@@ -1894,7 +2011,7 @@ def cli_advanced_list_immutable_data_history( args, config_path=CONFIG_PATH ):
     return result
 
 
-def cli_advanced_delete_immutable( args, config_path=CONFIG_PATH ):
+def cli_advanced_delete_immutable( args, config_path=CONFIG_PATH, proxy=None, password=None ):
     """
     command: delete_immutable norpc
     help: Delete an immutable datum from a zonefile.
@@ -1911,8 +2028,26 @@ def cli_advanced_delete_immutable( args, config_path=CONFIG_PATH ):
     if 'error' in res:
         return res
 
-    result = delete_immutable(str(args.name), str(args.hash))
+    fqu = str(args.name)
+    error = check_valid_name(fqu)
+    if error:
+        return {'error': error}
+ 
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
 
+    owner_privkey_info = wallet_keys['owner_privkey']
+    payment_privkey_info = wallet_keys['payment_privkey']
+
+    res = operation_sanity_check(fqu, payment_privkey_info, owner_privkey_info, config_path=config_path)
+    if 'error' in res:
+        return res
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    result = delete_immutable(str(args.name), str(args.hash), proxy=proxy, wallet_keys=wallet_keys )
     return result
 
 
@@ -1994,7 +2129,16 @@ def cli_advanced_get_name_zonefile( args, config_path=CONFIG_PATH ):
     help: Get a name's zonefile, as a JSON dict
     arg: name (str) "The name to query"
     """
-    result = get_name_zonefile(str(args.name))
+    result = get_name_zonefile(str(args.name), raw_zonefile=True)
+    if 'error' in result:
+        return result
+
+    # try to parse
+    try:
+        result['zonefile'] = blockstack_zones.parse_zone_file( result['zonefile'] )
+    except:
+        result['warning'] = 'Non-standard zonefile'
+
     return result
 
 
@@ -2151,7 +2295,7 @@ def cli_advanced_set_profile( args, config_path=CONFIG_PATH, password=None, prox
     command: set_profile norpc
     help: Directly set a profile's JSON.
     arg: name (str) "The name to set the profile for"
-    arg: data (str) "The JSON to set as the profile"
+    arg: data (str) "The profile as a JSON string, or a path to the profile."
     """
 
     conf = config.get_config(config_path)
@@ -2162,6 +2306,15 @@ def cli_advanced_set_profile( args, config_path=CONFIG_PATH, password=None, prox
         proxy = get_default_proxy()
 
     profile = None
+    if is_valid_path(profile_json_str) and os.path.exists(profile_json_str):
+        # this is a path.  try to load it
+        try:
+            with open(profile_json_str, "r") as f:
+                profile_json_str = f.read()
+        except:
+            return {'error': 'Failed to load "%s"' % profile_json_str}
+
+    # try to parse it
     try:
         profile = json.loads(profile_json_str)
     except:
@@ -2179,6 +2332,7 @@ def cli_advanced_set_profile( args, config_path=CONFIG_PATH, password=None, prox
     if 'error' in user_zonefile:
         return user_zonefile
 
+    user_zonefile = user_zonefile['zonefile']
     if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
         return {'error': "Profile in legacy format.  Please migrate it with the 'migrate' command first."}
 
@@ -2189,14 +2343,16 @@ def cli_advanced_set_profile( args, config_path=CONFIG_PATH, password=None, prox
         return {'status': True}
 
 
-def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, proxy=None ):
+def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, proxy=None, interactive=True, allow_invalid_zonefile=False ):
     """
     command: sync_zonefile
-    help: Upload the current zonefile to all storage providers.
-    arg: name (str) "Name of the zonefile to synchronize."
-    opt: txid (str) "NAME_UPDATE transaction ID that set the zonefile."
-    opt: zonefile (str) "The zonefile (JSON or text), if unavailable from other sources."
+    help: Upload the current zone file to all storage providers.
+    arg: name (str) "Name of the zone file to synchronize."
+    opt: txid (str) "NAME_UPDATE transaction ID that set the zone file."
+    opt: zonefile (str) "The zone file (JSON or text), if unavailable from other sources."
     """
+
+    # TODO: raw zonefile
     conf = config.get_config(config_path)
  
     assert 'server' in conf.keys()
@@ -2217,18 +2373,37 @@ def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, proxy=None ):
     zonefile_hash = None
 
     if hasattr(args, "zonefile") and getattr(args, "zonefile") is not None:
-        user_data_res = load_zonefile( name, args.zonefile )
-        if 'error' in user_data_res:
-            log.error("Failed to load zonefile: %s" % (user_data_res['error']))
-            return {'error': "Failed to load zonefile from the CLI"}
+        # zonefile given
+        user_data = args.zonefile
+        valid = False
+        try:
+            user_data_res = load_zonefile( name, user_data )
+            if 'error' in user_data_res:
+                log.warning("Failed to parse zonefile (reason: %s)" % user_data_res['error'])
+            else:
+                valid = True
+
+        except Exception, e:
+            if os.environ.get("BLOCKSTACK_DEBUG", None) == "1":
+                log.exception(e)
+            valid = False
+
+        # if it's not a valid zonefile, ask if the user wants to sync 
+        if not valid and interactive:
+            proceed = prompt_invalid_zonefile()
+            if not proceed:
+                return {'error': 'Not replicating invalid zone file'}
     
+        elif not valid and not allow_invalid_zonefile:
+            return {'error': 'Not replicating invalid zone file'}
+
     if txid is None or user_data is None:
     
         # load zonefile and txid from queue?
         queued_data = queuedb_find( "update", name, path=queue_path )
         if len(queued_data) > 0:
 
-            # find the current one
+            # find the current one (get raw zonefile)
             for queued_zfdata in queued_data:
                 update_data = queued_zfdata.get('data', None)
                 if update_data is None:
@@ -2244,19 +2419,13 @@ def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, proxy=None ):
                 if zfdata is None:
                     continue
 
-                user_data_res = load_zonefile( name, json.dumps(zfdata), check_current=False )
-                if 'error' in user_data_res:
-                    # try again 
-                    log.warning("Failed to load zonefile: %s (zonefile = %s)" % (user_data_res['error'], zfdata))
-                
-                else:
-                    user_data = zfdata
-                    txid = queued_zfdata.get('tx_hash',None)
-                    break
- 
+                user_data = zfdata
+                txid = queued_zfdata.get('tx_hash', None)
+
+
         if user_data is None:
             # not in queue.  Maybe it's available from one of the storage drivers?
-            user_data = get_name_zonefile( name )
+            user_data = get_name_zonefile( name, raw_zonefile=True )
             if user_data is None:
                 user_data = {'error': 'No data loaded'}
  
@@ -2264,8 +2433,10 @@ def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, proxy=None ):
                 log.error("Failed to get zonefile: %s" % user_data['error'])
                 return user_data
 
+            user_data = user_data['zonefile']
+
         # have user data
-        zonefile_hash = storage.hash_zonefile( user_data )
+        zonefile_hash = storage.get_zonefile_data_hash( user_data )
 
         if txid is None:
             # not in queue.  Fetch from blockstack server
@@ -2293,7 +2464,7 @@ def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, proxy=None ):
             return {'error': "Unable to lookup txid that wrote zonefile"}
  
     # can proceed to replicate
-    res = zonefile_replicate( name, user_data, txid, [(conf['server'], conf['port'])], config_path=config_path )
+    res = zonefile_data_replicate( name, user_data, txid, [(conf['server'], conf['port'])], config_path=config_path )
     if 'error' in res:
         log.error("Failed to replicate zonefile: %s" % res['error'])
         return res
