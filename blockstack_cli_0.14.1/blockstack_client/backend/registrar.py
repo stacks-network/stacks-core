@@ -25,6 +25,7 @@ import os
 import sys
 import random
 import signal
+import base64
 
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -49,10 +50,10 @@ from .nameops import async_preorder, async_register, async_update, async_transfe
 from .blockchain import get_block_height
 
 from ..keys import get_data_privkey_info, is_singlesig, is_multisig, get_privkey_info_address, get_privkey_info_params, encrypt_private_key_info, decrypt_private_key_info
-from ..proxy import is_name_registered, is_zonefile_current, is_name_owner, get_default_proxy, get_name_blockchain_record, get_name_cost
-from ..profile import zonefile_publish, store_name_zonefile, get_and_migrate_profile, zonefile_replicate
-from ..user import make_empty_user_zonefile 
-from ..storage import put_mutable_data, put_immutable_data, hash_zonefile
+from ..proxy import is_name_registered, is_zonefile_hash_current, is_name_owner, get_default_proxy, get_name_blockchain_record, get_name_cost
+from ..profile import get_and_migrate_profile, zonefile_data_replicate
+from ..user import make_empty_user_zonefile, is_user_zonefile 
+from ..storage import put_mutable_data, put_immutable_data, hash_zonefile, get_zonefile_data_hash
 
 from .crypto.utils import aes_decrypt, aes_encrypt
 
@@ -367,36 +368,49 @@ class RegistrarWorker(threading.Thread):
         Return {'status': True} on success
         Return {'error': ...} on error
         """
-      
+     
         # is the zonefile hash replicated?
         zonefile_data = name_data['zonefile']
         if zonefile_data is None:
             log.debug("No zonefile set for %s" % name_data['fqu'])
             return {'status': True}
 
-        zonefile_hash = hash_zonefile( zonefile_data )
+        zonefile_hash = name_data.get('zonefile_hash', None)
+        if zonefile_hash is None:
+            zonefile_hash = get_zonefile_data_hash( zonefile_data )
+
         name_rec = get_name_blockchain_record( name_data['fqu'], proxy=proxy )
         if 'error' in name_rec:
             return name_rec
 
         if os.environ.get("BLOCKSTACK_TEST", None) == "1":
-            log.debug("Replicate zonefile %s (blockchain: %s):\n%s" % (zonefile_hash, name_rec['value_hash'], json.dumps(zonefile_data, indent=4, sort_keys=True)))
+            log.debug("Replicate zonefile %s (blockchain: %s)" % (zonefile_hash, name_rec['value_hash']))
 
         if str(name_rec['value_hash']) != zonefile_hash:
             log.error("Zonefile %s has not been confirmed yet (still on %s)" % (zonefile_hash, name_rec['value_hash']))
             return {'error': 'Zonefile hash not yet replicated'}
 
-        res = zonefile_replicate( name_data['fqu'], zonefile_data, name_data['tx_hash'], servers, config_path=config_path, storage_drivers=storage_drivers )
+        res = zonefile_data_replicate( name_data['fqu'], zonefile_data, name_data['tx_hash'], servers, config_path=config_path, storage_drivers=storage_drivers )
         if 'error' in res:
             log.error("Failed to replicate zonefile %s for %s: %s" % (zonefile_hash, name_data['fqu'], res['error']))
             return res
 
-        log.info("Replicated zonefile for %s to %s server(s)" % (name_data['fqu'], len(res['servers'])))
+        log.info("Replicated zonefile data for %s to %s server(s)" % (name_data['fqu'], len(res['servers'])))
 
         # replicate profile to storage, if given
         # use the data keypair
         if name_data.has_key('profile') and name_data['profile'] is not None:
-            data_privkey = get_data_privkey_info( zonefile_data, wallet_keys=wallet_data, config_path=config_path )
+            # only works this is actually a zonefile, since we need to use
+            # the zonefile to find the appropriate data private key.
+            zonefile = None
+            try:
+                zonefile = json.loads(zonefile_data)
+                assert is_user_zonefile( zonefile )
+            except:
+                log.warning("Not a zone file; not replicating profile for %s" % name_data['fqu'])
+                return {'status': True}
+
+            data_privkey = get_data_privkey_info( zonefile, wallet_keys=wallet_data, config_path=config_path )
             assert data_privkey is not None, "No data private key"
 
             log.info("Replicate profile data for %s to %s" % (name_data['fqu'], ",".join(storage_drivers)))
@@ -964,13 +978,21 @@ def preorder(fqu, config_path=None, proxy=None):
     return data
 
 
-def update( fqu, zonefile, profile, zonefile_hash, config_path=None, proxy=None ):
+def update( fqu, zonefile_txt_b64, profile, zonefile_hash, config_path=None, proxy=None ):
     """
-    Send a new zonefile hash.  Queue the zonefile for subsequent replication.
+    Send a new zonefile hash.  Queue the zonefile data for subsequent replication.
     """
 
-    assert zonefile is not None or zonefile_hash is not None, "need zonefile or zonefile hash"
+    assert zonefile_txt_b64 is not None or zonefile_hash is not None, "need zonefile or zonefile hash"
 
+    try:
+        zonefile_txt = base64.b64decode(zonefile_txt_b64)
+    except:
+        return {'error': 'Invalid base64 zonefile'}
+
+    if zonefile_hash is None:
+        zonefile_hash = get_zonefile_data_hash( zonefile_txt )
+        
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     data = {}
 
@@ -991,11 +1013,9 @@ def update( fqu, zonefile, profile, zonefile_hash, config_path=None, proxy=None 
 
     replication_error = None
 
-    if zonefile is None or not is_zonefile_current(fqu, zonefile, proxy=proxy ):
-        if zonefile_hash is None:
-            zonefile_hash = hash_zonefile(zonefile)
-
-        resp = async_update(fqu, zonefile, profile,
+    if not is_zonefile_hash_current(fqu, zonefile_hash, proxy=proxy ):
+        # new zonefile data
+        resp = async_update(fqu, zonefile_txt, profile,
                             owner_privkey_info,
                             payment_privkey_info,
                             zonefile_hash=zonefile_hash,
@@ -1113,16 +1133,23 @@ def migrate( fqu, config_path=None, proxy=None ):
     if not legacy:
         return {'success': True}
 
+    user_zonefile = user_zonefile['zonefile']
+    user_profile = user_profile['profile']
+    
     resp = None
 
     payment_privkey_info = get_wallet_payment_privkey_info()
     owner_privkey_info = get_wallet_owner_privkey_info()
     replication_error = None
 
-    if not is_zonefile_current(fqu, user_zonefile, proxy=proxy ):
-        resp = async_update(fqu, user_zonefile, user_profile,
+    zonefile_txt = blockstack_zones.make_zone_file( user_zonefile )
+    zonefile_hash = get_zonefile_data_hash( zonefile_txt )
+
+    if not is_zonefile_hash_current(fqu, zonefile_hash, proxy=proxy ):
+        resp = async_update(fqu, zonefile_txt, user_profile,
                             owner_privkey_info,
                             payment_privkey_info,
+                            zonefile_hash=zonefile_hash,
                             proxy=proxy,
                             config_path=config_path,
                             queue_path=state.queue_path)
