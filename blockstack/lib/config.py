@@ -105,6 +105,11 @@ Specifically:
     * PRICE_MULTIPLIER:                 constant to multiply name and namespace prices by
 """
 EPOCH_FIELDS = [
+    "end_block",
+    "namespaces"
+]
+
+EPOCH_NAMESPACE_FIELDS = [
     "NAMESPACE_LIFETIME_MULTIPLIER",
     "PRICE_MULTIPLIER"
 ]
@@ -114,8 +119,8 @@ EPOCH_NOW = -1
 EPOCH_1_END_BLOCK = 436000
 EPOCH_2_END_BLOCK = EPOCH_NOW
 
-EPOCH_1_PRICE_MULTIPLIER = 1.0
-EPOCH_2_PRICE_MULTIPLIER = 0.417
+EPOCH_1_PRICE_MULTIPLIER_id = 1.0
+EPOCH_2_PRICE_MULTIPLIER_id = 1.0
 
 NUM_EPOCHS = 2
 for i in xrange(1, NUM_EPOCHS+1):
@@ -125,7 +130,7 @@ for i in xrange(1, NUM_EPOCHS+1):
         log.warn("EPOCH_%s_END_BLOCK = %s" % (i, eval("EPOCH_%s_END_BLOCK" % i)))
 
     if os.environ.get("BLOCKSTACK_EPOCH_%s_PRICE_MULTIPLIER" % i, None) is not None and os.environ.get("BLOCKSTACK_TEST", None) == "1":
-        exec("EPOCH_%s_PRICE_MULTIPLIER = float(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_PRICE_MULTIPLIER" % i)))
+        exec("EPOCH_%s_PRICE_MULTIPLIER_id = float(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_PRICE_MULTIPLIER" % i)))
         log.warn("EPOCH_%s_PRICE_MULTIPLIER = %s" % (i, eval("EPOCH_%s_PRICE_MULTIPLIER" % i)))
 
 del i
@@ -137,23 +142,41 @@ EPOCHS = [
     {
         # epoch 1
         "end_block": EPOCH_1_END_BLOCK,
-        "NAMESPACE_LIFETIME_MULTIPLIER": 1,
-        "PRICE_MULTIPLIER": EPOCH_1_PRICE_MULTIPLIER             # meant for when 1 BTC was ~$250 USD
+        "namespaces": {
+            "id": {
+                "NAMESPACE_LIFETIME_MULTIPLIER": 1,
+                "PRICE_MULTIPLIER": EPOCH_1_PRICE_MULTIPLIER_id
+            }
+        }
     },
     {
         # epoch 2
         "end_block": EPOCH_2_END_BLOCK,
-        "NAMESPACE_LIFETIME_MULTIPLIER": 2,
-        "PRICE_MULTIPLIER": EPOCH_2_PRICE_MULTIPLIER           # price of bitcoin when epoch 2 began: ~$600 USD
+        "namespaces": {
+            "id": {
+                "NAMESPACE_LIFETIME_MULTIPLIER": 5,
+                "PRICE_MULTIPLIER": EPOCH_2_PRICE_MULTIPLIER_id
+            }
+        }
     }
 ]
 
+# if we're testing, then add the same rules for the 'test' namespace
+if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+    for i in xrange(0, len(EPOCHS)):
+        EPOCHS[i]['namespaces']['test'] = EPOCHS[i]['namespaces']['id']
 
 # epoch self-consistency check 
 for epoch_field in EPOCH_FIELDS:
     for i in xrange(0, len(EPOCHS)):
         if not EPOCHS[i].has_key(epoch_field):
             raise Exception("Missing field '%s' at epoch %s" % (epoch_field, i))
+
+for i in xrange(0, len(EPOCHS)):
+    for nsid in EPOCHS[i]['namespaces']:
+        for epoch_field in EPOCH_NAMESPACE_FIELDS:
+            if not EPOCHS[i]['namespaces'][nsid].has_key(epoch_field):
+                raise Exception("Missing field '%s' at epoch %s in namespace '%s'" % (epoch_field, i, nsid))
 
 if EPOCHS[len(EPOCHS)-1]['end_block'] != EPOCH_NOW:
     raise Exception("Last epoch ends at %s" % EPOCHS[len(EPOCHS)-1]['end_block'])
@@ -168,7 +191,7 @@ for i in xrange(0, len(EPOCHS)-1):
 
 del epoch_field
 del i 
-
+del nsid
 
 """ magic bytes configs
 """
@@ -453,20 +476,26 @@ def get_epoch_config( block_height ):
     os.abort()
 
 
-def get_epoch_namespace_lifetime_multiplier( block_height ):
+def get_epoch_namespace_lifetime_multiplier( block_height, namespace_id ):
     """
     what's the namespace lifetime multipler for this epoch?
     """
     epoch_config = get_epoch_config( block_height )
-    return epoch_config['NAMESPACE_LIFETIME_MULTIPLIER']
+    if epoch_config['namespaces'].has_key(namespace_id):
+        return epoch_config['namespaces'][namespace_id]['NAMESPACE_LIFETIME_MULTIPLIER']
+    else:
+        return 1
 
 
-def get_epoch_price_multiplier( block_height ):
+def get_epoch_price_multiplier( block_height, namespace_id ):
     """
     what's the price multiplier for this epoch?
     """
     epoch_config = get_epoch_config( block_height )
-    return epoch_config['PRICE_MULTIPLIER']
+    if epoch_config['namespaces'].has_key(namespace_id):
+        return epoch_config['namespaces'][namespace_id]['PRICE_MULTIPLIER']
+    else:
+        return 1
 
 
 """
