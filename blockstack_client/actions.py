@@ -925,11 +925,15 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
         try:
             cost = fees['total_estimated_cost']
             input_prompt = "Registering %s will cost %s BTC." % (fqu, float(cost)/(10**8))
-            input_prompt += " Continue? (y/n): "
+            input_prompt+= "The entire process takes 30 confirmations, or about 5 hours."
+            input_prompt+= "You need to have Internet access during this time period, so"
+            input_prompt+= "this program can send the right transactions at the right"
+            input_prompt+= "times.\n"
+            input_prompt += "Continue? (Y/n): "
             user_input = raw_input(input_prompt)
             user_input = user_input.lower()
 
-            if user_input != 'y':
+            if user_input.lower() != 'y':
                 print "Not registering."
                 exit(0)
         except KeyboardInterrupt:
