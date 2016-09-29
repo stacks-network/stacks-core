@@ -1147,24 +1147,30 @@ class BlockstackDB( virtualchain.StateEngine ):
             return True
 
 
-    def is_new_preorder( self, preorder_hash ):
+    def is_new_preorder( self, preorder_hash, lastblock=None ):
         """
         Given a preorder hash of a name, determine whether or not it is unseen before.
         """
 
-        preorder = namedb_get_name_preorder( self.db, preorder_hash, self.lastblock )
+        if lastblock is None:
+            lastblock = self.lastblock 
+
+        preorder = namedb_get_name_preorder( self.db, preorder_hash, lastblock )
         if preorder is not None:
             return False
         else:
             return True
 
 
-    def is_new_namespace_preorder( self, namespace_id_hash ):
+    def is_new_namespace_preorder( self, namespace_id_hash, lastblock=None ):
         """
         Given a namespace preorder hash, determine whether or not is is unseen before.
         """
 
-        preorder = namedb_get_namespace_preorder( self.db, namespace_id_hash, self.lastblock )
+        if lastblock is None:
+            lastblock = self.lastblock 
+
+        preorder = namedb_get_namespace_preorder( self.db, namespace_id_hash, lastblock )
         if preorder is not None:
             return False 
         else:
