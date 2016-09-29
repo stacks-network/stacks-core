@@ -2852,7 +2852,7 @@ class AtlasPeerCrawler( threading.Thread ):
         """
         Get the canonical peer name
         """
-        their_host, their_port = url_to_host_port( peer_hostport )
+        their_host, their_port = url_to_host_port( peer )
 
         if their_host in ['127.0.0.1', '::1']:
             their_host = 'localhost'
