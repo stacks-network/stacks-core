@@ -254,17 +254,17 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
 
         # name must be owned by the recipient already
         if not state_engine.is_name_owner( name, recipient ):
-            log.debug("Renew: Name '%s' not owned by recipient %s" % (name, recipient))
+            log.debug("Renew: Name '%s' is registered but not owned by recipient %s" % (name, recipient))
             return False
 
         # name must be owned by the sender
         if not state_engine.is_name_owner( name, sender ):
-            log.debug("Renew: Name '%s' not owned by sender %s" % (name, sender))
+            log.debug("Renew: Name '%s' is registered but not owned by sender %s" % (name, sender))
             return False
 
         # fee borne by the renewal
         if not 'op_fee' in nameop:
-            log.debug("Renew: Name '%s' renewal did not pay the fee" % (name))
+            log.debug("Renew: Name '%s' is registered but renewal did not pay the fee" % (name))
             return False
         
         log.debug("Renewing name '%s'" % name )
