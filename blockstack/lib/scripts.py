@@ -152,7 +152,7 @@ def price_name( name, namespace, block_height ):
    if price < NAME_COST_UNIT:
        price = NAME_COST_UNIT
 
-   price_multiplier = get_epoch_price_multiplier( block_height )
+   price_multiplier = get_epoch_price_multiplier( block_height, namespace['namespace_id'] )
    return price * price_multiplier
 
 
@@ -161,7 +161,7 @@ def price_namespace( namespace_id, block_height ):
    Calculate the cost of a namespace.
    """
 
-   price_multiplier = get_epoch_price_multiplier( block_height )
+   price_multiplier = get_epoch_price_multiplier( block_height, namespace_id )
 
    if len(namespace_id) == 1:
        return NAMESPACE_1_CHAR_COST * price_multiplier
