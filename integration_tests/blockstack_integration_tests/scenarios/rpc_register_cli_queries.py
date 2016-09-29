@@ -304,8 +304,8 @@ def check( state_engine ):
             print "missing '%s'\n%s" % (k, json.dumps(lookup_info, indent=4, sort_keys=True))
             return False
 
-    if lookup_info['zonefile'] != zonefile_info:
-        print "unequal zonefiles:\n%s\n%s" % (json.dumps(lookup_info['zonefile'], indent=4, sort_keys=True), json.dumps(zonefile_info, indent=4, sort_keys=True))
+    if lookup_info['zonefile'] != zonefile_info['zonefile']:
+        print "unequal zonefiles:\n%s\n%s" % (json.dumps(lookup_info['zonefile'], indent=4, sort_keys=True), json.dumps(zonefile_info['zonefile'], indent=4, sort_keys=True))
         return False
 
     # update history

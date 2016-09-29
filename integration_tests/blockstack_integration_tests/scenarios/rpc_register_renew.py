@@ -27,6 +27,8 @@ import time
 import json
 import sys
 import blockstack_client
+import blockstack as blockstack_servers
+from blockstack_client.config import DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -38,10 +40,11 @@ wallets = [
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 zonefile_hash = None
+final_balance = None
 
 def scenario( wallets, **kw ):
 
-    global zonefile_hash
+    global zonefile_hash, final_balance
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
@@ -57,7 +60,7 @@ def scenario( wallets, **kw ):
     if 'error' in resp:
         print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
         return False
-   
+
     # wait for the preorder to get confirmed
     for i in xrange(0, 12):
         testlib.next_block( **kw )
@@ -69,6 +72,10 @@ def scenario( wallets, **kw ):
 
     # wait for the register to get confirmed 
     for i in xrange(0, 12):
+        # warn the serialization checker that this changes behavior from 0.13
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+        
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
@@ -76,6 +83,10 @@ def scenario( wallets, **kw ):
 
     # wait for initial update to get confirmed 
     for i in xrange(0, 12):
+        # warn the serialization checker that this changes behavior from 0.13
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+        
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
@@ -106,12 +117,20 @@ def scenario( wallets, **kw ):
     
     # wait for it to go through 
     for i in xrange(0, 12):
+        # warn the serialization checker that this changes behavior from 0.13
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+        
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowedge the update"
     time.sleep(10)
     # wait for it to go through 
     for i in xrange(0, 12):
+        # warn the serialization checker that this changes behavior from 0.13
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+        
         testlib.next_block( **kw )
 
     # renew it 
@@ -136,6 +155,7 @@ def scenario( wallets, **kw ):
         print >> sys.stderr, "Renewal didn't go through: %s --> %s" % (old_expire_block, new_expire_block)
         return False
 
+    final_balance = testlib.getbalance( wallets[2].addr )
 
 
 def check( state_engine ):
@@ -191,4 +211,14 @@ def check( state_engine ):
         print "Still in queue:\n%s" % json.dumps(queue_info, indent=4, sort_keys=True)
         return False
 
+    # final balance is correct?
+    name_fee = blockstack_server.price_name( "foo", ns, new_expire_block )
+    preorder_dust_fees = 3 * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
+    register_dust_fees = 4 * DEFAULT_DUST_FEE + DEfAULT_OP_RETURN_FEE
+    renewal_dust_fees = 3 * DEFAULT_DUST_FEE + DEfAULT_OP_RETURN_FEE
+
+    total_fee = name_fee * 2 + preorder_dust_fees + register_dust_fees + renewal_dust_fees 
+    payment_address = wallets[2].addr
+    
+    # TODO: check
     return True

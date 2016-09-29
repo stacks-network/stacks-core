@@ -66,6 +66,10 @@ def scenario( wallets, **kw ):
 
         # wait for the registers to get confirmed 
         for i in xrange(0, 15):
+            # tell serialization-checker that value_hash can be ignored here
+            print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+            sys.stdout.flush()
+            
             testlib.next_block( **kw )
 
         print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registrations on foo_%s.test" % i
@@ -73,6 +77,10 @@ def scenario( wallets, **kw ):
 
         # wait for update to get confirmed 
         for i in xrange(0, 15):
+            # warn the serialization checker that this changes behavior from 0.13
+            print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+            sys.stdout.flush()
+            
             testlib.next_block( **kw )
 
         print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update on foo_%s.test" % i
