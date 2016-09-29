@@ -120,7 +120,6 @@ class TestAPIProxy(object):
         try:
             def inner(*args, **kw):
                 rc = None
-                # use the UTXO client and mock bitcoind in RAM
                 if name == 'get_unspents':
                     r = get_unspents(*args, **kw)
 
@@ -268,7 +267,7 @@ def blockstack_name_preorder( name, privatekey, register_addr, wallet=None, subs
     return resp
 
 
-def blockstack_name_register( name, privatekey, register_addr, wallet=None, renewal_fee=None, subsidy_key=None, user_public_key=None, safety_checks=False ):
+def blockstack_name_register( name, privatekey, register_addr, wallet=None, subsidy_key=None, user_public_key=None, safety_checks=False ):
     
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
@@ -279,7 +278,7 @@ def blockstack_name_register( name, privatekey, register_addr, wallet=None, rene
     if wallet is not None:
         register_privkey_params = get_privkey_info_params( wallet.privkey )
 
-    resp = blockstack_client.do_register( name, privatekey, register_addr, test_proxy, test_proxy, owner_privkey_params=register_privkey_params, renewal_fee=renewal_fee, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
+    resp = blockstack_client.do_register( name, privatekey, register_addr, test_proxy, test_proxy, owner_privkey_params=register_privkey_params, config_path=test_proxy.config_path, proxy=test_proxy, safety_checks=safety_checks )
     api_call_history.append( APICallRecord( "register", name, resp ) )
     return resp
 
@@ -487,7 +486,7 @@ def blockstack_cli_update( name, zonefile_json, password ):
     args.name = name
     args.data = zonefile_json 
 
-    resp = cli_update( args, config_path=test_proxy.config_path, password=password )
+    resp = cli_update( args, config_path=test_proxy.config_path, password=password, interactive=False, allow_invalid_zonefile=True )
 
     if 'value_hash' in resp:
         atlas_zonefiles_present.append( resp['value_hash'] )
@@ -565,7 +564,7 @@ def blockstack_cli_set_zonefile_hash( name, zonefile_hash ):
     return resp
 
 
-def blockstack_cli_sync_zonefile( name, zonefile_string=None, txid=None ):
+def blockstack_cli_sync_zonefile( name, zonefile_string=None, txid=None, interactive=False, allow_invalid_zonefile=True ):
     """
     Forcibly synchronize the zonefile
     """
@@ -579,7 +578,7 @@ def blockstack_cli_sync_zonefile( name, zonefile_string=None, txid=None ):
     args.zonefile = zonefile_string
     args.txid = txid
 
-    resp = cli_advanced_sync_zonefile( args, config_path=test_proxy.config_path, proxy=test_proxy )
+    resp = cli_advanced_sync_zonefile( args, config_path=test_proxy.config_path, proxy=test_proxy, interactive=interactive, allow_invalid_zonefile=allow_invalid_zonefile )
     if 'value_hash' in resp:
         atlas_zonefiles_present.append( resp['value_hash'] )
 
@@ -939,7 +938,7 @@ def blockstack_cli_advanced_delete_immutable( name, hash_str, config_path=CONFIG
     delete immutable
     """
     test_proxy = make_proxy()
-    blockstack_client.set_default_proxy( teist_proxy )
+    blockstack_client.set_default_proxy( test_proxy )
     args = CLIArgs()
 
     args.name = name
@@ -1271,7 +1270,7 @@ def tx_sign_all_unsigned_inputs( tx_hex, privkey ):
 
 def sendrawtransaction( tx_hex, **kw ):
     """
-    Send a raw transaction to the mock bitcoind
+    Send a raw transaction to the regtest bitcoind
     """
     global bitcoind
     return bitcoind.sendrawtransaction( tx_hex )
@@ -1279,17 +1278,25 @@ def sendrawtransaction( tx_hex, **kw ):
 
 def getrawtransaction( txid, verbose, **kw ):
     """
-    Get a raw transaction from the mock bitcoind
+    Get a raw transaction from the regtest bitcoind
     """
     global bitcoind
     return bitcoind.getrawtransaction( txid, verbose )
+
+
+def getbalance( addr, **kw ):
+    """
+    Get the balance of an address
+    """
+    global bitcoind
+    return bitcoind.getbalance( addr )
 
 
 def next_block( **kw ):
     """
     Advance the mock blockchain by one block.
     Required keyword arguments:
-    * bitcoind: the mock bitcoind
+    * bitcoind: the regtest bitcoind connection
     * sync_virtualchain_upcall: a no-argument callable that will sync
     the blockstack db with the virtual chain
     """
@@ -1686,6 +1693,9 @@ def migrate_profile( name, proxy=None, wallet_keys=None ):
 
     if not legacy:
         return {'status': True}
+
+    user_zonefile = user_zonefile['zonefile']
+    user_profile = user_profile['profile']
 
     payment_privkey_info = blockstack_client.get_payment_privkey_info( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
     owner_privkey_info = blockstack_client.get_owner_privkey_info( wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
