@@ -263,8 +263,8 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
         new_entry['zonefile_b64'] = base64.b64encode(zonefile_data)
 
     new_entry['profile'] = profile
-    if zonefile_hash is None and zonefile is not None:
-        zonefile_hash = hash_zonefile(zonefile)
+    if zonefile_hash is None and zonefile_data is not None:
+        zonefile_hash = hash_zonefile(zonefile_data)
 
     if zonefile_hash is not None:
         new_entry['zonefile_hash'] = zonefile_hash
