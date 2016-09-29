@@ -226,7 +226,7 @@ def store_cached_zonefile( zonefile_dict, zonefile_dir=None ):
     return store_cached_zonefile_data( zonefile_data, zonefile_dir=zonefile_dir )
 
 
-def get_zonefile_data_txid( zonefile_data, name=None ):
+def get_zonefile_data_txid( zonefile_data, name ):
     """
     Look up the transaction ID of the transaction
     that wrote this zonefile.
@@ -235,36 +235,18 @@ def get_zonefile_data_txid( zonefile_data, name=None ):
     """
    
     zonefile_hash = get_zonefile_data_hash( zonefile_data )
-    names = []
     txid = None 
 
     db = get_db_state()
 
-    if name is not None:
-        name_rec = db.get_name( name )
-        if name_rec is None:
-            db.close()
-            log.debug("Invalid name '%s'" % name)
-            return None 
-
-        names = [name]
-
-    else:
-        names = db.get_names_with_value_hash( zonefile_hash )
-        if names is None:
-            names = []
-
-    if len(names) == 0:
+    name_rec = db.get_name( name )
+    if name_rec is None:
         db.close()
-        log.debug("Not a current zonefile hash: %s" % zonefile_hash)
-        return None
-
-    for name in names:
-        # must be a valid name 
-        txid = db.get_name_value_hash_txid( name, zonefile_hash )
-        if txid is not None:
-            break
-
+        log.debug("Invalid name '%s'" % name)
+        return None 
+        
+    # must be a valid name 
+    txid = db.get_name_value_hash_txid( name, zonefile_hash )
     db.close()
 
     if txid is None:
@@ -290,14 +272,15 @@ def store_zonefile_data_to_storage( zonefile_text, required=[], cache=False, zon
     txid = None
 
     # this can be turned off in testing in a network simulator 
-    if os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION") != "1":
+    if os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION") != "1" and name is not None:
 
         # find the tx that paid for this zonefile
-        txid = get_zonefile_data_txid( zonefile_text, name=name )
+        txid = get_zonefile_data_txid( zonefile_text, name )
         if tx_required and txid is None:
             log.error("No txid for zonefile hash '%s' (for '%s')" % (zonefile_hash, name))
             return False
-   
+  
+    # NOTE: this can fail if one of the required drivers needs a non-null txid
     rc = blockstack_client.storage.put_immutable_data( None, txid, data_hash=zonefile_hash, data_text=zonefile_text, required=required )
     if not rc:
         log.error("Failed to store zonefile '%s' (%s) for '%s'" % (zonefile_hash, txid, name))
