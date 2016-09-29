@@ -25,7 +25,13 @@ import testlib
 import pybitcoin
 import json
 import blockstack as blockstack_server
+import sys
 
+# in epoch 2 immediately, but with the old price (in order to test compatibility with 0.13)
+"""
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 250
+TEST ENV BLOCKSTACK_EPOCH_2_PRICE_MULTIPLIER 1.0
+"""
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
     testlib.Wallet( "5KHqsiU9qa77frZb6hQy9ocV7Sus9RWJcQGYYBJJBb2Efj1o77e", 100000000000 ),
@@ -89,7 +95,7 @@ def scenario( wallets, **kw ):
     for i in xrange(0, 8 * NAMESPACE_LIFETIME_MULTIPLIER):
         testlib.next_block( **kw )
 
-    # verify that operations continue to fail
+    # verify that operations continue to fail (BUG IN 0.13: THIS SUCCEEDS HWEN IT SHOULD FAIL)
     resp = testlib.blockstack_name_update( "foo.test", "11" * 20, wallets[3].privkey, safety_checks=False )
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
@@ -112,6 +118,10 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
     fail_blocks.append( testlib.get_current_block( **kw ) )
+    
+    # warn the serialization checker that this changes behavior from 0.13
+    print "BLOCKSTACK_SERIALIZATION_CHANGE_BEHAVIOR"
+    sys.stdout.flush()
     
 
 def check( state_engine ):

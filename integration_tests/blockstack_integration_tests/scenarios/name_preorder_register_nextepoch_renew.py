@@ -64,8 +64,8 @@ def scenario( wallets, **kw ):
     # next epoch takes effect...
     testlib.next_block( **kw )
 
-    # wait for a bit more (namespace lifetime should have doubled)
-    for i in xrange(0, 10):
+    # wait for a bit more (namespace lifetime should have 5x'ed)
+    for i in xrange(0, 40):
         testlib.next_block( **kw )
 
     resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey )
@@ -79,7 +79,7 @@ def scenario( wallets, **kw ):
 def check( state_engine ):
 
     original_price = 6400000
-    curr_price = original_price * blockstack_server.lib.config.EPOCHS[1]['PRICE_MULTIPLIER']
+    curr_price = original_price * blockstack_server.lib.config.get_epoch_price_multiplier( 273, "test" )
 
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "test" )
@@ -107,8 +107,8 @@ def check( state_engine ):
     if name_rec['address'] != wallets[3].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[3].addr):
         return False
 
-    # renewed (22 blocks later)
-    if name_rec['last_renewed'] - 22 != name_rec['first_registered']:
+    # renewed (52 blocks later)
+    if name_rec['last_renewed'] - 52 != name_rec['first_registered']:
         print name_rec['last_renewed']
         print name_rec['first_registered']
         return False
