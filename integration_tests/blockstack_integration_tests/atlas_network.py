@@ -804,7 +804,7 @@ def atlas_peer_rpc( peer_info ):
     """
     Get an RPC client to the running peer
     """
-    rpc = blockstack_client.BlockstackRPCClient( 'localhost', peer_info['port'], timeout=1 )
+    rpc = blockstack_client.BlockstackRPCClient( 'localhost', peer_info['port'], timeout=5 )
     return rpc
 
 
@@ -903,11 +903,27 @@ def atlas_print_network_state( network_des ):
 
         else:
             log.debug("query localhost:%s" % peer_infos[i]['port'])
-            rpc = atlas_peer_rpc( peer_infos[i] )
-            info = rpc.getinfo()
-            neighbor_set = rpc.get_all_neighbor_info()
-            inv_len = info['zonefile_count']
-            peer_inv = atlas_peer_download_zonefile_inventory( None, "localhost:%s" % peer_infos[i]['port'], inv_len )
+            connected = False
+            while True:
+                rpc = atlas_peer_rpc( peer_infos[i] )
+                try:
+                    info = rpc.getinfo()
+                    neighbor_set = rpc.get_all_neighbor_info()
+                    inv_len = info['zonefile_count']
+                    peer_inv = atlas_peer_download_zonefile_inventory( None, "localhost:%s" % peer_infos[i]['port'], inv_len )
+                    connected = True
+                    break
+
+                except socket.timeout:
+                    log.error("Failed to connect to peer localhost:%s" % peer_infos[i]['port'])
+                    traceback.print_exc()
+                    os.abort()
+                except:
+                    log.error("Skipping peer localhost:%s" % peer_infos[i]['port'])
+                    break
+
+            if not connected:
+                return False
         
         peer_inv_str = atlas_inventory_to_string( peer_inv )
 
@@ -955,6 +971,7 @@ def atlas_print_network_state( network_des ):
         print "%020s (%s): %s" % (node_hostport, node_inv_str, "#" * peer_count.get(str(node_hostport), 0))
 
     print ""
+    sys.stdout.flush()
 
 
 def atlas_run_simulation( network_des, lastblock, max_iterations=None ):
