@@ -54,19 +54,13 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
+    resp = testlib.blockstack_name_import( "foo.test", wallets[3].addr, "11" * 20, wallets[1].privkey )
+    if 'error' in resp:
+        print json.dumps( resp, indent=4 )
+
+    testlib.next_block( **kw )
+
     resp = testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
-    if debug or 'error' in resp:
-        print json.dumps( resp, indent=4 )
-
-    testlib.next_block( **kw )
-
-    resp = testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr, wallet=wallets[3] )
-    if debug or 'error' in resp:
-        print json.dumps( resp, indent=4 )
-
-    testlib.next_block( **kw )
-    
-    resp = testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr, wallet=wallets[3] )
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
