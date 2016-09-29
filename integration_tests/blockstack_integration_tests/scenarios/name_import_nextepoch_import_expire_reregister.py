@@ -22,7 +22,7 @@
 """ 
 
 """
-TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 259
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 269
 """
 
 import testlib
@@ -62,7 +62,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
-    resp = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 10, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
+    resp = testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 5, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
@@ -72,9 +72,11 @@ def scenario( wallets, **kw ):
     if 'error' in resp:
         print json.dumps( resp, indent=4 )
 
-    testlib.next_block( **kw )
+    # for funsies, pass the namespace lifetime
+    for i in xrange(0, 10):
+        testlib.next_block( **kw )
 
-    # 259
+    # 269--next epoch
     import_block_1 = testlib.get_current_block( **kw )
 
     testlib.next_block( **kw )
@@ -95,11 +97,24 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
+    # name should definitely not be expired 
+    res = testlib.blockstack_cli_advanced_get_name_blockchain_record( "foo.test" )
+    if 'error' in res:
+        print "name is expired unexpectedly"
+        print json.dumps(res, indent=4, sort_keys=True)
+        return False
+
     # wait for expiration (with multipler)...
-    for i in xrange(0, 10 * blockstack.config.get_epoch_namespace_lifetime_multiplier( testlib.get_current_block(**kw) ) ):
+    for i in xrange(0, 5 * blockstack.config.get_epoch_namespace_lifetime_multiplier( testlib.get_current_block(**kw), "test" ) ):
         testlib.next_block( **kw )
 
-    # re-register
+    # name should definitely be expired 
+    res = testlib.blockstack_cli_advanced_get_name_blockchain_record( "foo.test" )
+    if 'error' not in res:
+        print json.dumps(res, indent=4, sort_keys=True)
+        return False
+
+    # re-register (should work)
     testlib.blockstack_name_preorder( "foo.test", wallets[7].privkey, wallets[8].addr )
     testlib.next_block( **kw )
 
@@ -110,7 +125,7 @@ def scenario( wallets, **kw ):
 def check( state_engine ):
 
     original_price = 6400000
-    curr_price = original_price * blockstack.lib.config.EPOCHS[1]['PRICE_MULTIPLIER']
+    curr_price = original_price * blockstack.lib.config.get_epoch_price_multiplier( 260, "test" )
 
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "test" )

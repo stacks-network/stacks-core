@@ -27,7 +27,13 @@ import json
 import shutil
 import tempfile
 import os
-import blockstack
+import blockstack as blockstack_server
+
+# in epoch 2 immediately, but with the old price (in order to test compatibility with 0.13)
+"""
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 250
+TEST ENV BLOCKSTACK_EPOCH_2_PRICE_MULTIPLIER 1.0
+"""
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),

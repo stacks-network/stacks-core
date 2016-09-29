@@ -21,13 +21,19 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """ 
 
+# in epoch 2 immediately, but with the old price (in order to test compatibility with 0.13)
+"""
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 250
+TEST ENV BLOCKSTACK_EPOCH_2_PRICE_MULTIPLIER 1.0
+"""
+
 import testlib
 import pybitcoin
 import json
 import shutil
 import tempfile
 import os
-import blockstack
+import blockstack as blockstack_server
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -77,7 +83,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # wait for a bit...
-    for i in xrange(0, 6 ):
+    for i in xrange(0, 6):
         testlib.next_block( **kw )
 
     resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey )
@@ -163,7 +169,7 @@ def check( state_engine ):
         print "transfer didn't occur at %s" % transfer_block
         return False
 
-    if historic_name_rec['address'] != wallets[4].addro or historic_name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[4].addr):
+    if historic_name_rec['address'] != wallets[4].addr or historic_name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[4].addr):
         print "address/sender is wrong for transfer: got %s, %s" % (name_rec['address'], name_rec['sender'])
         return False
 
