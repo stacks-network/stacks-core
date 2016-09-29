@@ -1685,6 +1685,10 @@ def run_server( foreground=False, index=True, expected_snapshots=GENESIS_SNAPSHO
     put_pidfile( pid_file, os.getpid() )
     atexit.register( blockstack_exit )
 
+    if index:
+        # clear indexing state
+        set_indexing( False )
+
     # make sure client is initialized 
     get_blockstack_client_session()
 
