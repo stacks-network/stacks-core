@@ -66,8 +66,7 @@ def scenario( wallets, **kw ):
     testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     testlib.next_block( **kw )
 
-    old_namespace_lifetime = blockstack_server.config.get_epoch_namespace_lifetime_multiplier( testlib.get_current_block(**kw) )
-    for i in xrange(0, 5 * old_namespace_lifetime):
+    for i in xrange(0, 5):
         testlib.next_block( **kw )
 
     # epoch shifts here
@@ -85,8 +84,19 @@ def scenario( wallets, **kw ):
     failed_first_block = testlib.get_current_block( **kw )
     testlib.expect_snv_fail_at( "foo.test", failed_first_block )
 
+    # verify it failed
+    rec = testlib.blockstack_cli_advanced_get_name_blockchain_record("foo.test")
+    if 'error' in rec:
+        print json.dumps(rec, indent=4, sort_keys=True)
+        return False
+
+    if rec['first_registered'] != 261:
+        print "invalid first registered"
+        print json.dumps(rec, indent=4, sort_keys=True)
+        return False
+
     # actually expire
-    for i in xrange(0, 5 * blockstack_server.config.get_epoch_namespace_lifetime_multiplier( testlib.get_current_block(**kw) ) - 5 * old_namespace_lifetime):
+    for i in xrange(0, 5 * blockstack_server.config.get_epoch_namespace_lifetime_multiplier( testlib.get_current_block(**kw), "test" ) - 5 - 3):
         testlib.next_block( **kw )
 
     # should work
@@ -105,7 +115,7 @@ def check( state_engine ):
     global last_first_block, first_preorder
 
     original_price = 6400000
-    curr_price = original_price * blockstack_server.lib.config.EPOCHS[1]['PRICE_MULTIPLIER']
+    curr_price = original_price * blockstack_server.config.get_epoch_price_multiplier( last_first_block, "test" )
 
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "test" )

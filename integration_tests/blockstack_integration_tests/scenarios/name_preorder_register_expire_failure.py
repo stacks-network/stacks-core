@@ -21,9 +21,17 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """ 
 
+
+# in epoch 2 immediately, but with the old price (in order to test compatibility with 0.13)
+"""
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 250
+TEST ENV BLOCKSTACK_EPOCH_2_PRICE_MULTIPLIER 1.0
+"""
+
 import testlib
 import pybitcoin
 import json
+import blockstack as blockstack_server
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -35,6 +43,7 @@ wallets = [
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
+# epoch 1 lifetime multiplier
 NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK - 1 )
 
 def scenario( wallets, **kw ):
