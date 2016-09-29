@@ -67,19 +67,23 @@ while IFS= read SCENARIO_FILE; do
       EXISTING_LOG="$EXISTING_LOGS/$SCENARIO_MODULE_BASE.log"
       if [ -f "$EXISTING_LOG" ]; then 
 
-         "$CHECK_SERIALIZATION" "$OUTPUTS/$SCENARIO_MODULE_BASE.log" "$EXISTING_LOGS/$SCENARIO_MODULE_BASE.log"
+         "$CHECK_SERIALIZATION" "$EXISTING_LOGS/$SCENARIO_MODULE_BASE.log" "$OUTPUTS/$SCENARIO_MODULE_BASE.log"
          RC=$?
 
          if [ $RC -ne 0 ]; then
 
-            # generated incorrect serialization output
-            echo " (ERROR: mismatched serialization) FAILURE"
-            mv "$TESTDIR" "$OUTPUTS/$SCENARIO_MODULE_BASE.d"
+            if [ $RC -eq 1 ]; then
+                # generated incorrect serialization output
+                echo " (ERROR: mismatched serialization) FAILURE"
+                mv "$TESTDIR" "$OUTPUTS/$SCENARIO_MODULE_BASE.d"
 
-            # TODO: only exit with option 
-            exit 1
-
-            continue
+                # TODO: only exit with option 
+                exit 1
+            
+            else
+               # exit 2 means no serialization check happened
+               echo " (WARN: SKIPPED SERIALIZATION CHECK) SUCCESS"
+            fi
          fi
       else
 
