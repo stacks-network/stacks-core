@@ -11,7 +11,9 @@ os.environ['BLOCKSTACK_ATLAS_NETWORK_SIMULATION'] = '1'
 
 TEST_FIRST_BLOCK_HEIGHT = 250   # how many blocks we have to generate to start regtest
 os.environ['BLOCKSTACK_TEST_FIRST_BLOCK'] = str(TEST_FIRST_BLOCK_HEIGHT + 6)
-os.environ['BLOCKSTACK_EPOCH_1_END_BLOCK'] = str(TEST_FIRST_BLOCK_HEIGHT + 6)
+
+# we're in epoch 2 unless we say otherwise
+# os.environ['BLOCKSTACK_EPOCH_1_END_BLOCK'] = str(TEST_FIRST_BLOCK_HEIGHT + 6)
 
 import sys 
 import subprocess
