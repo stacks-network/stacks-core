@@ -28,6 +28,7 @@ import json
 import blockstack_client
 import blockstack_profiles
 import blockstack_gpg
+import sys
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -83,6 +84,10 @@ def scenario( wallets, **kw ):
         error = True
         return 
 
+    # tell serialization-checker that value_hash can be ignored in this block
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     testlib.next_block( **kw )
 
     # make an account 

@@ -30,6 +30,7 @@ import blockstack_profiles
 import blockstack_gpg
 import time
 import os
+import sys
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -97,6 +98,10 @@ def scenario( wallets, **kw ):
         error = True
         return
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     testlib.next_block( **kw )
 
     # add account keys 
@@ -141,6 +146,10 @@ def scenario( wallets, **kw ):
     else:
         key_names['foo.test'].append( res )
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     # wait for it to go through
     for i in xrange(0, 12):
         testlib.next_block( **kw )
@@ -160,6 +169,10 @@ def scenario( wallets, **kw ):
     else:
         key_names['bar.test'].append( res )
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     # wait for it to go through
     for i in xrange(0, 12):
         testlib.next_block( **kw )
@@ -211,6 +224,10 @@ def scenario( wallets, **kw ):
         key_names['foo.test'].append( res )
         foo_profile_delete_key_id = res['key_id']
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     # wait for it to go through
     for i in xrange(0, 12):
         testlib.next_block( **kw )
@@ -222,6 +239,10 @@ def scenario( wallets, **kw ):
                                                 proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw),
                                                 gpghome=testlib.gpg_key_dir(**kw), use_key_server=False)
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     # wait for it to go through
     for i in xrange(0, 12):
         testlib.next_block( **kw )
@@ -253,6 +274,10 @@ def scenario( wallets, **kw ):
         key_names['foo.test'].append( res )
         foo_immutable_delete_key_id = res['key_id']
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     # wait for it to go through
     for i in xrange(0, 12):
         testlib.next_block( **kw )
@@ -273,6 +298,10 @@ def scenario( wallets, **kw ):
         key_names['bar.test'].append( res )
         bar_immutable_delete_key_id = res['key_id']
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     # wait for it to go through
     for i in xrange(0, 12):
         testlib.next_block( **kw )
@@ -341,6 +370,10 @@ def scenario( wallets, **kw ):
         error = True
         return 
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     # wait for it to go through
     for i in xrange(0, 12):
         testlib.next_block( **kw )
@@ -357,6 +390,10 @@ def scenario( wallets, **kw ):
         error = True
         return 
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     # wait for it to go through
     for i in xrange(0, 12):
         testlib.next_block( **kw )

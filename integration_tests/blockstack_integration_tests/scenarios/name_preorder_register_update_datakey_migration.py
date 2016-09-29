@@ -26,6 +26,7 @@ import pybitcoin
 import json
 import blockstack_client
 import time
+import sys
 
 log = blockstack_client.get_logger("blockstack-integration-tests")
 
@@ -78,6 +79,10 @@ def scenario( wallets, **kw ):
         error = True
         return 
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     testlib.next_block( **kw )
 
     # put immutable (with owner key)
@@ -91,6 +96,10 @@ def scenario( wallets, **kw ):
 
     testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     # wait for confirmation
     for i in xrange(0, 12):
         testlib.next_block( **kw )
@@ -108,6 +117,10 @@ def scenario( wallets, **kw ):
 
     testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     # wait for confirmation
     for i in xrange(0, 12):
         testlib.next_block( **kw )
@@ -144,6 +157,10 @@ def scenario( wallets, **kw ):
     wallet_keys['data_privkey'] = wallets[4].privkey
     wallet_keys['data_pubkey'] = wallets[4].pubkey_hex
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     # wait for confirmation
     for i in xrange(0, 12):
         testlib.next_block( **kw )
@@ -152,7 +169,11 @@ def scenario( wallets, **kw ):
 
     # put immutable (with new key)
     log.debug("put immutable with new key")
+
+    # restart daemon
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
+
+    # put immutable
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_3_immutable", datasets[2], data_url="http://www.example.unroutable", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
@@ -161,6 +182,10 @@ def scenario( wallets, **kw ):
 
     testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     # wait for confirmation
     for i in xrange(0, 12):
         testlib.next_block( **kw )
@@ -187,6 +212,10 @@ def scenario( wallets, **kw ):
 
     testlib.expect_atlas_zonefile(result['zonefile_hash'])
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     # wait for confirmation
     for i in xrange(0, 12):
         testlib.next_block( **kw )

@@ -26,6 +26,7 @@ import pybitcoin
 import json
 import time
 import blockstack_client
+import sys
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -80,6 +81,10 @@ def scenario( wallets, **kw ):
         error = True
         return 
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     testlib.next_block( **kw )
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
 
@@ -90,6 +95,10 @@ def scenario( wallets, **kw ):
     testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
     immutable_data_hashes.append( put_result['immutable_data_hash'] )
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     # wait for confirmation
     for i in xrange(0, 12):
         testlib.next_block( **kw )
@@ -103,6 +112,10 @@ def scenario( wallets, **kw ):
     testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
     immutable_data_hashes.append( put_result['immutable_data_hash'] )
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     # wait for confirmation
     for i in xrange(0, 12):
         testlib.next_block( **kw )
@@ -117,6 +130,10 @@ def scenario( wallets, **kw ):
     immutable_data_hashes.append( put_result['immutable_data_hash'] )
     last_hash = put_result['zonefile_hash']
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     # wait for confirmation
     for i in xrange(0, 12):
         testlib.next_block( **kw )
@@ -134,6 +151,10 @@ def scenario( wallets, **kw ):
     testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
     last_hash = put_result['zonefile_hash']
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     # wait for confirmation
     for i in xrange(0, 12):
         testlib.next_block( **kw )

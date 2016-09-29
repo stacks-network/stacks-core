@@ -90,6 +90,10 @@ def scenario( wallets, **kw ):
 
     # wait for initial update to get confirmed 
     for i in xrange(0, 12):
+        # tell serialization-checker that value_hash can be ignored here
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+    
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting for the backend to acknowledge update"
@@ -97,6 +101,10 @@ def scenario( wallets, **kw ):
 
     # wait for zonefile/profile replication
     for i in xrange(0, 12):
+        # tell serialization-checker that value_hash can be ignored here
+        # print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        # sys.stdout.flush()
+    
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting for the backend to replicate zonefile and profile"

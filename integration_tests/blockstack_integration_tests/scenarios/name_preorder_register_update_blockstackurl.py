@@ -28,6 +28,7 @@ import json
 import blockstack_client
 import blockstack_profiles
 import time
+import sys
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -154,10 +155,16 @@ def scenario( wallets, **kw ):
     else:
         zonefile_hash_2 = res['zonefile_hash']
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     testlib.next_block( **kw )
 
     # start up RPC for 'foo.test'
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
+
+    # put immutable
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_immutable", {"hello": "world"}, proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True )
@@ -167,9 +174,14 @@ def scenario( wallets, **kw ):
     immutable_hash = put_result['immutable_data_hash']
     testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     # wait for confirmation
     for i in xrange(0, 12):
         testlib.next_block( **kw )
+
     print "waiting for confirmation"
     time.sleep(10)
 
@@ -198,6 +210,10 @@ def scenario( wallets, **kw ):
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
         return
+    
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
     
     testlib.next_block( **kw )
 

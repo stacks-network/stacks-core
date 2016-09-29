@@ -28,6 +28,7 @@ import time
 import blockstack_client
 import virtualchain
 import os
+import sys
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -117,6 +118,8 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
         
     print "Waiting for zonefile propagation"
+    sys.stdout.flush()
+
     time.sleep(10.0)
 
     # wait at most 30 seconds for atlas network to converge
@@ -125,6 +128,7 @@ def scenario( wallets, **kw ):
         atlas_network.atlas_print_network_state( network_des )
         if atlas_network.atlas_network_is_synchronized( network_des, testlib.last_block( **kw ) - 1, 1 ):
             print "Synchronized!"
+            sys.stdout.flush()
             synchronized = True
             break
 
@@ -133,6 +137,10 @@ def scenario( wallets, **kw ):
     
     # shut down 
     atlas_network.atlas_network_stop( network_des )
+    if not synchronized:
+        print "Not synchronized"
+        sys.stdout.flush()
+
     return synchronized
 
 

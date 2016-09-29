@@ -26,6 +26,7 @@ import pybitcoin
 import json
 import blockstack_client
 import time
+import sys
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -142,6 +143,10 @@ def scenario( wallets, **kw ):
         error = True
         return 
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     testlib.next_block( **kw )
     data_history_1.append("data not defined")
     data_history_2.append("data not defined")
@@ -158,6 +163,10 @@ def scenario( wallets, **kw ):
     data_history_2.append("data not defined")
     data_history_3.append("data not defined")
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     # wait for confirmation
     for i in xrange(0, 12):
         testlib.next_block( **kw )
@@ -174,6 +183,10 @@ def scenario( wallets, **kw ):
     data_history_2.append(put_result['immutable_data_hash'])
     data_history_3.append("data not defined")
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     # wait for confirmation
     for i in xrange(0, 12):
         testlib.next_block( **kw )
@@ -189,6 +202,11 @@ def scenario( wallets, **kw ):
     data_history_1.append(data_history_1[-1])
     data_history_2.append(data_history_2[-1])
     data_history_3.append(put_result['immutable_data_hash'])
+
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     testlib.next_block( **kw )
 
     # wait for confirmation
@@ -211,6 +229,10 @@ def scenario( wallets, **kw ):
 
     del datasets[0]['newdata']
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     # wait for confirmation
     for i in xrange(0, 12):
         testlib.next_block( **kw )

@@ -30,6 +30,7 @@ import blockstack_profiles
 import blockstack_gpg
 import time
 import os
+import sys
 
 log = blockstack_client.get_logger()
 
@@ -114,6 +115,10 @@ def scenario( wallets, **kw ):
             error = True
             return 
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     testlib.next_block( **kw )
 
     # set up config file 
