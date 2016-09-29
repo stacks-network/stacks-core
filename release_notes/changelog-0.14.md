@@ -19,6 +19,11 @@ Release Highlights
 * **Testnet Support.**  Blockstack Core can now operate on Bitcoin's testnet.  This can be achieved by setting `BLOCKSTACK_TESTNET=1` in the environment.
 
 
+Upgrade Notes
+-------------
+
+* You will need to upgrade your client to v0.14 as well as your server.  Some RPC methods and semantics have changed.
+
 Consensus-breaking Changes
 --------------------------
 
