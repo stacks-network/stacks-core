@@ -27,6 +27,7 @@ import traceback
 import socket
 import simplejson
 import threading
+import argparse
 
 blockstack = None
 blockstackd = None
@@ -515,12 +516,6 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         pinger.join()
         return False
 
-    pinger.ask_join()
-    pinger.join()
-
-    # stop atlas support 
-    atlas_stop( atlas_state )
-
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
     testlib.set_state_engine(db)
 
@@ -555,6 +550,12 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
             except KeyboardInterrupt:
                 log.info('Resume tests')
                 break
+
+    pinger.ask_join()
+    pinger.join()
+
+    # stop atlas support 
+    atlas_stop( atlas_state )
 
     log.info("Scenario checks passed; verifying history")
 
@@ -845,39 +846,50 @@ class BitcoinRegtestUTXOProvider(object):
             raise Exception("Invalid response: %s" % res)
 
 
+def parse_args( argv ):
+    """
+    Parse argv to get block time, scenario path, working dir, etc.
+    """
+    parser = argparse.ArgumentParser(description='Run a test scenario')
+    parser.add_argument("--interactive", dest='blocktime', type=int, help='Number of seconds between blocks', required=False)
+    parser.add_argument("--working-dir", dest='working_dir', type=str, help="Working directory to use to store database state", required=False)
+    parser.add_argument("scenario_module", type=str, help="Python module to run")
+
+    args, _ = parser.parse_known_args()
+    return args
+
+
 if __name__ == "__main__":
 
     if len(sys.argv) < 2:
         print >> sys.stderr, "Usage: %s [--interactive [blocktime]] [scenario.import.path] [OPTIONAL: working dir]"
         sys.exit(1)
 
-    working_dir = None
+    args = parse_args(sys.argv)
+
     interactive = False
     blocktime = 10
+    working_dir = None
+    scenario_module = args.scenario_module
 
-    if len(sys.argv) > 2:
-        if sys.argv[1] == '--interactive':
-            sys.argv.pop(1)
-            try:
-                blocktime = int(sys.argv[1])
-                sys.argv.pop(1)
-            except:
-                pass
-        
-            interactive = True
-            log.debug("Interactive session; blocktime is %s" % blocktime)
+    if hasattr(args, "blocktime") and args.blocktime is not None:
+        interactive = True
+        blocktime = args.blocktime
+        log.debug("Interactive session; block time is %s" % blocktime)
 
-    if len(sys.argv) > 2:
-        working_dir = sys.argv[2]
-
+    if hasattr(args, "working_dir") and args.working_dir is not None:
+        working_dir = args.working_dir
+    
     else:
-        working_dir = "/tmp/blockstack-run-scenario.%s" % sys.argv[1]
+        working_dir = "/tmp/blockstack-run-scenario.%s" % scenario_module
+
+        # erase prior state
         if os.path.exists(working_dir):
             log.debug("Remove %s" % working_dir)
             shutil.rmtree(working_dir)
-   
+
     if not os.path.exists(working_dir):
-        os.makedirs(working_dir)
+        os.makedirs(working_dir)   
 
     client_working_dir = os.path.join(working_dir, "client")
     client_metadata = os.path.join(client_working_dir, "metadata")
@@ -894,7 +906,7 @@ if __name__ == "__main__":
     os.environ['VIRTUALCHAIN_WORKING_DIR'] = working_dir
 
     # load up the scenario (so it can set its own extra envars) 
-    scenario = load_scenario( sys.argv[1] )
+    scenario = load_scenario( scenario_module )
     if scenario is None:
         print "Failed to load '%s'" % sys.argv[1]
         sys.exit(1)
