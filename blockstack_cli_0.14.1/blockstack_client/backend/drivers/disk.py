@@ -278,7 +278,7 @@ if __name__ == "__main__":
    sys.path.insert(0, current_dir)
    
    from storage import serialize_mutable_data, parse_mutable_data
-   from user import make_mutable_data_zonefile
+   from user import make_mutable_data_info
 
    pk = pybitcoin.BitcoinPrivateKey()
    data_privkey = pk.to_hex()
@@ -318,7 +318,7 @@ if __name__ == "__main__":
       
       data_url = make_mutable_url( d_id )
       
-      data_zonefile = make_mutable_data_zonefile( d_id, n, [data_url] )
+      data_zonefile = make_mutable_data_info( d_id, n, [data_url] )
       data_json = serialize_mutable_data( {"id": d_id, "nonce": n, "data": d}, data_privkey )
 
       rc = put_mutable_handler( d_id, data_json )

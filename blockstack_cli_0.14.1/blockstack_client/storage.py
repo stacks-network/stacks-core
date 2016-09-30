@@ -376,6 +376,23 @@ def verify_raw_data( raw_data, pubkey, sigb64 ):
    return pybitcointools.ecdsa_raw_verify( data_hash, pybitcointools.decode_sig( sigb64 ), pubkey )
 
 
+def get_drivers_for_url( url ):
+    """
+    Which drivers can handle this url?
+    """
+    global storage_drivers
+    ret = []
+
+    for h in storage_handlers:
+        if not hasattr(h, "handles_url"):
+            continue
+
+        if h.handles_url(url):
+            ret.append( h )
+
+    return ret
+
+
 def get_mutable_data( fq_data_id, data_pubkey, urls=None, data_address=None, owner_address=None, drivers=None, decode=True ):
    """
    Given a mutable data's zonefile, go fetch the data.
