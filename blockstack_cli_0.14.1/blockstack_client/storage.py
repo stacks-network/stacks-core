@@ -26,10 +26,6 @@
 import os
 import sys
 
-# hack around absolute paths
-current_dir =  os.path.abspath(os.path.dirname(__file__))
-sys.path.insert(0, current_dir)
-
 import pybitcoin
 import keylib
 import bitcoin as pybitcointools

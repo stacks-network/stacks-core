@@ -41,12 +41,6 @@ import base64
 import virtualchain
 from keylib import ECPrivateKey
 
-# Hack around absolute paths
-current_dir = os.path.abspath(os.path.dirname(__file__))
-parent_dir = os.path.abspath(current_dir + "/../")
-
-sys.path.insert(0, parent_dir)
-
 from .proxy import *
 from .keys import get_data_or_owner_privkey
 from blockstack_client import storage

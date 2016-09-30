@@ -50,12 +50,6 @@ requests.packages.urllib3.disable_warnings()
 import logging
 logging.disable(logging.CRITICAL)
 
-# Hack around absolute paths
-current_dir = os.path.abspath(os.path.dirname(__file__))
-parent_dir = os.path.abspath(current_dir + "/../")
-
-sys.path.insert(0, parent_dir)
-
 from blockstack_client import config
 from blockstack_client.client import session
 from blockstack_client.config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, VERSION, semver_match
