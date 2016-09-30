@@ -244,7 +244,7 @@ def add_user_zonefile_url( user_zonefile, url ):
     Return None on error or on duplicate URL
     """
     if not user_zonefile.has_key('uri'):
-        return None
+        user_zonefile['uri'] = []
 
     # avoid duplicates 
     ret = []
