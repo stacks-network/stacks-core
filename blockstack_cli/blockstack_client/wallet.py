@@ -58,11 +58,6 @@ from pybitcoin import make_send_to_address_tx
 from pybitcoin import BlockcypherClient
 from pybitcoin.rpc.bitcoind_client import BitcoindClient
 
-# Hack around absolute paths
-current_dir = os.path.abspath(os.path.dirname(__file__))
-parent_dir = os.path.abspath(current_dir + "/../")
-sys.path.insert(0, parent_dir)
-
 from .backend.crypto.utils import get_address_from_privkey, get_pubkey_from_privkey
 from .backend.crypto.utils import aes_encrypt, aes_decrypt
 from .backend.blockchain import get_balance, is_address_usable, get_tx_fee
