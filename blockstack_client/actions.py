@@ -110,7 +110,8 @@ import config
 from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR, configure, FIRST_BLOCK_TIME_UTC, get_utxo_provider_client, set_advanced_mode, \
         APPROX_PREORDER_TX_LEN, APPROX_REGISTER_TX_LEN, APPROX_UPDATE_TX_LEN, APPROX_TRANSFER_TX_LEN, APPROX_REVOKE_TX_LEN, APPROX_RENEWAL_TX_LEN
 
-from .storage import is_valid_name, is_valid_hash, is_b40, get_drivers_for_url, add_user_zonefile_url, remove_user_zonefile_url
+from .storage import is_valid_name, is_valid_hash, is_b40, get_drivers_for_url
+from .user import add_user_zonefile_url, remove_user_zonefile_url
 
 from pybitcoin import is_b58check_address
 
@@ -857,11 +858,11 @@ def prompt_invalid_zonefile():
     Prompt the user whether or not to replicate
     an invalid zonefile
     """
-    warning_str = ""
-    warning_str += "WARNING!  This data does not look like a zone file."
-    warning_str += "If you proceed to use this data, no one will be able"
-    warning_str += "to look up your profile."
-    warning_str += ""
+    warning_str = "\n"
+    warning_str += "WARNING!  This zone file data does not look like a zone file.\n"
+    warning_str += "If you proceed to use this data, no one will be able to look\n"
+    warning_str += "up your profile.\n"
+    warning_str += "\n"
     warning_str += "Proceed? (Y/n): "
     proceed = raw_input(warning_str)
     return proceed.lower() in ['y']
@@ -925,11 +926,11 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
     if interactive:
         try:
             cost = fees['total_estimated_cost']
-            input_prompt = "Registering %s will cost %s BTC." % (fqu, float(cost)/(10**8))
-            input_prompt+= "The entire process takes 30 confirmations, or about 5 hours."
-            input_prompt+= "You need to have Internet access during this time period, so"
-            input_prompt+= "this program can send the right transactions at the right"
-            input_prompt+= "times.\n"
+            input_prompt = "Registering %s will cost %s BTC.\n" % (fqu, float(cost)/(10**8))
+            input_prompt+= "The entire process takes 30 confirmations, or about 5 hours.\n"
+            input_prompt+= "You need to have Internet access during this time period, so\n"
+            input_prompt+= "this program can send the right transactions at the right\n"
+            input_prompt+= "times.\n\n"
             input_prompt += "Continue? (Y/n): "
             user_input = raw_input(input_prompt)
             user_input = user_input.lower()
@@ -941,7 +942,7 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
             print "\nExiting."
             exit(0)
 
-    balance = get_balance( payment_address )
+    balance = get_balance( payment_address, config_path=config_path )
     if balance < fees['total_estimated_cost']:
         msg = "Address %s doesn't have enough balance (need %s, have %s)." % (payment_address, fees['total_estimated_cost'], balance)
         return {'error': msg}
@@ -991,22 +992,24 @@ def configure_zonefile( name, zonefile, data_pubkey=None ):
         print "WARNING: Creating an empty zonefile."
         zonefile = make_empty_user_zonefile( name, data_pubkey )
 
-    public_key = user_zonefile_data_pubkey( zonefile ) 
-    urls = user_zonefile_urls( user_zonefile ) 
-
-    url_drivers = {}
-
-    # which drivers?
-    for url in urls:
-        drivers = get_drivers_for_url( url )
-        url_drivers[url] = drivers
-
     running = True
     do_update = True
     old_zonefile = {}
-    old_zonefile.update( user_zonefile )
+    old_zonefile.update( zonefile )
 
     while running:
+        public_key = user_zonefile_data_pubkey( zonefile ) 
+        urls = user_zonefile_urls( zonefile ) 
+        if urls is None:
+            urls = []
+
+        url_drivers = {}
+
+        # which drivers?
+        for url in urls:
+            drivers = get_drivers_for_url( url )
+            url_drivers[url] = drivers
+
         print "-" * 80
 
         if public_key is not None:
@@ -1015,11 +1018,15 @@ def configure_zonefile( name, zonefile, data_pubkey=None ):
             print "Data public key: (not set)"
 
         print ""
-        print "Profile replicas"
-        for i in xrange(0, len(urls)):
-            url = urls[i]
-            drivers = get_drivers_for_url( url )
-            print "(%s) [" + ",".join([d.__name__ for d in drivers]) + "] at %s" % (i+1, url)
+        print "Profile replicas (%s):" % len(urls)
+        if len(urls) > 0:
+            for i in xrange(0, len(urls)):
+                url = urls[i]
+                drivers = get_drivers_for_url( url )
+                print "(%s) [" + ",".join([d.__name__ for d in drivers]) + "] at %s" % (i+1, url)
+
+        else:
+            print "(none)"
 
         print ""
         print "What would you like to do?"
@@ -1053,13 +1060,13 @@ def configure_zonefile( name, zonefile, data_pubkey=None ):
 
                 else:
                     # add to the zonefile
-                    new_zonefile = add_user_zonefile_url( user_zonefile, url )
+                    new_zonefile = add_user_zonefile_url( zonefile, new_url )
                     if new_zonefile is None:
                         print "Duplicate URL"
                         continue
 
                     else:
-                        user_zonefile = new_zonefile
+                        zonefile = new_zonefile
                         break
 
 
@@ -1085,13 +1092,13 @@ def configure_zonefile( name, zonefile, data_pubkey=None ):
                 if url_to_remove is not None:
                     # remove this URL 
                     url = urls[url_to_remove-1]
-                    new_zonefile = remove_user_zonefile_url( user_zonefile, url )
+                    new_zonefile = remove_user_zonefile_url( zonefile, url )
                     if new_zonefile is None:
-                        print "BUG: failed to remove url '%s' from zonefile\n%s\n" % (url, json.dumps(user_zonefile, indent=4, sort_keys=True))
+                        print "BUG: failed to remove url '%s' from zonefile\n%s\n" % (url, json.dumps(zonefile, indent=4, sort_keys=True))
                         os.abort()
 
                     else:
-                        user_zonefile = new_zonefile
+                        zonefile = new_zonefile
                         break
 
         elif selection == "c":
@@ -1099,11 +1106,11 @@ def configure_zonefile( name, zonefile, data_pubkey=None ):
             break
 
     # did the zonefile change?
-    if user_zonefile == old_zonefile:
+    if zonefile == old_zonefile:
         # no changes
         return None
     else:
-        return user_zonefile
+        return zonefile
 
 
 def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, proxy=None, allow_invalid_zonefile=False ):
@@ -1131,7 +1138,7 @@ def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, 
 
     fqu = str(args.name)
     zonefile_data = None
-    if hasattr(args.data) and args.data is not None:
+    if hasattr(args, "data") and args.data is not None:
         zonefile_data = str(args.data)
 
     error = check_valid_name(fqu)
@@ -1154,6 +1161,9 @@ def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, 
     # fetch remotely?
     if zonefile_data is None:
         zonefile_data_res = get_name_zonefile( fqu, proxy=proxy, wallet_keys=wallet_keys, raw_zonefile=True )
+        if zonefile_data_res is None:
+            zonefile_data_res = {'error': 'No zonefile'}
+        
         if 'error' in zonefile_data_res:
             log.warning("Failed to fetch zonefile: %s" % zonefile_data_res['error'])
 
@@ -1170,18 +1180,22 @@ def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, 
     if 'error' in user_data_res:
         # not a well-formed zonefile (but maybe that's okay! ask the user)
         if interactive:
-            proceed = prompt_invalid_zonefile()
-            if not proceed:
-                return {'error': "Zone file not updated (reason: %s)" % user_data_res['error']}
+            if zonefile_data is not None:
+                # something invalid here.  prompt overwrite
+                proceed = prompt_invalid_zonefile()
+                if not proceed:
+                    return {'error': "Zone file not updated (reason: %s)" % user_data_res['error']}
 
         else:
-            if allow_invalid_zonefile:
+            if zonefile_data is None or allow_invalid_zonefile:
                 log.warning("Using non-zonefile data")
             else:
                 return {'error': 'Zone file not updated (invalid)'}
 
         user_data_txt = zonefile_data
-        user_data_hash = storage.get_zonefile_data_hash(zonefile_data) 
+        if zonefile_data is not None:
+            user_data_hash = storage.get_zonefile_data_hash(zonefile_data) 
+
         nonstandard = True
 
     else:
@@ -1191,10 +1205,12 @@ def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, 
 
     # open the zonefile editor
     data_pubkey = wallet_keys['data_pubkey']
-    new_zonefile = configure_zonefile( fqu, user_zonefile_dict, data_pubkey=data_pubkey )
-    if new_zonefile is None:
-        # zonefile did not change; nothing to do
-        return {'error': 'Zonefile did not change.  No update sent.'}
+
+    if interactive:
+        new_zonefile = configure_zonefile( fqu, user_zonefile_dict, data_pubkey=data_pubkey )
+        if new_zonefile is None:
+            # zonefile did not change; nothing to do
+            return {'error': 'Zonefile did not change.  No update sent.'}
 
     payment_privkey_info = wallet_keys['payment_privkey']
     owner_privkey_info = wallet_keys['owner_privkey']
@@ -1362,7 +1378,7 @@ def cli_renew( args, config_path=CONFIG_PATH, interactive=True, password=None, p
             print "\nExiting."
             exit(0)
 
-    balance = get_balance( payment_address )
+    balance = get_balance( payment_address, config_path=config_path )
     if balance < cost:
         msg = "Address %s doesn't have enough balance (need %s)." % (payment_address, balance)
         return {'error': msg}
