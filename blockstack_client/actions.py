@@ -110,7 +110,7 @@ import config
 from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR, configure, FIRST_BLOCK_TIME_UTC, get_utxo_provider_client, set_advanced_mode, \
         APPROX_PREORDER_TX_LEN, APPROX_REGISTER_TX_LEN, APPROX_UPDATE_TX_LEN, APPROX_TRANSFER_TX_LEN, APPROX_REVOKE_TX_LEN, APPROX_RENEWAL_TX_LEN
 
-from .storage import is_valid_name, is_valid_hash, is_b40
+from .storage import is_valid_name, is_valid_hash, is_b40, get_drivers_for_url, add_user_zonefile_url, remove_user_zonefile_url
 
 from pybitcoin import is_b58check_address
 
@@ -129,6 +129,7 @@ from .proxy import *
 from .client import analytics_event
 from .app import app_register, app_unregister, app_get_wallet
 from .scripts import UTXOException
+from .user import user_zonefile_urls, user_zonefile_data_pubkey, make_empty_user_zonefile 
 
 log = config.get_logger()
 
@@ -975,13 +976,149 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
     return result
 
 
-def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, allow_invalid_zonefile=False ):
+def configure_zonefile( name, zonefile, data_pubkey=None ):
+    """
+    Given a name and zonefile, help the user configure the
+    zonefile information to store (just URLs for now).
+
+    @zonefile must be parsed and must be a dict.
+
+    Return the new zonefile on success
+    Return None if the zonefile did not change.
+    """
+    if zonefile is None:
+        print "WARNING: No zonefile could be found."
+        print "WARNING: Creating an empty zonefile."
+        zonefile = make_empty_user_zonefile( name, data_pubkey )
+
+    public_key = user_zonefile_data_pubkey( zonefile ) 
+    urls = user_zonefile_urls( user_zonefile ) 
+
+    url_drivers = {}
+
+    # which drivers?
+    for url in urls:
+        drivers = get_drivers_for_url( url )
+        url_drivers[url] = drivers
+
+    running = True
+    do_update = True
+    old_zonefile = {}
+    old_zonefile.update( user_zonefile )
+
+    while running:
+        print "-" * 80
+
+        if public_key is not None:
+            print "Data public key: %s" % public_key
+        else:
+            print "Data public key: (not set)"
+
+        print ""
+        print "Profile replicas"
+        for i in xrange(0, len(urls)):
+            url = urls[i]
+            drivers = get_drivers_for_url( url )
+            print "(%s) [" + ",".join([d.__name__ for d in drivers]) + "] at %s" % (i+1, url)
+
+        print ""
+        print "What would you like to do?"
+        print "(a) Add URL"
+        print "(b) Remove URL"
+        print "(c) Save zonefile"
+        print "(d) Do not save zonefile"
+        print ""
+        selection = raw_input("Selection: ").lower()
+
+        if selection == "d":
+            do_update = False
+            break
+
+        elif selection == "a":
+            # add a url 
+            while True:
+                try:
+                    new_url = raw_input("Enter the new profile URL: ")
+                except KeyboardInterrupt:
+                    print "Keyboard interrupt"
+                    break
+
+                new_url = new_url.strip()
+
+                # do any drivers accept this URL?
+                drivers = get_drivers_for_url( new_url )
+                if len(drivers) == 0:
+                    print "No drivers can handle %s" % new_url
+                    continue
+
+                else:
+                    # add to the zonefile
+                    new_zonefile = add_user_zonefile_url( user_zonefile, url )
+                    if new_zonefile is None:
+                        print "Duplicate URL"
+                        continue
+
+                    else:
+                        user_zonefile = new_zonefile
+                        break
+
+
+        elif selection == "b":
+            # remove a URL
+            url_to_remove = None
+            while True:
+                try:
+                    url_to_remove = raw_input("Which URL do you want to remove? (%s-%s): " % (1, len(urls)+1))
+                    try:
+                        url_to_remove = int(url_to_remove)
+                        assert 1 <= url_to_remove and url_to_remove <= len(urls)+1
+                    except:
+                        print "Bad selection"
+                        continue
+
+                    break
+                except KeyboardInterrupt:
+                    running = False
+                    print "Keyboard interrupt"
+                    break
+
+                if url_to_remove is not None:
+                    # remove this URL 
+                    url = urls[url_to_remove-1]
+                    new_zonefile = remove_user_zonefile_url( user_zonefile, url )
+                    if new_zonefile is None:
+                        print "BUG: failed to remove url '%s' from zonefile\n%s\n" % (url, json.dumps(user_zonefile, indent=4, sort_keys=True))
+                        os.abort()
+
+                    else:
+                        user_zonefile = new_zonefile
+                        break
+
+        elif selection == "c":
+            # save zonefile
+            break
+
+    # did the zonefile change?
+    if user_zonefile == old_zonefile:
+        # no changes
+        return None
+    else:
+        return user_zonefile
+
+
+def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, proxy=None, allow_invalid_zonefile=False ):
     """
     command: update norpc
     help: Set the zone file for a name
     arg: name (str) "The name to update"
-    arg: data (str) "A zone file string, or a path to a file with the data."
+    opt: data (str) "A zone file string, or a path to a file with the data."
     """
+
+    if not interactive and (not hasattr(args.data) or args.data is None):
+        return {'error': 'Zone file data required in non-interactive mode'}
+        
+    if proxy is None:
+        proxy = get_default_proxy()
 
     config_dir = os.path.dirname(config_path)
     res = wallet_ensure_exists(config_dir)
@@ -993,23 +1130,42 @@ def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, 
         return res
 
     fqu = str(args.name)
-    zonefile_data = str(args.data)
+    zonefile_data = None
+    if hasattr(args.data) and args.data is not None:
+        zonefile_data = str(args.data)
 
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
 
     # is this a path?
-    if is_valid_path(zonefile_data) and os.path.exists(zonefile_data):
+    if zonefile_data is not None and is_valid_path(zonefile_data) and os.path.exists(zonefile_data):
         try:
             with open(zonefile_data) as f:
                 zonefile_data = f.read()
         except:
             return {'error': 'Failed to read "%s"' % zonefile_data}
     
-    # load zonefile
+    # load wallet
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
+
+    # fetch remotely?
+    if zonefile_data is None:
+        zonefile_data_res = get_name_zonefile( fqu, proxy=proxy, wallet_keys=wallet_keys, raw_zonefile=True )
+        if 'error' in zonefile_data_res:
+            log.warning("Failed to fetch zonefile: %s" % zonefile_data_res['error'])
+
+        else:
+            zonefile_data = zonefile_data_res['zonefile']
+
+    # load zonefile, if given 
     user_data_txt = None
     user_data_hash = None
+    user_zonefile_dict = {}
+    nonstandard = False
+
     user_data_res = load_zonefile( fqu, zonefile_data )
     if 'error' in user_data_res:
         # not a well-formed zonefile (but maybe that's okay! ask the user)
@@ -1026,15 +1182,16 @@ def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, 
 
         user_data_txt = zonefile_data
         user_data_hash = storage.get_zonefile_data_hash(zonefile_data) 
+        nonstandard = True
 
     else:
         user_data_txt = zonefile_data
         user_data_hash = storage.hash_zonefile( user_data_res['zonefile'] )
+        user_zonefile_dict = user_data_res['zonefile']
 
-    # load wallet
-    wallet_keys = get_wallet_keys( config_path, password )
-    if 'error' in wallet_keys:
-        return wallet_keys
+    # open the zonefile editor
+    data_pubkey = wallet_keys['data_pubkey']
+    new_zonefile = configure_zonefile( user_zonefile_dict )
 
     payment_privkey_info = wallet_keys['payment_privkey']
     owner_privkey_info = wallet_keys['owner_privkey']
