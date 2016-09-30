@@ -1191,7 +1191,10 @@ def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, 
 
     # open the zonefile editor
     data_pubkey = wallet_keys['data_pubkey']
-    new_zonefile = configure_zonefile( user_zonefile_dict )
+    new_zonefile = configure_zonefile( fqu, user_zonefile_dict, data_pubkey=data_pubkey )
+    if new_zonefile is None:
+        # zonefile did not change; nothing to do
+        return {'error': 'Zonefile did not change.  No update sent.'}
 
     payment_privkey_info = wallet_keys['payment_privkey']
     owner_privkey_info = wallet_keys['owner_privkey']
