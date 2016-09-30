@@ -427,8 +427,8 @@ def get_mutable(name, data_id, proxy=None, ver_min=None, ver_max=None, ver_check
     if not user_db.has_mutable_data( user_profile, data_id ):
         return {'error': "No such mutable datum"}
 
-    mutable_data_zonefile = user_db.get_mutable_data_zonefile( user_profile, data_id )
-    assert mutable_data_zonefile is not None, "BUG: could not look up mutable datum '%s'.'%s'" % (name, data_id)
+    mutable_data_info = user_db.get_mutable_data_profile( user_profile, data_id )
+    assert mutable_data_info is not None, "BUG: could not look up mutable datum '%s'.'%s'" % (name, data_id)
 
     # get user's data public key and owner address
     data_pubkey = user_db.user_zonefile_data_pubkey( user_zonefile )
@@ -437,7 +437,7 @@ def get_mutable(name, data_id, proxy=None, ver_min=None, ver_max=None, ver_check
         log.warn("Falling back to owner address for authentication")
 
     # get the mutable data itself
-    urls = user_db.mutable_data_zonefile_urls( mutable_data_zonefile )
+    urls = user_db.mutable_data_urls( mutable_data_info )
     mutable_data = storage.get_mutable_data(fq_data_id, data_pubkey, urls=urls, data_address=data_address )
     if mutable_data is None:
         return {'error': "Failed to look up mutable datum"}
@@ -785,10 +785,10 @@ def put_mutable(name, data_id, data_json, proxy=None, create_only=False, update_
         assert data_privkey is not None
 
     urls = storage.make_mutable_data_urls( fq_data_id )
-    mutable_zonefile = user_db.make_mutable_data_zonefile( data_id, version, urls )
+    mutable_info = user_db.make_mutable_data( data_id, version, urls )
 
-    # add the mutable zonefile to the profile
-    rc = user_db.put_mutable_data_zonefile( user_profile, data_id, version, mutable_zonefile )
+    # add the mutable data to the profile
+    rc = user_db.put_mutable_data_profile( user_profile, data_id, version, mutable_info )
     assert rc, "Failed to put mutable data zonefile"
 
     # for legacy migration...
@@ -1023,7 +1023,7 @@ def delete_mutable(name, data_id, proxy=None, wallet_keys=None):
         return {'status': True}
 
     # unlink
-    user_db.remove_mutable_data_zonefile( user_profile, data_id )
+    user_db.remove_mutable_data_profile( user_profile, data_id )
 
     # put new profile 
     data_privkey = get_data_or_owner_privkey( user_zonefile, name_record['address'], wallet_keys=wallet_keys, config_path=proxy.conf['path'] )
