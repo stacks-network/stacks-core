@@ -404,9 +404,12 @@ class RegistrarWorker(threading.Thread):
             # the zonefile to find the appropriate data private key.
             zonefile = None
             try:
-                zonefile = json.loads(zonefile_data)
+                zonefile = blockstack_zones.parse_zone_file( zonefile_data )
                 assert is_user_zonefile( zonefile )
-            except:
+            except Exception, e:
+                if os.environ.get("BLOCKSTACK_TEST", None) == 1:
+                    log.exception(e)
+
                 log.warning("Not a zone file; not replicating profile for %s" % name_data['fqu'])
                 return {'status': True}
 
