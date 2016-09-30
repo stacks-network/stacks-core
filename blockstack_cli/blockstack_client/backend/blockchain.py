@@ -129,7 +129,7 @@ def get_tx_fee( tx_hex, config_path=CONFIG_PATH ):
         fee = bitcoind_client.estimatefee(2)
         if fee < 0:
             # if we're testing, then use our own fee
-            if os.environ.get("BLOCKSTACK_TEST", None) is not None:
+            if os.environ.get("BLOCKSTACK_TEST", None) == "1" or os.environ.get("BLOCKSTACK_TESTNET", None) == "1":
                 fee = 5500.0 / 10**8
 
             else:
