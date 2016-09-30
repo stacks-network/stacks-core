@@ -560,7 +560,8 @@ def get_consensus_hash( proxy, config_path=CONFIG_PATH ):
         last_block_processed = int(blockstack_info['last_block_processed'])
         last_block_seen = int(blockstack_info['last_block_seen'])
         consensus_hash = blockstack_info['consensus']
-    except:
+    except Exception, e:
+        log.exception(e) 
         return {'error': 'Invalid consensus hash from server'}
 
     # valid?
