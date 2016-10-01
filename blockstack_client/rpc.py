@@ -27,6 +27,7 @@ import traceback
 import errno
 import time
 import atexit
+import socket
 
 from defusedxml import xmlrpc
 
