@@ -415,7 +415,8 @@ def find_missing(message, all_params, given_opts, default_opts, header=None, pro
 
     if not prompt_missing:
         # count the number missing, and go with defaults
-        num_prompted = len(set(default_opts) - set(given_opts))
+        missing_values = set(default_opts) - set(given_opts)
+        num_prompted = len(missing_values)
         given_opts.update(default_opts)
     else:
         if header is not None:
@@ -423,8 +424,8 @@ def find_missing(message, all_params, given_opts, default_opts, header=None, pro
             print(header)
 
         missing_values = interactive_prompt(message, missing_params, default_opts)
-        given_opts.update(missing_values)
         num_prompted = len(missing_values)
+        given_opts.update(missing_values)
 
     return given_opts, missing_params, num_prompted
 
