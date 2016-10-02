@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
+from __future__ import print_function
+
 """
     Blockstack-client
     ~~~~~
@@ -22,8 +25,8 @@
 """
 
 import os
+import itertools
 import logging
-import copy
 import traceback
 import uuid
 import urllib2
@@ -45,12 +48,16 @@ def get_logger(debug=DEBUG):
 
 log = get_logger('blockstack-client')
 
+BLOCKSTACK_TEST = os.environ.get('BLOCKSTACK_TEST')
+BLOCKSTACK_TEST_NODEBUG = os.environ.get('BLOCKSTACK_TEST_NODEBUG')
+BLOCKSTACK_DEBUG = os.environ.get('BLOCKSTACK_DEBUG')
+BLOCKSTACK_TEST_FIRST_BLOCK = os.environ.get('BLOCKSTACK_TEST_FIRST_BLOCK')
 
 DEBUG = False
-if os.environ.get('BLOCKSTACK_TEST') is not None and os.environ.get('BLOCKSTACK_TEST_NODEBUG') is None:
+if BLOCKSTACK_TEST and not BLOCKSTACK_TEST_NODEBUG:
     DEBUG = True
 
-if os.environ.get('BLOCKSTACK_DEBUG') is not None:
+if BLOCKSTACK_DEBUG:
     DEBUG = True
 
 VERSION = __version__
@@ -92,14 +99,14 @@ MAGIC_BYTES = 'id'
 # borrowed from Blockstack
 FIRST_BLOCK_MAINNET = 373601
 
-if os.environ.get('BLOCKSTACK_TEST', None) is not None and os.environ.get('BLOCKSTACK_TEST_FIRST_BLOCK', None) is not None:
-    FIRST_BLOCK_MAINNET = int(os.environ.get('BLOCKSTACK_TEST_FIRST_BLOCK'))
+if BLOCKSTACK_TEST and BLOCKSTACK_TEST_FIRST_BLOCK:
+    FIRST_BLOCK_MAINNET = int(BLOCKSTACK_TEST_FIRST_BLOCK)
     log.warn('FIRST_BLOCK_MAINNET = {}'.format(FIRST_BLOCK_MAINNET))
 
 FIRST_BLOCK_TIME_UTC = 1441737751
 
 TX_MIN_CONFIRMATIONS = 6
-if os.environ.get('BLOCKSTACK_TEST', None) == '1':
+if BLOCKSTACK_TEST:
     # test environment
     TX_MIN_CONFIRMATIONS = 0
     log.warn('TX_MIN_CONFIRMATIONS = {}'.format(TX_MIN_CONFIRMATIONS))
@@ -264,16 +271,17 @@ RPC_MAX_PROFILE_LEN = 1024000   # 1MB
 CONFIG_FILENAME = 'client.ini'
 WALLET_FILENAME = 'wallet.json'
 
-if os.environ.get('BLOCKSTACK_TEST', None) == '1':
+if not BLOCKSTACK_TEST:
+    CONFIG_DIR = os.path.expanduser('~/.blockstack')
+    CONFIG_PATH = os.path.join(CONFIG_DIR, CONFIG_FILENAME)
+else:
     # testing
-    CONFIG_PATH = os.environ.get('BLOCKSTACK_CLIENT_CONFIG', None)
-    assert CONFIG_PATH is not None, 'BLOCKSTACK_CLIENT_CONFIG not set'
+    CONFIG_PATH = os.environ.get('BLOCKSTACK_CLIENT_CONFIG')
+    assert CONFIG_PATH, 'BLOCKSTACK_CLIENT_CONFIG not set'
 
     CONFIG_DIR = os.path.dirname(CONFIG_PATH)
     log.warn('CONFIG_PATH = {}'.format(CONFIG_PATH))
-else:
-    CONFIG_DIR = os.path.expanduser('~/.blockstack')
-    CONFIG_PATH = os.path.join(CONFIG_DIR, CONFIG_FILENAME)
+
 
 WALLET_PATH = os.path.join(CONFIG_DIR, 'wallet.json')
 SPV_HEADERS_PATH = os.path.join(CONFIG_DIR, 'blockchain-headers.dat')
@@ -345,7 +353,7 @@ def url_to_host_port(url, port=DEFAULT_BLOCKSTACKD_PORT):
     if len(parts) == 2:
         try:
             port = int(parts[1])
-        except:
+        except TypeError:
             return (None, None)
 
     return parts[0], port
@@ -362,16 +370,15 @@ def interactive_prompt(message, parameters, default_opts):
     lines = message.split('\n')
     max_line_len = max([len(l) for l in lines])
 
-    print '-' * max_line_len
-    print message
-    print '-' * max_line_len
+    print('-' * max_line_len)
+    print(message)
+    print('-' * max_line_len)
 
     ret = {}
-
     for param in parameters:
         formatted_param = param
         prompt_str = '{}: '.format(formatted_param)
-        if param in default_opts.keys():
+        if param in default_opts:
             prompt_str = '{} (default: "{}"): '.format(formatted_param, default_opts[param])
 
         try:
@@ -382,7 +389,7 @@ def interactive_prompt(message, parameters, default_opts):
 
         if len(value) > 0:
             ret[param] = value
-        elif param in default_opts.keys():
+        elif param in default_opts:
             ret[param] = default_opts[param]
         else:
             ret[param] = None
@@ -399,29 +406,25 @@ def find_missing(message, all_params, given_opts, default_opts, header=None, pro
     """
 
     # are we missing anything?
-    missing_params = []
-    for missing_param in all_params:
-        if missing_param not in given_opts.keys():
-            missing_params.append(missing_param)
+    missing_params = list(set(all_params) - set(given_opts))
 
     num_prompted = 0
-    if len(missing_params) > 0:
-        if prompt_missing:
-            if header is not None:
-                print '-' * len(header)
-                print header
 
-            missing_values = interactive_prompt(
-                message, missing_params, default_opts)
-            given_opts.update(missing_values)
-            num_prompted = len(missing_values)
-        else:
-            # count the number missing, and go with defaults
-            for default_key in default_opts.keys():
-                if default_key not in given_opts:
-                    num_prompted += 1
+    if not missing_params:
+        return given_opts, missing_params, num_prompted
 
-            given_opts.update(default_opts)
+    if not prompt_missing:
+        # count the number missing, and go with defaults
+        num_prompted = len(set(default_opts) - set(given_opts))
+        given_opts.update(default_opts)
+    else:
+        if header is not None:
+            print('-' * len(header))
+            print(header)
+
+        missing_values = interactive_prompt(message, missing_params, default_opts)
+        given_opts.update(missing_values)
+        num_prompted = len(missing_values)
 
     return given_opts, missing_params, num_prompted
 
@@ -433,7 +436,7 @@ def opt_strip(prefix, opts):
     """
 
     ret = {}
-    for (opt_name, opt_value) in opts.items():
+    for opt_name, opt_value in opts.items():
         # remove prefix
         if opt_name.startswith(prefix):
             opt_name = opt_name[len(prefix):]
@@ -448,11 +451,7 @@ def opt_restore(prefix, opts):
     Given a dict of opts, add the given prefix to each key
     """
 
-    ret = {}
-    for (opt_name, opt_value) in opts.items():
-        ret[prefix + opt_name] = opt_value
-
-    return ret
+    return {prefix + name: value for name, value in opts.items()}
 
 
 def default_bitcoind_opts(config_file=None, prefix=False):
@@ -461,13 +460,10 @@ def default_bitcoind_opts(config_file=None, prefix=False):
     or from sane defaults
     """
 
-    default_bitcoin_opts = virtualchain.get_bitcoind_config(
-        config_file=config_file)
+    default_bitcoin_opts = virtualchain.get_bitcoind_config(config_file=config_file)
 
-    # strip None's
-    for (k, v) in default_bitcoin_opts.items():
-        if v is None:
-            del default_bitcoin_opts[k]
+    # drop dict values that are None
+    default_bitcoin_opts = {k: v for k, v in default_bitcoin_opts.items() if v is not None}
 
     # strip 'bitcoind_'
     if not prefix:
@@ -492,23 +488,22 @@ def get_or_set_uuid(config_dir=CONFIG_DIR):
     """
     uuid_path = client_uuid_path(config_dir=config_dir)
     u = None
-    if not os.path.exists(uuid_path):
+    if os.path.exists(uuid_path):
+        try:
+            with open(uuid_path, 'r') as f:
+                u = f.read()
+                u = u.strip()
+        except Exception as e:
+            log.exception(e)
+            return None
+    else:
         try:
             u = str(uuid.uuid4())
             with open(uuid_path, 'w') as f:
                 f.write(u)
                 f.flush()
                 os.fsync(f.fileno())
-        except Exception, e:
-            log.exception(e)
-            return None
-
-    else:
-        try:
-            with open(uuid_path, 'r') as f:
-                u = f.read()
-                u = u.strip()
-        except Exception, e:
+        except Exception as e:
             log.exception(e)
             return None
 
@@ -542,9 +537,11 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
     config_dir = os.path.dirname(config_file)
 
     # get blockstack client opts
-    blockstack_message = 'Your client does not have enough information to connect\n'
-    blockstack_message += 'to a Blockstack server.  Please supply the following\n'
-    blockstack_message += 'parameters, or press [ENTER] to select the default value.'
+    blockstack_message = (
+        'Your client does not have enough information to connect\n'
+        'to a Blockstack server.  Please supply the following\n'
+        'parameters, or press [ENTER] to select the default value.'
+    )
 
     blockstack_opts = {}
     blockstack_opts_defaults = read_config_file(path=config_file)['blockstack-client']
@@ -574,9 +571,11 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
         blockstack_opts['dir'] = None
 
     # get bitcoind options
-    bitcoind_message = 'Blockstack does not have enough information to connect\n'
-    bitcoind_message += 'to bitcoind.  Please supply the following parameters, or\n'
-    bitcoind_message += 'press [ENTER] to select the default value.'
+    bitcoind_message = (
+        'Blockstack does not have enough information to connect\n'
+        'to bitcoind.  Please supply the following parameters, or\n'
+        'press [ENTER] to select the default value.'
+    )
 
     bitcoind_opts = {}
     bitcoind_opts_defaults = default_bitcoind_opts(config_file=config_file)
@@ -596,28 +595,28 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
     )
 
     # find the blockchain reader
-    blockchain_reader = blockstack_opts.get('blockchain_reader', None)
-    while blockchain_reader is None or blockchain_reader not in SUPPORTED_UTXO_PROVIDERS:
-        # prompt for it?
-        if interactive or force:
-            blockchain_message = 'NOTE: Blockstack currently requires an external API\n'
-            blockchain_message += 'for querying the blockchain.  The set of supported\n'
-            blockchain_message += 'service providers are:\n'
-            blockchain_message += '\t\n'.join(SUPPORTED_UTXO_PROVIDERS) + '\n'
-            blockchain_message += 'Please enter the requisite information here.'
-
-            blockchain_reader_dict = interactive_prompt(blockchain_message, ['blockchain_reader'], {})
-            blockchain_reader = blockchain_reader_dict['blockchain_reader']
-        else:
+    blockchain_reader = blockstack_opts.get('blockchain_reader')
+    while blockchain_reader not in SUPPORTED_UTXO_PROVIDERS:
+        if not(interactive or force):
             raise Exception('No blockchain reader given')
 
-    blockchain_reader_opts = {}
+        # prompt for it?
+        blockchain_message = (
+            'NOTE: Blockstack currently requires an external API\n'
+            'for querying the blockchain.  The set of supported\n'
+            'service providers are:\n'
+            '\t\n'.join(SUPPORTED_UTXO_PROVIDERS) + '\n'
+            'Please enter the requisite information here.'
+        )
+
+        blockchain_reader_dict = interactive_prompt(blockchain_message, ['blockchain_reader'], {})
+        blockchain_reader = blockchain_reader_dict['blockchain_reader']
+
     blockchain_reader_defaults = default_utxo_provider_opts(blockchain_reader, config_file=config_file)
     blockchain_reader_params = SUPPORTED_UTXO_PARAMS[blockchain_reader]
 
-    if not force:
-        # get current set of reader opts
-        blockchain_reader_opts = default_utxo_provider_opts(blockchain_reader, config_file=config_file)
+    # get current set of reader opts
+    blockchain_reader_opts = {} if force else blockchain_reader_defaults
 
     blockchain_reader_opts, missing_reader_opts, num_reader_opts_prompted = find_missing(
         SUPPORTED_UTXO_PROMPT_MESSAGES[blockchain_reader],
@@ -631,29 +630,27 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
     blockchain_reader_opts['utxo_provider'] = blockchain_reader_defaults['utxo_provider']
 
     # find the blockchain writer
-    blockchain_writer = blockstack_opts.get('blockchain_writer', None)
-    while blockchain_writer is None or blockchain_writer not in SUPPORTED_UTXO_PROVIDERS:
-        # prompt for it?
-        if interactive or force:
-            blockchain_message = 'NOTE: Blockstack currently requires an external API\n'
-            blockchain_message += 'for sending transactions to the blockchain.  The set\n'
-            blockchain_message += 'of supported service providers are:\n'
-            blockchain_message += '\t\n'.join(SUPPORTED_UTXO_PROVIDERS) + '\n'
-            blockchain_message += 'Please enter the requisite information here.'
-            blockchain_writer_dict = interactive_prompt(blockchain_message, ['blockchain_writer'], {})
-            blockchain_writer = blockchain_writer_dict['blockchain_writer']
-        else:
+    blockchain_writer = blockstack_opts.get('blockchain_writer')
+    while blockchain_writer not in SUPPORTED_UTXO_PROVIDERS:
+        if not(interactive or force):
             raise Exception('No blockchain reader given')
 
-    blockchain_writer_opts = {}
-    blockchain_writer_defaults = default_utxo_provider_opts(
-        blockchain_writer, config_file=config_file)
+        # prompt for it?
+        blockchain_message = (
+            'NOTE: Blockstack currently requires an external API\n'
+            'for sending transactions to the blockchain.  The set\n'
+            'of supported service providers are:\n'
+            '\t\n'.join(SUPPORTED_UTXO_PROVIDERS) + '\n'
+            'Please enter the requisite information here.'
+        )
+        blockchain_writer_dict = interactive_prompt(blockchain_message, ['blockchain_writer'], {})
+        blockchain_writer = blockchain_writer_dict['blockchain_writer']
+
+    blockchain_writer_defaults = default_utxo_provider_opts(blockchain_writer, config_file=config_file)
     blockchain_writer_params = SUPPORTED_UTXO_PARAMS[blockchain_writer]
 
-    if not force:
-        # get current set of writer opts
-        blockchain_writer_opts = default_utxo_provider_opts(
-            blockchain_writer, config_file=config_file)
+    # get current set of writer opts
+    blockchain_writer_opts = {} if force else blockchain_writer_defaults
 
     blockchain_writer_opts, missing_writer_opts, num_writer_opts_prompted = find_missing(
         SUPPORTED_UTXO_PROMPT_MESSAGES[blockchain_writer],
@@ -665,24 +662,27 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
     )
 
     blockchain_writer_opts['utxo_provider'] = blockchain_writer_defaults['utxo_provider']
-    if not interactive and (len(missing_bitcoin_opts) > 0 or len(missing_writer_opts) > 0 or len(missing_reader_opts) > 0 or len(missing_blockstack_opts) > 0):
+    missing_opts = [missing_bitcoin_opts, missing_writer_opts, missing_reader_opts, missing_blockstack_opts]
+    if not interactive and any(missing_opts):
         # cannot continue
         raise Exception(
             'Missing configuration fields: {}'.format(
-                ','.join(missing_bitcoin_opts + missing_writer_opts + missing_reader_opts + missing_blockstack_opts)
+                ','.join(list(itertools.chain(*missing_opts)))
             )
         )
 
     # ask for contact info, so we can send out notifications for bugfixes and
     # upgrades
-    if blockstack_opts.get('email', None) is None:
-        email_msg = 'Would you like to receive notifications\n'
-        email_msg += 'from the developers when there are critical\n'
-        email_msg += 'updates available to install?\n\n'
-        email_msg += 'If so, please enter your email address here.\n'
-        email_msg += 'If not, leave this field blank.\n\n'
-        email_msg += 'Your email address will be used solely\n'
-        email_msg += 'for this purpose.\n'
+    if blockstack_opts.get('email') is None:
+        email_msg = (
+            'Would you like to receive notifications\n'
+            'from the developers when there are critical\n'
+            'updates available to install?\n\n'
+            'If so, please enter your email address here.\n'
+            'If not, leave this field blank.\n\n'
+            'Your email address will be used solely\n'
+            'for this purpose.\n'
+        )
         email_opts, _, email_prompted = find_missing(
             email_msg, ['email'], {}, {'email': ''}, prompt_missing=interactive
         )
@@ -704,8 +704,8 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
     }
 
     # if we prompted, then save
-    if num_bitcoind_prompted > 0 or num_reader_opts_prompted > 0 or num_writer_opts_prompted or num_blockstack_opts_prompted > 0:
-        print >> sys.stderr, 'Saving configuration to {}'.format(config_file)
+    if any([num_bitcoind_prompted, num_reader_opts_prompted, num_writer_opts_prompted, num_blockstack_opts_prompted]):
+        print('Saving configuration to {}'.format(config_file), sys.stderr)
 
         # rename appropriately, so other packages can find them
         write_config_file(ret, config_file)
@@ -729,7 +729,7 @@ def write_config_file(opts, config_file):
     if os.path.exists(config_file):
         parser.read(config_file)
 
-    for sec_name in opts.keys():
+    for sec_name in opts:
         sec_opts = opts[sec_name]
 
         if parser.has_section(sec_name):
@@ -790,9 +790,11 @@ def get_utxo_provider_client(config_path=CONFIG_PATH):
     try:
         utxo_provider = connect_utxo_provider(reader_opts)
         return utxo_provider
-    except Exception, e:
+    except Exception as e:
         log.exception(e)
-        return None
+        return
+
+    return
 
 
 def get_tx_broadcaster(config_path=CONFIG_PATH):
@@ -808,9 +810,11 @@ def get_tx_broadcaster(config_path=CONFIG_PATH):
     try:
         blockchain_broadcaster = connect_utxo_provider(writer_opts)
         return blockchain_broadcaster
-    except:
+    except Exception as e:
         log.exception(e)
-        return None
+        return
+
+    return
 
 
 def str_to_bool(s):
@@ -916,19 +920,19 @@ def read_config_file(path=CONFIG_PATH):
     for sec in parser.sections():
         ret[sec] = {}
         for opt in parser.options(sec):
-            if bool_values.has_key(sec) and opt in bool_values[sec]:
+            if opt in bool_values.get(sec, {}):
                 # decode to bool
                 ret[sec][opt] = str_to_bool(parser.get(sec, opt))
-
             else:
                 # literal
                 ret[sec][opt] = parser.get(sec, opt)
 
-    if ret.has_key('blockstack-client') and not ret['blockstack-client'].has_key('advanced_mode'):
+    if 'advanced_mode' in ret.get('blockstack-client', {}):
         ret['blockstack-client']['advanced_mode'] = False
 
     ret['path'] = path
     ret['dir'] = os.path.dirname(path)
+
     return ret
 
 
@@ -945,7 +949,7 @@ def get_config(path=CONFIG_PATH):
 
     try:
         opts = configure(config_file=path)
-    except Exception, e:
+    except Exception as e:
         log.exception(e)
         return None
 
@@ -961,7 +965,7 @@ def get_config(path=CONFIG_PATH):
     blockstack_opts['dir'] = os.path.dirname(path)
     blockstack_opts['uuid'] = opts['uuid']
     blockstack_opts['client_version'] = blockstack_opts.get('client_version', '')
-    if not blockstack_opts.has_key('anonymous_statistics'):
+    if 'anonymous_statistics' not in blockstack_opts:
         # not disabled
         blockstack_opts['anonymous_statistics'] = True
 
@@ -978,7 +982,6 @@ def get_app_config(app_name, path=CONFIG_PATH):
     parser = SafeConfigParser()
     parser.read(config_path)
 
-    config_dir = os.path.dirname(config_path)
     if not parser.has_section(app_name):
         return None
 
@@ -994,15 +997,21 @@ def update_config(section, option, value, config_path=CONFIG_PATH):
 
     try:
         parser.read(config_path)
-    except Exception, e:
+    except Exception as e:
         log.exception(e)
         return None
 
-    if parser.has_option(section, option):
-        parser.set(section, option, value)
+    if not parser.has_option(section, option):
+        return
 
-        with open(config_path, 'wb') as configfile:
-            parser.write(configfile)
+    parser.set(section, option, value)
+
+    with open(config_path, 'wb') as configfile:
+        parser.write(configfile)
+
+
+def get_version_parts(whole, func):
+    return [func(_.strip()) for _ in whole[0:3]]
 
 
 def semver_match(v1, v2):
@@ -1016,15 +1025,12 @@ def semver_match(v1, v2):
         # one isn't a semantic version
         return False
 
-    v1_major, v1_minor, v1_patch = v1_parts[0].strip(), v1_parts[1].strip(), v1_parts[2].strip()
-    v2_major, v2_minor, v2_patch = v2_parts[0].strip(), v2_parts[1].strip(), v2_parts[2].strip()
-    if v1_major != v2_major:
-        return False
+    v1_major, v1_minor, v1_patch = get_version_parts(v1_parts, str)
+    v2_major, v2_minor, v2_patch = get_version_parts(v2_parts, str)
 
-    if v1_minor != v2_minor:
-        return False
+    # TODO: check why patch versions are not compared. see function docstring.
 
-    return True
+    return [v1_major, v1_minor] == [v2_major, v2_minor]
 
 
 def semver_newer(v1, v2):
@@ -1038,8 +1044,9 @@ def semver_newer(v1, v2):
         # one isn't a semantic version
         return False
 
-    v1_major, v1_minor, v1_patch = int(v1_parts[0].strip()), int(v1_parts[1].strip()), int(v1_parts[2].strip())
-    v2_major, v2_minor, v2_patch = int(v2_parts[0].strip()), int(v2_parts[1].strip()), int(v2_parts[2].strip())
+    v1_major, v1_minor, v1_patch = get_version_parts(v1_parts, int)
+    v2_major, v2_minor, v2_patch = get_version_parts(v2_parts, int)
+
     if v1_major > v2_major:
         return False
 
