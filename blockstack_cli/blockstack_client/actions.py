@@ -1212,7 +1212,7 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None, inter
         # got a zonefile...
         legacy = blockstack_profiles.is_profile_in_legacy_format( user_zonefile )
         if not legacy and not force and is_zonefile_current(fqu, user_zonefile):
-            msg ="Zonefile data is same as current zonefile; update not needed."
+            msg ="Zonefile data is the as current zonefile; update not needed."
             return {'error': msg}
 
         if not legacy and not force and interactive:
@@ -1249,10 +1249,10 @@ def cli_set_advanced_mode( args, config_path=CONFIG_PATH ):
     """
 
     status = str(args.status).lower()
-    if status not in ['on', 'off']:
+    if status not in ['on', 'off', 'y', 'n']:
         return {'error': 'Invalid option; please use "on" or "off"'}
 
-    if status == 'on':
+    if status == 'on' || status == 'y':
         set_advanced_mode(True, config_path=config_path)
     else:
         set_advanced_mode(False, config_path=config_path)
