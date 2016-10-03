@@ -31,7 +31,7 @@ Consensus-breaking Changes
 
 * Name and namespace prices have been re-adjusted by a factor of 0.417 to preserve the $230 USD to 1 BTC exchange rate in 0.13.  They take effect at block XXX.
 
-* Name lifetimes in all namespaces have been temporarily increased by a factor of 2.  For example, a name in the `.id` namespace will be valid for two years, instead of one.  This will be reverted in 0.15, due for release mid-September 2017.  This was done to give more time to upgrade the CLI and brower to automatically renew names.
+* Name lifetimes in all namespaces have been increased to 2 years.  This is phase 1 of a 2-phase name/identity improvement plan, discussed [here](https://github.com/blockstack/blockstack-core/issues/244#issuecomment-251226177).
 
 
 Selected Changelog
