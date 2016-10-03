@@ -1951,7 +1951,11 @@ def atlas_peer_get_zonefile_inventory_range( my_hostport, peer_hostport, bit_off
         return None
 
     else:
-        log.debug("Zonefile inventory for %s (%s-%s) is '%s'" % (peer_hostport, bit_offset, bit_count, atlas_inventory_to_string(zf_inv['inv'])))
+        inv_str = atlas_inventory_to_string(zf_inv['inv'])
+        if len(inv_str) > 40:
+            inv_str = inv_str[:40] + "..."
+
+        log.debug("Zonefile inventory for %s (%s-%s) is '%s'" % (peer_hostport, bit_offset, bit_count, inv_str))
         return zf_inv['inv']
 
 
@@ -2046,7 +2050,11 @@ def atlas_peer_sync_zonefile_inventory( my_hostport, peer_hostport, maxlen, time
         log.debug("%s no longer a peer" % peer_hostport)
         return None 
 
-    log.debug("Set zonefile inventory %s: %s" % (peer_hostport, atlas_inventory_to_string(peer_inv)))
+    inv_str = atlas_inventory_to_string(peer_inv)
+    if len(inv_str) > 40:
+        inv_str = inv_str[:40] + "..."
+
+    log.debug("Set zonefile inventory %s: %s" % (peer_hostport, inv_str))
     atlas_peer_set_zonefile_inventory( peer_hostport, peer_inv, peer_table=peer_table ) # NOTE: may have trailing 0's for padding
 
     if locked:
@@ -2124,7 +2132,7 @@ def atlas_peer_refresh_zonefile_inventory( my_hostport, peer_hostport, byte_offs
     if inv is not None:
         inv_str = atlas_inventory_to_string(inv)
         if len(inv_str) > 40:
-            inv_str = inv_str[:40]
+            inv_str = inv_str[:40] + "..."
 
         log.debug("%s: inventory of %s is now '%s'" % (my_hostport, peer_hostport, inv_str))
 
@@ -2465,7 +2473,7 @@ def atlas_get_zonefiles( my_hostport, peer_hostport, zonefile_hashes, timeout=No
         atlas_log_socket_error( "get_zonefiles(%s)" % peer_hostport, peer_hostport, se)
 
     except Exception, e:
-        if os.environ.get("BLOCKSTACK_DEBUG") == "1":
+        if os.environ.get("BLOCKSTACK_DEBUG") is not None:
             log.exception(e)
 
         log.error("Invalid zonefile data from %s" % peer_hostport)
