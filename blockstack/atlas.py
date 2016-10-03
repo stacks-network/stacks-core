@@ -3529,9 +3529,19 @@ class AtlasZonefileCrawler( threading.Thread ):
         zonefile_ranking = [ (missing_zfinfo[zfhash]['popularity'], zfhash) for zfhash in missing_zfinfo.keys() ]
         zonefile_ranking.sort()
         zonefile_hashes = list(set([zfhash for (_, zfhash) in zonefile_ranking]))
-
         zonefile_origins = self.find_zonefile_origins( missing_zfinfo, peer_hostports )
-        
+
+        # filter out the ones that are already cached
+        while len(zonefile_hashes) > 0:
+
+            # is this zonefile already cached?
+            present = is_zonefile_cached( zfhash, zonefile_dir=self.zonefile_dir, validate=False )
+            if present:
+                log.debug("%s: zonefile %s already cached" % (self.hostport, zfhash))
+                zonefile_hashes.pop(0)
+                continue
+
+
         log.debug("%s: missing %s unique zonefiles" % (self.hostport, len(zonefile_hashes)))
 
         while len(zonefile_hashes) > 0:
