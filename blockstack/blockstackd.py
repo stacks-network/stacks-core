@@ -830,25 +830,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 return cached_zonefile_data
 
         return None
-        """
-        log.debug("Zonefile %s is not cached" % zonefile_hash)
-        try:
-            # check storage providers
-            zonefile_data = get_zonefile_data_from_storage( zonefile_hash, name=name, drivers=zonefile_storage_drivers )
-        except blockstack_zones.InvalidLineException:
-            # legacy profile
-            return None
-        except Exception, e:
-            log.exception(e)
-            return None
-
-        if zonefile_data is not None:
-            store_cached_zonefile_data( zonefile_data )
-            return zonefile_data
-        else:
-            return None
-        """
-
+       
 
     def get_zonefile_data_by_name( self, conf, name, zonefile_storage_drivers ):
         """
@@ -1074,9 +1056,15 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return {'error': 'No such name'}
 
         # find zonefile 
-        zonefile_dict = self.get_zonefile_by_name( conf, name, zonefile_storage_drivers )
-        if zonefile_dict is None:
+        zonefile_data = self.get_zonefile_data_by_name( conf, name, zonefile_storage_drivers )
+        if zonefile_data is None:
             return {'error': 'No zonefile'}
+
+        # deserialize 
+        try:
+            zonefile_dict = blockstack_zones.parse_zone_file( zonefile_data )
+        except:
+            return {'error': 'Nonstandard zonefile'}
 
         # find the profile
         try:
@@ -1134,10 +1122,17 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return {'error': 'No such name'}
 
         # find zonefile 
-        zonefile_dict = self.get_zonefile_by_name( conf, name, zonefile_storage_drivers )
-        if zonefile_dict is None:
+        zonefile_data = self.get_zonefile_data_by_name( conf, name, zonefile_storage_drivers )
+        if zonefile_data is None:
             log.debug("No zonefile for '%s'" % name)
             return {'error': 'No zonefile'}
+
+        # must be standard 
+        try:
+            zonefile_dict = blockstack_zones.parse_zone_file( zonefile_data )
+        except:
+            log.debug("Non-standard zonefile for %s" % name)
+            return {'error': 'Nonstandard zonefile'}
 
         # first, try to verify with zonefile public key (if one is given)
         user_data_pubkey = blockstack_client.user_zonefile_data_pubkey( zonefile_dict )
@@ -1597,7 +1592,7 @@ def index_blockchain( expected_snapshots=GENESIS_SNAPSHOT ):
         db.close()
         return
 
-    # bring the db up to the chain tip
+    # bring the db up to the chain tip.
     log.debug("Begin indexing (up to %s)" % current_block)
     set_indexing( True )
     virtualchain_hooks.sync_blockchain( bt_opts, current_block, expected_snapshots=expected_snapshots, tx_filter=blockstack_tx_filter )
