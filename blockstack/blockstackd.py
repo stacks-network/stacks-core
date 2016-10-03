@@ -890,9 +890,11 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return {'error': 'No data'}
 
         if type(zonefile_hashes) != list:
+            log.error("Not a zonefile hash list")
             return {'error': 'Invalid zonefile hashes'}
 
         if len(zonefile_hashes) > 100:
+            log.error("Too many requests (%s)" % len(zonefile_hashes))
             return {'error': 'Too many requests'}
 
         zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
@@ -900,6 +902,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         ret = {}
         for zonefile_hash in zonefile_hashes:
             if type(zonefile_hash) not in [str, unicode]:
+                log.error("Invalid zonefile hash")
                 return {'error': 'Not a zonefile hash'}
 
         for zonefile_hash in zonefile_hashes:
