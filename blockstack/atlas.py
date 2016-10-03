@@ -2452,7 +2452,7 @@ def atlas_get_zonefiles( my_hostport, peer_hostport, zonefile_hashes, timeout=No
     # get in batches of 100 or less 
     zf_batches = []
     for i in xrange(0, len(zonefile_hashes), 100):
-        zf_batches.append(zonefile_hashes[i:i+100])
+        zf_batches.append(zonefile_hashes[i*100:(i+1)*100])
 
     for zf_batch in zf_batches:
         zf_payload = None
@@ -3417,13 +3417,6 @@ class AtlasZonefileCrawler( threading.Thread ):
 
         for fetched_zfhash, zonefile_txt in zonefiles.items():
            
-            zonefile = None
-            try:
-                zonefile = blockstack_zones.parse_zone_file( zonefile_txt )
-            except:
-                log.error("Unparseable zonefile: %s" % fetched_zfhash)
-                continue
-
             if fetched_zfhash not in peer_zonefile_hashes:
                 # unsolicited
                 log.warn("%s: Unsolicited zonefile %s" % (self.hostport, fetched_zfhash))
