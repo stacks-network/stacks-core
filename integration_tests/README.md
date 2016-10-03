@@ -19,16 +19,17 @@ The tests cover the following repositories, and must be installed prior to runni
 * [blockstack-profiles](https://github.com/blockstack/blockstack-profiles-py)
 
 The `get_started.sh` script in the root directory will fetch and install the latest branches of all the required Blockstack packages.
+**If you want to install the latest branches alongside the stable Blockstack packages, you should use a virtual environment.**
 
-In addition, you must also install the Bitcoin daemon and CLI tool.
+In addition, you must install the Bitcoin daemon and CLI tool.
 
 Getting Started
 ---------------
 
 Once all of the required packages are installed (see `get_started.sh`), you can run individual test scenarios.  Test scenarios
 are organized as Python modules, which can be imported from `blockstack_integration_tests.scenarios`.  For example, the following
-command runs the test that will create a `.test` namespace, preorder and register the name `foo.test`, set its zonefile hash, and then transfer
-it to a new address (much like what the Onename.com registrar does):
+command runs the test that will create a `.test` namespace, preorder and register the name `foo.test`, set its zonefile hash, 
+and create an empty profile for it:
 
 ```
      $ blockstack-test-scenario blockstack_integration_tests.scenarios.rpc_register
@@ -40,18 +41,29 @@ If all is well, the test will run for a few minutes and print:
      SUCCESS blockstack_integration_tests.scenarios.rpc_register
 ```
 
+Internally, the test-runner (`blockstack-test-scenario`) starts up a Bitcoin node locally in `-regtest` mode, giving the test its own private testnet
+blockchain.  It mines some blocks with Bitcoin, fills some test-specified addresses with an initial balance (those specified in the 
+test module's `wallets` global variable), and sets up a temporary configuration
+directory tree in `/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.rpc_register/`.
+
+Once Bitcoin is ready, the
+test-runner starts up Blockstack Core and has it crawl the local Bitcoin blockchain.  It then runs the test's `scenario()` method, which 
+feeds it a string of Blockstack CLI commands at the desired block heights.  Once the `scenario()` method finishes, the test runner
+calls the `check()` method to verify that the test generated the right state.  If this passes, the test-runner verifies the 
+Blockstack node's database integrity, performs automated SNV tests, and checks that the Atlas network crawled the right zonefiles.
+
 Interactive Testing
 -------------------
 
-Internally, the test-runner starts up a Bitcoin node locally in `-regtest` mode, giving the test framework its own private testnet
-blockchain.  By default, tests run in an automated fashion.  However, you can make the test idle after its checks finish, leaving
-you with a running Bitcoin node and a running Blockstack Core node that you can interact with via the Blockstack CLI, as if it 
-were a production system.  The idea here is to use the test scenario to pre-populate the blockchain and Blockstack Core node with
+By default, tests run in an automated fashion.  However, you can make the test idle after its checks finish (i.e. after `check()`
+returns).  This leaves you with a running Bitcoin node and a running Blockstack Core node that you can interact with via the Blockstack CLI, as if it 
+were a production system.  The idea here is to use the test to pre-populate the blockchain and Blockstack Core node with
 the state you want (i.e. particular names and namespaces, particular addresses with the balances you want, etc.), and then experiment
 manually from there.
 
 To start a test in interactive mode, pass the `--interactive` switch with your desired block time (in seconds).  For example, this
-command will leave Blockstack Core running, and will make Bitcoin advance by one block every 10 seconds:
+command will run the test, and make both Bitcoin and Blockstack Core advance by one block every 10 seconds once the test logic
+finishes:
 
 ```
      $ blockstack-test-scenario --interactive 10 blockstack_integration_tests.scenarios.rpc_register
@@ -72,7 +84,7 @@ the following environment variables:
      $ export BLOCKSTACK_CLIENT_CONFIG=/tmp/blockstack-run-scenario.blockstack_integration_tests.scenarios.name_preorder_register/client/client.ini
 ```
 
-Once set, you can use the Blockstack CLI as normal, with some extra debug output:
+Once set, you can use the Blockstack CLI as normal, and it will interact with the test case's Blockstack Core node:
 
 ```
      $ blockstack lookup foo.test
@@ -107,7 +119,7 @@ Once set, you can use the Blockstack CLI as normal, with some extra debug output
 Examples
 --------
 
-You can register names as normal when running in interactive mode:
+You can register names like normal when running the test in interactive mode:
 
 ```
      $ blockstack register bar.test
@@ -125,7 +137,7 @@ You can register names as normal when running in interactive mode:
      }
 ```
 
-You can check the status of the name as it gets registered on the `-regtest` blockchain, as you would on the mainnet blockchain.
+You can check the status of the name as it gets registered on the regtest blockchain, just as you would on the mainnet blockchain.
 Because blocktimes are only 10 seconds in this example, names get registered quickly.
 
 ```
@@ -153,7 +165,7 @@ Because blocktimes are only 10 seconds in this example, names get registered qui
 ```
 
 As far as Blockstack is concerned, it thinks its running on the Bitcoin testnet.  As such, you'll see that your names are
-owned by testnet addresses:
+owned by testnet-formatted addresses:
 
 ```
      $ blockstack names
@@ -175,7 +187,7 @@ owned by testnet addresses:
 ```
      
 Once the name registers, you'll see that its profile and zonefile are automatically generated and stored,
-and will be loaded from the pre-configured `disk` driver:
+and will be loaded from the pre-configured `disk` driver (the defualt driver used by the test framework):
 
 ```
     $ BLOCKSTACK_DEBUG=1 blockstack lookup bar.test
@@ -217,4 +229,5 @@ and will be loaded from the pre-configured `disk` driver:
         }
     }
 ````
+
 
