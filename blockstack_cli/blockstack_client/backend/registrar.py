@@ -384,7 +384,7 @@ class RegistrarWorker(threading.Thread):
             return name_rec
 
         if os.environ.get("BLOCKSTACK_TEST", None) == "1":
-            log.debug("Replicate zonefile %s (blockchain: %s)" % (zonefile_hash, name_rec['value_hash']))
+            log.debug("Replicate zonefile %s (blockchain: %s)\ndata:\n%s" % (zonefile_hash, name_rec['value_hash'], zonefile_data))
 
         if str(name_rec['value_hash']) != zonefile_hash:
             log.error("Zonefile %s has not been confirmed yet (still on %s)" % (zonefile_hash, name_rec['value_hash']))
