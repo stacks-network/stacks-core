@@ -193,6 +193,8 @@ def atlas_peer_table_lock():
     PEER_TABLE_LOCK.acquire()
     PEER_TABLE_LOCK_HOLDER = threading.current_thread()
     PEER_TABLE_LOCK_TRACEBACK = traceback.format_stack()
+
+    # log.debug("\n\npeer table lock held by %s at \n%s\n\n" % (PEER_TABLE_LOCK_HOLDER, PEER_TABLE_LOCK_TRACEBACK))
     return PEER_TABLE
 
 
@@ -217,6 +219,16 @@ def atlas_peer_table_unlock():
     Unlock the global health info table.
     """
     global PEER_TABLE_LOCK, PEER_TABLE_LOCK_HOLDER, PEER_TABLE_LOCK_TRACEBACK
+    
+    try:
+        assert PEER_TABLE_LOCK_HOLDER == threading.current_thread()
+    except:
+        log.error("Locked by %s, unlocked by %s" % (PEER_TABLE_LOCK_HOLDER, threading.current_thread()))
+        log.error("Holder locked from:\n%s" % "".join(PEER_TABLE_LOCK_TRACEBACK))
+        log.error("Errant thread unlocked from:\n%s" % "".join(traceback.format_stack()))
+        os.abort()
+
+    # log.debug("\n\npeer table lock released by %s at \n%s\n\n" % (PEER_TABLE_LOCK_HOLDER, PEER_TABLE_LOCK_TRACEBACK))
     PEER_TABLE_LOCK_HOLDER = None
     PEER_TABLE_LOCK_TRACEBACK = None
     PEER_TABLE_LOCK.release()
@@ -2110,7 +2122,11 @@ def atlas_peer_refresh_zonefile_inventory( my_hostport, peer_hostport, byte_offs
         peer_table = None
 
     if inv is not None:
-        log.debug("%s: inventory of %s is now '%s'" % (my_hostport, peer_hostport, atlas_inventory_to_string(inv))) 
+        inv_str = atlas_inventory_to_string(inv)
+        if len(inv_str) > 40:
+            inv_str = inv_str[:40]
+
+        log.debug("%s: inventory of %s is now '%s'" % (my_hostport, peer_hostport, inv_str))
 
     if inv is None:
         return False
@@ -2437,7 +2453,7 @@ def atlas_get_zonefiles( my_hostport, peer_hostport, zonefile_hashes, timeout=No
             assert type(zonefiles) == dict, "Invalid zonefiles: type %s" % type(zonefiles)
             for zf_hash, zf_data in zonefiles.items():
                 assert type(zf_hash) in [str, unicode], "Invalid zonefile hash"
-                assert len(zf_hash) == 2 * LENGTHS['update_hash'], "Invalid zonefile hash length"
+                assert len(zf_hash) == 2 * LENGTHS['value_hash'], "Invalid zonefile hash length"
 
                 assert type(zf_data) in [str, unicode], "Invalid zonefile data"
                 assert verify_zonefile( zf_data, zf_hash ), "Zonefile does not match or is not current" 
@@ -3363,9 +3379,9 @@ class AtlasZonefileCrawler( threading.Thread ):
         return rc
 
 
-    def store_zonefiles( self, zonefiles, peer_zonefile_hashes, path, con=None ):
+    def store_zonefiles( self, zonefiles, peer_zonefile_hashes, peer_hostport, path, con=None ):
         """
-        Store a list of RPC-fetched zonefiles (but only ones in peer_zonefile_hashes)
+        Store a list of RPC-fetched zonefiles (but only ones in peer_zonefile_hashes) from the given peer_hostport
         Return the list of zonefile hashes stored.
         """
         ret = []
@@ -3552,7 +3568,7 @@ class AtlasZonefileCrawler( threading.Thread ):
                 if zonefiles is not None:
 
                     # got zonefiles!
-                    stored_zfhashes = self.store_zonefiles( zonefiles, peer_zonefile_hashes, path )
+                    stored_zfhashes = self.store_zonefiles( zonefiles, peer_zonefile_hashes, peer_hostport, path )
                     
                     # don't ask again
                     log.debug("Stored %s zonefiles" % len(stored_zfhashes))
