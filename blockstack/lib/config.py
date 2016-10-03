@@ -116,7 +116,7 @@ EPOCH_NAMESPACE_FIELDS = [
 
 # when epochs end (-1 means "never")
 EPOCH_NOW = -1
-EPOCH_1_END_BLOCK = 436000
+EPOCH_1_END_BLOCK = 436600
 EPOCH_2_END_BLOCK = EPOCH_NOW
 
 EPOCH_1_PRICE_MULTIPLIER_id = 1.0
@@ -154,7 +154,7 @@ EPOCHS = [
         "end_block": EPOCH_2_END_BLOCK,
         "namespaces": {
             "id": {
-                "NAMESPACE_LIFETIME_MULTIPLIER": 5,
+                "NAMESPACE_LIFETIME_MULTIPLIER": 2,
                 "PRICE_MULTIPLIER": EPOCH_2_PRICE_MULTIPLIER_id
             }
         }
