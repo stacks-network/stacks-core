@@ -52,16 +52,17 @@ ATLAS_TESTNET_PORT = 16265
 # current simulator time
 TIME = 0
 
-PEER_LIFETIME_INTERVAL = None
-PEER_MAX_NEIGHBORS = None
-PEER_PING_INTERVAL = None  
-PEER_MAX_AGE = None
-PEER_CLEAN_INTERVAL = None
-PEER_PING_TIMEOUT = None
-PEER_INV_TIMEOUT = None
-PEER_NEIGHBORS_TIMEOUT = None
-PEER_ZONEFILES_TIMEOUT = None
-PEER_PUSH_ZONEFILES_TIMEOUT = None
+# TODO: set these back to None if we want to fetch them from a simulator server
+PEER_LIFETIME_INTERVAL = 10
+PEER_MAX_NEIGHBORS = 10
+PEER_PING_INTERVAL = 3
+PEER_MAX_AGE = 10
+PEER_CLEAN_INTERVAL = 3
+PEER_PING_TIMEOUT = 1
+PEER_INV_TIMEOUT = 1
+PEER_NEIGHBORS_TIMEOUT = 1
+PEER_ZONEFILES_TIMEOUT = 1
+PEER_PUSH_ZONEFILES_TIMEOUT = 1
 
 
 def time_now():
@@ -380,7 +381,7 @@ class AtlasNetworkRPCHandler(SimpleXMLRPCRequestHandler):
             return json.dumps(rpc_traceback())
 
 
-class AtlasNetwork( SimpleXMLRPCServer ):
+class AtlasNetwork( SocketServer.ThreadingMixIn, SimpleXMLRPCServer ):
 
     """
     Dynamic network test: simulate
