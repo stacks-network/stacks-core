@@ -354,7 +354,7 @@ def atexit_cleanup( spv_headers_path, client_config_path, stop_bitcoind ):
         os.system("bitcoin-cli -regtest -conf=%s stop" % bitcoin_conf)
 
 
-def sync_virtualchain_upcall( blockstack_opts ):
+def sync_virtualchain_upcall( blockstack_opts, need_db_refresh=False ):
     """
     Upcall from the test scenario
     to synchronize virtualchain.
@@ -366,8 +366,9 @@ def sync_virtualchain_upcall( blockstack_opts ):
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
     testlib.set_state_engine(db)
 
-    rpcclient = testlib.TestAPIProxy()
-    rpcclient.db_refresh()
+    if need_db_refresh:
+        rpcclient = testlib.TestAPIProxy()
+        rpcclient.db_refresh()
 
     old_lastblock = db.lastblock
 
@@ -377,8 +378,9 @@ def sync_virtualchain_upcall( blockstack_opts ):
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
     testlib.set_state_engine(db)
 
-    rpcclient = testlib.TestAPIProxy()
-    rpcclient.db_refresh()
+    if need_db_refresh:
+        rpcclient = testlib.TestAPIProxy()
+        rpcclient.db_refresh()
 
     log.debug("sync atlas node up to %s" % (height))
     
@@ -479,8 +481,24 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     testlib.set_bitcoind( bitcoind )
     testlib.set_state_engine( db )
 
+    # start taking RPC requests
+    atlas_state = network_start( blockstack_opts, db )
+
+    # start pinging bitcoind so it pushes out p2p messages
+    pinger = Pinger()
+    pinger.start()
+
+    # do we need to refreshdb?
+    rpcclient = testlib.TestAPIProxy()
+    res = rpcclient.getinfo()
+    need_db_refresh = False
+
+    if not blockstack_client.config.semver_newer( res['server_version'], "0.14.0" ) and not res['server_version'].startswith("0.14."):
+        log.debug("Need periodic DB refreshes (server_version = %s)" % res['server_version'])
+        need_db_refresh = True
+
     test_env = {
-        "sync_virtualchain_upcall": lambda: sync_virtualchain_upcall(blockstack_opts),
+        "sync_virtualchain_upcall": lambda: sync_virtualchain_upcall(blockstack_opts, need_db_refresh=need_db_refresh),
         "next_block_upcall": bitcoin_regtest_next_block,
         "working_dir": working_dir,
         "bitcoind": bitcoind,
@@ -488,13 +506,6 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         "spv_headers_path": spv_headers_path,
         "blockstack_opts": blockstack_opts
     }
-
-    # start taking RPC requests
-    atlas_state = network_start( blockstack_opts, db )
-
-    # start pinging bitcoind so it pushes out p2p messages
-    pinger = Pinger()
-    pinger.start()
 
     # sync initial utxos 
     testlib.next_block( **test_env )
@@ -570,9 +581,9 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
     log.info("History check passes!")
 
-    
-    rpcclient = testlib.TestAPIProxy()
-    rpcclient.db_refresh()
+    if need_db_refresh: 
+        rpcclient = testlib.TestAPIProxy()
+        rpcclient.db_refresh()
 
     # run snv at each name 
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RO)
