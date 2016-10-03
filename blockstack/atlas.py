@@ -2445,51 +2445,66 @@ def atlas_get_zonefiles( my_hostport, peer_hostport, zonefile_hashes, timeout=No
     host, port = url_to_host_port( peer_hostport )
     rpc = BlockstackRPCClient( host, port, timeout=timeout, src=my_hostport )
     zf_payload = None
+    zonefile_datas = {}
 
     assert not atlas_peer_table_is_locked_by_me()
 
-    try:
-        zf_payload = rpc.get_zonefiles( zonefile_hashes )
-        assert type(zf_payload) == dict, "Invalid zonefile listing"
-        if 'error' not in zf_payload.keys():
-            assert 'status' in zf_payload.keys(), "Invalid zonefile reply"
-            assert zf_payload['status'], "Invalid zonefile reply"
+    # get in batches of 100 or less 
+    zf_batches = []
+    for i in xrange(0, len(zonefile_hashes), 100):
+        zf_batches.append(zonefile_hashes[i:i+100])
 
-            assert 'zonefiles' in zf_payload.keys(), "No zonefiles"
-            zonefiles = zf_payload['zonefiles']
+    for zf_batch in zf_batches:
+        zf_payload = None
+        try:
+            zf_payload = rpc.get_zonefiles( zonefile_hashes )
+            assert type(zf_payload) == dict, "Invalid zonefile listing"
+            if 'error' not in zf_payload.keys():
+                assert 'status' in zf_payload.keys(), "Invalid zonefile reply"
+                assert zf_payload['status'], "Invalid zonefile reply"
 
-            assert type(zonefiles) == dict, "Invalid zonefiles: type %s" % type(zonefiles)
-            for zf_hash, zf_data in zonefiles.items():
-                assert type(zf_hash) in [str, unicode], "Invalid zonefile hash"
-                assert len(zf_hash) == 2 * LENGTHS['value_hash'], "Invalid zonefile hash length"
+                assert 'zonefiles' in zf_payload.keys(), "No zonefiles"
+                zonefiles = zf_payload['zonefiles']
 
-                assert type(zf_data) in [str, unicode], "Invalid zonefile data"
-                assert verify_zonefile( zf_data, zf_hash ), "Zonefile does not match or is not current" 
+                assert type(zonefiles) == dict, "Invalid zonefiles: type %s" % type(zonefiles)
+                for zf_hash, zf_data in zonefiles.items():
+                    assert type(zf_hash) in [str, unicode], "Invalid zonefile hash"
+                    assert len(zf_hash) == 2 * LENGTHS['value_hash'], "Invalid zonefile hash length"
 
-        else:
-            assert type(zf_payload['error']) in [str, unicode], "Invalid error message"
+                    assert type(zf_data) in [str, unicode], "Invalid zonefile data"
+                    assert verify_zonefile( zf_data, zf_hash ), "Zonefile does not match or is not current" 
 
-    except (socket.timeout, socket.gaierror, socket.herror, socket.error), se:
-        atlas_log_socket_error( "get_zonefiles(%s)" % peer_hostport, peer_hostport, se)
+            else:
+                assert type(zf_payload['error']) in [str, unicode], "Invalid error message"
 
-    except Exception, e:
-        if os.environ.get("BLOCKSTACK_DEBUG") is not None:
-            log.exception(e)
+        except (socket.timeout, socket.gaierror, socket.herror, socket.error), se:
+            atlas_log_socket_error( "get_zonefiles(%s)" % peer_hostport, peer_hostport, se)
 
-        log.error("Invalid zonefile data from %s" % peer_hostport)
+        except Exception, e:
+            if os.environ.get("BLOCKSTACK_DEBUG") is not None:
+                log.exception(e)
 
-    if zf_payload is None:
-        log.error("Failed to fetch zonefile data from %s" % peer_hostport)
-        atlas_peer_update_health( peer_hostport, False, peer_table=peer_table )
-        return None 
+            log.error("Invalid zonefile data from %s" % peer_hostport)
 
-    if 'error' in zf_payload.keys():
-        log.error("Failed to fetch zonefile data from %s: %s" % (peer_hostport, zf_payload['error']))
-        atlas_peer_update_health( peer_hostport, False, peer_table=peer_table )
-        return None 
+        if zf_payload is None:
+            log.error("Failed to fetch zonefile data from %s" % peer_hostport)
+            atlas_peer_update_health( peer_hostport, False, peer_table=peer_table )
+            
+            zonefile_datas = None
+            break
+
+        if 'error' in zf_payload.keys():
+            log.error("Failed to fetch zonefile data from %s: %s" % (peer_hostport, zf_payload['error']))
+            atlas_peer_update_health( peer_hostport, False, peer_table=peer_table )
+
+            zonefile_datas = None
+            break
+
+        # success!
+        zonefile_datas.update( zf_payload['zonefiles'] )
 
     atlas_peer_update_health( peer_hostport, True, peer_table=peer_table )
-    return zf_payload['zonefiles']
+    return zonefile_datas
 
 
 def atlas_get_zonefile_data_from_storage( zonefile_hash, storage_drivers ):
