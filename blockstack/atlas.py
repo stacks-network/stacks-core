@@ -2457,7 +2457,7 @@ def atlas_get_zonefiles( my_hostport, peer_hostport, zonefile_hashes, timeout=No
     for zf_batch in zf_batches:
         zf_payload = None
         try:
-            zf_payload = rpc.get_zonefiles( zonefile_hashes )
+            zf_payload = rpc.get_zonefiles( zf_batch )
             assert type(zf_payload) == dict, "Invalid zonefile listing"
             if 'error' not in zf_payload.keys():
                 assert 'status' in zf_payload.keys(), "Invalid zonefile reply"
