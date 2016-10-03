@@ -819,13 +819,15 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         # check cache 
         cached_zonefile_data = get_cached_zonefile_data( zonefile_hash, zonefile_dir=config.get('zonefiles', None))
         if cached_zonefile_data is not None:
-            return cached_zonefile_data
+            # check hash 
+            zfh = blockstack_client.get_zonefile_data_hash( cached_zonefile_data )
+            if zfh != zonefile_hash:
+                log.debug("Invalid cached zonefile %s" % zonefile_hash )
+                remove_cached_zonefile_data( zonefile_hash, zonefile_dir=config.get('zonefiles', None))
 
-        # check hash 
-        zfh = blockstack_client.get_zonefile_data_hash( cached_zonefile_data )
-        if zfh != zonefile_hash:
-            log.debug("Invalid cached zonefile %s" % zonefile_hash )
-            remove_cached_zonefile_data( zonefile_hash, zonefile_dir=config.get('zonefiles', None))
+            else:
+                log.debug("Zonefile %s is cached" % zonefile_hash)
+                return cached_zonefile_data
 
         log.debug("Zonefile %s is not cached" % zonefile_hash)
         try:
@@ -893,16 +895,11 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
 
         ret = {}
-        db = get_state_engine()
         for zonefile_hash in zonefile_hashes:
             if type(zonefile_hash) not in [str, unicode]:
-                db.close()
                 return {'error': 'Not a zonefile hash'}
 
         for zonefile_hash in zonefile_hashes:
-            if not is_current_zonefile_hash( zonefile_hash, db ):
-                continue
-
             zonefile_data = self.get_zonefile_data( conf, zonefile_hash, zonefile_storage_drivers )
             if zonefile_data is None:
                 continue
@@ -911,7 +908,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 ret[zonefile_hash] = zonefile_data
 
         # self.analytics("get_zonefiles", {'count': len(zonefile_hashes)})
-        db.close()
+        log.debug("Serve back %s zonefiles" % len(ret.keys()))
         return {'status': True, 'zonefiles': ret}
 
 
