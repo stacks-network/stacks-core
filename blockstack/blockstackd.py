@@ -811,7 +811,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
     def get_zonefile_data( self, config, zonefile_hash, zonefile_storage_drivers, name=None ):
         """
-        Get a zonefile by hash, caching it along the way.
+        Get a zonefile by hash
         Return the serialized zonefile on success
         Return None on error
         """
@@ -829,6 +829,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 log.debug("Zonefile %s is cached" % zonefile_hash)
                 return cached_zonefile_data
 
+        return None
+        """
         log.debug("Zonefile %s is not cached" % zonefile_hash)
         try:
             # check storage providers
@@ -845,6 +847,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return zonefile_data
         else:
             return None
+        """
 
 
     def get_zonefile_data_by_name( self, conf, name, zonefile_storage_drivers ):
