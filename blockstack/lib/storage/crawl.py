@@ -154,7 +154,7 @@ def cached_zonefile_dir( zonefile_dir, zonefile_hash ):
 
 def is_zonefile_cached( zonefile_hash, zonefile_dir=None, validate=False):
     """
-    Do we have the cached zonefile?
+    Do we have the cached zonefile?  It's okay if it's a non-standard zonefile.
     if @validate is true, then check that the data in zonefile_dir_path/zonefile.txt matches zonefile_hash
     Return True if so
     Return False if not
@@ -169,7 +169,7 @@ def is_zonefile_cached( zonefile_hash, zonefile_dir=None, validate=False):
         return False
 
     if validate:
-        zf = get_cached_zonefile( zonefile_hash, zonefile_dir=zonefile_dir )
+        zf = get_cached_zonefile_data( zonefile_hash, zonefile_dir=zonefile_dir )
         if zf is None:
             return False
 
@@ -224,6 +224,34 @@ def store_cached_zonefile( zonefile_dict, zonefile_dir=None ):
         return False
 
     return store_cached_zonefile_data( zonefile_data, zonefile_dir=zonefile_dir )
+
+
+def remove_cached_zonefile_data( zonefile_hash, zonefile_dir=None ):
+    """
+    Remove a cached zonefile 
+    """
+    if zonefile_dir is None:
+        zonefile_dir = get_zonefile_dir()
+
+    if not os.path.exists(zonefile_dir):
+        return True
+
+    zonefile_hash = blockstack_client.get_zonefile_data_hash( zonefile_data )
+    zonefile_dir_path = cached_zonefile_dir( zonefile_dir, zonefile_hash )
+    if not os.path.exists(zonefile_dir_path):
+        return True
+
+    zonefile_path = os.path.join(zonefile_dir_path, "zonefile.txt")
+    if not os.path.exists(zonefile_path):
+        return True
+
+    try:
+        os.unlink(zonefile_path)
+    except:
+        log.error("Failed to unlink zonefile %s (%s)" % (zonefile_hash, zonefile_path))
+        return False
+
+    return True
 
 
 def get_zonefile_data_txid( zonefile_data, name ):
