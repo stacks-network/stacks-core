@@ -103,7 +103,8 @@ def scenario( wallets, **kw ):
     network_des = atlas_network.atlas_network_build( atlas_nodes, atlas_topology, {}, os.path.join( testlib.working_dir(**kw), "atlas_network" ) )
     atlas_network.atlas_network_start( network_des, drop_probability=chain_drop )
 
-    time.sleep(5.0)
+    print "Waiting 25 seconds for the altas peers to catch up"
+    time.sleep(25.0)
 
     # make an empty zonefile
     data_pubkey = virtualchain.BitcoinPrivateKey(wallet_keys['data_privkey']).public_key().to_hex()
