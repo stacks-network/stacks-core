@@ -774,6 +774,7 @@ def atlasdb_sync_zonefiles( db, start_block, zonefile_dir=None, validate=True, p
         assert con is not None
 
     atlasdb_queue_zonefiles( con, db, start_block, zonefile_dir=zonefile_dir, validate=validate )
+    atlasdb_cache_zonefile_info( con=con )
 
     if close:
         con.close()
