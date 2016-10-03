@@ -178,9 +178,10 @@ def app_get_wallet(name, app_name, app_account_id, interactive=False, password=N
         log.error('No such wallet "{}"'.format(wallet_path))
         return {'error': 'No such wallet'}
 
-    if not (interactive or password is None):
+    if not interactive and password is None:
         raise ValueError('Password required in non-interactive mode')
-    else:
+
+    if interactive and password is not None:
         password = raw_input('Enter password for "{}.{}@{}": '.format(app_account_id, app_name, name))
 
     return wallet.load_wallet(password=password, config_dir=config_dir, wallet_path=wallet_path, include_private=True)
