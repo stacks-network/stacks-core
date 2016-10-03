@@ -175,6 +175,7 @@ def get_db_state( disposition=DISPOSITION_RO ):
        log.error("FATAL: no such file or directory: %s" % lastblock_filename )
        os.abort()
 
+   # verify that it is well-formed, if it exists
    elif os.path.exists( lastblock_filename ):
        try:
            with open(lastblock_filename, "r") as f:
