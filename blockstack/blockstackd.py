@@ -731,8 +731,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         db = get_state_engine()
         self.analytics("get_consensus_at", {'block_id': block_id})
+        consensus = db.get_consensus_at( block_id )
         db.close()
-        return db.get_consensus_at( block_id )
+        return consensus
 
 
     def rpc_get_consensus_hashes( self, block_id_list, **con_info ):
@@ -827,7 +828,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             remove_cached_zonefile_data( zonefile_hash, zonefile_dir=config.get('zonefiles', None))
 
         log.debug("Zonefile %s is not cached" % zonefile_hash)
-        db = get_state_engine()
         try:
             # check storage providers
             zonefile_data = get_zonefile_data_from_storage( zonefile_hash, name=name, drivers=zonefile_storage_drivers )
@@ -896,6 +896,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         db = get_state_engine()
         for zonefile_hash in zonefile_hashes:
             if type(zonefile_hash) not in [str, unicode]:
+                db.close()
                 return {'error': 'Not a zonefile hash'}
 
         for zonefile_hash in zonefile_hashes:
@@ -910,6 +911,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 ret[zonefile_hash] = zonefile_data
 
         # self.analytics("get_zonefiles", {'count': len(zonefile_hashes)})
+        db.close()
         return {'status': True, 'zonefiles': ret}
 
 
