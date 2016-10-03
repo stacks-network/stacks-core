@@ -808,23 +808,29 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return res
 
 
-    def get_zonefile( self, config, zonefile_hash, zonefile_storage_drivers, name=None ):
+    def get_zonefile_data( self, config, zonefile_hash, zonefile_storage_drivers, name=None ):
         """
         Get a zonefile by hash, caching it along the way.
-        Return the zonefile (as a dict) on success
+        Return the serialized zonefile on success
         Return None on error
         """
     
         # check cache 
-        cached_zonefile = get_cached_zonefile( zonefile_hash, zonefile_dir=config.get('zonefiles', None))
-        if cached_zonefile is not None:
-            return cached_zonefile
+        cached_zonefile_data = get_cached_zonefile_data( zonefile_hash, zonefile_dir=config.get('zonefiles', None))
+        if cached_zonefile_data is not None:
+            return cached_zonefile_data
+
+        # check hash 
+        zfh = blockstack_client.get_zonefile_data_hash( cached_zonefile_data )
+        if zfh != zonefile_hash:
+            log.debug("Invalid cached zonefile %s" % zonefile_hash )
+            remove_cached_zonefile_data( zonefile_hash, zonefile_dir=config.get('zonefiles', None))
 
         log.debug("Zonefile %s is not cached" % zonefile_hash)
         db = get_state_engine()
         try:
             # check storage providers
-            zonefile = get_zonefile_from_storage( zonefile_hash, name=name, drivers=zonefile_storage_drivers )
+            zonefile_data = get_zonefile_data_from_storage( zonefile_hash, name=name, drivers=zonefile_storage_drivers )
         except blockstack_zones.InvalidLineException:
             # legacy profile
             return None
@@ -832,17 +838,17 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             log.exception(e)
             return None
 
-        if zonefile is not None:
-            store_cached_zonefile( zonefile )
-            return zonefile
+        if zonefile_data is not None:
+            store_cached_zonefile_data( zonefile_data )
+            return zonefile_data
         else:
             return None
 
 
-    def get_zonefile_by_name( self, conf, name, zonefile_storage_drivers ):
+    def get_zonefile_data_by_name( self, conf, name, zonefile_storage_drivers ):
         """
         Get a zonefile by name
-        Return the zonefile (as a dict) on success
+        Return the serialized zonefile on success
         Return None one error
         """
         db = get_state_engine()
@@ -857,11 +863,11 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return None
 
         # find zonefile 
-        zonefile = self.get_zonefile( conf, zonefile_hash, zonefile_storage_drivers, name=name )
-        if zonefile is None:
+        zonefile_data = self.get_zonefile_data( conf, zonefile_hash, zonefile_storage_drivers, name=name )
+        if zonefile_data is None:
             return None
 
-        return zonefile
+        return zonefile_data
 
 
     def rpc_get_zonefiles( self, zonefile_hashes, **con_info ):
@@ -896,12 +902,12 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             if not is_current_zonefile_hash( zonefile_hash, db ):
                 continue
 
-            zonefile = self.get_zonefile( conf, zonefile_hash, zonefile_storage_drivers )
-            if zonefile is None:
+            zonefile_data = self.get_zonefile_data( conf, zonefile_hash, zonefile_storage_drivers )
+            if zonefile_data is None:
                 continue
 
             else:
-                ret[zonefile_hash] = serialize_zonefile( zonefile )
+                ret[zonefile_hash] = zonefile_data
 
         # self.analytics("get_zonefiles", {'count': len(zonefile_hashes)})
         return {'status': True, 'zonefiles': ret}
@@ -938,12 +944,12 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 return {'error': 'Invalid name'}
 
         for name in names:
-            zonefile = self.get_zonefile_by_name( conf, name, zonefile_storage_drivers )
-            if zonefile is None:
+            zonefile_data = self.get_zonefile_data_by_name( conf, name, zonefile_storage_drivers )
+            if zonefile_data is None:
                 continue
 
             else:
-                ret[name] = serialize_zonefile( zonefile )
+                ret[name] = zonefile_data
 
         self.analytics("get_zonefiles", {'count': len(names)})
         return {'status': True, 'zonefiles': ret}
