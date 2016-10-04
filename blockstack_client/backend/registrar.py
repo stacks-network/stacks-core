@@ -987,11 +987,13 @@ def update( fqu, zonefile_txt_b64, profile, zonefile_hash, config_path=None, pro
     """
 
     assert zonefile_txt_b64 is not None or zonefile_hash is not None, "need zonefile or zonefile hash"
-
-    try:
-        zonefile_txt = base64.b64decode(zonefile_txt_b64)
-    except:
-        return {'error': 'Invalid base64 zonefile'}
+    
+    zonefile_txt = None
+    if zonefile_txt_b64 is not None:
+        try:
+            zonefile_txt = base64.b64decode(zonefile_txt_b64)
+        except:
+            return {'error': 'Invalid base64 zonefile'}
 
     if zonefile_hash is None:
         zonefile_hash = get_zonefile_data_hash( zonefile_txt )
