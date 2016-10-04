@@ -1369,7 +1369,7 @@ def cli_renew( args, config_path=CONFIG_PATH, interactive=True, password=None, p
     
     # fee stimation: cost of name + cost of renewal transaction
     name_price = renewal_fee['satoshis']
-    renewal_tx_fee = estimate_renewal_tx_fee( fqu, payment_privkey_info, owner_privkey_info, utxo_client, config_path=config_path )
+    renewal_tx_fee = estimate_renewal_tx_fee( fqu, name_price, payment_privkey_info, owner_privkey_info, utxo_client, config_path=config_path )
     if renewal_tx_fee is None:
         return {'error': 'Failed to estimate fee'}
 
@@ -1522,6 +1522,10 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None, inter
     if error:
         return {'error': error}
 
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
+
     wallet_keys = get_wallet_keys( config_path, password )
     if 'error' in wallet_keys:
         return wallet_keys
@@ -1580,10 +1584,6 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None, inter
                 # maybe this is intentional (like fixing a corrupt zonefile)
                 msg = "Not a legacy profile; cannot migrate."
                 return {'error': msg}
-
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
 
     rpc = local_rpc_connect(config_dir=config_dir)
 
@@ -2322,12 +2322,23 @@ def cli_advanced_get_name_zonefile( args, config_path=CONFIG_PATH ):
     arg: name (str) "The name to query"
     """
     result = get_name_zonefile(str(args.name), raw_zonefile=True)
+    if result is None:
+        return {'error': 'Failed to get zonefile'}
+
     if 'error' in result:
         return result
+    
+    if 'zonefile' not in result:
+        return {'error': 'No zonefile data'}
+
+    old_zonefile = result['zonefile']
 
     # try to parse
     try:
-        result['zonefile'] = blockstack_zones.parse_zone_file( result['zonefile'] )
+
+        new_zonefile = blockstack_zones.parse_zone_file( result['zonefile'] )
+        assert new_zonefile is not None
+        result['zonefile'] = new_zonefile
     except:
         result['warning'] = 'Non-standard zonefile'
 
