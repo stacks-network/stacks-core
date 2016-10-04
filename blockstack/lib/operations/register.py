@@ -195,6 +195,13 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         log.debug("Recipient '%s' has exceeded quota" % recipient)
         return False
 
+    # if multisig is not enabled in this epoch, and the recipient
+    # address is a p2sh address, then reject the transaction.
+    # this if for compatibility with 0.13
+    if virtualchain.is_p2sh_address( register_addr ) and not epoch_has_multisig( block_id ):
+        log.debug("Multisig registration address %s, but this epoch (%s) does not support multisig" % (register_addr, get_epoch_number(block_id)))
+        return False
+
     # get preorder...
     preorder = state_engine.get_name_preorder( name, sender, register_addr )
     old_name_rec = state_engine.get_name( name, include_expired=True )
