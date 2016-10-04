@@ -210,8 +210,14 @@ def make_wallet( password, hex_privkey=None, payment_privkey_info=None, owner_pr
     if payment_privkey_info is None:
         payment_privkey_info = virtualchain.make_multisig_wallet( 2, 3 )
 
+    elif not is_singlesig(payment_privkey_info) and not is_multisig(payment_privkey_info):
+        return {'error': 'Payment private key info must be either a single private key or a multisig bundle'}
+
     if owner_privkey_info is None:
         owner_privkey_info = virtualchain.make_multisig_wallet( 2, 3 )
+
+    elif not is_singlesig(owner_privkey_info) and not is_multisig(owner_privkey_info):
+        return {'error': 'Owner private key info must be either a single private key or a multisig bundle'}
 
     if data_privkey_info is None:
         # TODO: for now, this must be a single private key 
@@ -483,6 +489,10 @@ def initialize_wallet( password="", interactive=True, hex_privkey=None, config_d
             hex_privkey = temp_wallet.get_master_privkey()
 
         wallet = make_wallet( password, hex_privkey=hex_privkey, config_path=config_path, owner_privkey_info=owner_privkey_info, payment_privkey_info=payment_privkey_info, data_privkey_info=data_privkey_info )
+        if 'error' in wallet:
+            log.error("make_wallet failed: %s" % wallet['error'])
+            return wallet
+
         write_wallet( wallet, path=wallet_path ) 
 
         result['wallet_password'] = password
@@ -599,6 +609,10 @@ def unlock_wallet( password=None, config_dir=CONFIG_DIR, wallet_path=None ):
                                                           owner_privkey=wallet['owner_privkey'],
                                                           data_privkey=wallet['data_privkey'],
                                                           config_path=config_path )
+
+                if 'error' in encrypted_wallet:
+                    log.error("Failed to make wallet: %s" % encrypted_wallet['error'])
+                    return encrypted_wallet
 
                 write_wallet( encrypted_wallet, path=wallet_path + ".tmp" )
                 legacy_path = wallet_path + ".legacy"
