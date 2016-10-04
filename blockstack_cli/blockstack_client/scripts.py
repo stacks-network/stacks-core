@@ -232,7 +232,7 @@ def tx_sign_multisig( blockstack_tx, idx, redeem_script, private_keys, hashcode=
 
     # sign in the right order
     privs = dict( [(virtualchain.BitcoinPrivateKey(str(pk_str)).public_key().to_hex(), str(pk_str)) for pk_str in private_keys] )
-    m, public_keys = virtualchain.parse_multisig_redeemscript( redeem_script )
+    m, public_keys = virtualchain.parse_multisig_redeemscript( str(redeem_script) )
    
     used_keys = []
     sigs = []
@@ -250,12 +250,12 @@ def tx_sign_multisig( blockstack_tx, idx, redeem_script, private_keys, hashcode=
         used_keys.append( public_keys[ki] )
 
         pk_hex = virtualchain.BitcoinPrivateKey(str(pk_str)).to_hex()
-        sig = bitcoin.multisign( blockstack_tx, idx, redeem_script, pk_hex, hashcode=hashcode )
+        sig = bitcoin.multisign( blockstack_tx, idx, str(redeem_script), pk_hex, hashcode=hashcode )
         sigs.append( sig )
 
     assert len(used_keys) == m, "Missing private keys"
 
-    return bitcoin.apply_multisignatures( blockstack_tx, idx, redeem_script, sigs )
+    return bitcoin.apply_multisignatures( blockstack_tx, idx, str(redeem_script), sigs )
 
 
 def tx_sign_input( blockstack_tx, idx, private_key_info, hashcode=bitcoin.SIGHASH_ALL ):
@@ -276,9 +276,10 @@ def tx_sign_input( blockstack_tx, idx, private_key_info, hashcode=bitcoin.SIGHAS
         private_keys = private_key_info['private_keys']
         
         assert type(redeem_script) in [str, unicode]
+        redeem_script = str(redeem_script)
 
         # multisig
-        return tx_sign_multisig( blockstack_tx, idx, redeem_script, private_keys, hashcode=bitcoin.SIGHASH_ALL )
+        return tx_sign_multisig( blockstack_tx, idx, str(redeem_script), private_keys, hashcode=bitcoin.SIGHASH_ALL )
 
 
 def tx_sign_all_unsigned_inputs( private_key_info, unsigned_tx_hex ):
@@ -317,7 +318,7 @@ def tx_get_address_and_utxos( private_key_info, utxo_client ):
         assert 'redeem_script' in private_key_info.keys()
         assert 'private_keys' in private_key_info.keys()
 
-        redeem_script = private_key_info['redeem_script']
+        redeem_script = str(private_key_info['redeem_script'])
         addr = virtualchain.make_multisig_address( redeem_script )
         unspents = pybitcoin.get_unspents( addr, utxo_client )
 
