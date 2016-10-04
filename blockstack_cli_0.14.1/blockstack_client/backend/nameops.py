@@ -92,7 +92,7 @@ def make_fake_privkey_info( privkey_params ):
         (m, n) means "use multiple signatures and a redeem script"
     """
     if privkey_params is None or privkey_params[0] < 1 or privkey_params[1] < 1:
-        raise Exception("Invalid private key parameters %s" % privkey_params)
+        raise Exception("Invalid private key parameters %s" % str(privkey_params))
 
     if privkey_params == (1, 1):
         # fake private key
@@ -195,6 +195,7 @@ def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_addr
     except ValueError, ve:
         if os.environ.get("BLOCKSTACK_TEST") == "1":
             log.exception(ve)
+            print >> sys.stderr, "payment key info: %s" % str(payment_privkey_info)
 
         log.error("Insufficient funds:  Not enough inputs to make a renewal transaction.")
         return None
@@ -273,6 +274,7 @@ def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
     except ValueError, ve:
         if os.environ.get("BLOCKSTACK_TEST") == "1":
             log.exception(ve)
+            print >> sys.stderr, "payment key info: %s" % str(payment_privkey_info)
 
         log.error("Insufficient funds:  Not enough inputs to make an update transaction.")
         return None 
