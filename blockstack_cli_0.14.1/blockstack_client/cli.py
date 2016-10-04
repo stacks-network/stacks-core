@@ -52,9 +52,9 @@ logging.disable(logging.CRITICAL)
 
 from blockstack_client import config
 from blockstack_client.client import session
-from blockstack_client.config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, VERSION, semver_match
+from blockstack_client.config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, VERSION, semver_match, EPOCH_MINIMUM
 from blockstack_client.method_parser import parse_methods, build_method_subparsers
-
+from blockstack_client.backend.blockchain import get_block_height
 
 from blockstack_profiles import resolve_zone_file_to_profile
 from blockstack_profiles import is_profile_in_legacy_format
@@ -179,6 +179,19 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
 
             else:
                 i+=1
+
+    curr_height = get_block_height(config_path=config_path)
+    if curr_height <= EPOCH_MINIMUM and os.environ.get("BLOCKSTACK_TEST", None) != "1":
+        print >> sys.stderr, "This is a development version of Blockstack CLI."
+        print >> sys.stderr, "It it not suitable for production use at this time,"
+        print >> sys.stderr, "and is not compatible with the production Blockstack"
+        print >> sys.stderr, "servers."
+        print >> sys.stderr, ""
+        print >> sys.stderr, "Please use the stable release from PyPI, which you"
+        print >> sys.stderr, "can install with:"
+        print >> sys.stderr, "     $ pip install --upgrade blockstack"
+        print >> sys.stderr, ""
+        sys.exit(1)
 
     conf = config.get_config(path=config_path)
 
