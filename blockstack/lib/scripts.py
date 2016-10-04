@@ -229,7 +229,7 @@ def get_public_key_hex_from_tx( inputs, address ):
     Given a list of inputs and the address of one of the inputs,
     find the public key.
 
-    This only works for p2sh and p2pkh scripts.
+    This only works for p2pkh scripts.
     """
     
     ret = None 
