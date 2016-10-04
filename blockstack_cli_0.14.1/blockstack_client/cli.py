@@ -180,8 +180,19 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             else:
                 i+=1
 
+    # This client uses a new transaction format that will not be recognized
+    # by 0.13.  This fail-safe prevents the client from doing anything until
+    # F-day 2016, the day in which 0.14's hard-fork logic activates.  This
+    # will be the day block #436363 gets mined.
+    # 
+    # Delete this fail-safe at your own risk.  We are not responsible
+    # for your lost names and lost Bitcoins.
+    # 
+    # You have been warned.
+
     curr_height = get_block_height(config_path=config_path)
     if curr_height <= EPOCH_MINIMUM and os.environ.get("BLOCKSTACK_TEST", None) != "1":
+        print >> sys.stderr, ""
         print >> sys.stderr, "This is a development version of Blockstack CLI."
         print >> sys.stderr, "It it not suitable for production use at this time,"
         print >> sys.stderr, "and is not compatible with the production Blockstack"
@@ -189,6 +200,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
         print >> sys.stderr, ""
         print >> sys.stderr, "Please use the stable release from PyPI, which you"
         print >> sys.stderr, "can install with:"
+        print >> sys.stderr, ""
         print >> sys.stderr, "     $ pip install --upgrade blockstack"
         print >> sys.stderr, ""
         sys.exit(1)
