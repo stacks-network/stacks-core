@@ -327,7 +327,7 @@ def list_zonefile_history( name, current_block=None, proxy=None ):
         if zonefile is None:
             zonefile = {'error': 'Failed to load zonefile %s' % zh}
 
-        assert type(zf) in [str, unicode], "Invalid zonefile type %s" % type(zf)
+        assert type(zonefile) in [str, unicode], "Invalid zonefile type %s" % type(zonefile)
         zonefiles.append( zonefile )
 
     return zonefiles
