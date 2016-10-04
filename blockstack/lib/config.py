@@ -106,7 +106,8 @@ Specifically:
 """
 EPOCH_FIELDS = [
     "end_block",
-    "namespaces"
+    "namespaces",
+    "features"
 ]
 
 EPOCH_NAMESPACE_FIELDS = [
@@ -114,13 +115,22 @@ EPOCH_NAMESPACE_FIELDS = [
     "PRICE_MULTIPLIER"
 ]
 
+# epoch features
+EPOCH_FEATURE_MULTISIG = "BLOCKSTACK_MULTISIG"
+
 # when epochs end (-1 means "never")
 EPOCH_NOW = -1
-EPOCH_1_END_BLOCK = 436600
+EPOCH_1_END_BLOCK = 436363      # F-Day 2016
 EPOCH_2_END_BLOCK = EPOCH_NOW
+
+EPOCH_1_NAMESPACE_LIFETIME_MULTIPLIER_id = 1
+EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER_id = 2
 
 EPOCH_1_PRICE_MULTIPLIER_id = 1.0
 EPOCH_2_PRICE_MULTIPLIER_id = 1.0
+
+EPOCH_1_FEATURES = []
+EPOCH_2_FEATURES = [EPOCH_FEATURE_MULTISIG]
 
 NUM_EPOCHS = 2
 for i in xrange(1, NUM_EPOCHS+1):
@@ -131,7 +141,11 @@ for i in xrange(1, NUM_EPOCHS+1):
 
     if os.environ.get("BLOCKSTACK_EPOCH_%s_PRICE_MULTIPLIER" % i, None) is not None and os.environ.get("BLOCKSTACK_TEST", None) == "1":
         exec("EPOCH_%s_PRICE_MULTIPLIER_id = float(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_PRICE_MULTIPLIER" % i)))
-        log.warn("EPOCH_%s_PRICE_MULTIPLIER = %s" % (i, eval("EPOCH_%s_PRICE_MULTIPLIER" % i)))
+        log.warn("EPOCH_%s_PRICE_MULTIPLIER_id = %s" % (i, eval("EPOCH_%s_PRICE_MULTIPLIER_id" % i)))
+
+    if os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER" % i, None) is not None and os.environ.get("BLOCKSTACK_TEST", None) == "1":
+        exec("EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER_id = int(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_NAMEPSACE_LIFETIME_MULTIPLIER" % i)))
+        log.warn("EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER_id = %s" % (i, eval("EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER_id" % i)))
 
 del i
 
@@ -144,20 +158,22 @@ EPOCHS = [
         "end_block": EPOCH_1_END_BLOCK,
         "namespaces": {
             "id": {
-                "NAMESPACE_LIFETIME_MULTIPLIER": 1,
+                "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_1_NAMESPACE_LIFETIME_MULTIPLIER_id,
                 "PRICE_MULTIPLIER": EPOCH_1_PRICE_MULTIPLIER_id
             }
         }
+        "features": EPOCH_1_FEATURES
     },
     {
         # epoch 2
         "end_block": EPOCH_2_END_BLOCK,
         "namespaces": {
             "id": {
-                "NAMESPACE_LIFETIME_MULTIPLIER": 2,
+                "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER_id,
                 "PRICE_MULTIPLIER": EPOCH_2_PRICE_MULTIPLIER_id
             }
         }
+        "features": EPOCH_2_FEATURES
     }
 ]
 
@@ -457,23 +473,37 @@ NAMESPACE_DEFAULT = {
 }
 
 
+def get_epoch_number( block_height ):
+    """
+    Which epoch are we in?
+    Return integer (>=0) on success
+    """
+    global EPOCHS
+
+    if block_height <= EPOCHS[0]['end_block']:
+        return 0
+
+    for i in xrange(1, len(EPOCHS)):
+        if EPOCHS[i-1]['end_block'] < block_height and (block_height <= EPOCHS[i]['end_block'] or EPOCHS[i]['end_block'] == EPOCH_NOW):
+            return i
+
+    # should never happen 
+    log.error("FATAL: No epoch for %s" % block_height)
+    os.abort()
+
 
 def get_epoch_config( block_height ):
     """
     Get the epoch constants for the given block height
     """
     global EPOCHS
+    epoch_number = get_epoch_number( block_height )
 
-    if block_height <= EPOCHS[0]['end_block']:
-        return EPOCHS[0]
+    if epoch_number < 0 or epoch_number >= len(EPOCHS):
+        log.error("FATAL: invalid epoch %s" % epoch_number)
+        os.abort()
 
-    for i in xrange(1, len(EPOCHS)):
-        if EPOCHS[i-1]['end_block'] < block_height and (block_height <= EPOCHS[i]['end_block'] or EPOCHS[i]['end_block'] == EPOCH_NOW):
-            return EPOCHS[i]
-
-    # should never happen
-    log.error("FATAL: No epoch for %s" % block_height)
-    os.abort()
+    return EPOCHS[epoch_number]
 
 
 def get_epoch_namespace_lifetime_multiplier( block_height, namespace_id ):
@@ -497,6 +527,16 @@ def get_epoch_price_multiplier( block_height, namespace_id ):
     else:
         return 1
 
+
+def epoch_has_multisig( block_height ):
+    """
+    Is multisig available in this epoch?
+    """
+    epoch_config = get_epoch_config( block_height )
+    if EPOCH_FEATURE_MULTISIG in epoch_config['features']:
+        return True
+    else:
+        return False
 
 """
 Which announcements has this blockstack node seen so far?
