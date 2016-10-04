@@ -216,6 +216,12 @@ def check( state_engine, nameop, block_id, checked_ops ):
         log.debug("Recipient %s has exceeded name quota" % recipient)
         return False
 
+    # sender cannot be a p2sh script until we're in an epoch that supports multisig.
+    # this is to preserve compatibility with 0.13.
+    if virtualchain.is_p2sh_script( sender ) and not epoch_has_multisig( block_id ):
+        log.debug("Sender %s is a p2sh script, but multisig is not enabled in epoch %s" % (sender, get_epoch_number(block_id)))
+        return False
+
     # QUIRK: we use either the consensus hash from the last non-NAME_TRANSFER
     # operation, or if none exists, we use the one from the NAME_TRANSFER itself.
     transfer_consensus_hash = find_last_transfer_consensus_hash( name_rec, block_id, nameop['vtxindex'] )
