@@ -131,7 +131,7 @@ def scenario( wallets, **kw ):
 
     # store to queue
     res = blockstack_client.backend.queue.queue_append("update", "foo.test", txhash, payment_address=wallets[2].addr, owner_address=wallets[3].addr,
-                                                config_path=test_proxy.config_path, zonefile=zonefile, zonefile_hash=zonefile_hash, path=queuedb_path )
+                                                config_path=test_proxy.config_path, zonefile_data=zonefile, zonefile_hash=zonefile_hash, path=queuedb_path )
 
     # verify that we can sync the zonefile, using the in-queue zonefile
     resp = testlib.blockstack_cli_sync_zonefile( "foo.test" )
