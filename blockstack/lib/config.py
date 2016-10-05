@@ -132,6 +132,9 @@ EPOCH_2_PRICE_MULTIPLIER_id = 1.0
 EPOCH_1_FEATURES = []
 EPOCH_2_FEATURES = [EPOCH_FEATURE_MULTISIG]
 
+# minimum block height at which this server can run
+EPOCH_MINIMUM = EPOCH_1_END_BLOCK + 1
+
 NUM_EPOCHS = 2
 for i in xrange(1, NUM_EPOCHS+1):
     # epoch lengths can be altered by the test framework, for ease of tests
@@ -144,7 +147,7 @@ for i in xrange(1, NUM_EPOCHS+1):
         log.warn("EPOCH_%s_PRICE_MULTIPLIER_id = %s" % (i, eval("EPOCH_%s_PRICE_MULTIPLIER_id" % i)))
 
     if os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER" % i, None) is not None and os.environ.get("BLOCKSTACK_TEST", None) == "1":
-        exec("EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER_id = int(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_NAMEPSACE_LIFETIME_MULTIPLIER" % i)))
+        exec("EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER_id = int(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER" % i)))
         log.warn("EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER_id = %s" % (i, eval("EPOCH_%s_NAMESPACE_LIFETIME_MULTIPLIER_id" % i)))
 
 del i
@@ -161,7 +164,7 @@ EPOCHS = [
                 "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_1_NAMESPACE_LIFETIME_MULTIPLIER_id,
                 "PRICE_MULTIPLIER": EPOCH_1_PRICE_MULTIPLIER_id
             }
-        }
+        },
         "features": EPOCH_1_FEATURES
     },
     {
@@ -172,7 +175,7 @@ EPOCHS = [
                 "NAMESPACE_LIFETIME_MULTIPLIER": EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER_id,
                 "PRICE_MULTIPLIER": EPOCH_2_PRICE_MULTIPLIER_id
             }
-        }
+        },
         "features": EPOCH_2_FEATURES
     }
 ]
