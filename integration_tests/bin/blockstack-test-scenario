@@ -12,9 +12,6 @@ os.environ['BLOCKSTACK_ATLAS_NETWORK_SIMULATION'] = '1'
 TEST_FIRST_BLOCK_HEIGHT = 250   # how many blocks we have to generate to start regtest
 os.environ['BLOCKSTACK_TEST_FIRST_BLOCK'] = str(TEST_FIRST_BLOCK_HEIGHT + 6)
 
-# we're in epoch 2 unless we say otherwise
-# os.environ['BLOCKSTACK_EPOCH_1_END_BLOCK'] = str(TEST_FIRST_BLOCK_HEIGHT + 6)
-
 import sys 
 import subprocess
 import signal
@@ -512,7 +509,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
     # load the scenario into the mock blockchain and mock utxo provider
     try:
-        scenario.scenario( scenario.wallets, **test_env )
+        rc = scenario.scenario( scenario.wallets, **test_env )
 
     except Exception, e:
         log.exception(e)
@@ -525,6 +522,15 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
         pinger.ask_join()
         pinger.join()
+        return False
+
+    if rc == False:
+        # explicitly erred
+        log.error("Scenario exits in error")
+        blockstack_client.rpc.local_rpc_stop(client_config_dir)
+        log.error("Failed to run tests '%s'" % scenario.__name__)
+        network_stop()
+        bitcoin_stop()
         return False
 
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
