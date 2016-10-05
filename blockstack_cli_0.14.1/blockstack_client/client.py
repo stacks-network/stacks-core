@@ -54,17 +54,22 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
     Returns the API proxy object.
     """
 
-    if not conf and config_path:
+    if conf is None and config_path is not None:
         conf = get_config(config_path)
 
-    if conf:
-        server_host = server_host or conf['server']
-        server_port = server_port or conf['port']
-        storage_drivers = storage_drivers or conf['storage_drivers']
-        metadata_dir = metadata_dir or conf['metadata']
-        spv_headers_path = spv_headers_path or conf['blockchain_headers']
+    if conf is not None:
+        if server_host is None:
+            server_host = conf['server']
+        if server_port is None:
+            server_port = conf['port']
+        if storage_drivers is None:
+            storage_drivers = conf['storage_drivers']
+        if metadata_dir is None:
+            metadata_dir = conf['metadata']
+        if spv_headers_path is None:
+            spv_headers_path = conf['blockchain_headers']
 
-    if not storage_drivers:
+    if storage_drivers is None:
         msg = ('No storage driver(s) defined in the config file. '
                'Please set "storage=" to a comma-separated list of drivers')
         log.error(msg)
@@ -76,7 +81,7 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
     # load all storage drivers
     for storage_driver in storage_drivers.split(','):
         storage_impl = load_storage(storage_driver)
-        if not storage_impl:
+        if storage_impl is None:
             log.error('Failed to load storage driver "{}"'.format(storage_driver))
             sys.exit(1)
 
@@ -129,26 +134,26 @@ def get_analytics_key(uuid, proxy=None):
     Get the analytics key from the blockstack server
     """
 
-    key = os.environ.get('BLOCKSTACK_TEST_ANALYTICS_KEY')
+    key = os.environ.get('BLOCKSTACK_TEST_ANALYTICS_KEY', None)
 
-    if key:
+    if key is not None:
         return key
 
     try:
-        proxy = proxy or get_default_proxy()
+        proxy = get_default_proxy() if proxy is None else proxy
         # TODO: proxy does not have a get_analytics_key function.
         key = proxy.get_analytics_key(uuid)  # BUG:?
     except Exception as e:
         log.debug('Failed to get analytics key')
         return
 
-    key = key or {}
+    key = {} if key is None else key
     if 'error' in key:
         log.debug('Failed to fetch analytics key: {}'.format(key['error']))
         return
 
-    key = key.get('analytics_key')
-    if key:
+    key = key.get('analytics_key', None)
+    if key is not None:
         return key
 
     log.debug('No analytics key returned')
@@ -175,7 +180,7 @@ def analytics_event(event_type, event_payload, config_path=CONFIG_PATH,
         return False
 
     conf = get_config(path=config_path)
-    if not conf:
+    if conf is None:
         log.debug('Failed to load config')
         return False
 
@@ -185,15 +190,15 @@ def analytics_event(event_type, event_payload, config_path=CONFIG_PATH,
     u = conf['uuid']
 
     # use the given analytics key, if possible. or fallback.
-    analytics_key = analytics_key or ANALYTICS_KEY
+    analytics_key = ANALYTICS_KEY if analytics_key is None else analytics_key
 
     # no fallback. so fetch from server.
-    if not analytics_key:
-        ANALYTICS_KEY = ANALYTICS_KEY or get_analytics_key(u, proxy=proxy)
+    if analytics_key is None:
+        ANALYTICS_KEY = get_analytics_key(u, proxy=proxy) if ANALYTICS_KEY is None else ANALYTICS_KEY
         analytics_key = ANALYTICS_KEY
 
         # all attempts failed. nothing more to do.
-        if not analytics_key:
+        if analytics_key is None:
             return False
 
     # log the event
@@ -218,15 +223,15 @@ def analytics_user_register(u, email, config_path=CONFIG_PATH, proxy=None):
         return False
 
     conf = get_config(path=config_path)
-    if not conf:
+    if conf is None:
         log.debug('Failed to load config')
         return False
 
     if not conf['anonymous_statistics']:
         return False
 
-    ANALYTICS_KEY = ANALYTICS_KEY or get_analytics_key(u)
-    if not ANALYTICS_KEY:
+    ANALYTICS_KEY = get_analytics_key(u) if ANALYTICS_KEY is None else ANALYTICS_KEY
+    if ANALYTICS_KEY is None:
         return False
 
     # register the user
@@ -250,7 +255,7 @@ def analytics_user_update(payload, proxy=None):
         return False
 
     conf = get_config(config_path)
-    if not conf:
+    if conf is None:
         log.debug('Failed to load config')
         return False
 
@@ -258,8 +263,8 @@ def analytics_user_update(payload, proxy=None):
         return False
 
     u = conf['uuid']
-    ANALYTICS_KEY = ANALYTICS_KEY or get_analytics_key(u)
-    if not ANALYTICS_KEY:
+    ANALYTICS_KEY = get_analytics_key(u) if ANALYTICS_KEY is None else ANALYTICS_KEY
+    if ANALYTICS_KEY is None:
         return False
 
     # update the user
