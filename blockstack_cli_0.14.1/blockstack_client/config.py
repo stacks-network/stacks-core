@@ -314,8 +314,19 @@ APPROX_TX_IN_P2PKH_LEN = 180
 APPROX_TX_OUT_P2PKH_LEN = 40
 
 # epoch dates
-EPOCH_1_BLOCK_END = 436363
-EPOCH_MINIMUM = EPOCH_1_BLOCK_END + 1
+EPOCH_1_END_BLOCK = 436363
+
+# epoch dates for the test environment
+NUM_EPOCHS = 2
+for i in xrange(1, NUM_EPOCHS+1):
+    # epoch lengths can be altered by the test framework, for ease of tests
+    if os.environ.get("BLOCKSTACK_EPOCH_%s_END_BLOCK" % i, None) is not None and os.environ.get("BLOCKSTACK_TEST", None) == "1":
+        exec("EPOCH_%s_END_BLOCK = int(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_END_BLOCK" % i)))
+        log.warn("EPOCH_%s_END_BLOCK = %s" % (i, eval("EPOCH_%s_END_BLOCK" % i)))
+
+del i
+
+EPOCH_HEIGHT_MINIMUM = EPOCH_1_END_BLOCK + 1
 
 DEFAULT_BLOCKCHAIN_READER = "blockcypher"
 DEFAULT_BLOCKCHAIN_WRITER = "blockcypher"
