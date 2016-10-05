@@ -51,7 +51,7 @@ import virtualchain
 log = virtualchain.get_logger("testlib")
 
 class Wallet(object):
-    def __init__(self, pk_wif, value_str ):
+    def __init__(self, pk_wif, ignored ):
 
         pk = virtualchain.BitcoinPrivateKey( pk_wif )
 
@@ -66,7 +66,6 @@ class Wallet(object):
         self.pubkey_hex = pk.public_key().to_hex()                          # coordinate (uncompressed) EC public key
         self.ec_pubkey_hex = keylib.ECPrivateKey(pk_wif).public_key().to_hex()  # parameterized (compressed) EC public key
         self.addr = pk.public_key().address()
-        self.value = int(value_str)
 
         log.debug("Wallet %s (%s)" % (self.privkey, self.addr))
 
@@ -79,7 +78,6 @@ class MultisigWallet(object):
         self.n = len(pks)
 
         self.addr = self.privkey['address']
-        self.value = 0
 
         log.debug("Multisig wallet %s" % (self.addr))
 
@@ -408,7 +406,7 @@ def blockstack_announce( message, privatekey, user_public_key=None, subsidy_key=
 
 def blockstack_client_initialize_wallet( password, payment_privkey, owner_privkey, data_privkey ):
     """
-    Get the wallet from the running RPC daemon
+    Set up a wallet on disk.  Private keys can be single private keys or multisig bundles
     """
     config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
     assert config_path is not None
@@ -416,6 +414,10 @@ def blockstack_client_initialize_wallet( password, payment_privkey, owner_privke
     wallet_path = os.path.join( os.path.dirname(config_path), blockstack_client.config.WALLET_FILENAME )
 
     wallet = blockstack_client.wallet.make_wallet( password, payment_privkey_info=payment_privkey, owner_privkey_info=owner_privkey, data_privkey_info=data_privkey )
+    if 'error' in wallet:
+        log.error("Failed to make wallet: %s" % wallet['error'])
+        raise Exception("Failed to make wallet")
+
     blockstack_client.wallet.write_wallet( wallet, path=wallet_path )
     return wallet
 
@@ -428,6 +430,10 @@ def blockstack_client_get_wallet():
     assert config_path is not None
 
     wallet = blockstack_client.wallet.get_wallet( config_path )
+    if 'error' in wallet:
+        log.error("Failed to get wallet: %s" % wallet['error'])
+        raise Exception("Failed to get wallet")
+
     return wallet
 
 
@@ -441,6 +447,9 @@ def blockstack_client_set_wallet( password, payment_privkey, owner_privkey, data
     config_dir = os.path.dirname(config_path)
 
     wallet = blockstack_client_initialize_wallet( password, payment_privkey, owner_privkey, data_privkey )
+    if 'error' in wallet:
+        log.error("Failed to initialize wallet: %s" % wallet['error'])
+        raise Exception("Failed to initialize wallet")
 
     print "\n(re)starting RPC daemon\n"
     blockstack_client.rpc.local_rpc_stop(config_dir=config_dir)
