@@ -64,8 +64,8 @@ def scenario( wallets, **kw ):
     # next epoch takes effect...
     testlib.next_block( **kw )
 
-    # wait for a bit more (namespace lifetime should have 5x'ed)
-    for i in xrange(0, 40):
+    # wait for a bit more (namespace lifetime should have 2x'ed)
+    for i in xrange(0, 10):
         testlib.next_block( **kw )
 
     resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey )
@@ -107,8 +107,8 @@ def check( state_engine ):
     if name_rec['address'] != wallets[3].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[3].addr):
         return False
 
-    # renewed (52 blocks later)
-    if name_rec['last_renewed'] - 52 != name_rec['first_registered']:
+    # renewed (22 blocks later)
+    if name_rec['last_renewed'] - 22 != name_rec['first_registered']:
         print name_rec['last_renewed']
         print name_rec['first_registered']
         return False

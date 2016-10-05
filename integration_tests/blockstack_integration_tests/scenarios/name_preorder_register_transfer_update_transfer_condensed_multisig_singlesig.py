@@ -26,6 +26,12 @@ import pybitcoin
 import json
 import virtualchain
 
+# activate multisig
+"""
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 250
+TEST ENV BLOCKSTACK_EPOCH_2_NAMESPACE_LIFETIME_MULTIPLIER 1
+"""
+
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
     testlib.Wallet( "5KHqsiU9qa77frZb6hQy9ocV7Sus9RWJcQGYYBJJBb2Efj1o77e", 100000000000 ),
@@ -60,13 +66,13 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
-    resp = testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
+    resp = testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr, wallet=wallets[3] )
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
     
-    resp = testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
+    resp = testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr, wallet=wallets[3] )
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 

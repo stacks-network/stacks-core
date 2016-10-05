@@ -96,6 +96,9 @@ def scenario( wallets, **kw ):
 
     # propagate the zonefile hash
     res = testlib.blockstack_cli_set_zonefile_hash( "foo.test", value_hash ) 
+    if 'error' in res:
+        print json.dumps(res, indent=4, sort_keys=True)
+        return False
 
     for i in xrange(0, 12):
         testlib.next_block( **kw )

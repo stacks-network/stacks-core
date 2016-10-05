@@ -122,9 +122,9 @@ def scenario( wallets, **kw ):
     legacy_hash = pybitcoin.hex_hash160( legacy_txt )
 
     result = testlib.blockstack_name_update( "foo.test", legacy_hash, wallets[3].privkey )
-    data_history_1.append("missing zonefile")
-    data_history_2.append("missing zonefile")
-    data_history_3.append("missing zonefile")
+    data_history_1.append("non-standard zonefile")
+    data_history_2.append("non-standard zonefile")
+    data_history_3.append("non-standard zonefile")
     testlib.next_block( **kw )
 
     rc = blockstack_client.storage.put_immutable_data( None, result['transaction_hash'], data_hash=legacy_hash, data_text=legacy_txt )

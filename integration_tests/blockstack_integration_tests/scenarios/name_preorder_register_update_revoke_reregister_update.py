@@ -42,7 +42,7 @@ wallets = [
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
-NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK + 1 )
+NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK + 1, "test" )
 
 def scenario( wallets, **kw ):
 

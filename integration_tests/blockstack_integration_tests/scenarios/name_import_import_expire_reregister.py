@@ -47,7 +47,7 @@ debug = True
 import_block_1 = None
 import_block_2 = None
 
-NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK + 1 )
+NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK + 1, "test" )
 
 def scenario( wallets, **kw ):
 
