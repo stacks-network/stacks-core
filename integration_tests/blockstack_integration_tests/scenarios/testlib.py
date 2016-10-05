@@ -404,7 +404,7 @@ def blockstack_announce( message, privatekey, user_public_key=None, subsidy_key=
     return resp
 
 
-def blockstack_client_initialize_wallet( password, payment_privkey, owner_privkey, data_privkey ):
+def blockstack_client_initialize_wallet( password, payment_privkey, owner_privkey, data_privkey, exception=True ):
     """
     Set up a wallet on disk.  Private keys can be single private keys or multisig bundles
     """
@@ -416,9 +416,12 @@ def blockstack_client_initialize_wallet( password, payment_privkey, owner_privke
     wallet = blockstack_client.wallet.make_wallet( password, payment_privkey_info=payment_privkey, owner_privkey_info=owner_privkey, data_privkey_info=data_privkey )
     if 'error' in wallet:
         log.error("Failed to make wallet: %s" % wallet['error'])
-        raise Exception("Failed to make wallet")
+        if exception:
+            raise Exception("Failed to make wallet")
 
-    blockstack_client.wallet.write_wallet( wallet, path=wallet_path )
+    else:
+        blockstack_client.wallet.write_wallet( wallet, path=wallet_path )
+
     return wallet
 
 
