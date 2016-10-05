@@ -2261,6 +2261,11 @@ class BlockstackDB( virtualchain.StateEngine ):
       Return False if not
       """
 
+      # compatibility for 0.13 and 0.14 w.r.t. multisig 
+      if not nameop.has_key('recipient_address'):
+         log.debug("Missing or invalid recipient address")
+         return False
+
       name_hash = nameop['name_hash']
       name = self.hash_names.get( name_hash )
 
