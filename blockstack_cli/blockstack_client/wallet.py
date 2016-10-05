@@ -425,10 +425,8 @@ def decrypt_wallet( data, password, config_path=CONFIG_PATH, max_tries=WALLET_DE
 
         # this can't be multisig if it's not yet supported 
         if not is_singlesig( ret[keyname_privkey] ) and not multisig:
-            print >> sys.stderr, ""
-            print >> sys.stderr, "Invalid wallet data '%s'." % keyname_privkey
-            print >> sys.stderr, ""
-            os.abort()
+            log.error("Invalid wallet data for '%s'" % keyname_privkey)
+            return {'error': 'Invalid wallet'}
 
     ret['hex_privkey'] = hex_privkey
     ret['data_pubkeys'] = [ECPrivateKey(ret['data_privkey']).public_key().to_hex()]
