@@ -106,7 +106,7 @@ def get_cli_basic_methods():
     return list(set(all_methods) - set(advanced_methods))
 
 
-def prompt_args(args, prompt_func):
+def prompt_args(arginfolist, prompt_func):
     """
     Prompt for args, using parsed method information
     Use prompt_func(help, name) to do the prompt
@@ -114,7 +114,7 @@ def prompt_args(args, prompt_func):
     Return None on error
     """
     parsed_args = []
-    for arg in args:
+    for arg in arginfolist:
         name, help = arg['name'], arg['help']
 
         try:
@@ -128,7 +128,6 @@ def prompt_args(args, prompt_func):
                     continue
 
             parsed_args.append(parsed_arg)
-
         except KeyboardInterrupt:
             print('Keyboard interrupt')
             return None
