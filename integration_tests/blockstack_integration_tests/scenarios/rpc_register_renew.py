@@ -27,7 +27,8 @@ import time
 import json
 import sys
 import blockstack_client
-import blockstack as blockstack_servers
+import blockstack as blockstack_server
+import virtualchain
 from blockstack_client.config import DEFAULT_DUST_FEE, DEFAULT_OP_RETURN_FEE
 
 wallets = [
@@ -41,10 +42,11 @@ wallets = [
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 zonefile_hash = None
 final_balance = None
+new_expire_block = None
 
 def scenario( wallets, **kw ):
 
-    global zonefile_hash, final_balance
+    global zonefile_hash, final_balance, new_expire_block
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
@@ -142,6 +144,14 @@ def scenario( wallets, **kw ):
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge the renewal"
     time.sleep(10)
 
+    # wait for it to go through 
+    for i in xrange(0, 12):
+        # warn the serialization checker that this changes behavior from 0.13
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+        
+        testlib.next_block( **kw )
+
     proxy = testlib.make_proxy()
     res = blockstack_client.get_name_blockchain_record( "foo.test", proxy=proxy )
     if 'error' in res:
@@ -155,12 +165,17 @@ def scenario( wallets, **kw ):
         print >> sys.stderr, "Renewal didn't go through: %s --> %s" % (old_expire_block, new_expire_block)
         return False
 
+    if res['op'] != blockstack_client.config.NAME_REGISTRATION + ":":
+        print >> sys.stderr, "Renewal didn't go through (last op is %s)" % res['op']
+        error = True
+        return False
+
     final_balance = testlib.getbalance( wallets[2].addr )
 
 
 def check( state_engine ):
 
-    global zonefile_hash
+    global zonefile_hash, new_expire_block
 
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "test" )
@@ -185,7 +200,7 @@ def check( state_engine ):
 
     # owned by
     owner_address = wallets[3].addr
-    if name_rec['address'] != owner_address or name_rec['sender'] != pybitcoin.make_pay_to_address_script(owner_address):
+    if name_rec['address'] != owner_address or name_rec['sender'] != virtualchain.make_payment_script(owner_address):
         print "sender is wrong"
         return False 
 
@@ -214,8 +229,8 @@ def check( state_engine ):
     # final balance is correct?
     name_fee = blockstack_server.price_name( "foo", ns, new_expire_block )
     preorder_dust_fees = 3 * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
-    register_dust_fees = 4 * DEFAULT_DUST_FEE + DEfAULT_OP_RETURN_FEE
-    renewal_dust_fees = 3 * DEFAULT_DUST_FEE + DEfAULT_OP_RETURN_FEE
+    register_dust_fees = 4 * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
+    renewal_dust_fees = 3 * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
 
     total_fee = name_fee * 2 + preorder_dust_fees + register_dust_fees + renewal_dust_fees 
     payment_address = wallets[2].addr
