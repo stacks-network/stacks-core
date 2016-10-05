@@ -1817,6 +1817,39 @@ def setup( working_dir=None, return_parser=False ):
    set_bitcoin_opts( bitcoin_opts )
    set_blockstack_opts( blockstack_opts )
 
+   # do activation check
+   # This server uses a new transaction format that will not be recognized
+   # by 0.13.  This fail-safe prevents the client from doing anything until
+   # F-day 2016, the day in which 0.14's hard-fork logic activates.  This
+   # will be the day block #436363 gets mined.
+   # 
+   # Delete this fail-safe at your own risk.  We are not responsible
+   # for your lost names and lost Bitcoins.
+   # 
+   # You have been warned.
+
+   btc = get_bitcoind()
+   curr_height = 0
+   try:
+       curr_height = btc.getblockcount()
+   except:
+       print >> sys.stderr, "Failed to connect to bitcoind"
+       os.abort()
+
+   if curr_height <= config.EPOCH_MINIMUM and os.environ.get("BLOCKSTACK_TEST", None) != "1":
+       print >> sys.stderr, ""
+       print >> sys.stderr, "This is a development version of Blockstack Core."
+       print >> sys.stderr, "It it not suitable for production use at this time,"
+       print >> sys.stderr, "and is not compatible with the production Blockstack"
+       print >> sys.stderr, "servers."
+       print >> sys.stderr, ""
+       print >> sys.stderr, "Please use the stable release from PyPI, which you"
+       print >> sys.stderr, "can install with:"
+       print >> sys.stderr, ""
+       print >> sys.stderr, "     $ pip install --upgrade blockstack-server"
+       print >> sys.stderr, ""
+       os.abort()
+
    if return_parser:
       return argparser
    else:
