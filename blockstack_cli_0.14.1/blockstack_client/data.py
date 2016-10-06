@@ -327,6 +327,9 @@ def list_zonefile_history( name, current_block=None, proxy=None ):
         if zonefile is None:
             zonefile = {'error': 'Failed to load zonefile %s' % zh}
 
+        else:
+            assert type(zonefile) in [str, unicode], "Invalid zonefile type %s" % type(zonefile)
+
         zonefiles.append( zonefile )
 
     return zonefiles
@@ -352,6 +355,13 @@ def list_immutable_data_history( name, data_id, current_block=None, proxy=None )
             hashes.append("missing zonefile")
             continue
 
+        if type(zf) in [dict]:
+            # only happens on error 
+            if 'error' in zf and len(zf.keys()) == 1:
+                # couldn't get it
+                hashes.append("missing zonefile")
+                continue
+
         # try to parse 
         try:
             zf = blockstack_zones.parse_zone_file( zf )
@@ -361,15 +371,13 @@ def list_immutable_data_history( name, data_id, current_block=None, proxy=None )
             tmp.update(zf)
             zf = tmp
 
-        except:
+        except Exception, e:
+            if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+                log.exception(e)
+
             # not a standard zonefile
             log.debug("Skip non-standard zonefile")
             hashes.append("non-standard zonefile")
-            continue
-
-        if 'error' in zf and len(zf.keys()) == 1:
-            # invalid
-            hashes.append("missing zonefile")
             continue
        
         if not user_db.is_user_zonefile(zf):

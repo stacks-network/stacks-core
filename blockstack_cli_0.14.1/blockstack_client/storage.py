@@ -260,7 +260,8 @@ def get_immutable_data( data_hash, data_url=None, hash_func=get_data_hash, fqu=N
    Given the hash of the data, go through the list of
    immutable data handlers and look it up.
 
-   Optionally pass the fully-qualified name (@fqu) and human-readable data ID.
+   Optionally pass the fully-qualified name (@fqu), human-readable data ID (data_id),
+   and whether or not this is a zonefile request (zonefile) as hints to the driver.
 
    Return the data (as a dict) on success.
    Return None on failure
@@ -290,6 +291,8 @@ def get_immutable_data( data_hash, data_url=None, hash_func=get_data_hash, fqu=N
          continue
 
       data = None
+      data_dict = None
+
       if handler == data_url:
          # url hint
          try: 

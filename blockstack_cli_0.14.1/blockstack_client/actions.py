@@ -335,11 +335,13 @@ def load_zonefile( fqu, zonefile_data, check_current=True ):
     either JSON or text.  Verify that it is
     well-formed and current.
 
-    Return {'status': True, 'zonefile': the zonefile data (as a dict)} on success.
+    Return {'status': True, 'zonefile': the serialized zonefile data (as a string)} on success.
     Return {'error': ...} on error
+    Return {'error': ..., 'identical': True, 'zonefile': serialized zonefile string} if the zonefile is identical
     """
     
     user_data = str(zonefile_data)
+    user_zonefile = None
     try:
         user_data = json.loads(user_data)
     except:
@@ -351,7 +353,10 @@ def load_zonefile( fqu, zonefile_data, check_current=True ):
             tmp = {}
             tmp.update(user_data)
             user_data = tmp
-        except:
+        except Exception, e:
+            if os.environ.get("BLOCKSTACK_TEST") == "1":
+                log.exception(e)
+
             return {'error': 'Zonefile data is invalid.'}
 
     # is this a zonefile?
@@ -364,12 +369,15 @@ def load_zonefile( fqu, zonefile_data, check_current=True ):
 
     # sanity checks...
     if not user_data.has_key('$origin') or user_data['$origin'] != fqu:
+        log.error("Zonefile is missing or has invalid $origin")
         return {'error': 'Invalid $origin; must use your name'}
 
     if not user_data.has_key('$ttl'):
+        log.error("Zonefile is missing a TTL")
         return {'error': 'Missing $ttl; please supply a positive integer'}
 
     if not is_user_zonefile(user_data):
+        log.error("Zonefile is non-standard")
         return {'error': 'Zonefile is missing or has invalid URI and/or TXT records'}
 
     try:
@@ -379,10 +387,11 @@ def load_zonefile( fqu, zonefile_data, check_current=True ):
         return {'error': 'Invalid $ttl; must be a positive integer'}
 
     if check_current and is_zonefile_current(fqu, user_data):
-        msg ="Zonefile data is same as current zonefile; update not needed."
-        return {'error': msg}
+        msg = "Zonefile data is same as current zonefile; update not needed."
+        log.error(msg)
+        return {'error': msg, 'identical': True, 'zonefile': user_zonefile}
 
-    return {'status': True, 'zonefile': user_data}
+    return {'status': True, 'zonefile': user_zonefile}
 
 
 def cli_configure( args, config_path=CONFIG_PATH ):
@@ -1023,7 +1032,7 @@ def configure_zonefile( name, zonefile, data_pubkey=None ):
             for i in xrange(0, len(urls)):
                 url = urls[i]
                 drivers = get_drivers_for_url( url )
-                print "(%s) [" + ",".join([d.__name__ for d in drivers]) + "] at %s" % (i+1, url)
+                print "(%s) [%s] at %s" % (i+1, join([d.__name__ for d in drivers]), url)
 
         else:
             print "(none)"
@@ -1121,7 +1130,7 @@ def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, 
     opt: data (str) "A zone file string, or a path to a file with the data."
     """
 
-    if not interactive and (not hasattr(args.data) or args.data is None):
+    if not interactive and (not hasattr(args, "data") or args.data is None):
         return {'error': 'Zone file data required in non-interactive mode'}
         
     if proxy is None:
@@ -1178,7 +1187,10 @@ def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, 
 
     user_data_res = load_zonefile( fqu, zonefile_data )
     if 'error' in user_data_res:
-        # not a well-formed zonefile (but maybe that's okay! ask the user)
+        if 'identical' in user_data_res.keys():
+            return {'error': 'Zonefile matches the current name hash; not updating.'}
+
+        #  not a well-formed zonefile (but maybe that's okay! ask the user)
         if interactive:
             if zonefile_data is not None:
                 # something invalid here.  prompt overwrite
@@ -1199,9 +1211,9 @@ def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, 
         nonstandard = True
 
     else:
-        user_data_txt = zonefile_data
-        user_data_hash = storage.hash_zonefile( user_data_res['zonefile'] )
-        user_zonefile_dict = user_data_res['zonefile']
+        user_data_txt = user_data_res['zonefile']
+        user_data_hash = storage.get_zonefile_data_hash( user_data_res['zonefile'] )
+        user_zonefile_dict = blockstack_zones.parse_zone_file( user_data_res['zonefile'] )
 
     # open the zonefile editor
     data_pubkey = wallet_keys['data_pubkey']
@@ -1357,7 +1369,7 @@ def cli_renew( args, config_path=CONFIG_PATH, interactive=True, password=None, p
     
     # fee stimation: cost of name + cost of renewal transaction
     name_price = renewal_fee['satoshis']
-    renewal_tx_fee = estimate_renewal_tx_fee( fqu, payment_privkey_info, owner_privkey_info, utxo_client, config_path=config_path )
+    renewal_tx_fee = estimate_renewal_tx_fee( fqu, name_price, payment_privkey_info, owner_privkey_info, utxo_client, config_path=config_path )
     if renewal_tx_fee is None:
         return {'error': 'Failed to estimate fee'}
 
@@ -1510,6 +1522,10 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None, inter
     if error:
         return {'error': error}
 
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
+
     wallet_keys = get_wallet_keys( config_path, password )
     if 'error' in wallet_keys:
         return wallet_keys
@@ -1568,10 +1584,6 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None, inter
                 # maybe this is intentional (like fixing a corrupt zonefile)
                 msg = "Not a legacy profile; cannot migrate."
                 return {'error': msg}
-
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
 
     rpc = local_rpc_connect(config_dir=config_dir)
 
@@ -2310,12 +2322,23 @@ def cli_advanced_get_name_zonefile( args, config_path=CONFIG_PATH ):
     arg: name (str) "The name to query"
     """
     result = get_name_zonefile(str(args.name), raw_zonefile=True)
+    if result is None:
+        return {'error': 'Failed to get zonefile'}
+
     if 'error' in result:
         return result
+    
+    if 'zonefile' not in result:
+        return {'error': 'No zonefile data'}
+
+    old_zonefile = result['zonefile']
 
     # try to parse
     try:
-        result['zonefile'] = blockstack_zones.parse_zone_file( result['zonefile'] )
+
+        new_zonefile = blockstack_zones.parse_zone_file( result['zonefile'] )
+        assert new_zonefile is not None
+        result['zonefile'] = new_zonefile
     except:
         result['warning'] = 'Non-standard zonefile'
 
@@ -2558,10 +2581,11 @@ def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, proxy=None, inter
         valid = False
         try:
             user_data_res = load_zonefile( name, user_data )
-            if 'error' in user_data_res:
+            if 'error' in user_data_res and 'identical' not in user_data_res.keys():
                 log.warning("Failed to parse zonefile (reason: %s)" % user_data_res['error'])
             else:
                 valid = True
+                user_data = user_data_res['zonefile']
 
         except Exception, e:
             if os.environ.get("BLOCKSTACK_DEBUG", None) == "1":

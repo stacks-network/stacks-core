@@ -384,7 +384,7 @@ class RegistrarWorker(threading.Thread):
             return name_rec
 
         if os.environ.get("BLOCKSTACK_TEST", None) == "1":
-            log.debug("Replicate zonefile %s (blockchain: %s)" % (zonefile_hash, name_rec['value_hash']))
+            log.debug("Replicate zonefile %s (blockchain: %s)\ndata:\n%s" % (zonefile_hash, name_rec['value_hash'], zonefile_data))
 
         if str(name_rec['value_hash']) != zonefile_hash:
             log.error("Zonefile %s has not been confirmed yet (still on %s)" % (zonefile_hash, name_rec['value_hash']))
@@ -987,11 +987,13 @@ def update( fqu, zonefile_txt_b64, profile, zonefile_hash, config_path=None, pro
     """
 
     assert zonefile_txt_b64 is not None or zonefile_hash is not None, "need zonefile or zonefile hash"
-
-    try:
-        zonefile_txt = base64.b64decode(zonefile_txt_b64)
-    except:
-        return {'error': 'Invalid base64 zonefile'}
+    
+    zonefile_txt = None
+    if zonefile_txt_b64 is not None:
+        try:
+            zonefile_txt = base64.b64decode(zonefile_txt_b64)
+        except:
+            return {'error': 'Invalid base64 zonefile'}
 
     if zonefile_hash is None:
         zonefile_hash = get_zonefile_data_hash( zonefile_txt )

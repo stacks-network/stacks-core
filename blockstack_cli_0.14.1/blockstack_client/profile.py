@@ -79,6 +79,15 @@ def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, raw_z
         return None
 
     if raw_zonefile:
+        try:
+            assert type(zonefile_txt) in [str, unicode], "Driver did not return a serialized zonefile"
+        except AssertionError as ae:
+            if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+                log.exception(ae)
+
+            log.error("Driver did not return a serialized zonefile")
+            return None
+
         return zonefile_txt
 
     user_zonefile = None

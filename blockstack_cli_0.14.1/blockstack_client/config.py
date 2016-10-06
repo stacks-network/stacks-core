@@ -317,6 +317,21 @@ APPROX_TX_OVERHEAD_LEN = 12
 APPROX_TX_IN_P2PKH_LEN = 180
 APPROX_TX_OUT_P2PKH_LEN = 40
 
+# epoch dates
+EPOCH_1_END_BLOCK = 436363
+
+# epoch dates for the test environment
+NUM_EPOCHS = 2
+for i in xrange(1, NUM_EPOCHS + 1):
+    # epoch lengths can be altered by the test framework, for ease of tests
+    if os.environ.get('BLOCKSTACK_EPOCH_{}_END_BLOCK'.format(i), None) is not None and os.environ.get('BLOCKSTACK_TEST', None) == '1':
+        exec('EPOCH_{}_END_BLOCK = int({})'.format(i, os.environ.get('BLOCKSTACK_EPOCH_{}_END_BLOCK'.format(i))))
+        log.warn('EPOCH_{}_END_BLOCK = {}'.format(i, eval('EPOCH_{}_END_BLOCK'.format(i))))
+
+del i
+
+EPOCH_HEIGHT_MINIMUM = EPOCH_1_END_BLOCK + 1
+
 DEFAULT_BLOCKCHAIN_READER = 'blockcypher'
 DEFAULT_BLOCKCHAIN_WRITER = 'blockcypher'
 
@@ -324,7 +339,7 @@ SUPPORTED_UTXO_PROMPT_MESSAGES = {
     'blockcypher': 'Please enter your Blockcypher API token.',
     'blockchain_info': 'Please enter your blockchain.info API token.',
     'bitcoind_utxo': 'Please enter your fully-indexed bitcoind node information.',
-    'blockstack_utxo': 'Please enter your Blockstack server info.'
+    'blockstack_utxo': 'Please enter your Blockstack server info.',
 }
 
 

@@ -60,7 +60,7 @@ from pybitcoin.rpc.bitcoind_client import BitcoindClient
 
 from .backend.crypto.utils import get_address_from_privkey, get_pubkey_from_privkey
 from .backend.crypto.utils import aes_encrypt, aes_decrypt
-from .backend.blockchain import get_balance, is_address_usable, get_tx_fee
+from .backend.blockchain import get_balance, is_address_usable, get_tx_fee, get_block_height
 from .utils import satoshis_to_btc, btc_to_satoshis, exit_with_error, print_result
 
 from .keys import *
@@ -206,12 +206,36 @@ def make_wallet( password, hex_privkey=None, payment_privkey_info=None, owner_pr
     encrypted_key = aes_encrypt(hex_privkey, hex_password)
     data['encrypted_master_private_key'] = encrypted_key
 
+    multisig = False
+    curr_height = get_block_height( config_path=config_path )
+    if curr_height >= config.EPOCH_HEIGHT_MINIMUM:
+        # safe to use multisig
+        multisig = True
+
     # default to 2-of-3 multisig key info if data isn't given
     if payment_privkey_info is None:
-        payment_privkey_info = virtualchain.make_multisig_wallet( 2, 3 )
+        if multisig:
+            payment_privkey_info = virtualchain.make_multisig_wallet( 2, 3 )
+        else:
+            payment_privkey_info = virtualchain.BitcoinPrivateKey().to_wif()
+
+    if not is_singlesig(payment_privkey_info) and not is_multisig(payment_privkey_info):
+        return {'error': 'Payment private key info must be either a single private key or a multisig bundle'}
+
+    if not multisig and is_multisig(payment_privkey_info):
+        return {'error': 'Multisig payment private key info is not supported'}
 
     if owner_privkey_info is None:
-        owner_privkey_info = virtualchain.make_multisig_wallet( 2, 3 )
+        if multisig:
+            owner_privkey_info = virtualchain.make_multisig_wallet( 2, 3 )
+        else:
+            owner_privkey_info = virtualchain.BitcoinPrivateKey().to_wif()
+
+    if not is_singlesig(owner_privkey_info) and not is_multisig(owner_privkey_info):
+        return {'error': 'Owner private key info must be either a single private key or a multisig bundle'}
+
+    if not multisig and is_multisig(owner_privkey_info):
+        return {'error': 'Multisig owner private key info is not supported'}
 
     if data_privkey_info is None:
         # TODO: for now, this must be a single private key 
@@ -364,6 +388,12 @@ def decrypt_wallet( data, password, config_path=CONFIG_PATH, max_tries=WALLET_DE
     data_keypair = child[2]
     data_pubkey = ECPrivateKey( data_keypair[1] ).public_key().to_hex()
 
+    multisig = False
+    curr_height = get_block_height( config_path=config_path )
+    if curr_height >= config.EPOCH_HEIGHT_MINIMUM:
+        # safe to use multisig 
+        multisig = True
+
     ret = {}
     keynames = ['payment', 'owner', 'data']
     for i in xrange(0, len(keynames)):
@@ -392,6 +422,11 @@ def decrypt_wallet( data, password, config_path=CONFIG_PATH, max_tries=WALLET_DE
             # Derive it from the master key.
             ret[keyname_privkey] = data_keypair[1]
             ret[keyname_addresses] = [virtualchain.BitcoinPrivateKey(ret[keyname_privkey]).public_key().address()]
+
+        # this can't be multisig if it's not yet supported 
+        if not is_singlesig( ret[keyname_privkey] ) and not multisig:
+            log.error("Invalid wallet data for '%s'" % keyname_privkey)
+            return {'error': 'Invalid wallet'}
 
     ret['hex_privkey'] = hex_privkey
     ret['data_pubkeys'] = [ECPrivateKey(ret['data_privkey']).public_key().to_hex()]
@@ -483,6 +518,10 @@ def initialize_wallet( password="", interactive=True, hex_privkey=None, config_d
             hex_privkey = temp_wallet.get_master_privkey()
 
         wallet = make_wallet( password, hex_privkey=hex_privkey, config_path=config_path, owner_privkey_info=owner_privkey_info, payment_privkey_info=payment_privkey_info, data_privkey_info=data_privkey_info )
+        if 'error' in wallet:
+            log.error("make_wallet failed: %s" % wallet['error'])
+            return wallet
+
         write_wallet( wallet, path=wallet_path ) 
 
         result['wallet_password'] = password
@@ -599,6 +638,10 @@ def unlock_wallet( password=None, config_dir=CONFIG_DIR, wallet_path=None ):
                                                           owner_privkey=wallet['owner_privkey'],
                                                           data_privkey=wallet['data_privkey'],
                                                           config_path=config_path )
+
+                if 'error' in encrypted_wallet:
+                    log.error("Failed to make wallet: %s" % encrypted_wallet['error'])
+                    return encrypted_wallet
 
                 write_wallet( encrypted_wallet, path=wallet_path + ".tmp" )
                 legacy_path = wallet_path + ".legacy"
