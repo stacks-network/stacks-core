@@ -48,16 +48,16 @@ def get_logger(debug=DEBUG):
 
 log = get_logger('blockstack-client')
 
-BLOCKSTACK_TEST = os.environ.get('BLOCKSTACK_TEST')
-BLOCKSTACK_TEST_NODEBUG = os.environ.get('BLOCKSTACK_TEST_NODEBUG')
-BLOCKSTACK_DEBUG = os.environ.get('BLOCKSTACK_DEBUG')
-BLOCKSTACK_TEST_FIRST_BLOCK = os.environ.get('BLOCKSTACK_TEST_FIRST_BLOCK')
+BLOCKSTACK_TEST = os.environ.get('BLOCKSTACK_TEST', None)
+BLOCKSTACK_TEST_NODEBUG = os.environ.get('BLOCKSTACK_TEST_NODEBUG', None)
+BLOCKSTACK_DEBUG = os.environ.get('BLOCKSTACK_DEBUG', None)
+BLOCKSTACK_TEST_FIRST_BLOCK = os.environ.get('BLOCKSTACK_TEST_FIRST_BLOCK', None)
 
 DEBUG = False
-if BLOCKSTACK_TEST and not BLOCKSTACK_TEST_NODEBUG:
+if BLOCKSTACK_TEST is not None and BLOCKSTACK_TEST_NODEBUG is None:
     DEBUG = True
 
-if BLOCKSTACK_DEBUG:
+if BLOCKSTACK_DEBUG is not None:
     DEBUG = True
 
 VERSION = __version__
@@ -322,10 +322,11 @@ EPOCH_1_END_BLOCK = 436363
 
 # epoch dates for the test environment
 NUM_EPOCHS = 2
-for i in xrange(1, NUM_EPOCHS + 1):
+for i in range(1, NUM_EPOCHS + 1):
     # epoch lengths can be altered by the test framework, for ease of tests
-    if os.environ.get('BLOCKSTACK_EPOCH_{}_END_BLOCK'.format(i), None) is not None and os.environ.get('BLOCKSTACK_TEST', None) == '1':
-        exec('EPOCH_{}_END_BLOCK = int({})'.format(i, os.environ.get('BLOCKSTACK_EPOCH_{}_END_BLOCK'.format(i))))
+    blockstack_epoch_end_block = os.environ.get('BLOCKSTACK_EPOCH_{}_END_BLOCK'.format(i), None)
+    if blockstack_epoch_end_block is not None and BLOCKSTACK_TEST is not None:
+        exec('EPOCH_{}_END_BLOCK = int({})'.format(i, blockstack_epoch_end_block))
         log.warn('EPOCH_{}_END_BLOCK = {}'.format(i, eval('EPOCH_{}_END_BLOCK'.format(i))))
 
 del i
