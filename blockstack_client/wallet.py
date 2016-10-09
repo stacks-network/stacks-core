@@ -360,6 +360,9 @@ def initialize_wallet( password="", interactive=True, hex_privkey=None, config_d
             hex_privkey = temp_wallet.get_master_privkey()
 
         wallet = make_wallet( password, hex_privkey=hex_privkey, config_path=config_path )
+        if 'error' in wallet:
+            return wallet
+
         write_wallet( wallet, path=wallet_path ) 
 
         print "Wallet created. Make sure to backup the following:"
@@ -481,6 +484,9 @@ def unlock_wallet(display_enabled=False, password=None, config_dir=CONFIG_DIR, w
                                                           owner_privkey=wallet['owner_privkey'],
                                                           data_privkey=wallet['data_privkey'],
                                                           config_path=config_path )
+
+                if 'error' in encrypted_wallet:
+                    return encrypted_wallet 
 
                 write_wallet( encrypted_wallet, path=wallet_path + ".tmp" )
                 legacy_path = wallet_path + ".legacy"
