@@ -1324,7 +1324,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         atlas_peer_enqueue( "%s:%s" % (client_host, client_port))
 
-        log.debug("\n\nLive peers: %s\n\n" % peer_list)
+        log.debug("Live peers to %s:%s: %s" % (client_host, client_port, peer_list))
         return {'status': True, 'peers': peer_list}
 
     
