@@ -122,11 +122,13 @@ def rec_restore_snv_consensus_fields( name_rec, block_id ):
 
     if ret_op is None:
         raise Exception("Failed to derive extra consensus fields for '%s'" % opcode_name)
-    
+   
+    '''
     ret_op = virtualchain.virtualchain_set_opfields( ret_op, \
                                                      virtualchain_opcode=getattr( config, opcode_name ), \
                                                      virtualchain_txid=str(name_rec['txid']), \
                                                      virtualchain_txindex=int(name_rec['vtxindex']) )
+    '''
     ret_op['opcode'] = opcode_name
 
     merged_op = copy.deepcopy( name_rec )
