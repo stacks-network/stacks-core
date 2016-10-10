@@ -780,7 +780,7 @@ def put_announcement( announcement_text, txid ):
     return data_hash
 
 
-def default_blockstack_opts( config_file=None ):
+def default_blockstack_opts( config_file=None, virtualchain_impl=None ):
    """
    Get our default blockstack opts from a config file
    or from sane defaults.
@@ -789,7 +789,7 @@ def default_blockstack_opts( config_file=None ):
    if config_file is None:
       config_file = virtualchain.get_config_filename()
 
-   announce_path = get_announce_filename( virtualchain.get_working_dir() )
+   announce_path = get_announce_filename( virtualchain.get_working_dir(impl=virtualchain_impl) )
 
    parser = SafeConfigParser()
    parser.read( config_file )
