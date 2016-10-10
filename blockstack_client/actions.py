@@ -2388,7 +2388,7 @@ def cli_advanced_get_all_names( args, config_path=CONFIG_PATH ):
 def cli_advanced_get_names_in_namespace( args, config_path=CONFIG_PATH ):
     """
     command: get_names_in_namespace norpc
-    help: Get the names in a given namespace, optionally patinating through them
+    help: Get the names in a given namespace, optionally paginating through them
     arg: namespace_id (str) "The ID of the namespace to query"
     opt: offset (int) "The offset into the sorted list of names"
     opt: count (int) "The number of names to return"
