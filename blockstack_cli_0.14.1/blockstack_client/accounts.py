@@ -21,9 +21,9 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-from keys import *
-from proxy import *
-from profile import *
+from .keys import *
+from .proxy import *
+from .profile import *
 
 log = get_logger()
 
