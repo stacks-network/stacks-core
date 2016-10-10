@@ -26,6 +26,7 @@ import sys
 import random
 import signal
 import base64
+import copy
 
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -54,6 +55,7 @@ from ..proxy import is_name_registered, is_zonefile_hash_current, is_name_owner,
 from ..profile import get_and_migrate_profile, zonefile_data_replicate
 from ..user import make_empty_user_zonefile, is_user_zonefile 
 from ..storage import put_mutable_data, put_immutable_data, hash_zonefile, get_zonefile_data_hash
+from ..data import get_profile_timestamp, set_profile_timestamp
 
 from .crypto.utils import aes_decrypt, aes_encrypt
 
@@ -417,7 +419,11 @@ class RegistrarWorker(threading.Thread):
             assert data_privkey is not None, "No data private key"
 
             log.info("Replicate profile data for %s to %s" % (name_data['fqu'], ",".join(storage_drivers)))
-            rc = put_mutable_data( name_data['fqu'], name_data['profile'], data_privkey, required=storage_drivers )
+            
+            profile_payload = copy.deepcopy(name_data['profile'])
+            profile_payload = set_profile_timestamp(profile_payload)
+
+            rc = put_mutable_data( name_data['fqu'], profile_payload, data_privkey, required=storage_drivers )
             if not rc:
                 log.info("Failed to replicate profile for %s" % (name_data['fqu']))
                 return {'error': 'Failed to store profile'}
