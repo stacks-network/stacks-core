@@ -3164,6 +3164,7 @@ class AtlasPeerCrawler( threading.Thread ):
             # remove stale peers
             log.debug("%s: revalidate old peers" % self.my_hostport)
             atlas_revalidate_peers( con=con, path=path, peer_table=peer_table )
+            self.last_clean_time = time_now()
 
         removed = self.remove_unhealthy_peers( num_to_remove, con=con, path=path, peer_table=peer_table )
 
