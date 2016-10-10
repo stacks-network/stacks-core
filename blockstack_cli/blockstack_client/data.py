@@ -62,7 +62,6 @@ log = get_logger()
 
 import virtualchain
 
-
 def serialize_mutable_data_id( data_id ):
     """
     Turn a data ID into a suitable filesystem name
@@ -805,6 +804,7 @@ def put_mutable(name, data_id, data_json, proxy=None, create_only=False, update_
     result = {}
  
     # update the profile with the new zonefile
+    user_profile = set_profile_timestamp( user_profile )
     rc = storage.put_mutable_data( name, user_profile, data_privkey )
     if not rc:
         result['error'] = 'Failed to store mutable data zonefile to profile'
@@ -824,7 +824,10 @@ def put_mutable(name, data_id, data_json, proxy=None, create_only=False, update_
 
     result['status'] = True
     result['version'] = version
-    log.debug("Put '%s' to %s mutable data (version %s)\nProfile is now:\n%s" % (data_id, name, version, json.dumps(user_profile, indent=4, sort_keys=True)))
+
+    if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+        log.debug("Put '%s' to %s mutable data (version %s)\nProfile is now:\n%s" % (data_id, name, version, json.dumps(user_profile, indent=4, sort_keys=True)))
+
     return result
 
 
@@ -1041,6 +1044,8 @@ def delete_mutable(name, data_id, proxy=None, wallet_keys=None):
         data_privkey = data_privkey['privatekey']
         assert data_privkey is not None
 
+    # advance timestamp
+    user_profile = set_profile_timestamp( user_profile )
     rc = storage.put_mutable_data( name, user_profile, data_privkey )
     if not rc:
         return {'error': 'Failed to unlink mutable data from profile'}
