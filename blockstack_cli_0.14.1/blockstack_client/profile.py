@@ -61,6 +61,24 @@ from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SER
 log = get_logger()
 
 
+def set_profile_timestamp( profile, now=None ):
+    """
+    Set the profile's timestamp to now
+    """
+    if now is None:
+        now = time.time()
+
+    profile['timestamp'] = now 
+    return profile
+
+
+def get_profile_timestamp( profile ):
+    """
+    Get profile timestamp
+    """
+    return profile['timestamp']
+
+
 def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, raw_zonefile=False):
     """
     Fetch and load a user zonefile from the storage implementation with the given hex string hash,
@@ -245,8 +263,11 @@ def profile_update( name, user_zonefile, new_profile, owner_address, proxy=None,
         data_privkey = data_privkey_res['privatekey']
         assert data_privkey is not None
 
-    log.debug("Save updated profile for '%s' to %s" % (name, ",".join(required_storage_drivers)))
-    rc = storage.put_mutable_data( name, new_profile, data_privkey, required=required_storage_drivers )
+    profile_payload = copy.deepcopy(new_profile)
+    profile_payload = set_profile_timestamp( profile_payload )
+
+    log.debug("Save updated profile for '%s' to %s at %s" % (name, ",".join(required_storage_drivers), get_profile_timestamp(profile_payload)))
+    rc = storage.put_mutable_data( name, profile_payload, data_privkey, required=required_storage_drivers )
     if not rc:
         ret['error'] = 'Failed to update profile'
         return ret
@@ -546,7 +567,7 @@ def get_and_migrate_profile( name, zonefile_storage_drivers=None, profile_storag
 
         created_new_zonefile = True
         created_new_profile = True
-    
+
     else:
         name_record = user_zonefile['name_record']
         del user_zonefile['name_record']
