@@ -127,7 +127,7 @@ class BlockstackDB( virtualchain.StateEngine ):
                                               read_only=read_only )
 
         # announcers to track
-        blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(impl=blockstack_impl) )
+        blockstack_opts = default_blockstack_opts( virtualchain.get_config_filename(impl=blockstack_impl), virtualchain_impl=blockstack_impl )
         self.announce_ids = blockstack_opts['announcers'].split(",")
 
         self.set_backup_frequency( blockstack_opts['backup_frequency'] )
@@ -698,7 +698,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         cur = self.db.cursor()
         name_snapshots = []
-        update_points = namedb_get_history_range( cur, name, start_block, end_block ) 
+        update_points = namedb_get_blocks_with_ops( cur, name, start_block, end_block )
         for update_point in update_points:
              historical_recs = self.get_name_at( name, update_point )
              name_snapshots += historical_recs
@@ -720,12 +720,23 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         cur = self.db.cursor()
         name_snapshots = {}
-        update_points = namedb_get_history_range( cur, name, start_block, end_block ) 
-        for update_point in update_points.keys():
+        update_points = namedb_get_blocks_with_ops( cur, name, start_block, end_block )
+        for update_point in update_points:
             historical_recs = self.get_name_at( name, update_point )
             name_snapshots[ str(update_point) ] = historical_recs
 
         return name_snapshots
+
+
+    def get_last_nameops( self, offset, count ):
+        """
+        Read the $count previous entries in the history, starting at $offset.
+        ex: $offset = 0 and $count = 5 reads the last 5 records accepted.
+        Returns a list of name records on success
+        Returns None on error
+        """
+        recs = namedb_get_last_nameops( self.db, offset=offset, count=count )
+        return recs
 
 
     def get_all_records_at( self, block_number, include_history=False ):
