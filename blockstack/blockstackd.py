@@ -484,6 +484,17 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return name_history
 
 
+    def rpc_get_last_nameops( self, offset, count, **con_info ):
+        """
+        Get the last nameops processed, starting at the offset
+        and returning up to count items.
+        Operations are returned in newer to older order.
+        """
+        db = get_db_state()
+        last_nameops = db.get_last_nameops( offset, count )
+        db.close()
+        return last_nameops
+
 
     def rpc_get_records_at( self, block_id, **con_info ):
         """
@@ -689,6 +700,17 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         db.close()
 
         return all_names
+
+
+    def rpc_get_all_namespaces( self, **con_info ):
+        """
+        Return all namespaces
+        """
+        db = get_db_state()
+        self.analytics("get_all_namespaces", {})
+        all_namespaces = db.get_all_namespace_ids()
+        db.close()
+        return all_namespaces
 
 
     def rpc_get_names_in_namespace( self, namespace_id, offset, count, **con_info ):
@@ -1085,7 +1107,78 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return {'status': True, 'profile': profile}
 
 
-    def rpc_put_profile(self, name, profile_txt, prev_profile_hash, sigb64, **con_info ):
+    def verify_profile_timestamp( self, user_profile ):
+        """
+        Verify that the profile timestamp is fresh,
+        and that the profile has a valid timestamp.
+        Return {'status': True} on success
+        Return {'error': ...} on error
+        """
+        
+        # needs a timestamp 
+        if 'timestamp' not in user_profile.keys():
+            log.debug("Profile has no timestamp")
+            return {'error': 'Profile has no timestamp'}
+
+        if type(user_profile['timestamp']) not in [int, long, float]:
+            log.debug("Profile has invalid timestamp type")
+            return {'error': 'Invalid timestamp type'}
+
+        user_profile_timestamp = user_profile['timestamp']
+
+        # timestamp needs to be fresh 
+        now = time.time()
+        if abs(now - user_profile_timestamp) > 30:
+            log.debug("Out-of-sync timestamp: |%s - %s| == %s" % (now, user_profile_timestamp, abs(now, user_profile_timestamp)))
+            return {'error': 'Invalid timestamp'}
+
+        else:
+            log.debug("Client and server differ by %s seconds" % abs(now - user_profile_timestamp))
+            return {'status': True}
+
+
+    def verify_profile_hash( self, name, name_rec, zonefile_dict, profile_txt, prev_profile_hash, sigb64, user_data_pubkey ):
+        """
+        Verify that the uploader signed the profile's previous hash.
+        Return {'status': True} on success
+        Return {'error': ...} on error
+        """
+
+        conf = get_blockstack_opts()
+        if not conf['serve_profiles']:
+            return {'error': 'No data'}
+
+        profile_storage_drivers = conf['profile_storage_drivers'].split(",")
+        zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
+
+        # verify that the previous profile actually does have this hash 
+        try:
+            old_profile_txt, zonefile = blockstack_client.get_name_profile(name, profile_storage_drivers=profile_storage_drivers, zonefile_storage_drivers=zonefile_storage_drivers,
+                                                                           user_zonefile=zonefile_dict, name_record=name_rec, use_zonefile_urls=False, decode_profile=False)
+        except Exception, e:
+            log.exception(e)
+            log.debug("Failed to load profile for '%s'" % name)
+            return {'error': 'Failed to load profile'}
+
+        if old_profile_txt is None:
+            # no profile yet (or error)
+            old_profile_txt = ""
+
+        old_profile_hash = pybitcoin.hex_hash160(old_profile_txt)
+        if old_profile_hash != prev_profile_hash:
+            log.debug("Invalid previous profile hash")
+            return {'error': 'Invalid previous profile hash'}
+
+        # finally, verify the signature over the previous profile hash and this new profile
+        rc = blockstack_client.storage.verify_raw_data( "%s%s" % (prev_profile_hash, profile_txt), user_data_pubkey, sigb64 )
+        if not rc:
+            log.debug("Invalid signature")
+            return {'error': 'Invalid signature'}
+
+        return {'status': True}
+
+
+    def rpc_put_profile(self, name, profile_txt, prev_profile_hash_or_ignored, sigb64_or_ignored, **con_info ):
         """
         Store a profile for a particular name
         @profile_txt must be a serialized JWT signed by the key in the user's zonefile.
@@ -1136,9 +1229,13 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         # first, try to verify with zonefile public key (if one is given)
         user_data_pubkey = blockstack_client.user_zonefile_data_pubkey( zonefile_dict )
+        user_profile = None
+        user_profile_timestamp = None
+
         if user_data_pubkey is not None:
             try:
                 user_profile = blockstack_client.parse_signed_data( profile_txt, user_data_pubkey )
+                assert type(user_profile) in [dict], "Failed to parse profile"
             except Exception, e:
                 log.exception(e)
                 log.debug("Failed to authenticate profile")
@@ -1153,6 +1250,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
             try:
                 user_profile = blockstack_client.parse_signed_data( profile_txt, None, public_key_hash=owner_addr )
+                assert type(user_profile) in [dict], "Failed to parse profile"
 
                 # seems to have worked
                 profile_jwt = json.loads(profile_txt)
@@ -1167,30 +1265,14 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 return {'error': 'Failed to authenticate profile'}
 
 
-        # authentic!
-        # next, verify that the previous profile actually does have this hash 
-        try:
-            old_profile_txt, zonefile = blockstack_client.get_name_profile(name, profile_storage_drivers=profile_storage_drivers, zonefile_storage_drivers=zonefile_storage_drivers,
-                                                                           user_zonefile=zonefile_dict, name_record=name_rec, use_zonefile_urls=False, decode_profile=False)
-        except Exception, e:
-            log.exception(e)
-            log.debug("Failed to load profile for '%s'" % name)
-            return {'error': 'Failed to load profile'}
-
-        if old_profile_txt is None:
-            # no profile yet (or error)
-            old_profile_txt = ""
-
-        old_profile_hash = pybitcoin.hex_hash160(old_profile_txt)
-        if old_profile_hash != prev_profile_hash:
-            log.debug("Invalid previous profile hash")
-            return {'error': 'Invalid previous profile hash'}
-
-        # finally, verify the signature over the previous profile hash and this new profile
-        rc = blockstack_client.storage.verify_raw_data( "%s%s" % (prev_profile_hash, profile_txt), user_data_pubkey, sigb64 )
-        if not rc:
-            log.debug("Invalid signature")
-            return {'error': 'Invalid signature'}
+        # authentic!  try to verify via timestamp
+        res = self.verify_profile_timestamp( user_profile )
+        if 'error' in res:
+            log.debug("Failed to verify with profile timestamp. Falling back to hash.")
+            res = self.verify_profile_hash( name, name_rec, zonefile_dict, profile_txt, prev_profile_hash_or_ignored, sigb64_or_ignored, user_data_pubkey )
+            if 'error' in res:
+                log.debug("Failed to verify profile by owner hash")
+                return {'error': 'Failed to validate profile: invalid or missing timestamp and/or previous hash'}
 
         # success!  store it
         successes = 0
@@ -1848,7 +1930,6 @@ def setup( working_dir=None, return_parser=False ):
        print >> sys.stderr, ""
        print >> sys.stderr, "     $ pip install --upgrade blockstack-server"
        print >> sys.stderr, ""
-       os.abort()
 
    if return_parser:
       return argparser
