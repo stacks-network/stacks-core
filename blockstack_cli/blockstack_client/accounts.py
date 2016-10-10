@@ -42,9 +42,9 @@ import bitcoin
 import binascii
 from utilitybelt import is_hex
 
-from keys import *
-from proxy import *
-from profile import *
+from .keys import *
+from .proxy import *
+from .profile import *
 
 from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SERVER, \
     BLOCKSTACKD_PORT, BLOCKSTACK_METADATA_DIR, BLOCKSTACK_DEFAULT_STORAGE_DRIVERS, \
