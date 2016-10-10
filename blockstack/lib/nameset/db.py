@@ -177,7 +177,7 @@ def namedb_create( path ):
         raise Exception("Database '%s' already exists" % path)
 
     lines = [l + ";" for l in BLOCKSTACK_DB_SCRIPT.split(";")]
-    con = sqlite3.connect( path, isolation_level=None )
+    con = sqlite3.connect( path, isolation_level=None, timeout=2**30 )
 
     for line in lines:
         con.execute(line)
@@ -193,7 +193,7 @@ def namedb_open( path ):
     """
     Open a connection to our database 
     """
-    con = sqlite3.connect( path, isolation_level=None )
+    con = sqlite3.connect( path, isolation_level=None, timeout=2**30 )
     con.row_factory = namedb_row_factory
 
     # add user-defined functions
