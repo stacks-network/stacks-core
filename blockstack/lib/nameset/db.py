@@ -213,6 +213,8 @@ def namedb_row_factory( cursor, row ):
                 d[col[0]] = False
             elif row[idx] == 1:
                 d[col[0]] = True
+            elif row[idx] is None:
+                d[col[0]] = None
             else:
                 raise Exception("Invalid value for 'revoked': %s" % row[idx])
 
@@ -1240,16 +1242,27 @@ def namedb_history_append( cur, history_id, block_id, vtxindex, txid, history_re
     return True
 
 
-def namedb_get_history_range( cur, name, start_block_id, end_block_id ):
+def namedb_get_blocks_with_ops( cur, history_id, start_block_id, end_block_id ):
     """
-    Get the history for a name over a range of blocks.
-    Returns a dict keyed by block heights, paired with lists of changes (see namedb_history_extract)
+    Get the block heights at which a name was affected by an operation.
+    Returns the list of heights.
     """
+    select_query = "SELECT DISTINCT name_records.block_number,history.block_id FROM history JOIN name_records ON history.history_id = name_records.name " + \
+                   "WHERE (name_records.block_number >= ? OR history.block_id >= ?) AND (name_records.block_number < ? OR history.block_id < ?);"
+    args = (start_block_id, start_block_id, end_block_id, end_block_id)
 
-    select_query = "SELECT * FROM history WHERE history_id = ? AND block_id >= ? AND block_id < ? ORDER BY block_id, vtxindex ASC;"
-    history_rows = namedb_query_execute( cur, select_query, (name, start_block_id, end_block_id) )
+    history_rows = namedb_query_execute( cur, select_query, args )
+    ret = []
 
-    return namedb_history_extract( history_rows )
+    for r in history_rows:
+        if r['block_number'] not in ret:
+            ret.append(r['block_number'])
+
+        if r['block_id'] not in ret:
+            ret.append(r['block_id'])
+
+    ret.sort()
+    return ret
 
 
 def namedb_get_history( cur, history_id ):
@@ -1747,6 +1760,97 @@ def namedb_get_all_records_at( db, block_id, include_history=False ):
     return sorted( ret, key=lambda n: n['vtxindex'] )
 
 
+def namedb_get_last_nameops( db, offset=None, count=None ):
+    """
+    Get the last $count records committed, starting at $offset
+    Return the list of name operations.
+    Return None on error
+    """
+    if offset is None:
+        offset = 0
+
+    if count is None:
+        count = 0
+
+    if offset == 0 and count == 0:
+        return None
+
+    block_map = {}        # maps block height to a list of transaction indexes
+    ret = []
+    cur = db.cursor()
+
+    # TODO: actually paginate this
+    previous_query = "SELECT name_records.block_number name_block_number,namespaces.block_number namespaces_block_number,history.block_id history_block_id,history.vtxindex history_vtxindex " + \
+                     "FROM history " + \
+                     "LEFT JOIN name_records ON name_records.name = history.history_id " + \
+                     "LEFT JOIN namespaces ON history.history_id = namespaces.namespace_id " + \
+                     "ORDER BY history.block_id DESC, history.vtxindex DESC;"
+    
+    previous_rows = namedb_query_execute( cur, previous_query, () )
+
+    added = 0
+    for r in previous_rows:
+        print r
+        if r['history_vtxindex'] is None:
+            continue
+
+        # get the history of operations
+        if r['history_block_id'] is None:
+            continue
+
+        if r['history_block_id'] not in block_map.keys():
+            block_map[r['history_block_id']] = 0
+
+        block_map[r['history_block_id']] += 1
+
+        # don't forget to count the block numbers for the names and namespacess
+        for col in ['name_block_number', 'namespaces_block_number']:
+            if r[col] is None:
+                continue
+
+            if r[col] not in block_map.keys():
+                block_map[r[col]] = 1
+    
+    print json.dumps(block_map, indent=4, sort_keys=True)
+
+    # find the blocks to actually load by expanding
+    hist = []
+    for k in sorted(block_map.keys()):
+        for v in xrange(0, block_map[k]):
+            hist.append((k, v))
+
+    hist.reverse()
+    print "reversed hist: %s" % hist
+
+    # get the blocks' operations that correspond to offset and offset+count
+    blocks_to_fetch = []
+    for (height, vtxindex) in hist[offset:offset+count]:
+        if not height in blocks_to_fetch:
+            blocks_to_fetch.append(height)
+
+    print "to fetch: %s" % blocks_to_fetch
+
+    ret = []
+    for h in blocks_to_fetch:
+        ops = namedb_get_all_records_at( db, h )
+        ops.reverse()
+        ret += ops
+
+    # ret is aligned to block boundaries, so it doesn't correspond to offset or offset+length
+    # how many ops do we drop from the left?
+    left_drop = 0
+    left_block = blocks_to_fetch[0]
+    i = offset-1
+    while i >= 0 and hist[i][0] == left_block:
+        # drop these ops
+        left_drop += 1
+        i -= 1
+
+    print "fetched %s; drop %s left" % (len(ret), left_drop)
+    ret = ret[left_drop:left_drop+count]
+    return ret
+    
+
 def namedb_get_all_names( cur, current_block, offset=None, count=None ):
     """
     Get a list of all names in the database, optionally
@@ -1816,7 +1920,7 @@ def namedb_get_all_namespace_ids( cur ):
     namespace_rows = namedb_query_execute( cur, query, args )
     ret = []
     for namespace_row in namespace_rows:
-        ret.append( namespace_row['name'] )
+        ret.append( namespace_row['namespace_id'] )
 
     return ret
 
