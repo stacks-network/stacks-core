@@ -152,6 +152,7 @@ else:
 
 ATLASDB_SQL = """
 CREATE TABLE zonefiles( inv_index INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name STRING NOT NULL,
                         zonefile_hash TEXT NOT NULL,
                         present INTEGER NOT NULL,
                         tried_storage INTEGER NOT NULL,
@@ -437,7 +438,7 @@ def atlasdb_open( path ):
     return con
 
 
-def atlasdb_add_zonefile_info( zonefile_hash, present, block_height, con=None, path=None ):
+def atlasdb_add_zonefile_info( name, zonefile_hash, present, block_height, con=None, path=None ):
     """
     Add a zonefile to the database.
     Mark it as present or absent.
@@ -454,8 +455,8 @@ def atlasdb_add_zonefile_info( zonefile_hash, present, block_height, con=None, p
         con = atlasdb_open( path )
         assert con is not None
 
-    sql = "INSERT INTO zonefiles (zonefile_hash, present, tried_storage, block_height) VALUES (?,?,?,?);"
-    args = (zonefile_hash, present, 0, block_height)
+    sql = "INSERT INTO zonefiles (name, zonefile_hash, present, tried_storage, block_height) VALUES (?,?,?,?,?);"
+    args = (name, zonefile_hash, present, 0, block_height)
 
     cur = con.cursor()
     atlasdb_query_execute( cur, sql, args )
@@ -747,13 +748,14 @@ def atlasdb_queue_zonefiles( con, db, start_block, zonefile_dir=None, validate=T
     total = 0
     for block_height in xrange(start_block, db.lastblock+1, 1):
 
-        zonefile_hashes = db.get_value_hashes_at( block_height )
-        for zfhash in zonefile_hashes:
-            zfhash = str(zfhash)
+        names_and_zonefile_hashes = db.get_names_and_value_hashes_at( block_height )
+        for name_zfhash in names_and_zonefile_hashes:
+            name = str(name_zfhash['name'])
+            zfhash = str(name_zfhash['value_hash'])
             present = is_zonefile_cached( zfhash, zonefile_dir=zonefile_dir, validate=validate ) 
 
-            log.debug("Add %s at %s (present: %s)" % (zfhash, block_height, present) )
-            atlasdb_add_zonefile_info( zfhash, present, block_height, con=con )
+            log.debug("Add %s %s at %s (present: %s)" % (name, zfhash, block_height, present) )
+            atlasdb_add_zonefile_info( name, zfhash, present, block_height, con=con )
             total += 1
 
     log.debug("Queued %s zonefiles from %s-%s" % (total, start_block, db.lastblock))
