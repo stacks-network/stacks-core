@@ -961,18 +961,22 @@ class BlockstackDB( virtualchain.StateEngine ):
         return names
 
 
-    def get_value_hashes_at( self, block_id ):
+    def get_atlas_zonefile_info_at( self, block_id ):
         """
-        Get the blockchain-ordered sequence of value hashes
+        Get the blockchain-ordered sequence of names, value hashes, and txids.
         added at the given block height.  The order will be
-        in tx-order
+        in tx-order.
+
+        Return [{'name': name, 'value_hash': value_hash, 'txid': txid}]
         """
         nameops = self.get_all_records_at( block_id )
         ret = []
         for nameop in nameops:
             if nameop.has_key('op') and nameop['op'] in [NAME_UPDATE, NAME_IMPORT]:
                 assert nameop.has_key('value_hash')
-                ret.append( nameop['value_hash'] )
+                assert nameop.has_key('name')
+                assert nameop.has_key('txid')
+                ret.append( {'name': nameop['name'], 'value_hash': nameop['value_hash'], 'txid': nameop['txid']} )
 
         return ret
 
