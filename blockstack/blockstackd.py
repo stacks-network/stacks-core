@@ -1020,14 +1020,17 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
             # maybe a proper zonefile?  if so, get the name out
             name = None
+            txid = None
             try: 
                 zonefile = blockstack_zones.parse_zone_file( str(zonefile_data) )
-                name = zonefile['$origin']
+                name = str(zonefile['$origin'])
+                names_with_hash = [name]
+                txid = db.get_name_value_hash_txid( name, zonefile_hash )
             except Exception, e:
                 log.debug("Not a well-formed zonefile: %s" % zonefile_hash)
 
             # it's a valid zonefile.  cache and store it.
-            rc = store_zonefile_data_to_storage( str(zonefile_data), required=zonefile_storage_drivers, cache=True, zonefile_dir=zonefile_dir, name=name, tx_required=False )
+            rc = store_zonefile_data_to_storage( name, str(zonefile_data), txid, required=zonefile_storage_drivers, cache=True, zonefile_dir=zonefile_dir, tx_required=False )
             if not rc:
                 log.debug("Failed to replicate zonefile %s to external storage" % zonefile_hash)
                 saved.append(0)
