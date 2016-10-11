@@ -25,4 +25,4 @@ import auth
 import crawl
 
 from crawl import *
-from auth import is_current_zonefile_hash, verify_zonefile, serialize_zonefile
+from auth import verify_zonefile, serialize_zonefile
