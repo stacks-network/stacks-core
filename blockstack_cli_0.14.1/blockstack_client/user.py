@@ -199,14 +199,16 @@ def user_zonefile_set_data_pubkey(user_zonefile, pubkey_hex, key_prefix='pubkey:
     """
     user_zonefile.setdefault('txt', [])
 
+    txt = '{}{}'.format(key_prefix, str(pubkey_hex))
+
     for txtrec in user_zonefile['txt']:
         if txtrec['txt'].startswith(key_prefix):
             # overwrite
-            txtrec['txt'] = '{}{}'.format(key_prefix, str(pubkey_hex))
+            txtrec['txt'] = txt
             return True
 
     # not present.  add.
-    name_txt = {'name': 'pubkey', 'txt': '{}{}'.format(key_prefix, str(pubkey_hex))}
+    name_txt = {'name': 'pubkey', 'txt': txt}
     user_zonefile['txt'].append(name_txt)
 
     return True
@@ -291,11 +293,9 @@ def put_immutable_data_zonefile(user_zonefile, data_id, data_hash, data_url=None
         # exists or name collision
         return k == data_hash
 
-    txtrec = None
+    txtrec = '#{}'.format(data_hash)
     if data_url is not None:
-        txtrec = '{}#{}'.format(data_url, data_hash)
-    else:
-        txtrec = '#{}'.format(data_hash)
+        txtrec = '{}{}'.format(data_url, txtrec)
 
     user_zonefile.setdefault('txt', [])
 
