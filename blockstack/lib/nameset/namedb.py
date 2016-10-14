@@ -685,26 +685,6 @@ class BlockstackDB( virtualchain.StateEngine ):
         name_hist = namedb_get_history( cur, name )
         return name_hist
 
-    
-    def get_name_history_sequence( self, name, start_block, end_block ):
-        """
-        Get the sequence of states of a name over a given point in time.
-        Return None if the name isn't current 
-        """
-
-        name_rec = self.get_name( name )
-        if name_rec is None:
-            return None 
-
-        cur = self.db.cursor()
-        name_snapshots = []
-        update_points = namedb_get_blocks_with_ops( cur, name, start_block, end_block )
-        for update_point in update_points:
-             historical_recs = self.get_name_at( name, update_point )
-             name_snapshots += historical_recs
-
-        return name_snapshots
-
 
     def get_name_history( self, name, start_block, end_block ):
         """
