@@ -38,7 +38,7 @@ def url_to_uri_record(url, datum_name=None):
     """
     try:
         scheme, _ = url.split('://')
-    except:
+    except ValueError:
         msg = 'BUG: invalid storage driver implementation: no scheme given in "{}"'
         raise Exception(msg.format(url))
 
@@ -58,7 +58,7 @@ def url_to_uri_record(url, datum_name=None):
             try:
                 assert len(scheme.split('+')) == 2
                 scheme, proto = scheme.split('+')
-            except:
+            except (AssertionError, ValueError):
                 msg = 'WARN: Scheme "{}" has no known transport protocol'
                 log.debug(msg.format(scheme))
 
