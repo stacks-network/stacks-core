@@ -454,12 +454,7 @@ def namedb_query_execute( cur, query, values ):
     """
 
     try:
-        t1 = time.time()
         ret = cur.execute( query, values )
-        t2 = time.time()
-
-        log.debug("Namedb query executed in %s seconds" % (t2 - t1))
-
         return ret
     except Exception, e:
         log.exception(e)
