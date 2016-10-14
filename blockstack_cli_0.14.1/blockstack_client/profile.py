@@ -225,7 +225,8 @@ def load_data_pubkey_for_new_zonefile(wallet_keys={}, config_path=CONFIG_PATH):
     return data_pubkey
 
 
-def profile_update(name, user_zonefile, new_profile, owner_address, proxy=None, wallet_keys=None, required_drivers=None):
+def profile_update(name, user_zonefile, new_profile, owner_address,
+                   proxy=None, wallet_keys=None, required_drivers=None):
     """
     Set the new profile data.  CLIENTS SHOULD NOT CALL THIS METHOD DIRECTLY.
     Return {'status: True} on success, as well as {'transaction_hash': hash} if we updated on the blockchain.
@@ -300,8 +301,7 @@ def get_name_zonefile(name, storage_drivers=None, create_if_absent=False, proxy=
     Even then, only the *public* data key needs to be set.
     """
 
-    if proxy is None:
-        proxy = get_default_proxy()
+    proxy = get_default_proxy() if proxy is None else proxy
 
     # find name record first
     if name_record is None:
