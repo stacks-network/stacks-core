@@ -34,6 +34,7 @@ import os
 import sys
 import copy
 import shutil
+import time
 
 from collections import defaultdict
 
@@ -453,7 +454,12 @@ def namedb_query_execute( cur, query, values ):
     """
 
     try:
+        t1 = time.time()
         ret = cur.execute( query, values )
+        t2 = time.time()
+
+        log.debug("Namedb query executed in %s seconds" % (t2 - t1))
+
         return ret
     except Exception, e:
         log.exception(e)
@@ -1248,8 +1254,8 @@ def namedb_get_blocks_with_ops( cur, history_id, start_block_id, end_block_id ):
     Returns the list of heights.
     """
     select_query = "SELECT DISTINCT name_records.block_number,history.block_id FROM history JOIN name_records ON history.history_id = name_records.name " + \
-                   "WHERE (name_records.block_number >= ? OR history.block_id >= ?) AND (name_records.block_number < ? OR history.block_id < ?);"
-    args = (start_block_id, start_block_id, end_block_id, end_block_id)
+                   "WHERE name_records.name = ? AND ((name_records.block_number >= ? OR history.block_id >= ?) AND (name_records.block_number < ? OR history.block_id < ?));"
+    args = (history_id, start_block_id, start_block_id, end_block_id, end_block_id)
 
     history_rows = namedb_query_execute( cur, select_query, args )
     ret = []
