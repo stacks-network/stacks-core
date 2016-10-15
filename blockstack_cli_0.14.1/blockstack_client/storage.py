@@ -423,8 +423,8 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None,
     global storage_handlers
 
     fq_data_id = str(fq_data_id)
-    assert is_fq_data_id(fq_data_id) or is_valid_name(
-        fq_data_id), 'Need either a fully-qualified data ID or a blockchain ID: "{}"'.format(fq_data_id)
+    msg = 'Need either a fully-qualified data ID or a blockchain ID: "{}"'
+    assert is_fq_data_id(fq_data_id) or is_valid_name(fq_data_id), msg.format(fq_data_id)
 
     fqu = None
     if is_fq_data_id(fq_data_id):
@@ -438,11 +438,12 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None,
     else:
         # whitelist of drivers to try
         for d in drivers:
-            handlers_to_use.extend(h for h in storage_handlers if h.__name__ == d)
+            handlers_to_use.extend(
+                h for h in storage_handlers if h.__name__ == d
+            )
 
     log.debug('get_mutable {}'.format(fq_data_id))
     for storage_handler in handlers_to_use:
-
         if not getattr(storage_handler, 'get_mutable_handler', None):
             continue
 
@@ -479,7 +480,6 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None,
 
             log.debug('Try {} ({})'.format(storage_handler.__name__, url))
             try:
-
                 data_json = storage_handler.get_mutable_handler(url, fqu=fqu)
             except UnhandledURLException as uue:
                 # handler doesn't handle this URL
@@ -1068,7 +1068,6 @@ def blockstack_data_url(field_dict):
 
 
 class BlockstackURLHandle(object):
-
     """
     A file-like object that handles reads on blockstack URLs
     """
@@ -1150,7 +1149,6 @@ class BlockstackURLHandle(object):
             return line
 
     def read(self, numbytes=None):
-
         self.fetch()
         if self.offset >= self.data_len:
             return ''
@@ -1193,7 +1191,6 @@ class BlockstackURLHandle(object):
 
 
 class BlockstackHandler(urllib2.BaseHandler):
-
     """
     URL opener for blockstack:// URLs.
     Usable with urllib2.
