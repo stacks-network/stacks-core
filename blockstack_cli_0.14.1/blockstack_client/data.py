@@ -218,12 +218,14 @@ def get_immutable(name, data_hash, data_id=None, proxy=None):
             return {'error': 'No such immutable datum'}
 
         if isinstance(h, list):
-            # this tool doesn't allow this to happen (one ID matches one hash),
-            # but that doesn't preclude the user from doing this with other tools.
+            # this tool doesn't allow this to happen (one ID matches
+            # one hash), but that doesn't preclude the user from doing
+            # this with other tools.
             if data_hash is not None and data_hash not in h:
                 return {'error': 'Data ID/hash mismatch'}
             else:
-                return {'error': 'Multiple matches for "{}": {}'.format(data_id, ','.join(h))}
+                msg = 'Multiple matches for "{}": {}'
+                return {'error': msg.format(data_id, ','.join(h))}
 
         if data_hash is not None:
             if h != data_hash:
@@ -307,7 +309,10 @@ def list_zonefile_history(name, current_block=None, proxy=None):
     or a dict with only the key 'error' defined.  This method can successfully return
     some but not all zonefiles.
     """
-    zonefile_hashes = list_update_history(name, current_block=current_block, proxy=proxy)
+    zonefile_hashes = list_update_history(
+        name, current_block=current_block, proxy=proxy
+    )
+
     zonefiles = []
     for zh in zonefile_hashes:
         zonefile = load_name_zonefile(name, zh, raw_zonefile=True)
@@ -487,7 +492,8 @@ def app_data_sanity_check(name, user_profile, service_id,
 
     # account public key must exist, and match the private key
     if not data_pubkey:
-        log.error('No data public key for account {}.{} in {}'.format(service_id, account_id, name))
+        msg = 'No data public key for account {}.{} in {}'
+        log.error(msg.format(service_id, account_id, name))
         return {'error': 'Account is missing data public key'}
 
     # must be valid pubkey
@@ -499,12 +505,14 @@ def app_data_sanity_check(name, user_profile, service_id,
     if data_privkey is not None:
         data_pk = virtualchain.BitcoinPrivateKey(data_privkey).public_key().to_hex()
         if str(data_pk) != data_pubkey:
-            log.error('Unexpected public key ({} != {})'.format(data_pk, data_pubkey))
+            msg = 'Unexpected public key ({} != {})'
+            log.error(msg.format(data_pk, data_pubkey))
             return {'error': 'Account has invalid public key'}
 
     # account must have storage drivers
     if 'storage_drivers' not in account:
-        log.error('No data storage drivers for account {}.{} in {}'.format(service_id, account_id, name))
+        msg = 'No data storage drivers for account {}.{} in {}'
+        log.error(msg.format(service_id, account_id, name))
         return {'error': 'Account is missing data storage drivers'}
 
     storage_drivers = account['storage_drivers']
@@ -627,8 +635,7 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
         raise ValueError('Immutable data must be a dict')
 
     legacy = False
-    if proxy is None:
-        proxy = get_default_proxy()
+    proxy = get_default_proxy() if proxy is None else proxy
 
     user_profile, user_zonefile, legacy = get_and_migrate_profile(
         name, create_if_absent=True, proxy=proxy, wallet_keys=wallet_keys
@@ -967,17 +974,17 @@ def delete_immutable(name, data_key, data_id=None, proxy=None, txid=None, wallet
     if data_key is None:
         if data_id is None:
             return {'error': 'No data hash or data ID given'}
-        else:
-            # look up the key (or list of keys) shouldn't be a
-            # list--this tool prevents that--but deal with it
-            # nevertheless
-            data_key = user_db.get_immutable_data_hash(user_zonefile, data_id)
-            if isinstance(data_key, list):
-                msg = 'Multiple hashes for "{}": {}'
-                return {'error': msg.format(data_id, ','.join(data_key))}
 
-            if data_key is None:
-                return {'error': 'No hash for "{}"'.format(data_id)}
+        # look up the key (or list of keys) shouldn't be a
+        # list--this tool prevents that--but deal with it
+        # nevertheless
+        data_key = user_db.get_immutable_data_hash(user_zonefile, data_id)
+        if isinstance(data_key, list):
+            msg = 'Multiple hashes for "{}": {}'
+            return {'error': msg.format(data_id, ','.join(data_key))}
+
+        if data_key is None:
+            return {'error': 'No hash for "{}"'.format(data_id)}
 
     # already deleted?
     if not user_db.has_immutable_data(user_zonefile, data_key):
@@ -1060,7 +1067,10 @@ def delete_mutable(name, data_id, proxy=None, wallet_keys=None):
 
     fq_data_id = storage.make_fq_data_id(name, data_id)
 
-    user_profile, user_zonefile = get_name_profile(name, proxy=proxy, include_name_record=True)
+    user_profile, user_zonefile = get_name_profile(
+        name, proxy=proxy, include_name_record=True
+    )
+
     if user_profile is None:
         return user_zonefile    # will be an error message
 
@@ -1263,7 +1273,8 @@ def data_get(blockstack_url, proxy=None, wallet_keys=None, **kw):
     return ret
 
 
-def data_put(blockstack_url, data, proxy=None, wallet_keys=None, data_privkey=None, **kw):
+def data_put(blockstack_url, data, proxy=None,
+             wallet_keys=None, data_privkey=None, **kw):
     """
     Put data to a blockstack URL (be it mutable or immutable).
     @data_privkey is required for app-specific data.
@@ -1383,8 +1394,8 @@ def set_data_pubkey(name, data_pubkey, proxy=None, wallet_keys=None, txid=None):
     legacy = False
     proxy = get_default_proxy() if proxy is None else proxy
 
-    user_profile, user_zonefile, legacy = (
-        get_and_migrate_profile(name, create_if_absent=True, proxy=proxy, wallet_keys=wallet_keys)
+    user_profile, user_zonefile, legacy = get_and_migrate_profile(
+        name, create_if_absent=True, proxy=proxy, wallet_keys=wallet_keys
     )
 
     if 'error' in user_profile:
@@ -1419,8 +1430,9 @@ def set_data_pubkey(name, data_pubkey, proxy=None, wallet_keys=None, txid=None):
         user_zonefile_txt = blockstack_zones.make_zone_file(user_zonefile)
 
         update_result = async_update(
-            name, user_zonefile_txt, None, owner_privkey_info, payment_privkey_info,
-            config_path=proxy.conf['path'], proxy=proxy, queue_path=proxy.conf['queue_path']
+            name, user_zonefile_txt, None, owner_privkey_info,
+            payment_privkey_info, config_path=proxy.conf['path'],
+            proxy=proxy, queue_path=proxy.conf['queue_path']
         )
 
         if 'error' in update_result:
