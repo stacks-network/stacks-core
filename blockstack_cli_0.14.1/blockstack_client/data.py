@@ -273,12 +273,15 @@ def list_update_history(name, current_block=None, proxy=None):
     proxy = get_default_proxy() if proxy is None else proxy
 
     if current_block is None:
-        info = proxy.getinfo()
-        if 'last_block_processed' in info:
-            current_block = int(info['last_block_processed']) + 1
-        elif 'last_block' in info:
-            current_block = int(info['last_block']) + 1
-        else:
+        try:
+            info = proxy.getinfo()
+            if 'last_block_processed' in info:
+                current_block = int(info['last_block_processed']) + 1
+            elif 'last_block' in info:
+                current_block = int(info['last_block']) + 1
+            else:
+                raise Exception('Invalid getinfo reply')
+        except Exception as e:
             log.error('Invalid getinfo reply')
             return None
 
