@@ -176,7 +176,7 @@ def make_wallet(password, hex_privkey=None, payment_privkey_info=None,
     Return {'error': ...} on failure
     """
 
-    def get_privkey_info(multisig):
+    def make_privkey_info(multisig):
         if multisig:
             return virtualchain.make_multisig_wallet(2, 3)
 
@@ -202,7 +202,7 @@ def make_wallet(password, hex_privkey=None, payment_privkey_info=None,
 
     # default to 2-of-3 multisig key info if data isn't given
     if payment_privkey_info is None:
-        payment_privkey_info = get_privkey_info(multisig)
+        payment_privkey_info = make_privkey_info(multisig)
 
     if not is_singlesig(payment_privkey_info) and not is_multisig(payment_privkey_info):
         return {
@@ -216,7 +216,7 @@ def make_wallet(password, hex_privkey=None, payment_privkey_info=None,
         return {'error': 'Multisig payment private key info is not supported'}
 
     if owner_privkey_info is None:
-        owner_privkey_info = get_privkey_info(multisig)
+        owner_privkey_info = make_privkey_info(multisig)
 
     if not is_singlesig(owner_privkey_info) and not is_multisig(owner_privkey_info):
         return {
