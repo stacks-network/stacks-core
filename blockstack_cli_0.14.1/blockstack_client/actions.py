@@ -1051,17 +1051,22 @@ def cli_register(args, config_path=CONFIG_PATH,
     except:
         return {'error': 'Error talking to server, try again.'}
 
+    total_estimated_cost = {'total_estimated_cost': fees['total_estimated_cost']}
+
     if 'success' in resp and resp['success']:
         result = resp
-    else:
-        if 'error' in resp:
-            log.debug('RPC error: {}'.format(resp['error']))
-            return resp
+        analytics_event('Register name', total_estimated_cost)
+        return result
 
-        if 'message' in resp:
-            return {'error': resp['message']}
+    if 'error' in resp:
+        log.debug('RPC error: {}'.format(resp['error']))
+        return resp
 
-    analytics_event('Register name', {'total_estimated_cost': fees['total_estimated_cost']})
+    if 'message' in resp:
+        return {'error': resp['message']}
+
+    analytics_event('Register name', total_estimated_cost)
+
     return result
 
 
@@ -1330,6 +1335,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
         return {'error': resp['message']}
 
     analytics_event('Update name', {})
+
     return result
 
 
@@ -1386,14 +1392,17 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None):
 
     if 'success' in resp and resp['success']:
         result = resp
-    else:
-        if 'error' in resp:
-            return resp
+        analytics_event('Transfer name', {})
+        return result
 
-        if 'message' in resp:
-            return {'error': resp['message']}
+    if 'error' in resp:
+        return resp
+
+    if 'message' in resp:
+        return {'error': resp['message']}
 
     analytics_event('Transfer name', {})
+
     return result
 
 
@@ -1520,6 +1529,7 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
         return {'error': resp['message']}
 
     analytics_event('Renew name', total_estimated_cost)
+
     return result
 
 
@@ -1603,6 +1613,7 @@ def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, p
         return {'error': resp['message']}
 
     analytics_event('Revoke name', {})
+
     return result
 
 
@@ -1716,6 +1727,7 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
         return {'error': resp['message']}
 
     analytics_event('Migrate name', {})
+
     return result
 
 
@@ -2635,6 +2647,7 @@ def cli_advanced_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None)
         return {'error': resp['message']}
 
     analytics_event('Set zonefile hash', {})
+
     return result
 
 
