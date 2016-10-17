@@ -469,7 +469,7 @@ def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
     """
     command: price
     help: Get the price of a name
-    arg: name (str) "Name to query"
+    arg: name (str) 'Name to query'
     """
 
     proxy = get_default_proxy() if proxy is None else proxy
@@ -763,7 +763,7 @@ def cli_lookup(args, config_path=CONFIG_PATH):
     """
     command: lookup
     help: Get the zone file and profile for a particular name
-    arg: name (str) "The name to look up"
+    arg: name (str) 'The name to look up'
     """
     data = {}
 
@@ -813,7 +813,7 @@ def cli_whois(args, config_path=CONFIG_PATH):
     """
     command: whois
     help: Look up the blockchain info for a name
-    arg: name (str) "The name to look up"
+    arg: name (str) 'The name to look up'
     """
     result = {}
 
@@ -963,7 +963,7 @@ def cli_register(args, config_path=CONFIG_PATH,
     """
     command: register norpc
     help: Register a name
-    arg: name (str) "The name to register"
+    arg: name (str) 'The name to register'
     """
 
     proxy = get_default_proxy(config_path) if proxy is None else proxy
@@ -1205,8 +1205,8 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     """
     command: update norpc
     help: Set the zone file for a name
-    arg: name (str) "The name to update"
-    opt: data (str) "A zone file string, or a path to a file with the data."
+    arg: name (str) 'The name to update'
+    opt: data (str) 'A zone file string, or a path to a file with the data.'
     """
 
     if not interactive and getattr(args, 'data', None) is None:
@@ -1343,8 +1343,8 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None):
     """
     command: transfer norpc
     help: Transfer a name to a new address
-    arg: name (str) "The name to transfer"
-    arg: address (str) "The address to receive the name"
+    arg: name (str) 'The name to transfer'
+    arg: address (str) 'The address to receive the name'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -1410,7 +1410,7 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
     """
     command: renew norpc
     help: Renew a name
-    arg: name (str) "The name to renew"
+    arg: name (str) 'The name to renew'
     """
 
     if proxy is None:
@@ -1537,7 +1537,7 @@ def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, p
     """
     command: revoke norpc
     help: Revoke a name
-    arg: name (str) "The name to revoke"
+    arg: name (str) 'The name to revoke'
     """
 
     if proxy is None:
@@ -1622,8 +1622,8 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     """
     command: migrate norpc
     help: Migrate a profile to the latest profile format
-    arg: name (str) "The name to migrate"
-    opt: txid (str) "The transaction ID of a previously-sent but failed migration"
+    arg: name (str) 'The name to migrate'
+    opt: txid (str) 'The transaction ID of a previously-sent but failed migration'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -1735,7 +1735,7 @@ def cli_set_advanced_mode(args, config_path=CONFIG_PATH):
     """
     command: set_advanced_mode norpc
     help: Enable advanced commands
-    arg: status (str) "On or Off."
+    arg: status (str) 'On or Off.'
     """
 
     status = str(args.status).lower()
@@ -1751,9 +1751,9 @@ def cli_advanced_import_wallet(args, config_path=CONFIG_PATH, password=None, for
     """
     command: import_wallet norpc
     help: Set the payment, owner, and (optionally) data private keys for the wallet.
-    arg: payment_privkey (str) "Payment private key"
-    arg: owner_privkey (str) "Name owner private key"
-    opt: data_privkey (str) "Data-signing private key"
+    arg: payment_privkey (str) 'Payment private key'
+    arg: owner_privkey (str) 'Name owner private key'
+    opt: data_privkey (str) 'Data-signing private key'
     """
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
@@ -1825,7 +1825,7 @@ def cli_advanced_list_accounts(args, proxy=None, config_path=CONFIG_PATH, passwo
     """
     command: list_accounts
     help: List the set of accounts associated with a name.
-    arg: name (str) "The name to query."
+    arg: name (str) 'The name to query.'
     """
 
     result = {}
@@ -1857,9 +1857,9 @@ def cli_advanced_get_account(args, proxy=None,
     """
     command: get_account
     help: Get a particular account from a name.
-    arg: name (str) "The name to query."
-    arg: service (str) "The service for which this account was created."
-    arg: identifier (str) "The name of the account."
+    arg: name (str) 'The name to query.'
+    arg: service (str) 'The service for which this account was created.'
+    arg: identifier (str) 'The name of the account.'
     """
 
     result = {}
@@ -1898,11 +1898,11 @@ def cli_advanced_put_account(args, proxy=None, config_path=CONFIG_PATH,
     """
     command: put_account norpc
     help: Set a particular account's details.  If the account already exists, it will be overwritten.
-    arg: name (str) "The name to query."
-    arg: service (str) "The service this account is for."
-    arg: identifier (str) "The name of the account."
-    arg: content_url (str) "The URL that points to external contact data."
-    opt: extra_data (str) "A comma-separated list of 'name1=value1,name2=value2,name3=value3...' with any extra account information you need in the account."
+    arg: name (str) 'The name to query.'
+    arg: service (str) 'The service this account is for.'
+    arg: identifier (str) 'The name of the account.'
+    arg: content_url (str) 'The URL that points to external contact data.'
+    opt: extra_data (str) 'A comma-separated list of "name1=value1,name2=value2..." with any extra account information you need in the account.'
     """
 
     result = {}
@@ -1960,9 +1960,9 @@ def cli_advanced_delete_account(args, proxy=None, config_path=CONFIG_PATH, passw
     """
     command: delete_account norpc
     help: Delete a particular account.
-    arg: name (str) "The name to query."
-    arg: service (str) "The service the account is for."
-    arg: identifier (str) "The identifier of the account to delete."
+    arg: name (str) 'The name to query.'
+    arg: service (str) 'The service the account is for.'
+    arg: identifier (str) 'The identifier of the account to delete.'
     """
 
     result = {}
@@ -2042,7 +2042,7 @@ def cli_advanced_consensus(args, config_path=CONFIG_PATH):
     """
     command: consensus
     help: Get current consensus information
-    opt: block_height (int) "The block height at which to query the consensus information.  If not given, the current height is used."
+    opt: block_height (int) 'The block height at which to query the consensus information.  If not given, the current height is used.'
     """
     result = {}
     if args.block_height is None:
@@ -2072,7 +2072,7 @@ def cli_advanced_rpcctl(args, config_path=CONFIG_PATH):
     """
     command: rpcctl norpc
     help: Control the background blockstack API endpoint
-    arg: command (str) "'start', 'stop', 'restart', or 'status'"
+    arg: command (str) '"start", "stop", "restart", or "status"'
     """
 
     config_dir = config.CONFIG_DIR
@@ -2090,9 +2090,9 @@ def cli_advanced_rpc(args, config_path=CONFIG_PATH):
     """
     command: rpc norpc
     help: Issue an RPC request to a locally-running API endpoint
-    arg: method (str) "The method to call"
-    opt: args (str) "A JSON list of positional arguments."
-    opt: kwargs (str) "A JSON object of keyword arguments."
+    arg: method (str) 'The method to call'
+    opt: args (str) 'A JSON list of positional arguments.'
+    opt: kwargs (str) 'A JSON object of keyword arguments.'
     """
 
     rpc_args = []
@@ -2124,10 +2124,10 @@ def cli_advanced_name_import(args, config_path=CONFIG_PATH):
     """
     command: name_import norpc
     help: Import a name to a revealed but not-yet-readied namespace
-    arg: name (str) "The name to import"
-    arg: address (str) "The address of the name recipient"
-    arg: hash (str) "The zonefile hash of the name"
-    arg: privatekey (str) "One of the private keys of the namespace revealer"
+    arg: name (str) 'The name to import'
+    arg: address (str) 'The address of the name recipient'
+    arg: hash (str) 'The zonefile hash of the name'
+    arg: privatekey (str) 'One of the private keys of the namespace revealer'
     """
     # BROKEN
     result = name_import(
@@ -2142,9 +2142,9 @@ def cli_advanced_namespace_preorder(args, config_path=CONFIG_PATH):
     """
     command: namespace_preorder norpc
     help: Preorder a namespace
-    arg: namespace_id (str) "The namesapce ID"
-    arg: privatekey (str) "The private key to send and pay for the preorder"
-    opt: reveal_addr (str) "The address of the keypair that will import names (automatically generated if not given)"
+    arg: namespace_id (str) 'The namesapce ID'
+    arg: privatekey (str) 'The private key to send and pay for the preorder'
+    opt: reveal_addr (str) 'The address of the keypair that will import names (automatically generated if not given)'
     """
     # BROKEN
     reveal_addr = None
@@ -2164,15 +2164,15 @@ def cli_advanced_namespace_reveal(args, config_path=CONFIG_PATH):
     """
     command: namespace_reveal norpc
     help: Reveal a namespace and set its pricing parameters
-    arg: namespace_id (str) "The namespace ID"
-    arg: addr (str) "The address of the keypair that will import names (given in the namespace preorder)"
-    arg: lifetime (int) "The lifetime (in blocks) for each name.  Negative means 'never expires'."
-    arg: coeff (int) "The multiplicative coefficient in the price function."
-    arg: base (int) "The exponential base in the price function."
-    arg: bucket_exponents (str) "A 16-field CSV of name-length exponents in the price function."
-    arg: nonalpha_discount (int) "The denominator that defines the discount for names with non-alpha characters."
-    arg: no_vowel_discount (int) "The denominator that defines the discount for names without vowels."
-    arg: privatekey (str) "The private key of the import keypair (whose address is `addr` above)."
+    arg: namespace_id (str) 'The namespace ID'
+    arg: addr (str) 'The address of the keypair that will import names (given in the namespace preorder)'
+    arg: lifetime (int) 'The lifetime (in blocks) for each name.  Negative means "never expires".'
+    arg: coeff (int) 'The multiplicative coefficient in the price function.'
+    arg: base (int) 'The exponential base in the price function.'
+    arg: bucket_exponents (str) 'A 16-field CSV of name-length exponents in the price function.'
+    arg: nonalpha_discount (int) 'The denominator that defines the discount for names with non-alpha characters.'
+    arg: no_vowel_discount (int) 'The denominator that defines the discount for names without vowels.'
+    arg: privatekey (str) 'The private key of the import keypair (whose address is `addr` above).'
     """
     # BROKEN
     bucket_exponents = args.bucket_exponents.split(',')
@@ -2212,8 +2212,8 @@ def cli_advanced_namespace_ready(args, config_path=CONFIG_PATH):
     """
     command: namespace_ready norpc
     help: Mark a namespace as ready
-    arg: namespace_id (str) "The namespace ID"
-    arg: privatekey (str) "The private key of the keypair that imports names"
+    arg: namespace_id (str) 'The namespace ID'
+    arg: privatekey (str) 'The private key of the keypair that imports names'
     """
     # BROKEN
     result = namespace_ready(
@@ -2228,9 +2228,9 @@ def cli_advanced_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy
     """
     command: put_mutable norpc
     help: Put mutable data into a profile
-    arg: name (str) "The name to receive the data"
-    arg: data_id (str) "The name of the data"
-    arg: data (str) "The JSON-formatted data to store"
+    arg: name (str) 'The name to receive the data'
+    arg: data_id (str) 'The name of the data'
+    arg: data (str) 'The JSON-formatted data to store'
     """
     fqu = str(args.name)
     error = check_valid_name(fqu)
@@ -2266,9 +2266,9 @@ def cli_advanced_put_immutable(args, config_path=CONFIG_PATH,
     """
     command: put_immutable norpc
     help: Put immutable data into a zonefile
-    arg: name (str) "The name to receive the data"
-    arg: data_id (str) "The name of the data"
-    arg: data (str) "The JSON-formatted data to store"
+    arg: name (str) 'The name to receive the data'
+    arg: data_id (str) 'The name of the data'
+    arg: data (str) 'The JSON-formatted data to store'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -2317,8 +2317,8 @@ def cli_advanced_get_mutable(args, config_path=CONFIG_PATH, proxy=None):
     """
     command: get_mutable
     help: Get mutable data from a profile
-    arg: name (str) "The name that has the data"
-    arg: data_id (str) "The name of the data"
+    arg: name (str) 'The name that has the data'
+    arg: data_id (str) 'The name of the data'
     """
     conf = config.get_config(config_path)
     proxy = get_default_proxy() if proxy is None else proxy
@@ -2331,8 +2331,8 @@ def cli_advanced_get_immutable(args, config_path=CONFIG_PATH, proxy=None):
     """
     command: get_immutable
     help: Get immutable data from a zonefile
-    arg: name (str) "The name that has the data"
-    arg: data_id_or_hash (str) "Either the name or the SHA256 of the data to obtain"
+    arg: name (str) 'The name that has the data'
+    arg: data_id_or_hash (str) 'Either the name or the SHA256 of the data to obtain'
     """
     proxy = get_default_proxy() if proxy is None else proxy
 
@@ -2344,7 +2344,7 @@ def cli_advanced_list_update_history(args, config_path=CONFIG_PATH):
     """
     command: list_update_history
     help: List the history of update hashes for a name
-    arg: name (str) "The name whose data to list"
+    arg: name (str) 'The name whose data to list'
     """
     result = list_update_history(str(args.name))
     return result
@@ -2354,7 +2354,7 @@ def cli_advanced_list_zonefile_history(args, config_path=CONFIG_PATH):
     """
     command: list_zonefile_history
     help: List the history of zonefiles for a name (if they can be obtained)
-    arg: name (str) "The name whose zonefiles to list"
+    arg: name (str) 'The name whose zonefiles to list'
     """
     result = list_zonefile_history(str(args.name))
     return result
@@ -2364,8 +2364,8 @@ def cli_advanced_list_immutable_data_history(args, config_path=CONFIG_PATH):
     """
     command: list_immutable_data_history
     help: List all prior hashes of a given immutable datum
-    arg: name (str) "The name whose data to list"
-    arg: data_id (str) "The data identifier whose history to list"
+    arg: name (str) 'The name whose data to list'
+    arg: data_id (str) 'The data identifier whose history to list'
     """
     result = list_immutable_data_history(str(args.name), str(args.data_id))
     return result
@@ -2375,8 +2375,8 @@ def cli_advanced_delete_immutable(args, config_path=CONFIG_PATH, proxy=None, pas
     """
     command: delete_immutable norpc
     help: Delete an immutable datum from a zonefile.
-    arg: name (str) "The name that owns the data"
-    arg: hash (str) "The SHA256 of the data to remove"
+    arg: name (str) 'The name that owns the data'
+    arg: hash (str) 'The SHA256 of the data to remove'
     """
 
     config_dir = os.path.dirname(config_path)
@@ -2423,8 +2423,8 @@ def cli_advanced_delete_mutable(args, config_path=CONFIG_PATH):
     """
     command: delete_mutable norpc
     help: Delete a mutable datum from a profile.
-    arg: name (str) "The name that owns the data"
-    arg: data_id (str) "The ID of the data to remove"
+    arg: name (str) 'The name that owns the data'
+    arg: data_id (str) 'The ID of the data to remove'
     """
     result = delete_mutable(str(args.name), str(args.data_id))
     return result
@@ -2434,7 +2434,7 @@ def cli_advanced_get_name_blockchain_record(args, config_path=CONFIG_PATH):
     """
     command: get_name_blockchain_record
     help: Get the raw blockchain record for a name
-    arg: name (str) "The name to list"
+    arg: name (str) 'The name to list'
     """
     result = get_name_blockchain_record(str(args.name))
     return result
@@ -2444,9 +2444,9 @@ def cli_advanced_get_name_blockchain_history(args, config_path=CONFIG_PATH):
     """
     command: get_name_blockchain_history
     help: Get a sequence of historic blockchain records for a name
-    arg: name (str) "The name to query"
-    opt: start_block (int) "The start block height"
-    opt: end_block (int) "The end block height"
+    arg: name (str) 'The name to query'
+    opt: start_block (int) 'The start block height'
+    opt: end_block (int) 'The end block height'
     """
     start_block = args.start_block
     if start_block is None:
@@ -2471,7 +2471,7 @@ def cli_advanced_get_namespace_blockchain_record(args, config_path=CONFIG_PATH):
     """
     command: get_namespace_blockchain_record
     help: Get the raw namespace blockchain record for a name
-    arg: namespace_id (str) "The namespace ID to list"
+    arg: namespace_id (str) 'The namespace ID to list'
     """
     result = get_namespace_blockchain_record(str(args.namespace_id))
     return result
@@ -2481,9 +2481,9 @@ def cli_advanced_lookup_snv(args, config_path=CONFIG_PATH):
     """
     command: lookup_snv
     help: Use SNV to look up a name at a particular block height
-    arg: name (str) "The name to query"
-    arg: block_id (int) "The block height at which to query the name"
-    arg: trust_anchor (str) "The trusted consensus hash, transaction ID, or serial number from a higher block height than `block_id`"
+    arg: name (str) 'The name to query'
+    arg: block_id (int) 'The block height at which to query the name'
+    arg: trust_anchor (str) 'The trusted consensus hash, transaction ID, or serial number from a higher block height than `block_id`'
     """
     result = lookup_snv(
         str(args.name),
@@ -2498,7 +2498,7 @@ def cli_advanced_get_name_zonefile(args, config_path=CONFIG_PATH):
     """
     command: get_name_zonefile
     help: Get a name's zonefile, as a JSON dict
-    arg: name (str) "The name to query"
+    arg: name (str) 'The name to query'
     """
     result = get_name_zonefile(str(args.name), raw_zonefile=True)
     if result is None:
@@ -2526,7 +2526,7 @@ def cli_advanced_get_names_owned_by_address(args, config_path=CONFIG_PATH):
     """
     command: get_names_owned_by_address
     help: Get the list of names owned by an address
-    arg: address (str) "The address to query"
+    arg: address (str) 'The address to query'
     """
     result = get_names_owned_by_address(str(args.address))
     return result
@@ -2536,7 +2536,7 @@ def cli_advanced_get_namespace_cost(args, config_path=CONFIG_PATH):
     """
     command: get_namespace_cost
     help: Get the cost of a namespace
-    arg: namespace_id (str) "The namespace ID to query"
+    arg: namespace_id (str) 'The namespace ID to query'
     """
     result = get_namespace_cost(str(args.namespace_id))
     return result
@@ -2553,8 +2553,8 @@ def cli_advanced_get_all_names(args, config_path=CONFIG_PATH):
     """
     command: get_all_names norpc
     help: Get all names in existence, optionally paginating through them
-    opt: offset (int) "The offset into the sorted list of names"
-    opt: count (int) "The number of names to return"
+    opt: offset (int) 'The offset into the sorted list of names'
+    opt: count (int) 'The number of names to return'
     """
     offset, count = get_offset_count(args.offset, args.count)
 
@@ -2567,9 +2567,9 @@ def cli_advanced_get_names_in_namespace(args, config_path=CONFIG_PATH):
     """
     command: get_names_in_namespace norpc
     help: Get the names in a given namespace, optionally paginating through them
-    arg: namespace_id (str) "The ID of the namespace to query"
-    opt: offset (int) "The offset into the sorted list of names"
-    opt: count (int) "The number of names to return"
+    arg: namespace_id (str) 'The ID of the namespace to query'
+    opt: offset (int) 'The offset into the sorted list of names'
+    opt: count (int) 'The number of names to return'
     """
     offset, count = get_offset_count(args.offset, args.count)
 
@@ -2581,7 +2581,7 @@ def cli_advanced_get_records_at(args, config_path=CONFIG_PATH):
     """
     command: get_records_at
     help: Get the list of name operations that occurred at a given block number
-    arg: block_id (int) "The block height to query"
+    arg: block_id (int) 'The block height to query'
     """
     result = get_records_at(int(args.block_id))
     return result
@@ -2591,8 +2591,8 @@ def cli_advanced_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None)
     """
     command: set_zonefile_hash norpc
     help: Directly set the hash associated with the name in the blockchain.
-    arg: name (str) "The name to update"
-    arg: zonefile_hash (str) "The RIPEMD160(SHA256(zonefile)) hash"
+    arg: name (str) 'The name to update'
+    arg: zonefile_hash (str) 'The RIPEMD160(SHA256(zonefile)) hash'
     """
     config_dir = os.path.dirname(config_path)
     res = wallet_ensure_exists(config_dir, password=password)
@@ -2655,9 +2655,9 @@ def cli_advanced_unqueue(args, config_path=CONFIG_PATH, password=None):
     """
     command: unqueue norpc
     help: Remove a stuck transaction from the queue.
-    arg: name (str) "The affected name"
-    arg: queue_id (str) "The type of queue ('preorder', 'register', 'update', etc.)."
-    arg: txid (str) "The transaction ID"
+    arg: name (str) 'The affected name'
+    arg: queue_id (str) 'The type of queue ("preorder", "register", "update", etc)'
+    arg: txid (str) 'The transaction ID'
     """
     conf = config.get_config(config_path)
     queue_path = conf['queue_path']
@@ -2678,8 +2678,8 @@ def cli_advanced_set_profile(args, config_path=CONFIG_PATH, password=None, proxy
     """
     command: set_profile norpc
     help: Directly set a profile's JSON.
-    arg: name (str) "The name to set the profile for"
-    arg: data (str) "The profile as a JSON string, or a path to the profile."
+    arg: name (str) 'The name to set the profile for'
+    arg: data (str) 'The profile as a JSON string, or a path to the profile.'
     """
 
     conf = config.get_config(config_path)
@@ -2739,9 +2739,9 @@ def cli_advanced_sync_zonefile(args, config_path=CONFIG_PATH, proxy=None, intera
     """
     command: sync_zonefile
     help: Upload the current zone file to all storage providers.
-    arg: name (str) "Name of the zone file to synchronize."
-    opt: txid (str) "NAME_UPDATE transaction ID that set the zone file."
-    opt: zonefile (str) "The zone file (JSON or text), if unavailable from other sources."
+    arg: name (str) 'Name of the zone file to synchronize.'
+    opt: txid (str) 'NAME_UPDATE transaction ID that set the zone file.'
+    opt: zonefile (str) 'The zone file (JSON or text), if unavailable from other sources.'
     """
 
     # TODO: raw zonefile
@@ -2886,7 +2886,7 @@ def cli_advanced_convert_legacy_profile(args, config_path=CONFIG_PATH):
     """
     command: convert_legacy_profile norpc
     help: Convert a legacy profile into a modern profile.
-    arg: path (str) "Path on disk to the JSON file that contains the legacy profile data from Onename"
+    arg: path (str) 'Path on disk to the JSON file that contains the legacy profile data from Onename'
     """
 
     profile_json_str, profile = None, None
@@ -2913,13 +2913,13 @@ def cli_advanced_app_register(args, config_path=CONFIG_PATH, password=None, prox
     """
     command: app_register norpc
     help: Register a new application with your profile.
-    arg: name (str) "The name to link the app to"
-    arg: app_name (str) "The name of the application"
-    arg: app_account_id (str) "The name of the application account"
-    arg: app_url (str) "The URL to the application"
-    opt: storage_drivers (str) "A CSV of storage drivers to host this app's data"
-    opt: app_password (str) "The application-specific wallet password"
-    opt: app_fields (str) "A CSV of application-specific key/value pairs"
+    arg: name (str) 'The name to link the app to'
+    arg: app_name (str) 'The name of the application'
+    arg: app_account_id (str) 'The name of the application account'
+    arg: app_url (str) 'The URL to the application'
+    opt: storage_drivers (str) 'A CSV of storage drivers to host data of this app'
+    opt: app_password (str) 'The application-specific wallet password'
+    opt: app_fields (str) 'A CSV of application-specific key/value pairs'
     """
 
     if proxy is None:
@@ -3000,9 +3000,9 @@ def cli_advanced_app_unregister(args, config_path=CONFIG_PATH, password=None, in
     """
     command: app_unregister norpc
     help: Unregister an application from a profile
-    arg: name (str) "The name that owns the app account"
-    arg: app_name (str) "The name of the application"
-    arg: app_account_id (str) "The name of the application account"
+    arg: name (str) 'The name that owns the app account'
+    arg: app_name (str) 'The name of the application'
+    arg: app_account_id (str) 'The name of the application account'
     """
 
     name = args.name
@@ -3051,10 +3051,10 @@ def cli_advanced_app_get_wallet(args, config_path=CONFIG_PATH, interactive=True)
     """
     command: app_get_wallet
     help: Get an application account wallet
-    arg: name (str) "The name that owns the app account"
-    arg: app_name (str) "The name of the application"
-    arg: app_account_id (str) "The name of the application account"
-    opt: app_password (str) "The app wallet password"
+    arg: name (str) 'The name that owns the app account'
+    arg: app_name (str) 'The name of the application'
+    arg: app_account_id (str) 'The name of the application account'
+    opt: app_password (str) 'The app wallet password'
     """
 
     fqu = str(args.name)

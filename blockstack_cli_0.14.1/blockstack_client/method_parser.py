@@ -64,7 +64,8 @@ def parse_methods(method_list):
     command_pattern = re.compile('^command:[ \t]+([^ \t]+)[ ]*(.*)[ ]*$')
     help_pattern = re.compile('^help:[ \t]+(.+)$')
 
-    arg_opt_pattern = '^{}[ \t]+([^ \t]+)[ \t]+\((.+)\)[ \t]+"([^"]+)"$'
+    # NOTE: pattern must be defined using double-quotes
+    arg_opt_pattern = "^{}[ \t]+([^ \t]+)[ \t]+\((.+)\)[ \t]+'([^']+)'$"
     arg_pattern = re.compile(arg_opt_pattern.format('arg:'))
     opt_pattern = re.compile(arg_opt_pattern.format('opt:'))
 
