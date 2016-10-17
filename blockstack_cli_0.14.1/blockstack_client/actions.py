@@ -43,6 +43,8 @@ will be set to indicate an error condition.
 If you want to add a new command-line action, implement it here.  This
 will make it available not only via the command-line, but also via the
 local RPC interface and the test suite.
+
+Use the _cli_skel method below a template to create new functions.
 """
 
 import sys
@@ -125,6 +127,54 @@ from .user import user_zonefile_urls, user_zonefile_data_pubkey, make_empty_user
 from .utils import exit_with_error, satoshis_to_btc
 
 log = config.get_logger()
+
+
+"""
+The _cli_skel method is provided as a template for developers of
+cli_ methods.
+
+NOTE: extra cli arguments may be included in function params
+
+NOTE: $NAME_OF_COMMAND must not have embedded whitespaces.
+
+NOTE: As a security precaution, a cli_ function is not accessible
+NOTE: via RPC by default. It has to be enabled explicitly. See below.
+
+NOTE: If the "rpc" pragma is present, then the method will be
+NOTE: accessible via the RPC interface of the background process
+
+NOTE: Help string in arg and opt must be enclosed in single quotes.
+
+The entire docstr must strictly adhere to this convention:
+    command: $NAME_OF_COMMAND [rpc]
+    help: $HELP_STRING
+    arg: $ARG_NAME ($ARG_TYPE) '$ARG_HELP'
+    arg: $ARG_NAME ($ARG_TYPE) '$ARG_HELP'
+    opt: $OPT_ARG_NAME ($OPT_ARG_TYPE) '$OPT_ARG_HELP'
+    opt: $OPT_ARG_NAME ($OPT_ARG_TYPE) '$OPT_ARG_HELP'
+"""
+
+
+def _cli_skel(args, config_path=CONFIG_PATH):
+    """
+    command: skel
+    help: Skeleton cli function - developer template
+    arg: foo (str) 'A required argument - foo'
+    opt: bar (int) 'An optional argument - bar'
+    """
+
+    result = {}
+
+    # update result as needed
+
+    if 'error' in result:
+        # ensure meaningful error message
+        result['error'] = 'Error generating skel'
+        return result
+
+    # continue processing the result
+
+    return result
 
 
 def check_valid_name(fqu):
