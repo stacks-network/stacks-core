@@ -44,7 +44,7 @@ from method_parser import parse_methods
 
 log = blockstack_config.get_logger()
 
-from SimpleXMLRPCServer import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler 
+from SimpleXMLRPCServer import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
 
 running = False
 
@@ -78,13 +78,13 @@ def load_rpc_cli_method_info(blockstack_client_mod):
         # load methods
         basic_methods = blockstack_client_mod.get_cli_basic_methods()
         basic_method_info = parse_methods( basic_methods )
-    
+
         advanced_methods = blockstack_client_mod.get_cli_advanced_methods()
         advanced_method_info = parse_methods( advanced_methods )
 
         all_methods = basic_method_info + advanced_method_info
 
-        # map method names to info 
+        # map method names to info
         RPC_CLI_METHOD_INFO = {}
         for method_info in all_methods:
             RPC_CLI_METHOD_INFO[method_info['command']] = method_info
@@ -132,7 +132,7 @@ def list_rpc_cli_method_info():
 
 def run_cli_rpc( command_name, argv, config_path=blockstack_config.CONFIG_PATH ):
     """
-    Invoke a CLI method via RPC.  Note that @command_name 
+    Invoke a CLI method via RPC.  Note that @command_name
     is the name of the *command*, not the method.
 
     Return the result of the command on success (as a dict).
@@ -147,7 +147,7 @@ def run_cli_rpc( command_name, argv, config_path=blockstack_config.CONFIG_PATH )
 
     if len(argv) > len(command_info['args']) + len(command_info['opts']):
         return {'error': 'Invalid number of arguments (need at most %s, got %s)' % (len(command_info['args']) + len(command_info['opts']), len(argv))}
-    
+
     if len(argv) < len(command_info['args']):
         return {'error': 'Invalid number of arguments (need at least %s)' % len(command_info['args'])}
 
@@ -156,7 +156,7 @@ def run_cli_rpc( command_name, argv, config_path=blockstack_config.CONFIG_PATH )
 
     arg_infos = command_info['args'] + command_info['opts']
     args = CLIRPCArgs()
-    
+
     for i in xrange(0, len(argv)):
         arg_info = arg_infos[i]
         arg = argv[i]
@@ -184,7 +184,7 @@ def local_rpc_factory( method_info, config_path ):
     """
     def argwrapper( *args, **kw ):
         result = run_cli_rpc( method_info['command'], list(args), config_path=config_path )
-        return result 
+        return result
 
     argwrapper.__doc__ = method_info['method'].__doc__
     argwrapper.__name__ = method_info['method'].__name__
@@ -204,7 +204,7 @@ class BlockstackAPIEndpointHandler(SimpleXMLRPCRequestHandler):
         if not self.server.funcs.has_key(method):
             return json.dumps({'error': 'No such method'})
 
-        try: 
+        try:
             res = self.server.funcs[str(method)](*params)
 
             # lol jsonrpc within xmlrpc
@@ -251,8 +251,8 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
         and for the exteranl API (for RPC callers).
         Optionally skip the external API (with @server)
         """
-      
-        # pinger 
+
+        # pinger
         self.register_function( ping, name="ping", server=server )
 
         # register the command-line methods (will all start with cli_)
@@ -261,7 +261,7 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
 
             method_name = "cli_%s" % method_info['command']
             method = method_info['method']
-            
+
             # skip norpc methods
             if 'norpc' in method_info['pragmas']:
                 log.debug("Skipping 'norpc' method '%s'" % method.__name__)
@@ -270,8 +270,8 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
             log.debug("Register CLI method '%s' as '%s'" % (method.__name__, method_name))
 
             self.register_function( local_rpc_factory( method_info, config_path ), name=method_name, server=server )
-    
-        # register all plugin methods 
+
+        # register all plugin methods
         for plugin_or_plugin_name in plugins:
 
             if type(plugin_or_plugin_name) in [str, unicode]:
@@ -321,14 +321,16 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
             self.plugin_mods.append( mod_plugin )
             self.plugin_destructors.append( plugin_shutdown )
 
-            # initialize plugin 
+            # initialize plugin
             plugin_init(config_path=config_path)
 
         return True
 
 
-    def __init__(self, host='localhost', port=blockstack_config.DEFAULT_API_PORT, plugins=[], handler=BlockstackAPIEndpointHandler, config_path=blockstack_config.CONFIG_PATH, timeout=30, server=True ):
-        
+    def __init__(self, host='localhost', port=blockstack_config.DEFAULT_API_PORT, plugins=None, handler=BlockstackAPIEndpointHandler, config_path=blockstack_config.CONFIG_PATH, timeout=30, server=True ):
+
+        plugins = [] if plugins is None else plugins
+
         if server:
             SimpleXMLRPCServer.__init__( self, (host,port), handler, allow_none=True )
 
@@ -340,7 +342,7 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
         self.config_path = config_path
         self.internal_proxy = RPCInternalProxy()
 
-        self.register_api_functions( config_path, plugins, server=server ) 
+        self.register_api_functions( config_path, plugins, server=server )
 
         if server:
             self.register_introspection_functions()
@@ -357,7 +359,7 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
             pd(config_path=self.config_path)
 
         self.plugin_destructors = []
-       
+
 
 class BlockstackAPIEndpointClient(proxy.BlockstackRPCClient):
     pass
@@ -367,7 +369,7 @@ def get_default_plugins():
     return [backend]
 
 
-def make_local_rpc_server( portnum, config_path=blockstack_config.CONFIG_PATH, plugins=[] ):
+def make_local_rpc_server( portnum, config_path=blockstack_config.CONFIG_PATH, plugins=None ):
     """
     Make a local RPC server instance.
     It will be derived from BaseHTTPServer.HTTPServer.
@@ -376,7 +378,8 @@ def make_local_rpc_server( portnum, config_path=blockstack_config.CONFIG_PATH, p
 
     Returns the global server instance on success.
     """
-    plugins = get_default_plugins() + plugins 
+    plugins = [] if plugins is None else plugins
+    plugins = get_default_plugins() + plugins
     srv = BlockstackAPIEndpoint( port=portnum, config_path=config_path, plugins=plugins )
     return srv
 
@@ -429,7 +432,7 @@ def local_rpc_connect( config_dir=blockstack_config.CONFIG_DIR, api_port=None ):
     """
 
     config_path = os.path.join( config_dir, blockstack_config.CONFIG_FILENAME )
-    
+
     if is_rpc_server(config_dir=config_dir):
         # this process is an RPC server.
         # route the method directly.
@@ -461,7 +464,7 @@ def local_rpc_action( command, config_dir=blockstack_config.CONFIG_DIR ):
     if command not in ['start', 'start-foreground', 'stop', 'status', 'restart']:
         raise ValueError("Invalid command '%s'" % command)
 
-    config_path = os.path.join(config_dir, blockstack_config.CONFIG_FILENAME) 
+    config_path = os.path.join(config_dir, blockstack_config.CONFIG_FILENAME)
     config = blockstack_config.get_config( config_path )
     if config is None:
         raise Exception("Failed to read config at '%s'" % config_path)
@@ -494,7 +497,7 @@ def local_rpc_dispatch( port, method_name, *args, **kw ):
         return result
     except:
         return {'error': traceback.format_exc()}
-    
+
 
 def local_rpc_pidfile_path(config_dir=blockstack_config.CONFIG_DIR):
     """
@@ -537,7 +540,7 @@ def local_rpc_write_pidfile( pidfile_path ):
         f.flush()
         os.fsync( f.fileno() )
 
-    return 
+    return
 
 
 def local_rpc_unlink_pidfile( pidfile_path ):
@@ -580,7 +583,7 @@ def local_rpc_start( portnum, config_dir=blockstack_config.CONFIG_DIR, foregroun
     Start up an API endpoint
     Return True on success
     Return False on error
-    """ 
+    """
 
     import blockstack_client
     from blockstack_client.wallet import load_wallet, initialize_wallet
@@ -608,7 +611,7 @@ def local_rpc_start( portnum, config_dir=blockstack_config.CONFIG_DIR, foregroun
         return False
 
     wallet = wallet['wallet']
-    
+
     if not foreground:
         log.debug("Running in the background")
 
@@ -646,7 +649,7 @@ def local_rpc_start( portnum, config_dir=blockstack_config.CONFIG_DIR, foregroun
             pid, status = os.waitpid( child_pid, 0 )
             sys.exit(status)
 
-    # load up internal RPC methods 
+    # load up internal RPC methods
     log.debug("Loading RPC methods")
     load_rpc_cli_method_info( blockstack_client )
     load_rpc_internal_methods( config_path )
@@ -654,7 +657,7 @@ def local_rpc_start( portnum, config_dir=blockstack_config.CONFIG_DIR, foregroun
 
     # make server
     try:
-        rpc_srv = make_local_rpc_server( portnum, config_path=config_path ) 
+        rpc_srv = make_local_rpc_server( portnum, config_path=config_path )
     except socket.error, se:
         if os.environ.get("BLOCKSTACK_DEBUG", None) == "1":
             log.exception(se)
@@ -678,7 +681,7 @@ def local_rpc_start( portnum, config_dir=blockstack_config.CONFIG_DIR, foregroun
 
     local_rpc_unlink_pidfile( rpc_pidpath )
     local_rpc_server_stop( rpc_srv )
-     
+
     return True
 
 
@@ -728,11 +731,11 @@ def local_rpc_stop( config_dir=blockstack_config.CONFIG_DIR ):
         os.kill(pid, 0)
     except OSError, oe:
         if oe.errno == errno.ESRCH:
-            # dead 
+            # dead
             local_rpc_unlink_pidfile( pidpath )
             return False
         else:
-            raise 
+            raise
 
     # still running
     time.sleep(3)
@@ -759,7 +762,7 @@ def local_rpc_status( config_dir=blockstack_config.CONFIG_DIR ):
     Return True if the daemon is running.
     Return False if not, or if unknown.
     """
-    # see if it's running 
+    # see if it's running
     pidpath = local_rpc_pidfile_path( config_dir=config_dir )
     if not os.path.exists(pidpath):
         log.debug("No PID file %s" % pidpath)
@@ -783,7 +786,7 @@ def local_rpc_status( config_dir=blockstack_config.CONFIG_DIR ):
 
         else:
             raise
-    
+
     log.debug("RPC running (%s)" % pidpath)
     return True
 
@@ -850,5 +853,3 @@ def start_rpc_endpoint(config_dir=blockstack_config.CONFIG_DIR, password=None):
         return {'error': 'Failed to start RPC endpoint (in working directory %s).\nPlease check your password, and verify that the working directory exists and is writeable.' % config_dir}
 
     return {'status': True}
-
-

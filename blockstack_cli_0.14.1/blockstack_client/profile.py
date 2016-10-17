@@ -461,7 +461,7 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
     return user_profile, user_zonefile
 
 
-def store_name_zonefile_data(name, user_zonefile_txt, txid, storage_drivers=[]):
+def store_name_zonefile_data(name, user_zonefile_txt, txid, storage_drivers=None):
     """
     Store a serialized zonefile to immutable storage providers, synchronously.
     This is only necessary if we've added/changed/removed immutable data.
@@ -469,7 +469,10 @@ def store_name_zonefile_data(name, user_zonefile_txt, txid, storage_drivers=[]):
     Return (True, hash(user zonefile)) on success
     Return (False, None) on failure.
     """
+
+    storage_drivers = [] if storage_drivers is None else storage_drivers
     data_hash = storage.get_zonefile_data_hash(user_zonefile_txt)
+
     result = storage.put_immutable_data(
         None, txid, data_hash=data_hash,
         data_text=user_zonefile_txt, required=storage_drivers
@@ -480,7 +483,7 @@ def store_name_zonefile_data(name, user_zonefile_txt, txid, storage_drivers=[]):
     return rc, data_hash
 
 
-def store_name_zonefile(name, user_zonefile, txid, storage_drivers=[]):
+def store_name_zonefile(name, user_zonefile, txid, storage_drivers=None):
     """
     Store JSON user zonefile data to the immutable storage providers, synchronously.
     This is only necessary if we've added/changed/removed immutable data.
@@ -488,6 +491,8 @@ def store_name_zonefile(name, user_zonefile, txid, storage_drivers=[]):
     Return (True, hash(user zonefile)) on success
     Return (False, None) on failure
     """
+
+    storage_drivers = [] if storage_drivers is None else storage_drivers
 
     assert not blockstack_profiles.is_profile_in_legacy_format(user_zonefile), 'User zonefile is a legacy profile'
     assert user_db.is_user_zonefile(user_zonefile), 'Not a user zonefile (maybe a custom legacy profile?)'

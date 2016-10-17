@@ -123,13 +123,14 @@ def get_storage_handlers():
     return storage_handlers
 
 
-# TODO: Check use of mutable default argument
-def make_mutable_data_urls(data_id, use_only=[]):
+def make_mutable_data_urls(data_id, use_only=None):
     """
     Given a data ID for mutable data, get a list of URLs to it
     by asking the storage handlers.
     """
     global storage_handlers
+
+    use_only = [] if use_only is None else use_only
 
     urls = []
     for handler in storage_handlers:
@@ -535,8 +536,7 @@ def serialize_immutable_data(data_json):
     return json.dumps(data_json, sort_keys=True)
 
 
-# TODO: Check use of mutable default argument
-def put_immutable_data(data_json, txid, data_hash=None, data_text=None, required=[]):
+def put_immutable_data(data_json, txid, data_hash=None, data_text=None, required=None):
     """
     Given a string of data (which can either be data or a zonefile), store it into our immutable data stores.
     Do so in a best-effort manner--this method only fails if *all* storage providers fail.
@@ -546,6 +546,8 @@ def put_immutable_data(data_json, txid, data_hash=None, data_text=None, required
     """
 
     global storage_handlers
+
+    required = [] if required is None else required
 
     data_checks = (
         (data_hash is None and data_text is None and data_json is not None) or
@@ -601,8 +603,7 @@ def put_immutable_data(data_json, txid, data_hash=None, data_text=None, required
     return None if not successes else data_hash
 
 
-# TODO: Check use of mutable default arguments
-def put_mutable_data(fq_data_id, data_json, privatekey, required=[], use_only=[]):
+def put_mutable_data(fq_data_id, data_json, privatekey, required=None, use_only=None):
     """
     Given the unserialized data, store it into our mutable data stores.
     Do so in a best-effort way.  This method only fails if all storage providers fail.
@@ -615,6 +616,9 @@ def put_mutable_data(fq_data_id, data_json, privatekey, required=[], use_only=[]
     """
 
     global storage_handlers
+
+    required = [] if required is None else required
+    use_only = [] if use_only is None else use_only
 
     # sanity check: only support single-sig private keys
     if not keys.is_singlesig(privatekey):
@@ -705,14 +709,15 @@ def delete_immutable_data(data_hash, txid, privkey):
     return True
 
 
-# TODO: Check use of mutable default argument
-def delete_mutable_data(fq_data_id, privatekey, only_use=[]):
+def delete_mutable_data(fq_data_id, privatekey, only_use=None):
     """
     Given the data ID and private key of a user,
     go and delete the associated mutable data.
     """
 
     global storage_handlers
+
+    only_use = [] if only_use is None else only_use
 
     # sanity check
     if not keys.is_singlesig(privatekey):
