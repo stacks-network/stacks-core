@@ -461,7 +461,7 @@ def get_name_profile(name, zonefile_storage_drivers=None,
     return (user_profile, user_zonefile)
 
 
-def store_name_zonefile_data( name, user_zonefile_txt, txid, storage_drivers=[] ):
+def store_name_zonefile_data( name, user_zonefile_txt, txid, storage_drivers=None ):
     """
     Store a serialized zonefile to immutable storage providers, synchronously.
     This is only necessary if we've added/changed/removed immutable data.
@@ -469,6 +469,9 @@ def store_name_zonefile_data( name, user_zonefile_txt, txid, storage_drivers=[] 
     Return (True, hash(user zonefile)) on success
     Return (False, None) on failure.
     """
+
+    storage_drivers = [] if storage_drivers is None else storage_drivers
+
     data_hash = storage.get_zonefile_data_hash( user_zonefile_txt )
     result = storage.put_immutable_data(None, txid, data_hash=data_hash, data_text=user_zonefile_txt, required=storage_drivers )
 
@@ -481,7 +484,7 @@ def store_name_zonefile_data( name, user_zonefile_txt, txid, storage_drivers=[] 
     return (rc, data_hash)
 
 
-def store_name_zonefile( name, user_zonefile, txid, storage_drivers=[] ):
+def store_name_zonefile( name, user_zonefile, txid, storage_drivers=None ):
     """
     Store JSON user zonefile data to the immutable storage providers, synchronously.
     This is only necessary if we've added/changed/removed immutable data.
@@ -489,6 +492,8 @@ def store_name_zonefile( name, user_zonefile, txid, storage_drivers=[] ):
     Return (True, hash(user zonefile)) on success
     Return (False, None) on failure
     """
+
+    storage_drivers = [] if storage_drivers is None else storage_drivers
 
     assert not blockstack_profiles.is_profile_in_legacy_format(user_zonefile), "User zonefile is a legacy profile"
     assert user_db.is_user_zonefile(user_zonefile), "Not a user zonefile (maybe a custom legacy profile?)"
@@ -637,31 +642,9 @@ def zonefile_data_publish(fqu, zonefile_txt, server_list, wallet_keys=None):
         try:
 
             log.debug("Replicate zonefile to %s:%s" % (server_host, server_port))
-
-            srv = BlockstackRPCClient( server_host, server_port )
-            res = srv.put_zonefiles( [base64.b64encode(zonefile_txt)] )
-            if 'error' in res:
+            res = put_zonefiles( [base64.b64encode(zonefile_txt)] )
+            if 'error' in res or res['saved'][0] != 1:
                 log.error("Failed to publish zonefile to %s:%s: %s" % (server_host, server_port, res['error']))
-                continue
-
-            if 'status' not in res:
-                log.error("Invalid server reply: no status")
-                continue
-
-            if type(res['status']) != bool or not res['status']:
-                log.error("Invalid server reply: invalid status")
-                continue
-
-            if 'saved' not in res:
-                log.error("Invalid server reply: no 'saved' key")
-                continue
-
-            if type(res['saved']) != list:
-                log.error("Invalid server reply: no saved vector")
-                continue 
-
-            if len(res['saved']) < 1 or res['saved'][0] != 1:
-                log.error("Server %s:%s failed to save zonefile" % (server_host, server_port))
                 continue
 
             log.debug("Replicated zonefile to %s:%s" % (server_host, server_port))
