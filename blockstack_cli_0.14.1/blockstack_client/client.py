@@ -141,8 +141,7 @@ def get_analytics_key(uuid, proxy=None):
 
     try:
         proxy = get_default_proxy() if proxy is None else proxy
-        # TODO: proxy does not have a get_analytics_key function.
-        key = proxy.get_analytics_key(uuid)  # BUG:?
+        key = proxy.get_analytics_key(uuid)
     except Exception as e:
         log.debug('Failed to get analytics key')
         return
