@@ -1034,7 +1034,8 @@ def get_version_parts(whole, func):
 def semver_match(v1, v2):
     """
     Verify that two semantic version strings match:
-    the major, minor, and patch versions must be equal.
+    the major and the minor versions must be equal.
+    Patch versions can be different
     """
     v1_parts = v1.split('.')
     v2_parts = v2.split('.')
@@ -1045,8 +1046,7 @@ def semver_match(v1, v2):
     v1_major, v1_minor, v1_patch = get_version_parts(v1_parts, str)
     v2_major, v2_minor, v2_patch = get_version_parts(v2_parts, str)
 
-    # TODO: check why patch versions are not compared. see function docstring.
-
+    # NOTE: patch versions are not relevant here.
     return [v1_major, v1_minor] == [v2_major, v2_minor]
 
 
