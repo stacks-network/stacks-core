@@ -112,7 +112,6 @@ def privkey_to_string(privkey_info):
     if is_multisig(privkey_info):
         return multisig_privkey_to_string(privkey_info)
 
-    # TODO: check if we should be returning '' here
     return None
 
 
