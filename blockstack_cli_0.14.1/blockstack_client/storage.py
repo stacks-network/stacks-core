@@ -42,6 +42,7 @@ from collections import defaultdict
 import blockstack_profiles 
 
 from config import LENGTH_MAX_NAME, get_logger, CONFIG_PATH
+from scripts import is_name_valid
 import keys
 
 log = get_logger()
@@ -125,6 +126,19 @@ def hash_zonefile( zonefile_json ):
     return data_hash
 
 
+def verify_zonefile( zonefile_str, value_hash ):
+    """
+    Verify that a zonefile hashes to the given value hash
+    @zonefile_str must be the zonefile as a serialized string
+    """
+    zonefile_hash = get_zonefile_data_hash( zonefile_str )
+    if zonefile_hash != value_hash:
+        log.debug("Zonefile hash mismatch: expected %s, got %s" % (value_hash, zonefile_hash))
+        return False 
+
+    return True
+
+
 def get_storage_handlers():
    """
    Get the list of loaded storage handler instances
@@ -133,13 +147,14 @@ def get_storage_handlers():
    return storage_handlers
 
 
-def make_mutable_data_urls( data_id, use_only=[] ):
+def make_mutable_data_urls( data_id, use_only=None ):
    """
    Given a data ID for mutable data, get a list of URLs to it
    by asking the storage handlers.
    """
    global storage_handlers
 
+   use_only = [] if use_only is None else use_only
    urls = []
 
    for handler in storage_handlers:
@@ -403,7 +418,7 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None, data_address=None, own
    global storage_handlers
 
    fq_data_id = str(fq_data_id)
-   assert is_fq_data_id( fq_data_id ) or is_valid_name( fq_data_id ), "Need either a fully-qualified data ID or a blockchain ID: '%s'" % fq_data_id
+   assert is_fq_data_id( fq_data_id ) or is_name_valid( fq_data_id ), "Need either a fully-qualified data ID or a blockchain ID: '%s'" % fq_data_id
 
    fqu = None
    if is_fq_data_id(fq_data_id):
@@ -510,7 +525,7 @@ def serialize_immutable_data( data_json ):
     return json.dumps(data_json, sort_keys=True)
 
 
-def put_immutable_data( data_json, txid, data_hash=None, data_text=None, required=[] ):
+def put_immutable_data( data_json, txid, data_hash=None, data_text=None, required=None ):
    """
    Given a string of data (which can either be data or a zonefile), store it into our immutable data stores.
    Do so in a best-effort manner--this method only fails if *all* storage providers fail.
@@ -520,6 +535,8 @@ def put_immutable_data( data_json, txid, data_hash=None, data_text=None, require
    """
 
    global storage_handlers
+
+   required = [] if required is None else required
 
    assert (data_hash is None and data_text is None and data_json is not None) or \
           (data_hash is not None and data_text is not None), "Need data hash and text, or just JSON"
@@ -577,7 +594,7 @@ def put_immutable_data( data_json, txid, data_hash=None, data_text=None, require
        return data_hash
 
 
-def put_mutable_data( fq_data_id, data_json, privatekey, required=[], use_only=[] ):
+def put_mutable_data( fq_data_id, data_json, privatekey, required=None, use_only=None ):
    """
    Given the unserialized data, store it into our mutable data stores.
    Do so in a best-effort way.  This method only fails if all storage providers fail.
@@ -591,13 +608,16 @@ def put_mutable_data( fq_data_id, data_json, privatekey, required=[], use_only=[
 
    global storage_handlers 
 
+   required = [] if required is None else required
+   use_only = [] if use_only is None else use_only 
+
    # sanity check: only support single-sig private keys 
    if not keys.is_singlesig(privatekey):
        log.error("Only single-signature data private keys are supported")
        return False
 
    fq_data_id = str(fq_data_id)
-   assert is_fq_data_id( fq_data_id ) or is_valid_name(fq_data_id), "Data ID must be fully qualified or must be a valid blockchain ID (got %s)" % fq_data_id
+   assert is_fq_data_id( fq_data_id ) or is_name_valid(fq_data_id), "Data ID must be fully qualified or must be a valid blockchain ID (got %s)" % fq_data_id
    assert privatekey is not None
 
    fqu = None
@@ -691,7 +711,7 @@ def delete_immutable_data( data_hash, txid, privkey ):
    return True
 
 
-def delete_mutable_data( fq_data_id, privatekey, only_use=[] ):
+def delete_mutable_data( fq_data_id, privatekey, only_use=None ):
    """
    Given the data ID and private key of a user,
    go and delete the associated mutable data.
@@ -699,13 +719,15 @@ def delete_mutable_data( fq_data_id, privatekey, only_use=[] ):
 
    global storage_handlers
 
+   only_use = [] if only_use is None else only_use 
+
    # sanity check
    if not keys.is_singlesig(privatekey):
        log.error("Only single-signature data private keys are supported")
        return False
 
    fq_data_id = str(fq_data_id)
-   assert is_fq_data_id( fq_data_id ) or is_valid_name(fq_data_id), "Data ID must be fully qualified or must be a valid blockchain ID (got %s)" % fq_data_id
+   assert is_fq_data_id( fq_data_id ) or is_name_valid(fq_data_id), "Data ID must be fully qualified or must be a valid blockchain ID (got %s)" % fq_data_id
 
    sigb64 = sign_raw_data( fq_data_id, privatekey )
 
@@ -748,7 +770,6 @@ def get_announcement( announcement_hash ):
     return data
 
 
-
 def put_announcement( announcement_text, txid ):
     """
     Go put an announcement into back-end storage.
@@ -784,22 +805,7 @@ def is_fq_data_id( fq_data_id ):
 
     # name must be valid
     name = fq_data_id.split(":")[0]
-    if not is_valid_name(name):
-        return False
-
-    return True
-
-
-def is_valid_name( name ):
-    """
-    Is a name well-formed for blockstack DNS?
-    """
-    
-    # name must be base-40, and there must be a namespace ID
-    if not is_b40(name) or name.count(".") != 1:
-        return False 
-
-    if len(name) > LENGTH_MAX_NAME:
+    if not is_name_valid(name):
         return False
 
     return True
@@ -875,7 +881,7 @@ def blockstack_mutable_data_url_parse( url ):
     m = re.match( app_url_data_regex, url )
     if m:
         account_id, service_id, blockchain_id, data_id, version = m.groups()
-        if not is_valid_name( blockchain_id ):
+        if not is_name_valid( blockchain_id ):
             raise ValueError("Invalid blockchain ID '%s'" % blockchain_id)
         
         # version?
@@ -890,7 +896,7 @@ def blockstack_mutable_data_url_parse( url ):
     if m:
 
         blockchain_id, data_id, version = m.groups()
-        if not is_valid_name( blockchain_id ):
+        if not is_name_valid( blockchain_id ):
             raise ValueError("Invalid blockchain ID '%s'" % blockchain_id)
 
         # version?
@@ -930,7 +936,7 @@ def blockstack_immutable_data_url_parse( url ):
         data_id, blockchain_name, namespace_id, data_hash = m.groups()
         blockchain_id = "%s.%s" % (blockchain_name, namespace_id)
 
-        if not is_valid_name( blockchain_id ):
+        if not is_name_valid( blockchain_id ):
             log.debug("Invalid blockstack ID '%s" % blockchain_id)
             raise ValueError( "Invalid blockstack ID")
 
