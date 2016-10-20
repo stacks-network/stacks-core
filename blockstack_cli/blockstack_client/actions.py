@@ -124,7 +124,7 @@ from .client import analytics_event
 from .scripts import UTXOException
 from .profile import zonefile_replicate
 
-log = config.get_logger()
+log = config.get_logger()  # Create logger
 
 def check_valid_name(fqu):
     """
@@ -224,7 +224,8 @@ def operation_sanity_check(fqu, payment_privkey, config_path=CONFIG_PATH, transf
 
 
 def get_total_registration_fees(name, payment_privkey, owner_address, proxy=None, config_path=CONFIG_PATH, payment_address=None):
-
+    
+    # Try to get the cost of the domain
     try:
         data = get_name_cost(name, proxy=proxy)
     except Exception, e:
@@ -470,17 +471,17 @@ def cli_import( args, config_path=CONFIG_PATH ):
     help: Display the address with which to receive names
     """
 
-    config_dir = os.path.dirname(config_path)
-    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-    if not os.path.exists(wallet_path):
-        res = initialize_wallet(wallet_path=wallet_path)
-        if 'error' in res:
-            return res
+    config_dir = os.path.dirname(config_path)  # Set config directory
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)  # Set wallet path
+    if not os.path.exists(wallet_path):  # Check if wallet exists
+        res = initialize_wallet(wallet_path=wallet_path)  # Create wallet
+        if 'error' in res:  # Check for errors
+            return res  # Return if any errors found
 
-    result = {}
-    result['message'] = 'Send the name you want to receive to the'
+    result = {}  # Create wallet array
+    result['message'] = 'Send the name you want to receive to the'  # Set the message
     result['message'] += ' address specified.'
-    payment_address, result['address'], data_address = get_addresses_from_file(wallet_path=wallet_path)
+    payment_address, result['address'], data_address = get_addresses_from_file(wallet_path=wallet_path)  # Set addresses
 
     return result
 
@@ -492,15 +493,15 @@ def cli_names( args, config_path=CONFIG_DIR ):
     """
     result = {}
 
-    config_dir = os.path.dirname(config_path)
-    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-    if not os.path.exists(wallet_path):
-        res = initialize_wallet(wallet_path=wallet_path)
-        if 'error' in res:
-            return res
+    config_dir = os.path.dirname(config_path)  # Set config directory
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)  # Set wallet path
+    if not os.path.exists(wallet_path):  # Check if wallet exists
+        res = initialize_wallet(wallet_path=wallet_path)  # Create wallet
+        if 'error' in res:  # Check for errors
+            return res  # Return if any errors found
 
-    result['names_owned'] = get_all_names_owned(wallet_path)
-    result['addresses'] = get_owner_addresses_and_names(wallet_path)
+    result['names_owned'] = get_all_names_owned(wallet_path)  # Get all names owned
+    result['addresses'] = get_owner_addresses_and_names(wallet_path)  # Get all addresses name
 
     return result
 
