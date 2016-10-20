@@ -124,6 +124,7 @@ def put_account( name, service, identifier, content_url, create=True, replace=Fa
     if create is False and replace is False:
         return {'error': 'Invalid create/replace arguments'}
 
+    # Setup proxy
     if proxy is None:
         proxy = get_default_proxy()
 
@@ -143,9 +144,9 @@ def put_account( name, service, identifier, content_url, create=True, replace=Fa
     if not user_profile.has_key("account"):
         user_profile['account'] = []
 
-    new_account = {}
-    new_account.update( extra_fields )
-    new_account.update( {
+    new_account = {}  # Create a array for the new account
+    new_account.update( extra_fields )  # Update New Account
+    new_account.update( {  # Do some more updating
         "service": service,
         "identifier": identifier,
         "contentUrl": content_url
@@ -177,16 +178,18 @@ def delete_account( name, service, identifier, proxy=None, wallet_keys=None ):
     Return {'error': ...} on error
     """
 
-    if proxy is None:
+    # Setup a proxy if not already setup
+    if proxy is None:  
         proxy = get_default_proxy()
 
-    need_update = False 
+    need_update = False
     removed = False
 
     user_profile, user_zonefile, need_update = get_and_migrate_profile( name, proxy=proxy, create_if_absent=True, wallet_keys=wallet_keys, include_name_record=True )
     if 'error' in user_profile:
         return user_profile 
 
+    # Check if profile needs an update
     if need_update:
         return {'error': 'Profile is in legacy format.  Please migrate it with the `migrate` command.'}
 
@@ -194,12 +197,12 @@ def delete_account( name, service, identifier, proxy=None, wallet_keys=None ):
     del user_zonefile['name_record']
 
     # user_profile will be in the new zonefile format
-    removed = []
-    for account in user_profile.get('account', []):
-        if account['service'] == service and account['identifier'] == identifier:
-            user_profile['account'].remove( account )
-            removed.append( account )
-
+    removed = []  # Create array for removed accounts
+    for account in user_profile.get('account', []):  # Loop through each account
+        if account['service'] == service and account['identifier'] == identifier:  # If service and identifier are equal
+            user_profile['account'].remove( account )  # Remove the account
+            removed.append( account )  # Add the account to the removed list
+            
     if len(removed) == 0:
         return {'status': True, 'removed': []}
 
