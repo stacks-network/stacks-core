@@ -94,38 +94,47 @@ class BlockstackRPCClient(object):
     RPC client for the blockstack server
     """
 
-    def __init__(self, server, port, max_rpc_len=MAX_RPC_LEN, timeout=config.DEFAULT_TIMEOUT, debug_timeline=False, **kw):
+    def __init__(self, server, port, max_rpc_len=MAX_RPC_LEN,
+                 timeout=config.DEFAULT_TIMEOUT, debug_timeline=False, **kw):
+
         self.url = 'http://{}:{}'.format(server, port)
         self.srv = TimeoutServerProxy(self.url, timeout=timeout, allow_none=True)
         self.server = server
         self.port = port
         self.debug_timeline = debug_timeline
 
+    def log_debug_timeline(self, event, key, r=-1):
+        # random ID to match in logs
+        r = random.randint(0, 2 ** 16) if r == -1 else r
+        if self.debug_timeline:
+            log.debug('RPC({}) {} {} {}'.format(r, event, self.url, key))
+        return r
+
     def __getattr__(self, key):
         try:
             return object.__getattr__(self, key)
         except AttributeError:
-            r = -1  # random ID to match in logs
-            if self.debug_timeline:
-                r = random.randint(0, 2 ** 16)
-                log.debug('RPC({}) begin {} {}'.format(r, self.url, key))
+            r = self.log_debug_timeline('begin', key)
 
             def inner(*args, **kw):
                 func = getattr(self.srv, key)
                 res = func(*args, **kw)
-                if res is not None:
-                    # lol jsonrpc within xmlrpc
-                    try:
-                        res = json.loads(res)
-                    except (ValueError, TypeError):
-                        if BLOCKSTACK_TEST is not None:
-                            log.debug('Server replied invalid JSON: {}'.format(res))
+                if res is None:
+                    self.log_debug_timeline('end', key, r)
+                    return
 
-                        log.error('Server replied invalid JSON')
-                        res = {'error': 'Server replied invalid JSON'}
+                # lol jsonrpc within xmlrpc
+                try:
+                    res = json.loads(res)
+                except (ValueError, TypeError):
+                    msg = 'Server replied invalid JSON'
+                    if BLOCKSTACK_TEST is not None:
+                        log.debug('{}: {}'.format(msg, res))
 
-                if self.debug_timeline:
-                    log.debug('RPC({}) end {} {}'.format(r, self.url, key))
+                    log.error(msg)
+                    res = {'error': msg}
+
+                self.log_debug_timeline('end', key, r)
 
                 return res
 
