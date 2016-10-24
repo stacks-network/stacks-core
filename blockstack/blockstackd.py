@@ -553,7 +553,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         Used by SNV clients.
         """
-        db = get_db_state()
 
         if offset < 0 or count < 0:
             return {'error': 'invalid page offset/length'}
@@ -562,17 +561,11 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             return {'error': 'Page too big'}
 
         # do NOT restore, since we're paging
+        db = get_db_state()
         prior_records = db.get_all_ops_at( block_id, offset=offset, count=count, include_history=False, restore_history=False )
-        ret = prior_records
-        '''
-        ret = []
-        for rec in prior_records:
-            restored_rec = rec_restore_snv_consensus_fields( rec, block_id )
-            ret.append( restored_rec )
-        '''
         db.close()
-        log.debug("%s name operations at block %s, offset %s, count %s" % (len(ret), block_id, offset, count))
-        return ret
+        log.debug("%s name operations at block %s, offset %s, count %s" % (len(prior_records), block_id, offset, count))
+        return {'status': True, 'nameops': prior_records}
 
 
     def rpc_get_num_nameops_affected_at( self, block_id, **con_info ):
