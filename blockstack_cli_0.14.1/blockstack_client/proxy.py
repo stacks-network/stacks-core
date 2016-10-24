@@ -1025,7 +1025,7 @@ def get_names_owned_by_address(address, proxy=None):
     if proxy is None:
         proxy = get_default_proxy()
 
-    resp = []
+    resp = {}
     try:
         resp = proxy.get_names_owned_by_address(address)
         resp = json_validate( schema, resp )
@@ -1359,7 +1359,7 @@ def get_op_history_rows( name, proxy=None ):
     history_rows = []
     page_size = 10
     while len(history_rows) < history_rows_count:
-        resp = []
+        resp = {}
         try:
             resp = proxy.get_op_history_rows(name, len(history_rows), page_size)
             resp = json_validate( history_schema, resp )
@@ -1376,7 +1376,7 @@ def get_op_history_rows( name, proxy=None ):
 
         except ValidationError as e:
             log.exception(e)
-            resp = json_traceback()
+            resp = json_traceback(resp.get('error'))
             return resp
 
     return history_rows
@@ -1455,7 +1455,7 @@ def get_nameops_affected_at( block_id, proxy=None ):
     all_nameops = []
     page_size = 10
     while len(all_nameops) < num_nameops:
-        resp = []
+        resp = {}
         try:
             resp = proxy.get_nameops_affected_at(block_id, len(all_nameops), page_size)
             resp = json_validate( nameop_schema, resp )
@@ -1472,7 +1472,7 @@ def get_nameops_affected_at( block_id, proxy=None ):
             
         except ValidationError as e:
             log.exception(e)
-            resp = json_traceback()
+            resp = json_traceback(resp.get('error'))
             return resp
 
     return all_nameops
