@@ -29,6 +29,7 @@ from ..scripts import *
 from ..hashing import *
 from ..nameset import *
 
+import blockstack_client
 from blockstack_client.operations import *
 
 # consensus hash fields (ORDER MATTERS!) 
@@ -53,7 +54,8 @@ MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS[:] + [
     'block_number',
     'namespace_block_number',
     'transfer_send_block_id',
-    'op_fee'
+    'op_fee',
+    'last_creation_op'
 ]
  
 # fields to preserve when applying this operation 
@@ -248,7 +250,7 @@ def check( state_engine, nameop, block_id, checked_ops ):
     prior_hist = None
     if prev_name_rec is not None:
         # set preorder and prior history...
-        prior_hist = prior_history_create( nameop, prev_name_rec, block_id, state_engine, extra_backup_fields=['consensus_hash','namespace_block_number','transfer_send_block_id','op_fee'] )
+        prior_hist = prior_history_create( nameop, prev_name_rec, block_id, state_engine, extra_backup_fields=['consensus_hash','namespace_block_number','transfer_send_block_id','op_fee','last_creation_op'] )
     
     # can never have been preordered
     state_create_put_preorder( nameop, None )
@@ -273,7 +275,10 @@ def check( state_engine, nameop, block_id, checked_ops ):
     nameop['last_renewed'] = name_last_renewed
     nameop['preorder_block_number'] = preorder_block_number
     nameop['opcode'] = "NAME_IMPORT"
+
+    # not required for consensus, but for SNV
     nameop['transfer_send_block_id'] = transfer_send_block_id
+    nameop['last_creation_op'] = NAME_IMPORT
 
     # good!
     return True
@@ -416,7 +421,9 @@ def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
     find the dict of consensus-affecting fields from the operation that are not
     already present in the name record.
     """
-    
+    return blockstack_client.operations.nameimport.snv_consensus_extras( name_rec, block_id, blockchain_name_data )
+
+    '''
     ret_op = {}
 
     # reconstruct the recipient information
@@ -432,5 +439,6 @@ def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
 
     log.debug("restore preorder hash: %s --> %s (%s, %s, %s)" % (name_rec.get('preorder_hash', "None"), ret_op['preorder_hash'], name_rec['name'], name_rec['importer'], ret_op['recipient_address']))
     return ret_op
+    '''
 
 

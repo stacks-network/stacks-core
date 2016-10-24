@@ -27,6 +27,7 @@ from ..scripts import *
 from ..nameset import *
 from binascii import hexlify, unhexlify
 
+import blockstack_client
 from blockstack_client.operations import *
 
 import virtualchain
@@ -53,7 +54,8 @@ REGISTER_MUTATE_FIELDS = NAMEREC_MUTATE_FIELDS + [
     'preorder_hash',
     'preorder_block_number',
     'consensus_hash',
-    'op_fee'
+    'op_fee',
+    'last_creation_op'
 ]
 
 # fields renewal changes
@@ -252,7 +254,7 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
             transfer_send_block_id = old_name_rec['transfer_send_block_id']
 
             # re-registering
-            prior_hist = prior_history_create( nameop, old_name_rec, preorder_block_number, state_engine, extra_backup_fields=['consensus_hash','preorder_hash','transfer_send_block_id','op_fee']) 
+            prior_hist = prior_history_create( nameop, old_name_rec, preorder_block_number, state_engine, extra_backup_fields=['consensus_hash','preorder_hash','transfer_send_block_id','op_fee','last_creation_op']) 
             state_create_put_prior_history( nameop, prior_hist )
 
 
@@ -288,7 +290,7 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
         opcode = "NAME_RENEWAL"     # will cause this operation to be re-checked under check_renewal()
 
         # pass along prior history 
-        prior_hist = prior_history_create( nameop, old_name_rec, block_id, state_engine, extra_backup_fields=['consensus_hash','preorder_hash','transfer_send_block_id','op_fee'])
+        prior_hist = prior_history_create( nameop, old_name_rec, block_id, state_engine, extra_backup_fields=['consensus_hash','preorder_hash','transfer_send_block_id','op_fee','last_creation_op'])
         state_create_put_prior_history( nameop, prior_hist )
         state_create_put_preorder( nameop, None ) 
 
@@ -318,7 +320,10 @@ def check_register( state_engine, nameop, block_id, checked_ops ):
     nameop['last_renewed'] = block_id
     nameop['preorder_block_number'] = preorder_block_number
     nameop['block_number'] = name_block_number
+
+    # not consensus-bearing, but required for SNV
     nameop['transfer_send_block_id'] = transfer_send_block_id
+    nameop['last_creation_op'] = NAME_PREORDER 
 
     # propagate new sender information
     nameop['sender'] = nameop['recipient']
@@ -604,11 +609,13 @@ def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
     find the dict of consensus-affecting fields from the operation that are not
     already present in the name record.
     """
-  
+    return blockstack_client.operations.register.snv_consensus_extras( name_rec, block_id, blockchain_name_data )
+    '''
     ret_op = {}
     
     # reconstruct the recipient information
     ret_op['recipient'] = str(name_rec['sender'])
     ret_op['recipient_address'] = str(name_rec['address'])
     return ret_op
+    '''
 
