@@ -35,7 +35,7 @@ from .auth import *
 from ..scripts import is_name_valid
 
 import blockstack_client
-from blockstack_client import hash_zonefile, get_zonefile_data_hash
+from blockstack_client import hash_zonefile, get_zonefile_data_hash, verify_zonefile
 
 import blockstack_zones
 
