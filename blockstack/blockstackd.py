@@ -412,6 +412,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
     def rpc_get_name_blockchain_record(self, name, **con_info):
         """
         Lookup the blockchain-derived whois info for a name.
+        Return {'status': True, 'record': rec} on success
+        Return {'error': ...} on error
         """
 
         if type(name) not in [str, unicode]:
@@ -453,12 +455,14 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
             db.close()
             self.analytics("get_name_blockchain_record", {})
-            return name_record
+            return {'status': True, 'record': name_record}
 
 
-    def rpc_get_name_blockchain_history( self, name, start_block, end_block, **con_info ):
+    def rpc_get_name_history_blocks( self, name, **con_info ):
         """
-        Get the sequence of name operations processed for a given name.
+        Get the list of blocks at which the given name was affected.
+        Return {'status': True, 'history_blocks': [...]} on success
+        Return {'error': ...} on error
         """
         if type(name) not in [str, unicode]:
             return {'error': 'invalid name'}
@@ -466,25 +470,28 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if not is_name_valid(name):
             return {'error': 'invalid name'}
 
-        if type(start_block) not in [int, long]:
-            return {'error': 'invalid start block'}
+        db = get_db_state()
+        history_blocks = db.get_name_history_blocks( name )
+        db.close()
+        return {'status': True, 'history_blocks': history_blocks}
 
-        if type(end_block) not in [int, long]:
-            return {'error': 'invalid end block'}
 
-        db = get_state_engine()
-        name_history = db.get_name_history( name, start_block, end_block )
+    def rpc_get_name_at( self, name, block_height, **con_info ):
+        """
+        Get all the states the name was in at a particular block height.
+        Return {'status': true, 'record': ...}
+        """
+        if type(name) not in [str, unicode]:
+            return {'error': 'invalid name'}
+
+        if block_height < FIRST_BLOCK_MAINNET:
+            return {'status': True, 'record': None}
+
+        db = get_db_state()
+        name_at = db.get_name_at( name, block_height )
         db.close()
 
-        if name_history is None:
-            if is_indexing():
-                return {"error": "Indexing blockchain"}
-            else:
-                return {"error": "Not found."}
-
-        else:
-            self.analytics("get_name_history", {})
-            return name_history
+        return {'status': True, 'records': name_at}
 
 
     def rpc_get_last_nameops( self, offset, count, **con_info ):
@@ -502,6 +509,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
     def rpc_get_op_history_rows( self, history_id, offset, count, **con_info ):
         """
         Get a page of history rows for a name or namespace
+        Return {'status': True, 'history_rows': [history rows]} on success
+        Return {'error': ...} on error
         """
         if offset < 0 or count < 0:
             return {'error': 'Invalid offset, count'}
@@ -512,17 +521,21 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         db = get_db_state()
         history_rows = db.get_op_history_rows( history_id, offset, count )
         db.close()
-        return history_rows
+
+        return {'status': True, 'history_rows': history_rows}
 
 
     def rpc_get_num_op_history_rows( self, history_id, **con_info ):
         """
         Get the total number of history rows
+        Return {'status': True, 'count': count} on success
+        Return {'error': ...} on error
         """
         db = get_db_state()
         num_history_rows = db.get_num_op_history_rows( history_id )
         db.close()
-        return num_history_rows
+
+        return {'status': True, 'count': num_history_rows}
 
 
     def rpc_get_nameops_affected_at( self, block_id, offset, count, **con_info ):
@@ -533,7 +546,11 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         can be used to restore the records to their *historic* forms i.e.
         at the given block height.
 
-        Returns the list of name operations to be fed into virtualchain.
+        Returns the list of name operations to be fed into virtualchain, as
+        {'status': True, 'nameops': [nameops]}
+
+        Returns {'error': ...} on failure
+
         Used by SNV clients.
         """
         db = get_db_state()
@@ -561,23 +578,30 @@ class BlockstackdRPC( SimpleXMLRPCServer):
     def rpc_get_num_nameops_affected_at( self, block_id, **con_info ):
         """
         Get the number of name and namespace operations at the given block.
+        Returns {'status': True, 'count': ...} on success
+        Returns {'error': ...} on error
         """
         db = get_db_state()
         count = db.get_num_ops_at( block_id )
         db.close()
 
         log.debug("%s name operations at %s" % (count, block_id))
-        return count
+        return {'status': True, 'count': count}
 
 
     def rpc_get_nameops_hash_at( self, block_id, **con_info ):
         """
         Get the hash over the sequence of names and namespaces altered at the given block.
         Used by SNV clients.
+
+        Returns {'status': True, 'ops_hash': ops_hash} on success
+        Returns {'error': ...} on error
         """
         db = get_db_state()
         ops_hash = db.get_block_ops_hash( block_id )
-        return ops_hash
+        db.close()
+
+        return {'status': True, 'ops_hash': ops_hash}
 
 
     def rpc_getinfo(self, **con_info):
@@ -620,6 +644,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
     def rpc_get_names_owned_by_address(self, address, **con_info):
         """
         Get the list of names owned by an address.
+        Return {'status': True, 'names': ...} on success
+        Return {'error': ...} on error
         """
         if type(address) not in [str, unicode]:
             return {'error': 'invalid address'}
@@ -631,13 +657,13 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if names is None:
             names = []
 
-        return names
+        return {'status': True, 'names': names}
 
 
     def rpc_get_name_cost( self, name, **con_info ):
         """
         Return the cost of a given name, including fees
-        Return value is in satoshis (as 'satoshis'
+        Return value is in satoshis (as 'satoshis')
         """
 
         if type(name) not in [str, unicode]:
@@ -679,6 +705,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
     def rpc_get_namespace_blockchain_record( self, namespace_id, **con_info ):
         """
         Return the namespace with the given namespace_id
+        Return {'status': True, 'record': ...} on success
+        Return {'error': ...} on error
         """
 
         if type(namespace_id) not in [str, unicode]:
@@ -701,17 +729,33 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                     return {"error": "No such namespace"}
 
             ns['ready'] = False
-            return ns
+            return {'status': True, 'record': ns}
 
         else:
             db.close()
             ns['ready'] = True
-            return ns
+            return {'status': True, 'record': ns}
+
+
+    def rpc_get_num_names( self, **con_info ):
+        """
+        Get the number of names that exist
+        Return {'status': True, 'count': count} on success
+        Return {'error': ...} on error
+        """
+        db = get_state_engine()
+        self.analytics("get_num_names", {})
+        num_names = db.get_num_names()
+        db.close()
+
+        return {'status': True, 'count': num_names}
 
 
     def rpc_get_all_names( self, offset, count, **con_info ):
         """
-        Return all names, as a list.
+        Get all names, paginated
+        Return {'status': true, 'names': [...]} on success
+        Return {'error': ...} on error
         """
         if type(offset) not in [int, long]:
             return {'error': 'invalid offset'}
@@ -735,23 +779,42 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         all_names = db.get_all_names( offset=offset, count=count )
         db.close()
 
-        return all_names
+        return {'status': True, 'names': all_names}
 
 
     def rpc_get_all_namespaces( self, **con_info ):
         """
-        Return all namespaces
+        Get all namespace names
+        Return {'status': true, 'namespaces': [...]} on success
+        Return {'error': ...} on error
         """
         db = get_db_state()
         self.analytics("get_all_namespaces", {})
         all_namespaces = db.get_all_namespace_ids()
         db.close()
-        return all_namespaces
+
+        return {'status': True, 'namespaces': all_namespaces}
+
+
+    def rpc_get_num_names_in_namespace( self, namespace_id, **con_info ):
+        """
+        Get the number of names in a namespace
+        Return {'status': true, 'count': count} on success
+        Return {'error': ...} on error
+        """
+        db = get_db_state()
+        self.analytics('get_num_names_in_namespace', {})
+        num_names = db.get_num_names_in_namespace( namespace_id )
+        db.close()
+
+        return {'status': True, 'count': num_names}
 
 
     def rpc_get_names_in_namespace( self, namespace_id, offset, count, **con_info ):
         """
-        Return all names in a namespace
+        Return all names in a namespace, paginated
+        Return {'status': true, 'names': [...]} on success
+        Return {'error': ...} on error
         """
         if type(namespace_id) not in [str, unicode]:
             return {'error': 'invalid namespace ID'}
@@ -777,12 +840,15 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         db = get_state_engine()
         res = db.get_names_in_namespace( namespace_id, offset=offset, count=count )
         db.close()
-        return res
+
+        return {'status': True, 'names': res}
 
 
     def rpc_get_consensus_at( self, block_id, **con_info ):
         """
-        Return the consensus hash at a block number
+        Return the consensus hash at a block number.
+        Return {'status': True, 'consensus': ...} on success
+        Return {'error': ...} on error
         """
         if type(block_id) not in [int, long]:
             return {'error': 'Invalid block ID'}
@@ -794,13 +860,16 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         self.analytics("get_consensus_at", {'block_id': block_id})
         consensus = db.get_consensus_at( block_id )
         db.close()
-        return consensus
+        return {'status': True, 'consensus': consensus}
 
 
     def rpc_get_consensus_hashes( self, block_id_list, **con_info ):
         """
         Return the consensus hashes at multiple block numbers
-        Return a dict mapping each block ID to its consensus hash
+        Return a dict mapping each block ID to its consensus hash.
+
+        Returns {'status': True, 'consensus_hashes': dict} on success
+        Returns {'error': ...} on success
         """
         if is_indexing():
             return {'error': 'Indexing blockchain'}
@@ -818,7 +887,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             ret[block_id] = db.get_consensus_at(block_id)
 
         db.close()
-        return ret
+
+        return {'status': True, 'consensus_hashes': ret}
 
 
     def rpc_get_mutable_data( self, blockchain_id, data_name, **con_info ):
