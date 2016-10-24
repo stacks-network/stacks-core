@@ -28,6 +28,7 @@ import errno
 import time
 import atexit
 import socket
+import types
 
 from defusedxml import xmlrpc
 
@@ -274,15 +275,16 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
         # register all plugin methods 
         for plugin_or_plugin_name in plugins:
 
-            if type(plugin_or_plugin_name) in [str, unicode]:
+            if isinstance(plugin_or_plugin_name, types.ModuleType):
+                mod_plugin = plugin_or_plugin_name
+
+            else:
                 # name of a module to load
                 try:
-                    mod_plugin = __import__(plugin_name)
+                    mod_plugin = __import__(plugin_or_plugin_name)
                 except ImportError, e:
                     log.error("Skipping plugin '%s', since it cannot be imported" % plugin_name)
                     continue
-            else:
-                mod_plugin = plugin_or_plugin_name
 
             plugin_prefix = getattr(mod_plugin, "RPC_PREFIX", mod_plugin.__name__)
             if plugin_prefix in self.plugin_prefixes:
@@ -327,10 +329,12 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
         return True
 
 
-    def __init__(self, host='localhost', port=blockstack_config.DEFAULT_API_PORT, plugins=[], handler=BlockstackAPIEndpointHandler, config_path=blockstack_config.CONFIG_PATH, timeout=30, server=True ):
+    def __init__(self, host='localhost', port=blockstack_config.DEFAULT_API_PORT, plugins=None, handler=BlockstackAPIEndpointHandler, config_path=blockstack_config.CONFIG_PATH, timeout=30, server=True ):
         
         if server:
             SimpleXMLRPCServer.__init__( self, (host,port), handler, allow_none=True )
+
+        plugins = [] if plugins is None else plugins
 
         # instantiate
         self.plugin_mods = []
@@ -367,7 +371,7 @@ def get_default_plugins():
     return [backend]
 
 
-def make_local_rpc_server( portnum, config_path=blockstack_config.CONFIG_PATH, plugins=[] ):
+def make_local_rpc_server( portnum, config_path=blockstack_config.CONFIG_PATH, plugins=None ):
     """
     Make a local RPC server instance.
     It will be derived from BaseHTTPServer.HTTPServer.
@@ -376,6 +380,8 @@ def make_local_rpc_server( portnum, config_path=blockstack_config.CONFIG_PATH, p
 
     Returns the global server instance on success.
     """
+    plugins = [] if plugins is None else plugins
+
     plugins = get_default_plugins() + plugins 
     srv = BlockstackAPIEndpoint( port=portnum, config_path=config_path, plugins=plugins )
     return srv
