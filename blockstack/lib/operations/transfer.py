@@ -28,6 +28,7 @@ from ..scripts import *
 from ..nameset import *
 from binascii import hexlify, unhexlify
 
+import blockstack_client
 from blockstack_client.operations import *
 
 # consensus hash fields (ORDER MATTERS!) 
@@ -458,7 +459,19 @@ def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
     (This is an artifact of a design quirk of a previous version of the system).
     """
     
-    from __init__ import op_commit_consensus_override, op_commit_consensus_get_overrides
+    from __init__ import op_commit_consensus_override
+
+    transfer_send_block_id_consensus_hash = db.get_consensus_at( name_rec['transfer_send_block_id'] )
+    assert transfer_send_block_id_consensus_hash is not None, "No transfer send block ID"
+
+    ret_op = blockstack_client.operations.transfer.snv_consensus_extras( name_rec, block_id, blockchain_name_data, transfer_send_block_id_consensus_hash=transfer_send_block_id_consensus_hash )
+
+    # 'consensus_hash' will be different than what we recorded in the db
+    op_commit_consensus_override( ret_op, 'consensus_hash' )
+    return ret_op
+
+    '''
+    from __init__ import op_commit_consensus_override
     from ..nameset import BlockstackDB
 
     ret_op = {}
@@ -503,4 +516,5 @@ def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
     # 'consensus_hash' will be different than what we recorded in the db
     op_commit_consensus_override( ret_op, 'consensus_hash' ) 
     return ret_op
+    '''
    

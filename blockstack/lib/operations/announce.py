@@ -27,6 +27,7 @@ from ..hashing import *
 from ..nameset import *
 from utilitybelt import is_hex
 
+import blockstack_client
 from binascii import hexlify, unhexlify
 
 # consensus hash fields (none for announcements)
@@ -186,4 +187,7 @@ def snv_consensus_extras( new_name_rec, block_id, blockchain_name_data, db ):
     Calculate any derived missing data that goes into the check() operation,
     given the block number, the name record at the block number, and the db.
     """
+    return blockstack_client.operations.announce.snv_consensus_extras( new_name_rec, block_id, blockchain_name_data )
+    '''
     return {}
+    '''

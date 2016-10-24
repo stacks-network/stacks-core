@@ -31,6 +31,7 @@ from binascii import hexlify, unhexlify
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
 
+import blockstack_client
 from blockstack_client.operations import *
 
 # consensus hash fields (ORDER MATTERS!) 
@@ -259,11 +260,13 @@ def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
     find the dict of consensus-affecting fields from the operation that are not
     already present in the name record.
     """
-    
+    return blockstack_client.operations.update.snv_consensus_extras( name_rec, block_id, blockchain_name_data )
+    '''
     ret_op = {}
 
     # reconstruct name_hash
     ret_op['name_consensus_hash'] = hash256_trunc128( str(name_rec['name']) + str(name_rec['consensus_hash']) )
     return ret_op
+    '''
 
 

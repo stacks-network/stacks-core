@@ -27,6 +27,7 @@ from ..scripts import *
 from ..nameset import *
 from binascii import hexlify, unhexlify
 
+import blockstack_client
 from blockstack_client.operations import *
 
 from register import FIELDS as register_FIELDS
@@ -206,4 +207,7 @@ def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
     Calculate any derived missing data that goes into the check() operation,
     given the block number, the name record at the block number, and the db.
     """
+    return blockstack_client.operations.preorder.snv_consensus_extras( name_rec, block_id, blockchain_name_data )
+    '''
     return {}
+    '''
