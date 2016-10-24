@@ -270,6 +270,7 @@ def snv_consensus_extras( name_rec, block_id, blockchain_name_data, transfer_sen
            ret_op['consensus_hash'] = get_consensus_at( name_rec['transfer_send_block_id'] )
        else:
            # caller already knows it
+           log.debug("consensus hash for %s is caller-given: %s" % (name_rec['transfer_send_block_id'], transfer_send_block_id_consensus_hash))
            ret_op['consensus_hash'] = transfer_send_block_id_consensus_hash
 
     return ret_op
