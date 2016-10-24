@@ -2867,13 +2867,3 @@ def cli_advanced_app_get_wallet( args, config_path=CONFIG_PATH, interactive=True
     res = app_get_wallet( fqu, app_name, app_account_id, interactive=interactive, password=password, config_path=config_path )
     return res
 
-
-def cli_advanced_get_zonefile_inventory( args, config_path=CONFIG_PATH ):
-    """
-    command: get_zonefile_inventory
-    help: Get the zone file inventory vector of an Atlas peer.
-    arg: hostport (str) "The IP:port or host:port of the server."
-    """
-
-    hostport = str(args.hostport)
-    
