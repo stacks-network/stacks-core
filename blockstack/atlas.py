@@ -45,6 +45,14 @@ import blockstack_zones
 import virtualchain
 
 from blockstack_client.config import url_to_host_port, semver_match, semver_newer
+from blockstack_client.proxy import \
+        ping as blockstack_ping, \
+        getinfo as blockstack_getinfo, \
+        get_zonefile_inventory as blockstack_get_zonefile_inventory, \
+        get_atlas_peers as blockstack_get_atlas_peers, \
+        get_zonefiles as blockstack_get_zonefiles, \
+        put_zonefiles as blockstack_put_zonefiles
+
 
 log = virtualchain.get_logger("blockstack-server")
 
@@ -90,9 +98,6 @@ if os.environ.get("BLOCKSTACK_ATLAS_MIN_PEER_HEALTH") is not None:
 
 if os.environ.get("BLOCKSTACK_ATLAS_NUM_NEIGHBORS") is not None:
     NUM_NEIGHBORS = int(os.environ.get("BLOCKSTACK_ATLAS_NUM_NEIGHBORS"))
-
-if os.environ.get("BLOCKSTACK_ATLAS_MAX_NEIGHBORS") is not None:
-    NUM_NEIGHBORS = int(os.environ.get("BLOCKSTACK_ATLAS_MAX_NEIGHBORS"))
 
 if os.environ.get("BLOCKSTACK_TEST", None) == "1":
     PEER_CRAWL_NEIGHBOR_WORK_INTERVAL = 1
@@ -1119,7 +1124,6 @@ def atlasdb_renew_peer( peer_hostport, now, con=None, path=None ):
     if now is None:
         now = time.time()
 
-    expire = now - atlas_peer_max_age()
     sql = "UPDATE peers SET discovery_time = ? WHERE peer_hostport = ?;"
     args = (now, peer_hostport)
 
@@ -1133,7 +1137,7 @@ def atlasdb_renew_peer( peer_hostport, now, con=None, path=None ):
     return True
 
 
-def atlasdb_load_peer_table( peer_hostport, con=None, path=None ):
+def atlasdb_load_peer_table( con=None, path=None ):
     """
     Create a peer table from the peer DB
     """
@@ -1516,11 +1520,13 @@ def atlas_peer_ping( peer_hostport, timeout=None, peer_table=None ):
     rpc = BlockstackRPCClient( host, port, timeout=timeout )
 
     log.debug("Ping %s" % peer_hostport)
-    ret = False
 
+    ret = False
     try:
-        rpc.ping()
-        ret = True
+        res = blockstack_ping( proxy=rpc )
+        if 'error' not in res:
+            ret = True
+
     except (socket.timeout, socket.gaierror, socket.herror, socket.error), se:
         atlas_log_socket_error( "ping(%s)" % peer_hostport, peer_hostport, se )
         pass
@@ -1564,16 +1570,8 @@ def atlas_peer_getinfo( peer_hostport, timeout=None, peer_table=None ):
     res = None
 
     try:
-        res = rpc.getinfo()
-        assert type(res) in [dict], 'Did not receive a dict'
-
-        if 'error' not in res:
-            for req_field in ['consensus', 'server_version', 'last_block_processed']:
-                assert req_field in res.keys(), "Missing field '%s'" % req_field
-                assert type(res[req_field]) in [str, unicode, int], "Not a string or int: '%s'" % req_field
-                res[req_field] = str(res[req_field])
-
-        else:
+        res = blockstack_getinfo( proxy=rpc )
+        if 'error' in res:
             log.error("Failed to getinfo on %s: %s" % (peer_hostport, res['error']))
             res = None
                 
@@ -1937,39 +1935,20 @@ def atlas_peer_get_zonefile_inventory_range( my_hostport, peer_hostport, bit_off
     if timeout is None:
         timeout = atlas_inv_timeout()
 
-    host, port = url_to_host_port( peer_hostport )
-    rpc = BlockstackRPCClient( host, port, timeout=timeout, src=my_hostport )
-
     zf_inv = {}
     zf_inv_list = None
     
+    host, port = url_to_host_port( peer_hostport )
+    rpc = BlockstackRPCClient( host, port, timeout=timeout, src=my_hostport )
+
     assert not atlas_peer_table_is_locked_by_me()
 
     zf_inv = None
 
     log.debug("Get zonefile inventory range %s-%s from %s" % (bit_offset, bit_count, peer_hostport))
     try:
-        zf_inv = rpc.get_zonefile_inventory( bit_offset, bit_count )
-        
-        # sanity check
-        assert type(zf_inv) == dict, "Inventory is not a dict"
-        if 'error' not in zf_inv.keys():
-            assert 'status' in zf_inv, "Invalid inv reply"
-            assert zf_inv['status'], "Invalid inv reply"
-            assert 'inv' in zf_inv, "Invalid inv reply"
-            assert type(zf_inv['inv']) in [str, unicode], "Invalid inv bit field"
-
-            try:
-                zf_inv['inv'] = base64.b64decode( str(zf_inv['inv']) )
-            except:
-                raise AssertionError("Inv is not base64")
-
-            # make sure it corresponds to this range
-            assert len(zf_inv['inv']) <= (bit_count / 8) + (bit_count % 8), "Zonefile inventory in is too long" 
-
-        else:
-            assert type(zf_inv['error']) in [str, unicode], "Invalid error message"
-
+        zf_inv = blockstack_get_zonefile_inventory( peer_hostport, bit_offset, bit_count, timeout=timeout, my_hostport=my_hostport, proxy=rpc )
+     
     except (socket.timeout, socket.gaierror, socket.herror, socket.error), se:
         atlas_log_socket_error( "get_zonefile_inventory(%s, %s, %s)" % (peer_hostport, bit_offset, bit_count), peer_hostport, se )
         log.error("Failed to ask %s for zonefile inventory over %s-%s (socket-related error)" % (peer_hostport, bit_offset, bit_count))
@@ -2183,15 +2162,10 @@ def atlas_peer_refresh_zonefile_inventory( my_hostport, peer_hostport, byte_offs
         return True
 
 
-def atlas_peer_has_fresh_zonefile_inventory( peer_hostport, local_inv=None, peer_table=None, con=None, path=None ):
+def atlas_peer_has_fresh_zonefile_inventory( peer_hostport, peer_table=None ):
     """
     Does the given atlas node have a fresh zonefile inventory?
     """
-
-    if local_inv is None:
-        # get local zonefile inv 
-        inv_len = atlasdb_zonefile_inv_length( con=con, path=path )
-        local_inv = atlas_make_zonefile_inventory( 0, inv_len, con=con, path=path )
 
     locked = False
     if peer_table is None:
@@ -2205,21 +2179,12 @@ def atlas_peer_has_fresh_zonefile_inventory( peer_hostport, local_inv=None, peer
 
         return False
 
-    expected_length = len(local_inv)
-
     fresh = False
     now = time_now()
     peer_inv = atlas_peer_get_zonefile_inventory( peer_hostport, peer_table=peer_table )
 
     # NOTE: zero-length or None peer inventory means the peer is simply dead, but we've pinged it
-    if (peer_inv is None or len(peer_inv) == 0) and \
-        peer_table[peer_hostport].has_key('zonefile_inventory_last_refresh') and \
-        peer_table[peer_hostport]['zonefile_inventory_last_refresh'] + atlas_peer_ping_interval() > now:
-
-        fresh = True
-
-    if len(peer_inv) >= expected_length and \
-        peer_table[peer_hostport].has_key('zonefile_inventory_last_refresh') and \
+    if  peer_table[peer_hostport].has_key('zonefile_inventory_last_refresh') and \
         peer_table[peer_hostport]['zonefile_inventory_last_refresh'] + atlas_peer_ping_interval() > now:
 
         fresh = True
@@ -2274,8 +2239,8 @@ def atlas_find_missing_zonefile_availability( peer_table=None, con=None, path=No
     Return a dict, structured as:
     {
         'zonefile hash': {
-            'names': [name],
-            'txid': txid,
+            'names': [names],
+            'txid': last txid,
             'indexes': [...],
             'popularity': ...,
             'peers': [...],
@@ -2413,13 +2378,10 @@ def atlas_peer_get_neighbors( my_hostport, peer_hostport, timeout=None, peer_tab
     if timeout is None:
         timeout = atlas_neighbors_timeout()
 
-    host, port = url_to_host_port( peer_hostport )
-    if host is None or port is None:
-        log.debug("Invalid host/port %s" % peer_hostport)
-        raise ValueError("Invalid host/port %s" % peer_hostport)
-
-    rpc = BlockstackRPCClient( host, port, timeout=timeout, src=my_hostport )
     peer_list = None
+
+    host, port = url_to_host_port( peer_hostport )
+    rpc = BlockstackRPCClient( host, port, timeout=timeout, src=my_hostport )
 
     # sane limits
     max_neighbors = atlas_max_neighbors()
@@ -2427,30 +2389,11 @@ def atlas_peer_get_neighbors( my_hostport, peer_hostport, timeout=None, peer_tab
     assert not atlas_peer_table_is_locked_by_me()
 
     try:
-        peer_list = rpc.get_atlas_peers()
-
-        assert type(peer_list) in [dict], "Not a peer list response"
-
-        if 'error' not in peer_list:
-            assert 'status' in peer_list, "No status in response"
-            assert 'peers' in peer_list, "No peers in response"
-            assert type(peer_list['peers']) in [list], "Not a peer list"
-            for peer in peer_list['peers']:
-                assert type(peer) in [str, unicode], "Invalid peer list"
-
-            assert len(peer_list['peers']) <= max_neighbors, "Invalid response with too many peers (%s, expected <= %s)" % (len(peer_list['peers']), max_neighbors)
-
-        else:
-            assert type(peer_list['error']) in [str, unicode], "Invalid error message"
+        peer_list = blockstack_get_atlas_peers( peer_hostport, timeout=timeout, my_hostport=my_hostport, proxy=rpc )
 
     except (socket.timeout, socket.gaierror, socket.herror, socket.error), se:
         atlas_log_socket_error( "get_atlas_peers(%s)" % peer_hostport, peer_hostport, se)
         log.error("Socket error in response from '%s'" % peer_hostport)
-
-    except AssertionError, ae:
-        if os.environ.get("BLOCKSTACK_DEBUG") == "1":
-            log.exception(ae)
-        log.error("Invalid peer list response from '%s'" % peer_hostport)
 
     except Exception, e:
         if os.environ.get("BLOCKSTACK_DEBUG") == "1":
@@ -2487,10 +2430,11 @@ def atlas_get_zonefiles( my_hostport, peer_hostport, zonefile_hashes, timeout=No
     if timeout is None:
         timeout = atlas_zonefiles_timeout()
 
-    host, port = url_to_host_port( peer_hostport )
-    rpc = BlockstackRPCClient( host, port, timeout=timeout, src=my_hostport )
     zf_payload = None
     zonefile_datas = {}
+
+    host, port = url_to_host_port( peer_hostport )
+    rpc = BlockstackRPCClient( host, port, timeout=timeout, src=my_hostport )
 
     assert not atlas_peer_table_is_locked_by_me()
 
@@ -2502,25 +2446,7 @@ def atlas_get_zonefiles( my_hostport, peer_hostport, zonefile_hashes, timeout=No
     for zf_batch in zf_batches:
         zf_payload = None
         try:
-            zf_payload = rpc.get_zonefiles( zf_batch )
-            assert type(zf_payload) == dict, "Invalid zonefile listing"
-            if 'error' not in zf_payload.keys():
-                assert 'status' in zf_payload.keys(), "Invalid zonefile reply"
-                assert zf_payload['status'], "Invalid zonefile reply"
-
-                assert 'zonefiles' in zf_payload.keys(), "No zonefiles"
-                zonefiles = zf_payload['zonefiles']
-
-                assert type(zonefiles) == dict, "Invalid zonefiles: type %s" % type(zonefiles)
-                for zf_hash, zf_data in zonefiles.items():
-                    assert type(zf_hash) in [str, unicode], "Invalid zonefile hash"
-                    assert len(zf_hash) == 2 * LENGTHS['value_hash'], "Invalid zonefile hash length"
-
-                    assert type(zf_data) in [str, unicode], "Invalid zonefile data"
-                    assert verify_zonefile( zf_data, zf_hash ), "Zonefile does not match or is not current" 
-
-            else:
-                assert type(zf_payload['error']) in [str, unicode], "Invalid error message"
+            zf_payload = blockstack_get_zonefiles( peer_hostport, zf_batch, timeout=timeout, my_hostport=my_hostport, proxy=rpc )
 
         except (socket.timeout, socket.gaierror, socket.herror, socket.error), se:
             atlas_log_socket_error( "get_zonefiles(%s)" % peer_hostport, peer_hostport, se)
@@ -2823,8 +2749,9 @@ def atlas_zonefile_push( my_hostport, peer_hostport, zonefile_dict, timeout=None
     if timeout is None:
         timeout = atlas_push_zonefiles_timeout()
    
-    zonefile_data = serialize_zonefile( zonefile_dict )
+    zonefile_data = blockstack_zones.make_zone_file( zonefile_dict )
     zonefile_hash = blockstack_client.hash_zonefile( zonefile_dict )
+    zonefile_data_b64 = base64.b64encode( zonefile_data )
 
     host, port = url_to_host_port( peer_hostport )
     rpc = BlockstackRPCClient( host, port, timeout=timeout, src=my_hostport )
@@ -2834,19 +2761,12 @@ def atlas_zonefile_push( my_hostport, peer_hostport, zonefile_dict, timeout=None
     assert not atlas_peer_table_is_locked_by_me()
 
     try:
-        push_info = rpc.put_zonefiles( [zonefile_data] )
-
-        assert type(push_info) in [dict], "Invalid push response"
-        if 'status' in push_info and push_info['status']:
-            assert 'saved' in push_info, "Missing saved vector"
-            assert type(push_info['saved']) == list, "Invalid saved vector"
-            assert len(push_info['saved']) == 1, "Invalid saved vector"
-            assert push_info['saved'][0] in [0, 1], "Invalid saved vector value"
-
+        push_info = blockstack_put_zonefiles( peer_hostport, [zonefile_data_b64], timeout=timeout, my_hostport=my_hostport, proxy=rpc )
+        if 'error' not in push_info:
             if push_info['saved'] == 1:
                 # woo!
                 saved = True
-            
+
     except (socket.timeout, socket.gaierror, socket.herror, socket.error), se:
         atlas_log_socket_error( "put_zonefiles(%s)" % peer_hostport, peer_hostport, se)
     
@@ -2975,7 +2895,7 @@ class AtlasPeerCrawler( threading.Thread ):
         that aren't already known to us.  If they
         respond, then add them to the peer set.
 
-        Return the list of peers added and the list of peers already known
+        Return the (list of peers added, the list of peers already known, list of peers ignored)
         """
 
         if self.ping_timeout is None:
@@ -2986,11 +2906,13 @@ class AtlasPeerCrawler( threading.Thread ):
         i = 0
         added = []
         present = []
+        filtered = []
         while i < len(new_peers) and cnt < min(count, len(new_peers)):
             peer = self.canonical_peer( new_peers[i] )
             i += 1
 
             if peer == self.my_hostport:
+                filtered.append(peer)
                 continue
 
             if peer in current_peers:
@@ -3004,27 +2926,30 @@ class AtlasPeerCrawler( threading.Thread ):
             res = atlas_peer_getinfo( peer, timeout=self.ping_timeout, peer_table=peer_table )
             if res is None:
                 # didn't respond
+                filtered.append(peer)
                 continue
 
             if not res.has_key('server_version'):
                 # too old
+                filtered.append(peer)
                 continue
 
             if semver_newer( res['server_version'], MIN_ATLAS_VERSION ):
                 # too old to be an atlas node
+                filtered.append(peer)
                 log.debug("%s is too old to be an atlas node (version %s)" % (peer, res['version']))
                 continue
 
             # TODO: check consensus hash as well
 
             if res:
-
                 log.debug("Add newly-discovered peer %s" % peer)
                 atlasdb_add_peer( peer, con=con, path=path, peer_table=peer_table )
+                added.append(peer)
+            else:
+                filtered.append(peer)
 
-            added.append(peer)
-
-        return added, present
+        return added, present, filtered
 
 
     def remove_unhealthy_peers( self, count, con=None, path=None, peer_table=None, min_request_count=10, min_health=MIN_PEER_HEALTH ):
@@ -3037,10 +2962,12 @@ class AtlasPeerCrawler( threading.Thread ):
         rank_peer_list = atlas_rank_peers_by_health( peer_table=peer_table, with_rank=True )
         for rank, peer in rank_peer_list:
             reqcount = atlas_peer_get_request_count( peer, peer_table=peer_table )
-            if reqcount >= min_request_count and rank < min_health:
+            if reqcount >= min_request_count and rank < min_health and not atlas_peer_is_whitelisted( peer, peer_table=peer_table ) and not atlas_peer_is_blacklisted( peer, peer_table=peer_table ):
                 removed.append( peer )
-                if len(removed) >= count:
-                    break
+
+        random.shuffle(removed)
+        if len(removed) > count:
+            removed = removed[:count]
 
         for peer in removed:
             log.debug("Remove unhealthy peer %s" % (peer))
@@ -3146,6 +3073,30 @@ class AtlasPeerCrawler( threading.Thread ):
 
         return current_peers
 
+    def canonical_new_peer_list( self, peers_to_add ):
+        """
+        Make a list of canonical new peers, using the
+        self.new_peers and the given peers to add
+
+        Return a shuffled list of canonicalized host:port
+        strings.
+        """
+        new_peers = list(set(self.new_peers + peers_to_add))
+        random.shuffle( new_peers )
+        
+        # canonicalize
+        tmp = []
+        for peer in new_peers:
+            tmp.append( self.canonical_peer(peer) )
+
+        new_peers = tmp
+
+        # don't talk to myself
+        if self.my_hostport in new_peers:
+            new_peers.remove(self.my_hostport)
+
+        return new_peers
+
 
     def update_new_peers( self, num_new_peers, current_peers, peer_queue=None, peer_table=None, con=None, path=None ):
         """
@@ -3161,29 +3112,16 @@ class AtlasPeerCrawler( threading.Thread ):
         # to make sure they're actually alive.
         peer_queue = atlas_peer_dequeue_all( peer_queue=peer_queue )
 
-        new_peers = list(set(self.new_peers + peer_queue))
-        random.shuffle( new_peers )
-
-        # canonicalize
-        tmp = []
-        for peer in new_peers:
-            tmp.append( self.canonical_peer(peer) )
-
-        new_peers = tmp
-
-        # don't talk to myself
-        if self.my_hostport in new_peers:
-            new_peers.remove(self.my_hostport)
+        new_peers = self.canonical_new_peer_list( peer_queue )
  
         # only handle a few peers for now
         log.debug("Add at most %s new peers out of %s options" % (num_new_peers, len(new_peers)))
-        added, present = self.add_new_peers( num_new_peers, new_peers, current_peers, con=con, path=path, peer_table=peer_table )
-        for peer in added + present:
+        added, present, filtered = self.add_new_peers( num_new_peers, new_peers, current_peers, con=con, path=path, peer_table=peer_table )
+        for peer in filtered:
             if peer in new_peers:
                 new_peers.remove(peer)
 
-            if peer in self.new_peers:
-                self.new_peers.remove(peer)
+        new_peers = self.canonical_new_peer_list( added )
 
         # DDoS prevention: don't let this get too big
         max_new_peers = atlas_max_new_peers( self.max_neighbors )
@@ -3367,7 +3305,7 @@ class AtlasHealthChecker( threading.Thread ):
         # who are we going to ping?
         # someone we haven't pinged in a while, chosen at random
         for peer in peer_hostports:
-            if not atlas_peer_has_fresh_zonefile_inventory( peer, local_inv=local_inv, peer_table=peer_table, con=con, path=path ):
+            if not atlas_peer_has_fresh_zonefile_inventory( peer, peer_table=peer_table ):
                 # haven't talked to this peer in a while
                 stale_peers.append(peer)
                 log.debug("Peer %s has a stale zonefile inventory" % peer)
