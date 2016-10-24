@@ -300,6 +300,8 @@ def nameop_snv_consensus_extra_quirks( extras, namerec, block_id ):
         log.debug("apply SNV QUIRK on %s: %s --> %s"  % (namerec.get('name', "UNKNOWN"), namerec['op_fee'], float(namerec['op_fee'])))
         extras['op_fee'] = float(namerec['op_fee'])
 
+    return extras
+
 
 def nameop_snv_consensus_extra( op_name, prev_name_rec, prev_block_id ):
     """
@@ -329,7 +331,7 @@ def nameop_snv_consensus_extra( op_name, prev_name_rec, prev_block_id ):
 
     method = SNV_CONSENSUS_EXTRA_METHODS[op_name]
     extras = method( prev_name_rec, prev_block_id, None )
-    nameop_snv_consensus_extra_quirks( extras, prev_name_rec, prev_block_id )
+    extras = nameop_snv_consensus_extra_quirks( extras, prev_name_rec, prev_block_id )
     return extras 
 
 
