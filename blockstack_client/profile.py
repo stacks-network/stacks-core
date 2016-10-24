@@ -642,7 +642,9 @@ def zonefile_data_publish(fqu, zonefile_txt, server_list, wallet_keys=None):
         try:
 
             log.debug("Replicate zonefile to %s:%s" % (server_host, server_port))
-            res = put_zonefiles( [base64.b64encode(zonefile_txt)] )
+            hostport = '{}:{}'.format(server_host, server_port)
+
+            res = put_zonefiles( hostport, [base64.b64encode(zonefile_txt)] )
             if 'error' in res or res['saved'][0] != 1:
                 log.error("Failed to publish zonefile to %s:%s: %s" % (server_host, server_port, res['error']))
                 continue
