@@ -1124,8 +1124,9 @@ def get_consensus_hashes(block_heights, proxy=None):
     resp = {}
     try:
         resp = proxy.get_consensus_hashes(block_heights)
-        resp = json_validate( schema, resp )
+        resp = json_validate( resp_schema, resp )
         if json_is_error(resp):
+            log.error("Failed to get consensus hashes for %s: %s" % (block_heights, resp['error']))
             return resp
 
     except ValidationError as e:
@@ -1141,10 +1142,11 @@ def get_consensus_hashes(block_heights, proxy=None):
     for h in consensus_hashes.keys():
         try:
             hint = int(h)
-            ret[hint] = resp[h]
+            ret[hint] = consensus_hashes[h]
         except:
             return {'error': 'Invalid data: expected int'}
-        
+       
+    log.debug("consensus hashes: %s" % ret)
     return ret
 
 
@@ -1338,7 +1340,33 @@ def get_op_history_rows( name, proxy=None ):
     }
 
     count_schema = {
-        'type': 'integer'
+        'type': 'object',
+        'properties': {
+            'status': {
+                'type': 'boolean'
+            },
+            'count': {
+                'type': 'integer'
+            },
+        },
+        'required': [
+            'status',
+            'count'
+        ],
+    }
+
+    resp_schema = {
+        'type': 'object',
+        'properties': {
+            'status': {
+                'type': 'boolean',
+            },
+            'history_rows': history_schema
+        },
+        'required': [
+            'status',
+            'history_rows'
+        ]
     }
 
     if proxy is None:
@@ -1357,16 +1385,17 @@ def get_op_history_rows( name, proxy=None ):
         return resp
 
     history_rows = []
+    history_rows_count = history_rows_count['count']
     page_size = 10
     while len(history_rows) < history_rows_count:
         resp = {}
         try:
             resp = proxy.get_op_history_rows(name, len(history_rows), page_size)
-            resp = json_validate( history_schema, resp )
+            resp = json_validate( resp_schema, resp )
             if json_is_error(resp):
                 return resp
 
-            history_rows += resp
+            history_rows += resp['history_rows']
         
             if os.environ.get("BLOCKSTACK_TEST", None) == "1":
                 if len(resp) != page_size:
@@ -1537,7 +1566,7 @@ def get_nameops_hash_at(block_id, proxy=None):
         'type': 'object',
         'properties': {
             'status': {
-                'type': 'bool',
+                'type': 'boolean',
             },
             'ops_hash': {
                 'type': 'string',
@@ -1761,7 +1790,8 @@ def get_zonefile_inventory( hostport, bit_offset, bit_count, timeout=30, my_host
     Return {'error': ...} on error
     """
 
-    base64_pattern = '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})$'
+    # NOTE: we want to match the empty string too
+    base64_pattern = '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$'
 
     schema = {
         'type': 'object',
@@ -1897,7 +1927,7 @@ def get_zonefiles( hostport, zonefile_hashes, timeout=30, my_hostport=None, prox
         if json_is_error( zf_payload ):
             return zf_payload 
 
-        for zf_hash, zf_data in zf_payload['zonefiles']:
+        for zf_hash, zf_data in zf_payload['zonefiles'].items():
             assert storage.verify_zonefile( zf_data, zf_hash ), "Zonefile data mismatch"
 
         zonefiles = zf_payload
