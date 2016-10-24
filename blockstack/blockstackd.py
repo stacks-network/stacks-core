@@ -448,6 +448,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 namespace_lifetime_multiplier = get_epoch_namespace_lifetime_multiplier( db.lastblock, namespace_id )
                 name_record['expire_block'] = max( namespace_record['ready_block'], name_record['last_renewed'] ) + namespace_record['lifetime'] * namespace_lifetime_multiplier
 
+            else:
+                name_record['expire_block'] = '-1'
+
             db.close()
             self.analytics("get_name_blockchain_record", {})
             return name_record
@@ -496,70 +499,96 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         return last_nameops
 
 
-    def rpc_get_records_at( self, block_id, **con_info ):
+    def rpc_get_op_history_rows( self, history_id, offset, count, **con_info ):
         """
-        Get the sequence of name and namespace records at the given block.
+        Get a page of history rows for a name or namespace
+        """
+        if offset < 0 or count < 0:
+            return {'error': 'Invalid offset, count'}
+
+        if count > 10:
+            return {'error': 'Count is too big'}
+
+        db = get_db_state()
+        history_rows = db.get_op_history_rows( history_id, offset, count )
+        db.close()
+        return history_rows
+
+
+    def rpc_get_num_op_history_rows( self, history_id, **con_info ):
+        """
+        Get the total number of history rows
+        """
+        db = get_db_state()
+        num_history_rows = db.get_num_op_history_rows( history_id )
+        db.close()
+        return num_history_rows
+
+
+    def rpc_get_nameops_affected_at( self, block_id, offset, count, **con_info ):
+        """
+        Get the sequence of name and namespace records affected at the given block.
+        The records returned will be in their *current* forms.  The caller
+        should use get_op_history_rows() to fetch the history delta that
+        can be used to restore the records to their *historic* forms i.e.
+        at the given block height.
+
         Returns the list of name operations to be fed into virtualchain.
         Used by SNV clients.
         """
         db = get_db_state()
 
-        prior_records = db.get_all_records_at( block_id, include_history=True )
+        if offset < 0 or count < 0:
+            return {'error': 'invalid page offset/length'}
+
+        if count > 10:
+            return {'error': 'Page too big'}
+
+        # do NOT restore, since we're paging
+        prior_records = db.get_all_ops_at( block_id, offset=offset, count=count, include_history=False, restore_history=False )
+        ret = prior_records
+        '''
         ret = []
         for rec in prior_records:
             restored_rec = rec_restore_snv_consensus_fields( rec, block_id )
             ret.append( restored_rec )
-        
+        '''
         db.close()
+        log.debug("%s name operations at block %s, offset %s, count %s" % (len(ret), block_id, offset, count))
         return ret
 
 
-    def rpc_get_nameops_at( self, block_id, **con_info ):
+    def rpc_get_num_nameops_affected_at( self, block_id, **con_info ):
         """
-        Old name for rpc_get_records_at
+        Get the number of name and namespace operations at the given block.
         """
-        return self.rpc_get_records_at( block_id )
+        db = get_db_state()
+        count = db.get_num_ops_at( block_id )
+        db.close()
+
+        log.debug("%s name operations at %s" % (count, block_id))
+        return count
 
 
-    def rpc_get_records_hash_at( self, block_id, **con_info ):
+    def rpc_get_nameops_hash_at( self, block_id, **con_info ):
         """
         Get the hash over the sequence of names and namespaces altered at the given block.
         Used by SNV clients.
         """
         db = get_db_state()
-
-        prior_recs = db.get_all_records_at( block_id, include_history=True )
-        if prior_recs is None:
-            prior_recs = []
-
-        restored_recs = []
-        for rec in prior_recs:
-            restored_rec = rec_restore_snv_consensus_fields( rec, block_id )
-            restored_recs.append( restored_rec )
-
-        # NOTE: extracts only the operation-given fields, and ignores ancilliary record fields
-        serialized_ops = [ virtualchain.StateEngine.serialize_op( str(op['op'][0]), op, BlockstackDB.make_opfields(), verbose=False ) for op in restored_recs ]
-
-        for serialized_op in serialized_ops:
-            log.debug("SERIALIZED (%s): %s" % (block_id, serialized_op))
-
-        ops_hash = virtualchain.StateEngine.make_ops_snapshot( serialized_ops )
-        log.debug("Serialized hash at (%s): %s" % (block_id, ops_hash))
-
-        db.close()
+        ops_hash = db.get_block_ops_hash( block_id )
         return ops_hash
-
-
-    def rpc_get_nameops_hash_at( self, block_id, **con_info ):
-        """
-        Old name for rpc_get_records_hash_at
-        """
-        return self.rpc_get_records_hash_at( block_id )
 
 
     def rpc_getinfo(self, **con_info):
         """
-        Get the number of blocks the
+        Get information from the running server:
+        * last_block_seen: the last block height seen
+        * consensus: the consensus hash for that block
+        * server_version: the server version
+        * last_block_processed: the last block processed
+        * server_alive: True
+        * [optional] zonefile_count: the number of zonefiles known
         """
         bitcoind_opts = blockstack_client.default_bitcoind_opts( virtualchain.get_config_filename(), prefix=True )
         bitcoind = get_bitcoind( new_bitcoind_opts=bitcoind_opts, new=True )
@@ -608,7 +637,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
     def rpc_get_name_cost( self, name, **con_info ):
         """
         Return the cost of a given name, including fees
-        Return value is in satoshis
+        Return value is in satoshis (as 'satoshis'
         """
 
         if type(name) not in [str, unicode]:
@@ -682,13 +711,20 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
     def rpc_get_all_names( self, offset, count, **con_info ):
         """
-        Return all names
+        Return all names, as a list.
         """
         if type(offset) not in [int, long]:
             return {'error': 'invalid offset'}
 
         if type(count) not in [int, long]:
             return {'error': 'invalid count'}
+
+        if offset < 0 or count < 0:
+            return {'error': 'invalid pages'}
+
+        # don't do more than 100 at a time 
+        if count > 100:
+            return {'error': 'count is too big'}
 
         # are we doing our initial indexing?
         if is_indexing():
@@ -725,6 +761,9 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         if type(count) not in [int, long]:
             return {'error': 'invalid count'}
+
+        if offset < 0 or count < 0:
+            return {'error': 'invalid pages'}
 
         if not is_namespace_valid( namespace_id ):
             return {'error': 'invalid namespace ID'}
