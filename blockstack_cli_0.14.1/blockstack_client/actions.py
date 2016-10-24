@@ -729,12 +729,12 @@ def cli_lookup( args, config_path=CONFIG_PATH ):
     if blockchain_record.has_key('revoked') and blockchain_record['revoked']:
         return {'error': 'Name is revoked.  Use get_name_blockchain_record for details.'}
     try:
-        user_profile, user_zonefile = get_name_profile(str(args.name), name_record=blockchain_record)
-        if 'error' in user_zonefile:
+        user_profile, user_zonefile = get_name_profile(str(args.name), name_record=blockchain_record, include_raw_zonefile=True)
+        if isinstance(user_zonefile, dict) and 'error' in user_zonefile:
             return user_zonefile
 
         data['profile'] = user_profile
-        data['zonefile'] = user_zonefile
+        data['zonefile'] = user_zonefile['raw_zonefile']
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to look up name\n%s' % traceback.format_exc()}
@@ -2318,9 +2318,16 @@ def cli_advanced_lookup_snv( args, config_path=CONFIG_PATH ):
 def cli_advanced_get_name_zonefile( args, config_path=CONFIG_PATH ):
     """
     command: get_name_zonefile
-    help: Get a name's zonefile, as a JSON dict
+    help: Get a name's zonefile
     arg: name (str) "The name to query"
+    opt: json (str) "If 'true' is given, try to parse as JSON"
     """
+    parse_json = getattr(args, 'json', 'false')
+    if parse_json.lower() in ['true', '1']:
+        parse_json = True
+    else:
+        parse_json = False
+
     result = get_name_zonefile(str(args.name), raw_zonefile=True)
     if result is None:
         return {'error': 'Failed to get zonefile'}
@@ -2331,16 +2338,15 @@ def cli_advanced_get_name_zonefile( args, config_path=CONFIG_PATH ):
     if 'zonefile' not in result:
         return {'error': 'No zonefile data'}
 
-    old_zonefile = result['zonefile']
+    if parse_json:
+        # try to parse
+        try:
 
-    # try to parse
-    try:
-
-        new_zonefile = blockstack_zones.parse_zone_file( result['zonefile'] )
-        assert new_zonefile is not None
-        result['zonefile'] = new_zonefile
-    except:
-        result['warning'] = 'Non-standard zonefile'
+            new_zonefile = blockstack_zones.parse_zone_file( result['zonefile'] )
+            assert new_zonefile is not None
+            result['zonefile'] = new_zonefile
+        except:
+            result['warning'] = 'Non-standard zonefile'
 
     return result
 
@@ -2372,8 +2378,8 @@ def cli_advanced_get_all_names( args, config_path=CONFIG_PATH ):
     opt: offset (int) "The offset into the sorted list of names"
     opt: count (int) "The number of names to return"
     """
-    offset = -1
-    count = -1
+    offset = None
+    count = None
 
     if args.offset is not None:
         offset = int(args.offset)
@@ -2381,7 +2387,7 @@ def cli_advanced_get_all_names( args, config_path=CONFIG_PATH ):
     if args.count is not None:
         count = int(args.count)
 
-    result = get_all_names(offset, count)
+    result = get_all_names(offset=offset, count=count)
     return result
 
 
@@ -2393,8 +2399,8 @@ def cli_advanced_get_names_in_namespace( args, config_path=CONFIG_PATH ):
     opt: offset (int) "The offset into the sorted list of names"
     opt: count (int) "The number of names to return"
     """
-    offset = -1
-    count = -1
+    offset = None
+    count = None
 
     if args.offset is not None:
         offset = int(args.offset)
