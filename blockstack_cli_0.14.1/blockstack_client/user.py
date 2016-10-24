@@ -470,7 +470,8 @@ def get_immutable_data_hash( user_zonefile, data_id ):
            if ret is None:
                ret = h
            elif type(ret) != list:
-               ret = [ret]
+               ret = [ret, h]
+           else:
                ret.append(h)
 
    return ret
