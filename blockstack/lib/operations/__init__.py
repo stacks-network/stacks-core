@@ -267,10 +267,18 @@ def op_snv_consensus_extra_quirks( extras, namerec, block_id, commit, db ):
     Given the set of arguments to snv_consensus_extras, apply any
     op-specific quirks that are needed to preserve backwards compatibility
     """
-
+    return blockstack_client.operations.nameop_snv_consensus_extra_quirks( extras, namerec, block_id )
+    '''
     last_creation_opcode = None
     if namerec.has_key('name'):
         last_creation_opcode = db.get_name_last_creation_opcode( namerec['name'], block_number=block_id )
+    '''
+    '''
+    last_creation_op = namerec.get('last_creation_op', None)
+    last_creation_opcode = None
+
+    if last_creation_op is not None:
+        last_creation_opcode = OPCODE_NAMES.get(last_creation_op, None)
 
     if last_creation_opcode is None:
         if namerec['op'] == NAME_IMPORT:
@@ -286,16 +294,24 @@ def op_snv_consensus_extra_quirks( extras, namerec, block_id, commit, db ):
     if namerec.has_key('name') and last_creation_opcode == 'NAME_IMPORT':
         log.debug("apply SNV QUIRK on %s: %s --> %s"  % (namerec.get('name', "UNKNOWN"), namerec['op_fee'], float(namerec['op_fee'])))
         extras['op_fee'] = float(namerec['op_fee'])
-
+    '''
 
 def op_make_restore_diff_quirks( diff, op_name, cur_rec, prev_block_number, history_index, untrusted_db ):
     """
     Given the set of arguments to restore_diff, apply any op-specific quirks
     that are needed to preserve backwards compatibility
     """
+    """
     last_creation_opcode = None
     if cur_rec.has_key('name'):
         last_creation_opcode = untrusted_db.get_name_last_creation_opcode( cur_rec['name'], block_number=prev_block_number, history_index=history_index )
+    """
+
+    last_creation_op = cur_rec.get('last_creation_op', None)
+    last_creation_opcode = None
+
+    if last_creation_op is not None:
+        last_creation_opcode = OPCODE_NAMES.get(last_creation_op, None)
 
     if last_creation_opcode is None:
         if cur_rec['op'] == NAME_IMPORT:
@@ -474,7 +490,6 @@ def op_snv_consensus_extra( op_name, prev_name_rec, prev_block_id, db ):
     Return the extra conesnsus fields on success.
     Return None on error.
     """
-
     global SNV_CONSENSUS_EXTRA_METHODS 
 
     if op_name not in SNV_CONSENSUS_EXTRA_METHODS.keys():
@@ -482,7 +497,8 @@ def op_snv_consensus_extra( op_name, prev_name_rec, prev_block_id, db ):
 
     method = SNV_CONSENSUS_EXTRA_METHODS[op_name]
     extras = method( prev_name_rec, prev_block_id, None, db )
-    op_snv_consensus_extra_quirks( extras, prev_name_rec, prev_block_id, False, db )
+    extras = blockstack_client.operations.nameop_snv_consensus_extra_quirks( extras, prev_name_rec, prev_block_id )
+    # op_snv_consensus_extra_quirks( extras, prev_name_rec, prev_block_id, False, db )
     return extras 
 
 
@@ -505,7 +521,8 @@ def op_commit_consensus_extra( op_name, committed_name_rec, blockchain_name_data
     commit_fields = SERIALIZE_FIELDS[op_name]
 
     extras = method( committed_name_rec, block_id, blockchain_name_data, db )
-    op_snv_consensus_extra_quirks( extras, committed_name_rec, block_id, True, db )
+    extras = blockstack_client.operations.nameop_snv_consensus_extra_quirks( extras, committed_name_rec, block_id )
+    # extras = op_snv_consensus_extra_quirks( extras, committed_name_rec, block_id, True, db )
 
     commit_extras = {}
     for cf in commit_fields + ['__override__']:
