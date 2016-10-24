@@ -738,13 +738,16 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
         chs = {}
         if len(to_fetch) > 0:
             chs = get_consensus_hashes( to_fetch, proxy=proxy )
+            if 'error' in chs:
+                log.error("Failed to get consensus hashes for %s: %s" % (to_fetch, chs['error']))
+                return {'error': 'Failed to get consensus hashes'}
 
         prev_consensus_block_ids = []
         for b in ch_block_ids:
 
             # NOTE: we process to_fetch *in decreasing order* so we know when we're missing data
             if not chs.has_key(b) and not prev_consensus_hashes.has_key(b):
-                log.error("Missing consensus hash response for %s" % b)
+                log.error("Missing consensus hash response for %s (chs=%s, prev_chs=%s)" % (b, chs, prev_consensus_hashes))
                 return {'error': "Server did not reply valid data"}
 
             prev_consensus_block_ids.append(b)
@@ -791,6 +794,7 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
     # get the final nameops
     historic_nameops = get_nameops_at(block_id, proxy=proxy)
     if type(historic_nameops) == dict and 'error' in historic_nameops:
+        log.error("Failed to get nameops at %s: %s" % (block_id, historic_nameops['error']))
         return {'error': 'BUG: no nameops found'}
 
     # sanity check...
