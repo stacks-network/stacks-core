@@ -137,6 +137,22 @@ NAME_OPCODES = {
     "ANNOUNCE": ANNOUNCE
 }
 
+# borrowed from Blockstack Core
+# these never change, so it's fine to duplicate them herd
+OPCODE_NAMES = {
+    NAME_PREORDER: "NAME_PREORDER",
+    NAME_REGISTRATION: "NAME_REGISTRATION",
+    NAME_UPDATE: "NAME_UPDATE",
+    NAME_TRANSFER: "NAME_TRANSFER",
+    NAME_RENEWAL: "NAME_REGISTRATION",
+    NAME_REVOKE: "NAME_REVOKE",
+    NAME_IMPORT: "NAME_IMPORT",
+    NAMESPACE_PREORDER: "NAMESPACE_PREORDER",
+    NAMESPACE_REVEAL: "NAMESPACE_REVEAL",
+    NAMESPACE_READY: "NAMESPACE_READY",
+    ANNOUNCE: "ANNOUNCE"
+}
+
 # borrowed from Blockstack Core; needed by SNV
 # these never change, so it's fine to duplicate them here
 NAMEREC_FIELDS = [
@@ -212,7 +228,7 @@ OPFIELDS = {
         'ready_block',      # block number at which the namespace was readied
     ],
     NAME_PREORDER: [
-         'preorder_name_hash',  # hash(name,sender,register_addr)
+         'preorder_hash',       # hash(name,sender,register_addr)
          'consensus_hash',      # consensus hash at time of send
          'sender',              # scriptPubKey hex that identifies the principal that issued the preorder
          'sender_pubkey',       # if sender is a pubkeyhash script, then this is the public key.  Otherwise, this is empty.
@@ -235,7 +251,7 @@ OPFIELDS = {
         'keep_data'             # whether or not to keep the profile data associated with the name when transferred
     ],
     NAME_UPDATE: NAMEREC_FIELDS + [
-        'name_hash128',         # hash(name,consensus_hash)
+        'name_consensus_hash',  # hash(name,consensus_hash)
         'consensus_hash'        # consensus hash when this update was sent
     ]
 }
@@ -338,6 +354,25 @@ SUPPORTED_UTXO_PROMPT_MESSAGES = {
     "blockstack_utxo": "Please enter your Blockstack server info."
 }
 
+
+# NOTE: duplicated from blockstack-core
+def op_get_opcode_name( op_string ):
+    """
+    Get the name of an opcode, given the operation's 'op' byte sequence.
+    """
+    global OPCODE_NAMES
+
+    # special case...
+    if op_string == "%s:" % NAME_REGISTRATION:
+        return "NAME_RENEWAL"
+
+    op = op_string[0]
+    if op not in OPCODE_NAMES.keys():
+        raise Exception("No such operation '%s'" % op)
+
+    return OPCODE_NAMES[op]
+
+
 def url_to_host_port( url, port=DEFAULT_BLOCKSTACKD_PORT ):
     """
     Given a URL, turn it into (host, port).
@@ -363,6 +398,7 @@ def url_to_host_port( url, port=DEFAULT_BLOCKSTACKD_PORT ):
     if len(parts) == 2:
         try:
             port = int(parts[1])
+            assert port > 0 and port < 65535, "Invalid port"
         except:
             return (None, None)
 
