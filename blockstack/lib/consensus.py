@@ -123,12 +123,6 @@ def rec_restore_snv_consensus_fields( name_rec, block_id ):
     if ret_op is None:
         raise Exception("Failed to derive extra consensus fields for '%s'" % opcode_name)
    
-    '''
-    ret_op = virtualchain.virtualchain_set_opfields( ret_op, \
-                                                     virtualchain_opcode=getattr( config, opcode_name ), \
-                                                     virtualchain_txid=str(name_rec['txid']), \
-                                                     virtualchain_txindex=int(name_rec['vtxindex']) )
-    '''
     ret_op['opcode'] = opcode_name
 
     merged_op = copy.deepcopy( name_rec )
@@ -148,7 +142,7 @@ def block_to_virtualchain_ops( block_id, working_db, untrusted_db ):
     """
 
     # all records altered at this block, in tx order, as they were
-    prior_recs = untrusted_db.get_all_records_at( block_id )
+    prior_recs = untrusted_db.get_all_ops_at( block_id )
     log.debug("Records at %s: %s" % (block_id, len(prior_recs)))
     virtualchain_ops = []
 
