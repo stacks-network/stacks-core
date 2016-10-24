@@ -708,6 +708,24 @@ class BlockstackDB( virtualchain.StateEngine ):
         return name_snapshots
 
 
+    def get_op_history_rows( self, history_id, offset, count ):
+        """
+        Get the list of history rows for a name or namespace, with the given
+        offset and count.
+        Returns the list of history rows
+        """
+        cur = self.db.cursor()
+        return namedb_get_history_rows( cur, history_id, offset=offset, count=count )
+
+
+    def get_num_op_history_rows( self, history_id ):
+        """
+        How many history rows are there for this name or namespace?
+        """
+        cur = self.db.cursor()
+        return namedb_get_num_history_rows( cur, history_id )
+        
+
     def get_last_nameops( self, offset, count ):
         """
         Read the $count previous entries in the history, starting at $offset.
@@ -719,14 +737,31 @@ class BlockstackDB( virtualchain.StateEngine ):
         return recs
 
 
-    def get_all_records_at( self, block_number, include_history=False ):
+    def get_all_ops_at( self, block_number, include_history=False, offset=None, count=None, restore_history=True ):
         """
         Get all records affected at a particular block,
         in the state they were at the given block number.
+
+        Paginate if offset, count are given.
         """
-        recs = namedb_get_all_records_at( self.db, block_number, include_history=include_history )
+        log.debug("Get all ops at %s in %s" % (block_number, self.db_filename))
+        recs = namedb_get_all_ops_at( self.db, block_number, include_history=include_history, offset=offset, count=count, restore_history=restore_history )
+
+        # include opcode 
+        for rec in recs:
+            assert 'op' in rec
+            rec['opcode'] = op_get_opcode_name(rec['op'])
+
         return recs
-        
+       
+
+    def get_num_ops_at( self, block_number ):
+        """
+        Get the number of name operations at a particular block.
+        """
+        count = namedb_get_num_ops_at( self.db, block_number )
+        return count
+
 
     def get_name_from_name_hash128( self, name ):
         """
@@ -949,7 +984,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         Return [{'name': name, 'value_hash': value_hash, 'txid': txid}]
         """
-        nameops = self.get_all_records_at( block_id )
+        nameops = self.get_all_ops_at( block_id )
         ret = []
         for nameop in nameops:
             if nameop.has_key('op') and nameop['op'] in [NAME_UPDATE, NAME_IMPORT]:
@@ -1018,6 +1053,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         return self.announce_ids
 
 
+    '''
     def get_name_last_creation_opcode( self, name, block_number=None, history_index=None, include_expired=False ):
         """
         Get the last state-creating opcode for this name as of the given block number.  I.e. an import, a preorder.
@@ -1053,7 +1089,7 @@ class BlockstackDB( virtualchain.StateEngine ):
                     return op_get_opcode_name(old_name['op'])
 
         return None 
-
+    '''
 
     def is_name_expired( self, name, block_number ):
         """
@@ -1244,13 +1280,17 @@ class BlockstackDB( virtualchain.StateEngine ):
         If @blockchain_name_data is given, then find only the values that will be written to the DB
         Otherwise, find all values that will go into checking the operation.
         """
-        
+       
+        log.debug("add all consensus values for %s at %s" % (opcode, current_block_number))
+
         consensus_extra = None 
         
         if blockchain_name_data is not None:
             consensus_extra = op_commit_consensus_extra( opcode, new_nameop, blockchain_name_data, current_block_number, self )
         else:
             consensus_extra = op_snv_consensus_extra( opcode, new_nameop, current_block_number, self )
+
+        log.debug("consensus_extra: %s" % consensus_extra)
 
         # must be non-conflicting, unless explicitly set otherwise
         overwrites = []
@@ -1259,10 +1299,13 @@ class BlockstackDB( virtualchain.StateEngine ):
                 if new_nameop[k] != consensus_extra[k] and not op_commit_consensus_has_override( consensus_extra, k ):
                     overwrites.append(k)
 
+        log.debug("overwrites: %s" % overwrites)
+
         try:
             assert len(overwrites) == 0, "Derived consensus fields overwrites transaction data: %s" % ",".join(["%s: %s -> %s" % (o, new_nameop[o], consensus_extra[o]) for o in overwrites])
         except Exception, e:
             log.exception(e)
+            traceback.print_stack()
             log.error("FATAL: BUG: tried to overwrite consensus data %s".join(overwrites))
             log.debug("new_nameop:\n%s\n" % json.dumps(new_nameop, indent=4, sort_keys=True))
             log.debug("blockchain_name_data:\n%s\n" % json.dumps(blockchain_name_data, indent=4, sort_keys=True))
@@ -1403,7 +1446,7 @@ class BlockstackDB( virtualchain.StateEngine ):
     def commit_state_create( self, nameop, current_block_number ):
         """
         Commit a state-creation operation (works for name_registration,
-        namespace_reveal, name_registration_multi, name_import).
+        namespace_reveal, name_import).
 
         DO NOT CALL THIS DIRECTLY
         """
@@ -1680,4 +1723,52 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         del rec['history']
         return namespace_rec_prev
+
+
+    @classmethod 
+    def calculate_block_ops_hash( cls, db_state, block_id ):
+        """
+        Get the hash of the sequence of operations that occurred in a particular block.
+        Return the hash on success.
+        """
+
+        from ..consensus import rec_restore_snv_consensus_fields
+
+        # calculate the ops hash and save that
+        prior_recs = db_state.get_all_ops_at( block_id, include_history=True )
+        if prior_recs is None:
+            prior_recs = []
+
+        restored_recs = []
+        for rec in prior_recs:
+            restored_rec = rec_restore_snv_consensus_fields( rec, block_id )
+            restored_recs.append( restored_rec )
+
+        # NOTE: extracts only the operation-given fields, and ignores ancilliary record fields
+        serialized_ops = [ virtualchain.StateEngine.serialize_op( str(op['op'][0]), op, BlockstackDB.make_opfields(), verbose=True ) for op in restored_recs ]
+        ops_hash = virtualchain.StateEngine.make_ops_snapshot( serialized_ops )
+
+        return ops_hash
+
+
+    def store_block_ops_hash( self, block_id, ops_hash ):
+        """
+        Store the operation hash for a block ID, calculated from
+        @calculate_block_ops_hash.
+        """
+        cur = self.db.cursor()
+        namedb_set_block_ops_hash( cur, block_id, ops_hash )
+        self.db.commit()
+            
+        log.debug("ops hash at %s is %s" % (block_id, ops_hash))
+        return True
+
+
+    def get_block_ops_hash( self, block_id ):
+        """
+        Get the block's operations hash
+        """
+        cur = self.db.cursor()
+        ops_hash = namedb_get_block_ops_hash( cur, block_id )
+        return ops_hash
 
