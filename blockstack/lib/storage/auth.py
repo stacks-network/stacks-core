@@ -34,14 +34,6 @@ from blockstack_client import hash_zonefile, get_zonefile_data_hash
 log = virtualchain.get_logger("blockstack-server")
 
 
-def serialize_zonefile( zonefile_data ):
-    """
-    Serialize a zonefile to string
-    """
-    
-    zonefile_txt = blockstack_zones.make_zone_file( zonefile_data )
-    return zonefile_txt
-
 
 def verify_zonefile( zonefile_str, value_hash ):
     """
