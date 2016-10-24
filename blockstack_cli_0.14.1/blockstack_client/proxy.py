@@ -354,13 +354,9 @@ NAMESPACE_SCHEMA_PROPERTIES = {
 NAMEOP_SCHEMA_REQUIRED = [
     'address',
     'block_number',
-    'first_registered',
-    'last_renewed',
-    'name',
     'op',
     'op_fee',
     'opcode',
-    'revoked',
     'sender',
     'txid',
     'vtxindex'
@@ -757,20 +753,34 @@ def get_namespace_cost(namespace_id, proxy=None):
     return resp
 
 
-def get_all_names(offset, count, proxy=None):
+def get_all_names_page(offset, count, proxy=None):
     """
-    get all names
+    get a page of all the names
     Returns the list of names on success
     Returns {'error': ...} on error
     """
 
     schema = {
-        'type': 'array',
-        'items': {
-            'type': 'string',
-            'uniqueItems': True
-        }
+        'type': 'object',
+        'properties': {
+            'status': {
+                'type': 'boolean',
+            },
+            'names': {
+                'type': 'array',
+                'items': {
+                    'type': 'string',
+                    'uniqueItems': True
+                },
+            },
+        },
+        'required': [
+            'status',
+            'names',
+        ],
     }
+
+    assert count <= 100, "Page too big: %s" % count
 
     if proxy is None:
         proxy = get_default_proxy()
@@ -779,26 +789,120 @@ def get_all_names(offset, count, proxy=None):
     try:
         resp = proxy.get_all_names(offset, count)
         resp = json_validate( schema, resp )
+        if json_is_error(resp):
+            return resp
+
+        # must be valid names
+        for n in resp['names']:
+            assert scripts.is_name_valid(str(n)), ("Invalid name '%s'" % str(n))
+
     except ValidationError as e:
+        log.exception(e)
         resp = json_traceback(resp.get('error'))
+        return resp
 
-    return resp
+    return resp['names']
 
 
-def get_names_in_namespace(namespace_id, offset, count, proxy=None):
+def get_num_names( proxy=None ):
     """
-    Get names in a namespace
+    Get the number of names
+    Return {'error': ...} on failure
+    """
+
+    count_schema = {
+        'type': 'object',
+        'properties': {
+            'status': {
+                'type': 'boolean',
+            },
+            'count': {
+                'type': 'integer',
+            },
+        },
+        'required': [
+            'status',
+            'count',
+        ],
+    }
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    resp = {}
+    try:
+        resp = proxy.get_num_names()
+        resp = json_validate( count_schema, resp )
+        if json_is_error(resp):
+            return resp
+
+    except ValidationError as e:
+        log.exception(e)
+        resp = json_traceback(resp.get('error'))
+        return resp
+
+    return resp['count']
+
+
+def get_all_names( offset=None, count=None, proxy=None ):
+    """
+    Get all names within the given range.
+    Return the list of names on success
+    Return {'error': ...} on failure
+    """
+    offset = 0 if offset is None else offset
+    proxy = get_default_proxy() if proxy is None else proxy
+
+    if count is None:
+        # get all names after this offset
+        count = get_num_names( proxy=proxy )
+        if json_is_error(count):
+            # error
+            return count
+
+        count -= offset
+
+    page_size = 100
+    all_names = []
+    while len(all_names) < count:
+        page = get_all_names_page( offset + len(all_names), page_size, proxy=proxy )
+        if json_is_error(page):
+            # error
+            return page
+
+        all_names += page
+
+    return all_names
+
+
+def get_names_in_namespace_page(namespace_id, offset, count, proxy=None):
+    """
+    Get a page of names in a namespace
     Returns the list of names on success
     Returns {'error': ...} on error
     """
 
     schema = {
-        'type': 'array',
-        'items': {
-            'type': 'string',
-            'uniqueItems': True
-        }
+        'type': 'object',
+        'properties': {
+            'status': {
+                'type': 'boolean',
+            },
+            'names': {
+                'type': 'array',
+                'items': {
+                    'type': 'string',
+                    'uniqueItems': True
+                },
+            },
+        },
+        'required': [
+            'status',
+            'names',
+        ],
     }
+
+    assert count <= 100, "Page too big: %s" % count
 
     if proxy is None:
         proxy = get_default_proxy()
@@ -810,14 +914,85 @@ def get_names_in_namespace(namespace_id, offset, count, proxy=None):
         if json_is_error(resp):
             return resp
 
-        # must be valid namespace IDs 
-        for n in resp:
-            assert scripts.is_namespace_valid(n), "Invalid namespace"
+        # must be valid names
+        for n in resp['names']:
+            assert scripts.is_name_valid(str(n)), ("Invalid name %s" % str(n))
 
     except (ValidationError, AssertionError) as e:
+        log.exception(e)
         resp = json_traceback(resp.get('error'))
+        return resp
 
-    return resp
+    return resp['names']
+
+
+def get_num_names_in_namespace( namespace_id, proxy=None ):
+    """
+    Get the number of names in a namespace
+    Returns the count on success
+    Returns {'error': ...} on error
+    """
+
+    schema = {
+        'type': 'object',
+        'properties': {
+            'status': {
+                'type': 'boolean'
+            },
+            'count': {
+                'type': 'integer'
+            },
+        },
+        'required': [
+            'status', 
+            'count',
+        ],
+    }
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    resp = {}
+    try:
+        resp = proxy.get_num_names_in_namespace( namespace_id )
+        resp = json_validate( schema, resp )
+        if json_is_error(resp):
+            return resp
+
+    except ValidationError as e:
+        log.exception(e)
+        resp = json_traceback(resp.get('error'))
+        return resp
+
+    return resp['count']
+
+
+def get_names_in_namespace( namespace_id, offset=None, count=None, proxy=None ):
+    """
+    Get all names in a namespace
+    Returns the list of names on success
+    Returns {'error': ..} on error
+    """
+    offset = 0 if offset is None else offset
+    if count is None:
+        # get all names in this namespace after this offset
+        count = get_num_names_in_namespace(namespace_id, proxy=proxy)
+        if json_is_error(count):
+            return count
+
+        count -= offset
+
+    page_size = 100
+    all_names = []
+    while len(all_names) < count:
+        page = get_names_in_namespace_page( namespace_id, offset + len(all_names), page_size, proxy=proxy )
+        if json_is_error(page):
+            # error
+            return page
+
+        all_names += page
+
+    return all_names
 
 
 def get_names_owned_by_address(address, proxy=None):
@@ -828,17 +1003,29 @@ def get_names_owned_by_address(address, proxy=None):
     """
 
     schema = {
-        'type': 'array',
-        'items': {
-            'type': 'string',
-            'uniqueItems': True
-        }
+        'type': 'object',
+        'properties': {
+            'status': {
+                'type': 'boolean',
+            },
+            'names': {
+                'type': 'array',
+                'items': {
+                    'type': 'string',
+                    'uniqueItems': True
+                },
+            },
+        },
+        'required': [
+            'status',
+            'names',
+        ],
     }
 
     if proxy is None:
         proxy = get_default_proxy()
 
-    resp = {}
+    resp = []
     try:
         resp = proxy.get_names_owned_by_address(address)
         resp = json_validate( schema, resp )
@@ -846,13 +1033,15 @@ def get_names_owned_by_address(address, proxy=None):
             return resp
         
         # names must be valid 
-        for n in resp:
-            assert scripts.is_name_valid(n), "Invalid name"
+        for n in resp['names']:
+            assert scripts.is_name_valid(str(n)), ("Invalid name '%s'" % str(n))
 
     except (ValidationError, AssertionError) as e:
+        log.exception(e)
         resp = json_traceback(resp.get('error'))
+        return resp
 
-    return resp
+    return resp['names']
 
 
 def get_consensus_at(block_height, proxy=None):
@@ -861,9 +1050,23 @@ def get_consensus_at(block_height, proxy=None):
     Returns the consensus hash on success
     Returns {'error': ...} on error
     """
-    schema = {
+    consensus_schema = {
         'type': 'string',
         'pattern': OP_CONSENSUS_HASH_PATTERN,
+    }
+
+    resp_schema = {
+        'type': 'object',
+        'properties': {
+            'status': {
+                'type': 'boolean',
+            },
+            'consensus': consensus_schema,
+        },
+        'required': [
+            'status',
+            'consensus'
+        ],
     }
 
     if proxy is None:
@@ -872,18 +1075,15 @@ def get_consensus_at(block_height, proxy=None):
     resp = {}
     try:
         resp = proxy.get_consensus_at(block_height)
-        if isinstance(resp, list):
-            if len(resp) == 0:
-                resp = {'error': 'No data returned'}
-                return resp
-            else:
-                resp = resp[0]
+        resp = json_validate( resp_schema, resp )
+        if json_is_error(resp):
+            return resp
 
-        resp = json_validate( schema, resp )
     except (ValidationError, AssertionError) as e:
         resp = json_traceback(resp.get('error'))
+        return resp
 
-    return resp
+    return resp['consensus']
 
 
 def get_consensus_hashes(block_heights, proxy=None):
@@ -894,7 +1094,7 @@ def get_consensus_hashes(block_heights, proxy=None):
     Returns {'error': ...} on error
     """
 
-    schema = {
+    consensus_hashes_schema = {
         'type': 'object',
         'patternProperties': {
             '^([0-9]+)$': {
@@ -903,6 +1103,20 @@ def get_consensus_hashes(block_heights, proxy=None):
             },
         },
     }
+
+    resp_schema = {
+        'type': 'object',
+        'properties': {
+            'status': {
+                'type': 'boolean'
+            },
+            'consensus_hashes': consensus_hashes_schema
+        },
+        'required': [
+            'status',
+            'consensus_hashes'
+        ],
+    }
     
     if proxy is None:
         proxy = get_default_proxy()
@@ -910,12 +1124,6 @@ def get_consensus_hashes(block_heights, proxy=None):
     resp = {}
     try:
         resp = proxy.get_consensus_hashes(block_heights)
-        if isinstance(resp, list):
-            if len(resp) == 0:
-                resp = {'error': 'No data returned'}
-            else:
-                resp = resp[0]
-
         resp = json_validate( schema, resp )
         if json_is_error(resp):
             return resp
@@ -924,14 +1132,13 @@ def get_consensus_hashes(block_heights, proxy=None):
         resp = json_traceback(resp.get('error'))
         return resp
 
-    if not isinstance(resp, dict):
-        return {'error': 'Invalid data: expected dict'}
+    consensus_hashes = resp['consensus_hashes']
 
     # hard to express as a JSON schema, but the format is thus:
     # { block_height (str): consensus_hash (str) }
     # need to convert all block heights to ints
     ret = {}
-    for h in resp.keys():
+    for h in consensus_hashes.keys():
         try:
             hint = int(h)
             ret[hint] = resp[h]
@@ -957,13 +1164,106 @@ def get_consensus_range(block_id_start, block_id_end, proxy=None):
     return ch_range
 
 
+def get_name_history_blocks( name, proxy=None ):
+    """
+    Get the list of blocks at which this name was affected.
+    Returns the list of blocks on success
+    Returns {'error': ...} on error
+    """
+    hist_schema = {
+        'type': 'array',
+        'items': {
+            'type': 'integer',
+        },
+    }
+
+    resp_schema = {
+        'type': 'object',
+        'properties': {
+            'status': {
+                'type': 'boolean',
+            },
+            'history_blocks': hist_schema
+        },
+        'required': [
+            'status',
+            'history_blocks'
+        ],
+    }
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    resp = {}
+    try:
+        resp = proxy.get_name_history_blocks( name )
+        resp = json_validate( resp_schema, resp )
+        if json_is_error(resp):
+            return resp
+
+    except ValidationError as e:
+        resp = json_traceback(resp.get('error'))
+        return resp
+
+    return resp['history_blocks']
+
+
+def get_name_at( name, block_id, proxy=None ):
+    """
+    Get the name as it was at a particular height.
+    Returns the name record states on success (an array)
+    Returns {'error': ...} on error
+    """
+    namerec_schema = {
+        'type': 'object',
+        'properties': NAMEOP_SCHEMA_PROPERTIES,
+        'required': NAMEOP_SCHEMA_REQUIRED
+    }
+
+    resp_schema = {
+        'type': 'object',
+        'properties': {
+            'status': {
+                'type': 'boolean',
+            },
+            'records': {
+                'type': 'array',
+                'items': namerec_schema
+            },
+        },
+        'required': [
+            'status',
+            'records'
+        ],
+    }
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    resp = {}
+    try:
+        resp = proxy.get_name_at( name, block_id )
+        resp = json_validate( resp_schema, resp )
+        if json_is_error(resp):
+            return resp
+
+    except ValidationError as e:
+        log.exception(e)
+        resp = json_traceback(resp.get('error'))
+        return resp
+
+    return resp['records']
+
+
 def get_name_blockchain_history(name, start_block, end_block, proxy=None):
     """
     Get the name's historical blockchain records.
-    Returns the list of states the name has been in on success
+    Returns the list of states the name has been in on success, as a dict,
+    mapping {block_id: [states]}
+
     Returns {'error': ...} on error
     """
-    schema_per_block = {
+    block_history_schema = {
         'type': 'array',
         'items': {
             'type': 'object',
@@ -975,20 +1275,24 @@ def get_name_blockchain_history(name, start_block, end_block, proxy=None):
     if proxy is None:
         proxy = get_default_proxy()
 
-    resp = {}
-    try:
-        resp = proxy.get_name_blockchain_history(name, start_block, end_block)
+    history_blocks = get_name_history_blocks( name, proxy=proxy )
+    if json_is_error(history_blocks):
+        # error
+        return history_blocks
 
-        for block_height in resp.keys():
-            block_height_i = int(block_height)      # make sure this string encodes an int
-            block_resp = json_validate( schema_per_block, resp[block_height] )
-            if json_is_error(block_resp):
-                return block_resp
+    query_blocks = filter( lambda b: b >= start_block and b <= end_block, history_blocks )
+    query_blocks.sort()
+    ret = {}
 
-    except ValidationError as e:
-        resp = json_traceback(resp.get('error'))
+    for qb in query_blocks:
+        name_at = get_name_at( name, qb )
+        if json_is_error(name_at):
+            # error
+            return name_at
 
-    return resp
+        ret[qb] = name_at
+
+    return ret
 
 
 def get_op_history_rows( name, proxy=None ):
@@ -1100,8 +1404,34 @@ def get_nameops_affected_at( block_id, proxy=None ):
         }
     }
 
+    nameop_schema = {
+        'type': 'object',
+        'properties': {
+            'status': {
+                'type': 'boolean',
+            },
+            'nameops': nameop_history_schema,
+        },
+        'required': [
+            'status',
+            'nameops',
+        ],
+    }
+
     count_schema = {
-        'type': 'integer'
+        'type': 'object',
+        'properties': {
+            'status': {
+                'type': 'boolean',
+            },
+            'count': {
+                'type': 'integer'
+            },
+        },
+        'required': [
+            'status',
+            'count',
+        ],
     }
 
     if proxy is None:
@@ -1119,6 +1449,8 @@ def get_nameops_affected_at( block_id, proxy=None ):
         num_nameops = json_traceback()
         return num_nameops
 
+    num_nameops = num_nameops['count']
+
     # grab at most 10 of these at a time
     all_nameops = []
     page_size = 10
@@ -1126,11 +1458,11 @@ def get_nameops_affected_at( block_id, proxy=None ):
         resp = []
         try:
             resp = proxy.get_nameops_affected_at(block_id, len(all_nameops), page_size)
-            resp = json_validate( nameop_history_schema, resp )
+            resp = json_validate( nameop_schema, resp )
             if json_is_error(resp):
                 return resp
 
-            all_nameops += resp
+            all_nameops += resp['nameops']
 
             if os.environ.get("BLOCKSTACK_TEST", None) == "1":
                 if len(resp) != page_size:
@@ -1202,7 +1534,20 @@ def get_nameops_hash_at(block_id, proxy=None):
     """
 
     schema = {
-        'type': 'string'
+        'type': 'object',
+        'properties': {
+            'status': {
+                'type': 'bool',
+            },
+            'ops_hash': {
+                'type': 'string',
+                'pattern': '^([0-9a-fA-F]+)$'
+            },
+        },
+        'required': [
+            'status',
+            'ops_hash',
+        ],
     }
 
     if proxy is None:
@@ -1211,21 +1556,15 @@ def get_nameops_hash_at(block_id, proxy=None):
     resp = {}
     try:
         resp = proxy.get_nameops_hash_at(block_id)
-        if isinstance(resp, list):
-            if len(resp) == 0:
-                resp = {'error': 'No data returned'}
-                return resp
-            else:
-                resp = resp[0]
-            
         resp = json_validate( schema, resp )
         if json_is_error(resp):
             return resp
 
     except ValidationError as e:
         resp = json_traceback(resp.get('error'))
+        return resp
 
-    return resp
+    return resp['ops_hash']
 
 
 def get_name_blockchain_record(name, proxy=None):
@@ -1235,11 +1574,26 @@ def get_name_blockchain_record(name, proxy=None):
     Return {'error': ...} on error
     """
 
-    schema = {
+    nameop_schema = {
         'type': 'object',
         'properties': NAMEOP_SCHEMA_PROPERTIES,
         'required': NAMEOP_SCHEMA_REQUIRED + ['history']
     }
+
+    resp_schema = {
+        'type': 'object',
+        'properties': {
+            'status': {
+                'type': 'boolean',
+            },
+            'record': nameop_schema,
+        },
+        'required': [
+            'status',
+            'record'
+        ],
+    }
+
 
     if proxy is None:
         proxy = get_default_proxy()
@@ -1247,19 +1601,16 @@ def get_name_blockchain_record(name, proxy=None):
     resp = {}
     try:
         resp = proxy.get_name_blockchain_record(name)
-        if isinstance(resp, list):
-            if len(resp) == 0:
-                resp = {'error': 'No data returned'}
-                return resp
-            else:
-                resp = resp[0]
+        resp = json_validate(resp_schema, resp)
+        if json_is_error(resp):
+            return resp
 
-        resp = json_validate(schema, resp)
     except ValidationError as e:
         log.exception(e)
         resp = json_traceback(resp.get('error'))
+        return resp
 
-    return resp
+    return resp['record']
 
 
 def get_namespace_blockchain_record(namespace_id, proxy=None):
@@ -1267,10 +1618,24 @@ def get_namespace_blockchain_record(namespace_id, proxy=None):
     get_namespace_blockchain_record
     """
 
-    schema = {
+    namespace_schema = {
         'type': 'object',
         'properties': NAMESPACE_SCHEMA_PROPERTIES,
         'required': NAMESPACE_SCHEMA_REQUIRED
+    }
+
+    resp_schema = {
+        'type': 'object',
+        'properties': {
+            'status': {
+                'type': 'boolean',
+            },
+            'record': namespace_schema,
+        },
+        'required': [
+            'status',
+            'record',
+        ],
     }
             
     if proxy is None:
@@ -1279,26 +1644,22 @@ def get_namespace_blockchain_record(namespace_id, proxy=None):
     ret = {}
     try:
         ret = proxy.get_namespace_blockchain_record(namespace_id)
-        if isinstance(ret, list):
-            if len(ret) == 0:
-                ret = {'error': 'No data returned'}
-                return ret
-            else:
-                ret = ret[0]
-        
-        ret = json_validate(schema, ret)
+        ret = json_validate(resp_schema, ret)
         if json_is_error(ret):
             return ret
 
+        ret = ret['record']
+
         # this isn't needed
-        if 'opcode' in ret:
-            del ret['opcode']
+        if 'opcode' in ret['record']:
+            del ret['record']['opcode']
 
     except ValidationError as e:
         log.exception(e)
         ret = json_traceback(ret.get('error'))
+        return ret
 
-    return ret
+    return ret['record']
 
 
 def is_name_registered(fqu, proxy=None):
