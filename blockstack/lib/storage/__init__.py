@@ -21,8 +21,5 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import auth
 import crawl
-
 from crawl import *
-from auth import verify_zonefile, serialize_zonefile
