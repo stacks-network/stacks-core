@@ -294,13 +294,13 @@ def list_update_history( name, current_block=None, proxy=None ):
             log.error("Invalid getinfo reply")
             return None
 
-    name_history = proxy.get_name_blockchain_history( name, 0, current_block )
+    name_history = get_name_blockchain_history( name, 0, current_block )
     all_update_hashes = []
 
-    block_id_strs = name_history.keys()
-    block_id_strs.sort()
-    for block_id_str in block_id_strs:
-        history_data_list = name_history[block_id_str]
+    block_ids = name_history.keys()
+    block_ids.sort()
+    for block_id in block_ids:
+        history_data_list = name_history[block_id]
         for history_data in history_data_list:
             if history_data.has_key('value_hash') and history_data['value_hash'] is not None:
                 if len(all_update_hashes) == 0 or all_update_hashes[-1] != history_data['value_hash']:
