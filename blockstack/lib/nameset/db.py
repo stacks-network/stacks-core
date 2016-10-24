@@ -35,6 +35,7 @@ import sys
 import copy
 import shutil
 import time
+import random
 
 from collections import defaultdict
 
@@ -460,14 +461,28 @@ def namedb_query_execute( cur, query, values ):
     DO NOT CALL THIS DIRECTLY.
     """
 
-    try:
-        ret = cur.execute( query, values )
-        return ret
-    except Exception, e:
-        log.exception(e)
-        log.error("FATAL: failed to execute query (%s, %s)" % (query, values))
-        log.error("\n".join(traceback.format_stack()))
-        os.abort()
+    timeout = 1.0
+    while True:
+        try:
+            ret = cur.execute( query, values )
+            return ret
+        except sqlite3.OperationalError as oe:
+            if oe.message == "database is locked":
+                timeout = timeout * 2 + timeout * random.random()
+                log.error("Query timed out due to lock; retrying in %s: %s" % (timeout, namedb_format_query( query, values )))
+                time.sleep(timeout)
+            
+            else:
+                log.exception(oe)
+                log.error("FATAL: failed to execute query (%s, %s)" % (query, values))
+                log.error("\n".join(traceback.format_stack()))
+                os.abort()
+
+        except Exception, e:
+            log.exception(e)
+            log.error("FATAL: failed to execute query (%s, %s)" % (query, values))
+            log.error("\n".join(traceback.format_stack()))
+            os.abort()
 
 
 def namedb_preorder_insert( cur, preorder_rec ):
@@ -1760,7 +1775,7 @@ def namedb_offset_count_predicate( offset=None, count=None ):
     return (offset_count_query, offset_count_args)
 
 
-def namedb_select_count_rows( cur, query, args ):
+def namedb_select_count_rows( cur, query, args, count_column='COUNT(*)' ):
     """
     Execute a SELECT COUNT(*) ... query
     and return the number of rows.
@@ -1768,7 +1783,7 @@ def namedb_select_count_rows( cur, query, args ):
     count_rows = namedb_query_execute( cur, query, args )
     count = 0
     for r in count_rows:
-        count = r['COUNT(*)']
+        count = r[count_column]
         break
 
     return count
@@ -2237,7 +2252,20 @@ def namedb_get_last_nameops( db, offset=None, count=None ):
 
     ret = ret[left_drop:left_drop+count]
     return ret
-    
+   
+
+def namedb_get_num_names( cur, current_block ):
+    """
+    Get the number of names that exist at the current block
+    """
+    unexpired_query, unexpired_args = namedb_select_where_unexpired_names( current_block )
+
+    query = "SELECT COUNT(name_records.name) FROM name_records JOIN namespaces ON name_records.namespace_id = namespaces.namespace_id WHERE " + unexpired_query + ";"
+    args = unexpired_args
+
+    num_rows = namedb_select_count_rows( cur, query, args, count_column='COUNT(name_records.name)' )
+    return num_rows
+
 
 def namedb_get_all_names( cur, current_block, offset=None, count=None ):
     """
@@ -2264,6 +2292,19 @@ def namedb_get_all_names( cur, current_block, offset=None, count=None ):
     return ret 
 
 
+def namedb_get_num_names_in_namespace( cur, namespace_id, current_block ):
+    """
+    Get the number of names in a given namespace
+    """
+    unexpired_query, unexpired_args = namedb_select_where_unexpired_names( current_block )
+
+    query = "SELECT COUNT(name_records.name) FROM name_records JOIN namespaces ON name_records.namespace_id = namespaces.namespace_id WHERE name_records.namespace_id = ? AND " + unexpired_query + " ORDER BY name;"
+    args = (namespace_id,) + unexpired_args
+
+    num_rows = namedb_select_count_rows( cur, query, args, count_column='COUNT(name_records.name)' )
+    return num_rows
+
+
 def namedb_get_names_in_namespace( cur, namespace_id, current_block, offset=None, count=None ):
     """
     Get a list of all names in a namespace, optionally
@@ -2272,7 +2313,7 @@ def namedb_get_names_in_namespace( cur, namespace_id, current_block, offset=None
 
     unexpired_query, unexpired_args = namedb_select_where_unexpired_names( current_block )
 
-    query = "SELECT name FROM name_records JOIN namespaces ON name_records.namespace_id = namespaces.namespace_id WHERE name_records.namespace_id = ? AND " + unexpired_query + " ORDER BY name"
+    query = "SELECT name FROM name_records JOIN namespaces ON name_records.namespace_id = namespaces.namespace_id WHERE name_records.namespace_id = ? AND " + unexpired_query + " ORDER BY name "
     args = (namespace_id,) + unexpired_args
 
     offset_count_query, offset_count_args = namedb_offset_count_predicate( offset=offset, count=count )
