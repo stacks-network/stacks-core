@@ -141,3 +141,13 @@ def get_fees( inputs, outputs ):
     
     return (dust_fee, op_fee)
 
+
+def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):
+    """
+    Calculate any derived missing data that goes into the check() operation,
+    given the block number, the name record at the block number, and the db.
+    """
+
+    ret_op = {}
+    return ret_op
+

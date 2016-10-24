@@ -176,3 +176,101 @@ def get_fees( inputs, outputs ):
     
     return (dust_fee, op_fee)
 
+
+def find_last_transfer_consensus_hash( name_rec, block_id, vtxindex ):
+    """
+    Given a name record, find the last non-NAME_TRANSFER consensus hash.
+    Return None if not found.
+    """
+
+    from ..proxy import nameop_restore_from_history
+
+    history_keys = name_rec['history'].keys()
+    history_keys.sort()
+    history_keys.reverse()
+
+    for hk in history_keys:
+        name_history = name_rec['history']
+        history_states = nameop_restore_from_history( name_rec, name_history, hk )
+
+        for history_state in reversed(history_states):
+            if history_state['block_number'] > block_id or (history_state['block_number'] == block_id and history_state['vtxindex'] > vtxindex):
+                # from the future
+                continue
+
+            if history_state['op'][0] == NAME_TRANSFER:
+                # skip NAME_TRANSFERS
+                continue
+
+            if history_state['op'][0] == NAME_PREORDER:
+                # out of history
+                return None
+
+            if name_rec['consensus_hash'] is not None:
+                return name_rec['consensus_hash']
+
+    return None
+
+
+def snv_consensus_extras( name_rec, block_id, blockchain_name_data, transfer_send_block_id_consensus_hash=None ):
+    """
+    Given a name record most recently affected by an instance of this operation, 
+    find the dict of consensus-affecting fields from the operation that are not
+    already present in the name record.
+
+    Specific to NAME_TRANSFER:
+    The consensus hash is a field that we snapshot when we discover the transfer,
+    but it is not a field that we preserve.  It will instead be present in the
+    snapshots database, indexed by the block number in `transfer_send_block_id`.
+
+    (This is an artifact of a design quirk of a previous version of the system).
+    """
+    
+    from ..proxy import get_consensus_at 
+
+    ret_op = {}
+    
+    # reconstruct the recipient information
+    ret_op['recipient'] = str(name_rec['sender'])
+    ret_op['recipient_address'] = str(name_rec['address'])
+
+    # reconstruct name_hash, consensus_hash, keep_data
+    keep_data = None
+    try:
+        assert len(name_rec['op']) == 2, "Invalid op sequence '%s'" % (name_rec['op'])
+        
+        if name_rec['op'][-1] == TRANSFER_KEEP_DATA:
+            keep_data = True
+        elif name_rec['op'][-1] == TRANSFER_REMOVE_DATA:
+            keep_data = False
+        else:
+            raise Exception("Invalid op sequence '%s'" % (name_rec['op']))
+
+    except Exception, e:
+        log.exception(e)
+        log.error("FATAL: invalid transfer op sequence")
+        os.abort()
+
+    ret_op['keep_data'] = keep_data
+    ret_op['name_hash128'] = hash256_trunc128( str(name_rec['name']) )
+    ret_op['sender_pubkey'] = None
+
+    if blockchain_name_data is None:
+
+       consensus_hash = find_last_transfer_consensus_hash( name_rec, block_id, name_rec['vtxindex'] )
+       ret_op['consensus_hash'] = consensus_hash
+
+    else:
+       ret_op['consensus_hash'] = blockchain_name_data['consensus_hash']
+      
+    if ret_op['consensus_hash'] is None:
+       # no prior consensus hash; must be the one in the name operation itself 
+       if transfer_send_block_id_consensus_hash is None:
+           # go look it up
+           ret_op['consensus_hash'] = get_consensus_at( name_rec['transfer_send_block_id'] )
+       else:
+           # caller already knows it
+           ret_op['consensus_hash'] = transfer_send_block_id_consensus_hash
+
+    return ret_op
+
