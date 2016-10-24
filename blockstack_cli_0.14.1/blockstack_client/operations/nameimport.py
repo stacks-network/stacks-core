@@ -126,3 +126,28 @@ def get_fees( inputs, outputs ):
     """
     return (None, None)
 
+
+def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):
+    """
+    Given a name record most recently affected by an instance of this operation, 
+    find the dict of consensus-affecting fields from the operation that are not
+    already present in the name record.
+    """
+    
+    ret_op = {}
+
+    # reconstruct the recipient information
+    ret_op['recipient'] = str(name_rec['sender'])
+    ret_op['recipient_address'] = str(name_rec['address'])
+
+    # the preorder hash used is the *first* preorder hash calculated in a series of NAME_IMPORTs
+    if name_rec.has_key('preorder_hash'):
+        ret_op['preorder_hash'] = name_rec['preorder_hash']
+
+    else:
+        ret_op['preorder_hash'] = hash_name( str(name_rec['name']), name_rec['importer'], ret_op['recipient_address'] )
+
+    log.debug("restore preorder hash: %s --> %s (%s, %s, %s)" % (name_rec.get('preorder_hash', "None"), ret_op['preorder_hash'], name_rec['name'], name_rec['importer'], ret_op['recipient_address']))
+    return ret_op
+
+
