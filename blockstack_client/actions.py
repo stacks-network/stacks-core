@@ -85,7 +85,7 @@ from blockstack_client import \
     get_name_cost, \
     get_name_profile, \
     get_name_zonefile, \
-    get_records_at, \
+    get_nameops_at, \
     get_names_in_namespace, \
     get_names_owned_by_address, \
     get_namespace_blockchain_record, \
@@ -110,7 +110,7 @@ import config
 from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR, configure, FIRST_BLOCK_TIME_UTC, get_utxo_provider_client, set_advanced_mode, \
         APPROX_PREORDER_TX_LEN, APPROX_REGISTER_TX_LEN, APPROX_UPDATE_TX_LEN, APPROX_TRANSFER_TX_LEN, APPROX_REVOKE_TX_LEN, APPROX_RENEWAL_TX_LEN
 
-from .storage import is_valid_name, is_valid_hash, is_b40, get_drivers_for_url
+from .storage import is_valid_hash, is_b40, get_drivers_for_url
 from .user import add_user_zonefile_url, remove_user_zonefile_url
 
 from pybitcoin import is_b58check_address
@@ -129,7 +129,7 @@ from .utils import pretty_dump, print_result
 from .proxy import *
 from .client import analytics_event
 from .app import app_register, app_unregister, app_get_wallet
-from .scripts import UTXOException
+from .scripts import UTXOException, is_name_valid
 from .user import user_zonefile_urls, user_zonefile_data_pubkey, make_empty_user_zonefile 
 
 log = config.get_logger()
@@ -140,7 +140,7 @@ def check_valid_name(fqu):
     Return None on success
     Return an error string on error
     """
-    rc = is_valid_name( fqu )
+    rc = is_name_valid( fqu )
     if rc:
         return None
 
@@ -1741,7 +1741,7 @@ def cli_advanced_get_account( args, proxy=None, config_path=CONFIG_PATH, passwor
     if 'error' in res:
         return res
 
-    if not is_valid_name(args.name) or len(args.service) == 0 or len(args.identifier) == 0:
+    if not is_name_valid(args.name) or len(args.service) == 0 or len(args.identifier) == 0:
         return {'error': 'Invalid name or identifier'}
 
     wallet_keys = get_wallet_keys( config_path, password )
@@ -1787,7 +1787,7 @@ def cli_advanced_put_account( args, proxy=None, config_path=CONFIG_PATH, passwor
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    if not is_valid_name(args.name):
+    if not is_name_valid(args.name):
         return {'error': 'Invalid name'}
 
     if len(args.service) == 0 or len(args.identifier) == 0 or len(args.content_url) == 0:
@@ -1834,7 +1834,7 @@ def cli_advanced_delete_account( args, proxy=None, config_path=CONFIG_PATH, pass
     if 'error' in res:
         return res
 
-    if not is_valid_name(args.name) or len(args.service) == 0 or len(args.identifier) == 0:
+    if not is_name_valid(args.name) or len(args.service) == 0 or len(args.identifier) == 0:
         return {'error': 'Invalid name or identifier'}
 
     wallet_keys = get_wallet_keys( config_path, password )
@@ -2406,13 +2406,13 @@ def cli_advanced_get_names_in_namespace( args, config_path=CONFIG_PATH ):
     return result
 
 
-def cli_advanced_get_records_at( args, config_path=CONFIG_PATH ):
+def cli_advanced_get_nameops_at( args, config_path=CONFIG_PATH ):
     """
-    command: get_records_at
+    command: get_nameops_at
     help: Get the list of name operations that occurred at a given block number
     arg: block_id (int) "The block height to query"
     """
-    result = get_records_at(int(args.block_id))
+    result = get_nameops_at(int(args.block_id))
     return result
 
 
@@ -2867,3 +2867,13 @@ def cli_advanced_app_get_wallet( args, config_path=CONFIG_PATH, interactive=True
     res = app_get_wallet( fqu, app_name, app_account_id, interactive=interactive, password=password, config_path=config_path )
     return res
 
+
+def cli_advanced_get_zonefile_inventory( args, config_path=CONFIG_PATH ):
+    """
+    command: get_zonefile_inventory
+    help: Get the zone file inventory vector of an Atlas peer.
+    arg: hostport (str) "The IP:port or host:port of the server."
+    """
+
+    hostport = str(args.hostport)
+    
