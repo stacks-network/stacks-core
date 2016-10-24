@@ -437,16 +437,25 @@ def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
    """
  
    if db_state is not None:
+    
+        try:
+            # pre-calculate the ops hash for SNV
+            ops_hash = BlockstackDB.calculate_block_ops_hash( db_state, block_id )
+            db_state.store_block_ops_hash( block_id, ops_hash )
+        except Exception, e:
+            log.exception(e)
+            log.error("FATAL: failed to calculate ops hash at block %s" % block_id )
+            os.abort()
 
-       try:
-           # flush the database
-           db_state.commit_finished( block_id )
-       except Exception, e:
-           log.exception(e)
-           log.error("FATAL: failed to commit at block %s" % block_id )
-           os.abort()
+        try:
+            # flush the database
+            db_state.commit_finished( block_id )
+        except Exception, e:
+            log.exception(e)
+            log.error("FATAL: failed to commit at block %s" % block_id )
+            os.abort()
 
-       return True
+        return True
 
    else:
        log.error("FATAL: no state engine given")
