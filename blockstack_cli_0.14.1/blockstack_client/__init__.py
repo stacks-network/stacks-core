@@ -37,8 +37,8 @@ import backend
 
 from proxy import BlockstackRPCClient, get_default_proxy, set_default_proxy, json_traceback
 from proxy import getinfo, ping, get_name_cost, get_namespace_cost, get_all_names, get_names_in_namespace, \
-        get_names_owned_by_address, get_consensus_at, get_consensus_range, get_records_at, \
-        get_records_hash_at, get_name_blockchain_record, get_namespace_blockchain_record
+        get_names_owned_by_address, get_consensus_at, get_consensus_range, get_nameops_at, \
+        get_nameops_hash_at, get_name_blockchain_record, get_namespace_blockchain_record
         
 from keys import make_wallet_keys, get_owner_privkey_info, get_data_privkey_info, get_payment_privkey_info
 
@@ -53,7 +53,7 @@ from data import get_immutable, get_immutable_by_name, get_mutable, put_immutabl
 from data import blockstack_url_fetch as fetch_data
 from data import data_get, data_put, data_delete, data_list
 from data import set_data_pubkey
-from storage import get_announcement, put_announcement
+from storage import get_announcement, put_announcement, verify_zonefile
 from profile import get_name_profile, get_name_zonefile, get_and_migrate_profile
 from accounts import list_accounts, get_account, put_account, delete_account, create_app_account
 
