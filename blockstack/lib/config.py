@@ -557,6 +557,8 @@ def op_get_opcode_name( op_string ):
     """
     Get the name of an opcode, given the operation's 'op' byte sequence.
     """
+    return blockstack_client.config.op_get_opcode_name( op_string )
+    '''
     global OPCODE_NAMES
 
     # special case...
@@ -568,6 +570,7 @@ def op_get_opcode_name( op_string ):
         raise Exception("No such operation '%s'" % op)
 
     return OPCODE_NAMES[op]
+    '''
 
 
 def get_default_virtualchain_impl():
@@ -1032,7 +1035,7 @@ def configure( config_file=None, force=False, interactive=True ):
 
    if not interactive and (len(missing_bitcoin_opts) > 0 or len(missing_blockstack_opts) > 0):
        # cannot continue
-       raise Exception("Missing configuration fields: %s" % (",".join( missing_bitcoin_opts + missing_utxo_opts )) )
+       raise Exception("Missing configuration fields: %s" % (",".join( missing_blockstack_opts + missing_bitcoin_opts )) )
 
    # ask for contact info, so we can send out notifications for bugfixes and upgrades
    if blockstack_opts.get('email', None) is None:
