@@ -686,6 +686,17 @@ class BlockstackDB( virtualchain.StateEngine ):
         return name_hist
 
 
+    def get_name_history_blocks( self, name ):
+        """
+        Get the blocks at which this name was affected
+        Returns [block heights]
+        """
+        cur = self.db.cursor()
+        update_points = namedb_get_blocks_with_ops( cur, name, FIRST_BLOCK_MAINNET, self.lastblock )
+        return update_points
+       
+
+    '''
     def get_name_history( self, name, start_block, end_block ):
         """
         Get the history of states of a name over a given point in time.
@@ -706,7 +717,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             name_snapshots[ str(update_point) ] = historical_recs
 
         return name_snapshots
-
+    '''
 
     def get_op_history_rows( self, history_id, offset, count ):
         """
@@ -795,6 +806,14 @@ class BlockstackDB( virtualchain.StateEngine ):
         names = namedb_get_names_by_sender( cur, sender_pubkey, lastblock )
         return names
 
+    
+    def get_num_names( self ):
+        """
+        Get the number of names that exist.
+        """
+        cur = self.db.cursor()
+        return namedb_get_num_names( cur, self.lastblock )
+
 
     def get_all_names( self, offset=None, count=None ):
         """
@@ -812,6 +831,14 @@ class BlockstackDB( virtualchain.StateEngine ):
         names = namedb_get_all_names( cur, self.lastblock, offset=offset, count=count )
         return names
 
+
+    def get_num_names_in_namespace( self, namespace_id ):
+        """
+        Get the number of names in a namespace
+        """
+        cur = self.db.cursor()
+        return namedb_get_num_names_in_namespace( cur, namespace_id, self.lastblock )
+    
     
     def get_names_in_namespace( self, namespace_id, offset=None, count=None ):
         """
