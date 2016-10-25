@@ -58,11 +58,11 @@ PEER_MAX_NEIGHBORS = 10
 PEER_PING_INTERVAL = 3
 PEER_MAX_AGE = 10
 PEER_CLEAN_INTERVAL = 3
-PEER_PING_TIMEOUT = 1
-PEER_INV_TIMEOUT = 1
-PEER_NEIGHBORS_TIMEOUT = 1
-PEER_ZONEFILES_TIMEOUT = 1
-PEER_PUSH_ZONEFILES_TIMEOUT = 1
+PEER_PING_TIMEOUT = 2
+PEER_INV_TIMEOUT = 2
+PEER_NEIGHBORS_TIMEOUT = 2
+PEER_ZONEFILES_TIMEOUT = 2
+PEER_PUSH_ZONEFILES_TIMEOUT = 2
 
 
 def time_now():
@@ -727,6 +727,17 @@ def atlas_network_start( network_des, **network_params ):
     network_des['netsrv'] = srv
     network_des['peers'] = peers
     return network_des
+
+
+def atlas_network_get_peer_conf( network_dir, portnum ):
+    """
+    Get the peer configuration
+    """
+    hostport = "localhost:%s" % portnum
+    dirp = os.path.join( network_dir, hostport )
+    conf_path = os.path.join(dirp, "blockstack-server.ini" )
+    conf = blockstack.config.configure( config_file=conf_path, interactive=False )
+    return conf
 
 
 def atlas_network_is_synchronized( network_des, lastblock, num_zonefiles ):
