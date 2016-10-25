@@ -28,6 +28,8 @@ import json
 import sys
 import os
 import blockstack_client
+import blockstack_zones
+import base64
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -93,11 +95,12 @@ def scenario( wallets, **kw ):
     # store a new zonefile
     data_pubkey = wallet['data_pubkey']
     zonefile = blockstack_client.user.make_empty_user_zonefile( "foo.test", data_pubkey )
-    blockstack_client.user.put_immutable_data_zonefile( zonefile, "testdata", blockstack_client.get_data_hash("testdata") )
-    zonefile_json = json.dumps(zonefile)
+    assert blockstack_client.user.put_immutable_data_zonefile( zonefile, "testdata", blockstack_client.get_data_hash("testdata") )
 
-    zonefile_hash = blockstack_client.storage.hash_zonefile( zonefile )
+    zonefile_txt = blockstack_zones.make_zone_file( zonefile )
+    zonefile_hash = blockstack_client.storage.get_zonefile_data_hash( zonefile_txt )
    
+    print >> sys.stderr, "\n\nzonefile hash: %s\nzonefile:\n%s\n\n" % (zonefile_hash, zonefile_txt)
 
     # will store to queue
     test_proxy = testlib.make_proxy()
@@ -131,7 +134,7 @@ def scenario( wallets, **kw ):
 
     # store to queue
     res = blockstack_client.backend.queue.queue_append("update", "foo.test", txhash, payment_address=wallets[2].addr, owner_address=wallets[3].addr,
-                                                config_path=test_proxy.config_path, zonefile_data=zonefile, zonefile_hash=zonefile_hash, path=queuedb_path )
+                                                       config_path=test_proxy.config_path, zonefile_data=zonefile_txt, zonefile_hash=zonefile_hash, path=queuedb_path )
 
     # verify that we can sync the zonefile, using the in-queue zonefile
     resp = testlib.blockstack_cli_sync_zonefile( "foo.test" )
@@ -148,9 +151,9 @@ def scenario( wallets, **kw ):
     # store a new zonefile
     zonefile = blockstack_client.user.make_empty_user_zonefile( "foo.test", data_pubkey )
     blockstack_client.user.put_immutable_data_zonefile( zonefile, "testdata2", blockstack_client.get_data_hash("testdata") )
-    zonefile_json = json.dumps(zonefile)
 
-    zonefile_hash = blockstack_client.storage.hash_zonefile( zonefile )
+    zonefile_txt = blockstack_zones.make_zone_file( zonefile )
+    zonefile_hash = blockstack_client.storage.get_zonefile_data_hash( zonefile_txt )
 
     # store locally 
     res = blockstack_client.profile.store_name_zonefile("foo.test", zonefile, None, storage_drivers=['disk'])
