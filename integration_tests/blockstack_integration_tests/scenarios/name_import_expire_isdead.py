@@ -49,6 +49,7 @@ import_block = None
 fail_blocks = []
 NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK + 1, "test" )
 
+# TODO: SNV expect failure
 def scenario( wallets, **kw ):
 
     global import_block 
@@ -92,6 +93,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
     fail_blocks.append( testlib.get_current_block( **kw ) )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # should fail
     resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey, safety_checks=False )
@@ -100,6 +102,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
     fail_blocks.append( testlib.get_current_block( **kw ) )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # should fail
     resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, safety_checks=False )
@@ -108,6 +111,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
     fail_blocks.append( testlib.get_current_block( **kw ) )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # should fail 
     resp = testlib.blockstack_name_revoke( "foo.test", wallets[3].privkey, safety_checks=False )
@@ -116,6 +120,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
     fail_blocks.append( testlib.get_current_block( **kw ))
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
 
 def check( state_engine ):
