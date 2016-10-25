@@ -76,6 +76,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # should fail
     resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey )
@@ -83,6 +84,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # should fail
     resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey )
@@ -90,6 +92,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # wait for it to expire...
     for i in xrange(0, 8 * NAMESPACE_LIFETIME_MULTIPLIER):
@@ -101,6 +104,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # should fail
     resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey )
@@ -108,6 +112,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # should fail
     resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey )
@@ -115,6 +120,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # re-preorder...
     resp = testlib.blockstack_name_preorder( "foo.test", wallets[4].privkey, wallets[0].addr )

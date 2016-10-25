@@ -58,18 +58,21 @@ def scenario( wallets, **kw ):
         print json.dumps(resp)
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey )
     if 'error' in resp:
         print json.dumps(resp)
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey )
     if 'error' in resp:
         print json.dumps(resp)
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # try both addresses (should both fail)
     resp = testlib.blockstack_name_revoke( "foo.test", wallets[4].privkey )
@@ -77,10 +80,14 @@ def scenario( wallets, **kw ):
         print json.dumps(resp)
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     resp = testlib.blockstack_name_revoke( "foo.test", wallets[3].privkey )
     if 'error' in resp:
         print json.dumps(resp)
+   
+    testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
     
 
 def check( state_engine ):

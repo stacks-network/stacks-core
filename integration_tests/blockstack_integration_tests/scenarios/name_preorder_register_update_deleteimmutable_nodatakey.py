@@ -88,10 +88,12 @@ def scenario( wallets, **kw ):
     
     testlib.next_block( **kw )
 
+    print "put hello_world_1"
     testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
+        return False
 
     testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
     zonefile_hashes.append( put_result['immutable_data_hash'] )
@@ -103,12 +105,15 @@ def scenario( wallets, **kw ):
     # wait for confirmation
     for i in xrange(0, 12):
         testlib.next_block( **kw )
+        
     print "waiting for confirmation"
     time.sleep(10)
 
+    print "put hello_world_2"
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_2", datasets[1], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
+        return False
 
     testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
     zonefile_hashes.append( put_result['immutable_data_hash'] )
@@ -120,12 +125,15 @@ def scenario( wallets, **kw ):
     # wait for confirmation
     for i in xrange(0, 12):
         testlib.next_block( **kw )
+
     print "waiting for confirmation"
     time.sleep(10)
 
+    print "put hello_world_3"
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_3", datasets[2], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
+        return False
 
     testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
     zonefile_hashes.append( put_result['immutable_data_hash'] )
@@ -139,11 +147,14 @@ def scenario( wallets, **kw ):
     print "waiting for confirmation"
     time.sleep(10)
 
-    # should fail (name collision)
+    # should succeed (name collision)
     datasets[0]['newdata'] = "asdf"
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
-    if 'error' not in put_result:
-        zonefile_hashes[0] = put_result['immutable_data_hash']
+    if 'error' in put_result:
+        print json.dumps(put_result, indent=4, sort_keys=True)
+        return False
+        
+    zonefile_hashes[0] = put_result['immutable_data_hash']
 
     # tell serialization-checker that value_hash can be ignored here
     print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
@@ -154,6 +165,7 @@ def scenario( wallets, **kw ):
 
     for i in xrange(0, 12):
         testlib.next_block( **kw )
+
     print "waiting for confirmation"
     time.sleep(10)
 
@@ -163,6 +175,8 @@ def scenario( wallets, **kw ):
         put_result = blockstack_client.delete_immutable( "foo.test", zonefile_hashes[i], wallet_keys=wallet_keys )
         if 'error' in put_result:
             print json.dumps(put_result, indent=4, sort_keys=True)
+            print "delete_immutable collision failed"
+            return False
 
         testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
     
@@ -172,6 +186,7 @@ def scenario( wallets, **kw ):
         
         for i in xrange(0, 12):
             testlib.next_block(**kw)
+
         print "waiting for confirmation"
         time.sleep(10)
 

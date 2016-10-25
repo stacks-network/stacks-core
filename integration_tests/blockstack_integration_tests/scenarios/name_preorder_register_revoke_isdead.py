@@ -45,6 +45,7 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 fail_blocks = []
 NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK + 1, "test" )
 
+# TODO: SNV expect failure
 def scenario( wallets, **kw ):
 
     global fail_blocks
@@ -74,6 +75,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
     fail_blocks.append( testlib.get_current_block( **kw ) )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # should fail
     resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey, safety_checks=False )
@@ -82,6 +84,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
     fail_blocks.append( testlib.get_current_block( **kw ) )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # should fail
     resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, safety_checks=False )
@@ -90,6 +93,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
     fail_blocks.append( testlib.get_current_block( **kw ) )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # wait for it to expire...
     for i in xrange(0, 8 * NAMESPACE_LIFETIME_MULTIPLIER):
@@ -102,6 +106,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
     fail_blocks.append( testlib.get_current_block( **kw ) )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # should fail
     resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey, safety_checks=False )
@@ -110,6 +115,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
     fail_blocks.append( testlib.get_current_block( **kw ) )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # should fail
     resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, safety_checks=False )
@@ -118,6 +124,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
     fail_blocks.append( testlib.get_current_block( **kw ) )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
     
     # warn the serialization checker that this changes behavior from 0.13
     print "BLOCKSTACK_SERIALIZATION_CHANGE_BEHAVIOR"

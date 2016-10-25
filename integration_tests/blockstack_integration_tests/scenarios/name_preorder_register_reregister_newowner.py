@@ -42,6 +42,7 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 last_first_block = None
 first_preorder = None
 
+# TODO: SNV expect failure
 def scenario( wallets, **kw ):
 
     global last_first_block, first_preorder

@@ -30,6 +30,10 @@ import virtualchain
 import os
 import sys
 
+"""
+TEST ENV BLOCKSTACK_ATLAS_NUM_NEIGHBORS 10
+"""
+
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
     testlib.Wallet( "5KHqsiU9qa77frZb6hQy9ocV7Sus9RWJcQGYYBJJBb2Efj1o77e", 100000000000 ),

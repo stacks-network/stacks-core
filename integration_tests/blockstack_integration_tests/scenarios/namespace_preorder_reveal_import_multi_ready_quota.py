@@ -45,6 +45,7 @@ def scenario( wallets, **kw ):
     resp = testlib.blockstack_name_import( "foo.test", wallets[2].addr, "11" * 20, wallets[1].privkey )
     if 'error' in resp:
         print json.dumps(resp, indent=4 )
+        return False
 
     testlib.next_block( **kw )
 
@@ -55,6 +56,7 @@ def scenario( wallets, **kw ):
         resp = testlib.blockstack_name_import( "foo%s.test" % i, wallets[3].addr, "22" * 20, wallets[1].privkey )
         if 'error' in resp:
             print json.dumps(resp, indent=4 )
+            return False
 
         if i % 2 == 1:
             testlib.next_block( **kw )
@@ -68,6 +70,7 @@ def scenario( wallets, **kw ):
         resp = testlib.blockstack_name_import( "bar%s.test" % i, wallets[4].addr, "33" * 20, wallets[1].privkey )
         if 'error' in resp:
             print json.dumps(resp, indent=4 )
+            return False
         
         if i % 2 == 1:
             testlib.next_block( **kw )
@@ -90,6 +93,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "foofail.test", testlib.get_current_block(**kw))
 
     # should succeed
     resp = testlib.blockstack_name_update( "foo0.test", '55' * 20, wallets[3].privkey )
@@ -110,6 +114,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "barfail.test", testlib.get_current_block(**kw))
 
     # should fail (exceeded quota--have to revoke or give names away)
     resp = testlib.blockstack_name_update( "bar0.test", '44' * 20, wallets[4].privkey )
@@ -117,6 +122,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "bar0.test", testlib.get_current_block(**kw))
 
     # should succeed (give a name away)
     resp = testlib.blockstack_name_transfer( "bar0.test", wallets[1].addr, True, wallets[4].privkey )
@@ -131,6 +137,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "bar0.test", testlib.get_current_block(**kw))
 
     # should succeed (revoke a name)
     resp = testlib.blockstack_name_revoke( "bar2.test", wallets[4].privkey )

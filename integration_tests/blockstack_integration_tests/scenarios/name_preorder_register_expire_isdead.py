@@ -75,6 +75,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
     fail_blocks.append( testlib.get_current_block( **kw ) )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # should fail
     resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey, safety_checks=False )
@@ -83,6 +84,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
     fail_blocks.append( testlib.get_current_block( **kw ) )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # should fail
     resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey, safety_checks=False )
@@ -91,6 +93,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
     fail_blocks.append( testlib.get_current_block( **kw ) )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
     
     # should fail 
     resp = testlib.blockstack_name_revoke( "foo.test", wallets[3].privkey, safety_checks=False )
@@ -99,6 +102,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
     fail_blocks.append( testlib.get_current_block( **kw ))
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
 
 def check( state_engine ):
