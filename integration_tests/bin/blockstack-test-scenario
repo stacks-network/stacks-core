@@ -195,13 +195,13 @@ def load_scenario( scenario_name ):
     # identify the file's path
     log.debug("Identifying scenario path")
     p = subprocess.Popen( "python -c 'import %s; print %s.__file__'" % (scenario_name, scenario_name), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE )
-    path, err = p.communicate()
+    path_buf, err = p.communicate()
     
     if p.returncode is not None and p.returncode != 0:
         print >> sys.stderr, err
         raise Exception("Failed to load %s, exit code %s" % (scenario_name, p.returncode))
 
-    path = path.strip()
+    path = path_buf.strip().split("\n")[-1].strip()
     if path.endswith(".pyc"):
         path = path[:-4] + ".py"
 
@@ -578,8 +578,12 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
     # run database integrity check at each block 
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RO)
-    rc = testlib.check_history( db )
-    if not rc:
+    rc = False
+    try:
+        rc = testlib.check_history( db )
+        assert rc, "History check failed"
+    except Exception, e:
+        log.exception(e)
         network_stop()
         bitcoin_stop()
         blockstack_client.rpc.local_rpc_stop(client_config_dir)
@@ -593,8 +597,12 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
 
     # run snv at each name 
     db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RO)
-    rc = testlib.snv_all_names( db )
-    if not rc:
+    rc = False
+    try:
+        rc = testlib.snv_all_names( db )
+        assert rc, "SNV check failed"
+    except Exception, e:
+        log.exception(e)
         network_stop()
         bitcoin_stop()
         blockstack_client.rpc.local_rpc_stop(client_config_dir)
