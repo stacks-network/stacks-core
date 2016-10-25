@@ -38,8 +38,7 @@ from utilitybelt import is_hex
 from config import (
     get_logger, FIRST_BLOCK_MAINNET, NAME_OPCODES,
     OPFIELDS, BLOCKCHAIN_ID_MAGIC, NAME_PREORDER,
-    NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER,
-    NAMESPACE_PREORDER, NAME_IMPORT
+    NAME_TRANSFER, NAMESPACE_PREORDER
 )
 
 
@@ -47,7 +46,7 @@ log = get_logger()
 
 import virtualchain
 
-
+'''
 def get_create_diff(blockchain_record):
     """
     Given a blockchain record, find its earliest history diff and its creation block number.
@@ -68,8 +67,9 @@ def get_create_diff(blockchain_record):
     create_diff = history[str(create_block_number)][0]
 
     return (create_block_number, create_diff)
+'''
 
-
+'''
 def get_reveal_txid(blockchain_record):
     """
     Given a blockchain record, find the transaction ID that revealed it
@@ -92,8 +92,9 @@ def get_reveal_txid(blockchain_record):
             return reveal_block_number, str(block_number_str['txid'])
 
     return None, None
+'''
 
-
+'''
 def get_serial_number(blockchain_record):
     """
     Calculate the serial number from a name's blockchain record.
@@ -126,8 +127,10 @@ def get_serial_number(blockchain_record):
         raise Exception('No NAME_REGISTRATION found for "{}"'.format(blockchain_record.get('name', 'UNKNOWN_NAME')))
 
     return serial_number
+'''
 
 
+'''
 def get_block_from_consensus(consensus_hash, proxy=None):
     """
     Get a block ID from a consensus hash
@@ -146,6 +149,7 @@ def get_block_from_consensus(consensus_hash, proxy=None):
         return resp[0] if resp else {'error': 'No data returned'}
 
     return resp
+'''
 
 
 def txid_to_block_data(txid, bitcoind_proxy, proxy=None):
@@ -226,7 +230,7 @@ def txid_to_block_data(txid, bitcoind_proxy, proxy=None):
 
     return block_hash, block_data, tx_data
 
-
+'''
 def txid_to_serial_number(txid, bitcoind_proxy, proxy=None):
     """
     Given a transaction ID, convert it into a serial number
@@ -257,6 +261,7 @@ def txid_to_serial_number(txid, bitcoind_proxy, proxy=None):
 
     # BUG: block_id is undefined
     return '{}-{}'.format(block_id, tx_index)
+'''
 
 
 def serial_number_to_tx(serial_number, bitcoind_proxy, proxy=None):
@@ -409,6 +414,7 @@ def get_consensus_hash_from_tx(tx):
     return None
 
 
+'''
 def verify_consensus_hash_from_tx(tx, fqname, candidate_consensus_hash):
     """
     Given the SPV-verified transaction that encodes a consensus hash-bearing OP_RETURN,
@@ -465,8 +471,10 @@ def verify_consensus_hash_from_tx(tx, fqname, candidate_consensus_hash):
     ))
 
     return None
+'''
 
 
+'''
 def get_name_creation_consensus_info(name, blockchain_record, bitcoind_proxy, proxy=None, serial_number=None):
     """
     Given the result of a call to get_name_blockchain_record,
@@ -557,8 +565,10 @@ def get_name_creation_consensus_info(name, blockchain_record, bitcoind_proxy, pr
         }
 
     return creation_info
+'''
 
 
+'''
 def get_name_reveal_consensus_info(name, blockchain_record, bitcoind_proxy, proxy=None):
     """
     Given a name, its blockchain record, and a bitcoind proxy, get information
@@ -611,8 +621,10 @@ def get_name_reveal_consensus_info(name, blockchain_record, bitcoind_proxy, prox
     }
 
     return ret
+'''
 
 
+'''
 def find_last_historical_op(history, opcode):
     """
     Given the blockchain history of a name, and the desired opcode name,
@@ -642,8 +654,10 @@ def find_last_historical_op(history, opcode):
                 return int(prev_blocks[i + 1]), prev_op
 
     return None, None
+'''
 
 
+'''
 def get_name_update_consensus_info(name, blockchain_record, bitcoind_proxy, proxy=None):
     """
     Given the result of a call to get_name_blockchain_record (an untrusted database record for a name),
@@ -724,10 +738,12 @@ def get_name_update_consensus_info(name, blockchain_record, bitcoind_proxy, prox
         }
     }
 
+
     return update_info
+'''
 
 
-def snv_get_records_at(current_block_id, current_consensus_hash, block_id, consensus_hash, proxy=None):
+def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, consensus_hash, proxy=None):
     """
     Simple name verification (snv) lookup:
     Use a known-good "current" consensus hash and block ID to
@@ -761,10 +777,10 @@ def snv_get_records_at(current_block_id, current_consensus_hash, block_id, conse
         if next_block_id in prev_nameops_hashes:
             nameops_hash = prev_nameops_hashes[next_block_id]
         else:
-            nameops_resp = get_records_hash_at(next_block_id, proxy=proxy)
+            nameops_resp = get_nameops_hash_at(next_block_id, proxy=proxy)
 
             if 'error' in nameops_resp:
-                log.error('get_records_hash_at: {}'.format(nameops_resp['error']))
+                log.error('get_nameops_hash_at: {}'.format(nameops_resp['error']))
                 return {'error': 'Failed to get nameops: {}'.format(nameops_resp['error'])}
 
             nameops_hash = str(nameops_resp)
@@ -842,7 +858,7 @@ def snv_get_records_at(current_block_id, current_consensus_hash, block_id, conse
         next_block_id = current_candidate
 
     # get the final nameops
-    historic_nameops = get_records_at(block_id, proxy=proxy)
+    historic_nameops = get_nameops_at(block_id, proxy=proxy)
     if isinstance(historic_nameops, dict) and 'error' in historic_nameops:
         return {'error': 'BUG: no nameops found'}
 
@@ -858,7 +874,7 @@ def snv_get_records_at(current_block_id, current_consensus_hash, block_id, conse
     # check integrity
     serialized_historic_nameops = [
         virtualchain.StateEngine.serialize_op(
-            str(op['op'][0]), op, OPFIELDS, verbose=False
+            str(op['op'][0]), op, OPFIELDS, verbose=True
         ) for op in historic_nameops
     ]
 
@@ -870,22 +886,26 @@ def snv_get_records_at(current_block_id, current_consensus_hash, block_id, conse
     if historic_nameops_hash != prev_nameops_hashes[block_id]:
         return {'error': 'Hash mismatch: name is not consistent with consensus hash'}
 
+    log.debug("%s nameops at %s" % (len(historic_nameops), block_id))
     return historic_nameops
 
 
-def snv_name_verify(name, current_block_id, current_consensus_hash, block_id, consensus_hash, proxy=None):
+def snv_name_verify(name, current_block_id, current_consensus_hash, block_id,
+                    consensus_hash, trusted_txid=None, trusted_txindex=None, proxy=None):
     """
     Use SNV to verify that a name existed at a particular block ID in the past,
     given a later known-good block ID and consensus hash (as well as the previous
     untrusted consensus hash)
 
-    Return the name's historic nameop on success
+    Return the name's historic nameop(s) on success.
+    If there are multiple matches, multiple nameops will be returned.
+    The return value takes the form of {'status': True, 'nameops': [...]}
     Return a dict with {'error'} on error
     """
 
     proxy = get_default_proxy() if proxy is None else proxy
 
-    historic_nameops = snv_get_records_at(
+    historic_nameops = snv_get_nameops_at(
         current_block_id, current_consensus_hash,
         block_id, consensus_hash, proxy=proxy
     )
@@ -893,21 +913,38 @@ def snv_name_verify(name, current_block_id, current_consensus_hash, block_id, co
     if 'error' in historic_nameops:
         return historic_nameops
 
+    matching_nameops = []
+
     # find the one we asked for
     for nameop in historic_nameops:
+        # select on more-accurate filters first
+        if trusted_txindex is not None and nameop['vtxindex'] == trusted_txindex:
+            matching_nameops = [nameop]
+            break
+
+        if trusted_txid is not None and nameop['txid'] == trusted_txid:
+            matching_nameops = [nameop]
+            break
+
         if 'name' not in nameop:
             continue
 
         if str(nameop['name']) == str(name):
             # success!
-            return nameop
+            matching_nameops.append(nameop)
+            continue
+
+    if matching_nameops:
+        return {'status': True, 'nameops': matching_nameops}
 
     # not found
     log.error('Not found at block {}: "{}"'.format(block_id, name))
     return {'error': 'Name not found'}
 
 
-def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_consensus_hash, proxy=None):
+def snv_lookup(verify_name, verify_block_id,
+               trusted_serial_number_or_txid_or_consensus_hash, proxy=None, trusted_txid=None):
+
     """
     High-level call to simple name verification:
     Given a trusted serial number, txid, or consensus_hash, use it as a trust root to verify that
@@ -916,7 +953,7 @@ def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_co
 
     Basically, use the trust root to derive a "current" block ID and consensus hash, and
     use the untrusted (name, block_id) pair to derive an earlier untrusted block ID and
-    consensus hash.  Then, use the snv_get_records_at() method to verify that the name
+    consensus hash.  Then, use the snv_get_nameops_at() method to verify that the name
     existed at the given block ID.
 
     The Blockstack node is not trusted.  This algorithm prevents a malicious Blockstack node
@@ -935,6 +972,10 @@ def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_co
     then the transitive closure of all prior consensus hashes will be assumed valid as well.
     This means that the only way to drive the valid consensus hash from a prior invalid
     consensus hash is to force a hash collision somewhere in the transitive closure, which is infeasible.
+
+    NOTE: @trusted_txid is needed for isolating multiple operations in the same name within a single block.
+
+    Return the list of nameops in the given verify_block_id that match.
     """
 
     proxy = get_default_proxy() if proxy is None else proxy
@@ -942,8 +983,8 @@ def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_co
     trusted_serial_number_or_txid_or_consensus_hash = str(trusted_serial_number_or_txid_or_consensus_hash)
 
     bitcoind_proxy = get_bitcoind_client(config_path=proxy.conf['path'])
-    trusted_serial_number = None  # TODO: Check why this variable is unused
-    trusted_txid = None
+    trusted_serial_number = None
+    trusted_tx_index = None
     trusted_consensus_hash = None
     trusted_block_id = None
 
@@ -1017,12 +1058,17 @@ def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_co
 
     # go verify the name
     verify_consensus_hash = get_consensus_at(verify_block_id, proxy=proxy)
-    historic_namerec = snv_name_verify(
+    historic_namerecs = snv_name_verify(
         verify_name, trusted_block_id, trusted_consensus_hash,
-        verify_block_id, verify_consensus_hash
+        verify_block_id, verify_consensus_hash,
+        trusted_txid=trusted_txid, trusted_txindex=trusted_tx_index
     )
 
-    return historic_namerec
+    if 'error' in historic_namerecs:
+        return historic_namerecs
+
+    return historic_namerecs['nameops']
+
 
 # backwards compatibility
 lookup_snv = snv_lookup

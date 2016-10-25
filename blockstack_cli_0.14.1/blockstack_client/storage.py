@@ -35,8 +35,8 @@ import blockstack_zones
 
 import blockstack_profiles
 
-from b40 import is_b40
-from config import LENGTH_MAX_NAME, get_logger, CONFIG_PATH
+from config import get_logger, CONFIG_PATH
+from scripts import is_name_valid
 import keys
 
 log = get_logger()
@@ -113,6 +113,19 @@ def hash_zonefile(zonefile_json):
     data_hash = get_zonefile_data_hash(user_zonefile_txt)
 
     return data_hash
+
+
+def verify_zonefile(zonefile_str, value_hash):
+    """
+    Verify that a zonefile hashes to the given value hash
+    @zonefile_str must be the zonefile as a serialized string
+    """
+    zonefile_hash = get_zonefile_data_hash(zonefile_str)
+
+    msg = 'Comparing zonefile hashes: expected {}, got {}'
+    log.debug(msg.format(value_hash, zonefile_hash))
+
+    return zonefile_hash == value_hash
 
 
 def get_storage_handlers():
@@ -425,7 +438,7 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None,
 
     fq_data_id = str(fq_data_id)
     msg = 'Need either a fully-qualified data ID or a blockchain ID: "{}"'
-    assert is_fq_data_id(fq_data_id) or is_valid_name(fq_data_id), msg.format(fq_data_id)
+    assert is_fq_data_id(fq_data_id) or is_name_valid(fq_data_id), msg.format(fq_data_id)
 
     fqu = None
     if is_fq_data_id(fq_data_id):
@@ -627,7 +640,7 @@ def put_mutable_data(fq_data_id, data_json, privatekey, required=None, use_only=
 
     fq_data_id = str(fq_data_id)
     msg = 'Data ID must be fully qualified or must be a valid blockchain ID (got {})'
-    assert is_fq_data_id(fq_data_id) or is_valid_name(fq_data_id), msg.format(fq_data_id)
+    assert is_fq_data_id(fq_data_id) or is_name_valid(fq_data_id), msg.format(fq_data_id)
     assert privatekey is not None
 
     fqu = fq_data_id.split(':')[0] if is_fq_data_id(fq_data_id) else fq_data_id
@@ -726,7 +739,7 @@ def delete_mutable_data(fq_data_id, privatekey, only_use=None):
 
     fq_data_id = str(fq_data_id)
     msg = 'Data ID must be fully qualified or must be a valid blockchain ID (got {})'
-    assert is_fq_data_id(fq_data_id) or is_valid_name(fq_data_id), msg.format(fq_data_id)
+    assert is_fq_data_id(fq_data_id) or is_name_valid(fq_data_id), msg.format(fq_data_id)
 
     sigb64 = sign_raw_data(fq_data_id, privatekey)
 
@@ -808,19 +821,7 @@ def is_fq_data_id(fq_data_id):
     # name must be valid
     name = fq_data_id.split(':')[0]
 
-    return is_valid_name(name)
-
-
-def is_valid_name(name):
-    """
-    Is a name well-formed for blockstack DNS?
-    """
-
-    # name must be base-40, and there must be a namespace ID
-    if not is_b40(name) or name.count('.') != 1:
-        return False
-
-    return len(name) <= LENGTH_MAX_NAME
+    return is_name_valid(name)
 
 
 def blockstack_mutable_data_url(blockchain_id, data_id, version):
@@ -907,7 +908,7 @@ def blockstack_mutable_data_url_parse(url):
     m = re.match(app_url_data_regex, url)
     if m:
         account_id, service_id, blockchain_id, data_id, version = m.groups()
-        if not is_valid_name(blockchain_id):
+        if not is_name_valid(blockchain_id):
             raise ValueError('Invalid blockchain ID "{}"'.format(blockchain_id))
 
         # version?
@@ -925,7 +926,7 @@ def blockstack_mutable_data_url_parse(url):
     if m:
 
         blockchain_id, data_id, version = m.groups()
-        if not is_valid_name(blockchain_id):
+        if not is_name_valid(blockchain_id):
             raise ValueError('Invalid blockchain ID "{}"'.format(blockchain_id))
 
         # version?
@@ -967,7 +968,7 @@ def blockstack_immutable_data_url_parse(url):
         data_id, blockchain_name, namespace_id, data_hash = m.groups()
         blockchain_id = '{}.{}'.format(blockchain_name, namespace_id)
 
-        if not is_valid_name(blockchain_id):
+        if not is_name_valid(blockchain_id):
             log.debug('Invalid blockstack ID "{}"'.format(blockchain_id))
             raise ValueError('Invalid blockstack ID')
 

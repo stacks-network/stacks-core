@@ -471,6 +471,7 @@ def store_name_zonefile_data(name, user_zonefile_txt, txid, storage_drivers=None
     """
 
     storage_drivers = [] if storage_drivers is None else storage_drivers
+
     data_hash = storage.get_zonefile_data_hash(user_zonefile_txt)
 
     result = storage.put_immutable_data(
@@ -638,32 +639,12 @@ def zonefile_data_publish(fqu, zonefile_txt, server_list, wallet_keys=None):
     for server_host, server_port in server_list:
         try:
             log.debug('Replicate zonefile to {}:{}'.format(server_host, server_port))
+            hostport = '{}:{}'.format(server_host, server_port)
 
-            srv = BlockstackRPCClient(server_host, server_port)
-            res = srv.put_zonefiles([base64.b64encode(zonefile_txt)])
-            if 'error' in res:
+            res = put_zonefiles(hostport, [base64.b64encode(zonefile_txt)])
+            if 'error' in res or res['saved'][0] != 1:
                 msg = 'Failed to publish zonefile to {}:{}: {}'
                 log.error(msg.format(server_host, server_port, res['error']))
-                continue
-
-            if 'status' not in res:
-                log.error('Invalid server reply: no status')
-                continue
-
-            if not isinstance(res['status'], bool) or not res['status']:
-                log.error('Invalid server reply: invalid status')
-                continue
-
-            if 'saved' not in res:
-                log.error('Invalid server reply: no "saved" key')
-                continue
-
-            if not isinstance(res['saved'], list):
-                log.error('Invalid server reply: no saved vector')
-                continue
-
-            if len(res['saved']) < 1 or res['saved'][0] != 1:
-                log.error('Server {}:{} failed to save zonefile'.format(server_host, server_port))
                 continue
 
             log.debug('Replicated zonefile to {}:{}'.format(server_host, server_port))

@@ -210,4 +210,19 @@ def get_fees( inputs, outputs ):
         dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
     
     return (dust_fee, op_fee)
+   
+
+def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):
+    """
+    Given a name record most recently affected by an instance of this operation, 
+    find the dict of consensus-affecting fields from the operation that are not
+    already present in the name record.
+    """
+  
+    ret_op = {}
     
+    # reconstruct the recipient information
+    ret_op['recipient'] = str(name_rec['sender'])
+    ret_op['recipient_address'] = str(name_rec['address'])
+    return ret_op
+

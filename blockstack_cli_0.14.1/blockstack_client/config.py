@@ -145,6 +145,22 @@ NAME_OPCODES = {
     'ANNOUNCE': ANNOUNCE
 }
 
+# borrowed from Blockstack Core
+# these never change, so it's fine to duplicate them here
+OPCODE_NAMES = {
+    NAME_PREORDER: 'NAME_PREORDER',
+    NAME_REGISTRATION: 'NAME_REGISTRATION',
+    NAME_UPDATE: 'NAME_UPDATE',
+    NAME_TRANSFER: 'NAME_TRANSFER',
+    NAME_RENEWAL: 'NAME_REGISTRATION',
+    NAME_REVOKE: 'NAME_REVOKE',
+    NAME_IMPORT: 'NAME_IMPORT',
+    NAMESPACE_PREORDER: 'NAMESPACE_PREORDER',
+    NAMESPACE_REVEAL: 'NAMESPACE_REVEAL',
+    NAMESPACE_READY: 'NAMESPACE_READY',
+    ANNOUNCE: 'ANNOUNCE'
+}
+
 # borrowed from Blockstack Core; needed by SNV
 # these never change, so it's fine to duplicate them here
 NAMEREC_FIELDS = [
@@ -216,12 +232,13 @@ OPFIELDS = {
         'ready_block',         # block number at which the namespace was readied
     ],
     NAME_PREORDER: [
-        'preorder_name_hash',  # hash(name,sender,register_addr)
+        'preorder_hash',       # hash(name,sender,register_addr)
         'consensus_hash',      # consensus hash at time of send
         'sender',              # scriptPubKey hex that identifies the principal that issued the preorder
-        'sender_pubkey',       # if sender is a pubkeyhash script, then this is the public key. Otherwise, this is empty.
+        'sender_pubkey',       # if sender is a pubkeyhash script, then this is the public key.  Otherwise, this is empty.
         'address',             # address from the sender's scriptPubKey
         'block_number',        # block number at which this name was preordered for the first time
+
         'op',                  # blockstack bytestring describing the operation
         'txid',                # transaction ID
         'vtxindex',            # the index in the block where the tx occurs
@@ -238,7 +255,7 @@ OPFIELDS = {
         'keep_data'            # whether or not to keep the profile data associated with the name when transferred
     ],
     NAME_UPDATE: NAMEREC_FIELDS + [
-        'name_hash128',        # hash(name,consensus_hash)
+        'name_consensus_hash', # hash(name,consensus_hash)
         'consensus_hash'       # consensus hash when this update was sent
     ]
 }
@@ -344,6 +361,24 @@ SUPPORTED_UTXO_PROMPT_MESSAGES = {
 }
 
 
+# NOTE: duplicated from blockstack-core and streamlined.
+def op_get_opcode_name(op_string):
+    """
+    Get the name of an opcode, given the 'op' byte sequence of the operation.
+    """
+    global OPCODE_NAMES
+
+    # special case...
+    if op_string == '{}:'.format(NAME_REGISTRATION):
+        return 'NAME_RENEWAL'
+
+    op = op_string[0]
+    if op not in OPCODE_NAMES:
+        raise Exception('No such operation "{}"'.format(op))
+
+    return OPCODE_NAMES[op]
+
+
 def url_to_host_port(url, port=DEFAULT_BLOCKSTACKD_PORT):
     """
     Given a URL, turn it into (host, port).
@@ -357,20 +392,21 @@ def url_to_host_port(url, port=DEFAULT_BLOCKSTACKD_PORT):
 
     parts = hostport.split('@')
     if len(parts) > 2:
-        return (None, None)
+        return None, None
 
     if len(parts) == 2:
         hostport = parts[1]
 
     parts = hostport.split(':')
     if len(parts) > 2:
-        return (None, None)
+        return None, None
 
     if len(parts) == 2:
         try:
             port = int(parts[1])
+            assert 0 < port < 65535, 'Invalid port'
         except TypeError:
-            return (None, None)
+            return None, None
 
     return parts[0], port
 

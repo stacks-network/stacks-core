@@ -169,3 +169,17 @@ def get_fees( inputs, outputs ):
     
     return (dust_fee, op_fee)
 
+
+def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):
+    """
+    Given a name record most recently affected by an instance of this operation, 
+    find the dict of consensus-affecting fields from the operation that are not
+    already present in the name record.
+    """
+    
+    ret_op = {}
+
+    # reconstruct name_hash
+    ret_op['name_consensus_hash'] = hash256_trunc128( str(name_rec['name']) + str(name_rec['consensus_hash']) )
+    return ret_op
+

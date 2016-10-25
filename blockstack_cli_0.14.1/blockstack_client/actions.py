@@ -76,7 +76,7 @@ from blockstack_client import (
     delete_immutable, delete_mutable, get_all_names, get_consensus_at,
     get_immutable, get_mutable, get_name_blockchain_record,
     get_name_cost, get_name_profile, get_name_zonefile,
-    get_records_at, get_names_in_namespace, get_names_owned_by_address,
+    get_nameops_at, get_names_in_namespace, get_names_owned_by_address,
     get_namespace_blockchain_record, get_namespace_cost,
     is_user_zonefile, list_immutable_data_history, list_update_history,
     list_zonefile_history, list_accounts, get_account, put_account,
@@ -98,7 +98,8 @@ from .config import (
     BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
 )
 
-from .storage import is_valid_name, is_b40, get_drivers_for_url
+from .b40 import is_b40
+from .storage import get_drivers_for_url
 from .user import add_user_zonefile_url, remove_user_zonefile_url
 
 from pybitcoin import is_b58check_address
@@ -121,7 +122,7 @@ from .keys import *
 from .proxy import *
 from .client import analytics_event
 from .app import app_register, app_unregister, app_get_wallet
-from .scripts import UTXOException
+from .scripts import UTXOException, is_name_valid
 from .user import user_zonefile_urls, user_zonefile_data_pubkey, make_empty_user_zonefile
 
 from .utils import exit_with_error, satoshis_to_btc
@@ -183,7 +184,8 @@ def check_valid_name(fqu):
     Return None on success
     Return an error string on error
     """
-    rc = is_valid_name(fqu)
+
+    rc = is_name_valid(fqu)
     if rc:
         return None
 
@@ -1922,7 +1924,7 @@ def cli_advanced_get_account(args, proxy=None,
     if 'error' in res:
         return res
 
-    if not is_valid_name(args.name) or not args.service or not args.identifier:
+    if not is_name_valid(args.name) or not args.service or not args.identifier:
         return {'error': 'Invalid name or identifier'}
 
     wallet_keys = get_wallet_keys(config_path, password)
@@ -1972,7 +1974,7 @@ def cli_advanced_put_account(args, proxy=None, config_path=CONFIG_PATH,
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    if not is_valid_name(args.name):
+    if not is_name_valid(args.name):
         return {'error': 'Invalid name'}
 
     if not args.service or not args.identifier or not args.content_url:
@@ -2025,7 +2027,7 @@ def cli_advanced_delete_account(args, proxy=None, config_path=CONFIG_PATH, passw
     if 'error' in res:
         return res
 
-    if not is_valid_name(args.name) or not args.service or not args.identifier:
+    if not is_name_valid(args.name) or not args.service or not args.identifier:
         return {'error': 'Invalid name or identifier'}
 
     wallet_keys = get_wallet_keys(config_path, password)
@@ -2627,13 +2629,13 @@ def cli_advanced_get_names_in_namespace(args, config_path=CONFIG_PATH):
     return result
 
 
-def cli_advanced_get_records_at(args, config_path=CONFIG_PATH):
+def cli_advanced_get_nameops_at(args, config_path=CONFIG_PATH):
     """
-    command: get_records_at
+    command: get_nameops_at
     help: Get the list of name operations that occurred at a given block number
     arg: block_id (int) 'The block height to query'
     """
-    result = get_records_at(int(args.block_id))
+    result = get_nameops_at(int(args.block_id))
     return result
 
 
