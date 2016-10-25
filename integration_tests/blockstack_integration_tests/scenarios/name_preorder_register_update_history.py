@@ -24,6 +24,7 @@
 import testlib
 import pybitcoin
 import json
+import blockstack_client
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -142,7 +143,7 @@ def check( state_engine ):
         return False
 
     # get history...
-    name_history = state_engine.get_name_history( "foo.test", name_rec['first_registered'], state_engine.get_current_block()+1 )
+    name_history = blockstack_client.get_name_blockchain_history( "foo.test", name_rec['first_registered'], state_engine.get_current_block()+1 )
 
     # did 10 updates, 1 register
     if len(name_history) != 11:
@@ -156,7 +157,7 @@ def check( state_engine ):
     # NOTE: first value hash doesn't exist
     for i in xrange(1, 10):
         block_id = block_ids[i]
-        snapshots = name_history[str(block_id)]
+        snapshots = name_history[block_id]
 
         if len(snapshots) != 1:
             print "multiple snapshots at %s" % block_id
