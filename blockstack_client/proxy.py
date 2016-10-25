@@ -1398,7 +1398,7 @@ def get_op_history_rows( name, proxy=None ):
             history_rows += resp['history_rows']
         
             if os.environ.get("BLOCKSTACK_TEST", None) == "1":
-                if len(resp) != page_size:
+                if len(resp['history_rows']) != page_size:
                     if len(history_rows) != history_rows_count:
                         # something's wrong--we should have them all 
                         raise Exception('Missing history rows: expected %s, got %s' % (history_rows_count, len(history_rows)))
@@ -1494,7 +1494,7 @@ def get_nameops_affected_at( block_id, proxy=None ):
             all_nameops += resp['nameops']
 
             if os.environ.get("BLOCKSTACK_TEST", None) == "1":
-                if len(resp) != page_size:
+                if len(resp['nameops']) != page_size:
                     if len(all_nameops) != num_nameops:
                         # something's wrong--we should have them all 
                         raise Exception('Missing nameops: expected %s, got %s' % (num_nameops, len(all_nameops)))
