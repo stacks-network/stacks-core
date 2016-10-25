@@ -131,7 +131,7 @@ def scenario( wallets, **kw ):
 
     balance_after = testlib.blockstack_cli_balance()
     blockchain_history = testlib.blockstack_cli_advanced_get_name_blockchain_history( "foo.test" )
-    zonefile_info = testlib.blockstack_cli_advanced_get_name_zonefile( "foo.test" )
+    zonefile_info = testlib.blockstack_cli_advanced_get_name_zonefile( "foo.test", json=False )
     all_names_info = testlib.blockstack_cli_advanced_get_all_names()
     namespace_names_info = testlib.blockstack_cli_advanced_get_names_in_namespace("test")
     lookup_info = testlib.blockstack_cli_lookup( "foo.test" )
@@ -262,14 +262,30 @@ def check( state_engine ):
             print "missing %s\n%s" % (k, json.dumps(blockchain_record, indent=4, sort_keys=True))
             return False
 
-    # blockchain history 
-    if len(blockchain_history) != 2:
+    # blockchain history (should have a preorder, register, and update)
+    if len(blockchain_history) != 3:
         print "invalid history\n%s\n" % json.dumps(blockchain_history, indent=4, sort_keys=True)
         return False
+
+    block_heights = blockchain_history.keys()
+    block_heights.sort()
+    expected_opcodes = ['NAME_PREORDER', 'NAME_REGISTRATION', 'NAME_UPDATE']
+    for bh, opcode in zip(block_heights, expected_opcodes):
+        if len(blockchain_history[bh]) != 1:
+            print "invalid history: multiple ops at %s\n%s" % (bh, json.dumps(blockchain_history, indent=4, sort_keys=True))
+            return False
+
+        if blockchain_history[bh][0]['opcode'] != opcode:
+            print "invalid history: expected %s at %s\n%s" % (opcode, bh, json.dumps(blockchain_history, indent=4, sort_keys=True))
+            return False
 
     # zonefile info
     if zonefile_info is None or type(zonefile_info) != dict:
         print "invalid zonefile\n%s\n" % zonefile_info
+        return False
+
+    if not zonefile_info.has_key('zonefile'):
+        print "missing zonefile\n%s\n" % zonefile_info
         return False
 
     # name query
@@ -314,7 +330,7 @@ def check( state_engine ):
         return False
 
     # zonefile history
-    if len(zonefile_history) != 1 or zonefile_history[0] != zonefile_info:
+    if len(zonefile_history) != 1 or zonefile_history[0] != zonefile_info['zonefile']:
         print "invalid zonefile history\n%s" % json.dumps(zonefile_history, indent=4, sort_keys=True)
         return False
 
