@@ -89,6 +89,8 @@ class APICallRecord(object):
         self.method = method
         self.result = result
 
+        assert 'transaction_hash' in result.keys() or 'error' in result.keys()
+
 
 class TestAPIProxy(object):
     def __init__(self):
@@ -485,7 +487,7 @@ def blockstack_cli_register( name, password ):
     return resp
 
 
-def blockstack_cli_update( name, zonefile_json, password ):
+def blockstack_cli_update( name, zonefile_json, password, nonstandard=True ):
     """
     Update a name's value hash to point to the new zonefile
     """
@@ -498,11 +500,11 @@ def blockstack_cli_update( name, zonefile_json, password ):
     args.name = name
     args.data = zonefile_json 
 
-    resp = cli_update( args, config_path=test_proxy.config_path, password=password, interactive=False, allow_invalid_zonefile=True )
+    resp = cli_update( args, config_path=test_proxy.config_path, password=password, interactive=False, nonstandard=nonstandard )
 
     if 'value_hash' in resp:
         atlas_zonefiles_present.append( resp['value_hash'] )
-
+    
     return resp
 
 
@@ -576,7 +578,7 @@ def blockstack_cli_set_zonefile_hash( name, zonefile_hash ):
     return resp
 
 
-def blockstack_cli_sync_zonefile( name, zonefile_string=None, txid=None, interactive=False, allow_invalid_zonefile=True ):
+def blockstack_cli_sync_zonefile( name, zonefile_string=None, txid=None, interactive=False, nonstandard=True ):
     """
     Forcibly synchronize the zonefile
     """
@@ -590,7 +592,7 @@ def blockstack_cli_sync_zonefile( name, zonefile_string=None, txid=None, interac
     args.zonefile = zonefile_string
     args.txid = txid
 
-    resp = cli_advanced_sync_zonefile( args, config_path=test_proxy.config_path, proxy=test_proxy, interactive=interactive, allow_invalid_zonefile=allow_invalid_zonefile )
+    resp = cli_advanced_sync_zonefile( args, config_path=test_proxy.config_path, proxy=test_proxy, interactive=interactive, nonstandard=nonstandard )
     if 'value_hash' in resp:
         atlas_zonefiles_present.append( resp['value_hash'] )
 
@@ -1025,7 +1027,7 @@ def blockstack_cli_advanced_lookup_snv( name, block_id, trust_anchor, config_pat
     return cli_advanced_lookup_snv( args, config_path=test_proxy.config_path )
 
 
-def blockstack_cli_advanced_get_name_zonefile( name, config_path=CONFIG_PATH ):
+def blockstack_cli_advanced_get_name_zonefile( name, config_path=CONFIG_PATH, json=False ):
     """
     get name zonefile
     """
@@ -1034,6 +1036,8 @@ def blockstack_cli_advanced_get_name_zonefile( name, config_path=CONFIG_PATH ):
     args = CLIArgs()
 
     args.name = name
+    args.json = "True" if json else "False"
+
     return cli_advanced_get_name_zonefile( args, config_path=test_proxy.config_path )
 
 
@@ -1434,28 +1438,58 @@ def snv_all_names( state_engine ):
         name = None
         opcode = None
 
-        if api_call.method.startswith("register") and not api_call.method.startswith("register_multi"):
+        if api_call.method == "register":
             name = api_call.name
             opcode = "NAME_REGISTRATION"
 
-        elif api_call.method.startswith("name_import"):
+        elif api_call.method == "name_import":
             name = api_call.name
             opcode = "NAME_IMPORT"
-            
+           
+        elif api_call.method == "update":
+            name = api_call.name
+            opcode = "NAME_UPDATE"
+        
+        elif api_call.method == "transfer":
+            name = api_call.name
+            opcode = "NAME_TRANSFER"
+
+        elif api_call.method == "revoke":
+            name = api_call.name
+            opcode = "NAME_REVOKE"
+
         if name is not None:
             block_id = int(api_call.block_id)
-            consensus_hash = all_consensus_hashes[ block_id ]
+            consensus_hash = all_consensus_hashes.get( block_id, None )
+            txid = api_call.result.get('transaction_hash', None)
+            err = api_call.result.get('error', None)
+
+            if consensus_hash is None:
+                log.error("Missing consensus hash at %s" % block_id)
+                log.error("all consensus hashes:\n%s" % json.dumps(all_consensus_hashes, indent=4, sort_keys=True))
+                raise Exception("Missing consensus hash")
+
+            if txid is None and not api_call.result.has_key('error'):
+                log.error("Missing transaction_hash for '%s' on '%s' in %s" % (api_call.method, api_call.name, block_id))
+                raise Exception("Missing txid")
 
             if not all_names.has_key( name ):
                 all_names[name] = {}
                 
-            all_names[name][block_id] = {
-                "consensus_hash": consensus_hash,
-                "opcode": opcode
-            }
+            if not all_names[name].has_key(block_id):
+                all_names[name][block_id] = {
+                    'consensus_hash': consensus_hash,
+                    'opcode_sequence': [opcode],
+                    'txid_sequence': [txid],
+                    'error_sequence': [err]
+                }
+            
+            else:
+                # multiple opcodes in this block 
+                all_names[name][block_id]['opcode_sequence'].append(opcode)
+                all_names[name][block_id]['txid_sequence'].append(txid)
+                all_names[name][block_id]['error_sequence'].append(err)
 
-            if api_call.result.has_key('transaction_hash'):
-                all_names[name][block_id]['txid'] = api_call.result['transaction_hash']
 
     for block_id, name_list in snv_fail_at.items():
         log.debug("Expect SNV fail on %s at %s" % (",".join(name_list), block_id))
@@ -1467,57 +1501,84 @@ def snv_all_names( state_engine ):
         for block_id in all_names[name].keys():
 
             consensus_hash = all_names[name][block_id]['consensus_hash']
-            txid = all_names[name][block_id].get('txid', None)
-            opcode = all_names[name][block_id].get('opcode', None)
+            txid_sequence = all_names[name][block_id]['txid_sequence']
+            opcode_sequence = all_names[name][block_id]['opcode_sequence']
+            error_sequence = all_names[name][block_id]['error_sequence']
 
             log.debug("SNV verify %s (from %s)" % (name, block_id))
+            log.debug("opcodes: %s" % opcode_sequence)
+            log.debug("txids: %s" % txid_sequence)
+            log.debug("errors: %s" % error_sequence)
 
-            for i in xrange( block_id + 1, max(all_consensus_hashes.keys()) + 1 ):
+            for j in xrange(0, len(txid_sequence)):
+                
+                opcode = opcode_sequence[j]
+                txid = txid_sequence[j]
+                err = error_sequence[j]
 
-                trusted_block_id = i
+                if err is not None:
+                    raise Exception("Test misconfigured: error '%s' at block %s" % (err, block_id))
 
-                try:
-                    trusted_consensus_hash = all_consensus_hashes[i]
-                except KeyError:
-                    print json.dumps(all_consensus_hashes, indent=4, sort_keys=True)
-                    os.abort()
+                log.debug("Verify %s %s" % (opcode, txid))
+                for i in xrange( block_id + 1, max(all_consensus_hashes.keys()) + 1 ):
 
-                snv_rec = blockstack_client.snv_lookup( name, block_id, trusted_consensus_hash, proxy=test_proxy )
-                if 'error' in snv_rec:
+                    trusted_block_id = i
+
+                    try:
+                        trusted_consensus_hash = all_consensus_hashes[i]
+                    except KeyError:
+                        print json.dumps(all_consensus_hashes, indent=4, sort_keys=True)
+                        os.abort()
+
+                    snv_recs = blockstack_client.snv_lookup( name, block_id, trusted_consensus_hash, proxy=test_proxy, trusted_txid=txid )
+                    if 'error' in snv_recs:
+                        if name in snv_fail:
+                            log.debug("SNV lookup %s failed as expected" % name)
+                            continue 
+
+                        if name in snv_fail_at.get(block_id, []):
+                            log.debug("SNV lookup %s failed at %s as expected" % (name, block_id))
+                            continue 
+
+                        print json.dumps(snv_recs, indent=4, sort_keys=True )
+                        return False 
+
+                    if len(snv_recs) > 1:
+                        print "snv_lookup(%s, %s, %s, %s)" % (name, block_id, trusted_consensus_hash, txid)
+                        print json.dumps(snv_recs, indent=4, sort_keys=True)
+                        return False
+
+                    assert len(snv_recs) <= 1, "Multiple SNV records returned"
+                    snv_rec = snv_recs[0]
+
+                    if snv_rec['name'] != name:
+                        print "mismatch name"
+                        print json.dumps(snv_rec, indent=4, sort_keys=True )
+                        return False 
+
+                    if snv_rec['txid'] != txid:
+                        print "mismatch txid at %s: expected %s, got %s" % (j, txid, snv_rec['txid'])
+                        print json.dumps(snv_rec, indent=4, sort_keys=True)
+                        return False
+
+                    if opcode is not None and snv_rec['opcode'] != opcode:
+                        print "mismatch opcode at %s: expected %s, got %s" % (j, opcode, snv_rec['opcode'])
+                        print json.dumps(snv_rec, indent=4, sort_keys=True )
+                        return False 
+
                     if name in snv_fail:
-                        log.debug("SNV lookup %s failed as expected" % name)
-                        continue 
+                        print "looked up name '%s' that was supposed to fail SNV" % name
+                        return False 
 
-                    if name in snv_fail_at.get(block_id, []):
-                        log.debug("SNV lookup %s failed at %s as expected" % (name, block_id))
-                        continue 
+                    # QUIRK: if imported, then the fee must be a float.  otherwise, it must be an int 
+                    if snv_rec['opcode'] == 'NAME_IMPORT' and type(snv_rec['op_fee']) != float:
+                        print "QUIRK: NAME_IMPORT: fee isn't a float"
+                        return False 
 
-                    print json.dumps(snv_rec, indent=4 )
-                    return False 
+                    elif type(snv_rec['op_fee']) not in [int,long]:
+                        print "QUIRK: %s: fee isn't an int (but a %s: %s)" % (snv_rec['opcode'], type(snv_rec['op_fee']), snv_rec['op_fee'])
 
-                if snv_rec['name'] != name:
-                    print "mismatch name"
-                    print json.dumps(snv_rec, indent=4 )
-                    return False 
-
-                if opcode is not None and snv_rec['opcode'] != opcode:
-                    print "mismatch opcode"
-                    print json.dumps(snv_rec, indent=4 )
-                    return False 
-
-                if name in snv_fail:
-                    print "looked up name '%s' that was supposed to fail SNV" % name
-                    return False 
-
-                # QUIRK: if imported, then the fee must be a float.  otherwise, it must be an int 
-                if snv_rec['opcode'] == 'NAME_IMPORT' and type(snv_rec['op_fee']) != float:
-                    print "QUIRK: NAME_IMPORT: fee isn't a float"
-                    return False 
-
-                elif type(snv_rec['op_fee']) not in [int,long]:
-                    print "QUIRK: %s: fee isn't an int (but a %s: %s)" % (snv_rec['opcode'], type(snv_rec['op_fee']), snv_rec['op_fee'])
-
-                log.debug("SNV verified %s with (%s,%s) back to (%s,%s)" % (name, trusted_block_id, trusted_consensus_hash, block_id, consensus_hash ))
+                    log.debug("SNV verified %s with (%s,%s) back to (%s,%s)" % (name, trusted_block_id, trusted_consensus_hash, block_id, consensus_hash ))
 
     return True
 
