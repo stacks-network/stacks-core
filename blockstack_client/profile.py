@@ -361,7 +361,7 @@ def get_name_zonefile( name, storage_drivers=None, create_if_absent=False, proxy
                 return {"error": "Failed to decode user zonefile"}
 
     else:
-        user_zonefile_data = load_name_zonefile(name, user_zonefile_hash, storage_drivers=storage_drivers, raw_zonefile=True )
+        user_zonefile_data = load_name_zonefile(name, user_zonefile_hash, storage_drivers=storage_drivers )
 
     ret = {
         "zonefile": user_zonefile_data
