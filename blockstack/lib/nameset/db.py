@@ -2074,18 +2074,13 @@ def namedb_get_all_ops_at( db, block_id, offset=None, count=None, include_histor
 
     Return the list of prior record states, ordered by vtxindex.
 
-    If offset is not None (i.e. we're paging through all operations),
-    then the list will instead be ordered by:
-    * name preorders that have been claimed but were created at this block
-    * name operations that happened at this block
-    * outstanding preorders that were written at this block
-    * namespaces that were preordered at this block
-    * namespaces that were modified at this block
+    If we're paging (i.e. offset, count aren't None), then we won't restore the name records to their
+    historical points in time. This is an anti-DDoS measure.  Honest clients will need to fetch the
+    name/namespace history separately (paginated) and re-assemble the history and current record state
+    into the historic state client-side.
 
-    If we're paging, then we won't restore the name records to their historical points in time.
-    This is an anti-DDoS measure.  Honest clients will need to fetch the name/namespace history
-    separately (paginated) and re-assemble the history and current record state into the historic
-    state client-side.
+    In this case, offset/count only refer to the number of unique records affected at this block.  
+    Multiple modifications to the same record will be ignored.
 
     No ordering within these lists is guaranteed during pagination.
     """
