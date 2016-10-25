@@ -696,29 +696,6 @@ class BlockstackDB( virtualchain.StateEngine ):
         return update_points
        
 
-    '''
-    def get_name_history( self, name, start_block, end_block ):
-        """
-        Get the history of states of a name over a given point in time.
-        Returns {
-            "block height": [ {...}, {...} ]
-        }
-        Return None if te name isn't current
-        """
-        name_rec = self.get_name( name )
-        if name_rec is None:
-            return None 
-
-        cur = self.db.cursor()
-        name_snapshots = {}
-        update_points = namedb_get_blocks_with_ops( cur, name, start_block, end_block )
-        for update_point in update_points:
-            historical_recs = self.get_name_at( name, update_point )
-            name_snapshots[ str(update_point) ] = historical_recs
-
-        return name_snapshots
-    '''
-
     def get_op_history_rows( self, history_id, offset, count ):
         """
         Get the list of history rows for a name or namespace, with the given
@@ -1079,44 +1056,6 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         return self.announce_ids
 
-
-    '''
-    def get_name_last_creation_opcode( self, name, block_number=None, history_index=None, include_expired=False ):
-        """
-        Get the last state-creating opcode for this name as of the given block number.  I.e. an import, a preorder.
-        """
-
-        if block_number is None:
-            block_number = self.lastblock
-
-        hist_set = self.get_name_history( name, FIRST_BLOCK_MAINNET, block_number+1 )
-        if hist_set is None:
-            # not known 
-            return None
-
-        # ordered sequence of block heights
-        # (NOTE: hist_set is keyed by string representation of height)
-        block_heights = [int(b) for b in hist_set.keys()]
-        block_heights.sort()
-
-        # go backwards in time
-        for block_height in reversed(block_heights):
-
-            for i in xrange( len(hist_set[str(block_height)])-1, -1, -1 ):
-            
-                old_name = hist_set[str(block_height)][i]
-
-                if history_index is not None and block_height == block_number and i > history_index:
-                    # skip later history
-                    log.debug("  skip %s.%s" % (block_height, i) )
-                    continue
-
-                if old_name['op'] in [NAME_PREORDER, NAME_IMPORT]:
-                    log.debug("Name '%s' last created by %s" % (name, op_get_opcode_name(old_name['op'])))
-                    return op_get_opcode_name(old_name['op'])
-
-        return None 
-    '''
 
     def is_name_expired( self, name, block_number ):
         """
