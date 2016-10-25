@@ -148,7 +148,7 @@ def scenario( wallets, **kw ):
     for zi in xrange(0, len(zf_data)):
         nonstandard_zonefile = zf_data[zi]
 
-        resp = testlib.blockstack_cli_update( "foo.test", nonstandard_zonefile, "0123456789abcdef" )
+        resp = testlib.blockstack_cli_update( "foo.test", nonstandard_zonefile, "0123456789abcdef", nonstandard=True )
         if 'error' in resp:
             print "failed to put nonstandard zonefile '%s'" % nonstandard_zonefile
             print json.dumps(resp, indent=4, sort_keys=True)
@@ -164,9 +164,9 @@ def scenario( wallets, **kw ):
         time.sleep(3)
 
         # getting zonefile should still work...
-        resp = testlib.blockstack_cli_advanced_get_name_zonefile( "foo.test" )
+        resp = testlib.blockstack_cli_advanced_get_name_zonefile( "foo.test", json=True )
         if 'error' in resp:
-            print "failed to get zonefile"
+            print "failed to get zonefile %s" % zi
             print json.dumps(resp, indent=4, sort_keys=True)
             error = True
             return 
