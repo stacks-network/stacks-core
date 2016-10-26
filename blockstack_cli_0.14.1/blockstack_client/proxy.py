@@ -361,7 +361,6 @@ NAMESPACE_SCHEMA_REQUIRED = [
     'block_number',
     'buckets',
     'coeff',
-    'fee',
     'lifetime',
     'namespace_id',
     'no_vowel_discount',
@@ -782,7 +781,6 @@ def get_all_names_page(offset, count, proxy=None):
         # must be valid names
         for n in resp['names']:
             assert scripts.is_name_valid(str(n)), ('Invalid name "{}"'.format(str(n)))
-
     except ValidationError as e:
         log.exception(e)
         resp = json_traceback(resp.get('error'))
@@ -813,8 +811,7 @@ def get_num_names(proxy=None):
         ],
     }
 
-    if proxy is None:
-        proxy = get_default_proxy()
+    proxy = get_default_proxy() if proxy is None else proxy
 
     resp = {}
     try:
@@ -822,7 +819,6 @@ def get_num_names(proxy=None):
         resp = json_validate(count_schema, resp)
         if json_is_error(resp):
             return resp
-
     except ValidationError as e:
         log.exception(e)
         resp = json_traceback(resp.get('error'))
@@ -902,7 +898,7 @@ def get_names_in_namespace_page(namespace_id, offset, count, proxy=None):
 
         # must be valid names
         for n in resp['names']:
-            assert scripts.is_name_valid(str(n)), ("Invalid name {}".format(str(n)))
+            assert scripts.is_name_valid(str(n)), ('Invalid name {}'.format(str(n)))
     except (ValidationError, AssertionError) as e:
         log.exception(e)
         resp = json_traceback(resp.get('error'))
@@ -1117,6 +1113,7 @@ def get_consensus_hashes(block_heights, proxy=None):
     # hard to express as a JSON schema, but the format is thus:
     # { block_height (str): consensus_hash (str) }
     # need to convert all block heights to ints
+
     try:
         ret = {int(k): v for k, v in consensus_hashes.items()}
         log.debug('consensus hashes: {}'.format(ret))
@@ -1215,8 +1212,7 @@ def get_name_at(name, block_id, proxy=None):
         ],
     }
 
-    if proxy is None:
-        proxy = get_default_proxy()
+    proxy = get_default_proxy() if proxy is None else proxy
 
     resp = {}
     try:
@@ -1635,7 +1631,6 @@ def get_namespace_blockchain_record(namespace_id, proxy=None):
             'record',
         ],
     }
-
     proxy = get_default_proxy() if proxy is None else proxy
 
     ret = {}

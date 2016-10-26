@@ -356,7 +356,15 @@ def get_name_zonefile(name, storage_drivers=None, create_if_absent=False, proxy=
         )
 
         if raw_zonefile_data is None:
-            return {'error': 'Failed to load user zonefile'}
+            return {'error': 'Failed to load raw user zonefile'}
+
+        if raw_zonefile:
+            user_zonefile_data = raw_zonefile_data
+        else:
+            # further decode
+            user_zonefile_data = decode_name_zonefile(raw_zonefile_data)
+            if user_zonefile_data is None:
+                return {'error': 'Failed to decode user zonefile'}
 
         if raw_zonefile:
             user_zonefile_data = raw_zonefile_data
@@ -369,6 +377,9 @@ def get_name_zonefile(name, storage_drivers=None, create_if_absent=False, proxy=
         user_zonefile_data = load_name_zonefile(
             name, user_zonefile_hash, storage_drivers=storage_drivers
         )
+
+        if user_zonefile_data is None:
+            return {'error': 'Failed to load or decode user zonefile'}
 
     ret = {
         'zonefile': user_zonefile_data
@@ -421,6 +432,11 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
         raw_zonefile = None
         if include_raw_zonefile:
             raw_zonefile = user_zonefile.pop('raw_zonefile')
+
+        raw_zonefile = None
+        if include_raw_zonefile:
+            raw_zonefile = user_zonefile['raw_zonefile']
+            del user_zonefile['raw_zonefile']
 
         user_zonefile = user_zonefile['zonefile']
 

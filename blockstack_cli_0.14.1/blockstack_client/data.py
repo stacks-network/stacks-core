@@ -285,7 +285,7 @@ def list_update_history(name, current_block=None, proxy=None):
             log.error('Invalid getinfo reply')
             return None
 
-    name_history = proxy.get_name_blockchain_history(name, 0, current_block)
+    name_history = get_name_blockchain_history(name, 0, current_block)
     block_ids = sorted(name_history.keys())
 
     all_update_hashes = []
@@ -295,10 +295,10 @@ def list_update_history(name, current_block=None, proxy=None):
             value_hash = history_item.get('value_hash', None)
             if value_hash is None:
                 continue
-
-            if not all_update_hashes or all_update_hashes[-1] != value_hash:
-                # changed
-                all_update_hashes.append(value_hash)
+            if all_update_hashes or all_update_hashes[-1] == value_hash:
+                continue
+            # changed
+            all_update_hashes.append(value_hash)
 
     return all_update_hashes
 
@@ -628,7 +628,7 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
     TO BLOCKSTACK SERVERS ONCE THE TRANSACTION CONFIRMS.  By default, it will be enqueued
     for replication.
 
-    Return {'status': True, 'transaction_hash': txid, 'immutable_data_hash': data_hash, 'zonefile': {...} } on success
+    Return {'status': True, 'transaction_hash': txid, 'immutable_data_hash': data_hash, 'zonefile_hash': ..., 'zonefile': {...} } on success
     Return {'error': ...} on error
     """
 
