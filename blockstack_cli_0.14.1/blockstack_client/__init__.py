@@ -38,7 +38,8 @@ import backend
 from proxy import BlockstackRPCClient, get_default_proxy, set_default_proxy, json_traceback
 from proxy import getinfo, ping, get_name_cost, get_namespace_cost, get_all_names, get_names_in_namespace, \
         get_names_owned_by_address, get_consensus_at, get_consensus_range, get_nameops_at, \
-        get_nameops_hash_at, get_name_blockchain_record, get_namespace_blockchain_record
+        get_nameops_hash_at, get_name_blockchain_record, get_namespace_blockchain_record, \
+        get_name_blockchain_history
         
 from keys import make_wallet_keys, get_owner_privkey_info, get_data_privkey_info, get_payment_privkey_info
 
