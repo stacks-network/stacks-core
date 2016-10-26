@@ -286,6 +286,9 @@ def extract_entry( rowdata ):
         entry['zonefile'] = base64.b64decode(entry['zonefile_b64'])
         del entry['zonefile_b64']
 
+    else:
+        entry['zonefile'] = None
+
     return entry
 
 
