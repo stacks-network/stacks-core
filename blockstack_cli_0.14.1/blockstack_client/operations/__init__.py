@@ -22,6 +22,7 @@
 """
 
 from ..config import *
+import copy
 
 import preorder
 import register
