@@ -56,8 +56,8 @@ from blockstack_client.proxy import \
 
 log = virtualchain.get_logger("blockstack-server")
 
-from lib.config import *
-from lib.storage import *
+from .config import *
+from .storage import *
 
 MIN_ATLAS_VERSION = "0.14.0"
 
@@ -413,7 +413,7 @@ def atlasdb_query_execute( cur, query, values ):
     """
 
     # under heavy contention, this can cause timeouts (which is unacceptable)
-    # serialize access to the db juts to be safe
+    # serialize access to the db just to be safe
     
     global DB_LOCK
 
@@ -1198,7 +1198,7 @@ def atlasdb_init( path, db, peer_seeds, peer_blacklist, validate=False, zonefile
         con = atlasdb_open( path )
         atlasdb_last_block = atlasdb_get_lastblock( con=con, path=path )
         if atlasdb_last_block is None:
-            atlasdb_last_block = 0
+            atlasdb_last_block = FIRST_BLOCK_MAINNET
 
         log.debug("Synchronize zonefiles from %s to %s" % (atlasdb_last_block, db.lastblock) )
 
