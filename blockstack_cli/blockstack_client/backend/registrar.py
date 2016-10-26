@@ -374,7 +374,7 @@ class RegistrarWorker(threading.Thread):
         # is the zonefile hash replicated?
         zonefile_data = name_data['zonefile']
         if zonefile_data is None:
-            log.debug("No zonefile set for %s" % name_data['fqu'])
+            log.debug("No zonefile to replicate for %s" % name_data['fqu'])
             return {'status': True}
 
         zonefile_hash = name_data.get('zonefile_hash', None)
@@ -386,7 +386,7 @@ class RegistrarWorker(threading.Thread):
             return name_rec
 
         if os.environ.get("BLOCKSTACK_TEST", None) == "1":
-            log.debug("Replicate zonefile %s (blockchain: %s)\ndata:\n%s" % (zonefile_hash, name_rec['value_hash'], zonefile_data))
+            log.debug("Replicate zonefile %s (blockchain: %s)\ndata:\n%s" % (zonefile_hash, name_rec['value_hash'], base64.b64encode(zonefile_data)))
 
         if str(name_rec['value_hash']) != zonefile_hash:
             log.error("Zonefile %s has not been confirmed yet (still on %s)" % (zonefile_hash, name_rec['value_hash']))
