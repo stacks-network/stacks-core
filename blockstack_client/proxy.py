@@ -1264,15 +1264,6 @@ def get_name_blockchain_history(name, start_block, end_block, proxy=None):
 
     Returns {'error': ...} on error
     """
-    block_history_schema = {
-        'type': 'array',
-        'items': {
-            'type': 'object',
-            'properties': NAMEOP_SCHEMA_PROPERTIES,
-            'required': NAMEOP_SCHEMA_REQUIRED
-        }
-    }
-
     if proxy is None:
         proxy = get_default_proxy()
 
