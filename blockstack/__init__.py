@@ -22,5 +22,4 @@
 """
 
 from .lib import *
-from .atlas import *
 from .version import __version__ 
