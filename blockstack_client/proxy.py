@@ -368,7 +368,6 @@ NAMESPACE_SCHEMA_REQUIRED = [
     'block_number',
     'buckets',
     'coeff',
-    'fee',
     'lifetime',
     'namespace_id',
     'no_vowel_discount',
@@ -1676,8 +1675,6 @@ def get_namespace_blockchain_record(namespace_id, proxy=None):
         ret = json_validate(resp_schema, ret)
         if json_is_error(ret):
             return ret
-
-        ret = ret['record']
 
         # this isn't needed
         if 'opcode' in ret['record']:
