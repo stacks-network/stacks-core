@@ -122,6 +122,7 @@ from .backend.nameops import estimate_preorder_tx_fee, estimate_register_tx_fee,
                             do_update, estimate_renewal_tx_fee
 
 from .backend.queue import queuedb_remove, queuedb_find
+from .backend.queue import extract_entry as queue_extract_entry
 
 from .wallet import *
 from .keys import *
@@ -1122,12 +1123,13 @@ def configure_zonefile( name, zonefile, data_pubkey=None ):
         return zonefile
 
 
-def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, proxy=None, allow_invalid_zonefile=False ):
+def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, proxy=None, nonstandard=False ):
     """
     command: update norpc
     help: Set the zone file for a name
     arg: name (str) "The name to update"
     opt: data (str) "A zone file string, or a path to a file with the data."
+    opt: nonstandard (str) "If true, then do not validate or parse the zonefile."
     """
 
     if not interactive and (not hasattr(args, "data") or args.data is None):
@@ -1135,6 +1137,10 @@ def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, 
         
     if proxy is None:
         proxy = get_default_proxy()
+
+    if hasattr(args, 'nonstandard') and not nonstandard:
+        if args.nonstandard.lower() in ['yes', '1', 'true']:
+            nonstandard = True
 
     config_dir = os.path.dirname(config_path)
     res = wallet_ensure_exists(config_dir)
@@ -1183,7 +1189,6 @@ def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, 
     user_data_txt = None
     user_data_hash = None
     user_zonefile_dict = {}
-    nonstandard = False
 
     user_data_res = load_zonefile( fqu, zonefile_data )
     if 'error' in user_data_res:
@@ -1199,7 +1204,7 @@ def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, 
                     return {'error': "Zone file not updated (reason: %s)" % user_data_res['error']}
 
         else:
-            if zonefile_data is None or allow_invalid_zonefile:
+            if zonefile_data is None or nonstandard:
                 log.warning("Using non-zonefile data")
             else:
                 return {'error': 'Zone file not updated (invalid)'}
@@ -1207,8 +1212,6 @@ def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, 
         user_data_txt = zonefile_data
         if zonefile_data is not None:
             user_data_hash = storage.get_zonefile_data_hash(zonefile_data) 
-
-        nonstandard = True
 
     else:
         user_data_txt = user_data_res['zonefile']
@@ -1590,6 +1593,7 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None, inter
     try:
         resp = rpc.backend_migrate(fqu)
     except Exception, e:
+        log.exception(e)
         return {'error': 'Error talking to server, try again.'}
 
     if 'success' in resp and resp['success']:
@@ -2333,6 +2337,7 @@ def cli_advanced_get_name_zonefile( args, config_path=CONFIG_PATH ):
         return {'error': 'Failed to get zonefile'}
 
     if 'error' in result:
+        log.error("get_name_zonefile failed: %s" % result['error'])
         return result
     
     if 'zonefile' not in result:
@@ -2341,8 +2346,7 @@ def cli_advanced_get_name_zonefile( args, config_path=CONFIG_PATH ):
     if parse_json:
         # try to parse
         try:
-
-            new_zonefile = blockstack_zones.parse_zone_file( result['zonefile'] )
+            new_zonefile = decode_name_zonefile(result['zonefile'] )
             assert new_zonefile is not None
             result['zonefile'] = new_zonefile
         except:
@@ -2552,16 +2556,16 @@ def cli_advanced_set_profile( args, config_path=CONFIG_PATH, password=None, prox
         return {'status': True}
 
 
-def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, proxy=None, interactive=True, allow_invalid_zonefile=False ):
+def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, proxy=None, interactive=True, nonstandard=False ):
     """
     command: sync_zonefile
     help: Upload the current zone file to all storage providers.
     arg: name (str) "Name of the zone file to synchronize."
     opt: txid (str) "NAME_UPDATE transaction ID that set the zone file."
     opt: zonefile (str) "The zone file (JSON or text), if unavailable from other sources."
+    opt: nonstandard (str) "If true, do not attempt to parse the zonefile.  Just upload as-is."
     """
 
-    # TODO: raw zonefile
     conf = config.get_config(config_path)
  
     assert 'server' in conf.keys()
@@ -2577,6 +2581,10 @@ def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, proxy=None, inter
     txid = None
     if hasattr(args, "txid"):
         txid = getattr(args, "txid")
+
+    if not nonstandard and hasattr(args, "nonstandard"):
+        if args.nonstandard.lower() in ['yes', '1', 'true']:
+            nonstandard = True
 
     user_data = None
     zonefile_hash = None
@@ -2604,7 +2612,7 @@ def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, proxy=None, inter
             if not proceed:
                 return {'error': 'Not replicating invalid zone file'}
     
-        elif not valid and not allow_invalid_zonefile:
+        elif not valid and not nonstandard:
             return {'error': 'Not replicating invalid zone file'}
 
     if txid is None or user_data is None:
@@ -2614,17 +2622,9 @@ def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, proxy=None, inter
         if len(queued_data) > 0:
 
             # find the current one (get raw zonefile)
+            log.debug("%s updates queued for %s" % (len(queued_data), name))
             for queued_zfdata in queued_data:
-                update_data = queued_zfdata.get('data', None)
-                if update_data is None:
-                    continue
-                
-                try:
-                    update_data = json.loads(update_data)
-                except:
-                    log.error("Invalid JSON data in queue")
-                    return {'error': 'Invalid JSON data in queue'}
-
+                update_data = queue_extract_entry( queued_zfdata )
                 zfdata = update_data.get('zonefile', None)
                 if zfdata is None:
                     continue
@@ -2635,6 +2635,7 @@ def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, proxy=None, inter
 
         if user_data is None:
             # not in queue.  Maybe it's available from one of the storage drivers?
+            log.debug("no pending updates for '%s'" % name)
             user_data = get_name_zonefile( name, raw_zonefile=True )
             if user_data is None:
                 user_data = {'error': 'No data loaded'}
@@ -2650,11 +2651,11 @@ def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, proxy=None, inter
 
         if txid is None:
             # not in queue.  Fetch from blockstack server
-            name_rec = proxy.get_name_blockchain_record( name )
+            name_rec = get_name_blockchain_record( name )
             if 'error' in name_rec:
                 log.error("Failed to get name record for %s: %s" % (name, name_rec['error']))
                 return {'error': "Failed to get name record to look up tx hash."}
- 
+
             # find the tx hash that corresponds to this zonefile
             if name_rec['op'] == NAME_UPDATE:
                 if name_rec['value_hash'] == zonefile_hash:
