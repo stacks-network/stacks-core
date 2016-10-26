@@ -618,7 +618,7 @@ def put_immutable(name, data_id, data_json, data_url=None, txid=None, proxy=None
     TO BLOCKSTACK SERVERS ONCE THE TRANSACTION CONFIRMS.  By default, it will be enqueued
     for replication.
 
-    Return {'status': True, 'transaction_hash': txid, 'immutable_data_hash': data_hash, 'zonefile': {...} } on success
+    Return {'status': True, 'transaction_hash': txid, 'immutable_data_hash': data_hash, 'zonefile_hash': ..., 'zonefile': {...} } on success
     Return {'error': ...} on error
     """
 
