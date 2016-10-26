@@ -107,12 +107,12 @@ def decode_name_zonefile(zonefile_txt):
             if os.environ.get("BLOCKSTACK_DEBUG", None) == "1":
                 log.exception(e)
 
-            log.error("Failed to parse non-standard zonefile %s" % expected_zonefile_hash)
+            log.error("Failed to parse non-standard zonefile")
             return None
         
     except Exception, e:
         log.exception(e)
-        log.error("Failed to parse zonefile %s" % expected_zonefile_hash)
+        log.error("Failed to parse zonefile %s")
         return None 
 
     return user_zonefile
@@ -349,7 +349,7 @@ def get_name_zonefile( name, storage_drivers=None, create_if_absent=False, proxy
     if raw_zonefile or include_raw_zonefile:
         raw_zonefile_data = load_name_zonefile(name, user_zonefile_hash, storage_drivers=storage_drivers, raw_zonefile=True )
         if raw_zonefile_data is None:
-            return {'error': 'Failed to load user zonefile'}
+            return {'error': 'Failed to load raw user zonefile'}
 
         if raw_zonefile:
             user_zonefile_data = raw_zonefile_data
@@ -362,6 +362,8 @@ def get_name_zonefile( name, storage_drivers=None, create_if_absent=False, proxy
 
     else:
         user_zonefile_data = load_name_zonefile(name, user_zonefile_hash, storage_drivers=storage_drivers )
+        if user_zonefile_data is None:
+            return {'error': 'Failed to load or decode user zonefile'}
 
     ret = {
         "zonefile": user_zonefile_data
