@@ -27,6 +27,7 @@ import copy
 import blockstack_profiles
 import blockstack_zones
 import base64
+import httplib
 import virtualchain
 from keylib import ECPrivateKey
 
@@ -56,6 +57,41 @@ def get_profile_timestamp(profile):
     Get profile timestamp
     """
     return profile['timestamp']
+
+
+def decode_name_zonefile(zonefile_txt):
+    """
+    Decode a serialized zonefile into a JSON dict
+    Return None on error
+    """
+
+    user_zonefile = None
+    try:
+        # by default, it's a zonefile-formatted text file
+        user_zonefile_defaultdict = blockstack_zones.parse_zone_file(zonefile_txt)
+        assert user_db.is_user_zonefile(user_zonefile_defaultdict), 'Not a user zonefile'
+
+        # force dict
+        user_zonefile = dict(user_zonefile_defaultdict)
+    except (IndexError, ValueError, blockstack_zones.InvalidLineException):
+        # might be legacy profile
+        log.debug('WARN: failed to parse user zonefile; trying to import as legacy')
+        try:
+            user_zonefile = json.loads(zonefile_txt)
+            if not isinstance(user_zonefile, dict):
+                log.debug('Not a legacy user zonefile')
+                return None
+        except Exception as e:
+            if BLOCKSTACK_DEBUG is not None:
+                log.exception(e)
+            log.error('Failed to parse non-standard zonefile')
+            return None
+    except Exception as e:
+        log.exception(e)
+        log.error('Failed to parse zonefile')
+        return None
+
+    return user_zonefile
 
 
 def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, raw_zonefile=False):
@@ -92,35 +128,7 @@ def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, raw_z
 
         return zonefile_txt
 
-    user_zonefile = None
-    try:
-        # by default, it's a zonefile-formatted text file
-        user_zonefile_defaultdict = blockstack_zones.parse_zone_file(zonefile_txt)
-        assert user_db.is_user_zonefile(user_zonefile_defaultdict), 'Not a user zonefile'
-
-        # force dict
-        tmp = {}
-        tmp.update(user_zonefile_defaultdict)
-        user_zonefile = tmp
-    except (IndexError, ValueError, blockstack_zones.InvalidLineException):
-        # might be legacy profile
-        log.debug('WARN: failed to parse user zonefile; trying to import as legacy')
-        try:
-            user_zonefile = json.loads(zonefile_txt)
-            if not isinstance(user_zonefile, dict):
-                log.debug('Not a legacy user zonefile')
-                return None
-        except Exception as e:
-            if BLOCKSTACK_DEBUG is not None:
-                log.exception(e)
-            log.error('Failed to parse non-standard zonefile {}'.format(expected_zonefile_hash))
-            return None
-    except Exception as e:
-        log.exception(e)
-        log.error('Failed to parse zonefile {}'.format(expected_zonefile_hash))
-        return None
-
-    return user_zonefile
+    return decode_name_zonefile(zonefile_txt)
 
 
 def load_legacy_user_profile(name, expected_hash):
@@ -282,7 +290,8 @@ def profile_update(name, user_zonefile, new_profile, owner_address,
 
 
 def get_name_zonefile(name, storage_drivers=None, create_if_absent=False, proxy=None,
-                      wallet_keys=None, name_record=None, include_name_record=False, raw_zonefile=False):
+                      wallet_keys=None, name_record=None, include_name_record=False,
+                      raw_zonefile=False, include_raw_zonefile=False):
     """
     Given the name of the user, go fetch its zonefile.
     Verifies that the hash on the blockchain matches the zonefile.
@@ -337,20 +346,29 @@ def get_name_zonefile(name, storage_drivers=None, create_if_absent=False, proxy=
         return user_resp
 
     user_zonefile_hash = value_hash
+    raw_zonefile_data = None
     user_zonefile_data = None
 
-    if not raw_zonefile:
+    if raw_zonefile or include_raw_zonefile:
+        raw_zonefile_data = load_name_zonefile(
+            name, user_zonefile_hash, storage_drivers=storage_drivers,
+            raw_zonefile=True
+        )
+
+        if raw_zonefile_data is None:
+            return {'error': 'Failed to load user zonefile'}
+
+        if raw_zonefile:
+            user_zonefile_data = raw_zonefile_data
+        else:
+            # further decode
+            user_zonefile_data = decode_name_zonefile(raw_zonefile_data)
+            if user_zonefile_data is None:
+                return {'error': 'Failed to decode user zonefile'}
+    else:
         user_zonefile_data = load_name_zonefile(
             name, user_zonefile_hash, storage_drivers=storage_drivers
         )
-
-        if user_zonefile_data is None:
-            return {'error': 'Failed to load user zonefile'}
-
-    user_zonefile_data = load_name_zonefile(
-        name, user_zonefile_hash, storage_drivers=storage_drivers,
-        raw_zonefile=True
-    )
 
     ret = {
         'zonefile': user_zonefile_data
@@ -359,12 +377,16 @@ def get_name_zonefile(name, storage_drivers=None, create_if_absent=False, proxy=
     if include_name_record:
         ret['name_record'] = name_record
 
+    if include_raw_zonefile:
+        ret['raw_zonefile'] = raw_zonefile_data
+
     return ret
 
 
 def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=None,
                      create_if_absent=False, proxy=None, user_zonefile=None, name_record=None,
-                     include_name_record=False, use_zonefile_urls=True, decode_profile=True):
+                     include_name_record=False, include_raw_zonefile=False, use_zonefile_urls=True,
+                     decode_profile=True):
     """
     Given the name of the user, look up the user's record hash,
     and then get the record itself from storage.
@@ -380,11 +402,14 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
 
     proxy = get_default_proxy() if proxy is None else proxy
 
+    raw_zonefile = None
+
     if user_zonefile is None:
         user_zonefile = get_name_zonefile(
             name, create_if_absent=create_if_absent, proxy=proxy,
             name_record=name_record, include_name_record=True,
-            storage_drivers=zonefile_storage_drivers
+            storage_drivers=zonefile_storage_drivers,
+            include_raw_zonefile=include_raw_zonefile
         )
 
         if user_zonefile is None:
@@ -393,7 +418,10 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
         if 'error' in user_zonefile:
             return None, user_zonefile
 
-        name_record = user_zonefile.pop('name_record')
+        raw_zonefile = None
+        if include_raw_zonefile:
+            raw_zonefile = user_zonefile.pop('raw_zonefile')
+
         user_zonefile = user_zonefile['zonefile']
 
     # is this really a legacy profile?
@@ -457,6 +485,10 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
             return None, {'error': 'Failed to look up name record'}
 
         user_zonefile['name_record'] = name_record
+
+    if include_raw_zonefile:
+        if raw_zonefile is not None:
+            user_zonefile['raw_zonefile'] = raw_zonefile
 
     return user_profile, user_zonefile
 

@@ -757,7 +757,6 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
 
     proxy = get_default_proxy() if proxy is None else proxy
 
-
     # work backwards in time, using a Merkle skip-list constructed
     # by blockstackd over the set of consensus hashes.
     next_block_id = current_block_id
@@ -803,12 +802,17 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
         chs = {}
         if to_fetch:
             chs = get_consensus_hashes(to_fetch, proxy=proxy)
+            if 'error' in chs:
+                msg = 'Failed to get consensus hashes for {}: {}'
+                log.error(msg.format(to_fetch, chs['error']))
+                return {'error': 'Failed to get consensus hashes'}
 
         prev_consensus_block_ids = []
         for b in ch_block_ids:
             # NOTE: we process to_fetch *in decreasing order* so we know when we're missing data
             if b not in chs and b not in prev_consensus_hashes:
-                log.error('Missing consensus hash response for {}'.format(b))
+                msg = 'Missing consensus hash response for {} (chs={}, prev_chs={})'
+                log.error(msg.format(b, chs, prev_consensus_hashes))
                 return {'error': 'Server did not reply valid data'}
 
             prev_consensus_block_ids.append(b)
@@ -860,6 +864,7 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
     # get the final nameops
     historic_nameops = get_nameops_at(block_id, proxy=proxy)
     if isinstance(historic_nameops, dict) and 'error' in historic_nameops:
+        log.error('Failed to get nameops at {}: {}'.format(block_id, historic_nameops['error']))
         return {'error': 'BUG: no nameops found'}
 
     # sanity check...
@@ -886,7 +891,7 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
     if historic_nameops_hash != prev_nameops_hashes[block_id]:
         return {'error': 'Hash mismatch: name is not consistent with consensus hash'}
 
-    log.debug("%s nameops at %s" % (len(historic_nameops), block_id))
+    log.debug('{} nameops at {}'.format(len(historic_nameops), block_id))
     return historic_nameops
 
 
