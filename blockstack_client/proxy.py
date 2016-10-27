@@ -1507,7 +1507,7 @@ def get_nameops_at( block_id, proxy=None ):
 
     all_nameops = get_nameops_affected_at( block_id, proxy=proxy )
     if json_is_error(all_nameops):
-        log.debug("Failed to get nameops affected at %s" % block_id)
+        log.debug("Failed to get nameops affected at %s: %s" % (block_id, all_nameops['error']))
         return all_nameops
 
     log.debug("%s nameops at %s" % (len(all_nameops), block_id))
