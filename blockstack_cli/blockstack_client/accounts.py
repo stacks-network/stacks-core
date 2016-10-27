@@ -71,7 +71,7 @@ def get_profile_accounts( profile, service_id, account_id ):
     return ret
 
 
-def list_accounts( name, proxy=None, wallet_keys=None ):
+def list_accounts( name, proxy=None ):
     """
     List all of the accounts in a user's profile
     Each account will have at least the following:
@@ -98,7 +98,7 @@ def list_accounts( name, proxy=None, wallet_keys=None ):
         return {'accounts': user_profile['account']}
 
 
-def get_account( name, service, identifier, proxy=None, wallet_keys=None ):
+def get_account( name, service, identifier, proxy=None ):
     """
     Get an account by identifier.  Return duplicates
     Return {'account': account information} on success
@@ -107,7 +107,7 @@ def get_account( name, service, identifier, proxy=None, wallet_keys=None ):
     if proxy is None:
         proxy = get_default_proxy()
 
-    accounts = list_accounts( name, proxy=proxy, wallet_keys=wallet_keys )
+    accounts = list_accounts( name, proxy=proxy )
     if 'error' in accounts:
         return accounts
 
