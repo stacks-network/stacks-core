@@ -66,7 +66,7 @@ def is_name_valid( fqn ):
     if not is_namespace_valid( namespace_id ):
         return False
 
-    if len(fqn) >= LENGTH_MAX_NAME:
+    if len(fqn) > LENGTH_MAX_NAME:
        # too long
        return False 
 
