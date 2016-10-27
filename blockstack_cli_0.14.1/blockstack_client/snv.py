@@ -20,22 +20,9 @@
     You should have received a copy of the GNU General Public License
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
-import argparse
-import sys
-import json
 import simplejson
-import traceback
-import types
-import socket
-import uuid
-import os
-import importlib
-import pprint
 import random
 import time
-import copy
-import blockstack_profiles
-import urllib
 
 from .backend.blockchain import get_bitcoind_client
 
@@ -46,15 +33,14 @@ from profile import *
 from virtualchain import SPVClient
 
 import pybitcoin
-import bitcoin
-import binascii
 from utilitybelt import is_hex
 
-from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SERVER, \
-    BLOCKSTACKD_PORT, BLOCKSTACK_METADATA_DIR, BLOCKSTACK_DEFAULT_STORAGE_DRIVERS, \
-    FIRST_BLOCK_MAINNET, NAME_OPCODES, OPFIELDS, CONFIG_DIR, SPV_HEADERS_PATH, BLOCKCHAIN_ID_MAGIC, \
-    NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER, NAMESPACE_PREORDER, NAME_IMPORT, \
-    USER_ZONEFILE_TTL, CONFIG_PATH
+from config import (
+    get_logger, FIRST_BLOCK_MAINNET, NAME_OPCODES,
+    OPFIELDS, BLOCKCHAIN_ID_MAGIC, NAME_PREORDER,
+    NAME_TRANSFER, NAMESPACE_PREORDER
+)
+
 
 log = get_logger()
 
@@ -70,14 +56,16 @@ def get_create_diff(blockchain_record):
     history = blockchain_record['history']
     create_block_number = None
 
-    if str(preorder_block_number) in history.keys():
+    history_keys = sorted(history.keys())
+    if str(preorder_block_number) in history_keys:
         # was preordered
         create_block_number = preorder_block_number
     else:
         # was imported
-        create_block_number = int(sorted(history.keys())[0])
+        create_block_number = int(history_keys[0])
 
     create_diff = history[str(create_block_number)][0]
+
     return (create_block_number, create_diff)
 '''
 
@@ -92,15 +80,18 @@ def get_reveal_txid(blockchain_record):
     reveal_block_number = None
 
     # find the earliest history record with NAME_IMPORT or NAME_REGISTRATION
-    for block_number_str in sorted(history.keys()):
-        for i in xrange(0, len(history[block_number_str])):
-            if history[block_number_str][i].has_key('opcode'):
-                if str(history[block_number_str][i]['opcode']) in ['NAME_IMPORT', 'NAME_REGISTRATION']:
+    history_keys = sorted(history.keys())
+    for block_number_strs in history_keys:
+        for block_number_str in history[block_number_strs]:
+            opcode = str(block_number_str.get('opcode', ''))
 
-                    reveal_block_number = int(block_number_str)
-                    return reveal_block_number, str(history[block_number_str][i]['txid'])
+            if opcode not in ['NAME_IMPORT', 'NAME_REGISTRATION']:
+                continue
 
-    return (None, None)
+            reveal_block_number = int(block_number_strs)
+            return reveal_block_number, str(block_number_str['txid'])
+
+    return None, None
 '''
 
 '''
@@ -117,47 +108,48 @@ def get_serial_number(blockchain_record):
 
     serial_number = None
 
-    if str(create_diff['opcode']) == "NAME_PREORDER":
-
-        # name was preordered; use preorder block_id/tx_index
-        # find the oldest registration
-        update_order = sorted(history.keys())
-        for block_num in update_order:
-            for tx_op in history[block_num]:
-                if tx_op['opcode'] == "NAME_PREORDER":
-                    serial_number = str(tx_op['block_number']) + '-' + str(tx_op['vtxindex'])
-                    break
-
-        if serial_number is None:
-            raise Exception("No NAME_REGISTRATION found for '%s'" % blockchain_record.get('name', 'UNKNOWN_NAME'))
-
-    else:
+    if str(create_diff['opcode']) != 'NAME_PREORDER':
         # name was imported.
         # serial number is the first NAME_IMPORT block + txindex
-        serial_number = str(create_block_number) + '-' + str(create_tx_index)
+        serial_number = '{}-{}'.format(str(create_block_number), str(create_tx_index))
+        return serial_number
+
+    # name was preordered; use preorder block_id/tx_index
+    # find the oldest registration
+    update_order = sorted(history.keys())
+    for block_num in update_order:
+        for tx_op in history[block_num]:
+            if tx_op['opcode'] == 'NAME_PREORDER':
+                serial_number = '{}-{}'.format(str(tx_op['block_number']), str(tx_op['vtxindex']))
+                break
+
+    if serial_number is None:
+        raise Exception('No NAME_REGISTRATION found for "{}"'.format(blockchain_record.get('name', 'UNKNOWN_NAME')))
 
     return serial_number
 '''
 
+
+'''
 def get_block_from_consensus(consensus_hash, proxy=None):
     """
     Get a block ID from a consensus hash
     """
-    if proxy is None:
-        proxy = get_default_proxy()
+
+    proxy = get_default_proxy() if proxy is None else proxy
 
     resp = proxy.get_block_from_consensus(consensus_hash)
+
     if resp is None:
         resp = {'error': 'No such consensus hash'}
+        return resp
 
-    elif type(resp) == list:
+    if isinstance(resp, list):
         # backwards-compatibility
-        if len(resp) == 0:
-            resp = {'error': 'No data returned'}
-        else:
-            resp = resp[0]
+        return resp[0] if resp else {'error': 'No data returned'}
 
     return resp
+'''
 
 
 def txid_to_block_data(txid, bitcoind_proxy, proxy=None):
@@ -173,8 +165,7 @@ def txid_to_block_data(txid, bitcoind_proxy, proxy=None):
     Return (None, None, None) on error
     """
 
-    if proxy is None:
-        proxy = get_default_proxy()
+    proxy = get_default_proxy() if proxy is None else proxy
 
     timeout = 1.0
     while True:
@@ -183,41 +174,61 @@ def txid_to_block_data(txid, bitcoind_proxy, proxy=None):
             untrusted_block_hash = untrusted_tx_data['blockhash']
             untrusted_block_data = bitcoind_proxy.getblock(untrusted_block_hash)
             break
-        except (OSError, IOError), ie:
+        except (OSError, IOError) as ie:
             log.exception(ie)
-            log.error("Network error; retrying...")
+            log.error('Network error; retrying...')
             timeout = timeout * 2 + random.randint(0, timeout)
             continue
-
-        except Exception, e:
+        except Exception as e:
             log.exception(e)
-            return (None, None, None)
+            return None, None, None
 
     # first, can we trust this block? is it in the SPV headers?
-    untrusted_block_header_hex = virtualchain.block_header_to_hex(untrusted_block_data, untrusted_block_data['previousblockhash'])
-    block_id = SPVClient.block_header_index(proxy.spv_headers_path, (untrusted_block_header_hex + "00").decode('hex'))
+    untrusted_block_header_hex = virtualchain.block_header_to_hex(
+        untrusted_block_data, untrusted_block_data['previousblockhash']
+    )
+
+    block_id = SPVClient.block_header_index(
+        proxy.spv_headers_path,
+        ('{}00'.format(untrusted_block_header_hex)).decode('hex')
+    )
+
     if block_id < 0:
         # bad header
-        log.error("Block header '%s' is not in the SPV headers (%s)" % (untrusted_block_header_hex, proxy.spv_headers_path))
-        return (None, None, None)
+        log.error('Block header "{}" is not in the SPV headers ({})'.format(
+            untrusted_block_header_hex, proxy.spv_headers_path
+        ))
+
+        return None, None, None
 
     # block header is trusted.  Is the transaction data consistent with it?
-    if not virtualchain.block_verify(untrusted_block_data):
-        log.error("Block transaction IDs are not consistent with the trusted header's Merkle root")
-        return (None, None, None)
+    verified_block_header = virtualchain.block_verify(untrusted_block_data)
+
+    if not verified_block_header:
+        msg = (
+            'Block transaction IDs are not consistent '
+            'with the Merkle root of the trusted header'
+        )
+
+        log.error(msg)
+
+        return None, None, None
 
     # verify block hash
-    if not virtualchain.block_header_verify(untrusted_block_data, untrusted_block_data['previousblockhash'], untrusted_block_hash):
-        log.error("Block hash is not consistent with block header")
-        return (None, None, None)
+    verified_block_hash = virtualchain.block_header_verify(
+        untrusted_block_data, untrusted_block_data['previousblockhash'], untrusted_block_hash
+    )
+
+    if not verified_block_hash:
+        log.error('Block hash is not consistent with block header')
+        return None, None, None
 
     # we trust the block hash, block data, and txids
     block_hash = untrusted_block_hash
     block_data = untrusted_block_data
     tx_data = untrusted_tx_data
 
-    return (block_hash, block_data, tx_data)
-
+    return block_hash, block_data, tx_data
 
 '''
 def txid_to_serial_number(txid, bitcoind_proxy, proxy=None):
@@ -234,8 +245,7 @@ def txid_to_serial_number(txid, bitcoind_proxy, proxy=None):
     Return None on error
     """
 
-    if proxy is None:
-        proxy = get_default_proxy()
+    proxy = get_default_proxy() if proxy is None else proxy
 
     block_hash, block_data, _ = txid_to_block_data(txid, bitcoind_proxy, proxy=proxy)
     if block_hash is None or block_data is None:
@@ -246,10 +256,11 @@ def txid_to_serial_number(txid, bitcoind_proxy, proxy=None):
         tx_index = block_data['tx'].index(txid)
     except:
         # not actually present
-        log.error("Transaction %s is not present in block %s (%s)" % (txid, block_id, block_hash))
+        msg = 'Transaction {} is not present in block {} ({})'
+        log.error(msg.format(txid, block_id, block_hash))
 
-    # TODO: block_id?
-    return "%s-%s" % (block_id, tx_index)
+    # BUG: block_id is undefined
+    return '{}-{}'.format(block_id, tx_index)
 '''
 
 
@@ -264,12 +275,10 @@ def serial_number_to_tx(serial_number, bitcoind_proxy, proxy=None):
     Return None on error
     """
 
-    if proxy is None:
-        proxy = get_default_proxy()
+    proxy = get_default_proxy() if proxy is None else proxy
 
-    parts = serial_number.split("-")
-    block_id = int(parts[0])
-    tx_index = int(parts[1])
+    parts = serial_number.split('-')
+    block_id, tx_index = int(parts[0]), int(parts[1])
 
     timeout = 1.0
     while True:
@@ -277,31 +286,38 @@ def serial_number_to_tx(serial_number, bitcoind_proxy, proxy=None):
             block_hash = bitcoind_proxy.getblockhash(block_id)
             block_data = bitcoind_proxy.getblock(block_hash)
             break
-        except Exception, e:
-            log.error("Unable to obtain block data; retrying...")
+        except Exception as e:
+            log.error('Unable to obtain block data; retrying...')
             time.sleep(timeout)
             timeout = timeout * 2 + random.random() * timeout
 
-    rc = SPVClient.sync_header_chain(proxy.spv_headers_path, bitcoind_proxy.opts['bitcoind_server'], block_id)
+    rc = SPVClient.sync_header_chain(
+        proxy.spv_headers_path, bitcoind_proxy.opts['bitcoind_server'], block_id
+    )
+
     if not rc:
-        log.error("Failed to synchronize SPV header chain up to %s" % block_id)
+        msg = 'Failed to synchronize SPV header chain up to {}'
+        log.error(msg.format(block_id))
         return None
 
     # verify block header
     rc = SPVClient.block_header_verify(proxy.spv_headers_path, block_id, block_hash, block_data)
     if not rc:
-        log.error("Failed to verify block header for %s against SPV headers" % block_id)
+        msg = 'Failed to verify block header for {} against SPV headers'
+        log.error(msg.format(block_id))
         return None
 
     # verify block txs
     rc = SPVClient.block_verify(block_data, block_data['tx'])
     if not rc:
-        log.error("Failed to verify block transaction IDs for %s against SPV headers" % block_id)
+        msg = 'Failed to verify block transaction IDs for {} against SPV headers'
+        log.error(msg.format(block_id))
         return None
 
     # sanity check
     if tx_index >= len(block_data['tx']):
-        log.error("Serial number %s references non-existant transaction %s (out of %s txs)" % (serial_number, tx_index, len(block_data['tx'])))
+        msg = 'Serial number {} references non-existant transaction {} (out of {} txs)'
+        log.error(msg.format(serial_number, tx_index, len(block_data['tx'])))
         return None
 
     # obtain transaction
@@ -311,13 +327,21 @@ def serial_number_to_tx(serial_number, bitcoind_proxy, proxy=None):
     # verify tx
     rc = SPVClient.tx_verify(block_data['tx'], tx)
     if not rc:
-        log.error("Failed to verify block transaction %s against SPV headers" % txid)
+        msg = 'Failed to verify block transaction {} against SPV headers'
+        log.error(msg.format(txid))
         return None
 
     # verify tx index
     if tx_index != SPVClient.tx_index(block_data['tx'], tx):
-        log.error("TX index mismatch: serial number identifies transaction number %s (%s), but got transaction %s" % \
-                (tx_index, block_data['tx'][tx_index], block_data['tx'][ SPVClient.tx_index(block_data['tx'], tx) ]))
+        msg = (
+            'TX index mismatch: serial number identifies '
+            'transaction number {} ({}), but got transaction {}'
+        )
+
+        log.error(msg.format(
+            tx_index, block_data['tx'][tx_index],
+            block_data['tx'][SPVClient.tx_index(block_data['tx'], tx)]
+        ))
         return None
 
     # success!
@@ -336,25 +360,27 @@ def parse_tx_op_return(tx):
     op_return = None
     outputs = tx['vout']
     for out in outputs:
-        if int(out["scriptPubKey"]['hex'][0:2], 16) == pybitcoin.opcodes.OP_RETURN:
-            op_return = out['scriptPubKey']['hex'].decode('hex')
+        script_key = out['scriptPubKey']['hex']
+        if int(script_key[0:2], 16) == pybitcoin.opcodes.OP_RETURN:
+            op_return = script_key.decode('hex')
             break
 
     if op_return is None:
-        log.error("transaction has no OP_RETURN output")
-        log.debug("transaction has no OP_RETURN output:\n%s" % simplejson.dumps(tx))
-        return (None, None)
+        msg = 'transaction has no OP_RETURN output'
+        log.error(msg)
+        log.debug('{}:\n{}'.format(msg, simplejson.dumps(tx)))
+        return None, None
 
     # [0] is OP_RETURN, [1] is the length; [2:4] are 'id', [4] is opcode
     magic = op_return[2:4]
 
     if magic != BLOCKCHAIN_ID_MAGIC:
         # not a blockchain ID operation
-        log.error("OP_RETURN output does not encode a blockchain ID operation")
-        return (None, None)
+        msg = 'OP_RETURN output does not encode a blockchain ID operation'
+        log.error(msg)
+        return None, None
 
-    opcode = op_return[4]
-    payload = op_return[5:]
+    opcode, payload = op_return[4], op_return[5:]
 
     return (opcode, payload)
 
@@ -374,13 +400,18 @@ def get_consensus_hash_from_tx(tx):
         return None
 
     # only present in NAME_PREORDER, NAMESPACE_PREORDER, NAME_TRANSFER
-    if opcode not in [NAME_PREORDER, NAMESPACE_PREORDER, NAME_TRANSFER]:
-        log.error("Blockchain ID transaction is not a NAME_PREORDER, NAMESPACE_PROERDER or NAME_TRANSFER")
-        return None
-
-    else:
+    if opcode in [NAME_PREORDER, NAMESPACE_PREORDER, NAME_TRANSFER]:
         consensus_hash = payload[-16:].encode('hex')
         return consensus_hash
+
+    msg = (
+        'Blockchain ID transaction is not a '
+        'NAME_PREORDER, NAMESPACE_PROERDER or NAME_TRANSFER'
+    )
+
+    log.error(msg)
+
+    return None
 
 
 '''
@@ -401,32 +432,47 @@ def verify_consensus_hash_from_tx(tx, fqname, candidate_consensus_hash):
 
     if opcode not in [NAME_PREORDER, NAMESPACE_PREORDER, NAME_UPDATE, NAME_TRANSFER]:
         # no consensus hash will be present
-        log.error("Blockchain ID transaction is not a NAME_PREORDER, NAMESPACE_PROERDER, NAME_UPDATE, or NAME_TRANSFER")
+        msg = (
+            'Blockchain ID transaction is not a '
+            'NAME_PREORDER, NAMESPACE_PROERDER, NAME_UPDATE, or NAME_TRANSFER'
+        )
+
+        log.error(msg)
+
         return None
 
-    elif opcode != NAME_UPDATE:
+    if opcode != NAME_UPDATE:
         # in all but NAME_UPDATE, the consensus hash is the last 16 bytes
         consensus_hash = payload[-16:].encode('hex')
         if str(consensus_hash) == str(candidate_consensus_hash):
             return consensus_hash
 
-        else:
-            # nope
-            log.error("Consensus hash mismatch: expected %s, got %s" % (candidate_consensus_hash, consensus_hash))
-            return None
-
-    else:
-        # In NAME_UPDATE, the consensus hash *at the time of the operation* is mixed with the name,
-        # truncated to 16 bytes, and appended after the opcode.
-        name_consensus_hash_mix = pybitcoin.hash.bin_sha256(fqname + candidate_consensus_hash)[0:16]
-        tx_name_consensus_hash_mix = payload[0:16]
-
-        if name_consensus_hash_mix == tx_name_consensus_hash_mix:
-            return candidate_consensus_hash
-
-        log.error("NAME_UPDATE consensus hash mix mismatch: expected %s from %s, got %s" % (name_consensus_hash_mix.encode('hex'), candidate_consensus_hash, tx_name_consensus_hash_mix.encode('hex')))
+        # nope
+        msg = 'Consensus hash mismatch: expected {}, got {}'
+        log.error(msg.format(candidate_consensus_hash, consensus_hash))
         return None
+
+    # In NAME_UPDATE, the consensus hash *at the time of the operation* is mixed with the name,
+    # truncated to 16 bytes, and appended after the opcode.
+    name_consensus_hash_mix = pybitcoin.hash.bin_sha256(
+        '{}{}'.format(fqname,candidate_consensus_hash)
+    )[0:16]
+
+    tx_name_consensus_hash_mix = payload[0:16]
+
+    if name_consensus_hash_mix == tx_name_consensus_hash_mix:
+        return candidate_consensus_hash
+
+    msg = 'NAME_UPDATE consensus hash mix mismatch: expected {} from {}, got {}'
+    log.error(msg.format(
+        name_consensus_hash_mix.encode('hex'),
+        candidate_consensus_hash,
+        tx_name_consensus_hash_mix.encode('hex')
+    ))
+
+    return None
 '''
+
 
 '''
 def get_name_creation_consensus_info(name, blockchain_record, bitcoind_proxy, proxy=None, serial_number=None):
@@ -463,34 +509,47 @@ def get_name_creation_consensus_info(name, blockchain_record, bitcoind_proxy, pr
     creation_consensus_type = str(create_diff['opcode'])
 
     # find preorder consensus hash, if preordered
-    if creation_consensus_type == "NAME_PREORDER":
+    if creation_consensus_type == 'NAME_PREORDER':
         creation_consensus_hash = create_diff['consensus_hash']
 
         # transaction with the consensus hash comes from the NAME_PREORDER
         preorder_serial_number = None
-        if serial_number is None:
-            preorder_serial_number = get_serial_number(blockchain_record)
-        else:
+        if serial_number is not None:
             preorder_serial_number = serial_number
+        else:
+            preorder_serial_number = get_serial_number(blockchain_record)
 
-        create_consensus_tx = serial_number_to_tx(preorder_serial_number, bitcoind_proxy, proxy=proxy)
+        create_consensus_tx = serial_number_to_tx(
+            preorder_serial_number, bitcoind_proxy, proxy=proxy
+        )
 
         if create_consensus_tx is None:
-           return {'error': 'Failed to verify name creation consensus-bearing transaction against SPV headers'}
+            msg = (
+                'Failed to verify name creation '
+                'consensus-bearing transaction against SPV headers'
+            )
+
+            return {'error': msg}
 
         # we can trust that the consensus-bearing transaction is on the blockchain.
         # now, what's the creation consensus hash's block number?
         # (NOTE: this trusts Blockstack)
-        creation_consensus_block_id = get_block_from_consensus(creation_consensus_hash, proxy=proxy)
-        if type(creation_consensus_hash_id) == dict and 'error' in ret:
+        creation_consensus_block_id = get_block_from_consensus(
+            creation_consensus_hash, proxy=proxy
+        )
+
+        # BUG: undefined variables creation_consensus_hash_id and ret
+        if isinstance(creation_consensus_hash_id, dict) and 'error' in ret:
             return ret
 
         # verify that the given consensus hash is present in the trusted consensus-bearing transaction
-        tx_consensus_hash = verify_consensus_hash_from_tx(create_consensus_tx, name, creation_consensus_hash)
+        tx_consensus_hash = verify_consensus_hash_from_tx(
+            create_consensus_tx, name, creation_consensus_hash
+        )
+
         if tx_consensus_hash is None:
             # !!! Blockstackd lied to us--we got the wrong consensus hash
             return {'error': 'Blockstack consensus hash does not match the SPV block headers'}
-
 
     creation_info = {
         'type': creation_consensus_type,
@@ -498,7 +557,6 @@ def get_name_creation_consensus_info(name, blockchain_record, bitcoind_proxy, pr
     }
 
     if creation_consensus_type == 'NAME_PREORDER':
-
         # have trust anchor
         creation_info['anchor'] = {
             'consensus_hash': creation_consensus_hash,
@@ -508,6 +566,7 @@ def get_name_creation_consensus_info(name, blockchain_record, bitcoind_proxy, pr
 
     return creation_info
 '''
+
 
 '''
 def get_name_reveal_consensus_info(name, blockchain_record, bitcoind_proxy, proxy=None):
@@ -528,13 +587,11 @@ def get_name_reveal_consensus_info(name, blockchain_record, bitcoind_proxy, prox
 
     reveal_block_number, reveal_txid = get_reveal_txid(blockchain_record)
 
-    # consensus info for when the name was revealed to the world (NAME_IMPORT or NAME_REGISTRATION)
-    reveal_consensus_tx = None
-    reveal_consensus_hash = None
-    reveal_consensus_type = None
-
     # get verified name revelation data
-    reveal_block_hash, reveal_block_data, reveal_tx = txid_to_block_data(reveal_txid, bitcoind_proxy, proxy=proxy)
+    reveal_block_hash, reveal_block_data, reveal_tx = (
+        txid_to_block_data(reveal_txid, bitcoind_proxy, proxy=proxy)
+    )
+
     if reveal_block_hash is None or reveal_block_data is None:
         return {'error': 'Failed to look up name revelation information'}
 
@@ -546,14 +603,14 @@ def get_name_reveal_consensus_info(name, blockchain_record, bitcoind_proxy, prox
         return {'error': 'Transaction is not a NAME_REGISTRATION or a NAME_IMPORT'}
 
     if reveal_payload != name:
-        log.error("Reveal payload is '%s'; expected '%s'" % (reveal_payload, name))
+        log.error('Reveal payload is "{}"; expected "{}"'.format(reveal_payload, name))
         return {'error': 'Transaction does not reveal the given name'}
 
     # NOTE: trusts Blockstack
     if reveal_op == NAME_REGISTRATION:
-        reveal_op = "NAME_REGISTRATION"
+        reveal_op = 'NAME_REGISTRATION'
     elif reveal_op == NAME_IMPORT:
-        reveal_op = "NAME_IMPORT"
+        reveal_op = 'NAME_IMPORT'
     else:
         return {'error': 'Unrecognized reveal opcode'}
 
@@ -565,6 +622,7 @@ def get_name_reveal_consensus_info(name, blockchain_record, bitcoind_proxy, prox
 
     return ret
 '''
+
 
 '''
 def find_last_historical_op(history, opcode):
@@ -583,20 +641,21 @@ def find_last_historical_op(history, opcode):
 
     prev_blocks = sorted(history.keys())[::-1] + [-1]
     prev_opcode = None
-    for i in xrange(0, len(prev_blocks)-1):
 
+    for i in range(len(prev_blocks) - 1):
         prev_block = prev_blocks[i]
         prev_ops = history[prev_block]
-        for prev_op in reversed(prev_ops):
 
-            if prev_op.has_key('opcode'):
+        for prev_op in reversed(prev_ops):
+            if 'opcode' in prev_op:
                 prev_opcode = str(prev_op['opcode'])
 
             if prev_opcode == opcode:
-                return (int(prev_blocks[i + 1]), prev_op)
+                return int(prev_blocks[i + 1]), prev_op
 
-    return (None, None)
+    return None, None
 '''
+
 
 '''
 def get_name_update_consensus_info(name, blockchain_record, bitcoind_proxy, proxy=None):
@@ -626,13 +685,16 @@ def get_name_update_consensus_info(name, blockchain_record, bitcoind_proxy, prox
     update_consensus_block_id = None
 
     # find the latest NAME_UPDATE
-    if str(blockchain_record['opcode']) == "NAME_UPDATE":
+    if str(blockchain_record['opcode']) == 'NAME_UPDATE':
         update_consensus_hash = str(blockchain_record['consensus_hash'])
-        update_record = blockchain_record
-        update_block_id = int(sorted(blockchain_record['history'].keys())[-1])
-
+        update_block_id, update_record = (
+            int(sorted(blockchain_record['history'].keys())[-1]), blockchain_record
+        )
     else:
-        update_block_id, update_record = find_last_historical_op(blockchain_record['history'], "NAME_UPDATE")
+        update_block_id, update_record = (
+            find_last_historical_op(blockchain_record['history'], 'NAME_UPDATE')
+        )
+
         if update_record is not None:
             update_consensus_hash = str(update_record['consensus_hash'])
 
@@ -641,18 +703,21 @@ def get_name_update_consensus_info(name, blockchain_record, bitcoind_proxy, prox
         return None
 
     # get update tx data and verify it via SPV
-    update_serial = "%s-%s" % (update_block_id, update_record['vtxindex'])
+    update_serial = '{}-{}'.format(update_block_id, update_record['vtxindex'])
     update_tx = serial_number_to_tx(update_serial, bitcoind_proxy, proxy=proxy)
 
     # update_tx is now known to be on the main blockchain.
     tx_consensus_hash = None
 
-    # the consensus hash will be between when we accepted the update (update_block_id), and up to BLOCKS_CONSENSUS_HASH_IS_VALID blocks in the past.
-    candidate_consensus_hashes = get_consensus_range(update_block_id, update_block_id - virtualchain.lib.BLOCKS_CONSENSUS_HASH_IS_VALID)
-    for i in xrange(0, len(candidate_consensus_hashes)):
+    # the consensus hash will be between when we accepted the update
+    # (update_block_id), and up to BLOCKS_CONSENSUS_HASH_IS_VALID
+    # blocks in the past.
+    candidate_consensus_hashes = get_consensus_range(
+        update_block_id, update_block_id - virtualchain.lib.BLOCKS_CONSENSUS_HASH_IS_VALID
+    )
 
-        ch = candidate_consensus_hashes[i]
-        tx_consensus_hash = verify_consensus_hash_from_tx(update_tx, name, ch)
+    for i, cch in enumerate(candidate_consensus_hashes):
+        tx_consensus_hash = verify_consensus_hash_from_tx(update_tx, name, cch)
         if tx_consensus_hash is not None:
             # the update_tx contains the untrusted consensus hash.
             # success!
@@ -663,19 +728,20 @@ def get_name_update_consensus_info(name, blockchain_record, bitcoind_proxy, prox
         # !!! Blockstackd lied to us--we got the wrong consensus hash
         return {'error': 'Blockstack consensus hash does not match the SPV block headers'}
 
-    else:
-        update_info = {
-            'type': 'NAME_UPDATE',
-            'block_id': update_block_id,
-            'anchor': {
-                'consensus_hash': update_consensus_hash,
-                'block_id': update_consensus_block_id,
-                'txid': update_tx['txid']
-            }
+    update_info = {
+        'type': 'NAME_UPDATE',
+        'block_id': update_block_id,
+        'anchor': {
+            'consensus_hash': update_consensus_hash,
+            'block_id': update_consensus_block_id,
+            'txid': update_tx['txid']
         }
+    }
 
-        return update_info
+
+    return update_info
 '''
+
 
 def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, consensus_hash, proxy=None):
     """
@@ -685,10 +751,11 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
     point in time's untrusted block ID and consensus hash.
     """
 
-    log.debug("verify %s-%s to %s-%s" % (current_block_id, current_consensus_hash, block_id, consensus_hash))
+    log.debug('verify {}-{} to {}-{}'.format(
+        current_block_id, current_consensus_hash, block_id, consensus_hash
+    ))
 
-    if proxy is None:
-        proxy = get_default_proxy()
+    proxy = get_default_proxy() if proxy is None else proxy
 
     # work backwards in time, using a Merkle skip-list constructed
     # by blockstackd over the set of consensus hashes.
@@ -699,86 +766,89 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
         next_block_id: current_consensus_hash
     }
 
-    # print "next_block_id = %s, block_id = %s" % (next_block_id, block_id)
+    # print 'next_block_id = {}, block_id = {}'.format(next_block_id, block_id)
     while next_block_id >= block_id:
-
-        # get nameops_at[ next_block_id ], and all consensus_hash[ next_block_id - 2^i ] such that block_id - 2*i > block_id (start at i = 1)
+        # get nameops_at[ next_block_id ], and all consensus_hash[ next_block_id - 2^i ]
+        # such that block_id - 2*i > block_id (start at i = 1)
         i = 0
         nameops_hash = None
 
-        if not prev_nameops_hashes.has_key(next_block_id):
+        if next_block_id in prev_nameops_hashes:
+            nameops_hash = prev_nameops_hashes[next_block_id]
+        else:
             nameops_resp = get_nameops_hash_at(next_block_id, proxy=proxy)
 
             if 'error' in nameops_resp:
-                log.error("get_nameops_hash_at: %s" % nameops_resp['error'])
-                return {'error': 'Failed to get nameops: %s' % nameops_resp['error']}
+                log.error('get_nameops_hash_at: {}'.format(nameops_resp['error']))
+                return {'error': 'Failed to get nameops: {}'.format(nameops_resp['error'])}
 
             nameops_hash = str(nameops_resp)
-            prev_nameops_hashes[ next_block_id ] = nameops_hash
+            prev_nameops_hashes[next_block_id] = nameops_hash
 
-        else:
-            nameops_hash = prev_nameops_hashes[ next_block_id ]
-
-        log.debug("nameops hash at %s: %s" % (next_block_id, nameops_hash))
+        log.debug('nameops hash at {}: {}'.format(next_block_id, nameops_hash))
 
         # find out which consensus hashes we'll need
         to_fetch = []
         ch_block_ids = []
-        while next_block_id - (2**(i+1) - 1) >= FIRST_BLOCK_MAINNET:
-
+        while next_block_id - (2 ** (i + 1) - 1) >= FIRST_BLOCK_MAINNET:
             i += 1
-            prev_block_id = next_block_id - (2**i - 1)
+            prev_block_id = next_block_id - (2 ** i - 1)
             ch_block_ids.append(prev_block_id)
 
-            if not prev_consensus_hashes.has_key(prev_block_id):
-                to_fetch.append( prev_block_id )
-
+            if prev_block_id not in prev_consensus_hashes:
+                to_fetch.append(prev_block_id)
 
         # get the consensus hashes
         chs = {}
-        if len(to_fetch) > 0:
-            chs = get_consensus_hashes( to_fetch, proxy=proxy )
+        if to_fetch:
+            chs = get_consensus_hashes(to_fetch, proxy=proxy)
             if 'error' in chs:
-                log.error("Failed to get consensus hashes for %s: %s" % (to_fetch, chs['error']))
+                msg = 'Failed to get consensus hashes for {}: {}'
+                log.error(msg.format(to_fetch, chs['error']))
                 return {'error': 'Failed to get consensus hashes'}
 
         prev_consensus_block_ids = []
         for b in ch_block_ids:
-
             # NOTE: we process to_fetch *in decreasing order* so we know when we're missing data
-            if not chs.has_key(b) and not prev_consensus_hashes.has_key(b):
-                log.error("Missing consensus hash response for %s (chs=%s, prev_chs=%s)" % (b, chs, prev_consensus_hashes))
-                return {'error': "Server did not reply valid data"}
+            if b not in chs and b not in prev_consensus_hashes:
+                msg = 'Missing consensus hash response for {} (chs={}, prev_chs={})'
+                log.error(msg.format(b, chs, prev_consensus_hashes))
+                return {'error': 'Server did not reply valid data'}
 
             prev_consensus_block_ids.append(b)
-            if prev_consensus_hashes.has_key(b):
+            if b not in prev_consensus_hashes:
                 # already got this one
                 continue
 
-            ch = str(chs[b])
-            if ch != "None":
-                prev_consensus_hashes[b] = ch
-
+            ch = chs[b]
+            if ch is not None:
+                prev_consensus_hashes[b] = str(ch)
             else:
                 # no consensus hash for this block and all future blocks
                 prev_consensus_block_ids.pop()
                 break
-                
+
         # prev_consensus_hashes_list = [ prev_consensus_hashes[b] for b in ch_block_ids ]
-        prev_consensus_hashes_list = [ prev_consensus_hashes[b] for b in prev_consensus_block_ids ]
+        prev_consensus_hashes_list = [
+            prev_consensus_hashes[b] for b in prev_consensus_block_ids
+        ]
 
         # calculate the snapshot, and see if it matches
-        ch = virtualchain.StateEngine.make_snapshot_from_ops_hash(nameops_hash, prev_consensus_hashes_list)
-        expected_ch = prev_consensus_hashes[ next_block_id ]
+        ch = virtualchain.StateEngine.make_snapshot_from_ops_hash(
+            nameops_hash, prev_consensus_hashes_list
+        )
+
+        expected_ch = prev_consensus_hashes[next_block_id]
         if ch != expected_ch:
-            log.error("Consensus hash mismatch at %s: expected %s, got %s (from %s, %s)" % (next_block_id, expected_ch, ch, nameops_hash, prev_consensus_hashes))
+            msg = 'Consensus hash mismatch at {}: expected {}, got {} (from {}, {})'
+            log.error(msg.format(next_block_id, expected_ch, ch, nameops_hash, prev_consensus_hashes))
             return {'error': 'Consensus hash mismatch'}
 
         # advance!
         # find the smallest known consensus hash whose block is greater than block_id
         current_candidate = next_block_id
         found_any = False
-        for candidate_block_id in prev_consensus_hashes.keys():
+        for candidate_block_id in prev_consensus_hashes:
             if candidate_block_id < block_id:
                 continue
 
@@ -793,34 +863,40 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
 
     # get the final nameops
     historic_nameops = get_nameops_at(block_id, proxy=proxy)
-    if type(historic_nameops) == dict and 'error' in historic_nameops:
-        log.error("Failed to get nameops at %s: %s" % (block_id, historic_nameops['error']))
+    if isinstance(historic_nameops, dict) and 'error' in historic_nameops:
+        log.error('Failed to get nameops at {}: {}'.format(block_id, historic_nameops['error']))
         return {'error': 'BUG: no nameops found'}
 
     # sanity check...
     for historic_op in historic_nameops:
-        if not historic_op.has_key('opcode'):
+        if 'opcode' not in historic_op:
             return {'error': 'Invalid/corrupt name operations detected'}
 
         # recover binary op string
-        if not historic_op.has_key('op'):
-            historic_op['op'] = NAME_OPCODES[ str(historic_op['opcode']) ]
+        if 'op' not in historic_op:
+            historic_op['op'] = NAME_OPCODES[str(historic_op['opcode'])]
 
     # check integrity
-    serialized_historic_nameops = [virtualchain.StateEngine.serialize_op(str(op['op'][0]), op, OPFIELDS, verbose=True) for op in historic_nameops]
+    serialized_historic_nameops = [
+        virtualchain.StateEngine.serialize_op(
+            str(op['op'][0]), op, OPFIELDS, verbose=True
+        ) for op in historic_nameops
+    ]
+
     historic_nameops_hash = virtualchain.StateEngine.make_ops_snapshot(serialized_historic_nameops)
 
-    if not prev_nameops_hashes.has_key(block_id):
+    if block_id not in prev_nameops_hashes:
         return {'error': 'Previous block/consensus hash is unreachable from trusted block/consensus hash'}
 
-    if historic_nameops_hash != prev_nameops_hashes[ block_id ]:
+    if historic_nameops_hash != prev_nameops_hashes[block_id]:
         return {'error': 'Hash mismatch: name is not consistent with consensus hash'}
 
-    log.debug("%s nameops at %s" % (len(historic_nameops), block_id))
+    log.debug('{} nameops at {}'.format(len(historic_nameops), block_id))
     return historic_nameops
 
 
-def snv_name_verify(name, current_block_id, current_consensus_hash, block_id, consensus_hash, trusted_txid=None, trusted_txindex=None, proxy=None):
+def snv_name_verify(name, current_block_id, current_consensus_hash, block_id,
+                    consensus_hash, trusted_txid=None, trusted_txindex=None, proxy=None):
     """
     Use SNV to verify that a name existed at a particular block ID in the past,
     given a later known-good block ID and consensus hash (as well as the previous
@@ -832,10 +908,13 @@ def snv_name_verify(name, current_block_id, current_consensus_hash, block_id, co
     Return a dict with {'error'} on error
     """
 
-    if proxy is None:
-        proxy = get_default_proxy()
+    proxy = get_default_proxy() if proxy is None else proxy
 
-    historic_nameops = snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, consensus_hash, proxy=proxy)
+    historic_nameops = snv_get_nameops_at(
+        current_block_id, current_consensus_hash,
+        block_id, consensus_hash, proxy=proxy
+    )
+
     if 'error' in historic_nameops:
         return historic_nameops
 
@@ -860,17 +939,17 @@ def snv_name_verify(name, current_block_id, current_consensus_hash, block_id, co
             matching_nameops.append(nameop)
             continue
 
-    if len(matching_nameops) == 0:
-        # not found
-        log.error("Not found at block %s: '%s'" % (block_id, name))
-        return {'error': 'Name not found'}
-    else:
+    if matching_nameops:
         return {'status': True, 'nameops': matching_nameops}
 
+    # not found
+    log.error('Not found at block {}: "{}"'.format(block_id, name))
+    return {'error': 'Name not found'}
 
 
+def snv_lookup(verify_name, verify_block_id,
+               trusted_serial_number_or_txid_or_consensus_hash, proxy=None, trusted_txid=None):
 
-def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_consensus_hash, proxy=None, trusted_txid=None):
     """
     High-level call to simple name verification:
     Given a trusted serial number, txid, or consensus_hash, use it as a trust root to verify that
@@ -904,19 +983,23 @@ def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_co
     Return the list of nameops in the given verify_block_id that match.
     """
 
-    if proxy is None:
-        proxy = get_default_proxy()
+    proxy = get_default_proxy() if proxy is None else proxy
 
     trusted_serial_number_or_txid_or_consensus_hash = str(trusted_serial_number_or_txid_or_consensus_hash)
 
-    bitcoind_proxy = get_bitcoind_client( config_path=proxy.conf['path'] )
+    bitcoind_proxy = get_bitcoind_client(config_path=proxy.conf['path'])
     trusted_serial_number = None
     trusted_tx_index = None
     trusted_consensus_hash = None
     trusted_block_id = None
 
     # what did we get?
-    if len(trusted_serial_number_or_txid_or_consensus_hash) == 64 and is_hex(trusted_serial_number_or_txid_or_consensus_hash):
+    hash_len_64 = len(trusted_serial_number_or_txid_or_consensus_hash) == 64
+    hash_len_32 = len(trusted_serial_number_or_txid_or_consensus_hash) == 32
+    hash_parts_2 = len(trusted_serial_number_or_txid_or_consensus_hash.split('-')) == 2
+    hash_is_hex = is_hex(trusted_serial_number_or_txid_or_consensus_hash)
+
+    if hash_len_64 and hash_is_hex:
         # txid: convert to trusted block ID and consensus hash
         trusted_txid = trusted_serial_number_or_txid_or_consensus_hash
         trusted_block_hash, trusted_block_data, trusted_tx = txid_to_block_data(trusted_txid, bitcoind_proxy)
@@ -924,6 +1007,7 @@ def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_co
             return {'error': 'Unable to look up given transaction ID'}
 
         # must have a consensus hash
+        # TOOD: Check why return values are ignored
         op, payload = parse_tx_op_return(trusted_tx)
         trusted_consensus_hash = get_consensus_hash_from_tx(trusted_tx)
         if trusted_consensus_hash is None:
@@ -933,25 +1017,22 @@ def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_co
         # but that's okay--if the consensus hash in this tx is inauthentic, it will be unreachable
         # from the other consensus hash [short of a SHA256 collision])
         trusted_block_id = get_block_from_consensus(trusted_consensus_hash, proxy=proxy)
-
-
-    elif len(trusted_serial_number_or_txid_or_consensus_hash) == 32 and is_hex(trusted_serial_number_or_txid_or_consensus_hash):
+    elif hash_len_32 and hash_is_hex:
         # consensus hash
         trusted_consensus_hash = trusted_serial_number_or_txid_or_consensus_hash
         trusted_block_id = get_block_from_consensus(trusted_consensus_hash, proxy=proxy)
-        if type(trusted_block_id) == dict and 'error' in trusted_block_id:
+        if isinstance(trusted_block_id, dict) and 'error' in trusted_block_id:
             # got error back
             return trusted_block_id
-
-
-    elif len(trusted_serial_number_or_txid_or_consensus_hash.split("-")) == 2:
+    elif hash_parts_2:
         # must be a serial number
-        parts = trusted_serial_number_or_txid_or_consensus_hash.split("-")
+        parts = trusted_serial_number_or_txid_or_consensus_hash.split('-')
         try:
             trusted_block_id = int(parts[0])
+            # TODO: Check why this variable is unused
             trusted_tx_index = int(parts[1])
         except:
-            log.error("Malformed serial number '%s'" % trusted_serial_number_or_txid_or_consensus_hash)
+            log.error('Malformed serial number "{}"'.format(trusted_serial_number_or_txid_or_consensus_hash))
             return {'error': 'Did not receive a valid serial number'}
 
         trusted_tx = serial_number_to_tx(trusted_serial_number_or_txid_or_consensus_hash, bitcoind_proxy)
@@ -959,6 +1040,7 @@ def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_co
             return {'error': 'Unable to convert given serial number into transaction'}
 
         # tx must have a consensus hash
+        # TOOD: Check why return values are ignored
         op, payload = parse_tx_op_return(trusted_tx)
         trusted_consensus_hash = get_consensus_hash_from_tx(trusted_tx)
         if trusted_consensus_hash is None:
@@ -968,27 +1050,30 @@ def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_co
         # but that's okay--if the consensus hash in this tx is inauthentic, it will be unreachable
         # from the other consensus hash [short of a SHA256 collision])
         trusted_block_id = get_block_from_consensus(trusted_consensus_hash, proxy=proxy)
-        if type(trusted_block_id) == dict and 'error' in trusted_block_id:
+        if isinstance(trusted_block_id, dict) and 'error' in trusted_block_id:
             # got error back
             return trusted_block_id
-
     else:
-        return {'error': 'Did not receive a valid txid, consensus hash, or serial number (%s)' % trusted_serial_number_or_txid_or_consensus_hash}
+        msg = 'Did not receive a valid txid, consensus hash, or serial number ({})'
+        return {'error': msg.format(trusted_serial_number_or_txid_or_consensus_hash)}
 
     if trusted_block_id < verify_block_id:
-        return {'error': 'Trusted block/consensus hash came before the untrusted block/consensus hash'}
+        msg = 'Trusted block/consensus hash came before the untrusted block/consensus hash'
+        return {'error': msg}
 
     # go verify the name
     verify_consensus_hash = get_consensus_at(verify_block_id, proxy=proxy)
-    historic_namerecs = snv_name_verify(verify_name, trusted_block_id, trusted_consensus_hash, verify_block_id, verify_consensus_hash, trusted_txid=trusted_txid, trusted_txindex=trusted_tx_index)
+    historic_namerecs = snv_name_verify(
+        verify_name, trusted_block_id, trusted_consensus_hash,
+        verify_block_id, verify_consensus_hash,
+        trusted_txid=trusted_txid, trusted_txindex=trusted_tx_index
+    )
 
     if 'error' in historic_namerecs:
         return historic_namerecs
 
-    else:
-        return historic_namerecs['nameops']
+    return historic_namerecs['nameops']
 
 
 # backwards compatibility
 lookup_snv = snv_lookup
-

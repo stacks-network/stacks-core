@@ -21,6 +21,8 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
+import copy
+
 from ..config import *
 import copy
 
@@ -80,7 +82,7 @@ from .namespacereveal import snv_consensus_extras as namespace_reveal_consensus_
 from .namespaceready import snv_consensus_extras as namespace_ready_consensus_extras
 from .announce import snv_consensus_extras as announce_consensus_extras
 
-# NOTE: these all have the same signatures 
+# NOTE: these all have the same signatures
 SNV_CONSENSUS_EXTRA_METHODS = {
      "NAME_PREORDER": preorder_consensus_extras,
      "NAME_REGISTRATION": register_consensus_extras,
@@ -104,7 +106,7 @@ def nameop_is_history_snapshot( history_snapshot ):
 
     TODO: DRY up with server
     """
-    
+
     # sanity check:  each mutate field in the operation must be defined in op_data, even if it's null.
     missing = []
 
@@ -133,7 +135,7 @@ def nameop_history_extract( history_rows ):
              txid:
              vtxindex:
              op:
-             opcode: 
+             opcode:
             }, ...
         ],
         ...
@@ -150,7 +152,7 @@ def nameop_history_extract( history_rows ):
         block_id = history_row['block_id']
         data_json = history_row['history_data']
         hist = json.loads( data_json )
-        
+
         hist['opcode'] = op_get_opcode_name(hist['op'])
 
         if history.has_key( block_id ):
@@ -306,7 +308,7 @@ def nameop_snv_consensus_extra_quirks( extras, namerec, block_id ):
 
 def nameop_snv_consensus_extra( op_name, prev_name_rec, prev_block_id ):
     """
-    Derive any missing consensus-generating fields from the 
+    Derive any missing consensus-generating fields from the
     fields of a name record (since some of them
     are dynamically generated when the operation
     is discovered).  This method is used for
@@ -325,7 +327,7 @@ def nameop_snv_consensus_extra( op_name, prev_name_rec, prev_block_id ):
     TODO: DRY up with server
     """
 
-    global SNV_CONSENSUS_EXTRA_METHODS 
+    global SNV_CONSENSUS_EXTRA_METHODS
 
     if op_name not in SNV_CONSENSUS_EXTRA_METHODS.keys():
         raise Exception("No such operation '%s'" % op_name)
@@ -333,7 +335,7 @@ def nameop_snv_consensus_extra( op_name, prev_name_rec, prev_block_id ):
     method = SNV_CONSENSUS_EXTRA_METHODS[op_name]
     extras = method( prev_name_rec, prev_block_id, None )
     extras = nameop_snv_consensus_extra_quirks( extras, prev_name_rec, prev_block_id )
-    return extras 
+    return extras
 
 
 def nameop_restore_snv_consensus_fields( name_rec, block_id ):
@@ -351,7 +353,7 @@ def nameop_restore_snv_consensus_fields( name_rec, block_id ):
 
     if ret_op is None:
         raise Exception("Failed to derive extra consensus fields for '%s'" % opcode_name)
-   
+
     ret_op['opcode'] = opcode_name
 
     merged_op = copy.deepcopy( name_rec )
