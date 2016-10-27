@@ -32,6 +32,7 @@ import os
 import copy
 import shutil
 import threading
+import gc
 
 from collections import defaultdict
 from . import *
