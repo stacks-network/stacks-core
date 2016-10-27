@@ -24,6 +24,7 @@
 # Hooks to the virtual chain's state engine that bind our namedb to the virtualchain package.
 
 import os
+import gc
 
 from .namedb import *
 
@@ -430,6 +431,12 @@ def db_continue( block_id, consensus_hash ):
     Blockstack uses this as a preemption point where it can safely
     exit if the user has so requested.
     """
+
+    # every so often, clean up
+    if (block_id % 20) == 0:
+        log.debug("Pre-emptive garbage collection at %s" % block_id)
+        gc.collect(2)
+
     return is_running()
 
 
