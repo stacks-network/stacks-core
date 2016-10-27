@@ -1613,8 +1613,6 @@ def namedb_get_names_owned_by_address( cur, address, current_block ):
 
 def namedb_restore_from_history( name_rec, block_id ):
     """
-    TODO: DRY UP; moved to client
-
     Given a name or a namespace record, replay its
     history diffs "back in time" to a particular block
     number.
@@ -1629,100 +1627,7 @@ def namedb_restore_from_history( name_rec, block_id ):
     """
     
     return blockstack_client.operations.nameop_restore_from_history( name_rec, name_rec['history'], block_id )
-    '''
-    block_history = list( reversed( sorted( name_rec['history'].keys() ) ) )
-
-    historical_rec = copy.deepcopy( name_rec )
-    del historical_rec['history']
-
-    if len(block_history) == 0:
-        # there is no history here...
-        try:
-            assert namedb_is_history_snapshot( historical_rec ), "BUG: no history for incomplete name"
-            return [historical_rec]
-        except Exception, e:
-            log.exception(e)
-            log.debug("\n%s" % (json.dumps(historical_rec, indent=4, sort_keys=True)))
-            log.error("FATAL: tried to restore history for incomplete record")
-            os.abort()
-
-    if block_id > block_history[0]:
-        # current record is valid
-        return [historical_rec]
-
-    if block_id < name_rec['block_number']:
-        # doesn't yet exist
-        return None
-
-    # find the latest block prior to block_number
-    last_block = len(block_history)
-    for i in xrange( 0, len(block_history) ):
-        if block_id >= block_history[i]:
-            last_block = i
-            break
-
-    i = 0
-    while i < last_block:
-
-        try:
-            diff_list = list( reversed( name_rec['history'][ block_history[i] ] ) )
-        except:
-            print json.dumps( name_rec['history'][block_history[i]], indent=4, sort_keys=True )
-            raise
-
-        for di in xrange(0, len(diff_list)):
-            diff = diff_list[di]
-
-            if diff.has_key('history_snapshot'):
-                # wholly new state
-                historical_rec = copy.deepcopy( diff )
-                del historical_rec['history_snapshot']
-
-            else:
-                # delta in current state
-                # no matter what, 'block_number' cannot be altered (unless it's a history snapshot)
-                if diff.has_key('block_number'):
-                    del diff['block_number']
-
-                historical_rec.update( diff )
-
-        i += 1
-
-    # if this isn't the earliest history element, and the next-earliest
-    # one (at last block) has multiple entries, then generate the sequence
-    # of updates for all but the first one.  This is because all but the
-    # first one were generated in the same block (i.e. the block requested).
-    updates = [ copy.deepcopy( historical_rec ) ]
-
-    if i < len(block_history):
-
-        try:
-            diff_list = list( reversed( name_rec['history'][ block_history[i] ] ) )
-        except:
-            print json.dumps( name_rec['history'][block_history[i]] )
-            raise
-
-        if len(diff_list) > 1:
-            for diff in diff_list[:-1]:
-
-                # no matter what, 'block_number' cannot be altered
-                if diff.has_key('block_number'):
-                    del diff['block_number']
-
-                if diff.has_key('history_snapshot'):
-                    # wholly new state
-                    historical_rec = copy.deepcopy( diff )
-                    del historical_rec['history_snapshot']
-
-                else:
-                    # delta in current state
-                    historical_rec.update( diff )
-
-                updates.append( copy.deepcopy(historical_rec) )
-
-    return list( reversed( updates ) )
-    '''
-
+    
 
 def namedb_rec_restore( db, rows, history_id_key, block_id, include_history=False ):
     """
