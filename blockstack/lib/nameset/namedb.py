@@ -1706,8 +1706,12 @@ class BlockstackDB( virtualchain.StateEngine ):
             prior_recs = []
 
         restored_recs = []
-        for rec in prior_recs:
-            restored_rec = rec_restore_snv_consensus_fields( rec, block_id )
+        for i in xrange(0, len(prior_recs)):
+            if (i+1) % 10 == 0:
+                log.debug("Strategic garbage collect at block %s op %s" % (block_id, i))
+                gc.collect()
+
+            restored_rec = rec_restore_snv_consensus_fields( prior_recs[i], block_id )
             restored_recs.append( restored_rec )
 
         # NOTE: extracts only the operation-given fields, and ignores ancilliary record fields
