@@ -24,31 +24,14 @@
 # Hooks to the virtual chain's state engine that bind our namedb to the virtualchain package.
 
 import os
-from binascii import hexlify, unhexlify
-import time
-
-import pybitcoin 
-import traceback
-import json
-import simplejson
-import threading
-import copy
 
 from .namedb import *
 
 from ..config import *
 from ..scripts import *
-from ..operations import get_transfer_recipient_from_outputs, get_import_update_hash_from_outputs, get_registration_recipient_from_outputs, \
-    SERIALIZE_FIELDS
 
 import virtualchain
 log = virtualchain.get_logger("blockstack-log")
-
-blockstack_db = None
-last_load_time = 0
-last_check_time = 0
-reload_lock = threading.Lock()
-
 
 def get_virtual_chain_name():
    """
@@ -103,43 +86,6 @@ def get_first_block_id():
    """ 
    start_block = FIRST_BLOCK_MAINNET
    return start_block
-
-
-def need_db_reload():
-   """
-   Do we need to instantiate/reload the database?
-   """
-   global blockstack_db
-   global last_load_time
-   global last_check_time
-
-   db_filename = virtualchain.get_db_filename()
-
-   sb = None
-   if os.path.exists(db_filename):
-       sb = os.stat(db_filename)
-
-   if blockstack_db is None:
-       # doesn't exist in RAM
-       log.debug("cache consistency: DB is not in RAM")
-       return True
-     
-   if not os.path.exists(db_filename):
-       # doesn't exist on disk 
-       log.debug("cache consistency: DB does not exist on disk")
-       return True 
-   
-   if sb is not None and sb.st_mtime != last_load_time:
-       # stale--new version exists on disk
-       log.debug("cache consistency: DB was modified; in-RAM copy is stale")
-       return True 
-   
-   if time.time() - last_check_time > 600:
-       # just for good measure--don't keep it around past the blocktime
-       log.debug("cache consistency: Blocktime has passed")
-       return True
-
-   return False
 
 
 def get_db_state( disposition=DISPOSITION_RO ):
@@ -429,13 +375,14 @@ def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
    (required by virtualchain state engine)
    
    Save all persistent state to stable storage.
-   Clear out expired names in the process.
    Called once per block.
    
    Return True on success
    Return False on failure.
    """
- 
+
+   from ..atlas import atlasdb_sync_zonefiles 
+
    if db_state is not None:
     
         try:
@@ -455,6 +402,19 @@ def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
             log.error("FATAL: failed to commit at block %s" % block_id )
             os.abort()
 
+        try:
+            # sync block data to atlas, if enabled
+            blockstack_opts = get_blockstack_opts()
+            if blockstack_opts.get('atlas', False):
+                log.debug("Synchronize Atlas DB for %s" % (block_id-1))
+                zonefile_dir = blockstack_opts.get('zonefiles', get_zonefile_dir())
+                atlasdb_sync_zonefiles( db_state, block_id-1, zonefile_dir=zonefile_dir )
+
+        except Exception, e:
+            log.exception(e)
+            log.error("FATAL: failed to update Atlas db at %s" % block_id )
+            os.abort()
+
         return True
 
    else:
@@ -462,10 +422,23 @@ def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
        os.abort()
 
 
+def db_continue( block_id, consensus_hash ):
+    """
+    (required by virtualchain state engine)
+
+    Called when virtualchain has synchronized all state for this block.
+    Blockstack uses this as a preemption point where it can safely
+    exit if the user has so requested.
+    """
+    return is_running()
+
+
 def sync_blockchain( bt_opts, last_block, expected_snapshots={}, **virtualchain_args ):
     """
     synchronize state with the blockchain.
-    build up the next blockstack_db
+    Return True on success
+    Return False if we're supposed to stop indexing
+    Abort on error
     """
  
     # make this usable even if we haven't explicitly configured virtualchain 
@@ -480,6 +453,7 @@ def sync_blockchain( bt_opts, last_block, expected_snapshots={}, **virtualchain_
     # NOTE: this is the only place where a read-write handle should be created,
     # since this is the only place where the db should be modified.
     new_db = BlockstackDB.borrow_readwrite_instance( db_filename, last_block, expected_snapshots=expected_snapshots )
-    virtualchain.sync_virtualchain( bt_opts, last_block, new_db, expected_snapshots=expected_snapshots, **virtualchain_args )
+    rc = virtualchain.sync_virtualchain( bt_opts, last_block, new_db, expected_snapshots=expected_snapshots, **virtualchain_args )
     BlockstackDB.release_readwrite_instance( new_db, last_block )
 
+    return rc
