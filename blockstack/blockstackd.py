@@ -64,18 +64,14 @@ from lib import get_db_state
 from lib.config import REINDEX_FREQUENCY 
 from lib import *
 from lib.storage import *
-from .atlas import *
+from lib.atlas import *
 
 import lib.nameset.virtualchain_hooks as virtualchain_hooks
 import lib.config as config
 from lib.consensus import *
 
 # global variables, for use with the RPC server
-blockstack_opts = None
 bitcoind = None
-bitcoin_opts = None
-utxo_client = None
-tx_broadcaster = None
 rpc_server = None
 
 def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
@@ -84,7 +80,6 @@ def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
    Optionally re-set the bitcoind options.
    """
    global bitcoind
-   global bitcoin_opts
 
    if reset:
        bitcoind = None
@@ -94,8 +89,9 @@ def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
 
    if new or bitcoind is None:
       if new_bitcoind_opts is not None:
-         bitcoin_opts = new_bitcoind_opts
+         set_bitcoin_opts( new_bitcoin_opts )
 
+      bitcoin_opts = get_bitcoin_opts()
       new_bitcoind = None
       try:
 
@@ -118,39 +114,6 @@ def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
          log.exception( e )
          return None
 
-
-def get_bitcoin_opts():
-   """
-   Get the bitcoind connection arguments.
-   """
-
-   global bitcoin_opts
-   return bitcoin_opts
-
-
-def get_blockstack_opts():
-   """
-   Get blockstack configuration options.
-   """
-   global blockstack_opts
-   return blockstack_opts
-
-
-def set_bitcoin_opts( new_bitcoin_opts ):
-   """
-   Set new global bitcoind operations
-   """
-   global bitcoin_opts
-   bitcoin_opts = new_bitcoin_opts
-
-
-def set_blockstack_opts( new_opts ):
-    """
-    Set new global blockstack opts
-    """
-    global blockstack_opts
-    blockstack_opts = new_opts
-    
 
 def get_pidfile_path():
    """
@@ -560,7 +523,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         if count > 10:
             return {'error': 'Page too big'}
 
-        # do NOT restore, since we're paging
+        # do NOT restore history information, since we're paging
         db = get_db_state()
         prior_records = db.get_all_ops_at( block_id, offset=offset, count=count, include_history=False, restore_history=False )
         db.close()
@@ -1468,49 +1431,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
         return atlas_get_all_neighbors()
         
-    
-    def rpc_get_unspents(self, address, **con_info):
-        """
-        Proxy to UTXO provider to get an address's
-        unspent outputs.
-        ONLY USE FOR TESTING
-        """
-        global utxo_client
-
-        if type(address) not in [int, long]:
-            return {'error': 'invalid address'}
-
-        conf = get_blockstack_opts()
-        if not conf['blockchain_proxy']:
-            return {'error': 'No such method'}
-
-        if utxo_client is None:
-            utxo_client = blockstack_client.get_utxo_provider_client()
-
-        unspents = pybitcoin.get_unspents( address, utxo_client )
-        return unspents
-
-
-    def rpc_broadcast_transaction(self, txdata, **con_info ):
-        """
-        Proxy to UTXO provider to send a transaction
-        ONLY USE FOR TESTING
-        """
-        global utxo_client 
-
-        if type(txdata) not in [str, unicode]:
-            return {'error': 'invalid transaction'}
-
-        conf = get_blockstack_opts()
-        if not conf['blockchain_proxy']:
-            return {'error': 'No such method'}
-
-        if utxo_client is None:
-            utxo_client = blockstack_client.get_utxo_provider_client()
-
-        return pybitcoin.broadcast_transaction( txdata, utxo_client )
-
-
+   
     def rpc_get_analytics_key(self, client_uuid, **con_info ):
         """
         Get the analytics key
@@ -1616,48 +1537,77 @@ def stop_server( clean=False, kill=False ):
     Stop the blockstackd server.
     """
 
-    # kill the main supervisor
-    pid_file = get_pidfile_path()
-    try:
-        fin = open(pid_file, "r")
-    except Exception, e:
-        pass
+    timeout = 1.0
+    dead = False
 
-    else:
-        pid_data = fin.read().strip()
-        fin.close()
-
-        pid = int(pid_data)
+    for i in xrange(0, 15):
+        # try to kill the main supervisor
+        pid_file = get_pidfile_path()
+        if not os.path.exists(pid_file):
+            dead = True
+            break
 
         try:
-           os.kill(pid, signal.SIGTERM)
-        except OSError, oe:
-           if oe.errno == errno.ESRCH:
-              # already dead 
-              log.info("Process %s is not running" % pid)
-              try:
-                  os.unlink(pid_file)
-              except:
-                  pass
-
-              return
-
+            fin = open(pid_file, "r")
         except Exception, e:
-            log.exception(e)
-            os.abort()
+            pass
 
-        if kill:
-            clean = True
-            timeout = 5.0
-            log.info("Waiting %s seconds before sending SIGKILL to %s" % (timeout, pid))
-            time.sleep(timeout)
+        else:
+            pid_data = fin.read().strip()
+            fin.close()
+
+            pid = int(pid_data)
+
             try:
-                os.kill(pid, signal.SIGKILL)
+               os.kill(pid, signal.SIGTERM)
+            except OSError, oe:
+               if oe.errno == errno.ESRCH:
+                  # already dead 
+                  log.info("Process %s is not running" % pid)
+                  try:
+                      os.unlink(pid_file)
+                  except:
+                      pass
+
+                  return
+
             except Exception, e:
-                pass
+                log.exception(e)
+                os.abort()
+
+            # is it actually dead?
+            try:
+                res = blockstack_client.ping()
+            except socket.error as se:
+                # dead?
+                if se.errno == errno.ECONNREFUSED:
+                    # couldn't connect, so infer dead
+                    try:
+                        os.kill(pid, 0)
+                        log.info("Server %s is not dead yet..." % pid)
+
+                    except OSError, oe:
+                        log.info("Server %s is dead to us" % pid)
+                        dead = True
+                        break
+                else:
+                    continue
+            
+            log.info("Server %s is still running; trying again in %s seconds" % (pid, timeout))
+            time.sleep(timeout)
+            timeout *= 2
+
+    if not dead and kill:
+        # be sure to clean up the pidfile
+        log.info("Killing server %s" % pid)
+        clean = True
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except Exception, e:
+            pass
    
     if clean:
-        # always blow away the pid file 
+        # blow away the pid file 
         try:
             os.unlink(pid_file)
         except:
@@ -1665,85 +1615,7 @@ def stop_server( clean=False, kill=False ):
 
     
     log.debug("Blockstack server stopped")
-
-
-def get_indexing_lockfile():
-    """
-    Return path to the indexing lockfile
-    """
-    return os.path.join( virtualchain.get_working_dir(), "blockstack.indexing" )
-
-
-def get_bootstrap_lockfile():
-    """
-    Return path to the indexing lockfile
-    """
-    return os.path.join( virtualchain.get_working_dir(), "blockstack.bootstrapping" )
-
-
-def is_indexing():
-    """
-    Is the blockstack daemon synchronizing with the blockchain?
-    """
-    indexing_path = get_indexing_lockfile()
-    if os.path.exists( indexing_path ):
-        return True
-    else:
-        return False
-
-
-def set_indexing( flag ):
-    """
-    Set a flag in the filesystem as to whether or not we're indexing.
-    """
-    indexing_path = get_indexing_lockfile()
-    if flag:
-        try:
-            fd = open( indexing_path, "w+" )
-            fd.close()
-            return True
-        except:
-            return False
-
-    else:
-        try:
-            os.unlink( indexing_path )
-            return True
-        except:
-            return False
-
-
-def set_bootstrapped( flag ):
-    """
-    Set a flag in the filesystem as to whether or not we have sync'ed up to the latest block
-    """
-    bootstrap_path = get_bootstrap_lockfile()
-    if flag:
-        try:
-            fd = open( bootstrap_path, "w+" )
-            fd.close()
-            return True
-        except:
-            return False
-
-    else:
-        try:
-            os.unlink( bootstrap_path )
-            return True
-        except:
-            return False
-
-
-def is_bootstrapped():
-    """
-    Have we sync'ed up to the latest block?
-    """
-    bootstrap_path = get_bootstrap_lockfile()
-    if os.path.exists(bootstrap_path):
-        return True
-    else:
-        return False
-
+    
 
 def blockstack_tx_filter( tx ):
     """
@@ -1766,6 +1638,10 @@ def index_blockchain( expected_snapshots=GENESIS_SNAPSHOT ):
     Index the blockchain:
     * find the range of blocks
     * synchronize our state engine up to them
+
+    Return True if we should continue indexing
+    Return False if not
+    Aborts on error
     """
 
     bt_opts = get_bitcoin_opts() 
@@ -1777,17 +1653,24 @@ def index_blockchain( expected_snapshots=GENESIS_SNAPSHOT ):
     if start_block is None and current_block is None:
         log.error("Failed to find block range")
         db.close()
-        return
+        return False
 
     # bring the db up to the chain tip.
     log.debug("Begin indexing (up to %s)" % current_block)
     set_indexing( True )
-    virtualchain_hooks.sync_blockchain( bt_opts, current_block, expected_snapshots=expected_snapshots, tx_filter=blockstack_tx_filter )
+    rc = virtualchain_hooks.sync_blockchain( bt_opts, current_block, expected_snapshots=expected_snapshots, tx_filter=blockstack_tx_filter )
     set_indexing( False )
    
     db.close()
 
+    if not rc:
+        log.debug("Stopped indexing at %s" % current_block)
+        return rc
+
     # synchronize atlas db
+    # this is a recovery path--shouldn't be necessary unless
+    # we're starting from a lack of atlas.db state (i.e. an older
+    # version of the server, or a removed/corrupted atlas.db file).
     blockstack_opts = get_blockstack_opts()
     if blockstack_opts.get('atlas', False):
         db = get_state_engine()
@@ -1799,31 +1682,31 @@ def index_blockchain( expected_snapshots=GENESIS_SNAPSHOT ):
         db.close()
 
     log.debug("End indexing (up to %s)" % current_block)
+    return rc
 
 
-def blockstack_exit():
+def blockstack_exit( atlas_state ):
     """
     Shut down the server on exit(3)
     """
-    stop_server(kill=True)
-    stop_atlas()
+    if atlas_state is not None:
+        atlas_node_stop( atlas_state )
 
 
-def blockstack_exit_handler( sig, frame ):
+def blockstack_signal_handler( sig, frame ):
     """
     Fatal signal handler
     """
-    sys.exit(0)
+    set_running(False)
 
 
-def run_server( foreground=False, index=True, expected_snapshots=GENESIS_SNAPSHOT, port=None ):
+def run_server( foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None ):
     """
     Run the blockstackd RPC server, optionally in the foreground.
     """
-
     bt_opts = get_bitcoin_opts()
     blockstack_opts = get_blockstack_opts()
-    indexer_log_file = get_logfile_path() + ".indexer"
+    indexer_log_file = get_logfile_path() + ".log"
     pid_file = get_pidfile_path()
     working_dir = virtualchain.get_working_dir()
 
@@ -1874,13 +1757,16 @@ def run_server( foreground=False, index=True, expected_snapshots=GENESIS_SNAPSHO
             pid, status = os.waitpid( child_pid, 0 )
             sys.exit(status)
    
+    # set up signals 
+    signal.signal( signal.SIGINT, blockstack_signal_handler )
+    signal.signal( signal.SIGQUIT, blockstack_signal_handler )
+    signal.signal( signal.SIGTERM, blockstack_signal_handler )
+
     # put supervisor pid file
     put_pidfile( pid_file, os.getpid() )
-    atexit.register( blockstack_exit )
 
-    if index:
-        # clear indexing state
-        set_indexing( False )
+    # clear indexing state
+    set_indexing( False )
 
     # make sure client is initialized 
     get_blockstack_client_session()
@@ -1890,165 +1776,162 @@ def run_server( foreground=False, index=True, expected_snapshots=GENESIS_SNAPSHO
 
     # start atlas node
     atlas_state = atlas_start( blockstack_opts, db, port )
+    atexit.register( blockstack_exit, atlas_state )
    
     db.close()
 
     # start API server
     rpc_start(port)
+    set_running( True )
+
+    # clear any stale indexing state
+    set_indexing( False )
+    log.debug("Begin Indexing")
+
     running = True
+    while is_running():
 
-    if index:
-        # clear any stale indexing state
-        set_indexing( False )
-        log.debug("Begin Indexing")
+        try:
+           running = index_blockchain(expected_snapshots=expected_snapshots)
+        except Exception, e:
+           log.exception(e)
+           log.error("FATAL: caught exception while indexing")
+           os.abort()
+       
+        if not running:
+            break
 
-        while running:
-
-            try:
-               index_blockchain(expected_snapshots=expected_snapshots)
-            except Exception, e:
-               log.exception(e)
-               log.error("FATAL: caught exception while indexing")
-               os.abort()
-            
-            # wait for the next block
-            deadline = time.time() + REINDEX_FREQUENCY
-            while time.time() < deadline:
-                try:
-                    time.sleep(1.0)
-                except:
-                    # interrupt
-                    running = False
-                    break
-    
-    else:
-        log.info("Not going to index, but will idle for testing")
-        while running:
+        # wait for the next block
+        deadline = time.time() + REINDEX_FREQUENCY
+        while time.time() < deadline:
             try:
                 time.sleep(1.0)
             except:
-                # interrupt 
-                running = False
+                # interrupt
                 break
+     
+    log.debug("End Indexing")
+    set_running( False )
 
-    # stop API server 
+    # stop API server
+    log.debug("Stopping API server")
     rpc_stop()
 
     # stop atlas node 
+    log.debug("Stopping Atlas node")
     atlas_stop( atlas_state )
-
-    # stop the atlas node, if it's running 
-    if atlas_state is not None:
-        atlas_node_stop( atlas_state )
-        atlas_state = None
+    atlas_state = None
 
     # close logfile
     if logfile is not None:
         logfile.flush()
         logfile.close()
 
+    try:
+        os.unlink( pid_file )
+    except:
+        pass
+
     return 0
 
 
 def setup( working_dir=None, return_parser=False ):
-   """
-   Do one-time initialization.
-   Call this to set up global state and set signal handlers.
+    """
+    Do one-time initialization.
+    Call this to set up global state and set signal handlers.
 
-   If return_parser is True, return a partially-
-   setup argument parser to be populated with
-   subparsers (i.e. as part of main())
+    If return_parser is True, return a partially-
+    setup argument parser to be populated with
+    subparsers (i.e. as part of main())
 
-   Otherwise return None.
-   """
+    Otherwise return None.
+    """
 
-   # set up our implementation
-   if working_dir is not None:
-       if not os.path.exists( working_dir ):
-           os.makedirs( working_dir, 0700 )
+    # set up our implementation
+    virtualchain.setup_virtualchain( impl=blockstack_state_engine )
+    working_dir = virtualchain.get_working_dir()
 
-       blockstack_state_engine.working_dir = working_dir
+    if not os.path.exists( working_dir ):
+        os.makedirs( working_dir, 0700 )
 
-   virtualchain.setup_virtualchain( blockstack_state_engine )
+    # acquire configuration, and store it globally
+    opts = configure( interactive=True )
+    blockstack_opts = opts['blockstack']
+    bitcoin_opts = opts['bitcoind']
 
-   # acquire configuration, and store it globally
-   opts = configure( interactive=True )
-   blockstack_opts = opts['blockstack']
-   bitcoin_opts = opts['bitcoind']
+    # config file version check
+    config_server_version = blockstack_opts.get('server_version', None)
+    if config_server_version is None or not blockstack_client.config.semver_match( str(config_server_version), str(VERSION) ):
+        print >> sys.stderr, "Obsolete config file (%s): '%s' != '%s'\nPlease move it out of the way, so Blockstack Server can generate a fresh one." % (virtualchain.get_config_filename(), config_server_version, VERSION)
+        return None
 
-   # config file version check
-   config_server_version = blockstack_opts.get('server_version', None)
-   if config_server_version is None or not blockstack_client.config.semver_match( str(config_server_version), str(VERSION) ):
-       print >> sys.stderr, "Obsolete config file (%s): '%s' != '%s'\nPlease move it out of the way, so Blockstack Server can generate a fresh one." % (virtualchain.get_config_filename(), config_server_version, VERSION)
-       return None
+    log.debug("config:\n%s" % json.dumps(opts, sort_keys=True, indent=4))
 
-   log.debug("config:\n%s" % json.dumps(opts, sort_keys=True, indent=4))
+    # merge in command-line bitcoind options
+    config_file = virtualchain.get_config_filename()
 
-   # merge in command-line bitcoind options
-   config_file = virtualchain.get_config_filename()
+    arg_bitcoin_opts = None
+    argparser = None
 
-   arg_bitcoin_opts = None
-   argparser = None
+    if return_parser:
+       arg_bitcoin_opts, argparser = virtualchain.parse_bitcoind_args( return_parser=return_parser )
 
-   if return_parser:
-      arg_bitcoin_opts, argparser = virtualchain.parse_bitcoind_args( return_parser=return_parser )
+    else:
+       arg_bitcoin_opts = virtualchain.parse_bitcoind_args( return_parser=return_parser )
 
-   else:
-      arg_bitcoin_opts = virtualchain.parse_bitcoind_args( return_parser=return_parser )
+    # command-line overrides config file
+    for (k, v) in arg_bitcoin_opts.items():
+       bitcoin_opts[k] = v
 
-   # command-line overrides config file
-   for (k, v) in arg_bitcoin_opts.items():
-      bitcoin_opts[k] = v
+    # store options
+    set_bitcoin_opts( bitcoin_opts )
+    set_blockstack_opts( blockstack_opts )
 
-   # store options
-   set_bitcoin_opts( bitcoin_opts )
-   set_blockstack_opts( blockstack_opts )
+    # do activation check
+    # This server uses a new transaction format that will not be recognized
+    # by 0.13.  This fail-safe prevents the client from doing anything until
+    # F-day 2016, the day in which 0.14's hard-fork logic activates.  This
+    # will be the day block #436363 gets mined.
+    # 
+    # Delete this fail-safe at your own risk.  We are not responsible
+    # for your lost names and lost Bitcoins.
+    # 
+    # You have been warned.
 
-   # do activation check
-   # This server uses a new transaction format that will not be recognized
-   # by 0.13.  This fail-safe prevents the client from doing anything until
-   # F-day 2016, the day in which 0.14's hard-fork logic activates.  This
-   # will be the day block #436363 gets mined.
-   # 
-   # Delete this fail-safe at your own risk.  We are not responsible
-   # for your lost names and lost Bitcoins.
-   # 
-   # You have been warned.
+    btc = get_bitcoind()
+    curr_height = 0
+    try:
+        curr_height = btc.getblockcount()
+    except:
+        print >> sys.stderr, "Failed to connect to bitcoind"
+        os.abort()
 
-   btc = get_bitcoind()
-   curr_height = 0
-   try:
-       curr_height = btc.getblockcount()
-   except:
-       print >> sys.stderr, "Failed to connect to bitcoind"
-       os.abort()
+    if curr_height <= config.EPOCH_MINIMUM and os.environ.get("BLOCKSTACK_TEST", None) != "1":
+        print >> sys.stderr, ""
+        print >> sys.stderr, "This is a development version of Blockstack Core."
+        print >> sys.stderr, "It it not suitable for production use at this time,"
+        print >> sys.stderr, "and is not compatible with the production Blockstack"
+        print >> sys.stderr, "servers."
+        print >> sys.stderr, ""
+        print >> sys.stderr, "Please use the stable release from PyPI, which you"
+        print >> sys.stderr, "can install with:"
+        print >> sys.stderr, ""
+        print >> sys.stderr, "     $ pip install --upgrade blockstack-server"
+        print >> sys.stderr, ""
 
-   if curr_height <= config.EPOCH_MINIMUM and os.environ.get("BLOCKSTACK_TEST", None) != "1":
-       print >> sys.stderr, ""
-       print >> sys.stderr, "This is a development version of Blockstack Core."
-       print >> sys.stderr, "It it not suitable for production use at this time,"
-       print >> sys.stderr, "and is not compatible with the production Blockstack"
-       print >> sys.stderr, "servers."
-       print >> sys.stderr, ""
-       print >> sys.stderr, "Please use the stable release from PyPI, which you"
-       print >> sys.stderr, "can install with:"
-       print >> sys.stderr, ""
-       print >> sys.stderr, "     $ pip install --upgrade blockstack-server"
-       print >> sys.stderr, ""
-
-   if return_parser:
-      return argparser
-   else:
-      return None
+    if return_parser:
+        return argparser
+    else:
+        return None
 
 
 def reconfigure():
-   """
-   Reconfigure blockstackd.
-   """
-   configure( force=True )
-   print "Blockstack successfully reconfigured."
-   sys.exit(0)
+    """
+    Reconfigure blockstackd.
+    """
+    configure( force=True )
+    print "Blockstack successfully reconfigured."
+    sys.exit(0)
 
 
 def clean( confirm=True ):
@@ -2126,36 +2009,110 @@ def restore( working_dir, block_number ):
     return rc
 
 
-def check_alternate_working_dir():
+def check_and_set_envars( argv ):
     """
-    Check sys.argv to see if there is an alternative
-    working directory selected.  We need to know this
-    before setting up the virtual chain.
-    """
+    Go through argv and find any special command-line flags
+    that set environment variables that affect multiple modules.
 
-    path = None
-    for i in xrange(0, len(sys.argv)):
-        arg = sys.argv[i]
-        if arg.startswith('--working-dir'):
-            if '=' in arg:
-                argparts = arg.split("=")
-                arg = argparts[0]
-                parts = argparts[1:]
-                path = "=".join(parts)
-            elif i + 1 < len(sys.argv):
-                path = sys.argv[i+1]
+    If any of them are given, then set them in this process's
+    environment and re-exec the process without the CLI flags.
+
+    argv should be like sys.argv:  argv[0] is the binary
+
+    Does not return on re-exec.
+    Return True if there was no need to re-exec
+    Returns False on error.
+    """
+    special_flags = {
+        '--working-dir': {
+            'arg': True,
+            'envar': 'VIRTUALCHAIN_WORKING_DIR',
+        },
+        '--debug': {
+            'arg': False,
+            'envar': 'BLOCKSTACK_DEBUG',
+        },
+        '--testnet': {
+            'arg': False,
+            'envar': 'BLOCKSTACK_TESTNET'
+        },
+    }
+
+    cli_envs = {}
+    new_argv = [argv[0]]
+
+    for i in xrange(1, len(argv)):
+
+        arg = argv[i]
+        value = None
+
+        for special_flag in special_flags.keys():
+
+            if not arg.startswith( special_flag ):
+                continue
+
+            if special_flags[special_flag]['arg']:
+                if '=' in arg:
+                    argparts = arg.split("=")
+                    value_parts = argparts[1:]
+                    value = '='.join(value_parts)
+
+                elif i + 1 < len(argv):
+                    value = argv[i+1]
+                    i += 1
+
+                else:
+                    print >> sys.stderr, "%s requires an argument" % special_flag
+                    return False
             else:
-                print >> sys.stderr, "--working-dir requires an argument"
-                return None
+                # just set
+                value = "1"
 
-    # load from environment if not given
-    if path is None and os.environ.get("VIRTUALCHAIN_WORKING_DIR") is not None:
-        path = os.environ["VIRTUALCHAIN_WORKING_DIR"]
+            break
 
-    elif path is not None:
-        os.environ['VIRTUALCHAIN_WORKING_DIR'] = path 
+        if value is not None:
+            # recognized
+            cli_envs[ special_flags[special_flag]['envar'] ] = value
 
-    return path
+        else:
+            # not recognized
+            new_argv.append(arg)
+
+    if len(cli_envs.keys()) > 0:
+        # re-exec
+        for cli_env, cli_env_value in cli_envs.items():
+            os.environ[cli_env] = cli_env_value
+
+        os.execv( new_argv[0], new_argv )
+
+    return True
+
+
+def load_expected_snapshots( snapshots_path ):
+    """
+    Load expected consensus hashes from a .snapshots file.
+    Return the snapshots as a dict on success
+    Return None on error
+    """
+    # use snapshots?
+    expected_snapshots = {}
+    try:
+        with open(snapshots_path, "r") as f:
+            snapshots_json = f.read()
+
+        snapshots_data = json.loads(snapshots_json)
+        assert 'snapshots' in snapshots_data.keys(), "Not a valid snapshots file"
+
+        # extract snapshots: map int to consensus hash
+        for (block_id_str, consensus_hash) in snapshots_data['snapshots'].items():
+            expected_snapshots[ int(block_id_str) ] = str(consensus_hash)
+
+        return expected_snapshots
+
+    except Exception, e:
+        log.exception(e)
+        log.error("Failed to read expected snapshots from '%s'" % snapshots_path)
+        return None
 
 
 def run_blockstackd():
@@ -2163,14 +2120,13 @@ def run_blockstackd():
    run blockstackd
    """
 
-   working_dir = check_alternate_working_dir()
-   log.debug("Working directory is %s" % working_dir)
-
-   blockstack_state_engine.working_dir = working_dir
-   argparser = setup( working_dir=working_dir, return_parser=True )
+   check_and_set_envars( sys.argv )
+   argparser = setup( return_parser=True )
    if argparser is None:
        # fatal error
        os.abort()
+
+   working_dir = virtualchain.get_working_dir()
 
    # get RPC server options
    subparsers = argparser.add_subparsers(
@@ -2183,12 +2139,6 @@ def run_blockstackd():
       '--foreground', action='store_true',
       help='start the blockstackd server in foreground')
    parser.add_argument(
-      '--working-dir', action='store',
-      help='use an alternative working directory')
-   parser.add_argument(
-      '--no-index', action='store_true',
-      help='do not index the blockchain, but only run an RPC endpoint')
-   parser.add_argument(
       '--expected-snapshots', action='store',
       help='path to a .snapshots file with the expected consensus hashes')
    parser.add_argument(
@@ -2198,16 +2148,10 @@ def run_blockstackd():
    parser = subparsers.add_parser(
       'stop',
       help='stop the blockstackd server')
-   parser.add_argument(
-      '--working-dir', action='store',
-      help='use an alternative working directory')
 
    parser = subparsers.add_parser(
       'configure',
       help='reconfigure the blockstackd server')
-   parser.add_argument(
-      '--working-dir', action='store',
-      help='use an alternative working directory')
 
    parser = subparsers.add_parser(
       'clean',
@@ -2215,9 +2159,6 @@ def run_blockstackd():
    parser.add_argument(
       '--force', action='store_true',
       help='Do not confirm the request to delete.')
-   parser.add_argument(
-      '--working-dir', action='store',
-      help='use an alternative working directory')
 
    parser = subparsers.add_parser(
       'restore',
@@ -2241,9 +2182,6 @@ def run_blockstackd():
    parser.add_argument(
       '--resume-dir', nargs='?',
       help='the temporary directory to store the database state as it is being rebuilt.  Blockstackd will resume working from this directory if it is interrupted.')
-   parser.add_argument(
-      '--working-dir', action='store',
-      help='use an alternative working directory')
 
    parser = subparsers.add_parser(
       'verifydb',
@@ -2258,8 +2196,8 @@ def run_blockstackd():
       'db_path',
       help='the path to the database')
    parser.add_argument(
-      '--working-dir', action='store',
-      help='use an alternative working directory')
+      '--expected-snapshots', action='store',
+      help='path to a .snapshots file with the expected consensus hashes')
 
    parser = subparsers.add_parser(
       'importdb',
@@ -2267,20 +2205,6 @@ def run_blockstackd():
    parser.add_argument(
       'db_path',
       help='the path to the database')
-   parser.add_argument(
-      '--working-dir', action='store',
-      help='use an alternative working directory')
-
-   # only meant for testing 
-   parser = subparsers.add_parser(
-      "atlas-testnet",
-      help="Run an atlas peer on the atlas test network")
-   parser.add_argument(
-      "seeds",
-      help="A CSV of initial peers, as 'host:port' strings")
-   parser.add_argument(
-      "name_updates",
-      help="A CSV of zonefile hashes and their block heights, as 'zonefile_hash:blockheight' strings")
 
    parser = subparsers.add_parser(
       'version',
@@ -2297,21 +2221,8 @@ def run_blockstackd():
       # use snapshots?
       expected_snapshots = {}
       if args.expected_snapshots is not None:
-          snapshots_path = args.expected_snapshots
-          try:
-              with open(snapshots_path, "r") as f:
-                  snapshots_json = f.read()
-
-              snapshots_data = json.loads(snapshots_json)
-              assert 'snapshots' in snapshots_data.keys(), "Not a valid snapshots file"
-
-              # extract snapshots: map int to consensus hash
-              for (block_id_str, consensus_hash) in snapshots_data['snapshots'].items():
-                  expected_snapshots[ int(block_id_str) ] = str(consensus_hash)
-
-          except Exception, e:
-              log.exception(e)
-              log.error("Failed to read expected snapshots from '%s'" % snapshots_path)
+          expected_snapshots = load_expected_snapshots( args.expected_snapshots )
+          if expected_snapshots is None:
               sys.exit(1)
 
       if os.path.exists( get_pidfile_path() ):
@@ -2319,21 +2230,18 @@ def run_blockstackd():
           sys.exit(1)
 
       if args.foreground:
-         log.info('Initializing blockstackd server in foreground (working dir = \'%s\')...' % (working_dir))
+          log.info('Initializing blockstackd server in foreground (working dir = \'%s\')...' % (working_dir))
       else:
-         log.info('Starting blockstackd server (working_dir = \'%s\') ...' % (working_dir))
-
-      if args.no_index:
-         log.info("Not indexing the blockchain; only running an RPC endpoint")
+          log.info('Starting blockstackd server (working_dir = \'%s\') ...' % (working_dir))
 
       if args.port is not None:
-         log.info("Binding on port %s" % int(args.port))
+          log.info("Binding on port %s" % int(args.port))
       else:
-         args.port = RPC_SERVER_PORT
+          args.port = RPC_SERVER_PORT
 
-      exit_status = run_server( foreground=args.foreground, index=(not args.no_index), expected_snapshots=expected_snapshots, port=int(args.port) )
+      exit_status = run_server( foreground=args.foreground, expected_snapshots=expected_snapshots, port=int(args.port) )
       if args.foreground:
-         log.info("Service endpoint exited with status code %s" % exit_status )
+          log.info("Service endpoint exited with status code %s" % exit_status )
 
    elif args.action == 'stop':
       stop_server(kill=True)
@@ -2354,24 +2262,31 @@ def run_blockstackd():
           resume_dir = args.resume_dir
 
       final_consensus_hash = rebuild_database( int(args.end_block_id), args.db_path, start_block=int(args.start_block_id), resume_dir=resume_dir )
-      print "Rebuilt database in '%s'" % blockstack_state_engine.working_dir
+      print "Rebuilt database in '%s'" % working_dir
       print "The final consensus hash is '%s'" % final_consensus_hash
 
    elif args.action == 'verifydb':
       db_path = virtualchain.get_db_filename()
       working_db_path = os.path.join( working_dir, os.path.basename( db_path ) )
+      expected_snapshots = None
+      
+      if args.expected_snapshots is not None:
+          expected_snapshots = load_expected_snapshots( args.expected_snapshots )
+          if expected_snapshots is None:
+              sys.exit(1)
 
-      rc = verify_database( args.consensus_hash, int(args.block_id), args.db_path, working_db_path=working_db_path )
+      rc = verify_database( args.consensus_hash, int(args.block_id), args.db_path, working_db_path=working_db_path, expected_snapshots=expected_snapshots )
       if rc:
           # success!
           print "Database is consistent with %s" % args.consensus_hash
-          print "Verified files are in '%s'" % blockstack_state_engine.working_dir
+          print "Verified files are in '%s'" % working_dir
 
       else:
           # failure!
           print "Database is NOT CONSISTENT"
 
    elif args.action == 'importdb':
+      # re-target working dir so we move the database state to the correct location
       old_working_dir = blockstack_state_engine.working_dir
       blockstack_state_engine.working_dir = None
       virtualchain.setup_virtualchain( blockstack_state_engine )
@@ -2392,11 +2307,6 @@ def run_blockstackd():
 
       print "Importing lastblock from %s to %s" % (old_lastblock_path, virtualchain.get_lastblock_filename() )
       shutil.copy( old_lastblock_path, virtualchain.get_lastblock_filename() )
-
-      # clean up
-      shutil.rmtree( old_working_dir )
-      if os.path.exists( old_working_dir ):
-          os.rmdir( old_working_dir )
 
 if __name__ == '__main__':
 
