@@ -169,14 +169,14 @@ def check( state_engine ):
             return False 
 
         # only serviceFoo exists
-        accounts = blockstack_client.list_accounts( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
+        accounts = blockstack_client.list_accounts( "foo.test", proxy=test_proxy )
         if len(accounts) != 1:
             print "wrong number of accounts"
             print json.dumps(accounts, indent=4, sort_keys=True)
             return False 
 
         account = accounts['accounts'][0]
-        on_file_accounts = blockstack_client.get_account( "foo.test", "serviceFoo", "serviceFooID", proxy=test_proxy, wallet_keys=wallet_keys )
+        on_file_accounts = blockstack_client.get_account( "foo.test", "serviceFoo", "serviceFooID", proxy=test_proxy )
         if 'error' in on_file_accounts:
             print json.dumps(on_file_account, sort_keys=True, indent=4)
             return False 
