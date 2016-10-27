@@ -51,7 +51,7 @@ from .nameops import async_preorder, async_register, async_update, async_transfe
 from .blockchain import get_block_height
 
 from ..keys import get_data_privkey_info, is_singlesig, is_multisig, get_privkey_info_address, get_privkey_info_params, encrypt_private_key_info, decrypt_private_key_info
-from ..proxy import is_name_registered, is_zonefile_hash_current, is_name_owner, get_default_proxy, get_name_blockchain_record, get_name_cost
+from ..proxy import is_name_registered, is_zonefile_hash_current, is_name_owner, get_default_proxy, get_name_blockchain_record, get_name_cost, get_atlas_peers
 from ..profile import get_and_migrate_profile, zonefile_data_replicate
 from ..user import make_empty_user_zonefile, is_user_zonefile 
 from ..storage import put_mutable_data, put_immutable_data, hash_zonefile, get_zonefile_data_hash
@@ -360,13 +360,13 @@ class RegistrarWorker(threading.Thread):
 
     
     @classmethod 
-    def replicate_profile_data( cls, name_data, servers, wallet_data, storage_drivers, config_path, proxy=None ):
+    def replicate_profile_data( cls, name_data, atlas_servers, wallet_data, storage_drivers, config_path, proxy=None ):
         """
         Given an update queue entry,
         replicate the zonefile to as many
-        blockstack servers as we can.
+        blockstack atlas servers as we can.
         If given, replicate the profile as well.
-        @servers should be a list of (host, port)
+        @atlas_servers should be a list of (host, port)
         Return {'status': True} on success
         Return {'error': ...} on error
         """
@@ -392,7 +392,7 @@ class RegistrarWorker(threading.Thread):
             log.error("Zonefile %s has not been confirmed yet (still on %s)" % (zonefile_hash, name_rec['value_hash']))
             return {'error': 'Zonefile hash not yet replicated'}
 
-        res = zonefile_data_replicate( name_data['fqu'], zonefile_data, name_data['tx_hash'], servers, config_path=config_path, storage_drivers=storage_drivers )
+        res = zonefile_data_replicate( name_data['fqu'], zonefile_data, name_data['tx_hash'], atlas_servers, config_path=config_path, storage_drivers=storage_drivers )
         if 'error' in res:
             log.error("Failed to replicate zonefile %s for %s: %s" % (zonefile_hash, name_data['fqu'], res['error']))
             return res
@@ -437,17 +437,17 @@ class RegistrarWorker(threading.Thread):
 
 
     @classmethod
-    def replicate_profiles( cls, queue_path, servers, wallet_data, storage_drivers, config_path=CONFIG_PATH, proxy=None ):
+    def replicate_profiles( cls, queue_path, atlas_servers, wallet_data, storage_drivers, config_path=CONFIG_PATH, proxy=None ):
         """
         Replicate all zonefiles for each confirmed update.
         Remove successfully-replicated updates
-        @servers should be a list of (host, port)
+        @atlas_servers should be a list of (host, port)
         """
         ret = {'status': True} 
         updates = cls.get_confirmed_updates( config_path, queue_path )
         for update in updates:
             log.debug("Zonefile update on '%s' (%s) is confirmed!  New hash is %s" % (update['fqu'], update['tx_hash'], update['zonefile_hash']))
-            res = cls.replicate_profile_data( update, servers, wallet_data, storage_drivers, config_path, proxy=proxy )
+            res = cls.replicate_profile_data( update, atlas_servers, wallet_data, storage_drivers, config_path, proxy=proxy )
             if 'error' in res:
                 log.error("Failed to update %s: %s" % (update['fqu'], res['error']))
                 ret = {'error': 'Failed to finish an update'}
@@ -460,12 +460,30 @@ class RegistrarWorker(threading.Thread):
         
 
     @classmethod 
-    def get_replica_server_list( cls, config_path ):
+    def get_atlas_server_list( cls, config_path ):
         """
-        Get the list of servers to which to replicate zonefiles
+        Get the list of atlas servers to which to replicate zonefiles
         """
         conf = get_config(config_path)
         servers = [(conf['server'], conf['port'])]
+        server_hostport = '{}.{}'.format(conf['server'], conf['port'])
+
+        atlas_peers_res = {}
+        try:
+            atlas_peers_res = get_atlas_peers( server_hostport )
+            assert 'error' not in atlas_peers_res
+            
+            servers += atlas_peers_res['servers']
+            servers = list(set([str(hp) for hp in servers]))
+
+        except AssertionError as ae:
+            log.exception(ae)
+            log.error('Error response from {}: {}'.format(server_hostport, atlas_peers_res['error']))
+        except socket.error:
+            log.warning('Failed to find Atlas peers of {}'.format(server_hostport))
+        except Exception as e:
+            log.exception(e)
+            
         return servers
 
 
@@ -665,7 +683,7 @@ class RegistrarWorker(threading.Thread):
                 # see if we can replicate any zonefiles and profiles
                 # clear out any confirmed updates
                 log.debug("replicate all pending zonefiles and profiles in %s" % (self.queue_path))
-                servers = RegistrarWorker.get_replica_server_list( self.config_path )
+                servers = RegistrarWorker.get_atlas_server_list( self.config_path )
                 res = RegistrarWorker.replicate_profiles( self.queue_path, servers, wallet_data, self.required_storage_drivers, config_path=self.config_path, proxy=proxy )
                 if 'error' in res:
                     log.warn("Zonefile/profile replication failed: %s" % res['error'])
