@@ -841,7 +841,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         cur = self.db.cursor()
         namespace_ids = namedb_get_all_namespace_ids( cur )
-        return namesapce_ids
+        return namespace_ids
        
 
     def get_all_preordered_namespace_hashes( self ):
