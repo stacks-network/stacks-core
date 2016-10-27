@@ -1530,7 +1530,7 @@ def get_nameops_at( block_id, proxy=None ):
         historic_nameops = nameop_restore_from_history( nameop, history, block_id )
 
         log.debug("%s had %s operations (%s history rows, %s historic nameops, txids: %s) at %s" % 
-                (nameop['name'], len(history[block_id]), len(history_rows), len(historic_nameops), [op['txid'] for op in historic_nameops], block_id))
+                (nameop['name'], len(history.get(block_id, [])), len(history_rows), len(historic_nameops), [op['txid'] for op in historic_nameops], block_id))
 
         for historic_nameop in historic_nameops:
             # restore SNV consensus information
