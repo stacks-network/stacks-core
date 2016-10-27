@@ -104,7 +104,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         blockstack_impl = virtualchain.get_implementation()
         if blockstack_impl is None:
             blockstack_impl = virtualchain_hooks
-      
+
         # acquire the database
         self.db_filename = db_filename
         if os.path.exists( db_filename ):
@@ -133,12 +133,12 @@ class BlockstackDB( virtualchain.StateEngine ):
         self.set_backup_frequency( blockstack_opts['backup_frequency'] )
         self.set_backup_max_age( blockstack_opts['backup_max_age'] )
 
-        # collision detection 
+        # collision detection
         # map block_id --> history_id_key --> list of history ID values
         self.collisions = {}
 
 
-    @classmethod 
+    @classmethod
     def borrow_readwrite_instance( cls, db_path, block_number, expected_snapshots={} ):
         """
         Singleton--ensure at most one read/write connection to the db exists.
@@ -168,7 +168,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         Singleton--ensure at most one read/write connection to the db exists.
         """
 
-        global blockstack_db, blockstack_db_lastblock, blockstack_db_lock 
+        global blockstack_db, blockstack_db_lastblock, blockstack_db_lock
 
         blockstack_db_lock.acquire()
 
@@ -188,18 +188,18 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         db_inst = None
         blockstack_db = None
-        blockstack_db_lastblock = None 
+        blockstack_db_lastblock = None
 
         blockstack_db_lock.release()
         return True
 
 
-    @classmethod 
+    @classmethod
     def make_opfields( cls ):
         """
         Calculate the virtulachain-required opfields dict.
         """
-        # construct fields 
+        # construct fields
         opfields = {}
         for opname in SERIALIZE_FIELDS.keys():
             opcode = NAME_OPCODES[opname]
@@ -214,7 +214,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         return self.db_filename
 
-    
+
     def close( self ):
         """
         Close the db and release memory
@@ -225,7 +225,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             self.db = None
 
         return
-    
+
     def export_db( self, path ):
         """
         Copy the database to the given location.
@@ -235,7 +235,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         if self.db is not None:
             self.db.commit()
-            
+
         shutil.copyfile( self.get_db_path(), path )
 
 
@@ -274,7 +274,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             public_child = public_keychain.child(i)
             public_child_address = public_child.address()
 
-            # if we're on testnet, then re-encode as a testnet address 
+            # if we're on testnet, then re-encode as a testnet address
             if virtualchain.version_byte == 111:
                 old_child_address = public_child_address
                 public_child_address = virtualchain.hex_hash160_to_address( pybitcoin.address_to_hex_hash160( public_child_address ) )
@@ -312,7 +312,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         Get an import keychain from disk.
         Return None if it doesn't exist.
         """
-      
+
         # do we have a cached one on disk?
         cached_keychain = os.path.join( virtualchain.get_working_dir(), "%s.keychain" % namespace_id)
         if os.path.exists( cached_keychain ):
@@ -323,23 +323,23 @@ class BlockstackDB( virtualchain.StateEngine ):
                 lines = []
                 with open(cached_keychain, "r") as f:
                     lines = f.readlines()
- 
+
                 child_attrs = [l.strip() for l in lines]
- 
+
                 log.debug("Loaded cached import keychain for '%s'" % namespace_id)
                 return child_attrs
- 
+
             except Exception, e:
                 log.exception(e)
                 log.error("FATAL: uncaught exception loading the import keychain")
                 os.abort()
- 
+
         else:
             log.debug("No import keychain at '%s'" % cached_keychain)
 
         return None
 
-    
+
     def commit_get_cursor( self, block_number ):
         """
         Get a database cursor for a commit on this block number.
@@ -357,7 +357,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         self.db.commit()
         self.clear_collisions( block_id )
 
-    
+
     def log_accept( self, block_id, vtxindex, op, op_data ):
         """
         Log an accepted operation
@@ -366,14 +366,14 @@ class BlockstackDB( virtualchain.StateEngine ):
         opcode = op_data.get('opcode', None)
         debug_op = self.sanitize_op( op_data )
         if 'history' in debug_op:
-            del debug_op['history'] 
+            del debug_op['history']
 
-        log.debug("ACCEPT %s at (%s, %s) data: %s", opcode, block_id, vtxindex, 
+        log.debug("ACCEPT %s at (%s, %s) data: %s", opcode, block_id, vtxindex,
                 ", ".join( ["%s='%s'" % (k, debug_op[k]) for k in sorted(debug_op.keys())] ) )
 
         return
 
- 
+
     def log_commit( self, block_id, vtxindex, op, opcode, op_data ):
         """
         Log a committed operation
@@ -381,9 +381,9 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         debug_op = self.sanitize_op( op_data )
         if 'history' in debug_op:
-            del debug_op['history'] 
+            del debug_op['history']
 
-        log.debug("COMMIT %s (%s) at (%s, %s) data: %s", opcode, op, block_id, vtxindex, 
+        log.debug("COMMIT %s (%s) at (%s, %s) data: %s", opcode, op, block_id, vtxindex,
                 ", ".join( ["%s='%s'" % (k, debug_op[k]) for k in sorted(debug_op.keys())] ) )
 
         return
@@ -409,10 +409,10 @@ class BlockstackDB( virtualchain.StateEngine ):
         Remove unnecessary fields for an operation, i.e. prior to committing it.
         This includes any invariant tags we've added with our invariant decorators
         (such as @state_create or @state_transition).
-        
+
         TODO: less ad-hoc way to do this
         """
-        
+
         op_data = super( BlockstackDB, self ).sanitize_op( op_data )
 
         # remove invariant tags (i.e. added by our invariant state_* decorators)
@@ -474,23 +474,23 @@ class BlockstackDB( virtualchain.StateEngine ):
             rc = False
 
         if not rc:
-            # no collision 
+            # no collision
             return rc
 
-        # find and mark collided operations 
+        # find and mark collided operations
         for prev_op in checked_ops:
 
             prev_opcode = op_get_opcode_name( prev_op['op'] )
             if prev_opcode not in affected_opcodes:
                 # not affected
-                continue 
+                continue
 
             if history_id_key not in prev_op:
                 # won't match
                 continue
 
             if prev_op[history_id_key] == history_id:
-                # collision 
+                # collision
                 cls.nameop_set_collided( prev_op, history_id_key, history_id )
 
         return True
@@ -513,19 +513,19 @@ class BlockstackDB( virtualchain.StateEngine ):
     def put_collisions( self, block_id, collisions ):
         """
         Put collision state for a particular block.
-        Any operations checked at this block_id that collide 
+        Any operations checked at this block_id that collide
         with the given collision state will be rejected.
         """
         self.collisions[ block_id ] = copy.deepcopy( collisions )
 
-    
+
     def clear_collisions( self, block_id ):
         """
         Clear out all collision state for a given block number
         """
         if block_id in self.collisions:
             del self.collisions[block_id]
-        
+
 
     def check_collision( self, history_id_key, history_id, block_id, checked_ops, affected_opcodes ):
         """
@@ -556,7 +556,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         return self.check_collision( "name", name, block_id, checked_ops, OPCODE_NAME_STATE_CREATIONS )
 
-    
+
     def check_namespace_collision( self, namespace_id, block_id, checked_ops ):
         """
         Are there any colliding namespaces in this block?
@@ -601,7 +601,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         cur = self.db.cursor()
         return namedb_get_namespace( cur, namespace_id, block_number, include_expired=include_expired )
 
-    
+
     @autofill( "opcode" )
     def get_namespace_by_preorder( self, preorder_hash ):
         """
@@ -694,7 +694,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         cur = self.db.cursor()
         update_points = namedb_get_blocks_with_ops( cur, name, FIRST_BLOCK_MAINNET, self.lastblock )
         return update_points
-       
+
 
     def get_op_history_rows( self, history_id, offset, count ):
         """
@@ -712,7 +712,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         cur = self.db.cursor()
         return namedb_get_num_history_rows( cur, history_id )
-        
+
 
     def get_last_nameops( self, offset, count ):
         """
@@ -735,13 +735,13 @@ class BlockstackDB( virtualchain.StateEngine ):
         log.debug("Get all ops at %s in %s" % (block_number, self.db_filename))
         recs = namedb_get_all_ops_at( self.db, block_number, include_history=include_history, offset=offset, count=count, restore_history=restore_history )
 
-        # include opcode 
+        # include opcode
         for rec in recs:
             assert 'op' in rec
             rec['opcode'] = op_get_opcode_name(rec['op'])
 
         return recs
-       
+
 
     def get_num_ops_at( self, block_number ):
         """
@@ -770,7 +770,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         names = namedb_get_names_owned_by_address( cur, address, self.lastblock )
         return names
 
-    
+
     def get_names_owned_by_sender( self, sender_pubkey, lastblock=None ):
         """
         Get the set of names owned by a particular script-pubkey.
@@ -778,12 +778,12 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         cur = self.db.cursor()
         if lastblock is None:
-            lastblock = self.lastblock 
+            lastblock = self.lastblock
 
         names = namedb_get_names_by_sender( cur, sender_pubkey, lastblock )
         return names
 
-    
+
     def get_num_names( self ):
         """
         Get the number of names that exist.
@@ -802,7 +802,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             offset = None
 
         if count is not None and count < 0:
-            count = None 
+            count = None
 
         cur = self.db.cursor()
         names = namedb_get_all_names( cur, self.lastblock, offset=offset, count=count )
@@ -815,8 +815,8 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         cur = self.db.cursor()
         return namedb_get_num_names_in_namespace( cur, namespace_id, self.lastblock )
-    
-    
+
+
     def get_names_in_namespace( self, namespace_id, offset=None, count=None ):
         """
         Get the set of all registered names in a particular namespace.
@@ -824,10 +824,10 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
 
         if offset is not None and offset < 0:
-            offset = None 
+            offset = None
 
         if count is not None and count < 0:
-            count = None 
+            count = None
 
         cur = self.db.cursor()
         names = namedb_get_names_in_namespace( cur, namespace_id, self.lastblock, offset=offset, count=count )
@@ -841,8 +841,8 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         cur = self.db.cursor()
         namespace_ids = namedb_get_all_namespace_ids( cur )
-        return namesapce_ids
-       
+        return namespace_ids
+
 
     def get_all_preordered_namespace_hashes( self ):
         """
@@ -851,7 +851,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         cur = self.db.cursor()
         namespace_hashes = namedb_get_all_preordered_namespace_hashes( cur, self.lastblock )
-        return namespace_hashes 
+        return namespace_hashes
 
 
     def get_all_revealed_namespace_ids( self ):
@@ -872,7 +872,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         cur = self.db.cursor()
         namespace_hashes = namedb_get_all_importing_namespace_hashes( cur, self.lastblock )
         return namespace_hashes
-        
+
 
     def get_name_from_name_consensus_hash( self, name_consensus_hash, sender_script_pubkey, block_id ):
         """
@@ -891,7 +891,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         cur = self.db.cursor()
         names = namedb_get_names_by_sender( cur, sender_script_pubkey, self.lastblock )
-        
+
         if names is None:
             log.error("Sender script '%s' owns no names" % sender_script_pubkey )
             return (None, None)
@@ -901,8 +901,8 @@ class BlockstackDB( virtualchain.StateEngine ):
             consensus_hash = self.get_consensus_at( i )
             if consensus_hash is not None and consensus_hash not in possible_consensus_hashes:
                 possible_consensus_hashes.append( str(consensus_hash) )
-    
-        
+
+
         for name in names:
             for consensus_hash in possible_consensus_hashes:
 
@@ -936,13 +936,13 @@ class BlockstackDB( virtualchain.StateEngine ):
         # isn't currently registered, or we don't care
         preorder_hash = hash_name(name, sender_script_pubkey, register_addr=register_addr)
         preorder = namedb_get_name_preorder( self.db, preorder_hash, self.lastblock )
-        return preorder 
+        return preorder
 
-    
+
     @autofill( "opcode" )
     def get_namespace_preorder( self, namespace_id_hash ):
         """
-        Given the hash(namesapce_id, sender_script_pubkey, reveal_addr) for a 
+        Given the hash(namesapce_id, sender_script_pubkey, reveal_addr) for a
         namespace that is being imported, get its associated NAMESPACE_PREORDER
         record.
 
@@ -950,7 +950,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         Return None if not found, if the namespace is currently not preordered, or if the preorder record is expired.
         """
 
-        namespace_preorder = namedb_get_namespace_preorder( self.db, namespace_id_hash, self.lastblock ) 
+        namespace_preorder = namedb_get_namespace_preorder( self.db, namespace_id_hash, self.lastblock )
         return namespace_preorder
 
 
@@ -1008,33 +1008,33 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         rec = self.get_name( name )
         if rec is None:
-            return None 
+            return None
 
         if rec['revoked']:
             return None
-        
+
         # find the txid of the given value hash
         if rec['value_hash'] == value_hash:
             return rec['txid']
 
         else:
-            # search backwards for it 
+            # search backwards for it
             hist = rec['history']
             flat_hist = namedb_flatten_history( hist )
             for i in xrange(len(flat_hist)-1, 0, -1):
                 delta = flat_hist[i]
                 if delta['op'] == NAME_PREORDER:
                     # this name was re-registered. skip
-                    return None 
+                    return None
 
                 if delta['value_hash'] == value_hash:
-                    # this is the txid that affected it 
+                    # this is the txid that affected it
                     return delta['txid']
 
             # not found
             return None
-        
-    
+
+
     @autofill( "opcode" )
     def get_namespace_reveal( self, namespace_id ):
         """
@@ -1077,7 +1077,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         name_rec = self.get_name( name )    # won't return the name if expired
         if name_rec is None:
-            return False 
+            return False
 
         if name_rec['revoked']:
             return False
@@ -1106,7 +1106,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         namespace_preorder = self.get_namespace_preorder( self.db, namespace_id_hash, self.lastblock )
         if namespace_preorder is None:
-            return False 
+            return False
         else:
             return True
 
@@ -1134,12 +1134,12 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
 
         if not self.is_name_registered( name ):
-            # no one owns it 
-            return False 
+            # no one owns it
+            return False
 
         owner = self.get_name_owner( name )
         if owner != sender_script_pubkey:
-            return False 
+            return False
         else:
             return True
 
@@ -1150,7 +1150,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
 
         if lastblock is None:
-            lastblock = self.lastblock 
+            lastblock = self.lastblock
 
         preorder = namedb_get_name_preorder( self.db, preorder_hash, lastblock )
         if preorder is not None:
@@ -1165,11 +1165,11 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
 
         if lastblock is None:
-            lastblock = self.lastblock 
+            lastblock = self.lastblock
 
         preorder = namedb_get_namespace_preorder( self.db, namespace_id_hash, lastblock )
         if preorder is not None:
-            return False 
+            return False
         else:
             return True
 
@@ -1181,14 +1181,14 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         name = self.get_name( name )
         if name is None:
-            return False 
+            return False
 
         if name['revoked']:
             return True
         else:
             return False
 
-    
+
     def is_current_value_hash( self, value_hash ):
         """
         Is the given hash currently mapped to a name in the database?
@@ -1202,7 +1202,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         Mark a nameop as collided
         """
         nameop['__collided__'] = True
-        nameop['__collided_history_id_key__'] = history_id_key 
+        nameop['__collided_history_id_key__'] = history_id_key
         nameop['__collided_history_id__'] = history_id
 
 
@@ -1214,7 +1214,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         return '__collided__' in nameop and nameop['__collided__']
 
 
-    @classmethod 
+    @classmethod
     def nameop_put_collision( cls, collisions, nameop ):
         """
         Record a nameop as collided in some collision state.
@@ -1240,17 +1240,17 @@ class BlockstackDB( virtualchain.StateEngine ):
 
     def add_all_consensus_values( self, opcode, new_nameop, blockchain_name_data, current_block_number ):
         """
-        Add all extra consensus-affecting fields that 
+        Add all extra consensus-affecting fields that
         are derived from the given name operation's fields.
 
         If @blockchain_name_data is given, then find only the values that will be written to the DB
         Otherwise, find all values that will go into checking the operation.
         """
-       
+
         log.debug("add all consensus values for %s at %s" % (opcode, current_block_number))
 
-        consensus_extra = None 
-        
+        consensus_extra = None
+
         if blockchain_name_data is not None:
             consensus_extra = op_commit_consensus_extra( opcode, new_nameop, blockchain_name_data, current_block_number, self )
         else:
@@ -1276,7 +1276,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             log.debug("new_nameop:\n%s\n" % json.dumps(new_nameop, indent=4, sort_keys=True))
             log.debug("blockchain_name_data:\n%s\n" % json.dumps(blockchain_name_data, indent=4, sort_keys=True))
             os.abort()
-       
+
         consensus_extra = op_commit_consensus_sanitize( consensus_extra )
         new_nameop.update( consensus_extra )
         return
@@ -1289,7 +1289,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         return self.add_all_consensus_values( opcode, new_nameop, blockchain_name_data, current_block_number )
 
-    
+
     def add_all_snv_consensus_values( self, opcode, restored_nameop, current_block_number ):
         """
         Find all consensus-affecting values in the operation that will be used to check its
@@ -1302,8 +1302,8 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         Commit an operation, thereby carrying out a state transition.
         """
-   
-        # have to have read-write disposition 
+
+        # have to have read-write disposition
         if self.disposition != DISPOSITION_RW:
             log.error("FATAL: borrowing violation: not a read-write connection")
             traceback.print_stack()
@@ -1326,21 +1326,21 @@ class BlockstackDB( virtualchain.StateEngine ):
             # preorder
             op_seq = self.commit_state_preorder( nameop, current_block_number )
             op_seq_type_str = "state_preorder"
-            
+
         elif opcode in OPCODE_CREATION_OPS:
             # creation
             history_id_key = state_create_get_history_id_key( nameop )
             history_id = nameop[history_id_key]
             op_seq = self.commit_state_create( nameop, current_block_number )
             op_seq_type_str = "state_create"
-           
+
         elif opcode in OPCODE_TRANSITION_OPS:
-            # transition 
+            # transition
             history_id_key = state_transition_get_history_id_key( nameop )
             history_id = nameop[history_id_key]
             op_seq = self.commit_state_transition( nameop, current_block_number )
             op_seq_type_str = "state_transition"
-        
+
         else:
             raise Exception("Unknown operation '%s'" % opcode)
 
@@ -1356,14 +1356,14 @@ class BlockstackDB( virtualchain.StateEngine ):
         for i in xrange(0, len(op_seq)):
 
             cur = self.db.cursor()
-            history = None 
+            history = None
 
             # temporarily store history...
             if history_id is not None:
                 history = namedb_get_history( cur, history_id )
-                op_seq[i]['history'] = history 
+                op_seq[i]['history'] = history
 
-            # set all extra consensus fields 
+            # set all extra consensus fields
             self.add_all_commit_consensus_values( opcode, op_seq[i], nameop, current_block_number )
 
             # revert...
@@ -1371,7 +1371,7 @@ class BlockstackDB( virtualchain.StateEngine ):
                 del op_seq[i]['history']
 
             self.log_commit( current_block_number, op_seq[i]['vtxindex'], op_seq[i]['op'], opcode, op_seq[i] )
-    
+
         return op_seq
 
 
@@ -1383,7 +1383,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         DO NOT CALL THIS DIRECTLY
         """
 
-        # have to have read-write disposition 
+        # have to have read-write disposition
         if self.disposition != DISPOSITION_RW:
             log.error("FATAL: borrowing violation: not a read-write connection")
             traceback.print_stack()
@@ -1391,7 +1391,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         cur = self.db.cursor()
 
-        # cannot have collided 
+        # cannot have collided
         if BlockstackDB.nameop_is_collided( nameop ):
             log.debug("Not commiting '%s', since it collided" % commit_preorder['preorder_hash'])
             self.log_reject( block_id, nameop['vtxindex'], nameop['op'], nameop )
@@ -1406,7 +1406,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             os.abort()
 
         self.db.commit()
-        return commit_preorder 
+        return commit_preorder
 
 
     def commit_state_create( self, nameop, current_block_number ):
@@ -1417,7 +1417,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         DO NOT CALL THIS DIRECTLY
         """
 
-        # have to have read-write disposition 
+        # have to have read-write disposition
         if self.disposition != DISPOSITION_RW:
             log.error("FATAL: borrowing violation: not a read-write connection")
             traceback.print_stack()
@@ -1447,7 +1447,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         history_id = nameop[history_id_key]
         constraints_ignored = state_create_get_always_set( nameop )
 
-        # cannot have collided 
+        # cannot have collided
         if BlockstackDB.nameop_is_collided( nameop ):
             log.debug("Not commiting '%s' since we're collided" % history_id)
             self.log_reject( current_block_number, nameop['vtxindex'], nameop['op'], nameop )
@@ -1456,8 +1456,8 @@ class BlockstackDB( virtualchain.StateEngine ):
         self.log_accept( current_block_number, nameop['vtxindex'], nameop['op'], nameop )
 
         if preorder is not None and prior_history_rec is not None:
-            
-            # re-ordered an expired piece of state   
+
+            # re-ordered an expired piece of state
             prior_block_number = prior_history_block_number( prior_history_rec )
             prior_record = None
             try:
@@ -1475,7 +1475,7 @@ class BlockstackDB( virtualchain.StateEngine ):
                 log.error("FATAL: invalid preorder or prior history")
                 os.abort()
 
-            # create from prior history 
+            # create from prior history
             rc = namedb_state_create_from_prior_history( cur, opcode, initial_state,
                                                          current_block_number, initial_state['vtxindex'], initial_state['txid'],
                                                          history_id, prior_history_rec, preorder, table )
@@ -1488,7 +1488,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             self.db.commit()
             cur = self.db.cursor()
 
-            # clear the associated preorder 
+            # clear the associated preorder
             rc = namedb_preorder_remove( cur, preorder['preorder_hash'] )
             if not rc:
                 log.error("FATAL: failed to remove preorder")
@@ -1517,7 +1517,7 @@ class BlockstackDB( virtualchain.StateEngine ):
             prior_block_number = prior_history_block_number( prior_history_rec )
             prior_record = None
             try:
-                # must be an import 
+                # must be an import
                 assert opcode in OPCODE_NAME_STATE_IMPORTS, "BUG: not an import operation"
                 assert prior_block_number in prior_history_rec, "BUG: invalid prior history"
                 prior_record_list = prior_history_rec[prior_block_number]
@@ -1552,7 +1552,7 @@ class BlockstackDB( virtualchain.StateEngine ):
                 log.error("FATAL: invalid import operation")
                 os.abort()
 
-            rc = namedb_state_create_as_import( self.db, opcode, initial_state, 
+            rc = namedb_state_create_as_import( self.db, opcode, initial_state,
                                                 current_block_number, initial_state['vtxindex'], initial_state['txid'],
                                                 history_id, None, table, constraints_ignored=constraints_ignored )
 
@@ -1573,7 +1573,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         DO NOT CALL THIS DIRECTLY
         """
 
-        # have to have read-write disposition 
+        # have to have read-write disposition
         if self.disposition != DISPOSITION_RW:
             log.error("FATAL: borrowing violation: not a read-write connection")
             traceback.print_stack()
@@ -1583,7 +1583,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         opcode = nameop.get('opcode', None)
         constraints_ignored = state_transition_get_always_set( nameop )
         transition = self.sanitize_op( nameop )
-        
+
         try:
             assert state_transition_is_valid( nameop ), "Invalid state-transition"
             assert opcode is not None, "No opcode given"
@@ -1628,7 +1628,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         self.db.commit()
         cur = self.db.cursor()
 
-        new_record = None 
+        new_record = None
         if history_id_key == "name":
             new_record = namedb_get_name( cur, history_id, current_block_number, include_history=False, include_expired=True )
         elif history_id_key == "namespace_id":
@@ -1636,7 +1636,7 @@ class BlockstackDB( virtualchain.StateEngine ):
 
         return new_record
 
-    
+
     @classmethod
     def restore_from_history( cls, rec, block_id ):
         """
@@ -1645,40 +1645,40 @@ class BlockstackDB( virtualchain.StateEngine ):
         in that block number.
         """
         return namedb_restore_from_history( rec, block_id )
-       
 
-    @classmethod 
+
+    @classmethod
     def get_previous_name_version( cls, name_rec, block_number, history_index, untrusted_db ):
         """
         Given a name record, a block number, and a history index, and a handle to an untrusted
         database, calculate the immediately previous version of this name just before (block_number, history_index).
         """
-        
+
         untrusted_name_rec = untrusted_db.get_name( str(name_rec['name']), include_expired=True )
         name_rec['history'] = untrusted_name_rec['history']
 
         if history_index > 0:
             name_recs_prev = cls.restore_from_history( name_rec, block_number )
             assert history_index - 1 < len(name_recs_prev), "BUG: at %s: history_index - 1 = %s; >= %s" % (block_number, history_index - 1, len(name_recs_prev))
-            
+
             name_rec_prev = name_recs_prev[ history_index - 1 ]
         else:
             name_recs_prev = cls.restore_from_history( name_rec, block_number - 1 )
             assert len(name_recs_prev) >= 1, "BUG: at %s: %s previous records" % (len(name_recs_prev))
-            
+
             name_rec_prev = name_recs_prev[-1]
 
         del name_rec['history']
         return name_rec_prev
 
 
-    @classmethod 
+    @classmethod
     def get_previous_namespace_version( cls, rec, block_number, history_index, untrusted_db ):
         """
         Given a name record, a block number, and a history index, and a handle to an untrusted
         database, calculate the immediately previous version of this name just before (block_number, history_index).
         """
-        
+
         untrusted_namespace_rec = untrusted_db.get_namespace_by_preorder( str(rec['preorder_hash']) )
         rec['history'] = untrusted_namespace_rec['history']
 
@@ -1691,7 +1691,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         return namespace_rec_prev
 
 
-    @classmethod 
+    @classmethod
     def calculate_block_ops_hash( cls, db_state, block_id ):
         """
         Get the hash of the sequence of operations that occurred in a particular block.
@@ -1725,7 +1725,7 @@ class BlockstackDB( virtualchain.StateEngine ):
         cur = self.db.cursor()
         namedb_set_block_ops_hash( cur, block_id, ops_hash )
         self.db.commit()
-            
+
         log.debug("ops hash at %s is %s" % (block_id, ops_hash))
         return True
 
@@ -1737,4 +1737,3 @@ class BlockstackDB( virtualchain.StateEngine ):
         cur = self.db.cursor()
         ops_hash = namedb_get_block_ops_hash( cur, block_id )
         return ops_hash
-
