@@ -295,6 +295,10 @@ def list_update_history( name, current_block=None, proxy=None ):
             return None
 
     name_history = get_name_blockchain_history( name, 0, current_block )
+    if 'error' in name_history:
+        log.error("Failed to get name history for '%s': %s" % (name, name_history['error']))
+        return name_history
+
     all_update_hashes = []
 
     block_ids = name_history.keys()
