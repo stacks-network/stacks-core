@@ -1704,22 +1704,10 @@ def cli_advanced_list_accounts( args, proxy=None, config_path=CONFIG_PATH, passw
 
     result = {}
     config_dir = os.path.dirname(config_path)
-    res = wallet_ensure_exists(config_dir, password=password)
-    if 'error' in res:
-        return res
-
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error 'in res:
-        return res
-
-    wallet_keys = get_wallet_keys( config_path, password )
-    if 'error' in wallet_keys:
-        return wallet_keys
-    
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    result = list_accounts( args.name, proxy=proxy, wallet_keys=wallet_keys )
+    result = list_accounts( args.name, proxy=proxy )
     if 'error' not in result:
         analytics_event( "List accounts", {} )
 
@@ -1737,25 +1725,13 @@ def cli_advanced_get_account( args, proxy=None, config_path=CONFIG_PATH, passwor
 
     result = {}
     config_dir = os.path.dirname(config_path)
-    res = wallet_ensure_exists(config_dir, password=password)
-    if 'error' in res:
-        return res
-
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
     if not is_name_valid(args.name) or len(args.service) == 0 or len(args.identifier) == 0:
         return {'error': 'Invalid name or identifier'}
 
-    wallet_keys = get_wallet_keys( config_path, password )
-    if 'error' in wallet_keys:
-        return wallet_keys
-    
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    result = get_account( args.name, args.service, args.identifier, proxy=proxy, wallet_keys=wallet_keys )
+    result = get_account( args.name, args.service, args.identifier, proxy=proxy )
     if 'error' not in result:
         analytics_event( "Get account", {} )
 
@@ -2327,7 +2303,7 @@ def cli_advanced_get_name_zonefile( args, config_path=CONFIG_PATH ):
     opt: json (str) "If 'true' is given, try to parse as JSON"
     """
     parse_json = getattr(args, 'json', 'false')
-    if parse_json.lower() in ['true', '1']:
+    if parse_json is not None and parse_json.lower() in ['true', '1']:
         parse_json = True
     else:
         parse_json = False
