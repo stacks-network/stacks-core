@@ -21,6 +21,7 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
+from .atlas import *
 from .b40 import *
 from .config import *
 from .scripts import *
@@ -30,6 +31,7 @@ from .nameset import *
 from .operations import *
 from .consensus import *
 
+import atlas
 import operations
 import nameset
 import storage
