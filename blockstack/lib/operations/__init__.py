@@ -268,45 +268,13 @@ def op_snv_consensus_extra_quirks( extras, namerec, block_id, commit, db ):
     op-specific quirks that are needed to preserve backwards compatibility
     """
     return blockstack_client.operations.nameop_snv_consensus_extra_quirks( extras, namerec, block_id )
-    '''
-    last_creation_opcode = None
-    if namerec.has_key('name'):
-        last_creation_opcode = db.get_name_last_creation_opcode( namerec['name'], block_number=block_id )
-    '''
-    '''
-    last_creation_op = namerec.get('last_creation_op', None)
-    last_creation_opcode = None
-
-    if last_creation_op is not None:
-        last_creation_opcode = OPCODE_NAMES.get(last_creation_op, None)
-
-    if last_creation_opcode is None:
-        if namerec['op'] == NAME_IMPORT:
-            # this is the first-ever import
-            last_creation_opcode = 'NAME_IMPORT'
-
-        elif namerec['op'] == NAME_PREORDER:
-            # this is the first-ever preorder
-            last_creation_opcode = 'NAME_PREORDER'
-
-    log.debug("apply SNV QURIKS on %s at %s (created with %s)" % (namerec.get('name', "UNKNOWN"), block_id, last_creation_opcode))
-
-    if namerec.has_key('name') and last_creation_opcode == 'NAME_IMPORT':
-        log.debug("apply SNV QUIRK on %s: %s --> %s"  % (namerec.get('name', "UNKNOWN"), namerec['op_fee'], float(namerec['op_fee'])))
-        extras['op_fee'] = float(namerec['op_fee'])
-    '''
+   
 
 def op_make_restore_diff_quirks( diff, op_name, cur_rec, prev_block_number, history_index, untrusted_db ):
     """
     Given the set of arguments to restore_diff, apply any op-specific quirks
     that are needed to preserve backwards compatibility
     """
-    """
-    last_creation_opcode = None
-    if cur_rec.has_key('name'):
-        last_creation_opcode = untrusted_db.get_name_last_creation_opcode( cur_rec['name'], block_number=prev_block_number, history_index=history_index )
-    """
-
     last_creation_op = cur_rec.get('last_creation_op', None)
     last_creation_opcode = None
 
