@@ -120,7 +120,7 @@ EPOCH_FEATURE_MULTISIG = "BLOCKSTACK_MULTISIG"
 
 # when epochs end (-1 means "never")
 EPOCH_NOW = -1
-EPOCH_1_END_BLOCK = 436363      # F-Day 2016
+EPOCH_1_END_BLOCK = 436660      # F-Day 2016
 EPOCH_2_END_BLOCK = EPOCH_NOW
 
 EPOCH_1_NAMESPACE_LIFETIME_MULTIPLIER_id = 1
@@ -475,6 +475,10 @@ NAMESPACE_DEFAULT = {
    'block_number': 0
 }
 
+# global mutable state 
+blockstack_opts = None
+bitcoin_opts = None
+running = False
 
 def get_epoch_number( block_height ):
     """
@@ -643,6 +647,94 @@ def get_blockstack_client_session( new_blockstack_client_session_opts=None ):
     return blockstack_client_session
 
 
+def get_bitcoin_opts():
+   """
+   Get the bitcoind connection arguments.
+   """
+
+   global bitcoin_opts
+   return bitcoin_opts
+
+
+def get_blockstack_opts():
+   """
+   Get blockstack configuration options.
+   """
+   global blockstack_opts
+   return blockstack_opts
+
+
+def set_bitcoin_opts( new_bitcoin_opts ):
+   """
+   Set new global bitcoind operations
+   """
+   global bitcoin_opts
+   bitcoin_opts = new_bitcoin_opts
+
+
+def set_blockstack_opts( new_opts ):
+    """
+    Set new global blockstack opts
+    """
+    global blockstack_opts
+    blockstack_opts = new_opts
+
+
+def get_indexing_lockfile(impl=None):
+    """
+    Return path to the indexing lockfile
+    """
+    return os.path.join( virtualchain.get_working_dir(impl=impl), "blockstack-server.indexing" )
+
+
+def is_indexing(impl=None):
+    """
+    Is the blockstack daemon synchronizing with the blockchain?
+    """
+    indexing_path = get_indexing_lockfile(impl=impl)
+    if os.path.exists( indexing_path ):
+        return True
+    else:
+        return False
+
+
+def set_indexing( flag, impl=None ):
+    """
+    Set a flag in the filesystem as to whether or not we're indexing.
+    """
+    indexing_path = get_indexing_lockfile(impl=impl)
+    if flag:
+        try:
+            fd = open( indexing_path, "w+" )
+            fd.close()
+            return True
+        except:
+            return False
+
+    else:
+        try:
+            os.unlink( indexing_path )
+            return True
+        except:
+            return False
+
+
+def set_running( status ):
+    """
+    Set running flag
+    """
+    global running
+    running = status
+
+
+def is_running():
+    """
+    Check running flag
+    """
+    global running 
+    return running
+
+
 def store_announcement( announcement_hash, announcement_text, working_dir=None, force=False ):
    """
    Store a new announcement locally, atomically.
@@ -809,8 +901,8 @@ def default_blockstack_opts( config_file=None, virtualchain_impl=None ):
    serve_profiles = False
    zonefile_dir = os.path.join( os.path.dirname(config_file), "zonefiles")
    analytics_key = None
-   zonefile_storage_drivers = "disk"
-   profile_storage_drivers = ""
+   zonefile_storage_drivers = "disk,dht"
+   profile_storage_drivers = "disk"
    server_version = None
    atlas_enabled = True
    atlas_seed_peers = "node.blockstack.org:%s" % RPC_SERVER_PORT
