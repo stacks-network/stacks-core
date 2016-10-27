@@ -275,9 +275,9 @@ def rebuild_database( target_block_id, untrusted_db_path, working_db_path=None, 
         log.debug("VERIFY CONSENSUS(%s): %s" % (block_id, consensus_hash))
 
         consensus_hashes[block_id] = consensus_hash
-        if str(block_id) in expected_snapshots:
-            if expected_snapshots[str(block_id)] != consensus_hash:
-                log.error("DATABASE IS NOT CONSISTENT AT %s: %s != %s" % (block_id, expected_snashots[str(block_id)], consensus_hash))
+        if block_id in expected_snapshots:
+            if expected_snapshots[block_id] != consensus_hash:
+                log.error("DATABASE IS NOT CONSISTENT AT %s: %s != %s" % (block_id, expected_snashots[block_id], consensus_hash))
                 return None
 
 
