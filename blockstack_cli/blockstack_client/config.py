@@ -405,6 +405,23 @@ def url_to_host_port( url, port=DEFAULT_BLOCKSTACKD_PORT ):
     return parts[0], port
 
 
+def atlas_inventory_to_string( inv ):
+    """
+    Inventory to string (bitwise big-endian)
+    """
+    ret = ""
+    for i in xrange(0, len(inv)):
+        for j in xrange(0, 8):
+            bit_index = 1 << (7 - j)
+            val = (ord(inv[i]) & bit_index)
+            if val != 0:
+                ret += "1"
+            else:
+                ret += "0"
+
+    return ret
+
+
 def interactive_prompt( message, parameters, default_opts ):
    """
    Prompt the user for a series of parameters
