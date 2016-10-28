@@ -35,6 +35,7 @@ import json
 import gnupg
 import blockstack_zones
 import time
+import base64
 
 import blockstack.blockstackd as blockstackd
 
@@ -1228,13 +1229,14 @@ def blockstack_get_zonefile( zonefile_hash ):
     if zonefile_hash not in zonefile_result['zonefiles'].keys():
         return None
 
-    zonefile = blockstack_zones.parse_zone_file( zonefile_result['zonefiles'][zonefile_hash] )
+    zonefile_txt = base64.b64decode( zonefile_result['zonefiles'][zonefile_hash] )
+    zonefile = blockstack_zones.parse_zone_file( zonefile_txt )
 
     # verify
     if zonefile_hash != blockstack_client.hash_zonefile( zonefile ):
         return None
 
-    return blockstack_zones.parse_zone_file( zonefile_result['zonefiles'][zonefile_hash] )
+    return zonefile
 
 
 def blockstack_get_profile( name ):
@@ -1260,16 +1262,22 @@ def blockstack_verify_database( consensus_hash, consensus_block_id, db_path, wor
     return blockstackd.verify_database( consensus_hash, consensus_block_id, db_path, working_db_path=working_db_path, start_block=start_block )
 
 
-def blockstack_export_db( path, **kw ):
+def blockstack_export_db( path, block_height, **kw ):
     global state_engine
     try:
-        state_engine.export_db( path )
+        state_engine.export_db( path + (".%s" % block_height)  )
     except IOError, ie:
         if ie.errno == errno.ENOENT:
             log.error("no such file or directory: %s" % path)
             pass
         else:
             raise
+
+    # save atlasdb too 
+    # TODO: this is hacky; find a generic way to find the atlas db path
+    atlas_path = os.path.join( os.path.dirname(state_engine.get_db_path()), "atlas.db" )
+    if os.path.exists(atlas_path):
+        shutil.copy( atlas_path, os.path.join( os.path.dirname(path), "atlas.db.%s" % block_height ) )
 
 
 def tx_sign_all_unsigned_inputs( tx_hex, privkey ):
@@ -1329,7 +1337,7 @@ def next_block( **kw ):
     kw['sync_virtualchain_upcall']()
     
     # snapshot the database
-    blockstack_export_db( os.path.join( snapshots_dir, "blockstack.db.%s" % get_current_block( **kw )), **kw )
+    blockstack_export_db( os.path.join( snapshots_dir, "blockstack.db" ), get_current_block(**kw), **kw )
     log_consensus( **kw )
 
    
@@ -1397,9 +1405,13 @@ def check_history( state_engine ):
         state_engine.lastblock = block_ids[0]
         expected_consensus_hash = all_consensus_hashes[ block_id ]
         untrusted_db_path = os.path.join( snapshots_dir, "blockstack.db.%s" % block_id )
+        atlasdb_path = os.path.join( snapshots_dir, "atlas.db.%s" % block_id)
 
         working_db_dir = os.path.join( snapshots_dir, "work.%s" % block_id )
+        working_atlasdb_path = os.path.join( working_db_dir, "atlas.db" )
+
         os.makedirs( working_db_dir )
+        shutil.copy( atlasdb_path, working_atlasdb_path )
 
         os.environ["VIRTUALCHAIN_WORKING_DIR"] = working_db_dir
         working_db_path = os.path.join( working_db_dir, "blockstack.db.%s" % block_id )
