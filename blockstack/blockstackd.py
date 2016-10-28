@@ -89,7 +89,7 @@ def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
 
    if new or bitcoind is None:
       if new_bitcoind_opts is not None:
-         set_bitcoin_opts( new_bitcoin_opts )
+         set_bitcoin_opts( new_bitcoind_opts )
 
       bitcoin_opts = get_bitcoin_opts()
       new_bitcoind = None
