@@ -554,7 +554,7 @@ def json_validate( schema, resp ):
         jsonschema.validate(resp, schema)
 
     return resp
-    
+   
 
 def json_traceback( error_msg=None ):
     """
@@ -574,6 +574,47 @@ def json_traceback( error_msg=None ):
         'error': error_msg,
         'traceback': exception_data
     }
+
+
+def json_response_schema( expected_object_schema ):
+    """
+    Make a schema for a "standard" server response.
+    Standard server responses have 'status': True
+    and possibly 'indexing': True set.
+    """
+    schema = {
+        'type': 'object',
+        'properties': {
+            'status': {
+                'type': 'boolean',
+            },
+            'indexing': {
+                'type': 'boolean',
+            },
+            'lastblock': {
+                'anyOf': [
+                    {
+                        'type': 'integer',
+                    },
+                    {
+                        'type': 'null',
+                    },
+                ],
+            },
+        },
+        'required': [
+            'status',
+            'indexing',
+            'lastblock'
+        ],
+    }
+
+    # fold in the given object schema 
+    schema['properties'].update( expected_object_schema['properties'] )
+    schema['required'] = list(set( schema['required'] + expected_object_schema['required'] ))
+
+    return schema
+
 
 
 def getinfo(proxy=None):
@@ -603,6 +644,9 @@ def getinfo(proxy=None):
             },
             'zonefile_count': {
                 'type': 'integer'
+            },
+            'indexing': {
+                'type': 'boolean'
             }
         },
         'required': [
@@ -611,6 +655,7 @@ def getinfo(proxy=None):
             'server_version',
             'last_block_processed',
             'server_alive',
+            'indexing'
         ]
     }
 
@@ -684,11 +729,15 @@ def get_name_cost(name, proxy=None):
     schema = {
         'type': 'object',
         'properties': {
+            'status': {
+                'type': 'boolean',
+            },
             'satoshis': {
-                'type': 'integer'
-            }
+                'type': 'integer',
+            },
         },
         'required': [
+            'status',
             'satoshis'
         ]
     }
@@ -720,17 +769,19 @@ def get_namespace_cost(namespace_id, proxy=None):
     Returns {'error': ...} on error
     """
 
-    schema = {
+    cost_schema = {
         'type': 'object',
         'properties': {
             'satoshis': {
-                'type': 'integer'
+                'type': 'integer',
             }
         },
         'required': [
             'satoshis'
         ]
     }
+
+    schema = json_response_schema( cost_schema )
 
     if proxy is None:
         proxy = get_default_proxy()
@@ -759,12 +810,9 @@ def get_all_names_page(offset, count, proxy=None):
     Returns {'error': ...} on error
     """
 
-    schema = {
+    page_schema = {
         'type': 'object',
         'properties': {
-            'status': {
-                'type': 'boolean',
-            },
             'names': {
                 'type': 'array',
                 'items': {
@@ -774,10 +822,11 @@ def get_all_names_page(offset, count, proxy=None):
             },
         },
         'required': [
-            'status',
             'names',
         ],
     }
+
+    schema = json_response_schema( page_schema )
 
     assert count <= 100, "Page too big: %s" % count
 
@@ -809,21 +858,19 @@ def get_num_names( proxy=None ):
     Return {'error': ...} on failure
     """
 
-    count_schema = {
+    schema = {
         'type': 'object',
         'properties': {
-            'status': {
-                'type': 'boolean',
-            },
             'count': {
                 'type': 'integer',
             },
         },
         'required': [
-            'status',
             'count',
         ],
     }
+
+    count_schema = json_response_schema( schema )
 
     if proxy is None:
         proxy = get_default_proxy()
@@ -881,12 +928,9 @@ def get_names_in_namespace_page(namespace_id, offset, count, proxy=None):
     Returns {'error': ...} on error
     """
 
-    schema = {
+    names_schema = {
         'type': 'object',
         'properties': {
-            'status': {
-                'type': 'boolean',
-            },
             'names': {
                 'type': 'array',
                 'items': {
@@ -896,10 +940,11 @@ def get_names_in_namespace_page(namespace_id, offset, count, proxy=None):
             },
         },
         'required': [
-            'status',
             'names',
         ],
     }
+
+    schema = json_response_schema( names_schema )
 
     assert count <= 100, "Page too big: %s" % count
 
@@ -932,21 +977,19 @@ def get_num_names_in_namespace( namespace_id, proxy=None ):
     Returns {'error': ...} on error
     """
 
-    schema = {
+    num_names_schema = {
         'type': 'object',
         'properties': {
-            'status': {
-                'type': 'boolean'
-            },
             'count': {
                 'type': 'integer'
             },
         },
         'required': [
-            'status', 
             'count',
         ],
     }
+
+    schema = json_response_schema( num_names_schema )
 
     if proxy is None:
         proxy = get_default_proxy()
@@ -1001,12 +1044,9 @@ def get_names_owned_by_address(address, proxy=None):
     Returns {'error': ...} on error
     """
 
-    schema = {
+    owned_schema = {
         'type': 'object',
         'properties': {
-            'status': {
-                'type': 'boolean',
-            },
             'names': {
                 'type': 'array',
                 'items': {
@@ -1016,10 +1056,11 @@ def get_names_owned_by_address(address, proxy=None):
             },
         },
         'required': [
-            'status',
             'names',
         ],
     }
+
+    schema = json_response_schema( owned_schema )
 
     if proxy is None:
         proxy = get_default_proxy()
@@ -1050,23 +1091,19 @@ def get_consensus_at(block_height, proxy=None):
     Returns {'error': ...} on error
     """
     consensus_schema = {
-        'type': 'string',
-        'pattern': OP_CONSENSUS_HASH_PATTERN,
-    }
-
-    resp_schema = {
         'type': 'object',
         'properties': {
-            'status': {
-                'type': 'boolean',
+            'consensus': {
+                'type': 'string',
+                'pattern': OP_CONSENSUS_HASH_PATTERN,
             },
-            'consensus': consensus_schema,
         },
         'required': [
-            'status',
-            'consensus'
+            'consensus',
         ],
     }
+
+    resp_schema = json_response_schema( consensus_schema )
 
     if proxy is None:
         proxy = get_default_proxy()
@@ -1095,27 +1132,23 @@ def get_consensus_hashes(block_heights, proxy=None):
 
     consensus_hashes_schema = {
         'type': 'object',
-        'patternProperties': {
-            '^([0-9]+)$': {
-                'type': 'string',
-                'pattern': OP_CONSENSUS_HASH_PATTERN,
-            },
-        },
-    }
-
-    resp_schema = {
-        'type': 'object',
         'properties': {
-            'status': {
-                'type': 'boolean'
+            'consensus_hashes': {
+                'type': 'object',
+                'patternProperties': {
+                    '^([0-9]+)$': {
+                        'type': 'string',
+                        'pattern': OP_CONSENSUS_HASH_PATTERN,
+                    },
+                },
             },
-            'consensus_hashes': consensus_hashes_schema
         },
         'required': [
-            'status',
-            'consensus_hashes'
+            'consensus_hashes',
         ],
     }
+
+    resp_schema = json_response_schema( consensus_hashes_schema )
     
     if proxy is None:
         proxy = get_default_proxy()
@@ -1129,6 +1162,7 @@ def get_consensus_hashes(block_heights, proxy=None):
             return resp
 
     except ValidationError as e:
+        log.exception(e)
         resp = json_traceback(resp.get('error'))
         return resp
 
@@ -1165,6 +1199,50 @@ def get_consensus_range(block_id_start, block_id_end, proxy=None):
     return ch_range
 
 
+def get_block_from_consensus(consensus_hash, proxy=None):
+    """
+    Get a block ID from a consensus hash
+    """
+    consensus_schema = {
+        'type': 'object',
+        'properties': {
+            'block_id': {
+                'anyOf': [
+                    {
+                        'type': 'integer',
+                    },
+                    {
+                        'type': 'null',
+                    },
+                ],
+            },
+        },
+        'required': [
+            'block_id'
+        ],
+    }
+
+    schema = json_response_schema( consensus_schema )
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    resp = {}
+    try:
+        resp = proxy.get_block_from_consensus(consensus_hash)
+        resp = json_validate( schema, resp )
+        if json_is_error(resp):
+            log.error("Failed to find block ID for %s" % consensus_hash)
+            return resp
+
+    except ValidationError as ve:
+        log.exception(ve)
+        resp = json_traceback(resp.get('error'))
+        return resp
+
+    return resp['block_id']
+
+
 def get_name_history_blocks( name, proxy=None ):
     """
     Get the list of blocks at which this name was affected.
@@ -1178,19 +1256,17 @@ def get_name_history_blocks( name, proxy=None ):
         },
     }
 
-    resp_schema = {
+    hist_list_schema = {
         'type': 'object',
         'properties': {
-            'status': {
-                'type': 'boolean',
-            },
             'history_blocks': hist_schema
         },
         'required': [
-            'status',
             'history_blocks'
         ],
     }
+
+    resp_schema = json_response_schema( hist_list_schema )
 
     if proxy is None:
         proxy = get_default_proxy()
@@ -1221,22 +1297,20 @@ def get_name_at( name, block_id, proxy=None ):
         'required': NAMEOP_SCHEMA_REQUIRED
     }
 
-    resp_schema = {
+    namerec_list_schema = {
         'type': 'object',
         'properties': {
-            'status': {
-                'type': 'boolean',
-            },
             'records': {
                 'type': 'array',
                 'items': namerec_schema
             },
         },
         'required': [
-            'status',
             'records'
         ],
     }
+
+    resp_schema = json_response_schema( namerec_list_schema )
 
     if proxy is None:
         proxy = get_default_proxy()
@@ -1329,35 +1403,30 @@ def get_op_history_rows( name, proxy=None ):
         },
     }
 
-    count_schema = {
+    hist_count_schema = {
         'type': 'object',
         'properties': {
-            'status': {
-                'type': 'boolean'
-            },
             'count': {
                 'type': 'integer'
             },
         },
         'required': [
-            'status',
             'count'
         ],
     }
 
-    resp_schema = {
+    hist_rows_schema = {
         'type': 'object',
         'properties': {
-            'status': {
-                'type': 'boolean',
-            },
             'history_rows': history_schema
         },
         'required': [
-            'status',
             'history_rows'
         ]
     }
+
+    count_schema = json_response_schema( hist_count_schema )
+    resp_schema = json_response_schema( hist_rows_schema )
 
     if proxy is None:
         proxy = get_default_proxy()
@@ -1409,7 +1478,7 @@ def get_nameops_affected_at( block_id, proxy=None ):
     Return {'error': ...} on error.
     """
 
-    nameop_history_schema = {
+    history_schema = {
         'type': 'array',
         'items': {
             'type': 'object',
@@ -1423,35 +1492,30 @@ def get_nameops_affected_at( block_id, proxy=None ):
         }
     }
 
-    nameop_schema = {
+    nameop_history_schema = {
         'type': 'object',
         'properties': {
-            'status': {
-                'type': 'boolean',
-            },
-            'nameops': nameop_history_schema,
+            'nameops': history_schema,
         },
         'required': [
-            'status',
             'nameops',
         ],
     }
 
-    count_schema = {
+    history_count_schema = {
         'type': 'object',
         'properties': {
-            'status': {
-                'type': 'boolean',
-            },
             'count': {
                 'type': 'integer'
             },
         },
         'required': [
-            'status',
             'count',
         ],
     }
+    
+    count_schema = json_response_schema( history_count_schema )
+    nameop_schema = json_response_schema( nameop_history_schema )
 
     if proxy is None:
         proxy = get_default_proxy()
@@ -1516,21 +1580,26 @@ def get_nameops_at( block_id, proxy=None ):
     nameops = []
     nameop_histories = {}   # cache histories
     for nameop in all_nameops:
-        # get history
-        history_rows = nameop_histories.get(nameop['name'])
-        if history_rows is None:
-            history_rows = get_op_history_rows( nameop['name'], proxy=proxy )
-            if json_is_error(history_rows):
-                return history_rows
+        # get history (if not a preorder)
+        history_rows = []
+        if nameop.has_key('name'):
+            # If the nameop has a 'name' field, then it's not an outstanding preorder.
+            # Outstanding preorders have no history, so we don't need to worry about 
+            # getting history for them.
+            history_rows = nameop_histories.get(nameop['name'])
+            if history_rows is None:
+                history_rows = get_op_history_rows( nameop['name'], proxy=proxy )
+                if json_is_error(history_rows):
+                    return history_rows
 
-            nameop_histories[nameop['name']] = history_rows
+                nameop_histories[nameop['name']] = history_rows
 
         # restore history
         history = nameop_history_extract( history_rows )
         historic_nameops = nameop_restore_from_history( nameop, history, block_id )
 
         log.debug("%s had %s operations (%s history rows, %s historic nameops, txids: %s) at %s" % 
-                (nameop['name'], len(history.get(block_id, [])), len(history_rows), len(historic_nameops), [op['txid'] for op in historic_nameops], block_id))
+                (nameop.get('name', "UNKNOWN"), len(history.get(block_id, [])), len(history_rows), len(historic_nameops), [op['txid'] for op in historic_nameops], block_id))
 
         for historic_nameop in historic_nameops:
             # restore SNV consensus information
@@ -1552,22 +1621,20 @@ def get_nameops_hash_at(block_id, proxy=None):
     Return {'error': ...} on error.
     """
 
-    schema = {
+    hash_schema = {
         'type': 'object',
         'properties': {
-            'status': {
-                'type': 'boolean',
-            },
             'ops_hash': {
                 'type': 'string',
                 'pattern': '^([0-9a-fA-F]+)$'
             },
         },
         'required': [
-            'status',
             'ops_hash',
         ],
     }
+
+    schema = json_response_schema( hash_schema )
 
     if proxy is None:
         proxy = get_default_proxy()
@@ -1599,20 +1666,17 @@ def get_name_blockchain_record(name, proxy=None):
         'required': NAMEOP_SCHEMA_REQUIRED + ['history']
     }
 
-    resp_schema = {
+    rec_schema = {
         'type': 'object',
         'properties': {
-            'status': {
-                'type': 'boolean',
-            },
             'record': nameop_schema,
         },
         'required': [
-            'status',
             'record'
         ],
     }
 
+    resp_schema = json_response_schema( rec_schema )
 
     if proxy is None:
         proxy = get_default_proxy()
@@ -1643,19 +1707,17 @@ def get_namespace_blockchain_record(namespace_id, proxy=None):
         'required': NAMESPACE_SCHEMA_REQUIRED
     }
 
-    resp_schema = {
+    rec_schema = {
         'type': 'object',
         'properties': {
-            'status': {
-                'type': 'boolean',
-            },
             'record': namespace_schema,
         },
         'required': [
-            'status',
             'record',
         ],
     }
+
+    resp_schema = json_response_schema( rec_schema )
             
     if proxy is None:
         proxy = get_default_proxy()
@@ -1781,22 +1843,20 @@ def get_zonefile_inventory( hostport, bit_offset, bit_count, timeout=30, my_host
     # NOTE: we want to match the empty string too
     base64_pattern = '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$'
 
-    schema = {
+    inv_schema = {
         'type': 'object',
         'properties': {
-            'status': {
-                'type': 'boolean',
-            },
             'inv': {
                 'type': 'string',
                 'pattern': base64_pattern,
             },
         },
         'required': [
-            'status',
             'inv'
         ]
     }
+
+    schema = json_response_schema( inv_schema )
 
     if proxy is None:
         host, port = url_to_host_port( hostport )
@@ -1829,12 +1889,9 @@ def get_atlas_peers( hostport, timeout=30, my_hostport=None, proxy=None ):
     Return {'error': ...} on error
     """
 
-    schema = {
+    peers_schema = {
         'type': 'object',
         'properties': {
-            'status': {
-                'type': 'boolean',
-            },
             'peers': {
                 'type': 'array',
                 'items': {
@@ -1844,10 +1901,11 @@ def get_atlas_peers( hostport, timeout=30, my_hostport=None, proxy=None ):
             },
         },
         'required': [
-            'status',
             'peers'
         ],
     }
+
+    schema = json_response_schema( peers_schema )
 
     if proxy is None:
         host, port = url_to_host_port( hostport )
@@ -1882,26 +1940,28 @@ def get_zonefiles( hostport, zonefile_hashes, timeout=30, my_hostport=None, prox
     Return {'error': ...} on error
     """
 
-    schema = {
+    # NOTE: we want to match the empty string too
+    base64_pattern = '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$'
+
+    zonefiles_schema = {
         'type': 'object',
         'properties': {
-            'status': {
-                'type': 'boolean',
-            },
             'zonefiles': {
                 'type': 'object',
                 'patternProperties': {
                     OP_ZONEFILE_HASH_PATTERN: {
-                        'type': 'string'
+                        'type': 'string',
+                        'pattern': base64_pattern
                     },
                 },
             },
         },
         'required': [
-            'status',
             'zonefiles',
         ]
     }
+
+    schema = json_response_schema( zonefiles_schema )
 
     if proxy is None:
         host, port = url_to_host_port( hostport )
@@ -1915,9 +1975,17 @@ def get_zonefiles( hostport, zonefile_hashes, timeout=30, my_hostport=None, prox
         if json_is_error( zf_payload ):
             return zf_payload 
 
-        for zf_hash, zf_data in zf_payload['zonefiles'].items():
+        decoded_zonefiles = {}
+
+        for zf_hash, zf_data_b64 in zf_payload['zonefiles'].items():
+            zf_data = base64.b64decode( zf_data_b64 )
             assert storage.verify_zonefile( zf_data, zf_hash ), "Zonefile data mismatch"
 
+            # valid 
+            decoded_zonefiles[ zf_hash ] = zf_data
+
+        # return this 
+        zf_payload['zonefiles'] = decoded_zonefiles
         zonefiles = zf_payload
 
     except AssertionError, ae:
@@ -1937,12 +2005,9 @@ def put_zonefiles( hostport, zonefile_data_list, timeout=30, my_hostport=None, p
     Return {'status': True, 'saved': [...]} on success
     Return {'error': ...} on error
     """
-    schema = {
+    saved_schema = {
         'type': 'object',
         'properties': {
-            'status': {
-                'type': 'boolean',
-            },
             'saved': {
                 'type': 'array',
                 'items': {
@@ -1953,10 +2018,11 @@ def put_zonefiles( hostport, zonefile_data_list, timeout=30, my_hostport=None, p
             },
         },
         'required': [
-            'status',
             'saved'
         ]
     }
+
+    schema = json_response_schema( saved_schema )
 
     if proxy is None:
         host, port = url_to_host_port( hostport )
