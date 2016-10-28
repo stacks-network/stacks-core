@@ -80,6 +80,7 @@ from blockstack_client import \
     get_all_names, \
     get_consensus_at, \
     get_immutable, \
+    get_immutable_by_name, \
     get_mutable, \
     get_name_blockchain_record, \
     get_name_cost, \
@@ -2148,7 +2149,14 @@ def cli_advanced_get_immutable( args, config_path=CONFIG_PATH, proxy=None ):
     if proxy is None:
         proxy = get_default_proxy()
 
-    result = get_immutable(str(args.name), str(args.data_id_or_hash), proxy=proxy)
+    if is_valid_hash( args.data_id_or_hash ):
+        result = get_immutable(str(args.name), str(args.data_id_or_hash), proxy=proxy)
+        if 'error' not in result:
+            return result
+
+    # either not a valid hash, or no such data with this hash.
+    # maybe this hash-like string is the name of something?
+    result = get_immutable_by_name(str(args.name), str(args.data_id_or_hash), proxy=proxy)
     return result
 
 
