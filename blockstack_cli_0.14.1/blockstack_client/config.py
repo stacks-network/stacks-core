@@ -330,7 +330,7 @@ APPROX_TX_IN_P2PKH_LEN = 180
 APPROX_TX_OUT_P2PKH_LEN = 40
 
 # epoch dates
-EPOCH_1_END_BLOCK = 436660
+EPOCH_1_END_BLOCK = 436650
 
 # epoch dates for the test environment
 NUM_EPOCHS = 2
