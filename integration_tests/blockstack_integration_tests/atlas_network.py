@@ -33,6 +33,10 @@ import errno
 import subprocess
 import signal
 import SocketServer
+import threading
+import time
+import traceback
+import random
 
 import blockstack
 import blockstack_client
@@ -40,10 +44,11 @@ import virtualchain
 
 from SimpleXMLRPCServer import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
 
-from blockstack_client.config import FIRST_BLOCK_MAINNET, get_logger
+from blockstack_client.config import FIRST_BLOCK_MAINNET, get_logger, url_to_host_port, atlas_inventory_to_string
 from blockstack_client import BlockstackRPCClient
 
-from blockstack.atlas import *
+from blockstack import RPC_SERVER_PORT
+# from blockstack.atlas import *
 
 log = get_logger( "atlas-network-simulator" )
 
@@ -781,7 +786,7 @@ def atlas_peer_start( host, port, srv, working_dir ):
     Return a dict with the peer information.
     """
     net = srv.network
-    args = ['blockstack-server', 'start', '--foreground', '--port', str(port), '--working-dir', working_dir]
+    args = ['blockstack-server', 'start', '--foreground', '--port', str(port)]
     output = os.path.join(working_dir, "blockstack-server.out")
 
     env = {}
