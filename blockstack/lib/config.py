@@ -735,6 +735,22 @@ def is_running():
     return running
 
 
+def fast_getlastblock( impl=None ):
+    """
+    Fast way to get the last block processed,
+    without loading the db.
+    """
+    lastblock_path = virtualchain.get_lastblock_filename( impl=impl )
+    try:
+        with open(lastblock_path, "r") as f:
+            data = f.read().strip()
+            return int(data)
+
+    except:
+        log.exception("Failed to read: %s" % lastblock_path)
+        return None
+
+
 def store_announcement( announcement_hash, announcement_text, working_dir=None, force=False ):
    """
    Store a new announcement locally, atomically.
