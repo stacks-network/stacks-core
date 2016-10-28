@@ -1784,7 +1784,7 @@ def run_server( foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None
 
         # wait for the next block
         deadline = time.time() + REINDEX_FREQUENCY
-        while time.time() < deadline:
+        while time.time() < deadline and is_running():
             try:
                 time.sleep(1.0)
             except:
