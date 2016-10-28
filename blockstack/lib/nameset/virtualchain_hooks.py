@@ -440,7 +440,7 @@ def db_continue( block_id, consensus_hash ):
         log.debug("Pre-emptive garbage collection at %s" % block_id)
         gc.collect(2)
 
-    return is_running()
+    return is_running() or os.environ.get("BLOCKSTACK_TEST") == "1"
 
 
 def sync_blockchain( bt_opts, last_block, expected_snapshots={}, **virtualchain_args ):
