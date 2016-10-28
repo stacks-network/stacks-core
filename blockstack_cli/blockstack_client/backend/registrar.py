@@ -466,7 +466,7 @@ class RegistrarWorker(threading.Thread):
         """
         conf = get_config(config_path)
         servers = [(conf['server'], conf['port'])]
-        server_hostport = '{}.{}'.format(conf['server'], conf['port'])
+        server_hostport = '{}:{}'.format(conf['server'], conf['port'])
 
         atlas_peers_res = {}
         try:
@@ -479,7 +479,8 @@ class RegistrarWorker(threading.Thread):
         except AssertionError as ae:
             log.exception(ae)
             log.error('Error response from {}: {}'.format(server_hostport, atlas_peers_res['error']))
-        except socket.error:
+        except socket.error, se:
+            log.exception(se)
             log.warning('Failed to find Atlas peers of {}'.format(server_hostport))
         except Exception as e:
             log.exception(e)
@@ -721,8 +722,8 @@ class RegistrarWorker(threading.Thread):
            
             try:
                 log.debug("Sleep for %s" % poll_interval)
-                for i in xrange(0, int(poll_interval) * 10):
-                    time.sleep(0.1)
+                for i in xrange(0, int(poll_interval)):
+                    time.sleep(1)
 
                     # preemption point
                     if not self.running:
