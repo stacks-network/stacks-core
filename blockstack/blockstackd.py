@@ -874,7 +874,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         db = get_db_state()
         block_id = db.get_block_from_consensus( consensus_hash )
         db.close()
-        return self.success_response( {'block_id': res} )
+        return self.success_response( {'block_id': block_id} )
 
 
     def get_zonefile_data( self, config, zonefile_hash, zonefile_storage_drivers, name=None ):
@@ -1004,7 +1004,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 continue
 
             else:
-                ret[name] = zonefile_data
+                ret[name] = base64.b64encode(zonefile_data)
 
         self.analytics("get_zonefiles", {'count': len(names)})
         return self.success_response( {'zonefiles': ret} )
@@ -1687,7 +1687,7 @@ def run_server( foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None
     """
     bt_opts = get_bitcoin_opts()
     blockstack_opts = get_blockstack_opts()
-    indexer_log_file = get_logfile_path() + ".log"
+    indexer_log_file = get_logfile_path()
     pid_file = get_pidfile_path()
     working_dir = virtualchain.get_working_dir()
 
