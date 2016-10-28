@@ -139,27 +139,6 @@ def get_serial_number(blockchain_record):
     return serial_number
 '''
 
-def get_block_from_consensus(consensus_hash, proxy=None):
-    """
-    Get a block ID from a consensus hash
-    """
-    if proxy is None:
-        proxy = get_default_proxy()
-
-    resp = proxy.get_block_from_consensus(consensus_hash)
-    if resp is None:
-        resp = {'error': 'No such consensus hash'}
-
-    elif type(resp) == list:
-        # backwards-compatibility
-        if len(resp) == 0:
-            resp = {'error': 'No data returned'}
-        else:
-            resp = resp[0]
-
-    return resp
-
-
 def txid_to_block_data(txid, bitcoind_proxy, proxy=None):
     """
     Given a txid, get its block's data.
