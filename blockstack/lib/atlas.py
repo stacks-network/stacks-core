@@ -44,7 +44,7 @@ import gc
 import blockstack_zones
 import virtualchain
 
-from blockstack_client.config import url_to_host_port, semver_match, semver_newer
+from blockstack_client.config import url_to_host_port, semver_match, semver_newer, atlas_inventory_to_string
 from blockstack_client.proxy import \
         ping as blockstack_ping, \
         getinfo as blockstack_getinfo, \
@@ -105,54 +105,124 @@ if os.environ.get("BLOCKSTACK_TEST", None) == "1":
     PEER_CRAWL_ZONEFILE_WORK_INTERVAL = 1
     PEER_PUSH_ZONEFILE_WORK_INTERVAL = 1
 
+ATLAS_TEST = False
 if os.environ.get("BLOCKSTACK_TEST", None) == "1" and os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION", None) == "1" and os.environ.get("BLOCKSTACK_ATLAS_NETWORK_SIMULATION_PEER", None) == "1":
     # subordinate atlas peer in the simulator.
     # use test client
-    from blockstack_integration_tests import AtlasRPCTestClient as BlockstackRPCClient
-    from blockstack_integration_tests import time_now, time_sleep, atlas_max_neighbors, \
-            atlas_peer_lifetime_interval, atlas_peer_ping_interval, atlas_peer_max_age, \
-            atlas_peer_clean_interval, atlas_ping_timeout, atlas_inv_timeout, atlas_neighbors_timeout, \
-            atlas_zonefiles_timeout, atlas_push_zonefiles_timeout
+    ATLAS_TEST = True
 
 else:
     # production
     from blockstack_client import BlockstackRPCClient
+
+def time_now():
+    global ATLAS_TEST
+    if ATLAS_TEST:
+        from blockstack_integration_tests.atlas_network import time_now
+        return time_now()
+
+    return time.time()
+
+def time_sleep(hostport, procname, value):
+    global ATLAS_TEST
+    if ATLAS_TEST:
+        from blockstack_integration_tests import time_sleep as method
+        return method(hostport, procname, value)
+
+    return time.sleep(value)
+
+def atlas_max_neighbors():
+    global ATLAS_TEST
+    if ATLAS_TEST:
+        from blockstack_integration_tests import atlas_max_neighbors as method
+        return method()
     
-    def time_now():
-        return time.time()
+    return NUM_NEIGHBORS
 
-    def time_sleep(hostport, procname, value):
-        return time.sleep(value)
-    
-    def atlas_max_neighbors():
-        return NUM_NEIGHBORS
+def atlas_peer_lifetime_interval():
+    global ATLAS_TEST
+    if ATLAS_TEST:
+        from blockstack_integration_tests import atlas_peer_lifetime_interval as method
+        return method()
 
-    def atlas_peer_lifetime_interval():
-        return PEER_LIFETIME_INTERVAL
+    return PEER_LIFETIME_INTERVAL
 
-    def atlas_peer_ping_interval():
-        return PEER_PING_INTERVAL
+def atlas_peer_ping_interval():
+    global ATLAS_TEST
+    if ATLAS_TEST:
+        from blockstack_integration_tests import atlas_peer_ping_interval as method
+        return method()
 
-    def atlas_peer_max_age():
-        return PEER_MAX_AGE
+    return PEER_PING_INTERVAL
 
-    def atlas_peer_clean_interval():
-        return PEER_CLEAN_INTERVAL
+def atlas_peer_max_age():
+    global ATLAS_TEST
+    if ATLAS_TEST:
+        from blockstack_integration_tests import atlas_peer_max_age as method
+        return method()
 
-    def atlas_ping_timeout():
-        return PEER_PING_TIMEOUT
+    return PEER_MAX_AGE
 
-    def atlas_inv_timeout():
-        return PEER_INV_TIMEOUT
+def atlas_peer_clean_interval():
+    global ATLAS_TEST
+    if ATLAS_TEST:
+        from blockstack_integration_tests import atlas_peer_clean_interval as method
+        return method()
 
-    def atlas_neighbors_timeout():
-        return PEER_NEIGHBORS_TIMEOUT
+    return PEER_CLEAN_INTERVAL
 
-    def atlas_zonefiles_timeout():
-        return PEER_ZONEFILES_TIMEOUT
+def atlas_ping_timeout():
+    global ATLAS_TEST
+    if ATLAS_TEST:
+        from blockstack_integration_tests import atlas_ping_timeout as method
+        return method()
 
-    def atlas_push_zonefiles_timeout():
-        return PEER_PUSH_ZONEFILES_TIMEOUT
+    return PEER_PING_TIMEOUT
+
+def atlas_inv_timeout():
+    global ATLAS_TEST
+    if ATLAS_TEST:
+        from blockstack_integration_tests import atlas_inv_timeout as method
+        return method()
+
+    return PEER_INV_TIMEOUT
+
+def atlas_neighbors_timeout():
+    global ATLAS_TEST
+    if ATLAS_TEST:
+        from blockstack_integration_tests import atlas_neighbors_timeout as method
+        return method()
+
+    return PEER_NEIGHBORS_TIMEOUT
+
+def atlas_zonefiles_timeout():
+    global ATLAS_TEST
+    if ATLAS_TEST:
+        from blockstack_integration_tests import atlas_zonefiles_timeout as method
+        return method()
+
+    return PEER_ZONEFILES_TIMEOUT
+
+def atlas_push_zonefiles_timeout():
+    global ATLAS_TEST
+    if ATLAS_TEST:
+        from blockstack_integration_tests import atlas_push_zonefiles_timeout as method
+        return method()
+
+    return PEER_PUSH_ZONEFILES_TIMEOUT
+
+
+def get_rpc_client_class():
+    """
+    Get the appropriate RPC client class.
+    """
+    global ATLAS_TEST
+    if ATLAS_TEST:
+        from blockstack_integration_tests import AtlasRPCTestClient
+        return AtlasRPCTestClient
+
+    else:
+        return BlockstackRPCClient
 
 
 ATLASDB_SQL = """
@@ -284,23 +354,6 @@ def atlas_max_new_peers( max_neighbors ):
     """
     max_new_peers = min(max_neighbors * 10, PEER_MAX_DB)
     return max_new_peers
-
-
-def atlas_inventory_to_string( inv ):
-    """
-    Inventory to string (bitwise big-endian)
-    """
-    ret = ""
-    for i in xrange(0, len(inv)):
-        for j in xrange(0, 8):
-            bit_index = 1 << (7 - j)
-            val = (ord(inv[i]) & bit_index)
-            if val != 0:
-                ret += "1"
-            else:
-                ret += "0"
-
-    return ret
 
 
 def atlas_inventory_flip_zonefile_bits( inv_vec, bit_indexes, operation ):
@@ -1525,7 +1578,8 @@ def atlas_peer_ping( peer_hostport, timeout=None, peer_table=None ):
     assert not atlas_peer_table_is_locked_by_me()
 
     host, port = url_to_host_port( peer_hostport )
-    rpc = BlockstackRPCClient( host, port, timeout=timeout )
+    RPC = get_rpc_client_class()
+    rpc = RPC( host, port, timeout=timeout )
 
     log.debug("Ping %s" % peer_hostport)
 
@@ -1570,7 +1624,8 @@ def atlas_peer_getinfo( peer_hostport, timeout=None, peer_table=None ):
         timeout = atlas_ping_timeout()
 
     host, port = url_to_host_port( peer_hostport )
-    rpc = BlockstackRPCClient( host, port, timeout=timeout )
+    RPC = get_rpc_client_class()
+    rpc = RPC( host, port, timeout=timeout )
 
     assert not atlas_peer_table_is_locked_by_me()
 
@@ -1947,7 +2002,8 @@ def atlas_peer_get_zonefile_inventory_range( my_hostport, peer_hostport, bit_off
     zf_inv_list = None
     
     host, port = url_to_host_port( peer_hostport )
-    rpc = BlockstackRPCClient( host, port, timeout=timeout, src=my_hostport )
+    RPC = get_rpc_client_class()
+    rpc = RPC( host, port, timeout=timeout, src=my_hostport )
 
     assert not atlas_peer_table_is_locked_by_me()
 
@@ -2389,7 +2445,8 @@ def atlas_peer_get_neighbors( my_hostport, peer_hostport, timeout=None, peer_tab
     peer_list = None
 
     host, port = url_to_host_port( peer_hostport )
-    rpc = BlockstackRPCClient( host, port, timeout=timeout, src=my_hostport )
+    RPC = get_rpc_client_class()
+    rpc = RPC( host, port, timeout=timeout, src=my_hostport )
 
     # sane limits
     max_neighbors = atlas_max_neighbors()
@@ -2442,7 +2499,8 @@ def atlas_get_zonefiles( my_hostport, peer_hostport, zonefile_hashes, timeout=No
     zonefile_datas = {}
 
     host, port = url_to_host_port( peer_hostport )
-    rpc = BlockstackRPCClient( host, port, timeout=timeout, src=my_hostport )
+    RPC = get_rpc_client_class()
+    rpc = RPC( host, port, timeout=timeout, src=my_hostport )
 
     assert not atlas_peer_table_is_locked_by_me()
 
@@ -2762,7 +2820,8 @@ def atlas_zonefile_push( my_hostport, peer_hostport, zonefile_dict, timeout=None
     zonefile_data_b64 = base64.b64encode( zonefile_data )
 
     host, port = url_to_host_port( peer_hostport )
-    rpc = BlockstackRPCClient( host, port, timeout=timeout, src=my_hostport )
+    RPC = get_rpc_client_class()
+    rpc = RPC( host, port, timeout=timeout, src=my_hostport )
 
     status = False
 
@@ -3610,6 +3669,11 @@ class AtlasZonefileCrawler( threading.Thread ):
 
             for peer_hostport in peers:
 
+                if zfhash not in zonefile_origins[peer_hostport]:
+                    # not available
+                    log.debug("%s not available from %s" % (zfhash, peer_hostport))
+                    continue
+
                 # what other zonefiles can we get?
                 # only ask for the ones we don't have
                 peer_zonefile_hashes = []
@@ -3644,9 +3708,12 @@ class AtlasZonefileCrawler( threading.Thread ):
 
                 # if the node didn't actually have these zonefiles, then 
                 # update their inventories so we don't ask for them again.
-                for zfhash in peer_zonefile_hashes:
-                    log.debug("%s: %s did not have %s" % (self.hostport, peer_hostport, zfhash))
-                    atlas_peer_set_zonefile_status( peer_hostport, zfhash, False, zonefile_bits=missing_zfinfo[zfhash]['indexes'], peer_table=peer_table )
+                for zfh in peer_zonefile_hashes:
+                    log.debug("%s: %s did not have %s" % (self.hostport, peer_hostport, zfh))
+                    atlas_peer_set_zonefile_status( peer_hostport, zfh, False, zonefile_bits=missing_zfinfo[zfh]['indexes'], peer_table=peer_table )
+
+                    if zfh in zonefile_origins[peer_hostport]:
+                        zonefile_origins[peer_hostport].remove( zfh )
 
                 if locked:
                     atlas_peer_table_unlock()
