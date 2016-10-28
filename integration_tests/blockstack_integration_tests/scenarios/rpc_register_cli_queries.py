@@ -121,12 +121,25 @@ def scenario( wallets, **kw ):
     update_info = testlib.blockstack_cli_info()
     names_owned_after = testlib.blockstack_cli_advanced_get_names_owned_by_address( wallets[3].addr )
     whois = testlib.blockstack_cli_whois( "foo.test" )
-    blockchain_record = testlib.blockstack_cli_advanced_get_name_blockchain_record( "foo.test" )
 
     for i in xrange(0, 7):
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
+    time.sleep(10)
+
+    # put some immutable data 
+    put_immutable_info = testlib.blockstack_cli_advanced_put_immutable( "foo.test", "hello_world", '{"hello": "world"}' )    
+    if 'error' in put_immutable_info:
+        print "put_immutable failed"
+        print json.dumps(put_immutable_info, indent=4, sort_keys=True)
+        return False
+
+    # wait for update to be confirmed 
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+
+    print >> sys.stderr, "Waiting 10 seconds for backend to acknowledge put-immutable update"
     time.sleep(10)
 
     balance_after = testlib.blockstack_cli_balance()
@@ -137,6 +150,7 @@ def scenario( wallets, **kw ):
     lookup_info = testlib.blockstack_cli_lookup( "foo.test" )
     update_history = testlib.blockstack_cli_advanced_list_update_history( "foo.test" )
     zonefile_history = testlib.blockstack_cli_advanced_list_zonefile_history( "foo.test" )
+    blockchain_record = testlib.blockstack_cli_advanced_get_name_blockchain_record( "foo.test" )
 
 
 def check( state_engine ):
@@ -262,14 +276,14 @@ def check( state_engine ):
             print "missing %s\n%s" % (k, json.dumps(blockchain_record, indent=4, sort_keys=True))
             return False
 
-    # blockchain history (should have a preorder, register, and update)
-    if len(blockchain_history) != 3:
+    # blockchain history (should have a preorder, register, and 2 updates)
+    if len(blockchain_history) != 4:
         print "invalid history\n%s\n" % json.dumps(blockchain_history, indent=4, sort_keys=True)
         return False
 
     block_heights = blockchain_history.keys()
     block_heights.sort()
-    expected_opcodes = ['NAME_PREORDER', 'NAME_REGISTRATION', 'NAME_UPDATE']
+    expected_opcodes = ['NAME_PREORDER', 'NAME_REGISTRATION', 'NAME_UPDATE', 'NAME_UPDATE']
     for bh, opcode in zip(block_heights, expected_opcodes):
         if len(blockchain_history[bh]) != 1:
             print "invalid history: multiple ops at %s\n%s" % (bh, json.dumps(blockchain_history, indent=4, sort_keys=True))
@@ -324,13 +338,13 @@ def check( state_engine ):
         print "unequal zonefiles:\n%s\n%s" % (json.dumps(lookup_info['zonefile'], indent=4, sort_keys=True), json.dumps(zonefile_info['zonefile'], indent=4, sort_keys=True))
         return False
 
-    # update history
-    if len(update_history) != 1 or update_history[0] != blockchain_record['value_hash']:
+    # update history (2 items)
+    if len(update_history) != 2 or update_history[1] != blockchain_record['value_hash']:
         print "invalid update history\n%s" % json.dumps(update_history, indent=4, sort_keys=True)
         return False
 
-    # zonefile history
-    if len(zonefile_history) != 1 or zonefile_history[0] != zonefile_info['zonefile']:
+    # zonefile history (expect 2 items)
+    if len(zonefile_history) != 2 or zonefile_history[1] != zonefile_info['zonefile']:
         print "invalid zonefile history\n%s" % json.dumps(zonefile_history, indent=4, sort_keys=True)
         return False
 
@@ -354,6 +368,22 @@ def check( state_engine ):
 
     if names_info['addresses'][0]['address'] != wallets[3].addr:
         print "invalid names info (addresses.address): %s" % names_info
+        return False
+
+    # immutable data 
+    immutable_data = testlib.blockstack_cli_advanced_get_immutable( "foo.test", "hello_world" )
+    if 'error' in immutable_data:
+        print "Failed to get immutable data 'hello_world'"
+        print json.dumps(immutable_data, indent=4, sort_keys=True)
+        return False
+
+    if 'data' not in immutable_data:
+        print "invalid immutable_data: %s" % immutable_data
+        return False 
+
+    if immutable_data['data'] != {'hello': 'world'}:
+        print "failed to get immutable data"
+        print 'exected %s, got %s' % ({'hello', 'world'}, immutable_data['data'])
         return False
 
     return True
