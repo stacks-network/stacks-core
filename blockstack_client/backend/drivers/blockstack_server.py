@@ -97,7 +97,7 @@ def get_data( data_id, zonefile=False ):
             return None
         else:
             try:
-                return data['zonefiles'][data_id]
+                return base64.b64decode( data['zonefiles'][data_id] )
             except:
                 log.error("Failed to parse zonefile")
                 return None
