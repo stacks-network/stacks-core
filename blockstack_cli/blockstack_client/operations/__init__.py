@@ -101,8 +101,6 @@ def nameop_is_history_snapshot( history_snapshot ):
     It must have all consensus fields.
     Return True if so.
     Raise an exception of it doesn't.
-
-    TODO: DRY up with server
     """
     
     # sanity check:  each mutate field in the operation must be defined in op_data, even if it's null.
@@ -113,7 +111,9 @@ def nameop_is_history_snapshot( history_snapshot ):
     opcode = op_get_opcode_name(history_snapshot['op'])
     assert opcode is not None, "unrecognized op '%s'" % history_snapshot['op']
 
-    consensus_fields = OPFIELDS[opcode]
+    op = history_snapshot['op']
+
+    consensus_fields = OPFIELDS[op]
     for field in consensus_fields:
         if field not in history_snapshot.keys():
             missing.append( field )
@@ -140,8 +140,6 @@ def nameop_history_extract( history_rows ):
     }
 
     Raise on failure to parse
-
-    TODO: DRY up with server
     """
 
     history = {}
@@ -174,8 +172,6 @@ def nameop_restore_from_history( name_rec, name_history, block_id ):
     Return None if the record does not exist at that point in time
 
     The returned records will *not* have a 'history' key.
-
-    TODO: DRY up with server
     """
 
     block_history = list( reversed( sorted( name_history.keys() ) ) )
@@ -276,8 +272,6 @@ def nameop_snv_consensus_extra_quirks( extras, namerec, block_id ):
     """
     Given the set of arguments to snv_consensus_extras, apply any
     op-specific quirks that are needed to preserve backwards compatibility
-
-    TODO: DRY up with server
     """
 
     last_creation_op = namerec.get('last_creation_op', None)
@@ -321,8 +315,6 @@ def nameop_snv_consensus_extra( op_name, prev_name_rec, prev_block_id ):
 
     Return the extra conesnsus fields on success.
     Return None on error.
-
-    TODO: DRY up with server
     """
 
     global SNV_CONSENSUS_EXTRA_METHODS 
