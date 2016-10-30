@@ -665,15 +665,12 @@ def getinfo(proxy=None):
     resp = {}
     try:
         resp = proxy.getinfo()
-        if isinstance(resp, list):
-            if len(resp) == 0:
-                resp = {'error': 'No data returned'}
-                return resp
-            else:
-                resp = resp[0]
-
         resp = json_validate( schema, resp )
+        if json_is_error(resp):
+            return resp
+
     except ValidationError as e:
+        log.exception(e)
         resp = json_traceback(resp.get('error'))
 
     return resp
@@ -705,15 +702,12 @@ def ping(proxy=None):
     resp = {}
     try:
         resp = proxy.ping()
-        if isinstance(resp, list):
-            if len(resp) == 0:
-                resp = {'error': 'No data returned'}
-                return resp
-            else:
-                resp = resp[0]
-        
         resp = json_validate( schema, resp )
+        if json_is_error(resp):
+            return resp
+
     except ValidationError as e:
+        log.exception(e)
         resp = json_traceback(resp.get('error'))
 
     return resp
@@ -748,14 +742,10 @@ def get_name_cost(name, proxy=None):
     resp = {}
     try:
         resp = proxy.get_name_cost(name)
-        if type(resp) == list:
-            if len(resp) == 0:
-                resp = {'error': 'No data returned'}
-                return resp
-            else:
-                resp = resp[0]
-        
         resp = json_validate( schema, resp )
+        if json_is_error(resp):
+            return resp
+
     except ValidationError as e:
         resp = json_traceback(resp.get('error'))
 
@@ -789,14 +779,10 @@ def get_namespace_cost(namespace_id, proxy=None):
     resp = {}
     try:
         resp = proxy.get_namespace_cost(namespace_id)
-        if type(resp) == list:
-            if len(resp) == 0:
-                resp = {'error': 'No data returned'}
-                return resp
-            else:
-                resp = resp[0]
+        resp = json_validate( cost_schema, resp )
+        if json_is_error(resp):
+            return resp
 
-        resp = json_validate( schema, resp )
     except ValidationError as e:
         resp = json_traceback(resp.get('error'))
 
