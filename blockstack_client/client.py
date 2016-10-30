@@ -97,6 +97,7 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
         sys.exit(1)
 
     # create proxy
+    log.debug('Connect to {}:{}'.format(server_host, server_port))
     proxy = BlockstackRPCClient(server_host, server_port)
 
     # load all storage drivers
