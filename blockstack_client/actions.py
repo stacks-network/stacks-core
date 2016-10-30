@@ -2614,15 +2614,11 @@ def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, proxy=None, inter
 
                 user_data = zfdata
                 txid = queued_zfdata.get('tx_hash', None)
-
+                break
 
         if user_data is None:
             # not in queue.  Maybe it's available from one of the storage drivers?
-            user_data = get_name_zonefile( name )
-            if user_data is None:
-                user_data = {'error': 'No data loaded'}
-
-            log.debug("no pending updates for '%s'" % name)
+            log.debug("no pending updates for '%s'; try storage" % name)
             user_data = get_name_zonefile( name, raw_zonefile=True )
             if user_data is None:
                 user_data = {'error': 'No data loaded'}
