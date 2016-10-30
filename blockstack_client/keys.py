@@ -56,7 +56,7 @@ from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SER
     BLOCKSTACKD_PORT, BLOCKSTACK_METADATA_DIR, BLOCKSTACK_DEFAULT_STORAGE_DRIVERS, \
     FIRST_BLOCK_MAINNET, NAME_OPCODES, OPFIELDS, CONFIG_DIR, SPV_HEADERS_PATH, BLOCKCHAIN_ID_MAGIC, \
     NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER, NAMESPACE_PREORDER, NAME_IMPORT, \
-    USER_ZONEFILE_TTL, CONFIG_PATH
+    USER_ZONEFILE_TTL, CONFIG_PATH, EPOCH_HEIGHT_MINIMUM
 
 log = get_logger()
 
@@ -474,7 +474,7 @@ def get_privkey_info_address( privkey_info ):
         raise ValueError("Invalid private key info")
 
 
-def get_privkey_info_params( privkey_info ):
+def get_privkey_info_params( privkey_info, config_path=CONFIG_PATH ):
     """
     Get the parameters that characterize a private key
     info bundle:  the number of private keys, and the 
@@ -488,12 +488,21 @@ def get_privkey_info_params( privkey_info ):
     """
 
     if privkey_info is None:
-        # guess (2,3)
-        log.warning("No private key info given; assuming 2-of-3 multisig")
-        return (2,3)
+
+        from .backend.blockchain import get_block_height
+
+        key_config = (1, 1)
+        curr_height = get_block_height( config_path=config_path )
+        if curr_height >= EPOCH_HEIGHT_MINIMUM:
+            # safe to use multisig
+            key_config = (2, 3)
+
+        log.warning("No private key info given, assuming {} key config".format(key_config))
+        return key_config
 
     if is_singlesig( privkey_info ):
         return (1, 1)
+    
     elif is_multisig( privkey_info ):
         m, pubs = virtualchain.parse_multisig_redeemscript(privkey_info['redeem_script'])
         if m is None or pubs is None:
