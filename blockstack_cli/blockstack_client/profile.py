@@ -118,7 +118,7 @@ def decode_name_zonefile(zonefile_txt):
     return user_zonefile
 
 
-def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, raw_zonefile=False):
+def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, raw_zonefile=False, proxy=None ):
     """
     Fetch and load a user zonefile from the storage implementation with the given hex string hash,
     The user zonefile hash should have been loaded from the blockchain, and thereby be the
@@ -130,10 +130,29 @@ def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, raw_z
     Return None on error
     """
 
-    zonefile_txt = storage.get_immutable_data(expected_zonefile_hash, hash_func=storage.get_zonefile_data_hash, fqu=name, zonefile=True, deserialize=False, drivers=storage_drivers)
-    if zonefile_txt is None:
-        log.error("Failed to load user zonefile '%s'" % expected_zonefile_hash)
-        return None
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    conf = proxy.conf 
+    atlas_host = conf['server']
+    atlas_port = conf['port']
+    hostport = '{}:{}'.format( atlas_host, atlas_port )
+
+    zonefile_txt = None
+
+    # try atlas node first 
+    res = get_zonefiles( hostport, [expected_zonefile_hash], proxy=proxy )
+    if 'error' in res:
+        # fall back to storage drivers if atlas node didn't have it
+        zonefile_txt = storage.get_immutable_data(expected_zonefile_hash, hash_func=storage.get_zonefile_data_hash, fqu=name, zonefile=True, deserialize=False, drivers=storage_drivers)
+        if zonefile_txt is None:
+            log.error("Failed to load user zonefile '%s'" % expected_zonefile_hash)
+            return None
+
+    else:
+        # extract 
+        log.debug('Fetched {} from Atlas peer {}'.format(expected_zonefile_hash, hostport))
+        zonefile_txt = res['zonefiles'][expected_zonefile_hash]
 
     if raw_zonefile:
         try:
@@ -347,7 +366,7 @@ def get_name_zonefile( name, storage_drivers=None, create_if_absent=False, proxy
     user_zonefile_data = None
 
     if raw_zonefile or include_raw_zonefile:
-        raw_zonefile_data = load_name_zonefile(name, user_zonefile_hash, storage_drivers=storage_drivers, raw_zonefile=True )
+        raw_zonefile_data = load_name_zonefile(name, user_zonefile_hash, storage_drivers=storage_drivers, raw_zonefile=True, proxy=proxy )
         if raw_zonefile_data is None:
             return {'error': 'Failed to load raw user zonefile'}
 
@@ -361,7 +380,7 @@ def get_name_zonefile( name, storage_drivers=None, create_if_absent=False, proxy
                 return {"error": "Failed to decode user zonefile"}
 
     else:
-        user_zonefile_data = load_name_zonefile(name, user_zonefile_hash, storage_drivers=storage_drivers )
+        user_zonefile_data = load_name_zonefile(name, user_zonefile_hash, storage_drivers=storage_drivers, proxy=proxy )
         if user_zonefile_data is None:
             return {'error': 'Failed to load or decode user zonefile'}
 
