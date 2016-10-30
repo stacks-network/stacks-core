@@ -35,23 +35,25 @@ from .auth import *
 from ..scripts import is_name_valid
 
 import blockstack_client
-from blockstack_client import hash_zonefile
+from blockstack_client import hash_zonefile, get_zonefile_data_hash, verify_zonefile
 
 import blockstack_zones
 
 import virtualchain
 log = virtualchain.get_logger("blockstack-server")
 
-def get_cached_zonefile( zonefile_hash, zonefile_dir=None ):
+def get_cached_zonefile_data( zonefile_hash, zonefile_dir=None ):
     """
-    Get a cached zonefile from local disk
+    Get a serialized cached zonefile from local disk 
     Return None if not found
     """
     if zonefile_dir is None:
         zonefile_dir = get_zonefile_dir()
 
-    zonefile_path = os.path.join( zonefile_dir, zonefile_hash )
+    zonefile_path_dir = cached_zonefile_dir( zonefile_dir, zonefile_hash )
+    zonefile_path = os.path.join( zonefile_path_dir, "zonefile.txt" )
     if not os.path.exists( zonefile_path ):
+        log.debug("No zonefile at %s" % zonefile_path )
         return None 
 
     with open(zonefile_path, "r") as f:
@@ -59,8 +61,20 @@ def get_cached_zonefile( zonefile_hash, zonefile_dir=None ):
 
     # sanity check 
     if not verify_zonefile( data, zonefile_hash ):
-        log.debug("Corrupt zonefile '%s'; uncaching" % zonefile_hash)
-        remove_cached_zonefile( zonefile_hash, zonefile_dir=zonefile_dir )
+        log.debug("Corrupt zonefile '%s'" % zonefile_hash)
+        return None
+
+    return data
+
+
+def get_cached_zonefile( zonefile_hash, zonefile_dir=None ):
+    """
+    Get a cached zonefile dict from local disk 
+    Return None if not found
+    """
+    data = get_cached_zonefile_data( zonefile_hash, zonefile_dir=zonefile_dir )
+    if data is None:
+        log.debug("Not cached: %s" % zonefile_hash)
         return None
 
     try:
@@ -72,87 +86,22 @@ def get_cached_zonefile( zonefile_hash, zonefile_dir=None ):
         return None
 
 
-def get_zonefile_from_storage( zonefile_hash, db, drivers=None ):
+def get_zonefile_data_from_storage( name, zonefile_hash, drivers=None ):
     """
-    Get a zonefile from our storage drivers.
+    Get a serialized zonefile from our storage drivers.
     Return the zonefile dict on success.
     Raise on error
     """
-    
-    if not is_current_zonefile_hash( zonefile_hash, db ):
-        raise Exception("Unknown zonefile hash")
-
-    zonefile_txt = blockstack_client.storage.get_immutable_data( zonefile_hash, hash_func=blockstack_client.get_blockchain_compat_hash, deserialize=False, drivers=drivers )
+    zonefile_txt = blockstack_client.storage.get_immutable_data( zonefile_hash, hash_func=blockstack_client.get_blockchain_compat_hash, fqu=name, zonefile=True, deserialize=False, drivers=drivers )
     if zonefile_txt is None:
-        raise Exception("Failed to get data")
+        raise Exception("Failed to get valid zonefile data")
 
     # verify
     if blockstack_client.storage.get_zonefile_data_hash( zonefile_txt ) != zonefile_hash:
-        raise Exception("Corrupt zonefile: %s" % zonefile_hash)
+        log.warn("Corrupted zonefile for '%s'" % name)
+        raise Exception("Corrupt zonefile")
    
-    # parse 
-    try:
-        user_zonefile = blockstack_zones.parse_zone_file( zonefile_txt )
-        assert blockstack_client.is_user_zonefile( user_zonefile ), "Not a user zonefile: %s" % zonefile_hash
-    except AssertionError, ValueError:
-        raise Exception("Failed to load zonefile %s" % zonefile_hash)
-
-    return user_zonefile
-
-
-def get_zonefile_from_peers( zonefile_hash, peers ):
-    """
-    Get a zonefile from a peer Blockstack node.
-    Ask each peer (as a list of (host, port) tuples)
-    for the zonefile via RPC
-    Return a zonefile that matches the given hash on success.
-    Return None if no zonefile could be obtained.
-    Calculate the on-disk path to storing a zonefile's information, given the zonefile hash
-    """
- 
-    for (host, port) in peers:
-
-        rpc = blockstack_client.BlockstackRPCClient( host, port )
-        zonefile_data = rpc.get_zonefiles( [zonefile_hash] )
-
-        if type(zonefile_data) != dict:
-            # next peer
-            log.debug("Peer %s:%s did not reutrn valid data" % (host, port))
-            zonefile_data = None
-            continue
-
-        if 'error' in zonefile_data:
-            # next peer 
-            log.debug("Peer %s:%s: %s" % (host, port, zonefile_data['error']) )
-            zonefile_data = None
-            continue
-
-        if not zonefile_data['zonefiles'].has_key(zonefile_hash):
-            # nope
-            log.debug("Peer %s:%s did not return %s" % zonefile_hash)
-            zonefile_data = None
-            continue
-
-        # extract zonefile
-        zonefile_data = zonefile_data['zonefiles'][zonefile_hash]
-
-        if type(zonefile_data) != dict:
-            # not a dict 
-            log.debug("Peer %s:%s did not return a zonefile for %s" % (host, port, zonefile_hash))
-            zonefile_data = None
-            continue
-
-        # verify zonefile
-        h = hash_zonefile( zonefile_data )
-        if h != zonefile_hash:
-            log.error("Zonefile hash mismatch: expected %s, got %s" % (zonefile_hash, h))
-            zonefile_data = None
-            continue
-
-        # success!
-        break
-
-    return zonefile_data
+    return zonefile_txt
 
 
 def cached_zonefile_dir( zonefile_dir, zonefile_hash ):
@@ -162,14 +111,39 @@ def cached_zonefile_dir( zonefile_dir, zonefile_hash ):
 
     # split into directories, so we don't try to cram millions of files into one directory
     zonefile_dir_parts = []
-    for i in xrange(0, len(zonefile_hash), 8):
-        zonefile_dir_parts.append( zonefile_hash[i:i+8] )
+    interval = 2
+    for i in xrange(0, len(zonefile_hash), interval):
+        zonefile_dir_parts.append( zonefile_hash[i:i+interval] )
 
     zonefile_dir_path = os.path.join(zonefile_dir, "/".join(zonefile_dir_parts))
     return zonefile_dir_path
 
 
-def store_cached_zonefile( zonefile_dict, zonefile_dir=None ):
+def is_zonefile_cached( zonefile_hash, zonefile_dir=None, validate=False):
+    """
+    Do we have the cached zonefile?  It's okay if it's a non-standard zonefile.
+    if @validate is true, then check that the data in zonefile_dir_path/zonefile.txt matches zonefile_hash
+    Return True if so
+    Return False if not
+    """
+    if zonefile_dir is None:
+        zonefile_dir = get_zonefile_dir()
+    
+    zonefile_path_dir = cached_zonefile_dir( zonefile_dir, zonefile_hash )
+    zonefile_path = os.path.join(zonefile_path_dir, "zonefile.txt")
+
+    if not os.path.exists(zonefile_path):
+        return False
+
+    if validate:
+        zf = get_cached_zonefile_data( zonefile_hash, zonefile_dir=zonefile_dir )
+        if zf is None:
+            return False
+
+    return True
+
+
+def store_cached_zonefile_data( zonefile_data, zonefile_dir=None ):
     """
     Store a validated zonefile.
     zonefile_data should be a dict.
@@ -182,13 +156,6 @@ def store_cached_zonefile( zonefile_dict, zonefile_dir=None ):
 
     if not os.path.exists(zonefile_dir):
         os.makedirs(zonefile_dir, 0700 )
-
-    try:
-        zonefile_data = blockstack_zones.make_zone_file( zonefile_dict )
-    except Exception, e:
-        log.exception(e)
-        log.error("Invalid zonefile dict")
-        return False
 
     zonefile_hash = blockstack_client.get_zonefile_data_hash( zonefile_data )
     zonefile_dir_path = cached_zonefile_dir( zonefile_dir, zonefile_hash )
@@ -208,51 +175,70 @@ def store_cached_zonefile( zonefile_dict, zonefile_dir=None ):
     return True
 
 
-def get_zonefile_txid( zonefile_dict, db ):
+def store_cached_zonefile( zonefile_dict, zonefile_dir=None ):
     """
-    Look up the transaction ID of the transaction
-    that wrote this zonefile.
-    Return the txid on success
-    Return None on error
+    Store a validated zonefile.
+    zonefile_data should be a dict.
+    The caller should first authenticate the zonefile.
+    Return True on success
+    Return False on error
     """
-   
-    zonefile_hash = hash_zonefile( zonefile_dict )
-    name = zonefile_dict.get('$origin')
-    if name is None:
-        log.debug("Missing '$origin' in zonefile")
-        return None
+    try:
+        zonefile_data = blockstack_zones.make_zone_file( zonefile_dict )
+    except Exception, e:
+        log.exception(e)
+        log.error("Invalid zonefile dict")
+        return False
 
-    # must be a valid name 
-    name_rec = db.get_name( name )
-    if name_rec is None:
-        log.debug("Invalid name in zonefile")
-        return None
-
-    # what's the associated transaction ID?
-    txid = db.get_name_value_hash_txid( name, zonefile_hash )
-    if txid is None:
-        log.debug("No txid for zonefile hash '%s' (for '%s')" % (zonefile_hash, name))
-        return None
-
-    return txid
+    return store_cached_zonefile_data( zonefile_data, zonefile_dir=zonefile_dir )
 
 
-def store_zonefile_to_storage( zonefile_dict, db, required=[] ):
+def remove_cached_zonefile_data( zonefile_hash, zonefile_dir=None ):
+    """
+    Remove a cached zonefile 
+    """
+    if zonefile_dir is None:
+        zonefile_dir = get_zonefile_dir()
+
+    if not os.path.exists(zonefile_dir):
+        return True
+
+    zonefile_hash = blockstack_client.get_zonefile_data_hash( zonefile_data )
+    zonefile_dir_path = cached_zonefile_dir( zonefile_dir, zonefile_hash )
+    if not os.path.exists(zonefile_dir_path):
+        return True
+
+    zonefile_path = os.path.join(zonefile_dir_path, "zonefile.txt")
+    if not os.path.exists(zonefile_path):
+        return True
+
+    try:
+        os.unlink(zonefile_path)
+    except:
+        log.error("Failed to unlink zonefile %s (%s)" % (zonefile_hash, zonefile_path))
+        return False
+
+    return True
+
+
+def store_zonefile_data_to_storage( name, zonefile_text, txid, required=[], cache=False, zonefile_dir=None, tx_required=True ):
     """
     Upload a zonefile to our storage providers.
     Return True if at least one provider got it.
     Return False otherwise.
     """
-    zonefile_hash = hash_zonefile( zonefile_dict )
-    name = zonefile_dict['$origin']
-    zonefile_text = blockstack_zones.make_zone_file( zonefile_dict )
-   
-    # find the tx that paid for this zonefile
-    txid = get_zonefile_txid( zonefile_dict, db )
-    if txid is None:
+    if tx_required and txid is None:
         log.error("No txid for zonefile hash '%s' (for '%s')" % (zonefile_hash, name))
         return False
-   
+
+    zonefile_hash = get_zonefile_data_hash( zonefile_text )
+    
+    if cache:
+        rc = store_cached_zonefile_data( zonefile_text, zonefile_dir=zonefile_dir )
+        if not rc:
+            log.debug("Failed to cache zonefile %s" % zonefile_hash)
+
+    # NOTE: this can fail if one of the required drivers needs a non-null txid
     rc = blockstack_client.storage.put_immutable_data( None, txid, data_hash=zonefile_hash, data_text=zonefile_text, required=required )
     if not rc:
         log.error("Failed to store zonefile '%s' (%s) for '%s'" % (zonefile_hash, txid, name))
@@ -261,34 +247,21 @@ def store_zonefile_to_storage( zonefile_dict, db, required=[] ):
     return True
 
 
-def remove_cached_zonefile( zonefile_hash, zonefile_dir=None ):
+def store_zonefile_to_storage( zonefile_dict, required=[], cache=False, zonefile_dir=None ):
     """
-    Remove a zonefile from the local cache.
+    Upload a zonefile to our storage providers.
+    Return True if at least one provider got it.
+    Return False otherwise.
     """
-    if zonefile_dir is None:
-        zonefile_dir = get_zonefile_dir()
 
-    path = os.path.join( zonefile_dir, zonefile_hash )
     try:
-        os.unlink(path)
-        return True
-    except:
+        zonefile_data = blockstack_zones.make_zone_file( zonefile_dict )
+    except Exception, e:
+        log.exception(e)
+        log.error("Invalid zonefile dict")
         return False
 
+    name = zonefile_dict.get('$origin')
+    return store_zonefile_data_to_storage( zonefile_data, required=required, cache=cache, zonefile_dir=zonefile_dir, name=name )
 
-def clean_cached_zonefile_dir( zonefile_dir=None ):
-    """
-    Clean out stale entries in the zonefile directory.
-    """
-    if zonefile_dir is None:
-        zonefile_dir = get_zonefile_dir()
-
-    hashes = os.listdir( zonefile_dir )
-    for h in hashes:
-        if h in ['.', '..']:
-            continue 
-
-        remove_zonefile( h, zonefile_dir=zonefile_dir )
-
-    return
 

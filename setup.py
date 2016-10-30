@@ -40,11 +40,12 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'virtualchain>=0.0.13.5',
+        'virtualchain>=0.14.0',
         'keychain>=0.1.4',
-        'blockstack-client>=0.0.13.24',
+        'blockstack-client>=0.14.0',
         'defusedxml>=0.4.1',
-        'pycrypto>=2.6.1'
+        'pycrypto>=2.6.1',
+        'simplejson>=3.8.2'
     ],
     classifiers=[
         'Intended Audience :: Developers',

@@ -21,9 +21,18 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """
 
+from ..config import *
+from ..scripts import *
+from ..hashing import *
+from ..nameset import *
+
+import blockstack_client
+from blockstack_client.operations import *
+from binascii import hexlify, unhexlify
+
 # consensus hash fields (ORDER MATTERS!) 
 FIELDS = [
-    'namespace_id_hash',    # hash(namespace_id,sender,reveal_addr)
+    'preorder_hash',        # hash(namespace_id,sender,reveal_addr)
     'consensus_hash',       # consensus hash at the time issued
     'op',                   # bytecode describing the operation (not necessarily 1 byte)
     'op_fee',               # fee paid for the namespace to the burn address
@@ -35,3 +44,160 @@ FIELDS = [
     'address'               # address from the scriptPubKey
 ]
 
+# save everything
+MUTATE_FIELDS = FIELDS[:]
+
+# fields to back up when this operation is applied
+BACKUP_FIELDS = [
+    "__all__"
+]
+
+@state_preorder("check_preorder_collision")
+def check( state_engine, nameop, block_id, checked_ops ):
+    """
+    Given a NAMESPACE_PREORDER nameop, see if we can preorder it.
+    It must be unqiue.
+
+    Return True if accepted.
+    Return False if not.
+    """
+
+    namespace_id_hash = nameop['preorder_hash']
+    consensus_hash = nameop['consensus_hash']
+
+    # namespace must not exist
+    # NOTE: now checked externally
+    """
+    for pending_namespace_preorder in pending_nameops[ NAMESPACE_PREORDER ]:
+       if pending_namespace_preorder['namespace_id_hash'] == namespace_id_hash:
+          log.debug("Namespace hash '%s' is already preordered" % namespace_id_hash)
+          return False
+    """
+
+    # cannot be preordered already
+    if not state_engine.is_new_namespace_preorder( namespace_id_hash ):
+        log.debug("Namespace preorder '%s' already in use" % namespace_id_hash)
+        return False
+
+    # has to have a reasonable consensus hash
+    if not state_engine.is_consensus_hash_valid( block_id, consensus_hash ):
+
+        valid_consensus_hashes = state_engine.get_valid_consensus_hashes( block_id )
+        log.debug("Invalid consensus hash '%s': expected any of %s" % (consensus_hash, ",".join( valid_consensus_hashes )) )
+        return False
+
+    # has to have paid a fee
+    if not 'op_fee' in nameop:
+        log.debug("Missing namespace preorder fee")
+        return False
+
+    return True
+
+
+def tx_extract( payload, senders, inputs, outputs, block_id, vtxindex, txid ):
+    """
+    Extract and return a dict of fields from the underlying blockchain transaction data
+    that are useful to this operation.
+
+    Required (+ parse):
+    sender:  the script_pubkey (as a hex string) of the principal that sent the name preorder transaction
+    address:  the address from the sender script
+
+    Optional:
+    sender_pubkey_hex: the public key of the sender
+    """
+  
+    sender_script = None 
+    sender_address = None 
+    sender_pubkey_hex = None
+
+    try:
+
+       # by construction, the first input comes from the principal
+       # who sent the registration transaction...
+       assert len(senders) > 0
+       assert 'script_pubkey' in senders[0].keys()
+       assert 'addresses' in senders[0].keys()
+
+       sender_script = str(senders[0]['script_pubkey'])
+       sender_address = str(senders[0]['addresses'][0])
+
+       assert sender_script is not None 
+       assert sender_address is not None
+
+       if str(senders[0]['script_type']) == 'pubkeyhash':
+          sender_pubkey_hex = get_public_key_hex_from_tx( inputs, sender_address )
+
+    except Exception, e:
+       log.exception(e)
+       raise Exception("Failed to extract")
+
+    parsed_payload = parse( payload )
+    assert parsed_payload is not None 
+
+    ret = {
+       "sender": sender_script,
+       "address": sender_address,
+       "block_number": block_id,
+       "vtxindex": vtxindex,
+       "txid": txid,
+       "op": NAMESPACE_PREORDER
+    }
+
+    ret.update( parsed_payload )
+
+    if sender_pubkey_hex is not None:
+        ret['sender_pubkey'] = sender_pubkey_hex
+
+    return ret
+
+
+def parse( bin_payload ):
+   """
+   NOTE: the first three bytes will be missing
+   """
+   
+   if len(bin_payload) != LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']:
+       log.error("Invalid namespace preorder payload length %s" % len(bin_payload))
+       return None
+
+   namespace_id_hash = bin_payload[ :LENGTHS['preorder_name_hash'] ]
+   consensus_hash = bin_payload[ LENGTHS['preorder_name_hash']: LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] ]
+   
+   namespace_id_hash = hexlify( namespace_id_hash )
+   consensus_hash = hexlify( consensus_hash )
+
+   
+   return {
+      'opcode': 'NAMESPACE_PREORDER',
+      'preorder_hash': namespace_id_hash,
+      'consensus_hash': consensus_hash
+   }
+
+
+def restore_delta( rec, block_number, history_index, working_db, untrusted_db ):
+    """
+    Find the fields in a name record that were changed by an instance of this operation, at the 
+    given (block_number, history_index) point in time in the past.  The history_index is the
+    index into the list of changes for this name record in the given block.
+
+    Return the fields that were modified on success.
+    Return None on error.
+    """
+
+    name_rec_script = build_namespace_preorder( None, None, None, str(rec['consensus_hash']), namespace_id_hash=str(rec['preorder_hash']) )
+    name_rec_payload = unhexlify( name_rec_script )[3:]
+    ret_op = parse(name_rec_payload)
+
+    return ret_op
+
+
+def snv_consensus_extras( name_rec, block_id, blockchain_name_data, db ):
+    """
+    Calculate any derived missing data that goes into the check() operation,
+    given the block number, the name record at the block number, and the db.
+    """
+    return blockstack_client.operations.namespacepreorder.snv_consensus_extras( name_rec, block_id, blockchain_name_data )
+    '''
+    return {}
+    '''

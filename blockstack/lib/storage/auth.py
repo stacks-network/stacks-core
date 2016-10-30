@@ -33,26 +33,6 @@ from blockstack_client import hash_zonefile, get_zonefile_data_hash
 
 log = virtualchain.get_logger("blockstack-server")
 
-def is_current_zonefile_hash( value_hash, db ):
-    """
-    Is this, in fact, a valid value hash?
-    """
-    names = db.get_names_with_value_hash( value_hash )
-    if names is None:
-        return False 
-
-    else:
-        log.debug("Value hash '%s' belongs to '%s'" % (value_hash, ",".join(names)))
-        return True
-
-
-def serialize_zonefile( zonefile_data ):
-    """
-    Serialize a zonefile to string
-    """
-    
-    zonefile_txt = blockstack_zones.make_zone_file( zonefile_data )
-    return zonefile_txt
 
 
 def verify_zonefile( zonefile_str, value_hash ):

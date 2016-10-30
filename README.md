@@ -8,8 +8,7 @@ Blockstack is a new decentralized web, where users own their data and apps run o
 
 Blockstack Core handles the main functionality of the system. It is responsible for processing blockchain transactions, creating virtualchain state, and building the peer network amongst other things. Blockstack Core provides RPC and RESTful interfaces for Blockstack clients.
 
-The latest stable release of Blockstack Core is 0.0.13.
-The upcoming release of Blockstack Core is [0.14.0](https://github.com/blockstack/blockstack-core/tree/rc-0.14.0).
+The latest stable release of Blockstack Core is 0.0.13.  The next stable release is 0.14.0.
 
 Learn more by visiting [the Blockstack Website](https://blockstack.org) and checking out the in-depth articles and documentation:
 
@@ -22,6 +21,8 @@ Learn more by visiting [the Blockstack Website](https://blockstack.org) and chec
 You can also read the Blockstack paper:
 
 - ["Blockstack: A Global Naming and Storage System Secured by Blockchains"](https://blockstack.org/blockstack.pdf), Proc. USENIX Annual Technical Conference (ATC ’16), June 2016
+
+**Developers**:  You can try out Blockstack Core in a local sandbox using our [integration test framework](https://github.com/blockstack/blockstack-integration-tests/tree/rc-0.14.0).
 
 ### Installation
 

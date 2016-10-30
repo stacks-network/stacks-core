@@ -24,209 +24,23 @@
 # Hooks to the virtual chain's state engine that bind our namedb to the virtualchain package.
 
 import os
-from binascii import hexlify, unhexlify
-import time
+import gc
 
-import pybitcoin 
-import traceback
-import json
-import threading
-import copy
-
-from .namedb import BlockstackDB, DISPOSITION_RO, DISPOSITION_RW
+from .namedb import *
 
 from ..config import *
-from ..operations import parse_preorder, parse_registration, parse_update, parse_transfer, parse_revoke, \
-    parse_name_import, parse_namespace_preorder, parse_namespace_reveal, parse_namespace_ready, parse_announce, \
-    get_transfer_recipient_from_outputs, get_import_update_hash_from_outputs, get_registration_recipient_from_outputs, \
-    SERIALIZE_FIELDS
+from ..scripts import *
 
 import virtualchain
 log = virtualchain.get_logger("blockstack-log")
 
-blockstack_db = None
-last_load_time = 0
-last_check_time = 0
-reload_lock = threading.Lock()
-
-def get_burn_fee_from_outputs( outputs ):
-    """
-    Given the set of outputs, find the fee sent 
-    to our burn address.
-    
-    Return the fee on success
-    Return None if not found
-    """
-    
-    ret = None
-    for output in outputs:
-       
-        output_script = output['scriptPubKey']
-        output_asm = output_script.get('asm')
-        output_hex = output_script.get('hex')
-        output_addresses = output_script.get('addresses')
-        
-        if output_asm[0:9] != 'OP_RETURN' and BLOCKSTACK_BURN_ADDRESS == output_addresses[0]:
-            
-            # recipient's script_pubkey and address
-            ret = int(output['value']*(10**8))
-            break
-    
-    return ret 
-    
-
-def get_public_key_hex_from_tx( inputs, address ):
-    """
-    Given a list of inputs and the address of one of the inputs,
-    find the public key.
-
-    This only works for p2sh and p2pkh scripts.
-    """
-    
-    ret = None 
-    
-    for inp in inputs:
-        
-        input_scriptsig = inp.get('scriptSig', None )
-        if input_scriptsig is None:
-            continue 
-        
-        input_asm = input_scriptsig.get("asm")
-        
-        if len(input_asm.split(" ")) >= 2:
-            
-            # public key is the second hex string.  verify it matches the address
-            pubkey_hex = input_asm.split(" ")[1]
-            pubkey = None 
-            
-            try:
-                pubkey = pybitcoin.BitcoinPublicKey( str(pubkey_hex) ) 
-            except Exception, e: 
-                traceback.print_exc()
-                log.warning("Invalid public key '%s'" % pubkey_hex)
-                continue 
-            
-            if address != pubkey.address():
-                continue 
-            
-            ret = pubkey_hex
-            break
-        
-    return ret 
-
-
-def parse_blockstack_op_data( opcode, payload, sender, recipient=None, recipient_address=None, import_update_hash=None ):
-    """
-    Parse a string of binary data (nulldata from a blockchain transaction) into a blockstack operation.
-    
-    full OP_RETURN data format (once unhex'ed):
-    
-    0           2      3                                   40
-    |-----------|------|-----------------------------------|
-    magic bytes opcode  payload
-    (consumed)  (arg)   (arg)
-    
-    We are given opcode and payload as arguments.
-    
-    Returns a parsed operation on success
-    Returns None if no operation could be parsed.
-    """
-
-    op = None 
-    data = hexlify(payload)
-
-    if len(payload) > LENGTHS['max_op_length'] - 3:
-        log.error("Data too long: %s" % len(payload))
-        return None
-    
-    if opcode == NAME_PREORDER:
-        if len(payload) >= MIN_OP_LENGTHS['preorder']:
-            log.debug( "Parse NAME_PREORDER: %s" % data )
-            op = parse_preorder(payload)
-        else:
-            log.error( "NAME_PREORDER: invalid length %s" % len(payload) )
-        
-    elif opcode == NAME_REGISTRATION:
-        if len(payload) >= MIN_OP_LENGTHS['registration']:
-            log.debug( "Parse NAME_REGISTRATION: %s" % data )
-            op = parse_registration(payload)
-        else:
-            log.error( "NAME_REGISTRATION: invalid length %s" % len(payload) )
-        
-    elif opcode == NAME_UPDATE:
-        if len(payload) >= MIN_OP_LENGTHS['update']:
-            log.debug( "Parse NAME_UPDATE: %s" % data )
-            op = parse_update(payload)
-        else:
-            log.error( "NAME_UPDATE: invalid length %s" % len(payload))
-        
-    elif opcode == NAME_TRANSFER:
-        if len(payload) >= MIN_OP_LENGTHS['transfer']:
-            log.debug( "Parse NAME_TRANSFER: %s" % data )
-            op = parse_transfer(payload, recipient )
-        else:
-            log.error( "NAME_TRANSFER: invalid length %s" % len(payload))
-    
-    elif opcode == NAME_REVOKE:
-        if len(payload) >= MIN_OP_LENGTHS['revoke']:
-            log.debug( "Parse NAME_REVOKE: %s" % data )
-            op = parse_revoke(payload)
-        else:
-            log.error( "NAME_REVOKE: invalid length %s" % len(payload))
-        
-    elif opcode == NAME_IMPORT:
-        if len(payload) >= MIN_OP_LENGTHS['name_import']:
-            log.debug( "Parse NAME_IMPORT: %s" % data )
-            op = parse_name_import( payload, recipient, import_update_hash )
-        else:
-            log.error( "NAME_IMPORT: invalid length %s" % len(payload))
-        
-    elif opcode == NAMESPACE_PREORDER:
-        if len(payload) >= MIN_OP_LENGTHS['namespace_preorder']:
-            log.debug( "Parse NAMESPACE_PREORDER: %s" % data)
-            op = parse_namespace_preorder( payload )
-        else:
-            log.error( "NAMESPACE_PREORDER: invalid length %s" % len(payload))
-        
-    elif opcode == NAMESPACE_REVEAL:
-        if len(payload) >= MIN_OP_LENGTHS['namespace_reveal']:
-            log.debug( "Parse NAMESPACE_REVEAL: %s" % data )
-            op = parse_namespace_reveal( payload, sender, recipient_address )
-        else:
-            log.error( "NAMESPACE_REVEAL: invalid length %s" % len(payload))
-         
-    elif opcode == NAMESPACE_READY:
-        if len(payload) >= MIN_OP_LENGTHS['namespace_ready']:
-            log.debug( "Parse NAMESPACE_READY: %s" % data )
-            op = parse_namespace_ready( payload )
-        else:
-            log.error( "NAMESPACE_READY: invalid length %s" % len(payload))
-   
-    elif opcode == ANNOUNCE:
-        if len(payload) == MIN_OP_LENGTHS['announce']:
-            log.debug( "Parse ANNOUNCE: %s" % data )
-            op = parse_announce( payload )
-        else:
-            log.error( "ANNOUNCE: invalid length %s" % (len(payload)))
-
-    else:
-        log.warning("Unrecognized op: code='%s', data=%s, len=%s" % (opcode, data, len(payload)))
-        
-    return op
-
-
-def get_virtual_chain_name(testset=False):
+def get_virtual_chain_name():
    """
    (required by virtualchain state engine)
    
    Get the name of the virtual chain we're building.
    """
-   
-   if testset:
-       return "blockstack-server-test"
-   
-   else:
-       return "blockstack-server"
+   return "blockstack-server"
 
 
 def get_virtual_chain_version():
@@ -262,7 +76,7 @@ def get_magic_bytes():
    
    Get the magic byte sequence for our OP_RETURNs
    """
-   return MAGIC_BYTES_MAINSET
+   return MAGIC_BYTES
 
 
 def get_first_block_id():
@@ -275,120 +89,63 @@ def get_first_block_id():
    return start_block
 
 
-def need_db_reload():
-   """
-   Do we need to instantiate/reload the database?
-   """
-   global blockstack_db
-   global last_load_time
-   global last_check_time
-
-   db_filename = virtualchain.get_db_filename()
-
-   sb = None
-   if os.path.exists(db_filename):
-       sb = os.stat(db_filename)
-
-   if blockstack_db is None:
-       # doesn't exist in RAM
-       log.debug("cache consistency: DB is not in RAM")
-       return True
-     
-   if not os.path.exists(db_filename):
-       # doesn't exist on disk 
-       log.debug("cache consistency: DB does not exist on disk")
-       return True 
-   
-   if sb is not None and sb.st_mtime != last_load_time:
-       # stale--new version exists on disk
-       log.debug("cache consistency: DB was modified; in-RAM copy is stale")
-       return True 
-   
-   if time.time() - last_check_time > 600:
-       # just for good measure--don't keep it around past the blocktime
-       log.debug("cache consistency: Blocktime has passed")
-       return True
-
-   return False
-
-
-def get_db_state(disposition=DISPOSITION_RO):
+def get_db_state( disposition=DISPOSITION_RO ):
    """
    (required by virtualchain state engine)
    
    Callback to the virtual chain state engine.
-   
    Get a handle to our state engine implementation
-   (i.e. our name database)
+   (i.e. our name database).
 
-   @disposition is for compatibility.  It is ignored
+   Note that in this implementation, the database
+   handle returned will only support read-only operations by default.
+   NO COMMITS WILL BE ALLOWED.
    """
    
-   global blockstack_db
-   global last_load_time
-   global last_check_time
-   global reload_lock
+   # make this usable even if we haven't explicitly configured virtualchain 
+   impl = virtualchain.get_implementation()
+   if impl is None:
+       impl = sys.modules[__name__]
+   
+   db_filename = virtualchain.get_db_filename(impl=impl)
+   lastblock_filename = virtualchain.get_lastblock_filename(impl=impl)
+   lastblock = None
+   firstcheck = True 
 
-   reload_lock.acquire()
+   for path in [db_filename, lastblock_filename]:
+       if os.path.exists( path ):
+           # have already created the db
+           firstcheck = False
 
-   ret = None
-   mtime = None
-   db_filename = virtualchain.get_db_filename()
+   if not firstcheck and not os.path.exists( lastblock_filename ):
+       # this can't ever happen 
+       log.error("FATAL: no such file or directory: %s" % lastblock_filename )
+       os.abort()
 
-   if os.path.exists(db_filename):
-       sb = os.stat(db_filename)
-       mtime = sb.st_mtime 
+   # verify that it is well-formed, if it exists
+   elif os.path.exists( lastblock_filename ):
+       try:
+           with open(lastblock_filename, "r") as f:
+               lastblock = int( f.read().strip() )
 
-   if need_db_reload() or disposition == DISPOSITION_RW:
-       log.info("(Re)Loading blockstack state from '%s'" % db_filename )
+       except Exception, e:
+           # this can't ever happen
+           log.error("FATAL: failed to parse: %s" % lastblock_filename)
+           log.exception(e)
+           os.abort()
 
-       new_db = BlockstackDB( db_filename, disposition=disposition )
-       if disposition == DISPOSITION_RO:
-           # cache
-           blockstack_db = new_db
-           ret = blockstack_db
-       else:
-           ret = new_db
+   db_inst = BlockstackDB( db_filename, disposition )
 
-       last_check_time = time.time()
-       if mtime is not None:
-          last_load_time = mtime 
-
-   else:
-       log.debug("cache consistency: Using cached blockstack state")
-       ret = blockstack_db
-
-   reload_lock.release()
-
-   return ret
+   return db_inst
 
 
-def invalidate_db_state():
-    """
-    Clear out in-RAM cached db state
-    """
-    global blockstack_db
-    global reload_lock
-
-    reload_lock.acquire()
-    log.info("Invalidating cached blockstack state")
-    blockstack_db = None 
-    reload_lock.release()
-
-
-def db_parse( block_id, txid, vtxindex, opcode, data, senders, inputs, outputs, fee, db_state=None ):
+def db_parse( block_id, txid, vtxindex, op, data, senders, inputs, outputs, fee, db_state=None ):
    """
    (required by virtualchain state engine)
    
    Parse a blockstack operation from a transaction's nulldata (data) and a list of outputs, as well as 
-   optionally the list of transaction's senders and the total fee paid.
-   
-   Return a parsed operation, and will also optionally have:
-   * "sender": the first (primary) sender's script_pubkey.
-   * "address": the sender's bitcoin address
-   * "fee": the total fee paid for this record.
-   * "recipient": the first non-OP_RETURN output's script_pubkey.
-   * "sender_pubkey": the sender's public key (hex string), if this is a p2pkh transaction
+   optionally the list of transaction's senders and the total fee paid.  Use the operation-specific
+   extract_${OPCODE}() method to get the data, and make sure the operation-defined fields are all set.
 
    Return None on error
    
@@ -396,292 +153,222 @@ def db_parse( block_id, txid, vtxindex, opcode, data, senders, inputs, outputs, 
    This is assumed by this code.
    """
 
-   sender = None 
-   recipient = None
-   recipient_address = None
-   import_update_hash = None
-   address = None
-   sender_pubkey_hex = None
-   
+   # basic sanity checks 
    if len(senders) == 0:
-      raise Exception("No senders for (%s, %s)" % (opcode, hexlify(data)))
-  
-   # the first sender is always the first non-nulldata output script hex, and by construction
-   # of Blockstack, this is always the principal that issued the operation.
-   if 'script_pubkey' not in senders[0].keys():
-      raise Exception("No script_pubkey in sender of (%s, %s)" % (opcode, hexlify(data)))
+       raise Exception("No senders given")
    
-   if 'addresses' not in senders[0].keys():
-      log.error("No addresses in sender of (%s, %s)" % (opcode, hexlify(data)))
-      return None
-   
-   if len(senders[0]['addresses']) != 1:
-      log.error("Multisig transactions are unsupported for (%s, %s)" % (opcode, hexlify(data)))
-      return None
-   
-   sender = str(senders[0]['script_pubkey'])
-   address = str(senders[0]['addresses'][0])
+   # make sure each op has all the right fields defined 
+   try:
+       opcode = op_get_opcode_name( op )
+       assert opcode is not None, "Unrecognized opcode '%s'"  % op
+   except Exception, e:
+       log.exception(e)
+       log.error("Skipping unrecognized opcode")
+       return None
 
-   if str(senders[0]['script_type']) == 'pubkeyhash':
-      sender_pubkey_hex = get_public_key_hex_from_tx( inputs, address )
-   
-   if sender_pubkey_hex is None:
-      log.warning("No public key found for (%s, %s)" % (opcode, hexlify(data)))
-   
    op_fee = get_burn_fee_from_outputs( outputs )
-   
-   if opcode in [NAME_REGISTRATION, NAMESPACE_REVEAL]:
-      # these operations have a designated recipient that is *not* the sender
-      try:
-         recipient = get_registration_recipient_from_outputs( outputs )
-         recipient_address = pybitcoin.script_hex_to_address( recipient )
-      except Exception, e:
-         log.exception(e)
-         raise Exception("No registration address for (%s, %s)" % (opcode, hexlify(data)))
-     
-   
-   if opcode in [NAME_IMPORT, NAME_TRANSFER]:
-      # these operations have a designated recipient that is *not* the sender
-      try:
-         recipient = get_transfer_recipient_from_outputs( outputs )
-         recipient_address = pybitcoin.script_hex_to_address( recipient )
-      except Exception, e:
-         log.exception(e)
-         raise Exception("No recipient for (%s, %s)" % (opcode, hexlify(data)))
-      
-      
-   if opcode in [NAME_IMPORT]:
-      # this operation has an update hash embedded as a phony recipient 
-      try:
-         import_update_hash = get_import_update_hash_from_outputs( outputs, recipient )
-      except Exception, e:
-         log.exception(e)
-         raise Exception("No update hash for (%s, %s)" % (opcode, hexlify(data)))
-     
-         
-   op = parse_blockstack_op_data(opcode, data, sender, recipient=recipient, recipient_address=recipient_address, import_update_hash=import_update_hash )
-   
+
+   log.debug("PARSE %s at (%s, %s): %s" % (opcode, block_id, vtxindex, data.encode('hex')))
+
+   # get the data
+   op = None
+   try:
+       op = op_extract( opcode, data, senders, inputs, outputs, block_id, vtxindex, txid )
+   except Exception, e:
+       log.exception(e)
+       op = None
+
    if op is not None:
-      
-      # store the above ancillary data with the opcode, so our namedb can look it up later 
-      if fee is not None:
-         op['fee'] = fee 
-         
-      if op_fee is not None:
-         op['op_fee'] = op_fee 
-      
-      op['sender'] = sender 
-      op['address'] = address 
-      
-      if recipient is not None:
-         op['recipient'] = recipient
-      
-      if recipient_address is not None:
-         op['recipient_address'] = recipient_address
-      
-      if sender_pubkey_hex is not None:
-         op['sender_pubkey'] = sender_pubkey_hex
-       
- 
+
+       # propagate fees
+       if op_fee is not None:
+          op['op_fee'] = op_fee
+
+       # propagate tx data 
+       op['vtxindex'] = int(vtxindex)
+       op['txid'] = str(txid)
+
+   else:
+       log.error("Unparseable op '%s'" % opcode)
+
    return op
 
 
-def db_check( block_id, checked_ops, opcode, op, txid, vtxindex, to_commit_sanitized, db_state=None ):
-   """
-   (required by virtualchain state engine)
-   
-   Given the block ID and a parsed operation, check to see if this is a *valid* operation.
-   Is this operation consistent with blockstack's rules?
-   
-   checked_ops is a dict that maps opcodes to operations already checked by
-   this method for this block.
-   
-   A name or namespace can be affected at most once per block.  If it is 
-   affected more than once, then the opcode priority rules take effect, and
-   the lower priority opcodes are rejected.
+def check_mutate_fields( op, op_data ):
+    """
+    Verify that all mutate fields are present.
+    """
 
-   Return True if it's valid; False if not.
-   """
+    mutate_fields = op_get_mutate_fields( op )
+    assert mutate_fields is not None, "No mutate fields defined for %s" % op
 
-   if db_state is not None:
+    missing = []
+    for field in mutate_fields:
+        if not op_data.has_key(field):
+            missing.append(field)
+
+    assert len(missing) == 0, "Missing mutation fields for %s: %s" % (op, ",".join(missing))
+    return True
+
+
+def db_scan_block( block_id, op_list, db_state=None ):
+    """
+    (required by virtualchain state engine)
+
+    Given the block ID and the list of virtualchain operations in the block,
+    do block-level preprocessing:
+    * find the state-creation operations we will accept
+    * make sure there are no collisions.
+    """
+
+    try:
+        assert db_state is not None, "BUG: no state given"
+    except Exception, e:
+        log.exception(e)
+        log.error("FATAL: no state given")
+        os.abort()
+
+    checked_ops = []
+    for op_data in op_list:
+
+        try:
+            opcode = op_get_opcode_name( op_data['op'] ) 
+            assert opcode is not None, "BUG: unknown op '%s'" % op
+        except Exception, e:
+            log.exception(e)
+            log.error("FATAL: invalid operation")
+            os.abort()
+
+        if opcode not in OPCODE_CREATION_OPS:
+            continue 
+
+        # make sure there are no collisions:
+        # build up our collision table in db_state.
+        op_check( db_state, op_data, block_id, checked_ops )
+        checked_ops.append( op_data )
+
+
+    # get collision information for this block
+    collisions = db_state.find_collisions( checked_ops )
+
+    # reject all operations that will collide 
+    db_state.put_collisions( block_id, collisions )
     
-      db = db_state
-      rc = False
-    
-      all_ops = checked_ops['virtualchain_all_ops']
 
-      # find any collisions and mark them
-      colliding_names, colliding_namespaces = db.log_prescan_find_collisions( checked_ops, all_ops, block_id )
-      
-      # sanity check...
-      if opcode not in OPCODES:
-         log.error("Unrecognized opcode '%s'" % (opcode))
-         return False 
-      
-      # propagate txid and vtxindex data
-      if not op.has_key('txid'):
-          op['txid'] = str(txid)
-     
-      if not op.has_key('vtxindex'):
-          op['vtxindex'] = vtxindex
 
-      # check op for correctness
-      if opcode == NAME_PREORDER:
-         rc = db.log_preorder( checked_ops, op, block_id )
-
-      elif opcode == NAME_REGISTRATION:
-         if op['name'] not in colliding_names:
-             rc = db.log_registration( checked_ops, op, block_id )
-         else:
-             rc = False
-             log.error("COLLISION %s" % op['name'])
-
-      elif opcode == NAME_UPDATE:
-         rc = db.log_update( checked_ops, op, block_id )
-      
-      elif opcode == NAME_TRANSFER:
-         rc = db.log_transfer( checked_ops, op, block_id )
-      
-      elif opcode == NAME_REVOKE:
-         rc = db.log_revoke( checked_ops, op, block_id )
-      
-      elif opcode == NAME_IMPORT:
-         rc = db.log_name_import( checked_ops, op, block_id )
-         
-      elif opcode == NAMESPACE_PREORDER:
-         rc = db.log_namespace_preorder( checked_ops, op, block_id )
-      
-      elif opcode == NAMESPACE_REVEAL:
-         if op['namespace_id'] not in colliding_namespaces:
-             rc = db.log_namespace_reveal( checked_ops, op, block_id )
-         else:
-             rc = False 
-             log.error("COLLISION %s" % op['namespace_id'])
-      
-      elif opcode == NAMESPACE_READY:
-         rc = db.log_namespace_ready( checked_ops, op, block_id )
-         
-      elif opcode == ANNOUNCE:
-         rc, announcer_id = db.log_announce( checked_ops, op, block_id )
-         if rc:
-             # valid announcement
-             announce_hash = op['message_hash']
-
-             # go get the text...
-             announcement_text = get_announcement( announce_hash ) 
-             log.critical("ANNOUNCEMENT (from %s): %s\n------BEGIN MESSAGE------\n%s\n------END MESSAGE------\n" % (announcer_id, announce_hash, announcement_text))
-             
-             store_announcement( announce_hash, announcement_text )
-
-         # we do not process ANNOUNCEs, since they won't be fed into the consensus hash
-         return False 
-
-      debug_op = copy.deepcopy( op )
-      if debug_op.has_key('history'):
-         del debug_op['history']
-
-      if rc:
-         log.debug("ACCEPT op '%s' (%s)" % (opcode, json.dumps(debug_op, sort_keys=True)))
-
-      else:
-         log.debug("REJECT op '%s' (%s)" % (opcode, json.dumps(debug_op, sort_keys=True)))
-         
-      return rc
+def db_check( block_id, new_ops, op, op_data, txid, vtxindex, checked_ops, db_state=None ):
+    """
+    (required by virtualchain state engine)
    
-   else:
-      log.error("No state engine defined")
-      return False
+    Given the block ID and a parsed operation, check to see if this is a *valid* operation.
+    Is this operation consistent with blockstack's rules?
+   
+    checked_ops is a list of operations already checked by
+    this method for this block.
+   
+    A name or namespace can be affected at most once per block.  If it is 
+    affected more than once, then the opcode priority rules take effect, and
+    the lower priority opcodes are rejected.
+
+    Return True if it's valid; False if not.
+    """
+
+    accept = True 
+
+    if db_state is not None:
+        
+        try:
+            assert 'txid' in op_data, "Missing txid from op"
+            assert 'vtxindex' in op_data, "Missing vtxindex from op"
+            opcode = op_get_opcode_name( op )
+            assert opcode is not None, "BUG: unknown op '%s'" % op
+        except Exception, e:
+            log.exception(e)
+            log.error("FATAL: invalid operation")
+            os.abort()
+
+        log.debug("CHECK %s at (%s, %s)" % (opcode, block_id, vtxindex))
+        rc = op_check( db_state, op_data, block_id, checked_ops )
+        if rc:
+
+            try:
+                opcode = op_data.get('opcode', None)
+                assert opcode is not None, "BUG: op_check did not set an opcode"
+            except Exception, e:
+                log.exception(e)
+                log.error("FATAL: no opcode set")
+                os.abort()
+
+            # verify that all mutate fields are present 
+            rc = check_mutate_fields( opcode, op_data )
+            if not rc:
+                log.error("FATAL: bug in '%s' check() method did not return all mutate fields" % opcode)
+                os.abort()
+
+        else:
+            accept = False 
+
+    return accept
    
    
-def db_commit( block_id, opcode, op, txid, vtxindex, db_state=None ):
-   """
-   (required by virtualchain state engine)
+def db_commit( block_id, op, op_data, txid, vtxindex, db_state=None ):
+    """
+    (required by virtualchain state engine)
+
+    Advance the state of the state engine: get a list of all
+    externally visible state transitions.
    
-   Given a block ID and checked opcode, record it as 
-   part of the database.  This does *not* need to write 
-   the data to persistent storage, since save() will be 
-   called once per block processed.
+    Given a block ID and checked opcode, record it as 
+    part of the database.  This does *not* need to write 
+    the data to persistent storage, since save() will be 
+    called once per block processed.
   
-   Returns a new name record on success, which will 
-   be fed into db_serialize to translate into a string
-   to be used to generate this block's consensus hash.
-   """
-   
-   new_namerec = None 
+    Returns one or more new name operations on success, which will 
+    be fed into virtualchain to translate into a string
+    to be used to generate this block's consensus hash.
+    """
 
-   if db_state is not None:
-      
-      db = db_state
-      
-      if op is not None:
+    if db_state is not None:
+        if op_data is not None:
 
-        # committing an operation
-        # pass along tx info
-        if not op.has_key('txid') and txid is not None:
-            op['txid'] = txid
+            try:
+                assert 'txid' in op_data, "BUG: No txid given"
+                assert 'vtxindex' in op_data, "BUG: No vtxindex given"
+                assert op_data['txid'] == txid, "BUG: txid mismatch"
+                assert op_data['vtxindex'] == vtxindex, "BUG: vtxindex mismatch"
+                # opcode = op_get_opcode_name( op_data['op'] )
+                opcode = op_data.get('opcode', None)
+                assert opcode in OPCODE_PREORDER_OPS + OPCODE_CREATION_OPS + OPCODE_TRANSITION_OPS + OPCODE_STATELESS_OPS, \
+                                "BUG: uncategorized opcode '%s'" % opcode
 
-        if not op.has_key('vtxindex') and vtxindex is not None:
-            op['vtxindex'] = vtxindex
-            
-        if opcode == NAME_PREORDER:
-            new_namerec = db.commit_preorder( op, block_id )
+            except Exception, e:
+                log.exception(e)
+                log.error("FATAL: failed to commit operation")
+                os.abort()
 
-        elif opcode == NAME_REGISTRATION:
-            new_namerec = db.commit_registration( op, block_id )
+            if opcode in OPCODE_STATELESS_OPS:
+                # state-less operation 
+                return []
 
-        elif opcode == NAME_UPDATE:
-            new_namerec = db.commit_update( op, block_id )
+            else:
+                op_seq = db_state.commit_operation( op_data, block_id )
+                return op_seq
 
-        elif opcode == NAME_TRANSFER:
-            new_namerec = db.commit_transfer( op, block_id )
+        else:
+            # final commit for this block 
+            try:
+                db_state.commit_finished( block_id )
+            except Exception, e:
+                log.exception(e)
+                log.error("FATAL: failed to commit at block %s" % block_id )
+                os.abort()
 
-        elif opcode == NAME_REVOKE:
-            new_namerec = db.commit_revoke( op, block_id )
-            
-        elif opcode == NAME_IMPORT:
-            new_namerec = db.commit_name_import( op, block_id )
-            
-        elif opcode == NAMESPACE_PREORDER:
-            new_namerec = db.commit_namespace_preorder( op, block_id )
-            
-        elif opcode == NAMESPACE_REVEAL:
-            new_namerec = db.commit_namespace_reveal( op, block_id )
+            return None
 
-        elif opcode == NAMESPACE_READY:
-            new_namerec = db.commit_namespace_ready( op, block_id )
-     
-        if new_namerec:
-            
-            debug_op = copy.deepcopy( op )
-            if debug_op.has_key('history'):
-                del debug_op['history']
+    else:
+        log.error("FATAL: no state engine given")
+        os.abort()
 
-            log.debug("COMMIT op '%s' (%s)" % (opcode, json.dumps(debug_op, sort_keys=True)))
-
-      else:
-
-        # final commit before save
-        # do expirations
-        log.debug("Clear all expired names at %s" % block_id )
-        expired_names = db.commit_name_expire_all( block_id )
-        
-        log.debug("Clear all expired preorders at %s" % block_id )
-        expired_name_hashes = db.commit_preorder_expire_all( block_id )
-        
-        log.debug("Clear all expired namespace preorders at %s" % block_id )
-        expired_namespace_hashes = db.commit_namespace_preorder_expire_all( block_id )
-        
-        log.debug("Clear all expired partial namespace imports at %s" % block_id )
-        expired_namespaces = db.commit_namespace_reveal_expire_all( block_id )
-
-        # reset for next block
-        db.log_prescan_reset()
-        
-   else:
-      log.error("No state engine defined")
-      return None
-  
-   return new_namerec
 
 
 def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
@@ -689,30 +376,94 @@ def db_save( block_id, consensus_hash, pending_ops, filename, db_state=None ):
    (required by virtualchain state engine)
    
    Save all persistent state to stable storage.
-   Clear out expired names in the process.
    Called once per block.
    
    Return True on success
    Return False on failure.
    """
-   
-   db = db_state 
-   
-   # remove expired names before saving
-   if db is not None:
-      
-      # see if anything actually changed
-      if len(pending_ops.get('virtualchain_ordered', [])) > 0:
-          # state has changed 
-          log.debug("Save database %s" % filename)
-          return db.save_db( filename )
-      
-      else:
-          
-          # all good 
-          return True
-   
-   else:
-      log.error("No state engine defined")
-      return False 
 
+   from ..atlas import atlasdb_sync_zonefiles 
+
+   if db_state is not None:
+    
+        try:
+            # pre-calculate the ops hash for SNV
+            ops_hash = BlockstackDB.calculate_block_ops_hash( db_state, block_id )
+            db_state.store_block_ops_hash( block_id, ops_hash )
+        except Exception, e:
+            log.exception(e)
+            log.error("FATAL: failed to calculate ops hash at block %s" % block_id )
+            os.abort()
+
+        try:
+            # flush the database
+            db_state.commit_finished( block_id )
+        except Exception, e:
+            log.exception(e)
+            log.error("FATAL: failed to commit at block %s" % block_id )
+            os.abort()
+
+        try:
+            # sync block data to atlas, if enabled
+            blockstack_opts = get_blockstack_opts()
+            if blockstack_opts.get('atlas', False):
+                log.debug("Synchronize Atlas DB for %s" % (block_id-1))
+                zonefile_dir = blockstack_opts.get('zonefiles', get_zonefile_dir())
+
+                gc.collect()
+                atlasdb_sync_zonefiles( db_state, block_id-1, zonefile_dir=zonefile_dir )
+                gc.collect()
+
+        except Exception, e:
+            log.exception(e)
+            log.error("FATAL: failed to update Atlas db at %s" % block_id )
+            os.abort()
+
+        return True
+
+   else:
+       log.error("FATAL: no state engine given")
+       os.abort()
+
+
+def db_continue( block_id, consensus_hash ):
+    """
+    (required by virtualchain state engine)
+
+    Called when virtualchain has synchronized all state for this block.
+    Blockstack uses this as a preemption point where it can safely
+    exit if the user has so requested.
+    """
+
+    # every so often, clean up
+    if (block_id % 20) == 0:
+        log.debug("Pre-emptive garbage collection at %s" % block_id)
+        gc.collect(2)
+
+    return is_running() or os.environ.get("BLOCKSTACK_TEST") == "1"
+
+
+def sync_blockchain( bt_opts, last_block, expected_snapshots={}, **virtualchain_args ):
+    """
+    synchronize state with the blockchain.
+    Return True on success
+    Return False if we're supposed to stop indexing
+    Abort on error
+    """
+ 
+    # make this usable even if we haven't explicitly configured virtualchain 
+    impl = sys.modules[__name__]
+    if virtualchain.get_implementation() is not None:
+       impl = None
+
+    log.info("Synchronizing database up to block %s" % last_block)
+
+    db_filename = virtualchain.get_db_filename(impl=impl)
+
+    # NOTE: this is the only place where a read-write handle should be created,
+    # since this is the only place where the db should be modified.
+    new_db = BlockstackDB.borrow_readwrite_instance( db_filename, last_block, expected_snapshots=expected_snapshots )
+    rc = virtualchain.sync_virtualchain( bt_opts, last_block, new_db, expected_snapshots=expected_snapshots, **virtualchain_args )
+    BlockstackDB.release_readwrite_instance( new_db, last_block )
+
+    return rc
