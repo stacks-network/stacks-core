@@ -6,7 +6,7 @@ from setuptools import setup, find_packages
 exec(open('blockstack_client/version.py').read())
 
 setup(
-    name='blockstack-client',
+    name='blockstack',
     version=__version__,
     url='https://github.com/blockstack/blockstack-client',
     license='GPLv3',
@@ -22,9 +22,9 @@ setup(
     install_requires=[
         'virtualchain>=0.14.0',
         'protocoin>=0.2',
-        'blockstack-profiles>=0.4.4',
+        'blockstack-profiles>=0.14.0',
         'pybitcoin>=0.9.9',
-        'blockstack-zones>=0.1.6.1',
+        'blockstack-zones>=0.14.0',
         'defusedxml>=0.4.1',
         'keylib>=0.0.5',
         'mixpanel>=4.3.1',
