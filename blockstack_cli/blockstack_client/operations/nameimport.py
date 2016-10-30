@@ -23,8 +23,8 @@
 
 import pybitcoin
 from pybitcoin import embed_data_in_blockchain, \
-    analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, b58check_encode, b58check_decode, serialize_transaction, get_unspents
+    serialize_sign_and_broadcast, make_op_return_script, \
+    make_pay_to_address_script, serialize_transaction
 
  
 from pybitcoin.transactions.outputs import calculate_change_amount
@@ -85,15 +85,15 @@ def make_outputs( data, inputs, recipient_address, sender_address, update_hash_b
          "value": 0},
     
         # recipient output
-        {"script_hex": make_pay_to_address_script(recipient_address),
+        {"script_hex": virtualchain.make_payment_script(recipient_address),
          "value": dust_value},
         
         # update hash output
-        {"script_hex": make_pay_to_address_script(update_hash_b58),
+        {"script_hex": virtualchain.make_payment_script(update_hash_b58),
          "value": dust_value},
         
         # change output
-        {"script_hex": make_pay_to_address_script(sender_address),
+        {"script_hex": virtualchain.make_payment_script(sender_address),
          "value": calculate_change_amount(inputs, op_fee, dust_fee)}
     ]
 
@@ -107,34 +107,16 @@ def make_transaction(name, recipient_address, update_hash, payment_addr, blockch
     tx_fee = int(tx_fee)
 
     assert is_name_valid(name)
-    assert len(update_hash) == LENGTHS['update_hash'] * 2
+    assert len(update_hash) == LENGTH_VALUE_HASH * 2
 
     nulldata = build(name)
     
     # convert update_hash from a hex string so it looks like an address
-    update_hash_b58 = b58check_encode( unhexlify(update_hash) )
+    update_hash_b58 = pybitcoin.b58check_encode( unhexlify(update_hash), version_byte=virtualchain.version_byte )
     inputs = tx_get_unspents( payment_addr, blockchain_client )
     outputs = make_outputs(nulldata, inputs, recipient_address, payment_addr, update_hash_b58, tx_fee)
 
     return (inputs, outputs)
-
-
-def parse(bin_payload, recipient, update_hash ):
-    """
-    # NOTE: first three bytes were stripped
-    """
-    
-    fqn = bin_payload
-    if not is_name_valid( fqn ):
-        return None 
-
-    return {
-        'opcode': 'NAME_IMPORT',
-        'name': fqn,
-        'recipient': recipient,
-        'update_hash': update_hash
-    }
-
 
 
 def get_fees( inputs, outputs ):
@@ -143,4 +125,29 @@ def get_fees( inputs, outputs ):
     the subsidization of namespaces.
     """
     return (None, None)
+
+
+def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):
+    """
+    Given a name record most recently affected by an instance of this operation, 
+    find the dict of consensus-affecting fields from the operation that are not
+    already present in the name record.
+    """
+    
+    ret_op = {}
+
+    # reconstruct the recipient information
+    ret_op['recipient'] = str(name_rec['sender'])
+    ret_op['recipient_address'] = str(name_rec['address'])
+
+    # the preorder hash used is the *first* preorder hash calculated in a series of NAME_IMPORTs
+    if name_rec.has_key('preorder_hash'):
+        ret_op['preorder_hash'] = name_rec['preorder_hash']
+
+    else:
+        ret_op['preorder_hash'] = hash_name( str(name_rec['name']), name_rec['importer'], ret_op['recipient_address'] )
+
+    log.debug("restore preorder hash: %s --> %s (%s, %s, %s)" % (name_rec.get('preorder_hash', "None"), ret_op['preorder_hash'], name_rec['name'], name_rec['importer'], ret_op['recipient_address']))
+    return ret_op
+
 

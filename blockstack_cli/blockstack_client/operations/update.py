@@ -22,8 +22,8 @@
 """
 
 import pybitcoin
-from pybitcoin import embed_data_in_blockchain, make_op_return_tx, BlockchainInfoClient, BitcoinPrivateKey, \
-    BitcoinPublicKey, get_unspents, script_hex_to_address, hex_hash160, broadcast_transaction, serialize_transaction, \
+from pybitcoin import embed_data_in_blockchain, make_op_return_tx, BlockchainInfoClient, \
+    hex_hash160, broadcast_transaction, serialize_transaction, \
     make_op_return_outputs, make_op_return_script, make_pay_to_address_script
 
 from pybitcoin.transactions.outputs import calculate_change_amount
@@ -51,7 +51,7 @@ def update_sanity_test( name, consensus_hash, data_hash ):
     if data_hash is not None and not is_hex( data_hash ):
        raise Exception("Invalid hex string '%s': not hex" % (data_hash))
     
-    if len(data_hash) != 2 * LENGTHS['update_hash']:
+    if len(data_hash) != 2 * LENGTH_VALUE_HASH:
        raise Exception("Invalid hex string '%s': bad length" % (data_hash))
 
     return True
@@ -109,7 +109,7 @@ def make_outputs( data, inputs, change_address, tx_fee, pay_fee=True ):
          "value": 0},
         
         # change output
-        {"script_hex": make_pay_to_address_script(change_address),
+        {"script_hex": virtualchain.make_payment_script(change_address),
          "value": calculate_change_amount(inputs, op_fee, dust_fee)}
     ]
 
@@ -126,7 +126,7 @@ def make_transaction(name, data_hash, consensus_hash, payment_addr, blockchain_c
     payment_addr = str(payment_addr)
     tx_fee = int(tx_fee)
 
-    assert len(consensus_hash) == LENGTHS['consensus_hash'] * 2
+    assert len(consensus_hash) == LENGTH_CONSENSUS_HASH * 2
     assert is_name_valid(name)
     
     # sanity check 
@@ -140,37 +140,6 @@ def make_transaction(name, data_hash, consensus_hash, payment_addr, blockchain_c
     outputs = make_outputs( nulldata, inputs, payment_addr, tx_fee, pay_fee=pay_fee )
     
     return (inputs, outputs)
-
-
-def parse(bin_payload):
-    """
-    Parse a payload to get back the name and update hash.
-    NOTE: bin_payload excludes the leading three bytes.
-    """
-    
-    if len(bin_payload) != LENGTHS['name_hash'] + LENGTHS['data_hash']:
-        log.error("Invalid update length %s" % len(bin_payload))
-        return None 
-
-    name_hash_bin = bin_payload[:LENGTHS['name_hash']]
-    update_hash_bin = bin_payload[LENGTHS['name_hash']:]
-    
-    name_hash = hexlify( name_hash_bin )
-    update_hash = hexlify( update_hash_bin )
-  
-    try:
-        rc = update_sanity_test( None, name_hash, update_hash )
-        if not rc:
-            raise Exception("Invalid update data")
-    except Exception, e:
-        log.error("Invalid update data")
-        return None
-
-    return {
-        'opcode': 'NAME_UPDATE',
-        'name_hash': name_hash,
-        'update_hash': update_hash
-    }
 
 
 def get_fees( inputs, outputs ):
@@ -195,12 +164,25 @@ def get_fees( inputs, outputs ):
         return (None, None)
     
     # 1: change address 
-    if script_hex_to_address( outputs[1]["script_hex"] ) is None:
-        log.debug("No change address in outputs[1]")
+    if virtualchain.script_hex_to_address( outputs[1]["script_hex"] ) is None:
         return (None, None)
     
     dust_fee = (len(inputs) + 1) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
     op_fee = 0
     
     return (dust_fee, op_fee)
+
+
+def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):
+    """
+    Given a name record most recently affected by an instance of this operation, 
+    find the dict of consensus-affecting fields from the operation that are not
+    already present in the name record.
+    """
+    
+    ret_op = {}
+
+    # reconstruct name_hash
+    ret_op['name_consensus_hash'] = hash256_trunc128( str(name_rec['name']) + str(name_rec['consensus_hash']) )
+    return ret_op
 

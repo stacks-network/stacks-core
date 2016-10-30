@@ -1,4 +1,6 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
 """
     Blockstack-client
     ~~~~~
@@ -17,8 +19,8 @@
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
     You should have received a copy of the GNU General Public License
-    along with Blockstack-client.  If not, see <http://www.gnu.org/licenses/>.
+    along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-# this is the only place where version should be updated
-__version__ = '0.14.0'
+import blockstack_utxo
+from utxo import *

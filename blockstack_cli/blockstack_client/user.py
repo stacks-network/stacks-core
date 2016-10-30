@@ -25,6 +25,7 @@ import traceback
 import json
 import socket
 import base64
+import os
 
 from binascii import hexlify, unhexlify
 from utilitybelt import is_hex, hex_to_charset, charset_to_hex
@@ -209,10 +210,7 @@ def user_zonefile_set_data_pubkey( user_zonefile, pubkey_hex, key_prefix='pubkey
     for i in xrange(0, len(user_zonefile['txt'])):
         if user_zonefile['txt'][i]['txt'].startswith(key_prefix):
             # overwrite
-            user_zonefile['txt'][i]['txt'] = {
-                "name": "pubkey",
-                "txt": "%s%s" % (key_prefix, str(data_pubkey))
-            }
+            user_zonefile['txt'][i]['txt'] = "%s%s" % (key_prefix, str(pubkey_hex))
             return True
 
     # not present.  add.
@@ -237,6 +235,44 @@ def user_zonefile_urls( user_zonefile ):
             ret.append( urirec['target'].strip('"') )
 
     return ret
+
+
+def add_user_zonefile_url( user_zonefile, url ):
+    """
+    Add a url to a zonefile
+    Return the new zonefile on success
+    Return None on error or on duplicate URL
+    """
+    if not user_zonefile.has_key('uri'):
+        user_zonefile['uri'] = []
+
+    # avoid duplicates 
+    ret = []
+    for urirec in user_zonefile['uri']:
+        if urirec.has_key('target'):
+            if urirec['target'].strip('"') == url:
+                return None
+
+    new_urirec = url_to_uri_record( url )
+    user_zonefile['uri'].append( new_urirec )
+    return user_zonefile
+
+
+def remove_user_zonefile_url( user_zonefile, url ):
+    """
+    Remove a url from a zonefile
+    Return the new zonefile on success
+    Return None on error.
+    """
+    if not user_zonefile.has_key('uri'):
+        return None 
+
+    for urirec in user_zonefile['uri']:
+        if urirec.has_key('target'):
+            if urirec['target'].strip('"') == url:
+                user_zonefile['uri'].remove(urirec)
+
+    return user_zonefile
 
 
 def make_empty_user_profile():
@@ -416,16 +452,26 @@ def get_immutable_data_hash( user_zonefile, data_id ):
        h = None
        try:
            d_id = txtrec['name']
+           if d_id != data_id:
+               continue
+
            h = get_immutable_hash_from_txt( txtrec['txt'] )
-           assert storage.is_valid_hash(h)
-       except:
+           if h is None:
+               log.error("Missing or invalid data hash for '%s'" % d_id)
+
+           assert storage.is_valid_hash(h), "Invalid data hash for '%s' (got '%s' from %s)" % (d_id, h, txtrec['txt'])
+       except AssertionError, ae:
+           if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+               log.exception(ae)
+
            continue 
 
        if d_id == data_id:
            if ret is None:
                ret = h
            elif type(ret) != list:
-               ret = [ret]
+               ret = [ret, h]
+           else:
                ret.append(h)
 
    return ret
@@ -497,9 +543,9 @@ def has_mutable_data( user_profile, data_id ):
       return False
 
 
-def get_mutable_data_zonefile( user_profile, data_id ):
+def get_mutable_data_profile( user_profile, data_id ):
    """
-   Get the zonefile for a piece of mutable data, given
+   Get info for a piece of mutable data, given
    the user's profile and data_id.
    Return the route (as a dict) on success
    Return None if not found
@@ -520,9 +566,9 @@ def get_mutable_data_zonefile( user_profile, data_id ):
    return None
 
 
-def get_mutable_data_zonefile_ex( user_profile, data_id ):
+def get_mutable_data_profile_ex( user_profile, data_id ):
    """
-   Get the zonefile and associated metadata for a piece of mutable data, given
+   Get the metadata for a piece of mutable data, given
    the user's profile and data_id.
    Return the (route (as a dict), version, metadata key) on success
    Return (None, None, None) if not found
@@ -542,9 +588,9 @@ def get_mutable_data_zonefile_ex( user_profile, data_id ):
    return (None, None, None)
 
 
-def get_mutable_data_zonefile_md( user_profile, data_id ):
+def get_mutable_data_profile_md( user_profile, data_id ):
    """
-   Get the serialized zonefile key for a piece of mutable data, given
+   Get the serialized profile key for a piece of mutable data, given
    the user's profile and data_id.
    Return the mutable data key on success (an opaque but unique string)
    Return None if not found
@@ -595,9 +641,9 @@ def list_mutable_data( user_profile ):
     return ret
 
 
-def put_mutable_data_zonefile( user_profile, data_id, version, zonefile ):
+def put_mutable_data_profile( user_profile, data_id, version, zonefile ):
    """
-   Put a zonefile to mutable data to a user's profile.
+   Put mutable data to a user's profile.
    Only works if the zonefile has a later version field, or doesn't exist.
    Return True on success
    Return False if this is a duplicate
@@ -609,9 +655,9 @@ def put_mutable_data_zonefile( user_profile, data_id, version, zonefile ):
        user_profile['data'].update( zonefile )
        return True
   
-   existing_zonefile, existing_version, existing_md = get_mutable_data_zonefile_ex( user_profile, data_id )
+   existing_info, existing_version, existing_md = get_mutable_data_profile_ex( user_profile, data_id )
    
-   if existing_zonefile is None:
+   if existing_info is None:
        # first case of this mutable datum
        user_profile['data'].update( zonefile )
        return True 
@@ -629,9 +675,9 @@ def put_mutable_data_zonefile( user_profile, data_id, version, zonefile ):
            return True
 
 
-def remove_mutable_data_zonefile( user_profile, data_id ):
+def remove_mutable_data_profile( user_profile, data_id ):
    """
-   Remove a zonefile for mutable data from a user.
+   Remove info for mutable data from a user profile.
    Return True if removed
    Return False if the user had no such data.
    """
@@ -697,7 +743,7 @@ def is_mutable_data_md( rec ):
     return True
 
 
-def make_mutable_data_zonefile( data_id, version, urls ):
+def make_mutable_data( data_id, version, urls ):
     """
     Make a zonefile for mutable data.
     """
@@ -723,7 +769,7 @@ def mutable_data_version( user_profile, data_id ):
     Return 0 if it doesn't exist
     """
     
-    key = get_mutable_data_zonefile_md( user_profile, data_id )
+    key = get_mutable_data_profile_md( user_profile, data_id )
     if key is None:
         log.debug("No mutable data zonefiles installed for '%s'" % (data_id))
         return 0
@@ -732,11 +778,11 @@ def mutable_data_version( user_profile, data_id ):
     return version
 
 
-def mutable_data_zonefile_urls( mutable_zonefile ):
+def mutable_data_urls( mutable_info ):
     """
     Get the URLs from a mutable data zonefile
     """
-    uri_records = mutable_zonefile.get('uri')
+    uri_records = mutable_info.get('uri')
     if uri_records is None:
         return None 
 

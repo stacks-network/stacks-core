@@ -38,7 +38,7 @@ import blockstack_profiles
 import urllib
 
 from proxy import *
-from spv import SPVClient
+from virtualchain import SPVClient
 import storage
 
 import pybitcoin
@@ -97,6 +97,7 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
         sys.exit(1)
 
     # create proxy
+    log.debug('Connect to {}:{}'.format(server_host, server_port))
     proxy = BlockstackRPCClient(server_host, server_port)
 
     # load all storage drivers
@@ -108,7 +109,7 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
 
         rc = register_storage(storage_impl, conf)
         if not rc:
-            log.error("Failed to initialize storage driver '%s'" % (storage_driver))
+            log.error("Failed to initialize storage driver '%s' (%s)" % (storage_driver, rc))
             sys.exit(1)
 
     # initialize SPV
@@ -128,12 +129,12 @@ def load_storage(module_name):
     """
 
     try:
-        storage_impl = importlib.import_module("blockstack_storage_drivers.%s" % module_name)
+        storage_impl = importlib.import_module("blockstack_client.backend.drivers.%s" % module_name)
         name = storage_impl.__name__.split(".")[-1]
         storage_impl.__name__ = name
         log.debug("Loaded storage driver '%s'" % name)
     except ImportError, ie:
-        raise Exception("Failed to import blockstack_storage_drivers.%s.  Please verify that it is installed and is accessible via your PYTHONPATH" % module_name)
+        raise Exception("Failed to import blockstack_client.backend.drivers.%s.  Please verify that it is installed and is accessible via your PYTHONPATH" % module_name)
 
     return storage_impl
 
@@ -225,7 +226,7 @@ def analytics_event( event_type, event_payload, config_path=CONFIG_PATH, proxy=N
     return True
 
 
-def analytics_user_register( u, config_path=CONFIG_PATH, proxy=None ):
+def analytics_user_register( u, email, config_path=CONFIG_PATH, proxy=None ):
     """
     Register a user with the analytics service
     """

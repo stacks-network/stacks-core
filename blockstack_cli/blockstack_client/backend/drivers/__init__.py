@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -20,5 +21,9 @@
     along with Blockstack-client.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-# this is the only place where version should be updated
-__version__ = '0.14.0'
+import dht
+import disk
+import s3
+import blockstack_resolver
+import blockstack_server
+import http
