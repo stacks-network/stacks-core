@@ -49,7 +49,9 @@ import json
 import traceback
 import os
 import re
+import errno
 import pybitcoin
+import virtualchain
 import subprocess
 from socket import error as socket_error
 from time import sleep
@@ -58,6 +60,9 @@ import time
 import blockstack_zones
 import blockstack_profiles
 import requests
+import base64
+from decimal import Decimal
+
 requests.packages.urllib3.disable_warnings()
 
 import logging
@@ -75,6 +80,7 @@ from blockstack_client import \
     get_all_names, \
     get_consensus_at, \
     get_immutable, \
+    get_immutable_by_name, \
     get_mutable, \
     get_name_blockchain_record, \
     get_name_cost, \
@@ -97,7 +103,7 @@ from blockstack_client import \
     put_immutable, \
     put_mutable
 
-from blockstack_client.profile import profile_update
+from blockstack_client.profile import profile_update, zonefile_data_replicate
 
 from rpc import local_rpc_connect, local_rpc_status, local_rpc_stop, start_rpc_endpoint
 import rpc as local_rpc
@@ -105,7 +111,8 @@ import config
 from .config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH, CONFIG_DIR, configure, FIRST_BLOCK_TIME_UTC, get_utxo_provider_client, set_advanced_mode, \
         APPROX_PREORDER_TX_LEN, APPROX_REGISTER_TX_LEN, APPROX_UPDATE_TX_LEN, APPROX_TRANSFER_TX_LEN, APPROX_REVOKE_TX_LEN, APPROX_RENEWAL_TX_LEN
 
-from .storage import is_valid_name, is_valid_hash, is_b40
+from .storage import is_valid_hash, is_b40, get_drivers_for_url
+from .user import add_user_zonefile_url, remove_user_zonefile_url
 
 from pybitcoin import is_b58check_address
 
@@ -116,13 +123,16 @@ from .backend.nameops import estimate_preorder_tx_fee, estimate_register_tx_fee,
                             do_update, estimate_renewal_tx_fee
 
 from .backend.queue import queuedb_remove, queuedb_find
+from .backend.queue import extract_entry as queue_extract_entry
 
 from .wallet import *
+from .keys import *
 from .utils import pretty_dump, print_result
 from .proxy import *
 from .client import analytics_event
-from .scripts import UTXOException
-from .profile import zonefile_replicate
+from .app import app_register, app_unregister, app_get_wallet
+from .scripts import UTXOException, is_name_valid
+from .user import user_zonefile_urls, user_zonefile_data_pubkey, make_empty_user_zonefile 
 
 log = config.get_logger()
 
@@ -132,7 +142,7 @@ def check_valid_name(fqu):
     Return None on success
     Return an error string on error
     """
-    rc = is_valid_name( fqu )
+    rc = is_name_valid( fqu )
     if rc:
         return None
 
@@ -156,7 +166,7 @@ def check_valid_name(fqu):
     return "The name is invalid"
 
 
-def operation_sanity_check(fqu, payment_privkey, config_path=CONFIG_PATH, transfer_address=None, proxy=None):
+def operation_sanity_check(fqu, payment_privkey_info, owner_privkey_info, config_path=CONFIG_PATH, transfer_address=None, proxy=None):
     """
     Any update, transfer, renew, or revoke operation
     should pass these tests:
@@ -188,13 +198,13 @@ def operation_sanity_check(fqu, payment_privkey, config_path=CONFIG_PATH, transf
 
     # get tx fee 
     if transfer_address is not None:
-        tx_fee = estimate_transfer_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path, include_dust=True )
+        tx_fee = estimate_transfer_tx_fee( fqu, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=get_privkey_info_params(owner_privkey_info), config_path=config_path, include_dust=True )
         if tx_fee is None:
             # do our best 
             tx_fee = get_tx_fee( "00" * APPROX_TRANSFER_TX_LEN, config_path=config_path )
 
     else:
-        tx_fee = estimate_update_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path, include_dust=True )
+        tx_fee = estimate_update_tx_fee( fqu, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=get_privkey_info_params(owner_privkey_info), config_path=config_path, include_dust=True )
         if tx_fee is None:
             # do our best
             tx_fee = get_tx_fee( "00" * APPROX_UPDATE_TX_LEN, config_path=config_path )
@@ -223,8 +233,11 @@ def operation_sanity_check(fqu, payment_privkey, config_path=CONFIG_PATH, transf
     return {'status': True}
 
 
-def get_total_registration_fees(name, payment_privkey, owner_address, proxy=None, config_path=CONFIG_PATH, payment_address=None):
-
+def get_total_registration_fees(name, payment_privkey_info, owner_privkey_info, proxy=None, config_path=CONFIG_PATH, payment_address=None):
+    """
+    Get all fees associated with registrations.
+    Returned values are in satoshis.
+    """
     try:
         data = get_name_cost(name, proxy=proxy)
     except Exception, e:
@@ -235,7 +248,15 @@ def get_total_registration_fees(name, payment_privkey, owner_address, proxy=None
         return {'error': 'Could not determine price of name: %s' % data['error']}
 
     insufficient_funds = False
-    payment_address = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().address()
+    owner_address = None
+    payment_address = None
+
+    if payment_privkey_info is not None:
+        payment_address = get_privkey_info_address(payment_privkey_info)
+
+    if owner_privkey_info is not None:
+        owner_address = get_privkey_info_address(owner_privkey_info)
+
     utxo_client = get_utxo_provider_client( config_path=config_path )
     
     # fee stimation: cost of name + cost of preorder transaction + cost of registration transaction + cost of update transaction
@@ -247,9 +268,28 @@ def get_total_registration_fees(name, payment_privkey, owner_address, proxy=None
     update_tx_fee = None
 
     try:
-        preorder_tx_fee = estimate_preorder_tx_fee( name, data['satoshis'], payment_address, utxo_client, config_path=config_path, include_dust=True )
-        register_tx_fee = estimate_register_tx_fee( name, payment_address, utxo_client, config_path=config_path, include_dust=True )
-        update_tx_fee = estimate_update_tx_fee( name, payment_privkey, owner_address, utxo_client, config_path=config_path, payment_address=payment_address, include_dust=True )
+        preorder_tx_fee = estimate_preorder_tx_fee( name, data['satoshis'], payment_address, utxo_client, owner_privkey_params=get_privkey_info_params(owner_privkey_info), config_path=config_path, include_dust=True )
+        if preorder_tx_fee is None:
+            # do our best
+            preorder_tx_fee = get_tx_fee( "00" * APPROX_PREORDER_TX_LEN, config_path=config_path )
+            insufficient_funds = True
+        else:
+            preorder_tx_fee = int(preorder_tx_fee)
+
+        register_tx_fee = estimate_register_tx_fee( name, payment_address, utxo_client, owner_privkey_params=get_privkey_info_params(owner_privkey_info), config_path=config_path, include_dust=True )
+        if register_tx_fee is None:
+            register_tx_fee = get_tx_fee( "00" * APPROX_REGISTER_TX_LEN, config_path=config_path )
+            insufficient_funds = True
+        else:
+            register_tx_fee = int(register_tx_fee)
+
+        update_tx_fee = estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_client, \
+                                                owner_privkey_params=get_privkey_info_params(owner_privkey_info), config_path=config_path, payment_address=payment_address, include_dust=True)
+        if update_tx_fee is None:
+            update_tx_fee = get_tx_fee( "00" * APPROX_UPDATE_TX_LEN, config_path=config_path )
+            insufficient_funds = True
+        else:
+            update_tx_fee = int(update_tx_fee)
 
     except UTXOException, ue:
         log.error("Failed to query UTXO provider.")
@@ -258,34 +298,15 @@ def get_total_registration_fees(name, payment_privkey, owner_address, proxy=None
 
         return {'error': 'Failed to query UTXO provider.  Please try again.'}
 
-    if preorder_tx_fee is None:
-        # do our best
-        preorder_tx_fee = get_tx_fee( "00" * APPROX_PREORDER_TX_LEN, config_path=config_path )
-        insufficient_funds = True
-    else:
-        preorder_tx_fee = int(preorder_tx_fee)
-
-    if register_tx_fee is None:
-        register_tx_fee = get_tx_fee( "00" * APPROX_REGISTER_TX_LEN, config_path=config_path )
-        insufficient_funds = True
-    else:
-        register_tx_fee = int(register_tx_fee)
-
-    if update_tx_fee is None:
-        update_tx_fee = get_tx_fee( "00" * APPROX_UPDATE_TX_LEN, config_path=config_path )
-        insufficient_funds = True
-    else:
-        update_tx_fee = int(update_tx_fee)
-
     reply['preorder_tx_fee'] = int(preorder_tx_fee)
     reply['register_tx_fee'] = int(register_tx_fee)
     reply['update_tx_fee'] = int(update_tx_fee)
     reply['total_estimated_cost'] = int(reply['name_price']) + reply['preorder_tx_fee'] + reply['register_tx_fee'] + reply['update_tx_fee']
 
-    if insufficient_funds and payment_privkey is not None:
+    if insufficient_funds and payment_privkey_info is not None:
         reply['warnings'] = ["Insufficient funds; fees are rough estimates."]
 
-    if payment_privkey is None:
+    if payment_privkey_info is None:
         if not reply.has_key('warnings'):
             reply['warnings'] = []
 
@@ -316,14 +337,17 @@ def load_zonefile( fqu, zonefile_data, check_current=True ):
     either JSON or text.  Verify that it is
     well-formed and current.
 
-    Return {'status': True, 'zonefile': the zonefile data (as a dict)} on success.
+    Return {'status': True, 'zonefile': the serialized zonefile data (as a string)} on success.
     Return {'error': ...} on error
+    Return {'error': ..., 'identical': True, 'zonefile': serialized zonefile string} if the zonefile is identical
     """
     
     user_data = str(zonefile_data)
+    user_zonefile = None
     try:
         user_data = json.loads(user_data)
     except:
+        log.debug("Zonefile is not a serialized JSON string; try parsing as text")
         try:
             user_data = blockstack_zones.parse_zone_file(user_data)
 
@@ -331,7 +355,10 @@ def load_zonefile( fqu, zonefile_data, check_current=True ):
             tmp = {}
             tmp.update(user_data)
             user_data = tmp
-        except:
+        except Exception, e:
+            if os.environ.get("BLOCKSTACK_TEST") == "1":
+                log.exception(e)
+
             return {'error': 'Zonefile data is invalid.'}
 
     # is this a zonefile?
@@ -344,12 +371,15 @@ def load_zonefile( fqu, zonefile_data, check_current=True ):
 
     # sanity checks...
     if not user_data.has_key('$origin') or user_data['$origin'] != fqu:
+        log.error("Zonefile is missing or has invalid $origin")
         return {'error': 'Invalid $origin; must use your name'}
 
     if not user_data.has_key('$ttl'):
+        log.error("Zonefile is missing a TTL")
         return {'error': 'Missing $ttl; please supply a positive integer'}
 
     if not is_user_zonefile(user_data):
+        log.error("Zonefile is non-standard")
         return {'error': 'Zonefile is missing or has invalid URI and/or TXT records'}
 
     try:
@@ -359,10 +389,11 @@ def load_zonefile( fqu, zonefile_data, check_current=True ):
         return {'error': 'Invalid $ttl; must be a positive integer'}
 
     if check_current and is_zonefile_current(fqu, user_data):
-        msg ="Zonefile data is same as current zonefile; update not needed."
-        return {'error': msg}
+        msg = "Zonefile data is same as current zonefile; update not needed."
+        log.error(msg)
+        return {'error': msg, 'identical': True, 'zonefile': user_zonefile}
 
-    return {'status': True, 'zonefile': user_data}
+    return {'status': True, 'zonefile': user_zonefile}
 
 
 def cli_configure( args, config_path=CONFIG_PATH ):
@@ -410,7 +441,8 @@ def cli_price( args, config_path=CONFIG_PATH, proxy=None, password=None):
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
 
-    payment_privkey = None
+    payment_privkey_info = None
+    owner_privkey_info = None
     payment_address = None
     owner_address = None
 
@@ -425,10 +457,14 @@ def cli_price( args, config_path=CONFIG_PATH, proxy=None, password=None):
             if 'error' in wallet_keys:
                 return wallet_keys
 
-            payment_privkey = wallet_keys['payment_privkey']
+            payment_privkey_info = wallet_keys['payment_privkey']
+            owner_privkey_info = wallet_keys['owner_privkey']
         
-        except OSError, IOError:
+        except (OSError, IOError), e:
             # backend is not running; estimate with addresses
+            if os.environ.get("BLOCKSTACK_DEBUG") == "1":
+                log.exception(e)
+
             pass
 
     # must be available 
@@ -440,8 +476,21 @@ def cli_price( args, config_path=CONFIG_PATH, proxy=None, password=None):
     if 'owner_address' in blockchain_record:
         return {'error': 'Name already registered.'}
 
-    fees = get_total_registration_fees( fqu, payment_privkey, owner_address, proxy=proxy, config_path=config_path, payment_address=payment_address )
+    fees = get_total_registration_fees( fqu, payment_privkey_info, owner_privkey_info, proxy=proxy, config_path=config_path, payment_address=payment_address )
     analytics_event( "Name price", {} )
+
+    if 'error' in fees:
+        return fees
+
+    # convert to BTC
+    btc_keys = ['preorder_tx_fee', 'register_tx_fee', 'update_tx_fee', 'total_estimated_cost', 'name_price']
+    for k in btc_keys:
+        v = {
+            "satoshis": "%s" % fees[k],
+            "btc": "%s" % float(Decimal(fees[k] * 10e-8))
+        }
+        fees[k] = v
+
     return fees
 
 
@@ -517,8 +566,6 @@ def get_server_info( args, config_path=config.CONFIG_PATH, get_local_info=False 
     resp = getinfo()
     result = {}
 
-    result['server_host'] = conf['server']
-    result['server_port'] = str(conf['port'])
     result['cli_version'] = config.VERSION
     result['advanced_mode'] = conf['advanced_mode']
 
@@ -529,17 +576,47 @@ def get_server_info( args, config_path=config.CONFIG_PATH, get_local_info=False 
     else:
         result['server_alive'] = True
 
-        if 'blockstack_version' in resp:
-            result['server_version'] = resp['blockstack_version']
+        if 'server_host' in resp:
+            result['server_host'] = resp['server_host']
+        else:
+            result['server_host'] = conf['server']
+
+        if 'server_port' in resp:
+            result['server_port'] = resp['server_port']
+        else:
+            result['server_port'] = int(conf['port'])
+
+        if 'server_version' in resp:
+            result['server_version'] = resp['server_version']
         elif 'blockstack_version' in resp:
             result['server_version'] = resp['blockstack_version']
+        elif 'blockstore_version' in resp:
+            result['server_version'] = resp['blockstore_version']
+        else:
+            raise Exception("Missing server version")
+
+        if 'last_block_processed' in resp:
+            result['last_block_processed'] = resp['last_block_processed']
+        elif 'last_block' in resp:
+            result['last_block_processed'] = resp['last_block']
+        elif 'blocks' in resp:
+            result['last_block_processed'] = resp['blocks']
+        else:
+            raise Exception("Missing height of block last processed")
+
+        if 'last_block_seen' in resp:
+            result['last_block_seen'] = resp['last_block_seen']
+        elif 'blockchain_blocks' in resp:
+            result['last_block_seen'] = resp['blockchain_blocks']
+        elif 'bitcoind_blocks' in resp:
+            result['last_block_seen'] = resp['bitcoind_blocks']
+        else:
+            raise Exception("Missing height of last block seen")
 
         try:
-            result['last_block_processed'] = resp['last_block']
+            result['consensus_hash'] = resp['consensus']
         except:
-            result['last_block_processed'] = resp['blocks']
-        result['last_block_seen'] = resp['bitcoind_blocks']
-        result['consensus_hash'] = resp['consensus']
+            raise Exception("Missing consensus hash")
 
         if get_local_info:
             # get state of pending names
@@ -654,12 +731,12 @@ def cli_lookup( args, config_path=CONFIG_PATH ):
     if blockchain_record.has_key('revoked') and blockchain_record['revoked']:
         return {'error': 'Name is revoked.  Use get_name_blockchain_record for details.'}
     try:
-        user_profile, user_zonefile = get_name_profile(str(args.name), name_record=blockchain_record)
-        if 'error' in user_zonefile:
+        user_profile, user_zonefile = get_name_profile(str(args.name), name_record=blockchain_record, include_raw_zonefile=True)
+        if isinstance(user_zonefile, dict) and 'error' in user_zonefile:
             return user_zonefile
 
         data['profile'] = user_profile
-        data['zonefile'] = user_zonefile
+        data['zonefile'] = user_zonefile['raw_zonefile']
     except Exception, e:
         log.exception(e)
         return {'error': 'Failed to look up name\n%s' % traceback.format_exc()}
@@ -733,6 +810,36 @@ def cli_whois( args, config_path=CONFIG_PATH ):
     return result
 
 
+def get_wallet_with_backoff( config_path ):
+    """
+    Get the wallet, but keep trying
+    in the case of a ECONNREFUSED
+    (i.e. the API daemon could still be initializing)
+
+    Return the wallet keys on success (as a dict)
+    return {'error': ...} on error
+    """
+
+    wallet_keys = None
+    for i in xrange(0, 3):
+        try:
+            wallet_keys = get_wallet( config_path=config_path )
+            return wallet_keys
+        except (IOError, OSError), se:
+            if se.errno == errno.ECONNREFUSED:
+                # still spinning up
+                time.sleep(i+1)
+                continue
+            else:
+                raise
+
+    if i == 3:
+        log.error("Failed to get_wallet")
+        wallet_keys = {'error': 'Failed to connect to API daemon'}
+
+    return wallet_keys
+
+
 def get_wallet_keys( config_path, password ):
     """
     Load up the wallet keys
@@ -747,18 +854,42 @@ def get_wallet_keys( config_path, password ):
         if 'error' in res:
             return res
 
-    if not walletUnlocked(config_dir=config_dir):
+    if not is_wallet_unlocked(config_dir=config_dir):
         log.debug("unlocking wallet (%s)" % config_dir)
         res = unlock_wallet(config_dir=config_dir, password=password)
         if 'error' in res:
-            log.debug("unlock_wallet: %s" % res['error'])
+            log.error("unlock_wallet: %s" % res['error'])
             return res
 
-    wallet_keys = get_wallet( config_path=config_path )
-    if 'error' in wallet_keys:
-        return wallet_keys
+    return get_wallet_with_backoff( config_path )
 
-    return wallet_keys
+
+def prompt_invalid_zonefile():
+    """
+    Prompt the user whether or not to replicate
+    an invalid zonefile
+    """
+    warning_str = "\n"
+    warning_str += "WARNING!  This zone file data does not look like a zone file.\n"
+    warning_str += "If you proceed to use this data, no one will be able to look\n"
+    warning_str += "up your profile.\n"
+    warning_str += "\n"
+    warning_str += "Proceed? (Y/n): "
+    proceed = raw_input(warning_str)
+    return proceed.lower() in ['y']
+
+
+def is_valid_path( path ):
+    """
+    Is the given string a valid path?
+    """
+    if type(path) not in [str]:
+        return False
+
+    if '\x00' in path:
+        return False
+
+    return True
 
 
 def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None ):
@@ -793,36 +924,38 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
     if 'error' in wallet_keys:
         return wallet_keys
 
-    owner_privkey = wallet_keys['owner_privkey']
-    payment_privkey = wallet_keys['payment_privkey']
-    data_privkey = wallet_keys['data_privkey']
-    owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
-    owner_address = pybitcoin.BitcoinPublicKey(owner_pubkey).address()
-    payment_address = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().address()
-    data_address = pybitcoin.BitcoinPrivateKey(data_privkey).public_key().address()
+    owner_privkey_info = wallet_keys['owner_privkey']
+    payment_privkey_info = wallet_keys['payment_privkey']
 
-    fees = get_total_registration_fees(fqu, payment_privkey, owner_address, proxy=proxy, config_path=config_path)
+    owner_address = get_privkey_info_address( owner_privkey_info )
+    payment_address = get_privkey_info_address( payment_privkey_info )
+
+    fees = get_total_registration_fees(fqu, payment_privkey_info, owner_privkey_info, proxy=proxy, config_path=config_path)
     if 'error' in fees:
         return fees
 
     if interactive:
         try:
             cost = fees['total_estimated_cost']
-            input_prompt = "Registering %s will cost %s BTC." % (fqu, float(cost)/(10**8))
-            input_prompt += " Continue? (y/n): "
+            input_prompt = "Registering %s will cost %s BTC.\n" % (fqu, float(cost)/(10**8))
+            input_prompt+= "The entire process takes 30 confirmations, or about 5 hours.\n"
+            input_prompt+= "You need to have Internet access during this time period, so\n"
+            input_prompt+= "this program can send the right transactions at the right\n"
+            input_prompt+= "times.\n\n"
+            input_prompt += "Continue? (Y/n): "
             user_input = raw_input(input_prompt)
             user_input = user_input.lower()
 
-            if user_input != 'y':
+            if user_input.lower() != 'y':
                 print "Not registering."
                 exit(0)
         except KeyboardInterrupt:
             print "\nExiting."
             exit(0)
 
-    balance = get_balance( payment_address )
+    balance = get_balance( payment_address, config_path=config_path )
     if balance < fees['total_estimated_cost']:
-        msg = "Address %s doesn't have enough balance (need %s)." % (payment_address, fees['total_estimated_cost'])
+        msg = "Address %s doesn't have enough balance (need %s, have %s)." % (payment_address, fees['total_estimated_cost'], balance)
         return {'error': msg}
 
     if not can_receive_name(owner_address, proxy=proxy):
@@ -855,13 +988,160 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
     return result
 
 
-def cli_update( args, config_path=CONFIG_PATH, password=None ):
+def configure_zonefile( name, zonefile, data_pubkey=None ):
+    """
+    Given a name and zonefile, help the user configure the
+    zonefile information to store (just URLs for now).
+
+    @zonefile must be parsed and must be a dict.
+
+    Return the new zonefile on success
+    Return None if the zonefile did not change.
+    """
+    if zonefile is None:
+        print "WARNING: No zonefile could be found."
+        print "WARNING: Creating an empty zonefile."
+        zonefile = make_empty_user_zonefile( name, data_pubkey )
+
+    running = True
+    do_update = True
+    old_zonefile = {}
+    old_zonefile.update( zonefile )
+
+    while running:
+        public_key = user_zonefile_data_pubkey( zonefile ) 
+        urls = user_zonefile_urls( zonefile ) 
+        if urls is None:
+            urls = []
+
+        url_drivers = {}
+
+        # which drivers?
+        for url in urls:
+            drivers = get_drivers_for_url( url )
+            url_drivers[url] = drivers
+
+        print "-" * 80
+
+        if public_key is not None:
+            print "Data public key: %s" % public_key
+        else:
+            print "Data public key: (not set)"
+
+        print ""
+        print "Profile replicas (%s):" % len(urls)
+        if len(urls) > 0:
+            for i in xrange(0, len(urls)):
+                url = urls[i]
+                drivers = get_drivers_for_url( url )
+                print "(%s) [%s] at %s" % (i+1, join([d.__name__ for d in drivers]), url)
+
+        else:
+            print "(none)"
+
+        print ""
+        print "What would you like to do?"
+        print "(a) Add URL"
+        print "(b) Remove URL"
+        print "(c) Save zonefile"
+        print "(d) Do not save zonefile"
+        print ""
+        selection = raw_input("Selection: ").lower()
+
+        if selection == "d":
+            do_update = False
+            break
+
+        elif selection == "a":
+            # add a url 
+            while True:
+                try:
+                    new_url = raw_input("Enter the new profile URL: ")
+                except KeyboardInterrupt:
+                    print "Keyboard interrupt"
+                    break
+
+                new_url = new_url.strip()
+
+                # do any drivers accept this URL?
+                drivers = get_drivers_for_url( new_url )
+                if len(drivers) == 0:
+                    print "No drivers can handle %s" % new_url
+                    continue
+
+                else:
+                    # add to the zonefile
+                    new_zonefile = add_user_zonefile_url( zonefile, new_url )
+                    if new_zonefile is None:
+                        print "Duplicate URL"
+                        continue
+
+                    else:
+                        zonefile = new_zonefile
+                        break
+
+
+        elif selection == "b":
+            # remove a URL
+            url_to_remove = None
+            while True:
+                try:
+                    url_to_remove = raw_input("Which URL do you want to remove? (%s-%s): " % (1, len(urls)+1))
+                    try:
+                        url_to_remove = int(url_to_remove)
+                        assert 1 <= url_to_remove and url_to_remove <= len(urls)+1
+                    except:
+                        print "Bad selection"
+                        continue
+
+                    break
+                except KeyboardInterrupt:
+                    running = False
+                    print "Keyboard interrupt"
+                    break
+
+                if url_to_remove is not None:
+                    # remove this URL 
+                    url = urls[url_to_remove-1]
+                    new_zonefile = remove_user_zonefile_url( zonefile, url )
+                    if new_zonefile is None:
+                        print "BUG: failed to remove url '%s' from zonefile\n%s\n" % (url, json.dumps(zonefile, indent=4, sort_keys=True))
+                        os.abort()
+
+                    else:
+                        zonefile = new_zonefile
+                        break
+
+        elif selection == "c":
+            # save zonefile
+            break
+
+    # did the zonefile change?
+    if zonefile == old_zonefile:
+        # no changes
+        return None
+    else:
+        return zonefile
+
+
+def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, proxy=None, nonstandard=False ):
     """
     command: update norpc
     help: Set the zone file for a name
     arg: name (str) "The name to update"
-    arg: data (str) "A bare zonefile, or a JSON-serialized zonefile."
+    opt: data (str) "A zone file string, or a path to a file with the data."
+    opt: nonstandard (str) "If true, then do not validate or parse the zonefile."
     """
+
+    if not interactive and (not hasattr(args, "data") or args.data is None):
+        return {'error': 'Zone file data required in non-interactive mode'}
+        
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    if hasattr(args, 'nonstandard') and not nonstandard:
+        if args.nonstandard.lower() in ['yes', '1', 'true']:
+            nonstandard = True
 
     config_dir = os.path.dirname(config_path)
     res = wallet_ensure_exists(config_dir)
@@ -873,34 +1153,92 @@ def cli_update( args, config_path=CONFIG_PATH, password=None ):
         return res
 
     fqu = str(args.name)
+    zonefile_data = None
+    if hasattr(args, "data") and args.data is not None:
+        zonefile_data = str(args.data)
 
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
 
-    # load zonefile
-    user_data_res = load_zonefile( fqu, args.data )
-    if 'error' in user_data_res:
-        log.error("Failed to parse zonefile: %s" % user_data_res['error'])
-        return {'error': user_data_res['error']}
-
-    user_data = user_data_res['zonefile']
+    # is this a path?
+    if zonefile_data is not None and is_valid_path(zonefile_data) and os.path.exists(zonefile_data):
+        try:
+            with open(zonefile_data) as f:
+                zonefile_data = f.read()
+        except:
+            return {'error': 'Failed to read "%s"' % zonefile_data}
     
     # load wallet
     wallet_keys = get_wallet_keys( config_path, password )
     if 'error' in wallet_keys:
         return wallet_keys
 
-    payment_privkey = wallet_keys['payment_privkey']
+    # fetch remotely?
+    if zonefile_data is None:
+        zonefile_data_res = get_name_zonefile( fqu, proxy=proxy, wallet_keys=wallet_keys, raw_zonefile=True )
+        if zonefile_data_res is None:
+            zonefile_data_res = {'error': 'No zonefile'}
+        
+        if 'error' in zonefile_data_res:
+            log.warning("Failed to fetch zonefile: %s" % zonefile_data_res['error'])
 
-    res = operation_sanity_check(fqu, payment_privkey, config_path=config_path)
+        else:
+            zonefile_data = zonefile_data_res['zonefile']
+
+    # load zonefile, if given 
+    user_data_txt = None
+    user_data_hash = None
+    user_zonefile_dict = {}
+
+    user_data_res = load_zonefile( fqu, zonefile_data )
+    if 'error' in user_data_res:
+        if 'identical' in user_data_res.keys():
+            return {'error': 'Zonefile matches the current name hash; not updating.'}
+
+        #  not a well-formed zonefile (but maybe that's okay! ask the user)
+        if interactive:
+            if zonefile_data is not None:
+                # something invalid here.  prompt overwrite
+                proceed = prompt_invalid_zonefile()
+                if not proceed:
+                    return {'error': "Zone file not updated (reason: %s)" % user_data_res['error']}
+
+        else:
+            if zonefile_data is None or nonstandard:
+                log.warning("Using non-zonefile data")
+            else:
+                return {'error': 'Zone file not updated (invalid)'}
+
+        user_data_txt = zonefile_data
+        if zonefile_data is not None:
+            user_data_hash = storage.get_zonefile_data_hash(zonefile_data) 
+
+    else:
+        user_data_txt = user_data_res['zonefile']
+        user_data_hash = storage.get_zonefile_data_hash( user_data_res['zonefile'] )
+        user_zonefile_dict = blockstack_zones.parse_zone_file( user_data_res['zonefile'] )
+
+    # open the zonefile editor
+    data_pubkey = wallet_keys['data_pubkey']
+
+    if interactive:
+        new_zonefile = configure_zonefile( fqu, user_zonefile_dict, data_pubkey=data_pubkey )
+        if new_zonefile is None:
+            # zonefile did not change; nothing to do
+            return {'error': 'Zonefile did not change.  No update sent.'}
+
+    payment_privkey_info = wallet_keys['payment_privkey']
+    owner_privkey_info = wallet_keys['owner_privkey']
+
+    res = operation_sanity_check(fqu, payment_privkey_info, owner_privkey_info, config_path=config_path)
     if 'error' in res:
         return res
 
     rpc = local_rpc_connect(config_dir=config_dir)
 
     try:
-        resp = rpc.backend_update(fqu, user_data, None, None)
+        resp = rpc.backend_update(fqu, base64.b64encode(user_data_txt), None, user_data_hash)
     except Exception, e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -909,11 +1247,11 @@ def cli_update( args, config_path=CONFIG_PATH, password=None ):
         result = resp
     else:
         if 'error' in resp:
-            log.debug("Backend failed to queue update: %s" % resp['error'])
+            log.error("Backend failed to queue update: %s" % resp['error'])
             return resp
 
         if 'message' in resp:
-            log.debug("Backend update error: %s" % resp['message'])
+            log.error("Backend reports error: %s" % resp['message'])
             return {'error': resp['message']}
 
     analytics_event( "Update name", {} )
@@ -951,10 +1289,11 @@ def cli_transfer( args, config_path=CONFIG_PATH, password=None ):
     if 'error' in wallet_keys:
         return wallet_keys
 
-    payment_privkey = wallet_keys['payment_privkey']
+    payment_privkey_info = wallet_keys['payment_privkey']
+    owner_privkey_info = wallet_keys['owner_privkey']
 
     transfer_address = str(args.address)
-    res = operation_sanity_check(fqu, payment_privkey, transfer_address=transfer_address, config_path=config_path)
+    res = operation_sanity_check(fqu, payment_privkey_info, owner_privkey_info, transfer_address=transfer_address, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -1011,11 +1350,11 @@ def cli_renew( args, config_path=CONFIG_PATH, interactive=True, password=None, p
     if 'error' in wallet_keys:
         return wallet_keys
 
-    owner_privkey = wallet_keys['owner_privkey']
-    payment_privkey = wallet_keys['payment_privkey']
-    owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
-    owner_address = pybitcoin.BitcoinPublicKey(owner_pubkey).address()
-    payment_address = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().address()
+    owner_privkey_info = wallet_keys['owner_privkey']
+    payment_privkey_info = wallet_keys['payment_privkey']
+
+    owner_address = get_privkey_info_address(owner_privkey_info)
+    payment_address = get_privkey_info_address(payment_privkey_info)
 
     if not is_name_owner(fqu, owner_address, proxy=proxy):
         return {'error': '%s is not in your possession.' % fqu}
@@ -1033,10 +1372,8 @@ def cli_renew( args, config_path=CONFIG_PATH, interactive=True, password=None, p
     utxo_client = get_utxo_provider_client( config_path=config_path )
     
     # fee stimation: cost of name + cost of renewal transaction
-    payment_pubkey_hex = pybitcoin.BitcoinPrivateKey(payment_privkey).public_key().to_hex()
-
     name_price = renewal_fee['satoshis']
-    renewal_tx_fee = estimate_renewal_tx_fee( fqu, payment_privkey, owner_address, utxo_client, config_path=config_path )
+    renewal_tx_fee = estimate_renewal_tx_fee( fqu, name_price, payment_privkey_info, owner_privkey_info, utxo_client, config_path=config_path )
     if renewal_tx_fee is None:
         return {'error': 'Failed to estimate fee'}
 
@@ -1057,7 +1394,7 @@ def cli_renew( args, config_path=CONFIG_PATH, interactive=True, password=None, p
             print "\nExiting."
             exit(0)
 
-    balance = get_balance( payment_address )
+    balance = get_balance( payment_address, config_path=config_path )
     if balance < cost:
         msg = "Address %s doesn't have enough balance (need %s)." % (payment_address, balance)
         return {'error': msg}
@@ -1120,13 +1457,12 @@ def cli_revoke( args, config_path=CONFIG_PATH, interactive=True, password=None, 
     if 'error' in wallet_keys:
         return wallet_keys
 
-    owner_privkey = wallet_keys['owner_privkey']
-    payment_privkey = wallet_keys['payment_privkey']
-    owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
-    owner_address = pybitcoin.BitcoinPublicKey(owner_pubkey).address()
-    payment_address = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().address()
+    owner_privkey_info = wallet_keys['owner_privkey']
+    payment_privkey_info = wallet_keys['payment_privkey']
+    owner_address = get_privkey_info_address( owner_privkey_info )
+    payment_address = get_privkey_info_address( payment_privkey_info )
 
-    res = operation_sanity_check(fqu, payment_privkey, config_path=config_path)
+    res = operation_sanity_check(fqu, payment_privkey_info, owner_privkey_info, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -1182,10 +1518,6 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None, inter
     if 'error' in res:
         return res
 
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
@@ -1194,38 +1526,75 @@ def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None, inter
     if error:
         return {'error': error}
 
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
+
     wallet_keys = get_wallet_keys( config_path, password )
     if 'error' in wallet_keys:
         return wallet_keys
 
-    owner_privkey = wallet_keys['owner_privkey']
-    payment_privkey = wallet_keys['payment_privkey']
-    owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
+    owner_privkey_info = wallet_keys['owner_privkey']
+    payment_privkey_info = wallet_keys['payment_privkey']
 
-    res = operation_sanity_check(fqu, payment_privkey, config_path=config_path)
+    res = operation_sanity_check(fqu, payment_privkey_info, owner_privkey_info, config_path=config_path)
     if 'error' in res:
         return res
 
-    user_zonefile = get_name_zonefile( fqu, proxy=proxy, wallet_keys=wallet_keys )
+    user_zonefile = get_name_zonefile( fqu, proxy=proxy, wallet_keys=wallet_keys, raw_zonefile=True, include_name_record=True )
     if user_zonefile is not None and 'error' not in user_zonefile:
 
-        # got a zonefile...
-        legacy = blockstack_profiles.is_profile_in_legacy_format( user_zonefile )
-        if not legacy and not force and is_zonefile_current(fqu, user_zonefile):
-            msg ="Zonefile data is same as current zonefile; update not needed."
-            return {'error': msg}
+        name_rec = user_zonefile['name_record']
+        user_zonefile_txt = user_zonefile['zonefile']
+        user_zonefile_hash = storage.get_zonefile_data_hash( user_zonefile_txt )
+        user_zonefile = None
+        legacy = False
+        nonstandard = False
 
-        if not legacy and not force and interactive:
-            # maybe this is intentional (like fixing a corrupt zonefile)
-            # ask if so
-            msg = "Not a legacy profile; cannot migrate."
-            return {'error': msg}
+        # try to parse
+        try:
+            user_zonefile = blockstack_zones.parse_zone_file( user_zonefile_txt )
+            legacy = blockstack_profiles.is_profile_in_legacy_format( user_zonefile )
+        except:
+            log.warning("Non-standard zonefile %s" % user_zonefile_hash)
+            nonstandard = True
+
+        current = ('value_hash' in name_rec and name_rec['value_hash'] == user_zonefile_hash)
+
+        if nonstandard and not legacy:
+            # maybe we're trying to reset the profile?
+            if interactive and not force:
+                msg = ""
+                msg += "WARNING!  Non-standard zonefile detected."
+                msg += "If you proceed, your zonefile will be reset"
+                msg += "and you will have to re-build your profile."
+                msg += ""
+                msg += "Proceed? (Y/n): "
+                proceed_str = raw_input(msg)
+                proceed = (proceed_str.lower() in ['y'])
+                if not proceed:
+                    return {'error': 'Non-standard zonefile'}
+
+            elif not force:
+                return {'error': 'Non-standard zonefile'}
+
+        # is current and either standard or legacy?
+        elif not legacy and not force:
+            if current:
+                msg = "Zonefile data is same as current zonefile; update not needed."
+                return {'error': msg}
+
+            else:
+                # maybe this is intentional (like fixing a corrupt zonefile)
+                msg = "Not a legacy profile; cannot migrate."
+                return {'error': msg}
 
     rpc = local_rpc_connect(config_dir=config_dir)
 
     try:
         resp = rpc.backend_migrate(fqu)
     except Exception, e:
+        log.exception(e)
         return {'error': 'Error talking to server, try again.'}
 
     if 'success' in resp and resp['success']:
@@ -1291,17 +1660,17 @@ def cli_advanced_import_wallet( args, config_path=CONFIG_PATH, password=None, fo
                     break
 
         data_privkey = args.data_privkey
-        if len(data_privkey) == 0:
+        if data_privkey is None or len(data_privkey) == 0:
             # generate one, since it's an optional argument
-            data_privkey = pybitcoin.BitcoinPrivateKey().to_wif()
+            data_privkey = virtualchain.BitcoinPrivateKey().to_wif()
 
         # make absolutely certain that these are valid keys 
         try:
             assert len(args.payment_privkey) > 0
             assert len(args.owner_privkey) > 0
-            pybitcoin.BitcoinPrivateKey(args.payment_privkey)
-            pybitcoin.BitcoinPrivateKey(args.owner_privkey)
-            pybitcoin.BitcoinPrivateKey(data_privkey)
+            virtualchain.BitcoinPrivateKey(args.payment_privkey)
+            virtualchain.BitcoinPrivateKey(args.owner_privkey)
+            virtualchain.BitcoinPrivateKey(data_privkey)
         except:
             return {'error': 'Invalid payment or owner private key'}
 
@@ -1336,22 +1705,10 @@ def cli_advanced_list_accounts( args, proxy=None, config_path=CONFIG_PATH, passw
 
     result = {}
     config_dir = os.path.dirname(config_path)
-    res = wallet_ensure_exists(config_dir, password=password)
-    if 'error' in res:
-        return res
-
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error 'in res:
-        return res
-
-    wallet_keys = get_wallet_keys( config_path, password )
-    if 'error' in wallet_keys:
-        return wallet_keys
-    
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    result = list_accounts( args.name, proxy=proxy, wallet_keys=wallet_keys )
+    result = list_accounts( args.name, proxy=proxy )
     if 'error' not in result:
         analytics_event( "List accounts", {} )
 
@@ -1369,25 +1726,13 @@ def cli_advanced_get_account( args, proxy=None, config_path=CONFIG_PATH, passwor
 
     result = {}
     config_dir = os.path.dirname(config_path)
-    res = wallet_ensure_exists(config_dir, password=password)
-    if 'error' in res:
-        return res
-
-    res = start_rpc_endpoint(config_dir, password=password)
-    if 'error' in res:
-        return res
-
-    if not is_valid_name(args.name) or len(args.service) == 0 or len(args.identifier) == 0:
+    if not is_name_valid(args.name) or len(args.service) == 0 or len(args.identifier) == 0:
         return {'error': 'Invalid name or identifier'}
 
-    wallet_keys = get_wallet_keys( config_path, password )
-    if 'error' in wallet_keys:
-        return wallet_keys
-    
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    result = get_account( args.name, args.service, args.identifier, proxy=proxy, wallet_keys=wallet_keys )
+    result = get_account( args.name, args.service, args.identifier, proxy=proxy )
     if 'error' not in result:
         analytics_event( "Get account", {} )
 
@@ -1423,7 +1768,7 @@ def cli_advanced_put_account( args, proxy=None, config_path=CONFIG_PATH, passwor
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
-    if not is_valid_name(args.name):
+    if not is_name_valid(args.name):
         return {'error': 'Invalid name'}
 
     if len(args.service) == 0 or len(args.identifier) == 0 or len(args.content_url) == 0:
@@ -1470,7 +1815,7 @@ def cli_advanced_delete_account( args, proxy=None, config_path=CONFIG_PATH, pass
     if 'error' in res:
         return res
 
-    if not is_valid_name(args.name) or len(args.service) == 0 or len(args.identifier) == 0:
+    if not is_name_valid(args.name) or len(args.service) == 0 or len(args.identifier) == 0:
         return {'error': 'Invalid name or identifier'}
 
     wallet_keys = get_wallet_keys( config_path, password )
@@ -1503,26 +1848,24 @@ def cli_advanced_wallet( args, config_path=CONFIG_PATH, password=None ):
     if 'error' in res:
         return res
 
-    wallet_keys = get_wallet_keys( config_path, password )
-    display_wallet_info(wallet_keys.get('payment_address'), wallet_keys.get('owner_address'), wallet_keys.get('data_pubkey'), config_path=CONFIG_PATH )
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+    if not os.path.exists(wallet_path):
+        result = initialize_wallet(wallet_path=wallet_path)
 
-    payment_privkey = wallet_keys.get('payment_privkey')
-    if payment_privkey is not None:
-        payment_privkey = pybitcoin.BitcoinPrivateKey(payment_privkey).to_wif()
+    else:
+        result = get_wallet_with_backoff( config_path )
+        
+        payment_privkey = result.get("payment_privkey", None)
+        owner_privkey = result.get("owner_privkey", None)
+        data_privkey = result.get("data_privkey", None)
 
-    owner_privkey = wallet_keys.get('owner_privkey')
-    if owner_privkey is not None:
-        owner_privkey = pybitcoin.BitcoinPrivateKey(owner_privkey).to_wif()
+        display_wallet_info(result.get('payment_address'), result.get('owner_address'), result.get('data_pubkey'), config_path=CONFIG_PATH )
 
-    data_privkey = wallet_keys.get('data_privkey')
-    if data_privkey is not None:
-        data_privkey = pybitcoin.BitcoinPrivateKey(data_privkey).to_wif()
-
-    print "Private keys:\n"
-    print "Payment private key: %s" % payment_privkey
-    print "Owner private key:   %s" % owner_privkey
-    print "Data private key:    %s" % data_privkey
-    print ""
+        print "-" * 60
+        print "Payment private key info: %s" % privkey_to_string( payment_privkey )
+        print "Owner private key info:   %s" % privkey_to_string( owner_privkey )
+        print "Data private key info:    %s" % privkey_to_string( data_privkey )
+        
     return result
 
 
@@ -1540,15 +1883,11 @@ def cli_advanced_consensus( args, config_path=CONFIG_PATH ):
         if 'error' in resp:
             return resp
 
-        elif 'last_block' in resp or 'blocks' in resp:
+        if 'last_block_processed' in resp and 'consensus_hash' in resp:
+            return {'consensus': resp['consensns_hash'], 'block_height': resp['last_block_processed']}
 
-            if 'last_block' in resp:
-                args.block_height = getinfo()['last_block']
-            elif 'blocks' in resp:
-                args.block_height = getinfo()['blocks']
-            else:
-                result['error'] = "Server is indexing. Try again"
-                return result
+        else:
+            return {'error': 'Server is indexing.  Try again shortly.'}
 
     resp = get_consensus_at(int(args.block_height))
 
@@ -1704,7 +2043,7 @@ def cli_advanced_namespace_ready( args, config_path=CONFIG_PATH ):
     return result
 
 
-def cli_advanced_put_mutable( args, config_path=CONFIG_PATH ):
+def cli_advanced_put_mutable( args, config_path=CONFIG_PATH, password=None, proxy=None ):
     """
     command: put_mutable norpc
     help: Put mutable data into a profile
@@ -1722,14 +2061,24 @@ def cli_advanced_put_mutable( args, config_path=CONFIG_PATH ):
     except:
         return {'error': "Invalid JSON"}
 
-    result = put_mutable(fqu,
-                         str(args.data_id),
-                         data)
+    config_dir = os.path.dirname(config_path)
+    res = start_rpc_endpoint(config_dir)
+    if 'error' in res:
+        return res
+ 
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    result = put_mutable(fqu, str(args.data_id), data, wallet_keys=wallet_keys, proxy=proxy )
 
     return result
 
 
-def cli_advanced_put_immutable( args, config_path=CONFIG_PATH, password=None ):
+def cli_advanced_put_immutable( args, config_path=CONFIG_PATH, password=None, proxy=None ):
     """
     command: put_immutable norpc
     help: Put immutable data into a zonefile
@@ -1756,16 +2105,26 @@ def cli_advanced_put_immutable( args, config_path=CONFIG_PATH, password=None ):
         data = json.loads(args.data)
     except:
         return {'error': "Invalid JSON"}
+ 
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
 
-    conf = config.get_config( config_path )
-    result = put_immutable(fqu,
-                           str(args.data_id),
-                           data)
+    owner_privkey_info = wallet_keys['owner_privkey']
+    payment_privkey_info = wallet_keys['payment_privkey']
 
+    res = operation_sanity_check(fqu, payment_privkey_info, owner_privkey_info, config_path=config_path)
+    if 'error' in res:
+        return res
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    result = put_immutable( fqu, str(args.data_id), data, wallet_keys=wallet_keys, proxy=proxy ) 
     return result
 
 
-def cli_advanced_get_mutable( args, config_path=CONFIG_PATH ):
+def cli_advanced_get_mutable( args, config_path=CONFIG_PATH, proxy=None ):
     """
     command: get_mutable
     help: Get mutable data from a profile
@@ -1773,20 +2132,31 @@ def cli_advanced_get_mutable( args, config_path=CONFIG_PATH ):
     arg: data_id (str) "The name of the data"
     """
     conf = config.get_config( config_path )
-    result = get_mutable(str(args.name), str(args.data_id),
-                         conf=conf)
+    if proxy is None:
+        proxy = get_default_proxy()
 
+    result = get_mutable(str(args.name), str(args.data_id), proxy=proxy, conf=conf)
     return result 
 
 
-def cli_advanced_get_immutable( args, config_path=CONFIG_PATH ):
+def cli_advanced_get_immutable( args, config_path=CONFIG_PATH, proxy=None ):
     """
     command: get_immutable
     help: Get immutable data from a zonefile
     arg: name (str) "The name that has the data"
     arg: data_id_or_hash (str) "Either the name or the SHA256 of the data to obtain"
     """
-    result = get_immutable(str(args.name), str(args.data_id_or_hash))
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    if is_valid_hash( args.data_id_or_hash ):
+        result = get_immutable(str(args.name), str(args.data_id_or_hash), proxy=proxy)
+        if 'error' not in result:
+            return result
+
+    # either not a valid hash, or no such data with this hash.
+    # maybe this hash-like string is the name of something?
+    result = get_immutable_by_name(str(args.name), str(args.data_id_or_hash), proxy=proxy)
     return result
 
 
@@ -1821,7 +2191,7 @@ def cli_advanced_list_immutable_data_history( args, config_path=CONFIG_PATH ):
     return result
 
 
-def cli_advanced_delete_immutable( args, config_path=CONFIG_PATH ):
+def cli_advanced_delete_immutable( args, config_path=CONFIG_PATH, proxy=None, password=None ):
     """
     command: delete_immutable norpc
     help: Delete an immutable datum from a zonefile.
@@ -1838,8 +2208,26 @@ def cli_advanced_delete_immutable( args, config_path=CONFIG_PATH ):
     if 'error' in res:
         return res
 
-    result = delete_immutable(str(args.name), str(args.hash))
+    fqu = str(args.name)
+    error = check_valid_name(fqu)
+    if error:
+        return {'error': error}
+ 
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
 
+    owner_privkey_info = wallet_keys['owner_privkey']
+    payment_privkey_info = wallet_keys['payment_privkey']
+
+    res = operation_sanity_check(fqu, payment_privkey_info, owner_privkey_info, config_path=config_path)
+    if 'error' in res:
+        return res
+
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    result = delete_immutable(str(args.name), str(args.hash), proxy=proxy, wallet_keys=wallet_keys )
     return result
 
 
@@ -1918,10 +2306,36 @@ def cli_advanced_lookup_snv( args, config_path=CONFIG_PATH ):
 def cli_advanced_get_name_zonefile( args, config_path=CONFIG_PATH ):
     """
     command: get_name_zonefile
-    help: Get a name's zonefile, as a JSON dict
+    help: Get a name's zonefile
     arg: name (str) "The name to query"
+    opt: json (str) "If 'true' is given, try to parse as JSON"
     """
-    result = get_name_zonefile(str(args.name))
+    parse_json = getattr(args, 'json', 'false')
+    if parse_json is not None and parse_json.lower() in ['true', '1']:
+        parse_json = True
+    else:
+        parse_json = False
+
+    result = get_name_zonefile(str(args.name), raw_zonefile=True)
+    if result is None:
+        return {'error': 'Failed to get zonefile'}
+
+    if 'error' in result:
+        log.error("get_name_zonefile failed: %s" % result['error'])
+        return result
+    
+    if 'zonefile' not in result:
+        return {'error': 'No zonefile data'}
+
+    if parse_json:
+        # try to parse
+        try:
+            new_zonefile = decode_name_zonefile(result['zonefile'] )
+            assert new_zonefile is not None
+            result['zonefile'] = new_zonefile
+        except:
+            result['warning'] = 'Non-standard zonefile'
+
     return result
 
 
@@ -1961,14 +2375,14 @@ def cli_advanced_get_all_names( args, config_path=CONFIG_PATH ):
     if args.count is not None:
         count = int(args.count)
 
-    result = get_all_names(offset, count)
+    result = get_all_names(offset=offset, count=count)
     return result
 
 
 def cli_advanced_get_names_in_namespace( args, config_path=CONFIG_PATH ):
     """
     command: get_names_in_namespace norpc
-    help: Get the names in a given namespace, optionally patinating through them
+    help: Get the names in a given namespace, optionally paginating through them
     arg: namespace_id (str) "The ID of the namespace to query"
     opt: offset (int) "The offset into the sorted list of names"
     opt: count (int) "The number of names to return"
@@ -2026,11 +2440,10 @@ def cli_advanced_set_zonefile_hash( args, config_path=CONFIG_PATH, password=None
     if 'error' in wallet_keys:
         return wallet_keys
 
-    owner_privkey = wallet_keys['owner_privkey']
-    payment_privkey = wallet_keys['payment_privkey']
-    owner_pubkey = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().to_hex()
+    owner_privkey_info = wallet_keys['owner_privkey']
+    payment_privkey_info = wallet_keys['payment_privkey']
 
-    res = operation_sanity_check(fqu, payment_privkey, config_path=config_path)
+    res = operation_sanity_check(fqu, payment_privkey_info, owner_privkey_info, config_path=config_path)
     if 'error' in res:
         return res
 
@@ -2079,7 +2492,7 @@ def cli_advanced_set_profile( args, config_path=CONFIG_PATH, password=None, prox
     command: set_profile norpc
     help: Directly set a profile's JSON.
     arg: name (str) "The name to set the profile for"
-    arg: data (str) "The JSON to set as the profile"
+    arg: data (str) "The profile as a JSON string, or a path to the profile."
     """
 
     conf = config.get_config(config_path)
@@ -2090,6 +2503,15 @@ def cli_advanced_set_profile( args, config_path=CONFIG_PATH, password=None, prox
         proxy = get_default_proxy()
 
     profile = None
+    if is_valid_path(profile_json_str) and os.path.exists(profile_json_str):
+        # this is a path.  try to load it
+        try:
+            with open(profile_json_str, "r") as f:
+                profile_json_str = f.read()
+        except:
+            return {'error': 'Failed to load "%s"' % profile_json_str}
+
+    # try to parse it
     try:
         profile = json.loads(profile_json_str)
     except:
@@ -2102,11 +2524,12 @@ def cli_advanced_set_profile( args, config_path=CONFIG_PATH, password=None, prox
     required_storage_drivers = conf.get('storage_drivers_required_write', config.BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE)
     required_storage_drivers = required_storage_drivers.split()
 
-    owner_address = pybitcoin.BitcoinPrivateKey(wallet_keys['owner_privkey']).public_key().address()
+    owner_address = get_privkey_info_address(wallet_keys['owner_privkey'])
     user_zonefile = get_name_zonefile( name, proxy=proxy, wallet_keys=wallet_keys )
     if 'error' in user_zonefile:
         return user_zonefile
 
+    user_zonefile = user_zonefile['zonefile']
     if blockstack_profiles.is_profile_in_legacy_format( user_zonefile ):
         return {'error': "Profile in legacy format.  Please migrate it with the 'migrate' command first."}
 
@@ -2117,24 +2540,24 @@ def cli_advanced_set_profile( args, config_path=CONFIG_PATH, password=None, prox
         return {'status': True}
 
 
-def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, password=None, proxy=None ):
+def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, proxy=None, interactive=True, nonstandard=False ):
     """
     command: sync_zonefile
-    help: Synchronize a zonefile to all storage drivers.
-    arg: name (str) "The name that owns the zonefile"
-    opt: txid (str) "The transaction ID that contained the NAME_UPDATE"
-    opt: zonefile (str) "The zonefile (as JSON or text); if not given, the zonefile will be loaded from local storage."
+    help: Upload the current zone file to all storage providers.
+    arg: name (str) "Name of the zone file to synchronize."
+    opt: txid (str) "NAME_UPDATE transaction ID that set the zone file."
+    opt: zonefile (str) "The zone file (JSON or text), if unavailable from other sources."
+    opt: nonstandard (str) "If true, do not attempt to parse the zonefile.  Just upload as-is."
     """
 
     conf = config.get_config(config_path)
-
+ 
     assert 'server' in conf.keys()
     assert 'port' in conf.keys()
     assert 'queue_path' in conf.keys()
 
     queue_path = conf['queue_path']
     name = str(args.name)
-
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
@@ -2142,14 +2565,38 @@ def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, password=None, pr
     if hasattr(args, "txid"):
         txid = getattr(args, "txid")
 
+    if not nonstandard and hasattr(args, "nonstandard"):
+        if args.nonstandard.lower() in ['yes', '1', 'true']:
+            nonstandard = True
+
     user_data = None
     zonefile_hash = None
 
     if hasattr(args, "zonefile") and getattr(args, "zonefile") is not None:
-        user_data_res = load_zonefile( name, args.zonefile )
-        if 'error' in user_data_res:
-            log.error("Failed to load zonefile: %s" % (user_data_res['error']))
-            return {'error': "Failed to load zonefile from the CLI"}
+        # zonefile given
+        user_data = args.zonefile
+        valid = False
+        try:
+            user_data_res = load_zonefile( name, user_data )
+            if 'error' in user_data_res and 'identical' not in user_data_res.keys():
+                log.warning("Failed to parse zonefile (reason: %s)" % user_data_res['error'])
+            else:
+                valid = True
+                user_data = user_data_res['zonefile']
+
+        except Exception, e:
+            if os.environ.get("BLOCKSTACK_DEBUG", None) == "1":
+                log.exception(e)
+            valid = False
+
+        # if it's not a valid zonefile, ask if the user wants to sync 
+        if not valid and interactive:
+            proceed = prompt_invalid_zonefile()
+            if not proceed:
+                return {'error': 'Not replicating invalid zone file'}
+    
+        elif not valid and not nonstandard:
+            return {'error': 'Not replicating invalid zone file'}
 
     if txid is None or user_data is None:
     
@@ -2157,31 +2604,16 @@ def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, password=None, pr
         queued_data = queuedb_find( "update", name, path=queue_path )
         if len(queued_data) > 0:
 
-            # find the current one
+            # find the current one (get raw zonefile)
+            log.debug("%s updates queued for %s" % (len(queued_data), name))
             for queued_zfdata in queued_data:
-                update_data = queued_zfdata.get('data', None)
-                if update_data is None:
-                    continue
-                
-                try:
-                    update_data = json.loads(update_data)
-                except:
-                    log.error("Invalid JSON data in queue")
-                    return {'error': 'Invalid JSON data in queue'}
-
+                update_data = queue_extract_entry( queued_zfdata )
                 zfdata = update_data.get('zonefile', None)
                 if zfdata is None:
                     continue
 
-                user_data_res = load_zonefile( name, json.dumps(zfdata), check_current=False )
-                if 'error' in user_data_res:
-                    # try again 
-                    log.warning("Failed to load zonefile: %s (zonefile = %s)" % (user_data_res['error'], zfdata))
-                
-                else:
-                    user_data = zfdata
-                    txid = queued_zfdata.get('tx_hash',None)
-                    break
+                user_data = zfdata
+                txid = queued_zfdata.get('tx_hash', None)
 
 
         if user_data is None:
@@ -2190,16 +2622,23 @@ def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, password=None, pr
             if user_data is None:
                 user_data = {'error': 'No data loaded'}
 
+            log.debug("no pending updates for '%s'" % name)
+            user_data = get_name_zonefile( name, raw_zonefile=True )
+            if user_data is None:
+                user_data = {'error': 'No data loaded'}
+ 
             if 'error' in user_data:
                 log.error("Failed to get zonefile: %s" % user_data['error'])
                 return user_data
 
+            user_data = user_data['zonefile']
+
         # have user data
-        zonefile_hash = storage.hash_zonefile( user_data )
+        zonefile_hash = storage.get_zonefile_data_hash( user_data )
 
         if txid is None:
             # not in queue.  Fetch from blockstack server
-            name_rec = proxy.get_name_blockchain_record( name )
+            name_rec = get_name_blockchain_record( name )
             if 'error' in name_rec:
                 log.error("Failed to get name record for %s: %s" % (name, name_rec['error']))
                 return {'error': "Failed to get name record to look up tx hash."}
@@ -2221,14 +2660,14 @@ def cli_advanced_sync_zonefile( args, config_path=CONFIG_PATH, password=None, pr
         if txid is None:
             log.error("Unable to lookup txid for update %s, %s" % (name, zonefile_hash))
             return {'error': "Unable to lookup txid that wrote zonefile"}
-
+ 
     # can proceed to replicate
-    res = zonefile_replicate( name, user_data, txid, [(conf['server'], conf['port'])], config_path=config_path )
+    res = zonefile_data_replicate( name, user_data, txid, [(conf['server'], conf['port'])], config_path=config_path )
     if 'error' in res:
         log.error("Failed to replicate zonefile: %s" % res['error'])
         return res
-
-    return {'status': True}
+ 
+    return {'status': True, 'value_hash': zonefile_hash}
 
 
 def cli_advanced_convert_legacy_profile( args, config_path=CONFIG_PATH ):
@@ -2256,3 +2695,169 @@ def cli_advanced_convert_legacy_profile( args, config_path=CONFIG_PATH ):
     profile = profile['profile']
     profile = blockstack_profiles.get_person_from_legacy_format( profile )
     return profile
+
+
+def cli_advanced_app_register( args, config_path=CONFIG_PATH, password=None, proxy=None, interactive=True ):
+    """
+    command: app_register norpc
+    help: Register a new application with your profile.
+    arg: name (str) "The name to link the app to"
+    arg: app_name (str) "The name of the application"
+    arg: app_account_id (str) "The name of the application account"
+    arg: app_url (str) "The URL to the application"
+    opt: storage_drivers (str) "A CSV of storage drivers to host this app's data"
+    opt: app_password (str) "The application-specific wallet password"
+    opt: app_fields (str) "A CSV of application-specific key/value pairs"
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path=config_path)
+
+    config_dir = os.path.dirname(config_path)
+    res = wallet_ensure_exists(config_dir)
+    if 'error' in res:
+        return res
+
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
+
+    fqu = str(args.name)
+    error = check_valid_name(fqu)
+    if error:
+        return {'error': error}
+
+    app_name = str(args.app_name)
+    app_account_id = str(args.app_account_id)
+    app_url = str(args.app_url)
+    app_storage_drivers = args.app_storage_drivers
+    app_fields = args.app_fields
+    app_password = args.app_password
+
+    if len(app_name) == 0:
+        return {'error': 'Invalid app name'}
+
+    if len(app_account_id) == 0:
+        return {'error': 'Invalid app account ID'}
+
+    if len(app_url) == 0:
+        return {'error': 'Invalid app URL'}
+
+    if app_password is None:
+        interactive = True
+
+    if app_storage_drivers:
+        app_storage_drivers = str(app_storage_drivers)
+        app_storage_drivers = app_storage_drivers.split(",")
+    else:
+        app_storage_drivers = None
+
+    if app_fields:
+        app_fields = str(app_fields)
+        try:
+            tmp = ",".split(app_fields)
+            app_fields = {}
+            for kv in tmp:
+                p = kv.strip().split("=")
+                assert len(p) > 1, "Invalid key/value list"
+                k = p[0]
+                v = "=".join(p[1:])
+                app_fields[k] = v
+        except AssertionError:
+            return {'error': "Invalid key/value list"}
+        except Exception, e:
+            log.exception(e)
+            return {'error': 'Invalid key/value list'}
+
+    else:
+        app_fields = {}
+
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
+    
+    res = app_register( fqu, app_name, app_account_id, app_url, app_storage_drivers=app_storage_drivers, app_account_fields=app_fields, wallet_keys=wallet_keys, password=app_password, interactive=interactive, config_path=config_path )
+    return res
+
+
+def cli_advanced_app_unregister( args, config_path=CONFIG_PATH, password=None, interactive=True ):
+    """
+    command: app_unregister norpc
+    help: Unregister an application from a profile
+    arg: name (str) "The name that owns the app account"
+    arg: app_name (str) "The name of the application"
+    arg: app_account_id (str) "The name of the application account"
+    """
+
+    name = args.name
+    app_name = args.app_name
+    app_account_id = args.app_account_id
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path=config_path)
+
+    config_dir = os.path.dirname(config_path)
+    res = wallet_ensure_exists(config_dir)
+    if 'error' in res:
+        return res
+
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
+
+    fqu = str(args.name)
+    error = check_valid_name(fqu)
+    if error:
+        return {'error': error}
+
+    app_name = str(args.app_name)
+    app_account_id = str(args.app_account_id)
+
+    if len(app_name) == 0:
+        return {'error': 'Invalid app name'}
+
+    if len(app_account_id) == 0:
+        return {'error': 'Invalid app account ID'}
+
+    wallet_keys = get_wallet_keys( config_path, password )
+    if 'error' in wallet_keys:
+        return wallet_keys
+
+    res = app_unregister( fqu, app_name, app_account_id, interactive=interactive, wallet_keys=wallet_keys, proxy=proxy, config_path=config_path )
+    return res
+
+
+def cli_advanced_app_get_wallet( args, config_path=CONFIG_PATH, interactive=True ):
+    """
+    command: app_get_wallet
+    help: Get an application account wallet
+    arg: name (str) "The name that owns the app account"
+    arg: app_name (str) "The name of the application"
+    arg: app_account_id (str) "The name of the application account"
+    opt: app_password (str) "The app wallet password"
+    """
+
+    fqu = str(args.name)
+    error = check_valid_name(fqu)
+    if error:
+        return {'error': error}
+
+    app_name = str(args.app_name)
+    app_account_id = str(args.app_account_id)
+    password = args.app_password
+
+    if len(app_name) == 0:
+        return {'error': 'Invalid app name'}
+
+    if len(app_account_id) == 0:
+        return {'error': 'Invalid app account ID'}
+
+    if password:
+        password = str(password)
+    else:
+        password = None
+        interactive = True
+    
+    res = app_get_wallet( fqu, app_name, app_account_id, interactive=interactive, password=password, config_path=config_path )
+    return res
+

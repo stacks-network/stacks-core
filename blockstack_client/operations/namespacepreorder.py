@@ -23,8 +23,8 @@
 
 import pybitcoin
 from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
-    analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, get_unspents, \
-    make_pay_to_address_script, b58check_encode, b58check_decode, BlockchainInfoClient, hex_hash160
+    serialize_sign_and_broadcast, make_op_return_script, \
+    make_pay_to_address_script, hex_hash160
 
 from pybitcoin.transactions.outputs import calculate_change_amount
 
@@ -64,8 +64,8 @@ def build( namespace_id, script_pubkey, register_addr, consensus_hash, namespace
        if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
           raise Exception("Namespace identifier '%s' has non-base-38 characters" % namespace_id)
        
-       if len(namespace_id) == 0 or len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
-          raise Exception("Invalid namespace ID length '%s (expected length between 1 and %s)" % (namespace_id, LENGTHS['blockchain_id_namespace_id']))
+       if len(namespace_id) == 0 or len(namespace_id) > LENGTH_MAX_NAMESPACE_ID:
+          raise Exception("Invalid namespace ID length '%s (expected length between 1 and %s)" % (namespace_id, LENGTH_MAX_NAMESPACE_ID))
   
        # NOTE: dup of the above checks
        if not is_namespace_valid(namespace_id):
@@ -108,11 +108,11 @@ def make_outputs( data, inputs, change_addr, fee, tx_fee, pay_fee=True ):
          "value": 0},
         
         # change address
-        {"script_hex": make_pay_to_address_script(change_addr),
+        {"script_hex": virtualchain.make_payment_script( change_addr ),
          "value": calculate_change_amount(inputs, bill, dust_fee)},
         
         # burn address
-        {"script_hex": make_pay_to_address_script(BLOCKSTACK_BURN_ADDRESS),
+        {"script_hex": virtualchain.make_payment_script(BLOCKSTACK_BURN_ADDRESS),
          "value": op_fee}
     ]
     
@@ -123,7 +123,7 @@ def make_transaction( namespace_id, register_addr, fee, consensus_hash, payment_
    
    Arguments:
    namespace_id         human-readable (i.e. base-40) name of the namespace
-   register_addr        the addr of the key that will reveal the namespace (mixed into the preorder to prevent name preimage attack races)
+   register_addr        the addr of the key that will reveal the namespace (mixed into the preorder to prevent name preimage attack races).  Must be a p2pkh address
    private_key          the Bitcoin address that created this namespace, and can populate it.
    """
 
@@ -135,9 +135,10 @@ def make_transaction( namespace_id, register_addr, fee, consensus_hash, payment_
    tx_fee = int(tx_fee)
 
    assert is_namespace_valid(namespace_id)
-   assert len(consensus_hash) == LENGTHS['consensus_hash'] * 2
+   assert len(consensus_hash) == LENGTH_CONSENSUS_HASH * 2
+   assert pybitcoin.b58check_version_byte( payment_addr ) == virtualchain.version_byte, "Only p2pkh reveal addresses are supported"
 
-   script_pubkey = get_script_pubkey_from_addr( payment_addr )
+   script_pubkey = virtualchain.make_payment_script( payment_addr )
    nulldata = build( namespace_id, script_pubkey, register_addr, consensus_hash )
    
    # get inputs and from address
@@ -149,33 +150,18 @@ def make_transaction( namespace_id, register_addr, fee, consensus_hash, payment_
    return (inputs, outputs)
 
 
-def parse( bin_payload ):
-   """
-   NOTE: the first three bytes will be missing
-   """
-   
-   if len(bin_payload) != LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']:
-       log.error("Invalid namespace preorder payload length %s" % len(bin_payload))
-       return None
-
-   namespace_id_hash = bin_payload[ :LENGTHS['preorder_name_hash'] ]
-   consensus_hash = bin_payload[ LENGTHS['preorder_name_hash']: LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash'] ]
-   
-   namespace_id_hash = hexlify( namespace_id_hash )
-   consensus_hash = hexlify( consensus_hash )
-
-   
-   return {
-      'opcode': 'NAMESPACE_PREORDER',
-      'namespace_id_hash': namespace_id_hash,
-      'consensus_hash': consensus_hash
-   }
-
-
 def get_fees( inputs, outputs ):
     """
     Blockstack currently does not allow 
     the subsidization of namespaces.
     """
     return (None, None)
+
+
+def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):
+    """
+    Calculate any derived missing data that goes into the check() operation,
+    given the block number, the name record at the block number, and the db.
+    """
+    return {}
 

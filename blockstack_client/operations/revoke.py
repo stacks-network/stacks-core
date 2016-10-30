@@ -24,7 +24,7 @@
 import pybitcoin
 from pybitcoin import embed_data_in_blockchain, make_op_return_tx, make_op_return_outputs, \
         make_op_return_script, broadcast_transaction, serialize_transaction, \
-        script_hex_to_address, get_unspents, make_pay_to_address_script
+        make_pay_to_address_script
 
 from pybitcoin.transactions.outputs import calculate_change_amount
 from utilitybelt import is_hex
@@ -41,7 +41,7 @@ log = virtualchain.get_logger("blockstack-client")
 def build(name):
     """
     Takes in the name, including the namespace ID (but not the id: scheme)
-    Returns a hex string representing up to LENGTHS['blockchain_id_name'] bytes.
+    Returns a hex string representing up to the maximum name length bytes.
     
     Record format:
     
@@ -88,7 +88,7 @@ def make_outputs( data, inputs, change_address, tx_fee, pay_fee=True ):
          "value": 0},
         
         # change output
-        {"script_hex": make_pay_to_address_script(change_address),
+        {"script_hex": virtualchain.make_payment_script(change_address),
          "value": calculate_change_amount(inputs, op_fee, dust_fee)}
     ]
 
@@ -114,25 +114,6 @@ def make_transaction(name, payment_addr, blockchain_client, tx_fee=0, subsidize=
     return (inputs, outputs)
 
 
-
-def parse(bin_payload):    
-    """
-    Interpret a block's nulldata back into a name.  The first three bytes (2 magic + 1 opcode)
-    will not be present in bin_payload.
-    
-    The name will be directly represented by the bytes given.
-    """
-    
-    fqn = bin_payload
-    if not is_name_valid( fqn ):
-        return None 
-
-    return {
-       'opcode': 'NAME_REVOKE',
-       'name': fqn
-    }
-
-
 def get_fees( inputs, outputs ):
     """
     Given a transaction's outputs, look up its fees:
@@ -152,11 +133,21 @@ def get_fees( inputs, outputs ):
         return (None, None) 
     
     # 1: change address 
-    if script_hex_to_address( outputs[1]["script_hex"] ) is None:
+    if virtualchain.script_hex_to_address( outputs[1]["script_hex"] ) is None:
         return (None, None)
     
     dust_fee = (len(inputs) + 1) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
     op_fee = 0
     
     return (dust_fee, op_fee)
+
+
+def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):
+    """
+    Calculate any derived missing data that goes into the check() operation,
+    given the block number, the name record at the block number, and the db.
+    """
+
+    ret_op = {}
+    return ret_op
 

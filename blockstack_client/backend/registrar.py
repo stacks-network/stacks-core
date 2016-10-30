@@ -25,6 +25,8 @@ import os
 import sys
 import random
 import signal
+import base64
+import copy
 
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -48,13 +50,14 @@ from .queue import queue_cleanall, queue_find_accepted
 from .nameops import async_preorder, async_register, async_update, async_transfer, async_renew, async_revoke
 from .blockchain import get_block_height
 
-from ..keys import get_data_keypair
-from ..proxy import is_name_registered, is_zonefile_current, is_name_owner, get_default_proxy, get_name_blockchain_record, get_name_cost
-from ..profile import zonefile_publish, store_name_zonefile, get_and_migrate_profile, zonefile_replicate
-from ..user import make_empty_user_zonefile 
-from ..storage import put_mutable_data, put_immutable_data, hash_zonefile
+from ..keys import get_data_privkey_info, is_singlesig, is_multisig, get_privkey_info_address, get_privkey_info_params, encrypt_private_key_info, decrypt_private_key_info
+from ..proxy import is_name_registered, is_zonefile_hash_current, is_name_owner, get_default_proxy, get_name_blockchain_record, get_name_cost, get_atlas_peers
+from ..profile import get_and_migrate_profile, zonefile_data_replicate
+from ..user import make_empty_user_zonefile, is_user_zonefile 
+from ..storage import put_mutable_data, put_immutable_data, hash_zonefile, get_zonefile_data_hash
+from ..data import get_profile_timestamp, set_profile_timestamp
 
-from .crypto.utils import get_address_from_privkey, aes_decrypt, aes_encrypt
+from .crypto.utils import aes_decrypt, aes_encrypt
 
 from ..config import SLEEP_INTERVAL, get_config, get_logger, CONFIG_PATH, DEFAULT_QUEUE_PATH
 
@@ -154,7 +157,7 @@ class RegistrarWorker(threading.Thread):
 
 
     @classmethod 
-    def register_preordered_name( cls, name_data, payment_privkey, owner_address, proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH ):
+    def register_preordered_name( cls, name_data, payment_privkey_info, owner_privkey_info, proxy=None, config_path=CONFIG_PATH, queue_path=DEFAULT_QUEUE_PATH ):
         """
         Given a preordered name, go register it.
         Return the result of broadcasting the registration operation on success (idempotent--if already broadcasted, then return the broadcast information).
@@ -169,8 +172,10 @@ class RegistrarWorker(threading.Thread):
             if in_queue( "preorder", name_data['fqu'], path=queue_path ):
                 if not in_queue("register", name_data['fqu'], path=queue_path):
                     # was preordered but not registered
-                    # send the registration 
-                    res = async_register( name_data['fqu'], payment_privkey, owner_address, proxy=proxy, config_path=config_path, queue_path=queue_path )
+                    # send the registration
+                    owner_address = get_privkey_info_address( owner_privkey_info )
+                    owner_privkey_params = get_privkey_info_params( owner_privkey_info )
+                    res = async_register( name_data['fqu'], payment_privkey_info, owner_address, owner_privkey_params=owner_privkey_params, proxy=proxy, config_path=config_path, queue_path=queue_path )
                     return res
                 else:
                     # already queued 
@@ -318,7 +323,7 @@ class RegistrarWorker(threading.Thread):
                 queue_removeall( [preorder], path=queue_path )
                 continue
 
-            res = cls.register_preordered_name( preorder, wallet_data['payment_privkey'], wallet_data['owner_address'], proxy=proxy, config_path=config_path, queue_path=queue_path )
+            res = cls.register_preordered_name( preorder, wallet_data['payment_privkey'], wallet_data['owner_privkey'], proxy=proxy, config_path=config_path, queue_path=queue_path )
             if 'error' in res:
                 if res.get('already_registered'):
                     # can clear out, this is a dup
@@ -355,48 +360,70 @@ class RegistrarWorker(threading.Thread):
 
     
     @classmethod 
-    def replicate_profile_data( cls, name_data, servers, wallet_data, storage_drivers, config_path, proxy=None ):
+    def replicate_profile_data( cls, name_data, atlas_servers, wallet_data, storage_drivers, config_path, proxy=None ):
         """
         Given an update queue entry,
         replicate the zonefile to as many
-        blockstack servers as we can.
+        blockstack atlas servers as we can.
         If given, replicate the profile as well.
-        @servers should be a list of (host, port)
+        @atlas_servers should be a list of (host, port)
         Return {'status': True} on success
         Return {'error': ...} on error
         """
-      
+     
         # is the zonefile hash replicated?
         zonefile_data = name_data['zonefile']
         if zonefile_data is None:
-            log.debug("No zonefile set for %s" % name_data['fqu'])
+            log.debug("No zonefile to replicate for %s" % name_data['fqu'])
             return {'status': True}
 
-        zonefile_hash = hash_zonefile( zonefile_data )
+        zonefile_hash = name_data.get('zonefile_hash', None)
+        if zonefile_hash is None:
+            zonefile_hash = get_zonefile_data_hash( zonefile_data )
+
         name_rec = get_name_blockchain_record( name_data['fqu'], proxy=proxy )
         if 'error' in name_rec:
             return name_rec
 
+        if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+            log.debug("Replicate zonefile %s (blockchain: %s)\ndata:\n%s" % (zonefile_hash, name_rec['value_hash'], base64.b64encode(zonefile_data)))
+
         if str(name_rec['value_hash']) != zonefile_hash:
-            log.error("Zonefile %s has not been replicated yet" % zonefile_hash)
+            log.error("Zonefile %s has not been confirmed yet (still on %s)" % (zonefile_hash, name_rec['value_hash']))
             return {'error': 'Zonefile hash not yet replicated'}
 
-        # replicate to our own storage providers, as well as the blockstack servers
-        res = zonefile_replicate( name_data['fqu'], name_data['zonefile'], name_data['tx_hash'], servers, storage_drivers=storage_drivers )
+        res = zonefile_data_replicate( name_data['fqu'], zonefile_data, name_data['tx_hash'], atlas_servers, config_path=config_path, storage_drivers=storage_drivers )
         if 'error' in res:
-            log.info("Failed to replicate zonefile for %s: %s" % (name_data['fqu'], res['error']))
-            return {'error': 'Failed to replicate user zonefile'}
+            log.error("Failed to replicate zonefile %s for %s: %s" % (zonefile_hash, name_data['fqu'], res['error']))
+            return res
 
-        log.info("Replicated zonefile for %s to %s server(s)" % (name_data['fqu'], len(res['servers'])))
+        log.info("Replicated zonefile data for %s to %s server(s)" % (name_data['fqu'], len(res['servers'])))
 
         # replicate profile to storage, if given
         # use the data keypair
         if name_data.has_key('profile') and name_data['profile'] is not None:
-            _, data_privkey = get_data_keypair( zonefile_data, wallet_keys=wallet_data, config_path=config_path )
+            # only works this is actually a zonefile, since we need to use
+            # the zonefile to find the appropriate data private key.
+            zonefile = None
+            try:
+                zonefile = blockstack_zones.parse_zone_file( zonefile_data )
+                assert is_user_zonefile( zonefile )
+            except Exception, e:
+                if os.environ.get("BLOCKSTACK_TEST", None) == 1:
+                    log.exception(e)
+
+                log.warning("Not a zone file; not replicating profile for %s" % name_data['fqu'])
+                return {'status': True}
+
+            data_privkey = get_data_privkey_info( zonefile, wallet_keys=wallet_data, config_path=config_path )
             assert data_privkey is not None, "No data private key"
 
             log.info("Replicate profile data for %s to %s" % (name_data['fqu'], ",".join(storage_drivers)))
-            rc = put_mutable_data( name_data['fqu'], name_data['profile'], data_privkey, required=storage_drivers )
+            
+            profile_payload = copy.deepcopy(name_data['profile'])
+            profile_payload = set_profile_timestamp(profile_payload)
+
+            rc = put_mutable_data( name_data['fqu'], profile_payload, data_privkey, required=storage_drivers )
             if not rc:
                 log.info("Failed to replicate profile for %s" % (name_data['fqu']))
                 return {'error': 'Failed to store profile'}
@@ -410,17 +437,17 @@ class RegistrarWorker(threading.Thread):
 
 
     @classmethod
-    def replicate_profiles( cls, queue_path, servers, wallet_data, storage_drivers, config_path=CONFIG_PATH, proxy=None ):
+    def replicate_profiles( cls, queue_path, atlas_servers, wallet_data, storage_drivers, config_path=CONFIG_PATH, proxy=None ):
         """
         Replicate all zonefiles for each confirmed update.
         Remove successfully-replicated updates
-        @servers should be a list of (host, port)
+        @atlas_servers should be a list of (host, port)
         """
         ret = {'status': True} 
         updates = cls.get_confirmed_updates( config_path, queue_path )
         for update in updates:
             log.debug("Zonefile update on '%s' (%s) is confirmed!  New hash is %s" % (update['fqu'], update['tx_hash'], update['zonefile_hash']))
-            res = cls.replicate_profile_data( update, servers, wallet_data, storage_drivers, config_path, proxy=proxy )
+            res = cls.replicate_profile_data( update, atlas_servers, wallet_data, storage_drivers, config_path, proxy=proxy )
             if 'error' in res:
                 log.error("Failed to update %s: %s" % (update['fqu'], res['error']))
                 ret = {'error': 'Failed to finish an update'}
@@ -433,12 +460,31 @@ class RegistrarWorker(threading.Thread):
         
 
     @classmethod 
-    def get_replica_server_list( cls, config_path ):
+    def get_atlas_server_list( cls, config_path ):
         """
-        Get the list of servers to which to replicate zonefiles
+        Get the list of atlas servers to which to replicate zonefiles
         """
         conf = get_config(config_path)
         servers = [(conf['server'], conf['port'])]
+        server_hostport = '{}:{}'.format(conf['server'], conf['port'])
+
+        atlas_peers_res = {}
+        try:
+            atlas_peers_res = get_atlas_peers( server_hostport )
+            assert 'error' not in atlas_peers_res
+            
+            servers += atlas_peers_res['servers']
+            servers = list(set([str(hp) for hp in servers]))
+
+        except AssertionError as ae:
+            log.exception(ae)
+            log.error('Error response from {}: {}'.format(server_hostport, atlas_peers_res['error']))
+        except socket.error, se:
+            log.exception(se)
+            log.warning('Failed to find Atlas peers of {}'.format(server_hostport))
+        except Exception as e:
+            log.exception(e)
+            
         return servers
 
 
@@ -589,7 +635,7 @@ class RegistrarWorker(threading.Thread):
                 wallet_data = get_wallet( self.rpc_token, config_path=self.config_path, proxy=proxy )
 
                 # wait until the owner address is set 
-                while wallet_data['owner_address'] is None and self.running:
+                while ('error' in wallet_data or wallet_data['owner_address'] is None) and self.running:
                     log.debug("Owner address not set... (%s)" % wallet_data.get("error", ""))
                     wallet_data = get_wallet( self.rpc_token, config_path=self.config_path, proxy=proxy )
                     time.sleep(1.0)
@@ -638,7 +684,7 @@ class RegistrarWorker(threading.Thread):
                 # see if we can replicate any zonefiles and profiles
                 # clear out any confirmed updates
                 log.debug("replicate all pending zonefiles and profiles in %s" % (self.queue_path))
-                servers = RegistrarWorker.get_replica_server_list( self.config_path )
+                servers = RegistrarWorker.get_atlas_server_list( self.config_path )
                 res = RegistrarWorker.replicate_profiles( self.queue_path, servers, wallet_data, self.required_storage_drivers, config_path=self.config_path, proxy=proxy )
                 if 'error' in res:
                     log.warn("Zonefile/profile replication failed: %s" % res['error'])
@@ -676,8 +722,8 @@ class RegistrarWorker(threading.Thread):
            
             try:
                 log.debug("Sleep for %s" % poll_interval)
-                for i in xrange(0, int(poll_interval) * 10):
-                    time.sleep(0.1)
+                for i in xrange(0, int(poll_interval)):
+                    time.sleep(1)
 
                     # preemption point
                     if not self.running:
@@ -705,9 +751,9 @@ class RegistrarState(object):
     payment_address = None
     owner_address = None
 
-    encrypted_payment_privkey = None
-    encrypted_owner_privkey = None
-    encrypted_data_privkey = None
+    encrypted_payment_privkey_info = None
+    encrypted_owner_privkey_info = None
+    encrypted_data_privkey_info = None
 
     server_started_at = None
     registrar_worker = None
@@ -758,24 +804,51 @@ def state():
 def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=None, proxy=None):
     """
     Keeps payment privkey in memory (instead of disk)
-    for the time that server is alive
+    for the time that server is alive.
+
+    Each _keypair is a list or tuple with two items: the address, and the private key information
+    (note that the private key information can be either a private key, or a multisig info dict).
+
     Return {'success': True} on success
     Return {'error': ...} on error
     """
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     rpc_token = get_rpc_token(config_path)
 
+    # sanity check...
+    if not is_singlesig( payment_keypair[1] ) and not is_multisig( payment_keypair[1] ):
+        return {'error': 'Invalid payment key info'}
+
+    if not is_singlesig( owner_keypair[1] ) and not is_multisig( owner_keypair[1] ):
+        return {'error': 'Invalid owner key info'}
+
+    if not is_singlesig( data_keypair[1] ):
+        return {'error': 'Invalid data key info'}
+
     state.payment_address = payment_keypair[0]
     state.owner_address = owner_keypair[0]
 
-    state.encrypted_payment_privkey = aes_encrypt(payment_keypair[1], rpc_token)
-    state.encrypted_owner_privkey = aes_encrypt(owner_keypair[1], rpc_token)
-    state.encrypted_data_privkey = aes_encrypt(data_keypair[1], rpc_token)
+    enc_payment_info = encrypt_private_key_info(payment_keypair[1], rpc_token )
+    enc_owner_info = encrypt_private_key_info(owner_keypair[1], rpc_token )
+    enc_data_info = encrypt_private_key_info(data_keypair[1], rpc_token )
+
+    if 'error' in enc_payment_info:
+        return {'error': 'Failed to encrypt payment key: %s' % enc_payment_info['error']}
+
+    if 'error' in enc_owner_info:
+        return {'error': 'Failed to encrypt owner key: %s' % enc_owner_info['error']}
+
+    if 'error' in enc_data_info:
+        return {'error': 'Failed to encrypt data key: %s' % enc_data_info['error']}
+
+    state.encrypted_payment_privkey_info = enc_payment_info['encrypted_private_key_info']['private_key_info']
+    state.encrypted_owner_privkey_info = enc_owner_info['encrypted_private_key_info']['private_key_info']
+    state.encrypted_data_privkey_info = enc_data_info['encrypted_private_key_info']['private_key_info']
 
     data = {}
     data['success'] = True
 
-    log.debug("Wallet set (%s, %s)" % (state.payment_address, state.owner_address))
+    log.debug("Wallet set (%s, %s, %s)" % (state.payment_address, state.owner_address, data_keypair[0]))
     return data
 
 
@@ -788,46 +861,58 @@ def get_start_block(config_path=None, proxy=None):
     return state.server_started_at
 
 
-def get_wallet_payment_privkey(config_path=None, proxy=None):
+def get_wallet_payment_privkey_info(config_path=None, proxy=None):
     """
-    Get the decrypted payment private key from the wallet
+    Get the decrypted payment private key info from the wallet
     Return None if not set
     """
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     rpc_token = get_rpc_token(config_path)
-    if state.encrypted_payment_privkey is None:
+    if state.encrypted_payment_privkey_info is None:
         return None
 
-    privkey = aes_decrypt(state.encrypted_payment_privkey, rpc_token)
-    return str(privkey)
+    privkey_info = decrypt_private_key_info( state.encrypted_payment_privkey_info, rpc_token )
+    if 'error' in privkey_info:
+        log.error("Failed to decrypt payment key: %s" % privkey_info['error'])
+        return None
+
+    return privkey_info['private_key_info']
 
 
-def get_wallet_owner_privkey(config_path=None, proxy=None):
+def get_wallet_owner_privkey_info(config_path=None, proxy=None):
     """
-    Get the decrypted owner private key from the wallet
+    Get the decrypted owner private key info from the wallet
     Return None if not set
     """
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     rpc_token = get_rpc_token(config_path)
-    if state.encrypted_owner_privkey is None:
+    if state.encrypted_owner_privkey_info is None:
         return None
 
-    privkey = aes_decrypt(state.encrypted_owner_privkey, rpc_token)
-    return str(privkey)
+    privkey_info = decrypt_private_key_info(state.encrypted_owner_privkey_info, rpc_token)
+    if 'error' in privkey_info:
+        log.error("Failed to decrypt owner key: %s" % privkey_info['error'])
+        return None
+
+    return privkey_info['private_key_info']
 
 
-def get_wallet_data_privkey(config_path=None, proxy=None):
+def get_wallet_data_privkey_info(config_path=None, proxy=None):
     """
-    Get the decrypted data private key from the wallet
+    Get the decrypted data private key info from the wallet
     Return None if not set
     """
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     rpc_token = get_rpc_token(config_path=config_path)
-    if state.encrypted_data_privkey is None:
+    if state.encrypted_data_privkey_info is None:
         return None 
 
-    privkey = aes_decrypt(state.encrypted_data_privkey, rpc_token)
-    return str(privkey)
+    privkey_info = decrypt_private_key_info(state.encrypted_data_privkey_info, rpc_token)
+    if 'error' in privkey_info:
+        log.error("Failed to decrypt data key: %s" % privkey_info['error'])
+        return None
+
+    return privkey_info['private_key_info']
 
 
 def get_wallet(rpc_token=None, config_path=None, proxy=None):
@@ -846,13 +931,21 @@ def get_wallet(rpc_token=None, config_path=None, proxy=None):
         data['error'] = "Incorrect RPC token"
         return data
 
+    data_privkey_info = get_wallet_data_privkey_info()
+    if data_privkey_info is None:
+        data['error'] = "Unable to decrypt data private key"
+        return data
+
     data['payment_address'] = state.payment_address
     data['owner_address'] = state.owner_address
-    data['data_pubkey'] = ECPrivateKey( get_wallet_data_privkey() ).public_key().to_hex()
+    data['data_pubkey'] = ECPrivateKey( data_privkey_info ).public_key().to_hex()
 
-    data['payment_privkey'] = get_wallet_payment_privkey()
-    data['owner_privkey'] = get_wallet_owner_privkey()
-    data['data_privkey'] = get_wallet_data_privkey()
+    data['payment_privkey'] = get_wallet_payment_privkey_info()
+    data['owner_privkey'] = get_wallet_owner_privkey_info()
+    data['data_privkey'] = get_wallet_data_privkey_info()
+
+    if data['payment_privkey'] is None or data['owner_privkey'] is None or data['data_privkey'] is None:
+        data['error'] = "Failed to load private keys (wrong password?)"
 
     return data
 
@@ -888,10 +981,13 @@ def preorder(fqu, config_path=None, proxy=None):
         data['error'] = "Failed to look up name cost: %s" % cost_info['error']
         return data
 
-    payment_privkey = get_wallet_payment_privkey()
+    payment_privkey_info = get_wallet_payment_privkey_info()
+    owner_privkey_info = get_wallet_owner_privkey_info()
+    owner_privkey_params = get_privkey_info_params( owner_privkey_info )
+    owner_address = get_privkey_info_address( owner_privkey_info )
 
     if not is_name_registered(fqu, proxy=proxy):
-        resp = async_preorder(fqu, payment_privkey, state.owner_address, cost_info['satoshis'], proxy=proxy, config_path=config_path, queue_path=state.queue_path)
+        resp = async_preorder(fqu, payment_privkey_info, owner_address, cost_info['satoshis'], owner_privkey_params=owner_privkey_params, proxy=proxy, config_path=config_path, queue_path=state.queue_path)
     else:
         return {'success': False, 'error': "Name is already registered"}
 
@@ -910,13 +1006,23 @@ def preorder(fqu, config_path=None, proxy=None):
     return data
 
 
-def update( fqu, zonefile, profile, zonefile_hash, config_path=None, proxy=None ):
+def update( fqu, zonefile_txt_b64, profile, zonefile_hash, config_path=None, proxy=None ):
     """
-    Send a new zonefile hash.  Queue the zonefile for subsequent replication.
+    Send a new zonefile hash.  Queue the zonefile data for subsequent replication.
     """
 
-    assert zonefile is not None or zonefile_hash is not None, "need zonefile or zonefile hash"
+    assert zonefile_txt_b64 is not None or zonefile_hash is not None, "need zonefile or zonefile hash"
+    
+    zonefile_txt = None
+    if zonefile_txt_b64 is not None:
+        try:
+            zonefile_txt = base64.b64decode(zonefile_txt_b64)
+        except:
+            return {'error': 'Invalid base64 zonefile'}
 
+    if zonefile_hash is None:
+        zonefile_hash = get_zonefile_data_hash( zonefile_txt )
+        
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     data = {}
 
@@ -932,17 +1038,16 @@ def update( fqu, zonefile, profile, zonefile_hash, config_path=None, proxy=None 
 
     resp = None
 
-    payment_privkey = get_wallet_payment_privkey()
-    owner_privkey = get_wallet_owner_privkey()
+    payment_privkey_info = get_wallet_payment_privkey_info()
+    owner_privkey_info = get_wallet_owner_privkey_info()
+
     replication_error = None
 
-    if zonefile is None or not is_zonefile_current(fqu, zonefile, proxy=proxy ):
-        if zonefile_hash is None:
-            zonefile_hash = hash_zonefile(zonefile)
-
-        resp = async_update(fqu, zonefile, profile,
-                            owner_privkey,
-                            payment_privkey,
+    if not is_zonefile_hash_current(fqu, zonefile_hash, proxy=proxy ):
+        # new zonefile data
+        resp = async_update(fqu, zonefile_txt, profile,
+                            owner_privkey_info,
+                            payment_privkey_info,
                             zonefile_hash=zonefile_hash,
                             proxy=proxy,
                             config_path=config_path,
@@ -959,7 +1064,7 @@ def update( fqu, zonefile, profile, zonefile_hash, config_path=None, proxy=None 
         data['message'] += " check on the status at any time by running"
         data['message'] += " 'blockstack info'."
         data['transaction_hash'] = resp['transaction_hash']
-        data['zonefile_hash'] = resp['zonefile_hash']
+        data['value_hash'] = resp['zonefile_hash']
     else:
         log.error("async_update failed with: '%s'" % resp['error'])
         data['success'] = False
@@ -992,14 +1097,14 @@ def transfer(fqu, transfer_address, config_path=None, proxy=None ):
         data['error'] = "Already in queue."
         return data
 
-    payment_privkey = get_wallet_payment_privkey()
-    owner_privkey = get_wallet_owner_privkey()
+    payment_privkey_info = get_wallet_payment_privkey_info()
+    owner_privkey_info = get_wallet_owner_privkey_info()
 
     resp = None
     if not is_name_owner(fqu, transfer_address, proxy=proxy):
         resp = async_transfer(fqu, transfer_address,
-                              owner_privkey,
-                              payment_privkey,
+                              owner_privkey_info,
+                              payment_privkey_info,
                               proxy=proxy,
                               config_path=config_path,
                               queue_path=state.queue_path)
@@ -1059,16 +1164,23 @@ def migrate( fqu, config_path=None, proxy=None ):
     if not legacy:
         return {'success': True}
 
+    user_zonefile = user_zonefile['zonefile']
+    user_profile = user_profile['profile']
+    
     resp = None
 
-    payment_privkey = get_wallet_payment_privkey()
-    owner_privkey = get_wallet_owner_privkey()
+    payment_privkey_info = get_wallet_payment_privkey_info()
+    owner_privkey_info = get_wallet_owner_privkey_info()
     replication_error = None
 
-    if not is_zonefile_current(fqu, user_zonefile, proxy=proxy ):
-        resp = async_update(fqu, user_zonefile, user_profile,
-                            owner_privkey,
-                            payment_privkey,
+    zonefile_txt = blockstack_zones.make_zone_file( user_zonefile )
+    zonefile_hash = get_zonefile_data_hash( zonefile_txt )
+
+    if not is_zonefile_hash_current(fqu, zonefile_hash, proxy=proxy ):
+        resp = async_update(fqu, zonefile_txt, user_profile,
+                            owner_privkey_info,
+                            payment_privkey_info,
+                            zonefile_hash=zonefile_hash,
                             proxy=proxy,
                             config_path=config_path,
                             queue_path=state.queue_path)
@@ -1120,10 +1232,10 @@ def renew( fqu, renewal_fee, config_path=None, proxy=None ):
 
     resp = None
 
-    payment_privkey = get_wallet_payment_privkey()
-    owner_privkey = get_wallet_owner_privkey()
+    payment_privkey_info = get_wallet_payment_privkey_info()
+    owner_privkey_info = get_wallet_owner_privkey_info()
 
-    resp = async_renew(fqu, owner_privkey, payment_privkey, renewal_fee,
+    resp = async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee,
                        proxy=proxy,
                        config_path=config_path,
                        queue_path=state.queue_path)
@@ -1166,10 +1278,10 @@ def revoke( fqu, config_path=None, proxy=None ):
 
     resp = None
 
-    payment_privkey = get_wallet_payment_privkey()
-    owner_privkey = get_wallet_owner_privkey()
+    payment_privkey_info = get_wallet_payment_privkey_info()
+    owner_privkey_info = get_wallet_owner_privkey_info()
 
-    resp = async_revoke(fqu, owner_privkey, payment_privkey,
+    resp = async_revoke(fqu, owner_privkey_info, payment_privkey_info,
                         proxy=proxy,
                         config_path=config_path,
                         queue_path=state.queue_path)
@@ -1197,12 +1309,9 @@ RPC_PREFIX = "backend"
 RPC_METHODS = [
     ping,
     state,
+    get_wallet,
     set_wallet,
     get_start_block,
-    get_wallet_payment_privkey,
-    get_wallet_owner_privkey,
-    get_wallet_data_privkey,
-    get_wallet,
     preorder,
     update,
     transfer,
