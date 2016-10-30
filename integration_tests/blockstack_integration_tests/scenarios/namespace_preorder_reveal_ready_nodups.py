@@ -23,6 +23,7 @@
 
 import testlib 
 import json
+import sys
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -88,6 +89,10 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    
+    # warn the serialization checker that this changes behavior from 0.13
+    print "BLOCKSTACK_SERIALIZATION_CHANGE_BEHAVIOR"
+    sys.stdout.flush()
     
 
 def check( state_engine ):

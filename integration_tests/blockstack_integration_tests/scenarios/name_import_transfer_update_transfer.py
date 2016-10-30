@@ -21,6 +21,9 @@
     along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 """ 
 
+# NOTE FOR 0.13 --> 0.14: this test used to do a name preorder and a name register.
+# It has been fixed to match its namesake--it now does an import instead.
+
 import testlib
 import pybitcoin
 import json
@@ -54,19 +57,13 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
+    resp = testlib.blockstack_name_import( "foo.test", wallets[3].addr, "11" * 20, wallets[1].privkey )
+    if 'error' in resp:
+        print json.dumps( resp, indent=4 )
+
+    testlib.next_block( **kw )
+
     resp = testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
-    if debug or 'error' in resp:
-        print json.dumps( resp, indent=4 )
-
-    testlib.next_block( **kw )
-
-    resp = testlib.blockstack_name_preorder( "foo.test", wallets[2].privkey, wallets[3].addr )
-    if debug or 'error' in resp:
-        print json.dumps( resp, indent=4 )
-
-    testlib.next_block( **kw )
-    
-    resp = testlib.blockstack_name_register( "foo.test", wallets[2].privkey, wallets[3].addr )
     if debug or 'error' in resp:
         print json.dumps( resp, indent=4 )
 

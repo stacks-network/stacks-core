@@ -53,7 +53,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
-    resp = testlib.blockstack_rpc_register( "foo.test", "0123456789abcdef" )
+    resp = testlib.blockstack_cli_register( "foo.test", "0123456789abcdef" )
     if 'error' in resp:
         print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
         return False
@@ -69,6 +69,10 @@ def scenario( wallets, **kw ):
 
     # wait for the register to get confirmed 
     for i in xrange(0, 12):
+        # warn the serialization checker that this changes behavior from 0.13
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+        
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
@@ -76,6 +80,10 @@ def scenario( wallets, **kw ):
 
     # wait for initial update to get confirmed 
     for i in xrange(0, 12):
+        # warn the serialization checker that this changes behavior from 0.13
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+        
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
@@ -87,16 +95,20 @@ def scenario( wallets, **kw ):
     blockstack_client.user.put_immutable_data_zonefile( zonefile, "testdata", blockstack_client.get_data_hash("testdata"), data_url="file:///testdata")
     zonefile_json = json.dumps(zonefile)
 
-    resp = testlib.blockstack_rpc_update( "foo.test", zonefile_json, "0123456789abcdef" )
+    resp = testlib.blockstack_cli_update( "foo.test", zonefile_json, "0123456789abcdef" )
     
     if 'error' in resp:
         print >> sys.stderr, "update error: %s" % resp['error']
         return False
 
-    zonefile_hash = resp['zonefile_hash']
+    zonefile_hash = resp['value_hash']
     
     # wait for it to go through 
     for i in xrange(0, 12):
+        # warn the serialization checker that this changes behavior from 0.13
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+        
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowedge the update"

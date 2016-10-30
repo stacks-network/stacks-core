@@ -25,13 +25,16 @@ import testlib
 import pybitcoin
 import json
 import blockstack_client
+import time
+import sys
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
     testlib.Wallet( "5KHqsiU9qa77frZb6hQy9ocV7Sus9RWJcQGYYBJJBb2Efj1o77e", 100000000000 ),
     testlib.Wallet( "5Kg5kJbQHvk1B64rJniEmgbD83FpZpbw2RjdAZEzTefs9ihN3Bz", 100000000000 ),
     testlib.Wallet( "5JuVsoS9NauksSkqEjbUZxWwgGDQbMwPsEfoRBSpLpgDX1RtLX7", 100000000000 ),
-    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 100000000000 )
+    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 100000000000 ),
+    testlib.Wallet( "5KaSTdRgMfHLxSKsiWhF83tdhEj2hqugxdBNPUAw5NU8DMyBJji", 100000000000 )
 ]
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
@@ -69,7 +72,7 @@ def scenario( wallets, **kw ):
     test_proxy = testlib.TestAPIProxy()
     blockstack_client.set_default_proxy( test_proxy )
 
-    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey )
+    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey, payment_privkey=wallets[5].privkey )
 
     # migrate profile
     res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
@@ -79,41 +82,87 @@ def scenario( wallets, **kw ):
         error = True
         return 
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     testlib.next_block( **kw )
 
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
+        return False
 
+    testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
     zonefile_hashes.append( put_result['immutable_data_hash'] )
 
-    testlib.next_block( **kw )
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
+    # wait for confirmation 
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "waiting for confirmation"
+    time.sleep(10)
 
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_2", datasets[1], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
+        return False
 
+    testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
     zonefile_hashes.append( put_result['immutable_data_hash'] )
 
-    testlib.next_block( **kw )
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
+    # wait for confirmation 
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "waiting for confirmation"
+    time.sleep(10)
 
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_3", datasets[2], proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True)
+        return False
 
+    testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
     zonefile_hashes.append( put_result['immutable_data_hash'] )
 
-    testlib.next_block( **kw )
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
+    # wait for confirmation 
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "waiting for confirmation"
+    time.sleep(10)
 
-    # should fail (name collision)
+    # should succeed (name collision)
     datasets[0]['newdata'] = "asdf"
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_1", datasets[0], proxy=test_proxy, wallet_keys=wallet_keys )
-    if 'error' not in put_result:
-        zonefile_hashes[0] = put_result['immutable_data_hash']
+    if 'error' in put_result:
+        print json.dumps(put_result, indent=4, sort_keys=True)
+        return False
 
+    zonefile_hashes[0] = put_result['immutable_data_hash']
+
+    testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
     del datasets[0]['newdata']
 
-    testlib.next_block( **kw )
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "waiting for confirmation"
+    time.sleep(10)
 
     # delete everything
     for i in xrange(0, len(datasets)):
@@ -122,7 +171,17 @@ def scenario( wallets, **kw ):
         if 'error' in put_result:
             print json.dumps(put_result, indent=4, sort_keys=True)
 
-        testlib.next_block(**kw)
+        testlib.expect_atlas_zonefile(put_result['zonefile_hash'])
+
+        # tell serialization-checker that value_hash can be ignored here
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+        
+        # wait for conformation
+        for i in xrange(0, 12):
+            testlib.next_block(**kw)
+        print "waiting for confirmation"
+        time.sleep(10)
 
     last_hash = put_result['zonefile_hash']
 

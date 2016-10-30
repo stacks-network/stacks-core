@@ -34,6 +34,7 @@ import xmlrpclib
 import blockstack
 import traceback
 import blockstack_zones 
+import base64
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -68,7 +69,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
-    resp = testlib.blockstack_rpc_register( "foo.test", "0123456789abcdef" )
+    resp = testlib.blockstack_cli_register( "foo.test", "0123456789abcdef" )
     if 'error' in resp:
         print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
         return False
@@ -79,28 +80,32 @@ def scenario( wallets, **kw ):
 
     # wait for the poller to pick it up
     print >> sys.stderr, "Waiting for the backend to submit the register"
-    time.sleep(3)
+    time.sleep(10)
 
     # wait for the register to get confirmed 
     for i in xrange(0, 12):
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting for the backend to acknowledge registration"
-    time.sleep(3)
+    time.sleep(10)
 
     # wait for initial update to get confirmed 
     for i in xrange(0, 12):
+        # tell serialization-checker that value_hash can be ignored here
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+    
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting for the backend to acknowledge update"
-    time.sleep(3)
+    time.sleep(10)
 
     # wait for zonefile/profile replication
     for i in xrange(0, 12):
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting for the backend to replicate zonefile and profile"
-    time.sleep(3)
+    time.sleep(10)
 
     test_proxy = testlib.TestAPIProxy()
     blockstack_client.set_default_proxy( test_proxy )
@@ -198,8 +203,19 @@ def check( state_engine ):
         assert 'error' not in zonefile_by_name, json.dumps(zonefile_by_name, indent=4, sort_keys=True)
         assert 'error' not in zonefile_by_hash, json.dumps(zonefile_by_hash, indent=4, sort_keys=True)
 
-        zf1 = zonefile_by_name['zonefiles']['foo.test']
-        zf2 = zonefile_by_hash['zonefiles'][name_rec['value_hash']]
+        zf1 = None
+        zf2 = None
+        try:
+            zf1 = base64.b64decode( zonefile_by_name['zonefiles']['foo.test'] )
+        except:
+            print zonefile_by_name
+            raise
+
+        try:
+            zf2 = base64.b64decode( zonefile_by_hash['zonefiles'][name_rec['value_hash']] )
+        except:
+            print zonefile_by_hash
+            raise
         
         assert zf1 == zf2
         zonefile = blockstack_zones.parse_zone_file( zf1 )

@@ -24,7 +24,13 @@
 import testlib
 import pybitcoin
 import json
+import blockstack as blockstack_server
 
+# in epoch 2 immediately, but with the old price (in order to test compatibility with 0.13)
+"""
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 250
+TEST ENV BLOCKSTACK_EPOCH_2_PRICE_MULTIPLIER 1.0
+"""
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
     testlib.Wallet( "5KHqsiU9qa77frZb6hQy9ocV7Sus9RWJcQGYYBJJBb2Efj1o77e", 100000000000 ),
@@ -42,7 +48,14 @@ wallets = [
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
+update_hashes = []
+update_blocks = []
+
+NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK + 1, "test" )
+
 def scenario( wallets, **kw ):
+
+    global update_hashes, update_blocks
 
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
@@ -54,6 +67,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # preorder, register, update, expire (multiple times)
+    # take into account the new namespace lifetime multipler
     for i in xrange(2, 11):
         resp = testlib.blockstack_name_preorder( "foo.test", wallets[i].privkey, wallets[(i+1)%11].addr )
         if 'error' in resp:
@@ -73,12 +87,21 @@ def scenario( wallets, **kw ):
 
         testlib.next_block( **kw )
 
+        update_blocks.append( testlib.get_current_block( **kw )) 
+        update_hashes.append( ("%02x" % i) * 20 )
+        
+        # wait for expiration 
+        for j in xrange(0, NAMESPACE_LIFETIME_MULTIPLIER - 2):
+            testlib.next_block( **kw)
+
         if i == 10:
             break
 
         testlib.next_block( **kw )
 
 def check( state_engine ):
+
+    global update_hashes, update_blocks 
 
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "test" )
@@ -112,5 +135,23 @@ def check( state_engine ):
     if name_rec['address'] != wallets[0].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[0].addr):
         print json.dumps(name_rec, indent=4 )
         return False
+
+    # updated historically too 
+    for i in xrange(0, len(update_blocks)):
+        update_block = update_blocks[i]
+        update_hash = update_hashes[i]
+        historic_name_rec = state_engine.get_name_at( "foo.test", update_block, include_expired=True )
+        if historic_name_rec is None or len(historic_name_rec) == 0:
+            print "no name at %s" % update_block
+            return False
+
+        historic_name_rec = historic_name_rec[0]
+        if historic_name_rec['opcode'] != 'NAME_UPDATE':
+            print "not an update at %s" % update_block
+            return False
+
+        if historic_name_rec.get('value_hash', None) != update_hash:
+            print "wrong update hash at %s: expected %s, got %s" % (update_block, historic_name_rec.get('value_hash', None), update_hash)
+            return False
 
     return True

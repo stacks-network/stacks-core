@@ -51,7 +51,7 @@ def scenario( wallets, **kw ):
 
     wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, None )
     for i in xrange(0, 3):
-        resp = testlib.blockstack_rpc_register( "foo_%s.test" % i, "0123456789abcdef" )
+        resp = testlib.blockstack_cli_register( "foo_%s.test" % i, "0123456789abcdef" )
         if 'error' in resp:
             print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
             return False
@@ -61,22 +61,29 @@ def scenario( wallets, **kw ):
             testlib.next_block( **kw )
 
         # wait for the poller to pick them up
-        print >> sys.stderr, "Waiting 10 seconds for the backend to submit the registers"
+        print >> sys.stderr, "Waiting 10 seconds for the backend to submit the registers on foo_%s.test" % i
         time.sleep(10)
 
-
         # wait for the registers to get confirmed 
-        for i in xrange(0, 12):
+        for i in xrange(0, 15):
+            # tell serialization-checker that value_hash can be ignored here
+            print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+            sys.stdout.flush()
+            
             testlib.next_block( **kw )
 
-        print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registrations"
+        print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registrations on foo_%s.test" % i
         time.sleep(10)
 
         # wait for update to get confirmed 
-        for i in xrange(0, 12):
+        for i in xrange(0, 15):
+            # warn the serialization checker that this changes behavior from 0.13
+            print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+            sys.stdout.flush()
+            
             testlib.next_block( **kw )
 
-        print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
+        print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update on foo_%s.test" % i
         time.sleep(10)
 
 

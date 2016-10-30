@@ -24,6 +24,13 @@
 import testlib
 import pybitcoin
 import json
+import blockstack as blockstack_server
+
+# in epoch 2 immediately, but with the old price (in order to test compatibility with 0.13)
+"""
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 250
+TEST ENV BLOCKSTACK_EPOCH_2_PRICE_MULTIPLIER 1.0
+"""
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -34,6 +41,8 @@ wallets = [
 ]
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
+
+NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK + 1, "test" )
 
 def scenario( wallets, **kw ):
 
@@ -67,6 +76,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # should fail
     resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey )
@@ -74,6 +84,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # should fail
     resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey )
@@ -81,9 +92,10 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # wait for it to expire...
-    for i in xrange(0, 8):
+    for i in xrange(0, 8 * NAMESPACE_LIFETIME_MULTIPLIER):
         testlib.next_block( **kw )
 
     # verify that operations continue to fail
@@ -92,6 +104,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # should fail
     resp = testlib.blockstack_name_transfer( "foo.test", wallets[4].addr, True, wallets[3].privkey )
@@ -99,6 +112,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # should fail
     resp = testlib.blockstack_name_renew( "foo.test", wallets[3].privkey )
@@ -106,6 +120,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
     # re-preorder...
     resp = testlib.blockstack_name_preorder( "foo.test", wallets[4].privkey, wallets[0].addr )

@@ -134,6 +134,7 @@ def check( state_engine ):
     # snv lookup works
     test_proxy = testlib.TestAPIProxy()
     blockstack_client.set_default_proxy( test_proxy )
+    spv_headers_path = test_proxy.spv_headers_path
 
     snv_rec = blockstack_client.snv_lookup( "foo.test", snv_block_id, last_consensus, proxy=test_proxy )
     if 'error' in snv_rec:

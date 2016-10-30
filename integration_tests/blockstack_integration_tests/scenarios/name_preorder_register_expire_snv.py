@@ -25,6 +25,7 @@ import testlib
 import pybitcoin
 import json
 import blockstack_client 
+import blockstack as blockstack_server
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -38,6 +39,9 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 snv_block_id = None
 last_consensus = None
 
+# do the 2nd epoch
+NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK + 1, "test" )
+
 def scenario( wallets, **kw ):
 
     global snv_block_id, last_consensus
@@ -45,8 +49,8 @@ def scenario( wallets, **kw ):
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
 
-    # NOTE: names expire in 13 blocks
-    testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 13, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
+    # NOTE: names expire in 5 * NAMESPACE_LIFETIME_MULTIPLIER blocks
+    testlib.blockstack_namespace_reveal( "test", wallets[1].addr, 5, 250, 4, [6,5,4,3,2,1,0,0,0,0,0,0,0,0,0,0], 10, 10, wallets[0].privkey )
     testlib.next_block( **kw )
 
     testlib.blockstack_namespace_ready( "test", wallets[1].privkey )
@@ -60,8 +64,11 @@ def scenario( wallets, **kw ):
 
     snv_block_id = testlib.get_current_block()
     
-    for i in xrange(0, 15):
+    for i in xrange(0, 5 * NAMESPACE_LIFETIME_MULTIPLIER):
         testlib.next_block( **kw )
+    
+    # this one expires the name
+    testlib.next_block( **kw )
 
     last_consensus = testlib.get_consensus_at( testlib.get_current_block() )
 

@@ -28,6 +28,8 @@ import json
 import sys
 import os
 import blockstack_client
+import blockstack_zones
+import base64
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -54,7 +56,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
-    resp = testlib.blockstack_rpc_register( "foo.test", "0123456789abcdef" )
+    resp = testlib.blockstack_cli_register( "foo.test", "0123456789abcdef" )
     if 'error' in resp:
         print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
         return False
@@ -70,6 +72,10 @@ def scenario( wallets, **kw ):
 
     # wait for the register to get confirmed 
     for i in xrange(0, 12):
+        # warn the serialization checker that this changes behavior from 0.13
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+        
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
@@ -77,6 +83,10 @@ def scenario( wallets, **kw ):
 
     # wait for initial update to get confirmed 
     for i in xrange(0, 12):
+        # warn the serialization checker that this changes behavior from 0.13
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+        
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
@@ -85,11 +95,12 @@ def scenario( wallets, **kw ):
     # store a new zonefile
     data_pubkey = wallet['data_pubkey']
     zonefile = blockstack_client.user.make_empty_user_zonefile( "foo.test", data_pubkey )
-    blockstack_client.user.put_immutable_data_zonefile( zonefile, "testdata", blockstack_client.get_data_hash("testdata") )
-    zonefile_json = json.dumps(zonefile)
+    assert blockstack_client.user.put_immutable_data_zonefile( zonefile, "testdata", blockstack_client.get_data_hash("testdata") )
 
-    zonefile_hash = blockstack_client.storage.hash_zonefile( zonefile )
+    zonefile_txt = blockstack_zones.make_zone_file( zonefile )
+    zonefile_hash = blockstack_client.storage.get_zonefile_data_hash( zonefile_txt )
    
+    print >> sys.stderr, "\n\nzonefile hash: %s\nzonefile:\n%s\n\n" % (zonefile_hash, zonefile_txt)
 
     # will store to queue
     test_proxy = testlib.make_proxy()
@@ -98,13 +109,17 @@ def scenario( wallets, **kw ):
     queuedb_path = conf['queue_path']
 
     # update the zonefile hash, but not the zonefile.
-    resp = testlib.blockstack_rpc_set_zonefile_hash( "foo.test", zonefile_hash )
+    resp = testlib.blockstack_cli_set_zonefile_hash( "foo.test", zonefile_hash )
     if 'error' in resp:
         print >> sys.stderr, "\nFailed to set zonefile hash: %s\n" % resp
         return False
 
     txhash = resp['transaction_hash']
     for i in xrange(0, 12):
+        # warn the serialization checker that this changes behavior from 0.13
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+        
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
@@ -119,10 +134,10 @@ def scenario( wallets, **kw ):
 
     # store to queue
     res = blockstack_client.backend.queue.queue_append("update", "foo.test", txhash, payment_address=wallets[2].addr, owner_address=wallets[3].addr,
-                                                config_path=test_proxy.config_path, zonefile=zonefile, zonefile_hash=zonefile_hash, path=queuedb_path )
+                                                       config_path=test_proxy.config_path, zonefile_data=zonefile_txt, zonefile_hash=zonefile_hash, path=queuedb_path )
 
     # verify that we can sync the zonefile, using the in-queue zonefile
-    resp = testlib.blockstack_rpc_sync_zonefile( "foo.test" )
+    resp = testlib.blockstack_cli_sync_zonefile( "foo.test" )
     if 'error' in resp:
         print >> sys.stderr, "\nfailed to sync zonefile: %s\n" % resp
         return False
@@ -136,9 +151,9 @@ def scenario( wallets, **kw ):
     # store a new zonefile
     zonefile = blockstack_client.user.make_empty_user_zonefile( "foo.test", data_pubkey )
     blockstack_client.user.put_immutable_data_zonefile( zonefile, "testdata2", blockstack_client.get_data_hash("testdata") )
-    zonefile_json = json.dumps(zonefile)
 
-    zonefile_hash = blockstack_client.storage.hash_zonefile( zonefile )
+    zonefile_txt = blockstack_zones.make_zone_file( zonefile )
+    zonefile_hash = blockstack_client.storage.get_zonefile_data_hash( zonefile_txt )
 
     # store locally 
     res = blockstack_client.profile.store_name_zonefile("foo.test", zonefile, None, storage_drivers=['disk'])
@@ -147,16 +162,20 @@ def scenario( wallets, **kw ):
         return False
 
     # update the zonefile hash, but not the zonefile.
-    resp = testlib.blockstack_rpc_set_zonefile_hash( "foo.test", zonefile_hash )
+    resp = testlib.blockstack_cli_set_zonefile_hash( "foo.test", zonefile_hash )
     if 'error' in resp:
         print >> sys.stderr, "\nFailed to set zonefile hash: %s\n" % resp
         return False
 
     for i in xrange(0, 12):
+        # warn the serialization checker that this changes behavior from 0.13
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+        
         testlib.next_block( **kw )
 
     # verify that we can sync the zonefile, using the on-disk zonefile
-    resp = testlib.blockstack_rpc_sync_zonefile( "foo.test" )
+    resp = testlib.blockstack_cli_sync_zonefile( "foo.test" )
     
     if 'error' in resp:
         print >> sys.stderr, "update error: %s" % resp['error']

@@ -88,6 +88,7 @@ def scenario( wallets, **kw ):
         print json.dumps( resp, indent=4 )
 
     testlib.next_block( **kw )
+    testlib.expect_snv_fail_at( "foo.test", testlib.get_current_block(**kw))
 
 
 def check( state_engine ):

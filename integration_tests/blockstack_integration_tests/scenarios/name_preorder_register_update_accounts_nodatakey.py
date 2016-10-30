@@ -28,6 +28,7 @@ import json
 import blockstack_client
 import blockstack_profiles
 import blockstack_gpg
+import sys
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -73,7 +74,7 @@ def scenario( wallets, **kw ):
 
     test_proxy = testlib.TestAPIProxy()
     blockstack_client.set_default_proxy( test_proxy )
-    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey )
+    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, payment_privkey=wallets[5].privkey )
 
     # migrate profiles 
     res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
@@ -83,6 +84,10 @@ def scenario( wallets, **kw ):
         error = True
         return 
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     testlib.next_block( **kw )
 
     # make an account 
@@ -164,14 +169,14 @@ def check( state_engine ):
             return False 
 
         # only serviceFoo exists
-        accounts = blockstack_client.list_accounts( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
+        accounts = blockstack_client.list_accounts( "foo.test", proxy=test_proxy )
         if len(accounts) != 1:
             print "wrong number of accounts"
             print json.dumps(accounts, indent=4, sort_keys=True)
             return False 
 
         account = accounts['accounts'][0]
-        on_file_accounts = blockstack_client.get_account( "foo.test", "serviceFoo", "serviceFooID", proxy=test_proxy, wallet_keys=wallet_keys )
+        on_file_accounts = blockstack_client.get_account( "foo.test", "serviceFoo", "serviceFooID", proxy=test_proxy )
         if 'error' in on_file_accounts:
             print json.dumps(on_file_account, sort_keys=True, indent=4)
             return False 

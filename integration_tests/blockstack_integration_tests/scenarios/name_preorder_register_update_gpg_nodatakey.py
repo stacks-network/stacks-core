@@ -30,6 +30,7 @@ import blockstack_profiles
 import blockstack_gpg
 import time
 import os
+import sys
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -40,7 +41,8 @@ wallets = [
     testlib.Wallet( "5K5hDuynZ6EQrZ4efrchCwy6DLhdsEzuJtTDAf3hqdsCKbxfoeD", 100000000000 ),
     testlib.Wallet( "5J39aXEeHh9LwfQ4Gy5Vieo7sbqiUMBXkPH7SaMHixJhSSBpAqz", 100000000000 ),
     testlib.Wallet( "5K9LmMQskQ9jP1p7dyieLDAeB6vsAj4GK8dmGNJAXS1qHDqnWhP", 100000000000 ),
-    testlib.Wallet( "5KcNen67ERBuvz2f649t9F2o1ddTjC5pVUEqcMtbxNgHqgxG2gZ", 100000000000 )
+    testlib.Wallet( "5KcNen67ERBuvz2f649t9F2o1ddTjC5pVUEqcMtbxNgHqgxG2gZ", 100000000000 ),
+    testlib.Wallet( "5J3aDqRwXrtSXjdzzYxdVd9zTLCP39xSy4SzFeh49JDhNQ8qAMM", 100000000000 )
 ]
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
@@ -78,8 +80,8 @@ def scenario( wallets, **kw ):
 
     test_proxy = testlib.TestAPIProxy()
     blockstack_client.set_default_proxy( test_proxy )
-    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey )
-    wallet_keys_2 = blockstack_client.make_wallet_keys( owner_privkey=wallets[6].privkey )
+    wallet_keys = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, payment_privkey=wallets[8].privkey )
+    wallet_keys_2 = blockstack_client.make_wallet_keys( owner_privkey=wallets[6].privkey, payment_privkey=wallets[9].privkey )
 
     # migrate profiles 
     res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
@@ -96,9 +98,13 @@ def scenario( wallets, **kw ):
         error = True
         return
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
     testlib.next_block( **kw )
 
     # add account keys 
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], None ) 
     res = blockstack_gpg.gpg_profile_create_key( "foo.test", "foo_test_account_key", immutable=False,
                                                 proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw),
                                                 gpghome=testlib.gpg_key_dir(**kw), use_key_server=False )
@@ -112,6 +118,7 @@ def scenario( wallets, **kw ):
     else:
         key_names['foo.test'].append( res )
 
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], None ) 
     res = blockstack_gpg.gpg_profile_create_key( "bar.test", "bar_test_account_key", immutable=False,
                                                 proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw),
                                                 gpghome=testlib.gpg_key_dir(**kw), use_key_server=False )
@@ -128,6 +135,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # add immutable app keys 
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], None ) 
     res = blockstack_gpg.gpg_app_create_key( "foo.test", "secure_messaging", "foo_test_immutable_secmsg_key", immutable=True,
                                               proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw) )
 
@@ -139,7 +147,18 @@ def scenario( wallets, **kw ):
     else:
         key_names['foo.test'].append( res )
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+
+    # wait for it to go through
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "wait for confirmation"
+    time.sleep(10)
+
     testlib.next_block( **kw )
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], None ) 
     res = blockstack_gpg.gpg_app_create_key( "bar.test", "secure_messaging", "bar_test_immutable_secmsg_key", immutable=True,
                                                 proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw) )
 
@@ -151,9 +170,20 @@ def scenario( wallets, **kw ):
     else:
         key_names['bar.test'].append( res )
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+
+    # wait for it to go through
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "wait for confirmation"
+    time.sleep(10)
+
     testlib.next_block( **kw )
 
     # add mutable app keys 
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], None ) 
     res = blockstack_gpg.gpg_app_create_key( "foo.test", "less-secure_messaging", "foo_test_mutable_secmsg_key",
                                                 proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw) )
 
@@ -166,6 +196,7 @@ def scenario( wallets, **kw ):
         key_names['foo.test'].append( res )
 
     testlib.next_block( **kw )
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], None ) 
     res = blockstack_gpg.gpg_app_create_key( "bar.test", "less-secure_messaging", "bar_test_mutable_secmsg_key",
                                                 proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw) )
 
@@ -180,6 +211,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # add profile keys that we'll delete
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], None ) 
     res = blockstack_gpg.gpg_profile_create_key( "foo.test", "foo_test_deleted_account_key", immutable=True,
                                                 proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw),
                                                 gpghome=testlib.gpg_key_dir(**kw), use_key_server=False)
@@ -194,7 +226,18 @@ def scenario( wallets, **kw ):
         key_names['foo.test'].append( res )
         foo_profile_delete_key_id = res['key_id']
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+
+    # wait for it to go through
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "wait for confirmation"
+    time.sleep(10)
+
     testlib.next_block( **kw )
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], None ) 
     res = blockstack_gpg.gpg_profile_create_key( "bar.test", "bar_test_deleted_account_key", immutable=True,
                                                 proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw),
                                                 gpghome=testlib.gpg_key_dir(**kw), use_key_server=False)
@@ -209,9 +252,20 @@ def scenario( wallets, **kw ):
         key_names['bar.test'].append( res )
         bar_profile_delete_key_id = res['key_id']
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+
+    # wait for it to go through
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "wait for confirmation"
+    time.sleep(10)
+
     testlib.next_block( **kw )
 
     # add immutable app keys, which we can delete
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], None ) 
     res = blockstack_gpg.gpg_app_create_key( "foo.test", "immutable_delete", "foo_test_deleted_immutable_secmsg_key", immutable=True,
                                                 proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw) )
 
@@ -225,7 +279,19 @@ def scenario( wallets, **kw ):
         key_names['foo.test'].append( res )
         foo_immutable_delete_key_id = res['key_id']
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+
+    # wait for it to go through
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "wait for confirmation"
+    time.sleep(10)
+
+
     testlib.next_block( **kw )
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], None ) 
     res = blockstack_gpg.gpg_app_create_key( "bar.test", "immutable_delete", "bar_test_deleted_immutable_secmsg_key", immutable=True,
                                                 proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw) )
     
@@ -239,9 +305,20 @@ def scenario( wallets, **kw ):
         key_names['bar.test'].append( res )
         bar_immutable_delete_key_id = res['key_id']
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+
+    # wait for it to go through
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "wait for confirmation"
+    time.sleep(10)
+
     testlib.next_block( **kw )
 
     # add mutable app keys which we can delete
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], None ) 
     res = blockstack_gpg.gpg_app_create_key( "foo.test", "mutable_delete", "foo_test_deleted_mutable_secmsg_key",
                                                 proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw) )
 
@@ -256,6 +333,7 @@ def scenario( wallets, **kw ):
         foo_mutable_delete_key_id = res['key_id']
 
     testlib.next_block( **kw )
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], None ) 
     res = blockstack_gpg.gpg_app_create_key( "bar.test", "mutable_delete", "bar_test_deleted_mutable_secmsg_key",
                                                 proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw) )
 
@@ -272,6 +350,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # delete profile keys
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], None ) 
     res = blockstack_gpg.gpg_profile_delete_key( "foo.test", foo_profile_delete_key_id, proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in res:
         res['test'] = 'Failed to create deletable account foo.test profile key'
@@ -280,6 +359,7 @@ def scenario( wallets, **kw ):
         return
 
     testlib.next_block( **kw )
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], None ) 
     res = blockstack_gpg.gpg_profile_delete_key( "bar.test", bar_profile_delete_key_id, proxy=test_proxy, wallet_keys=wallet_keys_2 )
     if 'error' in res:
         res['test'] = 'Failed to create deletable account bar.test profile key'
@@ -288,6 +368,7 @@ def scenario( wallets, **kw ):
         return 
 
     # delete immutable app keys 
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], None ) 
     res = blockstack_gpg.gpg_app_delete_key( "foo.test", "immutable_delete", "foo_test_deleted_immutable_secmsg_key", 
                                             immutable=True, proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw))
 
@@ -297,7 +378,18 @@ def scenario( wallets, **kw ):
         error = True
         return 
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+
+    # wait for it to go through
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "wait for confirmation"
+    time.sleep(10)
+
     testlib.next_block( **kw )
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], None ) 
     res = blockstack_gpg.gpg_app_delete_key( "bar.test", "immutable_delete", "bar_test_deleted_immutable_secmsg_key",
                                             immutable=True, proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw))
 
@@ -307,9 +399,20 @@ def scenario( wallets, **kw ):
         error = True
         return 
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+
+    # wait for it to go through
+    for i in xrange(0, 12):
+        testlib.next_block( **kw )
+    print "wait for confirmation"
+    time.sleep(10)
+
     testlib.next_block( **kw )
 
     # delete mutable app keys
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], None ) 
     res = blockstack_gpg.gpg_app_delete_key( "foo.test", "mutable_delete", "foo_test_deleted_mutable_secmsg_key",
                                             proxy=test_proxy, wallet_keys=wallet_keys, config_dir=testlib.get_working_dir(**kw))
 
@@ -320,6 +423,7 @@ def scenario( wallets, **kw ):
         return 
 
     testlib.next_block( **kw )
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], None ) 
     res = blockstack_gpg.gpg_app_delete_key( "bar.test", "mutable_delete", "bar_test_deleted_mutable_secmsg_key",
                                             proxy=test_proxy, wallet_keys=wallet_keys_2, config_dir=testlib.get_working_dir(**kw))
 

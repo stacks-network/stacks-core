@@ -305,7 +305,7 @@ def check( state_engine ):
     # only 'valid' tests should return non-NULL
     # all other tests should return None
     for opcode, tests in all_tests.items():
-
+        print "test %s" % opcode
         for testname, testscript in tests.items():
 
             parsed_op = parse_nameop( opcode, testscript[3:], fake_pubkey, \

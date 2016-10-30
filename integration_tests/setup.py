@@ -16,22 +16,21 @@ setup(
     keywords='blockchain bitcoin btc cryptocurrency name key value store data',
     packages=find_packages(),
     scripts=[
-        'bin/cat-mock-bitcoind',
         'bin/blockstack-test-scenario',
+        'bin/blockstack-test-check-serialization',
         'bin/blockstack-test-all'
     ],
     download_url='https://github.com/blockstack/blockstack-integration-tests/archive/master.zip',
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'virtualchain>=0.0.13.0',
-        'blockstack-client>=0.0.13.0',
-        'blockstack-server>=0.0.13.0',
+        'virtualchain>=0.14.0',
+        'blockstack-client>=0.14.0',
+        'blockstack-server>=0.14.0',
         'blockstack-profiles>=0.1.3',
-        'blockstack-storage-drivers>=0.0.13.2',
-        'blockstack-file>=0.0.13.0',
-        'blockstack-gpg>=0.0.13.0',
-        'blockstack-zones>=0.1.6'
+        'blockstack-file>=0.14.0',
+        'blockstack-gpg>=0.14.0',
+        'blockstack-zones>=0.14.0'
     ],
     classifiers=[
         'Intended Audience :: Developers',

@@ -53,7 +53,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, None )
-    resp = testlib.blockstack_rpc_register( "foo.test", "0123456789abcdef" )
+    resp = testlib.blockstack_cli_register( "foo.test", "0123456789abcdef" )
     if 'error' in resp:
         print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
         return False
@@ -68,6 +68,10 @@ def scenario( wallets, **kw ):
 
     # wait for the register to get confirmed 
     for i in xrange(0, 12):
+        # warn the serialization checker that this changes behavior from 0.13
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+        
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
@@ -75,13 +79,17 @@ def scenario( wallets, **kw ):
 
     # wait for update to get confirmed 
     for i in xrange(0, 12):
+        # warn the serialization checker that this changes behavior from 0.13
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+        
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
     time.sleep(10)
 
     # transfer to a new address 
-    resp = testlib.blockstack_rpc_transfer( "foo.test", wallets[4].addr, "0123456789abcdef" )
+    resp = testlib.blockstack_cli_transfer( "foo.test", wallets[4].addr, "0123456789abcdef" )
 
     if 'error' in resp:
         print >> sys.stderr, "transfer error: %s" % resp['error']
@@ -89,6 +97,10 @@ def scenario( wallets, **kw ):
 
     # wait for it to go through 
     for i in xrange(0, 12):
+        # warn the serialization checker that this changes behavior from 0.13
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge the transfer"
@@ -135,7 +147,7 @@ def check( state_engine ):
         return False
 
     # doesn't show up in listing
-    names_owned = testlib.blockstack_rpc_names()
+    names_owned = testlib.blockstack_cli_names()
     if 'error' in names_owned:
         print "rpc names: %s" % names_owned['error']
         return False

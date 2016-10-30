@@ -24,6 +24,13 @@
 import testlib
 import pybitcoin
 import json
+import blockstack as blockstack_server
+
+# in epoch 2 immediately, but with the old price (in order to test compatibility with 0.13)
+"""
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 250
+TEST ENV BLOCKSTACK_EPOCH_2_PRICE_MULTIPLIER 1.0
+"""
 
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
@@ -42,8 +49,18 @@ wallets = [
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 
+transfer_blocks = []
+update_blocks = []
+
+transfer_recipients = []
+update_hashes = []
+
+NAMESPACE_LIFETIME_MULTIPLIER = blockstack_server.get_epoch_namespace_lifetime_multiplier( blockstack_server.EPOCH_1_END_BLOCK + 1, "test" )
+
 def scenario( wallets, **kw ):
 
+    global update_blocks, transfer_blocks, update_hashes, transfer_recipients
+    
     testlib.blockstack_namespace_preorder( "test", wallets[1].addr, wallets[0].privkey )
     testlib.next_block( **kw )
 
@@ -73,19 +90,28 @@ def scenario( wallets, **kw ):
 
         testlib.next_block( **kw )
 
+        update_blocks.append( testlib.get_current_block( **kw )) 
+        update_hashes.append( ("%02x" % i) * 20 )
+
         resp = testlib.blockstack_name_transfer( "foo.test", wallets[i].addr, True, wallets[(i+1)%11].privkey )
         if 'error' in resp:
             print json.dumps( resp, indent=4 )
 
         testlib.next_block( **kw )
-        
+         
+        transfer_blocks.append( testlib.get_current_block( **kw ) )
+        transfer_recipients.append( wallets[i].addr )
+
         if i == 10:
             break
 
-        testlib.next_block( **kw )
+        for j in xrange(0, 2 * NAMESPACE_LIFETIME_MULTIPLIER - 1):
+            testlib.next_block( **kw )
 
 
 def check( state_engine ):
+    
+    global update_blocks, transfer_blocks, update_hashes, transfer_recipients
 
     # not revealed, but ready 
     ns = state_engine.get_namespace_reveal( "test" )
@@ -120,5 +146,46 @@ def check( state_engine ):
     if name_rec['address'] != wallets[10].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[10].addr):
         print json.dumps(name_rec, indent=4 )
         return False
+
+    # historically updated and transferred 
+    if len(transfer_blocks) != len(update_blocks):
+        print "test bug: did not transfer or update the right amount of times"
+        return False
+
+    for i in xrange(0, len(transfer_blocks)):
+        transfer_block = transfer_blocks[i]
+        transfer_recipient = transfer_recipients[i]
+
+        historic_name_rec = state_engine.get_name_at( "foo.test", transfer_block, include_expired=True )
+        if historic_name_rec is None or len(historic_name_rec) == 0:
+            print "no name at %s" % transfer_block
+            return False
+
+        historic_name_rec = historic_name_rec[0]
+        if historic_name_rec['opcode'] != 'NAME_TRANSFER':
+            print "was not transfered at %s" % transfer_block
+            return False
+
+        if historic_name_rec['address'] != transfer_recipient or historic_name_rec['sender'] != pybitcoin.make_pay_to_address_script(transfer_recipient):
+            print "wrong address/sender, got %s, %s" % (historic_name_rec['address'], historic_name_rec['sender'])
+            return False
+
+    for i in xrange(0, len(update_blocks)):
+        update_block = update_blocks[i]
+        update_hash = update_hashes[i]
+
+        historic_name_rec = state_engine.get_name_at( "foo.test", update_block, include_expired=True )
+        if historic_name_rec is None or len(historic_name_rec) == 0:
+            print "No name at %s" % update_block
+            return False
+
+        historic_name_rec = historic_name_rec[0]
+        if historic_name_rec['opcode'] != 'NAME_UPDATE':
+            print "was not updated at %s" % update_block
+            return False
+
+        if historic_name_rec.get('value_hash', None) != update_hash:
+            print "wrong update hash: expected %s, got %s" % (update_hash, historic_name_rec.get('value_hash', None))
+            return False
 
     return True

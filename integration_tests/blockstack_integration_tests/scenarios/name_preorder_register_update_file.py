@@ -30,6 +30,7 @@ import blockstack_profiles
 import blockstack_gpg
 import time
 import os
+import sys
 
 log = blockstack_client.get_logger()
 
@@ -49,7 +50,10 @@ wallets = [
     testlib.Wallet( "5K6Sm6vSn5DPZoF39j1Xj4oHFag3nz1PYCE3NuLC92AMvyiJDgw", 100000000000 ),
     testlib.Wallet( "5KXfThph9nmFcmy14PnX5opDW6scinQQKsSUCGB2ihXU6cVzaUa", 100000000000 ),
     testlib.Wallet( "5KHuUV3UhcM4biEmiG358DW6ecomkpT4WJLzUr7Da3W3vRUg1eH", 100000000000 ),
-    testlib.Wallet( "5JFUNXS1Cpy4DbToKLbMZPfHggNv41EY2xpUryFXt3eoavZcmzp", 100000000000 )
+    testlib.Wallet( "5JFUNXS1Cpy4DbToKLbMZPfHggNv41EY2xpUryFXt3eoavZcmzp", 100000000000 ),
+    testlib.Wallet( "5Jhp8tcLRXH3AjXX2QtyqrdJYdsNAh5FEwS24AEtZXzQBPKDmEm", 100000000000 ),
+    testlib.Wallet( "5K6QPEFR8ErE9JpLEgkrGnU7YvJfzkSWfd2QX6amNzbcc9MUqhK", 100000000000 ),
+    testlib.Wallet( "5J5uAKL8s62hddganFJaCkWi3Me7PFoc7fks9hAzjtWG1NDjmUK", 100000000000 )
 ]
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
@@ -98,9 +102,9 @@ def scenario( wallets, **kw ):
 
     test_proxy = testlib.TestAPIProxy()
     blockstack_client.set_default_proxy( test_proxy )
-    wallet_keys['foo.test'] = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey )
-    wallet_keys['bar.test'] = blockstack_client.make_wallet_keys( owner_privkey=wallets[6].privkey, data_privkey=wallets[7].privkey )
-    wallet_keys['baz.test'] = blockstack_client.make_wallet_keys( owner_privkey=wallets[9].privkey, data_privkey=wallets[10].privkey )
+    wallet_keys['foo.test'] = blockstack_client.make_wallet_keys( owner_privkey=wallets[3].privkey, data_privkey=wallets[4].privkey, payment_privkey=wallets[11].privkey )
+    wallet_keys['bar.test'] = blockstack_client.make_wallet_keys( owner_privkey=wallets[6].privkey, data_privkey=wallets[7].privkey, payment_privkey=wallets[12].privkey )
+    wallet_keys['baz.test'] = blockstack_client.make_wallet_keys( owner_privkey=wallets[9].privkey, data_privkey=wallets[10].privkey, payment_privkey=wallets[13].privkey )
 
     # migrate profiles 
     for name in ['foo.test', 'bar.test', 'baz.test']:
@@ -111,6 +115,10 @@ def scenario( wallets, **kw ):
             error = True
             return 
 
+    # tell serialization-checker that value_hash can be ignored here
+    print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+    sys.stdout.flush()
+    
     testlib.next_block( **kw )
 
     # set up config file 

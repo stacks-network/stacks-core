@@ -32,8 +32,9 @@ wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
     testlib.Wallet( "5KHqsiU9qa77frZb6hQy9ocV7Sus9RWJcQGYYBJJBb2Efj1o77e", 100000000000 ),
     testlib.Wallet( "5Kg5kJbQHvk1B64rJniEmgbD83FpZpbw2RjdAZEzTefs9ihN3Bz", 100000000000 ),
-    testlib.Wallet( "5JuVsoS9NauksSkqEjbUZxWwgGDQbMwPsEfoRBSpLpgDX1RtLX7", 5500 ),
-    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 5500 )
+    testlib.Wallet( "5JuVsoS9NauksSkqEjbUZxWwgGDQbMwPsEfoRBSpLpgDX1RtLX7", 100000000000 ),
+    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 100000000000 ),
+    testlib.Wallet( "5K6TSyEeEAeDynw8R2imSwebp9An2Vjnd4q5o8GmKWJLbQ2i9Rp", 100000000000 )
 ]
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
@@ -54,7 +55,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, wallets[4].privkey )
-    resp = testlib.blockstack_rpc_register( "foo.test", "0123456789abcdef" )
+    resp = testlib.blockstack_cli_register( "foo.test", "0123456789abcdef" )
     if 'error' in resp:
         print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
         return False
@@ -70,6 +71,10 @@ def scenario( wallets, **kw ):
 
     # wait for the register to get confirmed 
     for i in xrange(0, 12):
+        # warn the serialization checker that this changes behavior from 0.13
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+        
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
@@ -77,6 +82,10 @@ def scenario( wallets, **kw ):
 
     # wait for update to get confirmed 
     for i in xrange(0, 12):
+        # warn the serialization checker that this changes behavior from 0.13
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+        
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
@@ -88,23 +97,27 @@ def scenario( wallets, **kw ):
     blockstack_client.user.put_immutable_data_zonefile( zonefile, "testdata", blockstack_client.get_data_hash("testdata"), data_url="file:///testdata")
     zonefile_json = json.dumps(zonefile)
 
-    resp = testlib.blockstack_rpc_update( "foo.test", zonefile_json, "0123456789abcdef" )
+    resp = testlib.blockstack_cli_update( "foo.test", zonefile_json, "0123456789abcdef" )
     
     if 'error' in resp:
         print >> sys.stderr, "update error: %s" % resp['error']
         return False
 
-    zonefile_hash = resp['zonefile_hash']
+    zonefile_hash = resp['value_hash']
     
     # wait for it to go through 
     for i in xrange(0, 12):
+        # warn the serialization checker that this changes behavior from 0.13
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+        
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowedge the update"
     time.sleep(10)
 
     # transfer to a new address 
-    resp = testlib.blockstack_rpc_transfer( "foo.test", wallets[4].addr, "0123456789abcdef" )
+    resp = testlib.blockstack_cli_transfer( "foo.test", wallets[4].addr, "0123456789abcdef" )
 
     if 'error' in resp:
         print >> sys.stderr, "transfer error: %s" % resp['error']
@@ -112,26 +125,30 @@ def scenario( wallets, **kw ):
 
     # wait for it to go through 
     for i in xrange(0, 12):
+        # warn the serialization checker that this changes behavior from 0.13
+        print "BLOCKSTACK_SERIALIZATION_CHECK_IGNORE value_hash"
+        sys.stdout.flush()
+
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge the transfer"
     time.sleep(10)
 
     # regenerate the wallet, with the new owner address
-    wallet = testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[2].privkey, wallets[4].privkey, wallets[4].privkey )
+    wallet = testlib.blockstack_client_set_wallet( "0123456789abcdef", wallets[5].privkey, wallets[4].privkey, wallets[4].privkey )
 
     # revoke it 
-    resp = testlib.blockstack_rpc_revoke( "foo.test", "0123456789abcdef" )
+    resp = testlib.blockstack_cli_revoke( "foo.test", "0123456789abcdef" )
     if 'error' in resp:
         print >> sys.stderr, "Revoke request failed:\n%s" % json.dumps(resp, indent=4, sort_keys=True)
         return False
 
-    print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge the revoke"
-    time.sleep(10)
-
     # wait for it to go through 
     for i in xrange(0, 12):
         testlib.next_block( **kw )
+
+    print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge the revoke"
+    time.sleep(10)
 
 
 def check( state_engine ):
@@ -176,13 +193,12 @@ def check( state_engine ):
         return False
 
     # doesn't show up in listing
-    names_owned = testlib.blockstack_rpc_names()
+    names_owned = testlib.blockstack_cli_names()
     if 'error' in names_owned:
         print "rpc names: %s" % names_owned['error']
         return False
 
-    # we updated the wallet; we should own one name
-    if len(names_owned['names_owned']) != 1:
+    if len(names_owned['names_owned']) != 0:
         print "owned: %s" % names_owned['names_owned']
         return False
 

@@ -1,7 +1,7 @@
 #!/bin/sh
 
 usage() {
-   echo "Usage: $0 [path/to/test/output/dir] [OPTIONAL: path/to/tests/to/skip.txt]"
+   echo "Usage: $0 [path/to/test/output/dir] [OPTIONAL: path/to/tests/to/skip.txt] [OPTIONAL: path/to/existing/test/logdir/]"
    exit 1
 }
 
@@ -10,8 +10,9 @@ if [ $# -lt 1 ]; then
 fi
 
 RUN_SCENARIO="blockstack-test-scenario"
+CHECK_SERIALIZATION="blockstack-test-check-serialization"
 SCENARIOS_PYTHON="blockstack_integration_tests.scenarios"
-SCENARIOS="$(python -c "import blockstack_integration_tests; import blockstack_integration_tests.scenarios; print blockstack_integration_tests.scenarios.__path__[0]")"
+SCENARIOS="$(BLOCKSTACK_TESTNET=1 python -c "import blockstack_integration_tests; import blockstack_integration_tests.scenarios; print blockstack_integration_tests.scenarios.__path__[0]")"
 if [ $? -ne 0 ]; then 
    echo >&2 "Failed to load blockstack integration test scenarios"
    exit 1
@@ -19,6 +20,7 @@ fi
 
 OUTPUTS="$1"
 TESTS_SKIP="$2"
+EXISTING_LOGS="$3"
 
 test -d "$OUTPUTS" || mkdir -p "$OUTPUTS"
 
@@ -50,16 +52,47 @@ while IFS= read SCENARIO_FILE; do
 
       RC=$?
 
-      if [ $RC -eq 0 ]; then 
-         echo " SUCCESS"
-         rm -rf "$TESTDIR"
-
-      else
+      if [ $RC -ne 0 ]; then 
+         # failed 
          echo " FAILURE"
          mv "$TESTDIR" "$OUTPUTS/$SCENARIO_MODULE_BASE.d"
+
+         # TODO: only exit with option
          exit 1
+
+         continue
       fi
-    fi
+
+      # compare serialized consensus fields with older release
+      EXISTING_LOG="$EXISTING_LOGS/$SCENARIO_MODULE_BASE.log"
+      if [ -f "$EXISTING_LOG" ]; then 
+
+         "$CHECK_SERIALIZATION" "$EXISTING_LOGS/$SCENARIO_MODULE_BASE.log" "$OUTPUTS/$SCENARIO_MODULE_BASE.log"
+         RC=$?
+
+         if [ $RC -ne 0 ]; then
+
+            if [ $RC -eq 1 ]; then
+                # generated incorrect serialization output
+                echo " (ERROR: mismatched serialization) FAILURE"
+                mv "$TESTDIR" "$OUTPUTS/$SCENARIO_MODULE_BASE.d"
+
+                # TODO: only exit with option 
+                exit 1
+            
+            else
+               # exit 2 means no serialization check happened
+               echo " (WARN: SKIPPED SERIALIZATION CHECK) SUCCESS"
+            fi
+         fi
+      else
+
+         echo -n " (WARN: no existing log) "
+      fi 
+
+      echo " SUCCESS"
+      rm -rf "$TESTDIR"
+   fi
 
 done <<EOF
 $(ls "$SCENARIOS")

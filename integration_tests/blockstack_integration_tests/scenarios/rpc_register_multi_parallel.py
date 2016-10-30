@@ -32,8 +32,14 @@ wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
     testlib.Wallet( "5KHqsiU9qa77frZb6hQy9ocV7Sus9RWJcQGYYBJJBb2Efj1o77e", 100000000000 ),
     testlib.Wallet( "5Kg5kJbQHvk1B64rJniEmgbD83FpZpbw2RjdAZEzTefs9ihN3Bz", 100000000000 ),
-    testlib.Wallet( "5JuVsoS9NauksSkqEjbUZxWwgGDQbMwPsEfoRBSpLpgDX1RtLX7", 5500 ),
-    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 5500 )
+    testlib.Wallet( "5JuVsoS9NauksSkqEjbUZxWwgGDQbMwPsEfoRBSpLpgDX1RtLX7", 100000000000 ),
+    testlib.Wallet( "5KEpiSRr1BrT8vRD7LKGCEmudokTh1iMHbiThMQpLdwBwhDJB1T", 100000000000 ),
+    testlib.Wallet( "5Ju763FKivYqzUeCtd693nor4YRkd445EnhjBo73tpB12oYLU3p", 100000000000 ),
+    testlib.Wallet( "5KdYfcXBEJF2hAroogv7L6iw3UCoiQbdm5dw5PbJdrgnxcaw1op", 100000000000 ),
+    testlib.Wallet( "5JYZy3tcii3ZUHXy75bAZun2nBQpyrRBeTkRHmrpnA14Rxm5DsG", 100000000000 ),
+    testlib.Wallet( "5Jx7QccPEdPsNvye7C9mUC4GYf7Bz8raUPE3xbmssf4tKu39Srn", 100000000000 ),
+    testlib.Wallet( "5KHUBao3z3NRfQ6eobs1GU6b9Ae9zm5nBUyJhE73CCP7AoeNQ3a", 100000000000 ),
+    testlib.Wallet( "5K6TSyEeEAeDynw8R2imSwebp9An2Vjnd4q5o8GmKWJLbQ2i9Rp", 100000000000 )
 ]
 
 consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
@@ -51,10 +57,17 @@ def scenario( wallets, **kw ):
 
     wallet = testlib.blockstack_client_initialize_wallet( "0123456789abcdef", wallets[2].privkey, wallets[3].privkey, None )
     for i in xrange(0, 5):
-        resp = testlib.blockstack_rpc_register( "foo_%s.test" % i, "0123456789abcdef" )
+        resp = testlib.blockstack_cli_register( "foo_%s.test" % i, "0123456789abcdef" )
         if 'error' in resp:
             print >> sys.stderr, json.dumps(resp, indent=4, sort_keys=True)
             return False
+       
+        
+        # wait for tx confirmation
+        # (takes a few secs)
+        for i in xrange(0, 6):
+            testlib.next_block( **kw )
+
    
     # wait for the preorder to get confirmed
     for i in xrange(0, 12):

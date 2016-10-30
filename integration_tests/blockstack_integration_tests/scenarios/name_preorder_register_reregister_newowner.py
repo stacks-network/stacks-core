@@ -25,6 +25,11 @@ import testlib
 import pybitcoin
 import json
 
+# in epoch 2 immediately, but with the old price (in order to test compatibility with 0.13)
+"""
+TEST ENV BLOCKSTACK_EPOCH_1_END_BLOCK 250
+TEST ENV BLOCKSTACK_EPOCH_2_PRICE_MULTIPLIER 1.0
+"""
 wallets = [
     testlib.Wallet( "5JesPiN68qt44Hc2nT8qmyZ1JDwHebfoh9KQ52Lazb1m1LaKNj9", 100000000000 ),
     testlib.Wallet( "5KHqsiU9qa77frZb6hQy9ocV7Sus9RWJcQGYYBJJBb2Efj1o77e", 100000000000 ),
@@ -37,6 +42,7 @@ consensus = "17ac43c1d8549c3181b200f1bf97eb7d"
 last_first_block = None
 first_preorder = None
 
+# TODO: SNV expect failure
 def scenario( wallets, **kw ):
 
     global last_first_block, first_preorder
@@ -94,7 +100,7 @@ def check( state_engine ):
     # not preordered
     preorder = state_engine.get_name_preorder( "foo.test", pybitcoin.make_pay_to_address_script(wallets[2].addr), wallets[3].addr )
     if preorder is not None:
-        print json.dumps(name_rec, indent=4)
+        print json.dumps(name_rec, indent=4, sort_keys=True)
         return False
     
     # registered to new owner
@@ -104,18 +110,18 @@ def check( state_engine ):
         return False 
 
     if name_rec['address'] != wallets[0].addr or name_rec['sender'] != pybitcoin.make_pay_to_address_script(wallets[0].addr):
-        print json.dumps(name_rec, indent=4 )
+        print json.dumps(name_rec, indent=4, sort_keys=True )
         return False
 
     # check blocks 
     if name_rec['first_registered'] != last_first_block:
         print "wrong first_registered; expected %s" % last_first_block
-        print json.dumps(name_rec, indent=4 )
+        print json.dumps(name_rec, indent=4, sort_keys=True )
         return False 
 
     if name_rec['block_number'] != first_preorder:
         print "wrong block_number; expected %s" % last_first_preorder
-        print json.dumps(name_rec, indent=4)
+        print json.dumps(name_rec, indent=4, sort_keys=True)
         return False
 
     return True
