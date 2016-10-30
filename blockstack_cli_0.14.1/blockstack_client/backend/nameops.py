@@ -447,13 +447,7 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utx
     if tx_fee is None:
         log.error("Failed to get tx fee")
         return None
-   
-    if include_dust:
-        dust_fee = estimate_dust_fee( signed_tx, fees_namespace_preorder )
-        assert dust_fee is not None
-        log.debug("Additional dust fee: %s" % dust_fee)
-        tx_fee += dust_fee
-
+  
     log.debug("namespace preorder tx %s bytes, %s satoshis" % (len(signed_tx), int(tx_fee)))
     return tx_fee
 
@@ -521,13 +515,7 @@ def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, con
         return None
 
     log.debug("namespace ready tx %s bytes, %s satoshis txfee" % (len(signed_tx), int(tx_fee)))
-    
-    if include_dust:
-        dust_fee = estimate_dust_fee( signed_tx, fees_namespace_ready )
-        assert dust_fee is not None
-        log.debug("Additional dust fee: %s" % dust_fee)
-        tx_fee += dust_fee
-
+   
     return tx_fee
 
 
