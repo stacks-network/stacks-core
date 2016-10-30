@@ -6,7 +6,7 @@ from setuptools import setup, find_packages
 exec(open('blockstack_client/version.py').read())
 
 setup(
-    name='blockstack',
+    name='blockstack-client',
     version=__version__,
     url='https://github.com/blockstack/blockstack-client',
     license='GPLv3',
