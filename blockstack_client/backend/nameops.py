@@ -215,7 +215,7 @@ def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_addr
     log.debug("renewal tx %s bytes, %s satoshis txfee" % (len(signed_tx), int(tx_fee)))
 
     if include_dust:
-        dust_fee = estimate_dust_fee( unsigned_tx, fees_registration )
+        dust_fee = estimate_dust_fee( signed_tx, fees_registration )
         assert dust_fee is not None
         log.debug("Additional dust fee: %s" % dust_fee)
         tx_fee += dust_fee
