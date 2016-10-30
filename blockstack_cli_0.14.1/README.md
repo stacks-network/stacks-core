@@ -4,10 +4,6 @@
 [![PyPI](https://img.shields.io/pypi/l/blockstack.svg)](https://github.com/blockstack/blockstack-client/blob/master/LICENSE)
 [![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 
-**DO NOT USE IN PRODUCTION.  YOUR NAMES AND BITCOINS WILL GET LOST.**
-
-**This is code for an upcoming release.  Do not use it outside of the integration test framework at this time.**
-
 This package contains the CLI (command line interface) and reference client library for
 [Blockstack Server](https://github.com/blockstack/blockstack-server). It talks to the
 Blockstack server and provides an interface for creating and managing names in decentralized namespaces and database tables on the blockchain.
@@ -92,14 +88,14 @@ $ blockstack info
 $ blockstack info
 {
     "advanced_mode": false,
-    "cli_version": "0.0.13.3",
+    "cli_version": "0.14.0",
     "consensus_hash": "106d4648661d49e16d103b071e26617e",
     "last_block_processed": 420518,
     "last_block_seen": 420596,
     "server_alive": true,
     "server_host": "40.76.8.249",
     "server_port": "6264",
-    "server_version": "0.0.13.0"
+    "server_version": "0.14.0"
 }
 ```
 
