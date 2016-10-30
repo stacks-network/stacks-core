@@ -804,7 +804,6 @@ def cli_whois( args, config_path=CONFIG_PATH ):
 
         if record.has_key('expire_block'):
             result['expire_block'] = record['expire_block']
-            result['approx_expiration_date'] = time.strftime( "%Y %b %d %H:%M:%S UTC", time.gmtime(FIRST_BLOCK_TIME_UTC + (record['expire_block'] - FIRST_BLOCK_MAINNET) * 600) )
 
     analytics_event( "Whois", {} )
     return result
