@@ -1,7 +1,6 @@
 # Blockstack Command Line Interface
 
 [![PyPI](https://img.shields.io/pypi/v/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
-[![PyPI](https://img.shields.io/pypi/dm/blockstack.svg)](https://pypi.python.org/pypi/blockstack/)
 [![PyPI](https://img.shields.io/pypi/l/blockstack.svg)](https://github.com/blockstack/blockstack-client/blob/master/LICENSE)
 [![Slack](http://slack.blockstack.org/badge.svg)](http://slack.blockstack.org/)
 
