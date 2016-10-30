@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 from setuptools import setup, find_packages
 
@@ -20,17 +20,19 @@ setup(
     zip_safe=False,
     include_package_data=True,
     install_requires=[
-        'virtualchain>=0.0.13.0',
-        'protocoin>=0.1',
+        'virtualchain>=0.14.0',
+        'protocoin>=0.2',
         'blockstack-profiles>=0.4.4',
         'pybitcoin>=0.9.9',
-        'blockstack-zones>=0.1.6',
-        'blockstack-storage-drivers>=0.0.13.6',
-        'blockstack-utxo>=0.0.13.0',
+        'blockstack-zones>=0.1.6.1',
         'defusedxml>=0.4.1',
         'keylib>=0.0.5',
         'mixpanel>=4.3.1',
-        'pycrypto>=2.6.1'
+        'pycrypto>=2.6.1',
+        'simplejson>=3.8.2',
+        'jsonschema>=2.5.1',
+        'basicrpc>=0.0.2',      # DHT storage driver
+        'boto>=2.38.0'          # S3 storage driver
     ],
     classifiers=[
         'Intended Audience :: Developers',

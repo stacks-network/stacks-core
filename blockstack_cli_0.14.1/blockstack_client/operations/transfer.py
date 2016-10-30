@@ -23,8 +23,8 @@
 
 import pybitcoin
 from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
-    analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, BitcoinPrivateKey, BitcoinPublicKey, get_unspents, script_hex_to_address
+    serialize_sign_and_broadcast, make_op_return_script, \
+    make_pay_to_address_script 
  
 from pybitcoin.transactions.outputs import calculate_change_amount
 from utilitybelt import is_hex
@@ -49,8 +49,8 @@ def transfer_sanity_check( name, consensus_hash ):
        raise Exception("Name '%s' has non-base-38 characters" % name)
     
     # without the scheme, name must be 37 bytes 
-    if name is not None and (len(name) > LENGTHS['blockchain_id_name']):
-       raise Exception("Name '%s' is too long; expected %s bytes" % (name, LENGTHS['blockchain_id_name']))
+    if name is not None and len(name) > LENGTH_MAX_NAME:
+       raise Exception("Name '%s' is too long; expected %s bytes" % (name, LENGTH_MAX_NAME))
     
     return True
 
@@ -111,23 +111,23 @@ def make_outputs( data, inputs, new_name_owner_address, change_address, tx_fee=0
         {"script_hex": make_op_return_script(str(data), format='hex'),
          "value": 0},
         # new name owner output
-        {"script_hex": make_pay_to_address_script(new_name_owner_address),
+        {"script_hex": virtualchain.make_payment_script(new_name_owner_address),
          "value": dust_value},
         # change output
-        {"script_hex": make_pay_to_address_script(change_address),
+        {"script_hex": virtualchain.make_payment_script(change_address),
          "value": calculate_change_amount(inputs, op_fee, dust_fee)}
     ]
 
 
-def make_transaction(name, destination_address, keepdata, consensus_hash, payment_addr, blockchain_client, tx_fee=0, subsidize=False):
+def make_transaction(name, destination_address, keepdata, consensus_hash, old_owner_addr, blockchain_client, tx_fee=0, subsidize=False):
    
     name = str(name)
     destination_address = str(destination_address)
     consensus_hash = str(consensus_hash)
-    payment_addr = str(payment_addr)
+    old_owner_addr = str(old_owner_addr)
     tx_fee = int(tx_fee)
 
-    assert len(consensus_hash) == LENGTHS['consensus_hash'] * 2
+    assert len(consensus_hash) == LENGTH_CONSENSUS_HASH * 2 
     assert is_name_valid(name)
 
     # sanity check
@@ -135,55 +135,13 @@ def make_transaction(name, destination_address, keepdata, consensus_hash, paymen
     if subsidize:
         pay_fee = False
     
-    inputs = tx_get_unspents( payment_addr, blockchain_client )
+    inputs = tx_get_unspents( old_owner_addr, blockchain_client )
     
     nulldata = build(name, keepdata, consensus_hash)
-    outputs = make_outputs(nulldata, inputs, destination_address, payment_addr, tx_fee, pay_fee=pay_fee)
+    outputs = make_outputs(nulldata, inputs, destination_address, old_owner_addr, tx_fee, pay_fee=pay_fee)
 
     return (inputs, outputs)
   
-
-
-def parse(bin_payload, recipient):
-    """
-    # NOTE: first three bytes were stripped
-    """
-    
-    if len(bin_payload) != 1 + LENGTHS['name_hash'] + LENGTHS['consensus_hash']:
-        log.error("Invalid transfer payload length %s" % len(bin_payload))
-        return None 
-
-    disposition_char = bin_payload[0:1]
-    name_hash = bin_payload[1:1+LENGTHS['name_hash']]
-    consensus_hash = bin_payload[1+LENGTHS['name_hash']:]
-   
-    if disposition_char not in [TRANSFER_REMOVE_DATA, TRANSFER_KEEP_DATA]:
-        log.error("Invalid disposition character")
-        return None 
-
-    # keep data by default 
-    disposition = True 
-    
-    if disposition_char == TRANSFER_REMOVE_DATA:
-       disposition = False 
-   
-    try:
-       rc = transfer_sanity_check( None, consensus_hash )
-       if not rc:
-           raise Exception("Invalid transfer data")
-
-    except Exception, e:
-       log.error("Invalid transfer data")
-       return None
-
-    return {
-        'opcode': 'NAME_TRANSFER',
-        'name_hash': hexlify( name_hash ),
-        'consensus_hash': hexlify( consensus_hash ),
-        'recipient': recipient,
-        'keep_data': disposition
-    }
-
 
 def get_fees( inputs, outputs ):
     """
@@ -206,15 +164,114 @@ def get_fees( inputs, outputs ):
         return (None, None) 
     
     # 1: transfer address 
-    if script_hex_to_address( outputs[1]["script_hex"] ) is None:
+    if virtualchain.script_hex_to_address( outputs[1]["script_hex"] ) is None:
         return (None, None)
     
     # 2: change address 
-    if script_hex_to_address( outputs[2]["script_hex"] ) is None:
+    if virtualchain.script_hex_to_address( outputs[2]["script_hex"] ) is None:
         return (None, None)
     
     dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
     op_fee = DEFAULT_DUST_FEE
     
     return (dust_fee, op_fee)
+
+
+def find_last_transfer_consensus_hash( name_rec, block_id, vtxindex ):
+    """
+    Given a name record, find the last non-NAME_TRANSFER consensus hash.
+    Return None if not found.
+    """
+
+    from ..proxy import nameop_restore_from_history
+
+    history_keys = name_rec['history'].keys()
+    history_keys.sort()
+    history_keys.reverse()
+
+    for hk in history_keys:
+        name_history = name_rec['history']
+        history_states = nameop_restore_from_history( name_rec, name_history, hk )
+
+        for history_state in reversed(history_states):
+            if history_state['block_number'] > block_id or (history_state['block_number'] == block_id and history_state['vtxindex'] > vtxindex):
+                # from the future
+                continue
+
+            if history_state['op'][0] == NAME_TRANSFER:
+                # skip NAME_TRANSFERS
+                continue
+
+            if history_state['op'][0] == NAME_PREORDER:
+                # out of history
+                return None
+
+            if name_rec['consensus_hash'] is not None:
+                return name_rec['consensus_hash']
+
+    return None
+
+
+def snv_consensus_extras( name_rec, block_id, blockchain_name_data, transfer_send_block_id_consensus_hash=None ):
+    """
+    Given a name record most recently affected by an instance of this operation, 
+    find the dict of consensus-affecting fields from the operation that are not
+    already present in the name record.
+
+    Specific to NAME_TRANSFER:
+    The consensus hash is a field that we snapshot when we discover the transfer,
+    but it is not a field that we preserve.  It will instead be present in the
+    snapshots database, indexed by the block number in `transfer_send_block_id`.
+
+    (This is an artifact of a design quirk of a previous version of the system).
+    """
+    
+    from ..proxy import get_consensus_at 
+
+    ret_op = {}
+    
+    # reconstruct the recipient information
+    ret_op['recipient'] = str(name_rec['sender'])
+    ret_op['recipient_address'] = str(name_rec['address'])
+
+    # reconstruct name_hash, consensus_hash, keep_data
+    keep_data = None
+    try:
+        assert len(name_rec['op']) == 2, "Invalid op sequence '%s'" % (name_rec['op'])
+        
+        if name_rec['op'][-1] == TRANSFER_KEEP_DATA:
+            keep_data = True
+        elif name_rec['op'][-1] == TRANSFER_REMOVE_DATA:
+            keep_data = False
+        else:
+            raise Exception("Invalid op sequence '%s'" % (name_rec['op']))
+
+    except Exception, e:
+        log.exception(e)
+        log.error("FATAL: invalid transfer op sequence")
+        os.abort()
+
+    ret_op['keep_data'] = keep_data
+    ret_op['name_hash128'] = hash256_trunc128( str(name_rec['name']) )
+    ret_op['sender_pubkey'] = None
+
+    if blockchain_name_data is None:
+
+       consensus_hash = find_last_transfer_consensus_hash( name_rec, block_id, name_rec['vtxindex'] )
+       ret_op['consensus_hash'] = consensus_hash
+
+    else:
+       ret_op['consensus_hash'] = blockchain_name_data['consensus_hash']
+      
+    if ret_op['consensus_hash'] is None:
+       # no prior consensus hash; must be the one in the name operation itself 
+       if transfer_send_block_id_consensus_hash is None:
+           # go look it up
+           ret_op['consensus_hash'] = get_consensus_at( name_rec['transfer_send_block_id'] )
+       else:
+           # caller already knows it
+           log.debug("consensus hash for %s is caller-given: %s" % (name_rec['transfer_send_block_id'], transfer_send_block_id_consensus_hash))
+           ret_op['consensus_hash'] = transfer_send_block_id_consensus_hash
+
+    return ret_op
 

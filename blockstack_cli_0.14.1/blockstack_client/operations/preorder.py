@@ -23,9 +23,9 @@
 
 import pybitcoin
 from pybitcoin import embed_data_in_blockchain, serialize_transaction, \
-    analyze_private_key, serialize_sign_and_broadcast, make_op_return_script, \
-    make_pay_to_address_script, b58check_encode, b58check_decode, BlockchainInfoClient, \
-    hex_hash160, bin_hash160, BitcoinPrivateKey, BitcoinPublicKey, script_hex_to_address, get_unspents, \
+    serialize_sign_and_broadcast, make_op_return_script, \
+    make_pay_to_address_script, \
+    hex_hash160, bin_hash160, \
     make_op_return_outputs
 
 
@@ -62,9 +62,9 @@ def build(name, script_pubkey, register_addr, consensus_hash, name_hash=None):
         if not is_b40( name ) or "+" in name or name.count(".") > 1:
            raise Exception("Name '%s' has non-base-38 characters" % name)
         
-        # name itself cannot exceed LENGTHS['blockchain_id_name']
-        if len(NAME_SCHEME) + len(name) > LENGTHS['blockchain_id_name']:
-           raise Exception("Name '%s' is too long; exceeds %s bytes" % (name, LENGTHS['blockchain_id_name'] - len(NAME_SCHEME)))
+        # name itself cannot exceed maximum name length
+        if len(NAME_SCHEME) + len(name) > LENGTH_MAX_NAME:
+           raise Exception("Name '%s' is too long; exceeds %s bytes" % (name, LENGTH_MAX_NAME - len(NAME_SCHEME)))
     
         name_hash = hash_name(name, script_pubkey, register_addr=register_addr)
 
@@ -96,11 +96,11 @@ def make_outputs( data, inputs, sender_addr, fee, tx_fee ):
          "value": 0},
         
         # change address (can be subsidy key)
-        {"script_hex": make_pay_to_address_script(sender_addr),
+        {"script_hex": virtualchain.make_payment_script(sender_addr),
          "value": calculate_change_amount(inputs, bill, dust_fee)},
         
         # burn address
-        {"script_hex": make_pay_to_address_script(BLOCKSTACK_BURN_ADDRESS),
+        {"script_hex": virtualchain.make_payment_script(BLOCKSTACK_BURN_ADDRESS),
          "value": op_fee}
     ]
 
@@ -118,7 +118,7 @@ def make_transaction(name, payment_addr, register_addr, fee, consensus_hash, blo
     tx_fee = int(tx_fee)
 
     assert is_name_valid(name)
-    assert len(consensus_hash) == LENGTHS['consensus_hash'] * 2
+    assert len(consensus_hash) == LENGTH_CONSENSUS_HASH * 2
 
     inputs = None
     private_key_obj = None
@@ -126,31 +126,12 @@ def make_transaction(name, payment_addr, register_addr, fee, consensus_hash, blo
     
     # tx only
     inputs = tx_get_unspents( payment_addr, blockchain_client )
-    script_pubkey = get_script_pubkey_from_addr( payment_addr )
+    script_pubkey = virtualchain.make_payment_script( payment_addr )
 
     nulldata = build( name, script_pubkey, register_addr, consensus_hash)
     outputs = make_outputs(nulldata, inputs, payment_addr, fee, tx_fee)
     
     return (inputs, outputs)
-
-
-def parse(bin_payload):
-    """
-    Parse a name preorder.
-    NOTE: bin_payload *excludes* the leading 3 bytes (magic + op) returned by build.
-    """
-    
-    if len(bin_payload) != LENGTHS['preorder_name_hash'] + LENGTHS['consensus_hash']:
-        return None 
-
-    name_hash = hexlify( bin_payload[0:LENGTHS['preorder_name_hash']] )
-    consensus_hash = hexlify( bin_payload[LENGTHS['preorder_name_hash']:] )
-    
-    return {
-        'opcode': 'NAME_PREORDER',
-        'preorder_name_hash': name_hash,
-        'consensus_hash': consensus_hash
-    }
 
     
 def get_fees( inputs, outputs ):
@@ -177,21 +158,30 @@ def get_fees( inputs, outputs ):
         return (None, None) 
     
     # 1: change address 
-    if script_hex_to_address( outputs[1]["script_hex"] ) is None:
+    if virtualchain.script_hex_to_address( outputs[1]["script_hex"] ) is None:
         log.error("outputs[1] has no decipherable change address")
         return (None, None)
     
     # 2: burn address 
-    addr_hash = script_hex_to_address( outputs[2]["script_hex"] )
+    addr_hash = virtualchain.script_hex_to_address( outputs[2]["script_hex"] )
     if addr_hash is None:
         log.error("outputs[2] has no decipherable burn address")
         return (None, None) 
     
     if addr_hash != BLOCKSTACK_BURN_ADDRESS:
-        log.error("outputs[2] is not the burn address")
+        log.error("outputs[2] is not the burn address (%s)" % BLOCKSTACK_BURN_ADDRESS)
         return (None, None)
     
     dust_fee = (len(inputs) + 2) * DEFAULT_DUST_FEE + DEFAULT_OP_RETURN_FEE
     op_fee = outputs[2]["value"]
     
     return (dust_fee, op_fee)
+
+
+
+def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):
+    """
+    Calculate any derived missing data that goes into the check() operation,
+    given the block number, the name record at the block number, and the db.
+    """
+    return {}

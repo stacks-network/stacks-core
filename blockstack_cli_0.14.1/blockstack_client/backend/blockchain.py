@@ -3,17 +3,30 @@
 """
     Blockstack-client
     ~~~~~
-    :copyright: (c) 2014-2016 by Halfmoon Labs, Inc.
-    :copyright: (c) 2016 blockstack.org
-    :license: MIT, see LICENSE for more details.
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
+
+    This file is part of Blockstack-client.
+
+    Blockstack-client is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Blockstack-client is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
 import os
 import sys
 import virtualchain
 import pybitcoin
-import blockstack_utxo
 import json
+import traceback
 
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -41,20 +54,8 @@ def get_bitcoind_client(config_path=CONFIG_PATH):
     Connect to bitcoind
     """
     bitcoind_opts = virtualchain.get_bitcoind_config(config_file=config_path)
-    if bitcoind_opts.has_key('bitcoind_mock') and bitcoind_opts['bitcoind_mock']:
-        # testing 
-        log.debug("Connect to mock bitcoind (%s)" % config_path)
-       
-        # mock bitcoind requires mock utxo options as well
-        utxo_opts = blockstack_utxo.default_mock_utxo_opts(config_path)
-        bitcoind_opts.update(utxo_opts)
-
-        from blockstack_integration_tests import connect_mock_bitcoind
-        client = connect_mock_bitcoind( bitcoind_opts, reset=True )
-    else:
-        # production
-        log.debug("Connect to production bitcoind (%s)" % config_path)
-        client = virtualchain.connect_bitcoind( bitcoind_opts )
+    log.debug("Connect to bitcoind at %s:%s (%s)" % (bitcoind_opts['bitcoind_server'], bitcoind_opts['bitcoind_port'], config_path))
+    client = virtualchain.connect_bitcoind( bitcoind_opts )
 
     return client
 
@@ -62,6 +63,8 @@ def get_bitcoind_client(config_path=CONFIG_PATH):
 def get_block_height(config_path=CONFIG_PATH):
     """
     Return block height (currently uses bitcoind)
+    Return the height on success
+    Return None on error
     """
 
     resp = None
@@ -73,7 +76,7 @@ def get_block_height(config_path=CONFIG_PATH):
         data = bitcoind_client.getinfo()
 
         if 'blocks' in data:
-            resp = data['blocks']
+            resp = int(data['blocks'])
 
     except Exception as e:
         log.debug("ERROR: block height")
@@ -125,8 +128,13 @@ def get_tx_fee( tx_hex, config_path=CONFIG_PATH ):
         # try to confirm in 2-3 blocks
         fee = bitcoind_client.estimatefee(2)
         if fee < 0:
-            log.error("Failed to estimate tx fee")
-            return None 
+            # if we're testing, then use our own fee
+            if os.environ.get("BLOCKSTACK_TEST", None) == "1" or os.environ.get("BLOCKSTACK_TESTNET", None) == "1":
+                fee = 5500.0 / 10**8
+
+            else:
+                log.error("Failed to estimate tx fee")
+                return None
 
         fee = float(fee) 
 
@@ -183,11 +191,18 @@ def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmati
         log.exception(e)
         log.debug("Failed to get UTXOs for %s" % address)
         data = {'error': 'Failed to get UTXOs for %s' % address}
-    
-    return data
+   
+    # filter unconfirmed
+    ret = []
+    for utxo in data:
+        if 'confirmations' in utxo:
+            if int(utxo['confirmations']) >= min_confirmations:
+                ret.append(utxo)
+
+    return ret
 
 
-def get_balance(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=6):
+def get_balance(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=TX_MIN_CONFIRMATIONS):
     """
     Check if BTC key being used has enough balance on unspents
     Returns value in satoshis on success
@@ -203,13 +218,18 @@ def get_balance(address, config_path=CONFIG_PATH, utxo_client=None, min_confirma
 
     for utxo in data:
 
+        if 'confirmations' in utxo:
+            if int(utxo['confirmations']) < min_confirmations:
+                # doesn't count
+                continue
+
         if 'value' in utxo:
             satoshi_amount += utxo['value']
 
     return satoshi_amount
 
 
-def is_address_usable(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=6):
+def is_address_usable(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmations=TX_MIN_CONFIRMATIONS):
     """
     Check if an address is usable (i.e. it has no unconfirmed transactions)
     """
@@ -226,7 +246,7 @@ def is_address_usable(address, config_path=CONFIG_PATH, utxo_client=None, min_co
     for unspent in unspents:
 
         if 'confirmations' in unspent:
-            if int(unspent['confirmations']) == 0:
+            if int(unspent['confirmations']) < min_confirmations:
                 return False
 
     return True

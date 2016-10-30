@@ -42,9 +42,9 @@ import bitcoin
 import binascii
 from utilitybelt import is_hex
 
-from keys import *
-from proxy import *
-from profile import *
+from .keys import *
+from .proxy import *
+from .profile import *
 
 from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SERVER, \
     BLOCKSTACKD_PORT, BLOCKSTACK_METADATA_DIR, BLOCKSTACK_DEFAULT_STORAGE_DRIVERS, \
@@ -57,7 +57,21 @@ log = get_logger()
 import virtualchain
 
 
-def list_accounts( name, proxy=None, wallet_keys=None ):
+def get_profile_accounts( profile, service_id, account_id ):
+    """
+    List all accounts in a profile with the given service ID and account ID.
+    """
+    accounts = profile.get('account', [])
+    
+    ret = []
+    for acc in accounts:
+        if acc.get('identifier', None) == account_id and acc.get('service', None) == service_id:
+            ret.append(acc)
+
+    return ret
+
+
+def list_accounts( name, proxy=None ):
     """
     List all of the accounts in a user's profile
     Each account will have at least the following:
@@ -71,7 +85,7 @@ def list_accounts( name, proxy=None, wallet_keys=None ):
     if proxy is None:
         proxy = get_default_proxy()
 
-    user_profile, user_zonefile = get_name_profile( name, proxy=proxy, wallet_keys=wallet_keys )
+    user_profile, user_zonefile = get_name_profile( name, proxy=proxy )
     if user_profile is None:
         # user_zonefile will contain an error message
         return user_zonefile
@@ -84,7 +98,7 @@ def list_accounts( name, proxy=None, wallet_keys=None ):
         return {'accounts': user_profile['account']}
 
 
-def get_account( name, service, identifier, proxy=None, wallet_keys=None ):
+def get_account( name, service, identifier, proxy=None ):
     """
     Get an account by identifier.  Return duplicates
     Return {'account': account information} on success
@@ -93,13 +107,13 @@ def get_account( name, service, identifier, proxy=None, wallet_keys=None ):
     if proxy is None:
         proxy = get_default_proxy()
 
-    accounts = list_accounts( name, proxy=proxy, wallet_keys=wallet_keys )
+    accounts = list_accounts( name, proxy=proxy )
     if 'error' in accounts:
         return accounts
 
     ret = []
     for acc in accounts['accounts']:
-        if acc['identifier'] == identifier and acc['service'] == service:
+        if acc.get('identifier', None) == identifier and acc.get('service', None) == service:
             ret.append(acc)
 
     return {'account': ret}
@@ -138,6 +152,9 @@ def put_account( name, service, identifier, content_url, create=True, replace=Fa
 
     name_record = user_zonefile['name_record']
     del user_zonefile['name_record']
+
+    user_zonefile = user_zonefile['zonefile']
+    user_profile = user_profile['profile']
 
     # user_profile will be in the new zonefile format 
     if not user_profile.has_key("account"):
@@ -192,6 +209,9 @@ def delete_account( name, service, identifier, proxy=None, wallet_keys=None ):
 
     name_record = user_zonefile['name_record']
     del user_zonefile['name_record']
+    
+    user_zonefile = user_zonefile['zonefile']
+    user_profile = user_profile['profile']
 
     # user_profile will be in the new zonefile format
     removed = []
@@ -211,4 +231,41 @@ def delete_account( name, service, identifier, proxy=None, wallet_keys=None ):
         else:
             res['removed'] = removed
             return res
+
+
+def create_app_account( name, service, identifier, app_url, storage_drivers, data_pubkey, proxy=None, wallet_keys=None, **extra_fields):
+    """
+    Make a Blockstck application account.
+    This account is different than one created by `put_account`, since
+    it is constructed specifically for Blockstack applications.
+    It has a few other goodies in it.
+
+    Return {'status': True} on success
+    Return {'error': ...} on failure
+
+    Raise on invalid input
+    """
+
+    if storage_drivers is None or len(storage_drivers) == 0:
+        raise ValueError("No storage drivers given")
+
+    return put_account( name, service, identifier, app_url, create=True, replace=False,
+                        proxy=proxy, wallet_keys=wallet_keys,
+                        data_pubkey=data_pubkey, storage_drivers=storage_drivers, **extra_fields)
+
+
+def delete_app_account( name, service, identifier, wallet_keys=None, proxy=None ):
+    """
+    Delete an application-specific account
+
+    Return {'status': True} on success
+    Return {'error': ...} on failure
+    """
+
+    res = delete_account( name, service, identifier, proxy=proxy, wallet_keys=wallet_keys )
+    if 'error' in res:
+        return res
+
+    else:
+        return {'status': True}
 

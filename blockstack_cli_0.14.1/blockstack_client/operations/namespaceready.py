@@ -22,9 +22,8 @@
 """
 
 import pybitcoin
-from pybitcoin import embed_data_in_blockchain, BlockchainInfoClient, hex_hash160, \
-        make_op_return_tx, serialize_transaction, broadcast_transaction, make_op_return_outputs, \
-        get_unspents
+from pybitcoin import embed_data_in_blockchain, hex_hash160, \
+        make_op_return_tx, serialize_transaction, broadcast_transaction, make_op_return_script
 
 from utilitybelt import is_hex
 from binascii import hexlify, unhexlify
@@ -54,14 +53,29 @@ def build( namespace_id):
    if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
       raise Exception("Namespace ID '%s' has non-base-38 characters" % namespace_id)
    
-   if len(namespace_id) == 0 or len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
-      raise Exception("Invalid namespace ID '%s (expected length between 1 and %s)" % (namespace_id, LENGTHS['blockchain_id_namespace_id']))
+   if len(namespace_id) == 0 or len(namespace_id) > LENGTH_MAX_NAMESPACE_ID:
+      raise Exception("Invalid namespace ID '%s (expected length between 1 and %s)" % (namespace_id, LENGTH_MAX_NAMESPACE_ID))
    
    readable_script = "NAMESPACE_READY 0x%s" % (hexlify("." + namespace_id))
    hex_script = blockstack_script_to_hex(readable_script)
    packaged_script = add_magic_bytes(hex_script)
    
    return packaged_script
+
+
+def make_outputs( nulldata, inputs, change_addr, fee=0, format='bin' ):
+   """
+   Make namespace-ready outputs
+   """
+   return [
+        { "script_hex": make_op_return_script(nulldata, format=format),
+          "value": 0
+        },
+        # change output
+        { "script_hex": virtualchain.make_payment_script(change_addr),
+          "value": calculate_change_amount(inputs, 0, fee)
+        }
+    ]
 
 
 def make_transaction( namespace_id, payment_addr, blockchain_client, tx_fee=0 ):
@@ -81,38 +95,9 @@ def make_transaction( namespace_id, payment_addr, blockchain_client, tx_fee=0 ):
    inputs = tx_get_unspents( payment_addr, blockchain_client )
    
    # OP_RETURN outputs 
-   outputs = make_op_return_outputs( nulldata, inputs, payment_addr, fee=(DEFAULT_OP_RETURN_FEE + tx_fee), format='hex' )
+   outputs = make_outputs( nulldata, inputs, payment_addr, fee=(DEFAULT_OP_RETURN_FEE + tx_fee), format='hex' )
   
    return (inputs, outputs)
-
-
-
-def parse( bin_payload ):
-   """
-   NOTE: the first three bytes will be missing
-   NOTE: the first byte in bin_payload is a '.'
-   """
-   
-   if bin_payload[0] != '.':
-       log.error("Missing namespace delimiter .")
-       return None 
-
-   namespace_id = bin_payload[ 1: ]
-   
-   # sanity check
-   if not is_b40( namespace_id ) or "+" in namespace_id or namespace_id.count(".") > 0:
-       log.error("Invalid namespace ID '%s'" % namespace_id)
-       return None
-
-   if len(namespace_id) <= 0 or len(namespace_id) > LENGTHS['blockchain_id_namespace_id']:
-       log.error("Invalid namespace of length %s" % len(namespace_id))
-       return None 
-
-   return {
-      'opcode': 'NAMESPACE_READY',
-      'namespace_id': namespace_id
-   }
-
 
 
 def get_fees( inputs, outputs ):
@@ -122,3 +107,10 @@ def get_fees( inputs, outputs ):
     """
     return (None, None)
 
+
+def snv_consensus_extras( name_rec, block_id, blockchain_name_data ):
+    """
+    Calculate any derived missing data that goes into the check() operation,
+    given the block number, the name record at the block number, and the db.
+    """
+    return {}

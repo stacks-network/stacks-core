@@ -26,15 +26,24 @@ import logging
 import copy
 import traceback
 import uuid
+import urllib2
 
 import virtualchain
-from blockstack_utxo import *
+from .backend.utxo import *
 
 from binascii import hexlify
 
 from ConfigParser import SafeConfigParser
 
 from version import __version__
+
+def get_logger( debug=DEBUG ):
+    logger = virtualchain.get_logger("blockstack-client")
+    logger.setLevel(logging.DEBUG if debug else logging.INFO)
+    return logger
+
+log = get_logger("blockstack-client")
+
 
 DEBUG = False
 if os.environ.get("BLOCKSTACK_TEST") is not None and os.environ.get("BLOCKSTACK_TEST_NODEBUG") is None:
@@ -62,12 +71,14 @@ DEFAULT_API_PORT = 6270     # RPC endpoint port
 BLOCKSTACKD_SERVER = DEFAULT_BLOCKSTACKD_SERVER
 BLOCKSTACKD_PORT = DEFAULT_BLOCKSTACKD_PORT
 WALLET_PASSWORD_LENGTH = 8
+WALLET_DECRYPT_MAX_TRIES = 5
+WALLET_DECRYPT_BACKOFF_RESET = 3600
 
 BLOCKSTACK_METADATA_DIR = os.path.expanduser("~/.blockstack/metadata")
 BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = "disk,blockstack_resolver,blockstack_server,http,dht"
 
 # storage drivers that must successfully acknowledge each write
-BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE = "disk,blockstack_server"
+BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE = "disk,blockstack_server,dht"
 
 DEFAULT_TIMEOUT = 30  # in secs
 
@@ -87,7 +98,18 @@ MAGIC_BYTES = 'id'
 
 # borrowed from Blockstack
 FIRST_BLOCK_MAINNET = 373601
+
+if os.environ.get("BLOCKSTACK_TEST", None) is not None and os.environ.get("BLOCKSTACK_TEST_FIRST_BLOCK", None) is not None:
+    FIRST_BLOCK_MAINNET = int(os.environ.get("BLOCKSTACK_TEST_FIRST_BLOCK"))
+    log.warn("FIRST_BLOCK_MAINNET = %s" % FIRST_BLOCK_MAINNET)
+
 FIRST_BLOCK_TIME_UTC = 1441737751 
+
+TX_MIN_CONFIRMATIONS = 6
+if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+    # test environment
+    TX_MIN_CONFIRMATIONS = 0
+    log.warn("TX_MIN_CONFIRMATIONS = %s" % TX_MIN_CONFIRMATIONS)
 
 # borrowed from Blockstack
 # Opcodes
@@ -107,7 +129,7 @@ NAMESPACE_READY = '!'
 TRANSFER_KEEP_DATA = '>'
 TRANSFER_REMOVE_DATA = '~'
 
-# borrowed from Blockstack
+# borrowed from Blockstack Core
 # these never change, so it's fine to duplicate them here
 NAME_OPCODES = {
     "NAME_PREORDER": NAME_PREORDER,
@@ -123,7 +145,23 @@ NAME_OPCODES = {
     "ANNOUNCE": ANNOUNCE
 }
 
-# borrowed from Blockstack
+# borrowed from Blockstack Core
+# these never change, so it's fine to duplicate them herd
+OPCODE_NAMES = {
+    NAME_PREORDER: "NAME_PREORDER",
+    NAME_REGISTRATION: "NAME_REGISTRATION",
+    NAME_UPDATE: "NAME_UPDATE",
+    NAME_TRANSFER: "NAME_TRANSFER",
+    NAME_RENEWAL: "NAME_REGISTRATION",
+    NAME_REVOKE: "NAME_REVOKE",
+    NAME_IMPORT: "NAME_IMPORT",
+    NAMESPACE_PREORDER: "NAMESPACE_PREORDER",
+    NAMESPACE_REVEAL: "NAMESPACE_REVEAL",
+    NAMESPACE_READY: "NAMESPACE_READY",
+    ANNOUNCE: "ANNOUNCE"
+}
+
+# borrowed from Blockstack Core; needed by SNV
 # these never change, so it's fine to duplicate them here
 NAMEREC_FIELDS = [
     'name',                 # the name itself
@@ -147,7 +185,7 @@ NAMEREC_FIELDS = [
     'importer_address',     # (OPTIONAL) if this name was imported, this is the importer's address
 ]
 
-# borrowed from Blockstack
+# borrowed from Blockstack Core; needed by SNV
 # these never change, so it's fine to duplicate them here
 NAMESPACE_FIELDS = [
     'namespace_id',         # human-readable namespace ID
@@ -174,7 +212,7 @@ NAMESPACE_FIELDS = [
     'no_vowel_discount',    # multiplicative coefficient that drops a name's price if it has no vowels
 ]
 
-# borrowed from Blockstack
+# borrowed from Blockstack Core; needed by SNV
 # these never change, so it's fine to duplicate them here
 OPFIELDS = {
     NAME_IMPORT: NAMEREC_FIELDS + [
@@ -198,10 +236,10 @@ OPFIELDS = {
         'ready_block',      # block number at which the namespace was readied
     ],
     NAME_PREORDER: [
-         'preorder_name_hash',  # hash(name,sender,register_addr)
+         'preorder_hash',       # hash(name,sender,register_addr)
          'consensus_hash',      # consensus hash at time of send
          'sender',              # scriptPubKey hex that identifies the principal that issued the preorder
-         'sender_pubkey',       # if sender is a pubkeyhash script, then this is the public key
+         'sender_pubkey',       # if sender is a pubkeyhash script, then this is the public key.  Otherwise, this is empty.
          'address',             # address from the sender's scriptPubKey
          'block_number',        # block number at which this name was preordered for the first time
 
@@ -221,38 +259,17 @@ OPFIELDS = {
         'keep_data'             # whether or not to keep the profile data associated with the name when transferred
     ],
     NAME_UPDATE: NAMEREC_FIELDS + [
-        'name_hash128',         # hash(name,consensus_hash)
+        'name_consensus_hash',  # hash(name,consensus_hash)
         'consensus_hash'        # consensus hash when this update was sent
     ]
 }
 
-# borrowed from Blockstack
-# never changes so safe to duplicate to avoid gratuitous imports
-# op-return formats
-# Byte-lengths of fields
-LENGTHS = {
-    'magic_bytes': 2,
-    'opcode': 1,
-    'preorder_name_hash': 20,
-    'consensus_hash': 16,
-    'namelen': 1,
-    'name_min': 1,
-    'name_max': 34,
-    'name_hash': 16,
-    'update_hash': 20,
-    'data_hash': 20,
-    'blockchain_id_name': 37,
-    'blockchain_id_namespace_life': 4,
-    'blockchain_id_namespace_coeff': 1,
-    'blockchain_id_namespace_base': 1,
-    'blockchain_id_namespace_buckets': 8,
-    'blockchain_id_namespace_discounts': 1,
-    'blockchain_id_namespace_version': 2,
-    'blockchain_id_namespace_id': 19,
-    'announce': 20,
-    'max_op_length': 40
-}
 
+# a few contants borrowed from Blockstack Core
+LENGTH_VALUE_HASH = 20
+LENGTH_CONSENSUS_HASH = 16
+LENGTH_MAX_NAME = 37            # maximum name length
+LENGTH_MAX_NAMESPACE_ID = 19    # maximum namespace length
 
 # namespace version
 BLOCKSTACK_VERSION = 1
@@ -260,15 +277,16 @@ NAME_SCHEME = MAGIC_BYTES + NAME_REGISTRATION
  
 # burn address for fees (the address of public key 0x0000000000000000000000000000000000000000)
 BLOCKSTACK_BURN_PUBKEY_HASH = "0000000000000000000000000000000000000000"
-BLOCKSTACK_BURN_ADDRESS = "1111111111111111111114oLvT2"
+BLOCKSTACK_BURN_ADDRESS = virtualchain.hex_hash160_to_address( BLOCKSTACK_BURN_PUBKEY_HASH )   # "1111111111111111111114oLvT2"
 
-# borrowed from Blockstack
+# borrowed from Blockstack Core
 # never changes, so safe to duplicate to avoid gratuitous imports
 MAXIMUM_NAMES_PER_ADDRESS = 25
 
 MAX_RPC_LEN = 1024 * 1024 * 1024
 
-MAX_NAME_LENGTH = 37        # taken from blockstack-server
+RPC_MAX_ZONEFILE_LEN = 4096     # 4KB
+RPC_MAX_PROFILE_LEN = 1024000   # 1MB
 
 CONFIG_FILENAME = "client.ini"
 WALLET_FILENAME = "wallet.json"
@@ -279,6 +297,7 @@ if os.environ.get("BLOCKSTACK_TEST", None) == "1":
     assert CONFIG_PATH is not None, "BLOCKSTACK_CLIENT_CONFIG not set"
 
     CONFIG_DIR = os.path.dirname(CONFIG_PATH)
+    log.warn("CONFIG_PATH = %s" % CONFIG_PATH)
 
 else:
     CONFIG_DIR = os.path.expanduser("~/.blockstack")
@@ -288,13 +307,14 @@ WALLET_PATH = os.path.join(CONFIG_DIR, "wallet.json")
 SPV_HEADERS_PATH = os.path.join(CONFIG_DIR, "blockchain-headers.dat")
 DEFAULT_QUEUE_PATH = os.path.join(CONFIG_DIR, "queues.db")
 
+APP_WALLET_DIRNAME = "app_wallets"
+
 BLOCKCHAIN_ID_MAGIC = 'id'
 
 USER_ZONEFILE_TTL = 3600    # cache lifetime for a user's zonefile
 
 SLEEP_INTERVAL = 20  # in seconds
 TX_EXPIRED_INTERVAL = 10  # if a tx is not picked up by x blocks
-
 PREORDER_CONFIRMATIONS = 6
 PREORDER_MAX_CONFIRMATIONS = 130  # no. of blocks after which preorder should be removed
 TX_CONFIRMATIONS_NEEDED = 10
@@ -317,6 +337,21 @@ APPROX_TX_OVERHEAD_LEN = 12
 APPROX_TX_IN_P2PKH_LEN = 180
 APPROX_TX_OUT_P2PKH_LEN = 40
 
+# epoch dates
+EPOCH_1_END_BLOCK = 436650
+
+# epoch dates for the test environment
+NUM_EPOCHS = 2
+for i in xrange(1, NUM_EPOCHS+1):
+    # epoch lengths can be altered by the test framework, for ease of tests
+    if os.environ.get("BLOCKSTACK_EPOCH_%s_END_BLOCK" % i, None) is not None and os.environ.get("BLOCKSTACK_TEST", None) == "1":
+        exec("EPOCH_%s_END_BLOCK = int(%s)" % (i, os.environ.get("BLOCKSTACK_EPOCH_%s_END_BLOCK" % i)))
+        log.warn("EPOCH_%s_END_BLOCK = %s" % (i, eval("EPOCH_%s_END_BLOCK" % i)))
+
+del i
+
+EPOCH_HEIGHT_MINIMUM = EPOCH_1_END_BLOCK + 1
+
 DEFAULT_BLOCKCHAIN_READER = "blockcypher"
 DEFAULT_BLOCKCHAIN_WRITER = "blockcypher"
 
@@ -324,16 +359,75 @@ SUPPORTED_UTXO_PROMPT_MESSAGES = {
     "blockcypher": "Please enter your Blockcypher API token.",
     "blockchain_info": "Please enter your blockchain.info API token.",
     "bitcoind_utxo": "Please enter your fully-indexed bitcoind node information.",
-    "blockstack_utxo": "Please enter your Blockstack server info.",
-    "mock_utxo": "Mock UTXO provider.  Do not use in production."
+    "blockstack_utxo": "Please enter your Blockstack server info."
 }
 
-def get_logger( debug=DEBUG ):
-    logger = virtualchain.get_logger("blockstack-client")
-    logger.setLevel(logging.DEBUG if debug else logging.INFO)
-    return logger
 
-log = get_logger()
+# NOTE: duplicated from blockstack-core
+def op_get_opcode_name( op_string ):
+    """
+    Get the name of an opcode, given the operation's 'op' byte sequence.
+    """
+    global OPCODE_NAMES
+
+    # special case...
+    if op_string == "%s:" % NAME_REGISTRATION:
+        return "NAME_RENEWAL"
+
+    op = op_string[0]
+    if op not in OPCODE_NAMES.keys():
+        raise Exception("No such operation '%s'" % op)
+
+    return OPCODE_NAMES[op]
+
+
+def url_to_host_port( url, port=DEFAULT_BLOCKSTACKD_PORT ):
+    """
+    Given a URL, turn it into (host, port).
+    Return (None, None) on invalid URL
+    """
+    if not url.startswith("http://") or not url.startswith("https://"):
+        url = "http://" + url
+
+    urlinfo = urllib2.urlparse.urlparse(url)
+    hostport = urlinfo.netloc
+
+    parts = hostport.split("@")
+    if len(parts) > 2:
+        return (None, None)
+
+    if len(parts) == 2:
+        hostport = parts[1]
+
+    parts = hostport.split(":")
+    if len(parts) > 2:
+        return (None, None)
+
+    if len(parts) == 2:
+        try:
+            port = int(parts[1])
+            assert port > 0 and port < 65535, "Invalid port"
+        except:
+            return (None, None)
+
+    return parts[0], port
+
+
+def atlas_inventory_to_string( inv ):
+    """
+    Inventory to string (bitwise big-endian)
+    """
+    ret = ""
+    for i in xrange(0, len(inv)):
+        for j in xrange(0, 8):
+            bit_index = 1 << (7 - j)
+            val = (ord(inv[i]) & bit_index)
+            if val != 0:
+                ret += "1"
+            else:
+                ret += "0"
+
+    return ret
 
 
 def interactive_prompt( message, parameters, default_opts ):
@@ -902,7 +996,7 @@ def read_config_file(path=CONFIG_PATH):
                 # literal
                 ret[sec][opt] = parser.get(sec, opt)
 
-    if not ret['blockstack-client'].has_key('advanced_mode'):
+    if ret.has_key('blockstack-client') and not ret['blockstack-client'].has_key('advanced_mode'):
         ret['blockstack-client']['advanced_mode'] = False
 
     ret['path'] = path
@@ -914,7 +1008,7 @@ def get_config(path=CONFIG_PATH):
     """
     Read our config file.
     Flatten the resulting config:
-    * make all bitcoin-specific fields start with 'bitcoind_'
+    * make all bitcoin-specific fields start with 'bitcoind_' (makes this config compatible with virtualchain)
     * keep only the blockstack-client and bitcoin fields
 
     Return our flattened configuration (as a dict) on success.
@@ -946,6 +1040,28 @@ def get_config(path=CONFIG_PATH):
     return blockstack_opts
 
 
+def get_app_config(app_name, path=CONFIG_PATH):
+    """
+    Get app-specific configuration
+    Return a dict on success (empty if there are no fields)
+    Return None if the app isn't defined in the config path
+    Raise if the file doesn't exist
+    """
+
+    parser = SafeConfigParser()
+    parser.read( config_path )
+
+    config_dir = os.path.dirname(config_path)
+    if not parser.has_section(app_name):
+        return None
+
+    ret = {}
+    for field_name in parser.options(app_name):
+        ret[field_name] = parser.get(app_name, field_name)
+
+    return ret
+
+
 def update_config(section, option, value, config_path=CONFIG_PATH):
 
     parser = SafeConfigParser()
@@ -963,26 +1079,45 @@ def update_config(section, option, value, config_path=CONFIG_PATH):
             parser.write(configfile)
 
 
-def semver_match( v1, v2):
+def semver_match( v1, v2 ):
     """
     Verify that two semantic version strings match:
     the major, minor, and patch versions must be equal.
     """
     v1_parts = v1.split(".")
     v2_parts = v2.split(".")
-    if len(v1_parts) < 4 or len(v2_parts) < 4:
+    if len(v1_parts) < 3 or len(v2_parts) < 3:
         # one isn't a semantic version 
         return False
 
-    v1_major, v1_minor, v1_patch, v1_features = v1_parts[0], v1_parts[1], v1_parts[2], v1_parts[3:]
-    v2_major, v2_minor, v2_patch, v2_features = v2_parts[0], v2_parts[1], v2_parts[2], v2_parts[3:]
+    v1_major, v1_minor, v1_patch = v1_parts[0].strip(), v1_parts[1].strip(), v1_parts[2].strip()
+    v2_major, v2_minor, v2_patch = v2_parts[0].strip(), v2_parts[1].strip(), v2_parts[2].strip()
     if v1_major != v2_major:
         return False
 
     if v1_minor != v2_minor:
         return False
 
-    if v1_patch != v2_patch:
+    return True
+
+
+def semver_newer( v1, v2 ):
+    """
+    Verify (as semantic versions) if v1 < v2
+    Patch versions can be different
+    """
+    v1_parts = v1.split(".")
+    v2_parts = v2.split(".")
+    if len(v1_parts) < 3 or len(v2_parts) < 3:
+        # one isn't a semantic version 
+        return False
+
+    v1_major, v1_minor, v1_patch = int(v1_parts[0].strip()), int(v1_parts[1].strip()), int(v1_parts[2].strip())
+    v2_major, v2_minor, v2_patch = int(v2_parts[0].strip()), int(v2_parts[1].strip()), int(v2_parts[2].strip())
+    if v1_major > v2_major:
+        return False
+
+    if v1_major == v2_major and v1_minor >= v2_minor:
         return False
 
     return True

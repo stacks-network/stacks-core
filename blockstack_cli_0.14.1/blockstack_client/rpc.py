@@ -27,6 +27,8 @@ import traceback
 import errno
 import time
 import atexit
+import socket
+import types
 
 from defusedxml import xmlrpc
 
@@ -190,6 +192,11 @@ def local_rpc_factory( method_info, config_path ):
     return argwrapper
 
 
+# ping method
+def ping():
+    return True
+
+
 class BlockstackAPIEndpointHandler(SimpleXMLRPCRequestHandler):
     """
     Hander to capture tracebacks
@@ -246,6 +253,9 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
         Optionally skip the external API (with @server)
         """
       
+        # pinger 
+        self.register_function( ping, name="ping", server=server )
+
         # register the command-line methods (will all start with cli_)
         # methods will be named after their *action*
         for command_name, method_info in list_rpc_cli_method_info().items():
@@ -265,15 +275,16 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
         # register all plugin methods 
         for plugin_or_plugin_name in plugins:
 
-            if type(plugin_or_plugin_name) in [str, unicode]:
+            if isinstance(plugin_or_plugin_name, types.ModuleType):
+                mod_plugin = plugin_or_plugin_name
+
+            else:
                 # name of a module to load
                 try:
-                    mod_plugin = __import__(plugin_name)
+                    mod_plugin = __import__(plugin_or_plugin_name)
                 except ImportError, e:
                     log.error("Skipping plugin '%s', since it cannot be imported" % plugin_name)
                     continue
-            else:
-                mod_plugin = plugin_or_plugin_name
 
             plugin_prefix = getattr(mod_plugin, "RPC_PREFIX", mod_plugin.__name__)
             if plugin_prefix in self.plugin_prefixes:
@@ -318,10 +329,12 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
         return True
 
 
-    def __init__(self, host='localhost', port=blockstack_config.DEFAULT_API_PORT, plugins=[], handler=BlockstackAPIEndpointHandler, config_path=blockstack_config.CONFIG_PATH, timeout=30, server=True ):
+    def __init__(self, host='localhost', port=blockstack_config.DEFAULT_API_PORT, plugins=None, handler=BlockstackAPIEndpointHandler, config_path=blockstack_config.CONFIG_PATH, timeout=30, server=True ):
         
         if server:
             SimpleXMLRPCServer.__init__( self, (host,port), handler, allow_none=True )
+
+        plugins = [] if plugins is None else plugins
 
         # instantiate
         self.plugin_mods = []
@@ -358,7 +371,7 @@ def get_default_plugins():
     return [backend]
 
 
-def make_local_rpc_server( portnum, config_path=blockstack_config.CONFIG_PATH, plugins=[] ):
+def make_local_rpc_server( portnum, config_path=blockstack_config.CONFIG_PATH, plugins=None ):
     """
     Make a local RPC server instance.
     It will be derived from BaseHTTPServer.HTTPServer.
@@ -367,6 +380,8 @@ def make_local_rpc_server( portnum, config_path=blockstack_config.CONFIG_PATH, p
 
     Returns the global server instance on success.
     """
+    plugins = [] if plugins is None else plugins
+
     plugins = get_default_plugins() + plugins 
     srv = BlockstackAPIEndpoint( port=portnum, config_path=config_path, plugins=plugins )
     return srv
@@ -595,6 +610,7 @@ def local_rpc_start( portnum, config_dir=blockstack_config.CONFIG_DIR, foregroun
     wallet = load_wallet( password=password, config_dir=config_dir, include_private=True, wallet_path=wallet_path )
     if 'error' in wallet:
         log.error("Failed to load wallet: %s" % wallet['error'])
+        print >> sys.stderr, "Failed to load wallet: %s" % wallet['error']
         return False
 
     wallet = wallet['wallet']
@@ -643,7 +659,20 @@ def local_rpc_start( portnum, config_dir=blockstack_config.CONFIG_DIR, foregroun
     log.debug("Finished loading RPC methods")
 
     # make server
-    rpc_srv = make_local_rpc_server( portnum, config_path=config_path ) 
+    try:
+        rpc_srv = make_local_rpc_server( portnum, config_path=config_path ) 
+    except socket.error, se:
+        if os.environ.get("BLOCKSTACK_DEBUG", None) == "1":
+            log.exception(se)
+
+        if not foreground:
+            log.error("Failed to open socket (socket errno %s); aborting..." % se.errno)
+            os.abort()
+        else:
+            log.error("Failed to open socket (socket errno %s)" % se.errno)
+            return False
+
+
     backend.set_wallet( [wallet['payment_addresses'][0], wallet['payment_privkey']],
                         [wallet['owner_addresses'][0], wallet['owner_privkey']],
                         [wallet['data_pubkeys'][0], wallet['data_privkey']],
@@ -652,6 +681,7 @@ def local_rpc_start( portnum, config_dir=blockstack_config.CONFIG_DIR, foregroun
     running = True
     local_rpc_write_pidfile( rpc_pidpath )
     local_rpc_server_run( rpc_srv )
+
     local_rpc_unlink_pidfile( rpc_pidpath )
     local_rpc_server_stop( rpc_srv )
      
@@ -738,24 +768,29 @@ def local_rpc_status( config_dir=blockstack_config.CONFIG_DIR ):
     # see if it's running 
     pidpath = local_rpc_pidfile_path( config_dir=config_dir )
     if not os.path.exists(pidpath):
+        log.debug("No PID file %s" % pidpath)
         return False
 
     pid = local_rpc_read_pidfile( pidpath )
     if pid is None:
+        log.debug("Invalid PID file %s" % pidpath)
         return False
 
     try:
         os.kill( pid, 0 )
     except OSError, oe:
         if oe.errno == errno.ESRCH:
+            log.debug("Not running: %s (%s)" % (pid, pidpath))
             return False
 
         elif oe.errno == errno.EPERM:
+            log.debug("Not our RPC daemon: %s (%s)" % (pid, pidpath))
             return False
 
         else:
             raise
     
+    log.debug("RPC running (%s)" % pidpath)
     return True
 
 
@@ -786,6 +821,22 @@ def local_rpc_ensure_running( config_dir=blockstack_config.CONFIG_DIR, password=
             return False
 
         else:
+
+            # ping it
+            for i in xrange(0, 3):
+                try:
+                    local_proxy = local_rpc_connect(config_dir=config_dir)
+                    local_proxy.ping()
+                    break
+
+                except (IOError, OSError), ie:
+                    if ie.errno == errno.ECONNREFUSED:
+                        log.debug("API server not responding; trying again in %s seconds" % (i+1))
+                        time.sleep(i+1)
+                        continue
+                    else:
+                        raise
+
             return True
 
     else:
@@ -795,7 +846,8 @@ def local_rpc_ensure_running( config_dir=blockstack_config.CONFIG_DIR, password=
 
 def start_rpc_endpoint(config_dir=blockstack_config.CONFIG_DIR, password=None):
     """
-    Ensure that the RPC endpoint is running before the wrapped function is called.
+    Ensure that the RPC endpoint is running.
+    Used in interactive mode due to its better error messages.
     Raise on error
     """
 

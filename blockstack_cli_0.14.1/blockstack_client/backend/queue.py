@@ -1,30 +1,44 @@
 # -*- coding: utf-8 -*-
 """
-    Registrar
+    Blockstack-client
     ~~~~~
-    :copyright: (c) 2014-2016 by Halfmoon Labs, Inc.
-    :copyright: (c) 2016 blockstack.org
-    :license: MIT, see LICENSE for more details.
-"""
+    copyright: (c) 2014-2015 by Halfmoon Labs, Inc.
+    copyright: (c) 2016 by Blockstack.org
 
+    This file is part of Blockstack-client.
+
+    Blockstack-client is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Blockstack-client is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    You should have received a copy of the GNU General Public License
+    along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
+"""
 
 import sqlite3
 import traceback
 import os
 import sys
 import json
+import base64
 
 from ..config import DEFAULT_QUEUE_PATH, QUEUE_LENGTH_TO_MONITOR, PREORDER_MAX_CONFIRMATIONS, CONFIG_PATH
 from ..proxy import get_default_proxy
 
 from ..storage import hash_zonefile
+from ..profile import get_name_zonefile
 from ..proxy import is_name_registered, is_name_owner, has_zonefile_hash
 from .blockchain import get_block_height, get_tx_confirmations, is_tx_rejected, is_tx_accepted
 
 QUEUE_SQL = """
 CREATE TABLE entries( fqu STRING NOT NULL,
                       queue_id STRING NOT NULL,
-                      tx_hash STRING NOT NULL,
+                      tx_hash TEXT NOT NULL,
                       data NOT NULL,
                       PRIMARY KEY(fqu,queue_id) );
 """
@@ -105,7 +119,7 @@ def queuedb_query_execute( cur, query, values ):
         log.exception(e)
         log.error("FATAL: failed to execute query (%s, %s)" % (query, values))
         log.error("\n".join(traceback.format_stack()))
-        sys.exit(1)
+        os.abort()
 
 
 def queuedb_find( queue_id, fqu, limit=None, path=DEFAULT_QUEUE_PATH ):
@@ -228,7 +242,7 @@ def in_queue( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
 def queue_append(queue_id, fqu, tx_hash, payment_address=None,
                  owner_address=None, transfer_address=None,
                  config_path=CONFIG_PATH,
-                 zonefile=None, profile=None, zonefile_hash=None, path=DEFAULT_QUEUE_PATH):
+                 zonefile_data=None, profile=None, zonefile_hash=None, path=DEFAULT_QUEUE_PATH):
 
     """
     Append a processing name operation to the named queue for the given name.
@@ -244,10 +258,13 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
     # optional, depending on queue
     new_entry['owner_address'] = owner_address
     new_entry['transfer_address'] = transfer_address
-    new_entry['zonefile'] = zonefile
+
+    if zonefile_data is not None:
+        new_entry['zonefile_b64'] = base64.b64encode(zonefile_data)
+
     new_entry['profile'] = profile
-    if zonefile_hash is None and zonefile is not None:
-        zonefile_hash = hash_zonefile(zonefile)
+    if zonefile_hash is None and zonefile_data is not None:
+        zonefile_hash = hash_zonefile(zonefile_data)
 
     if zonefile_hash is not None:
         new_entry['zonefile_hash'] = zonefile_hash
@@ -264,6 +281,14 @@ def extract_entry( rowdata ):
     entry['tx_hash'] = rowdata['tx_hash']
     entry['fqu'] = rowdata['fqu']
     entry['type'] = rowdata['queue_id']
+
+    if entry.has_key('zonefile_b64'):
+        entry['zonefile'] = base64.b64decode(entry['zonefile_b64'])
+        del entry['zonefile_b64']
+
+    else:
+        entry['zonefile'] = None
+
     return entry
 
 
@@ -421,22 +446,45 @@ def cleanup_register_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
 def cleanup_update_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
     """
     Clear out the update queue.
-    Remove rows that refer to registered names, or to stale updates.
+    Remove rows that refer to updates whose zonefiles have already been
+    replicated.
     Return True on success
     Raise on error.
+
+    TODO: add integration test to ensure our failsafe works
     """
+    
     rows = queuedb_findall("update", path=path)
     to_remove = []
     for rowdata in rows:
         entry = extract_entry(rowdata)
-        
-        fqu = entry['fqu']
-
-        # clear stale update
-        if is_update_expired(entry, config_path=config_path):
-            log.debug("Removing stale update tx: %s" % fqu)
-            to_remove.append(entry)
+        if not is_update_expired(entry, config_path=config_path):
+            # not expired yet
             continue
+
+        # don't dequeue until we're sure the zonefile has replicated
+        zf = get_name_zonefile( entry['fqu'], raw_zonefile=True )
+        if zf is None or 'error' in zf:
+            if 'error' in zf:
+                log.debug("Failed to query zonefile for %s: %s" % (entry['fqu'], zf['error']))
+                continue
+            else:
+                log.debug("Failed to query zonefile for %s: no data" % (entry['fqu']))
+                continue
+
+        zf = zf['zonefile']
+
+        if not entry.has_key('zonefile'):
+            log.debug("Database entry for %s is missing a zonefile.  Please contact the developers." % entry['fqu'])
+            continue
+
+        if zf != entry['zonefile']:
+            log.debug("Remote zonefile does not match the new zonefile for %s" % entry['fqu'])
+            continue
+
+        # looks like it's been stored
+        log.debug("Removing stale replicated update: %s" % entry['fqu'])
+        to_remove.append(entry)
 
     queue_removeall( to_remove, path=path )
     return True
@@ -445,7 +493,7 @@ def cleanup_update_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
 def cleanup_transfer_queue(path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
     """
     Clear out the transfer queue.
-    Remove rows that refer to registered names, or to stale transfers.
+    Remove rows that refer to transfers whose transactions have already expired.
     Return True on success
     Raise on error.
     """
