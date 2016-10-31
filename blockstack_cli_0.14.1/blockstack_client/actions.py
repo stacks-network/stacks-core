@@ -422,7 +422,26 @@ def cli_balance( args, config_path=CONFIG_PATH ):
             return res
 
     result = {}
-    result['total_balance'], result['addresses'] = get_total_balance(wallet_path=wallet_path, config_path=config_path)
+    addresses = []
+    satoshis = 0
+    satoshis, addresses = get_total_balance(wallet_path=wallet_path, config_path=config_path)
+
+    # convert to BTC
+    btc = float(Decimal(satoshis / 10e8))
+
+    for address_info in addresses:
+        address_info['bitcoin'] = float(Decimal(address_info['balance'] / 10e8))
+        address_info['satoshis'] = address_info['balance']
+        del address_info['balance']
+
+    result = {
+        'total_balance': {
+            'satoshis': int(satoshis),
+            'bitcoin': btc
+        },
+        'addresses': addresses
+    }
+
     return result
 
 
