@@ -26,9 +26,9 @@ from setuptools import setup, find_packages
 exec(open("blockstack/version.py").read())
 
 setup(
-    name='blockstack-server',
+    name='blockstack-core',
     version=__version__,
-    url='https://github.com/blockstack/blockack-server',
+    url='https://github.com/blockstack/blockack-core',
     license='GPLv3',
     author='Blockstack.org',
     author_email='support@blockstack.org',
