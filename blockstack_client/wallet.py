@@ -862,7 +862,10 @@ def get_addresses_from_file(config_dir=CONFIG_DIR, wallet_path=None):
 
 def get_payment_addresses_and_balances(config_path=CONFIG_PATH, wallet_path=None):
     """
-    Get payment addresses
+    Get payment addresses and balances.
+    Each payment address will have a balance in satoshis.
+    Returns [{'address', 'balance'}] on success
+    If the wallet is a legacy wallet, returns [{'error': ...}]
     """
     config_dir = os.path.dirname(config_path)
     if wallet_path is None:
@@ -920,7 +923,10 @@ def get_all_names_owned(wallet_path=WALLET_PATH):
 
 
 def get_total_balance(config_path=CONFIG_PATH, wallet_path=WALLET_PATH):
-
+    """
+    Get the total balance for the wallet's payment address.
+    Units will be in satoshis.
+    """
     payment_addresses = get_payment_addresses_and_balances(wallet_path=wallet_path, config_path=config_path)
     total_balance = 0.0
 
