@@ -686,12 +686,12 @@ def ping(proxy=None):
     schema = {
         'type': 'object',
         'properties': {
-            'alive': {
-                'type': 'boolean'
+            'status': {
+                'type': 'string'
             },
         },
         'required': [
-            'alive'
+            'status'
         ]
     }
 
@@ -705,6 +705,8 @@ def ping(proxy=None):
         resp = json_validate( schema, resp )
         if json_is_error(resp):
             return resp
+
+        assert resp['status'] == 'alive'
 
     except ValidationError as e:
         log.exception(e)
