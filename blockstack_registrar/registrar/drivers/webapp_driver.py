@@ -148,7 +148,7 @@ class WebappDriver(object):
                 log.debug("White-listed: %s" % user['email'])
             else:
                 log.debug("Not registering: %s" % user['email'])
-                continue
+                #continue
 
             fqu = user['username'] + "." + DEFAULT_NAMESPACE
             transfer_address = nmc_to_btc_address(user['namecoin_address'])
@@ -156,8 +156,6 @@ class WebappDriver(object):
             data_value = convert_profile_format(user)
 
             log.debug("Processing: %s" % fqu)
-
-            #continue
 
             if registrationComplete(fqu, data_value, transfer_address):
                 log.debug("Registration complete %s. Removing." % fqu)
@@ -179,14 +177,14 @@ class WebappDriver(object):
         """
 
         if user is None:
-            log.debug("No such user, need to remove: %s" % new_user['_id'])
+            log.debug("No such user, need to remove: %s" % new_user)
             #self.registrations.remove({'_id': new_user['_id']})
             return False
 
         # for spam protection
         if check_banned_email(user['email']):
             log.debug("SPAM: Need to delete %s, %s" % (user['email'], user['username']))
-            self.remove_registration_entry(user['username'])
+            #self.remove_registration_entry(user['username'])
             return False
 
         # test for minimum name length
@@ -201,7 +199,8 @@ class WebappDriver(object):
 
         if not validRegistrationEmail(user['email'], self.email_list):
             log.debug("Email rejected by filter: %s" % user['email'])
-            return False
+            #self.remove_registration_entry(user['username'])
+            return True
 
         return True
 
@@ -232,6 +231,7 @@ class WebappDriver(object):
             # mode for reprocessing a single user, ignore others
             if reprocess_username is not None:
                 if user['username'] != reprocess_username:
+                    #log.debug("Ignoring: %s" % user['username'])
                     continue
 
             fqu = user['username'] + "." + DEFAULT_NAMESPACE
@@ -346,7 +346,7 @@ class WebappDriver(object):
         user = self.users.find_one({"username": username})
 
         if not self.validUser(user, None):
-            log.debug("Need to remove: %s" % user['username'])
+            log.debug("Need to remove: %s" % username)
             return
 
         if whiteListedUser(user['email'], user['profile']):
