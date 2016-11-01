@@ -34,7 +34,6 @@ from registrar.wallet import wallet, display_wallet_info, refill_wallet
 
 from registrar.blockchain import get_block_height
 
-
 log = config_log(__name__)
 
 
@@ -59,13 +58,13 @@ def run_cli(command, argv=None):
 
     elif command == "update":
         api_data.process_new_users(nameop='update')
-        webapp_data.process_new_users(nameop='update')
         webapp_data.update_users()
+        webapp_data.process_new_users(nameop='update')
 
     elif command == "transfer":
         api_data.process_new_users(nameop='transfer')
-        webapp_data.process_new_users(nameop='transfer')
         webapp_data.transfer_users()
+        webapp_data.process_new_users(nameop='transfer')
 
     elif command == "clean":
 
@@ -162,11 +161,18 @@ def run_cli(command, argv=None):
         try:
             username = argv[2]
         except:
-            log.info("Usage error: reprocess <username>")
-            exit(0)
 
-        webapp_data.reprocess_user(username)
-        webapp_data.update_users(reprocess_username=username)
+            fname = 'processing.txt'
+            with open(fname) as f:
+                content = f.readlines()
+
+            for username in content:
+                username = username.rstrip('\n')
+                webapp_data.reprocess_user(username)
+                webapp_data.update_users(reprocess_username=username)
+        else:
+            webapp_data.reprocess_user(username)
+            webapp_data.update_users(reprocess_username=username)
     else:
         usage()
 
@@ -186,11 +192,14 @@ def run_loop():
             current_block = get_block_height()
         else:
             # empty queues in reverse
+            run_cli('reprocess')
             run_cli('transfer')
             run_cli('update')
             run_cli('register')
             run_cli('preorder')
-
+            #except Exception as e:
+            #    log.debug(e)
+            #else:
             last_block = current_block
 
 if __name__ == '__main__':
