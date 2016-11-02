@@ -1022,7 +1022,7 @@ def get_names_in_namespace( namespace_id, offset=None, count=None, proxy=None ):
 
         all_names += page
 
-    return all_names
+    return all_names[:count]
 
 
 def get_names_owned_by_address(address, proxy=None):
