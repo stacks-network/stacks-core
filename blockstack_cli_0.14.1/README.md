@@ -24,7 +24,7 @@ $ sudo apt-get install blockstack
 
 Via pip:
 ```
-$ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev libffi-dev
+$ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev libffi-dev rng-tools
 $ sudo pip install blockstack --upgrade
 ```
 
@@ -52,7 +52,7 @@ $ blockstack
 usage: blockstack [-h]
                   ...
 
-Blockstack cli version 0.0.13.3
+Blockstack cli version 0.14.0
 positional arguments:
     balance             Get the account balance
     configure           Interactively configure the client
@@ -174,11 +174,26 @@ $ blockstack price <name>
 ```bash
 $ blockstack price $(whoami).id
 {
-    "name_price": 25000,
-    "preorder_tx_fee": 13255,
-    "register_tx_fee": 12309,
-    "total_estimated_cost": 71480,
-    "update_tx_fee": 20916
+    "name_price": {
+        "btc": "0.0025", 
+        "satoshis": "25000"
+    }, 
+    "preorder_tx_fee": {
+        "btc": "0.0047406", 
+        "satoshis": "47406"
+    }, 
+    "register_tx_fee": {
+        "btc": "0.0046184", 
+        "satoshis": "46184"
+    }, 
+    "total_estimated_cost": {
+        "btc": "0.0188394", 
+        "satoshis": "188394"
+    }, 
+    "update_tx_fee": {
+        "btc": "0.0069804", 
+        "satoshis": "69804"
+    }
 }
 ```
 
@@ -193,7 +208,6 @@ $ blockstack whois <name>
 ```bash
 $ blockstack whois fredwilson.id
 {
-    "approx_expiration_date": "2016 Sep 11 09:02:31 UTC",
     "block_preordered_at": 374084,
     "block_renewed_at": 374084,
     "expire_block": 426679,
@@ -248,7 +262,8 @@ $ blockstack register <name>
 $ blockstack register $(whoami)_$(date +"%m_%d").id
 Registering muneeb_02_22.id will cost 0.0002225 BTC. Continue? (y/n): y
 {
-    "message": "Added to registration queue. Takes several hours. You can check status at anytime.",
+    "transaction_hash": "f576313b2ff4cc7cb0d25545e1e38e2d0d48a6ef486b7118e5ca0f8e8b98ae45",
+    "message": "The name has been queued up for registration and will take a few hours to go through. You can check on the status at any time by running 'blockstack info'."
     "success": true
 }
 ```
@@ -261,16 +276,36 @@ fredwilson.id is already registered.
 ### Update
 
 ```bash
-$ blockstack update <name> <data>
+$ blockstack update <name> <data string or file with data>
 ```
 
 ##### Examples
 
 ```bash
+$ echo > new_zone_file.txt <<EOF
+$ORIGIN swiftonsecurity.id
+$TTL 3600
+pubkey TXT "pubkey:data:04cabba0b5b9a871dbaa11c044066e281c5feb57243c7d2a452f06a0d708613a46ced59f9f806e601b3353931d1e4a98d7040127f31016311050bedc0d4f1f62ff"
+_file IN URI 10 1 "file:///Users/TaylorSwift/.blockstack/storage-disk/mutable/swiftonsecurity.id"
+_https._tcp IN URI 10 1 "https://blockstack.s3.amazonaws.com/swiftonsecurity.id"
+_http._tcp IN URI 10 1 "http://node.blockstack.org:6264/RPC2#swiftonsecurity.id"
+_dht._udp IN URI 10 1 "dht+udp://fc4d9c1481a6349fe99f0e3dd7261d67b23dadc5"
+EOF
+
+$ blockstack update swiftonsecurity.id new_zone_file.txt
+{
+    "success": true,
+    "transaction_hash": "4e1f292c09ad8e03a5f228b589d9a7dc3699b495862bee3b40f2432ac497b134",
+    "message": "The name has been queued up for update and will take ~1 hour to process. You can check on the status at any time by running 'blockstack info'."
+}
+```
+
+```bash
 $ blockstack update muneeb.id '{"$origin": "muneeb.id", "$ttl": "3600", "uri": [{"name": "@", "priority": "10", "weight": "1", "target": "https://muneeb.ali/muneeb.id"}]}'
 {
-  "message": "Added to update queue. Takes ~1 hour. You can check status at anytime.",
-  "success": true
+    "success": true,
+    "transaction_hash": "4e1f292c09ad8e03a5f228b589d9a7dc3699b495862bee3b40f2432ac497b134",
+    "message": "The name has been queued up for update and will take ~1 hour to process. You can check on the status at any time by running 'blockstack info'."
 }
 ```
 
@@ -299,8 +334,9 @@ $ blockstack transfer <name> <address>
 ```bash
 $ blockstack transfer $(whoami)_$(date +"%m_%d").id 1Jbcrh9Lkwm73jXyxramFukViEtktwq8gt
 {
-  "message": "Added to transfer queue. Takes ~1 hour. You can check status at anytime.",
-  "success": true
+    "transaction_hash": "8a68d52d70cf06d819eb72a9a58f4dceda942db792ceb35dd333f43f55fa8713",
+    "message": "The name has been queued up for transfer and will take ~1 hour to process. You can check on the status at any time by running 'blockstack info'."
+    "success": true
 }
 ```
 
@@ -323,10 +359,14 @@ $ blockstack balance
     "addresses": [
         {
             "address": "16yE3e928JakaXbympwSywyrJPM9cuL4wZ",
-            "balance": 840500
+            "bitcoin": 0.000959454, 
+            "satoshis": 959454
         }
-    ],
-    "total_balance": 840500.0
+    ], 
+    "total_balance": {
+        "bitcoin": 0.000959454, 
+        "satoshis": 959454
+    }
 }
 ```
 
@@ -405,30 +445,41 @@ Try installing it with the following:
 $ ARCHFLAGS=-Wno-error=unused-command-line-argument-hard-error-in-future pip install pycrypto
 ```
 
-**b) Twisted error when running blockstack**
+**b) Blockstack hangs while running in a VM**
 
-If you see the following error, when you run '$ blockstack':
+If Blockstack hangs while performing one of the above operations while running in a VM, and you hit Ctrl+C, you
+may see a stack trace like this:
 
-```bash
-ImportError: Twisted requires zope.interface 3.6.0 or later.
+```
+Traceback (most recent call last):
+  File "/home/dev/blockstack-venv/bin/blockstack", line 67, in <module>
+    result = run_cli()
+  File "/home/dev/blockstack-venv/local/lib/python2.7/site-packages/blockstack_client/cli.py", line 287, in run_cli
+    result = method( args, config_path=config_path )
+  File "/home/dev/blockstack-venv/local/lib/python2.7/site-packages/blockstack_client/actions.py", line 479, in cli_price
+    fees = get_total_registration_fees( fqu, payment_privkey_info, owner_privkey_info, proxy=proxy, config_path=config_path, payment_address=payment_address )
+  File "/home/dev/blockstack-venv/local/lib/python2.7/site-packages/blockstack_client/actions.py", line 271, in get_total_registration_fees
+    preorder_tx_fee = estimate_preorder_tx_fee( name, data['satoshis'], payment_address, utxo_client, owner_privkey_params=get_privkey_info_params(owner_privkey_info), config_path=config_path, include_dust=True )
+  File "/home/dev/blockstack-venv/local/lib/python2.7/site-packages/blockstack_client/backend/nameops.py", line 116, in estimate_preorder_tx_fee
+    fake_privkey = make_fake_privkey_info( owner_privkey_params )
+  File "/home/dev/blockstack-venv/local/lib/python2.7/site-packages/blockstack_client/backend/nameops.py", line 103, in make_fake_privkey_info
+    return virtualchain.make_multisig_wallet( m, n )
+  File "/home/dev/blockstack-venv/local/lib/python2.7/site-packages/virtualchain/lib/blockchain/bitcoin_blockchain/multisig.py", line 82, in make_multisig_wallet
+    pk = BitcoinPrivateKey().to_wif()
+  File "/home/dev/blockstack-venv/local/lib/python2.7/site-packages/pybitcoin/privatekey.py", line 55, in __init__
+    secret_exponent = random_secret_exponent(self._curve.order)
+  File "/home/dev/blockstack-venv/local/lib/python2.7/site-packages/pybitcoin/privatekey.py", line 32, in random_secret_exponent
+    random_hex = hexlify(dev_random_entropy(32))
+  File "/home/dev/blockstack-venv/local/lib/python2.7/site-packages/utilitybelt/entropy.py", line 38, in dev_random_entropy
+    return open("/dev/random", "rb").read(numbytes)
+KeyboardInterrupt
 ```
 
-Try upgrading zope.interface:
+If so, the reason is because the VM does not have enough entropy.  This causes reads to `/dev/random` to block
+for a long time.
 
-```bash
-$ pip install zope.interface --upgrade
-```
-
-If this doesn't solve the issue and you're trying to install Blockstack inside
-a virtual environment, then Twisted is likely already installed outside of the
-virtual environment, so exit the virtual environment and uninstall Twisted:
-
-```bash
-$ deactivate
-$ sudo pip uninstall twisted
-```
-
-Now, install blockstack in a new virtual environment.
+The solution is to install `rng-tools` and configure it to seed `/dev/random` with entropy from `/dev/urandom`.
+Please see your distribution documentation for setting up `rng-tools`.
 
 If the issue you are experiencing is not listed here, please
 [report it as a new issue](https://github.com/blockstack/blockstack-client/issues/new).
@@ -446,7 +497,10 @@ $ blockstack-server start --foreground
 You can now switch the cli to use the local server:
 
 ```bash
-$ blockstack config --host=localhost
+$ blockstack configure
+...
+server (default: 'node.blockstack.org'): 127.0.0.1
+...
 ```
 
 [More information on the Blockstack Server(http://github.com/blockstack/blockstack-server)
