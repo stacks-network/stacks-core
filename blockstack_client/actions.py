@@ -1991,7 +1991,7 @@ def cli_advanced_namespace_preorder( args, config_path=CONFIG_PATH ):
     """
     command: namespace_preorder norpc
     help: Preorder a namespace
-    arg: namespace_id (str) "The namesapce ID"
+    arg: namespace_id (str) "The namespace ID"
     arg: privatekey (str) "The private key to send and pay for the preorder"
     opt: reveal_addr (str) "The address of the keypair that will import names (automatically generated if not given)"
     """
