@@ -62,7 +62,7 @@ from .storage import *
 MIN_ATLAS_VERSION = "0.14.0"
 
 PEER_LIFETIME_INTERVAL = 3600  # 1 hour
-PEER_PING_INTERVAL = 60        # 1 minute
+PEER_PING_INTERVAL = 600       # 10 minutes
 PEER_MAX_AGE = 2678400         # 1 month
 PEER_CLEAN_INTERVAL = 3600     # 1 hour
 PEER_MAX_DB = 65536            # maximum number of peers in the peer db
