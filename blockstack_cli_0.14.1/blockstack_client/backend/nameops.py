@@ -603,6 +603,8 @@ def do_preorder( fqu, payment_privkey_info, owner_address, cost, utxo_client, tx
 
     fqu = str(fqu)
 
+    log.debug("got here")
+
     if not can_receive_name(owner_address, proxy=proxy):
         log.debug("Address %s owns too many names already." % owner_address)
         return {'error': 'Address owns too many names'}
@@ -610,15 +612,17 @@ def do_preorder( fqu, payment_privkey_info, owner_address, cost, utxo_client, tx
     payment_address = get_privkey_info_address( payment_privkey_info )
 
     # sanity check
-    if owner_privkey_params == (1,1) and pybitcoin.b58check_version_byte( owner_address ) != virtualchain.version_byte:
+    if owner_privkey_params == (1,1) and pybitcoin.b58check_version_byte( str(owner_address) ) != virtualchain.version_byte:
         # invalid address, given parameters
         log.debug("Owner address %s does not correspond to a single private key" % owner_address)
         return {'error': 'Owner address does not correspond to a single private key'}
 
-    elif (owner_privkey_params[0] > 1 or owner_privkey_params[1] > 1) and pybitcoin.b58check_version_byte( owner_address ) != virtualchain.multisig_version_byte:
+    elif (owner_privkey_params[0] > 1 or owner_privkey_params[1] > 1) and pybitcoin.b58check_version_byte( str(owner_address) ) != virtualchain.multisig_version_byte:
         # invalid address
         log.debug("Owner address %s does not correspond to multisig private keys")
         return {'error': 'Owner address does not correspond to multisig private keys'}
+
+    log.debug("got here 3")
 
     if not is_address_usable(payment_address, config_path=config_path):
         log.debug("Payment address not ready: %s" % payment_address)
@@ -633,6 +637,7 @@ def do_preorder( fqu, payment_privkey_info, owner_address, cost, utxo_client, tx
     else:
         log.warn("Using user-supplied consensus hash %s" % consensus_hash)
 
+    log.debug("got before tx estimation")
     tx_fee = estimate_preorder_tx_fee( fqu, cost, payment_address, utxo_client, owner_privkey_params=owner_privkey_params, config_path=config_path )
     if tx_fee is None:
         log.error("Failed to estimate preorder TX fee")
@@ -663,18 +668,18 @@ def do_register( fqu, payment_privkey_info, owner_address, utxo_client, tx_broad
     """
     if proxy is None:
         proxy = get_default_proxy()
-    
+
     fqu = str(fqu)
     resp = {}
     payment_address = get_privkey_info_address( payment_privkey_info )
 
     # sanity check
-    if owner_privkey_params == (1,1) and pybitcoin.b58check_version_byte( owner_address ) != virtualchain.version_byte:
+    if owner_privkey_params == (1,1) and pybitcoin.b58check_version_byte( str(owner_address) ) != virtualchain.version_byte:
         # invalid address, given parameters
         log.debug("Owner address %s does not correspond to a single private key", owner_address)
         return {'error': 'Owner address does not correspond to a single private key'}
 
-    elif (owner_privkey_params[0] > 1 or owner_privkey_params[1] > 1) and pybitcoin.b58check_version_byte( owner_address ) != virtualchain.multisig_version_byte:
+    elif (owner_privkey_params[0] > 1 or owner_privkey_params[1] > 1) and pybitcoin.b58check_version_byte( str(owner_address) ) != virtualchain.multisig_version_byte:
         # invalid address
         log.debug("Owner address %s does not correspond to multisig private keys", owner_address)
         return {'error': 'Owner address does not correspond to multisig private keys'}
