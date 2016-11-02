@@ -123,7 +123,7 @@ def price_name( name, namespace, block_height ):
    Calculate the price of a name (without its namespace ID), given the
    namespace parameters.
 
-   The minimum price is 1 satoshi
+   The minimum price is NAME_COST_UNIT
    """
 
    base = namespace['base']
