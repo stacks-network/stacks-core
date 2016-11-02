@@ -7,7 +7,12 @@ SLEEP_INTERVAL=1800
 while [ true ]
 do
     pkill -9 python
-    rm -f debug.log
-    ./registrar loop > ~/.registrar/debug.log 2>&1 &
+    rm -f ~/.registrar/debug.log
+    #bin/registrar reprocess > ~/.registrar/debug.log 2>&1 &
+    bin/registrar reprocess
+    bin/registrar transfer
+    bin/registrar update
+    bin/registrar register
+    bin/registrar preorder
     sleep $SLEEP_INTERVAL
 done
