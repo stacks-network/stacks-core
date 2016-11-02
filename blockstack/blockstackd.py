@@ -2199,6 +2199,32 @@ def run_blockstackd():
 
    if args.action == 'start':
 
+      # was indexing earlier?
+      if config.is_indexing():
+          # The server didn't shut down properly.
+          # restore from back-up before running
+          log.warning("Server did not shut down properly.  Restoring state from last known-good backup.")
+
+          # move any existing db information out of the way so we can start fresh.
+          state_paths = BlockstackDB.get_state_paths( virtualchain_hooks )
+          need_backup = reduce( lambda x, y: x or y, map(lambda sp: os.path.exists(sp), state_paths), False )
+          if need_backup:
+
+              # have old state.  keep it around for later inspection
+              target_dir = os.path.join( working_dir, 'crash.{}'.format(time.time()))
+              os.makedirs(target_dir)
+              for sp in state_paths:
+                  if os.path.exists(sp):
+                     target = os.path.join( target_dir, os.path.basename(sp) )
+                     shutil.move( sp, target )
+          
+              log.warning("State from crash stored to '{}'".format(target_dir))
+
+          restore( working_dir, None )
+          config.set_indexing(False)
+
+          log.warning("State reverted")
+
       # use snapshots?
       expected_snapshots = {}
       if args.expected_snapshots is not None:
