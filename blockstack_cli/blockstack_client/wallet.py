@@ -420,7 +420,7 @@ def decrypt_wallet( data, password, config_path=CONFIG_PATH, max_tries=WALLET_DE
         else:
             # Legacy: this key is not defined in the wallet.
             # Derive it from the master key.
-            ret[keyname_privkey] = data_keypair[1]
+            ret[keyname_privkey] = child_keypair[1]
             ret[keyname_addresses] = [virtualchain.BitcoinPrivateKey(ret[keyname_privkey]).public_key().address()]
 
         # this can't be multisig if it's not yet supported 
