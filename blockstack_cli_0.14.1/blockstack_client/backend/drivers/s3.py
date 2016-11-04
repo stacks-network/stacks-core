@@ -378,7 +378,6 @@ if __name__ == "__main__":
    
    from blockstack_client.storage import parse_mutable_data, serialize_mutable_data
    from blockstack_client.config import log, get_config
-   from blockstack_client.user import make_mutable_data_info
    
    CONFIG_PATH = os.environ.get('BLOCKSTACK_CONFIG_PATH', None)
    assert CONFIG_PATH, "Missing BLOCKSTACK_CONFIG_PATH from environment"
@@ -434,7 +433,6 @@ if __name__ == "__main__":
       
       data_url = make_mutable_url( d_id )
        
-      data_zonefile = make_mutable_data_info( d_id, n, [data_url] )
       data_json = serialize_mutable_data( {"id": d_id, "nonce": n, "data": d}, data_privkey )
       
       rc = put_mutable_handler( d_id, data_json )
