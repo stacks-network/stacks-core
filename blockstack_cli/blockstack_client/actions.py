@@ -1158,7 +1158,7 @@ def cli_update( args, config_path=CONFIG_PATH, password=None, interactive=True, 
         proxy = get_default_proxy()
 
     if hasattr(args, 'nonstandard') and not nonstandard:
-        if args.nonstandard.lower() in ['yes', '1', 'true']:
+        if args.nonstandard is not None and args.nonstandard.lower() in ['yes', '1', 'true']:
             nonstandard = True
 
     config_dir = os.path.dirname(config_path)
