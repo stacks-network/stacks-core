@@ -427,7 +427,7 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None, data_address=None, own
        fqu = fq_data_id
 
    handlers_to_use = []
-   if drivers is not None:
+   if drivers is not None and len(drivers) > 0:
        # whitelist of drivers to try 
        for d in drivers:
            for h in storage_handlers:
