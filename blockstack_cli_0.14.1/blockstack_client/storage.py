@@ -288,7 +288,7 @@ def get_immutable_data( data_hash, data_url=None, hash_func=get_data_hash, fqu=N
        return None
 
    handlers_to_use = []
-   if drivers is not None:
+   if drivers is not None and len(drivers) > 0:
        # whitelist of drivers to try 
        for d in drivers:
            for h in storage_handlers:
