@@ -811,35 +811,6 @@ def atlasdb_get_zonefile_bits( zonefile_hash, con=None, path=None ):
     return ret
 
 
-def atlasdb_zonefile_block_reset( con, db, drop_block, path=None ):
-    """
-    Drop all zonefile rows for a particular block.
-    Used for queueing zonefiles at a particular start block
-    (i.e. we don't want to deal with "partial" blocks represented
-    in the db).
-    """
-    if path is None:
-        path = atlasdb_path()
-
-    close = False
-    if con is None:
-        close = True
-        con = atlasdb_open( path )
-        assert con is not None
-
-    sql = "DELETE FROM zonefiles WHERE block_height = ?;"
-    args = (drop_block,)
-
-    cur = con.cursor()
-    res = atlasdb_query_execute( cur, sql, args )
-    con.commit()
-
-    if close:
-        con.close()
-
-    return True
-
-
 def atlasdb_queue_zonefiles( con, db, start_block, zonefile_dir=None, validate=True ):
     """
     Queue all zonefile hashes in the BlockstackDB
@@ -1263,7 +1234,6 @@ def atlasdb_init( path, db, peer_seeds, peer_blacklist, validate=False, zonefile
 
         log.debug("Synchronize zonefiles from %s to %s" % (atlasdb_last_block, db.lastblock) )
 
-        atlasdb_zonefile_block_reset( con, db, atlasdb_last_block, path=path )
         atlasdb_queue_zonefiles( con, db, atlasdb_last_block, validate=validate, zonefile_dir=zonefile_dir )
 
         log.debug("Refreshing seed peers")
