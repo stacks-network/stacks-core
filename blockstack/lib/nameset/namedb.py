@@ -215,6 +215,23 @@ class BlockstackDB( virtualchain.StateEngine ):
         """
         return self.db_filename
 
+
+    @classmethod
+    def get_state_paths( cls ):
+        """
+        Get the list of paths to the current state:
+        * lastblock file
+        * db file
+        * snapshots file
+        """
+        import virtualchain_hooks
+        ret = [
+            virtualchain.config.get_lastblock_filename(impl=virtualchain_hooks),
+            virtualchain.config.get_snapshots_filename(impl=virtualchain_hooks),
+            virtualchain.config.get_db_filename(impl=virtualchain_hooks)
+        ]
+        return ret
+
     
     def close( self ):
         """
