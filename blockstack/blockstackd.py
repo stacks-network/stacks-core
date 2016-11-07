@@ -2206,7 +2206,7 @@ def run_blockstackd():
           log.warning("Server did not shut down properly.  Restoring state from last known-good backup.")
 
           # move any existing db information out of the way so we can start fresh.
-          state_paths = BlockstackDB.get_state_paths( virtualchain_hooks )
+          state_paths = BlockstackDB.get_state_paths()
           need_backup = reduce( lambda x, y: x or y, map(lambda sp: os.path.exists(sp), state_paths), False )
           if need_backup:
 
