@@ -8,6 +8,10 @@ This package contains the CLI (command line interface) and reference client libr
 [Blockstack Server](https://github.com/blockstack/blockstack-server). It talks to the
 Blockstack server and provides an interface for creating and managing names in decentralized namespaces and database tables on the blockchain.
 
+## Getting Help
+
+If you ever need help with these instructions or want to learn more, please join the [Blockstack Slack](https://blockstack.slack.com) and drop us a line on the \#cli channel.
+
 ## Installation
 
 Installing the command line interface and client library:
