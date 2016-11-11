@@ -24,6 +24,10 @@ You can also read the Blockstack paper:
 
 **Developers**:  You can try out Blockstack Core in a local sandbox using our [integration test framework](https://github.com/blockstack/blockstack-integration-tests/tree/rc-0.14.0).
 
+### Community
+
+If you ever need more help or want to know more and chat with the user and developer communities, please stop by the [Blockstack Slack](https://blockstack.slack.com).  This project uses the \#core channel.
+
 ### Installation
 
 The fastest way to get started with blockstack is with pip:
@@ -65,7 +69,7 @@ We welcome any small or big contributions! Please take a moment to
 
 We have an active community of developers and the best place to interact with the community is:
 
-- [Live chat on Slack](http://chat.blockstack.org/) (1,200+ members)
+- [Live chat on Slack](http://chat.blockstack.org/) (1,900+ members)
 - [Blockstack Reddit](http://reddit.com/r/blockstack)
 
 ### Copyright and License
