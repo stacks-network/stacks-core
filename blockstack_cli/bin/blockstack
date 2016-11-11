@@ -44,9 +44,43 @@ from blockstack_client.config import get_logger, configure, CONFIG_PATH, client_
 from blockstack_client.client import analytics_event, analytics_user_register, analytics_user_update
 from blockstack_client.utils import pretty_print
 
+
+def enable_debug( argv ):
+    """
+    If '--debug' was passed, then activate debugging
+    by re-execing with BLOCKSTACK_DEBUG=1 set.
+    """
+    new_argv = []
+
+    set_envar = False
+
+    debug = (os.environ.get("BLOCKSTACK_DEBUG", None) == "1")
+    set_debug = False
+
+    for arg in argv: 
+        if not debug and arg == '--debug':
+            # will set debug 
+            set_debug = True
+            set_envar = True
+
+        else:
+            # skip 
+            new_argv.append(arg)
+
+    if set_envar:
+        if set_debug:
+            os.environ["BLOCKSTACK_DEBUG"] = "1"
+
+        os.execv( new_argv[0], new_argv )
+
+    return True
+
+
 if __name__ == '__main__':
 
     log = get_logger()
+    enable_debug( sys.argv )
+
     uuid_path = client_uuid_path()
     first_time = False
 
