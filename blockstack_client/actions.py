@@ -2877,3 +2877,74 @@ def cli_advanced_app_get_wallet( args, config_path=CONFIG_PATH, interactive=True
     res = app_get_wallet( fqu, app_name, app_account_id, interactive=interactive, password=password, config_path=config_path )
     return res
 
+
+def cli_advanced_start_server( args, config_path=CONFIG_PATH, interactive=False ):
+    """
+    command: start_server norpc
+    help: Start a Blockstack server
+    opt: foreground (str) "If True, then run in the foreground."
+    opt: working_dir (str) "The directory which contains the server state."
+    opt: testnet (str) "If True, then communicate with Bitcoin testnet."
+    """
+
+    foreground = False
+    testnet = False
+    working_dir = args.working_dir
+
+    if args.foreground:
+        foreground = str(args.foreground)
+        foreground = (foreground.lower() in ['1', 'true', 'yes', 'foreground'])
+
+    if args.testnet:
+        testnet = str(args.testnet)
+        testnet = (testnet.lower() in ['1', 'true', 'yes', 'testnet'])
+
+    cmds = ['blockstack-server', 'start']
+    if foreground:
+        cmds.append('--foreground')
+
+    if testnet:
+        cmds.append('--testnet')
+
+    if working_dir is not None:
+        working_dir_envar = 'VIRTUALCHAIN_WORKING_DIR={}'.format(working_dir)
+        cmds = [working_dir_envar] + cmds
+
+    cmd_str = " ".join(cmds)
+    
+    log.debug('Execute: {}'.format(cmd_str))
+    exit_status = os.system(cmd_str)
+
+    if not os.WIFEXITED(exit_status) or os.WEXITSTATUS(exit_status) != 0:
+        error_str = 'Failed to execute "{}". Exit code {}'.format(cmd_str, exit_status)
+        return {'error': error_str}
+
+    return {'status': True}
+
+
+def cli_advanced_stop_server( args, config_path=CONFIG_PATH, interactive=False ):
+    """
+    command: stop_server norpc
+    help: Stop a running Blockstack server
+    opt: working_dir (str) "The directory which contains the server state."
+    """
+
+    working_dir = args.working_dir
+
+    cmds = ['blockstack-server', 'stop']
+
+    if working_dir is not None:
+        working_dir_envar = 'VIRTUALCHAIN_WORKING_DIR={}'.format(working_dir)
+        cmds = [working_dir_envar] + cmds
+
+    cmd_str = " ".join(cmds)
+
+    log.debug('Execute: {}'.format(cmd_str))
+    exit_status = os.system(cmd_str)
+
+    if not os.WIFEXITED(exit_status) or os.WEXITSTATUS(exit_status) != 0:
+        error_str = 'Failed to execute "{}". Exit code {}'.format(cmd_str, exit_status)
+        return {'error': error_str}
+
+    return {'status': True}
+
