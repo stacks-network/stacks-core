@@ -1862,7 +1862,7 @@ def get_zonefile_inventory( hostport, bit_offset, bit_count, timeout=30, my_host
         zf_inv['inv'] = base64.b64decode( str(zf_inv['inv']) )
         
         # make sure it corresponds to this range
-        assert len(zf_inv['inv']) <= (bit_count / 8) + (bit_count % 8), 'Zonefile inventory in is too long' 
+        assert len(zf_inv['inv']) <= (bit_count / 8) + (bit_count % 8), 'Zonefile inventory in is too long (got {} bytes)'.format(len(zf_inv['inv']))
     except (ValidationError, AssertionError) as e:
         log.exception(e)
         zf_inv = {'error': 'Failed to fetch and parse zonefile inventory'}
