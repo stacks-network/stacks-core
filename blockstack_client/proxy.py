@@ -899,10 +899,19 @@ def get_all_names( offset=None, count=None, proxy=None ):
     page_size = 100
     all_names = []
     while len(all_names) < count:
-        page = get_all_names_page( offset + len(all_names), page_size, proxy=proxy )
+        request_size = page_size
+        if count - len(all_names) < request_size:
+            request_size = count - len(all_names)
+
+        page = get_all_names_page( offset + len(all_names), request_size, proxy=proxy )
         if json_is_error(page):
             # error
             return page
+
+        if len(page) > request_size:
+            # error
+            error_str = 'Server replied too much data'
+            return {'error': error_str}
 
         all_names += page
 
