@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
+from __future__ import print_function
+
 """
     Blockstack-client
     ~~~~~
@@ -21,27 +24,29 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 import os
-import sys
 import keylib
 
 import wallet
 import accounts
-import data
 import config
 from proxy import *
 
 from config import CONFIG_PATH, APP_WALLET_DIRNAME
 
-def app_wallet_path( config_dir, name, app_name, app_account_id ):
+
+def app_wallet_path(config_dir, name, app_name, app_account_id):
     """
     Get the path to an app wallet
     """
     app_wallet_dir = os.path.join(config_dir, APP_WALLET_DIRNAME)
-    wallet_path = os.path.join(app_wallet_dir, "%s.%s@%s.json" % (app_account_id, app_name, name))
+    wallet_name = '{}.{}@{}.json'.format(app_account_id, app_name, name)
+    wallet_path = os.path.join(app_wallet_dir, wallet_name)
+
     return wallet_path
 
 
-def app_register( name, app_name, app_account_id, app_url, app_storage_drivers=None, app_account_fields={}, wallet_keys=None, password=None, interactive=False, config_path=CONFIG_PATH, proxy=None ):
+def app_register(name, app_name, app_account_id, app_url, app_storage_drivers=None, app_account_fields={},
+                 wallet_keys=None, password=None, interactive=False, config_path=CONFIG_PATH, proxy=None):
     """
     Add new application-specific state to a profile.
     * add an account for the application
@@ -53,60 +58,64 @@ def app_register( name, app_name, app_account_id, app_url, app_storage_drivers=N
     """
 
     if not interactive and password is None:
-        raise ValueError("Non-interactive use requires a password")
+        raise ValueError('Non-interactive use requires a password')
 
     config_dir = os.path.dirname(config_path)
     app_wallet_dir = os.path.join(config_dir, APP_WALLET_DIRNAME)
-    if not os.path.exists( app_wallet_dir ):
+    if not os.path.exists(app_wallet_dir):
         try:
-            os.makedirs(app_wallet_dir, 0700 )
-        except Exception, e:
+            os.makedirs(app_wallet_dir, 0700)
+        except Exception as e:
             log.exception(e)
-            return {'error': "Failed to create app wallet directory"}
+            return {'error': 'Failed to create app wallet directory'}
 
     # create the wallet
-    wallet_path = app_wallet_path( config_dir, name, app_name, app_account_id )
+    wallet_path = app_wallet_path(config_dir, name, app_name, app_account_id)
     if os.path.exists(wallet_path):
-        return {'error': 'Wallet already exists (%s)' % wallet_path}
+        return {'error': 'Wallet already exists ({})'.format(wallet_path)}
 
     if password is None:
-        assert interactive
-        password = ""
+        prompt = 'Creating new application wallet'
+        password = ''
         while len(password) < config.WALLET_PASSWORD_LENGTH:
-            res = wallet.make_wallet_password( prompt="Creating new application wallet", password=password )
-            if 'error' in res:
-                print res['error']
-                continue
-            else:
+            res = wallet.make_wallet_password(prompt=prompt, password=password)
+            if 'error' not in res:
                 password = res['password']
                 break
-            
+            print(res['error'])
+
     pk_hex = keylib.ECPrivateKey().to_hex()
-    res = wallet.initialize_wallet(password=password, interactive=interactive, hex_privkey=pk_hex, config_dir=config_dir, wallet_path=wallet_path )
+    res = wallet.initialize_wallet(
+        password=password, interactive=interactive,
+        hex_privkey=pk_hex, config_dir=config_dir, wallet_path=wallet_path
+    )
     if 'error' in res:
-        log.error("Failed to create wallet '%s.%s@%s': %s" % (app_account_id, app_name, name, res['error']))
+        msg = 'Failed to create wallet "{}.{}@{}": {}'
+        log.error(msg.format(app_account_id, app_name, name, res['error']))
         return res
 
     pub_hex = keylib.ECPrivateKey(pk_hex).public_key().to_hex()
 
     # preferred storage drivers?
     conf = config.get_config(config_path)
-    if app_storage_drivers is None:
-        app_storage_drivers = conf['storage_drivers']
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path=config_path)
+    app_storage_drivers = app_storage_drivers or conf['storage_drivers']
+    proxy = proxy or get_default_proxy(config_path=config_path)
 
     # create an app account
-    res = accounts.create_app_account( name, app_name, app_account_id, app_url, app_storage_drivers, pub_hex, proxy=proxy, wallet_keys=wallet_keys, **app_account_fields )
+    res = accounts.create_app_account(
+        name, app_name, app_account_id, app_url,
+        app_storage_drivers, pub_hex, proxy=proxy,
+        wallet_keys=wallet_keys, **app_account_fields
+    )
     if 'error' in res:
-        log.error("Failed to create app account '%s.%s@%s': %s" % (app_account_id, app_name, name, res['error']))
+        msg = 'Failed to create app account "{}.{}@{}": {}'
+        log.error(msg.format(app_account_id, app_name, name, res['error']))
         return res
 
     return {'status': True}
 
 
-def app_unregister( name, app_name, app_account_id, interactive=False, wallet_keys=None, proxy=None, config_path=CONFIG_PATH ):
+def app_unregister(name, app_name, app_account_id, interactive=False, wallet_keys=None, proxy=None, config_path=CONFIG_PATH):
     """
     Unregister an application account:
     * delete the account from the profile
@@ -116,62 +125,63 @@ def app_unregister( name, app_name, app_account_id, interactive=False, wallet_ke
     Return {'error': ...} on errur
     """
 
-    if proxy is None:
-        proxy = get_default_proxy(config_path=config_path)
+    proxy = proxy or get_default_proxy(config_path=config_path)
 
     if interactive:
-        print "WARNING: This cannot be undone!"
-        yes = ""
-        while yes != "YES" and yes != "no":
-            yes = raw_input("Are you sure? (YES/no): ")
-            if yes in ['y', 'yes']:
-                yes = ""
-                print "Please type YES"
+        print('WARNING: This cannot be undone!')
+        response = ''
+        while response not in ['YES', 'no']:
+            response = raw_input('Are you sure? (YES/no): ')
+            if response not in ['y', 'yes']:
+                print('Not deleting')
+                response = 'no'
                 continue
 
-            else:
-                print "Not deleting"
-                yes = "no"
-                
-        if yes == "no":
+            print('Please type YES')
+            response = ''
+
+        if response == 'no':
             return {'error': 'User declined'}
 
     # delete the account
-    res = accounts.delete_app_account( name, app_name, app_account_id, wallet_keys=wallet_keys, proxy=proxy )
+    res = accounts.delete_app_account(
+        name, app_name, app_account_id, wallet_keys=wallet_keys, proxy=proxy
+    )
     if 'error' in res:
-        log.error("Failed to delete app account '%s.%s@%s': %s" % (app_account_id, app_name, name, res['error']))
+        msg = 'Failed to delete app account "{}.{}@{}": {}'
+        log.error(msg.format(app_account_id, app_name, name, res['error']))
         return {'error': 'Failed to delete app account'}
 
     # delete the wallet
     config_dir = os.path.dirname(config_path)
-    wallet_path = app_wallet_path( config_dir, name, app_name, app_account_id )
+    wallet_path = app_wallet_path(config_dir, name, app_name, app_account_id)
     if os.path.exists(wallet_path):
         try:
             os.unlink(wallet_path)
         except:
-            return {'error': "Failed to delete wallet at '%s'" % wallet_path}
+            return {'error': 'Failed to delete wallet at "{}"'.format(wallet_path)}
 
     return {'status': True}
 
 
-def app_get_wallet( name, app_name, app_account_id, interactive=False, password=None, config_path=CONFIG_PATH ):
+def app_get_wallet(name, app_name, app_account_id, interactive=False, password=None, config_path=CONFIG_PATH):
     """
     Unlock and return a decrypted application wallet.
     Return {'status': True, 'wallet': ...} on success
     Return {'error': ...} on failure
     Raise on invalid input
     """
-    
-    if not interactive and password is None:
-        raise ValueError("Password required in non-interactive mode")
 
     config_dir = os.path.dirname(config_path)
-    wallet_path = app_wallet_path( config_dir, name, app_name, app_account_id )
+    wallet_path = app_wallet_path(config_dir, name, app_name, app_account_id)
     if not os.path.exists(wallet_path):
-        log.error("No such wallet '%s'" % wallet_path)
+        log.error('No such wallet "{}"'.format(wallet_path))
         return {'error': 'No such wallet'}
 
-    if interactive and password is not None:
-        password = raw_input("Enter password for '%s.%s@%s': " % (app_account_id, app_name, name))
+    if not interactive and password is None:
+        raise ValueError('Password required in non-interactive mode')
 
-    return wallet.load_wallet( password=password, config_dir=config_dir, wallet_path=wallet_path, include_private=True )
+    if interactive and password is not None:
+        password = raw_input('Enter password for "{}.{}@{}": '.format(app_account_id, app_name, name))
+
+    return wallet.load_wallet(password=password, config_dir=config_dir, wallet_path=wallet_path, include_private=True)

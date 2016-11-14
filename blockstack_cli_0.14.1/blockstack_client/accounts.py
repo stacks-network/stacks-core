@@ -21,57 +21,27 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import argparse
-import sys
-import json
-import traceback
-import types
-import socket
-import uuid
-import os
-import importlib
-import pprint
-import random
-import time
-import copy
-import blockstack_profiles
-import urllib
-
-import pybitcoin
-import bitcoin
-import binascii
-from utilitybelt import is_hex
-
 from .keys import *
 from .proxy import *
 from .profile import *
 
-from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SERVER, \
-    BLOCKSTACKD_PORT, BLOCKSTACK_METADATA_DIR, BLOCKSTACK_DEFAULT_STORAGE_DRIVERS, \
-    FIRST_BLOCK_MAINNET, NAME_OPCODES, OPFIELDS, CONFIG_DIR, SPV_HEADERS_PATH, BLOCKCHAIN_ID_MAGIC, \
-    NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER, NAMESPACE_PREORDER, NAME_IMPORT, \
-    USER_ZONEFILE_TTL, CONFIG_PATH
-
 log = get_logger()
 
-import virtualchain
 
-
-def get_profile_accounts( profile, service_id, account_id ):
+def get_profile_accounts(profile, service, identifier):
     """
-    List all accounts in a profile with the given service ID and account ID.
+    List all accounts in a profile with the given service ID and account ID (identifier).
     """
     accounts = profile.get('account', [])
-    
-    ret = []
-    for acc in accounts:
-        if acc.get('identifier', None) == account_id and acc.get('service', None) == service_id:
-            ret.append(acc)
 
-    return ret
+    return [
+        acc for acc in accounts if
+        service == acc.get('service', None) and
+        identifer == acc.get('identifier', None)
+    ]
 
 
-def list_accounts( name, proxy=None ):
+def list_accounts(name, proxy=None):
     """
     List all of the accounts in a user's profile
     Each account will have at least the following:
@@ -82,44 +52,40 @@ def list_accounts( name, proxy=None ):
     Return {'error': ...} on error
     """
 
-    if proxy is None:
-        proxy = get_default_proxy()
+    proxy = get_default_proxy() if proxy is None else proxy
 
-    user_profile, user_zonefile = get_name_profile( name, proxy=proxy )
+    user_profile, user_zonefile = get_name_profile(name, proxy=proxy)
     if user_profile is None:
         # user_zonefile will contain an error message
         return user_zonefile
-        
-    # user_profile will be in the new zonefile format 
-    if not user_profile.has_key("account"):
-        return {'accounts': []}
 
-    else:
-        return {'accounts': user_profile['account']}
+    # user_profile will be in the new zonefile format
+    return {'accounts': user_profile.get('account', [])}
 
 
-def get_account( name, service, identifier, proxy=None ):
+def get_account(name, service, identifier, proxy=None):
     """
     Get an account by identifier.  Return duplicates
     Return {'account': account information} on success
     Return {'error': ...} on error
     """
-    if proxy is None:
-        proxy = get_default_proxy()
+    proxy = get_default_proxy() if proxy is None else proxy
 
-    accounts = list_accounts( name, proxy=proxy )
+    accounts = list_accounts(name, proxy=proxy)
     if 'error' in accounts:
         return accounts
 
-    ret = []
-    for acc in accounts['accounts']:
-        if acc.get('identifier', None) == identifier and acc.get('service', None) == service:
-            ret.append(acc)
+    ret = [
+        acc for acc in accounts['accounts'] if
+        service == acc.get('service', None) and
+        identifier == acc.get('identifier', None)
+    ]
 
     return {'account': ret}
 
 
-def put_account( name, service, identifier, content_url, create=True, replace=False, proxy=None, wallet_keys=None, txid=None, required_drivers=None, **extra_fields ):
+def put_account(name, service, identifier, content_url, create=True, replace=False,
+                proxy=None, wallet_keys=None, txid=None, required_drivers=None, **extra_fields):
     """
     Put an account's information into a profile.
 
@@ -135,105 +101,117 @@ def put_account( name, service, identifier, content_url, create=True, replace=Fa
     Return a dict with {'error': ...} set on failure.
     """
 
-    if create is False and replace is False:
+    if not create and not replace:
         return {'error': 'Invalid create/replace arguments'}
 
-    if proxy is None:
-        proxy = get_default_proxy()
+    proxy = get_default_proxy() if proxy is None else proxy
 
     need_update = False
 
-    user_profile, user_zonefile, need_update = get_and_migrate_profile( name, proxy=proxy, create_if_absent=True, wallet_keys=wallet_keys, include_name_record=True )
+    user_profile, user_zonefile, need_update = get_and_migrate_profile(
+        name, proxy=proxy, create_if_absent=True,
+        wallet_keys=wallet_keys, include_name_record=True
+    )
+
     if 'error' in user_profile:
         return user_profile
 
     if need_update:
-        return {'error': 'Profile is in legacy format.  Please migrate it with the `migrate` command.'}
+        return {'error': 'Profile is in legacy format. Please migrate it with the `migrate` command.'}
 
-    name_record = user_zonefile['name_record']
-    del user_zonefile['name_record']
+    name_record = user_zonefile.pop('name_record')
 
-    user_zonefile = user_zonefile['zonefile']
-    user_profile = user_profile['profile']
+    user_zonefile, user_profile = user_zonefile['zonefile'], user_profile['profile']
 
-    # user_profile will be in the new zonefile format 
-    if not user_profile.has_key("account"):
-        user_profile['account'] = []
+    # user_profile will be in the new zonefile format
+    user_profile.setdefault('account', [])
 
     new_account = {}
-    new_account.update( extra_fields )
-    new_account.update( {
-        "service": service,
-        "identifier": identifier,
-        "contentUrl": content_url
+    new_account.update(extra_fields)
+    new_account.update({
+        'service': service,
+        'identifier': identifier,
+        'contentUrl': content_url
     })
 
     replaced = False
     if replace:
         # replace one instance of this account
-        for i in xrange(0, len(user_profile['account'])):
+        for i in range(len(user_profile['account'])):
             acc = user_profile['account'][i]
-            if acc['identifier'] == identifier and acc['service'] == service:
+            if identifier == acc['identifier'] and service == acc['service']:
                 user_profile['account'][i] = new_account
                 replaced = True
                 break
-            
+
     if not replaced:
         if create:
-            user_profile['account'].append( new_account )
+            user_profile['account'].append(new_account)
         else:
             return {'error': 'No such existing account'}
-        
-    return profile_update( name, user_zonefile, user_profile, name_record['address'], proxy=proxy, wallet_keys=wallet_keys, required_drivers=required_drivers )
+
+    return profile_update(
+        name, user_zonefile, user_profile, name_record['address'],
+        proxy=proxy, wallet_keys=wallet_keys, required_drivers=required_drivers
+    )
 
 
-def delete_account( name, service, identifier, proxy=None, wallet_keys=None ):
+def delete_account(name, service, identifier, proxy=None, wallet_keys=None):
     """
     Remove an account's information.
     Return {'status': True, 'removed': [list of removed accounts], ...} on success
     Return {'error': ...} on error
     """
 
-    if proxy is None:
-        proxy = get_default_proxy()
+    proxy = get_default_proxy() if proxy is None else proxy
 
-    need_update = False 
-    removed = False
+    need_update, removed = False, False
 
-    user_profile, user_zonefile, need_update = get_and_migrate_profile( name, proxy=proxy, create_if_absent=True, wallet_keys=wallet_keys, include_name_record=True )
+    user_profile, user_zonefile, need_update = get_and_migrate_profile(
+        name, proxy=proxy, create_if_absent=True,
+        wallet_keys=wallet_keys, include_name_record=True
+    )
+
     if 'error' in user_profile:
-        return user_profile 
+        return user_profile
 
     if need_update:
-        return {'error': 'Profile is in legacy format.  Please migrate it with the `migrate` command.'}
+        return {
+            'error': (
+                'Profile is in legacy format. '
+                'Please migrate it using with the `migrate` command.'
+            )
+        }
 
-    name_record = user_zonefile['name_record']
-    del user_zonefile['name_record']
-    
-    user_zonefile = user_zonefile['zonefile']
-    user_profile = user_profile['profile']
+    name_record = user_zonefile.pop('name_record')
+
+    user_zonefile, user_profile = user_zonefile['zonefile'], user_profile['profile']
 
     # user_profile will be in the new zonefile format
     removed = []
     for account in user_profile.get('account', []):
-        if account['service'] == service and account['identifier'] == identifier:
-            user_profile['account'].remove( account )
-            removed.append( account )
+        if service == account['service'] and identifier == account['identifier']:
+            user_profile['account'].remove(account)
+            removed.append(account)
 
-    if len(removed) == 0:
+    if not removed:
         return {'status': True, 'removed': []}
 
-    else:
-        res = profile_update( name, user_zonefile, user_profile, name_record['address'], proxy=proxy, wallet_keys=wallet_keys )
-        if 'error' in res:
-            return res 
+    res = profile_update(
+        name, user_zonefile,
+        user_profile, name_record['address'],
+        proxy=proxy, wallet_keys=wallet_keys
+    )
 
-        else:
-            res['removed'] = removed
-            return res
+    if 'error' in res:
+        return res
+
+    res['removed'] = removed
+    return res
 
 
-def create_app_account( name, service, identifier, app_url, storage_drivers, data_pubkey, proxy=None, wallet_keys=None, **extra_fields):
+def create_app_account(name, service, identifier, app_url, storage_drivers,
+                       data_pubkey, proxy=None, wallet_keys=None, **extra_fields):
     """
     Make a Blockstck application account.
     This account is different than one created by `put_account`, since
@@ -246,15 +224,17 @@ def create_app_account( name, service, identifier, app_url, storage_drivers, dat
     Raise on invalid input
     """
 
-    if storage_drivers is None or len(storage_drivers) == 0:
-        raise ValueError("No storage drivers given")
+    if storage_drivers is None or not storage_drivers:
+        raise ValueError('No storage drivers given')
 
-    return put_account( name, service, identifier, app_url, create=True, replace=False,
-                        proxy=proxy, wallet_keys=wallet_keys,
-                        data_pubkey=data_pubkey, storage_drivers=storage_drivers, **extra_fields)
+    return put_account(
+        name, service, identifier, app_url, create=True, replace=False,
+        proxy=proxy, wallet_keys=wallet_keys, data_pubkey=data_pubkey,
+        storage_drivers=storage_drivers, **extra_fields
+    )
 
 
-def delete_app_account( name, service, identifier, wallet_keys=None, proxy=None ):
+def delete_app_account(name, service, identifier, wallet_keys=None, proxy=None):
     """
     Delete an application-specific account
 
@@ -262,10 +242,6 @@ def delete_app_account( name, service, identifier, wallet_keys=None, proxy=None 
     Return {'error': ...} on failure
     """
 
-    res = delete_account( name, service, identifier, proxy=proxy, wallet_keys=wallet_keys )
-    if 'error' in res:
-        return res
+    res = delete_account(name, service, identifier, proxy=proxy, wallet_keys=wallet_keys)
 
-    else:
-        return {'status': True}
-
+    return res if 'error' in res else {'status': True}

@@ -21,24 +21,11 @@
     along with Blockstack-client. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import argparse
-import sys
-import json
-import traceback
-import types
-import socket
-import uuid
-import os
-import importlib
-import pprint
-import random
-import time
-import copy
-import blockstack_profiles
-import urllib
 import virtualchain
-from binascii import hexlify, unhexlify
+from binascii import hexlify
 
+from .backend.crypto.utils import aes_encrypt, aes_decrypt
+from config import get_logger, CONFIG_PATH, BLOCKSTACK_TEST
 from keylib import ECPrivateKey, ECPublicKey
 from keylib.hashing import bin_hash160
 from keylib.address_formatting import bin_hash160_to_address
@@ -60,85 +47,87 @@ from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SER
 
 log = get_logger()
 
-def is_multisig( privkey_info ):
+
+def is_multisig(privkey_info):
     """
     Does the given private key info represent
     a multisig bundle?
     """
-    if type(privkey_info) != dict:
+    if not isinstance(privkey_info, dict):
         return False
 
-    if 'private_keys' not in privkey_info.keys():
+    if 'private_keys' not in privkey_info:
         return False
 
-    if 'redeem_script' not in privkey_info.keys():
+    if 'redeem_script' not in privkey_info:
         return False
 
     return True
 
 
-def is_encrypted_multisig( privkey_info ):
+def is_encrypted_multisig(privkey_info):
     """
     Does a given encrypted private key info
     represent an encrypted multisig bundle?
     """
-    if type(privkey_info) != dict:
+    if not isinstance(privkey_info, dict):
         return False
 
-    if 'encrypted_private_keys' not in privkey_info.keys():
+    if 'encrypted_private_keys' not in privkey_info:
         return False
 
-    if 'encrypted_redeem_script' not in privkey_info.keys():
+    if 'encrypted_redeem_script' not in privkey_info:
         return False
 
     return True
 
 
-def is_singlesig( privkey_info ):
+def is_singlesig(privkey_info):
     """
     Does the given private key info represent
     a single signature bundle? (i.e. one private key)?
     """
-    if type(privkey_info) not in [str, unicode]:
+    if not isinstance(privkey_info, (str, unicode)):
         return False
 
     try:
         virtualchain.BitcoinPrivateKey(privkey_info)
         return True
     except:
-        return False
+        pass
+
+    return False
 
 
-def singlesig_privkey_to_string( privkey_info ):
+def singlesig_privkey_to_string(privkey_info):
     """
     Convert private key to string
     """
     return virtualchain.BitcoinPrivateKey(privkey_info).to_wif()
 
 
-def multisig_privkey_to_string( privkey_info ):
+def multisig_privkey_to_string(privkey_info):
     """
     Convert multisig keys to string
     """
-    return ",".join( [virtualchain.BitcoinPrivateKey(pk).to_wif() for pk in privkey_info['private_keys']] )
+    return ','.join([singlesig_privkey_to_string(pk) for pk in privkey_info['private_keys']])
 
 
-def privkey_to_string( privkey_info ):
+def privkey_to_string(privkey_info):
     """
     Convert private key to string
     Return None on invalid
     """
-    if is_singlesig( privkey_info ):
-        return singlesig_privkey_to_string( privkey_info )
+    if is_singlesig(privkey_info):
+        return singlesig_privkey_to_string(privkey_info)
 
-    elif is_multisig( privkey_info ):
-        return multisig_privkey_to_string( privkey_info )
+    if is_multisig(privkey_info):
+        return multisig_privkey_to_string(privkey_info)
 
-    else:
-        return None
+    return None
 
 
-def encrypt_multisig_info( multisig_info, password ):
+def encrypt_multisig_info(multisig_info, password):
     """
     Given a multisig info dict,
     encrypt the sensitive fields.
@@ -148,24 +137,25 @@ def encrypt_multisig_info( multisig_info, password ):
     enc_info = {}
     hex_password = hexlify(password)
 
-    if 'private_keys' in multisig_info.keys():
+    if 'private_keys' in multisig_info:
         enc_info['encrypted_private_keys'] = []
         for pk in multisig_info['private_keys']:
-            pk_ciphertext = aes_encrypt( pk, hex_password ) 
-            enc_info['encrypted_private_keys'].append( pk_ciphertext )
+            pk_ciphertext = aes_encrypt(pk, hex_password)
+            enc_info['encrypted_private_keys'].append(pk_ciphertext)
 
+    if 'redeem_script' in multisig_info:
+        enc_info['encrypted_redeem_script'] = aes_encrypt(
+            multisig_info['redeem_script'], hex_password
+        )
 
-    if 'redeem_script' in multisig_info.keys():
-        enc_info['encrypted_redeem_script'] = aes_encrypt( multisig_info['redeem_script'], hex_password )
-
-    for (k, v) in multisig_info.items():
+    for k, v in multisig_info.items():
         if k not in ['private_keys', 'redeem_script']:
             enc_info[k] = v
 
     return enc_info
 
 
-def decrypt_multisig_info( enc_multisig_info, password ):
+def decrypt_multisig_info(enc_multisig_info, password):
     """
     Given an encrypted multisig info dict,
     decrypt the sensitive fields.
@@ -176,67 +166,72 @@ def decrypt_multisig_info( enc_multisig_info, password ):
     multisig_info = {}
     hex_password = hexlify(password)
 
-    if 'encrypted_private_keys' in enc_multisig_info.keys():
+    if 'encrypted_private_keys' in enc_multisig_info:
         multisig_info['private_keys'] = []
         for enc_pk in enc_multisig_info['encrypted_private_keys']:
             pk = None
             try:
-                pk = aes_decrypt( enc_pk, hex_password )
+                pk = aes_decrypt(enc_pk, hex_password)
                 virtualchain.BitcoinPrivateKey(pk)
-            except Exception, e:
-                if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+            except Exception as e:
+                if BLOCKSTACK_TEST:
                     log.exception(e)
 
                 return {'error': 'Invalid password; failed to decrypt private key in multisig wallet'}
-                
-            multisig_info['private_keys'].append( pk )
 
-    if 'encrypted_redeem_script' in enc_multisig_info.keys():
+            multisig_info['private_keys'].append(pk)
+
+    if 'encrypted_redeem_script' in enc_multisig_info:
         redeem_script = None
+        enc_redeem_script = enc_multisig_info['encrypted_redeem_script']
         try:
-            redeem_script = aes_decrypt( enc_multisig_info['encrypted_redeem_script'], hex_password )
-        except:
-            if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+            redeem_script = aes_decrypt(enc_redeem_script, hex_password)
+        except Exception as e:
+            if BLOCKSTACK_TEST:
                 log.exception(e)
 
             return {'error': 'Invalid password; failed to decrypt redeem script in multisig wallet'}
 
         multisig_info['redeem_script'] = redeem_script
 
-    for (k, v) in enc_multisig_info.items():
+    for k, v in enc_multisig_info.items():
         if k not in ['encrypted_private_keys', 'encrypted_redeem_script']:
             multisig_info[k] = v
 
     return multisig_info
 
 
-def encrypt_private_key_info( privkey_info, password ):
+def encrypt_private_key_info(privkey_info, password):
     """
     Encrypt private key info.
     Return {'status': True, 'encrypted_private_key_info': {'address': ..., 'private_key_info': ...}} on success
     Returns {'error': ...} on error
     """
 
-    ret = {}
     hex_password = hexlify(password)
 
-    if is_multisig( privkey_info ):
-        ret['address'] = virtualchain.make_multisig_address( privkey_info['redeem_script'] )
-        ret['private_key_info'] = encrypt_multisig_info( privkey_info, password )
+    ret = {}
+    if is_multisig(privkey_info):
+        ret['address'] = virtualchain.make_multisig_address(
+            privkey_info['redeem_script']
+        )
+        ret['private_key_info'] = encrypt_multisig_info(
+            privkey_info, password
+        )
 
         return {'status': True, 'encrypted_private_key_info': ret}
 
-    elif is_singlesig( privkey_info ):
-        ret['address'] = virtualchain.BitcoinPrivateKey(privkey_info).public_key().address()
-        ret['private_key_info'] = aes_encrypt( privkey_info, hex_password )
+    if is_singlesig(privkey_info):
+        ret['address'] = virtualchain.BitcoinPrivateKey(
+            privkey_info).public_key().address()
+        ret['private_key_info'] = aes_encrypt(privkey_info, hex_password)
 
         return {'status': True, 'encrypted_private_key_info': ret}
 
-    else:
-        return {'error': 'Invalid private key info'}
+    return {'error': 'Invalid private key info'}
 
 
-def decrypt_private_key_info( privkey_info, password ):
+def decrypt_private_key_info(privkey_info, password):
     """
     Decrypt a particular private key info bundle.
     It can be either a single-signature private key, or a multisig key bundle.
@@ -245,11 +240,12 @@ def decrypt_private_key_info( privkey_info, password ):
     """
     hex_password = hexlify(password)
 
-    if is_encrypted_multisig( privkey_info ):
-        ret = decrypt_multisig_info( privkey_info, password )
+    ret = {}
+    if is_encrypted_multisig(privkey_info):
+        ret = decrypt_multisig_info(privkey_info, password)
 
         if 'error' in ret:
-            return {'error': 'Failed to decrypt multisig wallet: %s' % ret['error']}
+            return {'error': 'Failed to decrypt multisig wallet: {}'.format(ret['error'])}
 
         # sanity check
         if 'redeem_script' not in ret:
@@ -257,70 +253,67 @@ def decrypt_private_key_info( privkey_info, password ):
 
         if 'private_keys' not in ret:
             return {'error': 'Invalid multisig wallet: missing private_keys'}
-        
+
         return {'address': virtualchain.make_p2sh_address(ret['redeem_script']), 'private_key_info': ret}
 
-    elif type(privkey_info) in [str, unicode]:
+    if isinstance(privkey_info, (str, unicode)):
         try:
-            pk = aes_decrypt( privkey_info, hex_password )
+            pk = aes_decrypt(privkey_info, hex_password)
             virtualchain.BitcoinPrivateKey(pk)
-        except:
+        except Exception as e:
             return {'error': 'Invalid password'}
 
         return {'address': virtualchain.BitcoinPrivateKey(pk).public_key().address(), 'private_key_info': pk}
 
-    else:
-        return {'error': 'Invalid encrypted private key info'}
+    return {'error': 'Invalid encrypted private key info'}
 
 
-def make_wallet_keys( data_privkey=None, owner_privkey=None, payment_privkey=None ):
+def make_wallet_keys(data_privkey=None, owner_privkey=None, payment_privkey=None):
     """
     For testing.  DO NOT USE
     """
-    
+
     ret = {
         'owner_privkey': None,
         'data_privkey': None,
-        'payment_privkey': None
+        'payment_privkey': None,
     }
 
     if data_privkey is not None:
         if not is_singlesig(data_privkey):
-            raise ValueError("Invalid data key info")
+            raise ValueError('Invalid data key info')
 
-        pk_data = virtualchain.BitcoinPrivateKey( data_privkey ).to_hex()
-        ret['data_privkey'] = pk_data 
+        pk_data = virtualchain.BitcoinPrivateKey(data_privkey).to_hex()
+        ret['data_privkey'] = pk_data
 
     if owner_privkey is not None:
-        if is_multisig( owner_privkey ):
+        if is_multisig(owner_privkey):
             pks = [virtualchain.BitcoinPrivateKey(pk).to_hex() for pk in owner_privkey['private_keys']]
-            m, pubs = virtualchain.parse_multisig_redeemscript( owner_privkey['redeem_script'] )
-            ret['owner_privkey'] = virtualchain.make_multisig_info( m, pks )
-
-        elif is_singlesig( owner_privkey ):
-            pk_owner = virtualchain.BitcoinPrivateKey( owner_privkey ).to_hex()
+            m, pubs = virtualchain.parse_multisig_redeemscript(owner_privkey['redeem_script'])
+            ret['owner_privkey'] = virtualchain.make_multisig_info(m, pks)
+        elif is_singlesig(owner_privkey):
+            pk_owner = virtualchain.BitcoinPrivateKey(owner_privkey).to_hex()
             ret['owner_privkey'] = pk_owner
-
         else:
-            raise ValueError("Invalid owner key info")
+            raise ValueError('Invalid owner key info')
 
-    if payment_privkey is not None:
-        if is_multisig( payment_privkey ):
-            pks = [virtualchain.BitcoinPrivateKey(pk).to_hex() for pk in payment_privkey['private_keys']]
-            m, pubs = virtualchain.parse_multisig_redeemscript( payment_privkey['redeem_script'] )
-            ret['payment_privkey'] = virtualchain.make_multisig_info( m, pks )
+    if payment_privkey is None:
+        return ret
 
-        elif is_singlesig( payment_privkey ):
-            pk_payment = virtualchain.BitcoinPrivateKey( payment_privkey ).to_hex()
-            ret['payment_privkey'] = pk_payment
-
-        else:
-            raise ValueError("Invalid payment key info")
+    if is_multisig(payment_privkey):
+        pks = [virtualchain.BitcoinPrivateKey(pk).to_hex() for pk in payment_privkey['private_keys']]
+        m, pubs = virtualchain.parse_multisig_redeemscript(payment_privkey['redeem_script'])
+        ret['payment_privkey'] = virtualchain.make_multisig_info(m, pks)
+    elif is_singlesig(payment_privkey):
+        pk_payment = virtualchain.BitcoinPrivateKey(payment_privkey).to_hex()
+        ret['payment_privkey'] = pk_payment
+    else:
+        raise ValueError('Invalid payment key info')
 
     return ret
 
 
-def get_data_privkey( user_zonefile, wallet_keys=None, config_path=CONFIG_PATH ):
+def get_data_privkey(user_zonefile, wallet_keys=None, config_path=CONFIG_PATH):
     """
     Get the user's data private key.
     Use the private key that corresponds to the data public key in their zonefile.
@@ -333,42 +326,40 @@ def get_data_privkey( user_zonefile, wallet_keys=None, config_path=CONFIG_PATH )
     from .user import user_zonefile_data_pubkey
 
     try:
-        data_pubkey = user_zonefile_data_pubkey( user_zonefile )
+        data_pubkey = user_zonefile_data_pubkey(user_zonefile)
     except ValueError:
-        log.error("Multiple pubkeys defined")
-        return None
+        log.error('Multiple pubkeys defined')
+        return
 
     if data_pubkey is None:
-        log.error("No data public key defined")
-        return None
+        log.error('No data public key defined')
+        return
 
-    wallet = None
-    if wallet_keys is not None:
-        if not wallet_keys.has_key('data_privkey') or wallet_keys['data_privkey'] is None:
-            log.error("No data private key set")
-            return None 
+    wallet_keys = {} if wallet_keys is None else wallet_keys
+    if wallet_keys.get('data_privkey', None) is None:
+        log.error('No data private key set')
+        return
 
-        wallet = wallet_keys
+    wallet = get_wallet(config_path=CONFIG_PATH) if wallet_keys is None else wallet_keys
+    assert wallet, 'Failed to get wallet'
 
-    else:
-        wallet = get_wallet(config_path=CONFIG_PATH)
-        assert wallet is not None
+    data_privkey = wallet.get('data_privkey', None)
+    is_matching_keys = ECPrivateKey(data_privkey).public_key().to_hex() == data_pubkey
 
-    if not wallet.has_key('data_privkey') or ECPrivateKey(wallet['data_privkey']).public_key().to_hex() != data_pubkey:
-        # data private key doesn't match zonefile 
-        log.error("Data private key does not match zonefile")
-        return None
+    if data_privkey is None or not is_matching_keys:
+        # data private key doesn't match zonefile
+        log.error('Data private key does not match zonefile')
+        return
 
-    else:
-        # zonefile matches data privkey 
-        return wallet['data_privkey']
+    # zonefile matches data privkey
+    return data_privkey
 
 
-def get_data_or_owner_privkey( user_zonefile, owner_address, wallet_keys=None, config_path=CONFIG_PATH ):
+def get_data_or_owner_privkey(user_zonefile, owner_address, wallet_keys=None, config_path=CONFIG_PATH):
     """
-    Get the data private key if it is set in the zonefile, or if not, fall back to the 
+    Get the data private key if it is set in the zonefile, or if not, fall back to the
     owner private key.
-    
+
     Due to legacy compatibility
 
     Useful for signing mutable data when no explicit data key is set.
@@ -377,107 +368,102 @@ def get_data_or_owner_privkey( user_zonefile, owner_address, wallet_keys=None, c
     """
 
     # generate the mutable zonefile
-    data_privkey = get_data_privkey( user_zonefile, wallet_keys=wallet_keys, config_path=config_path )
-    if data_privkey is None:
-        # This is legacy code here.  The only time this should happen is
-        # when the user has a single owner key, and does not have a 
-        # separate data key.
-        log.warn("No data private key set.  Falling back to owner keypair.")
-        owner_privkey_info = get_owner_privkey_info( wallet_keys=wallet_keys, config_path=config_path )
-        if owner_privkey_info is None:
-            raise Exception("No owner private key info")
-            return {'error': 'No usable private signing key found'}
+    data_privkey = get_data_privkey(user_zonefile, wallet_keys=wallet_keys, config_path=config_path)
 
-        # sanity check: must be a single private key 
-        if not is_singlesig( owner_privkey_info ):
-            raise Exception("Owner private key info must be a single key")
-            return {'error': 'No usable private signing key found'}
+    if data_privkey is not None:
+        return {'status': True, 'privatekey': data_privkey}
 
-        # sanity check: must match profile address
-        owner_pubkey = virtualchain.BitcoinPrivateKey(owner_privkey_info).public_key().to_hex()
-        compressed_addr, uncompressed_addr = get_pubkey_addresses( owner_pubkey )
-        if owner_address not in [compressed_addr, uncompressed_addr]:
-            raise Exception("%s not in [%s,%s]" % (owner_address, compressed_addr, uncompressed_addr))
-            return {'error': 'No usable public key'}
+    # This is legacy code here.  The only time this should happen is
+    # when the user has a single owner key, and does not have a
+    # separate data key.
+    log.warn('No data private key set.  Falling back to owner keypair.')
+    owner_privkey_info = get_owner_privkey_info(wallet_keys=wallet_keys, config_path=config_path)
+    if owner_privkey_info is None:
+        # FIXME: We cannot both raise and return
+        raise Exception('No owner private key info')
+        return {'error': 'No usable private signing key found'}
 
-        data_privkey = owner_privkey_info
+    # sanity check: must be a single private key
+    if not is_singlesig(owner_privkey_info):
+        # FIXME: We cannot both raise and return
+        raise Exception('Owner private key info must be a single key')
+        return {'error': 'No usable private signing key found'}
+
+    # sanity check: must match profile address
+    owner_pubkey = virtualchain.BitcoinPrivateKey(owner_privkey_info).public_key().to_hex()
+    compressed_addr, uncompressed_addr = get_pubkey_addresses(owner_pubkey)
+    if owner_address not in [compressed_addr, uncompressed_addr]:
+        # FIXME: We cannot both raise and return
+        raise Exception('{} not in [{},{}]'.format(owner_address, compressed_addr, uncompressed_addr))
+        return {'error': 'No usable public key'}
+
+    data_privkey = owner_privkey_info
 
     return {'status': True, 'privatekey': data_privkey}
 
 
-def get_data_privkey_info( user_zonefile, wallet_keys=None, config_path=CONFIG_PATH ):
+def get_data_privkey_info(user_zonefile, wallet_keys=None, config_path=CONFIG_PATH):
     """
     Get the user's data private key info
     """
 
-    privkey = get_data_privkey( user_zonefile, wallet_keys=wallet_keys, config_path=config_path )
-    if privkey is None:
-        return None
+    privkey = get_data_privkey(user_zonefile, wallet_keys=wallet_keys, config_path=config_path)
 
     return privkey
 
 
-def get_owner_privkey_info( wallet_keys=None, config_path=CONFIG_PATH ):
+def get_owner_privkey_info(wallet_keys=None, config_path=CONFIG_PATH):
     """
     Get the user's owner private key info
     """
     from .wallet import get_wallet
 
-    wallet = None
-    if wallet_keys is not None:
-        assert wallet_keys.has_key('owner_privkey') and wallet_keys['owner_privkey'] is not None, "No owner private key set"
-        wallet = wallet_keys
+    wallet = get_wallet(config_path=CONFIG_PATH) if wallet_keys is None else wallet_keys
+    assert wallet is not None, 'Failed to get wallet'
 
-    else:
-        wallet = get_wallet(config_path=CONFIG_PATH)
-        assert wallet is not None 
+    owner_privkey_info = wallet.get('owner_privkey', None)
+    assert owner_privkey_info is not None, 'No owner private key set'
 
-    owner_privkey_info = wallet['owner_privkey']
     return owner_privkey_info
 
 
-def get_payment_privkey_info( wallet_keys=None, config_path=CONFIG_PATH ):
+def get_payment_privkey_info(wallet_keys=None, config_path=CONFIG_PATH):
     """
     Get the user's payment private key info
     """
-    from .wallet import get_wallet 
+    from .wallet import get_wallet
 
-    wallet = None
-    if wallet_keys is not None:
-        assert wallet_keys.has_key('payment_privkey') and wallet_keys['payment_privkey'] is not None, "No payment private key set"
-        wallet = wallet_keys
+    wallet = get_wallet(config_path=CONFIG_PATH) if wallet_keys is None else wallet_keys
+    assert wallet is not None, 'Failed to get wallet'
 
-    else:
-        wallet = get_wallet( config_path=CONFIG_PATH )
-        assert wallet is not None
+    payment_privkey_info = wallet.get('payment_privkey', None)
+    assert payment_privkey_info is not None, 'No payment private key set'
 
-    payment_privkey_info = wallet['payment_privkey']
     return payment_privkey_info
 
 
-def get_privkey_info_address( privkey_info ):
+def get_privkey_info_address(privkey_info):
     """
     Get the address of private key information:
     * if it's a single private key, then calculate the address.
     * if it's a multisig info dict, then get the p2sh address
     """
     if privkey_info is None:
-        return None
+        return
 
     if is_singlesig(privkey_info):
         return virtualchain.BitcoinPrivateKey(privkey_info).public_key().address()
 
-    elif is_multisig(privkey_info):
-        return virtualchain.make_multisig_address( privkey_info['redeem_script'] )
+    if is_multisig(privkey_info):
+        return virtualchain.make_multisig_address(privkey_info['redeem_script'])
 
-    else:
-        raise ValueError("Invalid private key info")
+    raise ValueError('Invalid private key info')
 
 
-def get_privkey_info_params( privkey_info, config_path=CONFIG_PATH ):
+def get_privkey_info_params(privkey_info, config_path=CONFIG_PATH):
     """
     Get the parameters that characterize a private key
-    info bundle:  the number of private keys, and the 
+    info bundle:  the number of private keys, and the
     number of signatures required to make a valid
     transaction.
     * for single private keys, this is (1, 1)
@@ -488,7 +474,6 @@ def get_privkey_info_params( privkey_info, config_path=CONFIG_PATH ):
     """
 
     if privkey_info is None:
-
         from .backend.blockchain import get_block_height
 
         key_config = (1, 1)
@@ -497,7 +482,7 @@ def get_privkey_info_params( privkey_info, config_path=CONFIG_PATH ):
             # safe to use multisig
             key_config = (2, 3)
 
-        log.warning("No private key info given, assuming {} key config".format(key_config))
+        log.warning('No private key info given, assuming {} key config'.format(key_config))
         return key_config
 
     if is_singlesig( privkey_info ):
@@ -506,15 +491,13 @@ def get_privkey_info_params( privkey_info, config_path=CONFIG_PATH ):
     elif is_multisig( privkey_info ):
         m, pubs = virtualchain.parse_multisig_redeemscript(privkey_info['redeem_script'])
         if m is None or pubs is None:
-            return (None, None)
+            return None, None
+        return m, len(pubs)
 
-        return (m, len(pubs))
-    else:
-        return (None, None)
-    
+    return None, None
 
 
-def get_pubkey_addresses( pubkey ):
+def get_pubkey_addresses(pubkey):
     """
     Get the compressed and uncompressed addresses
     for a public key.  Useful for verifying
@@ -525,27 +508,23 @@ def get_pubkey_addresses( pubkey ):
 
     Return (compressed address, uncompressed address)
     """
-    public_key_object = ECPublicKey(pubkey, version_byte=virtualchain.version_byte)
-    compressed_address = None
-    uncompressed_address = None
+    version_byte = virtualchain.version_byte
+    compressed_address, uncompressed_address = None, None
 
-    if public_key_object._type == PubkeyType.compressed:
-        compressed_address = public_key_object.address()
-        uncompressed_address = bin_hash160_to_address(
-            bin_hash160(
-                decompress(public_key_object.to_bin())
-            ),
-            version_byte=virtualchain.version_byte
-        )
-    elif public_key_object._type == PubkeyType.uncompressed:
-        compressed_address = bin_hash160_to_address(
-            bin_hash160(
-                compress(public_key_object.to_bin())
-            ),
-            version_byte=virtualchain.version_byte
-        )
-        uncompressed_address = public_key_object.address()
+    pubkey = ECPublicKey(pubkey, version_byte=version_byte)
+    pubkey_bin = pubkey.to_bin()
+
+    if pubkey._type == PubkeyType.compressed:
+        compressed_address = pubkey.address()
+        uncompressed_address = decompress(pubkey_bin)
+        hashed_address = bin_hash160(uncompressed_address)
+        uncompressed_address = bin_hash160_to_address(hashed_address, version_byte=version_byte)
+    elif pubkey._type == PubkeyType.uncompressed:
+        uncompressed_address = pubkey.address()
+        compressed_address = compress(pubkey_bin)
+        hashed_address = bin_hash160(compressed_address)
+        compressed_address = bin_hash160_to_address(hashed_address, version_byte=version_byte)
     else:
-        raise Exception("Invalid public key")
+        raise Exception('Invalid public key')
 
-    return (compressed_address, uncompressed_address)
+    return compressed_address, uncompressed_address
