@@ -17,13 +17,13 @@ MEMCACHED_ENABLED = True
 MEMCACHED_PORT = '11211'
 MEMCACHED_TIMEOUT = 30*60
 
-MAIL_USERNAME = 'support@onename.com'
+MAIL_USERNAME = 'support@blockstack.org'
 
 SEARCH_URL = 'http://search.onename.com'
 RESOLVER_URL = 'http://resolver.onename.com'
 
-BLOCKSTORED_IP = 'blockstore.onename.com'
-BLOCKSTORED_PORT = 6264
+BLOCKSTACKD_IP = 'localhost'
+BLOCKSTACKD_PORT = 6264
 
 BITCOIND_SERVER = 'btcd.onename.com'
 BITCOIND_PORT = 8332
