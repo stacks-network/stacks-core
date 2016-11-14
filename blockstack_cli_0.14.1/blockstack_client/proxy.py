@@ -872,7 +872,6 @@ def get_consensus_range(block_id_start, block_id_end, proxy=None):
     return ch_range
 
 
-<<<<<<< HEAD
 def get_block_from_consensus(consensus_hash, proxy=None):
     """
     Get a block ID from a consensus hash
