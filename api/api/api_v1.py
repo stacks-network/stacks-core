@@ -16,16 +16,9 @@ from requests.exceptions import Timeout as RequestsTimeout
 from flask import request, jsonify
 from flask_crossdomain import crossdomain
 
-from basicrpc import Proxy
 from pybitcoin import get_unspents, BlockcypherClient
 from pybitcoin.rpc import BitcoindClient
 from pybitcoin import is_b58check_address, BitcoinPrivateKey
-
-from registrar.wallet import HDWallet
-from registrar.crypto import aes_decrypt, get_address_from_pubkey
-from registrar.utils import get_hash
-from registrar.utils import pretty_print as pprint
-from registrar.config import DEFAULT_CHILD_ADDRESSES
 
 from . import app
 from .errors import (
@@ -58,20 +51,21 @@ from .settings import (
 bitcoind = BitcoindClient(BITCOIND_SERVER, BITCOIND_PORT, BITCOIND_USER,
                           BITCOIND_PASSWD, BITCOIND_USE_HTTPS)
 
-from blockstore_client import client as bs_client
+from blockstack_client import client as bs_client
 
 # start session using blockstore_client
 bs_client.session(server_host=BLOCKSTORED_IP, server_port=BLOCKSTORED_PORT)
 
 
-@app.route('/v1/users/<usernames>', methods=['GET'])
+@app.route('/v1/users/<usernames>', methods=['GET'], strict_slashes=False)
 @crossdomain(origin='*')
-def api_user(usernames):
+def api_get_users(usernames):
+
+    print "got here"
 
     data = get_users(usernames)
 
     print data
-
     usernames = usernames.split(',')
 
     if len(usernames) is 1:
@@ -178,7 +172,6 @@ def update_user(username):
     except Exception as e:
         raise GenericError(str(e))
 
-    wallet = HDWallet(hex_privkey)
     data = json.loads(request.data)
 
     fqu = username + "." + DEFAULT_NAMESPACE
@@ -203,10 +196,7 @@ def update_user(username):
 
     if USE_DEFAULT_PAYMENT and PAYMENT_PRIVKEY is not None:
 
-        payment_privkey = BitcoinPrivateKey(PAYMENT_PRIVKEY)
-        payment_privkey = payment_privkey.to_hex()
-    else:
-        pubkey, payment_privkey = wallet.get_next_keypair()
+        pubkey, payment_privkey = None, None
 
         if payment_privkey is None:
             raise PaymentError(addresses=wallet.get_keypairs(DEFAULT_CHILD_ADDRESSES))
@@ -386,7 +376,6 @@ def get_address_names(addresses):
             invalid_address = True
 
         if not invalid_address:
-            bs_client = Proxy(BLOCKSTORED_IP, BLOCKSTORED_PORT)
 
             try:
                 resp = bs_client.get_names_owned_by_address(address)
