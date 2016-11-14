@@ -47,7 +47,7 @@ First, start the Blockstack server and index the blockchain:
 $ blockstack-server start
 ```
 
-Next, visit the [basic usage docs](https://blockstack.org/docs/basic-usage) and [extended usage docs](https://blockstack.org/docs/basic-usage) to learn how to register names of your own, as well as transfer them and associate data with them.
+Next, visit the [basic usage docs](https://blockstack.org/docs/basic-usage) and [extended usage docs](https://blockstack.org/docs/extended-usage) to learn how to register names of your own, as well as transfer them and associate data with them.
 
 ### Contributing
 
