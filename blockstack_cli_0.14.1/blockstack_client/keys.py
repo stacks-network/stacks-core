@@ -25,7 +25,6 @@ import virtualchain
 from binascii import hexlify
 
 from .backend.crypto.utils import aes_encrypt, aes_decrypt
-from config import get_logger, CONFIG_PATH, BLOCKSTACK_TEST
 from keylib import ECPrivateKey, ECPublicKey
 from keylib.hashing import bin_hash160
 from keylib.address_formatting import bin_hash160_to_address
@@ -37,32 +36,26 @@ from .backend.crypto.utils import aes_encrypt, aes_decrypt
 import pybitcoin
 import bitcoin
 import binascii
+import jsonschema
+from jsonschema.exceptions import ValidationError
 from utilitybelt import is_hex
 
-from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SERVER, \
-    BLOCKSTACKD_PORT, BLOCKSTACK_METADATA_DIR, BLOCKSTACK_DEFAULT_STORAGE_DRIVERS, \
-    FIRST_BLOCK_MAINNET, NAME_OPCODES, OPFIELDS, CONFIG_DIR, SPV_HEADERS_PATH, BLOCKCHAIN_ID_MAGIC, \
-    NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER, NAMESPACE_PREORDER, NAME_IMPORT, \
-    USER_ZONEFILE_TTL, CONFIG_PATH, EPOCH_HEIGHT_MINIMUM
+from .config import get_logger
+from .constants import CONFIG_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
 
 log = get_logger()
-
 
 def is_multisig(privkey_info):
     """
     Does the given private key info represent
     a multisig bundle?
     """
-    if not isinstance(privkey_info, dict):
+    from .schemas import PRIVKEY_MULTISIG_SCHEMA
+    try:
+        jsonschema.validate(privkey_info, PRIVKEY_MULTISIG_SCHEMA)
+        return True
+    except ValidationError as e:
         return False
-
-    if 'private_keys' not in privkey_info:
-        return False
-
-    if 'redeem_script' not in privkey_info:
-        return False
-
-    return True
 
 
 def is_encrypted_multisig(privkey_info):
@@ -70,16 +63,12 @@ def is_encrypted_multisig(privkey_info):
     Does a given encrypted private key info
     represent an encrypted multisig bundle?
     """
-    if not isinstance(privkey_info, dict):
+    from .schemas import ENCRYPTED_PRIVKEY_MULTISIG_SCHEMA
+    try:
+        jsonschema.validate(privkey_info, ENCRYPTED_PRIVKEY_MULTISIG_SCHEMA)
+        return True
+    except ValidationError as e:
         return False
-
-    if 'encrypted_private_keys' not in privkey_info:
-        return False
-
-    if 'encrypted_redeem_script' not in privkey_info:
-        return False
-
-    return True
 
 
 def is_singlesig(privkey_info):
@@ -87,16 +76,25 @@ def is_singlesig(privkey_info):
     Does the given private key info represent
     a single signature bundle? (i.e. one private key)?
     """
-    if not isinstance(privkey_info, (str, unicode)):
+    from .schemas import PRIVKEY_SINGLESIG_SCHEMA
+    try:
+        jsonschema.validate(privkey_info, PRIVKEY_SINGLESIG_SCHEMA)
+        return True
+    except ValidationError as e:
         return False
 
-    try:
-        virtualchain.BitcoinPrivateKey(privkey_info)
-        return True
-    except:
-        pass
 
-    return False
+def is_encrypted_singlesig(privkey_info):
+    """
+    Does the given string represent an encrypted
+    single private key?
+    """
+    from .schemas import ENCRYPTED_PRIVKEY_SINGLESIG_SCHEMA
+    try:
+        jsonschema.validate(privkey_info, ENCRYPTED_PRIVKEY_SINGLESIG_SCHEMA)
+        return True
+    except ValidationError as e:
+        return False
 
 
 def singlesig_privkey_to_string(privkey_info):
@@ -134,20 +132,25 @@ def encrypt_multisig_info(multisig_info, password):
 
     Returns {'encrypted_private_keys': ..., 'encrypted_redeem_script': ..., **other_fields}
     """
-    enc_info = {}
+    enc_info = {
+        'encrypted_private_keys': None,
+        'redeem_script': None
+    }
+
     hex_password = hexlify(password)
 
-    if 'private_keys' in multisig_info:
-        enc_info['encrypted_private_keys'] = []
-        for pk in multisig_info['private_keys']:
-            pk_ciphertext = aes_encrypt(pk, hex_password)
-            enc_info['encrypted_private_keys'].append(pk_ciphertext)
+    assert is_multisig(multisig_info), 'Invalid multisig keys'
 
-    if 'redeem_script' in multisig_info:
-        enc_info['encrypted_redeem_script'] = aes_encrypt(
-            multisig_info['redeem_script'], hex_password
-        )
+    enc_info['encrypted_private_keys'] = []
+    for pk in multisig_info['private_keys']:
+        pk_ciphertext = aes_encrypt(pk, hex_password)
+        enc_info['encrypted_private_keys'].append(pk_ciphertext)
 
+    enc_info['encrypted_redeem_script'] = aes_encrypt(
+        multisig_info['redeem_script'], hex_password
+    )
+
+    # preserve any other fields
     for k, v in multisig_info.items():
         if k not in ['private_keys', 'redeem_script']:
             enc_info[k] = v
@@ -163,37 +166,42 @@ def decrypt_multisig_info(enc_multisig_info, password):
     Returns {'private_keys': ..., 'redeem_script': ..., **other_fields}
     Return {'error': ...} on error
     """
-    multisig_info = {}
+    multisig_info = {
+        'private_keys': None,
+        'redeem_script': None,
+    }
+
     hex_password = hexlify(password)
 
-    if 'encrypted_private_keys' in enc_multisig_info:
-        multisig_info['private_keys'] = []
-        for enc_pk in enc_multisig_info['encrypted_private_keys']:
-            pk = None
-            try:
-                pk = aes_decrypt(enc_pk, hex_password)
-                virtualchain.BitcoinPrivateKey(pk)
-            except Exception as e:
-                if BLOCKSTACK_TEST:
-                    log.exception(e)
+    assert is_encrypted_multisig(enc_multisig_info), 'Invalid encrypted multisig keys'
 
-                return {'error': 'Invalid password; failed to decrypt private key in multisig wallet'}
-
-            multisig_info['private_keys'].append(pk)
-
-    if 'encrypted_redeem_script' in enc_multisig_info:
-        redeem_script = None
-        enc_redeem_script = enc_multisig_info['encrypted_redeem_script']
+    multisig_info['private_keys'] = []
+    for enc_pk in enc_multisig_info['encrypted_private_keys']:
+        pk = None
         try:
-            redeem_script = aes_decrypt(enc_redeem_script, hex_password)
+            pk = aes_decrypt(enc_pk, hex_password)
+            virtualchain.BitcoinPrivateKey(pk)
         except Exception as e:
             if BLOCKSTACK_TEST:
                 log.exception(e)
 
-            return {'error': 'Invalid password; failed to decrypt redeem script in multisig wallet'}
+            return {'error': 'Invalid password; failed to decrypt private key in multisig wallet'}
 
-        multisig_info['redeem_script'] = redeem_script
+        multisig_info['private_keys'].append(pk)
 
+    redeem_script = None
+    enc_redeem_script = enc_multisig_info['encrypted_redeem_script']
+    try:
+        redeem_script = aes_decrypt(enc_redeem_script, hex_password)
+    except Exception as e:
+        if BLOCKSTACK_TEST:
+            log.exception(e)
+
+        return {'error': 'Invalid password; failed to decrypt redeem script in multisig wallet'}
+
+    multisig_info['redeem_script'] = redeem_script
+
+    # preserve any other information in the multisig info
     for k, v in enc_multisig_info.items():
         if k not in ['encrypted_private_keys', 'encrypted_redeem_script']:
             multisig_info[k] = v
@@ -256,11 +264,14 @@ def decrypt_private_key_info(privkey_info, password):
 
         return {'address': virtualchain.make_p2sh_address(ret['redeem_script']), 'private_key_info': ret}
 
-    if isinstance(privkey_info, (str, unicode)):
+    if is_encrypted_singlesig(privkey_info):
         try:
             pk = aes_decrypt(privkey_info, hex_password)
             virtualchain.BitcoinPrivateKey(pk)
         except Exception as e:
+            if BLOCKSTACK_TEST:
+                log.exception(e)
+
             return {'error': 'Invalid password'}
 
         return {'address': virtualchain.BitcoinPrivateKey(pk).public_key().address(), 'private_key_info': pk}
@@ -360,8 +371,6 @@ def get_data_or_owner_privkey(user_zonefile, owner_address, wallet_keys=None, co
     Get the data private key if it is set in the zonefile, or if not, fall back to the
     owner private key.
 
-    Due to legacy compatibility
-
     Useful for signing mutable data when no explicit data key is set.
     Returns {'status': True, 'privatekey': ...} on success
     Returns {'error': ...} on error
@@ -408,7 +417,6 @@ def get_data_privkey_info(user_zonefile, wallet_keys=None, config_path=CONFIG_PA
     """
 
     privkey = get_data_privkey(user_zonefile, wallet_keys=wallet_keys, config_path=config_path)
-
     return privkey
 
 
@@ -476,12 +484,7 @@ def get_privkey_info_params(privkey_info, config_path=CONFIG_PATH):
     if privkey_info is None:
         from .backend.blockchain import get_block_height
 
-        key_config = (1, 1)
-        curr_height = get_block_height( config_path=config_path )
-        if curr_height >= EPOCH_HEIGHT_MINIMUM:
-            # safe to use multisig
-            key_config = (2, 3)
-
+        key_config = (2, 3)
         log.warning('No private key info given, assuming {} key config'.format(key_config))
         return key_config
 
