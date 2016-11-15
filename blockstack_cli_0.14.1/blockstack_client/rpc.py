@@ -658,7 +658,7 @@ def local_rpc_start(portnum, config_dir=blockstack_config.CONFIG_DIR, foreground
 
     if 'error' in wallet:
         log.error('Failed to load wallet: {}'.format(wallet['error']))
-        print('Failed to load wallet: {}'.format(wallet['error']), sys.stderr)
+        print('Failed to load wallet: {}'.format(wallet['error']), file=sys.stderr)
         return False
 
     wallet = wallet['wallet']
