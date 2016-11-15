@@ -25,7 +25,7 @@
 
 import pybitcoin
 import keylib
-import bitcoin as pybitcointools
+import bitcoin
 import re
 import json
 import hashlib
@@ -387,9 +387,9 @@ def sign_raw_data(raw_data, privatekey):
     """
     data_hash = get_data_hash(raw_data)
 
-    data_sig_bin = pybitcointools.ecdsa_raw_sign(data_hash, privatekey)
+    data_sig_bin = bitcoin.ecdsa_raw_sign(data_hash, privatekey)
 
-    return pybitcointools.encode_sig(
+    return bitcoin.encode_sig(
         data_sig_bin[0], data_sig_bin[1], data_sig_bin[2]
     )
 
@@ -404,8 +404,8 @@ def verify_raw_data(raw_data, pubkey, sigb64):
 
     data_hash = get_data_hash(raw_data)
 
-    return pybitcointools.ecdsa_raw_verify(
-        data_hash, pybitcointools.decode_sig(sigb64), pubkey
+    return bitcoin.ecdsa_raw_verify(
+        data_hash, bitcoin.decode_sig(sigb64), pubkey
     )
 
 
