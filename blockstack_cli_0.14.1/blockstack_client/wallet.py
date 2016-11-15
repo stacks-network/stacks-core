@@ -34,6 +34,7 @@ from socket import error as socket_error
 from getpass import getpass
 from binascii import hexlify
 import jsonschema
+from jsonschema.exceptions import ValidationError
 
 from defusedxml import xmlrpc
 
@@ -56,11 +57,11 @@ from .utils import satoshis_to_btc, print_result
 from .keys import *
 
 import config
-from .config import (
+from .constants import (
     WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH,
     CONFIG_DIR, CONFIG_FILENAME, WALLET_FILENAME,
     WALLET_DECRYPT_MAX_TRIES, WALLET_DECRYPT_BACKOFF_RESET,
-    BLOCKSTACK_DEBUG
+    BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
 )
 
 from .proxy import get_names_owned_by_address, get_default_proxy
@@ -72,7 +73,7 @@ log = config.get_logger()
 DECRYPT_ATTEMPTS = 0
 LAST_DECRYPT_ATTEMPT = 0 
 
-class HDWallet(object):
+class Legacy_HDWallet(object):
     """
     Initialize a hierarchical deterministic wallet with
     hex_privkey and get child addresses and private keys
@@ -165,78 +166,13 @@ class HDWallet(object):
         return None
 
 
-def make_wallet(password, hex_privkey=None, payment_privkey_info=None,
-                owner_privkey_info=None, data_privkey_info=None, config_path=CONFIG_PATH):
+def _make_encrypted_wallet_data(password, payment_privkey_info, owner_privkey_info, data_privkey_info):
     """
-    Make a wallet structure.
-    By default, the owner and payment keys will be key bundles set up to require 2-of-3 signatures.
-    @payment_privkey_info, @owner_privkey_info, and @data_privkey_info can either be individual private keys, or
-    dicts with {'redeem_script': ..., 'private_keys': ...} defined.
-
-    Return the new wallet on success.
-    Return {'error': ...} on failure
+    Lowlevel method to make the encrypted wallet's data,
+    given the decrypted data.
     """
-
-    def make_privkey_info(multisig):
-        if multisig:
-            return virtualchain.make_multisig_wallet(2, 3)
-
-        return virtualchain.BitcoinPrivateKey().to_wif()
-
-    hex_password = hexlify(password)
-
-    wallet = HDWallet(hex_privkey)
-    if hex_privkey is None:
-        hex_privkey = wallet.get_master_privkey()
-
-    child = wallet.get_child_keypairs(count=3, include_privkey=True)
-
+   
     data = {}
-    encrypted_key = aes_encrypt(hex_privkey, hex_password)
-    data['encrypted_master_private_key'] = encrypted_key
-
-    multisig = False
-    curr_height = get_block_height(config_path=config_path)
-    if curr_height >= config.EPOCH_HEIGHT_MINIMUM:
-        # safe to use multisig
-        multisig = True
-
-    # default to 2-of-3 multisig key info if data isn't given
-    if payment_privkey_info is None:
-        payment_privkey_info = make_privkey_info(multisig)
-
-    if not is_singlesig(payment_privkey_info) and not is_multisig(payment_privkey_info):
-        return {
-            'error': (
-                'Payment private key info must be either '
-                'a single private key or a multisig bundle'
-            )
-        }
-
-    if not multisig and is_multisig(payment_privkey_info):
-        return {'error': 'Multisig payment private key info is not supported'}
-
-    if owner_privkey_info is None:
-        owner_privkey_info = make_privkey_info(multisig)
-
-    if not is_singlesig(owner_privkey_info) and not is_multisig(owner_privkey_info):
-        return {
-            'error': (
-                'Owner private key info must be either '
-                'a single private key or a multisig bundle'
-            )
-        }
-
-    if not multisig and is_multisig(owner_privkey_info):
-        return {'error': 'Multisig owner private key info is not supported'}
-
-    if data_privkey_info is None:
-        # TODO: for now, this must be a single private key
-        data_privkey_info = child[2][1]
-    elif not is_singlesig(data_privkey_info):
-        return {'error': 'Data private key info must be a single private key'}
-    else:
-        assert False
 
     enc_payment_info = encrypt_private_key_info(payment_privkey_info, password)
     if 'error' in enc_payment_info:
@@ -264,10 +200,59 @@ def make_wallet(password, hex_privkey=None, payment_privkey_info=None,
     data['owner_addresses'] = [owner_addr]
 
     data['encrypted_data_privkey'] = enc_data_info
-    data['data_pubkeys'] = [virtualchain.BitcoinPrivateKey(data_privkey_info).public_key().to_hex()]
+    data['data_pubkeys'] = [ECPrivateKey(data_privkey_info).public_key().to_hex()]
     data['data_pubkey'] = data['data_pubkeys'][0]
 
     return data
+
+
+def encrypt_wallet(wallet, password):
+    """
+    Encrypt the wallet.
+    Return the encrypted dict on success
+    Return {'error': ...} on error
+    """
+    
+    # must be conformant to the current schema 
+    jsonschema.validate(wallet, WALLET_SCHEMA_CURRENT)
+
+    payment_privkey_info = wallet['payment_privkey']
+    owner_privkey_info = wallet['owner_privkey']
+    data_privkey_info = wallet['data_privkey']
+
+    encrypted_wallet = _make_encrypted_wallet_data(password, payment_privkey_info, owner_privkey_info, data_privkey_info)
+
+    # sanity check
+    jsonschema.validate(wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT)
+    return encrypted_wallet
+
+
+def make_wallet(password, config_path=CONFIG_PATH, payment_privkey_info=None, owner_privkey_info=None, data_privkey_info=None):
+    """
+    Make a new, encrypted wallet structure.
+    The owner and payment keys will be 2-of-3 multisig key bundles.
+    The data keypair will be a single-key bundle.
+
+    Do not use the keyword arguments unless we're testing.
+
+    Return the new wallet on success.
+    Return {'error': ...} on failure
+    """
+
+    if not BLOCKSTACK_TEST:
+        for kw in [payment_privkey_info, owner_privkey_info, data_privkey_info]:
+            assert kw is None, "BUG: make_wallet() does not take private key information unless in test mode"
+
+    # default to 2-of-3 multisig key info if data isn't given
+    payment_privkey_info = virtualchain.make_multisig_wallet(2, 3) if payment_privkey_info is None else payment_privkey_info
+    owner_privkey_info = virtualchain.make_multisig_wallet(2, 3) if owner_privkey_info is None else owner_privkey_info
+    data_privkey_info = ECPrivateKey().to_wif() if data_privkey_info is None else data_privkey_info
+
+    new_wallet = _make_encrypted_wallet_data(password, payment_privkey_info, owner_privkey_info, data_privkey_info)
+
+    # sanity check 
+    jsonschema.validate(new_wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT)
+    return new_wallet
 
 
 def log_failed_decrypt(max_tries=WALLET_DECRYPT_MAX_TRIES):
@@ -331,61 +316,96 @@ def time_until_next_decrypt_attempt():
     return max(0, NEXT_DECRYPT_ATTEMPT - time.time())
 
 
+def decrypt_error(max_tries):
+    """
+    Generate an appropriate error response, based on 
+    why we failed to decrypt data
+    """
+    ret = {'error': 'Incorrect password'}
+    log_failed_decrypt(max_tries=max_tries)
+    if not can_attempt_decrypt(max_tries=max_tries):
+        log.debug('Incorrect password; using exponential backoff')
+        msg = 'Incorrect password.  Try again in {} seconds'
+        ret['error'] = msg.format(time_until_next_decrypt_attempt())
+
+    return ret
+
+
 def decrypt_wallet(data, password, config_path=CONFIG_PATH,
                    max_tries=WALLET_DECRYPT_MAX_TRIES):
     """
-    Decrypt a wallet's encrypted fields.
+    Decrypt a wallet's encrypted fields.  The wallet will be migrated to the current schema.
 
     After WALLET_DECRYPT_MAX_TRIES failed attempts, start doing exponential backoff
     to prevent brute-force attacks.
 
-    Return a dict with the decrypted fields on success
+    Return {'status': True, 'migrated': True|False, 'wallet': wallet} on success.  
     Return {'error': ...} on failure
     """
-    hex_password = hexlify(password)
-    wallet = None
+
+    legacy = False
+    migrated = False
+
+    # must match either current schema or legacy schema 
+    try:
+        jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_CURRENT)
+    except ValidationError as ve:
+        # maybe legacy?
+        try:
+            jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_LEGACY)
+            legacy = True
+        except ValidationError, ve2:
+            log.exception(ve2)
+            log.error('Invalid wallet data')
+            return {'error': 'Invalid wallet data'}
+
+    legacy_hdwallet = None
+    legacy_key_defaults = {}
+    new_wallet = {}
+    ret = {}
 
     if not can_attempt_decrypt(max_tries=max_tries):
         msg = 'Cannot decrypt at this time.  Try again in {} seconds'
         return {'error': msg.format(time_until_next_decrypt_attempt())}
 
-    try:
-        hex_privkey = aes_decrypt(data['encrypted_master_private_key'], hex_password)
-        wallet = HDWallet(hex_privkey)
-    except Exception as e:
-        if BLOCKSTACK_DEBUG is not None:
-            log.exception(e)
+    # legacy wallets use a hierarchical deterministic private key.
+    # get that key first, if needed.
+    if legacy:
+        hex_password = hexlify(password)
+        try:
+            hex_privkey = aes_decrypt(data['encrypted_master_private_key'], hex_password)
+            legacy_hdwallet = Legacy_HDWallet(hex_privkey)
+        except Exception as e:
+            if BLOCKSTACK_DEBUG is not None:
+                log.exception(e)
 
-        ret = {'error': 'Incorrect password'}
-        log_failed_decrypt(max_tries=max_tries)
-        if not can_attempt_decrypt(max_tries=max_tries):
-            log.debug('Incorrect password; using exponential backoff')
-            msg = 'Incorrect password.  Try again in {} seconds'
-            ret['error'] = msg.format(time_until_next_decrypt_attempt())
+            ret = decrypt_error(max_tries)
+            log.debug('Failed to decrypt encrypted_master_private_key: {}'.format(ret['error']))
+            return ret
 
-        return ret
+        # legacy compat: use the master private key to generate child keys.
+        # If the specific key they are purposed for is not defined in the wallet,
+        # then they are used in its place.
+        # This is because originally, the master private key was used to derive
+        # the owner, payment, and data private keys; not all wallets define
+        # these keys separately (and have instead relied on us being able to
+        # generate them from the master private key).
+        child_keys = hdwallet.get_child_keypairs(count=3, include_privkey=True)
 
-    # legacy compat: use the master private key to generate child keys.
-    # If the specific key they are purposed for is not defined in the wallet,
-    # then they are used in its place.
-    # This is because originally, the master private key was used to derive
-    # the owner, payment, and data private keys; not all wallets define
-    # these keys separately (and have instead relied on us being able to
-    # generate them from the master private key).
-    child = wallet.get_child_keypairs(count=3, include_privkey=True)
+        # note: payment_keypair = child[0]; owner_keypair = child[1]
+        key_defaults = {
+            'payment': child_keys[0],
+            'owner': child_keys[1],
+            'data': child_keys[2]
+        }
 
-    # note: payment_keypair = child[0]; owner_keypair = child[1]
-    data_keypair = child[2]
+        # resulting wallet will not have a master_privkey 
+        migrated = True
 
-    multisig = False
-    curr_height = get_block_height(config_path=config_path)
-    if curr_height >= config.EPOCH_HEIGHT_MINIMUM:
-        # safe to use multisig
-        multisig = True
-
-    ret = {}
     keynames = ['payment', 'owner', 'data']
     for keyname in keynames:
+
+        # get the key's private key info and address
         keyname_privkey = '{}_privkey'.format(keyname)
         keyname_addresses = '{}_addresses'.format(keyname)
         encrypted_keyname = 'encrypted_{}_privkey'.format(keyname)
@@ -397,28 +417,43 @@ def decrypt_wallet(data, password, config_path=CONFIG_PATH,
             field = decrypt_private_key_info(data[encrypted_keyname], password)
 
             if 'error' in field:
-                msg = 'Failed to decrypt "{}": {}'
-                log.debug(msg.format(encrypted_keyname, field['error']))
-                return field
+                ret = decrypt_error(max_tries)
+                log.debug('Failed to decrypt {}: {}'.format(encrypted_keyname, ret['error']))
+                return ret
 
-            ret[keyname_privkey] = field['private_key_info']
-            ret[keyname_addresses] = [field['address']]
+            new_wallet[keyname_privkey] = field['private_key_info']
+            new_wallet[keyname_addresses] = [field['address']]
+
         else:
-            # Legacy: this key is not defined in the wallet.
+
+            # Legacy migration: this key is not defined in the wallet.
             # Derive it from the master key.
-            ret[keyname_privkey] = child_keypair[1]
-            ret[keyname_addresses] = [
-                    virtualchain.BitcoinPrivateKey(ret[keyname_privkey]).public_key().address()
+            assert keyname in key_defaults, 'BUG: no legacy hex private key for {}'.format(keyname)
+
+            default_keypair = key_defaults[keyname]
+            new_wallet[keyname_privkey] = default_keypair[1]
+            new_wallet[keyname_addresses] = [
+                    virtualchain.BitcoinPrivateKey(new_wallet[keyname_privkey]).public_key().address()
             ]
 
-        # this can't be multisig if it's not yet supported 
-        if not is_singlesig( ret[keyname_privkey] ) and not multisig:
-            log.error('Invalid wallet data for {}'.format(keyname_privkey))
-            return {'error': 'Invalid wallet'}
+            migrated = True
 
-    ret['hex_privkey'] = hex_privkey
-    ret['data_pubkeys'] = [ECPrivateKey(ret['data_privkey']).public_key().to_hex()]
-    ret['data_pubkey'] = ret['data_pubkeys'][0]
+    new_wallet['data_pubkeys'] = [ECPrivateKey(new_wallet['data_privkey']).public_key().to_hex()]
+    new_wallet['data_pubkey'] = new_wallet['data_pubkeys'][0]
+
+    # sanity check--must be decrypted
+    try:
+        jsonschema.validate(new_wallet, WALLET_SCHEMA_CURRENT)
+    except ValidationError as e:
+        log.exception(e)
+        log.error("FATAL: BUG: invalid wallet generated")
+        os.abort()
+
+    ret = {
+        'status': True,
+        'wallet': new_wallet,
+        'migrated': migrated
+    }
 
     return ret
 
@@ -429,6 +464,9 @@ def write_wallet(data, path=None, config_dir=CONFIG_DIR):
     """
     if path is None:
         path = os.path.join(config_dir, WALLET_FILENAME)
+
+    # must be a current schema
+    jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_CURRENT)
 
     data = json.dumps(data)
     with open(path, 'w') as f:
@@ -468,19 +506,17 @@ def make_wallet_password(prompt=None, password=None):
     return {'status': True, 'password': p1}
 
 
-def initialize_wallet(password='', interactive=True, hex_privkey=None, config_dir=CONFIG_DIR,
-                      wallet_path=None, owner_privkey_info=None, payment_privkey_info=None, data_privkey_info=None):
+def initialize_wallet(password='', wallet_path=None, interactive=True, config_dir=CONFIG_DIR):
     """
-    Initialize a wallet,
-    interatively if need be.
-    Save it to @wallet_path
-    Return a dict with the wallet password and master private key.
+    Initialize a wallet, interatively if need be.
+    Save it to @wallet_path, if successfully generated.
+
+    Return {'wallet_password': ...} on success.
     Return {'error': ...} on error
     """
-    if wallet_path is None:
-        wallet_path = os.path.join(config_dir, WALLET_FILENAME)
 
     config_path = os.path.join(config_dir, CONFIG_FILENAME)
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME) if wallet_path is None else wallet_path
 
     if not interactive and not password:
         msg = ('Non-interactive wallet initialization '
@@ -501,37 +537,36 @@ def initialize_wallet(password='', interactive=True, hex_privkey=None, config_di
                 password = res['password']
                 break
 
-        if hex_privkey is None:
-            temp_wallet = HDWallet()
-            hex_privkey = temp_wallet.get_master_privkey()
-
-        wallet = make_wallet(
-            password, hex_privkey=hex_privkey,
-            config_path=config_path, owner_privkey_info=owner_privkey_info,
-            payment_privkey_info=payment_privkey_info, data_privkey_info=data_privkey_info
-        )
-
+        wallet = make_wallet(password, config_path=config_path)
         if 'error' in wallet:
             log.error('make_wallet failed: {}'.format(wallet['error']))
             return wallet
 
-        write_wallet(wallet, path=wallet_path)
+        try:
+            write_wallet(wallet, path=wallet_path)
+        except Exception as e:
+            log.exception(e)
+            return {'error': 'Failed to write wallet'}
 
         result['wallet_password'] = password
-        result['master_private_key'] = hex_privkey
-
         if not interactive:
             return result
 
-        print('Wallet created. Make sure to backup the following:')
-        print_result(result)
+        if interactive:
+            print('Wallet created. Make sure to backup the following:')
+            output = {
+                'wallet_password': password,
+                'wallet': wallet
+            }
+            print_result(output)
 
-        input_prompt = 'Have you backed up the above private key? (y/n): '
+        input_prompt = 'Have you backed up the above information? (y/n): '
         user_input = raw_input(input_prompt)
         user_input = user_input.lower()
 
         if user_input != 'y':
             return {'error': 'Please back up your private key first'}
+
     except KeyboardInterrupt:
         return {'error': 'Interrupted'}
 
@@ -572,12 +607,29 @@ def load_wallet(password=None, config_dir=CONFIG_DIR, wallet_path=None, include_
     if 'error' in wallet:
         return wallet
 
-    return {'status': True, 'wallet': wallet}
+    return {'status': True, 'wallet': wallet['wallet']}
+
+
+def backup_wallet(wallet_path):
+    """
+    Given the path to an on-disk wallet, back it up.
+    """
+    if not os.path.exists(wallet_path):
+        return
+
+    legacy_path = os.path.join(wallet_path, ".legacy.{}".format(int(time.time())))
+    while os.path.exists(legacy_path):
+        time.sleep(1.0)
+        legacy_path = os.path.join(wallet_path, ".legacy.{}".format(int(time.time())))
+
+    log.debug('Back up legacy wallet from {} to {}'.format(wallet_path, legacy_path))
+    shutil.move(wallet_path, legacy_path)
+    return True
 
 
 def unlock_wallet(password=None, config_dir=CONFIG_DIR, wallet_path=None):
     """
-    Unlock the wallet.
+    Unlock the wallet, and migrate it to the current schema.
     Save the wallet to the RPC daemon on success.
 
     If this wallet is in legacy format, then it will
@@ -588,71 +640,47 @@ def unlock_wallet(password=None, config_dir=CONFIG_DIR, wallet_path=None):
     return {'error': ...} on error
     """
     config_path = os.path.join(config_dir, CONFIG_FILENAME)
-    if wallet_path is None:
-        wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME) if wallet_path is None else wallet_path
 
     if is_wallet_unlocked(config_dir):
         return {'status': True}
 
     try:
-        try:
-            if password is None:
-                password = getpass('Enter wallet password: ')
+        if password is None:
+            password = getpass('Enter wallet password: ')
 
-            with open(wallet_path, "r") as f:
-                data = f.read()
-                data = json.loads(data)
+        with open(wallet_path, "r") as f:
+            data = f.read()
+            data = json.loads(data)
 
-            wallet = decrypt_wallet( data, password, config_path=config_path )
-            if 'error' in wallet:
-                log.error("Failed to decrypt wallet: %s" % wallet['error'])
-                return wallet
+        # decrypt and migrate...
+        wallet_info = decrypt_wallet( data, password, config_path=config_path )
+        if 'error' in wallet_info:
+            log.error('Failed to decrypt wallet: {}'.format(wallet_info['error']))
+            return wallet_info
 
-            # may need to migrate data_pubkey into wallet.json
-            _, _, onfile_data_pubkey = get_addresses_from_file(wallet_path=wallet_path)
-            if onfile_data_pubkey is None:
+        wallet = wallet_info['wallet']
+        if wallet_info['migrated']:
+            # we converted the wallet to the latest schema.
+            # back up the old wallet, and save this one.
+            backup_wallet(wallet_path)
+ 
+            # re-encrypt... 
+            encrypted_wallet = encrypt_wallet(password, wallet)
+            if 'error' in encrypted_wallet:
+                log.error('Failed to encrypt wallet: {}'.format(encrypted_wallet['error']))
+                return encrypted_wallet
 
-                # make a data keypair (always the third child (index 2) of the HDWallet) 
-                w = HDWallet(wallet['hex_privkey'])
-                child = w.get_child_keypairs(count=3, include_privkey=True)
-                data_keypair = child[2]
+            # save to disk
+            try:
+                os.unlink(wallet_path)
+                write_wallet(encrypted_wallet, path=wallet_path)
+            except Exception as e:
+                log.exception(e)
+                log.error('FATAL: failed to save wallet to {}'.format(wallet_path))
+                os.abort()
 
-                wallet['data_privkey'] = data_keypair[1]
-                wallet['data_pubkeys'] = [ECPrivateKey(data_keypair[1]).public_key().to_hex()]
-                wallet['data_pubkey'] = wallet['data_pubkeys'][0]
-
-                # set addresses 
-                wallet['payment_addresses'] = [get_privkey_info_address( wallet['payment_privkey'] )]
-                wallet['owner_addresses'] = [get_privkey_info_address( wallet['owner_privkey'] )]
-
-                # save!
-                encrypted_wallet = make_wallet( password, hex_privkey=wallet['hex_privkey'],
-                                                          payment_privkey=wallet['payment_privkey'], 
-                                                          owner_privkey=wallet['owner_privkey'],
-                                                          data_privkey=wallet['data_privkey'],
-                                                          config_path=config_path )
-
-                if 'error' in encrypted_wallet:
-                    log.error("Failed to make wallet: %s" % encrypted_wallet['error'])
-                    return encrypted_wallet
-
-                write_wallet( encrypted_wallet, path=wallet_path + ".tmp" )
-                legacy_path = wallet_path + ".legacy"
-                if os.path.exists(wallet_path):
-                    if not os.path.exists( legacy_path ):
-                        shutil.move( wallet_path, legacy_path )
-                    else:
-                        i = 1
-                        while os.path.exists(legacy_path):
-                            legacy_path = wallet_path + ".legacy.%s" % i
-                            i += 1
-
-                        shutil.move( wallet_path, legacy_path )
-
-                shutil.move( wallet_path + ".tmp", wallet_path )
-                log.debug("Migrated wallet %s (legacy wallet backed up to %s)" % (wallet_path, legacy_path))
-
-        # save!
+        # save to RPC daemon
         try:
             res = save_keys_to_memory(
                 (wallet['payment_addresses'][0], wallet['payment_privkey']),
@@ -663,7 +691,7 @@ def unlock_wallet(password=None, config_dir=CONFIG_DIR, wallet_path=None):
         except KeyError as ke:
             if BLOCKSACK_DEBUG is not None:
                 data = json.dumps(wallet, indent=4, sort_keys=True)
-                log.error('data: {}\n'.format(data))
+                log.error('data:\n{}\n'.format(data))
             raise
 
         if 'error' in res:
@@ -678,8 +706,6 @@ def unlock_wallet(password=None, config_dir=CONFIG_DIR, wallet_path=None):
         return {'status': True, 'addresses': addresses}
     except KeyboardInterrupt:
         return {'error': 'Interrupted'}
-
-    return {'status': True}
 
 
 def is_wallet_unlocked(config_dir=CONFIG_DIR):
@@ -833,12 +859,14 @@ def get_addresses_from_file(config_dir=CONFIG_DIR, wallet_path=None):
 
     try:
         data = json.loads(data)
+        
+        # best we can do is guarantee that this is a dict
+        assert isinstance(data, dict)
     except:
-        log.error('Invalid wallet data: not JSON (in {})'.format(wallet_path))
+        log.error('Invalid wallet data: not a JSON object (in {})'.format(wallet_path))
         return None, None, None 
    
     # extract addresses
-    # TODO: schema
     if data.has_key('payment_addresses'):
         payment_address = data['payment_addresses'][0]
     if data.has_key('owner_addresses'):
