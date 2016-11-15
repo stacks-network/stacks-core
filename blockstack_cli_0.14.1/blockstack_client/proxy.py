@@ -42,10 +42,13 @@ xmlrpc.monkey_patch()
 import storage
 import scripts
 
+from .constants import (
+    MAX_RPC_LEN, CONFIG_PATH, BLOCKSTACK_TEST
+)
+
 import config
 from .config import (
-    get_logger, MAX_RPC_LEN, CONFIG_PATH, BLOCKSTACK_TEST,
-    url_to_host_port, 
+    get_logger, url_to_host_port, 
 )
 
 from .operations import (
