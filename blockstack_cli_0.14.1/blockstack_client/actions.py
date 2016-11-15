@@ -281,6 +281,9 @@ def operation_sanity_check(fqu, payment_privkey_info, owner_privkey_info,
         return {'error': 'Failed to get fee estimate'}
 
     balance = get_balance(payment_address, config_path=config_path)
+    if balance is None:
+        msg = 'Failed to get balance'
+        return {'error': msg}
 
     if balance < tx_fee:
         msg = 'Address {} does not have a sufficient balance (need {}).'
@@ -514,6 +517,11 @@ def cli_balance(args, config_path=CONFIG_PATH):
     addresses = []
     satoshis = 0
     satoshis, addresses = get_total_balance(wallet_path=wallet_path, config_path=config_path)
+
+    if satoshis is None:
+        log.error('Failed to get balance')
+        # contains error
+        return addresses
 
     # convert to BTC
     btc = float(Decimal(satoshis / 10e8))
@@ -1089,6 +1097,10 @@ def cli_register(args, config_path=CONFIG_PATH,
             exit(0)
 
     balance = get_balance(payment_address, config_path=config_path)
+    if balance is None:
+        msg = 'Failed to get balance'
+        return {'error': msg}
+
     if balance < fees['total_estimated_cost']:
         msg = 'Address {} does not have enough balance (need {}, have {}).'
         msg = msg.format(payment_address, fees['total_estimated_cost'], balance)
@@ -1433,6 +1445,10 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
             exit(0)
 
     balance = get_balance(payment_address, config_path=config_path)
+    if balance is None:
+        msg = 'Failed to get balance'
+        return {'error': msg}
+
     if balance < cost:
         msg = 'Address {} does not have enough balance (need {}).'
         msg = msg.format(payment_address, balance)
@@ -2018,14 +2034,14 @@ def cli_advanced_rpc(args, config_path=CONFIG_PATH):
         try:
             rpc_args = json.loads(args.args)
         except:
-            print('Not JSON: "{}"'.format(args.args), sys.stderr)
+            print('Not JSON: "{}"'.format(args.args), file=sys.stderr)
             return {'error': 'Invalid arguments'}
 
     if args.kwargs is not None:
         try:
             rpc_kw = json.loads(args.kwargs)
         except:
-            print('Not JSON: "{}"'.format(args.kwargs), sys.stderr)
+            print('Not JSON: "{}"'.format(args.kwargs), file=sys.stderr)
             return {'error': 'Invalid arguments'}
 
     conf = config.get_config(path=config_path)
