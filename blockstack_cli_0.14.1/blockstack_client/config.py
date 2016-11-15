@@ -317,12 +317,6 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
         prompt_missing=interactive
     )
 
-    blockstack_opts['path'] = config_file
-    if config_file is not None:
-        blockstack_opts['dir'] = os.path.dirname(config_file)
-    else:
-        blockstack_opts['dir'] = None
-
     # get bitcoind options
     bitcoind_message = (
         'Blockstack does not have enough information to connect\n'
@@ -458,10 +452,17 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
 
     # if we prompted, then save
     if any([num_bitcoind_prompted, num_reader_opts_prompted, num_writer_opts_prompted, num_blockstack_opts_prompted]):
-        print('Saving configuration to {}'.format(config_file), sys.stderr)
+        print('Saving configuration to {}'.format(config_file), file=sys.stderr)
 
         # rename appropriately, so other packages can find them
         write_config_file(ret, config_file)
+
+    # preserve these extra helper fields
+    blockstack_opts['path'] = config_file
+    if config_file is not None:
+        blockstack_opts['dir'] = os.path.dirname(config_file)
+    else:
+        blockstack_opts['dir'] = None
 
     # set this here, so we don't save it
     ret['uuid'] = u
