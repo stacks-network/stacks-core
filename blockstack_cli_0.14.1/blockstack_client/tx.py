@@ -175,7 +175,7 @@ def sign_and_broadcast_tx(tx_hex, private_key_info, config_path=CONFIG_PATH, tx_
         resp = broadcast_tx(signed_tx, config_path=config_path, tx_broadcaster=tx_broadcaster)
     except Exception as e:
         log.exception(e)
-        log.error('Failed to broadcast transaction {}'.format(signed_tx))
+        log.error('Failed to broadcast transaction: {}'.format(signed_tx))
         return {'error': 'Failed to broadcast transaction (caught exception)'}
 
     if 'error' in resp:
