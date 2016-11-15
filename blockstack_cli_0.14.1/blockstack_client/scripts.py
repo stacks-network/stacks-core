@@ -25,6 +25,8 @@ from binascii import hexlify, unhexlify
 from decimal import *
 
 import bitcoin
+import ecdsa
+import hashlib
 import pybitcoin
 import virtualchain
 
@@ -229,10 +231,21 @@ def tx_make_subsidization_output(payer_utxo_inputs, payer_address, op_fee, dust_
     }
 
 
+def tx_script_varstr(s):
+    """
+    Make a variable-length string
+
+    TODO: move to virtualchain
+    """
+    return pybitcoin.variable_length_int(len(s)) + s
+
+
 def tx_sign_multisig(blockstack_tx, idx, redeem_script, private_keys, hashcode=bitcoin.SIGHASH_ALL):
     """
     Sign a p2sh multisig input.
     Return the signed transaction
+
+    TODO: move to virtualchain
     """
 
     # sign in the right order
@@ -261,31 +274,66 @@ def tx_sign_multisig(blockstack_tx, idx, redeem_script, private_keys, hashcode=b
     return bitcoin.apply_multisignatures(blockstack_tx, idx, str(redeem_script), sigs)
 
 
+def tx_sign_singlesig(tx, idx, private_key_info, hashcode=bitcoin.SIGHASH_ALL):
+    """
+    Sign a p2pkh input
+    Return the signed transaction
+
+    TODO: move to virtualchain
+
+    NOTE: implemented here instead of bitcoin, since bitcoin.sign() can cause a stack overflow
+    while converting the private key to a public key.
+    """
+    return bitcoin.sign(tx, idx, virtualchain.BitcoinPrivateKey(private_key_info).to_hex(), hashcode )
+    '''
+    pk = virtualchain.BitcoinPrivateKey(str(private_key_info))
+    pubk = pk.public_key()
+    
+    priv = pk.to_hex()
+    pub = pubk.to_hex()
+    addr = pubk.address()
+
+    s256 = pybitcoin.bin_double_sha256(tx)
+    sk = ecdsa.SigningKey.from_string(priv.decode('hex'), curve=ecdsa.SECP256k1)
+    sig_bin = sk.sign_digest(s256, sigencode=ecdsa.util.sigencode_der)
+    
+    # enforce low-s
+    sig_r, sig_s = ecdsa.util.sigdecode_der( sig_bin, ecdsa.SECP256k1.order )
+    if sig_s * 2 >= ecdsa.SECP256k1.order:
+        sig_s = ecdsa.SECP256k1.order - sig_s
+
+    sig_bin = ecdsa.util.sigencode_der( sig_r, sig_s, ecdsa.SECP256k1.order )
+    sig = sig_bin.encode('hex') + bitcoin.encode(hashcode, 16, 2)
+
+    txobj = bitcoin.deserialize(str(tx))
+    txobj['ins'][idx]['script'] = bitcoin.serialize_script([sig, pub])
+    return bitcoin.serialize(txobj)
+    '''
+
+
 def tx_sign_input(blockstack_tx, idx, private_key_info, hashcode=bitcoin.SIGHASH_ALL):
     """
     Sign a particular input in the given transaction.
     @private_key_info can either be a private key, or it can be a dict with 'redeem_script' and 'private_keys' defined
     """
-    if isinstance(private_key_info, (str, unicode)):
+    if is_singlesig(private_key_info):
         # single private key
-        return bitcoin.sign(
-            blockstack_tx, idx,
-            virtualchain.BitcoinPrivateKey(str(private_key_info)).to_hex(),
-            hashcode=hashcode
-        )
+        print('sign using {} at {} with {}: {}'.format(private_key_info, idx, hashcode, blockstack_tx))
+        return tx_sign_singlesig(blockstack_tx, idx, private_key_info, hashcode=hashcode)
 
-    assert isinstance(private_key_info, dict)
-    assert 'redeem_script' in private_key_info
-    assert 'private_keys' in private_key_info
+    elif is_multisig(private_key_info):
 
-    redeem_script = private_key_info['redeem_script']
-    private_keys = private_key_info['private_keys']
+        redeem_script = private_key_info['redeem_script']
+        private_keys = private_key_info['private_keys']
 
-    assert isinstance(redeem_script, (str, unicode))
-    redeem_script = str(redeem_script)
+        assert isinstance(redeem_script, (str, unicode))
+        redeem_script = str(redeem_script)
 
-    # multisig
-    return tx_sign_multisig(blockstack_tx, idx, str(redeem_script), private_keys, hashcode=bitcoin.SIGHASH_ALL)
+        # multisig
+        return tx_sign_multisig(blockstack_tx, idx, str(redeem_script), private_keys, hashcode=bitcoin.SIGHASH_ALL)
+
+    else:
+        raise ValueError("Invalid private key info")
 
 
 def tx_sign_all_unsigned_inputs(private_key_info, unsigned_tx_hex):
