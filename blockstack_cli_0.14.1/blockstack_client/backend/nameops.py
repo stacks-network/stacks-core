@@ -96,7 +96,8 @@ def make_fake_privkey_info( privkey_params ):
 
     if privkey_params == (1, 1):
         # fake private key
-        return "5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX"
+        return "92EPD26TunBmQCupp73P6oWA1m7dcETMfEMU9sXQuqPKGgy26kV"
+        # return "5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX"
 
     else:
         m, n = privkey_params
@@ -591,6 +592,25 @@ def get_consensus_hash( proxy, config_path=CONFIG_PATH ):
     return {'status': True, 'consensus_hash': consensus_hash}
 
 
+def address_privkey_match( address, privkey_params ):
+    """
+    Does an address correspond to the private key information?
+    i.e. singlesig --> p2pkh address
+    i.e. multisig --> p2sh address
+    """
+    if privkey_params == (1,1) and pybitcoin.b58check_version_byte( str(address) ) != virtualchain.version_byte:
+        # invalid address, given parameters
+        log.debug("Address %s does not correspond to a single private key" % owner_address)
+        return False
+
+    elif (privkey_params[0] > 1 or privkey_params[1] > 1) and pybitcoin.b58check_version_byte( str(address) ) != virtualchain.multisig_version_byte:
+        # invalid address
+        log.debug("Address %s does not correspond to multisig private keys")
+        return False
+
+    return True
+
+
 def do_preorder( fqu, payment_privkey_info, owner_address, cost, utxo_client, tx_broadcaster, owner_privkey_params=(1,1), config_path=CONFIG_PATH, proxy=None, consensus_hash=None, safety_checks=True ):
     """
     Preorder a name
@@ -610,15 +630,8 @@ def do_preorder( fqu, payment_privkey_info, owner_address, cost, utxo_client, tx
     payment_address = get_privkey_info_address( payment_privkey_info )
 
     # sanity check
-    if owner_privkey_params == (1,1) and pybitcoin.b58check_version_byte( str(owner_address) ) != virtualchain.version_byte:
-        # invalid address, given parameters
-        log.debug("Owner address %s does not correspond to a single private key" % owner_address)
-        return {'error': 'Owner address does not correspond to a single private key'}
-
-    elif (owner_privkey_params[0] > 1 or owner_privkey_params[1] > 1) and pybitcoin.b58check_version_byte( str(owner_address) ) != virtualchain.multisig_version_byte:
-        # invalid address
-        log.debug("Owner address %s does not correspond to multisig private keys")
-        return {'error': 'Owner address does not correspond to multisig private keys'}
+    if not address_privkey_match( owner_address, owner_privkey_params ):
+        return {'error': 'Owner address does not match private key'}
 
     if not is_address_usable(payment_address, config_path=config_path):
         log.debug("Payment address not ready: %s" % payment_address)
@@ -669,15 +682,8 @@ def do_register( fqu, payment_privkey_info, owner_address, utxo_client, tx_broad
     payment_address = get_privkey_info_address( payment_privkey_info )
 
     # sanity check
-    if owner_privkey_params == (1,1) and pybitcoin.b58check_version_byte( str(owner_address) ) != virtualchain.version_byte:
-        # invalid address, given parameters
-        log.debug("Owner address %s does not correspond to a single private key", owner_address)
-        return {'error': 'Owner address does not correspond to a single private key'}
-
-    elif (owner_privkey_params[0] > 1 or owner_privkey_params[1] > 1) and pybitcoin.b58check_version_byte( str(owner_address) ) != virtualchain.multisig_version_byte:
-        # invalid address
-        log.debug("Owner address %s does not correspond to multisig private keys", owner_address)
-        return {'error': 'Owner address does not correspond to multisig private keys'}
+    if not address_privkey_match( owner_address, owner_privkey_params ):
+        return {'error': 'Owner address does not match private key'}
 
     if safety_checks:
         # name must not be registered yet
