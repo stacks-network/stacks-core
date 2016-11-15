@@ -25,13 +25,7 @@ from __future__ import print_function
 """
 
 import jsonschema
-from .config import (
-    LENGTH_CONSNSUS_HASH, LENGTH_VALUE_HASH,
-    LENGTH_MAX_NAME, LENGTH_MAX_NAMESPACE_ID,
-    NAME_TRANSFER, TRANSFER_KEEP_DATA,
-    NAME_TRANSFER, TRANSFER_REMOVE_DATA,
-    NAME_REGISTRATION, NAME_OPCODES
-)
+from .constants import *
 
 OP_CONSENSUS_HASH_PATTERN = r'^([0-9a-fA-F]{{{}}})$'.format(LENGTH_CONSENSUS_HASH * 2)
 OP_BASE58CHECK_PATTERN = r'^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)$'
@@ -118,55 +112,127 @@ ENCRYPTED_PRIVKEY_INFO_SCHEMA = {
     ],
 }
 
-WALLET_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'data_pubkey': {
+ENCRYPTED_WALLET_SCHEMA_PROPERTIES = {
+    'data_pubkey': {
+        'type': 'string',
+        'pattern': OP_PUBKEY_PATTERN
+    },
+    'data_pubkeys': {
+        'type': 'array',
+        'items': {
             'type': 'string',
-            'pattern': OP_PUBKEY_PATTERN
-        },
-        'data_pubkeys': {
-            'type': 'array',
-            'items': {
-                'type': 'string',
-                'pattern': OP_PUBKEY_PATTERN,
-                'minItems': 1,
-                'maxItems': 1
-            },
-        },
-        'encrypted_data_privkey': {
-            'type': 'string',
-            'pattern': OP_BASE64_PATTERN,
-        },
-        'encrypted_master_private_key': {
-            'type': 'string',
-            'pattern': OP_BASE64_PATTERN,
-        },
-        'encrypted_owner_privkey': ENCRYPTED_PRIVKEY_INFO_SCHEMA,
-        'encrypted_payment_privkey': ENCRYPTED_PRIVKEY_INFO_SCHEMA,
-        'owner_addresses': {
-            'type': 'array',
-            'items': {
-                'type': 'string',
-                'pattern': OP_ADDRESS_PATTERN,
-                'minItems': 1,
-                'maxItems': 1
-            },
-        },
-        'payment_addresses': {
-            'type': 'array',
-            'items': {
-                'type': 'string',
-                'pattern': OP_ADDRESS_PATTERN,
-                'minItems': 1,
-                'maxItems': 1
-            },
+            'pattern': OP_PUBKEY_PATTERN,
+            'minItems': 1,
+            'maxItems': 1
         },
     },
-    required = [
+    'encrypted_data_privkey': {
+        'type': 'string',
+        'pattern': OP_BASE64_PATTERN,
+    },
+    'encrypted_master_private_key': {
+        'type': 'string',
+        'pattern': OP_BASE64_PATTERN,
+    },
+    'encrypted_owner_privkey': ENCRYPTED_PRIVKEY_INFO_SCHEMA,
+    'encrypted_payment_privkey': ENCRYPTED_PRIVKEY_INFO_SCHEMA,
+    'owner_addresses': {
+        'type': 'array',
+        'items': {
+            'type': 'string',
+            'pattern': OP_ADDRESS_PATTERN,
+            'minItems': 1,
+            'maxItems': 1
+        },
+    },
+    'payment_addresses': {
+        'type': 'array',
+        'items': {
+            'type': 'string',
+            'pattern': OP_ADDRESS_PATTERN,
+            'minItems': 1,
+            'maxItems': 1
+        },
+    },
+}
+
+ENCRYPTED_WALLET_SCHEMA_CURRENT = {
+    'type': 'object',
+    'properties': ENCRYPTED_WALLET_SCHEMA_PROPERTIES,
+    'required': [
+        'data_pubkey',
+        'data_pubkeys',
+        'encrypted_data_privkey',
+        'encrypted_owner_privkey',
+        'encrypted_payment_privkey',
+        'owner_addresses',
+        'payment_addresses',
+    ],
+}
+
+ENCRYPTED_WALLET_SCHEMA_LEGACY = {
+    'type': 'object',
+    'properties': ENCRYPTED_WALLET_SCHEMA_PROPERTIES,
+    'required': [
         'encrypted_master_private_key'
     ],
 }
+
+
+WALLET_SCHEMA_PROPERTIES = {
+    'data_pubkey': {
+        'type': 'string',
+        'pattern': OP_PUBKEY_PATTERN,
+    },
+    'data_pubkeys': {
+        'type': 'array',
+        'items': {
+            'type': 'string',
+            'pattern': OP_PUBKEY_PATTERN,
+            'minItems': 1,
+            'maxItems': 1,
+        },
+    },
+    'data_privkey': {
+        'type': 'string',
+        'pattern': OP_PRIVKEY_PATTERN,
+    },
+    'owner_privkey': PRIVKEY_INFO_SCHEMA,
+    'payment_privkey': PRIVKEY_INFO_SCHEMA,
+    'owner_addresses': {
+        'type': 'array',
+        'items': {
+            'type': 'string',
+            'pattern': OP_ADDRESS_PATTERN,
+            'minItems': 1,
+            'maxItems': 1,
+        },
+    },
+    'payment_addresses': {
+        'type': 'array',
+        'items': {
+            'type': 'string',
+            'pattern': OP_ADDRESS_PATTERN,
+            'minItems': 1,
+            'maxItems': 1,
+        },
+    },
+}
+
+WALLET_SCHEMA_CURRENT = {
+    'type': 'object',
+    'properties': WALLET_SCHEMA_PROPERTIES,
+    'required': [
+        'data_pubkey',
+        'data_pubkeys',
+        'data_privkey',
+        'owner_privkey',
+        'payment_privkey',
+        'owner_addresses',
+        'payment_addresses'
+    ],
+}
+
 
 OP_HISTORY_SCHEMA = {
     'type': 'object',
