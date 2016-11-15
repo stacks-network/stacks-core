@@ -191,6 +191,7 @@ def get_utxos(address, config_path=CONFIG_PATH, utxo_client=None, min_confirmati
         log.exception(e)
         log.debug("Failed to get UTXOs for %s" % address)
         data = {'error': 'Failed to get UTXOs for %s' % address}
+        return data
    
     # filter unconfirmed
     ret = []
