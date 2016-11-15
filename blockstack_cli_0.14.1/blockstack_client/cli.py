@@ -154,7 +154,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
         while i < len(argv):
             if argv[i] == '-c' or argv[i] == '--config':
                 if i + 1 >= len(argv):
-                    print('{}: missing path'.format(argv[i]), sys.stderr)
+                    print('{}: missing path'.format(argv[i]), file=sys.stderr)
                     sys.exit(1)
 
                 config_path = argv[i + 1]
@@ -163,6 +163,8 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
 
             else:
                 i += 1
+
+    log.debug('Use config file {}'.format(config_path))
 
     conf = config.get_config(path=config_path)
     if conf is None:

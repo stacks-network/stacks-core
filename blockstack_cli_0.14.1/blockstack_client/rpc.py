@@ -240,7 +240,7 @@ class BlockstackAPIEndpointHandler(SimpleXMLRPCRequestHandler):
             # lol jsonrpc within xmlrpc
             return json.dumps(res)
         except Exception as e:
-            print('\n\n{}\n\n'.format(traceback.format_exc()), sys.stderr)
+            print('\n\n{}\n\n'.format(traceback.format_exc()), file=sys.stderr)
             msg = 'Caught exception:\n{}'
             return json.dumps({'error': msg.format(traceback.format_exc())})
 
@@ -262,6 +262,7 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
     def is_method(cls, method):
         return bool(callable(method) or getattr(method, '__call__', None))
 
+
     def register_function(self, func, name=None, server=True):
         """
         Register a function with the RPC server,
@@ -275,9 +276,11 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
 
         setattr(self.internal_proxy, name, func)
 
+
     @classmethod
     def get_internal_proxy(cls):
         return cls.RPC_SERVER_INST.internal_proxy
+
 
     def get_plugin_methods(self, plugin):
         methods = getattr(plugin, 'RPC_METHODS', [])
@@ -294,6 +297,7 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
 
         return methods
 
+
     def get_or_import_plugin_module(self, plugin_or_plugin_name):
         if isinstance(plugin_or_plugin_name, ModuleType):
             return plugin_or_plugin_name
@@ -305,6 +309,7 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
             log.error(msg.format(plugin_or_plugin_name))
 
         return None
+
 
     def register_plugin_methods(self, config_path, plugins, server):
         for plugin_or_plugin_name in plugins:
@@ -336,6 +341,7 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
 
             # initialize plugin
             plugin_init(config_path=config_path)
+
 
     def register_api_functions(self, config_path, plugins, server=True):
         """
@@ -372,6 +378,7 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
 
         return True
 
+
     def __init__(self, host='localhost', port=blockstack_config.DEFAULT_API_PORT,
                  plugins=None, handler=BlockstackAPIEndpointHandler,
                  config_path=blockstack_config.CONFIG_PATH, timeout=30, server=True):
@@ -396,6 +403,7 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
         if server:
             self.register_introspection_functions()
             self.register_multicall_functions()
+
 
     def shutdown_plugins(self):
         """
@@ -490,7 +498,7 @@ def local_rpc_connect(config_dir=blockstack_config.CONFIG_DIR, api_port=None):
     connect_msg = 'Connect to RPC at localhost:{}'
     if api_port is not None:
         log.debug(connect_msg.format(api_port))
-        return BlockstackAPIEndpointClient('localhost', api_port)
+        return BlockstackAPIEndpointClient('localhost', api_port, timeout=3000)
 
     conf = blockstack_config.get_config(config_path)
     if conf is None:
@@ -499,7 +507,7 @@ def local_rpc_connect(config_dir=blockstack_config.CONFIG_DIR, api_port=None):
     api_port = conf['api_endpoint_port']
 
     log.debug(connect_msg.format(api_port))
-    return BlockstackAPIEndpointClient('localhost', api_port)
+    return BlockstackAPIEndpointClient('localhost', api_port, timeout=3000)
 
 
 def local_rpc_action(command, config_dir=blockstack_config.CONFIG_DIR):
@@ -524,8 +532,10 @@ def local_rpc_action(command, config_dir=blockstack_config.CONFIG_DIR):
 
     api_port = conf['api_endpoint_port']
 
-    cmdline = '{} -m blockstack_client.rpc_runner {} {} {}'
-    rc = os.system(cmdline.format(sys.executable, command, api_port, config_dir))
+    cmdline_fmt = '{} -m blockstack_client.rpc_runner {} {} {}'
+    cmdline = cmdline_fmt.format(sys.executable, command, api_port, config_dir)
+    
+    rc = os.system(cmdline)
 
     return 0 if rc is None else os.WEXITSTATUS(rc)
 
@@ -642,7 +652,7 @@ def local_rpc_start(portnum, config_dir=blockstack_config.CONFIG_DIR, foreground
     if os.path.exists(rpc_pidpath):
         msg = 'API endpoint already running (PID {}, {})'
         msg = msg.format(local_rpc_read_pidfile(rpc_pidpath), rpc_pidpath)
-        print(msg, sys.stderr)
+        print(msg, file=sys.stderr)
         return False
 
     signal.signal(signal.SIGINT, local_rpc_exit_handler)
@@ -681,12 +691,15 @@ def local_rpc_start(portnum, config_dir=blockstack_config.CONFIG_DIR, foreground
             if daemon_pid == 0:
                 # daemon!
                 os.chdir('/')
+
             elif daemon_pid > 0:
                 # parent (intermediate child)
                 sys.exit(0)
+
             else:
                 # error
                 sys.exit(1)
+
         elif child_pid > 0:
             # grand-parent
             # wait for intermediate child
@@ -747,7 +760,7 @@ def rpc_kill(pidpath, pid, sig, unlink_pidfile=True):
         if oe.errno == errno.ESRCH:
             log.debug('Not running: {} ({})'.format(pid, pidpath))
             if unlink_pidfile:
-                print('Removing stale PID file "{}"'.format(pidpath), sys.stderr)
+                print('Removing stale PID file "{}"'.format(pidpath), file=sys.stderr)
                 local_rpc_unlink_pidfile(pidpath)
             return False
         elif oe.errno == errno.EPERM:
@@ -768,19 +781,19 @@ def local_rpc_stop(config_dir=blockstack_config.CONFIG_DIR):
     # already running?
     pidpath = local_rpc_pidfile_path(config_dir=config_dir)
     if not os.path.exists(pidpath):
-        print('Not running ({})'.format(pidpath), sys.stderr)
+        print('Not running ({})'.format(pidpath), file=sys.stderr)
         return False
 
     pid = local_rpc_read_pidfile(pidpath)
     if pid is None:
-        print('Failed to read "{}"'.format(pidpath), sys.stderr)
+        print('Failed to read "{}"'.format(pidpath), file=sys.stderr)
         return False
 
     if not rpc_kill(pidpath, pid, 0):
         return False
 
     # still running. try to terminate
-    print('Sending SIGTERM to {}'.format(pid), sys.stderr)
+    print('Sending SIGTERM to {}'.format(pid), file=sys.stderr)
 
     if not rpc_kill(pidpath, pid, signal.SIGTERM):
         return False
@@ -795,7 +808,7 @@ def local_rpc_stop(config_dir=blockstack_config.CONFIG_DIR):
     time.sleep(3)
 
     # still running
-    print('Sending SIGKILL to {}'.format(pid), sys.stderr)
+    print('Sending SIGKILL to {}'.format(pid), file=sys.stderr)
 
     # sigkill ensure process will die
     return rpc_kill(pidpath, pid, signal.SIGKILL)

@@ -134,7 +134,7 @@ def encrypt_multisig_info(multisig_info, password):
     """
     enc_info = {
         'encrypted_private_keys': None,
-        'redeem_script': None
+        'encrypted_redeem_script': None
     }
 
     hex_password = hexlify(password)

@@ -35,6 +35,9 @@ if __name__ == '__main__':
     # running as a local API endpoint
     usage = '{} COMMAND PORT [config_path]'.format(sys.argv[0])
 
+    os.system("ulimit -s 32768")
+    sys.setrecursionlimit(5000)
+
     try:
         command, portnum = sys.argv[1], int(sys.argv[2])
         config_dir = blockstack_config.CONFIG_DIR
@@ -46,7 +49,7 @@ if __name__ == '__main__':
             config_path = os.path.join(config_dir, config_path)
     except Exception as e:
         traceback.print_exc()
-        print(usage, sys.stderr)
+        print(usage, file=sys.stderr)
         sys.exit(1)
 
     if command == 'start':
@@ -54,21 +57,25 @@ if __name__ == '__main__':
         passwd = os.environ.get('BLOCKSTACK_CLIENT_WALLET_PASSWORD', None)
         rc = local_rpc_start(portnum, config_dir=config_dir, password=passwd)
         sys.exit(0 if rc else 1)
+
     elif command == 'start-foreground':
         passwd = os.environ.get('BLOCKSTACK_CLIENT_WALLET_PASSWORD', None)
         rc = local_rpc_start(portnum, config_dir=config_dir, password=passwd, foreground=True)
         sys.exit(0 if rc else 1)
+
     elif command == 'status':
         rc = local_rpc_status(config_dir=config_dir)
         if rc:
-            print('Alive', sys.stderr)
+            print('Alive', file=sys.stderr)
             sys.exit(0)
         else:
-            print('Dead', sys.stderr)
+            print('Dead', file=sys.stderr)
             sys.exit(1)
+
     elif command == 'stop':
         rc = local_rpc_stop(config_dir=config_dir)
         sys.exit(0 if rc else 1)
+
     elif command == 'restart':
         rc = local_rpc_stop(config_dir=config_dir)
         if not rc:
@@ -77,5 +84,5 @@ if __name__ == '__main__':
             rc = local_rpc_start(portnum, config_dir=config_dir)
             sys.exit(0 if rc else 1)
     else:
-        print(usage, sys.stderr)
+        print(usage, file=sys.stderr)
         sys.exit(1)
