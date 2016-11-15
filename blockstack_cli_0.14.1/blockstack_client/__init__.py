@@ -58,7 +58,8 @@ from storage import get_announcement, put_announcement, verify_zonefile
 from profile import get_name_profile, get_name_zonefile, get_and_migrate_profile
 from accounts import list_accounts, get_account, put_account, delete_account, create_app_account
 
-from config import get_logger, get_config, CONFIG_PATH, CONFIG_FILENAME, get_utxo_provider_client, get_tx_broadcaster, default_bitcoind_opts
+from config import get_logger, get_config, get_utxo_provider_client, get_tx_broadcaster, default_bitcoind_opts
+from constants import CONFIG_PATH, CONFIG_FILENAME, USER_ZONEFILE_TTL, DEFAULT_API_PORT
 
 from storage import blockstack_mutable_data_url as make_mutable_data_url
 from storage import blockstack_immutable_data_url as make_immutable_data_url 
@@ -69,8 +70,6 @@ from storage import get_storage_handlers, hash_zonefile
 
 from storage import BlockstackURLHandle, BlockstackHandler, get_data_hash, get_blockchain_compat_hash, get_zonefile_data_hash
 from storage import parse_mutable_data as parse_signed_data
-
-from config import USER_ZONEFILE_TTL, DEFAULT_API_PORT
 
 from wallet import get_payment_addresses_and_balances, get_owner_addresses_and_names, dump_wallet, load_wallet, get_wallet
 
