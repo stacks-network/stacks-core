@@ -222,6 +222,9 @@ def encrypt_wallet(wallet, password):
 
     encrypted_wallet = _make_encrypted_wallet_data(password, payment_privkey_info, owner_privkey_info, data_privkey_info)
 
+    if 'error' in encrypted_wallet:
+        return encrypted_wallet
+
     # sanity check
     jsonschema.validate(wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT)
     return encrypted_wallet
@@ -249,6 +252,9 @@ def make_wallet(password, config_path=CONFIG_PATH, payment_privkey_info=None, ow
     data_privkey_info = ECPrivateKey().to_wif() if data_privkey_info is None else data_privkey_info
 
     new_wallet = _make_encrypted_wallet_data(password, payment_privkey_info, owner_privkey_info, data_privkey_info)
+
+    if 'error' in new_wallet:
+        return new_wallet
 
     # sanity check 
     jsonschema.validate(new_wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT)
@@ -896,8 +902,13 @@ def get_payment_addresses_and_balances(config_path=CONFIG_PATH, wallet_path=None
     )
 
     if payment_address is not None:
-        payment_addresses.append({'address': payment_address,
-                                  'balance': get_balance(payment_address, config_path=config_path)})
+        balance = get_balance(payment_address, config_path=config_path)
+        if balance is None:
+            payment_addresses.append( {'error': 'Failed to get balance for {}'.format(payment_address)} )
+
+        else:
+            payment_addresses.append({'address': payment_address,
+                                      'balance': balance})
 
     else:
         payment_addresses.append({'error': 'Legacy wallet; payment address is not visible'})
@@ -946,6 +957,9 @@ def get_total_balance(config_path=CONFIG_PATH, wallet_path=WALLET_PATH):
     """
     Get the total balance for the wallet's payment address.
     Units will be in satoshis.
+
+    Returns units, addresses on success
+    Returns None, {'error': ...} on error
     """
     payment_addresses = get_payment_addresses_and_balances(wallet_path=wallet_path, config_path=config_path)
     total_balance = 0.0
@@ -953,6 +967,10 @@ def get_total_balance(config_path=CONFIG_PATH, wallet_path=WALLET_PATH):
     for entry in payment_addresses:
         if 'balance' in entry.keys():
             total_balance += entry['balance']
+
+        elif 'error' in entry:
+            # failed to look up 
+            return None, entry
 
     return total_balance, payment_addresses
 
