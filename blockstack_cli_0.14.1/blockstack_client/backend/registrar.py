@@ -175,20 +175,25 @@ class RegistrarWorker(threading.Thread):
                     # send the registration
                     owner_address = get_privkey_info_address( owner_privkey_info )
                     owner_privkey_params = get_privkey_info_params( owner_privkey_info )
+
+                    log.debug('Send async register for {}'.format(name_data['fqu']))
                     res = async_register( name_data['fqu'], payment_privkey_info, owner_address, owner_privkey_params=owner_privkey_params, proxy=proxy, config_path=config_path, queue_path=queue_path )
                     return res
                 else:
                     # already queued 
                     reg_result = queuedb_find( "register", name_data['fqu'], limit=1, path=queue_path )
                     if len(reg_result) == 1:
+                        log.debug('Already queued for register: {}'.format(name_data['fqu']))
                         return {'status': True, 'transaction_hash': reg_result[0]['tx_hash']}
                     else:
                         raise Exception("Inconsistency: name '%s' is queued and then unqueued" % name_data['fqu'])
 
             else:
+                log.error('Not preordered: {}'.format(name_data['fqu']))
                 return {'error': 'Name "%s" is not preorded' % name_data['fqu'], 'not_preordered': True}
 
         else:
+            log.error('Already registered: {}'.format(name_data['fqu']))
             return {'error': 'Name "%s" is already registered' % name_data['fqu'], 'already_registered': True}
 
     
@@ -473,7 +478,7 @@ class RegistrarWorker(threading.Thread):
             atlas_peers_res = get_atlas_peers( server_hostport )
             assert 'error' not in atlas_peers_res
             
-            servers += atlas_peers_res['servers']
+            servers += atlas_peers_res
             servers = list(set([str(hp) for hp in servers]))
 
         except AssertionError as ae:
