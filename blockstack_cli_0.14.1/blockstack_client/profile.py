@@ -36,8 +36,8 @@ from .keys import get_data_or_owner_privkey
 from blockstack_client import storage
 from blockstack_client import user as user_db
 
-from config import get_logger, get_config
-from config import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
+from .config import get_logger, get_config
+from .constants import USER_ZONEFILE_TTL, CONFIG_PATH, BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
 
 log = get_logger()
 

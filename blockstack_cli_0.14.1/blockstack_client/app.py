@@ -29,9 +29,9 @@ import keylib
 import wallet
 import accounts
 import config
-from proxy import *
+from .proxy import *
 
-from config import CONFIG_PATH, APP_WALLET_DIRNAME
+from .constants import CONFIG_PATH, APP_WALLET_DIRNAME
 
 
 def app_wallet_path(config_dir, name, app_name, app_account_id):

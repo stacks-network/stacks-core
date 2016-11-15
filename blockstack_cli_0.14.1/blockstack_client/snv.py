@@ -35,8 +35,9 @@ from virtualchain import SPVClient
 import pybitcoin
 from utilitybelt import is_hex
 
-from config import (
-    get_logger, FIRST_BLOCK_MAINNET, NAME_OPCODES,
+from .config import get_logger
+from .constants import (
+    FIRST_BLOCK_MAINNET, NAME_OPCODES,
     OPFIELDS, BLOCKCHAIN_ID_MAGIC, NAME_PREORDER,
     NAME_TRANSFER, NAMESPACE_PREORDER
 )

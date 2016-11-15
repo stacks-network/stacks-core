@@ -32,12 +32,10 @@ from pybitcoin.transactions.outputs import calculate_change_amount
 from virtualchain import tx_serialize, tx_deserialize, tx_script_to_asm, tx_output_parse_scriptPubKey
 
 from .b40 import *
-from .config import MAGIC_BYTES, NAME_OPCODES, LENGTH_MAX_NAME, LENGTH_MAX_NAMESPACE_ID, TX_MIN_CONFIRMATIONS
+from .constants import MAGIC_BYTES, NAME_OPCODES, LENGTH_MAX_NAME, LENGTH_MAX_NAMESPACE_ID, TX_MIN_CONFIRMATIONS
 from .keys import *
 
-
 log = virtualchain.get_logger('blockstack-client')
-
 
 class UTXOException(Exception):
     pass
@@ -57,7 +55,7 @@ def common_checks(n):
     if '+' in n or '.' in n:
         return False
 
-    if len(fqn) > LENGTH_MAX_NAME:
+    if len(n) > LENGTH_MAX_NAME:
        # too long
        return False 
 

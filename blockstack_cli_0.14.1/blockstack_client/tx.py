@@ -28,7 +28,8 @@ import pybitcoin
 from pybitcoin import broadcast_transaction
 
 from .operations import *
-from .config import CONFIG_PATH, BLOCKSTACK_TEST, get_tx_broadcaster, get_logger
+from .constants import CONFIG_PATH, BLOCKSTACK_TEST
+from .config import get_tx_broadcaster, get_logger
 
 from .scripts import tx_sign_all_unsigned_inputs
 

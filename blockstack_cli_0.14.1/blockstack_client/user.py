@@ -27,7 +27,7 @@ import base64
 import storage
 import config
 
-from .config import BLOCKSTACK_TEST
+from .constants import BLOCKSTACK_TEST
 
 log = config.get_logger()
 

@@ -29,7 +29,8 @@ from proxy import *
 from virtualchain import SPVClient
 import storage
 
-from config import CONFIG_PATH, get_logger, get_config
+from .constants import CONFIG_PATH
+from .config import get_logger, get_config
 
 log = get_logger()
 

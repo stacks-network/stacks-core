@@ -60,6 +60,7 @@ import blockstack_zones
 import blockstack_profiles
 import requests
 import base64
+from decimal import Decimal
 
 requests.packages.urllib3.disable_warnings()
 
@@ -89,14 +90,13 @@ from rpc import local_rpc_connect, local_rpc_status, local_rpc_stop, start_rpc_e
 import rpc as local_rpc
 import config
 
-from .config import (
-    CONFIG_PATH, CONFIG_DIR, configure, FIRST_BLOCK_TIME_UTC,
-    get_utxo_provider_client, set_advanced_mode,
+from .config import configure_zonefile, set_advanced_mode, configure, get_utxo_provider_client 
+from .constants import (
+    CONFIG_PATH, CONFIG_DIR, FIRST_BLOCK_TIME_UTC,
     APPROX_PREORDER_TX_LEN, APPROX_REGISTER_TX_LEN,
     APPROX_UPDATE_TX_LEN, APPROX_TRANSFER_TX_LEN,
     FIRST_BLOCK_MAINNET, NAME_UPDATE,
-    BLOCKSTACK_DEBUG, BLOCKSTACK_TEST,
-    configure_zonefile
+    BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
 )
 
 from .b40 import is_b40
@@ -674,7 +674,7 @@ def cli_names(args, config_path=CONFIG_DIR):
     return result
 
 
-def get_server_info(args, config_path=config.CONFIG_PATH, get_local_info=False):
+def get_server_info(args, config_path=CONFIG_PATH, get_local_info=False):
     """
     Get information about the running server,
     and any pending operations.
@@ -686,7 +686,7 @@ def get_server_info(args, config_path=config.CONFIG_PATH, get_local_info=False):
     resp = getinfo()
     result = {}
 
-    result['cli_version'] = config.VERSION
+    result['cli_version'] = VERSION
     result['advanced_mode'] = conf['advanced_mode']
 
     if 'error' in resp:
@@ -1696,6 +1696,9 @@ def cli_advanced_import_wallet(args, config_path=CONFIG_PATH, password=None, for
     arg: owner_privkey (str) 'Name owner private key'
     opt: data_privkey (str) 'Data-signing private key'
     """
+
+    # BROKEN
+
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
     if force and os.path.exists(wallet_path):
@@ -1988,7 +1991,7 @@ def cli_advanced_rpcctl(args, config_path=CONFIG_PATH):
     arg: command (str) '"start", "stop", "restart", or "status"'
     """
 
-    config_dir = config.CONFIG_DIR
+    config_dir = CONFIG_DIR
     if config_path is not None:
         config_dir = os.path.dirname(config_path)
 
@@ -3008,7 +3011,7 @@ def cli_advanced_app_get_wallet(args, config_path=CONFIG_PATH, interactive=True)
 
 def cli_advanced_start_server( args, config_path=CONFIG_PATH, interactive=False ):
     """
-    command: start_server norpc
+    command: start_server
     help: Start a Blockstack server
     opt: foreground (str) 'If True, then run in the foreground.'
     opt: working_dir (str) 'The directory which contains the server state.'
@@ -3052,7 +3055,7 @@ def cli_advanced_start_server( args, config_path=CONFIG_PATH, interactive=False 
 
 def cli_advanced_stop_server( args, config_path=CONFIG_PATH, interactive=False ):
     """
-    command: stop_server norpc
+    command: stop_server
     help: Stop a running Blockstack server
     opt: working_dir (str) 'The directory which contains the server state.'
     """

@@ -35,7 +35,8 @@ import blockstack_zones
 
 import blockstack_profiles
 
-from config import get_logger, CONFIG_PATH
+from config import get_logger
+from constants import CONFIG_PATH
 from scripts import is_name_valid
 import keys
 

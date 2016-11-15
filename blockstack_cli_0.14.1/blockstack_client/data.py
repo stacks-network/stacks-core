@@ -31,13 +31,14 @@ import virtualchain
 import user as user_db
 import storage
 
-from keys import *
-from profile import *
-from proxy import *
-from storage import hash_zonefile
-from accounts import get_profile_accounts
+from .keys import *
+from .profile import *
+from .proxy import *
+from .storage import hash_zonefile
+from .accounts import get_profile_accounts
 
-from config import get_logger, BLOCKSTACK_TEST
+from .config import get_logger
+from .constants import BLOCKSTACK_TEST
 
 log = get_logger()
 
@@ -289,8 +290,6 @@ def list_update_history(name, current_block=None, proxy=None):
     if 'error' in name_history:
         log.error('Failed to get name history for {}: {}'.format(name, name_history['error']))
         return name_history
-
-    all_update_hashes = []
 
     all_update_hashes = []
     for block_id in block_ids:
