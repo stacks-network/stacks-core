@@ -57,16 +57,24 @@ PRIVKEY_SINGLESIG_SCHEMA = {
 PRIVKEY_MULTISIG_SCHEMA = {
     'type': 'object',
     'properties': {
+        'address': {
+            'type': 'string',
+            'pattern': OP_ADDRESS_PATTERN,
+        },
         'redeem_script': {
             'type': 'string',
             'pattern': OP_SCRIPT_PATTERN,
         },
         'private_keys': {
-            'type': 'string',
-            'pattern': OP_PRIVKEY_PATTERN,
+            'type': 'array',
+            'items': {
+                'type': 'string',
+                'pattern': OP_PRIVKEY_PATTERN,
+            },
         },
     },
     'required': [
+        'address',
         'redeem_script',
         'private_keys'
     ],
@@ -87,6 +95,10 @@ ENCRYPTED_PRIVKEY_SINGLESIG_SCHEMA = {
 ENCRYPTED_PRIVKEY_MULTISIG_SCHEMA = {
     'type': 'object',
     'properties': {
+        'address': {
+            'type': 'string',
+            'pattern': OP_ADDRESS_PATTERN,
+        },
         'encrypted_redeem_script': {
             'type': 'string',
             'pattern': OP_BASE64_PATTERN,
@@ -100,8 +112,9 @@ ENCRYPTED_PRIVKEY_MULTISIG_SCHEMA = {
         },
     },
     'required': [
+        'address',
         'encrypted_redeem_script',
-        'encrypted_private_keys'
+        'encrypted_private_keys',
     ],
 }
 
