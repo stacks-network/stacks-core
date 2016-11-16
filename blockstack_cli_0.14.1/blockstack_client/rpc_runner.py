@@ -35,9 +35,6 @@ if __name__ == '__main__':
     # running as a local API endpoint
     usage = '{} COMMAND PORT [config_path]'.format(sys.argv[0])
 
-    os.system("ulimit -s 32768")
-    sys.setrecursionlimit(5000)
-
     try:
         command, portnum = sys.argv[1], int(sys.argv[2])
         config_dir = blockstack_config.CONFIG_DIR
