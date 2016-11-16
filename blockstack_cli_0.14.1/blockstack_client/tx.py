@@ -158,7 +158,7 @@ def broadcast_tx(tx_hex, config_path=CONFIG_PATH, tx_broadcaster=None):
             # should NEVER happen in test mode
             msg = 'FATAL: failed to send transaction:\n{}'
             log.error(msg.format(json.dumps(resp, indent=4, sort_keys=True)))
-            sys.exit(1)
+            os.abort()
 
     # for compatibility
     resp['transaction_hash'] = resp.pop('tx_hash')
