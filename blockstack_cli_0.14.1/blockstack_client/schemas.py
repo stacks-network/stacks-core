@@ -40,18 +40,36 @@ OP_CODE_PATTERN = r'^([{}]{{1}}|{}{}|{}{}|{}{})$'.format(
     NAME_REGISTRATION, NAME_REGISTRATION
 )
 OP_CODE_NAME_PATTERN = '|'.join(NAME_OPCODES.keys())
-OP_PUBKEY_PATTERN = r'^([0-9a-fA-F]+)$'
-OP_SCRIPT_PATTERN = r'^([0-9a-fA-F]+)$'
-OP_TXID_PATTERN = r'^([0-9a-fA-F]){64}$'
+OP_HEX_PATTERN = r'^([0-9a-fA-F]+)$'
+OP_UUID_PATTERN = r'^([0-9a-fA-F\-]+)$'
+OP_PUBKEY_PATTERN = OP_HEX_PATTERN
+OP_SCRIPT_PATTERN = OP_HEX_PATTERN
+OP_TXID_PATTERN = OP_HEX_PATTERN
 OP_ZONEFILE_HASH_PATTERN = r'^([0-9a-fA-F]{{{}}})$'.format(LENGTH_VALUE_HASH * 2)
 OP_NAME_PATTERN = r'^([a-z0-9\-_.+]{{{},{}}})$'.format(3, LENGTH_MAX_NAME)
 OP_NAMESPACE_PATTERN = r'^([a-z0-9\-_+]{{{},{}}})$'.format(1, LENGTH_MAX_NAMESPACE_ID)
 OP_NAMESPACE_HASH_PATTERN = r'^([0-9a-fA-F]{16})$'
-OP_BASE64_PATTERN = r'^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})$'
+OP_BASE64_PATTERN_SECTION = r'?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})'
+OP_BASE64_PATTERN = r'^({})$'.format(OP_BASE64_PATTERN_SECTION)
+OP_URLENCODED_PATTERN = r'^([a-zA-Z0-9\-_.~%]+)$'
+OP_URI_TARGET_PATTERN = r'^("[a-zA-Z0-9\-_.~%]+)"$'
+OP_MUTABLE_DATA_MD_PATTERN = 'r^(mutable:{}:[0-9]+)$'.format(OP_BASE64_PATTERN_SECTION)
 
-PRIVKEY_SINGLESIG_SCHEMA = {
+PRIVKEY_SINGLESIG_SCHEMA_WIF = {
     'type': 'string',
     'pattern': OP_PRIVKEY_PATTERN
+}
+
+PRIVKEY_SINGLESIG_SCHEMA_HEX = {
+    'type': 'string',
+    'pattern': OP_HEX_PATTERN
+}
+
+PRIVKEY_SINGLESIG_SCHEMA = {
+    'anyOf': [
+        PRIVKEY_SINGLESIG_SCHEMA_WIF,
+        PRIVKEY_SINGLESIG_SCHEMA_HEX
+    ],
 }
 
 PRIVKEY_MULTISIG_SCHEMA = {
@@ -67,10 +85,7 @@ PRIVKEY_MULTISIG_SCHEMA = {
         },
         'private_keys': {
             'type': 'array',
-            'items': {
-                'type': 'string',
-                'pattern': OP_PRIVKEY_PATTERN,
-            },
+            'items': PRIVKEY_SINGLESIG_SCHEMA
         },
     },
     'required': [
@@ -244,6 +259,249 @@ WALLET_SCHEMA_CURRENT = {
         'owner_addresses',
         'payment_addresses'
     ],
+}
+
+URI_RECORD_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'name': {
+            'type': 'string'
+        },
+        'priority': {
+            'type': 'integer'
+        },
+        'weight': {
+            'type': 'integer'
+        },
+        'target': {
+            'type': 'string',
+            'pattern': OP_URI_TARGET_PATTERN
+        },
+    },
+    'required': [
+        'name',
+        'priority',
+        'weight',
+        'target'
+    ],
+}       
+
+TXT_RECORD_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'name': {
+            'type': 'string'
+            'pattern': OP_URLENCODED_PATTERN,
+        },
+        'txt': {
+            'type': 'string'
+        },
+    },
+    'required': [
+        'name',
+        'txt'
+    ],
+}        
+
+USER_ZONEFILE_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'txt': {
+            'type': 'array',
+            'items': TXT_RECORD_SCHEMA,
+        },
+        'uri': {
+            'type': 'array',
+            'items': URI_RECORD_SCHEMA,
+        },
+        '$origin': {
+            'type': 'string',
+            'pattern': OP_NAME_PATTERN,
+        },
+        '$ttl': {
+            'type': 'integer'
+        },
+    },
+    'required': [
+        'txt',
+        'uri',
+        '$origin',
+        '$ttl'
+    ],
+}
+
+
+MUTABLE_DATUM_PERMISSIONS = {
+    'type': 'object',
+    'properties': {
+        'owner': {
+            'read': 'bool',
+            'write': 'bool',
+        },
+        'group': {
+            'read': 'bool',
+            'write': 'bool',
+        },
+        'world': {
+            'read': 'bool',
+            'write': 'bool',
+        },
+    },
+    'required': [
+        'owner',
+        'group',
+        'world'
+    ]
+    'additionalProperties': False
+}
+
+
+MUTABLE_DATUM_FILE_TYPE = 1
+MUTABLE_DATUM_DIR_TYPE = 2
+
+MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES = {
+    'type': {
+        # file, directory
+        'type': 'integer'
+        'minimum': MUTABLE_DATUM_FILE_TYPE,
+        'maximum': MUTABLE_DATUM_DIR_TYPE
+    },
+    'owner': {
+        # hash of public key
+        'type': 'string',
+        'pattern': OP_ADDRESS_PATTERN
+    },
+    'group': {
+        # group ID
+        'type': 'integer'
+    },
+    'version': {
+        # version 
+        'type': 'integer'
+    },
+    'permissions': MUTABLE_DATUM_PERMISSIONS
+}
+
+MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES = MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.copy()
+MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES = MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.copy()
+
+MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.update({
+    'data': {
+        # raw data
+        'type': 'string'
+    },
+}
+
+MUTABLE_DATUM_DIRENT_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'type': {
+            'type': 'integer'
+            'minimum': MUTABLE_DATUM_FILE_TYPE,
+            'maximum': MUTABLE_DATUM_DIR_TYPE
+        },
+        'uuid': {
+            'type': 'string',
+            'pattern': OP_UUID_PATTERN
+        },
+        'links': {
+            'type': 'array',
+            'items': URI_RECORD_SCHEMA
+        },
+    },
+    'additionalProperties': False,
+    'required': [
+        'name',
+        'links'
+    ],
+}
+
+MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES.update({
+    'data': {
+        # pointers to other files and directories
+        'type': 'object',
+        'patternProperties': {
+            # maps name to uuid, links
+            OP_URLENCODED_PATTERN: MUTABLE_DATUM_DIRENT_SCHEMA
+        },
+        'additionalProperties': False,
+    },
+}
+
+MUTABLE_DATUM_FILE_SCHEMA = {
+    'type': 'object',
+    'properties': MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES,
+    'additionalProperties': False,
+    'required': MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.keys()
+}
+
+MUTABLE_DATUM_DIR_SCHEMA = {
+    'type': 'object',
+    'properties': MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES,
+    'additionalProperties': False,
+    'required': MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES.keys()
+}
+
+MUTABLE_DATUM_SCHEMA = {
+    'anyOf': {
+        MUTABLE_DATUM_FILE_SCHEMA,
+        MUTABLE_DATUM_DIR_SCHEMA
+    },
+}
+
+MUTABLE_DATA_STORE_GROUP_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'name': {
+            'type': 'string',
+        },
+        'id': {
+            'type': 'string',
+            'pattern': OP_UUID_PATTERN,
+        },
+        'addresses': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+                'pattern': OP_ADDRESS_PATTERN
+            },
+        },
+    },
+    'additionalProperties': False,
+    'required': [
+        'name',
+        'id',
+        'addresses'
+    ],
+}
+
+MUTABLE_DATA_STORE = {
+    'type': 'object',
+    'properties': {
+        'owner': {
+            'type': 'string',
+            'pattern': OP_ADDRESS_PATTERN
+        },
+        'groups': {
+            'type': 'array',
+            'items': MUTABLE_DATA_STORE_GROUP_SCHEMA
+        },
+        'drivers': {
+            'type': 'array',
+            'items': 'string'
+        },
+        'root_uuid': {
+            'type': 'string',
+            'pattern': OP_UUID_PATTERN,
+        },
+    },
+    'additionalProperties': False,
+    'required': [
+        'owner',
+        'groups',
+        'root_uuid',
+        'drivers'
+    ]
 }
 
 
