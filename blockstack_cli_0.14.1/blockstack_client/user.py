@@ -27,6 +27,10 @@ import base64
 import storage
 import config
 
+import jsonschema
+from jsonschema.exceptions import ValidationError
+
+from .schemas import *
 from .constants import BLOCKSTACK_TEST
 
 log = config.get_logger()
@@ -119,52 +123,28 @@ def is_user_zonefile(d):
     * the zonefile must have a URI record
     """
 
-    if not isinstance(d, dict):
-        log.error('Not a dict-like object')
+    try:
+        jsonschema.validate(d, USER_ZONEFILE_SCHEMA)
+        return True
+    except ValidationError as ve:
+        if BLOCKSTACK_TEST:
+            log.exception(ve)
+
         return False
 
-    if 'uri' not in d:
+
+def has_mutable_data_section(d):
+    """
+    Does the given dictionary have a mutable data section?
+    """
+    try:
+        jsonschema.validate(d, MUTABLE_DATA_SCHEMA)
+        return True
+    except ValidationError as ve:
+        if BLOCKSTACK_TEST:
+            log.exception(ve)
+    
         return False
-
-    txts = d.get('txt', None)
-    if not isinstance(txts, list):
-        log.error('txt is not a list-like object')
-        return False
-
-    for txt in txts:
-        if not isinstance(txt, dict):
-            log.error('txt item is not a dict-like object')
-            return False
-
-        if 'name' not in txt:
-            return False
-
-        if 'txt' not in txt:
-            return False
-
-    uris = d.get('uri', None)
-    if not isinstance(uris, list):
-        log.error('uri is not a list-like object')
-        return False
-
-    for uri in uris:
-        if not isinstance(uri, dict):
-            log.error('uri item is not a dict-like object')
-            return False
-
-        if 'name' not in uri:
-            return False
-
-        if 'priority' not in uri:
-            return False
-
-        if 'weight' not in uri:
-            return False
-
-        if 'target' not in uri:
-            return False
-
-    return True
 
 
 def user_zonefile_data_pubkey(user_zonefile, key_prefix='pubkey:data:'):
@@ -173,6 +153,8 @@ def user_zonefile_data_pubkey(user_zonefile, key_prefix='pubkey:data:'):
     Return None if not defined
     Raise if there are multiple ones.
     """
+    assert is_user_zonefile(user_zonefile)
+
     if 'txt' not in user_zonefile:
         return None
 
@@ -197,6 +179,8 @@ def user_zonefile_set_data_pubkey(user_zonefile, pubkey_hex, key_prefix='pubkey:
     Set the data public key in the zonefile.
     NOTE: you will need to re-sign all your data!
     """
+    assert is_user_zonefile(user_zonefile)
+
     user_zonefile.setdefault('txt', [])
 
     txt = '{}{}'.format(key_prefix, str(pubkey_hex))
@@ -218,6 +202,8 @@ def user_zonefile_urls(user_zonefile):
     """
     Given a user's zonefile, get the profile URLs
     """
+    assert is_user_zonefile(user_zonefile)
+
     if 'uri' not in user_zonefile:
         return None
 
@@ -235,6 +221,8 @@ def add_user_zonefile_url(user_zonefile, url):
     Return the new zonefile on success
     Return None on error or on duplicate URL
     """
+    assert is_user_zonefile(user_zonefile)
+
     user_zonefile.setdefault('uri', [])
 
     # avoid duplicates
@@ -255,6 +243,9 @@ def remove_user_zonefile_url(user_zonefile, url):
     Return the new zonefile on success
     Return None on error.
     """
+
+    assert is_user_zonefile(user_zonefile)
+
     if 'uri' not in user_zonefile:
         return None
 
@@ -266,7 +257,7 @@ def remove_user_zonefile_url(user_zonefile, url):
     return user_zonefile
 
 
-def make_empty_user_profile():
+def make_empty_user_data_info():
     """
     Given a user's name, create an empty profile.
     """
@@ -284,6 +275,8 @@ def put_immutable_data_zonefile(user_zonefile, data_id, data_hash, data_url=None
     Return True on success
     Return False otherwise.
     """
+
+    assert is_user_zonefile(user_zonefile)
 
     data_hash = str(data_hash)
     assert storage.is_valid_hash(data_hash)
@@ -343,6 +336,7 @@ def remove_immutable_data_zonefile(user_zonefile, data_hash):
     Return True if removed
     Return False if not present
     """
+    assert is_user_zonefile(user_zonefile)
 
     data_hash = str(data_hash)
     assert storage.is_valid_hash(data_hash), 'Invalid data hash "{}"'.format(data_hash)
@@ -355,8 +349,9 @@ def remove_immutable_data_zonefile(user_zonefile, data_hash):
         try:
             h = get_immutable_hash_from_txt(txtrec['txt'])
             assert storage.is_valid_hash(h)
-        except:
-            # TODO: Check if we should use more fine-grained exception handling
+
+        except AssertionError as ae:
+            log.error("Invalid immutable data hash")
             continue
 
         if data_hash == h:
@@ -372,6 +367,7 @@ def has_immutable_data(user_zonefile, data_hash):
     Return True if so
     Return False if not
     """
+    assert is_user_zonefile(user_zonefile)
 
     data_hash = str(data_hash)
     assert storage.is_valid_hash(data_hash), 'Invalid data hash "{}"'.format(data_hash)
@@ -384,8 +380,9 @@ def has_immutable_data(user_zonefile, data_hash):
         try:
             h = get_immutable_hash_from_txt(txtrec['txt'])
             assert storage.is_valid_hash(h)
-        except:
-            # TODO: Check if we should use more fine-grained exception handling
+
+        except AssertionError as ae:
+            log.error("Invalid immutable data hash")
             continue
 
         if data_hash == h:
@@ -400,6 +397,8 @@ def has_immutable_data_id(user_zonefile, data_id):
     Return True if so
     Return False if not
     """
+    assert is_user_zonefile(user_zonefile)
+
     if 'txt' not in user_zonefile:
         return False
 
@@ -425,6 +424,7 @@ def get_immutable_data_hash(user_zonefile, data_id):
     Return the hash if there is one match.
     Return the list of hashes if there are multiple matches.
     """
+    assert is_user_zonefile(user_zonefile)
 
     if 'txt' not in user_zonefile:
         return None
@@ -468,6 +468,8 @@ def get_immutable_data_url(user_zonefile, data_hash):
     Return None if not given, or not found.
     """
 
+    assert is_user_zonefile(user_zonefile)
+
     if 'txt' not in user_zonefile:
         return None
 
@@ -475,12 +477,14 @@ def get_immutable_data_url(user_zonefile, data_hash):
         h = None
         try:
             h = get_immutable_hash_from_txt(txtrec['txt'])
+            assert storage.is_valid_hash(h)
+
             if data_hash != h:
                 continue
 
             url = get_immutable_url_from_txt(txtrec['txt'])
-        except:
-            # TODO: Check if we should use more fine-grained exception handling
+        except AssertionError as ae:
+            log.error("Invalid immutable data hash")
             continue
 
         return url
@@ -493,6 +497,8 @@ def list_immutable_data(user_zonefile):
     Get the IDs and hashes of all immutable data
     Return [(data ID, hash)]
     """
+    assert is_user_zonefile(user_zonefile)
+
     ret = []
     if 'txt' not in user_zonefile:
         return ret
@@ -503,23 +509,24 @@ def list_immutable_data(user_zonefile):
             h = get_immutable_hash_from_txt(txtrec['txt'])
             assert storage.is_valid_hash(h)
             ret.append((d_id, h))
-        except:
-            # TODO: Check if we should use more fine-grained exception handling
+        except AssertionError as ae:
+            log.error("Invalid immutable data hash")
             continue
 
     return ret
 
 
-def has_mutable_data(user_profile, data_id):
+def has_mutable_data_info(user_data_info, data_id):
     """
-    Does the given user profile have the named mutable data defined?
+    Does the given user data info have the named mutable data defined?
     Return True if so
     Return False if not
     """
-    if 'data' not in user_profile:
+
+    if not has_mutable_data_section(user_data_info):
         return False
 
-    for packed_data_txt in user_profile['data']:
+    for packed_data_txt in user_data_info['data'].keys():
         unpacked_data_id, version = unpack_mutable_data_md(packed_data_txt)
         if data_id == unpacked_data_id:
             return True
@@ -527,63 +534,63 @@ def has_mutable_data(user_profile, data_id):
     return False
 
 
-def get_mutable_data_profile(user_profile, data_id):
+def get_mutable_data_info(user_data_info, data_id):
     """
     Get info for a piece of mutable data, given
-    the user's profile and data_id.
+    the user's data info and data_id.
     Return the route (as a dict) on success
     Return None if not found
     """
 
-    if 'data' not in user_profile:
+    if not has_mutable_data_section(user_data_info):
         return None
 
     packed_prefix = pack_mutable_data_md_prefix(data_id)
-    for packed_data_txt in user_profile['data']:
+    for packed_data_txt in user_data_info['data'].keys():
         if not packed_data_txt.startswith(packed_prefix):
             continue
 
         unpacked_data_id, version = unpack_mutable_data_md(packed_data_txt)
         if data_id == unpacked_data_id:
-            return user_profile['data'][packed_data_txt]
+            return user_data_info['data'][packed_data_txt]
 
     return None
 
 
-def get_mutable_data_profile_ex(user_profile, data_id):
+def get_mutable_data_info_ex(user_data_info, data_id):
     """
     Get the metadata for a piece of mutable data, given
-    the user's profile and data_id.
-    Return the (route (as a dict), version, metadata key) on success
+    the user's data info and data_id.
+    Return the (links (as a dict), version, metadata key) on success
     Return (None, None, None) if not found
     """
 
-    if 'data' not in user_profile:
+    if not has_mutable_data_section(user_data_info):
         return None, None, None
 
-    for packed_data_txt in user_profile['data']:
+    for packed_data_txt in user_data_info['data'].keys():
         if not is_mutable_data_md(packed_data_txt):
             continue
 
         unpacked_data_id, version = unpack_mutable_data_md(packed_data_txt)
         if data_id == unpacked_data_id:
-            return user_profile['data'][packed_data_txt], version, packed_data_txt
+            return user_data_info['data'][packed_data_txt], version, packed_data_txt
 
     return None, None, None
 
 
-def get_mutable_data_profile_md(user_profile, data_id):
+def get_mutable_data_info_md(user_data_info, data_id):
     """
-    Get the serialized profile key for a piece of mutable data, given
-    the user's profile and data_id.
+    Get the serialized data info key for a piece of mutable data, given
+    the user's data info and data_id.
     Return the mutable data key on success (an opaque but unique string)
     Return None if not found
     """
 
-    if 'data' not in user_profile:
+    if not has_mutable_data_section(user_data_info):
         return None
 
-    for packed_data_txt in user_profile['data']:
+    for packed_data_txt in user_data_info['data'].keys():
         if not is_mutable_data_md(packed_data_txt):
             continue
 
@@ -591,7 +598,6 @@ def get_mutable_data_profile_md(user_profile, data_id):
         try:
             unpacked_data_id, version = unpack_mutable_data_md(packed_data_txt)
         except:
-            # TODO: Check if we should use more fine-grained exception handling
             continue
 
         if data_id == unpacked_data_id:
@@ -600,16 +606,17 @@ def get_mutable_data_profile_md(user_profile, data_id):
     return None
 
 
-def list_mutable_data(user_profile):
+def list_mutable_data(user_data_info):
     """
     Get a list of all mutable data information.
     Return [(data_id, version)]
     """
-    if 'data' not in user_profile:
+    
+    if not has_mutable_data_section(user_data_info):
         return []
 
     ret = []
-    for packed_data_txt in user_profile['data']:
+    for packed_data_txt in user_data_info['data'].keys():
         if not is_mutable_data_md(packed_data_txt):
             continue
 
@@ -617,7 +624,6 @@ def list_mutable_data(user_profile):
         try:
             unpacked_data_id, version = unpack_mutable_data_md(packed_data_txt)
         except:
-            # TODO: Check if we should use more fine-grained exception handling
             continue
 
         ret.append((unpacked_data_id, version))
@@ -625,57 +631,57 @@ def list_mutable_data(user_profile):
     return ret
 
 
-def put_mutable_data_profile(user_profile, data_id, version, zonefile):
+def put_mutable_data_info(user_data_info, data_id, version, mutable_data_links):
     """
-    Put mutable data to a user's profile.
-    Only works if the zonefile has a later version field, or doesn't exist.
+    Put mutable data to a data info struct.
+    Only works if the mutable data info has a later version field, or doesn't exist.
     Return True on success
     Return False if this is a duplicate
-    Raise an Exception if the route is invalid, or if this is a duplicate zonefile.
+    Raise an Exception if the route is invalid, or if this is a duplicate mutable data info.
     """
 
-    if not user_profile.setdefault('data', {}):
-        user_profile['data'].update(zonefile)
+    if not user_data_info.setdefault('data', {}):
+        existing_md = pack_mutable_data_md(data_id, version)
+        user_data_info['data'][existing_md] = mutable_data_links
         return True
 
-    existing_info, existing_version, existing_md = get_mutable_data_profile_ex(user_profile, data_id)
+    existing_info, existing_version, existing_md = get_mutable_data_info_ex(user_data_info, data_id)
 
     if existing_info is None:
         # first case of this mutable datum
-        user_profile['data'].update(zonefile)
+        user_data_info['data'][existing_md] = mutable_data_links
         return True
 
     # must be a newer version
     if existing_version >= version:
-        msg = 'Will not put mutable data zonefile; existing version {} >= {}'
+        msg = 'Will not put mutable data info; existing version {} >= {}'
         log.debug(msg.format(existing_version, version))
         return False
 
     # replace
-    del user_profile['data'][existing_md]
-    user_profile['data'].update(zonefile)
+    user_data_info['data'][existing_md] = mutable_data_links
 
     return True
 
 
-def remove_mutable_data_profile(user_profile, data_id):
+def remove_mutable_data_info(user_data_info, data_id):
     """
-    Remove info for mutable data from a user profile.
+    Remove info for mutable data from a user data info struct.
     Return True if removed
     Return False if the user had no such data.
     """
 
-    if 'data' not in user_profile:
+    if not has_mutable_data_section(user_data_info):
         return False
 
     # check for it
-    for packed_data_txt in user_profile['data']:
+    for packed_data_txt in user_data_info['data']:
         if not is_mutable_data_md(packed_data_txt):
             continue
 
         unpacked_data_id, version = unpack_mutable_data_md(packed_data_txt)
         if data_id == unpacked_data_id:
-            del user_profile['data'][packed_data_txt]
+            del user_data_info['data'][packed_data_txt]
             return True
 
     # already gone
@@ -700,10 +706,9 @@ def unpack_mutable_data_md(rec):
     """
     Unpack an mutable datum's key into its metadata
     """
-    parts = rec.split(':')
-    assert len(parts) == 3, 'parts = {}'.format(parts)
-    assert parts[0] == 'mutable', 'parts = {}'.format(parts)
+    assert is_mutable_data_md(rec)
 
+    parts = rec.split(':')
     data_id = base64.b64decode(parts[1])
     version = int(parts[2])
 
@@ -714,37 +719,43 @@ def is_mutable_data_md(rec):
     """
     Is this a mutable datum's key?
     """
-    parts = rec.split(':')
-    if len(parts) != 3:
+    mutable_data_schema = {
+        'type': 'string',
+        'pattern': OP_MUTABLE_DATA_MD_PATTERN
+    }
+    
+    try:
+        jsonschema.validate(rec, mutable_data_schema)
+        return True
+
+    except ValidationError as ve:
+        if BLOCKSTACK_TEST:
+            log.exception(ve)
+
         return False
 
-    return parts[0] == 'mutable'
 
-
-def make_mutable_data(data_id, version, urls):
+def make_mutable_data_links(data_id, version, urls):
     """
     Make a zonefile for mutable data.
     """
     data_name = pack_mutable_data_md(data_id, version)
-
     uris = [url_to_uri_record(url, data_id) for url in urls]
-
     return {data_name: {'uri': uris}}
 
 
-def mutable_data_version(user_profile, data_id):
+def mutable_data_version(user_data_info, data_id):
     """
     Get the data version for a piece of mutable data.
     Return 0 if it doesn't exist
     """
 
-    key = get_mutable_data_profile_md(user_profile, data_id)
+    key = get_mutable_data_info_md(user_data_info, data_id)
     if key is None:
         log.debug('No mutable data zonefiles installed for "{}"'.format(data_id))
         return 0
 
     data_id, version = unpack_mutable_data_md(key)
-
     return version
 
 
