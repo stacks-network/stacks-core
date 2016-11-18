@@ -50,7 +50,7 @@ def serialize_mutable_data_id(data_id):
     return urllib.quote(data_id.replace('\0', '\\0')).replace('/', r'\x2f')
 
 
-def load_mutable_data_version(conf, name, fq_data_id):
+def load_mutable_data_version(conf, fq_data_id):
     """
     Get the version field of a piece of mutable data from local cache.
     """
@@ -394,7 +394,7 @@ def get_mutable(name, data_id, proxy=None, ver_min=None, ver_max=None,
     get_mutable
 
     Fetch a piece of mutable data.  Use @data_id to look it up in the user's
-    profile, and then fetch and erify the data itself from the configured
+    profile, and then fetch and verify the data itself from the configured
     storage providers.
 
     If @ver_min is given, ensure the data's version is greater or equal to it.
@@ -426,10 +426,11 @@ def get_mutable(name, data_id, proxy=None, ver_min=None, ver_max=None,
         return {'error': msg}
 
     # get the mutable data zonefile
-    if not user_db.has_mutable_data(user_profile, data_id):
+    if not user_db.has_mutable_data_info(user_profile, data_id):
         return {'error': 'No such mutable datum'}
 
-    mutable_data_info = user_db.get_mutable_data_profile(user_profile, data_id)
+    mutable_data_info = user_db.get_mutable_data_info(user_profile, data_id)
+
     msg = 'BUG: could not look up mutable datum "{}"."{}"'
     assert mutable_data_info is not None, msg.format(name, data_id)
 
@@ -448,7 +449,7 @@ def get_mutable(name, data_id, proxy=None, ver_min=None, ver_max=None,
     if mutable_data is None:
         return {'error': 'Failed to look up mutable datum'}
 
-    expected_version = load_mutable_data_version(conf, name, data_id)
+    expected_version = load_mutable_data_version(conf, data_id)
     expected_version = 0 if expected_version is None else expected_version
 
     # check consistency
@@ -571,7 +572,7 @@ def get_app_data(name, service_id, account_id, data_id, version=None, proxy=None
     urls = storage.make_mutable_data_urls(fq_data_id, use_only=storage_drivers)
 
     if version is None:
-        version = load_mutable_data_version(conf, name, account_data_id)
+        version = load_mutable_data_version(conf, account_data_id)
         version = 1 if version is None else version
 
     # get the data
@@ -807,7 +808,7 @@ def put_mutable(name, data_id, data_json, proxy=None, create_only=False, update_
     user_profile = user_profile['profile']
     user_zonefile = user_zonefile['zonefile']
 
-    exists = user_db.has_mutable_data(user_profile, data_id)
+    exists = user_db.has_mutable_data_info(user_profile, data_id)
     if not exists and update_only:
         return {'error': 'Mutable datum does not exist'}
 
@@ -834,10 +835,10 @@ def put_mutable(name, data_id, data_json, proxy=None, create_only=False, update_
         assert data_privkey is not None
 
     urls = storage.make_mutable_data_urls(fq_data_id)
-    mutable_info = user_db.make_mutable_data(data_id, version, urls)
+    mutable_info = user_db.make_mutable_data_links(data_id, version, urls)
 
     # add the mutable data to the profile
-    rc = user_db.put_mutable_data_profile(user_profile, data_id, version, mutable_info)
+    rc = user_db.put_mutable_data_info(user_profile, data_id, version, mutable_info)
     assert rc, 'Failed to put mutable data zonefile'
 
     # for legacy migration...
@@ -917,7 +918,7 @@ def put_app_data(name, service_id, account_id, data_id, data_bin, data_privkey,
 
     # store a signed version along with this data
     if version is None:
-        version = load_mutable_data_version(conf, name, account_data_id)
+        version = load_mutable_data_version(conf, account_data_id)
         version = 1 if version is None else version
 
     result = {}
@@ -1088,11 +1089,11 @@ def delete_mutable(name, data_id, proxy=None, wallet_keys=None):
         return {'error': 'Non-standard or legacy zonefile'}
 
     # already deleted?
-    if not user_db.has_mutable_data(user_profile, data_id):
+    if not user_db.has_mutable_data_info(user_profile, data_id):
         return {'status': True}
 
     # unlink
-    user_db.remove_mutable_data_profile(user_profile, data_id)
+    user_db.remove_mutable_data_info(user_profile, data_id)
 
     # put new profile
     data_privkey = get_data_or_owner_privkey(
@@ -1464,3 +1465,568 @@ def set_data_pubkey(name, data_pubkey, proxy=None, wallet_keys=None, txid=None):
     # success!
     result['status'] = True
     return result
+
+
+def get_datastore(fqu, datastore_name, data_pubkey, **kw ):
+    """
+    Get the user's data store information 
+    Returns {'status': True, 'data_store': root} on success.
+    Returns {'error': ...} on failure
+    """
+    datastore_id = make_fq_data_id( fqu, datastore_name )
+    datastore = get_mutable_data( datastore_id, data_pubkey, **kw )
+    return datastore
+
+
+def _get_inode( fqu, inode_uuid, data_pubkey, drivers, config_path=CONFIG_PATH ):
+    """
+    Get an inode from mutable storage.  Verify that it has an
+    equal or later version number than the one we have locally.
+
+    Return {'status': True, 'inode': inode info} on success
+    Return {'error': ...} on error
+    """
+
+    conf = get_config(config_path)
+    assert conf
+
+    inode_id = storage.make_fq_data_id( fqu, inode_uuid )
+
+    expected_version = load_mutable_data_version(conf, inode_id)
+    expected_version = 0 if expected_version is None else expected_version
+
+    inode_info = storage.get_mutable_data( inode_id, data_pubkey, drivers=drivers )
+    if inode_info is None:
+        log.error("Failed to look up {}".format(inode_id))
+        return {'error': 'Failed to look up inode'}
+
+    # must be a file or directory 
+    try:
+        jsonschema.validate(inode_info, MUTABLE_DATA_DIR_SCHEMA)
+    except ValidationError as ve:
+        try:
+            jsonschema.validate(inode_info, MUTABLE_DATA_FILE_SCEHAM)
+        except ValidationError as ve:
+            return {'error': 'Invalid inode structure'}
+
+    inode_version = inode_info['version']
+    if expected_version > inode_version:
+        log.error("Got stale version of {}: expected {} or greater, got {}".foramt(inode_id, expected_version, inode_version))
+        return {'error': 'Stale data'}
+
+    rc = store_mutable_data_version(conf, inode_id, inode_version)
+    if not rc:
+        log.error("Failed to store inode version for {}".format(inode_id))
+        return {'error': 'Failed to store inode version'}
+
+    return {'status': True, 'inode': inode_info}
+
+
+def _put_inode( fqu, inode_uuid, inode_data, data_privkey, drivers, config_path=CONFIG_PATH, create=False ):
+    """
+    Store an inode to mutable storage.  Record its version locally as well.
+
+    Return {'status': True} on success
+    Return {'error': ...} on error
+    """
+
+    conf = config.get_config(config_path)
+    assert conf
+
+    inode_id = storage.make_fq_data_id( fqu, inode_uuid )
+    expected_version = load_mutable_data_version(conf, inode_id)
+    if expected_version is not None:
+        assert not create
+        assert expected_version < inode_data['version'], "Tried to put stale inode data for {}".format(inode_id)
+
+    res = storage.put_mutable_data( inode_id, inode_data, data_privkey, drivers=drivers )
+    if not res:
+        log.error("Failed to store inode {}".format(inode_id))
+        return {'error': 'Failed to store inode'}
+
+    rc = store_mutable_data_version(conf, inode_id, inode_data['version'])
+    if not rc:
+        log.error("Failed to store inode version for {}".format(inode_id))
+        return {'error': "Failed to store inode version"}
+
+    return {'status': True}
+
+
+def _resolve_path( datastore, fq_data_path, data_pubkey, config_path=CONFIG_PATH ):
+    """
+    Given a fully-qualified data path, the user's datastore record, and a private key,
+    go and traverse the directory heirarchy encoded
+    in the data path and fetch the data at the leaf.
+
+    @fq_data_path must be formatted as `username:path` where `path` is a non-empty string.
+
+    Return the resolved path on success.  If the path was '/a/b/c', then return
+    {
+        '/': {'uuid': ..., 'name': '', 'uuid': ...., 'parent': '',  'inode': directory},
+        '/a/': {'uuid': ..., 'name': 'a', 'uuid': ...,  'parent': '', 'inode': directory},
+        '/a/b/': {'uuid': ..., 'name': 'b', 'uuid': ..., 'parent': '/a/', 'inode': directory},
+        '/a/b/c': {'uuid': ..., 'name': 'c', 'uuid': ..., 'parent': '/a/b/', 'inode' file}
+    }
+
+    Return {'error': ...} on error
+    """
+
+    fq_data_path = str(fq_data_path)
+    assert is_fq_data_id(fq_data_path), 'Need a fully-qualified data path'
+
+    parts = fq_data_path.split(':')
+    path = ':'.join(parts[1:])
+    fqu = parts[0]
+    
+    path = os.path.realpath(path)
+    path_parts = path.split('/')
+    prefix = ''
+
+    drivers = datastore['drivers']
+    root_uuid = datastore['root_uuid']
+
+    root_inode = _get_inode( fqu, root_uuid, data_pubkey, drivers, config_path=CONFIG_PATH )
+    if 'error' in root_inode:
+        return root_inode
+
+    ret = {
+        '/': {'uuid': root_uuid, 'name': '', 'parent': '', 'inode': root_inode}
+    }
+    
+    # walk 
+    i = 0
+    child_uuid = None
+    name = None
+
+    for i in xrange(0, len(path_parts)):
+
+        # find child UUID
+        name = path_parts[i]
+        child_dirent = cur_dir['data'].get(name, None)
+
+        if child_dirent is None:
+            log.error('No child "{}" in "{}"'.format(name, prefix))
+            return {'error': 'No such file or directory'}
+       
+        if child_dirent['type'] == MUTABLE_DATUM_FILE_TYPE:
+            break
+
+        child_uuid = child_dirent['uuid']
+        child_urls = user_db.mutable_data_urls( child_dirent['links'] )
+
+        # get child
+        child_entry = _get_inode( fqu, child_uuid, data_pubkey, drivers, config_path=CONFIG_PATH)
+        if 'error' in child_entry:
+            return child_entry
+
+        assert child_entry['type'] == child_dirent['type'], "Corrupt inode {}".format(storage.make_fq_data_id(fqu,child_uuid))
+
+        path_ent = {
+            'name': name,
+            'uuid': child_uuid,
+            'inode': child_entry,
+            'parent': prefix,
+        }
+
+        ret[prefix] = path_ent
+
+        # next directory
+        cur_dir = child_entry
+        prefix += name + '/'
+
+    # did we reach the end?
+    if i < len(path_parts):
+        log.error('Out of path at "{}"'.format(prefix))
+        return {'error': 'Not a directory'}
+
+    # final entry
+    ret[prefix + name] = {
+        'name': name,
+        'uuid': child_uuid,
+        'inode': child_entry,
+        'parent': prefix,
+    }
+
+    return ret
+
+
+def _mutable_data_make_inode( inode_type, data_address, group_id, permissions ):
+    """
+    Set up the basic properties of an inode.
+    """
+    default_permissions = {
+        'owner': {
+            'read': True,
+            'write': True,
+        },
+        'group': {
+            'read': True,
+            'write': False,
+        },
+        'world': {
+            'read': False,
+            'write': False
+        },
+    }
+
+    if permissions is None:
+        permissions = default_permissions
+
+    return {
+        'type':  inode_type,
+        'owner': data_address,
+        'group': group_id,
+        'version': 1,
+        'permissions': default_permissions
+    }
+
+
+def _mutable_data_make_dir( data_address, group_id, permissions ):
+    """
+    Set up inode state for a directory
+    """
+    inode_state = _mutable_data_make_inode( MUTABLE_DATUM_DIR_TYPE, data_address, group_id )
+    inode_state['data'] = {}
+    return inode_state 
+
+
+def _mutable_data_make_file( data_address, group_id, permissions, data_payload ):
+    """
+    Set up inode state for a file
+    """
+    inode_state = _mutable_data_make_inode( MUTABLE_DATUM_FILE_TYPE, data_address, group_id )
+    inode_state['data'] = base64.b64encode(data_payload)
+    return inode_state
+
+
+def _mutable_data_dir_link( parent_dir, child_type, child_name, child_uuid, child_links ):
+    """
+    Attach a child inode to a diretory.
+    Return the new parent directory, and the added dirent
+    """
+    child_links_schema = {
+        'type': 'array',
+        'items': URI_RECORD_SCHEMA
+    }
+
+    assert child_name not in parent_dir['data'].keys()
+    jsonschema.validate(child_links, child_links_schema)
+
+    new_dirent = {
+        'uuid': child_uuid,
+        'type': child_type,
+        'links': child_links
+    }
+
+    parent_dir['data'][child_name] = new_dirent
+    return parent_dir, new_dirent
+
+
+def _mutable_data_dir_unlink( parent_dir, child_name ):
+    """
+    Detach a child inode from a directory.
+    Return the new parent directory.
+    """
+    assert child_name in parent_dir['data'].keys()
+    del parent_dir['data'][child_name]
+    return parent_dir
+
+
+def _mutable_data_make_links( fqu, inode_uuid, urls=None, drivers=None ):
+    """
+    Make a bundle of URI record links for the given inode data.
+    """
+    global storage_drivers
+    if drivers is None:
+        drivers = storage_drivers
+
+    fq_data_id = make_fq_data_id(fqu, inode_uuid)
+
+    if urls is None:
+        urls = get_driver_urls( fq_data_id, drivers )
+
+    data_links = [user_db.url_to_uri_record(u) for u in urls]
+    return data_links
+
+
+def _parse_data_path( fq_data_path ):
+    """
+    Clean up a data path
+    """
+    parts = fq_data_path.split(':')
+    path = ':'.join(parts[1:])
+    fqu = parts[0]
+    
+    path = os.path.realpath(path)
+    path_parts = path.split('/')
+
+    name = path_parts[-1]
+    dirpath = '/'.join(path_parts[:-1])
+
+    return {'iname': name, 'fqu': fqu, 'dirpath': dirpath, 'path': path, 'fq_data_path': make_fq_data_id(fqu, dirpath)}
+
+
+def _lookup( datastore, fq_data_path, data_pubkey, config_path=CONFIG_PATH ):
+    """
+    Look up all the inodes along the given fully-qualified path, verifying them and ensuring that they're fresh along the way.
+
+    Return {'status': True, 'path_info': path info: path, 'inode_info': inode info} on success
+    Return {'error': ...} on error
+    """
+    info = _parse_data_path( fq_data_path )
+
+    fqu = info['fqu']
+    name = info['iname']
+    dirpath = info['dirpath']
+    path = info['path']
+    fq_data_path = info['fq_data_path']
+
+    drivers = datastore['drivers']
+
+    # find the parent directory
+    path_info = _resolve_path( fq_data_path, data_pubkey, drivers=drivers, config_path=config_path )
+    if 'error' in path_info:
+        log.error('Failed to resolve {}'.format(dirpath))
+        return path_info
+
+    assert path in path_info.keys()
+    inode_info = path_info[path]
+
+    return {'status': True, 'path_info': path_info, 'inode_info': inode_info}
+
+
+def mkdir( datastore, fq_data_path, group_id, permissions, data_privkey, config_path=CONFIG_PATH ):
+    """
+    Make a directory at the given path.  The parent directory must exist.
+    Return {'status': True} on success
+    Return {'error': ...} on failure (optionally with 'stored_child': True set)
+    """
+
+    path_info = _parse_data_path( fq_data_path )
+    fq_data_path = path_info['fq_data_path']
+
+    drivers = datastore['drivers']
+    data_pubkey = ECPrivateKey(data_privkey).public_key().to_hex()
+
+    parent_fq_path = os.path.dirname(fq_data_path.strip('/'))
+    parent_info = _lookup( datastore, parent_fq_path, data_pubkey, config_path=config_path )
+    if 'error' in parent_info:
+        log.error('Failed to resolve {}'.format(parent_fq_path))
+        return parent_info
+
+    parent_dir_info = parent_info['inode_info']
+    parent_dir = parent_dir_info['inode']
+    parent_uuid = parent_dir_info['uuid']
+
+    if parent_dir['type'] != MUTABLE_DATUM_DIR_TYPE:
+        log.error('Not a directory: {}'.format(dirpath))
+        return {'error': 'Not a directory'}
+
+    # does a file or directory already exist?
+    if name in parent_dir['data'].keys():
+        log.error('Already exists: {}'.format(path))
+        return {'error': 'Path already exists'}
+
+    # make a directory!
+    child_uuid = uuid.uuid4()
+    child_dir_info = _mutable_data_make_dir( data_address, group_id, permissions )     # TODO: permissions
+    child_dir_links = _mutable_data_make_links( fqu, child_uuid, drivers=drivers )
+
+    # update parent 
+    parent_dir = _mutable_data_dir_link( parent_dir, MUTABLE_DATA_DIR_TYPE, name, child_uuid, child_dir_links )
+    
+    # replicate the new child
+    res = _put_inode( fqu, child_uuid, child_dir_info, data_privkey, drivers, config_path=config_path, create=True )
+    if not res:
+        return {'error': 'Failed to store child directory'}
+
+    # replicate the new parent 
+    res = _put_inode( fqu, parent_uuid, parent_dir, data_privkey, drivers, config_path=config_path )
+    if not res:
+        return {'error': 'Failed to store parent directory', 'stored_child': True}
+
+    # TODO: cache traversed path
+
+    return {'status': True}
+
+
+def rmdir( datastore, fq_data_path, data_privkey, config_path=CONFIG_PATH ):
+    """
+    Remove a directory at the given path.  The directory must be empty.
+    Return {'status': True} on success
+    Return {'error': ...} on error
+    """
+    
+    path_info = _parse_data_path( fq_data_path )
+    fq_data_path = path_info['fq_data_path']
+    name = path_info['iname']
+    fqu = path_info['fqu']
+
+    drivers = datastore['drivers']
+    data_pubkey = ECPrivateKey(data_privkey).public_key().to_hex()
+
+    dir_info = _lookup( datastore, fq_data_path, data_pubkey, config_path=config_path )
+    if 'error' in dir_info:
+        log.error('Failed to resolve {}'.format(fq_data_path))
+        return dir_info
+
+    # is this a directory?
+    dir_inode_info = dir_info['inode_info']
+    dir_inode_uuid = dir_inode_info['uuid']
+    dir_inode = dir_inode_info['inode']
+
+    if dir_inode['type'] != MUTABLE_DATUM_DIR_TYPE:
+        log.error('Not a directory: {}'.format(fq_data_path))
+        return {'error': 'Not a directory'}
+    
+    # get parent of this directory
+    parent_dir_inode_info = dir_info['path_info'][dir_inode_info['parent']]
+    parent_dir_uuid = parent_dir_inode_info['uuid']
+    parent_dir_inode = parent_dir_inode_info['inode']
+
+    # is this directory empty?
+    if len(dir_inode['data']) > 0:
+        log.error("Directory {} has {} entries".format(fq_data_path, len(dir_inode['data'])))
+        return {'error': 'Directory not empty'}
+
+    # good to do.  Update parent 
+    parent_dir_inode = _mutable_data_dir_unlink( parent_dir_inode, name )
+    res = _put_inode( fqu, parent_dir_uuid, parent_dir_inode, data_privkey, drivers, config_path=config_path)
+    if not res:
+        return {'error': 'Failed to update directory {}'.format(dir_path)}
+
+    # delete the child
+    res = delete_mutable_data( make_fq_data_id(fqu, dir_inode_uuid), data_privkey )
+    if not res:
+        return {'error': 'Failed to delete directory {}'.format(fq_data_path)}
+
+    # TODO: invalidate cached data
+
+    return {'status': True}
+
+
+def get_file( datastore, fq_data_path, data_pubkey, config_path=CONFIG_PATH ):
+    """
+    Get a file identified by a path.
+    Return {'status': True, 'inode_info': inode_info, 'data': data} on success
+    Return {'error': ...} on error
+    """
+    path_info = _parse_data_path( fq_data_path )
+    fq_data_path = path_info['fq_data_path']
+    fqu = path_info['fqu']
+
+    drivers = datastore['drivers']
+    
+    file_info = _lookup( datastore, fq_data_path, data_pubkey, config_path=CONFIG_PATH )
+    if 'error' in dir_info:
+        log.error("Failed to resolve {}".format(fq_data_path))
+        return file_info
+
+    # TODO: cache
+    return file_info['inode_info']['inode']
+
+
+def put_file( datastore, fq_data_path, group_id, permissions, file_data, data_privkey, config_path=CONFIG_PATH ):
+    """
+    Store a file identified by a path, creating it if need be.
+    Return {'status': True} on success.
+    Return {'error': ...} on error.
+    """
+    path_info = _parse_data_path( fq_data_path )
+    fq_data_path = path_info['fq_data_path']
+    fqu = path_info['fqu']
+    name = path_info['iname']
+    parent_dirpath = path_info['dirpath']
+
+    drivers = datastore['drivers']
+    data_pubkey = ECPrivateKey(data_privkey).public_key().to_hex()
+    data_address = ECPublicKey(data_pubkey).address()
+
+    # make sure the file doesn't exist
+    fq_dir_path = storage.make_fq_data_id( fqu, parent_dirpath )
+    parent_path_info = _lookup( datastore, fq_data_path, data_pubkey, config_path=config_path )
+    if 'error' in parent_path_info:
+        log.error("Failed to resolve {}".format(fq_dir_path))
+        return parent_path_info
+
+    parent_dir_info = parent_path_info['inode_info']
+    parent_uuid = parent_path_info['uuid']
+    parent_dir_inode = parent_dir_info['inode']
+
+    if name in parent_dir_inode['data'].keys():
+        # already exists
+        log.error('Already exists: {}'.format(fq_data_path))
+        return {'error': 'Already exists'}
+
+    # make a file!
+    child_uuid = uuid.uuid4()
+    child_file_info = _mutable_data_make_file( data_address, group_id, permissions, file_data )
+    child_file_links = _mutable_data_make_links( fqu, child_uuid, drivers=drivers )
+
+    # update parent 
+    parent_dir = _mutable_data_dir_link( parent_dir, MUTABLE_DATA_FILE_TYPE, name, child_uuid, child_file_links )
+    
+    # replicate the new child
+    res = _put_inode( fqu, child_uuid, child_file_info, data_privkey, drivers, config_path=config_path, create=True )
+    if not res:
+        return {'error': 'Failed to store child directory'}
+
+    # replicate the new parent 
+    res = _put_inode( fqu, parent_uuid, parent_dir_inode, data_privkey, drivers, config_path=config_path )
+    if not res:
+        return {'error': 'Failed to store parent directory', 'stored_child': True}
+
+    # TODO: cache traversed path
+
+    return {'status': True}
+
+
+def delete_file( datastore, fq_data_path, data_privkey, config_path=CONFIG_PATH ):
+    """
+    Delete a file from a directory.
+    Return {'status': True} on success
+    Return {'error': ...} on error
+    """
+    path_info = _parse_data_path( fq_data_path )
+    fq_data_path = path_info['fq_data_path']
+    fqu = path_info['fqu']
+    name = path_info['iname']
+    parent_dirpath = path_info['dirpath']
+
+    drivers = datastore['drivers']
+    data_pubkey = ECPrivateKey(data_privkey).public_key().to_hex()
+
+    file_path_info = _lookup( datastore, fq_data_path, data_pubkey, config_path=config_path )
+    if 'error' in file_path_info:
+        log.error('Failed to resolve {}'.format(fq_data_path))
+        return file_path_info
+
+    # is this a directory?
+    file_inode_info = file_path_info['inode_info']
+    file_uuid = file_inode_info['uuid']
+    file_inode = file_inode_info['inode']
+
+    if file_inode['type'] != MUTABLE_DATUM_FILE_TYPE:
+        log.error('Not a file: {}'.format(fq_data_path))
+        return {'error': 'Not a file'}
+    
+    # get parent of this directory
+    parent_dir_inode_info = file_path_info['path_info'][file_inode_info['parent']]
+    parent_dir_uuid = parent_dir_inode_info['uuid']
+    parent_dir_inode = parent_dir_inode_info['inode']
+
+    # Update parent 
+    parent_dir_inode = _mutable_data_dir_unlink( parent_dir_inode, name )
+    res = _put_inode( fqu, parent_dir_uuid, parent_dir_inode, data_privkey, drivers, config_path=config_path)
+    if not res:
+        return {'error': 'Failed to update directory {}'.format(dir_path)}
+
+    # delete the child
+    res = delete_mutable_data( make_fq_data_id(fqu, file_inode_uuid), data_privkey )
+    if not res:
+        return {'error': 'Failed to delete file {}'.format(fq_data_path)}
+
+    # TODO: invalidate cached data
+
+    return {'status': True}
+
