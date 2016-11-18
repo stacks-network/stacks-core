@@ -210,38 +210,3 @@ def delete_account(name, service, identifier, proxy=None, wallet_keys=None):
     return res
 
 
-def create_app_account(name, service, identifier, app_url, storage_drivers,
-                       data_pubkey, proxy=None, wallet_keys=None, **extra_fields):
-    """
-    Make a Blockstck application account.
-    This account is different than one created by `put_account`, since
-    it is constructed specifically for Blockstack applications.
-    It has a few other goodies in it.
-
-    Return {'status': True} on success
-    Return {'error': ...} on failure
-
-    Raise on invalid input
-    """
-
-    if storage_drivers is None or not storage_drivers:
-        raise ValueError('No storage drivers given')
-
-    return put_account(
-        name, service, identifier, app_url, create=True, replace=False,
-        proxy=proxy, wallet_keys=wallet_keys, data_pubkey=data_pubkey,
-        storage_drivers=storage_drivers, **extra_fields
-    )
-
-
-def delete_app_account(name, service, identifier, wallet_keys=None, proxy=None):
-    """
-    Delete an application-specific account
-
-    Return {'status': True} on success
-    Return {'error': ...} on failure
-    """
-
-    res = delete_account(name, service, identifier, proxy=proxy, wallet_keys=wallet_keys)
-
-    return res if 'error' in res else {'status': True}
