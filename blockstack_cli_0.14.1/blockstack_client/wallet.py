@@ -220,6 +220,10 @@ def encrypt_wallet(wallet, password):
     owner_privkey_info = wallet['owner_privkey']
     data_privkey_info = wallet['data_privkey']
 
+    if not is_singlesig(data_privkey_info):
+        log.error('Invalid data private key')
+        return {'error': 'Invalid data private key'}
+
     encrypted_wallet = _make_encrypted_wallet_data(password, payment_privkey_info, owner_privkey_info, data_privkey_info)
 
     if 'error' in encrypted_wallet:
@@ -439,7 +443,7 @@ def decrypt_wallet(data, password, config_path=CONFIG_PATH,
             default_keypair = key_defaults[keyname]
             new_wallet[keyname_privkey] = default_keypair[1]
             new_wallet[keyname_addresses] = [
-                    virtualchain.BitcoinPrivateKey(new_wallet[keyname_privkey]).public_key().address()
+                virtualchain.BitcoinPrivateKey(new_wallet[keyname_privkey]).public_key().address()
             ]
 
             migrated = True
