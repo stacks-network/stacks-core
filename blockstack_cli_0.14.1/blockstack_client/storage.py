@@ -31,12 +31,13 @@ import json
 import hashlib
 import urllib
 import urllib2
+import ecdsa
 import blockstack_zones
 
 import blockstack_profiles
 
 from config import get_logger
-from constants import CONFIG_PATH
+from constants import CONFIG_PATH, BLOCKSTACK_TEST
 from scripts import is_name_valid
 import keys
 
@@ -383,15 +384,70 @@ def get_immutable_data(data_hash, data_url=None, hash_func=get_data_hash, fqu=No
 def sign_raw_data(raw_data, privatekey):
     """
     Sign a string of data.
-    Return a base64-encoded signature.
+    Returns signature as a base64 string
     """
     data_hash = get_data_hash(raw_data)
 
-    data_sig_bin = bitcoin.ecdsa_raw_sign(data_hash, privatekey)
+    pk = ECPrivateKey(privatekey)
+    pk_hex = pk.to_hex()
 
-    return bitcoin.encode_sig(
-        data_sig_bin[0], data_sig_bin[1], data_sig_bin[2]
-    )
+    # force uncompressed
+    if len(pk_hex) > 64:
+        pk = ECPrivateKey(privkey[:64])
+    
+    priv = pk.to_hex()
+    pub = pk.public_key().to_hex()
+
+    assert len(pub[2:].decode('hex')) == ecdsa.SECP256k1.verifying_key_len, "BUG: Invalid key decoding"
+ 
+    sk = ecdsa.SigningKey.from_string(priv.decode('hex'), curve=ecdsa.SECP256k1)
+    sig_bin = sk.sign_digest(data_hash.decode('hex'), sigencode=ecdsa.util.sigencode_der)
+    
+    # enforce low-s
+    sig_r, sig_s = ecdsa.util.sigdecode_der( sig_bin, ecdsa.SECP256k1.order )
+    if sig_s * 2 >= ecdsa.SECP256k1.order:
+        log.debug("High-S to low-S")
+        sig_s = ecdsa.SECP256k1.order - sig_s
+
+    sig_bin = ecdsa.util.sigencode_der( sig_r, sig_s, ecdsa.SECP256k1.order )
+
+    # sanity check 
+    vk = ecdsa.VerifyingKey.from_string(pub[2:].decode('hex'), curve=ecdsa.SECP256k1)
+    assert vk.verify_digest(sig_bin, data_hash.decode('hex'), sigdecode=ecdsa.util.sigdecode_der), "Failed to verify signature ({}, {})".format(sig_r, sig_s)
+
+    return base64.b64encode( bitcoin.encode_sig( None, sig_r, sig_s ).decode('hex') )
+
+
+def secp256k1_compressed_pubkey_to_uncompressed_pubkey( pubkey ):
+    """
+    convert a secp256k1 compressed public key into an uncompressed public key.
+    taken from https://bitcointalk.org/index.php?topic=644919.msg7205689#msg7205689
+    """
+    pubk = ECPublicKey(pubkey).to_hex()
+
+    assert len(pubk) == 66, "Not a compressed hex public key"
+
+    def pow_mod(x, y, z):
+        "Calculate (x ** y) % z efficiently."
+        number = 1
+        while y:
+            if y & 1:
+                number = number * x % z
+            y >>= 1
+            x = x * x % z
+        return number
+    
+    p = ecdsa.SECP256k1.curve.p()
+    b = ecdsa.SECP256k1.curve.b()
+    y_parity = int(pubk[:2]) - 2
+    x = int(pubk[2:], 16)
+    a = (pow_mod(x, 3, p) + b) % p
+    y = pow_mod(a, (p+1)//4, p)
+    if y % 2 != y_parity:
+        y = -y % p
+
+    uncompressed_pubk = '04{:x}{:x}'.format(x, y)
+    return uncompressed_pubk
 
 
 def verify_raw_data(raw_data, pubkey, sigb64):
@@ -403,10 +459,13 @@ def verify_raw_data(raw_data, pubkey, sigb64):
     """
 
     data_hash = get_data_hash(raw_data)
+    pubk = ECPublicKey(pubkey).to_hex()
+    if len(pubk) == 66:
+        pubk = secp256k1_compressed_pubkey_to_uncompressed_pubkey( pubkey )
 
-    return bitcoin.ecdsa_raw_verify(
-        data_hash, bitcoin.decode_sig(sigb64), pubkey
-    )
+    sig_bin = base64.b64decode(sigb64)
+    vk = ecdsa.VerifyingKey.from_string( pubk[2:].decode('hex'), curve=ecdsa.SECP256k1 )
+    return vk.verify_digest(sig_bin, data_hash.decode('hex'), sigdecode=ecdsa.util.sigdecode_der)
 
 
 def get_drivers_for_url(url):
@@ -426,10 +485,28 @@ def get_drivers_for_url(url):
     return ret
 
 
+def get_driver_urls( fq_data_id, storage_drivers ):
+    """
+    Get the list of URLs for a particular datum
+    """
+    ret = []
+    for sh in storage_drivers:
+        if not getattr(sh, 'make_mutable_url', None):
+            continue
+        
+        ret.append( sh.make_mutable_url(fq_data_id) )
+
+    return ret
+
+
 def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None,
                      owner_address=None, drivers=None, decode=True):
     """
-    Given a mutable data's zonefile, go fetch the data.
+    Low-level call to get mutable data, given a fully-qualified data name.
+
+    @fq_data_id is either a username, or username:mutable_data_name
+
+    The mutable_data_name field is an opaque name.
 
     Return a mutable data dict on success
     Return None on error
@@ -624,6 +701,9 @@ def put_mutable_data(fq_data_id, data_json, privatekey, required=None, use_only=
 
     @fq_data_id is the fully-qualified data id.  It must be prefixed with the username,
     to avoid collisions in shared mutable storage.
+    i.e. the format is either `username` or `username:mutable_data_name`
+
+    The mutable_data_name field is an opaque string.
 
     Return True on success
     Return False on error
@@ -708,7 +788,7 @@ def delete_immutable_data(data_hash, txid, privkey):
 
     data_hash = str(data_hash)
     txid = str(txid)
-    sigb64 = sign_raw_data(data_hash + txid, privkey)
+    sigb64 = sign_raw_data("delete:" + data_hash + txid, privkey)
 
     for handler in storage_handlers:
         if not getattr(handler, 'delete_immutable_handler', None):
@@ -727,6 +807,8 @@ def delete_mutable_data(fq_data_id, privatekey, only_use=None):
     """
     Given the data ID and private key of a user,
     go and delete the associated mutable data.
+
+    The fq_data_id is an opaque identifier that is prefixed with the username.
     """
 
     global storage_handlers
@@ -742,7 +824,7 @@ def delete_mutable_data(fq_data_id, privatekey, only_use=None):
     msg = 'Data ID must be fully qualified or must be a valid blockchain ID (got {})'
     assert is_fq_data_id(fq_data_id) or is_name_valid(fq_data_id), msg.format(fq_data_id)
 
-    sigb64 = sign_raw_data(fq_data_id, privatekey)
+    sigb64 = sign_raw_data("delete:" + fq_data_id, privatekey)
 
     # remove data
     for handler in storage_handlers:
