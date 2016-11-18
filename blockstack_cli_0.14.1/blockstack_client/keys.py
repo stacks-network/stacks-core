@@ -363,7 +363,7 @@ def get_data_privkey(user_zonefile, wallet_keys=None, config_path=CONFIG_PATH):
         return
 
     # zonefile matches data privkey
-    return data_privkey
+    return ECPrivateKey(data_privkey).to_wif()
 
 
 def get_data_or_owner_privkey(user_zonefile, owner_address, wallet_keys=None, config_path=CONFIG_PATH):
@@ -388,26 +388,24 @@ def get_data_or_owner_privkey(user_zonefile, owner_address, wallet_keys=None, co
     log.warn('No data private key set.  Falling back to owner keypair.')
     owner_privkey_info = get_owner_privkey_info(wallet_keys=wallet_keys, config_path=config_path)
     if owner_privkey_info is None:
-        # FIXME: We cannot both raise and return
         raise Exception('No owner private key info')
-        return {'error': 'No usable private signing key found'}
 
-    # sanity check: must be a single private key
+    # sanity check: must be a single private key.
+    # if it isn't, then use the *first* private key in the multisig bundle.
     if not is_singlesig(owner_privkey_info):
-        # FIXME: We cannot both raise and return
-        raise Exception('Owner private key info must be a single key')
-        return {'error': 'No usable private signing key found'}
+        if is_multisig(owner_privkey_info):
+            owner_privkey_info = owner_privkey_info['private_keys'][0]
+
+        else:
+            raise Exception('Invalid owner private key info')
 
     # sanity check: must match profile address
     owner_pubkey = virtualchain.BitcoinPrivateKey(owner_privkey_info).public_key().to_hex()
     compressed_addr, uncompressed_addr = get_pubkey_addresses(owner_pubkey)
     if owner_address not in [compressed_addr, uncompressed_addr]:
-        # FIXME: We cannot both raise and return
         raise Exception('{} not in [{},{}]'.format(owner_address, compressed_addr, uncompressed_addr))
-        return {'error': 'No usable public key'}
 
-    data_privkey = owner_privkey_info
-
+    data_privkey = virtualchain.BitcoinPrivateKey(owner_privkey_info).to_wif()
     return {'status': True, 'privatekey': data_privkey}
 
 
