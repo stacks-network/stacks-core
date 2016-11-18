@@ -31,8 +31,11 @@ import accounts
 import config
 from .proxy import *
 
-from .constants import CONFIG_PATH, APP_WALLET_DIRNAME
+from .constants import CONFIG_PATH, APP_WALLET_DIRNAME, BLOCKSTACK_TEST
+from .schemas import *
 
+import jsonschema
+from jsonschema import ValidationError
 
 def app_wallet_path(config_dir, name, app_name, app_account_id):
     """
@@ -45,6 +48,43 @@ def app_wallet_path(config_dir, name, app_name, app_account_id):
     return wallet_path
 
 
+def create_app_account(app_name, storage_drivers, app_data_pubkey,
+                       proxy=None, wallet_keys=None, **extra_fields):
+    """
+    Make a Blockstck application account.
+    This account is different than one created by `put_account`, since
+    it is constructed specifically for Blockstack applications.
+    It has a few other goodies in it.
+
+    Return {'status': True} on success
+    Return {'error': ...} on failure
+
+    Raise on invalid input
+    """
+
+    if storage_drivers is None or not storage_drivers:
+        raise ValueError('No storage drivers given')
+
+    return put_account(
+        name, service, identifier, app_url, create=True, replace=False,
+        proxy=proxy, wallet_keys=wallet_keys, data_pubkey=data_pubkey,
+        storage_drivers=storage_drivers, **extra_fields
+    )
+
+
+def delete_app_account(name, service, identifier, wallet_keys=None, proxy=None):
+    """
+    Delete an application-specific account
+
+    Return {'status': True} on success
+    Return {'error': ...} on failure
+    """
+
+    res = delete_account(name, service, identifier, proxy=proxy, wallet_keys=wallet_keys)
+
+    return res if 'error' in res else {'status': True}
+
+
 def app_register(name, app_name, app_account_id, app_url, app_storage_drivers=None, app_account_fields={},
                  wallet_keys=None, password=None, interactive=False, config_path=CONFIG_PATH, proxy=None):
     """
@@ -52,6 +92,8 @@ def app_register(name, app_name, app_account_id, app_url, app_storage_drivers=No
     * add an account for the application
     * create a keypair for the application
     * store an app-specific wallet
+
+    If no password is given and interative is set, then prompt for a password.
 
     Return {'status': True} on success
     Return {'error': ...} on error
@@ -74,7 +116,7 @@ def app_register(name, app_name, app_account_id, app_url, app_storage_drivers=No
     if os.path.exists(wallet_path):
         return {'error': 'Wallet already exists ({})'.format(wallet_path)}
 
-    if password is None:
+    if password is None and interactive:
         prompt = 'Creating new application wallet'
         password = ''
         while len(password) < config.WALLET_PASSWORD_LENGTH:
