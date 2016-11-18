@@ -308,7 +308,7 @@ if __name__ == "__main__":
 
         data_url = make_mutable_url(d_id)
 
-        data = make_mutable_data(d_id, d, n, sig=s)
+        data = make_mutable_data_links(d_id, d, n, sig=s)
 
         data_json = json.dumps(data,sort_keys=True)
 
