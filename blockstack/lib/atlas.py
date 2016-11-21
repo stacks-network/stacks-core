@@ -2713,52 +2713,47 @@ def atlas_zonefile_find_push_peers( zonefile_hash, peer_table=None, zonefile_bit
     return push_peers
 
 
-def atlas_zonefile_push_enqueue( zonefile_hash, zonefile_data, peer_table=None, zonefile_queue=None, con=None, path=None ):
+def atlas_zonefile_push_enqueue( zonefile_hash, name, txid, zonefile_data, zonefile_queue=None, con=None, path=None ):
     """
-    Enqueue the given zonefile into our "push" queue.
-    Only enqueue if we know of one peer that doesn't
-    have it in its inventory vector.
+    Enqueue the given zonefile into our "push" queue,
+    from which it will be replicated to storage and sent
+    out to other peers who don't have it.
 
     Return True if we enqueued it
     Return False if not
     """
-    table_locked = False
     zonefile_queue_locked = False
     res = False
 
     bits = atlasdb_get_zonefile_bits( zonefile_hash, path=path, con=con )
     if len(bits) == 0:
+        # invalid hash
         return
 
-    if peer_table is None:
-        table_locked = True
-        peer_table = atlas_peer_table_lock()
+    if zonefile_queue is None:
+        zonefile_queue_locked = True
+        zonefile_queue = atlas_zonefile_queue_lock()
 
-    push_peers = atlas_zonefile_find_push_peers( zonefile_hash, peer_table=peer_table, zonefile_bits=bits )
-    if len(push_peers) > 0:
+    if len(zonefile_queue) < MAX_QUEUED_ZONEFILES: 
+        zfdata = {
+            'zonefile_hash': zonefile_hash,
+            'zonefile': zonefile_data,
+            'name': name,
+            'txid': txid
+        }
 
-        # someone needs this
-        if zonefile_queue is None:
-            zonefile_queue_locked = True
-            zonefile_queue = atlas_zonefile_queue_lock()
-
-        if len(zonefile_queue) < MAX_QUEUED_ZONEFILES: 
-            zonefile_queue.append( {zonefile_hash: zonefile_data} )
-            res = True
-        
-        if zonefile_queue_locked:
-            atlas_zonefile_queue_unlock()
+        zonefile_queue.append( zfdata )
+        res = True
+    
+    if zonefile_queue_locked:
+        atlas_zonefile_queue_unlock()
             
-    if table_locked:
-        atlas_peer_table_unlock()
-        peer_table = None
-
     return res
 
 
 def atlas_zonefile_push_dequeue( zonefile_queue=None ):
     """
-    Dequeue a zonefile to replicate
+    Dequeue a zonefile's information to replicate
     Return None if there are none queued
     """
     zonefile_queue_locked = False
@@ -2776,7 +2771,7 @@ def atlas_zonefile_push_dequeue( zonefile_queue=None ):
     return ret
 
 
-def atlas_zonefile_push( my_hostport, peer_hostport, zonefile_dict, timeout=None, peer_table=None ):
+def atlas_zonefile_push( my_hostport, peer_hostport, zonefile_data, timeout=None, peer_table=None ):
     """
     Push the given zonefile to the given peer
     Return True on success
@@ -2785,8 +2780,7 @@ def atlas_zonefile_push( my_hostport, peer_hostport, zonefile_dict, timeout=None
     if timeout is None:
         timeout = atlas_push_zonefiles_timeout()
    
-    zonefile_data = blockstack_zones.make_zone_file( zonefile_dict )
-    zonefile_hash = blockstack_client.hash_zonefile( zonefile_dict )
+    zonefile_hash = blockstack_client.get_zonefile_data_hash(zonefile_data)
     zonefile_data_b64 = base64.b64encode( zonefile_data )
 
     host, port = url_to_host_port( peer_hostport )
@@ -3729,11 +3723,15 @@ class AtlasZonefilePusher(threading.Thread):
     Continuously drain the queue of zonefiles
     we can push, by sending them off to 
     known peers who need them.
+
+    CURRENTLY DEACTIVATED
     """
-    def __init__(self, host, port, path=None ):
+    def __init__(self, host, port, zonefile_storage_drivers=None, zonefile_dir=None, path=None ):
         threading.Thread.__init__(self)
         self.host = host
         self.port = port
+        self.zonefile_storage_drivers = zonefile_storage_drivers
+        self.zonefile_dir = zonefile_dir
         self.hostport = "%s:%s" % (host, port)
         self.path = path
         if self.path is None:
@@ -3759,21 +3757,20 @@ class AtlasZonefilePusher(threading.Thread):
         if zfinfo is None:
             return 0
 
-        zfhash = zfinfo.keys()[0]
-        zfdata_txt = zfinfo[zfhash]
-        zfdata = None
-
-        try:
-            zfdata = blockstack_zones.parse_zone_file( zfdata_txt )
-        except Exception, e:
-            log.exception(e)
-            log.error("Failed to parse zonefile %s" % zfhash)
-            return 0
+        zfhash = zfinfo['zonefile_hash']
+        zfdata_txt = zfinfo['zonefile']
+        name = zfinfo['name']
+        txid = zfinfo['txid']
 
         zfbits = atlasdb_get_zonefile_bits( zfhash, path=path )
         if len(zfbits) == 0:
-            # nope 
+            # not recognized 
             return 0
+
+        # it's a valid zonefile.  cache and store it.
+        rc = store_zonefile_data_to_storage( name, str(zfdata_txt), txid, required=self.zonefile_storage_drivers, cache=True, zonefile_dir=self.zonefile_dir, tx_required=False )
+        if not rc:
+            log.error("Failed to replicate zonefile %s to external storage" % zonefile_hash)
 
         # see if we can send this somewhere
         table_locked = False
@@ -3796,7 +3793,7 @@ class AtlasZonefilePusher(threading.Thread):
         ret = 0
         for peer in peers:
             log.debug("%s: Push to %s" % (self.hostport, peer))
-            atlas_zonefile_push( self.hostport, peer, zfdata, timeout=self.push_timeout )
+            atlas_zonefile_push( self.hostport, peer, zfdata_txt, timeout=self.push_timeout )
             ret += 1
 
         return ret
@@ -3832,7 +3829,7 @@ def atlas_node_start( my_hostname, my_portnum, atlasdb_path=None, zonefile_dir=N
     atlas_state['peer_crawler'] = AtlasPeerCrawler( my_hostname, my_portnum )
     atlas_state['health_checker'] = AtlasHealthChecker( my_hostname, my_portnum, path=atlasdb_path )
     atlas_state['zonefile_crawler'] = AtlasZonefileCrawler( my_hostname, my_portnum, zonefile_storage_drivers=zonefile_storage_drivers, path=atlasdb_path, zonefile_dir=zonefile_dir )
-    # atlas_state['zonefile_pusher'] = AtlasZonefilePusher( my_hostname, my_portnum, path=atlasdb_path )
+    # atlas_state['zonefile_pusher'] = AtlasZonefilePusher( my_hostname, my_portnum, path=atlasdb_path, zonefile_storage_drivers=zonefile_storage_drivers, zonefile_dir=zonefile_dir )
 
     # start them all up
     for component in atlas_state.keys():
