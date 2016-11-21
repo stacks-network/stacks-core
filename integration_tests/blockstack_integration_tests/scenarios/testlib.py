@@ -65,7 +65,7 @@ class Wallet(object):
         else:
             self.privkey = pk.to_wif()
 
-        self.pubkey_hex = pk.public_key().to_hex()                          # coordinate (uncompressed) EC public key
+        self.pubkey_hex = pk.public_key().to_hex()                              # coordinate (uncompressed) EC public key
         self.ec_pubkey_hex = keylib.ECPrivateKey(pk_wif).public_key().to_hex()  # parameterized (compressed) EC public key
         self.addr = pk.public_key().address()
 
@@ -110,7 +110,9 @@ class TestAPIProxy(object):
             "storage_drivers": client_config['storage_drivers'],
             "metadata": client_config['metadata'],
             "path": client_path,
-            "queue_path": client_config['queue_path']
+            "queue_path": client_config['queue_path'],
+            "server": client_config['server'],
+            "port": client_config['port'] 
         }
         self.spv_headers_path = utxo_opts['spv_headers_path']
 
