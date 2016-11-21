@@ -275,7 +275,7 @@ def list_update_history(name, current_block=None, proxy=None):
 
     if current_block is None:
         try:
-            info = proxy.getinfo()
+            info = getinfo(proxy=proxy)
             if 'last_block_processed' in info:
                 current_block = int(info['last_block_processed']) + 1
             elif 'last_block' in info:
@@ -464,11 +464,10 @@ def get_mutable(name, data_id, proxy=None, ver_min=None, ver_max=None,
         rc = ver_check(name, mutable_data, version)
         if not rc:
             return {'error': 'Mutable data consistency check failed'}
+
     elif expected_version > version:
         msg = 'Mutable data is stale; a later version was previously fetched'
         return {'error': msg}
-    else:
-        assert False
 
     rc = store_mutable_data_version(conf, fq_data_id, version)
     if not rc:
