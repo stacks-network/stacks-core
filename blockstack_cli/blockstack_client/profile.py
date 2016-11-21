@@ -139,6 +139,7 @@ def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, raw_z
     hostport = '{}:{}'.format( atlas_host, atlas_port )
 
     zonefile_txt = None
+    expected_zonefile_hash = str(expected_zonefile_hash)
 
     # try atlas node first 
     res = get_zonefiles( hostport, [expected_zonefile_hash], proxy=proxy )
