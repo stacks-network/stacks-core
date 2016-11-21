@@ -47,7 +47,20 @@ $ pip install blockstack --upgrade
 
 If the installation command above fails, see the [troubleshooting section](#troubleshooting-installation).
 
-## Command Line Usage 
+### Windows Subsystem for Linux
+
+Installation will mirror `Debian + Ubuntu`, above, with an additional package.
+
+```bash
+$ sudo apt-get update && sudo apt-get install -y python-pip python-dev libssl-dev libffi-dev
+```
+
+```bash
+$ sudo pip install functools32
+$ sudo pip install blockstack
+```
+
+## Command Line Usage
 
 ### Listing All Commands
 
@@ -118,49 +131,49 @@ Your client does not have enough information to connect
 to a Blockstack server.  Please supply the following
 parameters, or press [ENTER] to select the default value.
 ---------------------------------------------------------
-blockchain_headers (default: '/home/jude/.blockstack/blockchain-headers.dat'): 
-blockchain_writer (default: 'blockcypher'): 
-api_endpoint_port (default: '6270'): 
-poll_interval (default: '300'): 
-metadata (default: '/home/jude/.blockstack/metadata'): 
-server (default: 'node.blockstack.org'): 
-advanced_mode (default: 'False'): 
-blockchain_reader (default: 'blockcypher'): 
-email (default: ''): 
-rpc_token (default: '2dbf700c6c0d546be23ad7ae4e5e1bbb6cdaa10a3ae4deca8e598bf9ec58fc6a'): 
-storage_drivers_required_write (default: 'disk,blockstack_server'): 
-queue_path (default: '/home/jude/.blockstack/queues.db'): 
-storage_drivers (default: 'disk,blockstack_resolver,blockstack_server,http,dht'): 
-path (default: '/home/jude/.blockstack/client.ini'): 
-client_version (default: '0.0.13.4'): 
-rpc_detach (default: 'True'): 
-port (default: '6264'): 
-dir (default: '/home/jude/.blockstack/client.ini'): 
-anonymous_statistics (default: 'True'): 
+blockchain_headers (default: '/home/jude/.blockstack/blockchain-headers.dat'):
+blockchain_writer (default: 'blockcypher'):
+api_endpoint_port (default: '6270'):
+poll_interval (default: '300'):
+metadata (default: '/home/jude/.blockstack/metadata'):
+server (default: 'node.blockstack.org'):
+advanced_mode (default: 'False'):
+blockchain_reader (default: 'blockcypher'):
+email (default: ''):
+rpc_token (default: '2dbf700c6c0d546be23ad7ae4e5e1bbb6cdaa10a3ae4deca8e598bf9ec58fc6a'):
+storage_drivers_required_write (default: 'disk,blockstack_server'):
+queue_path (default: '/home/jude/.blockstack/queues.db'):
+storage_drivers (default: 'disk,blockstack_resolver,blockstack_server,http,dht'):
+path (default: '/home/jude/.blockstack/client.ini'):
+client_version (default: '0.0.13.4'):
+rpc_detach (default: 'True'):
+port (default: '6264'):
+dir (default: '/home/jude/.blockstack/client.ini'):
+anonymous_statistics (default: 'True'):
 --------------------------------------------------------
 Blockstack does not have enough information to connect
 to bitcoind.  Please supply the following parameters, or
 press [ENTER] to select the default value.
 --------------------------------------------------------
-mock (default: 'False'): 
-passwd (default: 'blockstacksystem'): 
-server (default: 'bitcoin.blockstack.com'): 
-user (default: 'blockstack'): 
-timeout (default: '300.0'): 
-port (default: '8332'): 
-use_https (default: 'False'): 
+mock (default: 'False'):
+passwd (default: 'blockstacksystem'):
+server (default: 'bitcoin.blockstack.com'):
+user (default: 'blockstack'):
+timeout (default: '300.0'):
+port (default: '8332'):
+use_https (default: 'False'):
 -------------------------------
 Blockchain reader configuration
 ----------------------------------------
 Please enter your Blockcypher API token.
 ----------------------------------------
-api_token (default: ''): 
+api_token (default: ''):
 -------------------------------
 Blockchain writer configuration
 ----------------------------------------
 Please enter your Blockcypher API token.
 ----------------------------------------
-api_token (default: ''): 
+api_token (default: ''):
 Saving configuration to /home/jude/.blockstack/client.ini
 {
     "path": "/home/jude/.blockstack/client.ini"
@@ -179,23 +192,23 @@ $ blockstack price <name>
 $ blockstack price $(whoami).id
 {
     "name_price": {
-        "btc": "0.0025", 
+        "btc": "0.00025",
         "satoshis": "25000"
-    }, 
+    },
     "preorder_tx_fee": {
-        "btc": "0.0047406", 
+        "btc": "0.00047406",
         "satoshis": "47406"
-    }, 
+    },
     "register_tx_fee": {
-        "btc": "0.0046184", 
+        "btc": "0.00046184",
         "satoshis": "46184"
-    }, 
+    },
     "total_estimated_cost": {
-        "btc": "0.0188394", 
+        "btc": "0.00188394",
         "satoshis": "188394"
-    }, 
+    },
     "update_tx_fee": {
-        "btc": "0.0069804", 
+        "btc": "0.00069804",
         "satoshis": "69804"
     }
 }
@@ -363,12 +376,12 @@ $ blockstack balance
     "addresses": [
         {
             "address": "16yE3e928JakaXbympwSywyrJPM9cuL4wZ",
-            "bitcoin": 0.000959454, 
+            "bitcoin": 0.00959454,
             "satoshis": 959454
         }
-    ], 
+    ],
     "total_balance": {
-        "bitcoin": 0.000959454, 
+        "bitcoin": 0.00959454,
         "satoshis": 959454
     }
 }
