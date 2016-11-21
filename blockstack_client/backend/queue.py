@@ -241,7 +241,7 @@ def in_queue( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
 
 def queue_append(queue_id, fqu, tx_hash, payment_address=None,
                  owner_address=None, transfer_address=None,
-                 config_path=CONFIG_PATH,
+                 config_path=CONFIG_PATH, block_height=None
                  zonefile_data=None, profile=None, zonefile_hash=None, path=DEFAULT_QUEUE_PATH):
 
     """
@@ -253,7 +253,11 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
 
     # required for all queues
     new_entry['payment_address'] = payment_address
-    new_entry['block_height'] = get_block_height(config_path=config_path)
+
+    if block_height is None:
+        block_height = get_block_height(config_path=config_path)
+
+    new_entry['block_height'] = block_height
 
     # optional, depending on queue
     new_entry['owner_address'] = owner_address
@@ -597,7 +601,7 @@ def display_queue_info(display_details=False, path=DEFAULT_QUEUE_PATH, config_pa
     display_queue("revoke", display_details, path=path, config_path=config_path)
 
 
-def get_queue_state(queue_ids=None, path=DEFAULT_QUEUE_PATH):
+def get_queue_state(queue_ids=None, limit=None, path=DEFAULT_QUEUE_PATH):
     """
     Load one or more queue states into RAM.
     Return the appended list.
@@ -610,18 +614,18 @@ def get_queue_state(queue_ids=None, path=DEFAULT_QUEUE_PATH):
         queue_ids = [queue_ids]
 
     for queue_id in queue_ids:
-        raw_rows = queuedb_findall( queue_id, path=path )
+        raw_rows = queuedb_findall( queue_id, path=path, limit=limit )
         rows = [extract_entry(r) for r in raw_rows]
         state += rows
 
     return state
 
 
-def queue_findall( queue_id, path=DEFAULT_QUEUE_PATH ):
+def queue_findall( queue_id, limit=None, path=DEFAULT_QUEUE_PATH ):
     """
     Load a single queue into RAM
     """
-    return get_queue_state( queue_id, path=path )
+    return get_queue_state( queue_id, limit=limit, path=path )
 
 
 def queue_remove_expired(queue_id, path=DEFAULT_QUEUE_PATH, config_path=CONFIG_PATH):
