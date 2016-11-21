@@ -49,11 +49,11 @@ OP_ZONEFILE_HASH_PATTERN = r'^([0-9a-fA-F]{{{}}})$'.format(LENGTH_VALUE_HASH * 2
 OP_NAME_PATTERN = r'^([a-z0-9\-_.+]{{{},{}}})$'.format(3, LENGTH_MAX_NAME)
 OP_NAMESPACE_PATTERN = r'^([a-z0-9\-_+]{{{},{}}})$'.format(1, LENGTH_MAX_NAMESPACE_ID)
 OP_NAMESPACE_HASH_PATTERN = r'^([0-9a-fA-F]{16})$'
-OP_BASE64_PATTERN_SECTION = r'?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})'
+OP_BASE64_PATTERN_SECTION = r'(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})'
 OP_BASE64_PATTERN = r'^({})$'.format(OP_BASE64_PATTERN_SECTION)
 OP_URLENCODED_PATTERN = r'^([a-zA-Z0-9\-_.~%]+)$'
-OP_URI_TARGET_PATTERN = r'^("[a-zA-Z0-9\-_.~%]+)"$'
-OP_MUTABLE_DATA_MD_PATTERN = 'r^(mutable:{}:[0-9]+)$'.format(OP_BASE64_PATTERN_SECTION)
+OP_URI_TARGET_PATTERN = r'^([a-z0-9+]+)://([a-zA-Z0-9\-_.~%#?&\:/]+)$'
+OP_MUTABLE_DATA_MD_PATTERN = r'^(mutable:{}:[0-9]+)$'.format(OP_BASE64_PATTERN_SECTION)
 
 PRIVKEY_SINGLESIG_SCHEMA_WIF = {
     'type': 'string',
@@ -290,11 +290,11 @@ TXT_RECORD_SCHEMA = {
     'type': 'object',
     'properties': {
         'name': {
-            'type': 'string'
+            'type': 'string',
             'pattern': OP_URLENCODED_PATTERN,
         },
         'txt': {
-            'type': 'string'
+            'type': 'string',
         },
     },
     'required': [
@@ -351,7 +351,7 @@ MUTABLE_DATUM_PERMISSIONS = {
         'owner',
         'group',
         'world'
-    ]
+    ],
     'additionalProperties': False
 }
 
@@ -362,9 +362,9 @@ MUTABLE_DATUM_DIR_TYPE = 2
 MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES = {
     'type': {
         # file, directory
-        'type': 'integer'
+        'type': 'integer',
         'minimum': MUTABLE_DATUM_FILE_TYPE,
-        'maximum': MUTABLE_DATUM_DIR_TYPE
+        'maximum': MUTABLE_DATUM_DIR_TYPE,
     },
     'owner': {
         # hash of public key
@@ -388,17 +388,17 @@ MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES = MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.copy(
 MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.update({
     'data': {
         # raw data
-        'type': 'string'
+        'type': 'string',
     },
-}
+})
 
 MUTABLE_DATUM_DIRENT_SCHEMA = {
     'type': 'object',
     'properties': {
         'type': {
-            'type': 'integer'
+            'type': 'integer',
             'minimum': MUTABLE_DATUM_FILE_TYPE,
-            'maximum': MUTABLE_DATUM_DIR_TYPE
+            'maximum': MUTABLE_DATUM_DIR_TYPE,
         },
         'uuid': {
             'type': 'string',
@@ -426,7 +426,7 @@ MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES.update({
         },
         'additionalProperties': False,
     },
-}
+})
 
 MUTABLE_DATUM_FILE_SCHEMA = {
     'type': 'object',
@@ -443,10 +443,10 @@ MUTABLE_DATUM_DIR_SCHEMA = {
 }
 
 MUTABLE_DATUM_SCHEMA = {
-    'anyOf': {
+    'anyOf': [
         MUTABLE_DATUM_FILE_SCHEMA,
         MUTABLE_DATUM_DIR_SCHEMA
-    },
+    ],
 }
 
 MUTABLE_DATA_STORE_GROUP_SCHEMA = {
@@ -502,6 +502,28 @@ MUTABLE_DATA_STORE = {
         'root_uuid',
         'drivers'
     ]
+}
+
+
+# for a profile's mutable data
+PROFILE_MUTABLE_DATA_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'data': {
+            'type': 'object',
+            'patternProperties': {
+                OP_MUTABLE_DATA_MD_PATTERN: {
+                    'type': 'object',
+                    'properties'
+                    'type': 'array',
+                    'items': URI_RECORD_SCHEMA
+                },
+            },
+        },
+    },
+    'required': [
+        'data'
+    ],
 }
 
 
