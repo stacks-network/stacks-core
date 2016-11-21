@@ -34,6 +34,8 @@ import urllib2
 import ecdsa
 import blockstack_zones
 
+from keylib import ECPrivateKey, ECPublicKey
+
 import blockstack_profiles
 
 from config import get_logger
@@ -124,8 +126,8 @@ def verify_zonefile(zonefile_str, value_hash):
     """
     zonefile_hash = get_zonefile_data_hash(zonefile_str)
 
-    msg = 'Comparing zonefile hashes: expected {}, got {}'
-    log.debug(msg.format(value_hash, zonefile_hash))
+    msg = 'Comparing zonefile hashes: expected {}, got {} ({})'
+    log.debug(msg.format(value_hash, zonefile_hash, zonefile_hash == value_hash))
 
     return zonefile_hash == value_hash
 
@@ -398,7 +400,7 @@ def sign_raw_data(raw_data, privatekey):
     priv = pk.to_hex()
     pub = pk.public_key().to_hex()
 
-    assert len(pub[2:].decode('hex')) == ecdsa.SECP256k1.verifying_key_len, "BUG: Invalid key decoding"
+    assert len(pub[2:].decode('hex')) == ecdsa.SECP256k1.verifying_key_length, "BUG: Invalid key decoding"
  
     sk = ecdsa.SigningKey.from_string(priv.decode('hex'), curve=ecdsa.SECP256k1)
     sig_bin = sk.sign_digest(data_hash.decode('hex'), sigencode=ecdsa.util.sigencode_der)
