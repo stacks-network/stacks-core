@@ -26,7 +26,7 @@ setup(
     install_requires=[
         'virtualchain>=0.14.0',
         'blockstack-client>=0.14.0',
-        'blockstack-server>=0.14.0',
+        'blockstack-core>=0.14.0',
         'blockstack-profiles>=0.1.3',
         'blockstack-file>=0.14.0',
         'blockstack-gpg>=0.14.0',
