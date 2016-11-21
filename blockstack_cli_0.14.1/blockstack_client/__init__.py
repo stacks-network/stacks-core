@@ -56,7 +56,7 @@ from data import data_get, data_put, data_delete, data_list
 from data import set_data_pubkey
 from storage import get_announcement, put_announcement, verify_zonefile
 from profile import get_name_profile, get_name_zonefile, get_and_migrate_profile
-from accounts import list_accounts, get_account, put_account, delete_account, create_app_account
+from accounts import list_accounts, get_account, put_account, delete_account
 
 from config import get_logger, get_config, get_utxo_provider_client, get_tx_broadcaster, default_bitcoind_opts
 from constants import CONFIG_PATH, CONFIG_FILENAME, USER_ZONEFILE_TTL, DEFAULT_API_PORT
