@@ -303,6 +303,13 @@ def network_start( blockstack_opts, db ):
     return atlas_state
     
 
+def storage_start( blockstack_opts ):
+    """
+    Start storage services
+    """
+    blockstackd.storage_start( blockstack_opts )
+
+
 def network_stop():
     """
     Stop RPC services
@@ -319,6 +326,12 @@ def atlas_stop( atlas_state ):
         else:
             raise
 
+
+def storage_stop():
+    """
+    Stop storage services
+    """
+    blockstackd.storage_stop()
 
 
 def bitcoin_stop():
@@ -481,6 +494,9 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     # start taking RPC requests
     atlas_state = network_start( blockstack_opts, db )
 
+    # start storage 
+    storage_start( blockstack_opts )
+
     # start pinging bitcoind so it pushes out p2p messages
     pinger = Pinger()
     pinger.start()
@@ -517,6 +533,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         log.error("Failed to run scenario '%s'" % scenario.__name__)
         network_stop()
         atlas_stop( atlas_state )
+        storage_stop()
         bitcoin_stop()
         blockstack_client.rpc.local_rpc_stop(client_config_dir)
 
@@ -530,6 +547,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         blockstack_client.rpc.local_rpc_stop(client_config_dir)
         log.error("Failed to run tests '%s'" % scenario.__name__)
         network_stop()
+        storage_stop()
         bitcoin_stop()
         return False
 
@@ -545,11 +563,13 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         blockstack_client.rpc.local_rpc_stop(client_config_dir)
         log.error("Failed to run tests '%s'" % scenario.__name__)
         network_stop()
+        storage_stop()
         bitcoin_stop()
         return False 
     
     if not rc:
         network_stop()
+        storage_stop()
         bitcoin_stop()
         blockstack_client.rpc.local_rpc_stop(client_config_dir)
         return rc
@@ -585,6 +605,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     except Exception, e:
         log.exception(e)
         network_stop()
+        storage_stop()
         bitcoin_stop()
         blockstack_client.rpc.local_rpc_stop(client_config_dir)
         return rc
@@ -604,6 +625,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
     except Exception, e:
         log.exception(e)
         network_stop()
+        storage_stop()
         bitcoin_stop()
         blockstack_client.rpc.local_rpc_stop(client_config_dir)
         return rc
@@ -617,6 +639,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         rc = testlib.check_atlas_zonefiles( db, blockstack_opts['atlasdb_path'] )
         if not rc:
             network_stop()
+            storage_stop()
             bitcoin_stop()
             blockstack_client.rpc.local_rpc_stop(client_config_dir)
             return rc
@@ -624,6 +647,7 @@ def run_scenario( scenario, config_file, client_config_file, interactive=False, 
         log.info("Atlas zonefile checks pass!")
 
     network_stop()
+    storage_stop()
     bitcoin_stop()
     blockstack_client.rpc.local_rpc_stop(client_config_dir)
     TEST_RESULT = True
