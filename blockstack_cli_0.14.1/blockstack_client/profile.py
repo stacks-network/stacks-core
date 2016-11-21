@@ -106,8 +106,12 @@ def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, raw_z
     Return None on error
     """
 
-    proxy = get_default_proxy if proxy is None else proxy
-    conf = proxy.conf 
+    proxy = get_default_proxy() if proxy is None else proxy
+    conf = proxy.conf
+    
+    assert 'server' in conf, json.dumps(conf, indent=4, sort_keys=True)
+    assert 'port' in conf, json.dumps(conf, indent=4, sort_keys=True)
+
     atlas_host = conf['server']
     atlas_port = conf['port']
     hostport = '{}:{}'.format( atlas_host, atlas_port )
@@ -481,12 +485,14 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
 
         # convert to address
         if name_record is None:
-            name_record = proxy.get_name_blockchain_record(name)
+            name_record = get_name_blockchain_record(name, proxy=proxy)
             if name_record is None or 'error' in name_record:
                 log.error('Failed to look up name record for "{}"'.format(name))
                 return None, {'error': 'Failed to look up name record'}
 
+        assert 'address' in name_record.keys(), json.dumps(name_record, indent=4, sort_keys=True)
         old_address = name_record['address']
+
         # cut to the chase
         user_address = old_address if user_address is None else user_address
 
@@ -504,14 +510,16 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
                 log.debug('WARN: failed to load profile for {}: {}'.format(name, user_profile['error']))
 
             if create_if_absent:
-                user_profile = user_db.make_empty_user_profile()
+                user_profile = user_db.make_empty_user_data_info()
             else:
                 return None, {'error': 'Failed to load user profile'}
 
     # finally, if the caller asked for the name record, and we didn't get a chance to look it up,
     # then go get it.
     if include_name_record:
-        name_record = proxy.get_name_blockchain_record(name) if name_record is None else name_record
+        if name_record is None:
+            name_record = get_name_blockchain_record(name, proxy=proxy)
+
         if name_record is None or 'error' in name_record:
             log.error('Failed to look up name record for "{}"'.format(name))
             return None, {'error': 'Failed to look up name record'}
@@ -629,11 +637,11 @@ def get_and_migrate_profile(name, zonefile_storage_drivers=None, profile_storage
         if data_pubkey is None:
             log.warn('No data keypair set; will fall back to owner private key for data signing')
 
-        user_profile = user_db.make_empty_user_profile()
+        user_profile = user_db.make_empty_user_data_info()
         user_zonefile = user_db.make_empty_user_zonefile(name, data_pubkey)
 
         # look up name too
-        name_record = proxy.get_name_blockchain_record(name)
+        name_record = get_name_blockchain_record(name, proxy=proxy)
         if name_record is None:
             return {'error': 'No such name'}, None, False
 
@@ -675,7 +683,7 @@ def get_and_migrate_profile(name, zonefile_storage_drivers=None, profile_storage
                 return error_msg, None, False
         elif create_if_absent:
             log.debug('Creating new profile for existing zonefile for name "{}"'.format(name))
-            user_profile = user_db.make_empty_user_profile()
+            user_profile = user_db.make_empty_user_data_info()
             created_new_profile = True
         else:
             raise Exception('Should be unreachable')
