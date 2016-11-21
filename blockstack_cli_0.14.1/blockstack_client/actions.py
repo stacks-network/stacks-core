@@ -2776,7 +2776,7 @@ def cli_advanced_sync_zonefile(args, config_path=CONFIG_PATH, proxy=None, intera
         if txid is None:
             # not in queue.  Fetch from blockstack server
 
-            name_rec = proxy.get_name_blockchain_record(name)
+            name_rec = get_name_blockchain_record(name, proxy=proxy)
             if 'error' in name_rec:
                 msg = 'Failed to get name record for {}: {}'
                 log.error(msg.format(name, name_rec['error']))
