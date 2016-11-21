@@ -506,7 +506,7 @@ def cli_price( args, config_path=CONFIG_PATH, proxy=None, password=None):
     for k in btc_keys:
         v = {
             "satoshis": "%s" % fees[k],
-            "btc": "%s" % float(Decimal(fees[k] * 10e-8))
+            "btc": "%s" % float(Decimal(fees[k] * 1e-8))
         }
         fees[k] = v
 
