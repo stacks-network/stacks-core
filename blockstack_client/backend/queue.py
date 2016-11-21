@@ -241,7 +241,7 @@ def in_queue( queue_id, fqu, path=DEFAULT_QUEUE_PATH ):
 
 def queue_append(queue_id, fqu, tx_hash, payment_address=None,
                  owner_address=None, transfer_address=None,
-                 config_path=CONFIG_PATH, block_height=None
+                 config_path=CONFIG_PATH, block_height=None,
                  zonefile_data=None, profile=None, zonefile_hash=None, path=DEFAULT_QUEUE_PATH):
 
     """
