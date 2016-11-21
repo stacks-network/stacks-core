@@ -73,6 +73,7 @@ from lib.consensus import *
 # global variables, for use with the RPC server
 bitcoind = None
 rpc_server = None
+storage_pusher = None
 
 def get_bitcoind( new_bitcoind_opts=None, reset=False, new=False ):
    """
@@ -1064,34 +1065,39 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 saved.append(0)
                 continue
 
+            rc = store_cached_zonefile_data( str(zonefile_data), zonefile_dir=zonefile_dir )
+            if not rc:
+                log.error("Failed to cache {}".format(zonefile_hash))
+                saved.append(0)
+                continue
+
             # maybe a proper zonefile?  if so, get the name out
             name = None
             txid = None
             try: 
                 zonefile = blockstack_zones.parse_zone_file( str(zonefile_data) )
                 name = str(zonefile['$origin'])
-                names_with_hash = [name]
                 txid = db.get_name_value_hash_txid( name, zonefile_hash )
             except Exception, e:
                 log.debug("Not a well-formed zonefile: %s" % zonefile_hash)
 
+            '''
             # it's a valid zonefile.  cache and store it.
             rc = store_zonefile_data_to_storage( name, str(zonefile_data), txid, required=zonefile_storage_drivers, cache=True, zonefile_dir=zonefile_dir, tx_required=False )
             if not rc:
                 log.debug("Failed to replicate zonefile %s to external storage" % zonefile_hash)
                 saved.append(0)
                 continue
+            '''
 
-            # update atlas, if enabled
+            '''
+            # replicate zonefile?
             if conf.get('atlas', False):
-                sender_hostport = "%s:%s" % (con_info['client_host'], con_info['client_port'])
-                was_missing = atlasdb_set_zonefile_present( zonefile_hash, True )
-                if was_missing and atlas_get_peer( sender_hostport ) is None:
-                    # we didn't have this zonefile, and we got it from an unknown origin.
-                    # there's a good chance we got it from a client.
-                    # see if we can replicate it to them in the background.
-                    atlas_zonefile_push_enqueue( zonefile_hash, str(zonefile_data) )
-
+                # see if we can replicate it to them in the background.
+                atlas_zonefile_push_enqueue( zonefile_hash, name, txid, str(zonefile_data) )
+            '''
+            storage_enqueue_zonefile( name, txid, str(zonefile_hash), str(zonefile_data) )
+            # storage_push( lambda: store_zonefile_data_to_storage( name, str(zonefile_data), txid, required=zonefile_storage_drivers, cache=True, zonefile_dir=zonefile_dir, tx_required=False ) )
             saved.append(1)
        
         db.close()
@@ -1188,6 +1194,8 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
     def verify_profile_hash( self, name, name_rec, zonefile_dict, profile_txt, prev_profile_hash, sigb64, user_data_pubkey ):
         """
+        DEPRECATED
+
         Verify that the uploader signed the profile's previous hash.
         Return {'status': True} on success
         Return {'error': ...} on error
@@ -1317,12 +1325,15 @@ class BlockstackdRPC( SimpleXMLRPCServer):
         # authentic!  try to verify via timestamp
         res = self.verify_profile_timestamp( user_profile )
         if 'error' in res:
-            log.debug("Failed to verify with profile timestamp. Falling back to hash.")
+            log.debug("Failed to verify with profile timestamp.")
+
+            # TODO: deprecated
             res = self.verify_profile_hash( name, name_rec, zonefile_dict, profile_txt, prev_profile_hash_or_ignored, sigb64_or_ignored, user_data_pubkey )
             if 'error' in res:
                 log.debug("Failed to verify profile by owner hash")
                 return {'error': 'Failed to validate profile: invalid or missing timestamp and/or previous hash'}
 
+        '''
         # success!  store it
         successes = 0
         for handler in blockstack_client.get_storage_handlers():
@@ -1340,13 +1351,20 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 log.debug("Stored profile for '%s' with '%s'" % (name, handler.__name__))
 
             successes += 1
-
         if successes == 0:
             log.debug("Failed to store profile for '%s'" % name)
             return {'error': 'Failed to replicate profile'}
         else:
             log.debug("Stored profile for '%s'" % name)
             return self.success_response( {'num_replicas': successes, 'num_failures': len(blockstack_client.get_storage_handlers()) - successes} )
+        '''
+        res = storage_enqueue_profile( name, str(profile_txt) )
+        if not res:
+            log.error('Failed to queue {}-byte profile for {}'.format(len(profile_txt), name))
+            return {'error': 'Failed to queue profile'}
+        
+        log.debug("Queued {}-byte profile for {}".format(len(profile_txt), name))
+        return self.success_response( {'num_replicas': 1, 'num_failures': 0} )
 
 
     def rpc_get_atlas_peers( self, **con_info ):
@@ -1480,6 +1498,60 @@ def rpc_stop():
         rpc_server.stop_server()
         rpc_server.join()
         log.debug("RPC joined")
+
+
+def get_storage_queue_path():
+   """
+   Path to the on-disk storage queue
+   """
+   working_dir = virtualchain.get_working_dir()
+   db_filename = blockstack_state_engine.get_virtual_chain_name() + ".queue"
+   return os.path.join( working_dir, db_filename )
+
+
+def storage_start( blockstack_opts ):
+    """
+    Start the global data-pusher thread
+    """
+    global storage_pusher
+   
+    storage_queue = get_storage_queue_path()
+    storage_pusher = StoragePusher( blockstack_opts, storage_queue )
+    log.debug("Starting storage pusher")
+    storage_pusher.start()
+
+
+def storage_stop():
+    """
+    Stop the global data-pusher thread
+    """
+    global storage_pusher
+
+    # if we're testing, then drain the storage queue completely 
+    if os.environ.get("BLOCKSTACK_TEST") == "1":
+        log.debug("Draining storage pusher queue")
+        storage_pusher.drain()
+
+    log.debug("Shutting down storage pusher")
+    storage_pusher.signal_stop()
+    storage_pusher.join()
+    log.debug("Storage pusher joined")
+
+
+def storage_enqueue_zonefile( name, txid, zonefile_hash, zonefile_data ):
+    """
+    Queue a zonefile for replication
+    """
+    global storage_pusher
+    return storage_pusher.enqueue_zonefile( name, txid, zonefile_hash, zonefile_data )
+
+
+def storage_enqueue_profile( name, profile_data ):
+    """
+    Queue a profile for replication
+    """
+    global storage_pusher
+    return storage_pusher.enqueue_profile( name, profile_data )
 
 
 def atlas_start( blockstack_opts, db, port ):
@@ -1673,6 +1745,8 @@ def blockstack_exit( atlas_state ):
     if atlas_state is not None:
         atlas_node_stop( atlas_state )
 
+    storage_stop()
+
 
 def blockstack_signal_handler( sig, frame ):
     """
@@ -1758,8 +1832,11 @@ def run_server( foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None
     # start atlas node
     atlas_state = atlas_start( blockstack_opts, db, port )
     atexit.register( blockstack_exit, atlas_state )
-   
+  
     db.close()
+
+    # start storage 
+    storage_start( blockstack_opts )
 
     # start API server
     rpc_start(port)
@@ -1802,6 +1879,10 @@ def run_server( foreground=False, expected_snapshots=GENESIS_SNAPSHOT, port=None
     log.debug("Stopping Atlas node")
     atlas_stop( atlas_state )
     atlas_state = None
+
+    # stopping storage 
+    log.debug("Stopping storage pusher")
+    storage_stop()
 
     # close logfile
     if logfile is not None:
