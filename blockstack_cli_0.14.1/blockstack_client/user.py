@@ -138,12 +138,19 @@ def has_mutable_data_section(d):
     Does the given dictionary have a mutable data section?
     """
     try:
-        jsonschema.validate(d, MUTABLE_DATA_SCHEMA)
+        assert isinstance(d, dict)
+        if 'data' not in d.keys():
+            return False
+
+        jsonschema.validate(d, PROFILE_MUTABLE_DATA_SCHEMA)
         return True
     except ValidationError as ve:
         if BLOCKSTACK_TEST:
             log.exception(ve)
     
+        return False
+    
+    except AssertionError:
         return False
 
 
@@ -538,7 +545,7 @@ def get_mutable_data_info(user_data_info, data_id):
     """
     Get info for a piece of mutable data, given
     the user's data info and data_id.
-    Return the route (as a dict) on success
+    Return the routing information (as a dict) on success
     Return None if not found
     """
 
@@ -642,14 +649,14 @@ def put_mutable_data_info(user_data_info, data_id, version, mutable_data_links):
 
     if not user_data_info.setdefault('data', {}):
         existing_md = pack_mutable_data_md(data_id, version)
-        user_data_info['data'][existing_md] = mutable_data_links
+        user_data_info['data'].update(mutable_data_links)
         return True
 
     existing_info, existing_version, existing_md = get_mutable_data_info_ex(user_data_info, data_id)
 
     if existing_info is None:
         # first case of this mutable datum
-        user_data_info['data'][existing_md] = mutable_data_links
+        user_data_info['data'].update(mutable_data_links)
         return True
 
     # must be a newer version
@@ -659,7 +666,8 @@ def put_mutable_data_info(user_data_info, data_id, version, mutable_data_links):
         return False
 
     # replace
-    user_data_info['data'][existing_md] = mutable_data_links
+    del user_data_info['data'][existing_md]
+    user_data_info['data'].update(mutable_data_links)
 
     return True
 
