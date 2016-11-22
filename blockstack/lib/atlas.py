@@ -3588,7 +3588,7 @@ class AtlasZonefileCrawler( threading.Thread ):
         zonefile_hashes = filter( lambda zfh: zfh is not None, zonefile_hashes )
 
         log.debug("%s: missing %s unique zonefiles" % (self.hostport, len(zonefile_hashes)))
-
+        
         while len(zonefile_hashes) > 0 and self.running:
 
             zfhash = zonefile_hashes[0]
@@ -3659,7 +3659,11 @@ class AtlasZonefileCrawler( threading.Thread ):
                     # don't ask again
                     log.debug("Stored %s zonefiles" % len(stored_zfhashes))
                     for zfh in stored_zfhashes:
-                        peer_zonefile_hashes.remove(zfh)
+                        if zfh in peer_zonefile_hashes:
+                            peer_zonefile_hashes.remove(zfh)
+                        if zfh in zonefile_hashes:
+                            zonefile_hashes.remove(zfh)
+
                         num_fetched += 1
                 
                 else:
