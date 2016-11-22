@@ -3583,7 +3583,7 @@ class AtlasZonefileCrawler( threading.Thread ):
             present = is_zonefile_cached( zfhash, zonefile_dir=self.zonefile_dir, validate=True )
             if present:
                 log.debug("%s: zonefile %s already cached" % (self.hostport, zfhash))
-                zonefile_hashes[i] = None
+                zonefile_hashes.pop(i)
 
         zonefile_hashes = filter( lambda zfh: zfh is not None, zonefile_hashes )
 
