@@ -26,9 +26,11 @@
 import os
 import sys
 
+from keylib import ECPrivateKey, ECPublicKey
+import bitcoin
+import ecdsa
 import pybitcoin
 import keylib
-import bitcoin as pybitcointools
 import types
 import re
 import base64
@@ -366,28 +368,93 @@ def get_immutable_data( data_hash, data_url=None, hash_func=get_data_hash, fqu=N
    return None
 
 
-def sign_raw_data( raw_data, privatekey ):
-   """
-   Sign a string of data.
-   Return a base64-encoded signature.
-   """
-   data_hash = get_data_hash( raw_data )
-
-   data_sig_bin = pybitcointools.ecdsa_raw_sign( data_hash, privatekey )
-   return pybitcointools.encode_sig( data_sig_bin[0], data_sig_bin[1], data_sig_bin[2] )
 
 
-def verify_raw_data( raw_data, pubkey, sigb64 ):
-   """
-   Verify the signature over a string, given the public key
-   and base64-encode signature.
-   Return True on success.
-   Return False on error.
-   """
+def sign_raw_data(raw_data, privatekey):
+    """
+    Sign a string of data.
+    Returns signature as a base64 string
+    """
+    data_hash = get_data_hash(raw_data)
 
-   data_hash = get_data_hash( raw_data )
+    pk = ECPrivateKey(privatekey)
+    pk_hex = pk.to_hex()
 
-   return pybitcointools.ecdsa_raw_verify( data_hash, pybitcointools.decode_sig( sigb64 ), pubkey )
+    # force uncompressed
+    if len(pk_hex) > 64:
+        pk = ECPrivateKey(privkey[:64])
+    
+    priv = pk.to_hex()
+    pub = pk.public_key().to_hex()
+
+    assert len(pub[2:].decode('hex')) == ecdsa.SECP256k1.verifying_key_length, "BUG: Invalid key decoding"
+ 
+    sk = ecdsa.SigningKey.from_string(priv.decode('hex'), curve=ecdsa.SECP256k1)
+    sig_bin = sk.sign_digest(data_hash.decode('hex'), sigencode=ecdsa.util.sigencode_der)
+    
+    # enforce low-s
+    sig_r, sig_s = ecdsa.util.sigdecode_der( sig_bin, ecdsa.SECP256k1.order )
+    if sig_s * 2 >= ecdsa.SECP256k1.order:
+        log.debug("High-S to low-S")
+        sig_s = ecdsa.SECP256k1.order - sig_s
+
+    sig_bin = ecdsa.util.sigencode_der( sig_r, sig_s, ecdsa.SECP256k1.order )
+
+    # sanity check 
+    vk = ecdsa.VerifyingKey.from_string(pub[2:].decode('hex'), curve=ecdsa.SECP256k1)
+    assert vk.verify_digest(sig_bin, data_hash.decode('hex'), sigdecode=ecdsa.util.sigdecode_der), "Failed to verify signature ({}, {})".format(sig_r, sig_s)
+
+    return base64.b64encode( bitcoin.encode_sig( None, sig_r, sig_s ).decode('hex') )
+
+
+def secp256k1_compressed_pubkey_to_uncompressed_pubkey( pubkey ):
+    """
+    convert a secp256k1 compressed public key into an uncompressed public key.
+    taken from https://bitcointalk.org/index.php?topic=644919.msg7205689#msg7205689
+    """
+    pubk = ECPublicKey(pubkey).to_hex()
+
+    assert len(pubk) == 66, "Not a compressed hex public key"
+
+    def pow_mod(x, y, z):
+        "Calculate (x ** y) % z efficiently."
+        number = 1
+        while y:
+            if y & 1:
+                number = number * x % z
+            y >>= 1
+            x = x * x % z
+        return number
+    
+    p = ecdsa.SECP256k1.curve.p()
+    b = ecdsa.SECP256k1.curve.b()
+    y_parity = int(pubk[:2]) - 2
+    x = int(pubk[2:], 16)
+    a = (pow_mod(x, 3, p) + b) % p
+    y = pow_mod(a, (p+1)//4, p)
+    if y % 2 != y_parity:
+        y = -y % p
+
+    uncompressed_pubk = '04{:x}{:x}'.format(x, y)
+    return uncompressed_pubk
+
+
+def verify_raw_data(raw_data, pubkey, sigb64):
+    """
+    Verify the signature over a string, given the public key
+    and base64-encode signature.
+    Return True on success.
+    Return False on error.
+    """
+
+    data_hash = get_data_hash(raw_data)
+    pubk = ECPublicKey(pubkey).to_hex()
+    if len(pubk) == 66:
+        pubk = secp256k1_compressed_pubkey_to_uncompressed_pubkey( pubkey )
+
+    sig_bin = base64.b64decode(sigb64)
+    vk = ecdsa.VerifyingKey.from_string( pubk[2:].decode('hex'), curve=ecdsa.SECP256k1 )
+    return vk.verify_digest(sig_bin, data_hash.decode('hex'), sigdecode=ecdsa.util.sigdecode_der)
 
 
 def get_drivers_for_url( url ):
