@@ -3589,7 +3589,7 @@ class AtlasZonefileCrawler( threading.Thread ):
 
         log.debug("%s: missing %s unique zonefiles" % (self.hostport, len(zonefile_hashes)))
 
-        while len(zonefile_hashes) > 0:
+        while len(zonefile_hashes) > 0 and self.running:
 
             zfhash = zonefile_hashes[0]
             zfnames = zonefile_names[zfhash]
