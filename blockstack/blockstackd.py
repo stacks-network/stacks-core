@@ -1083,7 +1083,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
 
             '''
             # it's a valid zonefile.  cache and store it.
-            rc = store_zonefile_data_to_storage( name, str(zonefile_data), txid, required=zonefile_storage_drivers, cache=True, zonefile_dir=zonefile_dir, tx_required=False )
+            rc = store_zonefile_data_to_storage( str(zonefile_data), txid, required=zonefile_storage_drivers, cache=True, zonefile_dir=zonefile_dir, tx_required=False )
             if not rc:
                 log.debug("Failed to replicate zonefile %s to external storage" % zonefile_hash)
                 saved.append(0)
@@ -1096,8 +1096,7 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 # see if we can replicate it to them in the background.
                 atlas_zonefile_push_enqueue( zonefile_hash, name, txid, str(zonefile_data) )
             '''
-            storage_enqueue_zonefile( name, txid, str(zonefile_hash), str(zonefile_data) )
-            # storage_push( lambda: store_zonefile_data_to_storage( name, str(zonefile_data), txid, required=zonefile_storage_drivers, cache=True, zonefile_dir=zonefile_dir, tx_required=False ) )
+            storage_enqueue_zonefile( txid, str(zonefile_hash), str(zonefile_data) )
             saved.append(1)
        
         db.close()
@@ -1471,7 +1470,167 @@ class BlockstackdRPCServer( threading.Thread, object ):
         """
         if self.rpc_server is not None:
             self.rpc_server.shutdown()
-     
+
+
+class BlockstackStoragePusher( threading.Thread ):
+    """
+    worker thread to push data into storage providers,
+    so we don't block the RPC server.
+    """
+    def __init__(self, conf, queue_path):
+        threading.Thread.__init__(self)
+        self.running = False
+        self.accepting = True
+        self.queue_path = queue_path
+        self.config = conf
+
+        self.zonefile_dir = conf.get('zonefile_dir', None)
+        self.zonefile_storage_drivers = conf['zonefile_storage_drivers'].split(",")
+        self.profile_storage_drivers = conf['profile_storage_drivers'].split(",")
+        self.atlasdb_path = conf.get('atlasdb_path', None)
+
+        self.zonefile_queue_id = "push-zonefile"
+        self.profile_queue_id = "push-profile"
+
+
+    def enqueue_zonefile( self, txid, zonefile_hash, zonefile_data ):
+        """
+        Enqueue a zonefile for replication
+        """
+        assert type(zonefile_data) in [str, unicode]
+        
+        txid = str(txid)
+        zonefile_hash = str(zonefile_hash)
+        zonefile_data = str(zonefile_data)
+
+        try:
+            # NOTE: we don't use or rely on the name here, but use the zonefile hash instead
+            existing = queue_findone( self.zonefile_queue_id, zonefile_hash, path=self.queue_path )
+            if len(existing) > 0:
+                log.error("Already queued {}".format(zonefile_hash))
+                return False
+
+            log.debug("Queue {}-byte zonefile".format(len(zonefile_data)))
+
+            # NOTE: we don't use or rely on the name here, but use the zonefile hash instead
+            res = queue_append( self.zonefile_queue_id, zonefile_hash, txid, block_height=0, zonefile_hash=zonefile_hash, zonefile_data=zonefile_data, path=self.queue_path )
+            assert res
+            return True
+        except Exception as e:
+            log.exception(e)
+            return False
+
+
+    def enqueue_profile( self, name, profile_data ):
+        """
+        Enqueue a profile for replication
+        """
+        name = str(name)
+        assert type(profile_data) in [str, unicode]
+        profile_data = str(profile_data)
+
+        try:
+            existing = queue_findone( self.profile_queue_id, name, path=self.queue_path )
+            if len(existing) > 0:
+                log.error("Already queued {}.{}".format(name, zonefile_hash))
+                return False
+
+            log.debug("Queue {}-byte profile for {}".format(len(profile_data), name))
+            res = queue_append( self.profile_queue_id, None, block_height=0, profile=profile_data )
+            assert res
+            return True
+        except Exception as e:
+            log.exception(e)
+            return False
+
+
+    def store_one_zonefile(self):
+        """
+        Find and store one zonefile
+        """
+        # find a zonefile
+        entries = queue_findall( self.zonefile_queue_id, limit=1, path=self.queue_path )
+        if entries is None or len(entries) == 0:
+            # empty 
+            return False
+
+        entry = entries[0]
+        res = store_zonefile_data_to_storage( str(entry['zonefile']), entry['tx_hash'], required=self.zonefile_storage_drivers, cache=False, zonefile_dir=self.zonefile_dir, tx_required=False )
+        if not res:
+            log.error("Failed to store zonefile {} ({} bytes)".format(entry['zoenfile_hash'], len(entry['zonefile'])))
+            return False
+
+        log.debug("Replicated zonefile {} ({} bytes)".format(entry['zonefile_hash'], len(entry['zonefile'])))
+
+        if self.atlasdb_path is not None:
+            # mark present in the atlas subsystem 
+            atlasdb_set_zonefile_present( str(entry['zonefile_hash']), True, path=self.atlasdb_path )
+
+        queue_removeall( entries, path=self.queue_path )
+        return res
+
+
+    def store_one_profile(self):
+        """
+        Find and store one profile
+        """
+        entries = queue_findall( self.profile_queue_id, limit=1, path=self.queue_path )
+        if entries is None or len(entries) == 0:
+            # empty 
+            return False
+
+        entry = entries[0]
+
+        num_successes = store_profile_data_to_storage( entry['fqu'], str(entry['profile']), required=self.profile_storage_drivers )
+        if num_successes == 0:
+            log.error("Failed to store profile for {} ({} bytes)".format(entry['fqu'], len(entry['profile'])))
+            return False
+
+        log.debug("Replicated profile for {} ({} bytes)".format(entry['fqu'], len(entry['profile'])))
+        queue_removeall( entries, path=self.queue_path )
+        return True
+
+
+    def run(self):
+        """
+        Push zonefiles and profiles
+        """
+        self.running = True
+        while self.running:
+          
+            res_zonefile = self.store_one_zonefile()
+            res_profile = self.store_one_profile()
+
+            if not res_zonefile and not res_profile:
+                time.sleep(1.0)
+                continue
+
+        log.debug("StoragePusher thread exit")
+        self.running = False
+
+
+    def signal_stop(self):
+        self.running = False
+        log.debug("StoragePusher signal stop")
+
+
+    def drain(self):
+        """
+        Stop taking requests and wait for the queue to drain
+        """
+        self.accepting = False
+        while True:
+            zonefile_entries = queue_findall( self.zonefile_queue_id, limit=1, path=self.queue_path )
+            profile_entries = queue_findall( self.profile_queue_id, limit=1, path=self.queue_path )
+
+            if len(zonefile_entries) > 0 or len(profile_entries) > 0:
+                log.debug("Still have data remaining")
+                time.sleep(1.0)
+                continue
+
+            else:
+                break
+
 
 def rpc_start( port ):
     """
@@ -1516,7 +1675,7 @@ def storage_start( blockstack_opts ):
     global storage_pusher
    
     storage_queue = get_storage_queue_path()
-    storage_pusher = StoragePusher( blockstack_opts, storage_queue )
+    storage_pusher = BlockstackStoragePusher( blockstack_opts, storage_queue )
     log.debug("Starting storage pusher")
     storage_pusher.start()
 
@@ -1538,12 +1697,12 @@ def storage_stop():
     log.debug("Storage pusher joined")
 
 
-def storage_enqueue_zonefile( name, txid, zonefile_hash, zonefile_data ):
+def storage_enqueue_zonefile( txid, zonefile_hash, zonefile_data ):
     """
     Queue a zonefile for replication
     """
     global storage_pusher
-    return storage_pusher.enqueue_zonefile( name, txid, zonefile_hash, zonefile_data )
+    return storage_pusher.enqueue_zonefile( txid, zonefile_hash, zonefile_data )
 
 
 def storage_enqueue_profile( name, profile_data ):
