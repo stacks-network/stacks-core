@@ -3583,7 +3583,7 @@ class AtlasZonefileCrawler( threading.Thread ):
             present = is_zonefile_cached( zfhash, zonefile_dir=self.zonefile_dir, validate=True )
             if present:
                 log.debug("%s: zonefile %s already cached" % (self.hostport, zfhash))
-                zonefile_hashes.pop(i)
+                zonefile_hashes[i] = None
 
         zonefile_hashes = filter( lambda zfh: zfh is not None, zonefile_hashes )
 
@@ -3684,9 +3684,10 @@ class AtlasZonefileCrawler( threading.Thread ):
                 if locked:
                     atlas_peer_table_unlock()
                     peer_table = None
-           
+
             # done with this zonefile
-            zonefile_hashes.pop(0)
+            if zfhash in zonefile_hashes:
+                zonefile_hashes.remove(zfhash)
 
         log.debug("%s: fetched %s zonefiles" % (self.hostport, num_fetched))
         return num_fetched
