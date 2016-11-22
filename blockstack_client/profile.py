@@ -485,13 +485,15 @@ def get_name_profile(name, zonefile_storage_drivers=None,
             user_address = old_address
 
         user_profile = load_name_profile( name, user_zonefile, user_address, old_address, use_zonefile_urls=use_zonefile_urls, storage_drivers=profile_storage_drivers, decode=decode_profile )
-        if user_profile is None or (type(user_profile) not in [str, unicode] and 'error' in user_profile):
 
-            if user_profile is None:
-                log.debug("WARN: no user profile for %s" % name)
+        if user_profile is not None:
+            if decode_profile:
+                assert isinstance(user_profile, dict)
             else:
-                log.debug("WARN: failed to load profile for %s: %s" % (name, user_profile['error']))
+                assert type(user_profile) in [str, unicode]
 
+        else:
+            log.debug("WARN: no user profile for %s" % name)
             if create_if_absent:
                 user_profile = user_db.make_empty_user_profile()
             else:
