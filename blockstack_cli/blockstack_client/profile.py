@@ -143,7 +143,7 @@ def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, raw_z
 
     # try atlas node first 
     res = get_zonefiles( hostport, [expected_zonefile_hash], proxy=proxy )
-    if 'error' in res:
+    if 'error' in res or expected_zonefile_hash not in res['zonefiles']:
         # fall back to storage drivers if atlas node didn't have it
         zonefile_txt = storage.get_immutable_data(expected_zonefile_hash, hash_func=storage.get_zonefile_data_hash, fqu=name, zonefile=True, deserialize=False, drivers=storage_drivers)
         if zonefile_txt is None:
