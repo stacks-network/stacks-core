@@ -3406,14 +3406,14 @@ class AtlasZonefileCrawler( threading.Thread ):
             self.path = atlasdb_path()
 
 
-    def store_zonefile_data( self, name, fetched_zfhash, txid, zonefile_data, peer_hostport, con, path ):
+    def store_zonefile_data( self, fetched_zfhash, txid, zonefile_data, peer_hostport, con, path ):
         """
         Store the fetched zonefile (as a serialized string) to storage and cache it locally.
         Update internal state to mark it present
         Return True on success
         Return False on error
         """
-        rc = store_zonefile_data_to_storage( name, zonefile_data, txid, required=self.zonefile_storage_drivers, cache=True, zonefile_dir=self.zonefile_dir, tx_required=False )
+        rc = store_zonefile_data_to_storage( zonefile_data, txid, required=self.zonefile_storage_drivers, cache=True, zonefile_dir=self.zonefile_dir, tx_required=False )
         if not rc:
             log.error("%s: Failed to store zonefile %s" % (self.hostport, fetched_zfhash))
 
@@ -3466,9 +3466,7 @@ class AtlasZonefileCrawler( threading.Thread ):
                 log.warn("%s: Unknown txid %s for %s" % (self.hostport, zftxid, fetched_zfhash))
                 continue
 
-            zfname = zfinfo['name']
-
-            rc = self.store_zonefile_data( zfname, fetched_zfhash, zftxid, zonefile_txt, peer_hostport, con, path )
+            rc = self.store_zonefile_data( fetched_zfhash, zftxid, zonefile_txt, peer_hostport, con, path )
             if rc:
                 # don't ask for it again
                 ret.append( fetched_zfhash )
@@ -3509,7 +3507,7 @@ class AtlasZonefileCrawler( threading.Thread ):
         else:
             # got it! remember it
             log.debug("%s: got %s from storage" % (self.hostport, zfhash))
-            rc = self.store_zonefile_data( name, zfhash, txid, zonefile_info['zonefile_data'], "storage", con, path )
+            rc = self.store_zonefile_data( zfhash, txid, zonefile_info['zonefile_data'], "storage", con, path )
 
         if close:
             con.close()
@@ -3582,7 +3580,7 @@ class AtlasZonefileCrawler( threading.Thread ):
         for i in xrange(0, len(zonefile_hashes)):
             # is this zonefile already cached?
             zfhash = zonefile_hashes[i]
-            present = is_zonefile_cached( zfhash, zonefile_dir=self.zonefile_dir, validate=False )
+            present = is_zonefile_cached( zfhash, zonefile_dir=self.zonefile_dir, validate=True )
             if present:
                 log.debug("%s: zonefile %s already cached" % (self.hostport, zfhash))
                 zonefile_hashes[i] = None
@@ -3768,7 +3766,7 @@ class AtlasZonefilePusher(threading.Thread):
             return 0
 
         # it's a valid zonefile.  cache and store it.
-        rc = store_zonefile_data_to_storage( name, str(zfdata_txt), txid, required=self.zonefile_storage_drivers, cache=True, zonefile_dir=self.zonefile_dir, tx_required=False )
+        rc = store_zonefile_data_to_storage( str(zfdata_txt), txid, required=self.zonefile_storage_drivers, cache=True, zonefile_dir=self.zonefile_dir, tx_required=False )
         if not rc:
             log.error("Failed to replicate zonefile %s to external storage" % zonefile_hash)
 
