@@ -59,7 +59,7 @@ from ..data import get_profile_timestamp, set_profile_timestamp
 
 from .crypto.utils import aes_decrypt, aes_encrypt
 
-from ..config import SLEEP_INTERVAL, get_config, get_logger, CONFIG_PATH, DEFAULT_QUEUE_PATH
+from ..config import SLEEP_INTERVAL, get_config, get_logger, CONFIG_PATH, DEFAULT_QUEUE_PATH, url_to_host_port
 
 DEBUG = True
 
@@ -463,29 +463,36 @@ class RegistrarWorker(threading.Thread):
     def get_atlas_server_list( cls, config_path ):
         """
         Get the list of atlas servers to which to replicate zonefiles
+        Returns [(host, port)] on success
+        Returns {'error': ...} on error
         """
         conf = get_config(config_path)
-        servers = [(conf['server'], conf['port'])]
+        servers = ['{}:{}'.format(conf['server'], conf['port'])]
         server_hostport = '{}:{}'.format(conf['server'], conf['port'])
 
         atlas_peers_res = {}
         try:
             atlas_peers_res = get_atlas_peers( server_hostport )
             assert 'error' not in atlas_peers_res
-            
-            servers += atlas_peers_res['servers']
-            servers = list(set([str(hp) for hp in servers]))
+           
+            servers += atlas_peers_res['peers']
 
         except AssertionError as ae:
             log.exception(ae)
             log.error('Error response from {}: {}'.format(server_hostport, atlas_peers_res['error']))
+            return {'error': 'Failed to get valid response'}
         except socket.error, se:
             log.exception(se)
             log.warning('Failed to find Atlas peers of {}'.format(server_hostport))
+            return {'error': 'Failed to get atlas peers due to socket error'}
         except Exception as e:
             log.exception(e)
+            return {'error': 'Failed to contact atlas peer'}
             
-        return servers
+        servers = list(set([str(hp) for hp in servers]))
+        log.debug("Servers: {}".format(servers))
+
+        return [url_to_host_port(hp) for hp in servers]
 
 
     def cleanup_lockfile(self, path):
