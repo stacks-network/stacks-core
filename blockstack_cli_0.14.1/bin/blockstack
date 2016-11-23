@@ -58,7 +58,7 @@ def enable_debug( argv ):
     set_debug = False
 
     for arg in argv: 
-        if not debug and arg == '--debug':
+        if not debug and arg in ['-v', '-d', '--verbose', '--debug']:
             # will set debug 
             set_debug = True
             set_envar = True
