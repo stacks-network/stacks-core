@@ -454,11 +454,6 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
         if include_raw_zonefile:
             raw_zonefile = user_zonefile.pop('raw_zonefile')
 
-        raw_zonefile = None
-        if include_raw_zonefile:
-            raw_zonefile = user_zonefile['raw_zonefile']
-            del user_zonefile['raw_zonefile']
-
         user_zonefile = user_zonefile['zonefile']
 
     # is this really a legacy profile?
