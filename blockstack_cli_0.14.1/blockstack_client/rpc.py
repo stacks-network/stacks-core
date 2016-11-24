@@ -31,11 +31,16 @@ import errno
 import time
 import atexit
 import socket
-
-from defusedxml import xmlrpc
-
-# prevent the usual XML attacks
-xmlrpc.monkey_patch()
+import inspect
+import requests
+import uuid
+import random
+import posixpath
+import SocketServer
+from SimpleHTTPServer import SimpleHTTPRequestHandler
+import urllib
+import jsonschema
+from schemas import *
 
 from types import ModuleType
 
@@ -50,8 +55,6 @@ from method_parser import parse_methods
 
 log = blockstack_config.get_logger()
 
-from SimpleXMLRPCServer import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
-
 running = False
 
 RPC_INTERNAL_METHODS = os.environ.get('BLOCKSTACK_RPC_INITIALIZED_METHODS', None)
@@ -63,11 +66,14 @@ class RPCInternalProxy(object):
 
 
 class CLIRPCArgs(object):
-
     """
     Argument holder for RPC arguments
     destined to a CLI method
     """
+    pass
+
+
+class RPCException(Exception):
     pass
 
 
@@ -224,31 +230,207 @@ def ping():
     return True
 
 
-class BlockstackAPIEndpointHandler(SimpleXMLRPCRequestHandler):
+class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
+    '''
+    Handle one JSON RPC request
+    '''
 
-    """
-    Hander to capture tracebacks
-    """
+    JSONRPC_PARSE_ERROR = -32700
+    JSONRPC_INVALID_REQUEST = -32600
+    JSONRPC_METHOD_NOT_FOUND = -32601
+    JSONRPC_INVALID_PARAMS = -32602
+    JSONRPC_INTERNAL_ERROR = -32603
 
-    def _dispatch(self, method, params):
-        if method not in self.server.funcs:
-            return json.dumps({'error': 'No such method'})
+    JSONRPC_MAX_SIZE = 1024 * 1024      # 1 MB
+
+    def _send_headers(self, status_code=200):
+        """
+        Generate and reply headers
+        """
+        self.send_response(status_code)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+
+    
+    def _make_jsonrpc_response(self, m_id, have_result=False, result=None, have_error=False, error=None):
+        """
+        Make a base JSON-RPC response
+        """
+        assert have_result or have_error, "Need result or error"
+
+        payload = {}
+        if have_result:
+            payload['result'] = result
+
+        if have_error:
+            payload['error'] = error
+            
+        res = {'jsonrpc': '2.0', 'id': m_id}
+        res.update(payload)
+        return res
+
+
+    def _make_jsonrpc_error(self, code, message, data=None):
+        """
+        Make a JSON-RPC error message
+        """
+        error_msg = {}
+        error_msg['code'] = code
+        error_msg['message'] = message
+        if data:
+            error_msg['data'] = data
+
+        return error_msg
+
+
+    def _reply(self, resp):
+        """
+        Send a JSON response
+        """
+        jsonschema.validate(resp, JSONRPC_RESPONSE_SCHEMA)
+
+        resp_str = json.dumps(resp)
+        self.wfile.write(resp_str)
+        return
+
+
+    def _reply_error(self, m_id, code, message, data=None):
+        """
+        Generate and reply an error code
+        """
+        self._send_headers()
+
+        error_msg = self._make_jsonrpc_error( code, message, data=data )
+        resp = self._make_jsonrpc_response( m_id, have_error=True, error=error_msg )
+
+        self._reply(resp)
+        return
+
+
+    def _reply_result(self, m_id, result_payload):
+        """
+        Generate and reply a result
+        """
+        self._send_headers()
+
+        resp = self._make_jsonrpc_response( m_id, have_result=True, result=result_payload )
+
+        self._reply(resp)
+        return
+
+    
+    def JSONRPC_call(self):
+        """
+        Handle one JSON-RPC request
+        """
+
+        # JSON post?
+        request_type = self.headers.get('content-type', None)
+        client_address_str = "{}:{}".format(self.client_address[0], self.client_address[1])
+
+        if request_type != 'application/json':
+            log.error("Invalid request of type {} from {}".format(request_type, client_address_str))
+            self._reply_error( None, self.JSONRPC_PARSE_ERROR, "Parse error" )
+            return
+
+        # check length
+        read_len = self.headers.get('content-length', None)
+        if read_len is None:
+            log.error("No content-length given from {}".format(client_address_str))
+            self._reply_error( None, self.JSONRPC_PARSE_ERROR, "Parse error" )
+            return 
 
         try:
-            res = self.server.funcs[str(method)](*params)
+            read_len = int(read_len)
+        except:
+            log.error("Invalid content-length")
+            self._reply_error( None, self.JSONRPC_PARSE_ERROR, "Parse error" )
+            return 
 
-            # lol jsonrpc within xmlrpc
-            return json.dumps(res)
-        except Exception as e:
-            print('\n\n{}\n\n'.format(traceback.format_exc()), file=sys.stderr)
-            msg = 'Caught exception:\n{}'
-            return json.dumps({'error': msg.format(traceback.format_exc())})
+        if read_len >= self.JSONRPC_MAX_SIZE:
+            log.error("Request from {} is too long ({} >= {})".format(client_address_str, read_len, self.JSONRPC_MAX_SIZE))
+            self._reply_error( None, self.JSONRPC_PARSE_ERROR, "Parse error" )
+            return 
 
-        return json.dumps({'error': 'No such method'})
+        # get the payload
+        request_str = self.rfile.read(read_len)
+
+        # parse the payload
+        request = None
+        try:
+            request = json.loads( request_str )
+            jsonschema.validate( request, JSONRPC_REQUEST_SCHEMA )
+        
+        except (TypeError, ValueError, ValidationError) as ve:
+            if BLOCKSTACK_DEBUG:
+                log.exception(ve)
+            self._reply_error( None, self.JSONRPC_PARSE_ERROR, 'Parse error')
+            return
+
+        # look up
+        rpc_id = request['id']
+        method_name = request['method']
+        method_params = request.get('params', [])
+        if method_name not in self.server.funcs:
+            self._reply_error( rpc_id, self.JSONRPC_METHOD_NOT_FOUND, 'No such method')
+            return
+
+        # validate arguments
+        method = self.server.funcs[method_name]
+        try:
+            if isinstance(method_params, dict):
+                inspect.getcallargs(method, **method_params)
+            else:
+                inspect.getcallargs(method, *method_params)
+
+        except ValueError as ve:
+            if BLOCKSTACK_DEBUG:
+                log.exception(ve)
+
+            self._reply_error( rpc_id, self.JSONRPC_INVALID_PARAMS, "Invalid parameters")
+            return
+
+        # call 
+        resp = None
+        try:
+            if isinstance(method_params, dict):
+                resp = method(**method_params)
+            else:
+                resp = method(*method_params)
+
+        except Exception, e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
+            msg = "Internal error"
+            
+            if BLOCKSTACK_DEBUG:
+                trace = traceback.format_exc()
+                msg += "\nCaught exception\n{}".format(trace)
+
+            self._reply_error( rpc_id, self.JSONRPC_INTERNAL_ERROR, msg )
+            return 
+
+        # return result
+        self._reply_result( rpc_id, resp )
+        return
 
 
-class BlockstackAPIEndpoint(SimpleXMLRPCServer):
+    def do_POST(self):
+        """
+        Top-level POST dispatch
+        """
+        path = posixpath.normpath(urllib.unquote(self.path))
+        if path == '/API':
+            return self.JSONRPC_call()
 
+        else:
+            self.send_response(404)
+            self.end_headers()
+            return
+
+
+class BlockstackAPIEndpoint(SocketServer.TCPServer):
     """
     Lightweight API endpoint to Blockstack server:
     exposes all of the client methods via an XMLRPC interface,
@@ -263,26 +445,34 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
         return bool(callable(method) or getattr(method, '__call__', None))
 
 
-    def register_function(self, func, name=None, server=True):
+    def register_function(self, func, name=None):
         """
         Register a function with the RPC server,
         and also with the internal RPC container.
         Optionall don't register on the server.
         """
-        if server:
-            SimpleXMLRPCServer.register_function(self, func, name)
-
         name = func.__name__ if name is None else name
+        assert name
 
         setattr(self.internal_proxy, name, func)
+        self.funcs[name] = func
 
 
     @classmethod
     def get_internal_proxy(cls):
+        """
+        Get the internal object that contains pointers to all our register =ed methods
+        """
         return cls.RPC_SERVER_INST.internal_proxy
 
 
     def get_plugin_methods(self, plugin):
+        """
+        Get the set of methods in a module.
+        The module must have a RPC_METHODS attribute, which in turn must be
+        an array of callables to register.
+        """
+
         methods = getattr(plugin, 'RPC_METHODS', [])
 
         # there is a madness to these methods!
@@ -299,6 +489,14 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
 
 
     def get_or_import_plugin_module(self, plugin_or_plugin_name):
+        """
+        Get a module.  The plugin_or_plugin_name argument can either
+        be a module (in which case it is simply returned), or a string 
+        that can be imported as a module.
+
+        Returns a module on success
+        Returns None on error
+        """
         if isinstance(plugin_or_plugin_name, ModuleType):
             return plugin_or_plugin_name
 
@@ -311,7 +509,19 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
         return None
 
 
-    def register_plugin_methods(self, config_path, plugins, server):
+    def register_plugin_methods(self, config_path, plugins):
+        """
+        Given the config path and a list of either modules or module strings,
+        load all of the modules' methods.
+
+        Each module must have an RPC_METHODS member and an RPC_PREFIX member.
+        The RPC_METHODS member must be an array of functions.
+        The RPC_PREFIX member must be a string; it will be used to namespace the methods.
+
+        The module may optionally have an RPC_INIT and RPC_SHUTDOWN member, which
+        must be callables that instantiate the plugin or destroy it.
+        """
+
         for plugin_or_plugin_name in plugins:
             mod_plugin = self.get_or_import_plugin_module(plugin_or_plugin_name)
             if mod_plugin is None:
@@ -332,7 +542,7 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
                 log.debug(msg.format(plugin_prefix, method.__name__))
 
                 name = '{}_{}'.format(plugin_prefix, method.__name__)
-                self.register_function(method, name=name, server=server)
+                self.register_function(method, name=name)
 
             # keep state around
             self.plugin_prefixes.append(plugin_prefix)
@@ -343,16 +553,15 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
             plugin_init(config_path=config_path)
 
 
-    def register_api_functions(self, config_path, plugins, server=True):
+    def register_api_functions(self, config_path, plugins):
         """
         Register all API functions.
         Do so for both the internal API proxy (for server-callers)
         and for the exteranl API (for RPC callers).
-        Optionally skip the external API (with @server)
         """
 
         # pinger
-        self.register_function(ping, name='ping', server=server)
+        self.register_function(ping, name='ping')
 
         # register the command-line methods (will all start with cli_)
         # methods will be named after their *action*
@@ -360,8 +569,8 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
             method_name = 'cli_{}'.format(method_info['command'])
             method = method_info['method']
 
-            # skip norpc methods
-            if 'norpc' in method_info['pragmas']:
+            # only include rpc-pragma'ed methods
+            if 'rpc' not in method_info['pragmas']:
                 msg = 'Skipping "norpc" method "{}"'
                 log.debug(msg.format(method.__name__))
                 continue
@@ -371,38 +580,33 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
 
             self.register_function(
                 local_rpc_factory(method_info, config_path),
-                name=method_name, server=server
+                name=method_name,
             )
 
-        self.register_plugin_methods(config_path, plugins, server)
+        self.register_plugin_methods(config_path, plugins)
 
         return True
 
 
     def __init__(self, host='localhost', port=blockstack_config.DEFAULT_API_PORT,
                  plugins=None, handler=BlockstackAPIEndpointHandler,
-                 config_path=blockstack_config.CONFIG_PATH, timeout=30, server=True):
+                 config_path=blockstack_config.CONFIG_PATH, server=True):
 
         plugins = [] if plugins is None else plugins
 
         if server:
-            SimpleXMLRPCServer.__init__(
-                self, (host, port), handler, allow_none=True
-            )
+            SocketServer.TCPServer.__init__(self, (host, port), handler)
+            self.socket.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 )
 
         # instantiate
         self.plugin_mods = []
         self.plugin_destructors = []
         self.plugin_prefixes = []
-        self.timeout = timeout
         self.config_path = config_path
         self.internal_proxy = RPCInternalProxy()
+        self.funcs = {}
 
-        self.register_api_functions(config_path, plugins, server=server)
-
-        if server:
-            self.register_introspection_functions()
-            self.register_multicall_functions()
+        self.register_api_functions(config_path, plugins)
 
 
     def shutdown_plugins(self):
@@ -417,9 +621,75 @@ class BlockstackAPIEndpoint(SimpleXMLRPCServer):
         self.plugin_destructors = []
 
 
-class BlockstackAPIEndpointClient(proxy.BlockstackRPCClient):
-    pass
+class BlockstackAPIEndpointClient(object):
+    """
+    JSONRPC client for blockstack's local RPC endpoint
+    """
+    def __init__(self, server, port, max_rpc_len=1024*1024,
+                 timeout=blockstack_config.DEFAULT_TIMEOUT, debug_timeline=False, **kw):
 
+        self.url = 'http://{}:{}/API'.format(server, port)
+        self.timeout = timeout
+        self.server = server
+        self.port = port
+        self.debug_timeline = debug_timeline
+        self.max_rpc_len = max_rpc_len
+
+
+    def log_debug_timeline(self, event, key, r=-1):
+        # random ID to match in logs
+        r = random.randint(0, 2 ** 16) if r == -1 else r
+        if self.debug_timeline:
+            log.debug('RPC({}) {} {} {}'.format(r, event, self.url, key))
+        return r
+
+
+    def __getattr__(self, key):
+        try:
+            return object.__getattr__(self, key)
+        except AttributeError:
+            r = self.log_debug_timeline('begin', key)
+
+            def inner(*args, **kw):
+                """
+                JSON-RPC call wrapper
+                """
+                assert len(args) == 0 or len(kw) == 0, "Cannot support both positional and keyword arguments"
+
+                jsonrpc_request = {
+                    'id': str(uuid.uuid4()),
+                    'jsonrpc': '2.0',
+                    'method': key
+                }
+
+                if len(args) > 0:
+                    jsonrpc_request['params'] = args
+
+                if len(kw) > 0:
+                    jsonrpc_request['params'] = kw
+
+                req = requests.post(self.url, timeout=self.timeout, data=json.dumps(jsonrpc_request), headers={'content-type': 'application/json'}, stream=True)
+                if req.status_code != 200:
+                    raise RPCException("Request '{}' status {}".foramt(key, req.status_code))
+
+                raw_data = req.raw.read( self.max_rpc_len + 1, decode_content=True )
+                if len(raw_data) > self.max_rpc_len:
+                    # too big 
+                    raise RPCException("Request '{}' replied too much data".format(key))
+
+                resp = json.loads(raw_data)
+                jsonschema.validate(resp, JSONRPC_RESPONSE_SCHEMA)
+                assert 'error' in resp or 'result' in resp
+            
+                self.log_debug_timeline('end', key, r)
+
+                if 'error' in resp:
+                    raise RPCException(resp['error'])
+
+                return resp['result']
+
+            return inner
+        
 
 def get_default_plugins():
     return [backend]
