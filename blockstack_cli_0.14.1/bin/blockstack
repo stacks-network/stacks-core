@@ -99,12 +99,8 @@ if __name__ == '__main__':
        
     try:
         result = run_cli()
-        if 'error' in result:
-            if type(result) in [str, unicode]:
-                print >> sys.stderr, result
-            else:
-                print >> sys.stderr, result['error']
-
+        if isinstance(result, dict) and 'error' in result:
+            print >> sys.stderr, result['error']
             sys.exit(1)
         else:
             print json.dumps(result, indent=4, sort_keys=True)
