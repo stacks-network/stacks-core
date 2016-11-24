@@ -55,6 +55,130 @@ OP_URLENCODED_PATTERN = r'^([a-zA-Z0-9\-_.~%]+)$'
 OP_URI_TARGET_PATTERN = r'^([a-z0-9+]+)://([a-zA-Z0-9\-_.~%#?&\:/]+)$'
 OP_MUTABLE_DATA_MD_PATTERN = r'^(mutable:{}:[0-9]+)$'.format(OP_BASE64_PATTERN_SECTION)
 
+OP_ANY_TYPE_SCHEMA = [
+    {
+        'type': 'array',
+    },
+    {
+        'type': 'number',
+    },
+    {
+        'type': 'string',
+    },
+    {
+        'type': 'null',
+    },
+    {
+        'type': 'object',
+    },
+    {
+        'type': 'boolean'
+    },
+]
+
+JSONRPC_ID_TYPES = [
+    {
+        'type': 'string',
+    },
+    {
+        'type': 'integer',
+    },
+    {
+        'type': 'null',
+    },
+]
+
+
+JSONRPC_REQUEST_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'jsonrpc': {
+            'type': 'string',
+            'pattern': '^2.0$'
+        },
+        'method': {
+            'type': 'string',
+            'pattern': '.+'
+        },
+        'params': {
+            'anyOf': [
+                {
+                    'type': 'array',
+                },
+                {
+                    'type': 'object',
+                }
+            ],
+        },
+        'id': {
+            'anyOf': JSONRPC_ID_TYPES,
+        },
+    },
+    'required': [
+        'jsonrpc',
+        'method',
+        'id'
+    ],
+    'additionalProperties': False,
+}
+
+JSONRPC_RESPONSE_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'id': {
+            'anyOf': JSONRPC_ID_TYPES,
+        },              
+        'jsonrpc': {
+            'type': 'string',
+            'pattern': '^2.0$'
+        },
+        'result': {
+            'anyOf': OP_ANY_TYPE_SCHEMA,
+        },
+        'error': {
+            'type': 'object',
+            'properties': {
+                'code': {
+                    'anyOf': [
+                        {
+                            'type': 'integer',
+                            'minimum': -32700,
+                            'maximum': -32700,
+                        },
+                        {
+                            'type': 'integer',
+                            'minimum': -32603,
+                            'maximum': -32600,
+                        },
+                        {
+                            'type': 'integer',
+                            'minimum': -32099,
+                            'maximum': -32000,
+                        },
+                    ],
+                },
+                'message': {
+                    'type': 'string',
+                },
+                'data': {
+                    'anyOf': OP_ANY_TYPE_SCHEMA
+                },
+            },
+            'required': [
+                'code',
+                'message'
+            ],
+            'additionalProperties': False,
+        },
+    },
+    'required': [
+        'jsonrpc',
+        'id'
+    ],
+    'additionalProperties': False,
+}
+                
+
 PRIVKEY_SINGLESIG_SCHEMA_WIF = {
     'type': 'string',
     'pattern': OP_PRIVKEY_PATTERN
