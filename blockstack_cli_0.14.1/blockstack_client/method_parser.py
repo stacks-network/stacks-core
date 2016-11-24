@@ -105,8 +105,9 @@ def parse_methods(method_list):
                 log.exception('Unsupported pragmas: {}'.format(unsupported_pragmas))
                 raise ValueError
 
-            if 'rpc' not in command_pragmas:
-                command_pragmas.append('norpc')
+            # available via rpc?
+            if 'rpc' in command_pragmas:
+                command_pragmas.append('rpc')
 
             command_help = re.findall(help_pattern, help_line)[0]
         except Exception as e:
