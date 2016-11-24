@@ -303,11 +303,6 @@ def configure(config_file=CONFIG_PATH, force=False, interactive=True):
     if not force:
         # defaults
         blockstack_opts = read_config_file(path=config_file)['blockstack-client']
-        blockstack_opts['path'] = config_file
-        if config_file is not None:
-            blockstack_opts['dir'] = os.path.dirname(config_file)
-        else:
-            blockstack_opts['dir'] = None
 
     blockstack_opts, missing_blockstack_opts, num_blockstack_opts_prompted = find_missing(
         blockstack_message,
@@ -477,6 +472,13 @@ def write_config_file(opts, config_file):
     Return True on success
     Raise on error
     """
+
+    if 'blockstack-client' in opts:
+        assert 'path' not in opts['blockstack-client']
+        assert 'dir' not in opts['blockstack-client']
+
+    assert 'path' not in opts
+    assert 'dir' not in opts
 
     parser = SafeConfigParser()
 
@@ -681,7 +683,7 @@ def read_config_file(path=CONFIG_PATH):
                 # literal
                 ret[sec][opt] = parser.get(sec, opt)
 
-    if 'advanced_mode' in ret.get('blockstack-client', {}):
+    if 'advanced_mode' not in ret.get('blockstack-client', {}):
         ret['blockstack-client']['advanced_mode'] = False
 
     ret['path'] = path
