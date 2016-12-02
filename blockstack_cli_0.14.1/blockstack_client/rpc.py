@@ -39,10 +39,12 @@ import posixpath
 import SocketServer
 from SimpleHTTPServer import SimpleHTTPRequestHandler
 import urllib
+import urllib2
 import jsonschema
 from schemas import *
 
 from types import ModuleType
+from keylib import *
 
 import signal
 import json
@@ -50,8 +52,11 @@ import config as blockstack_config
 import backend
 import proxy
 
-from config import BLOCKSTACK_DEBUG
-from method_parser import parse_methods
+from .config import BLOCKSTACK_DEBUG
+from .method_parser import parse_methods
+import app
+import assets
+import data
 
 log = blockstack_config.get_logger()
 
@@ -119,7 +124,7 @@ def load_rpc_internal_methods(config_path):
         return RPC_INTERNAL_METHODS
 
     srv_internal = BlockstackAPIEndpoint(
-        config_path=config_path, plugins=get_default_plugins(), server=False
+        None, config_path=config_path, plugins=get_default_plugins(), server=False
     )
 
     RPC_INTERNAL_METHODS = srv_internal.internal_proxy
@@ -232,7 +237,10 @@ def ping():
 
 class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
     '''
-    Handle one JSON RPC request
+    Blockstack API endpoint.
+    * handle JSONRPC requests on POST
+    * handle app authentication 
+    * serve app resources to authenticated applications
     '''
 
     JSONRPC_PARSE_ERROR = -32700
@@ -243,12 +251,21 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
 
     JSONRPC_MAX_SIZE = 1024 * 1024      # 1 MB
 
-    def _send_headers(self, status_code=200):
+    def _send_headers(self, status_code=200, content_type='application/json'):
         """
         Generate and reply headers
         """
         self.send_response(status_code)
-        self.send_header('Content-type', 'application/json')
+        self.send_header('Content-type', content_type)
+        self.end_headers()
+
+
+    def _send_redirect(self, redirect_url):
+        """
+        Generate and reply a redirect response
+        """
+        self.send_response(302)
+        self.send_header('Location', redirect_url)
         self.end_headers()
 
     
@@ -319,7 +336,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
     
-    def JSONRPC_call(self):
+    def JSONRPC_call(self, session, qs_values):
         """
         Handle one JSON-RPC request
         """
@@ -364,6 +381,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         except (TypeError, ValueError, ValidationError) as ve:
             if BLOCKSTACK_DEBUG:
                 log.exception(ve)
+
             self._reply_error( None, self.JSONRPC_PARSE_ERROR, 'Parse error')
             return
 
@@ -374,6 +392,21 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         if method_name not in self.server.funcs:
             self._reply_error( rpc_id, self.JSONRPC_METHOD_NOT_FOUND, 'No such method')
             return
+
+        # must be allowed by the session.
+        # the only method allowed-by-default is 'ping'
+        log.debug("Call '{}'".format(method_name))
+        if method_name not in ['ping']:
+            if not request.has_key('blockstack_rpc_token') or request['blockstack_rpc_token'] != self.server.rpc_token:
+                # no RPC token, so need a session
+                if session is None:
+                        # must authenticate first
+                        return self.app_auth_begin(qs_values)
+
+                elif method_name not in session['methods']:
+                    # not allowed by session
+                    self._reply_error( rpc_id, self.JSONRPC_INVALID_REQUEST, "Method not allowed")
+                    return 
 
         # validate arguments
         method = self.server.funcs[method_name]
@@ -415,18 +448,461 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         self._reply_result( rpc_id, resp )
         return
 
+    
+    def get_app_info(self, qs_values):
+        """
+        Get the application owner's name
+        and the application's name.
+        Return {'app_fqu': ..., 'app_name': ...} on success
+        Return {'error': ...} on error
+        """
+        # NOTE: the way we get the name and appname here is a place-holder until
+        # (1) we can get the appname from the Host: field reliably (i.e. need local DNS stub), and
+        # (2) we have a .app namespace, where the app name and the Blockstack ID are the same thing.
+        # application owner name is in the `name=` parameter, or `Host:` header
+        app_fqu = qs_values.get("name", None)
+        if app_fqu is None:
+            app_fqu = self.headers.get('host', None)
+            if app_fqu is None or app_fqu.startswith("localhost:") or app_fqu == "localhost":
+                log.error("No Host: header, and no name= query arg")
+                return {'error': 'Could not identify application owner'}
+
+        # application name should be in the query string under `appname=`;
+        # if not given, it falls back to the name of the app
+        app_name = qs_values.get('appname', None)
+        if app_name is None:
+            app_name = app_fqu
+
+        return {'app_fqu': app_fqu, 'app_name': app_name}
+
+
+    def app_auth_begin(self, qs_values):
+        """
+        Begin application authentication.
+        Redirect the user with a URL to either sign in, or make an account.
+        """
+        app_info = self.get_app_info(qs_values)
+        if 'error' in app_info:
+            self._send_headers(status_code=401)
+            return 
+
+        app_fqu = app_info['app_fqu']
+        app_name = app_info['app_name']
+
+        url = app.app_auth_begin( app_fqu, app_name, self.server.master_data_privkey, config_path=self.server.config_path )
+        if url is None:
+            log.error("Failed to generate auth-begin URL")
+            self._send_headers(status_code=500, content_type='text/plain')
+            return 
+
+        self._send_redirect( url )
+        return
+
+    
+    def app_make_session(self, app_fqu, app_name):
+        """
+        Make a session for the application
+        Return the session token on success
+        Return None on error
+        """
+        acct = app.app_load_account(app_fqu, app_name, self.server.master_data_pubkey, config_path=self.server.config_path)
+        if 'error' in acct:
+            log.error("Failed to load account for {}/{}".format(app_fqu, app_name))
+            return None
+       
+        # extract account payload
+        account = acct['account']['payload']
+
+        ses = app.app_make_session( account, self.server.master_data_privkey, config_path=self.server.config_path )
+        if 'error' in ses:
+            log.error("Failed to make session for {}/{}".format(app_fqu, app_name))
+            return None
+
+        return ses['session_token']
+
+
+    def app_signin(self, app_fqu, app_name):
+        """
+        Handle an application signin.  The user has the option
+        of signing into the application, or going back to the identity page
+
+        @app_fqu is the name that owns the app
+        @app_name is the name of the specific application.
+
+        Serve the signin page for the user, with a URL to finish the authentication.
+        """
+        # serve back the page that lets users sign in to an application.
+
+        ses_token = self.app_make_session(app_fqu, app_name)
+        if ses_token is None:
+            log.error("Failed to make session")
+            self._send_headers(status_code=500, content_type='text/plain')
+            return 
+
+        auth_finish_url = app.app_url_auth_finish( self.server.master_data_privkey, ses_token, config_path=self.server.config_path )
+        auth_abort_url = app.app_url_auth_abort( config_path=self.server.config_path )
+
+        if auth_finish_url is None or auth_abort_url is None:
+            log.error("Failed to generate URLs for signin page")
+            self._send_headers(status_code=500, content_type='text/plain')
+            return 
+
+        page = assets.asset_make_signin_page(app_name, app_fqu, auth_finish_url, auth_abort_url)
+
+        self._send_headers(content_type='application/html')
+        self.wfile.write(page)
+        return
+
+    
+    def app_allowdeny(self, app_fqu, app_name):
+        """
+        Handle an application account creation.  The user has the
+        option of creating an account for the application.
+
+        @app_fqu is the name that owns the app
+        @app_name is the name of the app itself
+
+        Serve the allow/deny page for the user, with a URL to create the account
+        """
+        # serve back the page that lets users select whether or not
+        # to create an account and begin an application session.
+        app_config = app.app_get_config( app_fqu, app_name, config_path=self.server.config_path )
+        if 'error' in app_config:
+            log.error("Failed to load app config for {}:{}".format(app_fqu, app_name))
+            error_page = assets.asset_make_error_page("Failed to load application config.")
+            self._send_headers(content_type='application/html')
+            self.wfile.write(error_page)
+            return
+
+        app_config = app_config['config']
+        self.server.cache_app_config(app_fqu, app_name, app_config)
+
+        app_methods = app_config['api_methods']
+
+        auth_create_account_url = app.app_url_create_account( app_fqu, app_name, {}, self.server.master_data_privkey, config_path=self.server.config_path )
+        auth_abort_url = app.app_url_auth_abort( config_path=self.server.config_path )
+        
+        if auth_create_account_url is None or auth_abort_url is None:
+            log.error("Failed to generate URLs for account-creation page")
+            self._send_headers(status_code=500, content_type='text/plain')
+            return 
+
+        page = assets.asset_make_account_page(app_fqu, app_name, app_methods, auth_create_account_url, auth_abort_url )
+        
+        self._send_headers(content_type='application/html')
+        self.wfile.write(page)
+        return
+
+
+    def app_create_account_and_redirect(self, app_fqu, app_name ):
+        """
+        Create an application account and make a session, and redirect
+        the user with a URL to finish authenticating the application
+        """
+        app_config = self.server.get_cached_app_config(app_fqu, app_name)
+        if app_config is None:
+            log.error("No cached app config for {}:{}".format(app_fqu, app_name))
+            self._send_headers(status_code=500, content_type='text/plain')
+            return 
+
+        app_methods = app_config['api_methods']
+
+        acct_info = app.app_make_account( app_fqu, app_name, app_methods, self.server.master_data_privkey, config_path=self.server.config_path )
+        if 'error' in acct_info:
+            log.error("Failed to create account for {}/{}: {}".format(app_fqu, app_name, acct_info['error']))
+            self._send_headers(status_code=500, content_type='text/plain')
+            return
+
+        # store it 
+        res = app.app_store_account(app_fqu, app_name, acct_info['account_token'], self.server.master_data_pubkey, config_path=self.server.config_path )
+        if 'error' in res:
+            log.error("Failed to store account for {}/{}: {}".format(app_fqu, app_name, res['error']))
+            self._send_headers(status_code=500, content_type='text/plain')
+            return 
+
+        # make an auth-finish url
+        ses_token = self.app_make_session(app_fqu, app_name)
+        if ses_token is None:
+            log.error("Failed to make session")
+            self._send_headers(status_code=500, content_type='text/plain')
+            return 
+
+        # redirect to finish authentication
+        auth_finish_url = app.app_url_auth_finish( self.server.master_data_privkey, ses_token, config_path=self.server.config_path )
+        if auth_finish_url is None:
+            log.error("Failed to generate auth-finish URL")
+            self._send_headers(status_code=500, content_type='text/plain')
+            return 
+
+        self._send_redirect(auth_finish_url)
+        return 
+
+
+    def serve_index(self, ses):
+        """
+        Load the given application index file.
+        Handled separately from resources, since
+        the index file may be hosted on the legacy web.
+        """
+        appname = ses['appname']
+        app_fqu = ses['name']
+        app_config = self.server.get_cached_app_config(app_fqu, appname)
+        
+        res = app.app_get_index_file( app_fqu, appname, app_config=app_config, config_path=self.server.config_path )
+        if 'error' in res:
+            # not found 
+            log.error("Failed to load index file {}:{}/index.html: {}".format(name, appname, path, res['error']))
+            self._send_headers(status_code=404, content_type='text/plain')
+            return 
+
+        self._send_headers(status_code=200, content_type='application/octet-stream')
+        self.wfile.write( res['index_file'] )
+        return 
+
+
+    def serve_resource(self, ses, qs):
+        """
+        Load the given application resource
+        """
+        appname = ses['appname']
+        app_fqu = ses['name']
+        app_config = self.server.get_cached_app_config(app_fqu, appname)
+
+        res = app.app_get_resource( name, appname, path, app_config=app_config, config_path=self.server.config_path )
+        if 'error' in res:
+            # not found 
+            log.error("Failed to load {}:{}/{}: {}".format(name, appname, path, res['error']))
+            self._send_headers(status_code=404, content_type='text/plain')
+            return
+
+        self._send_headers(status_code=200, content_type='application/octet-stream')
+        self.wfile.write( res['data'] )
+        return
+
+
+    def parse_qs(self, qs):
+        """
+        Parse query string, but enforce one instance of each variable.
+        Return a dict with the variables on success
+        Return None on parse error
+        """
+        qs_state = urllib2.urlparse.parse_qs(qs)
+        ret = {}
+        for qs_var, qs_value_list in qs_state.items():
+            if len(qs_value_list) > 1:
+                return None
+
+            ret[qs_var] = qs_value_list[0]
+
+        return ret
+
+    
+    def verify_url(self):
+        """
+        Reconstruct and authenticate the URL send to this handler.
+        Return True if verified
+        Return False if not
+        """
+        host = self.headers.get('host', None)
+        if host is None:
+            log.error("No Host: given")
+            return False
+        
+        url = "http://{}{}".format(host, self.path)
+        res = app.app_verify_url( url, self.server.master_data_pubkey, config_path=self.server.config_path )
+        if res is None:
+            log.error("Failed to verify '{}'".format(url))
+            return False
+
+        return True
+
+
+    def verify_session(self, qs_values):
+        """
+        Verify and return the application's session.
+        Return the decoded session token on success.
+        Return None on error
+        """
+        session = None
+        auth_header = self.headers.get('Authentication', None)
+        if auth_header is not None:
+            # must be a 'bearer' type
+            auth_parts = auth_header.split(" ", 1)
+            if auth_parts[0].lower() == 'bearer':
+                # valid JWT?
+                session_token = auth_parts[1]
+                session = app.app_verify_session(session_token, self.server.master_data_pubkey)
+                
+        else:
+            # possibly given as a qs argument
+            session_token = qs_values.get('session', None)
+            if session_token is not None:
+                session = app.app_verify_session(session_token, self.server.master_data_pubkey)
+
+        return session
+
+
+    def serve_home_page(self):
+        """
+        Serve the page that lets users search the set of names
+        """
+        self._send_headers(content_type='application/html')
+
+        accounts = app.app_account_list(config_path=self.server.config_path)
+        app_accounts_txt = ["{}@{}:{}".format(a['data_address'], a['app_name'], a['app_fqu']) for a in accounts]
+
+        home_page = assets.asset_make_home_page( app_accounts_txt )
+        self.wfile.write( home_page )
+        return
+
+
+    def get_path_and_qs(self):
+        """
+        Parse and obtain the path and query values.
+        We don't care about fragments.
+
+        Return {'path': ..., 'qs_values': ...} on success
+        Return {'error': ...} on error
+        """
+        path_parts = self.path.split("?", 1)
+
+        if len(path_parts) > 1:
+            qs = path_parts[1].split("#", 1)[0]
+        else:
+            qs = ""
+        
+        path = path_parts[0].split("#", 1)[0]
+        path = posixpath.normpath(urllib.unquote(path))
+
+        qs_values = self.parse_qs( qs )
+        if qs_values is None:
+            return {'error': 'Failed to parse query string'}
+
+        return {'path': path, 'qs_values': qs_values}
+
+
+    def do_GET(self):
+        """
+        Top-level GET dispatch
+
+        Routes of note:
+
+        /                           -- begin application authentication. USERNAME is taken from `host:` or `name=`. APPNAME is taken from `appname=`
+        /index.html                 -- load application index file (must be authenticated)
+        /app/RES                    -- load an application resource from the app owner's mutable storage.
+        /signin/USERNAME/APPNAME    -- load the signin page for signing into the application APPNAME owned by USERNAME
+        /allowdeny/USERNAME/APPNAME -- load the allow/deny page for setting up an application account
+        /newaccount/USERNAME/APPNAME-- create an application account and redirect to an "auth finish" url with the session JWT
+        /home                       -- load the home page 
+        """
+        path_info = self.get_path_and_qs()
+        if 'error' in path_info:
+            self._send_headers(status_code=401, content_type='text/plain')
+            return 
+           
+        path = path_info['path']
+        qs_values = path_info['qs_values']
+        parts = path.strip("/").split("/")
+
+        if parts[0] == 'signin':
+            if len(parts) != 3:
+                # bad request
+                self._send_headers(status_code=401, content_type='text/plain')
+                return
+
+            if not self.verify_url():
+                # unauthorized request
+                self._send_headers(status_code=400, content_type='text/plain')
+                return
+
+            return self.app_signin( parts[1], parts[2] )
+
+        elif parts[0] == 'allowdeny':
+            if len(parts) != 3:
+                # bad request
+                self._send_headers(status_code=401, content_type='text/plain')
+                return 
+
+            if not self.verify_url():
+                # unauthorized request
+                self._send_headers(status_code=400, content_type='text/plain')
+                return
+
+            return self.app_allowdeny( parts[1], parts[2] )
+
+        elif parts[0] == 'newaccount':
+            if len(parts) != 3:
+                # bad request 
+                self.send_headers(status_code=401, content_type='text/plain')
+                return
+
+            if not self.verify_url():
+                # unauthorized request 
+                self._send_headers(status_code=400, content_type='text/plain')
+                return 
+
+            return self.app_create_account_and_redirect( parts[1], parts[2] )
+
+        elif parts[0] == 'home':
+            if len(parts) != 1:
+                # bad request 
+                self._send_headers(status_code=401, content_type='text/plain')
+                return
+
+            return self.serve_home_page()
+        
+        else:
+            session = self.verify_session(qs_values)
+            if session is None:
+                # caller is not authenticated.
+                # begin authentication
+                return self.app_auth_begin(qs_values)
+            
+            else:
+                # caller is authenticated.
+                # index?
+                if parts[0] == 'index.html':
+                    if len(parts) != 1:
+                        # bad request
+                        self._send_headers(status_code=401, content_type='text/plain')
+                        return 
+
+                    return self.serve_index(session)
+
+                # app resource path? no other option
+                elif parts[0] != 'app':
+                    # invalid 
+                    self._send_headers(status_code=401, content_type='text/plain')
+                    return 
+
+                # load and serve the requested app resource
+                res_path = '/' + '/'.join(parts[1:])
+                return self.serve_resource(session, res_path, qs_values)
+
 
     def do_POST(self):
         """
         Top-level POST dispatch
+        Routes of note:
+
+        /API                        -- this is the CLI/RPC methods in this daemon.  Responds to JSON-RPC POSTs
         """
-        path = posixpath.normpath(urllib.unquote(self.path))
+        path_info = self.get_path_and_qs()
+        if 'error' in path_info:
+            self._send_headers(status_code=401, content_type='text/plain')
+            return 
+
+        path = path_info['path']
+        qs_values = path_info['qs_values']
+
         if path == '/API':
-            return self.JSONRPC_call()
+            # API call.
+            # authenticate 
+            session = self.verify_session(qs_values)
+            return self.JSONRPC_call(session, qs_values)
 
         else:
-            self.send_response(404)
-            self.end_headers()
+            self._send_headers(status_code=404, content_type='text/plain')
             return
 
 
@@ -588,14 +1064,35 @@ class BlockstackAPIEndpoint(SocketServer.TCPServer):
         return True
 
 
-    def __init__(self, host='localhost', port=blockstack_config.DEFAULT_API_PORT,
-                 plugins=None, handler=BlockstackAPIEndpointHandler,
+    def cache_app_config(self, name, appname, app_config):
+        """
+        Cache application config for a loaded application
+        """
+        self.app_configs["{}:{}".format(name, appname)] = app_config
+
+    
+    def get_cached_app_config(self, name, appname):
+        """
+        Get a cached app config
+        """
+        return self.app_configs.get("{}:{}".format(name, appname), None)
+
+
+    def __init__(self, master_data_privkey, host='localhost', rpc_token=None, port=blockstack_config.DEFAULT_API_PORT,
+                 plugins=None, handler=BlockstackAPIEndpointHandler, 
                  config_path=blockstack_config.CONFIG_PATH, server=True):
+
+        """
+        master_data_privkey is only needed if server=True
+        """
 
         plugins = [] if plugins is None else plugins
 
         if server:
+            assert master_data_privkey is not None
             SocketServer.TCPServer.__init__(self, (host, port), handler)
+
+            log.debug("Set SO_REUSADDR")
             self.socket.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 )
 
         # instantiate
@@ -605,6 +1102,17 @@ class BlockstackAPIEndpoint(SocketServer.TCPServer):
         self.config_path = config_path
         self.internal_proxy = RPCInternalProxy()
         self.funcs = {}
+        self.master_data_privkey = master_data_privkey
+        self.master_data_pubkey = ECPrivateKey(master_data_privkey).public_key().to_hex()
+        self.port = port
+        self.app_configs = {}   # cached app config state
+
+        self.rpc_token = rpc_token
+        if self.rpc_token is None:
+            conf = blockstack_config.get_config(path=config_path)
+            self.rpc_token = conf.get('rpc_token', None)
+            if self.rpc_token is None:
+                log.warning("Failed to load RPC token from {}".format(config_path))
 
         self.register_api_functions(config_path, plugins)
 
@@ -625,7 +1133,7 @@ class BlockstackAPIEndpointClient(object):
     """
     JSONRPC client for blockstack's local RPC endpoint
     """
-    def __init__(self, server, port, max_rpc_len=1024*1024,
+    def __init__(self, server, port, max_rpc_len=1024*1024, rpc_token=None,
                  timeout=blockstack_config.DEFAULT_TIMEOUT, debug_timeline=False, **kw):
 
         self.url = 'http://{}:{}/API'.format(server, port)
@@ -634,6 +1142,7 @@ class BlockstackAPIEndpointClient(object):
         self.port = port
         self.debug_timeline = debug_timeline
         self.max_rpc_len = max_rpc_len
+        self.rpc_token = rpc_token
 
 
     def log_debug_timeline(self, event, key, r=-1):
@@ -662,6 +1171,9 @@ class BlockstackAPIEndpointClient(object):
                     'method': key
                 }
 
+                if self.rpc_token is not None:
+                    jsonrpc_request['blockstack_rpc_token'] = self.rpc_token
+
                 if len(args) > 0:
                     jsonrpc_request['params'] = args
 
@@ -670,7 +1182,7 @@ class BlockstackAPIEndpointClient(object):
 
                 req = requests.post(self.url, timeout=self.timeout, data=json.dumps(jsonrpc_request), headers={'content-type': 'application/json'}, stream=True)
                 if req.status_code != 200:
-                    raise RPCException("Request '{}' status {}".foramt(key, req.status_code))
+                    raise RPCException("Request '{}' status {}".format(key, req.status_code))
 
                 raw_data = req.raw.read( self.max_rpc_len + 1, decode_content=True )
                 if len(raw_data) > self.max_rpc_len:
@@ -695,7 +1207,7 @@ def get_default_plugins():
     return [backend]
 
 
-def make_local_rpc_server(portnum, config_path=blockstack_config.CONFIG_PATH, plugins=None):
+def make_local_rpc_server(portnum, data_privkey, config_path=blockstack_config.CONFIG_PATH, plugins=None):
     """
     Make a local RPC server instance.
     It will be derived from BaseHTTPServer.HTTPServer.
@@ -706,7 +1218,7 @@ def make_local_rpc_server(portnum, config_path=blockstack_config.CONFIG_PATH, pl
     """
     plugins = [] if plugins is None else plugins
     plugins = get_default_plugins() + plugins
-    srv = BlockstackAPIEndpoint(port=portnum, config_path=config_path, plugins=plugins)
+    srv = BlockstackAPIEndpoint(data_privkey, port=portnum, config_path=config_path, plugins=plugins)
 
     return srv
 
@@ -765,19 +1277,16 @@ def local_rpc_connect(config_dir=blockstack_config.CONFIG_DIR, api_port=None):
         # route the method directly.
         return get_rpc_internal_methods()
 
-    connect_msg = 'Connect to RPC at localhost:{}'
-    if api_port is not None:
-        log.debug(connect_msg.format(api_port))
-        return BlockstackAPIEndpointClient('localhost', api_port, timeout=3000)
-
     conf = blockstack_config.get_config(config_path)
     if conf is None:
         raise Exception('Failed to read conf at "{}"'.format(config_path))
 
-    api_port = conf['api_endpoint_port']
+    api_port = conf['api_endpoint_port'] if api_port is None else api_port
+    rpc_token = conf['rpc_token']
 
+    connect_msg = 'Connect to RPC at localhost:{}'
     log.debug(connect_msg.format(api_port))
-    return BlockstackAPIEndpointClient('localhost', api_port, timeout=3000)
+    return BlockstackAPIEndpointClient('localhost', api_port, timeout=3000, config_path=config_path, rpc_token=rpc_token)
 
 
 def local_rpc_action(command, config_dir=blockstack_config.CONFIG_DIR):
@@ -942,6 +1451,11 @@ def local_rpc_start(portnum, config_dir=blockstack_config.CONFIG_DIR, foreground
         return False
 
     wallet = wallet['wallet']
+    data_privkey = wallet.get('data_privkey', None)
+    if data_privkey is None:
+        log.error("Wallet has no data private key")
+        print("Failed to load wallet: no data private key", file=sys.stderr)
+        return False
 
     if not foreground:
         log.debug('Running in the background')
@@ -984,7 +1498,7 @@ def local_rpc_start(portnum, config_dir=blockstack_config.CONFIG_DIR, foreground
 
     # make server
     try:
-        rpc_srv = make_local_rpc_server(portnum, config_path=config_path)
+        rpc_srv = make_local_rpc_server(portnum, data_privkey, config_path=config_path)
     except socket.error as se:
         if BLOCKSTACK_DEBUG is not None:
             log.exception(se)
@@ -1142,6 +1656,11 @@ def local_rpc_ensure_running(config_dir=blockstack_config.CONFIG_DIR, password=N
             local_proxy = local_rpc_connect(config_dir=config_dir)
             local_proxy.ping()
             break
+        except requests.ConnectionError as ie:
+            log.debug('API server is not responding; trying again in {} seconds'.format(i))
+            time.sleep(i)
+            continue
+
         except (IOError, OSError) as ie:
             if ie.errno == errno.ECONNREFUSED:
                 msg = 'API server not responding; trying again in {} seconds'
