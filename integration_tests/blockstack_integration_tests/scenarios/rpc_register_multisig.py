@@ -78,14 +78,14 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge registration"
-    time.sleep(10)
+    time.sleep(15)
 
     # wait for update to get confirmed 
     for i in xrange(0, 12):
         testlib.next_block( **kw )
 
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
-    time.sleep(10)
+    time.sleep(15)
 
 
 
