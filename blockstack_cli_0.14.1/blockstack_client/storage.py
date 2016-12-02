@@ -25,13 +25,13 @@
 
 import pybitcoin
 import keylib
-import bitcoin
 import re
 import json
 import hashlib
 import urllib
 import urllib2
 import ecdsa
+import base64
 import blockstack_zones
 
 from keylib import ECPrivateKey, ECPublicKey
@@ -391,13 +391,13 @@ def sign_raw_data(raw_data, privatekey):
     data_hash = get_data_hash(raw_data)
 
     pk = ECPrivateKey(privatekey)
-    pk_hex = pk.to_hex()
+    priv = pk.to_hex()
 
     # force uncompressed
-    if len(pk_hex) > 64:
-        pk = ECPrivateKey(privkey[:64])
+    if len(priv) > 64:
+        pk = ECPrivateKey(priv[:64])
+        priv = priv[:64]
     
-    priv = pk.to_hex()
     pub = pk.public_key().to_hex()
 
     assert len(pub[2:].decode('hex')) == ecdsa.SECP256k1.verifying_key_length, "BUG: Invalid key decoding"
@@ -416,8 +416,7 @@ def sign_raw_data(raw_data, privatekey):
     # sanity check 
     vk = ecdsa.VerifyingKey.from_string(pub[2:].decode('hex'), curve=ecdsa.SECP256k1)
     assert vk.verify_digest(sig_bin, data_hash.decode('hex'), sigdecode=ecdsa.util.sigdecode_der), "Failed to verify signature ({}, {})".format(sig_r, sig_s)
-
-    return base64.b64encode( bitcoin.encode_sig( None, sig_r, sig_s ).decode('hex') )
+    return base64.b64encode( sig_bin )
 
 
 def secp256k1_compressed_pubkey_to_uncompressed_pubkey( pubkey ):
@@ -473,6 +472,7 @@ def verify_raw_data(raw_data, pubkey, sigb64):
 def get_drivers_for_url(url):
     """
     Which drivers can handle this url?
+    Return the list of loaded driver modules
     """
     global storage_drivers
     ret = []
@@ -693,7 +693,7 @@ def put_immutable_data(data_json, txid, data_hash=None, data_text=None, required
             successes += 1
 
     # failed everywhere or succeeded somewhere
-    return None if not successes else data_hash
+    return None if successes == 0 else data_hash
 
 
 def put_mutable_data(fq_data_id, data_json, privatekey, required=None, use_only=None):
@@ -733,16 +733,17 @@ def put_mutable_data(fq_data_id, data_json, privatekey, required=None, use_only=
 
     log.debug('put_mutable_data({}), required={}'.format(fq_data_id, ','.join(required)))
 
-    msg = 'Failed to replicate with required storage provider "{}"'
+    fail_msg = 'Failed to replicate with required storage provider "{}"'
+
     for handler in storage_handlers:
         if not getattr(handler, 'put_mutable_handler', None):
             if handler.__name__ not in required:
                 continue
 
-            log.debug(msg.format(handler.__name__))
+            log.error(fail_msg.format(handler.__name__))
             return None
 
-        if use_only and handler.__name__ not in use_only:
+        if len(use_only) > 0 and handler.__name__ not in use_only:
             log.debug('Skipping storage driver "{}"'.format(handler.__name__))
             continue
 
@@ -756,10 +757,11 @@ def put_mutable_data(fq_data_id, data_json, privatekey, required=None, use_only=
             if handler.__name__ not in required:
                 continue
 
-            log.debug(msg.format(handler.__name__))
+            log.error(fail_msg.format(handler.__name__))
             return None
 
         if rc:
+            log.debug("Replicated {} bytes with {}".format(len(serialized_data), handler.__name__))
             successes += 1
             continue
 
@@ -767,11 +769,11 @@ def put_mutable_data(fq_data_id, data_json, privatekey, required=None, use_only=
             log.debug('Failed to replicate with "{}"'.format(handler.__name__))
             continue
 
-        log.debug(msg.format(handler.__name__))
+        log.error(fail_msg.format(handler.__name__))
         return None
 
     # failed everywhere or succeeded somewhere
-    return bool(successes)
+    return (successes > 0)
 
 
 def delete_immutable_data(data_hash, txid, privkey):
