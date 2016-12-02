@@ -77,7 +77,9 @@ atlas_hostname = localhost
 
 DEFAULT_CLIENT_INI_TEMPLATE = """
 [blockstack-client]
-client_version = 0.14.0
+app_accounts = @CLIENT_ACCOUNTS_PATH@
+datastores = @CLIENT_DATASTORES_PATH@
+client_version = 0.14.1
 server = localhost
 port = %s
 metadata = @CLIENT_METADATA@
@@ -259,6 +261,8 @@ def generate_config_file( scenario, path, template, extra_fields):
 
     client_metadata = extra_fields.get("CLIENT_METADATA", "")
     queue_path = extra_fields.get("CLIENT_QUEUE_PATH", "")
+    accounts_dir = extra_fields.get("CLIENT_ACCOUNTS_PATH", "")
+    datastores_path = extra_fields.get("CLIENT_DATASTORES_PATH", "")
     zonefiles_dir = extra_fields.get("ZONEFILES", None)
     storage_drivers = extra_fields.get("CLIENT_STORAGE_DRIVERS", BLOCKSTACK_STORAGE_DRIVERS)
     if zonefiles_dir is None:
@@ -275,10 +279,12 @@ def generate_config_file( scenario, path, template, extra_fields):
 
     config_txt = config_txt.replace( "@CLIENT_BLOCKCHAIN_HEADERS@", spv_headers_path )
     config_txt = config_txt.replace( "@CLIENT_METADATA@", client_metadata ) 
+    config_txt = config_txt.replace( "@CLIENT_ACCOUNTS_PATH@", accounts_dir )
+    config_txt = config_txt.replace( "@CLIENT_DATASTORES_PATH@", datastores_path )
     config_txt = config_txt.replace( "@CLIENT_QUEUE_PATH@", queue_path )
     config_txt = config_txt.replace( "@ZONEFILES@", zonefiles_dir )
     config_txt = config_txt.replace( "@CLIENT_STORAGE_DRIVERS@", storage_drivers )
-
+    
     with open( path, "w" ) as f:
         f.write( config_txt )
         f.flush()
@@ -942,12 +948,16 @@ if __name__ == "__main__":
 
     client_working_dir = os.path.join(working_dir, "client")
     client_metadata = os.path.join(client_working_dir, "metadata")
+    client_accounts_path = os.path.join(client_working_dir, "app_accounts")
     client_queue_path = os.path.join( client_working_dir, "queues.db" )
     config_file = os.path.join( working_dir, "blockstack-server.ini" ) 
     client_config_file = os.path.join( client_working_dir, "client.ini" )
+    client_datastores_path = os.path.join( client_working_dir, "datastores" )
 
     os.makedirs(client_working_dir)
     os.makedirs(client_metadata) 
+    os.makedirs(client_accounts_path)
+    os.makedirs(client_datastores_path)
 
     # export to test 
     os.environ["BLOCKSTACK_CLIENT_CONFIG"] = client_config_file
@@ -995,7 +1005,9 @@ if __name__ == "__main__":
     rc = generate_config_file( scenario, client_config_file, DEFAULT_CLIENT_INI_TEMPLATE, \
                             {"CLIENT_METADATA": client_metadata, \
                              "CLIENT_QUEUE_PATH": client_queue_path, \
-                             "CLIENT_STORAGE_DRIVERS": storage_drivers})
+                             "CLIENT_STORAGE_DRIVERS": storage_drivers, \
+                             "CLIENT_ACCOUNTS_PATH": client_accounts_path, \
+                             "CLIENT_DATASTORES_PATH": client_datastores_path})
 
     if rc != 0:
         log.error("failed to write config file: exit %s" % rc)
