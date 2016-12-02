@@ -48,11 +48,8 @@ from client import session, get_default_proxy, set_default_proxy, register_stora
 
 from snv import snv_lookup, lookup_snv
 from data import get_immutable, get_immutable_by_name, get_mutable, put_immutable, put_mutable, delete_immutable, \
-        delete_mutable, list_mutable_data, list_immutable_data, list_immutable_data_history, list_update_history, list_zonefile_history, \
-        get_app_data, put_app_data, delete_app_data
+        delete_mutable, list_immutable_data, list_immutable_data_history, list_update_history, list_zonefile_history
 
-from data import blockstack_url_fetch as fetch_data
-from data import data_get, data_put, data_delete, data_list
 from data import set_data_pubkey
 from storage import get_announcement, put_announcement, verify_zonefile
 from profile import get_name_profile, get_name_zonefile, get_and_migrate_profile
@@ -77,8 +74,6 @@ from user import is_user_zonefile, user_zonefile_data_pubkey
 
 from operations import *
 from backend.nameops import *
-
-from app import app_register, app_unregister, app_get_wallet, app_wallet_path
 
 from scripts import UTXOException 
 
