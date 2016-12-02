@@ -623,6 +623,8 @@ def read_config_file(path=CONFIG_PATH):
         parser.set('blockstack-client', 'blockchain_writer', DEFAULT_BLOCKCHAIN_WRITER)
         parser.set('blockstack-client', 'anonymous_statistics', 'True')
         parser.set('blockstack-client', 'client_version', VERSION)
+        parser.set('blockstack-client', 'app_accounts', APP_ACCOUNT_DIRNAME)
+        parser.set('blockstack-client', 'datastores', APP_DATASTORE_DIRNAME)
 
         rpc_token = os.urandom(32)
         parser.set('blockstack-client', 'rpc_token', hexlify(rpc_token))
