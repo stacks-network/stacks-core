@@ -112,7 +112,8 @@ class TestAPIProxy(object):
             "path": client_path,
             "queue_path": client_config['queue_path'],
             "server": client_config['server'],
-            "port": client_config['port'] 
+            "port": client_config['port'],
+            "api_endpoint_port": client_config['api_endpoint_port']
         }
         self.spv_headers_path = utxo_opts['spv_headers_path']
 
@@ -1151,7 +1152,7 @@ def blockstack_cli_advanced_set_profile( name, data_json_str, config_path=CONFIG
     args.name = name
     args.data = data_json_str
 
-    return cli_advanced_set_profile( args, config_path=test_proxy.config_path, password=password, proxy=proxy )
+    return cli_advanced_set_profile( args, config_path=test_proxy.config_path, password=password, proxy=test_proxy )
 
 
 def blockstack_cli_advanced_convert_legacy_profile( path, config_path=CONFIG_PATH ):
@@ -1167,53 +1168,221 @@ def blockstack_cli_advanced_convert_legacy_profile( path, config_path=CONFIG_PAT
     return cli_advanced_convert_legacy_profile( args, config_path=test_proxy.config_path )
 
 
-def blockstack_cli_advanced_app_register( name, app_name, app_account_id, app_url, storage_drivers=None, app_fields=None, app_password=None, config_path=CONFIG_PATH, password=None, proxy=None, interactive=False ):
+def blockstack_cli_advanced_app_publish( name, methods, index_file, appname=None, urls=None, drivers=None, proxy=None, interactive=False, password=None ):
     """
-    register an application with your profile
-    """
-    test_proxy = make_proxy()
-    blockstack_client.set_default_proxy( test_proxy )
-    args = CLIArgs()
-
-    args.name = name
-    args.app_name = app_name
-    args.app_account_id = app_account_id
-    args.app_url = app_url
-    args.storage_drivers = storage_drivers
-    args.app_fields = app_fields
-    args.password = app_password
-
-    return cli_advanced_app_register( args, config_path=test_proxy.config_path, interactive=interactive, password=password, proxy=proxy )
-
-
-def blockstack_cli_advanced_app_unregister( name, app_name, app_account_id, config_path=CONFIG_PATH, interactive=False ):
-    """
-    unregister an application from your profile
+    publish a blockstack application
     """
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
     args = CLIArgs()
 
     args.name = name
-    args.app_name = app_name
-    args.app_account_id = app_account_id
+    args.methods = methods
+    args.index_file = index_file
+    args.appname = appname
+    args.urls = urls
+    args.drivers = drivers
+    
+    return cli_advanced_app_publish( args, config_path=test_proxy.config_path, interactive=interactive, password=password, proxy=test_proxy )
 
-    return cli_advanced_app_unregister( args, config_path=test_proxy.config_path, interactive=interactive )
 
-
-def blockstack_cli_advanced_app_get_wallet( name, app_name, app_account_id, app_password=None, config_path=CONFIG_PATH, interactive=False ):
+def blockstack_cli_advanced_app_get_config( name, appname=None, config_path=None, interactive=False, proxy=None ):
     """
-    get an app-specific wallet
+    get app config
     """
     test_proxy = make_proxy()
     blockstack_client.set_default_proxy( test_proxy )
     args = CLIArgs()
 
     args.name = name
-    args.app_name = app_name
-    args.app_account_id = app_account_id
+    args.appname = appname
 
-    return cli_advanced_app_get_wallet( args, config_path=test_proxy.config_path, interactive=interactive )
+    return cli_advanced_app_get_config( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy )
+
+
+def blockstack_cli_advanced_app_get_index_file( name, appname=None, config_path=None, interactive=False, proxy=None ):
+    """
+    Get application index file
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.appname = appname
+
+    return cli_advanced_app_get_index_file( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy )
+    
+
+def blockstack_cli_advanced_app_get_resource( name, resname, appname=None, config_path=None, interactive=False, proxy=None ):
+    """
+    Get application resource
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.appname = appname
+    args.resname = resname
+
+    return cli_advanced_app_get_resource( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy )
+
+
+def blockstack_cli_advanced_app_put_resource( name, resname, respath, appname=None, config_path=None, interactive=False, proxy=None ):
+    """
+    Get application resource
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.appname = appname
+    args.res_file = respath
+    args.resname = resname
+
+    return cli_advanced_app_put_resource( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy )
+
+
+def blockstack_cli_advanced_get_datastore( name, datastore_name, private=False, config_path=None, interactive=False, proxy=None, password=None ):
+    """
+    get datastore
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.datastore_name = datastore_name
+
+    if password is not None:
+        private = True
+
+    args.private = '{}'.format(private)
+
+    return cli_advanced_get_datastore( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy, password=password )
+
+
+def blockstack_cli_advanced_put_datastore( name, datastore_name, drivers=None, config_path=None, interactive=False, proxy=None, password=None ):
+    """
+    put datastore
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.datastore_name = datastore_name 
+
+    return cli_advanced_put_datastore( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy, password=password )
+
+
+def blockstack_cli_advanced_delete_datastore( name, datastore_name, force=False, config_path=None, interactive=False, proxy=None, password=None ):
+    """
+    delete datastore
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.datastore_name = datastore_name 
+    args.force = str(force)
+
+    return cli_advanced_delete_datastore( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy, password=password )
+
+
+def blockstack_cli_advanced_datastore_mkdir( name, datastore_name, path, config_path=None, interactive=False, proxy=None ):
+    """
+    mkdir
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.datastore_name = datastore_name
+    args.path = path 
+
+    return cli_advanced_datastore_mkdir( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy )
+
+
+def blockstack_cli_advanced_datastore_rmdir( name, datastore_name, path, config_path=None, interactive=False, proxy=None ):
+    """
+    rmdir
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name =name
+    args.datastore_name = datastore_name
+    args.path = path 
+
+    return cli_advanced_datastore_rmdir( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy )
+
+
+def blockstack_cli_advanced_datastore_listdir( name, datastore_name, path, config_path=None, interactive=False, proxy=None ):
+    """
+    listdir
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.datastore_name = datastore_name
+    args.path = path 
+
+    return cli_advanced_datastore_listdir( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy )
+
+
+def blockstack_cli_advanced_datastore_getfile( name, datastore_name, path, config_path=None, interactive=False, proxy=None ):
+    """
+    getfile
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+    
+    args.name = name
+    args.datastore_name=datastore_name
+    args.path = path 
+
+    return cli_advanced_datastore_getfile( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy )
+
+
+def blockstack_cli_advanced_datastore_putfile( name, datastore_name, path, data, data_path=None, interactive=False, proxy=None ):
+    """
+    putfile
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.datastore_name = datastore_name
+    args.path = path 
+    args.data = data
+    args.data_path = data_path 
+
+    return cli_advanced_datastore_putfile( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy )
+
+
+def blockstack_cli_advanced_datastore_deletefile( name, datastore_name, path, interactive=False, proxy=None ):
+    """
+    deletefile
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    args.name = name
+    args.datastore_name = datastore_name
+    args.path = path 
+
+    return cli_advanced_datastore_deletefile( args, config_path=test_proxy.config_path, interactive=interactive, proxy=test_proxy )
 
 
 def blockstack_rpc_set_zonefile_hash( name, zonefile_hash ):
@@ -1294,6 +1463,106 @@ def blockstack_get_profile( name ):
         return None 
 
     return profile_result['profile']
+
+
+def blockstack_app_create_account( name, appname=None ):
+    """
+    Create an account.
+    Intercept the returned HTML, select the create_account URL, navigate to it, and load the index.html.
+    Returns {'url': final url, 'index_file': index file data} on success
+    Returns {'error': ...} on error
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
+    if appname is None:
+        appname = '_default'
+
+    api_port = test_proxy.conf['api_endpoint_port']
+    app_url = 'http://localhost:{}/?appname={}&name={}'.format(api_port, appname, name)
+
+    auth_page_resp = requests.get(app_url)
+    if auth_page_resp.status_code != 200:
+        log.error("GET {} status code {}".format(app_url, auth_page_resp.status_code))
+        return {'error': 'Failed to get auth page'}
+
+    auth_page = auth_page_resp.text
+
+    # find the create_account=... comment... 
+    regex = r'^<!--create_account=(.+)-->$'
+    create_account_url = None
+
+    for line in auth_page.split('\n'):
+        grps = re.match(regex, line)
+        if grps is None:
+            continue
+
+        create_account_url = grps.groups()[0]
+        break
+
+    if create_account_url is None:
+        log.error("Failed to find create_account= URL in\n{}\n".format(auth_page))
+        return {'error': 'No create_account URL'}
+
+    # go to the create_accounts URL
+    log.debug("Create account: {}".format(create_account_url))
+    create_account_resp = requests.get(create_account_url)
+
+    if create_account_resp.status_code != 200:
+        log.error("GET {} status code {}".format(create_account_url, create_account_resp.status_code))
+        return {'error': 'Failed to create account'}
+
+    return {'url': create_account_resp.url, 'index_file': create_account_resp.text}
+
+
+def blockstack_app_signin( name, appname=None ):
+    """
+    Sign into an app with an existing account.
+    Intercept the returned HTML, select the 'signin' URL, navigate to it, and load the index.html.
+    Returns {'url': final url, 'index_file': index file data} on success
+    Returns {'error': ...} on error
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+
+    if appname is None:
+        appname = '_default'
+
+    api_port = test_proxy.conf['api_endpoint_port']
+    app_url = 'http://localhost:{}/?appname={}&name={}'.format(api_port, appname, name)
+
+    auth_page_resp = requests.get(app_url)
+    if auth_page_resp.status_code != 200:
+        log.error("GET {} status code {}".format(app_url, auth_page_resp.status_code))
+        return {'error': 'Failed to get auth page'}
+
+    auth_page = auth_page_resp.text
+
+    # find the signin=... comment... 
+    regex = r'^<!--signin=(.+)-->$'
+    signin_url = None
+
+    for line in auth_page.split('\n'):
+        grps = re.match(regex, line)
+        if grps is None:
+            continue
+
+        signin_url = grps.groups()[0]
+        break
+
+    if signin_url is None:
+        log.error("Failed to find signin= URL in\n{}\n".format(auth_page))
+        return {'error': 'No signin URL'}
+
+    # go to the signin URL
+    log.debug("Sign-in: {}".format(signin_url))
+    signin_resp = requests.get(signin_url)
+
+    if signin_resp.status_code != 200:
+        log.error("GET {} status code {}".format(signin_url, signin_resp.status_code))
+        return {'error': 'Failed to sign in'}
+
+    return {'url': signin_resp.url, 'index_file': signin_resp.text}
 
 
 def blockstack_verify_database( consensus_hash, consensus_block_id, db_path, working_db_path=None, start_block=None ):
