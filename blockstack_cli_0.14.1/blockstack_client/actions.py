@@ -100,8 +100,8 @@ from .constants import (
 )
 
 from .b40 import is_b40
-from .storage import get_drivers_for_url
-from .user import add_user_zonefile_url, remove_user_zonefile_url
+from .storage import get_drivers_for_url, get_driver_urls, get_storage_handlers
+from .user import add_user_zonefile_url, remove_user_zonefile_url, url_to_uri_record
 
 from pybitcoin import is_b58check_address
 
@@ -123,11 +123,15 @@ from .wallet import *
 from .keys import *
 from .proxy import *
 from .client import analytics_event
-from .app import app_register, app_unregister, app_get_wallet
 from .scripts import UTXOException, is_name_valid
 from .user import user_zonefile_urls, user_zonefile_data_pubkey, make_empty_user_zonefile
 
 from .utils import exit_with_error, satoshis_to_btc
+from .app import app_publish, app_make_resource_data_id, app_get_config, app_get_resource, \
+        app_get_index_file, app_put_resource
+
+from .data import get_datastore, put_datastore, delete_datastore, datastore_mkdir, datastore_rmdir, \
+        datastore_getfile, datastore_putfile, datastore_deletefile, datastore_listdir
 
 log = config.get_logger()
 
@@ -2162,17 +2166,12 @@ def cli_advanced_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy
     help: Put mutable data into a profile
     arg: name (str) 'The name to receive the data'
     arg: data_id (str) 'The name of the data'
-    arg: data (str) 'The JSON-formatted data to store'
+    arg: data (str) 'The JSON-serializable data to store'
     """
     fqu = str(args.name)
     error = check_valid_name(fqu)
     if error:
         return {'error': error}
-
-    try:
-        data = json.loads(args.data)
-    except:
-        return {'error': 'Invalid JSON'}
 
     config_dir = os.path.dirname(config_path)
     res = start_rpc_endpoint(config_dir)
@@ -2186,7 +2185,7 @@ def cli_advanced_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy
     proxy = get_default_proxy() if proxy is None else proxy
 
     result = put_mutable(
-        fqu, str(args.data_id), data,
+        fqu, str(args.data_id), str(args.data),
         wallet_keys=wallet_keys, proxy=proxy
     )
 
@@ -2855,175 +2854,505 @@ def cli_advanced_convert_legacy_profile(args, config_path=CONFIG_PATH):
     return profile
 
 
-def cli_advanced_app_register(args, config_path=CONFIG_PATH, password=None, proxy=None, interactive=True):
+def get_app_name(appname):
     """
-    command: app_register
-    help: Register a new application with your profile.
-    arg: name (str) 'The name to link the app to'
-    arg: app_name (str) 'The name of the application'
-    arg: app_account_id (str) 'The name of the application account'
-    arg: app_url (str) 'The URL to the application'
-    opt: storage_drivers (str) 'A CSV of storage drivers to host data of this app'
-    opt: app_password (str) 'The application-specific wallet password'
-    opt: app_fields (str) 'A CSV of application-specific key/value pairs'
+    Get the application name, or if not given, the default name
     """
+    return appname if appname is not None else '_default'
 
-    if proxy is None:
-        proxy = get_default_proxy(config_path=config_path)
 
+def cli_advanced_app_publish( args, config_path=CONFIG_PATH, interactive=False, password=None, proxy=None ):
+    """
+    command: app_publish
+    help: Publish a Blockstack application
+    arg: name (str) 'The name that will own the application'
+    arg: methods (str) 'A comma-separated list of API methods this application will call'
+    arg: index_file (str) 'The path to the index file'
+    opt: appname (str) 'The name of the application, if different from name'
+    opt: urls (str) 'A comma-separated list of URLs to publish the index file to'
+    opt: drivers (str) 'A comma-separated list of storage drivers for clients to use'
+    """
+   
     config_dir = os.path.dirname(config_path)
-    res = wallet_ensure_exists(config_dir)
-    if 'error' in res:
-        return res
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
 
+    index_file_data = None
+    try:
+        with open(args.index_file, 'r') as f:
+            index_file_data = f.read()
+
+    except:
+        return {'error': 'Failed to load index file'}
+
+    methods = None
+    if hasattr(args, 'methods') and args.methods is not None:
+        methods = args.methods.split(',')
+        # TODO: validate
+        
+    else:
+        methods = []
+
+    appname = get_app_name( getattr(args, 'appname', None) )
+    drivers = []
+    if hasattr(args, 'drivers'):
+        drivers = args.drivers.split(",")
+
+    fq_index_data_id = app_make_resource_data_id( args.name, appname, "index.html" )
+    uris = []
+    if not hasattr(args, 'urls') or args.urls is not None:
+        urls = args.urls.split(',')
+    
+    else:
+        urls = get_driver_urls( fq_index_data_id, get_storage_handlers() )
+
+    uris = [url_to_uri_record(u, datum_name=fq_index_data_id) for u in urls]
+
+    # RPC daemon must be running 
     res = start_rpc_endpoint(config_dir, password=password)
     if 'error' in res:
         return res
 
-    fqu = str(args.name)
-    error = check_valid_name(fqu)
-    if error:
-        return {'error': error}
-
-    app_name = str(args.app_name)
-    app_account_id = str(args.app_account_id)
-    app_url = str(args.app_url)
-    app_storage_drivers = args.app_storage_drivers
-    app_fields = args.app_fields
-    app_password = args.app_password
-
-    if not app_name:
-        return {'error': 'Invalid app name'}
-
-    if not app_account_id:
-        return {'error': 'Invalid app account ID'}
-
-    if not app_url:
-        return {'error': 'Invalid app URL'}
-
-    interactive = app_password is None
-
-    if not app_storage_drivers:
-        app_storage_drivers = None
-    else:
-        app_storage_drivers = str(app_storage_drivers)
-        app_storage_drivers = app_storage_drivers.split(',')
-
-    if not app_fields:
-        app_fields = {}
-    else:
-        app_fields = str(app_fields)
-        try:
-            tmp = ','.split(app_fields)
-            app_fields = {}
-            for kv in tmp:
-                p = kv.strip().split('=')
-                assert len(p) > 1, 'Invalid key/value list'
-                k = p[0]
-                v = '='.join(p[1:])
-                app_fields[k] = v
-        except AssertionError:
-            return {'error': 'Invalid key/value list'}
-        except Exception as e:
-            log.exception(e)
-            return {'error': 'Invalid key/value list'}
-
     wallet_keys = get_wallet_keys(config_path, password)
-
     if 'error' in wallet_keys:
         return wallet_keys
 
-    res = app_register(
-        fqu, app_name, app_account_id, app_url, app_storage_drivers=app_storage_drivers,
-        app_account_fields=app_fields, wallet_keys=wallet_keys,
-        password=app_password, interactive=interactive, config_path=config_path
-    )
+    res = app_publish( args.name, appname, methods, uris, index_file_data, app_driver_hints=drivers, wallet_keys=wallet_keys, proxy=proxy, config_path=config_path )
+    if 'error' in res:
+        return res
 
-    return res
+    return {'status': True}
 
 
-def cli_advanced_app_unregister(args, config_path=CONFIG_PATH, password=None, interactive=True):
+def cli_advanced_app_get_config( args, config_path=CONFIG_PATH, interactive=False, proxy=None ):
     """
-    command: app_unregister
-    help: Unregister an application from a profile
-    arg: name (str) 'The name that owns the app account'
-    arg: app_name (str) 'The name of the application'
-    arg: app_account_id (str) 'The name of the application account'
+    command: get_app_config
+    help: Get the configuration structure for an application.
+    arg: name (str) 'The name that owns the app'
+    opt: appname (str) 'The name of the app, if different from the owning name'
     """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
 
     name = args.name
-    app_name = args.app_name
-    app_account_id = args.app_account_id
+    appname = get_app_name( getattr(args, 'appname', None) )
+
+    app_config = app_get_config(name, appname, proxy=proxy, config_path=config_path )
+    return app_config
+
+
+def cli_advanced_app_get_index_file( args, config_path=CONFIG_PATH, interactive=False, proxy=None ):
+    """
+    command: app_get_index_file
+    help: Get an application resource from mutable storage.
+    arg: name (str) 'The name that owns the app'
+    opt: appname (str) 'The name of the app, if different from the owning name'
+    """
 
     if proxy is None:
-        proxy = get_default_proxy(config_path=config_path)
+        proxy = get_default_proxy(config_path)
+
+    name = args.name
+    appname = get_app_name( getattr(args, 'appname', None) )
+
+    res = app_get_index_file( name, appname, proxy=proxy, config_path=config_path )
+    return res
+
+
+def cli_advanced_app_get_resource( args, config_path=CONFIG_PATH, interactive=False, proxy=None ):
+    """
+    command: app_get_resource
+    help: Get an application resource from mutable storage.
+    arg: name (str) 'The name that owns the app'
+    arg: resname (str) 'The name of the resource'
+    opt: appname (str) 'The name of the app, if different from the owning name'
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    name = args.name
+    appname = get_app_name( getattr(args, 'appname', None) )
+    resname = args.resname
+
+    res = app_get_resource( name, appname, resname, proxy=proxy, config_path=config_path )
+    return res
+
+
+def cli_advanced_app_put_resource( args, config_path=CONFIG_PATH, interactive=False, proxy=None ):
+    """
+    command: app_put_resource
+    help: Get an application resource from mutable storage.
+    arg: name (str) 'The name that owns the app'
+    arg: resname (str) 'The name of the resource'
+    arg: res_file (str) 'The file with the resource data'
+    opt: appname (str) 'The name of the app, if different from the owning name'
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    name = args.name
+    appname = get_app_name( getattr(args, 'appname', None) )
+    resname = args.resname
+
+    resdata = None
+    if not os.path.exists(args.res_file):
+        return {'error': 'No such file or directory'}
+
+    with open(args.res_file, "r") as f:
+        resdata = f.read()
+
+    res = app_put_resource( name, appname, resname, resdata, proxy=proxy, config_path=config_path )
+    return res
+
+
+def cli_advanced_get_datastore( args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None ):
+    """
+    command: get_datastore
+    help: Get a user's datastore record.
+    arg: name (str) 'The name that owns the datastore'
+    arg: datastore_name (str) 'The name of the datastore'
+    opt: private (str) 'If true, then load private information about the datastore as well'
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
 
     config_dir = os.path.dirname(config_path)
-    res = wallet_ensure_exists(config_dir)
-    if 'error' in res:
-        return res
 
+    name = args.name
+    datastore_name = args.datastore_name
+    private = getattr(args, 'private', 'false')
+    private = (private.lower() in ['true', '1', 'private'])
+
+    wallet_keys = None
+     
+    # RPC daemon must be running (so we can load private datastore info) 
+    if private:
+        res = start_rpc_endpoint(config_dir, password=password)
+        if 'error' in res:
+            return res
+
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
+
+    res = get_datastore(name, datastore_name, config_path=config_path, wallet_keys=wallet_keys, proxy=proxy )
+    return res
+
+
+def cli_advanced_put_datastore( args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None ):
+    """
+    command: put_datastore
+    help: Create a new datastore for the user.
+    arg: name (str) 'The name that owns this datastore'
+    arg: datastore_name (str) 'The name of this datastore'
+    opt: drivers (str) 'A CSV of drivers to use for its data'
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+    
+    config_dir = os.path.dirname(config_path)
+
+    name = args.name
+    datastore_name = args.datastore_name
+
+    # RPC daemon must be running 
     res = start_rpc_endpoint(config_dir, password=password)
     if 'error' in res:
         return res
-
-    fqu = str(args.name)
-    error = check_valid_name(fqu)
-    if error:
-        return {'error': error}
-
-    app_name = str(args.app_name)
-    app_account_id = str(args.app_account_id)
-
-    if not app_name:
-        return {'error': 'Invalid app name'}
-
-    if not app_account_id:
-        return {'error': 'Invalid app account ID'}
 
     wallet_keys = get_wallet_keys(config_path, password)
     if 'error' in wallet_keys:
         return wallet_keys
 
-    res = app_unregister(
-        fqu, app_name, app_account_id, interactive=interactive,
-        wallet_keys=wallet_keys, proxy=proxy, config_path=config_path
-    )
+    drivers = None
+    if hasattr(args, 'drivers') and args.drivers is not None:
+        drivers = args.drivers.split(',')
 
+    res = put_datastore( name, datastore_name, drivers=drivers, wallet_keys=wallet_keys, proxy=proxy, config_path=config_path )
     return res
 
 
-def cli_advanced_app_get_wallet(args, config_path=CONFIG_PATH, interactive=True):
+def cli_advanced_delete_datastore( args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None ):
     """
-    command: app_get_wallet
-    help: Get an application account wallet
-    arg: name (str) 'The name that owns the app account'
-    arg: app_name (str) 'The name of the application'
-    arg: app_account_id (str) 'The name of the application account'
-    opt: app_password (str) 'The app wallet password'
+    command: delete_datastore
+    help: Delete a datastore record and its root directory.
+    arg: name (str) 'The name that owns this datastore'
+    arg: datastore_name (str) 'The name of this datastore'
+    opt: force (str) 'If True, delete the datastore record even if it is not empty'
+    """
+        
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    config_dir = os.path.dirname(config_path)
+
+    name = args.name
+    datastore_name = args.datastore_name
+    force = False
+    if hasattr(args, 'force') and args.force is not None:
+        force = (args.force.lower() in ['true', 'yes', 'force', '1'])
+
+    # RPC daemon must be running 
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
+
+    wallet_keys = get_wallet_keys(config_path, password)
+    if 'error' in wallet_keys:
+        return wallet_keys
+
+    res = delete_datastore(name, datastore_name, wallet_keys=wallet_keys, force=force, config_path=config_path, proxy=proxy )
+    return res
+
+
+def cli_advanced_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None ):
+    """
+    command: datastore_mkdir
+    help: Make a directory in a datastore.
+    arg: name (str) 'The name that owns the datastore'
+    arg: datastore_name (str) 'The name of the datastore to use'
+    arg: path (str) 'The path to the directory to create'
     """
 
-    fqu = str(args.name)
-    error = check_valid_name(fqu)
-    if error:
-        return {'error': error}
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
 
-    app_name = str(args.app_name)
-    app_account_id = str(args.app_account_id)
-    password = args.app_password
+    config_dir = os.path.dirname(config_path)
 
-    if not app_name:
-        return {'error': 'Invalid app name'}
+    name = args.name
+    datastore_name = args.datastore_name
+    path = args.path 
 
-    if not app_account_id:
-        return {'error': 'Invalid app account ID'}
+    # RPC daemon must be running 
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
 
-    if password:
-        password = str(password)
-    else:
-        password = None
-        interactive = True
+    wallet_keys = get_wallet_keys(config_path, password)
+    if 'error' in wallet_keys:
+        return wallet_keys
 
+    res = get_datastore(name, datastore_name, config_path=config_path, proxy=proxy, wallet_keys=wallet_keys )
+    if 'error' in res:
+        log.debug("Failed to get datastore {}".format(datastore_name))
+        return res
+
+    if not res.has_key('datastore_private_key'):
+        log.debug("Datastore is not local; no private key found in\n{}\n".format(json.dumps(res, indent=4, sort_keys=True)))
+        return {'error': 'No datastore private key found'}
+
+    datastore = res['datastore']
+    datastore_privkey = str(res['datastore_private_key'])
+
+    res = datastore_mkdir( name, datastore, path, datastore_privkey, config_path=config_path, proxy=proxy)
+    if 'error' in res:
+        log.debug("Failed to mkdir {}: {}".format(path, res['error']))
+       
+    return res
+
+    
+def cli_advanced_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None ):
+    """
+    command: datastore_rmdir
+    help: Remove a directory in a datastore.
+    arg: name (str) 'The name that owns the datastore'
+    arg: datastore_name (str) 'The name of the datastore to use'
+    arg: path (str) 'The path to the directory to remove'
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    config_dir = os.path.dirname(config_path)
+
+    name = args.name
+    datastore_name = args.datastore_name
+    path = args.path 
+
+    # RPC daemon must be running 
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
+
+    wallet_keys = get_wallet_keys(config_path, password)
+    if 'error' in wallet_keys:
+        return wallet_keys
+
+    res = get_datastore(name, datastore_name, config_path=config_path, proxy=proxy, wallet_keys=wallet_keys )
+    if 'error' in res:
+        log.debug("Failed to get datastore {}".format(datastore_name))
+        return res
+
+    if not res.has_key('datastore_private_key'):
+        log.debug("Datastore is not local; no private key found")
+        return {'error': 'No datastore private key found'}
+
+    datastore = res['datastore']
+    datastore_privkey = str(res['datastore_private_key'])
+
+    res = datastore_rmdir(name, datastore, path, datastore_privkey, config_path=config_path, proxy=proxy )
+    return res
+
+
+def cli_advanced_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False, proxy=None ):
+    """
+    command: datastore_getfile
+    help: Get a file from a datastore.
+    arg: name (str) 'The name that owns the datastore'
+    arg: datastore_name (str) 'The name of the datastore'
+    arg: path (str) 'The path to the file to load'
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    config_dir = os.path.dirname(config_path)
+
+    name = args.name
+    datastore_name = args.datastore_name
+    path = args.path 
+
+    res = get_datastore(name, datastore_name, config_path=config_path, proxy=proxy )
+    if 'error' in res:
+        log.debug("Failed to get datastore {}".format(datastore_name))
+        return res
+
+    datastore = res['datastore']
+
+    res = datastore_getfile( name, datastore, path, config_path=CONFIG_PATH, proxy=proxy )
+    return res
+
+
+def cli_advanced_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False, proxy=None ):
+    """
+    command: datastore_listdir
+    help: List a directory in the datastore.
+    arg: name (str) 'The name that owns the datastore'
+    arg: datastore_name (str) 'The name of the datastore'
+    arg: path (str) 'The path to the directory to list'
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    config_dir = os.path.dirname(config_path)
+
+    name = args.name
+    datastore_name = args.datastore_name
+    path = args.path 
+
+    res = get_datastore(name, datastore_name, config_path=config_path, proxy=proxy )
+    if 'error' in res:
+        log.debug("Failed to get datastore {}".format(datastore_name))
+        return res
+
+    datastore = res['datastore']
+
+    res = datastore_listdir( name, datastore, path, config_path=CONFIG_PATH, proxy=proxy )
+    return res
+
+
+def cli_advanced_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None ):
+    """
+    command: datastore_putfile
+    help: Put a file into the datastore at the given path.
+    arg: name (str) 'The name that owns the datastore'
+    arg: datastore_name (str) 'The name of the datastore'
+    arg: path (str) 'The path to the new file'
+    arg: data (str) 'The data to store'
+    opt: data_path (str) 'If given, the path to a file with the data to store (data will be ignored)'
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    config_dir = os.path.dirname(config_path)
+
+    name = args.name
+    datastore_name = args.datastore_name
+    path = args.path 
+    
+    data = args.data
+    if hasattr(args, 'data_path') and args.data_path is not None:
+        if not os.path.exists(args.data_path):
+            log.debug("No such file or directory: {}".format(args.data_path))
+            return {'error': 'No such file or directory'}
+
+        with open(args.data_path, "r") as f:
+            data = f.read()
+
+    # RPC daemon must be running 
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
+
+    wallet_keys = get_wallet_keys(config_path, password)
+    if 'error' in wallet_keys:
+        return wallet_keys
+
+    res = get_datastore(name, datastore_name, config_path=config_path, proxy=proxy, wallet_keys=wallet_keys )
+    if 'error' in res:
+        log.debug("Failed to get datastore {}".format(datastore_name))
+        return res
+    
+    if not res.has_key('datastore_private_key'):
+        log.debug("Datastore is not local; no private key found")
+        return {'error': 'No datastore private key found'}
+
+    datastore = res['datastore']
+    datastore_privkey = str(res['datastore_private_key'])
+
+    res = datastore_putfile( name, datastore, path, data, datastore_privkey, config_path=config_path, proxy=proxy )
+    return res
+    
+
+def cli_advanced_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False, proxy=None, password=None ):
+    """
+    command: datastore_deletefile
+    help: Delete a file from the datastore.
+    arg: name (str) 'The name that owns the datastore'
+    arg: datastore_name (str) 'The name of the datastore'
+    arg: path (str) 'The path to the file to delete'
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    config_dir = os.path.dirname(config_path)
+
+    name = args.name
+    datastore_name = args.datastore_name
+    path = args.path 
+
+    # RPC daemon must be running 
+    res = start_rpc_endpoint(config_dir, password=password)
+    if 'error' in res:
+        return res
+
+    wallet_keys = get_wallet_keys(config_path, password)
+    if 'error' in wallet_keys:
+        return wallet_keys
+
+    res = get_datastore(name, datastore_name, config_path=config_path, proxy=proxy, wallet_keys=wallet_keys )
+    if 'error' in res:
+        log.debug("Failed to get datastore {}".format(datastore_name))
+        return res
+    
+    if not res.has_key('datastore_private_key'):
+        log.debug("Datastore is not local; no private key found")
+        return {'error': 'No datastore private key found'}
+
+    datastore = res['datastore']
+    datastore_privkey = str(res['datastore_private_key'])
+
+    res = datastore_deletefile( name, datastore, path, datastore_privkey, config_path=config_path, proxy=proxy )
+    return res
+    
 
 def cli_advanced_start_server( args, config_path=CONFIG_PATH, interactive=False ):
     """
