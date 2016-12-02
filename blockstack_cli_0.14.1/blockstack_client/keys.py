@@ -24,14 +24,16 @@
 import virtualchain
 from binascii import hexlify
 
-from .backend.crypto.utils import aes_encrypt, aes_decrypt
 from keylib import ECPrivateKey, ECPublicKey
 from keylib.hashing import bin_hash160
 from keylib.address_formatting import bin_hash160_to_address
 from keylib.key_formatting import compress, decompress
 from keylib.public_key_encoding import PubkeyType
 
+from .backend.crypto.utils import get_address_from_privkey
 from .backend.crypto.utils import aes_encrypt, aes_decrypt
+
+from keychain import PrivateKeychain
 
 import pybitcoin
 import bitcoin
@@ -44,6 +46,99 @@ from .config import get_logger
 from .constants import CONFIG_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
 
 log = get_logger()
+
+class HDWallet(object):
+    """
+    Initialize a hierarchical deterministic wallet with
+    hex_privkey and get child addresses and private keys
+    """
+
+    def __init__(self, hex_privkey=None):
+        """
+        If @hex_privkey is given, use that to derive keychain
+        otherwise, use a new random seed
+        """
+
+        self.priv_keychain = self.get_priv_keychain(hex_privkey)
+        self.master_address = self.get_master_address()
+        self.child_addresses = None
+
+    def get_priv_keychain(self, hex_privkey):
+        if hex_privkey:
+            return PrivateKeychain.from_private_key(hex_privkey)
+
+        log.debug('No privatekey given, starting new wallet')
+        return PrivateKeychain()
+
+    def get_master_privkey(self):
+        return self.priv_keychain.private_key()
+
+    def get_child_privkey(self, index=0):
+        """
+        @index is the child index
+
+        Returns:
+        child privkey for given @index
+        """
+
+        child = self.priv_keychain.hardened_child(index)
+        return child.private_key()
+
+    def get_master_address(self):
+        hex_privkey = self.get_master_privkey()
+        return get_address_from_privkey(hex_privkey)
+
+    def get_child_address(self, index=0):
+        """
+        @index is the child index
+
+        Returns:
+        child address for given @index
+        """
+
+        if self.child_addresses is not None:
+            return self.child_addresses[index]
+
+        hex_privkey = self.get_child_privkey(index)
+        return get_address_from_privkey(hex_privkey)
+
+    def get_child_keypairs(self, count=1, offset=0, include_privkey=False):
+        """
+        Returns (privkey, address) keypairs
+
+        Returns:
+        returns child keypairs
+
+        @include_privkey: toggles between option to return
+        privkeys along with addresses or not
+        """
+
+        keypairs = []
+
+        for index in range(offset, offset + count):
+            address = self.get_child_address(index)
+
+            if include_privkey:
+                hex_privkey = self.get_child_privkey(index)
+                keypairs.append((address, hex_privkey))
+            else:
+                keypairs.append(address)
+
+        return keypairs
+
+    def get_privkey_from_address(self, target_address, count=1):
+        """
+        Given a child address, return priv key of that address
+        """
+
+        addresses = self.get_child_keypairs(count=count)
+
+        for i, address in enumerate(addresses):
+            if address == target_address:
+                return self.get_child_privkey(i)
+
+        return None
+
 
 def is_multisig(privkey_info):
     """
