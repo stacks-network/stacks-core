@@ -52,7 +52,7 @@ OP_NAMESPACE_HASH_PATTERN = r'^([0-9a-fA-F]{16})$'
 OP_BASE64_PATTERN_SECTION = r'(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})'
 OP_BASE64_PATTERN = r'^({})$'.format(OP_BASE64_PATTERN_SECTION)
 OP_URLENCODED_PATTERN = r'^([a-zA-Z0-9\-_.~%]+)$'
-OP_URI_TARGET_PATTERN = r'^([a-z0-9+]+)://([a-zA-Z0-9\-_.~%#?&\:/]+)$'
+OP_URI_TARGET_PATTERN = r'^([a-z0-9+]+)://([a-zA-Z0-9\-_.~%#?&\\:/]+)$'
 OP_MUTABLE_DATA_MD_PATTERN = r'^(mutable:{}:[0-9]+)$'.format(OP_BASE64_PATTERN_SECTION)
 
 OP_ANY_TYPE_SCHEMA = [
@@ -94,7 +94,7 @@ JSONRPC_REQUEST_SCHEMA = {
     'properties': {
         'jsonrpc': {
             'type': 'string',
-            'pattern': '^2.0$'
+            'pattern': r'^2.0$'
         },
         'method': {
             'type': 'string',
@@ -112,6 +112,10 @@ JSONRPC_REQUEST_SCHEMA = {
         },
         'id': {
             'anyOf': JSONRPC_ID_TYPES,
+        },
+        'blockstack_rpc_token': {
+            'type': 'string',
+            'pattern': OP_HEX_PATTERN,
         },
     },
     'required': [
@@ -454,32 +458,6 @@ USER_ZONEFILE_SCHEMA = {
     ],
 }
 
-
-MUTABLE_DATUM_PERMISSIONS = {
-    'type': 'object',
-    'properties': {
-        'owner': {
-            'read': 'bool',
-            'write': 'bool',
-        },
-        'group': {
-            'read': 'bool',
-            'write': 'bool',
-        },
-        'world': {
-            'read': 'bool',
-            'write': 'bool',
-        },
-    },
-    'required': [
-        'owner',
-        'group',
-        'world'
-    ],
-    'additionalProperties': False
-}
-
-
 MUTABLE_DATUM_FILE_TYPE = 1
 MUTABLE_DATUM_DIR_TYPE = 2
 
@@ -495,26 +473,20 @@ MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES = {
         'type': 'string',
         'pattern': OP_ADDRESS_PATTERN
     },
-    'group': {
-        # group ID
-        'type': 'integer'
+    'uuid': {
+        # inode ID
+        'type': 'string',
+        'pattern': OP_UUID_PATTERN
     },
-    'version': {
-        # version 
-        'type': 'integer'
+    'data_hash': {
+        # hash of associated inode data
+        'type': 'string',
+        'pattern': OP_HEX_PATTERN
     },
-    'permissions': MUTABLE_DATUM_PERMISSIONS
 }
 
 MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES = MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.copy()
 MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES = MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.copy()
-
-MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.update({
-    'data': {
-        # raw data
-        'type': 'string',
-    },
-})
 
 MUTABLE_DATUM_DIRENT_SCHEMA = {
     'type': 'object',
@@ -535,23 +507,47 @@ MUTABLE_DATUM_DIRENT_SCHEMA = {
     },
     'additionalProperties': False,
     'required': [
-        'name',
+        'type',
+        'uuid',
         'links'
     ],
 }
 
-MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES.update({
-    'data': {
-        # pointers to other files and directories
-        'type': 'object',
-        'patternProperties': {
-            # maps name to uuid, links
-            OP_URLENCODED_PATTERN: MUTABLE_DATUM_DIRENT_SCHEMA
-        },
-        'additionalProperties': False,
+MUTABLE_DATUM_FILE_IDATA_SCHEMA = {
+    'type': 'string'
+}
+
+
+MUTABLE_DATUM_DIR_IDATA_SCHEMA = {
+    'type': 'object',
+    'patternProperties': {
+        # maps name to UUID, links, and type
+        OP_URLENCODED_PATTERN: MUTABLE_DATUM_DIRENT_SCHEMA
+    },
+    'additionalProperties': False,
+}
+
+# DEPRECATED
+MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.update({
+    'idata': {
+        # raw data
+        'type': 'string',
     },
 })
 
+# DEPRECATED
+MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES.update({
+    'idata': MUTABLE_DATUM_DIR_IDATA_SCHEMA
+})
+
+MUTABLE_DATUM_INODE_SCHEMA = {
+    'type': 'object',
+    'properties': MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES,
+    'additionalProperties': False,
+    'required': MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.keys()
+}
+
+# DEPRECATED
 MUTABLE_DATUM_FILE_SCHEMA = {
     'type': 'object',
     'properties': MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES,
@@ -559,6 +555,7 @@ MUTABLE_DATUM_FILE_SCHEMA = {
     'required': MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.keys()
 }
 
+# DEPRECATED
 MUTABLE_DATUM_DIR_SCHEMA = {
     'type': 'object',
     'properties': MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES,
@@ -566,6 +563,7 @@ MUTABLE_DATUM_DIR_SCHEMA = {
     'required': MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES.keys()
 }
 
+# DEPRECATED
 MUTABLE_DATUM_SCHEMA = {
     'anyOf': [
         MUTABLE_DATUM_FILE_SCHEMA,
@@ -573,46 +571,23 @@ MUTABLE_DATUM_SCHEMA = {
     ],
 }
 
-MUTABLE_DATA_STORE_GROUP_SCHEMA = {
+# publicly-replicated datastore
+PUBLIC_DATASTORE_SCHEMA = {
     'type': 'object',
     'properties': {
-        'name': {
+        'datastore_name': {
             'type': 'string',
+            'pattern': OP_URLENCODED_PATTERN
         },
-        'id': {
+        'owner_pubkey': {
             'type': 'string',
-            'pattern': OP_UUID_PATTERN,
-        },
-        'addresses': {
-            'type': 'array',
-            'items': {
-                'type': 'string',
-                'pattern': OP_ADDRESS_PATTERN
-            },
-        },
-    },
-    'additionalProperties': False,
-    'required': [
-        'name',
-        'id',
-        'addresses'
-    ],
-}
-
-MUTABLE_DATA_STORE = {
-    'type': 'object',
-    'properties': {
-        'owner': {
-            'type': 'string',
-            'pattern': OP_ADDRESS_PATTERN
-        },
-        'groups': {
-            'type': 'array',
-            'items': MUTABLE_DATA_STORE_GROUP_SCHEMA
+            'pattern': OP_PUBKEY_PATTERN,
         },
         'drivers': {
             'type': 'array',
-            'items': 'string'
+            'items': {
+                'type': 'string',
+            },
         },
         'root_uuid': {
             'type': 'string',
@@ -621,15 +596,142 @@ MUTABLE_DATA_STORE = {
     },
     'additionalProperties': False,
     'required': [
-        'owner',
-        'groups',
+        'owner_pubkey',
         'root_uuid',
         'drivers'
     ]
 }
 
+# private datastore information
+PRIVATE_DATASTORE_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'datastore_name': {
+            'type': 'string',
+            'pattern': OP_URLENCODED_PATTERN
+        },
+        'privkey_index': {
+            'type': 'integer'
+        },
+    },
+    'additionalProperties': False,
+    'required': [
+        'datastore_name',
+        'privkey_index',
+    ],
+}
+
+
+# unlinked blob of data, not part of a datastore.
+DATA_BLOB_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'version': {
+            'type': 'integer'
+        },
+        'timestamp': {
+            'type': 'integer'
+        },
+        'data': {
+            'anyOf': OP_ANY_TYPE_SCHEMA,
+        },
+    },
+    'required': [
+        'version',
+        'timestamp',
+        'data'
+    ],
+    'additionalProperties': False,
+}
+
+
+# common properties to app sessions and app accounts
+APP_INFO_PROPERTIES = {
+    'name': {
+        'type': 'string',
+        'pattern': OP_NAME_PATTERN,
+    },
+    'appname': {
+        'type': 'string',
+        'pattern': OP_URLENCODED_PATTERN,
+    },
+    'methods': {
+        'type': 'array',
+        'items': {
+            'type': 'string',
+            'pattern': '^[a-zA-Z_][a-zA-Z0-9_.]+$'   # method name
+        },
+    },
+}
+
+APP_SESSION_PROPERTIES = APP_INFO_PROPERTIES.copy()
+APP_ACCOUNT_PROPERTIES = APP_INFO_PROPERTIES.copy()
+
+APP_ACCOUNT_PROPERTIES.update({
+    'private_key': {
+        'type': 'string',
+    },
+    'session_lifetime': {
+        'type': 'integer'
+    },
+})
+
+APP_SESSION_PROPERTIES.update({
+    'timestamp': {
+        'type': 'integer',
+    },
+    'expires': {
+        'type': 'integer',
+    },
+})
+
+# application session JWT payload
+APP_SESSION_SCHEMA = {
+    'type': 'object',
+    'properties': APP_SESSION_PROPERTIES,
+    'required': APP_SESSION_PROPERTIES.keys(),
+    'additionalProperties': False
+}
+
+# application-specific, user-specific local state 
+APP_ACCOUNT_SCHEMA = {
+    'type': 'object',
+    'properties': APP_ACCOUNT_PROPERTIES,
+    'required': APP_ACCOUNT_PROPERTIES.keys(),
+    'additionalProperties': False
+}
+
+# app configuration schema (goes alongside the index.html file)
+APP_CONFIG_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'index_uris': {
+            'type': 'array',
+            'items': URI_RECORD_SCHEMA,
+        },
+        'driver_hints': {
+            'type': 'array',
+            'items': {
+                'type': 'string'
+            },
+        },
+        'api_methods': {
+            'type': 'array',
+            'items': {
+                'type': 'string',
+                'pattern': '^([a-zA-Z][a-zA-Z0-9_.]+)$'
+            },
+        },
+    },
+    'additionalProperties': False,
+    'required': [
+        'index_uris',
+        'api_methods',
+    ],
+}
 
 # for a profile's mutable data
+# TODO: deprecate and replace with filesystem
 PROFILE_MUTABLE_DATA_SCHEMA = {
     'type': 'object',
     'properties': {
@@ -637,8 +739,6 @@ PROFILE_MUTABLE_DATA_SCHEMA = {
             'type': 'object',
             'patternProperties': {
                 OP_MUTABLE_DATA_MD_PATTERN: {
-                    'type': 'object',
-                    'properties'
                     'type': 'array',
                     'items': URI_RECORD_SCHEMA
                 },
