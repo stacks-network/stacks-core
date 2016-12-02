@@ -349,7 +349,7 @@ def snv_get_nameops_at(current_block_id, current_consensus_hash, block_id, conse
                 return {'error': 'Server did not reply valid data'}
 
             prev_consensus_block_ids.append(b)
-            if b not in prev_consensus_hashes:
+            if b in prev_consensus_hashes:
                 # already got this one
                 continue
 
