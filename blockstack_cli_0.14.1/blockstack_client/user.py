@@ -767,6 +767,13 @@ def mutable_data_version(user_data_info, data_id):
     return version
 
 
+def urls_from_uris( uri_records ):
+    """
+    Get the list of URLs from a list of URI records
+    """
+    return [u['target'].strip('"') for u in uri_records]
+
+
 def mutable_data_urls(mutable_info):
     """
     Get the URLs from a mutable data zonefile
@@ -776,4 +783,4 @@ def mutable_data_urls(mutable_info):
     if uri_records is None:
         return None
 
-    return [u['target'].strip('"') for u in uri_records]
+    return urls_from_uris( uri_records )
