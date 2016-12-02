@@ -293,7 +293,8 @@ WALLET_PATH = os.path.join(CONFIG_DIR, 'wallet.json')
 SPV_HEADERS_PATH = os.path.join(CONFIG_DIR, 'blockchain-headers.dat')
 DEFAULT_QUEUE_PATH = os.path.join(CONFIG_DIR, 'queues.db')
 
-APP_WALLET_DIRNAME = 'app_wallets'
+APP_ACCOUNT_DIRNAME = 'app_accounts'
+APP_DATASTORE_DIRNAME = 'datastores'
 
 BLOCKCHAIN_ID_MAGIC = 'id'
 
