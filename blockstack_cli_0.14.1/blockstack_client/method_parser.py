@@ -128,11 +128,14 @@ def parse_methods(method_list):
                 required = False
 
             try:
-                assert len(arg_parts) == 1
+                assert len(arg_parts) == 1, "len(arg_parts) = {}".format(len(arg_parts))
                 arg_name, arg_type, arg_help = arg_parts[0]
-                assert arg_type in ['str', 'int']
+                assert arg_type in ['str', 'int'], "arg_type is {}".format(arg_type)
                 arg_type = eval(arg_type)
-            except:
+            except AssertionError as ae:
+                if config.BLOCKSTACK_DEBUG:
+                    log.exception(ae)
+
                 raise ValueError(error_msg.format(method_name, 'failed to parse arg', l))
 
             name_type = {'name': arg_name, 'type': arg_type, 'help': arg_help}
