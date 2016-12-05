@@ -66,25 +66,26 @@
 
 | Method  | API Call | Notes | 
 | ------------- | ------------- | ------------- |
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
+| Get all collections | GET /users/{userID}/collections | - | 
+| Create collection | POST /users/{userID}/collections | - | 
+| Get all collection items | GET /users/{userID}/collections/{collectionID} | - | 
+| Create collection item | GET /users/{userID}/collections/{collectionID} | - | 
+| Get collection item | GET /users/{userID}/collections/{collectionID}/{itemID} | - | 
 
 ## User Apps
 
 | Method  | API Call | Notes | 
 | ------------- | ------------- | ------------- |
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
+| Get all app accounts | GET /users/{userID}/apps | - | 
+| Create app account | POST /users/{userID}/apps | - | 
+| Get app account | GET /users/{userID}/apps/{appID} | - | 
+| List app resources | GET /users/{userID}/apps/{appID}/resources | - | 
+| Get app resource | GET /users/{userID}/apps/{appID}/resources/{resourceID} | - | 
 
 ## Blockchains
 
 | Method  | API Call | Notes | 
 | ------------- | ------------- | ------------- |
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
+| Get block operations | GET /blockchains/{blockchainName}/block/{blockHeight} | - | 
+| Get raw name history | GET /blockchains/{blockchainName}/names/{nameID}/history | - | 
+| Get consensus hash | GET /blockchains/{blockchainName}/consensusHash | - | 
