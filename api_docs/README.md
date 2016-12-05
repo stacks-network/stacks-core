@@ -46,19 +46,21 @@
 
 | Method  | API Call | Notes | 
 | ------------- | ------------- | ------------- |
+| Get all stores | GET /users/{userID}/stores | - | 
+| Create store | POST /users/{userID}/stores | - | 
+| Get store | GET /users/{userID}/stores/{storeID} | - | 
+| Update store | PUT /users/{userID}/stores/{storeID} | - | 
+| Delete store | DELETE /users/{userID}/stores/{storeID} | - | 
 | - | - | - | 
+| Get directory files (ls) | GET /users/{userID}/stores/{storeID}/directories?path={path} | - | 
+| Get directory info (stat) | HEAD /users/{userID}/stores/{storeID}/directories?path={path} | - | 
+| Create directory (mkdir) | POST /users/{userID}/stores/{storeID}/directories?path={path} | - | 
+| Delete directory (rmdir) | DELETE /users/{userID}/stores/{storeID}/directories?path={path} | - | 
 | - | - | - | 
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
+| Get file data (open) | GET /users/{userID}/stores/{storeID}/files?path={path} | - | 
+| Get file info (stat) | HEAD /users/{userID}/stores/{storeID}/files?path={path} | - | 
+| Create file | POST /users/{userID}/stores/{storeID}/files?path={path} | - | 
+| Delete file (rm) | DELETE /users/{userID}/stores/{storeID}/files?path={path} | - | 
 
 ## User Collections
 
