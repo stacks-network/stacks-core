@@ -4,21 +4,15 @@
 
 | Method  | API Call | Notes | 
 | ------------- | ------------- | ------------- |
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
-
-## Zone Files
-
-| Method  | API Call | Notes | 
-| ------------- | ------------- | ------------- |
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
+| Get all names | GET /names | - | 
+| Register name | POST /names | - | 
+| Get name info | GET /names/{name} | - | 
+| Get name history | GET /names/{name}/history | - | 
+| Get historical zone file | GET /names/{name}/zoneFile/{zoneFileHash}  | - | 
+| Delete user | DELETE /names/{name} | - | 
+| Transfer name | PATCH /names/{name} | Payload: {"owner": OWNER } | 
+| Set zone file | PATCH /names/{name} | Payload: {"zoneFile": ZONE_FILE } | 
+| Set zone file hash | PATCH /names/{name} | Payload: {"zoneFileHash": ZONE_FILE_HASH } | 
 
 ## Namespaces
 
