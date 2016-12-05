@@ -18,26 +18,29 @@
 
 | Method  | API Call | Notes | 
 | ------------- | ------------- | ------------- |
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
-| - | - | - | 
+| Get all namespaces | GET /namespaces | - | 
+| Create namespace | POST /namespaces | - | 
+| Launch namespace | PUT /namespaces/{tld} | - | 
+| Get namespace names | GET /namespaces/{tld}/names | - | 
+| Pre-register a name | POST /namespaces/{tld}/names | - | 
+| Update pre-registered name | PUT /namespaces/{tld}/names/{name} | - | 
 
 ## Prices
 
 | Method  | API Call | Notes | 
 | ------------- | ------------- | ------------- |
-| - | - | - | 
-| - | - | - | 
+| Get namespace price | GET /prices/namespaces/{tld} | - | 
+| Get name price | GET /prices/names/{name} | - | 
 
-## User Profiles
+## Users
 
 | Method  | API Call | Notes | 
 | ------------- | ------------- | ------------- |
-| - | - | - | 
-| - | - | - | 
+| Get all users | GET /users | - | 
+| Create user | POST /users | - | 
+| Get user | GET /users/{userID} | - | 
+| Delete user | DELETE /users/{userID} | - | 
+| Update profile | PATCH /users/{userID} | Payload: {"profile": PROFILE } | 
 
 ## User Stores
 
