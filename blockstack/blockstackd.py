@@ -1081,21 +1081,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
             except Exception, e:
                 log.debug("Not a well-formed zonefile: %s" % zonefile_hash)
 
-            '''
-            # it's a valid zonefile.  cache and store it.
-            rc = store_zonefile_data_to_storage( str(zonefile_data), txid, required=zonefile_storage_drivers, cache=True, zonefile_dir=zonefile_dir, tx_required=False )
-            if not rc:
-                log.debug("Failed to replicate zonefile %s to external storage" % zonefile_hash)
-                saved.append(0)
-                continue
-            '''
-
-            '''
-            # replicate zonefile?
-            if conf.get('atlas', False):
-                # see if we can replicate it to them in the background.
-                atlas_zonefile_push_enqueue( zonefile_hash, name, txid, str(zonefile_data) )
-            '''
             storage_enqueue_zonefile( txid, str(zonefile_hash), str(zonefile_data) )
             saved.append(1)
        
@@ -1332,31 +1317,6 @@ class BlockstackdRPC( SimpleXMLRPCServer):
                 log.debug("Failed to verify profile by owner hash")
                 return {'error': 'Failed to validate profile: invalid or missing timestamp and/or previous hash'}
 
-        '''
-        # success!  store it
-        successes = 0
-        for handler in blockstack_client.get_storage_handlers():
-            try:
-                rc = handler.put_mutable_handler( name, profile_txt, required=profile_storage_drivers )
-            except Exception, e:
-                log.exception(e)
-                log.error("Failed to store profile with '%s'" % handler.__name__)
-                continue
-
-            if not rc:
-                log.error("Failed to use handler '%s' to store profile for '%s'" % (handler.__name__, name))
-                continue
-            else:
-                log.debug("Stored profile for '%s' with '%s'" % (name, handler.__name__))
-
-            successes += 1
-        if successes == 0:
-            log.debug("Failed to store profile for '%s'" % name)
-            return {'error': 'Failed to replicate profile'}
-        else:
-            log.debug("Stored profile for '%s'" % name)
-            return self.success_response( {'num_replicas': successes, 'num_failures': len(blockstack_client.get_storage_handlers()) - successes} )
-        '''
         res = storage_enqueue_profile( name, str(profile_txt) )
         if not res:
             log.error('Failed to queue {}-byte profile for {}'.format(len(profile_txt), name))
@@ -1536,7 +1496,7 @@ class BlockstackStoragePusher( threading.Thread ):
                 return False
 
             log.debug("Queue {}-byte profile for {}".format(len(profile_data), name))
-            res = queue_append( self.profile_queue_id, None, block_height=0, profile=profile_data )
+            res = queue_append( self.profile_queue_id, name, None, block_height=0, profile=profile_data )
             assert res
             return True
         except Exception as e:
@@ -2250,6 +2210,10 @@ def check_and_set_envars( argv ):
             'envar': 'VIRTUALCHAIN_WORKING_DIR',
         },
         '--debug': {
+            'arg': False,
+            'envar': 'BLOCKSTACK_DEBUG',
+        },
+        '--verbose': {
             'arg': False,
             'envar': 'BLOCKSTACK_DEBUG',
         },
