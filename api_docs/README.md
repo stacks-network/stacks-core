@@ -1,6 +1,8 @@
 # Blockstack REST API
 
-## Names
+## Naming API
+
+### Names
 
 | Method  | API Call | Notes | 
 | ------------- | ------------- | ------------- |
@@ -14,7 +16,7 @@
 | Set zone file | PATCH /names/{name} | Payload: {"zoneFile": ZONE_FILE } | 
 | Set zone file hash | PATCH /names/{name} | Payload: {"zoneFileHash": ZONE_FILE_HASH } | 
 
-## Namespaces
+### Namespaces
 
 | Method  | API Call | Notes | 
 | ------------- | ------------- | ------------- |
@@ -25,14 +27,16 @@
 | Pre-register a name | POST /namespaces/{tld}/names | - | 
 | Update pre-registered name | PUT /namespaces/{tld}/names/{name} | - | 
 
-## Prices
+### Prices
 
 | Method  | API Call | Notes | 
 | ------------- | ------------- | ------------- |
 | Get namespace price | GET /prices/namespaces/{tld} | - | 
 | Get name price | GET /prices/names/{name} | - | 
 
-## Users
+## Identity API
+
+### Users
 
 | Method  | API Call | Notes | 
 | ------------- | ------------- | ------------- |
@@ -42,7 +46,7 @@
 | Delete user | DELETE /users/{userID} | - | 
 | Update profile | PATCH /users/{userID} | Payload: {"profile": PROFILE } | 
 
-## User Stores
+### User Stores
 
 | Method  | API Call | Notes | 
 | ------------- | ------------- | ------------- |
@@ -62,7 +66,7 @@
 | Create file | POST /users/{userID}/stores/{storeID}/files?path={path} | - | 
 | Delete file (rm) | DELETE /users/{userID}/stores/{storeID}/files?path={path} | - | 
 
-## User Collections
+### User Collections
 
 | Method  | API Call | Notes | 
 | ------------- | ------------- | ------------- |
@@ -72,7 +76,7 @@
 | Create collection item | GET /users/{userID}/collections/{collectionID} | - | 
 | Get collection item | GET /users/{userID}/collections/{collectionID}/{itemID} | - | 
 
-## User Apps
+### User Apps
 
 | Method  | API Call | Notes | 
 | ------------- | ------------- | ------------- |
@@ -82,7 +86,7 @@
 | List app resources | GET /users/{userID}/apps/{appID}/resources | - | 
 | Get app resource | GET /users/{userID}/apps/{appID}/resources/{resourceID} | - | 
 
-## Blockchains
+### Blockchains
 
 | Method  | API Call | Notes | 
 | ------------- | ------------- | ------------- |
