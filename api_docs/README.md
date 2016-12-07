@@ -34,6 +34,14 @@
 | Get namespace price | GET /prices/namespaces/{tld} | - | 
 | Get name price | GET /prices/names/{name} | - | 
 
+### Blockchains
+
+| Method  | API Call | Notes | 
+| ------------- | ------------- | ------------- |
+| Get block operations | GET /blockchains/{blockchainName}/block/{blockHeight} | - | 
+| Get raw name history | GET /blockchains/{blockchainName}/names/{nameID}/history | - | 
+| Get consensus hash | GET /blockchains/{blockchainName}/consensusHash | - | 
+
 ## Identity API
 
 ### Users
@@ -85,11 +93,3 @@
 | Get app account | GET /users/{userID}/apps/{appID} | - | 
 | List app resources | GET /users/{userID}/apps/{appID}/resources | - | 
 | Get app resource | GET /users/{userID}/apps/{appID}/resources/{resourceID} | - | 
-
-### Blockchains
-
-| Method  | API Call | Notes | 
-| ------------- | ------------- | ------------- |
-| Get block operations | GET /blockchains/{blockchainName}/block/{blockHeight} | - | 
-| Get raw name history | GET /blockchains/{blockchainName}/names/{nameID}/history | - | 
-| Get consensus hash | GET /blockchains/{blockchainName}/consensusHash | - | 
