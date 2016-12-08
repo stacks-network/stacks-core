@@ -1,4 +1,15 @@
-# Blockstack REST API
+# Blockstack Specifications
+
+## Dashboard Endpoints
+
+| Method  | API Call | Notes | 
+| ------------- | ------------- | ------------- |
+| Dashboard Home | GET / | Serves the identity management panel | 
+| Auth Request View | GET /auth?authRequest=:authRequestToken | - | 
+
+Explanation of the auth request view:
+
+When the user clicks “login” in an application, the app should redirect the user to this endpoint. If the user already has an account, they will be redirected along with requested data. If the user doesn’t have an account, the user will be presented with each of the app’s requested permissions, then will satisfy or deny them. The dashboard will then redirect the user back with a JWT. The response JWT contains a signature and an API token that the app can use for future authorization of endpoints.
 
 ## Naming API
 
@@ -84,7 +95,7 @@
 | Create collection item | GET /users/{userID}/collections/{collectionID} | - | 
 | Get collection item | GET /users/{userID}/collections/{collectionID}/{itemID} | - | 
 
-### User Apps
+### Resources
 
 | Method  | API Call | Notes | 
 | ------------- | ------------- | ------------- |
