@@ -300,8 +300,13 @@ if os.environ.get("BLOCKSTACK_TEST", None) == "1":
     log.warn("CONFIG_PATH = %s" % CONFIG_PATH)
 
 else:
-    CONFIG_DIR = os.path.expanduser("~/.blockstack")
-    CONFIG_PATH = os.path.join(CONFIG_DIR, CONFIG_FILENAME)
+    CONFIG_PATH = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
+    if CONFIG_PATH is None or CONFIG_PATH == "":
+        CONFIG_DIR = os.path.expanduser("~/.blockstack")
+        CONFIG_PATH = os.path.join(CONFIG_DIR, CONFIG_FILENAME)
+    else:
+        CONFIG_DIR = os.path.dirname(CONFIG_PATH)
+        log.warn("CONFIG_PATH = %s" % CONFIG_PATH)
 
 WALLET_PATH = os.path.join(CONFIG_DIR, "wallet.json")
 SPV_HEADERS_PATH = os.path.join(CONFIG_DIR, "blockchain-headers.dat")
