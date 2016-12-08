@@ -5,9 +5,9 @@
 | Method  | API Call | Notes | 
 | ------------- | ------------- | ------------- |
 | Dashboard Home | GET / | Serves the identity management panel | 
-| Auth Request View | GET /auth?authRequest=:authRequestToken | - | 
+| Auth Request View | GET /auth?authRequest={authRequestToken} | Serves the auth request view | 
 
-Explanation of the auth request view:
+#### Explanation of the auth request view:
 
 When the user clicks “login” in an application, the app should redirect the user to this endpoint. If the user already has an account, they will be redirected along with requested data. If the user doesn’t have an account, the user will be presented with each of the app’s requested permissions, then will satisfy or deny them. The dashboard will then redirect the user back with a JWT. The response JWT contains a signature and an API token that the app can use for future authorization of endpoints.
 
@@ -95,12 +95,14 @@ When the user clicks “login” in an application, the app should redirect the 
 | Create collection item | GET /users/{userID}/collections/{collectionID} | - | 
 | Get collection item | GET /users/{userID}/collections/{collectionID}/{itemID} | - | 
 
-### Resources
+### Apps
 
 | Method  | API Call | Notes | 
 | ------------- | ------------- | ------------- |
 | Get all app accounts | GET /users/{userID}/apps | - | 
 | Create app account | POST /users/{userID}/apps | - | 
 | Get app account | GET /users/{userID}/apps/{appID} | - | 
-| List app resources | GET /users/{userID}/apps/{appID}/resources | - | 
-| Get app resource | GET /users/{userID}/apps/{appID}/resources/{resourceID} | - | 
+
+### Resources
+
+| Get app resource | GET /appResources/{appID}/{resourceID} | - | 
