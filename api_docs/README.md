@@ -92,7 +92,7 @@ When the user clicks “login” in an application, the app should redirect the 
 | Get all collections | GET /users/{userID}/collections | - | 
 | Create collection | POST /users/{userID}/collections | - | 
 | Get all collection items | GET /users/{userID}/collections/{collectionID} | - | 
-| Create collection item | GET /users/{userID}/collections/{collectionID} | - | 
+| Create collection item | POST /users/{userID}/collections/{collectionID} | - | 
 | Get collection item | GET /users/{userID}/collections/{collectionID}/{itemID} | - | 
 
 ### Apps
