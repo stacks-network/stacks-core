@@ -95,14 +95,8 @@ When the user clicks “login” in an application, the app should redirect the 
 | Create collection item | POST /users/{userID}/collections/{collectionID} | - | 
 | Get collection item | GET /users/{userID}/collections/{collectionID}/{itemID} | - | 
 
-### Apps
+### Resources
 
 | Method  | API Call | Notes | 
 | ------------- | ------------- | ------------- |
-| Get all app accounts | GET /users/{userID}/apps | - | 
-| Create app account | POST /users/{userID}/apps | - | 
-| Get app account | GET /users/{userID}/apps/{appID} | - | 
-
-### Resources
-
 | Get app resource | GET /appResources/{appID}/{resourceID} | - | 
