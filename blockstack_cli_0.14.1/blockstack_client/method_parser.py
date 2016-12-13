@@ -33,9 +33,10 @@ def parse_methods(method_list):
     Given a list of methods, parse their docstring metadata for linking information.
     The __doc__ string for each method must be properly formatted:
 
-    command: <command name> [rpc]
+    command: <command name> [rpc] [advanced] 
         This is the name of the CLI command
         If rpc is present, the command will be accessible via RPC.
+        If advanced is present, then the command will be accessible only in advanced mode
 
     help: <help string>
         This is the help string for the command
@@ -71,7 +72,7 @@ def parse_methods(method_list):
 
     error_msg = 'Method {}: {} string "{}"'
 
-    supported_pragmas = ['', 'rpc']
+    supported_pragmas = ['', 'rpc', 'advanced']
 
     for method in method_list:
         method_name = method.__name__
@@ -104,10 +105,6 @@ def parse_methods(method_list):
             if unsupported_pragmas:
                 log.exception('Unsupported pragmas: {}'.format(unsupported_pragmas))
                 raise ValueError
-
-            # available via rpc?
-            if 'rpc' in command_pragmas:
-                command_pragmas.append('rpc')
 
             command_help = re.findall(help_pattern, help_line)[0]
         except Exception as e:
