@@ -107,7 +107,6 @@ default_proxy = None
 
 
 class BlockstackRPCClient(object):
-
     """
     RPC client for the blockstack server
     """
@@ -210,6 +209,23 @@ def json_is_error(resp):
         return False
 
     return 'error' in resp
+
+
+def json_is_exception(resp):
+    """
+    Is the given response object
+    an exception traceback?
+
+    Return True if so
+    Return False if not
+    """
+    if not json_is_error(resp):
+        return False
+
+    if 'traceback' not in resp.keys() or 'error' not in resp.keys():
+        return False
+
+    return True
 
 
 def json_validate(schema, resp):
@@ -595,6 +611,50 @@ def get_all_names(offset=None, count=None, proxy=None):
         all_names += page
 
     return all_names
+
+
+def get_all_namespaces(offset=None, count=None, proxy=None):
+    """
+    Get all namespaces
+    Return the list of namespaces on success
+    Return {'error': ...} on failure
+
+    TODO: make this scale like get_all_names
+    """
+    offset = 0 if offset is None else offset
+    proxy = get_default_proxy() if proxy is None else proxy
+
+    schema = {
+        'type': 'object',
+        'properties': {
+            'namespaces': {
+                'type': 'array',
+                'items': {
+                    'type': 'string',
+                    'pattern': OP_NAMESPACE_PATTERN,
+                },
+            },
+        },
+        'required': [
+            'namespaces'
+        ],
+    }
+
+    namespaces_schema = json_response_schema(schema)
+
+    resp = {}
+    try:
+        resp = proxy.get_all_namespaces()
+        resp = json_validate(namespaces__schema, resp)
+        if json_is_error(resp):
+            return resp
+    except ValidationError as e:
+        log.exception(e)
+        resp = json_traceback(resp.get('error'))
+        return resp
+
+    stride = len(resp['namespaces']) if count is None else offset + count
+    return resp['namespaces'][offset:stride]
 
 
 def get_names_in_namespace_page(namespace_id, offset, count, proxy=None):
