@@ -140,6 +140,18 @@ def get_storage_handlers():
     return storage_handlers
 
 
+def lookup_storage_handler(handler_name):
+    """
+    Get a storage handler by name
+    """
+    global storage_handlers
+    for handler in storage_handlers:
+        if handler.__name__ == handler_name:
+            return handler
+
+    return None
+
+
 def make_mutable_data_urls(data_id, use_only=None):
     """
     Given a data ID for mutable data, get a list of URLs to it
@@ -229,6 +241,7 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None):
     # try pubkey address
     if public_key_hash is not None:
         # NOTE: these should always have version byte 0
+        # TODO: use jsontokens directly
         public_key_hash_0 = keylib.address_formatting.bin_hash160_to_address(
             keylib.address_formatting.address_to_bin_hash160(
                 str(public_key_hash)
@@ -516,14 +529,11 @@ def get_mutable_data(fq_data_id, data_pubkey, urls=None, data_address=None,
 
     global storage_handlers
 
-    fq_data_id = str(fq_data_id)
-    msg = 'Need either a fully-qualified data ID or a blockchain ID: "{}"'
-    assert is_fq_data_id(fq_data_id) or is_name_valid(fq_data_id), msg.format(fq_data_id)
-
+    # fully-qualified username hint
     fqu = None
     if is_fq_data_id(fq_data_id):
         fqu = fq_data_id.split(':')[0]
-    else:
+    elif is_name_valid(fq_data_id):
         fqu = fq_data_id
 
     handlers_to_use = []
@@ -721,12 +731,12 @@ def put_mutable_data(fq_data_id, data_json, privatekey, required=None, use_only=
         log.error('Only single-signature data private keys are supported')
         return False
 
-    fq_data_id = str(fq_data_id)
-    msg = 'Data ID must be fully qualified or must be a valid blockchain ID (got {})'
-    assert is_fq_data_id(fq_data_id) or is_name_valid(fq_data_id), msg.format(fq_data_id)
     assert privatekey is not None
 
-    fqu = fq_data_id.split(':')[0] if is_fq_data_id(fq_data_id) else fq_data_id
+    # fully-qualified username hint
+    fqu = None
+    if is_fq_data_id(fq_data_id) or is_name_valid(fq_data_id):    
+        fqu = fq_data_id.split(':')[0] if is_fq_data_id(fq_data_id) else fq_data_id
 
     serialized_data = serialize_mutable_data(data_json, privatekey)
     successes = 0
@@ -825,9 +835,6 @@ def delete_mutable_data(fq_data_id, privatekey, only_use=None):
         return False
 
     fq_data_id = str(fq_data_id)
-    msg = 'Data ID must be fully qualified or must be a valid blockchain ID (got {})'
-    assert is_fq_data_id(fq_data_id) or is_name_valid(fq_data_id), msg.format(fq_data_id)
-
     sigb64 = sign_raw_data("delete:" + fq_data_id, privatekey)
 
     # remove data
