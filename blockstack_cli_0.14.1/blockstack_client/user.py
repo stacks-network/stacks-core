@@ -26,95 +26,226 @@ import base64
 
 import storage
 import config
-
+import posixpath
+import jsontokens
 import jsonschema
 from jsonschema.exceptions import ValidationError
 
 from .schemas import *
-from .constants import BLOCKSTACK_TEST
+from .constants import BLOCKSTACK_TEST, CONFIG_PATH, BLOCKSTACK_DEBUG, USER_DIRNAME
+from .keys import HDWallet
+from keylib import ECPrivateKey, ECPublicKey
 
 log = config.get_logger()
 
 
-def url_to_uri_record(url, datum_name=None):
+def user_dir(config_path=CONFIG_PATH):
     """
-    Convert a URL into a DNS URI record
+    Get the path to the directory 
+    that stores user information (like private keys).
     """
-    try:
-        scheme, _ = url.split('://')
-    except ValueError:
-        msg = 'BUG: invalid storage driver implementation: no scheme given in "{}"'
-        raise Exception(msg.format(url))
+    conf = config.get_config(path=config_path)
+    assert conf
 
-    scheme = scheme.lower()
-    proto = None
+    dirp = conf['users']
+    if posixpath.normpath(os.path.abspath(dirp)) != posixpath.normpath(conf['users']):
+        # relative path; make absolute
+        dirp = posixpath.normpath( os.path.join(os.path.dirname(config_path), dirp) )
 
-    # tcp or udp?
-    try:
-        port = socket.getservbyname(scheme, 'tcp')
-        proto = 'tcp'
-    except socket.error:
+    return dirp
+    
+
+def user_path(user_id, config_path=CONFIG_PATH):
+    """
+    Get the path to a user account state bundle
+    """
+    dirp = user_dir(config_path=config_path)
+    return os.path.join(dirp, "{}.user".format(user_id.replace('/', '\\x2f')))
+
+
+def _get_next_user_privkey_index( config_path=CONFIG_PATH ):
+    """
+    Get the next index for making a new private key for a user
+    """
+    dirp = user_dir(config_path=config_path)
+    if not os.path.exists(dirp):
+        os.makedirs(dirp)
+
+    nonce_path = os.path.join(dirp, ".privkey_index")
+    nonce = 1
+
+    if os.path.exists(nonce_path):
         try:
-            port = socket.getservbyname(scheme, 'udp')
-            proto = 'udp'
-        except socket.error:
-            # this is weird--maybe it's embedded in the scheme?
-            try:
-                assert len(scheme.split('+')) == 2
-                scheme, proto = scheme.split('+')
-            except (AssertionError, ValueError):
-                msg = 'WARN: Scheme "{}" has no known transport protocol'
-                log.debug(msg.format(scheme))
+            with open(nonce_path, "r") as f:
+                nonce = int(f.read().strip())
 
-    name = None
-    if proto is not None:
-        name = '_{}._{}'.format(scheme, proto)
-    else:
-        name = '_{}'.format(scheme)
+        except:
+            log.warning("Failed to read user private key index from {}".format(nonce_path))
 
-    if datum_name is not None:
-        name = '{}.{}'.format(name, str(datum_name))
+    nonce = max(1, nonce + 1)
 
-    ret = {
-        'name': name,
-        'priority': 10,
-        'weight': 1,
-        'target': url,
+    try:
+        with open(nonce_path, "w") as f:
+            f.write("{}".format(nonce))
+            f.flush()
+            os.fsync(f.fileno())
+    
+    except:
+        log.error("Failed to store user private key index to {}".format(nonce_path))
+        return None
+
+    return nonce
+
+
+def user_init( user_id, master_data_privkey, config_path=CONFIG_PATH ):
+    """
+    Generate a new user with the given user ID
+    Returns {'user': ..., 'user_token': ...} on success
+    Returns {'error': ... on error}
+    raises on fatal error
+    """
+    next_privkey_index = _get_next_user_privkey_index(config_path=config_path)
+    assert next_privkey_index
+    
+    master_data_privkey = ECPrivateKey(str(master_data_privkey)).to_hex()
+
+    hdwallet = HDWallet( hex_privkey=master_data_privkey)
+    user_privkey = hdwallet.get_child_privkey( index=next_privkey_index )
+    user_privkey = ECPrivateKey(user_privkey).to_hex()
+
+    info = {
+        'user_id': user_id,
+        'public_key': ECPrivateKey(str(user_privkey)).public_key().to_hex(),
+        'privkey_index': next_privkey_index
     }
+
+    # sign
+    signer = jsontokens.TokenSigner()
+    token = signer.sign( info, master_data_privkey)
+    return {'user': info, 'user_token': token}
+
+
+def user_store( token, config_path=CONFIG_PATH ):
+    """
+    Store a user to storage.
+    @token must be a JWT encoded user data token
+    Verify it conforms to USER_SCHEMA
+    Returns {'status': True} on success
+    Returns {'error': ...} on error
+    """
+
+    # verify that this is a well-formed user
+    jwt = jsontokens.decode_token(token)
+    payload = jwt['payload']
+    jsonschema.validate(payload, USER_SCHEMA)
+
+    user_id = payload['user_id']
+    path = user_path( user_id, config_path=config_path)
+    try:
+        pathdir = os.path.dirname(path)
+        if not os.path.exists(pathdir):
+            os.makedirs(pathdir)
+
+        with open(path, "w") as f:
+            f.write(token)
+
+    except:
+        log.error("Failed to store user {}".format(path))
+        return {'error': 'Failed to store user'}
+
+    return {'status': True}
+
+
+def user_delete( user_id, config_path=CONFIG_PATH ):
+    """
+    Delete a user
+    Return {'status': True} on success
+    """
+
+    path = user_path(user_id, config_path=config_path)
+    if not os.path.exists(path):
+        return {'error': 'No such user'}
+
+    try:
+        os.unlink(path)
+    except Exception, e:
+        log.exception(e)
+        return {'error': 'Failed to unlink'}
+
+    return {'status': True}
+    
+
+def _user_load_path(path, data_pubkey, config_path=CONFIG_PATH):
+    """
+    Load a user from a given path
+    Verify it conforms to the USER_SCHEMA
+    Return {'user': ..., 'user_token': ...} on success
+    Return {'error': ...} on error
+    """
+    data_pubkey = ECPublicKey(str(data_pubkey)).to_hex()
+    jwt = None
+    try:
+        with open(path, "r") as f:
+            jwt = f.read()
+
+    except:
+        log.error("Failed to load {}".format(path))
+        return {'error': 'Failed to read user'}
+
+    # verify
+    verifier = jsontokens.TokenVerifier()
+    valid = verifier.verify( jwt, data_pubkey )
+    if not valid:
+        return {'error': 'Failed to verify user JWT data'}
+
+    data = jsontokens.decode_token( jwt )
+    jsonschema.validate(data['payload'], USER_SCHEMA)
+    return {'user': data['payload'], 'user_token': jwt}
+
+
+def user_load( user_id, data_pubkey, config_path=CONFIG_PATH):
+    """
+    Load the app account for the given (user_id, app owner name, appname) triple
+    Return {'user': jwt, 'user_token': token} on success
+    Return {'error': ...} on error
+    """
+    path = user_path( user_id, config_path=config_path)
+    return _user_load_path( path, data_pubkey, config_path=config_path )
+
+
+def users_list(data_pubkey, config_path=CONFIG_PATH):
+    """
+    Get the list of all users
+    Return a list of USER_SCHEMA-formatted objects
+    """
+    dirp = user_dir(config_path=config_path)
+    if not os.path.exists(dirp) or not os.path.isdir(dirp):
+        log.error("No user directory")
+        return []
+
+    names = os.listdir(dirp)
+    names = filter(lambda n: n.endswith(".user"), names)
+    ret = []
+    for name in names:
+        path = os.path.join( dirp, name )
+        info = _user_load_path( path, data_pubkey, config_path=config_path )
+        if 'error' in info:
+            continue
+
+        ret.append(info['user'])
 
     return ret
 
 
-def make_empty_user_zonefile(username, data_pubkey, urls=None):
+def user_get_privkey( user_data_privkey, user_info ):
     """
-    Create an empty user record from a name record.
+    Given the master data private key and a user structure, calculate the private key
+    for the user.
+    Return the private key
     """
-
-    # make a URI record for every mutable storage provider
-    urls = storage.make_mutable_data_urls(username) if urls is None else urls
-
-    assert urls, 'No profile URLs'
-
-    user = {
-        'txt': [],
-        'uri': [],
-        '$origin': username,
-        '$ttl': config.USER_ZONEFILE_TTL,
-    }
-
-    if data_pubkey is not None:
-        user.setdefault('txt', [])
-
-        pubkey = str(data_pubkey)
-        name_txt = {'name': 'pubkey', 'txt': 'pubkey:data:{}'.format(pubkey)}
-
-        user['txt'].append(name_txt)
-
-    for url in urls:
-        urirec = url_to_uri_record(url)
-        user['uri'].append(urirec)
-
-    return user
+    hdwallet = HDWallet( hex_privkey=ECPrivateKey(str(user_data_privkey)).to_hex())
+    user_privkey = hdwallet.get_child_privkey( index=user_info['privkey_index'] )
+    return user_privkey
 
 
 def is_user_zonefile(d):
@@ -264,7 +395,7 @@ def remove_user_zonefile_url(user_zonefile, url):
     return user_zonefile
 
 
-def make_empty_user_data_info():
+def make_empty_user_profile():
     """
     Given a user's name, create an empty profile.
     """
