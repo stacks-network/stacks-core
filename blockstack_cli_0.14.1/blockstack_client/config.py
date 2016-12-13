@@ -623,8 +623,9 @@ def read_config_file(path=CONFIG_PATH):
         parser.set('blockstack-client', 'blockchain_writer', DEFAULT_BLOCKCHAIN_WRITER)
         parser.set('blockstack-client', 'anonymous_statistics', 'True')
         parser.set('blockstack-client', 'client_version', VERSION)
-        parser.set('blockstack-client', 'app_accounts', APP_ACCOUNT_DIRNAME)
-        parser.set('blockstack-client', 'datastores', APP_DATASTORE_DIRNAME)
+        parser.set('blockstack-client', 'accounts', APP_ACCOUNT_DIRNAME)
+        parser.set('blockstack-client', 'users', USER_DIRNAME)
+        parser.set('blockstack-client', 'datastores', DATASTORE_DIRNAME)
 
         rpc_token = os.urandom(32)
         parser.set('blockstack-client', 'rpc_token', hexlify(rpc_token))
@@ -824,10 +825,13 @@ def configure_zonefile(name, zonefile, data_pubkey=None):
     Return the new zonefile on success
     Return None if the zonefile did not change.
     """
+
+    from .zonefile import make_empty_zonefile
+
     if zonefile is None:
         print('WARNING: No zonefile could be found.')
         print('WARNING: Creating an empty zonefile.')
-        zonefile = make_empty_user_zonefile(name, data_pubkey)
+        zonefile = make_empty_zonefile(name, data_pubkey)
 
     running = True
     do_update = True
