@@ -52,8 +52,9 @@ from .blockchain import get_block_height
 
 from ..keys import get_data_privkey_info, is_singlesig, is_multisig, get_privkey_info_address, get_privkey_info_params, encrypt_private_key_info, decrypt_private_key_info
 from ..proxy import is_name_registered, is_zonefile_hash_current, is_name_owner, get_default_proxy, get_name_blockchain_record, get_name_cost, get_atlas_peers
-from ..profile import get_and_migrate_profile, zonefile_data_replicate
-from ..user import make_empty_user_zonefile, is_user_zonefile 
+from ..profile import get_and_migrate_profile
+from ..zonefile import zonefile_data_replicate, make_empty_zonefile
+from ..user import is_user_zonefile
 from ..storage import put_mutable_data, put_immutable_data, hash_zonefile, get_zonefile_data_hash
 from ..data import get_profile_timestamp, set_profile_timestamp
 
@@ -1276,7 +1277,6 @@ def renew( fqu, renewal_fee, config_path=None, proxy=None ):
 
 
     return data
-
 
 
 def revoke( fqu, config_path=None, proxy=None ):
