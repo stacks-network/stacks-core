@@ -41,9 +41,10 @@ from .keys import *
 from .profile import *
 from .proxy import *
 from .storage import hash_zonefile
+from .zonefile import get_name_zonefile, load_name_zonefile, url_to_uri_record
 
 from .config import get_logger
-from .constants import BLOCKSTACK_TEST
+from .constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
 
 log = get_logger()
 
@@ -102,12 +103,6 @@ def store_mutable_data_version(conf, fq_data_id, ver):
     Return True if stored
     Return False if not
     """
-
-    msg = 'data ID must be a Blockstack DNS name or a fully-qualified data ID'
-    assert (
-        storage.is_fq_data_id(fq_data_id) or
-        storage.is_valid_name(fq_data_id)
-    ), msg
 
     conf = config.get_config() if conf is None else conf
 
@@ -274,7 +269,7 @@ def list_update_history(name, current_block=None, proxy=None):
 
     List all prior zonefile hashes of a name, in historic order.
     Return a list of hashes on success.
-    Return None on error
+    Return {'error': ...} on failure
     """
 
     proxy = get_default_proxy() if proxy is None else proxy
@@ -290,7 +285,7 @@ def list_update_history(name, current_block=None, proxy=None):
                 raise Exception('Invalid getinfo reply')
         except Exception as e:
             log.error('Invalid getinfo reply')
-            return None
+            return {'error': 'Failed to contact Blockstack server'}
 
     name_history = get_name_blockchain_history( name, 0, current_block )
     if 'error' in name_history:
@@ -423,7 +418,7 @@ def load_user_data_pubkey_addr( name, storage_drivers=None, proxy=None ):
     return {'pubkey': data_pubkey, 'address': data_address}
 
 
-def get_mutable(name, data_id, data_pubkey=None, storage_drivers=None, proxy=None, ver_min=None, ver_max=None, urls=None, config_path=CONFIG_PATH):
+def get_mutable(name, data_id, data_pubkey=None, data_address=None, storage_drivers=None, proxy=None, ver_min=None, ver_max=None, urls=None, config_path=CONFIG_PATH):
     """
     get_mutable 
 
@@ -431,6 +426,8 @@ def get_mutable(name, data_id, data_pubkey=None, storage_drivers=None, proxy=Non
 
     If @ver_min is given, ensure the data's version is greater or equal to it.
     If @ver_max is given, ensure the data's version is less than it.
+    
+    If data_pubkey or data_address is given, then name can be arbitrary
 
     Return {'data': the data, 'version': the version} on success
     Return {'error': ...} on error
@@ -440,9 +437,7 @@ def get_mutable(name, data_id, data_pubkey=None, storage_drivers=None, proxy=Non
     conf = config.get_config(path=config_path)
 
     fq_data_id = storage.make_fq_data_id(name, data_id)
-    data_address = None
-
-    if data_pubkey is None:
+    if data_address is None and data_pubkey is None:
         # need to find pubkey to use
         pubkey_info = load_user_data_pubkey_addr( name, storage_drivers=storage_drivers, proxy=proxy )
 
@@ -649,6 +644,8 @@ def put_mutable(name, data_id, data_payload, data_privkey=None, proxy=None, stor
     Given a name, an ID for the data, and the data itself, sign and upload the data to the
     configured storage providers.
 
+    If data_privkey is given, then name can be arbitrary
+
     ** Consistency **
 
     @version, if given, is the version to include in the data.
@@ -848,6 +845,8 @@ def delete_mutable(name, data_id, data_privkey=None, proxy=None, storage_drivers
 
     Optionally (by default) delete cached version information
 
+    If data_privkey is given, then name can be arbitrary
+
     Returns a dict with {'status': True} on success
     Returns a dict with {'error': ...} on failure
     """
@@ -1002,18 +1001,18 @@ def datastore_dir(config_path=CONFIG_PATH):
     return datastore_dir
 
 
-def _make_datastore_name( fqu, datastore_name ):
+def _make_datastore_name( user_id, datastore_name ):
     """
     Make a datastore name
     """
-    return "{}@{}".format(datastore_name, fqu)
+    return "{}@{}".format(user_id, datastore_name)
 
 
-def datastore_path(fqu, datastore_name, config_path=CONFIG_PATH):
+def datastore_path(user_id, datastore_name, config_path=CONFIG_PATH):
     """
     Get the path to the private datastore information.
     """
-    datastore_filename = _make_datastore_name(fqu, datastore_name) + ".datastore"
+    datastore_filename = _make_datastore_name(user_id, datastore_name) + ".datastore"
     datastore_dirp = datastore_dir(config_path=config_path)
 
     return os.path.join(datastore_dirp, datastore_filename)
@@ -1022,7 +1021,7 @@ def datastore_path(fqu, datastore_name, config_path=CONFIG_PATH):
 def datastore_list(config_path=CONFIG_PATH):
     """
     Get the list of private datastores on this host.
-    Return {'datastore_name': ..., 'name': ...} list on success
+    Return {'datastore_name': ..., 'user_id': ...} list on success
     """
     datastore_dirp = datastore_dir(config_path=config_path)
     if not os.path.exists(datastore_dirp) or not os.path.isdir(datastore_dirp):
@@ -1032,322 +1031,102 @@ def datastore_list(config_path=CONFIG_PATH):
     names = os.listdir(datastore_dirp)
     names = filter(lambda n: n.endswith(".datastore"), names)
 
-    # format: datastore name (url-encoded) @ blockchain name .datastore
-    regex = r"^([a-zA-Z0-9\-_.~%]+)@([a-z0-9\-_.+]{{{},{}}}).datastore".format(3, LENGTH_MAX_NAME)
+    # format: something @ URL-encoded datastore name .datastore
+    regex = r"^(.+)@([a-zA-Z0-9\-_.~%]+).datastore"
     ret = []
     for name in names:
         grp = re.match(regex, name)
         if grp is None:
             continue
-       
-        datastore_name, fqu = grp.groups()
+      
+        user_id, datastore_name = grp.groups()
         ret.append( {
-            'datastore_name': datastore_name,
-            'name': fqu
+            'user_id': user_id,
+            'datastore_name': datastore_name
         })
 
     return ret
-
-
-def datastore_load_privinfo(fqu, datastore_name, master_data_pubkey, config_path=CONFIG_PATH):
-    """
-    Get the private datastore information
-    Return {'datastore_priv': decoded datastore info} on success
-    Return {'error':...} if not found
-    """
-    dpath = datastore_path(fqu, datastore_name, config_path=CONFIG_PATH)
-    if not os.path.exists(dpath):
-        log.error("No such private datastore record {}".format(dpath))
-        return {'error': 'No such datastore'}
-    
-    dinfo_txt = None
-    try:
-        with open(dpath, "r") as f:
-            dinfo_txt = f.read()
-
-    except:
-        log.error("Failed to read private datastore record {}".format(dpath))
-        return {'error': 'Failed to read datastore'}
-
-    # will be tokenized...
-    dinfo = None
-    try:
-        verifier = jsontokens.TokenVerifier()
-        res = verifier.verify(dinfo_txt, master_data_pubkey)
-        if not res:
-            log.error("Failed to verify {}".format(dpath))
-            return {'error': 'Failed to verify token'}
-
-        dinfo_jwt = jsontokens.decode_token(dinfo_txt)
-        dinfo = dinfo_jwt['payload']
-        jsonschema.validate(dinfo, PRIVATE_DATASTORE_SCHEMA)
-    except ValidationError as ve:
-        if BLOCKSTACK_DEBUG:
-            log.exception(ve)
-
-        log.error("Failed to parse datastore information from {}".format(dpath))
-        return {'error': 'Failed to parse datastore'}
-
-    return {'datastore_priv': dinfo}
-
-
-def datastore_store_privinfo(fqu, datastore_name, datastore_priv, master_data_privkey, config_path=CONFIG_PATH ):
-    """
-    Store private datastore information.
-    Return {'status': True} on success
-    Return {'error': ...} on error
-    """
-    dpath = datastore_path(fqu, datastore_name, config_path=CONFIG_PATH)
-    if os.path.exists(dpath):
-        log.error("Datastore already exists at {}".format(dpath))
-        return {'error': 'Datastore already exists'}
-
-    signer = jsontokens.TokenSigner()
-    dstok = signer.sign(datastore_priv, ECPrivateKey(master_data_privkey).to_hex())
-    try:
-        with open(dpath, "w") as f:
-            f.write(dstok)
-            f.flush()
-            os.fsync(f.fileno())
-
-    except:
-        log.error("Failed to store datastore record to {}".format(dpath))
-        return {'error': 'Failed to store datastore record'}
-
-    return {'status': True}
     
 
-def datastore_remove_privinfo(fqu, datastore_name, config_path=CONFIG_PATH):
+def datastore_get_user_id( datastore ):
     """
-    Delete private datastore information
-    Return {'status': True} on success
-    Return {'error': ...} on error
+    Get the datastore user ID
     """
-    dpath = datastore_path(fqu, datastore_name, config_path=CONFIG_PATH)
-    if not os.path.exists(dpath):
-        log.debug("No such datastore {}".format(dpath))
-        return {'error': 'No such datastore'}
-
-    try:
-        os.unlink(dpath)
-    except:
-        pass
-
-    return {'status': True}
+    return datastore['user_id']
 
 
-def _make_datastore_pubinfo( datastore_name, datastore_pubkey, driver_names ):
+def _make_datastore_info( user_id, datastore_name, datastore_pubkey, driver_names, config_path=CONFIG_PATH ):
     """
-    Create a new, empty datastore record and a root directory.  This consititutes the public information.
-    Returns {'datastore_pub': datastore, 'root': root} on success (always succeeds)
+    Make the private part of a datastore record.
+    Returns {'datastore': ..., 'root': ...} on success
+    Returns {'error': ...} on error
     """
 
     root_uuid = str(uuid.uuid4())
     datastore_address = ECPublicKey(str(datastore_pubkey)).address()
     datastore_root = _mutable_data_make_dir( datastore_address, root_uuid, {} )
+    datastore_root['idata'] = {}
 
-    datastore_pubinfo = {
-        'datastore_name': datastore_name,
+    datastore_info = {
+        'datastore_name': datastore_name, 
+        'user_id': user_id,
         'owner_pubkey': datastore_pubkey,
-        'drivers': [str(name) for name in driver_names],
+        'drivers': driver_names,
         'root_uuid': root_uuid
     }
 
-    datastore_root['idata'] = {}
-
-    return {'datastore_pub': datastore_pubinfo, 'root': datastore_root}
+    return {'datastore': datastore_info, 'root': datastore_root}
 
 
-def _get_datastore_privkey( fqu, datastore_name, master_data_privkey, datastore_priv=None, config_path=CONFIG_PATH ):
+def get_datastore(user_id, datastore_name, datastore_pubkey, config_path=CONFIG_PATH, proxy=None):
     """
-    Calculate the datastore private key
-    return {'status': True, 'datastore_privkey': ...} on success
-    return {'error': ...} on error
-    """
+    Get a datastore's information. 
 
-    if datastore_priv is None:
-        master_data_pubkey = ECPrivateKey(str(master_data_privkey)).public_key().to_hex()
-        datastore_priv = datastore_load_privinfo(fqu, datastore_name, master_data_pubkey, config_path=CONFIG_PATH )
-        if 'error' in datastore_priv:
-            log.error("Failed to load private datastore record: {}".format(datastore_priv['error']))
-            return {'error': 'Failed to load private datastore record'}
-
-        datastore_priv = datastore_priv['datastore_priv']
-
-    hdwallet = HDWallet( hex_privkey=ECPrivateKey(str(master_data_privkey)).to_hex())
-    datastore_privkey = hdwallet.get_child_privkey( index=datastore_priv['privkey_index'] )
-
-    return {'status': True, 'datastore_privkey': datastore_privkey}
-
-
-def _make_datastore_info( fqu, datastore_name, master_data_privkey, privkey_index, driver_names, config_path=CONFIG_PATH ):
-    """
-    Make the private part of a datastore record.
-    Returns {'datastore_priv': ..., 'datastore_pub': ..., 'root': ...} on success
-    Returns {'error': ...} on error
-    """
-    datastore_priv = {
-        'privkey_index': privkey_index,
-        'datastore_name': datastore_name
-    }
-
-    datastore_privkey_info = _get_datastore_privkey( fqu, datastore_name, master_data_privkey, datastore_priv=datastore_priv, config_path=CONFIG_PATH )
-    if 'error' in datastore_privkey_info:
-        log.error("Failed to load datastore private key")
-        return {'error': 'Failed to generate datastore info'}
-
-    datastore_privkey = datastore_privkey_info['datastore_privkey']
-    datastore_pubkey = ECPrivateKey(str(datastore_privkey)).public_key().to_hex()
-
-    datastore_pub_info = _make_datastore_pubinfo( datastore_name, datastore_pubkey, driver_names )
-
-    return {
-        'datastore_priv': datastore_priv,
-        'datastore_pub': datastore_pub_info['datastore_pub'],
-        'root': datastore_pub_info['root']
-    }
-
-
-def get_datastore(fqu, datastore_name, master_datastore_pubkey=None, master_datastore_privkey=None, wallet_keys=None, config_path=CONFIG_PATH, proxy=None, **kw ):
-    """
-    Get the user's data store information (both public and private parts) 
-    Returns {'status': True, 'datastore': public datastore info, 'datastore_public_key': public key, 'datastore_private_key': datastore private key (if local)}
+    Returns {'status': True, 'datastore': public datastore info}
     Returns {'error': ...} on failure
     """
 
     if proxy is None:
         proxy = get_default_proxy()
 
-    if wallet_keys is None and master_datastore_privkey is None:
-        log.debug("No wallet keys and no master datastore private key; no datastore private key will be loaded")
-
-    if wallet_keys is not None and master_datastore_privkey is None:
-        master_data_privkey_info = load_user_data_privkey( fqu, proxy=proxy, config_path=config_path, wallet_keys=wallet_keys )
-        if 'error' in master_data_privkey_info:
-            log.error("Failed to load master data private key: {}".format(master_data_privkey_info['error']))
-            return {'error': 'Failed to load master data private key'}
-
-        master_datastore_privkey = master_data_privkey_info['privkey']
-
-    if master_datastore_privkey is not None:
-        master_datastore_pubkey = ECPrivateKey(str(master_datastore_privkey)).public_key().to_hex()
-
-    if master_datastore_pubkey is None:
-        # look up
-        pubkey_info = load_user_data_pubkey_addr( fqu, proxy=proxy )
-        if 'error' in pubkey_info:
-            log.error("Failed to load user data public key information for {}".format(fqu))
-            return {'error': 'Failed to get master data public key'}
-
-        master_datastore_pubkey = pubkey_info['pubkey']
-
-    pub_datastore_info = get_mutable(fqu, datastore_name, data_pubkey=master_datastore_pubkey, proxy=proxy, config_path=config_path )
-    if 'error' in pub_datastore_info:
-        log.error("Failed to load public datastore information: {}".format(pub_datastore_info['error']))
+    datastore_info = get_mutable(user_id, datastore_name, datastore_pubkey, proxy=proxy, config_path=config_path)
+    if 'error' in datastore_info:
+        log.error("Failed to load public datastore information: {}".format(datastore_info['error']))
         return {'error': 'Failed to load public datastore record'}
 
-    pub_datastore = pub_datastore_info['data']
+    datastore = datastore_info['data']
 
     try:
-        jsonschema.validate(pub_datastore, PUBLIC_DATASTORE_SCHEMA) 
-    except ValidationError as ve:
-        if BLOLCKSTACK_DEBUG:
+        jsonschema.validate(datastore, DATASTORE_SCHEMA) 
+        assert datastore['datastore_name'] == datastore_name, "Datastore name mismatch"
+    except (AssertionError, ValidationError) as ve:
+        if BLOCKSTACK_DEBUG:
             log.exception(ve)
         
-        log.error("Invalid public datastore record")
+        log.error("Invalid datastore record")
         return {'error': 'Invalid public datastore record'}
 
-    # maybe private too?
-    datastore_priv_info = None
-    if master_datastore_privkey is not None:
-        datastore_priv_info = datastore_load_privinfo(fqu, datastore_name, master_datastore_pubkey, config_path=config_path )
-        if 'error' in datastore_priv_info:
-            log.warning("Failed to load datastore private information for {}".format(datastore_name))
-            
-
-    ret = {
-        'status': True,
-        'datastore': pub_datastore,
-        'datastore_public_key': pub_datastore['owner_pubkey'],
-    }
-
-    if datastore_priv_info is not None and 'error' not in datastore_priv_info:
-        # sanity check...
-        datastore_priv = datastore_priv_info['datastore_priv']
-        datastore_privkey_info = _get_datastore_privkey(fqu, datastore_name, master_datastore_privkey, datastore_priv=datastore_priv, config_path=config_path)
-        if 'error' in datastore_privkey_info:
-            log.error("Failed to get datastore private key info")
-            return {'error': 'Failed to load datastore private key'}
-
-        datastore_privkey = datastore_privkey_info['datastore_privkey']
-        datastore_pubkey = ECPrivateKey(str(datastore_privkey)).public_key().to_hex()
-        datastore_address = ECPublicKey(str(datastore_pubkey)).address()
-
-        try:
-            assert datastore_priv['datastore_name'] == pub_datastore['datastore_name']
-            assert datastore_address == ECPublicKey(str(pub_datastore['owner_pubkey'])).address()
-        except AssertionError, ae:
-            if BLOCKSTACK_DEBUG:
-                log.exception(ae)
-
-            log.error("Public datastore record does not match private datastore record")
-            return {'error': 'Public datastore record does not match private datastore record'}
-
-        ret['datastore_private_key'] = datastore_privkey
-
-    return ret
+    return {'status': True, 'datastore': datastore}
 
 
-def _get_next_datastore_privkey_index( config_path=CONFIG_PATH ):
+def make_datastore(user_id, datastore_name, datastore_privkey, driver_names=None, config_path=CONFIG_PATH ):
     """
-    Make a one-time-use nonce for a signed URL
-    """
-    datastore_dirp = datastore_dir(config_path=config_path)
-    if not os.path.exists(datastore_dirp):
-        os.makedirs(datastore_dirp)
-
-    nonce_path = os.path.join(datastore_dirp, ".privkey_index")
-    nonce = 1
-
-    if os.path.exists(nonce_path):
-        try:
-            with open(nonce_path, "r") as f:
-                nonce = int(f.read().strip())
-
-        except:
-            log.warning("Failed to read datastore private key index from {}".format(nonce_path))
-
-    nonce = max(1, nonce + 1)
-
-    try:
-        with open(nonce_path, "w") as f:
-            f.write("{}".format(nonce))
-            f.flush()
-            os.fsync(f.fileno())
-    
-    except:
-        log.error("Failed to store datastore private key index to {}".format(nonce_path))
-        return None
-
-    return nonce
-    
-
-def make_datastore(fqu, datastore_name, master_data_privkey, driver_names, config_path=CONFIG_PATH ):
-    """
-    Create a new datastore record (both public and private parts)
-    It will be given a wholly-new private key.
-    Return {'status': True, 'datastore_pub': public datastore information, 'root': root inode, 'datastore_priv': private datastore information}
+    Create a new datastore record with the given name, using the given account_info structure
+    Return {'datastore': public datastore information, 'root': root inode}
     Return {'error': ...} on failure
     """
+    if driver_names is None:
+        driver_handlers = storage.get_storage_handlers()
+        driver_names = [h.__name__ for h in driver_handlers]
 
-    datastore_privkey_index = _get_next_datastore_privkey_index(config_path=config_path)
-    datastore_info = _make_datastore_info( fqu, datastore_name, master_data_privkey, datastore_privkey_index, driver_names, config_path=config_path )
-    return {'status': True, 'datastore_pub': datastore_info['datastore_pub'], 'datastore_priv': datastore_info['datastore_priv'], 'root': datastore_info['root']}
+    datastore_pubkey = ECPrivateKey(datastore_privkey).public_key().to_hex()
+    datastore_info = _make_datastore_info( user_id, datastore_name, datastore_pubkey, driver_names, config_path=config_path)
+    return {'datastore': datastore_info['datastore'], 'root': datastore_info['root']}
 
 
-def put_datastore( fqu, datastore_name, drivers=None, master_data_privkey=None, wallet_keys=None, proxy=None, config_path=CONFIG_PATH ):
+def put_datastore(user_id, datastore_name, datastore_info, datastore_privkey, proxy=None, config_path=CONFIG_PATH ):
     """
-    Create and put a new datastore with the given name
+    Create and put a new datastore.
 
     Return {'status': True} on success
     Return {'error': ...} on failure
@@ -1356,80 +1135,37 @@ def put_datastore( fqu, datastore_name, drivers=None, master_data_privkey=None, 
     if proxy is None:
         proxy = get_default_proxy()
 
-    if master_data_privkey is None:
-        master_data_privkey_info = load_user_data_privkey( fqu, proxy=proxy, config_path=config_path, wallet_keys=wallet_keys )
-        if 'error' in master_data_privkey_info:
-            log.error("Failed to load data private key")
-            return {'error': 'Failed to load data private key'}
-
-        master_data_privkey = master_data_privkey_info['privkey']
-
-    if drivers is None:
-        driver_handlers = storage.get_storage_handlers()
-        drivers = [h.__name__ for h in driver_handlers]
-
-    datastore_info = make_datastore(fqu, datastore_name, master_data_privkey, drivers, config_path=config_path )
-    if 'error' in datastore_info:
-        log.error("Failed to create datastore information: {}".format(datastore_info['error']))
-        return {'error': 'Failed to create datastore'}
-
-    datastore = datastore_info['datastore_pub']
-    datastore_priv = datastore_info['datastore_priv']
+    datastore = datastore_info['datastore']
+    user_id = datastore['user_id']
     root = datastore_info['root']
+    drivers = datastore['drivers']
 
-    datastore_privkey_info = _get_datastore_privkey(fqu, datastore_name, master_data_privkey, datastore_priv=datastore_priv, config_path=config_path)
-    if 'error' in datastore_privkey_info:
-        log.error("Failed to get datastore private key info")
-        return {'error': 'Failed to load datastore private key'}
-
-    datastore_privkey = datastore_privkey_info['datastore_privkey']
-    datastore_pubkey = ECPrivateKey(str(datastore_privkey)).public_key().to_hex()
-    datastore_address = ECPublicKey(str(datastore_pubkey)).address()
-
-    assert datastore_priv['datastore_name'] == datastore_name
-    assert datastore_address == ECPublicKey(str(datastore['owner_pubkey'])).address()
-
-    # store private datastore information
-    res = datastore_store_privinfo(fqu, datastore_name, datastore_priv, master_data_privkey, config_path=config_path )
-    if 'error' in res:
-        log.error("Failed to store private datastore record: {}".format(res['error']))
-        return {'error': 'Failed to store private datastore record'}
+    assert datastore_name == datastore['datastore_name']
 
     # replicate root inode
-    res = _put_inode(fqu, root, datastore_privkey, drivers, config_path=CONFIG_PATH, proxy=proxy, create=True )
+    res = _put_inode(user_id, root, datastore_privkey, drivers, config_path=CONFIG_PATH, proxy=proxy, create=True )
     if 'error' in res:
         log.error("Failed to put root inode for datastore {}".format(datastore_name))
-
-        res = datastore_remove_privinfo( fqu, datastore_id, config_path=config_path )
-        if 'error' in res:
-            log.error("Failed to remove private datastore info: {}".format(res['error']))
-
         return {'error': 'Failed to replicate datastore metadata'}
 
     # replicate public datastore record 
-    res = put_mutable( fqu, datastore_name, datastore, data_privkey=master_data_privkey, storage_drivers=drivers, config_path=config_path, proxy=proxy )
+    res = put_mutable( user_id, datastore_name, datastore, data_privkey=datastore_privkey, storage_drivers=drivers, config_path=config_path, proxy=proxy )
     if 'error' in res:
         log.error("Failed to put datastore metadata for {}".format(datastore_fq_id))
 
         # try to clean up...
-        res = _delete_inode(fqu, root['uuid'], datastore_privkey, drivers, proxy=proxy, config_path=config_path)
+        res = _delete_inode(user_id, root['uuid'], datastore_privkey, drivers, proxy=proxy, config_path=config_path)
         if 'error' in res:
             log.error("Failed to clean up root inode {}".format(root['uuid']))
 
-        res = datastore_remove_privinfo( fqu, datastore_id, config_path=config_path )
-        if 'error' in res:
-            log.error("Failed to remove private datastore info: {}".format(res['error']))
-
         return {'error': 'Failed to replicate datastore metadata'}
 
-    # WARN: don't delete inode metadata locally.
-    # keep them as tombstones.
     return {'status': True}
 
 
-def delete_datastore(fqu, datastore_name, master_data_privkey=None, wallet_keys=None, force=False, config_path=CONFIG_PATH, proxy=None ):
+def delete_datastore(user_id, datastore_name, datastore_privkey, force=False, config_path=CONFIG_PATH, proxy=None ):
     """
-    Delete a datastore's information.
+    Delete a datastore's information, given the app user structure and the datastore name
     If force is True, then delete the root inode even if it's not empty.
 
     Return {'status': True} on success
@@ -1438,32 +1174,19 @@ def delete_datastore(fqu, datastore_name, master_data_privkey=None, wallet_keys=
 
     if proxy is None:
         proxy = get_default_proxy()
-    
-    if master_data_privkey is None:
-        master_data_privkey_info = load_user_data_privkey( fqu, proxy=proxy, config_path=config_path, wallet_keys=wallet_keys )
-        if 'error' in master_data_privkey_info:
-            log.error("Failed to load data private key")
-            return {'error': 'Failed to load data private key'}
-
-        master_data_privkey = master_data_privkey_info['privkey']
-
-    master_data_pubkey = ECPrivateKey(str(master_data_privkey)).public_key().to_hex()
+   
+    datastore_pubkey = ECPrivateKey(str(datastore_privkey)).public_key().to_hex()
 
     # get the datastore first
-    datastore_info = get_datastore(fqu, datastore_name, wallet_keys=wallet_keys, master_data_pubkey=master_data_pubkey, config_path=config_path, proxy=proxy )
+    datastore_info = get_datastore(user_id, datastore_name, datastore_pubkey, config_path=config_path, proxy=proxy )
     if 'error' in datastore_info:
-        log.error("Failed to look up datastore information for {}".format(datastore_name))
+        log.error("Failed to look up datastore information for {}:{}".format(user_id, datastore_name))
         return {'error': 'Failed to look up datastore'}
     
     datastore = datastore_info['datastore']
-    if not datastore_info.has_key('datastore_private_key'):
-        log.error("Datastore is not owned by this host: {}".format(datastore_info))
-        return {'error': 'No datastore private key found'}
-
-    datastore_privkey = datastore_info['datastore_private_key']
 
     # remove root inode 
-    res = datastore_listdir(fqu, datastore, '/', config_path=config_path, proxy=proxy )
+    res = datastore_listdir( datastore, '/', config_path=config_path, proxy=proxy )
     if 'error' in res:
         if not force:
             log.error("Failed to list /")
@@ -1475,28 +1198,22 @@ def delete_datastore(fqu, datastore_name, master_data_privkey=None, wallet_keys=
         log.error("Datastore not empty")
         return {'error': 'Datastore not empty'}
 
-    res = delete_mutable(fqu, datastore['root_uuid'], data_privkey=datastore_privkey, proxy=proxy, storage_drivers=datastore['drivers'], delete_version=False, config_path=config_path )
+    res = delete_mutable(user_id, datastore['root_uuid'], data_privkey=datastore_privkey, proxy=proxy, storage_drivers=datastore['drivers'], delete_version=False, config_path=config_path )
     if 'error' in res:
         log.error("Failed to delete root inode {}".format(datastore['root_uuid']))
         return {'error': res['error']}
 
     # remove public datastore record
     datastore_name = datastore['datastore_name']
-    res = delete_mutable( fqu, datastore_name, data_privkey=master_data_privkey, proxy=proxy, config_path=config_path, delete_version=False )
+    res = delete_mutable(user_id, datastore_name, data_privkey=datastore_privkey, proxy=proxy, config_path=config_path, delete_version=False )
     if 'error' in res:
         log.error("Failed to delete public datastore record: {}".format(res['error']))
         return {'error': 'Failed to delete public datastore record'}
 
-    # remove private datastore record 
-    res = datastore_remove_privinfo(fqu, datastore_name, config_path=config_path)
-    if 'error' in res:
-        log.error("Failed to delete private datastore record: {}".format(res['error']))
-        return {'error': 'Failed to delete private datastore record'}
-
     return {'status': True}
 
 
-def _get_inode( fqu, inode_uuid, data_pubkey, drivers, config_path=CONFIG_PATH, get_idata=True, proxy=None ):
+def _get_inode(user_id, inode_uuid, data_pubkey, drivers, config_path=CONFIG_PATH, proxy=None ):
     """
     Get an inode from mutable storage.  Verify that it has an
     equal or later version number than the one we have locally.
@@ -1511,7 +1228,7 @@ def _get_inode( fqu, inode_uuid, data_pubkey, drivers, config_path=CONFIG_PATH, 
     conf = get_config(config_path)
     assert conf
 
-    res = get_mutable(fqu, inode_uuid, data_pubkey=data_pubkey, storage_drivers=drivers, proxy=proxy, config_path=config_path )
+    res = get_mutable(user_id, inode_uuid, data_pubkey=data_pubkey, storage_drivers=drivers, proxy=proxy, config_path=config_path )
     if 'error' in res:
         log.error("Failed to get inode {}: {}".format(inode_uuid, res['error']))
         return {'error': 'Failed to get inode'}
@@ -1530,16 +1247,33 @@ def _get_inode( fqu, inode_uuid, data_pubkey, drivers, config_path=CONFIG_PATH, 
     # must match owner 
     data_address = ECPublicKey(str(data_pubkey)).address()
     if inode_info['owner'] != data_address:
-        log.error("Inode {} not owned by {} (but by {})".format(inode['uuid'], data_address, inode_info['owner']))
+        log.error("Inode {} not owned by {} (but by {})".format(inode_info['uuid'], data_address, inode_info['owner']))
         return {'error': 'Invalid owner'}
 
-    if not get_idata:
-        # only wanted the inode
-        return {'status': True, 'inode': inode_info}
+    return {'status': True, 'inode': inode_info}
+
+
+def _get_inode_data(inode_info, user_id, data_pubkey, drivers, config_path=CONFIG_PATH, proxy=None):
+    """
+    Get an inode's data.  Verify it matches the inode info.
+
+    Return {'status': True, 'inode': inode_full_info} on success.
+        inode_full_info will contain everything in inode_info, plus inode_full_info['idata'] will be set to the inode's data.
+
+    Return {'error': ...} on error.
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path)
+
+    conf = get_config(config_path)
+    assert conf
+
+    inode_uuid = inode_info['uuid']
 
     # get idata as well 
     idata_id = '{}.data'.format(inode_uuid)
-    res = get_mutable(fqu, idata_id, data_pubkey=data_pubkey, storage_drivers=drivers, proxy=proxy, config_path=config_path )
+    res = get_mutable(user_id, idata_id, data_pubkey=data_pubkey, storage_drivers=drivers, proxy=proxy, config_path=config_path )
     if 'error' in res:
         log.error("Failed to get inode data {}: {}".format(inode_uuid, res['error']))
         return {'error': 'Failed to get inode data'}
@@ -1578,7 +1312,7 @@ def _get_inode( fqu, inode_uuid, data_pubkey, drivers, config_path=CONFIG_PATH, 
     return {'status': True, 'inode': inode_info}
 
 
-def _put_inode( fqu, _inode, data_privkey, drivers, config_path=CONFIG_PATH, proxy=None, create=False ):
+def _put_inode(user_id, _inode, data_privkey, drivers, config_path=CONFIG_PATH, proxy=None, create=False ):
     """
     Store an inode and its associated idata
     Return {'status': True} on success
@@ -1608,13 +1342,13 @@ def _put_inode( fqu, _inode, data_privkey, drivers, config_path=CONFIG_PATH, pro
 
         # put new idata 
         idata_id = '{}.data'.format(inode['uuid'])
-        res = put_mutable(fqu, idata_id, idata, data_privkey=data_privkey, storage_drivers=drivers, config_path=config_path, proxy=proxy, create=create )
+        res = put_mutable(user_id, idata_id, idata, data_privkey=data_privkey, storage_drivers=drivers, config_path=config_path, proxy=proxy, create=create )
         if 'error' in res:
             log.error("Failed to replicate idata for {}: {}".format(inode['uuid'], res['error']))
             return {'error': 'Failed to replicate idata'}
 
     # put new inode 
-    res = put_mutable(fqu, inode['uuid'], inode, data_privkey=data_privkey, storage_drivers=drivers, config_path=config_path, proxy=proxy, create=create )
+    res = put_mutable(user_id, inode['uuid'], inode, data_privkey=data_privkey, storage_drivers=drivers, config_path=config_path, proxy=proxy, create=create )
     if 'error' in res:
         log.error("Failed to replicate inode {}: {}".format(inode['uuid'], res['error']))
         return {'error': 'Failed to replicate inode'}
@@ -1622,7 +1356,7 @@ def _put_inode( fqu, _inode, data_privkey, drivers, config_path=CONFIG_PATH, pro
     return {'status': True}
 
 
-def _delete_inode( fqu, inode_uuid, data_privkey, drivers, config_path=CONFIG_PATH, proxy=None ):
+def _delete_inode(user_id, inode_uuid, data_privkey, drivers, config_path=CONFIG_PATH, proxy=None ):
     """
     Delete an inode and its associated data.
     Return {'status': True} on success
@@ -1634,19 +1368,19 @@ def _delete_inode( fqu, inode_uuid, data_privkey, drivers, config_path=CONFIG_PA
 
     # delete idata 
     idata_id = '{}.data'.format(inode_uuid)
-    res = delete_mutable(fqu, idata_id, data_privkey=data_privkey, proxy=proxy, storage_drivers=drivers, delete_version=False, config_path=config_path)
+    res = delete_mutable(user_id, idata_id, data_privkey=data_privkey, proxy=proxy, storage_drivers=drivers, delete_version=False, config_path=config_path)
     if 'error' in res:
         log.error("Faled to delete idata for {}: {}".format(inode_uuid, res['error']))
 
     # delete inode 
-    res = delete_mutable(fqu, inode_uuid, data_privkey=data_privkey, proxy=proxy, storage_drivers=drivers, delete_version=False, config_path=config_path )
+    res = delete_mutable(user_id, inode_uuid, data_privkey=data_privkey, proxy=proxy, storage_drivers=drivers, delete_version=False, config_path=config_path )
     if 'error' in res:
         log.error("Failed to delete inode {}: {}".format(inode_uuid, res['error']))
 
     return {'status': True}
     
 
-def _resolve_path( fqu, datastore, path, data_pubkey, config_path=CONFIG_PATH, proxy=None ):
+def _resolve_path( datastore, path, data_pubkey, get_idata=True, config_path=CONFIG_PATH, proxy=None ):
     """
     Given a fully-qualified data path, the user's datastore record, and a private key,
     go and traverse the directory heirarchy encoded
@@ -1666,31 +1400,40 @@ def _resolve_path( fqu, datastore, path, data_pubkey, config_path=CONFIG_PATH, p
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    user_id = datastore_get_user_id(datastore)
     path = posixpath.normpath(path).strip("/")
     path_parts = path.split('/')
     prefix = '/'
 
     drivers = datastore['drivers']
     root_uuid = datastore['root_uuid']
-
-    root_inode = _get_inode( fqu, root_uuid, data_pubkey, drivers, config_path=CONFIG_PATH, proxy=proxy )
+   
+    # getting only the root?
+    root_inode = _get_inode(user_id, root_uuid, data_pubkey, drivers, config_path=CONFIG_PATH, proxy=proxy )
     if 'error' in root_inode:
         log.error("Failed to get root inode: {}".format(root_inode['error']))
+        return {'error': root_inode['error'], 'errno': errno.EIO}
+
+    # get root info 
+    root_inode = _get_inode_data(root_inode['inode'], user_id, data_pubkey, drivers, config_path=CONFIG_PATH, proxy=proxy )
+    if 'error' in root_inode:
+        log.error("Failed to get root inode data: {}".format(root_inode['error']))
         return {'error': root_inode['error'], 'errno': errno.EIO}
 
     ret = {
         '/': {'uuid': root_uuid, 'name': '', 'parent': '', 'inode': root_inode['inode']}
     }
-   
+ 
+    if len(path) == 0:
+        # looked up /
+        return ret
+  
     # walk 
     i = 0
     child_uuid = None
     name = None
     cur_dir = root_inode['inode']
-
-    if len(path) == 0:
-        # looked up /
-        return ret
+    child_entry = None
 
     for i in xrange(0, len(path_parts)):
 
@@ -1699,19 +1442,19 @@ def _resolve_path( fqu, datastore, path, data_pubkey, config_path=CONFIG_PATH, p
         child_dirent = cur_dir['idata'].get(name, None)
 
         if child_dirent is None:
-            log.error('No child "{}" in "{}"\ninode:\n{}'.format(name, prefix, json.dumps(cur_dir, indent=4, sort_keys=True)))
+            log.debug('No child "{}" in "{}"\ninode:\n{}'.format(name, prefix, json.dumps(cur_dir, indent=4, sort_keys=True)))
             return {'error': 'No such file or directory', 'errno': errno.ENOENT}
        
         child_uuid = child_dirent['uuid']
         
         # get child
-        child_entry = _get_inode( fqu, child_uuid, data_pubkey, drivers, config_path=CONFIG_PATH, proxy=proxy )
+        child_entry = _get_inode(user_id, child_uuid, data_pubkey, drivers, config_path=CONFIG_PATH, proxy=proxy )
         if 'error' in child_entry:
             log.error("Failed to get inode {} at {}: {}".format(child_uuid, prefix + '/' + name, child_entry['error']))
             return {'error': child_entry['error'], 'errno': errno.EIO}
 
         child_entry = child_entry['inode']
-        assert child_entry['type'] == child_dirent['type'], "Corrupt inode {}".format(storage.make_fq_data_id(fqu,child_uuid))
+        assert child_entry['type'] == child_dirent['type'], "Corrupt inode {}".format(storage.make_fq_data_id(user_id,child_uuid))
 
         path_ent = {
             'name': name,
@@ -1727,17 +1470,44 @@ def _resolve_path( fqu, datastore, path, data_pubkey, config_path=CONFIG_PATH, p
 
         if child_dirent['type'] == MUTABLE_DATUM_DIR_TYPE:
             # next directory
-            cur_dir = child_entry
-            prefix += '/'
+            # get listing to populate 'idata'
+            child_entry = _get_inode_data(child_entry, user_id, data_pubkey, drivers, config_path=CONFIG_PATH, proxy=proxy )
+            if 'error' in child_entry:
+                log.error("Failed to list directory {} at {}: {}".format(child_uuid, prefix + '/' + name, child_entry['error']))
+                return {'error': child_entry['error'], 'errno': errno.EIO}
+
+            child_entry = child_entry['inode']
+
+            # update ret 
+            ret[prefix]['inode'] = child_entry
 
         else:
             # at a file
             break
 
+        # keep walking
+        cur_dir = child_entry
+        prefix += '/'
+
+    # undo last '/'-append
+    prefix = prefix.rstrip('/')
+
     # did we reach the end?
     if i+1 < len(path_parts):
         log.debug('Out of path at "{}" (stopped at {} in {})'.format(prefix, i, path_parts))
         return {'error': 'Not a directory', 'errno': errno.ENOTDIR}
+
+    if get_idata:
+        # get file data too 
+        child_entry = _get_inode_data(child_entry, user_id, data_pubkey, drivers, config_path=CONFIG_PATH, proxy=proxy )
+        if 'error' in child_entry:
+            log.error("Failed to get file data for {} at {}: {}".format(child_uuid, prefix + '/' + name, child_entry['error']))
+            return {'error': child_entry['error'], 'errno': errno.EIO}
+        
+        child_entry = child_entry['inode']
+
+        # update ret 
+        ret[prefix]['inode'] = child_entry
 
     return ret
 
@@ -1832,20 +1602,22 @@ def _mutable_data_dir_unlink( parent_dir, child_name ):
     return parent_dir
 
 
-def _mutable_data_make_links( fqu, inode_uuid, urls=None, drivers=None ):
+def _mutable_data_make_links(user_id, inode_uuid, urls=None, driver_names=None ):
     """
     Make a bundle of URI record links for the given inode data.
     This constitutes the directory's idata
     """
-    if drivers is None:
-        drivers = storage.get_storage_handlers()
-
-    fq_data_id = storage.make_fq_data_id(fqu, inode_uuid)
+    fq_data_id = storage.make_fq_data_id(user_id, inode_uuid)
 
     if urls is None:
+        if driver_names is None:
+            drivers = storage.get_storage_handlers()
+        else:
+            drivers = [storage.lookup_storage_handler(name) for name in driver_names]
+
         urls = storage.get_driver_urls( fq_data_id, drivers )
 
-    data_links = [user_db.url_to_uri_record(u) for u in urls]
+    data_links = [url_to_uri_record(u) for u in urls]
     return data_links
 
 
@@ -1863,7 +1635,7 @@ def _parse_data_path( data_path ):
     return {'iname': name, 'parent_path': dirpath, 'data_path': path}
 
 
-def _lookup( fqu, datastore, data_path, data_pubkey, config_path=CONFIG_PATH, proxy=None ):
+def _lookup(datastore, data_path, data_pubkey, get_idata=True, config_path=CONFIG_PATH, proxy=None ):
     """
     Look up all the inodes along the given fully-qualified path, verifying them and ensuring that they're fresh along the way.
 
@@ -1880,7 +1652,7 @@ def _lookup( fqu, datastore, data_path, data_pubkey, config_path=CONFIG_PATH, pr
     data_path = info['data_path']
 
     # find the parent directory
-    path_info = _resolve_path( fqu, datastore, data_path, data_pubkey, config_path=config_path, proxy=proxy )
+    path_info = _resolve_path(datastore, data_path, data_pubkey, get_idata=get_idata, config_path=config_path, proxy=proxy )
     if 'error' in path_info:
         log.error('Failed to resolve {}'.format(dirpath))
         return path_info
@@ -1891,7 +1663,7 @@ def _lookup( fqu, datastore, data_path, data_pubkey, config_path=CONFIG_PATH, pr
     return {'status': True, 'path_info': path_info, 'inode_info': inode_info}
 
 
-def datastore_mkdir( fqu, datastore, data_path, data_privkey, config_path=CONFIG_PATH, proxy=None ):
+def datastore_mkdir(datastore, data_path, data_privkey, config_path=CONFIG_PATH, proxy=None ):
     """
     Make a directory at the given path.  The parent directory must exist.
     Return {'status': True} on success
@@ -1901,6 +1673,7 @@ def datastore_mkdir( fqu, datastore, data_path, data_privkey, config_path=CONFIG
     if proxy is None:
         proxy = get_default_proxy()
 
+    user_id = datastore_get_user_id(datastore)
     path_info = _parse_data_path( data_path )
     parent_path = path_info['parent_path']
     data_path = path_info['data_path']
@@ -1913,7 +1686,7 @@ def datastore_mkdir( fqu, datastore, data_path, data_privkey, config_path=CONFIG
 
     log.debug("mkdir {}:{}".format(datastore['datastore_name'], data_path))
 
-    parent_info = _lookup( fqu, datastore, parent_path, data_pubkey, config_path=config_path, proxy=proxy )
+    parent_info = _lookup(datastore, parent_path, data_pubkey, config_path=config_path, proxy=proxy )
     if 'error' in parent_info:
         log.error('Failed to resolve {}'.format(parent_path))
         return parent_info
@@ -1928,25 +1701,25 @@ def datastore_mkdir( fqu, datastore, data_path, data_privkey, config_path=CONFIG
 
     # does a file or directory already exist?
     if name in parent_dir['idata'].keys():
-        log.error('Already exists: {}'.format(path))
-        return {'error': 'Path already exists', 'errno': errno.EEXIST}
+        log.error('Already exists: {}'.format(name))
+        return {'error': 'Entry already exists', 'errno': errno.EEXIST}
 
     # make a directory!
     child_uuid = str(uuid.uuid4())
-    child_dir_links = _mutable_data_make_links( fqu, child_uuid, drivers=drivers )
+    child_dir_links = _mutable_data_make_links(user_id, child_uuid, driver_names=drivers )
     child_dir_inode = _mutable_data_make_dir( data_address, child_uuid, {} )
 
     # update parent 
     parent_dir, child_dirent = _mutable_data_dir_link( parent_dir, MUTABLE_DATUM_DIR_TYPE, name, child_uuid, child_dir_links )
     
     # replicate the new child
-    res = _put_inode(fqu, child_dir_inode, data_privkey, drivers, config_path=config_path, proxy=proxy, create=True )
+    res = _put_inode(user_id, child_dir_inode, data_privkey, drivers, config_path=config_path, proxy=proxy, create=True )
     if 'error' in res:
         log.error("Failed to create directory {}: {}".format(data_path, res['error']))
         return {'error': 'Failed to store child directory', 'errno': errno.EIO}
 
     # replicate the new parent 
-    res = _put_inode(fqu, parent_dir, data_privkey, drivers, config_path=config_path, proxy=proxy )
+    res = _put_inode(user_id, parent_dir, data_privkey, drivers, config_path=config_path, proxy=proxy )
     if 'error' in res:
         log.error("Failed to update directory {}: {}".format(parent_path, res['error']))
         return {'error': 'Failed to store parent directory', 'stored_child': True, 'errno': errno.EIO}
@@ -1956,7 +1729,7 @@ def datastore_mkdir( fqu, datastore, data_path, data_privkey, config_path=CONFIG
     return {'status': True}
 
 
-def datastore_rmdir( fqu, datastore, data_path, data_privkey, config_path=CONFIG_PATH, proxy=None ):
+def datastore_rmdir(datastore, data_path, data_privkey, config_path=CONFIG_PATH, proxy=None ):
     """
     Remove a directory at the given path.  The directory must be empty.
     Return {'status': True} on success
@@ -1966,6 +1739,7 @@ def datastore_rmdir( fqu, datastore, data_path, data_privkey, config_path=CONFIG
     if proxy is None:
         proxy = get_default_proxy()
    
+    user_id = datastore_get_user_id(datastore)
     path_info = _parse_data_path( data_path )
     data_path = path_info['data_path']
     name = path_info['iname']
@@ -1980,7 +1754,7 @@ def datastore_rmdir( fqu, datastore, data_path, data_privkey, config_path=CONFIG
 
     log.debug("rmdir {}:{}".format(datastore['datastore_name'], data_path))
 
-    dir_info = _lookup( fqu, datastore, data_path, data_pubkey, config_path=config_path, proxy=proxy )
+    dir_info = _lookup(datastore, data_path, data_pubkey, config_path=config_path, proxy=proxy )
     if 'error' in dir_info:
         log.error('Failed to resolve {}'.format(data_path))
         return {'error': dir_info['error'], 'errno': errno.ENOENT}
@@ -2007,13 +1781,13 @@ def datastore_rmdir( fqu, datastore, data_path, data_privkey, config_path=CONFIG
 
     # good to do.  Update parent 
     parent_dir_inode = _mutable_data_dir_unlink( parent_dir_inode, name )
-    res = _put_inode( fqu, parent_dir_inode, data_privkey, drivers, config_path=config_path, proxy=proxy )
+    res = _put_inode(user_id, parent_dir_inode, data_privkey, drivers, config_path=config_path, proxy=proxy )
     if 'error' in res:
         log.error("Failed to update directory {}: {}".format(parent_path, res['error']))
         return {'error': 'Failed to update directory', 'errno': errno.EIO}
 
     # delete the child
-    res = _delete_inode( fqu, dir_inode_uuid, data_privkey, drivers, config_path=config_path, proxy=proxy )
+    res = _delete_inode(user_id, dir_inode_uuid, data_privkey, drivers, config_path=config_path, proxy=proxy )
     if 'error' in res:
         log.error("Failed to delete directory {}: {}".format(data_path, res['error']))
         return {'error': 'Failed to delete directory', 'errno': errno.EIO}
@@ -2023,7 +1797,7 @@ def datastore_rmdir( fqu, datastore, data_path, data_privkey, config_path=CONFIG
     return {'status': True}
 
 
-def datastore_getfile( fqu, datastore, data_path, config_path=CONFIG_PATH, proxy=None ):
+def datastore_getfile(datastore, data_path, config_path=CONFIG_PATH, proxy=None ):
     """
     Get a file identified by a path.
     Return {'status': True, 'file': inode and data}
@@ -2040,7 +1814,7 @@ def datastore_getfile( fqu, datastore, data_path, config_path=CONFIG_PATH, proxy
     
     log.debug("getfile {}:{}".format(datastore['datastore_name'], data_path))
 
-    file_info = _lookup( fqu, datastore, data_path, datastore['owner_pubkey'], config_path=CONFIG_PATH, proxy=proxy )
+    file_info = _lookup(datastore, data_path, datastore['owner_pubkey'], config_path=CONFIG_PATH, proxy=proxy )
     if 'error' in file_info:
         log.error("Failed to resolve {}".format(data_path))
         return file_info
@@ -2053,7 +1827,7 @@ def datastore_getfile( fqu, datastore, data_path, config_path=CONFIG_PATH, proxy
     return {'status': True, 'file': file_info['inode_info']['inode']}
 
 
-def datastore_listdir( fqu, datastore, data_path, config_path=CONFIG_PATH, proxy=None ):
+def datastore_listdir(datastore, data_path, config_path=CONFIG_PATH, proxy=None ):
     """
     Get a file identified by a path.
     Return {'status': True, 'dir': inode and data}
@@ -2070,7 +1844,7 @@ def datastore_listdir( fqu, datastore, data_path, config_path=CONFIG_PATH, proxy
     
     log.debug("listdir {}:{}".format(datastore['datastore_name'], data_path))
 
-    dir_info = _lookup( fqu, datastore, data_path, datastore['owner_pubkey'], config_path=CONFIG_PATH, proxy=proxy )
+    dir_info = _lookup(datastore, data_path, datastore['owner_pubkey'], config_path=CONFIG_PATH, proxy=proxy )
     if 'error' in dir_info:
         log.error("Failed to resolve {}".format(data_path))
         return dir_info
@@ -2083,7 +1857,7 @@ def datastore_listdir( fqu, datastore, data_path, config_path=CONFIG_PATH, proxy
     return {'status': True, 'dir': dir_info['inode_info']['inode']}
 
 
-def datastore_putfile( fqu, datastore, data_path, file_data, data_privkey, config_path=CONFIG_PATH, proxy=None ):
+def datastore_putfile(datastore, data_path, file_data, data_privkey, config_path=CONFIG_PATH, proxy=None ):
     """
     Store a file identified by a path, creating it if need be.
     Return {'status': True} on success.
@@ -2093,6 +1867,7 @@ def datastore_putfile( fqu, datastore, data_path, file_data, data_privkey, confi
     if proxy is None:
         proxy = get_default_proxy(config_path)
 
+    user_id = datastore_get_user_id(datastore)
     path_info = _parse_data_path( data_path )
     data_path = path_info['data_path']
     name = path_info['iname']
@@ -2105,7 +1880,7 @@ def datastore_putfile( fqu, datastore, data_path, file_data, data_privkey, confi
     log.debug("putfile {}:{}".format(datastore['datastore_name'], data_path))
 
     # make sure the file doesn't exist
-    parent_path_info = _lookup( fqu, datastore, parent_dirpath, data_pubkey, config_path=config_path, proxy=proxy )
+    parent_path_info = _lookup(datastore, parent_dirpath, data_pubkey, config_path=config_path, proxy=proxy )
     if 'error' in parent_path_info:
         log.error("Failed to resolve {}".format(data_path))
         return parent_path_info
@@ -2121,20 +1896,20 @@ def datastore_putfile( fqu, datastore, data_path, file_data, data_privkey, confi
 
     # make a file!
     child_uuid = str(uuid.uuid4())
-    child_file_links = _mutable_data_make_links( fqu, child_uuid, drivers=drivers )
+    child_file_links = _mutable_data_make_links( user_id, child_uuid, driver_names=drivers )
     child_file_inode = _mutable_data_make_file( data_address, child_uuid, file_data )
 
     # update parent 
     parent_dir_inode, child_dirent = _mutable_data_dir_link( parent_dir_inode, MUTABLE_DATUM_FILE_TYPE, name, child_uuid, child_file_links )
     
     # replicate the new child
-    res = _put_inode(fqu, child_file_inode, data_privkey, drivers, config_path=config_path, proxy=proxy, create=True )
+    res = _put_inode(user_id, child_file_inode, data_privkey, drivers, config_path=config_path, proxy=proxy, create=True )
     if 'error' in res:
         log.error("Failed to replicate file {}: {}".format(data_path, res['error']))
         return {'error': 'Failed to store file', 'errno': errno.EIO}
 
     # replicate the new parent
-    res = _put_inode(fqu, parent_dir_inode, data_privkey, drivers, config_path=config_path, proxy=proxy )
+    res = _put_inode(user_id, parent_dir_inode, data_privkey, drivers, config_path=config_path, proxy=proxy )
     if 'error' in res:
         log.error("Failed to update directory {}: {}".format(parent_dirpath, res['error']))
         return {'error': 'Failed to update directory', 'errno': errno.EIO}
@@ -2144,7 +1919,7 @@ def datastore_putfile( fqu, datastore, data_path, file_data, data_privkey, confi
     return {'status': True}
 
 
-def datastore_deletefile( fqu, datastore, data_path, data_privkey, config_path=CONFIG_PATH, proxy=None ):
+def datastore_deletefile(datastore, data_path, data_privkey, config_path=CONFIG_PATH, proxy=None ):
     """
     Delete a file from a directory.
     Return {'status': True} on success
@@ -2154,6 +1929,7 @@ def datastore_deletefile( fqu, datastore, data_path, data_privkey, config_path=C
     if proxy is None:
         proxy = get_default_proxy(config_path=config_path)
 
+    user_id = datastore_get_user_id(datastore)
     path_info = _parse_data_path( data_path )
     data_path = path_info['data_path']
     name = path_info['iname']
@@ -2164,7 +1940,7 @@ def datastore_deletefile( fqu, datastore, data_path, data_privkey, config_path=C
 
     log.debug("deletefile {}:{}".format(datastore['datastore_name'], data_path))
 
-    file_path_info = _lookup( fqu, datastore, data_path, data_pubkey, config_path=config_path, proxy=proxy )
+    file_path_info = _lookup( datastore, data_path, data_pubkey, get_idata=False, config_path=config_path, proxy=proxy )
     if 'error' in file_path_info:
         log.error('Failed to resolve {}'.format(data_path))
         return file_path_info
@@ -2185,13 +1961,13 @@ def datastore_deletefile( fqu, datastore, data_path, data_privkey, config_path=C
 
     # Update parent 
     parent_dir_inode = _mutable_data_dir_unlink( parent_dir_inode, name )
-    res = _put_inode(fqu, parent_dir_inode, data_privkey, drivers, config_path=config_path, proxy=proxy )
+    res = _put_inode(user_id, parent_dir_inode, data_privkey, drivers, config_path=config_path, proxy=proxy )
     if 'error' in res:
         log.error("Failed to update directory {}: {}".format(dir_path, res['error']))
         return {'error': 'Failed to update directory', 'errno': errno.EIO}
 
     # delete child 
-    res = _delete_inode(fqu, file_uuid, data_privkey, drivers, config_path=config_path, proxy=proxy )
+    res = _delete_inode(user_id, file_uuid, data_privkey, drivers, config_path=config_path, proxy=proxy )
     if 'error' in res:
         log.error("Failed to delete file {}: {}".format(data_path, res['error']))
         return {'error': 'Failed to delete file', 'errno': errno.EIO}
@@ -2200,3 +1976,28 @@ def datastore_deletefile( fqu, datastore, data_path, data_privkey, config_path=C
 
     return {'status': True}
 
+
+def datastore_stat(datastore, data_path, config_path=CONFIG_PATH, proxy=None ):
+    """
+    Stat a file.  Get just the inode metadata.
+    Return {'status': True, 'inode': inode info} on success
+    Return {'error': ...} on error
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path=config_path)
+
+    path_info = _parse_data_path( data_path )
+    data_path = path_info['data_path']
+
+    drivers = datastore['drivers']
+    
+    log.debug("stat {}:{}".format(datastore['datastore_name'], data_path))
+
+    inode_info = _lookup(datastore, data_path, datastore['owner_pubkey'], get_idata=False, config_path=CONFIG_PATH, proxy=proxy )
+    if 'error' in inode_info:
+        log.error("Failed to resolve {}".format(data_path))
+        return inode_info
+
+    return {'status': True, 'inode': inode_info['inode_info']['inode']}
+    
