@@ -41,7 +41,7 @@ def get_profile_accounts(profile, service, identifier):
     ]
 
 
-def list_accounts(name, proxy=None):
+def list_accounts(user_id, user_data_pubkey=None, user_zonefile=None, data_address=None, owner_address=None, proxy=None):
     """
     List all of the accounts in a user's profile
     Each account will have at least the following:
@@ -53,17 +53,19 @@ def list_accounts(name, proxy=None):
     """
 
     proxy = get_default_proxy() if proxy is None else proxy
-
-    user_profile, user_zonefile = get_name_profile(name, proxy=proxy)
+    user_profile = get_user_profile( user_id, user_data_pubkey=user_data_pubkey,
+                                              user_zonefile=user_zonefile,
+                                              data_address=data_address,
+                                              owner_address=owner_address,
+                                              proxy=proxy)
     if user_profile is None:
-        # user_zonefile will contain an error message
-        return user_zonefile
+        return {'error': 'No profile found'}
 
     # user_profile will be in the new zonefile format
     return {'accounts': user_profile.get('account', [])}
 
 
-def get_account(name, service, identifier, proxy=None):
+def get_account(user_id, service, identifier, user_data_pubkey=None, user_zonefile=None, data_address=None, owner_address=None, proxy=None):
     """
     Get an account by identifier.  Return duplicates
     Return {'account': account information} on success
@@ -71,7 +73,11 @@ def get_account(name, service, identifier, proxy=None):
     """
     proxy = get_default_proxy() if proxy is None else proxy
 
-    accounts = list_accounts(name, proxy=proxy)
+    accounts = list_accounts(user_id, user_data_pubkey=user_data_pubkey,
+                                      user_zonefile=user_zonefile,
+                                      data_address=data_address,
+                                      owner_address=owner_address,
+                                      proxy=proxy)
     if 'error' in accounts:
         return accounts
 
@@ -84,8 +90,8 @@ def get_account(name, service, identifier, proxy=None):
     return {'account': ret}
 
 
-def put_account(name, service, identifier, content_url, create=True, replace=False,
-                proxy=None, wallet_keys=None, txid=None, required_drivers=None, **extra_fields):
+def put_account(user_id, service, identifier, content_url, create=True, replace=False,
+                proxy=None, user_data_privkey=None, owner_address=None, wallet_keys=None, required_drivers=None, **extra_fields):
     """
     Put an account's information into a profile.
 
@@ -105,23 +111,13 @@ def put_account(name, service, identifier, content_url, create=True, replace=Fal
         return {'error': 'Invalid create/replace arguments'}
 
     proxy = get_default_proxy() if proxy is None else proxy
+    
+    user_data_privkey = deduce_profile_privkey(user_zonefile=user_zonefile, owner_address=owner_address, wallet_keys=wallet_keys, proxy=proxy)
+    user_data_pubkey = ECPrivateKey(profile_privkey).public_key().to_hex()
 
-    need_update = False
-
-    user_profile, user_zonefile, need_update = get_and_migrate_profile(
-        name, proxy=proxy, create_if_absent=True,
-        wallet_keys=wallet_keys, include_name_record=True
-    )
-
-    if 'error' in user_profile:
-        return user_profile
-
-    if need_update:
-        return {'error': 'Profile is in legacy format. Please migrate it with the `migrate` command.'}
-
-    name_record = user_zonefile.pop('name_record')
-
-    user_zonefile, user_profile = user_zonefile['zonefile'], user_profile['profile']
+    user_profile = get_user_profile( user_id, user_data_pubkey=user_data_pubkey, proxy=proxy)
+    if user_profile is None:
+        return {'error': 'Failed to load profile'}
 
     # user_profile will be in the new zonefile format
     user_profile.setdefault('account', [])
@@ -150,13 +146,10 @@ def put_account(name, service, identifier, content_url, create=True, replace=Fal
         else:
             return {'error': 'No such existing account'}
 
-    return profile_update(
-        name, user_zonefile, user_profile, name_record['address'],
-        proxy=proxy, wallet_keys=wallet_keys, required_drivers=required_drivers
-    )
+    return put_profile(user_id, user_profile, user_data_privkey=user_data_privkey, proxy=proxy, required_drivers=required_drivers )
 
 
-def delete_account(name, service, identifier, proxy=None, wallet_keys=None):
+def delete_account(user_id, service, identifier, user_data_privkey=None, owner_address=None, wallet_keys=None, proxy=None ):
     """
     Remove an account's information.
     Return {'status': True, 'removed': [list of removed accounts], ...} on success
@@ -164,28 +157,16 @@ def delete_account(name, service, identifier, proxy=None, wallet_keys=None):
     """
 
     proxy = get_default_proxy() if proxy is None else proxy
+ 
+    user_data_privkey = deduce_profile_privkey(user_zonefile=user_zonefile, owner_address=owner_address, wallet_keys=wallet_keys, proxy=proxy)
+    user_data_pubkey = ECPrivateKey(profile_privkey).public_key().to_hex()
 
-    need_update, removed = False, False
+    user_profile = get_user_profile( user_id, user_data_pubkey=user_data_pubkey, proxy=proxy)
+    if user_profile is None:
+        return {'error': 'Failed to load profile'}
 
-    user_profile, user_zonefile, need_update = get_and_migrate_profile(
-        name, proxy=proxy, create_if_absent=True,
-        wallet_keys=wallet_keys, include_name_record=True
-    )
-
-    if 'error' in user_profile:
-        return user_profile
-
-    if need_update:
-        return {
-            'error': (
-                'Profile is in legacy format. '
-                'Please migrate it using with the `migrate` command.'
-            )
-        }
-
-    name_record = user_zonefile.pop('name_record')
-
-    user_zonefile, user_profile = user_zonefile['zonefile'], user_profile['profile']
+    # user_profile will be in the new zonefile format
+    user_profile.setdefault('account', [])
 
     # user_profile will be in the new zonefile format
     removed = []
@@ -197,12 +178,7 @@ def delete_account(name, service, identifier, proxy=None, wallet_keys=None):
     if not removed:
         return {'status': True, 'removed': []}
 
-    res = profile_update(
-        name, user_zonefile,
-        user_profile, name_record['address'],
-        proxy=proxy, wallet_keys=wallet_keys
-    )
-
+    res = put_profile(user_id, user_profile, user_data_privkey=user_data_privkey, proxy=proxy )
     if 'error' in res:
         return res
 
