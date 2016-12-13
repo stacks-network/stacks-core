@@ -87,23 +87,13 @@ def get_plugin_methods(module_name, prefix):
     return get_methods(prefix, module)
 
 
-def get_cli_advanced_methods():
+def get_cli_methods():
     """
-    Get the advanced usage built-in CLI methods
-    """
-    import blockstack_client.actions as builtin_methods
-    return get_methods('cli_advanced_', builtin_methods)
-
-
-def get_cli_basic_methods():
-    """
-    Get the basic built-in CLI methods
+    Get built-in CLI methods
     """
     import blockstack_client.actions as builtin_methods
     all_methods = get_methods('cli_', builtin_methods)
-    advanced_methods = get_cli_advanced_methods()
-
-    return list(set(all_methods) - set(advanced_methods))
+    return all_methods
 
 
 def prompt_args(arginfolist, prompt_func):
@@ -191,19 +181,13 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     subparsers = parser.add_subparsers(dest='action')
 
     # add basic methods
-    basic_methods = get_cli_basic_methods()
-    basic_method_info = parse_methods(basic_methods)
-    build_method_subparsers(subparsers, basic_method_info)
+    all_method_names = get_cli_methods()
+    all_methods = parse_methods(all_method_names)
+    build_method_subparsers(subparsers, all_methods)
 
-    all_methods = basic_method_info
-
-    if advanced_mode:
-        # add advanced methods
-        log.debug('Enabling advanced methods')
-        advanced_methods = get_cli_advanced_methods()
-        advanced_method_info = parse_methods(advanced_methods)
-        build_method_subparsers(subparsers, advanced_method_info)
-        all_methods += advanced_method_info
+    if not advanced_mode:
+        # remove advanced methods 
+        all_methods = filter( lambda m: 'advanced' not in m['pragmas'], all_methods ) 
 
     # Print default help message, if no argument is given
     if len(argv) == 1:
