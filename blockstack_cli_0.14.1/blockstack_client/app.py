@@ -37,7 +37,6 @@ import jsontokens
 import urllib
 import urllib2
 import wallet
-import accounts
 import config
 import storage
 import data
@@ -47,174 +46,244 @@ from .proxy import *
 from config import get_config
 from .constants import CONFIG_PATH, APP_ACCOUNT_DIRNAME, BLOCKSTACK_TEST, LENGTH_MAX_NAME
 from .schemas import *
+from keys import HDWallet
 
-def app_account_dir(config_path=CONFIG_PATH):
+def app_accounts_dir(config_path=CONFIG_PATH):
     """
     Get the directory that holds all app account state
     """
     conf = get_config(path=config_path)
     assert conf
 
-    account_dir = conf['app_accounts']
-    if posixpath.normpath(os.path.abspath(account_dir)) != posixpath.normpath(conf['app_accounts']):
+    account_dir = conf['accounts']
+    if posixpath.normpath(os.path.abspath(account_dir)) != posixpath.normpath(conf['accounts']):
         # relative path; make absolute
         account_dir = posixpath.normpath( os.path.join(os.path.dirname(config_path), account_dir) )
 
     return account_dir
 
 
-def app_account_path(data_address, app_fqu, app_name, config_path=CONFIG_PATH):
+def app_account_name(user_id, app_fqu, appname):
+    """
+    make an account name
+    """
+    return '{}~{}~{}'.format(user_id, app_fqu, appname)
+
+
+def app_account_path(user_id, app_fqu, appname, config_path=CONFIG_PATH):
     """
     Get the path to an app account.
     An app account contains all the sensitive, persistent information 
     for a user to both authenticate itself to the application and for 
     the application to authenticate itself to the user.
     """
-    for part in [data_address, app_fqu, app_name]:
-        assert '@' not in part, "{} has @".format(part)
-        assert ':' not in part, "{} has :".format(part)
-
-    account_dir = app_account_dir(config_path=config_path)
-    account_name = '{}@{}:{}.account'.format(data_address, app_name, app_fqu)
-    account_path = os.path.join(account_dir, account_name)
-
+    account_dir = app_accounts_dir(config_path=config_path)
+    account_id = app_account_name(user_id, appname, app_fqu)
+    account_path = os.path.join(account_dir, account_id + ".account")
     return account_path
 
 
-def app_account_list(config_path=CONFIG_PATH):
+def app_accounts_list(config_path=CONFIG_PATH):
     """
-    Get the list of accounts.
-    Return {'data_address': ..., 'app_fqu': ..., 'app_name': ...} list
+    Get the list of all accounts
+    Return a list of APP_ACCOUNT_SCHEMA-formatted objects
+    NOTE: their contents will not be verified
     """
-    account_dir = app_account_dir(config_path=CONFIG_PATH)
-    if not os.path.exists(account_dir) or not os.path.isdir(account_dir):
+    accounts_dir = app_accounts_dir(config_path=CONFIG_PATH)
+    if not os.path.exists(accounts_dir) or not os.path.isdir(accounts_dir):
         log.error("No app accounts directory")
         return []
 
-    names = os.listdir(account_dir)
+    names = os.listdir(accounts_dir)
     names = filter(lambda n: n.endswith(".account"), names)
-
-    # format: address, url-encoded app name, b40 name
-    regex = r"^([123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+)@([a-zA-Z0-9\-_.~%]+):([a-z0-9\-_.+]{{{},{}}}).account$".format(3, LENGTH_MAX_NAME)
-    ret = []
     for name in names:
-        grp = re.match(regex, name)
-        if grp is None:
+        path = os.path.join( accounts_dir, name )
+        info = _app_load_account_path( path, None, config_path=config_path )
+        if 'error' in info:
             continue
-        
-        data_address, app_name, app_fqu = grp.groups()
-        ret.append( {
-            'data_address': data_address,
-            'app_name': app_name,
-            'app_fqu': app_fqu
-        } )
+
+        ret.append(info['account'])
 
     return ret
 
 
-def app_load_account(app_fqu, app_name, data_pubkey, config_path=CONFIG_PATH):
+def _app_load_account_path( account_path, data_pubkey, config_path=CONFIG_PATH ):
     """
-    Load the app account for the given (username, appname) pair.
-    Return {'account': account jwt, 'account_token': token} on success
+    Load and return the JWT for a account, given its path
+    Return {'account: account jwt, 'account_token': token} on success
     Return {'error': ...} on error
     """
-    data_pubkey = ECPublicKey(data_pubkey).to_hex()
-    data_address = ECPublicKey(data_pubkey).address()
-    account_path = app_account_path(data_address, app_fqu, app_name, config_path=config_path)
-    account_jwt = None
-
+    data_pubkey = ECPublicKey(str(data_pubkey)).to_hex()
+    jwt = None
     try:
         with open(account_path, "r") as f:
-            account_jwt = f.read()
+            jwt = f.read()
 
     except:
         log.error("Failed to load {}".format(account_path))
         return {'error': 'Failed to read account'}
 
     # verify
-    verifier = jsontokens.TokenVerifier()
-    valid = verifier.verify( account_jwt, data_pubkey )
-    if not valid:
-        return {'error': 'Failed to verify account data'}
+    if data_pubkey is not None:
+        verifier = jsontokens.TokenVerifier()
+        valid = verifier.verify( jwt, data_pubkey )
+        if not valid:
+            return {'error': 'Failed to verify JWT data'}
 
-    account_data = jsontokens.decode_token( account_jwt )
-    return {'account': account_data, 'account_token': account_jwt}
+    data = jsontokens.decode_token( jwt )
+    jsonschema.validate( data['payload'], APP_ACCOUNT_SCHEMA )
+    
+    return {'account': data['payload'], 'account_token': jwt}
 
 
-def app_make_account( origin_name, appname, api_methods, data_privkey, config_path=CONFIG_PATH, session_lifetime=3600*24*7):
+def app_load_account( user_id, app_fqu, appname, data_pubkey, config_path=CONFIG_PATH):
     """
-    Make a signed application account JWT.
-    Return {'account': account jwt, 'account_token': token} on success
+    Load the app account for the given (user_id, app owner name, appname) triple
+    Return {'account: jwt, 'account_token': token} on success
+    Return {'error': ...} on error
+    """
+    path = app_account_path( user_id, app_fqu, appname, config_path=config_path)
+    return _app_load_account_path( path, data_pubkey, config_path=config_path )
+
+
+def app_find_accounts( user_id=None, app_fqu=None, appname=None, config_path=CONFIG_PATH ):
+    """
+    Find the list of accounts for a particular application
+    Return the list of account IDs found
+    """
+    infos = app_accounts_list(config_path=CONFIG_PATH)
+
+    if user_id is not None:
+        infos = filter( lambda ai: ai['user_id'] == user_id, infos )
+
+    if app_fqu is not None:
+        infos = filter( lambda ai: ai['name'] == app_fqu, infos )
+
+    if appname is not None:
+        infos = filter( lambda ai: ai['appname'] == appname, infos )
+
+    return infos
+
+
+def _get_next_app_account_privkey_index( config_path=CONFIG_PATH ):
+    """
+    Get the next index for making a new private key
+    """
+    dirp = app_accounts_dir(config_path=config_path)
+    if not os.path.exists(dirp):
+        os.makedirs(dirp)
+
+    nonce_path = os.path.join(dirp, ".privkey_index")
+    nonce = 1
+
+    if os.path.exists(nonce_path):
+        try:
+            with open(nonce_path, "r") as f:
+                nonce = int(f.read().strip())
+
+        except:
+            log.warning("Failed to read app account private key index from {}".format(nonce_path))
+
+    nonce = max(1, nonce + 1)
+
+    try:
+        with open(nonce_path, "w") as f:
+            f.write("{}".format(nonce))
+            f.flush()
+            os.fsync(f.fileno())
+    
+    except:
+        log.error("Failed to store app account private key index to {}".format(nonce_path))
+        return None
+
+    return nonce
+
+
+def app_account_get_privkey( user_data_privkey, app_account ):
+    """
+    Given the owning user's private key and an app account structure, calculate the private key
+    for the account.
+    Return the private key
+    """
+    hdwallet = HDWallet( hex_privkey=ECPrivateKey(str(user_data_privkey)).to_hex())
+    app_account_privkey = hdwallet.get_child_privkey( index=app_account['privkey_index'] )
+    return app_account_privkey
+
+
+def app_make_account( user_id, app_fqu, appname, api_methods, data_privkey, config_path=CONFIG_PATH, session_lifetime=3600*24*7):
+    """
+    Create a new application account, and an associated store.
+    Return {'account': jwt, 'account_token': token} on success
     Return {'error': ...} on error
     """
 
-    # make app-specific private key 
-    app_privkey = ECPrivateKey().to_wif()
+    next_privkey_index = _get_next_app_account_privkey_index( config_path=config_path )
+    hdwallet = HDWallet( hex_privkey=ECPrivateKey(str(data_privkey)).to_hex() )
+    app_account_privkey = hdwallet.get_child_privkey( index=next_privkey_index )
     data_privkey = ECPrivateKey(data_privkey).to_hex()
 
-    account_info = {
-        'name': origin_name,
+    info = {
+        'name': app_fqu,
         'appname': appname,
         'methods': api_methods,
-        'private_key': app_privkey,
+        'user_id': user_id,
+        'public_key': ECPrivateKey(str(app_account_privkey)).public_key().to_hex(),
+        'privkey_index': next_privkey_index,
         'session_lifetime': session_lifetime
     }
 
     # sign
     signer = jsontokens.TokenSigner()
-    account_token = signer.sign( account_info, data_privkey )
-    account = jsontokens.decode_token(account_token)
-    return {'account': account, 'account_token': account_token}
+    token = signer.sign( info, data_privkey )
+    return {'account': info, 'account_token': token}
 
 
-def app_store_account(app_fqu, appname, account_token, data_pubkey, config_path=CONFIG_PATH):
+def app_store_account( token, config_path=CONFIG_PATH):
     """
-    Store the app account for the given (username, appname) pair.
-    Overwrites aren't allowed.
-    The account_data is an encoded JWT.
+    Store the app account token.
+    The token is an encoded JWT.
     Return {'status': True} on success
     Return {'error': ...} on error
     """
-    data_address = ECPublicKey(data_pubkey).address()
-    account_path = app_account_path(data_address, app_fqu, appname, config_path=config_path)
-    if os.path.exists(account_path):
-        return {'error': 'account exists'}
-
     # verify that this is a well-formed account
-    acct_jwt = jsontokens.decode_token(account_token)
+    acct_jwt = jsontokens.decode_token(token)
     acct = acct_jwt['payload']
     jsonschema.validate(acct, APP_ACCOUNT_SCHEMA)
 
-    try:
-        account_dir = os.path.dirname(account_path)
-        if not os.path.exists(account_dir):
-            os.makedirs(account_dir)
+    user_id = acct['user_id']
+    app_fqu = acct['name']
+    appname = acct['appname']
 
-        with open(account_path, "w") as f:
-            f.write(account_token)
+    path = app_account_path( user_id, app_fqu, appname, config_path=config_path)
+    try:
+        pathdir = os.path.dirname(path)
+        if not os.path.exists(pathdir):
+            os.makedirs(pathdir)
+
+        with open(path, "w") as f:
+            f.write(token)
 
     except:
-        log.error("Failed to store {}".format(account_path))
+        log.error("Failed to store {}".format(path))
         return {'error': 'Failed to store account'}
 
     return {'status': True}
 
 
-def app_delete_account(name, app_fqu, appname, data_pubkey, config_path=CONFIG_PATH):
+def app_delete_account( user_id, app_fqu, appname, config_path=CONFIG_PATH):
     """
-    Remove an app account for a given (username, appname) pair.
+    Remove an app account for a given (uuser_id, app_fqu, appname) pair.
     Return {'status': True} on success
     Return {'error': ...} on error
     """
-    data_address = ECPublicKey(data_pubkey).address()
-    account_path = app_account_path(data_address, app_fqu, appname, config_path=config_path)
-    if not os.path.exists(account_path):
+    path = app_account_path( user_id, app_fqu, appname, config_path=config_path)
+    if not os.path.exists(path):
         return {'error': 'No such account'}
 
     try:
-        os.unlink(account_path)
+        os.unlink(path)
     except:
-        log.error("Failed to remove {}".format(account_path))
+        log.error("Failed to remove {}".format(path))
         return {'error': 'Failed to remove account'}
 
     return {'status': True}
@@ -229,15 +298,21 @@ def app_make_session( app_account, data_privkey, config_path=CONFIG_PATH ):
     conf = get_config(path=config_path)
     default_lifetime = conf.get('default_session_lifetime', 1e80)
 
+    privkey = app_account_get_privkey( data_privkey, app_account )
+
     ses = {
         'name': app_account['name'],
         'appname': app_account['appname'],
+        'user_id': app_account['user_id'],
         'methods': app_account['methods'],
+        'public_key': str(ECPrivateKey(str(privkey)).public_key().to_hex()),
         'timestamp': int(time.time()),
         'expires': int(time.time() + min(default_lifetime, app_account['session_lifetime']))
     }
 
-    privkey = ECPrivateKey(data_privkey).to_hex()
+    jsonschema.validate(ses, APP_SESSION_SCHEMA)
+
+    privkey = ECPrivateKey(str(data_privkey)).to_hex()
 
     signer = jsontokens.TokenSigner()
     session_token = signer.sign( ses, privkey )
@@ -253,7 +328,7 @@ def app_verify_session( app_session_token, data_pubkey, config_path=CONFIG_PATH 
     Return the decoded session token payload on success
     Return None on error
     """
-    pubkey = ECPublicKey(data_pubkey).to_hex()
+    pubkey = ECPublicKey(str(data_pubkey)).to_hex()
     verifier = jsontokens.TokenVerifier()
     valid = verifier.verify( app_session_token, data_pubkey )
     if not valid:
@@ -285,8 +360,8 @@ def _get_url_nonce( config_path=CONFIG_PATH ):
     Return None if we can't read from the nonce file
     """
     nonce = 0
-    account_dir = app_account_dir(config_path=config_path)
-    nonce_path = os.path.join(account_dir, ".signin_nonce")
+    dirp = app_accounts_dir(config_path=config_path)
+    nonce_path = os.path.join(dirp, ".signin_nonce")
     if os.path.exists(nonce_path):
         try:
             with open(nonce_path, "r") as f:
@@ -302,11 +377,11 @@ def _make_url_nonce( config_path=CONFIG_PATH ):
     """
     Make a one-time-use nonce for a signed URL
     """
-    account_dir = app_account_dir(config_path=config_path)
-    if not os.path.exists(account_dir):
-        os.makedirs(account_dir)
+    dirp = app_accounts_dir(config_path=config_path)
+    if not os.path.exists(dirp):
+        os.makedirs(dirp)
 
-    nonce_path = os.path.join(account_dir, ".signin_nonce")
+    nonce_path = os.path.join(dirp, ".signin_nonce")
     nonce = _get_url_nonce(config_path=config_path)
     if nonce is None:
         # couldn't read
@@ -442,7 +517,7 @@ def app_verify_url( url, data_pubkey, config_path=CONFIG_PATH ):
     return {'url': orig_url, 'nonce': nonce}
 
 
-def app_url_signin( app_fqu, appname, signin_descriptor, data_privkey, config_path=CONFIG_PATH ):
+def app_url_auth_signin( user_id, app_fqu, appname, signin_descriptor, data_privkey, config_path=CONFIG_PATH ):
     """
     Make a URL that resolves to the signin page.  The URL will be signed by the daemon and will be
     one-time-use, so other apps can't redirect users to the sign-in page.
@@ -454,30 +529,30 @@ def app_url_signin( app_fqu, appname, signin_descriptor, data_privkey, config_pa
     if len(qs) > 0:
         qs = "?{}".format(qs)
 
-    url = "http://localhost:{}/signin/{}/{}{}".format(config['api_endpoint_port'], app_fqu, appname, qs)
+    url = "http://localhost:{}/auth/signin/{}/{}/{}{}".format(config['api_endpoint_port'], user_id, app_fqu, appname, qs)
     return app_sign_url(url, data_privkey, config_path=config_path)
 
 
-def app_url_allow_deny( app_fqu, appname, app_descriptor, data_privkey, config_path=CONFIG_PATH ):
+def app_url_auth_allow_deny( user_id, app_fqu, appname, app_descriptor, data_privkey, config_path=CONFIG_PATH ):
     """
     Make a URL that resolves to the page that asks whether or not 
-    the app is allowed to interact with the user's profile.
+    to create an account.
     The URL will be signed, so apps can't direct users to this page.
 
-    A GET on this URL should load the account-creation page, so the user can create an app account.
+    A GET on this URL should load the account-creation page, so we can make an account.
     """
     config = get_config(path=config_path)
     qs = "&".join(["{}={}".format(k,v) for (k, v) in app_descriptor.items()])
     if len(qs) > 0:
         qs = '?{}'.format(qs)
 
-    url = "http://localhost:{}/allowdeny/{}/{}{}".format(config['api_endpoint_port'], app_fqu, appname, qs)
+    url = "http://localhost:{}/auth/allowdeny/{}/{}/{}{}".format(config['api_endpoint_port'], user_id, app_fqu, appname, qs)
     return app_sign_url(url, data_privkey, config_path=config_path)
 
 
-def app_url_create_account( app_fqu, appname, account_descriptor, data_privkey, config_path=CONFIG_PATH ):
+def app_url_auth_create_account( user_id, app_fqu, appname, account_descriptor, data_privkey, config_path=CONFIG_PATH ):
     """
-    Make a URL that, when GET'ed, will create an account.  A GET on this URL creates the account,
+    Make a URL that, when GET'ed, will create an application account.  A GET on this URL creates the account,
     and redirects the GET'er to a URL with the session (via app_url_auth_finish)
 
     Returns the URL
@@ -487,7 +562,23 @@ def app_url_create_account( app_fqu, appname, account_descriptor, data_privkey, 
     if len(qs) > 0:
         qs = '?{}'.format(qs)
 
-    url = "http://localhost:{}/newaccount/{}/{}{}".format(config['api_endpoint_port'], app_fqu, appname, qs)
+    url = "http://localhost:{}/auth/newaccount/{}/{}/{}{}".format(config['api_endpoint_port'], user_id, app_fqu, appname, qs)
+    return app_sign_url(url, data_privkey, config_path=config_path)
+
+
+def app_url_auth_load_account( user_id, app_fqu, appname, user_descriptor, data_privkey, config_path=CONFIG_PATH ):
+    """
+    Make a URL that, when GET'ed, will load an account.  A GET on this URL loads the account,
+    and redirects the GET'er to a URL with the session (via app_url_auth_finish)
+
+    Returns the URL
+    """
+    config = get_config(path=config_path)
+    qs = '&'.join(['{}={}'.format(k, v) for (k, v) in user_descriptor.items()])
+    if len(qs) > 0:
+        qs = '?{}'.format(qs)
+
+    url = "http://localhost:{}/auth/loadaccount/{}/{}/{}{}".format(config['api_endpoint_port'], user_id, app_fqu, appname, qs)
     return app_sign_url(url, data_privkey, config_path=config_path)
 
 
@@ -515,24 +606,23 @@ def app_url_auth_finish( data_privkey, session_token, config_path=CONFIG_PATH ):
     return app_sign_url(url, data_privkey, config_path=config_path)
 
 
-def app_auth_begin( app_fqu, appname, data_privkey, config_path=CONFIG_PATH ):
+def app_auth_begin( user_id, app_fqu, appname, data_privkey, config_path=CONFIG_PATH ):
     """
     Make an authentication URL to redirect the app-loader's request to run the app.
     
-    If the app's account account exists, then use it to generate a session JWT
+    If the app account exists, then use it to generate a session JWT
     and return the URL for the daemon to redirect the requester.
 
-    If the app's account account does not exist, then we need to determine what capabilities
+    If the app account does not exist, then we need to determine what capabilities
     the app needs and ask the user to create the account.  In this case, reply
-    a URL that, when queried, will load up page to ask the user if they want to create a account.
+    a URL that, when queried, will load up page to ask the user if they want to create an account.
 
     Return the URL
     """
     assert data_privkey, "Could not look up data private key"
 
-    data_address = ECPrivateKey(data_privkey).public_key().address()
-    account_path = app_account_path( data_address, app_fqu, appname, config_path=config_path)
-    if not os.path.exists(account_path):
+    accts = app_find_accounts( user_id=user_id, app_fqu=app_fqu, appname=appname, config_path=config_path )
+    if len(accts) == 0:
         # app is not known to us.
         # redirect to allow/deny page.
         url = app_url_allow_deny( app_fqu, appname, {}, data_privkey, config_path=config_path )
@@ -545,7 +635,7 @@ def app_auth_begin( app_fqu, appname, data_privkey, config_path=CONFIG_PATH ):
         return url
 
 
-def app_auth_finish( app_fqu, appname, data_pubkey, config_path=CONFIG_PATH):
+def app_auth_finish( user_id, app_fqu, appname, data_pubkey, config_path=CONFIG_PATH):
     """
     Finish authenticating.
     Load up and return a session JWT
@@ -554,15 +644,15 @@ def app_auth_finish( app_fqu, appname, data_pubkey, config_path=CONFIG_PATH):
     """
 
     # load up the account...
-    app_account = app_load_account(app_fqu, appname, data_pubkey, config_path=config_path)
-    if 'error' in app_account:
+    info = app_load_account( user_id, app_fqu, appname, data_pubkey, config_path=config_path)
+    if 'error' in info:
         log.error("Failed to load app account for {}".format(appname))
-        return {'error': 'Failed to load app account'}
+        return {'error': 'Failed to load app info'}
 
-    app_account = app_account['account']
+    info = info['account']
 
     # generate a session JWT
-    ses = app_make_session( app_account, config_path=config_path )
+    ses = app_make_session( info, config_path=config_path )
     return ses
 
 
@@ -772,7 +862,7 @@ def app_unpublish( name, appname, force=False, data_privkey=None, app_config=Non
         # find out where to delete from
         data_pubkey = None
         if data_privkey is not None:
-            data_pubkey = ECPrivateKey(data_privkey).public_key().to_hex()
+            data_pubkey = ECPrivateKey(str(data_privkey)).public_key().to_hex()
 
         app_config = app_get_config(name, appname, data_pubkey=data_pubkey, proxy=proxy, config_path=CONFIG_PATH )
         if 'error' in app_config:
