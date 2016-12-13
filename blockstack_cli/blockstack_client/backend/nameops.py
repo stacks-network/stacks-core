@@ -118,7 +118,7 @@ def estimate_preorder_tx_fee( name, name_cost, payment_addr, utxo_client, owner_
     try:
         unsigned_tx = preorder_tx( name, payment_addr, fake_owner_address, name_cost, fake_consensus_hash, utxo_client )
     except ValueError, ve:
-        if os.environ.get("BLOCKSTACK_TEST") == "1":
+        if os.environ.get("BLOCKSTACK_TEST") == "1" or os.environ.get("BLOCKSTACK_DEBUG") == "1":
             log.exception(ve)
 
         log.debug("Insufficient funds:  Not enough inputs to make a preorder transaction")
@@ -154,7 +154,7 @@ def estimate_register_tx_fee( name, payment_addr, utxo_client, owner_privkey_par
     try:
         unsigned_tx = register_tx( name, payment_addr, fake_owner_address, utxo_client )
     except ValueError, ve:
-        if os.environ.get("BLOCKSTACK_TEST") == "1":
+        if os.environ.get("BLOCKSTACK_TEST") == "1" or os.environ.get("BLOCKSTACK_DEBUG") == "1":
             log.exception(ve)
 
         log.debug("Insufficient funds:  Not enough inputs to make a register transaction")
@@ -193,14 +193,14 @@ def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_addr
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_registration, 21 * 10**14, payment_privkey_info, utxo_client )
         assert subsidized_tx is not None
     except ValueError, ve:
-        if os.environ.get("BLOCKSTACK_TEST") == "1":
+        if os.environ.get("BLOCKSTACK_TEST") == "1" or os.environ.get("BLOCKSTACK_DEBUG") == "1":
             log.exception(ve)
             print >> sys.stderr, "payment key info: %s" % str(payment_privkey_info)
 
         log.error("Insufficient funds:  Not enough inputs to make a renewal transaction.")
         return None
     except AssertionError, ae:
-        if os.environ.get("BLOCKSTACK_TEST") == "1":
+        if os.environ.get("BLOCKSTACK_TEST") == "1" or os.environ.get("BLOCKSTACK_DEBUG") == "1":
             log.exception(ae)
 
         log.error("Unable to create transaction")
@@ -272,20 +272,20 @@ def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
                 raise Exception("Need either payment_privkey or payment_address")
 
     except ValueError, ve:
-        if os.environ.get("BLOCKSTACK_TEST") == "1":
+        if os.environ.get("BLOCKSTACK_TEST") == "1" or os.environ.get("BLOCKSTACK_DEBUG") == "1":
             log.exception(ve)
             print >> sys.stderr, "payment key info: %s" % str(payment_privkey_info)
 
         log.error("Insufficient funds:  Not enough inputs to make an update transaction.")
         return None 
     except AssertionError, ae:
-        if os.environ.get("BLOCKSTACK_TEST") == "1":
+        if os.environ.get("BLOCKSTACK_TEST") == "1" or os.environ.get("BLOCKSTACK_DEBUG") == "1":
             log.exception(ae)
 
         log.error("Unable to create transaction")
         return None
     except Exception, e: 
-        if os.environ.get("BLOCKSTACK_TEST") == "1":
+        if os.environ.get("BLOCKSTACK_TEST") == "1" or os.environ.get("BLOCKSTACK_DEBUG") == "1":
             log.exception(e)
 
         return None
@@ -323,12 +323,15 @@ def estimate_transfer_tx_fee( name, payment_privkey_info, owner_address, utxo_cl
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_transfer, 21 * 10**14, payment_privkey_info, utxo_client )
         assert subsidized_tx is not None
     except ValueError, ve:
-        if os.environ.get("BLOCKSTACK_TEST") == "1":
+        if os.environ.get("BLOCKSTACK_TEST") == "1" or os.environ.get("BLOCKSTACK_DEBUG") == "1":
             log.exception(ve)
 
         log.error("Insufficient funds:  Not enough inputs to make a transfer transaction.")
         return None
-    except AssertionError:
+    except AssertionError, ae:
+        if os.environ.get("BLOCKSTACK_TEST") == "1" or os.environ.get("BLOCKSTACK_DEBUG") == "1":
+            log.exception(ae)
+
         log.error("Unable to make transaction")
         return None
 
@@ -363,12 +366,15 @@ def estimate_revoke_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
         unsigned_tx = revoke_tx( name, owner_address, utxo_client, subsidize=True )
         subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_revoke, 21 * 10**14, payment_privkey_info, utxo_client )
     except ValueError, ve:
-        if os.environ.get("BLOCKSTACK_TEST") == "1":
+        if os.environ.get("BLOCKSTACK_TEST") == "1" or os.environ.get("BLOCKSTACK_DEBUG") == "1":
             log.exception(ve)
 
         log.error("Insufficient funds:  Not enough inputs to make a revoke transaction.")
         return None
-    except AssertionError:
+    except AssertionError, ae:
+        if os.environ.get("BLOCKSTACK_TEST") == "1" or os.environ.get("BLOCKSTACK_DEBUG") == "1":
+            log.exception(ae)
+
         log.error("Unable to make transaction")
         return None
 
@@ -406,7 +412,7 @@ def estimate_name_import_tx_fee( fqu, payment_addr, utxo_client, config_path=CON
         unsigned_tx = name_import_tx( fqu, fake_recipient_address, fake_zonefile_hash, payment_addr, utxo_client )
         signed_tx = sign_tx( unsigned_tx, fake_privkey )
     except ValueError, ve:
-        if os.environ.get("BLOCKSTACK_TEST") == "1":
+        if os.environ.get("BLOCKSTACK_TEST") == "1" or os.environ.get("BLOCKSTACK_DEBUG") == "1":
             log.exception(ve)
 
         log.debug("Insufficient funds:  Not enough inputs to make an import transaction")
@@ -437,7 +443,7 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utx
         unsigned_tx = namespace_preorder_tx( namespace_id, fake_reveal_address, cost, fake_consensus_hash, payment_address, utxo_client )
         signed_tx = sign_tx( unsigned_tx, fake_privkey )
     except ValueError, ve:
-        if os.environ.get("BLOCKSTACK_TEST") == "1":
+        if os.environ.get("BLOCKSTACK_TEST") == "1" or os.environ.get("BLOCKSTACK_DEBUG") == "1":
             log.exception(ve)
 
         log.debug("Insufficient funds:  Not enough inputs to make a namespace-preorder transaction.")
@@ -467,7 +473,7 @@ def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client
         unsigned_tx = namespace_reveal_tx( namespace_id, fake_reveal_address, 1, 2, 3, [4,5,6,7,8,9,10,11,12,13,14,15,0,1,2,3], 4, 5, payment_address, utxo_client )
         signed_tx = sign_tx( unsigned_tx, fake_privkey )
     except ValueError, ve:
-        if os.environ.get("BLOCKSTACK_TEST") == "1":
+        if os.environ.get("BLOCKSTACK_TEST") == "1" or os.environ.get("BLOCKSTACK_DEBUG") == "1":
             log.exception(ve)
 
         log.debug("Insufficient funds:  Not enough inputs to make a namespace-reveal transaction.")
@@ -503,7 +509,7 @@ def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, con
         unsigned_tx = namespace_ready_tx( namespace_id, reveal_addr, utxo_client )
         signed_tx = sign_tx( unsigned_tx, fake_privkey ) 
     except ValueError, ve:
-        if os.environ.get("BLOCKSTACK_TEST") == "1":
+        if os.environ.get("BLOCKSTACK_TEST") == "1" or os.environ.get("BLOCKSTACK_DEBUG") == "1":
             log.exception(ve)
 
         log.debug("Insufficient funds:  Not enough inputs to make a namespace-ready transaction.")
@@ -532,7 +538,7 @@ def estimate_announce_tx_fee( sender_address, utxo_client, sender_privkey_params
         unsigned_tx = announce_tx( fake_announce_hash, sender_address, utxo_client )
         signed_tx = sign_tx( unsigned_tx, fake_privkey )
     except ValueError, ve:
-        if os.environ.get("BLOCKSTACK_TEST") == "1":
+        if os.environ.get("BLOCKSTACK_TEST") == "1" or os.environ.get("BLOCKSTACK_DEBUG") == "1":
             log.exception(ve)
 
         log.debug("Insufficient funds:  Not enough inputs to make an announce transaction.")
@@ -782,7 +788,10 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
         log.exception(ve)
         log.error("Failed to subsidize update TX")
         return {'error': 'Insufficient funds'}
-    except AssertionError:
+    except AssertionError, ae:
+        if os.environ.get("BLOCKSTACK_TEST") == "1" or os.environ.get("BLOCKSTACK_DEBUG") == "1":
+            log.exception(ae)
+
         log.error("Failed to create subsidized tx")
         return {'error': 'Unable to create transaction'}
 
@@ -864,7 +873,10 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
     except ValueError:
         log.error("Failed to generate transfer tx")
         return {'error': 'Insufficient funds'}
-    except AssertionError:
+    except AssertionError, ae:
+        if os.environ.get("BLOCKSTACK_TEST") == "1" or os.environ.get("BLOCKSTACK_DEBUG") == "1":
+            log.exception(ae)
+
         log.error("Failed to subsidize transfer tx")
         return {'error': 'Unable to create transaction'}
 
@@ -932,7 +944,10 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
     except ValueError:
         log.error("Failed to generate renewal tx")
         return {'error': 'Insufficient funds'}
-    except AssertionError:
+    except AssertionError, ae:
+        if os.environ.get("BLOCKSTACK_TEST") == "1" or os.environ.get("BLOCKSTACK_DEBUG") == "1":
+            log.exception(ae)
+
         log.error("Failed to subsidize renewal tx")
         return {'error': 'Unable to create transaction'}
 
@@ -989,7 +1004,10 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
     except ValueError:
         log.error("Failed to generate revoke tx")
         return {'error': 'Insufficient funds'}
-    except AssertionError:
+    except AssertionError, ae:
+        if os.environ.get("BLOCKSTACK_TEST") == "1" or os.environ.get("BLOCKSTACK_DEBUG") == "1":
+            log.exception(ae)
+
         log.error("Failed to subsidize revoke tx")
         return {'error': 'Unable to create transaction'}
 
@@ -1174,7 +1192,7 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
     try:
         unsigned_tx = namespace_reveal_tx( namespace_id, reveal_address, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, payment_address, utxo_client, tx_fee=tx_fee )
     except ValueError, ve:
-        if os.environ.get("BLOCKSTACK_TEST") == "1":
+        if os.environ.get("BLOCKSTACK_TEST") == "1" or os.environ.get("BLOCKSTACK_DEBUG") == "1":
             log.exception(ve)
 
         return {'error': 'Insufficient funds'}
