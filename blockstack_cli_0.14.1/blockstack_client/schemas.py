@@ -52,6 +52,7 @@ OP_NAMESPACE_HASH_PATTERN = r'^([0-9a-fA-F]{16})$'
 OP_BASE64_PATTERN_SECTION = r'(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})'
 OP_BASE64_PATTERN = r'^({})$'.format(OP_BASE64_PATTERN_SECTION)
 OP_URLENCODED_PATTERN = r'^([a-zA-Z0-9\-_.~%]+)$'
+OP_USER_ID_PATTERN = r'^([a-zA-Z0-9\-_.%]+)$'
 OP_URI_TARGET_PATTERN = r'^([a-z0-9+]+)://([a-zA-Z0-9\-_.~%#?&\\:/]+)$'
 OP_MUTABLE_DATA_MD_PATTERN = r'^(mutable:{}:[0-9]+)$'.format(OP_BASE64_PATTERN_SECTION)
 
@@ -571,13 +572,17 @@ MUTABLE_DATUM_SCHEMA = {
     ],
 }
 
-# publicly-replicated datastore
-PUBLIC_DATASTORE_SCHEMA = {
+# replicated datastore
+DATASTORE_SCHEMA = {
     'type': 'object',
     'properties': {
         'datastore_name': {
             'type': 'string',
             'pattern': OP_URLENCODED_PATTERN
+        },
+        'user_id': {
+            'type': 'string',
+            'minLength': 1
         },
         'owner_pubkey': {
             'type': 'string',
@@ -602,26 +607,6 @@ PUBLIC_DATASTORE_SCHEMA = {
     ]
 }
 
-# private datastore information
-PRIVATE_DATASTORE_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'datastore_name': {
-            'type': 'string',
-            'pattern': OP_URLENCODED_PATTERN
-        },
-        'privkey_index': {
-            'type': 'integer'
-        },
-    },
-    'additionalProperties': False,
-    'required': [
-        'datastore_name',
-        'privkey_index',
-    ],
-}
-
-
 # unlinked blob of data, not part of a datastore.
 DATA_BLOB_SCHEMA = {
     'type': 'object',
@@ -645,6 +630,31 @@ DATA_BLOB_SCHEMA = {
 }
 
 
+# user information stored locally (derived from a master data key)
+# user_id identifies the associated profile
+USER_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'public_key': {
+            'type': 'string',
+            'pattern': OP_PUBKEY_PATTERN,
+        },
+        'privkey_index': {
+            'type': 'integer',
+        },
+        'user_id': {
+            'type': 'string'
+        },
+    },
+    'required': [
+        'public_key',
+        'privkey_index',
+        'user_id'
+    ],
+    'additionalProperties': False,
+}
+
+
 # common properties to app sessions and app accounts
 APP_INFO_PROPERTIES = {
     'name': {
@@ -662,14 +672,22 @@ APP_INFO_PROPERTIES = {
             'pattern': '^[a-zA-Z_][a-zA-Z0-9_.]+$'   # method name
         },
     },
+    'user_id': {
+        'type': 'string',
+        'minLength': 1
+    },
+    'public_key': {
+        'type': 'string',
+        'pattern': OP_HEX_PATTERN,
+    },
 }
 
 APP_SESSION_PROPERTIES = APP_INFO_PROPERTIES.copy()
 APP_ACCOUNT_PROPERTIES = APP_INFO_PROPERTIES.copy()
 
 APP_ACCOUNT_PROPERTIES.update({
-    'private_key': {
-        'type': 'string',
+    'privkey_index': {
+        'type': 'integer',
     },
     'session_lifetime': {
         'type': 'integer'
@@ -677,6 +695,9 @@ APP_ACCOUNT_PROPERTIES.update({
 })
 
 APP_SESSION_PROPERTIES.update({
+    'public_key': {
+        'type': 'string',
+    },
     'timestamp': {
         'type': 'integer',
     },
