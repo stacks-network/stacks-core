@@ -67,7 +67,54 @@ def app_account_name(user_id, app_fqu, appname):
     """
     make an account name
     """
+    jsonschema.validate(user_id, {'type': 'string', 'pattern': OP_USER_ID_PATTERN})
+    jsonschema.validate(app_fqu, {'type': 'string', 'pattern': OP_NAME_PATTERN})
+    jsonschema.validate(appname, {'type': 'string', 'pattern': OP_URLENCODED_PATTERN})
+
     return '{}~{}~{}'.format(user_id, app_fqu, appname)
+
+
+def app_account_datastore_name(account_name):
+    """
+    make the name of the datastore for an account
+    """
+    return '_app_ds~{}'.format(account_name)
+
+
+def app_account_parse_name(account_name):
+    """
+    Parse an account name
+    Return {'user_id': ..., 'app_blockchain_id': ..., 'app_name': ...} on success
+    Return None on error
+    """
+    grp = re.match("^([^~]+)~([^~]+)~([^~]+)$", account_name)
+    if grp is None:
+        return None
+
+    user_id, app_fqu, appname = grp.groups()
+
+    try:
+        jsonschema.validate(user_id, {'type': 'string', 'pattern': OP_USER_ID_PATTERN})
+        jsonschema.validate(app_fqu, {'type': 'string', 'pattern': OP_NAME_PATTERN})
+        jsonschema.validate(appname, {'type': 'string', 'pattern': OP_URLENCODED_PATTERN})
+    except ValidationError:
+        return None
+
+    return {'user_id': user_id, 'app_blockchain_id': app_fqu, 'app_name': appname}
+
+
+def app_account_parse_datastore_name(datastore_name):
+    """
+    Given an account datastore name, parse it.
+    Return {'user_id': ..., 'app_blockchain_id': ..., 'app_name': ...} on success
+    Return None on failure
+    """
+    if not datastore_name.startswith('_app_ds~'):
+        return None
+
+    datastore_name = datastore_name[len('_app_ds~'):]
+    datastore_parts = app_account_parse_name(datastore_name)
+    return datastore_parts
 
 
 def app_account_path(user_id, app_fqu, appname, config_path=CONFIG_PATH):
@@ -96,6 +143,8 @@ def app_accounts_list(config_path=CONFIG_PATH):
 
     names = os.listdir(accounts_dir)
     names = filter(lambda n: n.endswith(".account"), names)
+    ret = []
+
     for name in names:
         path = os.path.join( accounts_dir, name )
         info = _app_load_account_path( path, None, config_path=config_path )
@@ -529,7 +578,7 @@ def app_url_auth_signin( user_id, app_fqu, appname, signin_descriptor, data_priv
     if len(qs) > 0:
         qs = "?{}".format(qs)
 
-    url = "http://localhost:{}/auth/signin/{}/{}/{}{}".format(config['api_endpoint_port'], user_id, app_fqu, appname, qs)
+    url = "http://localhost:{}/api/v1/auth/signin/{}/{}/{}{}".format(config['api_endpoint_port'], user_id, app_fqu, appname, qs)
     return app_sign_url(url, data_privkey, config_path=config_path)
 
 
@@ -546,7 +595,7 @@ def app_url_auth_allow_deny( user_id, app_fqu, appname, app_descriptor, data_pri
     if len(qs) > 0:
         qs = '?{}'.format(qs)
 
-    url = "http://localhost:{}/auth/allowdeny/{}/{}/{}{}".format(config['api_endpoint_port'], user_id, app_fqu, appname, qs)
+    url = "http://localhost:{}/api/v1/auth/allowdeny/{}/{}/{}{}".format(config['api_endpoint_port'], user_id, app_fqu, appname, qs)
     return app_sign_url(url, data_privkey, config_path=config_path)
 
 
@@ -562,7 +611,7 @@ def app_url_auth_create_account( user_id, app_fqu, appname, account_descriptor, 
     if len(qs) > 0:
         qs = '?{}'.format(qs)
 
-    url = "http://localhost:{}/auth/newaccount/{}/{}/{}{}".format(config['api_endpoint_port'], user_id, app_fqu, appname, qs)
+    url = "http://localhost:{}/api/v1/auth/newaccount/{}/{}/{}{}".format(config['api_endpoint_port'], user_id, app_fqu, appname, qs)
     return app_sign_url(url, data_privkey, config_path=config_path)
 
 
@@ -578,7 +627,7 @@ def app_url_auth_load_account( user_id, app_fqu, appname, user_descriptor, data_
     if len(qs) > 0:
         qs = '?{}'.format(qs)
 
-    url = "http://localhost:{}/auth/loadaccount/{}/{}/{}{}".format(config['api_endpoint_port'], user_id, app_fqu, appname, qs)
+    url = "http://localhost:{}/api/v1/auth/loadaccount/{}/{}/{}{}".format(config['api_endpoint_port'], user_id, app_fqu, appname, qs)
     return app_sign_url(url, data_privkey, config_path=config_path)
 
 
@@ -625,13 +674,13 @@ def app_auth_begin( user_id, app_fqu, appname, data_privkey, config_path=CONFIG_
     if len(accts) == 0:
         # app is not known to us.
         # redirect to allow/deny page.
-        url = app_url_allow_deny( app_fqu, appname, {}, data_privkey, config_path=config_path )
+        url = app_url_auth_allow_deny( user_id, app_fqu, appname, {}, data_privkey, config_path=config_path )
         return url
 
     else:
         # we're trying to sign in.
         # redirect to sign-in page
-        url = app_url_signin( app_fqu, appname, {}, data_privkey, config_path=config_path )
+        url = app_url_auth_signin( user_id, app_fqu, appname, {}, data_privkey, config_path=config_path )
         return url
 
 
