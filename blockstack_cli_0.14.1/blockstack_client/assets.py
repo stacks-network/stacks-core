@@ -32,13 +32,13 @@ import urllib2
 # format: appname, app_fqu, auth-finish URL, auth-abort URL
 # comments are for integration testing
 APP_SIGNIN_PAGE_TEMPLATE = """
-<!--signin={}-->
+{}
 <!--go_back={}-->
 <html>
     <head></head>
     <body>
         Sign into application '{}' from '{}'?<br>
-        <a href="{}">Sign in</a>
+        {}
         <a href="{}">Go back</a>
     </body>
 </html>
@@ -81,11 +81,16 @@ APP_ERROR_PAGE_TEMPLATE = """
 </html>
 """
 
-def asset_make_signin_page( appname, app_fqu, auth_finish_url, auth_abort_url ):
+def asset_make_signin_page( appname, app_fqu, user_id_urls, auth_abort_url ):
     """
     Generate and return the HTML for creating an app session.
     """
-    return APP_SIGNIN_PAGE_TEMPLATE.format(auth_finish_url, auth_abort_url, appname, app_fqu, auth_finish_url, auth_abort_url )
+    signin_comments = '\n'.join( '<!--signin={}-->'.format(user_url) for user_url in user_id_urls )
+    user_id_url_info = [(user_id_url, user_id_url.split("/")[-1]) for user_id_url in user_id_urls]
+
+    signin_links = '<br>\n'.join( '<a href="{}">Signin as {}</a>'.format( url[0], url[1] ) for url in user_id_url_info )
+
+    return APP_SIGNIN_PAGE_TEMPLATE.format(signin_comments, auth_abort_url, appname, app_fqu, signin_links, auth_abort_url )
 
 
 def asset_make_account_page( appname, app_fqu, api_methods, auth_finish_url, auth_abort_url ):
