@@ -62,7 +62,7 @@ Each application specifies in advance which family of API calls it will need to 
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
 | Get all users | GET /users | users | - | 
-| Create user | POST /users | useradmin | - | 
+| Create user | POST /users | user_admin | - | 
 | Get user | GET /users/{userID} | users | - | 
 | Delete user | DELETE /users/{userID} | user_admin | - | 
 | Update profile | PATCH /users/{userID} | user_admin | Payload: {"profile": PROFILE } | 
