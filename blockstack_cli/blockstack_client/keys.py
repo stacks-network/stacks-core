@@ -138,6 +138,23 @@ def privkey_to_string( privkey_info ):
         return None
 
 
+def get_uncompressed_private_and_public_keys( privkey_str ):
+    """
+    Get the private and public keys from a private key string.
+    Make sure the both are *uncompressed*
+    """
+    pk = virtualchain.BitcoinPrivateKey(str(privkey_str))
+    pk_hex = pk.to_hex()
+
+    # force uncompressed
+    if len(pk_hex) > 64:
+        assert pk_hex[-2:] == '01'
+        pk_hex = pk_hex[:64]
+
+    pubk_hex = virtualchain.BitcoinPrivateKey(pk_hex).public_key().to_hex()
+    return pk_hex, pubk_hex
+
+
 def encrypt_multisig_info( multisig_info, password ):
     """
     Given a multisig info dict,
