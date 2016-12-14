@@ -250,8 +250,11 @@ def tx_make_input_signature(tx, idx, script, privkey_str, hashcode):
 
     signing_tx = bitcoin.signature_form(tx, idx, script, hashcode)
     txhash = bitcoin.bin_txhash(signing_tx, hashcode)
-    
-    sk = ecdsa.SigningKey.from_string(priv.decode('hex'), curve=ecdsa.SECP256k1)
+   
+    # sign using uncompressed private key
+    pk_uncompressed_hex, pubk_uncompressed_hex = get_uncompressed_private_and_public_keys(priv)
+
+    sk = ecdsa.SigningKey.from_string(pk_uncompressed_hex.decode('hex'), curve=ecdsa.SECP256k1)
     sig_bin = sk.sign_digest(txhash, sigencode=ecdsa.util.sigencode_der)
     
     # enforce low-s
@@ -263,7 +266,7 @@ def tx_make_input_signature(tx, idx, script, privkey_str, hashcode):
     sig_bin = ecdsa.util.sigencode_der( sig_r, sig_s, ecdsa.SECP256k1.order )
 
     # sanity check 
-    vk = ecdsa.VerifyingKey.from_string(pub[2:].decode('hex'), curve=ecdsa.SECP256k1)
+    vk = ecdsa.VerifyingKey.from_string(pubk_uncompressed_hex[2:].decode('hex'), curve=ecdsa.SECP256k1)
     assert vk.verify_digest(sig_bin, txhash, sigdecode=ecdsa.util.sigdecode_der), "Failed to verify signature ({}, {})".format(sig_r, sig_s)
 
     sig = sig_bin.encode('hex') + bitcoin.encode(hashcode, 16, 2)
