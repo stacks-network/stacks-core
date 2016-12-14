@@ -101,4 +101,4 @@ Each application specifies in advance which family of API calls it will need to 
 
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
-| Get app resource | GET /appResources/{appID}/{resourceID} | external_web | - | 
+| Get app resource | GET /appResources/{appID}/{resourceID} | resources | - | 
