@@ -1,4 +1,4 @@
-name: blockstack-core
+name: blockstack
 version: master
 summary:  A server that handles the core functionality of Blockstack
 description: |
@@ -15,8 +15,11 @@ confinement: strict
 
 apps:
   server:
-    command: blockstack-server start
+    command: blockstack-server
     plugs: [network, network-bind]
+  blockstack:
+    command: blockstack
+    plugs: [network]
 
 parts:
   core:
