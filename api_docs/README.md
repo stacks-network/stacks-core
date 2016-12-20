@@ -20,14 +20,14 @@ Each application specifies in advance which family of API calls it will need to 
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
 | Get all names | GET /names | names | - | 
-| Register name | POST /names | register | - | 
+| Register name | POST /names | register | Payload: {"name": NAME} | 
 | Get name info | GET /names/{name} | names | - | 
 | Get name history | GET /names/{name}/history | names | - | 
-| Get historical zone file | GET /names/{name}/zoneFile/{zoneFileHash} | zonefiles | - | 
+| Get historical zone file | GET /names/{name}/zonefile/{zoneFileHash} | zonefiles | - | 
 | Delete user | DELETE /names/{name} | revoke | - | 
-| Transfer name | PATCH /names/{name} | transfer | Payload: {"owner": OWNER } | 
-| Set zone file | PATCH /names/{name} | update | Payload: {"zoneFile": ZONE_FILE } | 
-| Set zone file hash | PATCH /names/{name} | update | Payload: {"zoneFileHash": ZONE_FILE_HASH } | 
+| Transfer name | PUT /names/{name}/owner | transfer | Payload: {"owner": OWNER } | 
+| Set zone file | PUT /names/{name}/zonefile | update | Payload: {"zonefile": ZONE_FILE } | 
+| Set zone file hash | PUT /names/{name}/zonefile | update | Payload: {"zonefile_hash": ZONE_FILE_HASH } | 
 
 ### Namespaces
 
@@ -61,30 +61,31 @@ Each application specifies in advance which family of API calls it will need to 
 
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
-| Get all users | GET /users | users | - | 
-| Create user | POST /users | user_admin | - | 
-| Get user | GET /users/{userID} | users | - | 
+| Get all users | GET /users | user_admin | - | 
+| Create user | POST /users | user_admin | Payload: {"user_id": USER_ID, "profile": PROFILE} | 
+| Get user profile | GET /users/{userID} | users | Only works on the session's designated user. | 
 | Delete user | DELETE /users/{userID} | user_admin | - | 
-| Update profile | PATCH /users/{userID} | user_admin | Payload: {"profile": PROFILE } | 
+| Update profile | PATCH /users/{userID} | user_admin | Payload: {"profile": PROFILE }.  Only works on the session's designiated user. | 
 
 ### User Stores
 
 | Method  | API Call | API family | Notes | 
 | ------------- | ------------- | ------------- | ------------- |
 | Get all stores | GET /users/{userID}/stores | store_admin | - | 
-| Create store | POST /users/{userID}/stores | store_admin | - | 
+| Create store | POST /users/{userID}/stores | store_admin | Payload: {'storeID': store ID} | 
 | Get store | GET /users/{userID}/stores/{storeID} | store_admin | - | 
 | Update store | PUT /users/{userID}/stores/{storeID} | store_admin | - | 
 | Delete store | DELETE /users/{userID}/stores/{storeID} | store_admin | - | 
 | - | - | - | - |
+| Get inode info (stat) | GET /users/{userID}/stores/{storeID}/inodes?path={path} | store_read | - | 
+| - | - | - | - |
 | Get directory files (ls) | GET /users/{userID}/stores/{storeID}/directories?path={path} | store_read | - | 
-| Get directory info (stat) | HEAD /users/{userID}/stores/{storeID}/directories?path={path} | store_read | - | 
 | Create directory (mkdir) | POST /users/{userID}/stores/{storeID}/directories?path={path} | store_write | - | 
 | Delete directory (rmdir) | DELETE /users/{userID}/stores/{storeID}/directories?path={path} | store_write | - | 
 | - | - | - | - |
 | Get file data (open) | GET /users/{userID}/stores/{storeID}/files?path={path} | store_read | - | 
-| Get file info (stat) | HEAD /users/{userID}/stores/{storeID}/files?path={path} | store_read | - | 
-| Create file | POST /users/{userID}/stores/{storeID}/files?path={path} | store_write | - | 
+| Create file | POST /users/{userID}/stores/{storeID}/files?path={path} | store_write | Uploads `application/octet-stream` raw file data | 
+| Update file | PUT /users/{userID}/stores/{storeID}/files?path={path} | store_write | Uploads `application/octet-stream` raw file data | 
 | Delete file (rm) | DELETE /users/{userID}/stores/{storeID}/files?path={path} | store_write | - | 
 
 ### User Collections
