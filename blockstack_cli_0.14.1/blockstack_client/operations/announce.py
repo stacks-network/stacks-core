@@ -82,7 +82,7 @@ def make_outputs( data, inputs, change_address, tx_fee ):
     ]
 
 
-def make_transaction(message_hash, payment_addr, blockchain_client, tx_fee=0):
+def make_transaction(message_hash, payment_addr, blockchain_client, tx_fee=0, safety=True):
     
     message_hash = str(message_hash)
     payment_addr = str(payment_addr)
@@ -99,6 +99,9 @@ def make_transaction(message_hash, payment_addr, blockchain_client, tx_fee=0):
     private_key_obj = None
     
     inputs = tx_get_unspents( payment_addr, blockchain_client )
+    if safety:
+        assert len(inputs) > 0
+
     nulldata = build(message_hash)
     outputs = make_outputs( nulldata, inputs, payment_addr, tx_fee )
    

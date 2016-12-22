@@ -105,12 +105,12 @@ def make_outputs( data, inputs, sender_addr, fee, tx_fee ):
     ]
 
 
-def make_transaction(name, payment_addr, register_addr, fee, consensus_hash, blockchain_client, tx_fee=0):
+def make_transaction(name, preorder_addr, register_addr, fee, consensus_hash, blockchain_client, tx_fee=0, safety=True):
     """
     Builds and broadcasts a preorder transaction.
     """
 
-    payment_addr = str(payment_addr)
+    preorder_addr = str(preorder_addr)
     register_addr = str(register_addr)
     name = str(name)
     consensus_hash = str(consensus_hash)
@@ -125,11 +125,14 @@ def make_transaction(name, payment_addr, register_addr, fee, consensus_hash, blo
     script_pubkey = None    # to be mixed into preorder hash
     
     # tx only
-    inputs = tx_get_unspents( payment_addr, blockchain_client )
-    script_pubkey = virtualchain.make_payment_script( payment_addr )
+    inputs = tx_get_unspents( preorder_addr, blockchain_client )
+    if safety:
+        assert len(inputs) > 0
+        
+    script_pubkey = virtualchain.make_payment_script( preorder_addr )
 
     nulldata = build( name, script_pubkey, register_addr, consensus_hash)
-    outputs = make_outputs(nulldata, inputs, payment_addr, fee, tx_fee)
+    outputs = make_outputs(nulldata, inputs, preorder_addr, fee, tx_fee)
     
     return (inputs, outputs)
 

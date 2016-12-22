@@ -114,7 +114,7 @@ def make_outputs( data, inputs, change_address, tx_fee, pay_fee=True ):
     ]
 
 
-def make_transaction(name, data_hash, consensus_hash, payment_addr, blockchain_client, tx_fee=0, subsidize=False):
+def make_transaction(name, data_hash, consensus_hash, owner_addr, blockchain_client, tx_fee=0, subsidize=False, safety=True):
     """
     Write a name update into the blockchain.
     Returns a JSON object with 'data' set to the nulldata and 'transaction_hash' set to the transaction hash on success.
@@ -123,7 +123,7 @@ def make_transaction(name, data_hash, consensus_hash, payment_addr, blockchain_c
     name = str(name)
     data_hash = str(data_hash)
     consensus_hash = str(consensus_hash)
-    payment_addr = str(payment_addr)
+    owner_addr = str(owner_addr)
     tx_fee = int(tx_fee)
 
     assert len(consensus_hash) == LENGTH_CONSENSUS_HASH * 2
@@ -134,10 +134,12 @@ def make_transaction(name, data_hash, consensus_hash, payment_addr, blockchain_c
     if subsidize:
         pay_fee = False
 
-    inputs = tx_get_unspents( payment_addr, blockchain_client )
+    inputs = tx_get_unspents( owner_addr, blockchain_client )
+    if safety:
+        assert len(inputs) > 0
 
     nulldata = build(name, consensus_hash, data_hash=data_hash)
-    outputs = make_outputs( nulldata, inputs, payment_addr, tx_fee, pay_fee=pay_fee )
+    outputs = make_outputs( nulldata, inputs, owner_addr, tx_fee, pay_fee=pay_fee )
     
     return (inputs, outputs)
 
