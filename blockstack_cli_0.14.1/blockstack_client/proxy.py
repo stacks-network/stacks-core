@@ -182,6 +182,7 @@ def get_default_proxy(config_path=CONFIG_PATH):
     blockstack_server, blockstack_port = conf['server'], conf['port']
 
     log.debug('Default proxy to {}:{}'.format(blockstack_server, blockstack_port))
+
     proxy = client.session(conf=conf, server_host=blockstack_server, server_port=blockstack_port)
 
     return proxy
@@ -1396,6 +1397,7 @@ def get_name_blockchain_record(name, proxy=None):
     get_name_blockchain_record
     Return the blockchain-extracted information on success.
     Return {'error': ...} on error
+        In particular, return {'error': 'Not found.'} if the name isn't registered
     """
 
     nameop_schema = {
@@ -1423,7 +1425,11 @@ def get_name_blockchain_record(name, proxy=None):
         resp = proxy.get_name_blockchain_record(name)
         resp = json_validate(resp_schema, resp)
         if json_is_error(resp):
+            if resp['error'] == 'Not found.':
+                return {'error': 'Not found.'}
+
             return resp
+
     except ValidationError as e:
         log.exception(e)
         resp = json_traceback(resp.get('error'))
@@ -1488,7 +1494,13 @@ def is_name_registered(fqu, proxy=None):
         log.debug('Failed to read blockchain record for {}'.format(fqu))
         return False
 
-    if blockchain_record.get('revoked', None) is not None:
+    if blockchain_record.get('revoked', None):
+        log.debug("{} is revoked".format(fqu))
+        return False
+
+    if not 'first_registered' in blockchain_record:
+        log.debug("{} lacks 'first_registered'".format(fqu))
+        # log.debug("\n{}\n".format(json.dumps(blockchain_record, indent=4, sort_keys=True))
         return False
 
     return 'first_registered' in blockchain_record
