@@ -22,7 +22,6 @@
 """
 
 import app
-import accounts
 import client
 import config
 import data
@@ -54,7 +53,6 @@ from data import get_immutable, get_immutable_by_name, get_mutable, put_immutabl
 from data import set_data_pubkey
 from storage import get_announcement, put_announcement, verify_zonefile
 from profile import get_name_profile, get_and_migrate_profile, get_user_profile
-from accounts import list_accounts, get_account, put_account, delete_account
 
 from config import get_logger, get_config, get_utxo_provider_client, get_tx_broadcaster, default_bitcoind_opts
 from constants import CONFIG_PATH, CONFIG_FILENAME, USER_ZONEFILE_TTL, DEFAULT_API_PORT
