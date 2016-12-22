@@ -77,7 +77,8 @@ atlas_hostname = localhost
 
 DEFAULT_CLIENT_INI_TEMPLATE = """
 [blockstack-client]
-app_accounts = @CLIENT_ACCOUNTS_PATH@
+accounts = @CLIENT_ACCOUNTS_PATH@
+users = @CLIENT_USERS_PATH@
 datastores = @CLIENT_DATASTORES_PATH@
 client_version = 0.14.1
 server = localhost
@@ -262,6 +263,7 @@ def generate_config_file( scenario, path, template, extra_fields):
     client_metadata = extra_fields.get("CLIENT_METADATA", "")
     queue_path = extra_fields.get("CLIENT_QUEUE_PATH", "")
     accounts_dir = extra_fields.get("CLIENT_ACCOUNTS_PATH", "")
+    users_dir = extra_fields.get("CLIENT_USERS_PATH", "")
     datastores_path = extra_fields.get("CLIENT_DATASTORES_PATH", "")
     zonefiles_dir = extra_fields.get("ZONEFILES", None)
     storage_drivers = extra_fields.get("CLIENT_STORAGE_DRIVERS", BLOCKSTACK_STORAGE_DRIVERS)
@@ -280,6 +282,7 @@ def generate_config_file( scenario, path, template, extra_fields):
     config_txt = config_txt.replace( "@CLIENT_BLOCKCHAIN_HEADERS@", spv_headers_path )
     config_txt = config_txt.replace( "@CLIENT_METADATA@", client_metadata ) 
     config_txt = config_txt.replace( "@CLIENT_ACCOUNTS_PATH@", accounts_dir )
+    config_txt = config_txt.replace( "@CLIENT_USERS_PATH@", users_dir )
     config_txt = config_txt.replace( "@CLIENT_DATASTORES_PATH@", datastores_path )
     config_txt = config_txt.replace( "@CLIENT_QUEUE_PATH@", queue_path )
     config_txt = config_txt.replace( "@ZONEFILES@", zonefiles_dir )
@@ -752,10 +755,7 @@ def fill_wallet( bitcoind, wallet, value ):
     """
     if type(wallet.privkey) in [str, unicode]:
         # single private key
-        testnet_wif = wallet.privkey
-        if not testnet_wif.startswith("c"):
-            testnet_wif = virtualchain.BitcoinPrivateKey(wallet.privkey).to_wif()
-
+        testnet_wif = virtualchain.BitcoinPrivateKey(wallet.privkey).to_wif()
         bitcoind.importprivkey(testnet_wif, "")
 
         addr = virtualchain.BitcoinPublicKey(wallet.pubkey_hex).address()
@@ -949,6 +949,7 @@ if __name__ == "__main__":
     client_working_dir = os.path.join(working_dir, "client")
     client_metadata = os.path.join(client_working_dir, "metadata")
     client_accounts_path = os.path.join(client_working_dir, "app_accounts")
+    client_users_path = os.path.join(client_working_dir, "users")
     client_queue_path = os.path.join( client_working_dir, "queues.db" )
     config_file = os.path.join( working_dir, "blockstack-server.ini" ) 
     client_config_file = os.path.join( client_working_dir, "client.ini" )
@@ -982,6 +983,10 @@ if __name__ == "__main__":
     # set up bitcoind 
     bitcoin_regtest_reset()
 
+    # set up disk storage 
+    if os.path.exists("/tmp/blockstack-disk"):
+        shutil.rmtree("/tmp/blockstack-disk")
+
     # set up default payment wallet 
     default_payment_wallet = testlib.MultisigWallet( 2, '5JYAj69z2GuFAZHrkhRuBKoCmKh6GcPXgcw9pbH8e8J2pu2RU9z', '5Kfg4xkZ1gGN5ozgDZ37Mn3EH9pXSuWZnQt1pzax4cLax8PetNs', '5JXB7rNxZa8yQtpuKtwy1nWUUTgdDEYTDmaEqQvKKC8HCWs64bL' ) 
 
@@ -1007,6 +1012,7 @@ if __name__ == "__main__":
                              "CLIENT_QUEUE_PATH": client_queue_path, \
                              "CLIENT_STORAGE_DRIVERS": storage_drivers, \
                              "CLIENT_ACCOUNTS_PATH": client_accounts_path, \
+                             "CLIENT_USERS_PATH": client_users_path, \
                              "CLIENT_DATASTORES_PATH": client_datastores_path})
 
     if rc != 0:
