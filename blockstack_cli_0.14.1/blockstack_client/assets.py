@@ -28,6 +28,7 @@ from __future__ import print_function
 
 import urllib
 import urllib2
+import urlparse
 
 # format: appname, app_fqu, auth-finish URL, auth-abort URL
 # comments are for integration testing
@@ -52,10 +53,9 @@ APP_MAKE_ACCOUNT_PAGE_TEMPLATE = """
 <html>
     <head></head>
     <body>
-        Create an account 
-        Create application account for '{}' from '{}' and sign in?<br>
+        Create an account for {} in {}<br>
         Requested permissions: {}<br>
-        <a href="{}">Create account and sign in</a><br>
+        {}<br>
         <a href="{}">Go back</a><br>
     </body>
 </html>
@@ -86,7 +86,7 @@ def asset_make_signin_page( appname, app_fqu, account_id_urls, auth_abort_url ):
     """
     Generate and return the HTML for creating an app session.
     """
-    account_id_url_info = [(account_id_url, account_id_url.split("/")[-1]) for account_id_url in account_id_urls]
+    account_id_url_info = [(account_id_url, urlparse.urlparse(account_id_url).path.split("/")[-3]) for account_id_url in account_id_urls]
 
     signin_comments = '\n'.join( '<!--account={} signin={}-->'.format(url[1], url[0]) for url in account_id_url_info )
     signin_links = '<br>\n'.join( '<a href="{}">Signin as {}</a>'.format( url[0], url[1] ) for url in account_id_url_info )
@@ -94,13 +94,17 @@ def asset_make_signin_page( appname, app_fqu, account_id_urls, auth_abort_url ):
     return APP_SIGNIN_PAGE_TEMPLATE.format(signin_comments, auth_abort_url, appname, app_fqu, signin_links, auth_abort_url )
 
 
-def asset_make_account_page( appname, app_fqu, api_methods, auth_finish_url, auth_abort_url ):
+def asset_make_account_page( appname, app_fqu, api_methods, create_account_urls, auth_abort_url ):
     """
     Generate and return the HTML for creating an app account, followed by an app session
     """
+    
+    user_id_url_info = [(create_account_url, urlparse.urlparse(create_account_url).path.split('/')[-3]) for create_account_url in create_account_urls]
 
+    create_account_comments = '\n'.join( '<!--user_id={} create_account={}-->'.format(url[1], url[0]) for url in user_id_url_info )
+    create_account_links = '<br>\n'.join( '<a href="{}">Create account as {}</a>'.format( url[0], url[1] ) for url in user_id_url_info )
 
-    return APP_MAKE_ACCOUNT_PAGE_TEMPLATE.format(auth_finish_url, auth_abort_url, appname, app_fqu, ",".join(api_methods), auth_finish_url, auth_abort_url)
+    return APP_MAKE_ACCOUNT_PAGE_TEMPLATE.format( create_account_comments, auth_abort_url, appname, app_fqu, ",".join(api_methods), create_account_links, auth_abort_url )
 
 
 def asset_make_home_page( account_list ):
