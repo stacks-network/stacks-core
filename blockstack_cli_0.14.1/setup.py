@@ -31,6 +31,7 @@ setup(
         'pycrypto>=2.6.1',
         'simplejson>=3.8.2',
         'jsonschema>=2.5.1',
+        'fastecdsa>=1.2.1',
         'basicrpc>=0.0.2',      # DHT storage driver
         'boto>=2.38.0'          # S3 storage driver
     ],
