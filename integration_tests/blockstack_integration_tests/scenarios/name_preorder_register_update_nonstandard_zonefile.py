@@ -164,7 +164,7 @@ def scenario( wallets, **kw ):
         time.sleep(3)
 
         # getting zonefile should still work...
-        resp = testlib.blockstack_cli_advanced_get_name_zonefile( "foo.test", json=True )
+        resp = testlib.blockstack_cli_get_name_zonefile( "foo.test", json=True )
         if 'error' in resp:
             print "failed to get zonefile %s" % zi
             print json.dumps(resp, indent=4, sort_keys=True)
@@ -185,12 +185,12 @@ def scenario( wallets, **kw ):
         # the following should all fail
         dataplane_funcs = [
             ("lookup",        lambda: testlib.blockstack_cli_lookup( "foo.test" )),
-            ("put_immutable", lambda: testlib.blockstack_cli_advanced_put_immutable( "foo.test", "fail", '{"Fail": "Yes"}' )),
-            ("get_immutable", lambda: testlib.blockstack_cli_advanced_get_immutable( "foo.test", "fail" )),
-            ("put_mutable",   lambda: testlib.blockstack_cli_advanced_put_mutable( "foo.test", "fail", '{"fail": "yes"}' )),
-            ("get_mutable",   lambda: testlib.blockstack_cli_advanced_get_mutable( "foo.test", "fail" )),
-            ("delete_immutable", lambda: testlib.blockstack_cli_advanced_delete_immutable( "foo.test", "00" * 32 )),
-            ("delete_mutable", lambda: testlib.blockstack_cli_advanced_delete_mutable( "foo.test", "fail" ))
+            ("put_immutable", lambda: testlib.blockstack_cli_put_immutable( "foo.test", "fail", '{"Fail": "Yes"}' )),
+            ("get_immutable", lambda: testlib.blockstack_cli_get_immutable( "foo.test", "fail" )),
+            ("put_mutable",   lambda: testlib.blockstack_cli_put_mutable( "foo.test", "fail", '{"fail": "yes"}' )),
+            ("get_mutable",   lambda: testlib.blockstack_cli_get_mutable( "foo.test", "fail" )),
+            ("delete_immutable", lambda: testlib.blockstack_cli_delete_immutable( "foo.test", "00" * 32 )),
+            ("delete_mutable", lambda: testlib.blockstack_cli_delete_mutable( "foo.test", "fail" ))
         ]
 
         for data_func_name, data_func in dataplane_funcs:
@@ -201,7 +201,7 @@ def scenario( wallets, **kw ):
                 return
       
         # this should succeed
-        zf_hist = testlib.blockstack_cli_advanced_list_zonefile_history( "foo.test" )
+        zf_hist = testlib.blockstack_cli_list_zonefile_history( "foo.test" )
         if len(zf_hist) != 2*(zi+1)+1:
             print "missing zonefile history: %s (expected %s items, got %s)" % (zf_hist, zi+3, len(zf_hist))
             error = True
@@ -213,7 +213,7 @@ def scenario( wallets, **kw ):
             return
 
         # this should work, but with "non-standard zonefiles"
-        hist = testlib.blockstack_cli_advanced_list_immutable_data_history("foo.test", "fail")
+        hist = testlib.blockstack_cli_list_immutable_data_history("foo.test", "fail")
         if len(hist) != 2*(zi+1)+1:
             print "missing immutable data history: %s (expected %s items, got %s)" % (hist, zi+3, len(hist))
             error = True

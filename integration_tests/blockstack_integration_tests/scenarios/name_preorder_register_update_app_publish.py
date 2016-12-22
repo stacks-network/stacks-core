@@ -98,7 +98,7 @@ def scenario( wallets, **kw ):
         f.write(index_file_data)
 
     # register an application 
-    res = testlib.blockstack_cli_advanced_app_publish("foo.test", "get_mutable,put_mutable,delete_mutable", index_file_path, appname="bar", drivers="disk", password="0123456789abcdef" )
+    res = testlib.blockstack_cli_app_publish("foo.test", "get_mutable,put_mutable,delete_mutable", index_file_path, appname="bar", drivers="disk", password="0123456789abcdef" )
     if 'error' in res:
         res['test'] = 'Failed to register foo.test/bar app'
         print json.dumps(res, indent=4, sort_keys=True)
@@ -110,7 +110,7 @@ def scenario( wallets, **kw ):
     with open(resource_file_path, "w") as f:
         f.write(resource_data)
 
-    res = testlib.blockstack_cli_advanced_app_put_resource("foo.test", "hello_world", resource_file_path, appname="bar" )
+    res = testlib.blockstack_cli_app_put_resource("foo.test", "hello_world", resource_file_path, appname="bar" )
     if 'error' in res:
         res['test'] = 'Failed to store app resource'
         print json.dumps(res, indent=4, sort_keys=True)
@@ -173,7 +173,7 @@ def check( state_engine ):
             return False 
 
         # get app config 
-        app_config = testlib.blockstack_cli_advanced_app_get_config( "foo.test", appname="bar" )
+        app_config = testlib.blockstack_cli_app_get_config( "foo.test", appname="bar" )
         if 'error' in app_config:
             print "failed to get app config\n{}\n".format(json.dumps(app_config, indent=4, sort_keys=True))
             return False
@@ -194,7 +194,7 @@ def check( state_engine ):
             return False
 
         # get index file 
-        index_file = testlib.blockstack_cli_advanced_app_get_index_file("foo.test", appname="bar")
+        index_file = testlib.blockstack_cli_app_get_index_file("foo.test", appname="bar")
         if 'error' in index_file:
             print "failed to get index file\n{}\n".format(json.dumps(index_file, indent=4, sort_keys=True))
             return False
@@ -204,7 +204,7 @@ def check( state_engine ):
             return False
 
         # get resource 
-        resource_data_res = testlib.blockstack_cli_advanced_app_get_resource("foo.test", "hello_world", appname="bar")
+        resource_data_res = testlib.blockstack_cli_app_get_resource("foo.test", "hello_world", appname="bar")
         if 'error' in resource_data_res:
             print "failed to get resource hello_world\n{}\n".format(json.dumps(resource_data, indent=4, sort_keys=True))
             return False

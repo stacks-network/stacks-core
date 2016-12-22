@@ -85,7 +85,7 @@ def scenario( wallets, **kw ):
     testlib.expect_snv_fail_at( "foo.test", failed_first_block )
 
     # verify it failed
-    rec = testlib.blockstack_cli_advanced_get_name_blockchain_record("foo.test")
+    rec = testlib.blockstack_cli_get_name_blockchain_record("foo.test")
     if 'error' in rec:
         print json.dumps(rec, indent=4, sort_keys=True)
         return False
