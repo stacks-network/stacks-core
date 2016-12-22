@@ -34,7 +34,7 @@ from pybitcoin.transactions.outputs import calculate_change_amount
 from virtualchain import tx_serialize, tx_deserialize, tx_script_to_asm, tx_output_parse_scriptPubKey
 
 from .b40 import *
-from .constants import MAGIC_BYTES, NAME_OPCODES, LENGTH_MAX_NAME, LENGTH_MAX_NAMESPACE_ID, TX_MIN_CONFIRMATIONS
+from .constants import MAGIC_BYTES, NAME_OPCODES, LENGTH_MAX_NAME, LENGTH_MAX_NAMESPACE_ID, TX_MIN_CONFIRMATIONS, BLOCKSTACK_TEST
 from .keys import *
 
 log = virtualchain.get_logger('blockstack-client')
@@ -236,11 +236,12 @@ def tx_make_input_signature(tx, idx, script, privkey_str, hashcode):
     Sign a single input of a transaction, given the serialized tx,
     the input index, the output's scriptPubkey, and the hashcode.
 
+    privkey_str must be a hex-encoded private key
+
     TODO: move to virtualchain
 
     Return the hex signature.
     """
-
     pk = virtualchain.BitcoinPrivateKey(str(privkey_str))
     pubk = pk.public_key()
     
@@ -297,7 +298,6 @@ def tx_sign_multisig(tx, idx, redeem_script, private_keys, hashcode=bitcoin.SIGH
         pk_hex = virtualchain.BitcoinPrivateKey(str(pk_str)).to_hex()
 
         sig = tx_make_input_signature(tx, idx, redeem_script, pk_str, hashcode)
-        # sig = bitcoin.multisign(tx, idx, str(redeem_script), pk_hex, hashcode=hashcode)
         sigs.append(sig)
 
     assert len(used_keys) == m, 'Missing private keys'
@@ -348,6 +348,9 @@ def tx_sign_input(blockstack_tx, idx, private_key_info, hashcode=bitcoin.SIGHASH
         return tx_sign_multisig(blockstack_tx, idx, redeem_script, private_keys, hashcode=bitcoin.SIGHASH_ALL)
 
     else:
+        if BLOCKSTACK_TEST:
+            log.debug("Invalid private key info: {}".format(private_key_info))
+
         raise ValueError("Invalid private key info")
 
 
