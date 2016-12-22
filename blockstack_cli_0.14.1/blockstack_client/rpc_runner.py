@@ -78,7 +78,8 @@ if __name__ == '__main__':
         if not rc:
             sys.exit(1)
         else:
-            rc = local_rpc_start(portnum, config_dir=config_dir)
+            passwd = os.environ.get('BLOCKSTACK_CLIENT_WALLET_PASSWORD', None)
+            rc = local_rpc_start(portnum, config_dir=config_dir, password=passwd)
             sys.exit(0 if rc else 1)
     else:
         print(usage, file=sys.stderr)
