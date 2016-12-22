@@ -29,7 +29,6 @@ import blockstack_zones
 import base64
 import httplib
 import virtualchain
-from keylib import ECPrivateKey
 
 from .proxy import *
 from .keys import get_data_or_owner_privkey
@@ -208,8 +207,8 @@ def put_profile(name, new_profile, user_data_privkey=None, user_zonefile=None, o
             required_storage_drivers = config.get('storage_drivers', '').split(',')
 
     # deduce private key
-    if data_privkey is None:
-        data_privkey = deduce_profile_privkey( user_zonefile=user_zonefile, owner_address=owner_address, wallet_keys=wallet_keys, proxy=proxy )
+    if user_data_privkey is None:
+        user_data_privkey = deduce_profile_privkey( user_zonefile=user_zonefile, owner_address=owner_address, wallet_keys=wallet_keys, proxy=proxy )
 
     profile_payload = copy.deepcopy(new_profile)
     profile_payload = set_profile_timestamp(profile_payload)
@@ -219,7 +218,7 @@ def put_profile(name, new_profile, user_data_privkey=None, user_zonefile=None, o
     )
 
     rc = storage.put_mutable_data(
-        name, profile_payload, data_privkey,
+        name, profile_payload, user_data_privkey,
         required=required_storage_drivers
     )
 
