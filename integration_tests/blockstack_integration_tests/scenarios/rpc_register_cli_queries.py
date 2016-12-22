@@ -78,7 +78,7 @@ def scenario( wallets, **kw ):
     balance_before = testlib.blockstack_cli_balance()
     deposit_info = testlib.blockstack_cli_deposit()
     price_info = testlib.blockstack_cli_price( "foo.test", password="0123456789abcdef" )
-    wallet_info = testlib.blockstack_cli_advanced_wallet( "0123456789abcdef" ) 
+    wallet_info = testlib.blockstack_cli_wallet( "0123456789abcdef" ) 
 
     resp = testlib.blockstack_cli_register( "foo.test", "0123456789abcdef" )
     if 'error' in resp:
@@ -91,7 +91,7 @@ def scenario( wallets, **kw ):
 
     # queued?
     preorder_info = testlib.blockstack_cli_info()
-    names_owned_before = testlib.blockstack_cli_advanced_get_names_owned_by_address( wallets[3].addr )
+    names_owned_before = testlib.blockstack_cli_get_names_owned_by_address( wallets[3].addr )
 
     for i in xrange(0, 7):
         testlib.next_block( **kw )
@@ -119,7 +119,7 @@ def scenario( wallets, **kw ):
         testlib.next_block( **kw )
 
     update_info = testlib.blockstack_cli_info()
-    names_owned_after = testlib.blockstack_cli_advanced_get_names_owned_by_address( wallets[3].addr )
+    names_owned_after = testlib.blockstack_cli_get_names_owned_by_address( wallets[3].addr )
     whois = testlib.blockstack_cli_whois( "foo.test" )
 
     for i in xrange(0, 7):
@@ -129,7 +129,7 @@ def scenario( wallets, **kw ):
     time.sleep(10)
 
     # put some immutable data 
-    put_immutable_info = testlib.blockstack_cli_advanced_put_immutable( "foo.test", "hello_world", '{"hello": "world"}' )    
+    put_immutable_info = testlib.blockstack_cli_put_immutable( "foo.test", "hello_world", '{"hello": "world"}' )    
     if 'error' in put_immutable_info:
         print "put_immutable failed"
         print json.dumps(put_immutable_info, indent=4, sort_keys=True)
@@ -143,14 +143,14 @@ def scenario( wallets, **kw ):
     time.sleep(10)
 
     balance_after = testlib.blockstack_cli_balance()
-    blockchain_history = testlib.blockstack_cli_advanced_get_name_blockchain_history( "foo.test" )
-    zonefile_info = testlib.blockstack_cli_advanced_get_name_zonefile( "foo.test", json=False )
-    all_names_info = testlib.blockstack_cli_advanced_get_all_names()
-    namespace_names_info = testlib.blockstack_cli_advanced_get_names_in_namespace("test")
+    blockchain_history = testlib.blockstack_cli_get_name_blockchain_history( "foo.test" )
+    zonefile_info = testlib.blockstack_cli_get_name_zonefile( "foo.test", json=False )
+    all_names_info = testlib.blockstack_cli_get_all_names()
+    namespace_names_info = testlib.blockstack_cli_get_names_in_namespace("test")
     lookup_info = testlib.blockstack_cli_lookup( "foo.test" )
-    update_history = testlib.blockstack_cli_advanced_list_update_history( "foo.test" )
-    zonefile_history = testlib.blockstack_cli_advanced_list_zonefile_history( "foo.test" )
-    blockchain_record = testlib.blockstack_cli_advanced_get_name_blockchain_record( "foo.test" )
+    update_history = testlib.blockstack_cli_list_update_history( "foo.test" )
+    zonefile_history = testlib.blockstack_cli_list_zonefile_history( "foo.test" )
+    blockchain_record = testlib.blockstack_cli_get_name_blockchain_record( "foo.test" )
 
 
 def check( state_engine ):
@@ -371,7 +371,7 @@ def check( state_engine ):
         return False
 
     # immutable data 
-    immutable_data = testlib.blockstack_cli_advanced_get_immutable( "foo.test", "hello_world" )
+    immutable_data = testlib.blockstack_cli_get_immutable( "foo.test", "hello_world" )
     if 'error' in immutable_data:
         print "Failed to get immutable data 'hello_world'"
         print json.dumps(immutable_data, indent=4, sort_keys=True)
