@@ -353,8 +353,14 @@ def decrypt_wallet(data, password, config_path=CONFIG_PATH,
 
             migrated = True
 
-    new_wallet['data_pubkeys'] = [ECPrivateKey(new_wallet['data_privkey']).public_key().to_hex()]
-    new_wallet['data_pubkey'] = new_wallet['data_pubkeys'][0]
+    data_pubkey = ECPrivateKey(str(new_wallet['data_privkey'])).public_key().to_hex()
+    if keylib.key_formatting.get_pubkey_format(data_pubkey) == 'hex_compressed':
+        data_pubkey = keylib.key_formatting.decompress(data_pubkey)
+
+    data_pubkey = str(data_pubkey)
+
+    new_wallet['data_pubkeys'] = [data_pubkey]
+    new_wallet['data_pubkey'] = data_pubkey
 
     # sanity check--must be decrypted
     try:
