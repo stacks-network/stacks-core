@@ -23,7 +23,11 @@
 
 import virtualchain
 from binascii import hexlify
+import collections
+import json
+import traceback
 
+import keylib
 from keylib import ECPrivateKey, ECPublicKey
 from keylib.hashing import bin_hash160
 from keylib.address_formatting import bin_hash160_to_address
@@ -34,6 +38,11 @@ from .backend.crypto.utils import get_address_from_privkey
 from .backend.crypto.utils import aes_encrypt, aes_decrypt
 
 from keychain import PrivateKeychain
+
+import fastecdsa
+import fastecdsa.curve
+import fastecdsa.keys
+import fastecdsa.ecdsa
 
 import pybitcoin
 import bitcoin
@@ -47,6 +56,15 @@ from .constants import CONFIG_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
 
 log = get_logger()
 
+# deriving hardened keys is expensive, so cache them once derived.
+# maps hex_privkey --> {key_index: child_key}
+KEY_CACHE = {}
+KEYCHAIN_CACHE = {}
+
+# LRU cache of hashes we've verified
+VERIFIER_CACHE = None
+
+
 class HDWallet(object):
     """
     Initialize a hierarchical deterministic wallet with
@@ -58,10 +76,29 @@ class HDWallet(object):
         If @hex_privkey is given, use that to derive keychain
         otherwise, use a new random seed
         """
+        global KEYCHAIN_CACHE
 
-        self.priv_keychain = self.get_priv_keychain(hex_privkey)
-        self.master_address = self.get_master_address()
+        assert hex_privkey
+        self.hex_privkey = hex_privkey
+        self.priv_keychain = None
+        self.master_address = None
         self.child_addresses = None
+
+        if KEYCHAIN_CACHE.has_key(str(self.hex_privkey)):
+            if BLOCKSTACK_TEST:
+                log.debug("{} keychain is cached".format(self.hex_privkey))
+            
+            self.priv_keychain = KEYCHAIN_CACHE[str(self.hex_privkey)]
+
+        else:
+            if BLOCKSTACK_TEST:
+                log.debug("{} keychain is NOT cached".format(self.hex_privkey))
+
+            self.priv_keychain = self.get_priv_keychain(self.hex_privkey)
+            KEYCHAIN_CACHE[str(self.hex_privkey)] = self.priv_keychain
+
+        self.master_address = self.get_master_address()
+
 
     def get_priv_keychain(self, hex_privkey):
         if hex_privkey:
@@ -70,8 +107,10 @@ class HDWallet(object):
         log.debug('No privatekey given, starting new wallet')
         return PrivateKeychain()
 
+
     def get_master_privkey(self):
         return self.priv_keychain.private_key()
+
 
     def get_child_privkey(self, index=0):
         """
@@ -80,13 +119,47 @@ class HDWallet(object):
         Returns:
         child privkey for given @index
         """
+        global KEY_CACHE
+        if KEY_CACHE.has_key(self.hex_privkey) and KEY_CACHE[self.hex_privkey].has_key(index):
+            if BLOCKSTACK_TEST:
+                log.debug("Child {} of {} is cached".format(index, self.hex_privkey))
 
+            return KEY_CACHE[self.hex_privkey][index]
+
+        # expensive...
         child = self.priv_keychain.hardened_child(index)
+
+        if not KEY_CACHE.has_key(self.hex_privkey):
+            KEY_CACHE[self.hex_privkey] = {}
+
+        KEY_CACHE[self.hex_privkey][index] = child.private_key()
+
         return child.private_key()
 
+
+    @classmethod
+    def get_privkey(cls, hex_privkey, index):
+        """
+        Get a child private key (static method)
+        """
+        global KEY_CACHE
+        if KEY_CACHE.has_key(hex_privkey) and KEY_CACHE[hex_privkey].has_key(index):
+            if BLOCKSTACK_TEST:
+                log.debug("Child {} of {} is cached".format(index, hex_privkey))
+
+            return KEY_CACHE[hex_privkey][index]
+
+        hdwallet = HDWallet(hex_privkey)
+        return hdwallet.get_child_privkey(index=index)
+        
+
     def get_master_address(self):
+        if self.master_address is not None:
+            return self.master_address
+
         hex_privkey = self.get_master_privkey()
         return get_address_from_privkey(hex_privkey)
+
 
     def get_child_address(self, index=0):
         """
@@ -101,6 +174,7 @@ class HDWallet(object):
 
         hex_privkey = self.get_child_privkey(index)
         return get_address_from_privkey(hex_privkey)
+
 
     def get_child_keypairs(self, count=1, offset=0, include_privkey=False):
         """
@@ -125,6 +199,7 @@ class HDWallet(object):
                 keypairs.append(address)
 
         return keypairs
+
 
     def get_privkey_from_address(self, target_address, count=1):
         """
@@ -196,7 +271,8 @@ def singlesig_privkey_to_string(privkey_info):
     """
     Convert private key to string
     """
-    return virtualchain.BitcoinPrivateKey(privkey_info).to_wif()
+    return ECPrivateKey(privkey_info).to_hex()
+    #return virtualchain.BitcoinPrivateKey(privkey_info).to_hex()
 
 
 def multisig_privkey_to_string(privkey_info):
@@ -282,7 +358,7 @@ def decrypt_multisig_info(enc_multisig_info, password):
 
             return {'error': 'Invalid password; failed to decrypt private key in multisig wallet'}
 
-        multisig_info['private_keys'].append(pk)
+        multisig_info['private_keys'].append(ECPrivateKey(pk).to_hex())
 
     redeem_script = None
     enc_redeem_script = enc_multisig_info['encrypted_redeem_script']
@@ -362,7 +438,8 @@ def decrypt_private_key_info(privkey_info, password):
     if is_encrypted_singlesig(privkey_info):
         try:
             pk = aes_decrypt(privkey_info, hex_password)
-            virtualchain.BitcoinPrivateKey(pk)
+            pk = ECPrivateKey(pk).to_hex()
+            # virtualchain.BitcoinPrivateKey(pk)
         except Exception as e:
             if BLOCKSTACK_TEST:
                 log.exception(e)
@@ -458,7 +535,7 @@ def get_data_privkey(user_zonefile, wallet_keys=None, config_path=CONFIG_PATH):
         return
 
     # zonefile matches data privkey
-    return ECPrivateKey(data_privkey).to_wif()
+    return ECPrivateKey(data_privkey).to_hex()
 
 
 def get_data_or_owner_privkey(user_zonefile, owner_address, wallet_keys=None, config_path=CONFIG_PATH):
@@ -500,7 +577,7 @@ def get_data_or_owner_privkey(user_zonefile, owner_address, wallet_keys=None, co
     if owner_address not in [compressed_addr, uncompressed_addr]:
         raise Exception('{} not in [{},{}]'.format(owner_address, compressed_addr, uncompressed_addr))
 
-    data_privkey = virtualchain.BitcoinPrivateKey(owner_privkey_info).to_wif()
+    data_privkey = virtualchain.BitcoinPrivateKey(owner_privkey_info).to_hex()
     return {'status': True, 'privatekey': data_privkey}
 
 
@@ -624,3 +701,22 @@ def get_pubkey_addresses(pubkey):
         raise Exception('Invalid public key')
 
     return compressed_address, uncompressed_address
+
+
+def get_pubkey_hex( privatekey_hex ):
+    """
+    Get the uncompressed hex form of a private key
+    """
+
+    if len(privatekey_hex) > 64:
+        assert privatekey_hex[-2:] == '01'
+        privatekey_hex = privatekey_hex[:64]
+
+    # get hex public key
+    privatekey_int = int(privatekey_hex, 16)
+    pubkey_parts = fastecdsa.keys.get_public_key( privatekey_int, curve=fastecdsa.curve.secp256k1 )
+    pubkey_hex = "04{:064x}{:064x}".format(pubkey_parts[0], pubkey_parts[1])
+    return pubkey_hex
+
+
+
