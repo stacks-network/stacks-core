@@ -196,7 +196,7 @@ PRIVKEY_SINGLESIG_SCHEMA_HEX = {
 
 PRIVKEY_SINGLESIG_SCHEMA = {
     'anyOf': [
-        PRIVKEY_SINGLESIG_SCHEMA_WIF,
+        # PRIVKEY_SINGLESIG_SCHEMA_WIF,
         PRIVKEY_SINGLESIG_SCHEMA_HEX
     ],
 }
@@ -352,7 +352,7 @@ WALLET_SCHEMA_PROPERTIES = {
     },
     'data_privkey': {
         'type': 'string',
-        'pattern': OP_PRIVKEY_PATTERN,
+        'pattern': OP_HEX_PATTERN,
     },
     'owner_privkey': PRIVKEY_INFO_SCHEMA,
     'payment_privkey': PRIVKEY_INFO_SCHEMA,
@@ -548,7 +548,6 @@ MUTABLE_DATUM_INODE_SCHEMA = {
     'required': MUTABLE_DATUM_SCHEMA_BASE_PROPERTIES.keys()
 }
 
-# DEPRECATED
 MUTABLE_DATUM_FILE_SCHEMA = {
     'type': 'object',
     'properties': MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES,
@@ -556,7 +555,6 @@ MUTABLE_DATUM_FILE_SCHEMA = {
     'required': MUTABLE_DATUM_FILE_SCHEMA_PROPERTIES.keys()
 }
 
-# DEPRECATED
 MUTABLE_DATUM_DIR_SCHEMA = {
     'type': 'object',
     'properties': MUTABLE_DATUM_DIR_SCHEMA_PROPERTIES,
@@ -603,7 +601,9 @@ DATASTORE_SCHEMA = {
     'required': [
         'owner_pubkey',
         'root_uuid',
-        'drivers'
+        'drivers',
+        'datastore_name',
+        'user_id'
     ]
 }
 
