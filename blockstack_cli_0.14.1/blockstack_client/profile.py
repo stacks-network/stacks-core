@@ -219,7 +219,8 @@ def put_profile(name, new_profile, user_data_privkey=None, user_zonefile=None, o
 
     rc = storage.put_mutable_data(
         name, profile_payload, user_data_privkey,
-        required=required_storage_drivers
+        required=required_storage_drivers,
+        profile=True
     )
 
     if rc:
