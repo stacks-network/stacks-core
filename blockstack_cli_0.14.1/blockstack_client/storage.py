@@ -30,9 +30,12 @@ import json
 import hashlib
 import urllib
 import urllib2
-import ecdsa
 import base64
 import blockstack_zones
+import fastecdsa
+import fastecdsa.curve
+import fastecdsa.keys
+import fastecdsa.ecdsa
 
 from keylib import ECPrivateKey, ECPublicKey
 
@@ -183,22 +186,94 @@ def make_mutable_data_urls(data_id, use_only=None):
     return urls
 
 
-def serialize_mutable_data(data_json, privatekey):
+def serialize_mutable_data(data_json, privatekey_hex, pubkey_hex, profile=False):
     """
     Generate a serialized mutable data record from the given information.
     Sign it with privatekey.
 
     Return the serialized data (as a string) on success
     """
+  
+    if profile:
+        # profiles must conform to a particular standard
+        tokenized_data = blockstack_profiles.sign_token_records(
+            [data_json], privatekey
+        )
 
-    tokenized_data = blockstack_profiles.sign_token_records(
-        [data_json], privatekey
-    )
+        del tokenized_data[0]['decodedToken']
 
-    del tokenized_data[0]['decodedToken']
+        serialized_data = json.dumps(tokenized_data, sort_keys=True)
+        return serialized_data
 
-    serialized_data = json.dumps(tokenized_data, sort_keys=True)
-    return serialized_data
+    
+    else:
+        data_txt = json.dumps(data_json, sort_keys=True)
+        data_sig = sign_raw_data(data_txt, privatekey_hex)
+        res = "bsk2.{}.{}.{}".format(pubkey_hex, base64.b64encode(data_sig), data_txt)
+
+        return res
+
+
+def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash=None):
+    """
+    Version 2 parser
+    Parse a piece of mutable data back into the serialized payload.
+    Verify that it was signed by the given public key, or the public key hash.
+    Return the data on success
+    Return None on error
+    """
+
+    parts = mutable_data_json_txt.split(".", 2)
+    if len(parts) != 3:
+        log.debug("Malformed data: {}".format(mutable_data_json_txt))
+        return None 
+
+    pubk_hex = str(parts[0])
+    sig_b64 = str(parts[1])
+    data_txt = str(parts[2])
+
+    if keylib.key_formatting.get_pubkey_format(pubk_hex) == 'hex_compressed':
+        pubk_hex = keylib.key_formatting.decompress(pubk_hex)
+
+    try:
+        sig_bin = base64.b64decode(sig_b64)
+    except:
+        log.error("Incorrect base64-encoding")
+        return None
+
+    if public_key_hex is not None:
+        # make sure uncompressed
+        given_pubkey_hex = str(public_key_hex)
+        if keylib.key_formatting.get_pubkey_format(given_pubkey_hex) == 'hex_compressed':
+            given_pubkey_hex = keylib.key_formatting.decompress(given_pubkey_hex)
+
+        if given_pubkey_hex == pubk_hex:
+            if verify_raw_data(data_txt, pubk_hex, sig_bin):
+                return json.loads(data_txt)
+            else:
+                log.debug("Signature failed")
+
+        else:
+            log.debug("Public key mismatch: {} != {}".format(given_pubkey_hex, pubk_hex))
+
+    if public_key_hash is not None:
+        pubkey_hash = keylib.address_formatting.bin_hash160_to_address(
+                keylib.address_formatting.address_to_bin_hash160(
+                    str(public_key_hash),
+                ),
+                version_byte=0
+        )
+
+        if keylib.public_key_to_address(pubk_hex) == pubkey_hash:
+            if verify_raw_data(data_txt, pubk_hex, sig_bin):
+                return json.loads(data_txt)
+            else:
+                log.debug("Signature failed with pubkey hash")
+
+        else:
+            log.debug("Public key hash mismatch")
+
+    return None
 
 
 def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None):
@@ -212,7 +287,13 @@ def parse_mutable_data(mutable_data_json_txt, public_key, public_key_hash=None):
     Return the parsed JSON dict on success
     Return None on error
     """
-
+    
+    # newer version?
+    if mutable_data_json_txt.startswith("bsk2."):
+        mutable_data_json_txt = mutable_data_json_txt[len("bsk2."):]
+        return parse_mutable_data_v2(mutable_data_json_txt, public_key, public_key_hash=None)
+        
+    # legacy parser
     assert public_key is not None or public_key_hash is not None, 'Need a public key or public key hash'
 
     mutable_data_jwt = None
@@ -396,75 +477,35 @@ def get_immutable_data(data_hash, data_url=None, hash_func=get_data_hash, fqu=No
     return None
 
 
-def sign_raw_data(raw_data, privatekey):
+
+def sign_raw_data(raw_data, privatekey_hex):
     """
     Sign a string of data.
     Returns signature as a base64 string
     """
-    data_hash = get_data_hash(raw_data)
-
-    pk = ECPrivateKey(privatekey)
-    priv = pk.to_hex()
 
     # force uncompressed
+    priv = str(privatekey_hex)
     if len(priv) > 64:
-        pk = ECPrivateKey(priv[:64])
+        assert priv[-2:] == '01'
         priv = priv[:64]
-    
-    pub = pk.public_key().to_hex()
 
-    assert len(pub[2:].decode('hex')) == ecdsa.SECP256k1.verifying_key_length, "BUG: Invalid key decoding"
- 
-    sk = ecdsa.SigningKey.from_string(priv.decode('hex'), curve=ecdsa.SECP256k1)
-    sig_bin = sk.sign_digest(data_hash.decode('hex'), sigencode=ecdsa.util.sigencode_der)
-    
-    # enforce low-s
-    sig_r, sig_s = ecdsa.util.sigdecode_der( sig_bin, ecdsa.SECP256k1.order )
-    if sig_s * 2 >= ecdsa.SECP256k1.order:
+    pk_i = int(priv, 16)
+    sig_r, sig_s = fastecdsa.ecdsa.sign(raw_data, pk_i, curve=fastecdsa.curve.secp256k1)
+
+    # enforce low-s 
+    if sig_s * 2 >= fastecdsa.curve.secp256k1.q:
         log.debug("High-S to low-S")
-        sig_s = ecdsa.SECP256k1.order - sig_s
+        sig_s = fastecdsa.curve.secp256k1.q - sig_s
 
-    sig_bin = ecdsa.util.sigencode_der( sig_r, sig_s, ecdsa.SECP256k1.order )
+    sig_bin = '{:064x}{:064x}'.format(sig_r, sig_s).decode('hex')
+    assert len(sig_bin) == 64
 
-    # sanity check 
-    vk = ecdsa.VerifyingKey.from_string(pub[2:].decode('hex'), curve=ecdsa.SECP256k1)
-    assert vk.verify_digest(sig_bin, data_hash.decode('hex'), sigdecode=ecdsa.util.sigdecode_der), "Failed to verify signature ({}, {})".format(sig_r, sig_s)
-    return base64.b64encode( sig_bin )
-
-
-def secp256k1_compressed_pubkey_to_uncompressed_pubkey( pubkey ):
-    """
-    convert a secp256k1 compressed public key into an uncompressed public key.
-    taken from https://bitcointalk.org/index.php?topic=644919.msg7205689#msg7205689
-    """
-    pubk = ECPublicKey(pubkey).to_hex()
-
-    assert len(pubk) == 66, "Not a compressed hex public key"
-
-    def pow_mod(x, y, z):
-        "Calculate (x ** y) % z efficiently."
-        number = 1
-        while y:
-            if y & 1:
-                number = number * x % z
-            y >>= 1
-            x = x * x % z
-        return number
-    
-    p = ecdsa.SECP256k1.curve.p()
-    b = ecdsa.SECP256k1.curve.b()
-    y_parity = int(pubk[:2]) - 2
-    x = int(pubk[2:], 16)
-    a = (pow_mod(x, 3, p) + b) % p
-    y = pow_mod(a, (p+1)//4, p)
-    if y % 2 != y_parity:
-        y = -y % p
-
-    uncompressed_pubk = '04{:x}{:x}'.format(x, y)
-    return uncompressed_pubk
+    sig_b64 = base64.b64encode(sig_bin)
+    return sig_b64
 
 
-def verify_raw_data(raw_data, pubkey, sigb64):
+def verify_raw_data(raw_data, pubkey_hex, sigb64):
     """
     Verify the signature over a string, given the public key
     and base64-encode signature.
@@ -472,14 +513,26 @@ def verify_raw_data(raw_data, pubkey, sigb64):
     Return False on error.
     """
 
+    pubk = str(pubkey_hex)
+    if keylib.key_formatting.get_pubkey_format(pubk) == 'hex_compressed':
+        pubk = keylib.key_formatting.decompress(pubk)
+
+    assert len(pubk) == 130
+
     data_hash = get_data_hash(raw_data)
-    pubk = ECPublicKey(pubkey).to_hex()
-    if len(pubk) == 66:
-        pubk = secp256k1_compressed_pubkey_to_uncompressed_pubkey( pubkey )
 
     sig_bin = base64.b64decode(sigb64)
-    vk = ecdsa.VerifyingKey.from_string( pubk[2:].decode('hex'), curve=ecdsa.SECP256k1 )
-    return vk.verify_digest(sig_bin, data_hash.decode('hex'), sigdecode=ecdsa.util.sigdecode_der)
+    assert len(sig_bin) == 64
+
+    sig_hex = sig_bin.encode('hex')
+    sig_r = int(sig_hex[:64], 16)
+    sig_s = int(sig_hex[64:], 16)
+
+    pubk_raw = pubk[2:]
+    pubk_i = (int(pubk_raw[:64], 16), int(pubk_raw[64:], 16))
+
+    res = fastecdsa.ecdsa.verify((sig_r, sig_s), raw_data, pubk_i, curve=fastecdsa.curve.secp256k1)
+    return res
 
 
 def get_drivers_for_url(url):
@@ -706,7 +759,7 @@ def put_immutable_data(data_json, txid, data_hash=None, data_text=None, required
     return None if successes == 0 else data_hash
 
 
-def put_mutable_data(fq_data_id, data_json, privatekey, required=None, use_only=None):
+def put_mutable_data(fq_data_id, data_json, privatekey_hex, profile=False, required=None, use_only=None):
     """
     Given the unserialized data, store it into our mutable data stores.
     Do so in a best-effort way.  This method only fails if all storage providers fail.
@@ -727,18 +780,19 @@ def put_mutable_data(fq_data_id, data_json, privatekey, required=None, use_only=
     use_only = [] if use_only is None else use_only
 
     # sanity check: only support single-sig private keys
-    if not keys.is_singlesig(privatekey):
+    if not keys.is_singlesig(privatekey_hex):
         log.error('Only single-signature data private keys are supported')
         return False
 
-    assert privatekey is not None
+    assert privatekey_hex is not None
+    pubkey_hex = keys.get_pubkey_hex( privatekey_hex )
 
     # fully-qualified username hint
     fqu = None
     if is_fq_data_id(fq_data_id) or is_name_valid(fq_data_id):    
         fqu = fq_data_id.split(':')[0] if is_fq_data_id(fq_data_id) else fq_data_id
 
-    serialized_data = serialize_mutable_data(data_json, privatekey)
+    serialized_data = serialize_mutable_data(data_json, privatekey_hex, pubkey_hex, profile=profile)
     successes = 0
 
     log.debug('put_mutable_data({}), required={}'.format(fq_data_id, ','.join(required)))
@@ -842,7 +896,7 @@ def delete_mutable_data(fq_data_id, privatekey, only_use=None):
         if not getattr(handler, 'delete_mutable_handler', None):
             continue
 
-        if only_use and handler.__name__ in only_use:
+        if len(only_use) > 0 and handler.__name__ not in only_use:
             log.debug('Skip storage driver {}'.format(handler.__name__))
             continue
 
