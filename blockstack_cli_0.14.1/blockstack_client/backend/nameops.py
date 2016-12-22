@@ -96,8 +96,7 @@ def make_fake_privkey_info( privkey_params ):
 
     if privkey_params == (1, 1):
         # fake private key
-        return "92EPD26TunBmQCupp73P6oWA1m7dcETMfEMU9sXQuqPKGgy26kV"
-        # return "5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX"
+        return "5512612ed6ef10ea8c5f9839c63f62107c73db7306b98588a46d0cd2c3d15ea5"
 
     else:
         m, n = privkey_params
@@ -430,7 +429,7 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utx
 
     TODO: no dust fee estimation available for namespace preorder
     """
-    fake_privkey = virtualchain.BitcoinPrivateKey('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_wif()   # fake private key (NOTE: NAMESPACE_PREORDER only supports p2pkh)
+    fake_privkey = virtualchain.BitcoinPrivateKey('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_hex()   # fake private key (NOTE: NAMESPACE_PREORDER only supports p2pkh)
     fake_reveal_address = virtualchain.address_reencode('1LL4X7wNUBCWoDhfVLA2cHE7xk1ZJMT98Q')
     fake_consensus_hash = 'd4049672223f42aac2855d2fbf2f38f0'
 
@@ -461,7 +460,7 @@ def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client
 
     TODO: no dust estimation available for namespace reveal
     """
-    fake_privkey = virtualchain.BitcoinPrivateKey('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_wif()   # fake private key (NOTE: NAMESPACE_REVEAL only supports p2pkh)
+    fake_privkey = virtualchain.BitcoinPrivateKey('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_hex()   # fake private key (NOTE: NAMESPACE_REVEAL only supports p2pkh)
     fake_reveal_address = virtualchain.address_reencode('1LL4X7wNUBCWoDhfVLA2cHE7xk1ZJMT98Q')
 
     try:
@@ -498,7 +497,7 @@ def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, con
 
     TODO: no dust estimation available for namespace ready
     """
-    fake_privkey = virtualchain.BitcoinPrivateKey('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_wif()   # fake private key (NOTE: NAMESPACE_READY only supports p2pkh)
+    fake_privkey = virtualchain.BitcoinPrivateKey('5J8V3QacBzCwh6J9NJGZJHQ5NoJtMzmyUgiYFkBEgUzKdbFo7GX').to_hex()   # fake private key (NOTE: NAMESPACE_READY only supports p2pkh)
 
     try:
         unsigned_tx = namespace_ready_tx( namespace_id, reveal_addr, utxo_client )
