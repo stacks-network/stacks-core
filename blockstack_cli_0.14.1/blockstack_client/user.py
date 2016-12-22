@@ -23,7 +23,7 @@
 
 import socket
 import base64
-
+import json
 import storage
 import config
 import posixpath
@@ -33,11 +33,11 @@ from jsonschema.exceptions import ValidationError
 
 from .schemas import *
 from .constants import BLOCKSTACK_TEST, CONFIG_PATH, BLOCKSTACK_DEBUG, USER_DIRNAME
-from .keys import HDWallet
-from keylib import ECPrivateKey, ECPublicKey
+from .keys import HDWallet, get_pubkey_hex
 
 log = config.get_logger()
 
+USER_CACHE = {}
 
 def user_dir(config_path=CONFIG_PATH):
     """
@@ -55,12 +55,19 @@ def user_dir(config_path=CONFIG_PATH):
     return dirp
     
 
+def user_name(user_id):
+    """
+    Get the on-disk name of a file that stores the user information
+    """
+    return "{}.user".format(user_id.replace('/', '\\x2f'))
+
+
 def user_path(user_id, config_path=CONFIG_PATH):
     """
     Get the path to a user account state bundle
     """
     dirp = user_dir(config_path=config_path)
-    return os.path.join(dirp, "{}.user".format(user_id.replace('/', '\\x2f')))
+    return os.path.join(dirp, user_name(user_id))
 
 
 def _get_next_user_privkey_index( config_path=CONFIG_PATH ):
@@ -97,7 +104,7 @@ def _get_next_user_privkey_index( config_path=CONFIG_PATH ):
     return nonce
 
 
-def user_init( user_id, master_data_privkey, config_path=CONFIG_PATH ):
+def user_init( user_id, master_data_privkey_hex, config_path=CONFIG_PATH ):
     """
     Generate a new user with the given user ID
     Returns {'user': ..., 'user_token': ...} on success
@@ -107,21 +114,21 @@ def user_init( user_id, master_data_privkey, config_path=CONFIG_PATH ):
     next_privkey_index = _get_next_user_privkey_index(config_path=config_path)
     assert next_privkey_index
     
-    master_data_privkey = ECPrivateKey(str(master_data_privkey)).to_hex()
-
-    hdwallet = HDWallet( hex_privkey=master_data_privkey)
+    hdwallet = HDWallet( hex_privkey=master_data_privkey_hex)
     user_privkey = hdwallet.get_child_privkey( index=next_privkey_index )
-    user_privkey = ECPrivateKey(user_privkey).to_hex()
 
     info = {
         'user_id': user_id,
-        'public_key': ECPrivateKey(str(user_privkey)).public_key().to_hex(),
+        'public_key': get_pubkey_hex(user_privkey),
         'privkey_index': next_privkey_index
     }
 
     # sign
     signer = jsontokens.TokenSigner()
-    token = signer.sign( info, master_data_privkey)
+    token = signer.sign( info, master_data_privkey_hex)
+
+    # log.debug("\ncreate user with {}:\n{}\n".format(master_data_privkey, json.dumps(info, indent=4, sort_keys=True)))
+
     return {'user': info, 'user_token': token}
 
 
@@ -133,6 +140,8 @@ def user_store( token, config_path=CONFIG_PATH ):
     Returns {'status': True} on success
     Returns {'error': ...} on error
     """
+
+    global USER_CACHE
 
     # verify that this is a well-formed user
     jwt = jsontokens.decode_token(token)
@@ -153,6 +162,10 @@ def user_store( token, config_path=CONFIG_PATH ):
         log.error("Failed to store user {}".format(path))
         return {'error': 'Failed to store user'}
 
+    name = user_name(user_id)
+    if USER_CACHE.has_key(name):
+        del USER_CACHE[name]
+
     return {'status': True}
 
 
@@ -161,6 +174,8 @@ def user_delete( user_id, config_path=CONFIG_PATH ):
     Delete a user
     Return {'status': True} on success
     """
+    
+    global USER_CACHE
 
     path = user_path(user_id, config_path=config_path)
     if not os.path.exists(path):
@@ -172,17 +187,20 @@ def user_delete( user_id, config_path=CONFIG_PATH ):
         log.exception(e)
         return {'error': 'Failed to unlink'}
 
+    name = user_name(user_id)
+    if USER_CACHE.has_key(name):
+        del USER_CACHE[name]
+
     return {'status': True}
     
 
-def _user_load_path(path, data_pubkey, config_path=CONFIG_PATH):
+def _user_load_path(path, data_pubkey_hex, config_path=CONFIG_PATH):
     """
     Load a user from a given path
     Verify it conforms to the USER_SCHEMA
     Return {'user': ..., 'user_token': ...} on success
     Return {'error': ...} on error
     """
-    data_pubkey = ECPublicKey(str(data_pubkey)).to_hex()
     jwt = None
     try:
         with open(path, "r") as f:
@@ -193,10 +211,11 @@ def _user_load_path(path, data_pubkey, config_path=CONFIG_PATH):
         return {'error': 'Failed to read user'}
 
     # verify
-    verifier = jsontokens.TokenVerifier()
-    valid = verifier.verify( jwt, data_pubkey )
-    if not valid:
-        return {'error': 'Failed to verify user JWT data'}
+    if data_pubkey_hex is not None:
+        verifier = jsontokens.TokenVerifier()
+        valid = verifier.verify( jwt, str(data_pubkey_hex) )
+        if not valid:
+            return {'error': 'Failed to verify user JWT data'}
 
     data = jsontokens.decode_token( jwt )
     jsonschema.validate(data['payload'], USER_SCHEMA)
@@ -209,8 +228,20 @@ def user_load( user_id, data_pubkey, config_path=CONFIG_PATH):
     Return {'user': jwt, 'user_token': token} on success
     Return {'error': ...} on error
     """
+    global USER_CACHE
+
+    name = user_name(user_id)
+    if USER_CACHE.has_key(name):
+        log.debug("User {} is cached".format(name))
+        return USER_CACHE[name]
+
     path = user_path( user_id, config_path=config_path)
-    return _user_load_path( path, data_pubkey, config_path=config_path )
+    res = _user_load_path( path, data_pubkey, config_path=config_path )
+    if 'error' in res:
+        return res
+
+    USER_CACHE[name] = res
+    return res
 
 
 def users_list(data_pubkey, config_path=CONFIG_PATH):
@@ -237,14 +268,13 @@ def users_list(data_pubkey, config_path=CONFIG_PATH):
     return ret
 
 
-def user_get_privkey( user_data_privkey, user_info ):
+def user_get_privkey( user_data_privkey_hex, user_info ):
     """
     Given the master data private key and a user structure, calculate the private key
     for the user.
     Return the private key
     """
-    hdwallet = HDWallet( hex_privkey=ECPrivateKey(str(user_data_privkey)).to_hex())
-    user_privkey = hdwallet.get_child_privkey( index=user_info['privkey_index'] )
+    user_privkey = HDWallet.get_privkey(user_data_privkey_hex, user_info['privkey_index'])
     return user_privkey
 
 
