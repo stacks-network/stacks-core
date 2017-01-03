@@ -29,6 +29,12 @@ Each application specifies in advance which family of API calls it will need to 
 | Set zone file | PUT /names/{name}/zonefile | update | Payload: {"zonefile": ZONE_FILE } | 
 | Set zone file hash | PUT /names/{name}/zonefile | update | Payload: {"zonefile_hash": ZONE_FILE_HASH } | 
 
+### Addresses
+
+| Method | API Call | API family | Notes |
+| ------------- | ------------- | ------------- | ------------- |
+| Get names owned by address | GET /addresses/{address}/names | names | - |
+
 ### Namespaces
 
 | Method  | API Call | API family | Notes | 
