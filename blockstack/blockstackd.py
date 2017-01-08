@@ -1517,7 +1517,7 @@ class BlockstackStoragePusher( threading.Thread ):
         entry = entries[0]
         res = store_zonefile_data_to_storage( str(entry['zonefile']), entry['tx_hash'], required=self.zonefile_storage_drivers, cache=False, zonefile_dir=self.zonefile_dir, tx_required=False )
         if not res:
-            log.error("Failed to store zonefile {} ({} bytes)".format(entry['zoenfile_hash'], len(entry['zonefile'])))
+            log.error("Failed to store zonefile {} ({} bytes)".format(entry['zonefile_hash'], len(entry['zonefile'])))
             return False
 
         log.debug("Replicated zonefile {} ({} bytes)".format(entry['zonefile_hash'], len(entry['zonefile'])))
