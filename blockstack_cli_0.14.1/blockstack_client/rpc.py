@@ -960,6 +960,22 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         return
 
 
+    def GET_names_owned_by_address( self, ses, path_info, address ):
+        """
+        Get all names owned by an address
+        Returns the list on success
+        Returns 500 on failure to get names
+        """
+        res = proxy.get_names_owned_by_address(address)
+        if json_is_error(res):
+            log.error("Failed to get names owned by address")
+            self._reply_json({'error': 'Failed to list names by address'}, status_code=500)
+            return 
+
+        self._reply_json(res)
+        return
+
+
     def GET_names( self, ses, path_info ):
         """
         Get all names in existence
@@ -967,7 +983,6 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Returns 401 on invalid arguments
         Returns 500 on failure to get names
         """
-        internal = self.server.get_internal_proxy()
 
         # optional args: offset=..., count=...
         offset = qs_values.get('offset')
@@ -2081,6 +2096,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         URLENCODING_CLASS = r'[a-zA-Z0-9\-_.~%]+'
         NAME_CLASS = r'[a-z0-9\-_.+]{{{},{}}}'.format(3, LENGTH_MAX_NAME)
         NAMESPACE_CLASS = r'[a-z0-9\-_+]{{{},{}}}'.format(1, LENGTH_MAX_NAMESPACE_ID)
+        BASE58CHECK_CLASS = r'[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+'
 
         routes = {
             r'^/$': {
@@ -2154,6 +2170,17 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'authenticate': False,
                 'routes': {
                     'GET': self.GET_auth_create_account_and_redirect
+                },
+            },
+            r'^/api/v1/addresses/({})/names$'.format(BASE58CHECK_CLASS): {
+                'routes': {
+                    'GET': self.GET_names_owned_by_address
+                },
+                'whitelist': {
+                    'GET': {
+                        'name': 'names',
+                        'desc': 'get names owned by an address'
+                    },
                 },
             },
             r'^/api/v1/blockchains/({})/operations/([0-9]+)$'.format(URLENCODING_CLASS): {
