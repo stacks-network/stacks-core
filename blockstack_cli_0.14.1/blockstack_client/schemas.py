@@ -406,6 +406,12 @@ URI_RECORD_SCHEMA = {
             'type': 'string',
             'pattern': OP_URI_TARGET_PATTERN
         },
+        'class': {
+            'type': 'string'
+        },
+        '_missing_class': {
+            'type': 'boolean'
+        },
     },
     'required': [
         'name',
@@ -452,7 +458,6 @@ USER_ZONEFILE_SCHEMA = {
         },
     },
     'required': [
-        'txt',
         'uri',
         '$origin',
         '$ttl'
