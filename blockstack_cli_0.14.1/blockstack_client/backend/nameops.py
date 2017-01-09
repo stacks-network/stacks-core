@@ -121,7 +121,7 @@ def estimate_preorder_tx_fee( name, name_cost, payment_addr, utxo_client, owner_
         if os.environ.get("BLOCKSTACK_TEST") == "1":
             log.exception(ve)
 
-        log.debug("Insufficient funds:  Not enough inputs to make a preorder transaction")
+        log.error("Insufficient funds:  Not enough inputs to make a preorder transaction")
         return None
 
     signed_tx = sign_tx( unsigned_tx, fake_privkey )
@@ -157,7 +157,7 @@ def estimate_register_tx_fee( name, payment_addr, utxo_client, owner_privkey_par
         if os.environ.get("BLOCKSTACK_TEST") == "1":
             log.exception(ve)
 
-        log.debug("Insufficient funds:  Not enough inputs to make a register transaction")
+        log.error("Insufficient funds:  Not enough inputs to make a register transaction")
         return None
 
     signed_tx = sign_tx( unsigned_tx, fake_privkey )
@@ -409,7 +409,7 @@ def estimate_name_import_tx_fee( fqu, payment_addr, utxo_client, config_path=CON
         if os.environ.get("BLOCKSTACK_TEST") == "1":
             log.exception(ve)
 
-        log.debug("Insufficient funds:  Not enough inputs to make an import transaction")
+        log.error("Insufficient funds:  Not enough inputs to make an import transaction")
         return None
 
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
@@ -440,7 +440,7 @@ def estimate_namespace_preorder_tx_fee( namespace_id, cost, payment_address, utx
         if os.environ.get("BLOCKSTACK_TEST") == "1":
             log.exception(ve)
 
-        log.debug("Insufficient funds:  Not enough inputs to make a namespace-preorder transaction.")
+        log.error("Insufficient funds:  Not enough inputs to make a namespace-preorder transaction.")
         return None 
 
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
@@ -470,7 +470,7 @@ def estimate_namespace_reveal_tx_fee( namespace_id, payment_address, utxo_client
         if os.environ.get("BLOCKSTACK_TEST") == "1":
             log.exception(ve)
 
-        log.debug("Insufficient funds:  Not enough inputs to make a namespace-reveal transaction.")
+        log.error("Insufficient funds:  Not enough inputs to make a namespace-reveal transaction.")
         return None
 
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
@@ -506,7 +506,7 @@ def estimate_namespace_ready_tx_fee( namespace_id, reveal_addr, utxo_client, con
         if os.environ.get("BLOCKSTACK_TEST") == "1":
             log.exception(ve)
 
-        log.debug("Insufficient funds:  Not enough inputs to make a namespace-ready transaction.")
+        log.error("Insufficient funds:  Not enough inputs to make a namespace-ready transaction.")
         return None 
 
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
@@ -535,7 +535,7 @@ def estimate_announce_tx_fee( sender_address, utxo_client, sender_privkey_params
         if os.environ.get("BLOCKSTACK_TEST") == "1":
             log.exception(ve)
 
-        log.debug("Insufficient funds:  Not enough inputs to make an announce transaction.")
+        log.error("Insufficient funds:  Not enough inputs to make an announce transaction.")
         return None 
 
     tx_fee = get_tx_fee( signed_tx, config_path=config_path )
@@ -599,12 +599,12 @@ def address_privkey_match( address, privkey_params ):
     """
     if privkey_params == (1,1) and pybitcoin.b58check_version_byte( str(address) ) != virtualchain.version_byte:
         # invalid address, given parameters
-        log.debug("Address %s does not correspond to a single private key" % owner_address)
+        log.error("Address %s does not correspond to a single private key" % owner_address)
         return False
 
     elif (privkey_params[0] > 1 or privkey_params[1] > 1) and pybitcoin.b58check_version_byte( str(address) ) != virtualchain.multisig_version_byte:
         # invalid address
-        log.debug("Address %s does not correspond to multisig private keys")
+        log.error("Address %s does not correspond to multisig private keys")
         return False
 
     return True
@@ -623,7 +623,7 @@ def do_preorder( fqu, payment_privkey_info, owner_address, cost, utxo_client, tx
     fqu = str(fqu)
 
     if not can_receive_name(owner_address, proxy=proxy):
-        log.debug("Address %s owns too many names already." % owner_address)
+        log.error("Address %s owns too many names already." % owner_address)
         return {'error': 'Address owns too many names'}
 
     payment_address = get_privkey_info_address( payment_privkey_info )
@@ -633,7 +633,7 @@ def do_preorder( fqu, payment_privkey_info, owner_address, cost, utxo_client, tx
         return {'error': 'Owner address does not match private key'}
 
     if not is_address_usable(payment_address, config_path=config_path):
-        log.debug("Payment address not ready: %s" % payment_address)
+        log.error("Payment address not ready: %s" % payment_address)
         return {'error': 'Payment address is not ready'}
 
     if consensus_hash is None:
@@ -687,7 +687,7 @@ def do_register( fqu, payment_privkey_info, owner_address, utxo_client, tx_broad
     if safety_checks:
         # name must not be registered yet
         if is_name_registered(fqu, proxy=proxy):
-            log.debug("Already registered %s" % fqu)
+            log.error("Already registered %s" % fqu)
             return {'error': 'Already registered'}
 
     # check address usability
@@ -750,11 +750,11 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
         # check ownership
         blockchain_record = blockstack_get_name_blockchain_record( fqu, proxy=proxy )
         if blockchain_record is None or 'error' in blockchain_record:
-            log.debug("Failed to read blockchain record for %s" % fqu)
+            log.error("Failed to read blockchain record for %s" % fqu)
             return {'error': 'Failed to read blockchain record for name'}
 
         if owner_address != blockchain_record['address']:
-            log.debug("Given privkey/address doesn't own this name.")
+            log.error("Given privkey/address doesn't own this name.")
             return {'error': 'Not name owner'}
 
     # check address usability
@@ -839,17 +839,17 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
         # name must exist
         blockchain_record = blockstack_get_name_blockchain_record( fqu, proxy=proxy )
         if blockchain_record is None or 'error' in blockchain_record:
-            log.debug("Failed to read blockchain record for %s" % fqu)
+            log.error("Failed to read blockchain record for %s" % fqu)
             return {'error': 'Failed to read blockchain record for name'}
 
         # must be owner
         if blockchain_record['address'] != owner_address:
-            log.debug("Given privkey/address doesn't own this name.")
+            log.error("Given privkey/address doesn't own this name.")
             return {'error': 'Given keypair does not own this name'}
 
         # recipient must have space
         if not can_receive_name(transfer_address, proxy=proxy):
-            log.debug("Address %s owns too many names already." % transfer_address)
+            log.error("Address %s owns too many names already." % transfer_address)
             return {'error': 'Recipient owns too many names'}
     
     # payment address must be usable
@@ -905,21 +905,21 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
 
     if safety_checks:
         if not is_name_registered(fqu, proxy=proxy):
-            log.debug("Already registered %s" % fqu)
+            log.error("Already registered %s" % fqu)
             return {'error': 'Already registered'}
             
         blockchain_record = blockstack_get_name_blockchain_record( fqu, proxy=proxy )
         if blockchain_record is None or 'error' in blockchain_record:
-            log.debug("Failed to read blockchain record for %s" % fqu)
+            log.error("Failed to read blockchain record for %s" % fqu)
             return {'error': 'Failed to read blockchain record for name'}
 
         if owner_address != blockchain_record['address']:
-            log.debug("Given privkey/address doesn't own this name.")
+            log.error("Given privkey/address doesn't own this name.")
             return {'error': 'Not name owner'}
 
     # check address usability
     if not is_address_usable(payment_address, config_path=config_path, utxo_client=utxo_client):
-        log.debug("Payment address not ready: %s" % payment_address)
+        log.error("Payment address not ready: %s" % payment_address)
         return {'error': 'Payment address has unconfirmed transactions'}
 
     tx_fee = estimate_renewal_tx_fee( fqu, renewal_fee, payment_privkey_info, owner_address, utxo_client, owner_privkey_params=owner_privkey_params, config_path=config_path ) 
@@ -979,12 +979,12 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
         # name must exist
         blockchain_record = blockstack_get_name_blockchain_record( fqu, proxy=proxy )
         if blockchain_record is None or 'error' in blockchain_record:
-            log.debug("Failed to read blockchain record for %s" % fqu)
+            log.error("Failed to read blockchain record for %s" % fqu)
             return {'error': 'Failed to read blockchain record for name'}
 
         # must be owner
         if blockchain_record['address'] != owner_address:
-            log.debug("Given privkey/address doesn't own this name.")
+            log.error("Given privkey/address doesn't own this name.")
             return {'error': 'Given keypair does not own this name'}
 
     try:
@@ -1097,11 +1097,11 @@ def do_namespace_preorder( namespace_id, cost, payment_privkey_info, reveal_addr
         blockchain_record = blockstack_get_namespace_blockchain_record( namespace_id, proxy=proxy )
         if blockchain_record is None or 'error' in blockchain_record:
             if blockchain_record is None:
-                log.debug("Failed to read blockchain record for %s" % namespace_id)
+                log.error("Failed to read blockchain record for %s" % namespace_id)
                 return {'error': 'Failed to read blockchain record for namespace'}
 
             if blockchain_record['error'] != 'No such namespace':
-                log.debug("Failed to read blockchain record for %s" % namespace_id)
+                log.error("Failed to read blockchain record for %s" % namespace_id)
                 return {'error': 'Failed to read blockchain record for namespace'}
 
         else:
@@ -1161,7 +1161,7 @@ def do_namespace_reveal( namespace_id, reveal_address, lifetime, coeff, base_cos
         blockchain_record = blockstack_get_namespace_blockchain_record( namespace_id, proxy=proxy )
         if blockchain_record is None or 'error' in blockchain_record:
             if blockchain_record['error'] != 'No such namespace':
-                log.debug("Failed to read blockchain record for %s" % namespace_id)
+                log.error("Failed to read blockchain record for %s" % namespace_id)
                 return {'error': 'Failed to read blockchain record for namespace'}
 
         else:
@@ -1221,7 +1221,7 @@ def do_namespace_ready( namespace_id, reveal_privkey_info, utxo_client, tx_broad
         # namespace must exist, but not be ready
         blockchain_record = blockstack_get_namespace_blockchain_record( namespace_id, proxy=proxy )
         if blockchain_record is None or 'error' in blockchain_record:
-            log.debug("Failed to read blockchain record for %s" % namespace_id)
+            log.error("Failed to read blockchain record for %s" % namespace_id)
             return {'error': 'Failed to read blockchain record for namespace'}
 
         if blockchain_record['ready']:
@@ -1335,11 +1335,11 @@ def async_preorder(fqu, payment_privkey_info, owner_address, cost, owner_privkey
     
     # stale preorder will get removed from preorder_queue
     if in_queue("register", fqu, path=queue_path):
-        log.debug("Already in register queue: %s" % fqu)
+        log.error("Already in register queue: %s" % fqu)
         return {'error': 'Already in register queue'}
 
     if in_queue("preorder", fqu, path=queue_path):
-        log.debug("Already in preorder queue: %s" % fqu)
+        log.error("Already in preorder queue: %s" % fqu)
         return {'error': 'Already in preorder queue'}
 
     try:
@@ -1356,8 +1356,8 @@ def async_preorder(fqu, payment_privkey_info, owner_address, cost, owner_privkey
                      config_path=config_path,
                      path=queue_path)
     else:
-        log.debug("Error preordering: %s with %s for %s" % (fqu, payment_address, owner_address))
-        log.debug("Error below\n%s" % json.dumps(resp, indent=4, sort_keys=True))
+        log.error("Error preordering: %s with %s for %s" % (fqu, payment_address, owner_address))
+        log.error("Error below\n%s" % json.dumps(resp, indent=4, sort_keys=True))
         return {'error': 'Failed to preorder: %s' % resp['error']}
 
     return resp
@@ -1388,11 +1388,11 @@ def async_register(fqu, payment_privkey_info, owner_address, owner_privkey_param
     # check register_queue first
     # stale preorder will get removed from preorder_queue
     if in_queue("register", fqu, path=queue_path):
-        log.debug("Already in register queue: %s" % fqu)
+        log.error("Already in register queue: %s" % fqu)
         return {'error': 'Already in register queue'}
 
     if not in_queue("preorder", fqu, path=queue_path):
-        log.debug("No preorder sent yet: %s" % fqu)
+        log.error("No preorder sent yet: %s" % fqu)
         return {'error': 'No preorder sent yet'}
 
     preorder_entry = queue_findone( "preorder", fqu, path=queue_path )
@@ -1404,7 +1404,7 @@ def async_register(fqu, payment_privkey_info, owner_address, owner_privkey_param
     tx_confirmations = get_tx_confirmations(preorder_tx, config_path=config_path)
 
     if tx_confirmations < PREORDER_CONFIRMATIONS:
-        log.debug("Waiting on preorder confirmations: (%s, %s)"
+        log.error("Waiting on preorder confirmations: (%s, %s)"
                   % (preorder_tx, tx_confirmations))
 
         return {'error': 'Waiting on preorder confirmations'}
@@ -1425,8 +1425,8 @@ def async_register(fqu, payment_privkey_info, owner_address, owner_privkey_param
         return resp
 
     else:
-        log.debug("Error registering: %s" % fqu)
-        log.debug(pprint(resp))
+        log.error("Error registering: %s" % fqu)
+        log.error(pprint(resp))
         return {'error': 'Failed to send registration'}
 
 
@@ -1458,7 +1458,7 @@ def async_update(fqu, zonefile_data, profile, owner_privkey_info, payment_privke
     owner_address = get_privkey_info_address( owner_privkey_info )
 
     if in_queue("update", fqu, path=queue_path):
-        log.debug("Already in update queue: %s" % fqu)
+        log.error("Already in update queue: %s" % fqu)
         return {'error': 'Already in update queue'}
 
     if zonefile_hash is None:
@@ -1512,7 +1512,7 @@ def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
     owner_address = get_privkey_info_address( owner_privkey_info )
 
     if in_queue("transfer", fqu, path=queue_path):
-        log.debug("Already in transfer queue: %s" % fqu)
+        log.error("Already in transfer queue: %s" % fqu)
         return {'error': 'Already in transfer queue'}
 
     try:
@@ -1528,8 +1528,8 @@ def async_transfer(fqu, transfer_address, owner_privkey_info, payment_privkey_in
                      config_path=config_path,
                      path=queue_path)
     else:
-        log.debug("Error transferring: %s" % fqu)
-        log.debug(resp)
+        log.error("Error transferring: %s" % fqu)
+        log.error(resp)
         return {'error': 'Failed to broadcast transfer transaction'}
 
     return resp
@@ -1553,7 +1553,7 @@ def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee, prox
 
     # check renew queue first
     if in_queue("renew", fqu, path=queue_path):
-        log.debug("Already in renew queue: %s" % fqu)
+        log.error("Already in renew queue: %s" % fqu)
         return {'error': 'Already in renew queue'}
 
     try:
@@ -1563,8 +1563,8 @@ def async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee, prox
         return {'error': 'Failed to sign and broadcast renewal transaction'}
 
     if 'error' in resp or 'transaction_hash' not in resp:
-        log.debug("Error renewing: %s" % fqu)
-        log.debug(resp)
+        log.error("Error renewing: %s" % fqu)
+        log.error(resp)
         return {'error': 'Failed to send renewal'}
 
     else:
@@ -1589,7 +1589,7 @@ def async_revoke(fqu, owner_privkey_info, payment_privkey_info, proxy=None, conf
     
     # check revoke queue first
     if in_queue("revoke", fqu, path=queue_path):
-        log.debug("Already in revoke queue: %s" % fqu)
+        log.error("Already in revoke queue: %s" % fqu)
         return {'error': 'Already in revoke queue'}
 
     try:
@@ -1599,8 +1599,8 @@ def async_revoke(fqu, owner_privkey_info, payment_privkey_info, proxy=None, conf
         return {'error': 'Failed to sign and broadcast revoke transaction'}
 
     if 'error' in resp or 'transaction_hash' not in resp:
-        log.debug("Error revoking: %s" % fqu)
-        log.debug(pprint(resp))
+        log.error("Error revoking: %s" % fqu)
+        log.error(resp)
         return {'error': 'Failed to send revoke'}
 
     else:
