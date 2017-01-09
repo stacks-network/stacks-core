@@ -607,7 +607,8 @@ def unlock_wallet(password=None, config_dir=CONFIG_DIR, wallet_path=None):
                 (wallet['payment_addresses'][0], wallet['payment_privkey']),
                 (wallet['owner_addresses'][0], wallet['owner_privkey']),
                 (wallet['data_pubkeys'][0], wallet['data_privkey']),
-                config_dir=config_dir
+                config_path=config_path
+
             )
         except KeyError as ke:
             if BLOCKSACK_DEBUG is not None:
@@ -736,7 +737,7 @@ def get_names_owned(address, proxy=None):
     return names_owned
 
 
-def save_keys_to_memory(payment_keypair, owner_keypair, data_keypair, config_dir=CONFIG_DIR):
+def save_keys_to_memory(payment_keypair, owner_keypair, data_keypair, config_path=CONFIG_PATH):
     """
     Save keys to the running RPC backend
     Each keypair must be a list or tuple with 2 items: the address, and the private key information.
@@ -745,11 +746,13 @@ def save_keys_to_memory(payment_keypair, owner_keypair, data_keypair, config_dir
     Return {'status': True} on success
     Return {'error': ...} on error
     """
+    conf = config.get_config(config_path)
+    config_dir = os.path.dirname(config_path)
     proxy = local_rpc_connect(config_dir=config_dir)
 
     log.debug('Saving keys to memory')
     try:
-        data = proxy.backend_set_wallet(payment_keypair, owner_keypair, data_keypair)
+        data = proxy.backend_set_wallet(conf['rpc_token'], payment_keypair, owner_keypair, data_keypair)
         return data
     except Exception as e:
         log.exception(e)

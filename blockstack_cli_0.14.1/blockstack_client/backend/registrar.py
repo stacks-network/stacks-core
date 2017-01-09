@@ -209,6 +209,9 @@ class RegistrarWorker(threading.Thread):
         """
         if proxy is None:
             proxy = get_default_proxy(config_path=config_path)
+    
+        conf = get_config(config_path)
+        assert conf
 
         if in_queue('update', name_data['fqu'], path=queue_path):
             # already processed 
@@ -219,7 +222,7 @@ class RegistrarWorker(threading.Thread):
             else:
                 raise Exception("Queue inconsistency: name '%s' is and is not pending update" % up_result['fqu'])
 
-        res = migrate( name_data['fqu'], config_path=config_path, proxy=proxy )
+        res = migrate( conf['rpc_token'], name_data['fqu'], config_path=config_path, proxy=proxy )
         assert 'success' in res
 
         if not res['success']:
@@ -654,12 +657,12 @@ class RegistrarWorker(threading.Thread):
             proxy = get_default_proxy( config_path=self.config_path )
 
             try:
-                wallet_data = get_wallet( self.rpc_token, config_path=self.config_path, proxy=proxy )
+                wallet_data = get_wallet( rpc_token=self.rpc_token, config_path=self.config_path, proxy=proxy )
 
                 # wait until the owner address is set 
                 while ('error' in wallet_data or wallet_data['owner_address'] is None) and self.running:
                     log.debug("Owner address not set... (%s)" % wallet_data.get("error", ""))
-                    wallet_data = get_wallet( self.rpc_token, config_path=self.config_path, proxy=proxy )
+                    wallet_data = get_wallet( rpc_token=self.rpc_token, config_path=self.config_path, proxy=proxy )
                     time.sleep(1.0)
                 
                 # preemption point
@@ -802,6 +805,7 @@ class RegistrarState(object):
         self.registrar_worker.join()
 
 
+# RPC method: backend_ping
 def ping():
     """
     Check if RPC daemon is alive
@@ -811,6 +815,7 @@ def ping():
     return data
 
 
+# RPC method: backend_state
 def state():
     """
     Return status on current registrations
@@ -822,6 +827,7 @@ def state():
     return json.dumps(data)
 
 
+# RPC method: backend_set_wallet
 def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=None, proxy=None):
     """
     Keeps payment privkey in memory (instead of disk)
@@ -882,13 +888,12 @@ def get_start_block(config_path=None, proxy=None):
     return state.server_started_at
 
 
-def get_wallet_payment_privkey_info(config_path=None, proxy=None):
+def get_wallet_payment_privkey_info(rpc_token, config_path=None, proxy=None):
     """
     Get the decrypted payment private key info from the wallet
     Return None if not set
     """
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
-    rpc_token = get_rpc_token(config_path)
     if state.encrypted_payment_privkey_info is None:
         return None
 
@@ -900,13 +905,12 @@ def get_wallet_payment_privkey_info(config_path=None, proxy=None):
     return privkey_info['private_key_info']
 
 
-def get_wallet_owner_privkey_info(config_path=None, proxy=None):
+def get_wallet_owner_privkey_info(rpc_token, config_path=None, proxy=None):
     """
     Get the decrypted owner private key info from the wallet
     Return None if not set
     """
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
-    rpc_token = get_rpc_token(config_path)
     if state.encrypted_owner_privkey_info is None:
         return None
 
@@ -918,13 +922,12 @@ def get_wallet_owner_privkey_info(config_path=None, proxy=None):
     return privkey_info['private_key_info']
 
 
-def get_wallet_data_privkey_info(config_path=None, proxy=None):
+def get_wallet_data_privkey_info(rpc_token, config_path=None, proxy=None):
     """
     Get the decrypted data private key info from the wallet
     Return None if not set
     """
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
-    rpc_token = get_rpc_token(config_path=config_path)
     if state.encrypted_data_privkey_info is None:
         return None 
 
@@ -936,6 +939,7 @@ def get_wallet_data_privkey_info(config_path=None, proxy=None):
     return privkey_info['private_key_info']
 
 
+# RPC method: backend_get_wallet
 def get_wallet(rpc_token=None, config_path=None, proxy=None):
     """
     Keeps payment privkey in memory (instead of disk)
@@ -952,7 +956,7 @@ def get_wallet(rpc_token=None, config_path=None, proxy=None):
         data['error'] = "Incorrect RPC token"
         return data
 
-    data_privkey_info = get_wallet_data_privkey_info(config_path=config_path, proxy=proxy)
+    data_privkey_info = get_wallet_data_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
     if data_privkey_info is None:
         data['error'] = "Unable to decrypt data private key"
         return data
@@ -961,9 +965,9 @@ def get_wallet(rpc_token=None, config_path=None, proxy=None):
     data['owner_address'] = state.owner_address
     data['data_pubkey'] = ECPrivateKey( data_privkey_info ).public_key().to_hex()
 
-    data['payment_privkey'] = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
-    data['owner_privkey'] = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
-    data['data_privkey'] = get_wallet_data_privkey_info(config_path=config_path, proxy=proxy)
+    data['payment_privkey'] = get_wallet_payment_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
+    data['owner_privkey'] = get_wallet_owner_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
+    data['data_privkey'] = get_wallet_data_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
 
     if data['payment_privkey'] is None or data['owner_privkey'] is None or data['data_privkey'] is None:
         data['error'] = "Failed to load private keys (wrong password?)"
@@ -971,7 +975,8 @@ def get_wallet(rpc_token=None, config_path=None, proxy=None):
     return data
 
 
-def preorder(fqu, config_path=None, proxy=None):
+# RPC method: backend_preorder
+def preorder(rpc_token, fqu, config_path=None, proxy=None):
     """
     Send preorder transaction and enter it in queue.
     The entered registration is picked up
@@ -1002,8 +1007,8 @@ def preorder(fqu, config_path=None, proxy=None):
         data['error'] = "Failed to look up name cost: %s" % cost_info['error']
         return data
 
-    payment_privkey_info = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
-    owner_privkey_info = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
+    payment_privkey_info = get_wallet_payment_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
+    owner_privkey_info = get_wallet_owner_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
     owner_privkey_params = get_privkey_info_params( owner_privkey_info )
     owner_address = get_privkey_info_address( owner_privkey_info )
 
@@ -1027,7 +1032,8 @@ def preorder(fqu, config_path=None, proxy=None):
     return data
 
 
-def update( fqu, zonefile_txt_b64, profile, zonefile_hash, config_path=None, proxy=None ):
+# RPC method: backend_update
+def update( rpc_token, fqu, zonefile_txt_b64, profile, zonefile_hash, config_path=None, proxy=None ):
     """
     Send a new zonefile hash.  Queue the zonefile data for subsequent replication.
     """
@@ -1059,8 +1065,8 @@ def update( fqu, zonefile_txt_b64, profile, zonefile_hash, config_path=None, pro
 
     resp = None
 
-    payment_privkey_info = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
-    owner_privkey_info = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
+    payment_privkey_info = get_wallet_payment_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
+    owner_privkey_info = get_wallet_owner_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
 
     replication_error = None
 
@@ -1099,7 +1105,8 @@ def update( fqu, zonefile_txt_b64, profile, zonefile_hash, config_path=None, pro
     return data
 
 
-def transfer(fqu, transfer_address, config_path=None, proxy=None ):
+# RPC method: backend_transfer
+def transfer(rpc_token, fqu, transfer_address, config_path=None, proxy=None ):
     """
     Send transfer transaction.
     Keeps the zonefile data.
@@ -1118,8 +1125,8 @@ def transfer(fqu, transfer_address, config_path=None, proxy=None ):
         data['error'] = "Already in queue."
         return data
 
-    payment_privkey_info = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
-    owner_privkey_info = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
+    payment_privkey_info = get_wallet_payment_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
+    owner_privkey_info = get_wallet_owner_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
 
     resp = None
     if not is_name_owner(fqu, transfer_address, proxy=proxy):
@@ -1146,7 +1153,8 @@ def transfer(fqu, transfer_address, config_path=None, proxy=None ):
     return data
 
 
-def migrate( fqu, config_path=None, proxy=None ):
+# RPC method: backend_migrate
+def migrate( rpc_token, fqu, config_path=None, proxy=None ):
     """
     Create an empty profile/zonefile for a name, and send the hash of the 
     zonefile to the blockchain.  Queue up the zonefile and profile for replication.
@@ -1190,8 +1198,8 @@ def migrate( fqu, config_path=None, proxy=None ):
     
     resp = None
 
-    payment_privkey_info = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
-    owner_privkey_info = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
+    payment_privkey_info = get_wallet_payment_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
+    owner_privkey_info = get_wallet_owner_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
     replication_error = None
 
     zonefile_txt = blockstack_zones.make_zone_file( user_zonefile )
@@ -1233,7 +1241,8 @@ def migrate( fqu, config_path=None, proxy=None ):
     return data
 
 
-def renew( fqu, renewal_fee, config_path=None, proxy=None ):
+# RPC method: backend_renew
+def renew( rpc_token, fqu, renewal_fee, config_path=None, proxy=None ):
     """
     Renew a name
     """
@@ -1253,8 +1262,8 @@ def renew( fqu, renewal_fee, config_path=None, proxy=None ):
 
     resp = None
 
-    payment_privkey_info = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
-    owner_privkey_info = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
+    payment_privkey_info = get_wallet_payment_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
+    owner_privkey_info = get_wallet_owner_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
 
     resp = async_renew(fqu, owner_privkey_info, payment_privkey_info, renewal_fee,
                        proxy=proxy,
@@ -1278,7 +1287,8 @@ def renew( fqu, renewal_fee, config_path=None, proxy=None ):
     return data
 
 
-def revoke( fqu, config_path=None, proxy=None ):
+# RPC method: backend_revoke
+def revoke( rpc_token, fqu, config_path=None, proxy=None ):
     """
     Revoke a name
     """
@@ -1298,8 +1308,8 @@ def revoke( fqu, config_path=None, proxy=None ):
 
     resp = None
 
-    payment_privkey_info = get_wallet_payment_privkey_info(config_path=config_path, proxy=proxy)
-    owner_privkey_info = get_wallet_owner_privkey_info(config_path=config_path, proxy=proxy)
+    payment_privkey_info = get_wallet_payment_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
+    owner_privkey_info = get_wallet_owner_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
 
     resp = async_revoke(fqu, owner_privkey_info, payment_privkey_info,
                         proxy=proxy,

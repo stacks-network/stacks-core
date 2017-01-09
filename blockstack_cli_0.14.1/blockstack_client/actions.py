@@ -699,13 +699,14 @@ def cli_get_registrar_info(args, config_path=CONFIG_PATH, queues=None):
 
     queues = ['preorder', 'register', 'update', 'transfer', 'renew', 'revoke'] if queues is None else queues
     config_dir = os.path.dirname(config_path)
+    conf = config.get_config(config_path)
 
     # connect to backend thread
     rpc = local_rpc_connect(config_dir=config_dir)
     if rpc is None:
         return {'error': 'Failed to connect to RPC endpoint'}
 
-    current_state = json.loads(rpc.backend_state())
+    current_state = json.loads(rpc.backend_state(conf['rpc_token']))
 
     queue_types = dict( [(queue_name, []) for queue_name in queues] )
 
@@ -1076,6 +1077,9 @@ def cli_register(args, config_path=CONFIG_PATH,
 
     proxy = get_default_proxy(config_path) if proxy is None else proxy
 
+    conf = config.get_config(config_path)
+    assert conf 
+
     config_dir = os.path.dirname(config_path)
     res = wallet_ensure_exists(config_dir)
     if 'error' in res:
@@ -1159,7 +1163,7 @@ def cli_register(args, config_path=CONFIG_PATH,
     rpc = local_rpc_connect(config_dir=config_dir)
 
     try:
-        resp = rpc.backend_preorder(fqu)
+        resp = rpc.backend_preorder(conf['rpc_token'], fqu)
     except:
         return {'error': 'Error talking to server, try again.'}
 
@@ -1202,6 +1206,9 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
     if hasattr(args, 'nonstandard') and not nonstandard:
         if args.nonstandard is not None and args.nonstandard.lower() in ['yes', '1', 'true']:
             nonstandard = True
+
+    conf = config.get_config(config_path)
+    assert conf
 
     config_dir = os.path.dirname(config_path)
     res = wallet_ensure_exists(config_dir)
@@ -1307,7 +1314,7 @@ def cli_update(args, config_path=CONFIG_PATH, password=None,
 
     try:
         resp = rpc.backend_update(
-            fqu, base64.b64encode(user_data_txt), None, user_data_hash
+            conf['rpc_token'], fqu, base64.b64encode(user_data_txt), None, user_data_hash
         )
     except Exception as e:
         log.exception(e)
@@ -1338,6 +1345,9 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
     arg: name (str) 'The name to transfer'
     arg: address (str) 'The address to receive the name'
     """
+
+    conf = config.get_config(config_path)
+    assert conf
 
     config_dir = os.path.dirname(config_path)
     res = wallet_ensure_exists(config_dir)
@@ -1383,7 +1393,7 @@ def cli_transfer(args, config_path=CONFIG_PATH, password=None, interactive=False
     rpc = local_rpc_connect(config_dir=config_dir)
 
     try:
-        resp = rpc.backend_transfer(fqu, transfer_address)
+        resp = rpc.backend_transfer(conf['rpc_token'], fqu, transfer_address)
     except:
         return {'error': 'Error talking to server, try again.'}
 
@@ -1412,6 +1422,9 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
+
+    conf = config.get_config(config_path)
+    assert conf
 
     config_dir = os.path.dirname(config_path)
     res = wallet_ensure_exists(config_dir)
@@ -1511,7 +1524,7 @@ def cli_renew(args, config_path=CONFIG_PATH, interactive=True, password=None, pr
     rpc = local_rpc_connect(config_dir=config_dir)
 
     try:
-        resp = rpc.backend_renew(fqu, name_price)
+        resp = rpc.backend_renew(conf['rpc_token'], fqu, name_price)
     except:
         return {'error': 'Error talking to server, try again.'}
 
@@ -1543,6 +1556,9 @@ def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, p
 
     if proxy is None:
         proxy = get_default_proxy(config_path)
+
+    conf = config.get_config(config_path)
+    assert conf
 
     config_dir = os.path.dirname(config_path)
     res = wallet_ensure_exists(config_dir)
@@ -1598,7 +1614,7 @@ def cli_revoke(args, config_path=CONFIG_PATH, interactive=True, password=None, p
     rpc = local_rpc_connect(config_dir=config_dir)
 
     try:
-        resp = rpc.backend_revoke(fqu)
+        resp = rpc.backend_revoke(conf['rpc_token'], fqu)
     except:
         return {'error': 'Error talking to server, try again.'}
 
@@ -1627,6 +1643,9 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     arg: name (str) 'The name to migrate'
     opt: txid (str) 'The transaction ID of a previously-sent but failed migration'
     """
+
+    conf = config.get_config(config_path)
+    assert conf
 
     config_dir = os.path.dirname(config_path)
     res = wallet_ensure_exists(config_dir)
@@ -1713,7 +1732,7 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     rpc = local_rpc_connect(config_dir=config_dir)
 
     try:
-        resp = rpc.backend_migrate(fqu)
+        resp = rpc.backend_migrate(conf['rpc_token'], fqu)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
@@ -2437,6 +2456,9 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
     arg: name (str) 'The name to update'
     arg: zonefile_hash (str) 'The RIPEMD160(SHA256(zonefile)) hash'
     """
+    conf = config.get_config(config_path)
+    assert conf
+
     config_dir = os.path.dirname(config_path)
     res = wallet_ensure_exists(config_dir, password=password)
     if 'error' in res:
@@ -2473,7 +2495,7 @@ def cli_set_zonefile_hash(args, config_path=CONFIG_PATH, password=None):
     rpc = local_rpc_connect(config_dir=config_dir)
 
     try:
-        resp = rpc.backend_update(fqu, None, None, zonefile_hash)
+        resp = rpc.backend_update(conf['rpc_token'], fqu, None, None, zonefile_hash)
     except Exception as e:
         log.exception(e)
         return {'error': 'Error talking to server, try again.'}
