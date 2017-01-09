@@ -1772,19 +1772,23 @@ def cli_set_advanced_mode(args, config_path=CONFIG_PATH):
 def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False):
     """
     command: import_wallet advanced
-    help: Set the payment, owner, and (optionally) data private keys for the wallet.
-    arg: payment_privkey (str) 'Payment private key'
-    arg: owner_privkey (str) 'Name owner private key'
-    opt: data_privkey (str) 'Data-signing private key'
+    help: Set the payment, owner, and data private keys for the wallet.
+    arg: payment_privkey (str) 'Payment private key.  M-of-n multisig is supported by passing the CSV string "m,n,pk1,pk2,...".'
+    arg: owner_privkey (str) 'Name owner private key.  M-of-n multisig is supported by passing the CSV string "m,n,pk1,pk2,...".'
+    arg: data_privkey (str) 'Data-signing private key.  Must be a single private key.'
     """
 
-    # BROKEN
+    # we require m and n, even though n can be inferred, so we can at least sanity-check the user's arguments.
+    # it's hard to get both n and the number of private keys wrong in the same way.
 
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+    backup_wallet_path = "{}.{}".format(wallet_path, int(time.time() * 1000))
+
     if force and os.path.exists(wallet_path):
-        # overwrite
-        os.unlink(wallet_path)
+        # back up
+        log.warning("Backing up wallet {} to {}".format(wallet_path, backup_wallet_path))
+        shutil.move(wallet_path, backup_wallet_path)
 
     if os.path.exists(wallet_path):
         msg = 'Back up or remove current wallet first: {}'
@@ -1806,27 +1810,78 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
             password = res['password']
             break
 
-    data_privkey = args.data_privkey
-    if data_privkey is None or not data_privkey:
-        # generate one, since it's an optional argument
-        data_privkey = virtualchain.BitcoinPrivateKey().to_wif()
-
-    # make absolutely certain that these are valid keys
     try:
-        assert args.payment_privkey
         assert args.owner_privkey
-        virtualchain.BitcoinPrivateKey(args.payment_privkey)
-        virtualchain.BitcoinPrivateKey(args.owner_privkey)
-        virtualchain.BitcoinPrivateKey(data_privkey)
-    except:
-        return {'error': 'Invalid payment or owner private key'}
+        assert args.payment_privkey
+        assert args.data_privkey
+    except Exception, e:
+        if BLOCKSTACK_DEBUG:
+            log.exception(e)
+        return {'error': 'Invalid private keys'}
 
-    # TODO: function signature of make_wallet does not match
-    data = make_wallet(
-        password, payment_privkey=args.payment_privkey,
-        owner_privkey=args.owner_privkey,
-        data_privkey=data_privkey, config_path=config_path
-    )
+    def parse_multisig_csv(multisig_csv):
+        """
+        Helper to parse 'm,n,pk1,pk2.,,,' into a virtualchain private key bundle.
+        """
+        parts = ",".split(multisig_csv)
+        m = None
+        n = None
+        try:
+            m = int(parts[0])
+            n = int(parts[1])
+            assert n <= m
+            assert len(parts[2:]) == n
+        except ValueError:
+            log.error("Invalid m, n")
+            return {'error': 'Unparseable m or n'}
+        except AssertionError:
+            log.error("Invalid argument: n must not exceed m, and there must be n private keys")
+            return {'error': 'Invalid argument: invalid values for m or n'}
+
+        keys = parts[2:]
+        key_info = None
+        try:
+            key_info = virtualchain.make_multisig_info(m, keys)
+        except Exception as e:
+            if BLOCKSTACK_DEBUG:
+                log.exception(e)
+
+            log.error("Failed to make multisig information from keys")
+            return {'error': 'Failed to make multisig information'}
+
+        return key_info
+
+    owner_privkey_info = None
+    payment_privkey_info = None
+    data_privkey_info = None
+
+    # make absolutely certain that these are valid keys or multisig key strings
+    try:
+        owner_privkey_info = virtualchain.BitcoinPrivateKey(args.owner_privkey)
+    except:
+        log.debug("Owner private key string is not a valid Bitcoin private key")
+        owner_privkey_info = parse_multisig_csv(args.owner_privkey)
+        if 'error' in owner_privkey_info:
+            return owner_privkey_info
+
+    try:
+        payment_privkey_info = virtualchain.BitcoinPrivateKey(args.payment_privkey)
+    except:
+        log.debug("Payment private key string is not a valid Bitcoin private key")
+        payment_privkey_info = parse_multisig_csv(args.payment_privkey)
+        if 'error' in payment_privkey_info:
+            return payment_privkey_info
+
+    try:
+        data_privkey_info = virtualchain.BitcoinPrivateKey(args.data_privkey)
+    except:
+        log.error("Only single private keys are supported for data at this time")
+        return {'error': 'Invalid data private key'}
+
+    data = make_wallet(password, config_path=config_path,
+            payment_privkey_info=payment_privkey_info,
+            owner_privkey_info=owner_privkey_info,
+            data_privkey_info=data_privkey_info )
 
     if 'error' in data:
         return data
