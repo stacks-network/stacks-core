@@ -377,6 +377,11 @@ def getinfo(proxy=None):
         log.exception(e)
         resp = json_traceback(resp.get('error'))
 
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
+        return resp
+
     return resp
 
 
@@ -414,6 +419,11 @@ def ping(proxy=None):
     except ValidationError as e:
         log.exception(e)
         resp = json_traceback(resp.get('error'))
+    
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
+        return resp
 
     return resp
 
@@ -453,6 +463,11 @@ def get_name_cost(name, proxy=None):
     except ValidationError as e:
         resp = json_traceback(resp.get('error'))
 
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
+        return resp
+
     return resp
 
 
@@ -488,6 +503,11 @@ def get_namespace_cost(namespace_id, proxy=None):
     except ValidationError as e:
         resp = json_traceback(resp.get('error'))
 
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
+        return resp
+
     return resp
 
 
@@ -516,7 +536,11 @@ def get_all_names_page(offset, count, proxy=None):
 
     schema = json_response_schema( page_schema )
 
-    assert count <= 100, 'Page too big: {}'.format(count)
+    try:
+        assert count <= 100, 'Page too big: {}'.format(count)
+    except AssertionError as ae:
+        log.exception(ae)
+        return {'error': 'Invalid page'}
 
     proxy = get_default_proxy() if proxy is None else proxy
 
@@ -535,6 +559,11 @@ def get_all_names_page(offset, count, proxy=None):
         resp = json_traceback(resp.get('error'))
         return resp
 
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
+        return resp
+
     return resp['names']
 
 
@@ -550,7 +579,8 @@ def get_num_names(proxy=None):
             'count': {
                 'type': 'integer',
             },
-        },
+        
+            },
         'required': [
             'count',
         ],
@@ -569,6 +599,11 @@ def get_num_names(proxy=None):
     except ValidationError as e:
         log.exception(e)
         resp = json_traceback(resp.get('error'))
+        return resp
+
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
         return resp
 
     return resp['count']
@@ -654,6 +689,11 @@ def get_all_namespaces(offset=None, count=None, proxy=None):
         resp = json_traceback(resp.get('error'))
         return resp
 
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
+        return resp
+
     stride = len(resp['namespaces']) if count is None else offset + count
     return resp['namespaces'][offset:stride]
 
@@ -702,6 +742,11 @@ def get_names_in_namespace_page(namespace_id, offset, count, proxy=None):
         resp = json_traceback(resp.get('error'))
         return resp
 
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
+        return resp
+
     return resp['names']
 
 
@@ -739,6 +784,11 @@ def get_num_names_in_namespace(namespace_id, proxy=None):
     except ValidationError as e:
         log.exception(e)
         resp = json_traceback(resp.get('error'))
+        return resp
+
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
         return resp
 
     return resp['count']
@@ -823,6 +873,11 @@ def get_names_owned_by_address(address, proxy=None):
         resp = json_traceback(resp.get('error'))
         return resp
 
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
+        return resp
+
     return resp['names']
 
 
@@ -857,6 +912,11 @@ def get_consensus_at(block_height, proxy=None):
             return resp
     except (ValidationError, AssertionError) as e:
         resp = json_traceback(resp.get('error'))
+        return resp
+
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
         return resp
 
     return resp['consensus']
@@ -902,6 +962,11 @@ def get_consensus_hashes(block_heights, proxy=None):
     except ValidationError as e:
         log.exception(e)
         resp = json_traceback(resp.get('error'))
+        return resp
+
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
         return resp
 
     consensus_hashes = resp['consensus_hashes']
@@ -976,6 +1041,11 @@ def get_block_from_consensus(consensus_hash, proxy=None):
         log.exception(ve)
         resp = json_traceback(resp.get('error'))
         return resp
+    
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
+        return resp
 
     return resp['block_id']
 
@@ -1016,6 +1086,10 @@ def get_name_history_blocks(name, proxy=None):
             return resp
     except ValidationError as e:
         resp = json_traceback(resp.get('error'))
+        return resp
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
         return resp
 
     return resp['history_blocks']
@@ -1060,6 +1134,11 @@ def get_name_at(name, block_id, proxy=None):
     except ValidationError as e:
         log.exception(e)
         resp = json_traceback(resp.get('error'))
+        return resp
+
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
         return resp
 
     return resp['records']
@@ -1174,6 +1253,11 @@ def get_op_history_rows(name, proxy=None):
         resp = json_traceback()
         return resp
 
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
+        return resp
+
     history_rows = []
     history_rows_count = history_rows_count['count']
     page_size = 10
@@ -1200,6 +1284,11 @@ def get_op_history_rows(name, proxy=None):
         except ValidationError as e:
             log.exception(e)
             resp = json_traceback(resp.get('error'))
+            return resp
+
+        except Exception as ee:
+            log.exception(ee)
+            resp = {'error': 'Failed to execute RPC method'}
             return resp
 
     return history_rows
@@ -1263,6 +1352,10 @@ def get_nameops_affected_at(block_id, proxy=None):
     except ValidationError as e:
         num_nameops = json_traceback()
         return num_nameops
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
+        return resp
 
     num_nameops = num_nameops['count']
 
@@ -1292,6 +1385,10 @@ def get_nameops_affected_at(block_id, proxy=None):
         except ValidationError as e:
             log.exception(e)
             resp = json_traceback(resp.get('error'))
+            return resp
+        except Exception as ee:
+            log.exception(ee)
+            resp = {'error': 'Failed to execute RPC method'}
             return resp
 
     return all_nameops
@@ -1388,6 +1485,10 @@ def get_nameops_hash_at(block_id, proxy=None):
     except ValidationError as e:
         resp = json_traceback(resp.get('error'))
         return resp
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
+        return resp
 
     return resp['ops_hash']
 
@@ -1434,6 +1535,10 @@ def get_name_blockchain_record(name, proxy=None):
         log.exception(e)
         resp = json_traceback(resp.get('error'))
         return resp
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
+        return resp
 
     return resp['record']
 
@@ -1478,6 +1583,10 @@ def get_namespace_blockchain_record(namespace_id, proxy=None):
         log.exception(e)
         ret = json_traceback(ret.get('error'))
         return ret
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
+        return resp
 
     return ret['record']
 
@@ -1609,6 +1718,11 @@ def get_zonefile_inventory(hostport, bit_offset, bit_count, timeout=30, my_hostp
         log.exception(e)
         zf_inv = {'error': 'Failed to fetch and parse zonefile inventory'}
 
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
+        return resp
+
     return zf_inv
 
 
@@ -1659,6 +1773,10 @@ def get_atlas_peers(hostport, timeout=30, my_hostport=None, proxy=None):
     except (ValidationError, AssertionError) as e:
         log.exception(e)
         peers = json_traceback()
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
+        return resp
 
     return peers
 
@@ -1723,6 +1841,10 @@ def get_zonefiles(hostport, zonefile_hashes, timeout=30, my_hostport=None, proxy
     except ValidationError as ve:
         log.exception(ve)
         zonefiles = json_traceback()
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
+        return resp
 
     return zonefiles
 
@@ -1766,5 +1888,9 @@ def put_zonefiles(hostport, zonefile_data_list, timeout=30, my_hostport=None, pr
     except ValidationError as e:
         log.exception(e)
         push_info = json_traceback()
+    except Exception as ee:
+        log.exception(ee)
+        resp = {'error': 'Failed to execute RPC method'}
+        return resp
 
     return push_info
