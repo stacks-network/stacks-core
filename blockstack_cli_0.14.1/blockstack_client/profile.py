@@ -260,7 +260,7 @@ def delete_profile(name, user_data_privkey=None, user_zonefile=None, owner_addre
 def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=None,
                      create_if_absent=False, proxy=None, user_zonefile=None, name_record=None,
                      include_name_record=False, include_raw_zonefile=False, use_zonefile_urls=True,
-                     use_legacy=False, decode_profile=True):
+                     use_legacy=False, use_legacy_zonefile=False, decode_profile=True):
     """
     Given a name, look up an associated profile.
     Do so by first looking up the zonefile the name points to,
@@ -269,12 +269,12 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
     This only works for *names on the blockchain*, where the profile's user ID is the name itself.
     It *will not work* for arbitrary user_ids.  Use get_user_profile for that.
 
-    Notes on backwards compatibility (activated if use_legacy=True):
-    * If the user's zonefile is really a legacy profile, then
+    Notes on backwards compatibility (activated if use_legacy=True and use_legacy_zonefile):
+    * (use_legacy=True) If the user's zonefile is really a legacy profile, then
     the profile returned will be the converted legacy profile.  The
     returned zonefile will still be a legacy profile, however.
     The caller can check this and perform the conversion automatically.
-    * If the name points to a current zonefile that does not have a 
+    * (use_legacy_zonefile=True) If the name points to a current zonefile that does not have a 
     public key, then the owner address of the name will be used to verify
     the profile's authenticity.
 
@@ -285,7 +285,6 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
     proxy = get_default_proxy() if proxy is None else proxy
 
     raw_zonefile = None
-
     if user_zonefile is None:
         user_zonefile = get_name_zonefile(
             name, create_if_absent=create_if_absent, proxy=proxy,
@@ -338,7 +337,7 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
             # so don't use them.
             user_data_pubkey = None
 
-        if not use_legacy and user_data_pubkey is None:
+        if not use_legacy_zonefile and user_data_pubkey is None:
             # legacy zonefile without a data public key 
             return (None, {'error': 'Name zonefile is missing a public key'})
 
