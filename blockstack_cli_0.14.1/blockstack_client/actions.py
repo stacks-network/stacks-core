@@ -1769,6 +1769,274 @@ def cli_set_advanced_mode(args, config_path=CONFIG_PATH):
     return {'status': True}
 
 
+def _get_person_profile(name, proxy=None):
+    """
+    Get the person's zonefile and profile.
+    Handle legacy zonefiles, but not legacy profiles.
+    Return {'profile': ..., 'zonefile': ..., 'person': ...} on success
+    Return {'error': ...} on error
+    """
+
+    profile, zonefile = get_name_profile(name, proxy=proxy, use_legacy_zonefile=True)
+    if 'error' in zonefile:
+        return {'error': 'Failed to load zonefile: {}'.format(zonefile['error'])}
+
+    if blockstack_profiles.is_profile_in_legacy_format(profile):
+        return {'error': 'Legacy profile'}
+
+    person = None
+    try:
+        person = blockstack_profiles.Person(profile)
+    except Exception as e:
+        log.exception(e)
+        return {'error': 'Failed to parse profile data into a Person record'}
+    
+    return {'profile': profile, 'zonefile': zonefile, 'person': person}
+
+
+def _save_person_profile(name, zonefile, profile, wallet_keys, proxy=None, config_path=CONFIG_PATH):
+    """
+    Save a person's profile, given information fetched with _get_person_profile
+    Return {'status': True} on success
+    Return {'error': ...} on error
+    """
+    conf = config.get_config(config_path)
+    assert conf
+
+    required_storage_drivers = conf.get(
+        'storage_drivers_required_write',
+        config.BLOCKSTACK_REQUIRED_STORAGE_DRIVERS_WRITE
+    )
+    required_storage_drivers = required_storage_drivers.split()
+
+    owner_address = get_privkey_info_address(wallet_keys['owner_privkey'])
+    res = put_profile(name, profile, user_zonefile=zonefile, owner_address=owner_address,
+                       wallet_keys=wallet_keys, proxy=proxy, required_drivers=required_storage_drivers )
+
+    return res
+
+
+def _list_accounts(name, proxy=None):
+    """
+    Get the list of accounts in a name's Person-formatted profile.
+    Return {'accounts': ...} on success
+    Return {'error': ...} on error
+    """
+
+    name_info = _get_person_profile(name, proxy=proxy)
+    if 'error' in name_info:
+        return name_info
+
+    profile = name_info.pop('profile')
+    zonefile = name_info.pop('zonefile')
+    person = name_info.pop('person')
+
+    accounts = []
+    if hasattr(person, 'account'):
+        accounts = person.account
+
+    return {'accounts': accounts}
+
+
+# TODO: consider deprecating for 0.15
+def cli_list_accounts( args, proxy=None, config_path=CONFIG_PATH ):
+    """
+    command: list_accounts advanced
+    help: List the set of accounts associated with a name.
+    arg: name (str) 'The name to query.'
+    """ 
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path=config_path)
+    
+    name = str(args.name)
+    account_info = _list_accounts(name, proxy=proxy )
+    if 'error' in account_info:
+        return account_info
+
+    return account_info['accounts']
+
+
+# TODO: consider deprecating for 0.15
+def cli_get_account( args, proxy=None, config_path=CONFIG_PATH ):
+    """
+    command: get_account advanced
+    help: Get a particular account from a name.
+    arg: name (str) 'The name to query.'
+    arg: service (str) 'The service for which this account was created.'
+    arg: identifier (str) 'The name of the account.'
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path=config_path)
+    
+    name = str(args.name)
+    service = str(args.service)
+    identifier = str(args.identifier)
+
+    account_info = _list_accounts(name, proxy=proxy )
+    if 'error' in account_info:
+        return account_info
+
+    accounts = account_info['accounts']
+    for account in accounts:
+        if not account.has_key('service') or not account.has_key('identifier'):
+            continue
+
+        if account['service'] == service and account['identifier'] == identifier:
+            return account
+
+    return {'error': 'No such account'}
+
+
+# TODO: consider deprecating for 0.15
+def cli_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None, wallet_keys=None ):
+    """
+    command: put_account advanced
+    help: Set a person's account's details.  If the account already exists, it will be overwritten.
+    arg: name (str) 'The name to query.'
+    arg: service (str) 'The service this account is for.'
+    arg: identifier (str) 'The name of the account.'
+    arg: content_url (str) 'The URL that points to external contact data.'
+    opt: extra_data (str) 'A comma-separated list of "name1=value1,name2=value2,name3=value3..." with any extra account information you need in the account.'
+    """
+    proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
+    config_dir = os.path.dirname(config_path)
+
+    if wallet_keys is None:
+        res = start_rpc_endpoint(config_dir)
+        if 'error' in res:
+            return res
+
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
+
+    name = str(args.name)
+    service = str(args.service)
+    identifier = str(args.identifier)
+    content_url = str(args.content_url)
+
+    if not is_name_valid(args.name):
+        return {'error': 'Invalid name'}
+
+    if len(args.service) == 0 or len(args.identifier) == 0 or len(args.content_url) == 0:
+        return {'error': 'Invalid data'}
+
+    # parse extra data 
+    extra_data = {}
+    if hasattr(args, "extra_data") and args.extra_data is not None:
+        extra_data_str = str(args.extra_data)
+        if len(extra_data_str) > 0:
+            extra_data_pairs = extra_data_str.split(",")
+            for p in extra_data_pairs:
+                if '=' not in p:
+                    return {'error': "Could not interpret '%s' in '%s'" % (p, extra_data_str)}
+
+                parts = p.split("=")
+                k = parts[0]
+                if k in ['service', 'identifier', 'contentUrl']:
+                    continue
+
+                v = "=".join(parts[1:])
+                extra_data[k] = v
+
+    person_info = _get_person_profile(name, proxy=proxy)
+    if 'error' in person_info:
+        return person_info
+
+    # make data
+    new_account = {
+        'service': service,
+        'identifier': identifier,
+        'contentUrl': content_url,
+    }
+    new_account.update(extra_data)
+
+    zonefile = person_info.pop('zonefile')
+    profile = person_info.pop('profile')
+    if not profile.has_key('account'):
+        profile['account'] = []
+
+    # overwrite existing, if given 
+    replaced = False
+    for i in xrange(0, len(profile['account'])):
+        account = profile['account'][i]
+        if not account.has_key('service') or not account.has_key('identifier'):
+            continue
+
+        if account['service'] == service and account['identifier'] == identifier:
+            profile['account'][i] = new_account
+            replaced = True
+            break
+
+    if not replaced:
+        profile['account'].append(new_account)
+
+    # save
+    result = _save_person_profile(name, zonefile, profile, wallet_keys, proxy=proxy, config_path=config_path)
+    return result
+
+
+# TODO: consider deprecating for 0.15
+def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None, wallet_keys=None ):
+    """
+    command: delete_account advanced
+    help: Delete a particular account.
+    arg: name (str) 'The name to query.'
+    arg: service (str) 'The service the account is for.'
+    arg: identifier (str) 'The identifier of the account to delete.'
+    """
+    proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
+
+    config_dir = os.path.dirname(config_path)
+    if wallet_keys is None:
+        res = start_rpc_endpoint(config_dir)
+        if 'error' in res:
+            return res
+
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
+
+    name = str(args.name)
+    service = str(args.service)
+    identifier = str(args.identifier)
+
+    if not is_name_valid(args.name):
+        return {'error': 'Invalid name'}
+
+    if len(args.service) == 0 or len(args.identifier) == 0:
+        return {'error': 'Invalid data'}
+
+    person_info = _get_person_profile(name, proxy=proxy)
+    if 'error' in person_info:
+        return person_info
+
+    zonefile = person_info['zonefile']
+    profile = person_info['profile']
+    if not profile.has_key('account'):
+        # nothing to do
+        return {'error': 'No such account'}
+
+    found = False
+    for i in xrange(0, len(profile['account'])):
+        account = profile['account'][i]
+        if not account.has_key('service') or not account.has_key('identifier'):
+            continue
+
+        if account['service'] == service and account['identifier'] == identifier:
+            profile['account'].pop(i)
+            found = True
+            break
+
+    if not found:
+        return {'error': 'No such account'}
+
+    result = _save_person_profile(name, zonefile, profile, wallet_keys, proxy=proxy, config_path=config_path)
+    return result
+
+
 def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False):
     """
     command: import_wallet advanced
@@ -2151,7 +2419,7 @@ def cli_put_mutable(args, config_path=CONFIG_PATH, password=None, proxy=None):
     if 'error' in wallet_keys:
         return wallet_keys
 
-    proxy = get_default_proxy() if proxy is None else proxy
+    proxy = get_default_proxy(config_path=config_path) if proxy is None else proxy
 
     result = put_mutable(
         fqu, str(args.data_id), str(args.data),
