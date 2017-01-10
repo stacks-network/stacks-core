@@ -44,6 +44,7 @@ import blockstack_profiles
 from config import get_logger
 from constants import CONFIG_PATH, BLOCKSTACK_TEST
 from scripts import is_name_valid
+import schemas
 import keys
 
 log = get_logger()
@@ -195,9 +196,9 @@ def serialize_mutable_data(data_json, privatekey_hex, pubkey_hex, profile=False)
     """
   
     if profile:
-        # profiles must conform to a particular standard
+        # profiles must conform to a particular standard format
         tokenized_data = blockstack_profiles.sign_token_records(
-            [data_json], privatekey
+            [data_json], privatekey_hex
         )
 
         del tokenized_data[0]['decodedToken']
@@ -207,6 +208,7 @@ def serialize_mutable_data(data_json, privatekey_hex, pubkey_hex, profile=False)
 
     
     else:
+        # version 2 for mutable data
         data_txt = json.dumps(data_json, sort_keys=True)
         data_sig = sign_raw_data(data_txt, privatekey_hex)
         res = "bsk2.{}.{}.{}".format(pubkey_hex, base64.b64encode(data_sig), data_txt)
@@ -232,6 +234,15 @@ def parse_mutable_data_v2(mutable_data_json_txt, public_key_hex, public_key_hash
     sig_b64 = str(parts[1])
     data_txt = str(parts[2])
 
+    if not re.match('^[0-9a-fA-F]+$', pubk_hex):
+        log.debug("Not a v2 mutable datum: Invalid public key")
+        return None 
+
+    if not re.match(schemas.OP_BASE64_PATTERN_SECTION, sig_b64):
+        log.debug("Not a v2 mutable datum: Invalid signature data")
+        return None
+
+    # validate 
     if keylib.key_formatting.get_pubkey_format(pubk_hex) == 'hex_compressed':
         pubk_hex = keylib.key_formatting.decompress(pubk_hex)
 
@@ -1006,36 +1017,10 @@ def blockstack_immutable_data_url(blockchain_id, data_id, data_hash):
     )
 
 
-def blockstack_app_data_url(blockchain_id, service_id, account_id, data_id, version):
-    """
-    Make a blockstack:// URL for application data
-    """
-    if version is None:
-        return 'blockstack://{}.{}@{}/{}'.format(
-            urllib.quote(account_id), urllib.quote(service_id),
-            urllib.quote(blockchain_id), urllib.quote(data_id)
-        )
-
-    if not isinstance(version, (int, long)):
-        raise ValueError('Version must be an int or a long')
-
-    # don't allow periods in the service ID
-    service_id = service_id.replace('.', '\\x2e')
-
-    # don't allow '@' in either the service or account IDs
-    service_id = service_id.replace('@', '\\x40')
-    account_id = account_id.replace('@', '\\x40')
-
-    return 'blockstack://{}.{}@{}/{}#{}'.format(
-        urllib.quote(account_id), urllib.quote(service_id),
-        urllib.quote(blockchain_id), urllib.quote(data_id), str(version)
-    )
-
-
 def blockstack_mutable_data_url_parse(url):
     """
     Parse a blockstack:// URL for mutable data
-    Return (blockchain ID, data ID, data version, account ID, service ID) on success
+    Return (blockchain ID, data ID, data version) on success
     * The version may be None if not given (in which case, the latest value is requested).
     * The data ID may be None, in which case, a listing of mutable data is requested.
     * account ID and service ID will be None for mutable data in the profile, but will be defined for app-specific mutable data
@@ -1045,29 +1030,9 @@ def blockstack_mutable_data_url_parse(url):
 
     url = str(url)
     mutable_url_data_regex = r'blockstack://({}+)[/]+({}+)(#[0-9]+)?'.format(B40_CLASS, URLENCODED_CLASS)
-    app_url_data_regex = r'blockstack://({}+)\.({}+)@({}+)[/]+({}+)(#[0-9]+)?'.format(
-        URLENCODED_CLASS, URLENCODED_CLASS, B40_CLASS, URLENCODED_CLASS
-    )
     mutable_url_listing_regex = r'blockstack://({}+)[/]+#mutable'.format(B40_CLASS)
 
     blockchain_id, data_id, version = None, None, None
-
-    # app?
-    m = re.match(app_url_data_regex, url)
-    if m:
-        account_id, service_id, blockchain_id, data_id, version = m.groups()
-        if not is_name_valid(blockchain_id):
-            raise ValueError('Invalid blockchain ID "{}"'.format(blockchain_id))
-
-        # version?
-        if version is not None:
-            version = version.strip('#')
-            version = int(version)
-
-        return (
-            urllib.unquote(blockchain_id), urllib.unquote(data_id),
-            version, urllib.unquote(account_id), urllib.unquote(service_id)
-        )
 
     # mutable?
     m = re.match(mutable_url_data_regex, url)
@@ -1082,7 +1047,7 @@ def blockstack_mutable_data_url_parse(url):
             version = version.strip('#')
             version = int(version)
 
-        return urllib.unquote(blockchain_id), urllib.unquote(data_id), version, None, None
+        return urllib.unquote(blockchain_id), urllib.unquote(data_id), version
     else:
         # maybe a listing?
         m = re.match(mutable_url_listing_regex, url)
@@ -1090,7 +1055,7 @@ def blockstack_mutable_data_url_parse(url):
             raise ValueError('Invalid URL: {}'.format(url))
 
         blockchain_id = m.groups()[0]
-        return urllib.unquote(blockchain_id), None, None, None, None
+        return urllib.unquote(blockchain_id), None, None
 
     return [None] * 5
 
@@ -1156,7 +1121,7 @@ def blockstack_data_url_parse(url):
     Return None on error
     """
 
-    blockchain_id, data_id, url_type, account_id, service_id = [None] * 5
+    blockchain_id, data_id, url_type = [None] * 3
     fields = {}
     app = False
 
@@ -1167,20 +1132,13 @@ def blockstack_data_url_parse(url):
     except Exception as e1:
         log.exception(e1)
         try:
-            blockchain_id, data_id, version, account_id, service_id = (
+            blockchain_id, data_id, version = (
                 blockstack_mutable_data_url_parse(url)
             )
 
             url_type = 'mutable'
             fields.update({'version': version})
 
-            app = account_id is not None and service_id is not None
-
-            if account_id is not None:
-                fields['account_id'] = account_id
-
-            if service_id is not None:
-                fields['service_id'] = service_id
         except Exception as e2:
             log.exception(e2)
             log.debug('Unparseable URL "{}"'.format(url))
@@ -1219,6 +1177,59 @@ def blockstack_data_url(field_dict):
     return blockstack_mutable_data_url(
         field_dict['blockchain_id'], field_dict['data_id'], field_dict['fields']['version']
     )
+
+
+def blockstack_url_fetch(url, proxy=None, config_path=CONFIG_PATH):
+    """
+    Given a blockstack:// url, fetch its data.
+    If the data is an immutable data url, and the hash is not given, then look up the hash first.
+    If the data is a mutable data url, and the version is not given, then look up the version as well.
+    Return {"data": data} on success
+    Return {"error": error message} on error
+    """
+    mutable = False
+    immutable = False
+    blockchain_id = None
+    data_id = None
+    version = None
+    data_hash = None
+
+    import data as data_mod
+
+    try:
+        blockchain_id, data_id, version = blockstack_mutable_data_url_parse( url )
+        mutable = True
+    except ValueError, ve:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
+        blockchain_id, data_id, data_hash = blockstack_immutable_data_url_parse( url )
+        immutable = True
+
+    if mutable:
+        if data_id is not None:
+            # get single data
+            if version is not None:
+                return data_mod.get_mutable( blockchain_id, data_id, proxy=proxy, ver_min=version, ver_max=version+1 )
+            else:
+                return data_mod.get_mutable( blockchain_id, data_id, proxy=proxy )
+
+        else:
+            # list data 
+            return data_mod.list_mutable_data( blockchain_id, proxy=proxy )
+
+    else:
+        if data_id is not None:
+            # get single data
+            if data_hash is not None:
+                return data_mod.get_immutable( blockchain_id, data_hash, data_id=data_id, proxy=proxy )
+
+            else:
+                return data_mod.get_immutable_by_name( blockchain_id, data_id, proxy=proxy )
+
+        else:
+            # list data
+            return data_mod.list_immutable_data( blockchain_id, proxy=proxy )
 
 
 class BlockstackURLHandle(object):
