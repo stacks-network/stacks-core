@@ -200,7 +200,7 @@ def estimate_renewal_tx_fee( name, renewal_fee, payment_privkey_info, owner_addr
         log.error("Insufficient funds:  Not enough inputs to make a renewal transaction.")
         return None
     except AssertionError, ae:
-        if os.environ.get("BLOCKSTACK_TEST") == "1":
+        if BLOCKSTACK_DEBUG:
             log.exception(ae)
 
         log.error("Unable to create transaction")
@@ -278,12 +278,14 @@ def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
 
         log.error("Insufficient funds:  Not enough inputs to make an update transaction.")
         return None 
+
     except AssertionError, ae:
-        if os.environ.get("BLOCKSTACK_TEST") == "1":
+        if BLOCKSTACK_DEBUG:
             log.exception(ae)
 
         log.error("Unable to create transaction")
         return None
+
     except Exception, e: 
         if os.environ.get("BLOCKSTACK_TEST") == "1":
             log.exception(e)
@@ -328,7 +330,10 @@ def estimate_transfer_tx_fee( name, payment_privkey_info, owner_address, utxo_cl
 
         log.error("Insufficient funds:  Not enough inputs to make a transfer transaction.")
         return None
-    except AssertionError:
+    except AssertionError as ae:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ve)
+
         log.error("Unable to make transaction")
         return None
 
@@ -368,7 +373,10 @@ def estimate_revoke_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
 
         log.error("Insufficient funds:  Not enough inputs to make a revoke transaction.")
         return None
-    except AssertionError:
+    except AssertionError as ae:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ae)
+
         log.error("Unable to make transaction")
         return None
 
@@ -787,7 +795,10 @@ def do_update( fqu, zonefile_hash, owner_privkey_info, payment_privkey_info, utx
         log.exception(ve)
         log.error("Failed to subsidize update TX")
         return {'error': 'Insufficient funds'}
-    except AssertionError:
+    except AssertionError as ae:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ae)
+
         log.error("Failed to create subsidized tx")
         return {'error': 'Unable to create transaction'}
 
@@ -869,7 +880,10 @@ def do_transfer( fqu, transfer_address, keep_data, owner_privkey_info, payment_p
     except ValueError:
         log.error("Failed to generate transfer tx")
         return {'error': 'Insufficient funds'}
-    except AssertionError:
+    except AssertionError as ae:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ae)
+
         log.error("Failed to subsidize transfer tx")
         return {'error': 'Unable to create transaction'}
 
@@ -937,7 +951,10 @@ def do_renewal( fqu, owner_privkey_info, payment_privkey_info, renewal_fee, utxo
     except ValueError:
         log.error("Failed to generate renewal tx")
         return {'error': 'Insufficient funds'}
-    except AssertionError:
+    except AssertionError as ae:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ae)
+
         log.error("Failed to subsidize renewal tx")
         return {'error': 'Unable to create transaction'}
 
@@ -994,7 +1011,10 @@ def do_revoke( fqu, owner_privkey_info, payment_privkey_info, utxo_client, tx_br
     except ValueError:
         log.error("Failed to generate revoke tx")
         return {'error': 'Insufficient funds'}
-    except AssertionError:
+    except AssertionError as ae:
+        if BLOCKSTACK_DEBUG:
+            log.exception(ae)
+
         log.error("Failed to subsidize revoke tx")
         return {'error': 'Unable to create transaction'}
 
