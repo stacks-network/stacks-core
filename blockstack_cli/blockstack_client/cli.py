@@ -180,6 +180,10 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
             else:
                 i+=1
 
+    if '-v' in argv or '--version' in argv:
+        print config.VERSION
+        return {}
+
     conf = config.get_config(path=config_path)
 
     if conf is None:
@@ -214,7 +218,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
         all_methods += advanced_method_info
 
     # Print default help message, if no argument is given
-    if len(argv) == 1:
+    if len(argv) == 1 or '-h' in argv:
         parser.print_help()
         return {}
 
