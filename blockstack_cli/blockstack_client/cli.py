@@ -164,6 +164,11 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     if argv is None:
         argv = sys.argv
 
+    # only version?
+    if '-v' in argv or '--version' in argv:
+        print config.VERSION
+        sys.exit(0)
+
     # alternative config path?
     if '-c' in argv or '--config' in argv:
         i = 1
@@ -179,10 +184,6 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
 
             else:
                 i+=1
-
-    if '-v' in argv or '--version' in argv:
-        print config.VERSION
-        return {}
 
     conf = config.get_config(path=config_path)
 
