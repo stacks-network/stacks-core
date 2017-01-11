@@ -138,6 +138,10 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     if argv is None:
         argv = sys.argv
 
+    if '-v' in argv or '--version' in argv:
+        print(VERSION)
+        sys.exit(0)
+
     # alternative config path?
     if '-c' in argv or '--config' in argv:
         i = 1
@@ -190,7 +194,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
         all_methods = filter( lambda m: 'advanced' not in m['pragmas'], all_methods ) 
 
     # Print default help message, if no argument is given
-    if len(argv) == 1:
+    if len(argv) == 1 or '-h' in argv or '--help' in argv:
         parser.print_help()
         return {}
 
