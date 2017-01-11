@@ -215,7 +215,7 @@ def operation_sanity_check(fqu, payment_privkey_info, owner_privkey_info, config
     balance = get_balance( payment_address, config_path=config_path )
 
     if balance < tx_fee:
-        return {'error': 'Address %s doesn\'t have a sufficient balance (need %s).' % (payment_address, balance)}
+        return {'error': 'Address %s doesn\'t have a sufficient balance (need %s, have %s).' % (payment_address, tx_fee, balance)}
 
     if not is_address_usable(payment_address, config_path=config_path):
         return {'error': 'Address %s has insufficiently confirmed transactions.  Wait and try later.' % payment_address}
