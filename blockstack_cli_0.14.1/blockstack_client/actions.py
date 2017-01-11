@@ -1639,9 +1639,8 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
                 proxy=None, interactive=True, force=False):
     """
     command: migrate
-    help: Migrate a name-linked profile to the latest profile format
+    help: Migrate a name-linked profile to the latest zonefile and profile format
     arg: name (str) 'The name to migrate'
-    opt: txid (str) 'The transaction ID of a previously-sent but failed migration'
     """
 
     conf = config.get_config(config_path)
@@ -1717,8 +1716,10 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
                 proceed = proceed_str.lower() in ['y']
                 if not proceed:
                     return {'error': 'Non-standard zonefile'}
+
             elif not force:
                 return {'error': 'Non-standard zonefile'}
+
         # is current and either standard or legacy?
         elif not legacy and not force:
             if current:
@@ -2051,12 +2052,10 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
 
     config_dir = os.path.dirname(config_path)
     wallet_path = os.path.join(config_dir, WALLET_FILENAME)
-    backup_wallet_path = "{}.{}".format(wallet_path, int(time.time() * 1000))
 
     if force and os.path.exists(wallet_path):
         # back up
-        log.warning("Backing up wallet {} to {}".format(wallet_path, backup_wallet_path))
-        shutil.move(wallet_path, backup_wallet_path)
+        backup_wallet(wallet_path)
 
     if os.path.exists(wallet_path):
         msg = 'Back up or remove current wallet first: {}'
@@ -2125,7 +2124,7 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
 
     # make absolutely certain that these are valid keys or multisig key strings
     try:
-        owner_privkey_info = virtualchain.BitcoinPrivateKey(args.owner_privkey)
+        owner_privkey_info = virtualchain.BitcoinPrivateKey(str(args.owner_privkey)).to_hex()
     except:
         log.debug("Owner private key string is not a valid Bitcoin private key")
         owner_privkey_info = parse_multisig_csv(args.owner_privkey)
@@ -2133,7 +2132,7 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
             return owner_privkey_info
 
     try:
-        payment_privkey_info = virtualchain.BitcoinPrivateKey(args.payment_privkey)
+        payment_privkey_info = virtualchain.BitcoinPrivateKey(str(args.payment_privkey)).to_hex()
     except:
         log.debug("Payment private key string is not a valid Bitcoin private key")
         payment_privkey_info = parse_multisig_csv(args.payment_privkey)
@@ -2141,7 +2140,7 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
             return payment_privkey_info
 
     try:
-        data_privkey_info = virtualchain.BitcoinPrivateKey(args.data_privkey)
+        data_privkey_info = virtualchain.BitcoinPrivateKey(str(args.data_privkey)).to_hex()
     except:
         log.error("Only single private keys are supported for data at this time")
         return {'error': 'Invalid data private key'}
