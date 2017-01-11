@@ -81,14 +81,17 @@ def _make_encrypted_wallet_data(password, payment_privkey_info, owner_privkey_in
 
     enc_payment_info = encrypt_private_key_info(payment_privkey_info, password)
     if 'error' in enc_payment_info:
+        log.error('failed to encrypt payment private key info')
         return {'error': enc_payment_info['error']}
 
     enc_owner_info = encrypt_private_key_info(owner_privkey_info, password)
     if 'error' in enc_owner_info:
+        log.error('failed to encrypt owner private key info')
         return {'error': enc_owner_info['error']}
 
     enc_data_info = encrypt_private_key_info(data_privkey_info, password)
     if 'error' in enc_data_info:
+        log.error('failed to encrypt data private key info')
         return {'error': enc_data_info['error']}
 
     payment_addr = enc_payment_info['encrypted_private_key_info']['address']
@@ -150,11 +153,7 @@ def make_wallet(password, config_path=CONFIG_PATH, payment_privkey_info=None, ow
     Return the new wallet on success.
     Return {'error': ...} on failure
     """
-
-    if not BLOCKSTACK_TEST:
-        for kw in [payment_privkey_info, owner_privkey_info, data_privkey_info]:
-            assert kw is None, "BUG: make_wallet() does not take private key information unless in test mode"
-
+    
     # default to 2-of-3 multisig key info if data isn't given
     payment_privkey_info = virtualchain.make_multisig_wallet(2, 3) if payment_privkey_info is None else payment_privkey_info
     owner_privkey_info = virtualchain.make_multisig_wallet(2, 3) if owner_privkey_info is None else owner_privkey_info
@@ -543,7 +542,7 @@ def backup_wallet(wallet_path):
         time.sleep(1.0)
         legacy_path = os.path.join(wallet_path, ".legacy.{}".format(int(time.time())))
 
-    log.debug('Back up legacy wallet from {} to {}'.format(wallet_path, legacy_path))
+    log.warning('Back up old wallet from {} to {}'.format(wallet_path, legacy_path))
     shutil.move(wallet_path, legacy_path)
     return True
 
