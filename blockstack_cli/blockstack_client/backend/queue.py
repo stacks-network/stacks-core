@@ -26,6 +26,8 @@ import os
 import sys
 import json
 import base64
+import random
+import time
 
 from ..config import DEFAULT_QUEUE_PATH, QUEUE_LENGTH_TO_MONITOR, PREORDER_MAX_CONFIRMATIONS, CONFIG_PATH
 from ..proxy import get_default_proxy
@@ -112,14 +114,28 @@ def queuedb_query_execute( cur, query, values ):
     DO NOT CALL THIS DIRECTLY.
     """
 
-    try:
-        ret = cur.execute( query, values )
-        return ret
-    except Exception, e:
-        log.exception(e)
-        log.error("FATAL: failed to execute query (%s, %s)" % (query, values))
-        log.error("\n".join(traceback.format_stack()))
-        os.abort()
+    timeout = 1.0
+    while True:
+        try:
+            ret = cur.execute( query, values )
+            return ret
+        except sqlite3.OperationalError as oe:
+            if oe.message == "database is locked":
+                timeout = timeout * 2 + timeout * random.random()
+                log.error("Query timed out due to lock; retrying in %s: %s" % (timeout, namedb_format_query( query, values )))
+                time.sleep(timeout)
+            
+            else:
+                log.exception(oe)
+                log.error("FATAL: failed to execute query (%s, %s)" % (query, values))
+                log.error("\n".join(traceback.format_stack()))
+                os.abort()
+
+        except Exception, e:
+            log.exception(e)
+            log.error("FATAL: failed to execute query (%s, %s)" % (query, values))
+            log.error("\n".join(traceback.format_stack()))
+            os.abort()
 
 
 def queuedb_find( queue_id, fqu, limit=None, path=DEFAULT_QUEUE_PATH ):
