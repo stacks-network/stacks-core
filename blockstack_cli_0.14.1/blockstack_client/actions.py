@@ -271,10 +271,10 @@ def operation_sanity_check(fqu, payment_privkey_info, owner_privkey_info,
     # get tx fee
     if transfer_address is not None:
         estimate_func = estimate_transfer_tx_fee
-        approx_tx_fee = '00' * APPROX_TRANSFER_TX_LEN
+        approx_tx = '00' * APPROX_TRANSFER_TX_LEN
     else:
         estimate_func = estimate_update_tx_fee
-        approx_tx_fee = '00' * APPROX_UPDATE_TX_LEN
+        approx_tx = '00' * APPROX_UPDATE_TX_LEN
 
     tx_fee = estimate_func(
         fqu, payment_privkey_info, owner_address, utxo_client,
@@ -284,7 +284,7 @@ def operation_sanity_check(fqu, payment_privkey_info, owner_privkey_info,
 
     if tx_fee is None:
         # do our best
-        tx_fee = get_tx_fee(approx_tx_fee, config_path=config_path)
+        tx_fee = get_tx_fee(approx_tx, config_path=config_path)
 
     if tx_fee is None:
         return {'error': 'Failed to get fee estimate'}
@@ -295,8 +295,8 @@ def operation_sanity_check(fqu, payment_privkey_info, owner_privkey_info,
         return {'error': msg}
 
     if balance < tx_fee:
-        msg = 'Address {} does not have a sufficient balance (need {}).'
-        return {'error': msg.format(payment_address, balance)}
+        msg = 'Address {} does not have a sufficient balance (need {}, have {}).'
+        return {'error': msg.format(payment_address, balance, tx_fee)}
 
     if not is_address_usable(payment_address, config_path=config_path):
         msg = 'Address {} has insufficiently confirmed transactions. Wait and try later.'
@@ -890,7 +890,7 @@ def cli_lookup(args, config_path=CONFIG_PATH):
 
     try:
         user_profile, user_zonefile = get_name_profile(
-            str(args.name), name_record=blockchain_record, include_raw_zonefile=True, use_legacy=True
+            str(args.name), name_record=blockchain_record, include_raw_zonefile=True, use_legacy=True, use_legacy_zonefile=True
         )
 
         if isinstance(user_zonefile, dict) and 'error' in user_zonefile:
@@ -2090,18 +2090,22 @@ def cli_import_wallet(args, config_path=CONFIG_PATH, password=None, force=False)
         """
         Helper to parse 'm,n,pk1,pk2.,,,' into a virtualchain private key bundle.
         """
-        parts = ",".split(multisig_csv)
+        parts = multisig_csv.split(',')
         m = None
         n = None
         try:
             m = int(parts[0])
             n = int(parts[1])
-            assert n <= m
+            assert m <= n
             assert len(parts[2:]) == n
-        except ValueError:
+        except ValueError as ve:
+            log.exception(ve)
+            log.debug("Invalid multisig CSV {}".format(multisig_csv))
             log.error("Invalid m, n")
             return {'error': 'Unparseable m or n'}
-        except AssertionError:
+        except AssertionError as ae:
+            log.exception(ae)
+            log.debug("Invalid multisig CSV {}".format(multisig_csv))
             log.error("Invalid argument: n must not exceed m, and there must be n private keys")
             return {'error': 'Invalid argument: invalid values for m or n'}
 
@@ -3719,6 +3723,66 @@ def cli_delete_user_profile(args, proxy=None, config_path=CONFIG_PATH, password=
 
     res = delete_profile(user_id, user_data_privkey=user_privkey_hex)
     return res
+
+
+def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, interactive=False ):
+    """
+    command: sign_profile
+    help: Sign a JSON file to be used as a profile.
+    arg: path (str) 'The path to the profile data on disk.'
+    opt: privkey (str) 'The optional private key to sign it with (defaults to the data private key in your wallet)'
+    """
+
+    if proxy is None:
+        proxy = get_default_proxy(config_path=config_path)
+    
+    config_dir = os.path.dirname(config_path)
+    path = str(args.path)
+    data_json = None
+    try:
+        with open(path, 'r') as f:
+            dat = f.read()
+            data_json = json.loads(dat)
+    except Exception as e:
+        if os.environ.get("BLOCKSTACK_DEBUG") == "1":
+            log.exception(e)
+
+        log.error("Failed to load {}".format(path))
+        return {'error': 'Failed to load {}'.format(path)}
+
+    privkey = None
+    if hasattr(args, "privkey") and args.privkey:
+        privkey = str(args.privkey)
+
+    else:
+        res = wallet_ensure_exists(config_dir, password=password)
+        if 'error' in res:
+            return res
+
+        res = start_rpc_endpoint(config_dir, password=password)
+        if 'error' in res:
+            return res
+
+        wallet_keys = get_wallet_keys( config_path, password )
+        if 'error' in wallet_keys:
+            return wallet_keys
+
+        if not wallet_keys.has_key('data_privkey'):
+            log.error("No data private key in the wallet.  You may need to explicitly select a private key.")
+            return {'error': 'No data private key set.\nTry passing your owner private key.'}
+
+        privkey = wallet_keys['data_privkey']
+
+    privkey = ECPrivateKey(privkey).to_hex()
+    pubkey = get_pubkey_hex(privkey)
+
+    res = storage.serialize_mutable_data(data_json, privkey, pubkey, profile=True)
+    if res is None:
+        return {'error': 'Failed to sign and serialize profile'}
+
+    # sanity check 
+    assert storage.parse_mutable_data(res, pubkey)
+    return json.loads(res) 
 
 
 def make_account_datastore(account_info, user_privkey_hex, driver_names=None, config_path=CONFIG_PATH ):
