@@ -78,38 +78,56 @@ def _make_encrypted_wallet_data(password, payment_privkey_info, owner_privkey_in
     """
    
     data = {}
+    
+    enc_payment_info = None
+    enc_owner_info = None
+    enc_data_info = None
 
-    enc_payment_info = encrypt_private_key_info(payment_privkey_info, password)
-    if 'error' in enc_payment_info:
-        log.error('failed to encrypt payment private key info')
-        return {'error': enc_payment_info['error']}
+    if not BLOCKSTACK_TEST:
+        # legacy wallets (which we test for) may omit these.
+        # when running in production, this is prohibited.
+        assert payment_privkey_info
+        assert owner_privkey_info
+        assert data_privkey_info
 
-    enc_owner_info = encrypt_private_key_info(owner_privkey_info, password)
-    if 'error' in enc_owner_info:
-        log.error('failed to encrypt owner private key info')
-        return {'error': enc_owner_info['error']}
+    if payment_privkey_info is not None:
+        enc_payment_info = encrypt_private_key_info(payment_privkey_info, password)
+        if 'error' in enc_payment_info:
+            log.error('failed to encrypt payment private key info')
+            return {'error': enc_payment_info['error']}
 
-    enc_data_info = encrypt_private_key_info(data_privkey_info, password)
-    if 'error' in enc_data_info:
-        log.error('failed to encrypt data private key info')
-        return {'error': enc_data_info['error']}
+    if owner_privkey_info is not None:
+        enc_owner_info = encrypt_private_key_info(owner_privkey_info, password)
+        if 'error' in enc_owner_info:
+            log.error('failed to encrypt owner private key info')
+            return {'error': enc_owner_info['error']}
 
-    payment_addr = enc_payment_info['encrypted_private_key_info']['address']
-    owner_addr = enc_owner_info['encrypted_private_key_info']['address']
+    if data_privkey_info is not None:
+        enc_data_info = encrypt_private_key_info(data_privkey_info, password)
+        if 'error' in enc_data_info:
+            log.error('failed to encrypt data private key info')
+            return {'error': enc_data_info['error']}
 
-    enc_payment_info = enc_payment_info['encrypted_private_key_info']['private_key_info']
-    enc_owner_info = enc_owner_info['encrypted_private_key_info']['private_key_info']
-    enc_data_info = enc_data_info['encrypted_private_key_info']['private_key_info']
+    if enc_payment_info is not None:
+        payment_addr = enc_payment_info['encrypted_private_key_info']['address']
+        enc_payment_info = enc_payment_info['encrypted_private_key_info']['private_key_info']
+       
+        data['encrypted_payment_privkey'] = enc_payment_info
+        data['payment_addresses'] = [payment_addr]
 
-    data['encrypted_payment_privkey'] = enc_payment_info
-    data['payment_addresses'] = [payment_addr]
+    if enc_owner_info is not None:
+        owner_addr = enc_owner_info['encrypted_private_key_info']['address']
+        enc_owner_info = enc_owner_info['encrypted_private_key_info']['private_key_info']
 
-    data['encrypted_owner_privkey'] = enc_owner_info
-    data['owner_addresses'] = [owner_addr]
+        data['encrypted_owner_privkey'] = enc_owner_info
+        data['owner_addresses'] = [owner_addr]
 
-    data['encrypted_data_privkey'] = enc_data_info
-    data['data_pubkeys'] = [ECPrivateKey(data_privkey_info).public_key().to_hex()]
-    data['data_pubkey'] = data['data_pubkeys'][0]
+    if enc_data_info is not None:
+        enc_data_info = enc_data_info['encrypted_private_key_info']['private_key_info']
+
+        data['encrypted_data_privkey'] = enc_data_info
+        data['data_pubkeys'] = [ECPrivateKey(data_privkey_info).public_key().to_hex()]
+        data['data_pubkey'] = data['data_pubkeys'][0]
 
     return data
 
@@ -122,7 +140,8 @@ def encrypt_wallet(wallet, password):
     """
     
     # must be conformant to the current schema 
-    jsonschema.validate(wallet, WALLET_SCHEMA_CURRENT)
+    if not BLOCKSTACK_TEST:
+        jsonschema.validate(wallet, WALLET_SCHEMA_CURRENT)
 
     payment_privkey_info = wallet['payment_privkey']
     owner_privkey_info = wallet['owner_privkey']
@@ -137,8 +156,10 @@ def encrypt_wallet(wallet, password):
     if 'error' in encrypted_wallet:
         return encrypted_wallet
 
-    # sanity check
-    jsonschema.validate(wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT)
+    # sanity check, but only if we're not testing (since we want to test legacy wallets in tests)
+    if not BLOCKSTACK_TEST:
+        jsonschema.validate(wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT)
+
     return encrypted_wallet
 
 
@@ -148,24 +169,24 @@ def make_wallet(password, config_path=CONFIG_PATH, payment_privkey_info=None, ow
     The owner and payment keys will be 2-of-3 multisig key bundles.
     The data keypair will be a single-key bundle.
 
-    Do not use the keyword arguments unless we're testing.
-
     Return the new wallet on success.
     Return {'error': ...} on failure
     """
     
     # default to 2-of-3 multisig key info if data isn't given
-    payment_privkey_info = virtualchain.make_multisig_wallet(2, 3) if payment_privkey_info is None else payment_privkey_info
-    owner_privkey_info = virtualchain.make_multisig_wallet(2, 3) if owner_privkey_info is None else owner_privkey_info
-    data_privkey_info = ECPrivateKey().to_wif() if data_privkey_info is None else data_privkey_info
+    payment_privkey_info = virtualchain.make_multisig_wallet(2, 3) if payment_privkey_info is None and not BLOCKSTACK_TEST else payment_privkey_info
+    owner_privkey_info = virtualchain.make_multisig_wallet(2, 3) if owner_privkey_info is None and not BLOCKSTACK_TEST else owner_privkey_info
+    data_privkey_info = ECPrivateKey().to_wif() if data_privkey_info is None and not BLOCKSTACK_TEST else data_privkey_info
 
     new_wallet = _make_encrypted_wallet_data(password, payment_privkey_info, owner_privkey_info, data_privkey_info)
 
     if 'error' in new_wallet:
         return new_wallet
 
-    # sanity check 
-    jsonschema.validate(new_wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT)
+    # sanity check, but only if we're not testing (since we want to test with legacy wallets)
+    if not BLOCKSTACK_TEST:
+        jsonschema.validate(new_wallet, ENCRYPTED_WALLET_SCHEMA_CURRENT)
+
     return new_wallet
 
 
@@ -269,12 +290,14 @@ def decrypt_wallet(data, password, config_path=CONFIG_PATH,
             jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_LEGACY)
             legacy = True
         except ValidationError, ve2:
-            log.exception(ve2)
-            log.error('Invalid wallet data')
-            return {'error': 'Invalid wallet data'}
+            if not BLOCKSTACK_TEST:
+                # if in production, this is fatal
+                log.exception(ve2)
+                log.error('Invalid wallet data')
+                return {'error': 'Invalid wallet data'}
 
     legacy_hdwallet = None
-    legacy_key_defaults = {}
+    key_defaults = {}
     new_wallet = {}
     ret = {}
 
@@ -282,7 +305,7 @@ def decrypt_wallet(data, password, config_path=CONFIG_PATH,
         msg = 'Cannot decrypt at this time.  Try again in {} seconds'
         return {'error': msg.format(time_until_next_decrypt_attempt())}
 
-    # legacy wallets use a hierarchical deterministic private key.
+    # legacy wallets use a hierarchical deterministic private key for owner, payment, and data keys.
     # get that key first, if needed.
     if legacy:
         hex_password = hexlify(password)
@@ -340,34 +363,44 @@ def decrypt_wallet(data, password, config_path=CONFIG_PATH,
 
         else:
 
-            # Legacy migration: this key is not defined in the wallet.
-            # Derive it from the master key.
-            assert keyname in key_defaults, 'BUG: no legacy hex private key for {}'.format(keyname)
+            # Legacy migration: this key is not defined in the wallet.  Use the key derived from the master,
+            # if this key is defined (and it might not be, if it's the data key).
+            if legacy:
+                assert keyname in key_defaults, 'BUG: no legacy hex private key for {}'.format(keyname)
 
-            default_keypair = key_defaults[keyname]
-            new_wallet[keyname_privkey] = default_keypair[1]
-            new_wallet[keyname_addresses] = [
-                virtualchain.BitcoinPrivateKey(new_wallet[keyname_privkey]).public_key().address()
-            ]
+                default_keypair = key_defaults[keyname]
+                new_wallet[keyname_privkey] = default_keypair[1]
+                new_wallet[keyname_addresses] = [
+                    virtualchain.BitcoinPrivateKey(new_wallet[keyname_privkey]).public_key().address()
+                ]
 
-            migrated = True
+                migrated = True
 
-    data_pubkey = ECPrivateKey(str(new_wallet['data_privkey'])).public_key().to_hex()
-    if keylib.key_formatting.get_pubkey_format(data_pubkey) == 'hex_compressed':
-        data_pubkey = keylib.key_formatting.decompress(data_pubkey)
+            else:
+                # all keys must be present or this must be a legacy HD wallet, unless we're testing 
+                # (i.e. some wallets lack a data key)
+                assert BLOCKSTACK_TEST
 
-    data_pubkey = str(data_pubkey)
+    
+    if not BLOCKSTACK_TEST:
+        # add data keys
+        assert new_wallet.has_key('data_privkey')
+        data_pubkey = ECPrivateKey(str(new_wallet['data_privkey'])).public_key().to_hex()
+        if keylib.key_formatting.get_pubkey_format(data_pubkey) == 'hex_compressed':
+            data_pubkey = keylib.key_formatting.decompress(data_pubkey)
 
-    new_wallet['data_pubkeys'] = [data_pubkey]
-    new_wallet['data_pubkey'] = data_pubkey
+        data_pubkey = str(data_pubkey)
 
-    # sanity check--must be decrypted
-    try:
-        jsonschema.validate(new_wallet, WALLET_SCHEMA_CURRENT)
-    except ValidationError as e:
-        log.exception(e)
-        log.error("FATAL: BUG: invalid wallet generated")
-        os.abort()
+        new_wallet['data_pubkeys'] = [data_pubkey]
+        new_wallet['data_pubkey'] = data_pubkey
+        
+        # sanity check--must be decrypted properly
+        try:
+            jsonschema.validate(new_wallet, WALLET_SCHEMA_CURRENT)
+        except ValidationError as e:
+            log.exception(e)
+            log.error("FATAL: BUG: invalid wallet generated")
+            os.abort()
 
     ret = {
         'status': True,
@@ -386,7 +419,8 @@ def write_wallet(data, path=None, config_dir=CONFIG_DIR):
         path = os.path.join(config_dir, WALLET_FILENAME)
 
     # must be a current schema
-    jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_CURRENT)
+    if not BLOCKSTACK_TEST:
+        jsonschema.validate(data, ENCRYPTED_WALLET_SCHEMA_CURRENT)
 
     data = json.dumps(data)
     with open(path, 'w') as f:
