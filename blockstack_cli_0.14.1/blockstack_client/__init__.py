@@ -57,21 +57,21 @@ from profile import get_name_profile, get_and_migrate_profile, get_user_profile
 from config import get_logger, get_config, get_utxo_provider_client, get_tx_broadcaster, default_bitcoind_opts
 from constants import CONFIG_PATH, CONFIG_FILENAME, USER_ZONEFILE_TTL, DEFAULT_API_PORT
 
-from storage import blockstack_mutable_data_url as make_mutable_data_url
-from storage import blockstack_immutable_data_url as make_immutable_data_url 
+from resolve import blockstack_mutable_data_url as make_mutable_data_url
+from resolve import blockstack_immutable_data_url as make_immutable_data_url 
+from resolve import blockstack_data_url_parse as parse_data_url
+from resolve import blockstack_data_url as make_data_url
+from resolve import BlockstackURLHandle, BlockstackHandler
 
-from storage import blockstack_data_url_parse as parse_data_url
-from storage import blockstack_data_url as make_data_url
+from storage import get_data_hash, get_blockchain_compat_hash, get_zonefile_data_hash
 from storage import get_storage_handlers, hash_zonefile
-
-from storage import BlockstackURLHandle, BlockstackHandler, get_data_hash, get_blockchain_compat_hash, get_zonefile_data_hash
 from storage import parse_mutable_data as parse_signed_data
 
 from wallet import get_payment_addresses_and_balances, get_owner_addresses_and_names, dump_wallet, load_wallet, get_wallet
 
 from user import is_user_zonefile, user_zonefile_data_pubkey
 
-from zonefile import get_name_zonefile, decode_name_zonefile, zonefile_data_replicate
+from zonefile import get_name_zonefile, decode_name_zonefile, zonefile_data_replicate, load_name_zonefile, store_name_zonefile
 
 from operations import *
 from backend.nameops import *
