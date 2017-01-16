@@ -43,7 +43,7 @@ from .keys import *
 from .profile import *
 from .proxy import *
 from .storage import hash_zonefile
-from .zonefile import get_name_zonefile, load_name_zonefile, url_to_uri_record
+from .zonefile import get_name_zonefile, load_name_zonefile, url_to_uri_record, store_name_zonefile
 
 from .config import get_logger
 from .constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
@@ -463,6 +463,10 @@ def load_user_data_pubkey_addr( name, storage_drivers=None, proxy=None ):
     if data_pubkey is None:
         log.warn('Falling back to owner address for authentication')
 
+    if data_address is None:
+        log.error("No public key or address usable")
+        return {'error': 'No usable data public key or address'}
+
     return {'pubkey': data_pubkey, 'address': data_address}
 
 
@@ -488,9 +492,15 @@ def get_mutable(name, data_id, data_pubkey=None, data_address=None, storage_driv
     if data_address is None and data_pubkey is None:
         # need to find pubkey to use
         pubkey_info = load_user_data_pubkey_addr( name, storage_drivers=storage_drivers, proxy=proxy )
+        if 'error' in pubkey_info:
+            return pubkey_info
 
         data_pubkey = pubkey_info['pubkey']
         data_address = pubkey_info['address']
+
+        if data_pubkey is None and data_address is None:
+            log.error("No data public key or address available")
+            return {'error': 'No data public key or address available'}
 
     # get the mutable data itself
     mutable_data = storage.get_mutable_data(fq_data_id, data_pubkey, urls=urls, data_address=data_address)
@@ -916,6 +926,7 @@ def list_immutable_data(name, proxy=None, config_path=CONFIG_PATH):
     """
     List the names and hashes of all immutable data in a user's zonefile.
     Returns {'data': [{'data_id': data_id, 'hash': hash}]} on success
+    Returns {'error': ...} on error
     """
     proxy = get_default_proxy(config_path) if proxy is None else proxy
 
