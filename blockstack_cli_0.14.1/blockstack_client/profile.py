@@ -420,6 +420,7 @@ def get_and_migrate_profile(name, zonefile_storage_drivers=None, profile_storage
     if user_zonefile is not None and 'error' not in user_zonefile:
         name_record = user_zonefile.pop('name_record')
         user_zonefile = user_zonefile['zonefile']
+
     else:
         if not create_if_absent:
             return {'error': 'No such zonefile'}, None, False
@@ -474,7 +475,7 @@ def get_and_migrate_profile(name, zonefile_storage_drivers=None, profile_storage
                 name, zonefile_storage_drivers=zonefile_storage_drivers,
                 profile_storage_drivers=profile_storage_drivers,
                 proxy=proxy, user_zonefile=user_zonefile, name_record=name_record,
-                use_legacy=True
+                use_legacy=True, use_legacy_zonefile=BLOCKSTACK_TEST        # only allow legacy zonefile during testing
             )
 
             if user_profile is None:
