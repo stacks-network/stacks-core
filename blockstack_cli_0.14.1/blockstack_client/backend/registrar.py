@@ -60,7 +60,7 @@ from ..data import get_profile_timestamp, set_profile_timestamp
 
 from .crypto.utils import aes_decrypt, aes_encrypt
 
-from ..constants import SLEEP_INTERVAL, CONFIG_PATH, DEFAULT_QUEUE_PATH
+from ..constants import SLEEP_INTERVAL, CONFIG_PATH, DEFAULT_QUEUE_PATH, BLOCKSTACK_DEBUG, BLOCKSTACK_TEST
 from ..config import get_config, get_logger, url_to_host_port
 
 DEBUG = True
@@ -433,7 +433,8 @@ class RegistrarWorker(threading.Thread):
             profile_payload = copy.deepcopy(name_data['profile'])
             profile_payload = set_profile_timestamp(profile_payload)
 
-            rc = put_mutable_data( name_data['fqu'], profile_payload, data_privkey, required=storage_drivers )
+            # TODO: this is onename-specific; change when we make onename client-side
+            rc = put_mutable_data( name_data['fqu'], profile_payload, data_privkey, required=storage_drivers, profile=True )
             if not rc:
                 log.info("Failed to replicate profile for %s" % (name_data['fqu']))
                 return {'error': 'Failed to store profile'}
@@ -842,6 +843,22 @@ def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=None, p
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
     rpc_token = get_rpc_token(config_path)
 
+    assert payment_keypair[0]
+    assert payment_keypair[1]
+    assert owner_keypair[0]
+    assert owner_keypair[1]
+
+    if not BLOCKSTACK_TEST:
+        assert data_keypair[0]
+        assert data_keypair[1]
+
+    else:
+        if data_keypair[0] is None:
+            log.warning("No data public key given")
+
+        if data_keypair[1] is None:
+            log.warning("No data private key given")
+
     # sanity check...
     if not is_singlesig( payment_keypair[1] ) and not is_multisig( payment_keypair[1] ):
         return {'error': 'Invalid payment key info'}
@@ -849,7 +866,7 @@ def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=None, p
     if not is_singlesig( owner_keypair[1] ) and not is_multisig( owner_keypair[1] ):
         return {'error': 'Invalid owner key info'}
 
-    if not is_singlesig( data_keypair[1] ):
+    if data_keypair[1] is not None and not is_singlesig( data_keypair[1] ):
         return {'error': 'Invalid data key info'}
 
     state.payment_address = payment_keypair[0]
@@ -857,7 +874,13 @@ def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=None, p
 
     enc_payment_info = encrypt_private_key_info(payment_keypair[1], rpc_token )
     enc_owner_info = encrypt_private_key_info(owner_keypair[1], rpc_token )
-    enc_data_info = encrypt_private_key_info(data_keypair[1], rpc_token )
+    enc_data_info = None
+    
+    if data_keypair[1]:
+        enc_data_info = encrypt_private_key_info(data_keypair[1], rpc_token )
+    else:
+        # only possible if testing legacy wallets
+        assert BLOCKSTACK_TEST
 
     if 'error' in enc_payment_info:
         return {'error': 'Failed to encrypt payment key: %s' % enc_payment_info['error']}
@@ -865,12 +888,15 @@ def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=None, p
     if 'error' in enc_owner_info:
         return {'error': 'Failed to encrypt owner key: %s' % enc_owner_info['error']}
 
-    if 'error' in enc_data_info:
+    if enc_data_info is not None and 'error' in enc_data_info:
         return {'error': 'Failed to encrypt data key: %s' % enc_data_info['error']}
 
     state.encrypted_payment_privkey_info = enc_payment_info['encrypted_private_key_info']['private_key_info']
     state.encrypted_owner_privkey_info = enc_owner_info['encrypted_private_key_info']['private_key_info']
-    state.encrypted_data_privkey_info = enc_data_info['encrypted_private_key_info']['private_key_info']
+    state.encrypted_data_privkey_info = None
+
+    if enc_data_info is not None:
+        state.encrypted_data_privkey_info = enc_data_info['encrypted_private_key_info']['private_key_info']
 
     data = {}
     data['success'] = True
@@ -946,6 +972,8 @@ def get_wallet(rpc_token=None, config_path=None, proxy=None):
     for the time that server is alive
     Return the wallet (as a JSON dict) on success
     Return {'error':...} on error
+
+    If we're testing, we will tolerate the absence of the data key.
     """
 
     state, config_path, proxy = get_plugin_state(config_path=config_path, proxy=proxy)
@@ -957,19 +985,33 @@ def get_wallet(rpc_token=None, config_path=None, proxy=None):
         return data
 
     data_privkey_info = get_wallet_data_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
-    if data_privkey_info is None:
+    if data_privkey_info is None and not BLOCKSTACK_TEST:
         data['error'] = "Unable to decrypt data private key"
         return data
 
     data['payment_address'] = state.payment_address
     data['owner_address'] = state.owner_address
-    data['data_pubkey'] = ECPrivateKey( data_privkey_info ).public_key().to_hex()
+
+    if data_privkey_info is not None:
+        data['data_pubkey'] = ECPrivateKey( data_privkey_info ).public_key().to_hex()
+    else:
+        assert BLOCKSTACK_TEST
+        data['data_pubkey'] = None
 
     data['payment_privkey'] = get_wallet_payment_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
     data['owner_privkey'] = get_wallet_owner_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
     data['data_privkey'] = get_wallet_data_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
 
-    if data['payment_privkey'] is None or data['owner_privkey'] is None or data['data_privkey'] is None:
+    if data['payment_privkey'] is None or data['owner_privkey'] is None or (not BLOCKSTACK_TEST and data['data_privkey'] is None):
+        if data['payment_privkey'] is None:
+            log.debug("No payment private key(s)")
+
+        if data['owner_privkey'] is None:
+            log.debug("No owner private key(s)")
+
+        if data['data_privkey'] is None:
+            log.debug("No data private key(s)")
+
         data['error'] = "Failed to load private keys (wrong password?)"
 
     return data
