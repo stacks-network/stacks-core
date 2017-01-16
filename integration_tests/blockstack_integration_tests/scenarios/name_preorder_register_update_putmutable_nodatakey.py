@@ -50,6 +50,7 @@ dataset_change = "This is the mutated dataset"
 
 zonefile_hash = None
 
+# TODO: this test is deprecated in 0.14.1, since data operations without a data key will be forbidden
 def scenario( wallets, **kw ):
 
     global put_result, wallet_keys, datasets, zonefile_hash, dataset_change

@@ -74,6 +74,7 @@ hostname=localhost
 
 TEST_OUTPUT_FILE = TEST_CONFIG_FILE
 
+# TODO: this test is deprecated in 0.14.1, since data operations without a data key will be forbidden
 def scenario( wallets, **kw ):
 
     global wallet_keys, error, foo_output, bar_output, baz_output, config_paths

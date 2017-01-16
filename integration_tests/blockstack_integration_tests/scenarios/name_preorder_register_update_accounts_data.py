@@ -52,6 +52,7 @@ key_names = {
     'bar.test': []  # to be filled in 
 }
 
+# TODO: this API no longer exists
 def scenario( wallets, **kw ):
 
     global wallet_keys, wallet_keys_2, key_names, error
