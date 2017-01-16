@@ -125,9 +125,11 @@ def make_empty_zonefile(username, data_pubkey, urls=None):
     return user
 
 
-def decode_name_zonefile(zonefile_txt):
+def decode_name_zonefile(name, zonefile_txt):
     """
     Decode a serialized zonefile into a JSON dict
+    If the zonefile does not have $ORIGIN, or if $ORIGIN does not match the name,
+    then this fails.
     Return None on error
     """
 
@@ -139,6 +141,7 @@ def decode_name_zonefile(zonefile_txt):
 
         # force dict
         user_zonefile = dict(user_zonefile_defaultdict)
+
     except (IndexError, ValueError, blockstack_zones.InvalidLineException):
         # might be legacy profile
         log.debug('WARN: failed to parse user zonefile; trying to import as legacy')
@@ -147,14 +150,27 @@ def decode_name_zonefile(zonefile_txt):
             if not isinstance(user_zonefile, dict):
                 log.debug('Not a legacy user zonefile')
                 return None
+
         except Exception as e:
             if BLOCKSTACK_DEBUG is not None:
                 log.exception(e)
             log.error('Failed to parse non-standard zonefile')
             return None
+
     except Exception as e:
         log.exception(e)
         log.error('Failed to parse zonefile')
+        return None
+
+    if user_zonefile is None:
+        return None 
+
+    if not user_zonefile.has_key('$origin'):
+        log.debug("Zonefile has no $ORIGIN")
+        return None
+
+    if user_zonefile['$origin'] != name:
+        log.debug("Name/zonefile mismatch: $ORIGIN = {}, name = {}".format(user_zonefile['$origin'], name))
         return None
 
     return user_zonefile
@@ -167,6 +183,7 @@ def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, raw_z
     authentic hash.
 
     If raw_zonefile is True, then return the raw zonefile data.  Don't parse it.
+    If however, raw_zonefile is False, the zonefile will be parsed.  If name is given, the $ORIGIN will be checked.
 
     Return the user zonefile (as a dict) on success
     Return None on error
@@ -216,7 +233,8 @@ def load_name_zonefile(name, expected_zonefile_hash, storage_drivers=None, raw_z
 
         return zonefile_txt
 
-    return decode_name_zonefile(zonefile_txt)
+    parsed_zonefile = decode_name_zonefile(name, zonefile_txt)
+    return parsed_zonefile
 
 
 def load_data_pubkey_for_new_zonefile(wallet_keys={}, config_path=CONFIG_PATH):
@@ -309,17 +327,10 @@ def get_name_zonefile(name, storage_drivers=None, create_if_absent=False, proxy=
             user_zonefile_data = raw_zonefile_data
         else:
             # further decode
-            user_zonefile_data = decode_name_zonefile(raw_zonefile_data)
+            user_zonefile_data = decode_name_zonefile(name, raw_zonefile_data)
             if user_zonefile_data is None:
                 return {'error': 'Failed to decode name zonefile'}
 
-        if raw_zonefile:
-            user_zonefile_data = raw_zonefile_data
-        else:
-            # further decode
-            user_zonefile_data = decode_name_zonefile(raw_zonefile_data)
-            if user_zonefile_data is None:
-                return {'error': 'Failed to decode name zonefile'}
     else:
         user_zonefile_data = load_name_zonefile(
             name, user_zonefile_hash, storage_drivers=storage_drivers, proxy=proxy
