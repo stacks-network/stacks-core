@@ -100,6 +100,21 @@ def is_name_valid(fqn):
     return len(fqn) < LENGTH_MAX_NAME
 
 
+def is_valid_hash(value):
+    """
+    Is this string a valid 32-byte hash?
+    """
+    if not isinstance(value, (str, unicode)):
+        return False
+
+    strvalue = str(value)
+
+    if re.match(r'^[a-fA-F0-9]+$', strvalue) is None:
+        return False
+
+    return len(strvalue) == 64
+
+
 def blockstack_script_to_hex(script):
     """ Parse the readable version of a script, return the hex version.
     """
