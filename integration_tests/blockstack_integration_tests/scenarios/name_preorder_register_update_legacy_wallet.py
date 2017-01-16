@@ -57,7 +57,8 @@ def scenario( wallets, **kw ):
     testlib.store_wallet( legacy_wallet )
     res = testlib.instantiate_wallet()
     if 'error' in res:
-        return res
+        print json.dumps(res, indent=4, sort_keys=True)
+        return False
 
     payment_address = str(res['payment_address'])
     owner_address = str(res['owner_address'])
