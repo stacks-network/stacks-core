@@ -732,6 +732,17 @@ def blockstack_cli_import_wallet( password, payment_privkey, owner_privkey, data
     return cli_import_wallet( args, config_path=test_proxy.config_path, password=password, force=force )
 
 
+def blockstack_cli_migrate_wallet( password ):
+    """
+    Migrate a wallet
+    """
+    test_proxy = make_proxy()
+    blockstack_client.set_default_proxy( test_proxy )
+    args = CLIArgs()
+
+    return cli_migrate_wallet(args, config_path=test_proxy.config_path, password=password )
+
+
 def blockstack_cli_list_accounts( name ):
     """
     list a name's accounts
