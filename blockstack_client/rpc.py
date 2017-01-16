@@ -3212,6 +3212,11 @@ def local_rpc_start(portnum, config_dir=blockstack_config.CONFIG_DIR, foreground
         print('Failed to load wallet: {}'.format(wallet['error']), file=sys.stderr)
         return False
 
+    if wallet['migrated']:
+        log.error("Wallet is in legacy format")
+        print("Wallet is in legacy format.  Please migrate it first with the `migrate_wallet` command.")
+        return False
+
     wallet = wallet['wallet']
     if not foreground:
         log.debug('Running in the background')
@@ -3268,22 +3273,20 @@ def local_rpc_start(portnum, config_dir=blockstack_config.CONFIG_DIR, foreground
             log.error(msg.format(se.errno))
             return False
 
-    data_pubkey = None
-    data_privkey = None
-
     log.debug("Setting wallet...")
 
-    if not BLOCKSTACK_TEST:
-        # NOTE: test that wallets without data keys still work
-        assert wallet.has_key('data_pubkeys')
-        assert wallet.has_key('data_privkey')
-        data_pubkey = wallet['data_pubkeys'][0]
-        data_privkey = wallet['data_privkey']
+    # NOTE: test that wallets without data keys still work
+    assert wallet.has_key('owner_addresses')
+    assert wallet.has_key('owner_privkey')
+    assert wallet.has_key('payment_addresses')
+    assert wallet.has_key('payment_privkey')
+    assert wallet.has_key('data_pubkeys')
+    assert wallet.has_key('data_privkey')
 
     res = backend.set_wallet(
         (wallet['payment_addresses'][0], wallet['payment_privkey']),
         (wallet['owner_addresses'][0], wallet['owner_privkey']),
-        (data_pubkey, data_privkey),
+        (wallet['data_pubkeys'][0], wallet['data_privkey']),
         config_path=config_path
     )
     if 'error' in res:
