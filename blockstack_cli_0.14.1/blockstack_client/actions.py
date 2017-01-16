@@ -124,6 +124,8 @@ from .user import add_user_zonefile_url, remove_user_zonefile_url, user_zonefile
         user_zonefile_data_pubkey, user_load, user_store, user_delete, users_list, user_init, \
         user_get_privkey
 
+from .resolve import *
+
 from .zonefile import make_empty_zonefile, url_to_uri_record
 
 from .utils import exit_with_error, satoshis_to_btc
@@ -1843,7 +1845,7 @@ def _list_accounts(name, proxy=None):
 def cli_list_accounts( args, proxy=None, config_path=CONFIG_PATH ):
     """
     command: list_accounts advanced
-    help: List the set of accounts associated with a name.
+    help: List the set of accounts in a name's profile.
     arg: name (str) 'The name to query.'
     """ 
 
@@ -1862,7 +1864,7 @@ def cli_list_accounts( args, proxy=None, config_path=CONFIG_PATH ):
 def cli_get_account( args, proxy=None, config_path=CONFIG_PATH ):
     """
     command: get_account advanced
-    help: Get a particular account from a name.
+    help: Get an account from a name's profile.
     arg: name (str) 'The name to query.'
     arg: service (str) 'The service for which this account was created.'
     arg: identifier (str) 'The name of the account.'
@@ -1894,7 +1896,7 @@ def cli_get_account( args, proxy=None, config_path=CONFIG_PATH ):
 def cli_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None, wallet_keys=None ):
     """
     command: put_account advanced
-    help: Set a person's account's details.  If the account already exists, it will be overwritten.
+    help: Add or overwrite an account in a name's profile.
     arg: name (str) 'The name to query.'
     arg: service (str) 'The service this account is for.'
     arg: identifier (str) 'The name of the account.'
@@ -1983,7 +1985,7 @@ def cli_put_account( args, proxy=None, config_path=CONFIG_PATH, password=None, w
 def cli_delete_account( args, proxy=None, config_path=CONFIG_PATH, password=None, wallet_keys=None ):
     """
     command: delete_account advanced
-    help: Delete a particular account.
+    help: Delete a particular account from a name's profile.
     arg: name (str) 'The name to query.'
     arg: service (str) 'The service the account is for.'
     arg: identifier (str) 'The identifier of the account to delete.'
@@ -2696,7 +2698,7 @@ def cli_get_name_zonefile(args, config_path=CONFIG_PATH):
     if parse_json:
         # try to parse
         try:
-            new_zonefile = decode_name_zonefile(result['zonefile'])
+            new_zonefile = decode_name_zonefile(name, result['zonefile'])
             assert new_zonefile is not None
             result['zonefile'] = new_zonefile
         except:
@@ -3730,7 +3732,7 @@ def cli_sign_profile( args, config_path=CONFIG_PATH, proxy=None, password=None, 
     command: sign_profile
     help: Sign a JSON file to be used as a profile.
     arg: path (str) 'The path to the profile data on disk.'
-    opt: privkey (str) 'The optional private key to sign it with (defaults to the data private key in your wallet)'
+    opt: privkey (str) 'The optional private key to sign it with (defaults to the master data private key in your wallet)'
     """
 
     if proxy is None:
@@ -3797,56 +3799,6 @@ def make_account_datastore(account_info, user_privkey_hex, driver_names=None, co
     datastore_privkey_hex = ds_info['datastore_privkey']
 
     return make_datastore( user_id, datastore_name, datastore_privkey_hex, driver_names=driver_names, config_path=config_path )
-
-
-def _get_account_datastore_name(account_info):
-    """
-    Get the name for an account datastore
-    """
-    user_id = account_info['user_id']
-    app_fqu = account_info['name']
-    appname = account_info['appname']
-
-    datastore_name = app_account_datastore_name( app_account_name(user_id, app_fqu, appname) )
-    return datastore_name
-
-
-def _get_account_datastore_creds( account_info, user_privkey_hex ):
-    """
-    Get an account datastore's name and private key
-    """
-    datastore_privkey_hex = app_account_get_privkey( user_privkey_hex, account_info )
-    user_id = account_info['user_id']
-    datastore_name = _get_account_datastore_name(account_info)
-
-    return {'user_id': user_id, 'datastore_name': datastore_name, 'datastore_privkey': datastore_privkey_hex}
-
-
-def get_account_datastore(account_info, proxy=None, config_path=CONFIG_PATH ):
-    """
-    Get the datastore for the given account
-    @account_info is the account information
-    return {'status': True} on success
-    return {'error': ...} on failure
-    """
-    user_id = account_info['user_id']
-    datastore_name = _get_account_datastore_name(account_info)
-    datastore_pubkey = str(account_info['public_key'])
-    log.debug("Get account datastore {}".format(datastore_name))
-    return get_datastore(user_id, datastore_name, datastore_pubkey, config_path=config_path, proxy=proxy ) 
-
-
-def get_user_datastore(user_info, datastore_name, proxy=None, config_path=CONFIG_PATH ):
-    """
-    Get the datastore for the given user
-    @account_info is the account information
-    return {'status': True} on success
-    return {'error': ...} on failure
-    """
-    user_id = user_info['user_id']
-    datastore_pubkey = str(user_info['public_key'])
-    log.debug("Get user datastore {}".format(datastore_name))
-    return get_datastore(user_id, datastore_name, datastore_pubkey, config_path=config_path, proxy=proxy ) 
 
 
 def put_account_datastore(account_info, datastore_info, user_privkey_hex, proxy=None, config_path=CONFIG_PATH ):
@@ -3937,222 +3889,6 @@ def delete_user_datastore(user_info, datastore_name, user_privkey_hex, rmtree=Tr
     return delete_datastore(user_id, datastore_name, user_privkey_hex, force=force, config_path=config_path, proxy=proxy )
 
 
-def get_account_datastore_info( master_data_pubkey, master_data_privkey, user_id, app_fqu, app_name, config_path=CONFIG_PATH, proxy=None ):
-    """
-    Get information about an account datastore.
-    At least, get the user and account owner.
-    If master_data_privkey is not None, then also get the datastore private key.
-
-    Return {'status': True, 'user': user, 'user_privkey': ..., 'account': account, 'datastore': ..., 'datastore_privkey': ...} on success.
-    If master_data_privkey is not given, then user_privkey and datastore_privkey will not be provided.
-
-    Return {'error': ...} on failure
-    """
-   
-    res = user_load(user_id, master_data_pubkey, config_path=config_path)
-    if 'error' in res:
-        return res
-
-    user = res['user']
-    user_privkey_hex = None
-
-    if master_data_privkey is not None:
-        user_privkey_hex = user_get_privkey(master_data_privkey, user)
-        if user_privkey_hex is None:
-            return {'error': 'Failed to load user private key'}
-    
-    res = app_load_account(user_id, app_fqu, app_name, user['public_key'], config_path=config_path)
-    if 'error' in res:
-        return res
-
-    acct = res['account']
-
-    res = get_account_datastore(acct, proxy=proxy, config_path=config_path)
-    if 'error' in res:
-        log.debug("Failed to get datastore for {}".format(user_id))
-        return res
-
-    datastore = res['datastore']
-    datastore_privkey_hex = None
-
-    if user_privkey_hex is not None:
-        datastore_privkey_hex = app_account_get_privkey( user_privkey_hex, acct )
-        if datastore_privkey_hex is None:
-            return {'error': 'Failed to load app account private key'}
-
-
-    ret = {
-        'user': user,
-        'account': acct,
-        'datastore': datastore,
-        'status': True
-    }
-
-    if user_privkey_hex is not None:
-        ret['user_privkey'] = user_privkey_hex
-
-    if datastore_privkey_hex is not None:
-        ret['datastore_privkey'] = datastore_privkey_hex
-
-    return ret
-
-
-def get_user_datastore_info( master_data_pubkey, master_data_privkey, user_id, datastore_name, config_path=CONFIG_PATH, proxy=None ):
-    """
-    Get information about a datastore that belongs directly to a user (without an account)
-    If master_data_privkey is not None, then also get the datastore private key.
-
-    Return {'status': True, 'user': user, 'user_privkey': ..., 'datastore': ..., 'datastore_privkey': ...} on success.
-    If master_data_privkey is not given, then user_privkey and datastore_privkey will not be provided.
-
-    Return {'error': ...} on failure
-    """
-    
-    res = user_load(user_id, master_data_pubkey, config_path=config_path)
-    if 'error' in res:
-        return res
-
-    user = res['user']
-    user_pubkey = user['public_key']
-    user_privkey_hex = None
-
-    if master_data_privkey is not None:
-        user_privkey_hex = user_get_privkey(master_data_privkey, user)
-        if user_privkey_hex is None:
-            return {'error': 'Failed to load user private key'}
-    
-    res = get_user_datastore(user, datastore_name, proxy=proxy, config_path=config_path)
-    if 'error' in res:
-        return res
-    
-    datastore = res['datastore']
-    datastore_privkey_hex = user_privkey_hex
-
-    ret = {
-        'user': user,
-        'datastore': datastore,
-        'status': True
-    }
-
-    if datastore_privkey_hex is not None:
-        ret['datastore_privkey'] = datastore_privkey_hex
-
-    return ret
-
-
-def get_datastore_name_info( user_id, datastore_id ):
-    """
-    Parse a datastore ID into an application blockchain ID and name, if 
-    the datastore ID refers to an account-owned datastore.
-    
-    Return {'app_fqu': app_fqu, 'appname': appname, 'datastore_name': datastore_name} on success
-    Return {'error': ...} on error
-    """
-    account_name_parts = app_account_parse_datastore_name(datastore_id)
-    app_fqu = None
-    appname = None
-    datastore_name = None
-
-    if account_name_parts is not None:
-        # this is an account-specific datastore
-        if user_id != account_name_parts['user_id']:
-            return {'error': 'Invalid user ID for given data store name'}
-
-        app_fqu = account_name_parts['app_blockchain_id']
-        appname = account_name_parts['app_name']
-    
-    else:
-        # this is a generic datastore
-        datastore_name = datastore_id
-
-    return {'app_fqu': app_fqu, 'appname': appname, 'datastore_name': datastore_name}
-
-
-def get_datastore_info( user_id, datastore_id, include_private=False, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
-    """
-    Get datastore information
-    Returns {
-        'datastore': datastore record,
-        'datastore_privkey': datastore private key (if include_private is True).  Hex-encoded
-        'app_fqu': name that points to application that owns the datastore (if defined)
-        'appname': name of application that owns the datastore (if defined)
-        'datastore_name': name of datastore
-        'master_data_pubkey': master data public key
-        'master_data_privkey': master data private key (only given if include_private is True)
-    }
-
-    Returns {'error': ...} on error
-    """
-
-    if proxy is None:
-        proxy = get_default_proxy(config_path)
-
-    config_dir = os.path.dirname(config_path)
-
-    account_name_parts = app_account_parse_datastore_name(datastore_id)
-    app_fqu = None
-    appname = None
-    datastore_name = None
-    master_data_privkey = None
-    datastore_privkey_hex = None
-
-    name_info = get_datastore_name_info(user_id, datastore_id)
-    if 'error' in name_info:
-        # user ID mismatch
-        return name_info
-
-    app_fqu = name_info['app_fqu']
-    appname = name_info['appname']
-    datastore_name = name_info['datastore_name']
-
-    _, _, master_data_pubkey = get_addresses_from_file(config_dir=config_dir)
-    if not master_data_pubkey:
-        return {'error': 'No wallet'}
-
-    if include_private:
-        # RPC daemon must be running 
-        res = start_rpc_endpoint(config_dir, password=password)
-        if 'error' in res:
-            return res
-
-        if wallet_keys is None:
-            wallet_keys = get_wallet_keys(config_path, password)
-            if 'error' in wallet_keys:
-                return wallet_keys
-
-        master_data_privkey = wallet_keys['data_privkey']
-
-    datastore_info = None
-    datastore = None
-
-    if app_fqu is not None and appname is not None:
-        datastore_info = get_account_datastore_info( str(master_data_pubkey), master_data_privkey, user_id, app_fqu, appname, config_path=config_path, proxy=proxy )
-
-    else:
-        datastore_info = get_user_datastore_info( str(master_data_pubkey), master_data_privkey, user_id, datastore_name, config_path=config_path, proxy=proxy )
-
-    if 'error' in datastore_info:
-        log.error("Failed to get datastore information")
-        return datastore_info
-
-    datastore = datastore_info['datastore']
-    if include_private:
-        datastore_privkey_hex = datastore_info['datastore_privkey']
-
-    ret = {
-        'datastore': datastore,
-        'datastore_privkey': datastore_privkey_hex,
-        'datastore_info': datastore_info,
-        'app_fqu': app_fqu,
-        'appname': appname,
-        'datastore_name': datastore_name,
-        'master_data_pubkey': master_data_pubkey,
-        'master_data_privkey': master_data_privkey
-    }
-
-    return ret
-
-
 def cli_get_datastore( args, config_path=CONFIG_PATH, proxy=None, password=None, wallet_keys=None ):
     """
     command: get_datastore advanced
@@ -4171,6 +3907,16 @@ def cli_get_datastore( args, config_path=CONFIG_PATH, proxy=None, password=None,
         include_private = True
     else:
         include_private = False
+
+    if wallet_keys is None:
+        # RPC daemon must be running 
+        res = start_rpc_endpoint(config_dir, password=password)
+        if 'error' in res:
+            return res
+
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
 
     datastore_info = get_datastore_info(user_id, datastore_id, include_private=include_private, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys)
     if 'error' in datastore_info:
@@ -4216,11 +3962,6 @@ def cli_create_datastore( args, config_path=CONFIG_PATH, proxy=None, password=No
     if 'error' in name_info or (name_info['app_fqu'] is not None and name_info['appname'] is not None):
         return {'error': 'Cannot create app-specific data store with this command.  Use app_put_account for that.'}
 
-    datastore_info = get_datastore_info(user_id, datastore_id, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys)
-    if 'error' not in datastore_info:
-        # already exists
-        return {'error': 'Datastore exists'}
-
     if wallet_keys is None:
         # RPC daemon must be running 
         res = start_rpc_endpoint(config_dir, password=password)
@@ -4230,6 +3971,11 @@ def cli_create_datastore( args, config_path=CONFIG_PATH, proxy=None, password=No
         wallet_keys = get_wallet_keys(config_path, password)
         if 'error' in wallet_keys:
             return wallet_keys
+
+    datastore_info = get_datastore_info(user_id, datastore_id, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys)
+    if 'error' not in datastore_info:
+        # already exists
+        return {'error': 'Datastore exists'}
 
     master_data_privkey = wallet_keys['data_privkey']
     master_data_pubkey = get_pubkey_hex(master_data_privkey)
@@ -4270,6 +4016,16 @@ def cli_delete_datastore( args, config_path=CONFIG_PATH, proxy=None, password=No
     user_id = str(args.user_id)
     datastore_id = str(args.datastore_id)
     force = (str(args.force).lower() in ['1', 'true', 'force', 'yes'])
+
+    if wallet_keys is None:
+        # RPC daemon must be running 
+        res = start_rpc_endpoint(config_dir, password=password)
+        if 'error' in res:
+            return res
+
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
 
     datastore_info = get_datastore_info(user_id, datastore_id, include_private=True, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys)
     if 'error' in datastore_info:
@@ -4316,6 +4072,16 @@ def cli_datastore_mkdir( args, config_path=CONFIG_PATH, interactive=False, proxy
     datastore_id = str(args.datastore_id)
     path = str(args.path)
 
+    if wallet_keys is None:
+        # RPC daemon must be running 
+        res = start_rpc_endpoint(config_dir, password=password)
+        if 'error' in res:
+            return res
+
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
+
     datastore_info = get_datastore_info(user_id, datastore_id, include_private=True, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys)
     if 'error' in datastore_info:
         datastore_info['errno'] = errno.EPERM
@@ -4342,6 +4108,16 @@ def cli_datastore_rmdir( args, config_path=CONFIG_PATH, interactive=False, proxy
     user_id = str(args.user_id)
     datastore_id = str(args.datastore_id)
     path = str(args.path)
+
+    if wallet_keys is None:
+        # RPC daemon must be running 
+        res = start_rpc_endpoint(config_dir, password=password)
+        if 'error' in res:
+            return res
+
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
 
     datastore_info = get_datastore_info(user_id, datastore_id, include_private=True, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys)
     if 'error' in datastore_info:
@@ -4371,6 +4147,16 @@ def cli_datastore_getfile( args, config_path=CONFIG_PATH, interactive=False, pro
     datastore_id = str(args.datastore_id)
     path = str(args.path)
 
+    if wallet_keys is None:
+        # RPC daemon must be running 
+        res = start_rpc_endpoint(config_dir, password=password)
+        if 'error' in res:
+            return res
+
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
+
     datastore_info = get_datastore_info(user_id, datastore_id, include_private=False, config_path=config_path, proxy=proxy)
     if 'error' in datastore_info:
         datastore_info['errno'] = errno.EPERM
@@ -4398,6 +4184,16 @@ def cli_datastore_listdir(args, config_path=CONFIG_PATH, interactive=False, prox
     datastore_id = str(args.datastore_id)
     path = str(args.path)
 
+    if wallet_keys is None:
+        # RPC daemon must be running 
+        res = start_rpc_endpoint(config_dir, password=password)
+        if 'error' in res:
+            return res
+
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
+
     datastore_info = get_datastore_info(user_id, datastore_id, include_private=False, config_path=config_path, proxy=proxy)
     if 'error' in datastore_info:
         datastore_info['errno'] = errno.EPERM
@@ -4424,6 +4220,16 @@ def cli_datastore_stat(args, config_path=CONFIG_PATH, interactive=False, proxy=N
     user_id = str(args.user_id)
     datastore_id = str(args.datastore_id)
     path = str(args.path)
+
+    if wallet_keys is None:
+        # RPC daemon must be running 
+        res = start_rpc_endpoint(config_dir, password=password)
+        if 'error' in res:
+            return res
+
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
 
     datastore_info = get_datastore_info(user_id, datastore_id, include_private=False, config_path=config_path, proxy=proxy)
     if 'error' in datastore_info:
@@ -4465,6 +4271,16 @@ def cli_datastore_putfile(args, config_path=CONFIG_PATH, interactive=False, prox
         except:
             return {'error': 'Failed to read "{}"'.format(data)}
 
+    if wallet_keys is None:
+        # RPC daemon must be running 
+        res = start_rpc_endpoint(config_dir, password=password)
+        if 'error' in res:
+            return res
+
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
+
     datastore_info = get_datastore_info(user_id, datastore_id, include_private=True, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys)
     if 'error' in datastore_info:
         datastore_info['errno'] = errno.EPERM
@@ -4492,6 +4308,16 @@ def cli_datastore_deletefile(args, config_path=CONFIG_PATH, interactive=False, p
     user_id = str(args.user_id)
     datastore_id = str(args.datastore_id)
     path = str(args.path)
+
+    if wallet_keys is None:
+        # RPC daemon must be running 
+        res = start_rpc_endpoint(config_dir, password=password)
+        if 'error' in res:
+            return res
+
+        wallet_keys = get_wallet_keys(config_path, password)
+        if 'error' in wallet_keys:
+            return wallet_keys
 
     datastore_info = get_datastore_info(user_id, datastore_id, include_private=True, config_path=config_path, proxy=proxy, password=password, wallet_keys=wallet_keys)
     if 'error' in datastore_info:
