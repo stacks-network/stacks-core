@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -203,7 +203,7 @@ def make_outputs( data, inputs, reveal_addr, change_addr, tx_fee):
     
     
 
-def make_transaction( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, payment_addr, blockchain_client, tx_fee=0 ):
+def make_transaction( namespace_id, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount, preorder_addr, blockchain_client, tx_fee=0, safety=True ):
    """
    Propagate a namespace.
    
@@ -225,10 +225,10 @@ def make_transaction( namespace_id, reveal_addr, lifetime, coeff, base_cost, buc
    base_cost = int(base_cost)
    nonalpha_discount = int(nonalpha_discount)
    no_vowel_discount = int(no_vowel_discount)
-   payment_addr = str(payment_addr)
+   preorder_addr = str(preorder_addr)
    tx_fee = int(tx_fee)
 
-   assert pybitcoin.b58check_version_byte( payment_addr ) == virtualchain.version_byte, "Only p2pkh reveal addresses are supported"
+   assert pybitcoin.b58check_version_byte( preorder_addr ) == virtualchain.version_byte, "Only p2pkh reveal addresses are supported"
 
    bexp = []
    for be in bucket_exponents:
@@ -241,10 +241,12 @@ def make_transaction( namespace_id, reveal_addr, lifetime, coeff, base_cost, buc
    nulldata = build( namespace_id, BLOCKSTACK_VERSION, reveal_addr, lifetime, coeff, base_cost, bucket_exponents, nonalpha_discount, no_vowel_discount )
    
    # get inputs and from public key
-   inputs = tx_get_unspents( payment_addr, blockchain_client )
+   inputs = tx_get_unspents( preorder_addr, blockchain_client )
+   if safety:
+       assert len(inputs) > 0
     
    # build custom outputs here
-   outputs = make_outputs(nulldata, inputs, reveal_addr, payment_addr, tx_fee)
+   outputs = make_outputs(nulldata, inputs, reveal_addr, preorder_addr, tx_fee)
    
    return (inputs, outputs)
 

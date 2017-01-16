@@ -26,8 +26,8 @@ import os
 import sys
 import json
 import base64
-import random
 import time
+import random
 
 from ..config import DEFAULT_QUEUE_PATH, QUEUE_LENGTH_TO_MONITOR, PREORDER_MAX_CONFIRMATIONS, CONFIG_PATH
 from ..proxy import get_default_proxy
@@ -113,7 +113,6 @@ def queuedb_query_execute( cur, query, values ):
 
     DO NOT CALL THIS DIRECTLY.
     """
-
     timeout = 1.0
     while True:
         try:
@@ -269,7 +268,7 @@ def queue_append(queue_id, fqu, tx_hash, payment_address=None,
 
     # required for all queues
     new_entry['payment_address'] = payment_address
-
+    
     if block_height is None:
         block_height = get_block_height(config_path=config_path)
 
@@ -630,7 +629,7 @@ def get_queue_state(queue_ids=None, limit=None, path=DEFAULT_QUEUE_PATH):
         queue_ids = [queue_ids]
 
     for queue_id in queue_ids:
-        raw_rows = queuedb_findall( queue_id, path=path, limit=limit )
+        raw_rows = queuedb_findall( queue_id, limit=limit, path=path )
         rows = [extract_entry(r) for r in raw_rows]
         state += rows
 

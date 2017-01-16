@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -21,27 +21,29 @@
     along with Blockstack-client.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import config
-import argparse
 import re
 
-log = config.get_logger("blockstack-client")
+import config
 
-def parse_methods( method_list ):
+log = config.get_logger('blockstack-client')
+
+
+def parse_methods(method_list):
     """
     Given a list of methods, parse their docstring metadata for linking information.
     The __doc__ string for each method must be properly formatted:
 
-    command: <command name> [norpc]
+    command: <command name> [rpc] [advanced] 
         This is the name of the CLI command
-        If norpc is present, the command cannot be accessed by RPC.
+        If rpc is present, the command will be accessible via RPC.
+        If advanced is present, then the command will be accessible only in advanced mode
 
     help: <help string>
-        This is the help string for the command 
+        This is the help string for the command
 
     arg: <argname> (<argtype>) "<arghelp>"
         This is a required argument, with <argname> as a name and <argtype> as a type, with help string <arghelp>
-        
+
     opt: <argname> (<argtype>) "<arghelp>"
         This is an optional argument, with <argname> as a name and <argtype> as a type, with help string <arghelp>
 
@@ -57,71 +59,88 @@ def parse_methods( method_list ):
 
     Raise an exception if we fail to parse any method.
     """
-    
-    ret = []
-    for method in method_list:
-        docstr = method.__doc__
-        doclines = filter( lambda l: len(l.strip()) > 0, docstr.split("\n") )
-        doclines = [l.strip() for l in doclines]
 
-        # first line: command name 
+    ret = []
+
+    command_pattern = re.compile('^command:[ \t]+([^ \t]+)[ ]*(.*)[ ]*$')
+    help_pattern = re.compile('^help:[ \t]+(.+)$')
+
+    # NOTE: pattern must be defined using double-quotes
+    arg_opt_pattern = "^{}[ \t]+([^ \t]+)[ \t]+\((.+)\)[ \t]+'([^']+)'$"
+    arg_pattern = re.compile(arg_opt_pattern.format('arg:'))
+    opt_pattern = re.compile(arg_opt_pattern.format('opt:'))
+
+    error_msg = 'Method {}: {} string "{}"'
+
+    supported_pragmas = ['', 'rpc', 'advanced']
+
+    for method in method_list:
+        method_name = method.__name__
+        docstr = method.__doc__
+        doclines = [l.strip() for l in docstr.split('\n') if l.strip()]
+
+        # first line: command name
         command_line = doclines[0]
-        if not command_line.startswith("command:"):
-            raise ValueError("Method %s: invalid command string '%s'" % (method.__name__, command_line))
+        if not command_line.startswith('command:'):
+            raise ValueError(error_msg.format(method_name, 'invalid command', command_line))
 
         # first line must be 'help:'
         help_line = doclines[1]
-        if not help_line.startswith("help:"):
-            raise ValueError("Method %s: invalid help string '%s'" % (method.__name__, help_line))
+        if not help_line.startswith('help:'):
+            raise ValueError(error_msg.format(method_name, 'invalid help', command_line))
 
         arg_lines = doclines[2:]
         # following lines must be 'arg:' or 'opt:'
         for l in arg_lines:
-            if not l.startswith("arg:") and not l.startswith("opt:"):
-                raise ValueError("Method %s: invalid arg string '%s'" % (method.__name__, l))
+            if not l.startswith('arg:') and not l.startswith('opt:'):
+                raise ValueError(error_msg.format(method_name, 'invalid arg', command_line))
 
         # parse command and help
         try:
-            command_parts = re.findall( "^command:[ \t]+([^ \t]+)[ ]*(.*)[ ]*$", command_line )[0]
+            command_parts = re.findall(command_pattern, command_line)[0]
             command = command_parts[0]
-            command_pragmas = command_parts[1].split(" \t")
+            command_pragmas = command_parts[1].split(' \t')
 
-            command_help = re.findall( "^help:[ \t]+(.+)$", help_line )[0]
+            unsupported_pragmas = list(set(command_pragmas) - set(supported_pragmas))
+            if unsupported_pragmas:
+                log.exception('Unsupported pragmas: {}'.format(unsupported_pragmas))
+                raise ValueError
 
-        except Exception, e:
+            command_help = re.findall(help_pattern, help_line)[0]
+        except Exception as e:
             log.exception(e)
-            raise ValueError("Method %s: invalid command and/or help string" % (method.__name__))
+            raise ValueError(error_msg.format(method_name, 'invalid command and/or help', ''))
 
-        args = []
-        opts = []
+        args, opts = [], []
 
-        # parse args 
+        # parse args
         for l in arg_lines:
-            arg_parts = None
-            required = False
+            arg_parts, required = None, False
 
-            if l.startswith("arg:"):
-                arg_parts = re.findall( '^arg:[ \t]+([^ \t]+)[ \t]+\((.+)\)[ \t]+"([^"]+)"$', l )
+            if l.startswith('arg:'):
+                arg_parts = re.findall(arg_pattern, l)
                 required = True
-            
-            elif l.startswith("opt:"):
-                arg_parts = re.findall( '^opt:[ \t]+([^ \t]+)[ \t]+\((.+)\)[ \t]+"([^"]+)"$', l )
-                required = False 
+            elif l.startswith('opt:'):
+                arg_parts = re.findall(opt_pattern, l)
+                required = False
 
             try:
-                assert len(arg_parts) == 1
+                assert len(arg_parts) == 1, "len(arg_parts) = {}".format(len(arg_parts))
                 arg_name, arg_type, arg_help = arg_parts[0]
-                assert arg_type in ['str', 'int']
+                assert arg_type in ['str', 'int'], "arg_type is {}".format(arg_type)
                 arg_type = eval(arg_type)
-                
-            except:
-                raise ValueError("Method %s: Failed to parse arg string '%s'" % (method.__name__, l))
+            except AssertionError as ae:
+                if config.BLOCKSTACK_DEBUG:
+                    log.exception(ae)
 
+                raise ValueError(error_msg.format(method_name, 'failed to parse arg', l))
+
+            name_type = {'name': arg_name, 'type': arg_type, 'help': arg_help}
             if required:
-                args.append( {'name': arg_name, 'type': arg_type, 'help': arg_help} )
+                args.append(name_type)
             else:
-                opts.append( {'name': arg_name, 'type': arg_type, 'help': arg_help} )
-   
+                opts.append(name_type)
+
         ret.append({
             'method': method,
             'command': command,
@@ -134,7 +153,7 @@ def parse_methods( method_list ):
     return ret
 
 
-def build_method_subparsers( subparsers, method_infos, include_args=True, include_opts=True ):
+def build_method_subparsers(subparsers, method_infos, include_args=True, include_opts=True):
     """
     Using parsed method information from parse_methods,
     populate a parser with subparsers for the method's command,
@@ -143,16 +162,14 @@ def build_method_subparsers( subparsers, method_infos, include_args=True, includ
     Return True on success.
     """
     for method_info in method_infos:
-        subparser = subparsers.add_parser( method_info['command'], help=method_info['help'] )
+        subparser = subparsers.add_parser(method_info['command'], help=method_info['help'])
 
         if include_args:
             for arg in method_info['args']:
-                subparser.add_argument( arg['name'], type=arg['type'], help=arg['help'] )
+                subparser.add_argument(arg['name'], type=arg['type'], help=arg['help'])
 
         if include_opts:
             for opt in method_info['opts']:
-                subparser.add_argument( opt['name'], type=opt['type'], nargs='?', help=opt['help'] )
+                subparser.add_argument(opt['name'], type=opt['type'], nargs='?', help=opt['help'])
 
     return True
-
-

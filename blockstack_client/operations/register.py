@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -131,9 +131,9 @@ def make_outputs( data, change_inputs, register_addr, change_addr, tx_fee, renew
     return outputs
     
 
-def make_transaction(name, payment_addr, register_addr, blockchain_client, tx_fee=0, renewal_fee=None):
+def make_transaction(name, preorder_addr, register_addr, blockchain_client, tx_fee=0, renewal_fee=None, safety=True):
     
-    payment_addr = str(payment_addr)
+    preorder_addr = str(preorder_addr)
     register_addr = str(register_addr)
     name = str(name)
     tx_fee = int(tx_fee)
@@ -146,14 +146,16 @@ def make_transaction(name, payment_addr, register_addr, blockchain_client, tx_fe
     change_inputs = None
     subsidized_renewal = False
     
-    change_inputs = tx_get_unspents( payment_addr, blockchain_client )
+    change_inputs = tx_get_unspents( preorder_addr, blockchain_client )
+    if safety:
+        assert len(change_inputs) > 0
 
     if renewal_fee is not None:
-        assert payment_addr == register_addr, "%s != %s" % (payment_addr, register_addr)
+        assert preorder_addr == register_addr, "%s != %s" % (preorder_addr, register_addr)
         subsidized_renewal = True
 
     nulldata = build(name)
-    outputs = make_outputs(nulldata, change_inputs, register_addr, payment_addr, tx_fee, renewal_fee=renewal_fee, pay_fee=(not subsidized_renewal) )
+    outputs = make_outputs(nulldata, change_inputs, register_addr, preorder_addr, tx_fee, renewal_fee=renewal_fee, pay_fee=(not subsidized_renewal) )
  
     return (change_inputs, outputs)
 

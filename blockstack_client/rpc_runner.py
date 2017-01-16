@@ -1,5 +1,8 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
+from __future__ import print_function
+
 """
     Blockstack-client
     ~~~~~
@@ -23,74 +26,61 @@
 
 import os
 import sys
+import traceback
 import config as blockstack_config
-from rpc import local_rpc_start, local_rpc_stop
+from rpc import local_rpc_start, local_rpc_stop, local_rpc_status
 
-if __name__ == "__main__":
 
+if __name__ == '__main__':
     # running as a local API endpoint
-    usage = "%s COMMAND PORT [config_path]" % sys.argv[0] 
+    usage = '{} COMMAND PORT [config_path]'.format(sys.argv[0])
+
     try:
-        command = sys.argv[1]
-        portnum = int(sys.argv[2])
+        command, portnum = sys.argv[1], int(sys.argv[2])
         config_dir = blockstack_config.CONFIG_DIR
-        config_path = blockstack_config.CONFIG_PATH 
+        config_path = blockstack_config.CONFIG_PATH
 
         if len(sys.argv) > 3:
             config_dir = sys.argv[3]
-            config_path = os.path.join(config_dir, os.path.basename(blockstack_config.CONFIG_PATH))
-
-    except Exception, e:
+            config_path = os.path.basename(blockstack_config.CONFIG_PATH)
+            config_path = os.path.join(config_dir, config_path)
+    except Exception as e:
         traceback.print_exc()
-        print >> sys.stderr, usage
+        print(usage, file=sys.stderr)
         sys.exit(1)
 
     if command == 'start':
-
         # maybe inherited password through the environment?
-        passwd = os.environ.get("BLOCKSTACK_CLIENT_WALLET_PASSWORD", None)
-        rc = local_rpc_start( portnum, config_dir=config_dir, password=passwd )
-        if rc:
-            sys.exit(0)
-        else:
-            sys.exit(1)
-       
+        passwd = os.environ.get('BLOCKSTACK_CLIENT_WALLET_PASSWORD', None)
+        rc = local_rpc_start(portnum, config_dir=config_dir, password=passwd)
+        sys.exit(0 if rc else 1)
+
     elif command == 'start-foreground':
-       
-        passwd = os.environ.get("BLOCKSTACK_CLIENT_WALLET_PASSWORD", None)
-        rc = local_rpc_start( portnum, config_dir=config_dir, foreground=True, password=passwd )
-        if rc:
-            sys.exit(0)
-        else:
-            sys.exit(1)
+        passwd = os.environ.get('BLOCKSTACK_CLIENT_WALLET_PASSWORD', None)
+        rc = local_rpc_start(portnum, config_dir=config_dir, password=passwd, foreground=True)
+        sys.exit(0 if rc else 1)
 
     elif command == 'status':
-        rc = local_rpc_status( config_dir=config_dir )
+        rc = local_rpc_status(config_dir=config_dir)
         if rc:
-            print >> sys.stderr, "Alive"
+            print('Alive', file=sys.stderr)
             sys.exit(0)
         else:
-            print >> sys.stderr, "Dead"
+            print('Dead', file=sys.stderr)
             sys.exit(1)
 
     elif command == 'stop':
-        rc = local_rpc_stop( config_dir=config_dir )
-        if rc:
-            sys.exit(0)
-        else:
-            sys.exit(1)
+        rc = local_rpc_stop(config_dir=config_dir)
+        sys.exit(0 if rc else 1)
 
     elif command == 'restart':
-       
-        rc = local_rpc_stop( config_dir=config_dir )
+        rc = local_rpc_stop(config_dir=config_dir)
         if not rc:
             sys.exit(1)
         else:
-
-            rc = local_rpc_start( portnum, config_dir=config_dir )
-            if rc:
-                sys.exit(0)
-            else:
-                sys.exit(1)
-
-
+            passwd = os.environ.get('BLOCKSTACK_CLIENT_WALLET_PASSWORD', None)
+            rc = local_rpc_start(portnum, config_dir=config_dir, password=passwd)
+            sys.exit(0 if rc else 1)
+    else:
+        print(usage, file=sys.stderr)
+        sys.exit(1)

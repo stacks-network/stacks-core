@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -78,13 +78,13 @@ def make_outputs( nulldata, inputs, change_addr, fee=0, format='bin' ):
     ]
 
 
-def make_transaction( namespace_id, payment_addr, blockchain_client, tx_fee=0 ):
+def make_transaction( namespace_id, reveal_addr, blockchain_client, tx_fee=0, safety=True ):
    """
    Make the namespace ready transaction
    Raise ValueError if there are not enough inputs to make the transaction
    """
    namespace_id = str(namespace_id)
-   payment_addr = str(payment_addr)
+   reveal_addr = str(reveal_addr)
    tx_fee = int(tx_fee)
 
    assert is_namespace_valid( namespace_id )
@@ -92,10 +92,12 @@ def make_transaction( namespace_id, payment_addr, blockchain_client, tx_fee=0 ):
    nulldata = build( namespace_id )
    
    # get inputs and from public key
-   inputs = tx_get_unspents( payment_addr, blockchain_client )
-   
+   inputs = tx_get_unspents( reveal_addr, blockchain_client )
+   if safety:
+       assert len(inputs) > 0
+
    # OP_RETURN outputs 
-   outputs = make_outputs( nulldata, inputs, payment_addr, fee=(DEFAULT_OP_RETURN_FEE + tx_fee), format='hex' )
+   outputs = make_outputs( nulldata, inputs, reveal_addr, fee=(DEFAULT_OP_RETURN_FEE + tx_fee), format='hex' )
   
    return (inputs, outputs)
 

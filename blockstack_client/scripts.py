@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -34,7 +34,7 @@ from pybitcoin.transactions.outputs import calculate_change_amount
 from virtualchain import tx_serialize, tx_deserialize, tx_script_to_asm, tx_output_parse_scriptPubKey
 
 from .b40 import *
-from .config import MAGIC_BYTES, NAME_OPCODES, LENGTH_MAX_NAME, LENGTH_MAX_NAMESPACE_ID, TX_MIN_CONFIRMATIONS
+from .constants import MAGIC_BYTES, NAME_OPCODES, LENGTH_MAX_NAME, LENGTH_MAX_NAMESPACE_ID, TX_MIN_CONFIRMATIONS, BLOCKSTACK_TEST
 from .keys import *
 
 log = virtualchain.get_logger('blockstack-client')
@@ -97,7 +97,22 @@ def is_name_valid(fqn):
         return False
 
     # validate max length
-    return len(fqn) <= LENGTH_MAX_NAME
+    return len(fqn) < LENGTH_MAX_NAME
+
+
+def is_valid_hash(value):
+    """
+    Is this string a valid 32-byte hash?
+    """
+    if not isinstance(value, (str, unicode)):
+        return False
+
+    strvalue = str(value)
+
+    if re.match(r'^[a-fA-F0-9]+$', strvalue) is None:
+        return False
+
+    return len(strvalue) == 64
 
 
 def blockstack_script_to_hex(script):
@@ -236,11 +251,12 @@ def tx_make_input_signature(tx, idx, script, privkey_str, hashcode):
     Sign a single input of a transaction, given the serialized tx,
     the input index, the output's scriptPubkey, and the hashcode.
 
+    privkey_str must be a hex-encoded private key
+
     TODO: move to virtualchain
 
     Return the hex signature.
     """
-
     pk = virtualchain.BitcoinPrivateKey(str(privkey_str))
     pubk = pk.public_key()
     
@@ -250,11 +266,8 @@ def tx_make_input_signature(tx, idx, script, privkey_str, hashcode):
 
     signing_tx = bitcoin.signature_form(tx, idx, script, hashcode)
     txhash = bitcoin.bin_txhash(signing_tx, hashcode)
-   
-    # sign using uncompressed private key
-    pk_uncompressed_hex, pubk_uncompressed_hex = get_uncompressed_private_and_public_keys(priv)
-
-    sk = ecdsa.SigningKey.from_string(pk_uncompressed_hex.decode('hex'), curve=ecdsa.SECP256k1)
+    
+    sk = ecdsa.SigningKey.from_string(priv.decode('hex'), curve=ecdsa.SECP256k1)
     sig_bin = sk.sign_digest(txhash, sigencode=ecdsa.util.sigencode_der)
     
     # enforce low-s
@@ -266,7 +279,7 @@ def tx_make_input_signature(tx, idx, script, privkey_str, hashcode):
     sig_bin = ecdsa.util.sigencode_der( sig_r, sig_s, ecdsa.SECP256k1.order )
 
     # sanity check 
-    vk = ecdsa.VerifyingKey.from_string(pubk_uncompressed_hex[2:].decode('hex'), curve=ecdsa.SECP256k1)
+    vk = ecdsa.VerifyingKey.from_string(pub[2:].decode('hex'), curve=ecdsa.SECP256k1)
     assert vk.verify_digest(sig_bin, txhash, sigdecode=ecdsa.util.sigdecode_der), "Failed to verify signature ({}, {})".format(sig_r, sig_s)
 
     sig = sig_bin.encode('hex') + bitcoin.encode(hashcode, 16, 2)
@@ -300,7 +313,6 @@ def tx_sign_multisig(tx, idx, redeem_script, private_keys, hashcode=bitcoin.SIGH
         pk_hex = virtualchain.BitcoinPrivateKey(str(pk_str)).to_hex()
 
         sig = tx_make_input_signature(tx, idx, redeem_script, pk_str, hashcode)
-        # sig = bitcoin.multisign(tx, idx, str(redeem_script), pk_hex, hashcode=hashcode)
         sigs.append(sig)
 
     assert len(used_keys) == m, 'Missing private keys'
@@ -351,6 +363,9 @@ def tx_sign_input(blockstack_tx, idx, private_key_info, hashcode=bitcoin.SIGHASH
         return tx_sign_multisig(blockstack_tx, idx, redeem_script, private_keys, hashcode=bitcoin.SIGHASH_ALL)
 
     else:
+        if BLOCKSTACK_TEST:
+            log.debug("Invalid private key info: {}".format(private_key_info))
+
         raise ValueError("Invalid private key info")
 
 

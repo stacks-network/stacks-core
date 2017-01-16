@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
     Blockstack-client
@@ -117,7 +117,7 @@ def make_outputs( data, inputs, change_addr, fee, tx_fee, pay_fee=True ):
     ]
     
 
-def make_transaction( namespace_id, register_addr, fee, consensus_hash, payment_addr, blockchain_client, tx_fee=0 ):
+def make_transaction( namespace_id, register_addr, fee, consensus_hash, preorder_addr, blockchain_client, tx_fee=0, safety=True ):
    """
    Propagate a namespace.
    
@@ -131,21 +131,23 @@ def make_transaction( namespace_id, register_addr, fee, consensus_hash, payment_
    register_addr = str(register_addr)
    fee = int(fee)
    consensus_hash = str(consensus_hash)
-   payment_addr = str(payment_addr)
+   preorder_addr = str(preorder_addr)
    tx_fee = int(tx_fee)
 
    assert is_namespace_valid(namespace_id)
    assert len(consensus_hash) == LENGTH_CONSENSUS_HASH * 2
-   assert pybitcoin.b58check_version_byte( payment_addr ) == virtualchain.version_byte, "Only p2pkh reveal addresses are supported"
+   assert pybitcoin.b58check_version_byte( preorder_addr ) == virtualchain.version_byte, "Only p2pkh reveal addresses are supported"
 
-   script_pubkey = virtualchain.make_payment_script( payment_addr )
+   script_pubkey = virtualchain.make_payment_script( preorder_addr )
    nulldata = build( namespace_id, script_pubkey, register_addr, consensus_hash )
    
    # get inputs and from address
-   inputs = tx_get_unspents( payment_addr, blockchain_client )
-    
+   inputs = tx_get_unspents( preorder_addr, blockchain_client )
+   if safety:
+       assert len(inputs) > 0
+
    # build custom outputs here
-   outputs = make_outputs(nulldata, inputs, payment_addr, fee, tx_fee )
+   outputs = make_outputs(nulldata, inputs, preorder_addr, fee, tx_fee )
    
    return (inputs, outputs)
 
