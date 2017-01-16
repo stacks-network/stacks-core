@@ -1,0 +1,1034 @@
+#!/usr/bin/env python 
+
+import os
+
+# enable all tests
+os.environ['BLOCKSTACK_DEBUG'] = '1'
+os.environ['BLOCKSTACK_TEST'] = '1'
+os.environ['BLOCKSTACK_CLIENT_TEST_ALTERNATIVE_CONFIG'] = '1'
+os.environ['BLOCKSTACK_TESTNET'] = '1'
+os.environ['BLOCKSTACK_ATLAS_NETWORK_SIMULATION'] = '1'
+
+TEST_FIRST_BLOCK_HEIGHT = 250   # how many blocks we have to generate to start regtest
+os.environ['BLOCKSTACK_TEST_FIRST_BLOCK'] = str(TEST_FIRST_BLOCK_HEIGHT + 6)
+
+import sys 
+import subprocess
+import signal
+import shutil
+import time
+import atexit
+import errno
+import importlib
+import traceback
+import socket
+import simplejson
+import threading
+import argparse
+
+blockstack = None
+blockstackd = None
+testlib = None
+
+import pybitcoin
+
+import virtualchain 
+log = virtualchain.get_logger("blockstack-test-scenario")
+
+from virtualchain.lib.blockchain.bitcoin_blockchain import JSONRPCException
+
+TEST_RPC_PORT = 16264
+TEST_CLIENT_RPC_PORT = 16268
+BLOCKSTACK_STORAGE_DRIVERS = "disk"
+
+if os.environ.get("BLOCKSTACK_STORAGE_DRIVERS", None) is not None:
+    BLOCKSTACK_STORAGE_DRIVERS = os.environ.get("BLOCKSTACK_STORAGE_DRIVERS")
+
+BITCOIN_DIR = "/tmp/bitcoin-regtest"
+
+DEFAULT_SERVER_INI_TEMPLATE = """
+[bitcoind]
+passwd = blockstacksystem
+server = localhost
+port = 18332
+p2p_port = 18444
+use_https = False
+user = blockstack
+regtest = True
+spv_path = @CLIENT_BLOCKCHAIN_HEADERS@
+
+[blockstack]
+server_version = 0.14.0
+rpc_port = %s
+backup_frequency = 3
+backup_max_age = 30
+blockchain_proxy = True
+serve_zonefiles = True
+serve_profiles = True
+zonefiles = @ZONEFILES@
+analytics_key = abcdef0123456789
+zonefile_storage_drivers = disk
+profile_storage_drivers = disk
+atlas = True
+atlas_seeds = 
+atlas_blacklist =
+atlas_hostname = localhost
+""" % TEST_RPC_PORT
+
+DEFAULT_CLIENT_INI_TEMPLATE = """
+[blockstack-client]
+accounts = @CLIENT_ACCOUNTS_PATH@
+users = @CLIENT_USERS_PATH@
+datastores = @CLIENT_DATASTORES_PATH@
+client_version = 0.14.1
+server = localhost
+port = %s
+metadata = @CLIENT_METADATA@
+storage_drivers = @CLIENT_STORAGE_DRIVERS@
+storage_drivers_required_write = disk,blockstack-server
+advanced_mode = true
+api_endpoint_port = %s
+rpc_token = a653b93e696a998f85f8fd2b241ff4dfcb5dd978fe1da26c413a4c2abf90321b
+poll_interval = 1
+queue_path = @CLIENT_QUEUE_PATH@
+rpc_detach = True
+blockchain_reader = bitcoind_utxo
+blockchain_writer = bitcoind_utxo
+anonymous_statistics = False
+blockchain_headers = @CLIENT_BLOCKCHAIN_HEADERS@
+
+[blockchain-reader]
+utxo_provider = bitcoind_utxo
+rpc_username = blockstack
+rpc_password = blockstacksystem
+server = localhost
+port = 18332
+use_https = False
+
+[blockchain-writer]
+utxo_provider = bitcoind_utxo
+rpc_username = blockstack
+rpc_password = blockstacksystem
+server = localhost
+port = 18332
+use_https = False
+
+[bitcoind]
+passwd = blockstacksystem
+server = localhost
+port = 18332
+use_https = False
+user = blockstack
+regtest = True
+""" % (TEST_RPC_PORT, TEST_CLIENT_RPC_PORT)
+
+
+class Pinger(threading.Thread):
+    """
+    For some reason, bitcoind -regtest
+    won't reply blocks on its p2p interface
+    unless we continuously ping it (maybe its
+    bufferring up block data?).  This is
+    a stop-gap solution until we know more.
+    """
+    def __init__(self):
+        threading.Thread.__init__(self)
+        self.running = False
+
+    def run(self):
+        self.running = True
+        bitcoind = bitcoin_regtest_connect( bitcoin_regtest_opts() )
+        while self.running:
+            try:
+                bitcoind.ping()
+                time.sleep(0.25)
+            except socket.error:
+                bitcoind = bitcoin_regtest_connect( bitcoin_regtest_opts() )
+
+    def ask_join(self):
+        self.running = False
+
+
+def parse_test_pragma( line ):
+    """
+    Parse a test pragma line from a scenario
+    """
+    ret = {}
+    lineparts = line.split(" ")
+    assert len(lineparts) >= 2
+
+    if lineparts[0] != 'TEST':
+        raise Exception("Not a test pragma: '%s'" % line)
+
+    if lineparts[1] == 'ENV':
+        assert len(lineparts) > 3
+
+        # environment variable
+        ret['type'] = 'ENV'
+        ret['name'] = lineparts[2]
+        ret['value'] = ' '.join(lineparts[3:])
+
+    else:
+        # unknown
+        raise Exception("Unknown test pragma '%s'" % lineparts[0])
+
+    return ret
+
+
+def load_scenario( scenario_name ):
+    """
+    Load up a scenario, and validate it.
+    A scenario is a python file with:
+    * a global variable 'wallet' that is a dict
+    which maps private keys to their initial values.
+    * a global variable 'consensus' that represents 
+    the initial consensus hash.
+    * a callable called 'scenario' that takes the 
+    wallet as an argument and runs the test.
+    * a callable called 'check' that takes the state 
+    engine as an argument and checks it for correctness.
+    """
+
+    log.debug("Load scenario %s" % sys.argv[1])
+
+    # strip .py from scenario name 
+    if scenario_name.endswith(".py"):
+        scenario_name = scenario_name[:-3]
+
+    # identify the file's path
+    log.debug("Identifying scenario path")
+    p = subprocess.Popen( "python -c 'import %s; print %s.__file__'" % (scenario_name, scenario_name), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE )
+    path_buf, err = p.communicate()
+    
+    if p.returncode is not None and p.returncode != 0:
+        print >> sys.stderr, err
+        raise Exception("Failed to load %s, exit code %s" % (scenario_name, p.returncode))
+
+    path = path_buf.strip().split("\n")[-1].strip()
+    if path.endswith(".pyc"):
+        path = path[:-4] + ".py"
+
+    log.debug("Path of %s is %s" % (scenario_name, path))
+
+    # load any test pragmas (like environment variables) and set them now
+    with open(path, "r") as f:
+        scenario_data = f.readlines()
+        
+    for line in scenario_data:
+        line = line.strip()
+        try:
+            test_pragma = parse_test_pragma( line )
+        except:
+            continue
+
+        if test_pragma['type'] == 'ENV':
+            os.environ[ test_pragma['name'] ] = test_pragma['value']
+            log.debug("export %s='%s'" % (test_pragma['name'], os.environ[test_pragma['name']]))
+
+    try:
+        scenario = importlib.import_module( scenario_name )
+    except ImportError, ie:
+        raise Exception("Failed to import '%s'." % scenario_name )
+
+    # validate 
+    if not hasattr( scenario, "wallets" ):
+        # default empty wallet 
+        log.warning("Empty wallet for scenario '%s'" % scenario_name )
+        scenario.wallets = {}
+
+    if not hasattr( scenario, "consensus" ):
+        # default consensus hash 
+        log.warning("No consensus hash for '%s'" % scenario_name )
+        scenario.consensus = "00" * 16
+
+    if not hasattr( scenario, "scenario" ):
+        # not a valid test 
+        log.error("Invalid scenario '%s': no 'scenario' method" % scenario_name )
+        return None 
+
+    if not hasattr( scenario, "check" ):
+        # not a valid test 
+        log.error("Invalid scenario '%s': no 'check' method" % scenario_name )
+        return None 
+
+    return scenario
+   
+
+def generate_config_file( scenario, path, template, extra_fields):
+    """
+    Generate the config file to use with this test scenario.
+    Write it to path.
+    """
+
+    client_metadata = extra_fields.get("CLIENT_METADATA", "")
+    queue_path = extra_fields.get("CLIENT_QUEUE_PATH", "")
+    accounts_dir = extra_fields.get("CLIENT_ACCOUNTS_PATH", "")
+    users_dir = extra_fields.get("CLIENT_USERS_PATH", "")
+    datastores_path = extra_fields.get("CLIENT_DATASTORES_PATH", "")
+    zonefiles_dir = extra_fields.get("ZONEFILES", None)
+    storage_drivers = extra_fields.get("CLIENT_STORAGE_DRIVERS", BLOCKSTACK_STORAGE_DRIVERS)
+    if zonefiles_dir is None:
+        zonefiles_dir = "/tmp/blockstack-test-zonefiles"
+
+    config_txt = None
+    if template is not None:
+        config_txt = template[:]
+
+    else:
+        raise Exception("No config template")
+
+    spv_headers_path = os.path.join( os.environ.get("VIRTUALCHAIN_WORKING_DIR", None), "spv_headers.dat")
+
+    config_txt = config_txt.replace( "@CLIENT_BLOCKCHAIN_HEADERS@", spv_headers_path )
+    config_txt = config_txt.replace( "@CLIENT_METADATA@", client_metadata ) 
+    config_txt = config_txt.replace( "@CLIENT_ACCOUNTS_PATH@", accounts_dir )
+    config_txt = config_txt.replace( "@CLIENT_USERS_PATH@", users_dir )
+    config_txt = config_txt.replace( "@CLIENT_DATASTORES_PATH@", datastores_path )
+    config_txt = config_txt.replace( "@CLIENT_QUEUE_PATH@", queue_path )
+    config_txt = config_txt.replace( "@ZONEFILES@", zonefiles_dir )
+    config_txt = config_txt.replace( "@CLIENT_STORAGE_DRIVERS@", storage_drivers )
+    
+    with open( path, "w" ) as f:
+        f.write( config_txt )
+        f.flush()
+
+    return 0
+
+
+def network_start( blockstack_opts, db ):
+    """
+    Start RPC services
+    """
+    atlas_state = None
+    try:
+        atlas_state = blockstackd.atlas_start( blockstack_opts, db, TEST_RPC_PORT )
+    except:
+        if not hasattr(blockstackd, "atlas_start"):
+            log.error("Atlas support disabled")
+        else:
+            raise
+
+    blockstackd.rpc_start(TEST_RPC_PORT)
+    return atlas_state
+    
+
+def storage_start( blockstack_opts ):
+    """
+    Start storage services
+    """
+    blockstackd.storage_start( blockstack_opts )
+
+
+def network_stop():
+    """
+    Stop RPC services
+    """
+    blockstackd.rpc_stop()
+
+
+def atlas_stop( atlas_state ):
+    try:
+        blockstackd.atlas_stop( atlas_state )
+    except:
+        if not hasattr(blockstackd, "atlas_stop"):
+            log.error("Atlas support disabled")
+        else:
+            raise
+
+
+def storage_stop():
+    """
+    Stop storage services
+    """
+    blockstackd.storage_stop()
+
+
+def bitcoin_stop():
+    """
+    Stop bitcoin
+    """
+    global BITCOIN_DIR
+    bitcoin_conf = os.path.join(BITCOIN_DIR, "bitcoin.conf")
+    rc = os.system("bitcoin-cli -regtest -conf=%s stop" % bitcoin_conf)
+    assert rc == 0, "Failed to stop bitcoind"
+
+
+def atexit_cleanup( spv_headers_path, client_config_path, stop_bitcoind ):
+    """
+    Clean up a scenario
+    """
+    global BITCOIN_DIR
+
+    try:
+        os.unlink(spv_headers_path)
+    except:
+        pass
+
+    if client_config_path is not None:
+        client_config_dir = os.path.dirname(client_config_path)
+        blockstack_client.rpc.local_rpc_stop(client_config_dir)
+
+    if stop_bitcoind:
+        bitcoin_conf = os.path.join(BITCOIN_DIR, "bitcoin.conf")
+        os.system("bitcoin-cli -regtest -conf=%s stop" % bitcoin_conf)
+
+
+def sync_virtualchain_upcall( blockstack_opts, need_db_refresh=False ):
+    """
+    Upcall from the test scenario
+    to synchronize virtualchain.
+    Part of advancing to the next block.
+    """
+    bitcoind = bitcoin_regtest_connect( bitcoin_regtest_opts() )
+    height = bitcoind.getblockcount()
+
+    db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
+    testlib.set_state_engine(db)
+
+    if need_db_refresh:
+        rpcclient = testlib.TestAPIProxy()
+        rpcclient.db_refresh()
+
+    old_lastblock = db.lastblock
+
+    log.debug("sync virtualchain up to %s" % (height))
+    virtualchain.sync_virtualchain( bitcoin_regtest_opts(), height, db )
+
+    db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
+    testlib.set_state_engine(db)
+
+    if need_db_refresh:
+        rpcclient = testlib.TestAPIProxy()
+        rpcclient.db_refresh()
+
+    log.debug("sync atlas node up to %s" % (height))
+    
+    # synchronize atlas db
+    if blockstack_opts.get('atlas', False) and hasattr(blockstackd, "atlasdb_sync_zonefiles"):
+        if old_lastblock < db.lastblock:
+            log.debug("Synchronize Atlas DB from %s to %s" % (old_lastblock+1, db.lastblock+1))
+            zonefile_dir = blockstack_opts.get('zonefiles', get_zonefile_dir())
+            blockstackd.atlasdb_sync_zonefiles( db, old_lastblock+1, zonefile_dir=zonefile_dir )
+
+
+def run_scenario( scenario, config_file, client_config_file, interactive=False, blocktime=10 ):
+    """
+    Run a test scenario:
+    * set up the virtualchain to use our mock UTXO provider and mock bitcoin blockchain
+    * seed it with the initial values in the wallet 
+    * set the initial consensus hash 
+    * start the API server
+    * run the scenario method
+    * run the check method
+    """
+
+    virtualchain_working_dir = os.environ["VIRTUALCHAIN_WORKING_DIR"]
+
+    spv_headers_path = os.path.join( virtualchain_working_dir, "spv_headers.dat")
+    atexit_cleanup( spv_headers_path, None, False )
+    atexit.register( atexit_cleanup, spv_headers_path, client_config_file, True )
+
+    client_config_dir = os.path.dirname(client_config_file)
+
+    # virtualchain defaults...
+    virtualchain.setup_virtualchain( impl=blockstack_state_engine, bitcoind_connection_factory=bitcoin_regtest_connect )
+
+    # set up blockstack
+    server_opts = blockstack.lib.config.configure(config_file=config_file, interactive=False)
+    blockstack_opts = server_opts['blockstack']
+    bitcoin_opts = server_opts['bitcoind']
+
+    client_opts = blockstack_client.config.configure(config_file=client_config_file, interactive=False)
+    utxo_opts = client_opts['blockchain-reader']
+   
+    # override multiprocessing options to ensure single-process behavior 
+    utxo_opts['multiprocessing_num_procs'] = 1 
+    utxo_opts['multiprocessing_num_blocks'] = 10
+
+    # pass along extra arguments
+    utxo_opts['blockchain_server'] = 'localhost'
+    utxo_opts['blockchain_port'] = 18332
+    utxo_opts['spv_headers_path'] = spv_headers_path
+
+    print ""
+    print "blockstack opts"
+    print json.dumps( blockstack_opts, indent=4 )
+
+    print ""
+    print "blockchain opts"
+    print json.dumps( bitcoin_opts, indent=4 )
+
+    print ""
+    print "blockchain service opts"
+    print json.dumps( utxo_opts, indent=4 )
+
+    print "blockchain headers: %s" % spv_headers_path
+
+    blockstackd.set_blockstack_opts( blockstack_opts )
+    blockstackd.set_bitcoin_opts( bitcoin_opts )
+
+    print ""
+    print "atlas node initialization"
+    print ""
+        
+    db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
+
+    if hasattr(blockstackd, "atlasdb_init"):
+        atlas_seed_peers = filter( lambda x: len(x) > 0, blockstack_opts['atlas_seeds'].split(","))
+        atlas_blacklist = filter( lambda x: len(x) > 0, blockstack_opts['atlas_blacklist'].split(","))
+        zonefile_dir = blockstack_opts.get('zonefiles', None)
+        zonefile_storage_drivers = filter( lambda x: len(x) > 0, blockstack_opts['zonefile_storage_drivers'].split(","))
+        my_hostname = blockstack_opts['atlas_hostname']
+
+        assert zonefile_dir is not None
+
+        blockstackd.atlasdb_init( blockstack_opts['atlasdb_path'], db, atlas_seed_peers, atlas_blacklist, validate=True, zonefile_dir=zonefile_dir )
+
+    print ""
+    print "bitcoind connection"
+    print ""
+
+    bitcoind = bitcoin_regtest_connect( bitcoin_regtest_opts() )
+
+    utxo_provider = pybitcoin.BitcoindClient("blockstack", "blockstacksystem", port=18332, version_byte=virtualchain.version_byte )
+    working_dir = virtualchain.get_working_dir()
+
+    print "working_dir: %s" % working_dir
+
+    # set up test environment
+    testlib.set_utxo_opts( utxo_opts )
+    testlib.set_bitcoind( bitcoind )
+    testlib.set_state_engine( db )
+
+    # start taking RPC requests
+    atlas_state = network_start( blockstack_opts, db )
+
+    # start storage 
+    storage_start( blockstack_opts )
+
+    # start pinging bitcoind so it pushes out p2p messages
+    pinger = Pinger()
+    pinger.start()
+
+    # do we need to refreshdb?
+    rpcclient = testlib.TestAPIProxy()
+    res = rpcclient.getinfo()
+    need_db_refresh = False
+
+    if not blockstack_client.config.semver_newer( res['server_version'], "0.14.0" ) and not res['server_version'].startswith("0.14."):
+        log.debug("Need periodic DB refreshes (server_version = %s)" % res['server_version'])
+        need_db_refresh = True
+
+    test_env = {
+        "sync_virtualchain_upcall": lambda: sync_virtualchain_upcall(blockstack_opts, need_db_refresh=need_db_refresh),
+        "next_block_upcall": bitcoin_regtest_next_block,
+        "working_dir": working_dir,
+        "bitcoind": bitcoind,
+        "bitcoin_opts": bitcoin_opts,
+        "spv_headers_path": spv_headers_path,
+        "blockstack_opts": blockstack_opts
+    }
+
+    # sync initial utxos 
+    testlib.next_block( **test_env )
+
+    # load the scenario into the mock blockchain and mock utxo provider
+    try:
+        rc = scenario.scenario( scenario.wallets, **test_env )
+
+    except Exception, e:
+        log.exception(e)
+        traceback.print_exc()
+        log.error("Failed to run scenario '%s'" % scenario.__name__)
+        network_stop()
+        atlas_stop( atlas_state )
+        storage_stop()
+        bitcoin_stop()
+        blockstack_client.rpc.local_rpc_stop(client_config_dir)
+
+        pinger.ask_join()
+        pinger.join()
+        return False
+
+    if rc == False:
+        # explicitly erred
+        log.error("Scenario exits in error")
+        blockstack_client.rpc.local_rpc_stop(client_config_dir)
+        log.error("Failed to run tests '%s'" % scenario.__name__)
+        network_stop()
+        storage_stop()
+        bitcoin_stop()
+        return False
+
+    db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
+    testlib.set_state_engine(db)
+
+    # run the checks on the database
+    try:
+        rc = scenario.check( db )
+    except Exception, e:
+        log.exception(e)
+        traceback.print_exc()
+        blockstack_client.rpc.local_rpc_stop(client_config_dir)
+        log.error("Failed to run tests '%s'" % scenario.__name__)
+        network_stop()
+        storage_stop()
+        bitcoin_stop()
+        return False 
+    
+    if not rc:
+        network_stop()
+        storage_stop()
+        bitcoin_stop()
+        blockstack_client.rpc.local_rpc_stop(client_config_dir)
+        return rc
+
+    # do any more interactive tests
+    if interactive:
+        log.info("Keeping test server online for testing purposes.")
+        log.info("Blocktime is %s second(s)" % blocktime)
+        while True:
+            try:
+                db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RW)
+                testlib.set_state_engine( db )
+                time.sleep(blocktime)
+                testlib.next_block( **test_env )
+            except KeyboardInterrupt:
+                log.info('Resume tests')
+                break
+
+    pinger.ask_join()
+    pinger.join()
+
+    # stop atlas support 
+    atlas_stop( atlas_state )
+
+    log.info("Scenario checks passed; verifying history")
+
+    # run database integrity check at each block 
+    db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RO)
+    rc = False
+    try:
+        rc = testlib.check_history( db )
+        assert rc, "History check failed"
+    except Exception, e:
+        log.exception(e)
+        network_stop()
+        storage_stop()
+        bitcoin_stop()
+        blockstack_client.rpc.local_rpc_stop(client_config_dir)
+        return rc
+
+    log.info("History check passes!")
+
+    if need_db_refresh: 
+        rpcclient = testlib.TestAPIProxy()
+        rpcclient.db_refresh()
+
+    # run snv at each name 
+    db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RO)
+    rc = False
+    try:
+        rc = testlib.snv_all_names( db )
+        assert rc, "SNV check failed"
+    except Exception, e:
+        log.exception(e)
+        network_stop()
+        storage_stop()
+        bitcoin_stop()
+        blockstack_client.rpc.local_rpc_stop(client_config_dir)
+        return rc
+
+    log.info("SNV check passes!")
+
+    # verify atlas zonefiles
+    db = blockstackd.get_db_state(disposition=blockstackd.DISPOSITION_RO)
+    
+    if atlas_state is not None:
+        rc = testlib.check_atlas_zonefiles( db, blockstack_opts['atlasdb_path'] )
+        if not rc:
+            network_stop()
+            storage_stop()
+            bitcoin_stop()
+            blockstack_client.rpc.local_rpc_stop(client_config_dir)
+            return rc
+
+        log.info("Atlas zonefile checks pass!")
+
+    network_stop()
+    storage_stop()
+    bitcoin_stop()
+    blockstack_client.rpc.local_rpc_stop(client_config_dir)
+    TEST_RESULT = True
+    return True
+
+
+def bitcoin_regtest_opts():
+    """
+    Get connection options for bitcoind in regtest mode
+    """
+    return {
+        "bitcoind_server": "localhost",
+        "bitcoind_port": 18332,
+        "bitcoind_p2p_port": 18444,
+        "bitcoind_user": "blockstack",
+        "bitcoind_passwd": "blockstacksystem",
+        "bitcoind_use_https": False,
+        "bitcoind_timeout": 60,
+        "bitcoind_spv_path": os.path.join(os.environ.get("VIRTUALCHAIN_WORKING_DIR", None), "spv_headers.dat")
+    }
+
+
+def bitcoin_regtest_reset():
+    """
+    Reset bitcoind regtest to a clean state
+    """
+    global BITCOIN_DIR
+
+    bitcoin_dir = BITCOIN_DIR[:]
+    bitcoin_pidpath = os.path.join(bitcoin_dir, "bitcoind.pid")
+    bitcoin_conf = os.path.join(bitcoin_dir, "bitcoin.conf")
+
+    opts = bitcoin_regtest_opts()
+
+    if os.path.exists(bitcoin_dir):
+        if os.path.exists(bitcoin_pidpath):
+            # kill running daemon
+            os.system("bitcoin-cli -regtest -conf=%s stop" % bitcoin_conf)
+            while True:
+                time.sleep(1.0)
+                rc = os.system("bitcoin-cli -regtest conf=%s stop" % bitcoin_conf)
+                if rc != 0:
+                    break
+
+        # start fresh
+        shutil.rmtree(bitcoin_dir)
+
+    os.makedirs(bitcoin_dir)
+    with open(bitcoin_conf, "w") as f:
+        f.write("rpcuser=%s\nrpcpassword=%s\nregtest=1\ntxindex=1\nlisten=1\nserver=1\ndatadir=%s\ndebug=1" % (opts['bitcoind_user'], opts['bitcoind_passwd'], bitcoin_dir))
+        f.flush()
+        os.fsync(f.fileno())
+
+    # start up 
+    log.debug("Starting up bitcoind in regtest mode")
+    rc = os.system("bitcoind -daemon -conf=%s" % (bitcoin_conf))
+    if rc != 0:
+        log.error("Failed to start `bitcoind`: rc = %s" % rc)
+        return False
+
+    # wait for a few seconds for it to come up
+    log.debug("Waiting for bitcoind to start up")
+
+    while True:
+        time.sleep(1)
+        opts = bitcoin_regtest_opts()
+        try:
+
+            bitcoind = virtualchain.default_connect_bitcoind( opts )
+            bitcoind.getinfo()
+            break
+
+        except socket.error:
+            pass
+        except JSONRPCException:
+            pass
+
+    # generate 150 blocks (50 BTC coinbase each), and confirm them
+    bitcoind = virtualchain.connect_bitcoind(opts)
+    res = bitcoind.generate(TEST_FIRST_BLOCK_HEIGHT-1)
+    if len(res) != TEST_FIRST_BLOCK_HEIGHT-1:
+        log.error("Did not generate %s blocks" % TEST_FIRST_BLOCK_HEIGHT-1)
+        return False
+
+    log.debug("bitcoind -regtest is ready")
+    return True
+
+
+def fill_wallet( bitcoind, wallet, value ):
+    """
+    Fill a test wallet on a regtest bitcoind.
+    Convert the wallet's keys to testnet format, if needed.
+
+    Return True on success
+    Raise on error
+    """
+    if type(wallet.privkey) in [str, unicode]:
+        # single private key
+        testnet_wif = virtualchain.BitcoinPrivateKey(wallet.privkey).to_wif()
+        bitcoind.importprivkey(testnet_wif, "")
+
+        addr = virtualchain.BitcoinPublicKey(wallet.pubkey_hex).address()
+        log.debug("Fill %s with %s" % (addr, value ))
+        bitcoind.sendtoaddress( addr, value )
+
+    else:
+        # multisig address
+        testnet_wifs = []
+        testnet_pubks = []
+        for pk in wallet.privkey['private_keys']:
+            if not pk.startswith("c"):
+                pk = virtualchain.BitcoinPrivateKey(pk).to_wif()
+
+            testnet_wifs.append(pk)
+            testnet_pubks.append( virtualchain.BitcoinPrivateKey(pk).public_key().to_hex() )
+
+        multisig_info = virtualchain.make_multisig_info( wallet.m, testnet_wifs )
+        bitcoind.addmultisigaddress( wallet.m, testnet_pubks )
+        bitcoind.importaddress( multisig_info['address'] )
+
+        log.debug("Fill %s with %s" % (multisig_info['address'], value ))
+        bitcoind.sendtoaddress( multisig_info['address'], value )
+
+    return True
+
+
+def get_wallet_addr( wallet ):
+    """
+    Get a wallet's address
+    """
+    if type(wallet.privkey) in [str, unicode]:
+        return virtualchain.BitcoinPublicKey(wallet.pubkey_hex).address()
+
+    else:
+        return wallet.addr
+
+
+def bitcoin_regtest_fill_wallets( wallets, default_payment_wallet=None ):
+    """
+    Given a set of wallets, make sure they each have 50 btc.
+    If given, fill the default payment walet with 250 btc
+    (will be used to subsidize other operations)
+    """
+    opts = bitcoin_regtest_opts()
+    bitcoind = virtualchain.connect_bitcoind( opts )
+
+    for wallet in wallets:
+        # fill each wallet
+        fill_wallet( bitcoind, wallet, 50 )
+        
+    if default_payment_wallet is not None:
+        # fill optional default payment address
+        fill_wallet( bitcoind, default_payment_wallet, 250 )
+        
+    bitcoind.generate(6)
+
+    print >> sys.stderr, ""
+
+    for wallet in wallets + [default_payment_wallet]:
+        if wallet is None:
+            continue
+
+        addr = get_wallet_addr( wallet )
+        unspents = bitcoind.listunspent( 0, 200000, [addr] )
+
+        SATOSHIS_PER_COIN = 10**8
+        value = sum( [ int(round(s["amount"]*SATOSHIS_PER_COIN)) for s in unspents ] )
+
+        print >> sys.stderr, "Address %s loaded with %s satoshis" % (addr, value)
+
+    print >> sys.stderr, ""
+
+    return True
+
+
+def bitcoin_regtest_next_block():
+    """
+    Get the blockchain height from the regtest daemon
+    """
+    opts = bitcoin_regtest_opts()
+    bitcoind = virtualchain.connect_bitcoind( opts )
+    bitcoind.generate(1)
+    log.debug("next block (now at %s)" % bitcoind.getblockcount())
+
+
+def bitcoin_regtest_connect( opts, reset=False ):
+    """
+    Create a connection to bitcoind -regtest
+    """
+    bitcoind = virtualchain.default_connect_bitcoind(opts)
+    return bitcoind
+
+
+class BitcoinRegtestUTXOProvider(object):
+    """
+    Bitcoin regtest UTXO provider, compatible with pybitcoin.
+    All addresses must be created within the bitcoind wallet.
+    """
+
+    def __init__(self, bitcoind):
+        self.bitcoind = bitcoind
+   
+
+    def get_unspents( self, address, blockchain_client=None ):
+        """
+        Get unspent outputs for an address.
+        Meant to be compatible with pybitcoin.
+        (blockchain_client is a BitcoindConnection)
+        """
+        if blockchain_client is None:
+            blockchain_client = self.bitcoind
+
+        SATOSHIS_PER_COIN = 10**8
+        unspents_tmp = blockchain_client.listunspent( 0, 200000, [address] )
+        unspents_all = [{
+            "transaction_hash": s["txid"],
+            "output_index": s["vout"],
+            "value": int(round(s["amount"]*SATOSHIS_PER_COIN)),
+            "script_hex": s["scriptPubKey"],
+            "confirmations": s["confirmations"]
+            }
+            for s in unspents_tmp
+        ]
+
+        return unspents_all
+
+
+    def broadcast_transaction( self, hex_tx, blockchain_client=None ):
+        """
+        Send a raw transaction to bitcoin regtest.
+        Meant to be compatible with pybitcoin.
+        (blockchain_client is a BitcoindConnection)
+        """
+        if blockchain_client is None:
+            blockchain_client = self.bitcoind
+
+        res = blockchain_client.sendrawtransaction( hex_tx )
+        if len(res) > 0:
+            ret = {'tx_hash': res, 'success': True}
+            return ret
+        else:
+            raise Exception("Invalid response: %s" % res)
+
+
+def parse_args( argv ):
+    """
+    Parse argv to get block time, scenario path, working dir, etc.
+    """
+    parser = argparse.ArgumentParser(description='Run a test scenario')
+    parser.add_argument("--interactive", dest='blocktime', type=int, help='Number of seconds between blocks', required=False)
+    parser.add_argument("--working-dir", dest='working_dir', type=str, help="Working directory to use to store database state", required=False)
+    parser.add_argument("scenario_module", type=str, help="Python module to run")
+
+    args, _ = parser.parse_known_args()
+    return args
+
+
+if __name__ == "__main__":
+
+    if len(sys.argv) < 2:
+        print >> sys.stderr, "Usage: %s [--interactive [blocktime]] [scenario.import.path] [OPTIONAL: working dir]"
+        sys.exit(1)
+
+    args = parse_args(sys.argv)
+
+    interactive = False
+    blocktime = 10
+    working_dir = None
+    scenario_module = args.scenario_module
+
+    if hasattr(args, "blocktime") and args.blocktime is not None:
+        interactive = True
+        blocktime = args.blocktime
+        log.debug("Interactive session; block time is %s" % blocktime)
+
+    if hasattr(args, "working_dir") and args.working_dir is not None:
+        working_dir = args.working_dir
+    
+    else:
+        working_dir = "/tmp/blockstack-run-scenario.%s" % scenario_module
+
+        # erase prior state
+        if os.path.exists(working_dir):
+            log.debug("Remove %s" % working_dir)
+            shutil.rmtree(working_dir)
+
+    if not os.path.exists(working_dir):
+        os.makedirs(working_dir)   
+
+    client_working_dir = os.path.join(working_dir, "client")
+    client_metadata = os.path.join(client_working_dir, "metadata")
+    client_accounts_path = os.path.join(client_working_dir, "app_accounts")
+    client_users_path = os.path.join(client_working_dir, "users")
+    client_queue_path = os.path.join( client_working_dir, "queues.db" )
+    config_file = os.path.join( working_dir, "blockstack-server.ini" ) 
+    client_config_file = os.path.join( client_working_dir, "client.ini" )
+    client_datastores_path = os.path.join( client_working_dir, "datastores" )
+
+    os.makedirs(client_working_dir)
+    os.makedirs(client_metadata) 
+    os.makedirs(client_accounts_path)
+    os.makedirs(client_datastores_path)
+
+    # export to test 
+    os.environ["BLOCKSTACK_CLIENT_CONFIG"] = client_config_file
+    os.environ["BLOCKSTACK_SERVER_CONFIG"] = config_file
+    os.environ['VIRTUALCHAIN_WORKING_DIR'] = working_dir
+
+    # load up the scenario (so it can set its own extra envars) 
+    scenario = load_scenario( scenario_module )
+    if scenario is None:
+        print "Failed to load '%s'" % sys.argv[1]
+        sys.exit(1)
+
+    # *now* we can import blockstack 
+    import blockstack
+    import blockstack.blockstackd as blockstackd
+    from blockstack.lib import *
+
+    from blockstack.lib import nameset as blockstack_state_engine
+
+    import blockstack_integration_tests.scenarios.testlib as testlib
+
+    # set up bitcoind 
+    bitcoin_regtest_reset()
+
+    # set up disk storage 
+    if os.path.exists("/tmp/blockstack-disk"):
+        shutil.rmtree("/tmp/blockstack-disk")
+
+    # set up default payment wallet 
+    default_payment_wallet = testlib.MultisigWallet( 2, '5JYAj69z2GuFAZHrkhRuBKoCmKh6GcPXgcw9pbH8e8J2pu2RU9z', '5Kfg4xkZ1gGN5ozgDZ37Mn3EH9pXSuWZnQt1pzax4cLax8PetNs', '5JXB7rNxZa8yQtpuKtwy1nWUUTgdDEYTDmaEqQvKKC8HCWs64bL' ) 
+
+    # load wallets 
+    bitcoin_regtest_fill_wallets( scenario.wallets, default_payment_wallet=default_payment_wallet )
+    testlib.set_default_payment_wallet( default_payment_wallet )
+
+    # did the scenario change this variable?
+    storage_drivers = BLOCKSTACK_STORAGE_DRIVERS
+    if os.environ.get("CLIENT_STORAGE_DRIVERS", None) is not None:
+        storage_drivers = os.environ.get("CLIENT_STORAGE_DRIVERS")
+
+    # generate config file
+    rc = generate_config_file( scenario, config_file, DEFAULT_SERVER_INI_TEMPLATE, \
+                            {"ZONEFILES": os.path.join(working_dir, "zonefiles")} )
+    if rc != 0:
+        log.error("failed to write config file: exit %s" % rc)
+        sys.exit(1)
+
+    # generate config file for the client
+    rc = generate_config_file( scenario, client_config_file, DEFAULT_CLIENT_INI_TEMPLATE, \
+                            {"CLIENT_METADATA": client_metadata, \
+                             "CLIENT_QUEUE_PATH": client_queue_path, \
+                             "CLIENT_STORAGE_DRIVERS": storage_drivers, \
+                             "CLIENT_ACCOUNTS_PATH": client_accounts_path, \
+                             "CLIENT_USERS_PATH": client_users_path, \
+                             "CLIENT_DATASTORES_PATH": client_datastores_path})
+
+    if rc != 0:
+        log.error("failed to write config file: exit %s" % rc)
+        sys.exit(1)
+
+    # run the test 
+    rc = run_scenario( scenario, config_file, client_config_file, interactive=interactive, blocktime=blocktime )
+   
+    if rc:
+        print "SUCCESS %s" % scenario.__name__
+        # shutil.rmtree( working_dir )
+        sys.exit(0)
+    else:
+        print >> sys.stderr, "FAILURE %s" % scenario.__name__
+        print >> sys.stderr, "Test output in %s" % working_dir
+        os.abort()
+
+    

@@ -1,0 +1,3 @@
+[submodule "blockstack-consensus-data"]
+	path = blockstack-consensus-data
+	url = https://github.com/blockstack/blockstack-consensus-data
