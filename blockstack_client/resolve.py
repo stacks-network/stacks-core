@@ -541,7 +541,7 @@ def blockstack_data_url(field_dict):
     )
 
 
-def blockstack_url_fetch(url, proxy=None, config_path=CONFIG_PATH):
+def blockstack_url_get(url, proxy=None, config_path=CONFIG_PATH):
     """
     Given a blockstack:// url, fetch its data.
     If the data is an immutable data url, and the hash is not given, then look up the hash first.
@@ -614,6 +614,8 @@ def blockstack_url_fetch(url, proxy=None, config_path=CONFIG_PATH):
             return data.list_immutable_data( blockchain_id, proxy=proxy, config_path=config_path )
 
 
+def blockstack_url_put( 
+
 class BlockstackURLHandle(object):
     """
     A file-like object that handles reads on blockstack URLs
@@ -654,7 +656,7 @@ class BlockstackURLHandle(object):
             from .proxy import get_default_proxy
 
             proxy = get_default_proxy(config_path=self.config_path)
-            data = blockstack_url_fetch(
+            data = blockstack_url_get(
                 self.name, proxy=proxy, config_path=self.config_path
             )
 
