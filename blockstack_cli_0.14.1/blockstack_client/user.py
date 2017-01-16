@@ -34,6 +34,7 @@ from jsonschema.exceptions import ValidationError
 from .schemas import *
 from .constants import BLOCKSTACK_TEST, CONFIG_PATH, BLOCKSTACK_DEBUG, USER_DIRNAME
 from .keys import HDWallet, get_pubkey_hex
+import scripts
 
 log = config.get_logger()
 
@@ -447,7 +448,7 @@ def put_immutable_data_zonefile(user_zonefile, data_id, data_hash, data_url=None
     assert is_user_zonefile(user_zonefile)
 
     data_hash = str(data_hash)
-    assert storage.is_valid_hash(data_hash)
+    assert scripts.is_valid_hash(data_hash)
 
     k = get_immutable_data_hash(user_zonefile, data_id)
     if k is not None:
@@ -477,7 +478,7 @@ def get_immutable_hash_from_txt(txtrec):
         return None
 
     h = txtrec.split('#')[-1]
-    if not storage.is_valid_hash(h):
+    if not scripts.is_valid_hash(h):
         return None
 
     return h
@@ -507,7 +508,7 @@ def remove_immutable_data_zonefile(user_zonefile, data_hash):
     assert is_user_zonefile(user_zonefile)
 
     data_hash = str(data_hash)
-    assert storage.is_valid_hash(data_hash), 'Invalid data hash "{}"'.format(data_hash)
+    assert scripts.is_valid_hash(data_hash), 'Invalid data hash "{}"'.format(data_hash)
 
     if 'txt' not in user_zonefile:
         return False
@@ -516,7 +517,7 @@ def remove_immutable_data_zonefile(user_zonefile, data_hash):
         h = None
         try:
             h = get_immutable_hash_from_txt(txtrec['txt'])
-            assert storage.is_valid_hash(h)
+            assert scripts.is_valid_hash(h)
 
         except AssertionError as ae:
             log.error("Invalid immutable data hash")
@@ -538,7 +539,7 @@ def has_immutable_data(user_zonefile, data_hash):
     assert is_user_zonefile(user_zonefile)
 
     data_hash = str(data_hash)
-    assert storage.is_valid_hash(data_hash), 'Invalid data hash "{}"'.format(data_hash)
+    assert scripts.is_valid_hash(data_hash), 'Invalid data hash "{}"'.format(data_hash)
 
     if 'txt' not in user_zonefile:
         return False
@@ -547,7 +548,7 @@ def has_immutable_data(user_zonefile, data_hash):
         h = None
         try:
             h = get_immutable_hash_from_txt(txtrec['txt'])
-            assert storage.is_valid_hash(h)
+            assert scripts.is_valid_hash(h)
 
         except AssertionError as ae:
             log.error("Invalid immutable data hash")
@@ -575,7 +576,7 @@ def has_immutable_data_id(user_zonefile, data_id):
         try:
             d_id = txtrec['name']
             h = get_immutable_hash_from_txt(txtrec['txt'])
-            assert storage.is_valid_hash(h)
+            assert scripts.is_valid_hash(h)
         except AssertionError:
             continue
 
@@ -611,7 +612,7 @@ def get_immutable_data_hash(user_zonefile, data_id):
                 log.error('Missing or invalid data hash for "{}"'.format(d_id))
 
             msg = 'Invalid data hash for "{}" (got "{}" from {})'
-            assert storage.is_valid_hash(h), msg.format(d_id, h, txtrec['txt'])
+            assert scripts.is_valid_hash(h), msg.format(d_id, h, txtrec['txt'])
         except AssertionError as ae:
             if BLOCKSTACK_TEST is not None:
                 log.exception(ae)
@@ -645,7 +646,7 @@ def get_immutable_data_url(user_zonefile, data_hash):
         h = None
         try:
             h = get_immutable_hash_from_txt(txtrec['txt'])
-            assert storage.is_valid_hash(h)
+            assert scripts.is_valid_hash(h)
 
             if data_hash != h:
                 continue
@@ -675,7 +676,7 @@ def list_immutable_data(user_zonefile):
         try:
             d_id = txtrec['name']
             h = get_immutable_hash_from_txt(txtrec['txt'])
-            assert storage.is_valid_hash(h)
+            assert scripts.is_valid_hash(h)
             ret.append((d_id, h))
         except AssertionError as ae:
             log.error("Invalid immutable data hash")
