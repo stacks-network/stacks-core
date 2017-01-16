@@ -162,7 +162,7 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # start up RPC for foo.test
-    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] )
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], None)
 
     # put immutable
     put_result = blockstack_client.put_immutable( "foo.test", "hello_world_immutable", {"hello": "world"}, proxy=test_proxy, wallet_keys=wallet_keys )
@@ -181,11 +181,12 @@ def scenario( wallets, **kw ):
     # wait for confirmation 
     for i in xrange(0, 12):
         testlib.next_block( **kw )
+        
     print "waiting for confirmation"
-    time.sleep(10)
+    time.sleep(15)
 
     # start up RPC for 'bar.test'
-    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], wallet_keys_2['data_privkey'] ) 
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys_2['payment_privkey'], wallet_keys_2['owner_privkey'], None) 
     put_result = blockstack_client.put_mutable( "bar.test", "hello_world_mutable", {"hello": "world"}, proxy=test_proxy, wallet_keys=wallet_keys_2 )
     if 'error' in put_result:
         print json.dumps(put_result, indent=4, sort_keys=True )
@@ -195,7 +196,8 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # put mutable data with the URL 
-    res = blockstack_client.data_put( "blockstack://foo.test/foo_data2", {"hello2": "world2"}, proxy=test_proxy, wallet_keys=wallet_keys )
+    res = blockstack_client.put_mutable( "foo.test", "foo_data2", {'hello2': 'world2'}, proxy=test_proxy, wallet_keys=wallet_keys)
+    #res = blockstack_client.data_put( "blockstack://foo.test/foo_data2", {"hello2": "world2"}, proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
@@ -203,8 +205,9 @@ def scenario( wallets, **kw ):
 
     # put immutable data with the URL
     # start up RPC for 'foo.test'
-    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], wallet_keys['data_privkey'] ) 
-    res = blockstack_client.data_put( "blockstack://foo_immutable.foo.test", {'hello3': 'world3'}, proxy=test_proxy, wallet_keys=wallet_keys )
+    testlib.blockstack_client_set_wallet( "0123456789abcdef", wallet_keys['payment_privkey'], wallet_keys['owner_privkey'], None) 
+    res = blockstack_client.put_immutable( "foo.test", "foo_immutable", {'hello3': 'world3'}, proxy=test_proxy, wallet_keys=wallet_keys )
+    #res = blockstack_client.data_put( "blockstack://foo_immutable.foo.test", {'hello3': 'world3'}, proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
@@ -216,6 +219,7 @@ def scenario( wallets, **kw ):
     
     testlib.next_block( **kw )
 
+    '''
     # app data
     data_pk = wallets[-1].privkey
     data_pub = wallets[-1].pubkey_hex
@@ -242,7 +246,7 @@ def scenario( wallets, **kw ):
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
         return
-
+    '''
     testlib.next_block( **kw )
      
 
@@ -305,7 +309,7 @@ def check( state_engine ):
             return False 
 
         # zonefile is NOT legacy 
-        user_zonefile = blockstack_client.profile.load_name_zonefile( name, zonefile_hash )
+        user_zonefile = blockstack_client.load_name_zonefile( name, zonefile_hash )
         if 'error' in user_zonefile:
             print json.dumps(user_zonefile, indent=4, sort_keys=True)
             return False 
@@ -316,7 +320,7 @@ def check( state_engine ):
             return False
 
         # still have all the right info 
-        user_profile = blockstack_client.profile.load_name_profile( name, user_zonefile, wallets[wallet_data_pubkey].addr, wallets[wallet_owner].addr )
+        user_profile = blockstack_client.get_name_profile(name, user_zonefile=user_zonefile, use_legacy_zonefile=True)
         if user_profile is None:
             print "Unable to load user profile for %s (%s)" % (name, wallets[wallet_data_pubkey].pubkey_hex)
             return False
@@ -413,6 +417,7 @@ def check( state_engine ):
     except urllib2.URLError:
         pass
 
+    '''
     # can list mutable data
     mutable_data_list = get_data( "blockstack://bar.test/#mutable" )
     if 'error' in mutable_data_list:
@@ -428,7 +433,7 @@ def check( state_engine ):
         print "wrong data id and/or version"
         print json.dumps(mutable_data_list, indent=4, sort_keys=True)
         return False
-
+    '''
     # can fetch mutable data put by URL
     mutable_data = get_data( "blockstack://foo.test/foo_data2" )
     if 'error' in mutable_data or 'data' not in mutable_data or 'version' not in mutable_data:
@@ -451,6 +456,7 @@ def check( state_engine ):
         print json.dumps(immutable_data, indent=4, sort_keys=True)
         return False
 
+    '''
     # can fetch app data put by URL 
     mutable_data = get_data( "blockstack://serviceFooID.serviceFoo@foo.test/foo_app_data" )
     if 'error' in mutable_data or 'data' not in mutable_data or 'version' not in mutable_data:
@@ -482,5 +488,5 @@ def check( state_engine ):
         return False
     except urllib2.URLError:
         pass
-
+    '''
     return True
