@@ -25,6 +25,7 @@ import sys
 import json
 import simplejson
 import pybitcoin
+import traceback
 
 # Hack around absolute paths
 current_dir = os.path.abspath(os.path.dirname(__file__))
