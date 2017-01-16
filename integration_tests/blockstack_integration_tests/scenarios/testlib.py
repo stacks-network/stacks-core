@@ -81,6 +81,7 @@ class MultisigWallet(object):
         self.privkey = virtualchain.make_multisig_info( m, pks )
         self.m = m
         self.n = len(pks)
+        self.pks = pks
 
         self.addr = self.privkey['address']
 
@@ -731,7 +732,7 @@ def blockstack_cli_import_wallet( password, payment_privkey, owner_privkey, data
     return cli_import_wallet( args, config_path=test_proxy.config_path, password=password, force=force )
 
 
-def blockstack_cli_list_accounts( name, password ):
+def blockstack_cli_list_accounts( name ):
     """
     list a name's accounts
     """
@@ -741,10 +742,10 @@ def blockstack_cli_list_accounts( name, password ):
 
     args.name = name
 
-    return cli_list_accounts( args, config_path=test_proxy.config_path, password=password, proxy=test_proxy )
+    return cli_list_accounts( args, config_path=test_proxy.config_path, proxy=test_proxy )
 
 
-def blockstack_cli_get_account( name, service, identifier, password ):
+def blockstack_cli_get_account( name, service, identifier ):
     """
     get an account by name/service/serviceID
     """
@@ -756,10 +757,10 @@ def blockstack_cli_get_account( name, service, identifier, password ):
     args.service = service
     args.identifier = identifier
 
-    return cli_get_account( args, config_path=test_proxy.config_path, proxy=test_proxy, password=password )
+    return cli_get_account( args, config_path=test_proxy.config_path, proxy=test_proxy )
 
 
-def blockstack_cli_put_account( name, service, identifier, content_url, password, extra_data=None, required_drivers=None ):
+def blockstack_cli_put_account( name, service, identifier, content_url, password, extra_data=None, wallet_keys=None):
     """
     put an account
     """
@@ -773,10 +774,10 @@ def blockstack_cli_put_account( name, service, identifier, content_url, password
     args.content_url = content_url
     args.extra_data = extra_data
 
-    return cli_put_account( args, config_path=test_proxy.config_path, proxy=test_proxy, password=password )
+    return cli_put_account( args, config_path=test_proxy.config_path, proxy=test_proxy, password=password, wallet_keys=wallet_keys )
 
 
-def blockstack_cli_delete_account( name, service, identifier, password ):
+def blockstack_cli_delete_account( name, service, identifier, password, wallet_keys=None ):
     """
     delete an account
     """
@@ -788,7 +789,7 @@ def blockstack_cli_delete_account( name, service, identifier, password ):
     args.service = service
     args.identifier = identifier
 
-    return cli_delete_account( args, config_path=test_proxy.config_path, proxy=test_proxy, password=password )
+    return cli_delete_account( args, config_path=test_proxy.config_path, proxy=test_proxy, password=password, wallet_keys=wallet_keys )
 
 
 def blockstack_cli_wallet( password ):
@@ -1856,6 +1857,34 @@ def store_wallet( wallet_dict ):
         f.write(json.dumps(wallet_dict))
 
 
+def delete_wallet():
+    """
+    Delete the local wallet
+    """
+    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
+    assert config_path is not None
+
+    config_dir = os.path.dirname(config_path)
+    wallet_path = os.path.join(config_dir, "wallet.json")
+    try:
+        os.unlink(wallet_path)
+    except:
+        pass
+
+
+def list_wallet_backups():
+    """
+    list the local wallet backups
+    """
+    config_path = os.environ.get("BLOCKSTACK_CLIENT_CONFIG", None)
+    assert config_path is not None
+
+    config_dir = os.path.dirname(config_path)
+    files = os.listdir(config_dir)
+    backup_paths = [os.path.join(config_dir, fn) for fn in filter(lambda x: x.startswith("wallet.json."), files)]
+    return backup_paths
+
+    
 def instantiate_wallet():
     """
     Load the current wallet's addresses into bitcoin.
@@ -2421,7 +2450,8 @@ def migrate_profile( name, proxy=None, wallet_keys=None ):
     user_zonefile_hash = blockstack_client.hash_zonefile( user_zonefile )
     
     # replicate the profile
-    rc = storage.put_mutable_data( name, user_profile, data_privkey_info )
+    # TODO: this is onename-specific
+    rc = storage.put_mutable_data( name, user_profile, data_privkey_info, profile=True )
     if not rc:
         return {'error': 'Failed to move legacy profile to profile zonefile'}
 
