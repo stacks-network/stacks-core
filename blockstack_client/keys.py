@@ -439,7 +439,6 @@ def decrypt_private_key_info(privkey_info, password):
         try:
             pk = aes_decrypt(privkey_info, hex_password)
             pk = ECPrivateKey(pk).to_hex()
-            # virtualchain.BitcoinPrivateKey(pk)
         except Exception as e:
             if BLOCKSTACK_TEST:
                 log.exception(e)
@@ -546,6 +545,7 @@ def get_data_or_owner_privkey(user_zonefile, owner_address, wallet_keys=None, co
     Useful for signing mutable data when no explicit data key is set.
     Returns {'status': True, 'privatekey': ...} on success
     Returns {'error': ...} on error
+    Raise on invalid data
     """
 
     # generate the mutable zonefile
@@ -719,4 +719,19 @@ def get_pubkey_hex( privatekey_hex ):
     return pubkey_hex
 
 
+def get_uncompressed_private_and_public_keys( privkey_str ):
+    """
+    Get the private and public keys from a private key string.
+    Make sure the both are *uncompressed*
+    """
+    pk = virtualchain.BitcoinPrivateKey(str(privkey_str))
+    pk_hex = pk.to_hex()
+
+    # force uncompressed
+    if len(pk_hex) > 64:
+        assert pk_hex[-2:] == '01'
+        pk_hex = pk_hex[:64]
+
+    pubk_hex = virtualchain.BitcoinPrivateKey(pk_hex).public_key().to_hex()
+    return pk_hex, pubk_hex
 
