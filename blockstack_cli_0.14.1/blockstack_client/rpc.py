@@ -707,7 +707,8 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                 'route': route_info,
                 'whitelist': whitelist,
                 'method': route_info['routes'][method_name],
-                'args': groups
+                'args': groups,
+                'need_data_key': route_info.get('need_data_key', True),
             }
 
         return None
@@ -2119,6 +2120,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         'desc': 'Check to see if the server is alive.'
                     },
                 },
+                'need_data_key': False,
             },
             r'^/api/v1/jsonrpc$': {
                 # JSONRPC endpoint (we handle our own auth)
@@ -2132,6 +2134,7 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
                         'desc': 'full API access'
                     },
                 },
+                'need_data_key': False,
             },
             r'^/api/v1/home$': {
                 'routes': {
@@ -2562,7 +2565,14 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         route_method = route_info['method']
         route = route_info['route']
         whitelist_info = route_info['whitelist']
+        need_data_key = route_info['need_data_key']
         session = None
+
+        # sanity check: this API only works if we have a data key 
+        if self.server.master_data_privkey is None and need_data_key:
+            log.debug("No master data private key set")
+            self._send_headers(status_code=503, content_type='text/plain')
+            return 
 
         log.debug("\nfull path: {}\nmethod: {}\npath: {}\nqs: {}\nheaders:\n {}\n".format(self.path, method_name, path_info['path'], qs_values, '\n'.join( '{}: {}'.format(k, v) for (k, v) in self.headers.items() )))
 
@@ -2854,11 +2864,14 @@ class BlockstackAPIEndpoint(SocketServer.TCPServer):
                 log.warning("Failed to load RPC token from {}".format(config_path))
 
         if wallet_keys is not None:
-            self.master_data_privkey = ECPrivateKey(wallet_keys['data_privkey']).to_hex()
-            self.master_data_pubkey = ECPrivateKey(self.master_data_privkey).public_key().to_hex()
+            if not BLOCKSTACK_TEST:
+                assert wallet_keys.has_key('data_privkey')
 
-            if keylib.key_formatting.get_pubkey_format(self.master_data_pubkey) == 'hex_compressed':
-                self.master_data_pubkey = keylib.key_formatting.decompress(self.master_data_pubkey)
+                self.master_data_privkey = ECPrivateKey(wallet_keys['data_privkey']).to_hex()
+                self.master_data_pubkey = ECPrivateKey(self.master_data_privkey).public_key().to_hex()
+
+                if keylib.key_formatting.get_pubkey_format(self.master_data_pubkey) == 'hex_compressed':
+                    self.master_data_pubkey = keylib.key_formatting.decompress(self.master_data_pubkey)
 
         self.register_api_functions(config_path, plugins)
 
@@ -3255,12 +3268,29 @@ def local_rpc_start(portnum, config_dir=blockstack_config.CONFIG_DIR, foreground
             log.error(msg.format(se.errno))
             return False
 
-    backend.set_wallet(
+    data_pubkey = None
+    data_privkey = None
+
+    log.debug("Setting wallet...")
+
+    if not BLOCKSTACK_TEST:
+        # NOTE: test that wallets without data keys still work
+        assert wallet.has_key('data_pubkeys')
+        assert wallet.has_key('data_privkey')
+        data_pubkey = wallet['data_pubkeys'][0]
+        data_privkey = wallet['data_privkey']
+
+    res = backend.set_wallet(
         (wallet['payment_addresses'][0], wallet['payment_privkey']),
         (wallet['owner_addresses'][0], wallet['owner_privkey']),
-        (wallet['data_pubkeys'][0], wallet['data_privkey']),
+        (data_pubkey, data_privkey),
         config_path=config_path
     )
+    if 'error' in res:
+        log.error("Failed to set wallet: {}".format(res['error']))
+        return False
+
+    log.debug("Set wallet")
 
     running = True
     local_rpc_write_pidfile(rpc_pidpath)
