@@ -536,3 +536,16 @@ client.session(server_host='127.0.0.1', server_port=6264)
 resp = client.ping()
 pprint(resp)
 ```
+
+## Code Organization
+
+The current **stable** branch is `master`.
+
+The next stable branch is `rc-0.14.1`.  Most development takes place in this
+branch.
+
+The unstable branch is `develop`.
+
+Individual hot fixes are prefixed with `hotfix-`, followed by a few words
+describing the fix.
+
