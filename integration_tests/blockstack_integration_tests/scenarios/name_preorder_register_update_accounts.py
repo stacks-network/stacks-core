@@ -91,14 +91,14 @@ def scenario( wallets, **kw ):
     testlib.next_block( **kw )
 
     # make an account 
-    res = blockstack_client.put_account("foo.test", "serviceFoo", "serviceFooID", "foo://bar.com", proxy=test_proxy, wallet_keys=wallet_keys, foofield="foo!" )
+    res = testlib.blockstack_cli_put_account("foo.test", "serviceFoo", "serviceFooID", "foo://bar.com", None, extra_data='foofield=foo!', wallet_keys=wallet_keys )
     if 'error' in res:
         res['test'] = 'Failed to create foo.test account'
         print json.dumps(res, indent=4, sort_keys=True)
         error = True
         return 
 
-    res = blockstack_client.put_account("foo.test", "deletedService", "deletedServiceID", "foo://deleted", proxy=test_proxy, wallet_keys=wallet_keys, barfield="bar!") 
+    res = testlib.blockstack_cli_put_account("foo.test", "deletedService", "deletedServiceID", "foo://deleted", None, extra_data='barfield=bar!', wallet_keys=wallet_keys ) 
     if 'error' in res:
         res['test'] = 'Failed to create foo.test deletedService account'
         print json.dumps(res, indent=4, sort_keys=True)
@@ -106,7 +106,7 @@ def scenario( wallets, **kw ):
         return 
 
     # delete an account 
-    res = blockstack_client.delete_account("foo.test", "deletedService", "deletedServiceID", proxy=test_proxy, wallet_keys=wallet_keys )
+    res = testlib.blockstack_cli_delete_account("foo.test", "deletedService", "deletedServiceID", None, wallet_keys=wallet_keys )
     if 'error' in res:
         res['test'] = 'Failed to delete foo.test deletedService'
         print json.dumps(res, indent=4, sort_keys=True)
@@ -169,19 +169,17 @@ def check( state_engine ):
             return False 
 
         # only serviceFoo exists
-        accounts = blockstack_client.list_accounts( "foo.test", proxy=test_proxy )
+        accounts = testlib.blockstack_cli_list_accounts( "foo.test" )
         if len(accounts) != 1:
             print "wrong number of accounts"
             print json.dumps(accounts, indent=4, sort_keys=True)
             return False 
 
-        account = accounts['accounts'][0]
-        on_file_accounts = blockstack_client.get_account( "foo.test", "serviceFoo", "serviceFooID", proxy=test_proxy )
-        if 'error' in on_file_accounts:
+        account = accounts[0]
+        on_file_account = testlib.blockstack_cli_get_account( "foo.test", "serviceFoo", "serviceFooID" )
+        if 'error' in on_file_account:
             print json.dumps(on_file_account, sort_keys=True, indent=4)
             return False 
-
-        on_file_account = on_file_accounts['account'][0]
 
         if account != on_file_account:
             print "wrong service\nexpected:\n%s\n\ngot:\n%s\n" % \
