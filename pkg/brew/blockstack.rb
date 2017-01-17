@@ -1,14 +1,15 @@
 # generated in part from 'homebrew-pypi-poet'
 # to generate:
 # * create a virtualenv
+# * pip install blockstack-client
 # * pip install homebrew-pypi-poet
-# * poet -f > /path/to/brewfile
+# * poet blockstack > /path/to/resources
 
 class Blockstack < Formula
   desc "Blockstack command-line client"
   homepage "https://blockstack.org"
-  url "https://files.pythonhosted.org/packages/6e/f1/5518019aef7be6cb8726d1aeead954234c1afc2d6c1e2bb39725bb14ca3d/blockstack-0.0.13.6.tar.gz"
-  sha256 "a665f150ed50bf51874e9f630da44ad8f12c72534c2967eb4fd51f844421b907"
+  url null
+  sha256 null
 
   # NOTE: must be added manually, after using `poet`
   depends_on :python if MacOS.version <= :snow_leopard
@@ -16,8 +17,8 @@ class Blockstack < Formula
   depends_on "libffi"
 
   resource "base58" do
-    url "https://files.pythonhosted.org/packages/32/8c/9b8b1b8364a945fa1ed4308d650880a5eb77bd08c2086e32e1f608440ed8/base58-0.2.3.tar.gz"
-    sha256 "a691b5d194617a3de401aa2ed8818f12f1e348e95524f74a9c67246b59368fff"
+    url "https://files.pythonhosted.org/packages/98/7f/41aba6037e8d578e0518b431ae7d2880eeee59f79265bddc554d0e504d66/base58-0.2.4.tar.gz"
+    sha256 "97cb4dcbc7a81afb802f41033d5562b6c48633426a67bf41e4cad186f581158c"
   end
 
   resource "basicrpc" do
@@ -35,39 +36,34 @@ class Blockstack < Formula
     sha256 "fba4c2091084ed0b4f9faac0ebbba8d255c5ccd3a18e7f877ce13aab71649ddc"
   end
 
+  resource "blockstack" do
+    url "https://files.pythonhosted.org/packages/bc/3d/bddcad2005a8b2b7dd0352a4d44e59e6ceac0e0537645aaebbd10b1e7d47/blockstack-0.14.0.4.tar.gz"
+    sha256 "52c4fffaef757d0cf21e7a2cd0a09f5775335707211a276316c7cc2f8a07a49a"
+  end
+
   resource "blockstack-profiles" do
-    url "https://files.pythonhosted.org/packages/29/13/ff709ac4a0ca5622aee4ee659eb3b214489303f10e8d065745f828510379/blockstack-profiles-0.4.4.tar.gz"
-    sha256 "e18847f25bf2d264a293e1d0b5304d794e06bea92e947ca7720b08d58927883a"
-  end
-
-  resource "blockstack-storage-drivers" do
-    url "https://files.pythonhosted.org/packages/12/0c/c21b3159440ca24fd7ec61c4d45776a07b32ce3aab649221f141af756a37/blockstack-storage-drivers-0.0.13.6.tar.gz"
-    sha256 "ce52d795833ebb22d757734dbd76fec4b329841564c71257119436be03035df0"
-  end
-
-  resource "blockstack-utxo" do
-    url "https://files.pythonhosted.org/packages/0d/b7/3a86cd1c703c4a12b09d290e5b25a566a20a34261d4aaf01134b051e8a6d/blockstack-utxo-0.0.13.0.tar.gz"
-    sha256 "5c4728c3b4c450ebc00a681f570a81dfca84061d798da28594e3a4e716a4dcef"
+    url "https://files.pythonhosted.org/packages/0f/5c/adcddc6ab396cb8be6d60a90f26782f480f1f0fdd32bfcce05739bdda5d1/blockstack-profiles-0.14.0.tar.gz"
+    sha256 "f3ca680e6dd2e0cab79adfd08447bc09c0d3c3c8ddb18ca23086ae69b63c22b5"
   end
 
   resource "blockstack-zones" do
-    url "https://files.pythonhosted.org/packages/74/8a/db5a5da42d58631568204055c90f9fc2e1790290357c4c18db369a1eb76e/blockstack-zones-0.1.6.tar.gz"
-    sha256 "d2c946151e149f101e482b1afc0c8bb5d59a397a2236b7811b6d99b5e023debe"
+    url "https://files.pythonhosted.org/packages/72/d6/2784d9f70d230c09c9ca2aeb6b30b6776a1219677412219356192a6e7ad4/blockstack-zones-0.14.0.tar.gz"
+    sha256 "dd90d78479ae2bdc8eaa2c42813d498d4e73986b34bf5f808127f7459812d3a2"
   end
 
   resource "boto" do
-    url "https://files.pythonhosted.org/packages/e9/74/7ef3431c37fc1f51f98cc04491cdb112dcd9f474c83b275e1a1450c24527/boto-2.41.0.tar.gz"
-    sha256 "c638acdecb0a2383b517c15ac2a6ccf15a2f806aee923cc4448a59b9b73b52e0"
+    url "https://files.pythonhosted.org/packages/68/4a/48b302989cbc3e6c64a16da5ec807bb7b36d8e8d3428579addde2eb1f671/boto-2.43.0.tar.gz"
+    sha256 "de4449cdc671939ecea6121c05587b25e73ac0c057bf1278a44bbc1974d5fd94"
   end
 
   resource "cachetools" do
-    url "https://files.pythonhosted.org/packages/ba/00/b0ec69e21142cd838b2383a7881cf18368e35847cb66f908c8f25bcbaafc/cachetools-1.1.6.tar.gz"
-    sha256 "d1a44ffd2eedd138f3ba69038feb807ea54cb24e8a207a52d3a8603bc4961821"
+    url "https://files.pythonhosted.org/packages/dc/64/16cbf95e0ac473503c5dcd61aefbbab9f12e1875f40a0aaff566a1236ac4/cachetools-2.0.0.tar.gz"
+    sha256 "715a7202240dc20dbe83abdb2d804d543e2d4f07af146f53c82166bd75f3a628"
   end
 
   resource "cffi" do
-    url "https://files.pythonhosted.org/packages/83/3c/00b553fd05ae32f27b3637f705c413c4ce71290aa9b4c4764df694e906d9/cffi-1.7.0.tar.gz"
-    sha256 "6ed5dd6afd8361f34819c68aaebf9e8fc12b5a5893f91f50c9e50c8886bb60df"
+    url "https://files.pythonhosted.org/packages/a1/32/e3d6c3a8b5461b903651dd6ce958ed03c093d2e00128e3f33ea69f1d7965/cffi-1.9.1.tar.gz"
+    sha256 "563e0bd53fda03c151573217b3a49b3abad8813de9dd0632e10090f6190fdaf8"
   end
 
   resource "commontools" do
@@ -76,8 +72,8 @@ class Blockstack < Formula
   end
 
   resource "cryptography" do
-    url "https://files.pythonhosted.org/packages/a9/5b/a383b3a778609fe8177bd51307b5ebeee369b353550675353f46cb99c6f0/cryptography-1.4.tar.gz"
-    sha256 "bb149540ed90c4b2171bf694fe6991d6331bc149ae623c8ff419324f4222d128"
+    url "https://files.pythonhosted.org/packages/d7/a2/b90736c37fd720db425c5e48d69da75a6eff6609b22d2123762f1ae8c5f5/cryptography-1.6.tar.gz"
+    sha256 "4d0d86d2c8d3fc89133c3fa0d164a688a458b6663ab6fa965c80d6c2cdaf9b3f"
   end
 
   resource "defusedxml" do
@@ -95,14 +91,24 @@ class Blockstack < Formula
     sha256 "8ad8c4783bf61ded74527bffb48ed9b54166685e4230386a9ed9b1279e2df5b1"
   end
 
+  resource "functools32" do
+    url "https://files.pythonhosted.org/packages/c5/60/6ac26ad05857c601308d8fb9e87fa36d0ebf889423f47c3502ef034365db/functools32-3.2.3-2.tar.gz"
+    sha256 "f6253dfbe0538ad2e387bd8fdfd9293c925d63553f5813c4e587745416501e6d"
+  end
+
   resource "idna" do
     url "https://files.pythonhosted.org/packages/fb/84/8c27516fbaa8147acd2e431086b473c453c428e24e8fb99a1d89ce381851/idna-2.1.tar.gz"
     sha256 "ed36f281aebf3cd0797f163bb165d84c31507cedd15928b095b1675e2d04c676"
   end
 
   resource "ipaddress" do
-    url "https://files.pythonhosted.org/packages/cd/c5/bd44885274379121507870d4abfe7ba908326cf7bfd50a48d9d6ae091c0d/ipaddress-1.0.16.tar.gz"
-    sha256 "5a3182b322a706525c46282ca6f064d27a02cffbd449f9f47416f1dc96aa71b0"
+    url "https://files.pythonhosted.org/packages/bb/26/3b64955ff73f9e3155079b9ed31812afdfa5333b5c76387454d651ef593a/ipaddress-1.0.17.tar.gz"
+    sha256 "3a21c5a15f433710aaa26f1ae174b615973a25182006ae7f9c26de151cd51716"
+  end
+
+  resource "jsonschema" do
+    url "https://files.pythonhosted.org/packages/58/0d/c816f5ea5adaf1293a1d81d32e4cdfdaf8496973aa5049786d7fdb14e7e7/jsonschema-2.5.1.tar.gz"
+    sha256 "36673ac378feed3daa5956276a829699056523d7961027911f064b52255ead41"
   end
 
   resource "jsontokens" do
@@ -141,8 +147,8 @@ class Blockstack < Formula
   end
 
   resource "pycparser" do
-    url "https://files.pythonhosted.org/packages/6d/31/666614af3db0acf377876d48688c5d334b6e493b96d21aa7d332169bee50/pycparser-2.14.tar.gz"
-    sha256 "7959b4a74abdc27b312fed1c21e6caf9309ce0b29ea86b591fd2e99ecdf27f73"
+    url "https://files.pythonhosted.org/packages/be/64/1bb257ffb17d01f4a38d7ce686809a736837ad4371bcc5c42ba7a715c3ac/pycparser-2.17.tar.gz"
+    sha256 "0aac31e917c24cb3357f5a4d5566f2cc91a19ca41862f6c3c22dc60a629673b6"
   end
 
   resource "pycrypto" do
@@ -156,8 +162,13 @@ class Blockstack < Formula
   end
 
   resource "requests" do
-    url "https://files.pythonhosted.org/packages/49/6f/183063f01aae1e025cf0130772b55848750a2f3a89bfa11b385b35d7329d/requests-2.10.0.tar.gz"
-    sha256 "63f1815788157130cee16a933b2ee184038e975f0017306d723ac326b5525b54"
+    url "https://files.pythonhosted.org/packages/6e/40/7434b2d9fe24107ada25ec90a1fc646e97f346130a2c51aa6a2b1aba28de/requests-2.12.1.tar.gz"
+    sha256 "2109ecea94df90980be040490ff1d879971b024861539abb00054062388b612e"
+  end
+
+  resource "simplejson" do
+    url "https://files.pythonhosted.org/packages/40/ad/52c1f3a562df3b210e8f165e1aa243a178c454ead65476a39fa3ce1847b6/simplejson-3.10.0.tar.gz"
+    sha256 "953be622e88323c6f43fad61ffd05bebe73b9fd9863a46d68b052d2aa7d71ce2"
   end
 
   resource "six" do
@@ -171,9 +182,10 @@ class Blockstack < Formula
   end
 
   resource "virtualchain" do
-    url "https://files.pythonhosted.org/packages/19/31/4130ce07b22d43e8b9412459175ff949be037a6c9d64236bee7a00a013bb/virtualchain-0.0.13.2.tar.gz"
-    sha256 "bf74c4d5ff9d3d6509fc0c222e15915ca34b4d0a8fde393af2c0c8e04e1268ac"
+    url "https://files.pythonhosted.org/packages/7d/1a/cca9e6d30b82c708a2139cb5b410169bd2ae7d4a18e8b418ae5038fbb0d1/virtualchain-0.14.0.tar.gz"
+    sha256 "c798818b4f31f015b658a61d53edb59bac88c3c478e17a20a23f4d83bccde2db"
   end
+
 
   def install
     ENV.prepend_create_path "PYTHONPATH", libexec/"vendor/lib/python2.7/site-packages"
@@ -181,7 +193,7 @@ class Blockstack < Formula
     # NOTE: this extra path must be added manually, in order for cryptography to work (since it uses pkg_resources, which must be the one *brew* installed, not the OS X one (which is out of date))
     ENV.prepend_create_path "PYTHONPATH", "/usr/local/lib/python2.7/site-packages"
 
-    %w[base58 basicrpc bitcoin bitmerchant blockstack-profiles blockstack-storage-drivers blockstack-utxo blockstack-zones boto cachetools cffi commontools cryptography defusedxml ecdsa enum34 idna ipaddress jsontokens keychain keylib mixpanel protocoin pyasn1 pybitcoin pycparser pycrypto python-bitcoinrpc requests six utilitybelt virtualchain].each do |r|
+    %w[base58 basicrpc bitcoin bitmerchant blockstack-profiles blockstack-zones boto cachetools cffi commontools cryptography defusedxml ecdsa enum34 idna ipaddress jsontokens keychain keylib mixpanel protocoin pyasn1 pybitcoin pycparser pycrypto python-bitcoinrpc requests six utilitybelt virtualchain].each do |r|
       resource(r).stage do
         system "python", *Language::Python.setup_install_args(libexec/"vendor")
       end
@@ -198,4 +210,3 @@ class Blockstack < Formula
     false
   end
 end
-
