@@ -395,7 +395,7 @@ class RegistrarWorker(threading.Thread):
         if 'error' in name_rec:
             return name_rec
 
-        if os.environ.get("BLOCKSTACK_TEST", None) == "1":
+        if BLOCKSTACK_TEST:
             log.debug("Replicate zonefile %s (blockchain: %s)\ndata:\n%s" % (zonefile_hash, name_rec['value_hash'], base64.b64encode(zonefile_data)))
 
         if str(name_rec['value_hash']) != zonefile_hash:
@@ -419,7 +419,7 @@ class RegistrarWorker(threading.Thread):
                 zonefile = blockstack_zones.parse_zone_file( zonefile_data )
                 assert is_user_zonefile( zonefile )
             except Exception, e:
-                if os.environ.get("BLOCKSTACK_TEST", None) == 1:
+                if BLOCKSTACK_TEST:
                     log.exception(e)
 
                 log.warning("Not a zone file; not replicating profile for %s" % name_data['fqu'])
@@ -847,17 +847,8 @@ def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=None, p
     assert payment_keypair[1]
     assert owner_keypair[0]
     assert owner_keypair[1]
-
-    if not BLOCKSTACK_TEST:
-        assert data_keypair[0]
-        assert data_keypair[1]
-
-    else:
-        if data_keypair[0] is None:
-            log.warning("No data public key given")
-
-        if data_keypair[1] is None:
-            log.warning("No data private key given")
+    assert data_keypair[0]
+    assert data_keypair[1]
 
     # sanity check...
     if not is_singlesig( payment_keypair[1] ) and not is_multisig( payment_keypair[1] ):
@@ -866,7 +857,7 @@ def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=None, p
     if not is_singlesig( owner_keypair[1] ) and not is_multisig( owner_keypair[1] ):
         return {'error': 'Invalid owner key info'}
 
-    if data_keypair[1] is not None and not is_singlesig( data_keypair[1] ):
+    if not is_singlesig( data_keypair[1] ):
         return {'error': 'Invalid data key info'}
 
     state.payment_address = payment_keypair[0]
@@ -874,29 +865,20 @@ def set_wallet(payment_keypair, owner_keypair, data_keypair, config_path=None, p
 
     enc_payment_info = encrypt_private_key_info(payment_keypair[1], rpc_token )
     enc_owner_info = encrypt_private_key_info(owner_keypair[1], rpc_token )
-    enc_data_info = None
+    enc_data_info = encrypt_private_key_info(data_keypair[1], rpc_token )
     
-    if data_keypair[1]:
-        enc_data_info = encrypt_private_key_info(data_keypair[1], rpc_token )
-    else:
-        # only possible if testing legacy wallets
-        assert BLOCKSTACK_TEST
-
     if 'error' in enc_payment_info:
         return {'error': 'Failed to encrypt payment key: %s' % enc_payment_info['error']}
 
     if 'error' in enc_owner_info:
         return {'error': 'Failed to encrypt owner key: %s' % enc_owner_info['error']}
 
-    if enc_data_info is not None and 'error' in enc_data_info:
+    if 'error' in enc_data_info:
         return {'error': 'Failed to encrypt data key: %s' % enc_data_info['error']}
 
     state.encrypted_payment_privkey_info = enc_payment_info['encrypted_private_key_info']['private_key_info']
     state.encrypted_owner_privkey_info = enc_owner_info['encrypted_private_key_info']['private_key_info']
-    state.encrypted_data_privkey_info = None
-
-    if enc_data_info is not None:
-        state.encrypted_data_privkey_info = enc_data_info['encrypted_private_key_info']['private_key_info']
+    state.encrypted_data_privkey_info = enc_data_info['encrypted_private_key_info']['private_key_info']
 
     data = {}
     data['success'] = True
@@ -985,9 +967,6 @@ def get_wallet(rpc_token=None, config_path=None, proxy=None):
         return data
 
     data_privkey_info = get_wallet_data_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
-    if data_privkey_info is None and not BLOCKSTACK_TEST:
-        data['error'] = "Unable to decrypt data private key"
-        return data
 
     data['payment_address'] = state.payment_address
     data['owner_address'] = state.owner_address
@@ -995,14 +974,13 @@ def get_wallet(rpc_token=None, config_path=None, proxy=None):
     if data_privkey_info is not None:
         data['data_pubkey'] = ECPrivateKey( data_privkey_info ).public_key().to_hex()
     else:
-        assert BLOCKSTACK_TEST
         data['data_pubkey'] = None
 
     data['payment_privkey'] = get_wallet_payment_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
     data['owner_privkey'] = get_wallet_owner_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
     data['data_privkey'] = get_wallet_data_privkey_info(rpc_token, config_path=config_path, proxy=proxy)
 
-    if data['payment_privkey'] is None or data['owner_privkey'] is None or (not BLOCKSTACK_TEST and data['data_privkey'] is None):
+    if data['payment_privkey'] is None or data['owner_privkey'] is None or data['data_privkey'] is None:
         if data['payment_privkey'] is None:
             log.debug("No payment private key(s)")
 
