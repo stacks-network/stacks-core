@@ -260,7 +260,7 @@ def delete_profile(name, user_data_privkey=None, user_zonefile=None, owner_addre
 def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_drivers=None,
                      create_if_absent=False, proxy=None, user_zonefile=None, name_record=None,
                      include_name_record=False, include_raw_zonefile=False, use_zonefile_urls=True,
-                     use_legacy=False, use_legacy_zonefile=False, decode_profile=True):
+                     use_legacy=False, use_legacy_zonefile=True, decode_profile=True):
     """
     Given a name, look up an associated profile.
     Do so by first looking up the zonefile the name points to,
@@ -275,7 +275,7 @@ def get_name_profile(name, zonefile_storage_drivers=None, profile_storage_driver
     returned zonefile will still be a legacy profile, however.
     The caller can check this and perform the conversion automatically.
     * (use_legacy_zonefile=True) If the name points to a current zonefile that does not have a 
-    public key, then the owner address of the name will be used to verify
+    data public key, then the owner address of the name will be used to verify
     the profile's authenticity.
 
     Returns (profile, zonefile) on success.  If include_name_record is True, then zonefile['name_record'] will be defined and will contain the user's blockchain information
@@ -475,7 +475,7 @@ def get_and_migrate_profile(name, zonefile_storage_drivers=None, profile_storage
                 name, zonefile_storage_drivers=zonefile_storage_drivers,
                 profile_storage_drivers=profile_storage_drivers,
                 proxy=proxy, user_zonefile=user_zonefile, name_record=name_record,
-                use_legacy=True, use_legacy_zonefile=BLOCKSTACK_TEST        # only allow legacy zonefile during testing
+                use_legacy=True
             )
 
             if user_profile is None:
