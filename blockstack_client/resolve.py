@@ -536,6 +536,11 @@ def blockstack_data_url(field_dict):
             field_dict['blockchain_id'], field_dict['data_id'], field_dict['fields']['data_hash']
         )
 
+    if field_dict['fields'].has_key('user_id') and field_dict['fields'].has_key('datastore_id'):
+        return blockstack_datastore_url(
+            field_dict['blockchain_id'], field_dict['fields']['user_id'], field_dict['fields']['datastore_id'], field_dict['data_id'], field_dict['fields']['version']
+        )
+
     return blockstack_mutable_data_url(
         field_dict['blockchain_id'], field_dict['data_id'], field_dict['fields']['version']
     )
