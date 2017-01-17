@@ -55,6 +55,22 @@ def scenario( wallets, **kw ):
 
     legacy_wallet = testlib.make_legacy_wallet( wallets[2].privkey, "0123456789abcdef" )
     testlib.store_wallet( legacy_wallet )
+
+    res = testlib.blockstack_cli_migrate_wallet("0123456789abcdef")
+    if 'error' in res:
+        print json.dumps(res, indent=4, sort_keys=True)
+        return False
+
+    if not res.has_key('backup_wallet'):
+        print "no backup_wallet"
+        print json.dumps(res, indent=4, sort_keys=True)
+        return False
+
+    if not os.path.exists(res['backup_wallet']):
+        print "backup wallet doesn't exist"
+        print json.dumps(res, indent=4, sort_keys=True)
+        return False
+
     res = testlib.instantiate_wallet()
     if 'error' in res:
         print json.dumps(res, indent=4, sort_keys=True)
@@ -100,8 +116,6 @@ def scenario( wallets, **kw ):
     print >> sys.stderr, "Waiting 10 seconds for the backend to acknowledge update"
     time.sleep(10)
 
-    # get zonefile hash 
-    
 
 def check( state_engine ):
 
@@ -138,5 +152,5 @@ def check( state_engine ):
     if name_rec['address'] != owner_address or name_rec['sender'] != pybitcoin.make_pay_to_address_script(owner_address):
         print "name has wrong owner"
         return False 
-
+    
     return True

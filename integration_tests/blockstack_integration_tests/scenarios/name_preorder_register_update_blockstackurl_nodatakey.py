@@ -92,6 +92,7 @@ zonefile_hash = None
 zonefile_hash_2 = None
 immutable_hash = None
 
+# TODO: this test is deprecated in 0.14.1, since data operations without a data key will be forbidden
 def scenario( wallets, **kw ):
 
     global put_result, wallet_keys, legacy_profile, zonefile_hash, zonefile_hash_2, immutable_hash
@@ -135,7 +136,7 @@ def scenario( wallets, **kw ):
 
     testlib.next_block( **kw )
 
-    # migrate 
+    # migrate profiles
     res = testlib.migrate_profile( "foo.test", proxy=test_proxy, wallet_keys=wallet_keys )
     if 'error' in res:
         res['test'] = 'Failed to initialize foo.test profile'
