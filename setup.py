@@ -27,7 +27,7 @@ import os
 exec(open("blockstack/version.py").read())
 
 setup(
-    name='blockstack-core',
+    name='blockstack',
     version=__version__,
     url='https://github.com/blockstack/blockack-core',
     license='GPLv3',
