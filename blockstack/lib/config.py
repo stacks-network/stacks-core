@@ -87,9 +87,11 @@ if os.environ.get("BLOCKSTACK_TEST") == "1":
 
 FIRST_BLOCK_MAINNET = 373601
 
-if os.environ.get("BLOCKSTACK_TEST", None) is not None and os.environ.get("BLOCKSTACK_TEST_FIRST_BLOCK", None) is not None:
+if os.environ.get("BLOCKSTACK_TEST", None) == "1" and os.environ.get("BLOCKSTACK_TEST_FIRST_BLOCK", None) is not None:
     FIRST_BLOCK_MAINNET = int(os.environ.get("BLOCKSTACK_TEST_FIRST_BLOCK"))
 
+elif os.environ.get("BLOCKSTACK_TESTNET", None) == "1" and os.environ.get("BLOCKSTACK_TESTNET_FIRST_BLOCK", None) is not None:
+    FIRST_BLOCK_MAINNET = int(os.environ.get("BLOCKSTACK_TESTNET_FIRST_BLOCK"))
 
 GENESIS_SNAPSHOT = {
     str(FIRST_BLOCK_MAINNET-4): "17ac43c1d8549c3181b200f1bf97eb7d",
