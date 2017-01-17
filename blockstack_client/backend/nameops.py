@@ -45,6 +45,7 @@ from ..utils import pretty_dump
 
 from ..config import PREORDER_CONFIRMATIONS, DEFAULT_QUEUE_PATH, CONFIG_PATH, get_utxo_provider_client, get_tx_broadcaster, RPC_MAX_ZONEFILE_LEN, RPC_MAX_PROFILE_LEN
 from ..config import get_logger, APPROX_TX_IN_P2PKH_LEN, APPROX_TX_OUT_P2PKH_LEN, APPROX_TX_OVERHEAD_LEN
+from ..constants import BLOCKSTACK_TEST, BLOCKSTACK_DEBUG
 
 from ..proxy import get_default_proxy
 from ..proxy import getinfo as blockstack_getinfo
@@ -240,7 +241,15 @@ def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
     payment_address = get_privkey_info_address( payment_privkey_info )
 
     try:
-        unsigned_tx = update_tx( name, fake_zonefile_hash, fake_consensus_hash, owner_address, utxo_client, subsidize=True )
+        unsigned_tx = None
+        try:
+            unsigned_tx = update_tx( name, fake_zonefile_hash, fake_consensus_hash, owner_address, utxo_client, subsidize=True )
+        except AssertionError as ae:
+            # no UTXOs for this owner address.  Try again and add padding for one
+            unsigned_tx = update_tx( name, fake_zonefile_hash, fake_consensus_hash, owner_address, utxo_client, subsidize=True, safety=False )
+            assert unsigned_tx
+            unsigned_tx += "00" * (APPROX_TX_OVERHEAD_LEN + APPROX_TX_IN_P2PKH_LEN + APPROX_TX_OUT_P2PKH_LEN)
+
         if payment_privkey_info is not None:
             # actually try to subsidize this tx
             subsidized_tx = tx_make_subsidizable( unsigned_tx, fees_update, 21 * 10**14, payment_privkey_info, utxo_client )
@@ -266,28 +275,28 @@ def estimate_update_tx_fee( name, payment_privkey_info, owner_address, utxo_clie
                 
                 # assuming they're p2pkh outputs...
                 subsidy_byte_count = APPROX_TX_OVERHEAD_LEN + ((len(payment_utxos) + 3) * APPROX_TX_IN_P2PKH_LEN) + APPROX_TX_OUT_P2PKH_LEN
-                signed_subsidized_tx = unsigned_tx + "00" * (71 + subsidy_byte_count)    # ~71 bytes for signature
+                signed_subsidized_tx = unsigned_tx + "00" * (71 * owner_privkey_params[0] + subsidy_byte_count)    # ~71 bytes for signature
 
             else:
                 log.error("BUG: missing both payment private key and address")
                 raise Exception("Need either payment_privkey or payment_address")
 
-    except ValueError, ve:
-        if os.environ.get("BLOCKSTACK_TEST") == "1":
+    except ValueError as ve:
+        if BLOCKSTACK_TEST:
             log.exception(ve)
             print >> sys.stderr, "payment key info: %s" % str(payment_privkey_info)
 
         log.error("Insufficient funds:  Not enough inputs to make an update transaction.")
         return None 
 
-    except AssertionError, ae:
+    except AssertionError as ae:
         if BLOCKSTACK_DEBUG:
             log.exception(ae)
 
         log.error("Unable to create transaction")
         return None
 
-    except Exception, e: 
+    except Exception as e: 
         if os.environ.get("BLOCKSTACK_TEST") == "1":
             log.exception(e)
 
