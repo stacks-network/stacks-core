@@ -22,7 +22,15 @@ You can also read the Blockstack paper:
 
 - ["Blockstack: A Global Naming and Storage System Secured by Blockchains"](https://blockstack.org/blockstack.pdf), Proc. USENIX Annual Technical Conference (ATC ’16), June 2016
 
-**Developers**:  You can try out Blockstack Core in a local sandbox using our [integration test framework](https://github.com/blockstack/blockstack-core/integration_tests).
+**Developers**
+
+You can try out Blockstack Core in a local sandbox using our [integration test framework](https://github.com/blockstack/blockstack-core/tree/rc-0.14.1/integration_tests).
+
+The stable branch is `master`.
+
+The next stable branch is `rc-0.14.1b`.
+
+Hotfixes are individual branches that begin with `hotfix-`.
 
 ### Installation
 
