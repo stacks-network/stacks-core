@@ -1025,6 +1025,10 @@ def get_wallet_keys(config_path, password):
             log.error('unlock_wallet: {}'.format(res['error']))
             return res
 
+        if res['migrated']:
+            log.error("Wallet is in legacy format.  Please migrate it to the latest version with `migrate_wallet`.")
+            return {'error': 'Wallet is in legacy format.  Please migrate it to the latest version with `migrate_wallet.`'}
+
     return get_wallet_with_backoff(config_path)
 
 
@@ -1754,6 +1758,44 @@ def cli_migrate(args, config_path=CONFIG_PATH, password=None,
     analytics_event('Migrate name', {})
 
     return result
+
+
+def cli_migrate_wallet(args, config_path=CONFIG_PATH, password=None):
+    """
+    command: migrate_wallet
+    help: Migrate your wallet to the latest supported format.
+    """
+
+    config_dir = os.path.dirname(config_path)
+    wallet_path = os.path.join(config_dir, WALLET_FILENAME)
+
+    wallet_info = load_wallet(password=password, config_dir=config_dir, include_private=True)
+    if 'error' in wallet_info:
+        return wallet_info
+
+    if not wallet_info['migrated']:
+        return {'status': True, 'message': "Wallet is already in the latest format"}
+
+    wallet = wallet_info['wallet']
+    encrypted_wallet = encrypt_wallet(wallet, password)
+    if 'error' in encrypted_wallet:
+        return encrypted_wallet
+
+    # back up 
+    old_path = backup_wallet(wallet_path)
+
+    # store
+    res = write_wallet(encrypted_wallet, config_dir=config_dir)
+    if not res:
+        # try to restore
+        shutil.copy(old_path, wallet_path)
+        return {'error': 'Failed to store migrated wallet.'}
+
+    # stop RPC daemon  
+    if local_rpc_status(config_dir=config_dir):
+        local_rpc_stop(config_dir=config_dir)
+
+    return {'status': True, 'message': 'Backed up old wallet to "{}"'.format(old_path), 'backup_wallet': old_path}
 
 
 def cli_set_advanced_mode(args, config_path=CONFIG_PATH):
