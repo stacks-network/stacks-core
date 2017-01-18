@@ -568,9 +568,14 @@ class BlockstackAPIEndpointHandler(SimpleHTTPRequestHandler):
         Return the session token on success
         Return None on error
         """
-        user = user_db.user_load( user_id, self.server.master_data_pubkey, config_path=self.server.config_path )
+        user = data.get_user( user_id, self.server.master_data_pubkey, config_path=self.server.config_path )
         if 'error' in user:
             log.error("Failed to load user {}".format(user_id))
+            return None 
+        
+        # we have to own it locally 
+        if not user['owned']:
+            log.error("This wallet does not own user {}".format(user_id))
             return None 
 
         user_info = user['user']
