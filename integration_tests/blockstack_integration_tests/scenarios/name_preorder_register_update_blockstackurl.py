@@ -277,7 +277,18 @@ def get_data( url ):
     handler = blockstack_client.BlockstackHandler(full_response=True)
     opener = urllib2.build_opener( handler )
     dat = opener.open( url )
-    return json.loads( dat.read() )
+    res1 = json.loads( dat.read() )
+
+    res2 = testlib.blockstack_cli_get_data(url)
+    if 'error' in res2:
+        return res2
+
+    if res1 != res2:
+        print json.dumps(res1, indent=4, sort_keys=True)
+        print json.dumps(res2, indent=4, sort_keys=True)
+        return {'error': 'mismatched data'}
+
+    return res2
 
 
 def check( state_engine ):
@@ -478,21 +489,21 @@ def check( state_engine ):
         return False
 
     # can fetch files and directories
-    mutable_data = get_data( "blockstack://{}.foo_id@foo.test/hello_datastore".format(datastore_name) )
+    mutable_data = get_data( "blockstack://{}@foo_id/hello_datastore".format(datastore_name) )
     if 'error' in mutable_data or 'file' not in mutable_data or mutable_data['file']['idata'] != 'hello datastore':
-        print 'Failed to get blockstack://{}.foo_id@foo.test/hello_datastore'.format(datastore_name)
+        print 'Failed to get blockstack://{}@foo_id/hello_datastore'.format(datastore_name)
         print json.dumps(mutable_data, indent=4, sort_keys=True)
         return False
 
-    mutable_data = get_data( "blockstack://{}.foo_id@foo.test/hello_dir/".format(datastore_name) )
+    mutable_data = get_data( "blockstack://{}@foo_id/hello_dir/".format(datastore_name) )
     if 'error' in mutable_data or 'dir' not in mutable_data or 'hello_dir_datastore' not in mutable_data['dir']['idata'].keys():
-        print 'Failed to get blockstack://{}.foo_id@foo.test/hello_dir/'.format(datastore_name)
+        print 'Failed to get blockstack://{}@foo_id/hello_dir/'.format(datastore_name)
         print json.dumps(mutable_data, indent=4, sort_keys=True)
         return False
 
-    mutable_data = get_data( "blockstack://{}.foo_id@foo.test/hello_dir/hello_dir_datastore".format(datastore_name) )
+    mutable_data = get_data( "blockstack://{}@foo_id/hello_dir/hello_dir_datastore".format(datastore_name) )
     if 'error' in mutable_data or 'file' not in mutable_data or mutable_data['file']['idata'] != 'hello dir datastore':
-        print 'Failed to get blockstack://{}.foo_id@foo.test/hello_dir/hello_dir_datastore'.format(datastore_name)
+        print 'Failed to get blockstack://{}@foo_id/hello_dir/hello_dir_datastore'.format(datastore_name)
         print json.dumps(mutable_data, indent=4, sort_keys=True)
         return False
       
