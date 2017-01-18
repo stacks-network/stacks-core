@@ -349,6 +349,7 @@ def scenario( wallets, **kw ):
         return False
 
     # delete account
+    print "delete account"
     res = testlib.blockstack_cli_app_delete_account( 'foo_id', "foo.test", "bar", password="0123456789abcdef" )
     if 'error' in res:
         print 'failed to delete foo_id'
@@ -356,6 +357,7 @@ def scenario( wallets, **kw ):
         return False
 
     # get the account (should fail)
+    print "get account (should fail)"
     res = testlib.blockstack_cli_app_get_account( 'foo_id', "foo.test", "bar" )
     if 'error' not in res:
         print 'accidentally got user foo_id'
@@ -363,6 +365,7 @@ def scenario( wallets, **kw ):
         return False
 
     # delete the user
+    print "delete user"
     res = testlib.blockstack_cli_delete_user( "foo_id", password="0123456789abcdef" )
     if 'error' in res:
         print 'failed to delete user foo_id'
